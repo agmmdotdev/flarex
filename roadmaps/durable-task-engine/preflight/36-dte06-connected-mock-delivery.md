@@ -6,7 +6,9 @@
 approved. The first implementation checkpoint is complete: operation-specific
 discovery reads the indexed projection and closes its migration, transaction,
 high-cardinality, PGlite, and ordinary-role PostgreSQL gates. The backend
-trusted directory is the next admitted production-inert checkpoint.
+trusted directory was the next planned production-inert checkpoint. It is now
+paused behind the mandatory connected-runtime source audit in
+[`37-dte06-connected-runtime-reuse-audit.md`](./37-dte06-connected-runtime-reuse-audit.md).
 
 The connected-flow prerequisite is resolved. C2 now captures and correlates a
 provider `TaskComputeCancellationStaleError`, rejects the older checkpoint as
@@ -73,6 +75,12 @@ provider call and one permitted repository settlement.
 
 This is reuse of established control flow at the correct seams, not a rewrite
 of provider, lifecycle, or transaction logic.
+
+This table classifies reuse of existing Flarex owners. It does not identify or
+prove reuse of Trigger's connected dispatch, supervision, heartbeat,
+cancellation, settlement, or recovery implementation. Preflight 37 must close
+that separate source question before the directory and runner below may be
+implemented.
 
 ## Resolved C2 Prerequisite
 
@@ -442,12 +450,15 @@ The C3 implementation must prove:
 2. **Complete:** the pending projection, atomic lifecycle write and C2
    consumption, backfill migration, indexed private discovery SQL, V1
    continuation, and deadline policy pass their focused gates.
-3. **Next:** add the backend trusted directory and exact active-scope
-   continuation codec.
-4. Add the Effect service/Layer and single-candidate dispatch/cancellation
+3. **Complete as a candidate decision; approval pending:** Preflight 37 now
+   records the Trigger connected-runtime source map, retained-test inventory,
+   and one-vertical reuse decision.
+4. **Next after explicit approval:** add the backend trusted directory and exact
+   active-scope continuation codec.
+5. Add the Effect service/Layer and single-candidate dispatch/cancellation
    operations against the existing provider and repository.
-5. Add the bounded connected runner and deterministic restart/fairness suite.
-6. Run final gates, reviewers, update the roadmap receipt, and commit while
+6. Add the bounded connected runner and deterministic restart/fairness suite.
+7. Run final gates, reviewers, update the roadmap receipt, and commit while
    leaving every host and activation path absent.
 
 ## Stop Boundary
@@ -463,3 +474,6 @@ This preflight does not authorize:
   binding, or production activation;
 - public SDK, management, observability, log, trace, or output-stream APIs; or
 - DTE06-D/E/F or DTE05-E3 implementation.
+
+It also does not authorize steps 4 through 7 above until Preflight 37 is
+complete and explicitly admits the connected source closure.

@@ -20,6 +20,9 @@ The implementation-ready C2 repository contract is recorded in
 The active C3 connected-runner preflight, its resolved bounded C2 prerequisite,
 and its accepted indexed pending-membership discovery are recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
+The mandatory source-reuse correction before backend orchestration continues is
+recorded in
+[`preflight/37-dte06-connected-runtime-reuse-audit.md`](./preflight/37-dte06-connected-runtime-reuse-audit.md).
 The provider port, deterministic in-memory conformance adapter, canonical
 evidence boundary, checkpoint tables, and C2 transactions now exist; no
 connected requested-effect delivery operation, task runtime route, Worker
@@ -28,7 +31,8 @@ repository now records the exact provider-stale cancellation-generation
 outcome as terminal non-receipt evidence. C3's private persistence discovery is
 production-inert and accepted: its Task-owned pending projection removes the
 history-linear anti-join and proves bounded operation-specific scans. The
-trusted backend directory is the next admitted checkpoint.
+trusted backend directory and connected runner are now paused until the
+completed Preflight 37 candidate map receives explicit approval.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -64,6 +68,12 @@ Prove one private, production-inert execution vertical:
 
 The first vertical remains private and unwired. It is an architectural and
 correctness prerequisite for DTE05-E3; it is not production activation.
+
+Before implementing the remaining vertical, the roadmap must prove which
+Trigger dispatch, delivery, supervision, heartbeat, cancellation, settlement,
+and recovery control flow will actually be retained. Existing Flarex provider,
+persistence, and runtime owners are necessary integration seams, but their
+existence is not evidence of Trigger source reuse.
 
 ## Current Reality
 
@@ -149,6 +159,17 @@ Postgres/Drizzle capability, Task tables, scheduler capability, Cloudflare
 account credentials, or authority to create a new attempt.
 
 ## Reuse Boundary
+
+The admitted lifecycle map records 13 seam adaptations, 12 adapter
+translations, four discards, and no unchanged entry. That map does not cover
+the connected compute runtime. Likewise, the existing provider and delivery
+foundations are primarily Flarex-owned contracts and adapters. They remain
+valid, production-inert prerequisites, but Roadmap 06 must not describe them as
+direct reuse of Trigger's connected runtime.
+
+Preflight 37 therefore reopens source classification only for the unimplemented
+connected vertical. It does not reopen the admitted lifecycle, Task System
+schema, delivery checkpoint, repository, or discovery owners.
 
 ### Reuse Directly Or Generalize At The Existing Owner
 
@@ -416,14 +437,38 @@ approved prepared-subject correction carries only the verified immutable
 runtime-binding commitment; DTE06-D later loads the full binding and manifest
 and verifies it before constructing the runtime ABI. C2 is complete and
 production-inert. C3 persistence discovery remains unwired; the backend trusted
-directory is next, while provider composition and the connected runner remain
-unwritten.
+directory, provider composition, and connected runner remain unwritten and are
+paused behind Preflight 37.
 The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
 Preflight 36 records the resolved cancellation-generation prerequisite and the
-admitted C3 implementation boundary.
+admitted C3 persistence boundary.
+
+### DTE06-C3 Reuse Hold: Source Audit Complete, Awaiting Approval
+
+Preflight 37 now:
+
+- inspects the pinned Trigger implementation and tests for dispatch delivery,
+  execution supervision, heartbeat, cancellation, completion, retry, crash
+  recovery, and lost-response handling;
+- produces a capability-local source map with exact symbols or control-flow
+  segments classified as unchanged, seam-adapted, adapter-translated, or
+  discarded;
+- states which already completed Flarex provider and persistence pieces are
+  integration adapters rather than Trigger source reuse;
+- justifies every fresh connected-runtime implementation against Trigger product,
+  Prisma/Redis, host, authority, or runtime incompatibility; and
+- recommends the smallest connected private vertical before any further code.
+
+The candidate map contains no legitimate unchanged transplant: it seam-adapts
+one portable recovery decision, adapter-translates six connected boundaries,
+rejects three conflicting Trigger host/wire owners, and references the already
+admitted lifecycle core without counting it again. Until the user explicitly
+approves that decision, Preflight 36's backend directory and connected-runner
+sequence remains held. This hold changes no existing code, schema, migration,
+or completed admission receipt.
 
 ### DTE06-D: Worker Loader Task Runtime Adapter — Pending
 
@@ -482,6 +527,8 @@ Every implementation checkpoint must include the focused forms that apply:
 - real Cloudflare proof before claiming Worker Loader/Hyperdrive production
   behavior;
 - Standard Application and Trigger-source boundary checks;
+- a capability-local Trigger source map and retained-test receipt for new
+  connected-runtime work;
 - package-local TypeScript and repository Effect boundary checks; and
 - both required project reviewers before every significant code commit.
 
@@ -510,6 +557,8 @@ DTE06-C1 stops at canonical delivery evidence and production-inert Task-owned
 storage. Completed DTE06-C2 adds only the private production-inert repository
 in Preflight 35 after its recorded C1 evidence gap and provider-stale
 cancellation-generation gap were resolved. Preflight 36 admits only its bounded
-C3 connected deterministic-provider implementation. This roadmap does not
-authorize additional database/application semantics, a real provider,
-Worker/runtime wiring, routes, bindings, deployment, or production activation.
+C3 persistence discovery checkpoint. Its backend directory and connected
+deterministic-provider runner are paused until Preflight 37 completes and its
+source map is approved. Preflight 37 is docs-only and does not itself authorize
+additional database/application semantics, a real provider, Worker/runtime
+wiring, routes, bindings, deployment, or production activation.

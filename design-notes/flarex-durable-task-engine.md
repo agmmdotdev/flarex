@@ -2,13 +2,25 @@
 
 ## Status And Scope
 
-**Status:** Accepted architecture direction; package integration and
-implementation are not yet authorized.
+**Status:** Accepted architecture direction. Implementation authority now lives
+in [`../roadmaps/durable-task-engine/README.md`](../roadmaps/durable-task-engine/README.md).
+The private lifecycle, Task System Postgres, scheduling/repair, provider, and
+compute-delivery persistence foundations are implemented but production-inert.
+The connected runtime is paused pending approval of the completed candidate
+source-reuse audit in
+[`../roadmaps/durable-task-engine/preflight/37-dte06-connected-runtime-reuse-audit.md`](../roadmaps/durable-task-engine/preflight/37-dte06-connected-runtime-reuse-audit.md).
 
 This note defines how the pinned Trigger.dev compatibility island may inform a
 Flarex-native durable background-task engine. It does not activate the imported
 source, add either pnpm workspace to the other, install its dependencies, adopt
 its Prisma schema, or authorize production scheduling.
+
+The admitted first lifecycle map records transformed reuse rather than an
+unchanged package transplant: 13 seam-adapted entries, 12 adapter translations,
+four discards, and no unchanged entry. Later Flarex-owned persistence,
+scheduling, Cloudflare, and provider work remains valid integration
+infrastructure, but it is not evidence that Trigger's connected runtime has
+already been reused or that Trigger parity has been reached.
 
 The current source boundary remains documented in
 [`../third_party/trigger.dev/README.md`](../third_party/trigger.dev/README.md)
@@ -241,6 +253,12 @@ batches, debounce, waitpoints, advanced fairness, cross-provider placement, and
 AgentOS integration follow only after the singular run/attempt authority is
 proven.
 
+This proof is now the progress gate. Before more connected-runtime code is
+added, Preflight 37 must identify the exact Trigger dispatch, supervision,
+heartbeat, cancellation, settlement, and recovery source closure. After that
+approval, implementation should close this private vertical before adding
+another generalized task foundation.
+
 ## Required Preflight Before Implementation
 
 Before moving any Trigger-derived source into active Flarex packages, produce a
@@ -258,14 +276,20 @@ and the first vertical proof. It must also reconcile with existing FlarexDB
 schemas before adding tables so superficially similar lifecycle, lease,
 idempotency, or event concepts are not duplicated.
 
-## Package And Workspace Integration Is Deferred
+Capability maps are local grants, not blanket permission to either copy or
+freshly reimplement the rest of Trigger. Every later connected capability must
+name the exact upstream symbols or control-flow segments and tests it retains,
+classify each as unchanged, seam-adapted, adapter-translated, or discarded, and
+justify why a more direct reuse class is unsafe.
+
+## Package And Workspace Boundary
 
 The Trigger compatibility island intentionally has its own
 `pnpm-workspace.yaml`, lockfile, dependency versions, generation commands, and
 test lane. No decision in this note authorizes merging that workspace into the
 Flarex root.
 
-The accepted holding plan is:
+The accepted boundary is:
 
 1. keep the imported island frozen, separately installable, and outside the
    Flarex workspace and runtime graph;
@@ -273,31 +297,20 @@ The accepted holding plan is:
    lockfile;
 3. do not make active Flarex packages depend directly on upstream Trigger
    package names;
-4. use the capability preflight to identify a substantial coherent semantic
-   vertical worth extracting, sized to prove real lifecycle behavior rather
-   than isolated helpers;
-5. transform that capability into a Flarex-owned package with Flarex identity,
-   protocols, typed failures, storage capabilities, and host boundaries; and
-6. admit transformed capability packages to the Flarex workspace in coherent
-   checkpoints, only after focused behavior-parity tests and Worker bundle
-   checks pass.
+4. transform admitted capabilities into Flarex-owned packages with Flarex
+   identity, protocols, typed failures, storage capabilities, and host
+   boundaries;
+5. retain provenance and executable compatibility evidence for adapted Trigger
+   control flow and tests;
+6. keep Prisma, Redis, Trigger product identity, Node supervisor, and imported
+   package names outside the active runtime graph; and
+7. admit each later capability only through its own source map and focused
+   package, behavior, database, bundle, and reviewer gates.
 
-This is a pause, not a decision to preserve two permanent production package
-graphs. The compatibility island remains provenance and migration input while
-the active implementation gradually becomes Flarex-owned. The package strategy
-must be revisited before the first extraction because the exact package owner
-and dependency closure depend on the selected vertical capability.
-
-The next design discussion must compare at least:
-
-- keeping the island frozen while reimplementing selected capabilities in new
-  Flarex-owned packages;
-- promoting a small transformed package at a time into the Flarex workspace;
-- temporarily building selected upstream packages as external artifacts; and
-- attempting one combined workspace and dependency graph.
-
-The comparison must account for provenance, lockfile ownership, dependency
-version conflicts, generated Prisma clients, Node-only dependencies, Worker
-bundle safety, test isolation, patch ownership, and future extraction cost.
-Until that decision is recorded, the compatibility island remains separately
-installable, inactive, and forbidden from the Flarex runtime import graph.
+The private `@flarex/durable-task` package and its Flarex Postgres adapters are
+now admitted under this model. The separate compatibility island remains
+provenance and regression input, not a second production package graph. The
+current decision is no longer whether to merge workspaces; that remains
+rejected. The active question is how much concrete Trigger connected-runtime
+control flow can be retained around the existing Flarex seams before the first
+end-to-end private vertical is implemented.

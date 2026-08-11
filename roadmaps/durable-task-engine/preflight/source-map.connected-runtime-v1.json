@@ -1,0 +1,469 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "f10bc23785e569e5d917318cf2033aabdbe96a0b",
+  "capability": "connected-runtime-v1",
+  "decisionStatus": "candidate-awaiting-user-approval",
+  "sourceVerification": "third_party/trigger.dev/SOURCE_SHA256SUMS",
+  "licensePolicy": {
+    "repositoryDefault": "Apache-2.0",
+    "packageOverrides": {
+      "upstream/packages/core": "MIT"
+    },
+    "noticeFiles": [
+      "third_party/trigger.dev/NOTICE.md",
+      "third_party/trigger.dev/upstream/LICENSE",
+      "third_party/trigger.dev/upstream/packages/core/LICENSE"
+    ]
+  },
+  "summary": {
+    "newConnectedRuntimeDecisions": {
+      "U": 0,
+      "S": 1,
+      "T": 6,
+      "D": 3
+    },
+    "existingAdmissionReferences": {
+      "S": 2,
+      "D": 1
+    }
+  },
+  "entries": [
+    {
+      "id": "connected-dispatch-preparation",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/internal-packages/run-engine/src/engine/systems/dequeueSystem.ts",
+      "upstreamSha256": "d67f8fbfec2851fdbc8d4551979e0db531f2f145cbdcda498f6d5e968efb1a22",
+      "selectedSymbols": [
+        "DequeueSystem.dequeueFromWorkerQueue"
+      ],
+      "targetOwners": [
+        "packages/persistence-postgres/src/taskComputeDeliveryDiscovery.ts",
+        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts",
+        "packages/flarex-backend/src/taskComputeDelivery/Runner.ts (planned)"
+      ],
+      "reuseClass": "T",
+      "retainedControlFlow": [
+        "select an inert candidate before granting execution authority",
+        "freshly re-read durable state and reject stale or non-executable work",
+        "establish the durable execution/delivery state before external compute delivery",
+        "recover failed preparation without permitting duplicate execution"
+      ],
+      "semanticChanges": [
+        "replace Redis dequeue, acknowledge, nack, and Redlock with indexed Postgres discovery plus a fenced claim",
+        "replace Prisma product joins with trusted scope, definition revision, runtime-binding commitment, and input-reference correlation",
+        "perform the provider call after the located transaction settles",
+        "remove billing, Trigger organization, deployment image, and queue payload projection"
+      ],
+      "authorityReason": "The preparation and stale-revalidation sequence is reusable, but every storage, identity, queue, and execution-payload dependency belongs to a different Flarex owner.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/dequeuing.test.ts: Dequeues 5 runs",
+        "upstream/internal-packages/run-engine/src/engine/tests/dequeuing.test.ts: Direct nack after dequeue clears concurrency and allows recovery",
+        "upstream/internal-packages/run-engine/src/engine/tests/dequeueSystem.recovery.controlPlaneResolver.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "candidate becomes stale before acquisition",
+        "two hosts acquire one dispatch identity",
+        "pre-provider interruption releases or expires the exact claim",
+        "post-start uncertainty replays the same provider identity"
+      ]
+    },
+    {
+      "id": "supervisor-cold-dispatch",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/index.ts",
+      "upstreamSha256": "e3303d873bb786f37e205efe9f68375890ee0453d568b378beaaa340b7744b86",
+      "selectedSymbols": [
+        "Supervisor runQueueMessage handler cold-create branch",
+        "Supervisor.createWorkload"
+      ],
+      "targetOwners": [
+        "packages/flarex-backend/src/taskComputeDelivery/Runner.ts (planned)",
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskComputeProvider.ts (planned)"
+      ],
+      "reuseClass": "T",
+      "retainedControlFlow": [
+        "consume one prepared dispatch identity",
+        "call compute only after durable preparation",
+        "keep compute creation outside the run-state transaction",
+        "treat compute delivery failure as delivery evidence rather than terminal lifecycle truth"
+      ],
+      "semanticChanges": [
+        "replace process EventEmitter delivery with the private Effect runner",
+        "replace deployment images and workload-manager creation with verified Flarex runtime artifacts and Worker Loader",
+        "exclude warm start, checkpoint restore, Docker, Kubernetes, tokens, and process lifecycle from the first vertical",
+        "return exact typed provider outcomes instead of swallowing create errors after logging"
+      ],
+      "authorityReason": "The dispatch ordering is reusable, but the Node supervisor and workload product model cannot be a Cloudflare or Flarex runtime owner.",
+      "retainedTests": [
+        "upstream/apps/supervisor/src/services/warmStartVerificationService.test.ts",
+        "upstream/apps/supervisor/src/workloadManager/compute.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "provider is never called inside the located Postgres transaction",
+        "provider rejection and uncertain acceptance remain distinct",
+        "immutable runtime commitment mismatch prevents Worker Loader execution"
+      ]
+    },
+    {
+      "id": "unknown-delivery-recovery-decision",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/services/warmStartVerificationService.ts",
+      "upstreamSha256": "9cdf9399b421ffd04afc5d506ed5710dcda5f53b9e12988fb201c670aa4ef9c3",
+      "selectedSymbols": [
+        "WarmStartVerificationService.verify"
+      ],
+      "targetOwners": [
+        "packages/flarex-backend/src/taskComputeDelivery/DispatchRecoveryDecision.ts (planned)",
+        "packages/flarex-backend/src/taskComputeDelivery/Runner.ts (planned)"
+      ],
+      "reuseClass": "S",
+      "retainedControlFlow": [
+        "if correlated durable state moved, the old delivery no longer owns recovery",
+        "if the exact dispatch state remains unchanged, replay the same stable identity",
+        "if the verification probe is uncertain, do not manufacture a fallback decision"
+      ],
+      "semanticChanges": [
+        "replace TimerWheel and process-local retained messages with durable claim expiry and checkpoint replay",
+        "replace latest Trigger snapshot comparison with exact dispatch identity, fence, acceptance, and lifecycle correlation",
+        "replace cold-create callback with idempotent TaskComputeProvider redispatch"
+      ],
+      "authorityReason": "The three-way delivery-recovery branch and failure order are portable; only its timer, probe, identity, and compute ports change.",
+      "retainedTests": [
+        "upstream/apps/supervisor/src/services/warmStartVerificationService.test.ts: falls back to a cold create when the snapshot is unchanged",
+        "upstream/apps/supervisor/src/services/warmStartVerificationService.test.ts: does nothing when the snapshot has moved on",
+        "upstream/apps/supervisor/src/services/warmStartVerificationService.test.ts: never falls back when the probe errors"
+      ],
+      "requiredFlarexTests": [
+        "exact unchanged checkpoint replays the same provider identity",
+        "moved lifecycle or newer acceptance closes the old recovery path",
+        "uncertain repository verification never creates a second identity"
+      ]
+    },
+    {
+      "id": "provider-create-failure-classification",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/workloadManager/compute.ts",
+      "upstreamSha256": "b3c791c18ef6df4b48fbbd3cbbd97bda7c53ad6eb123d2959906a5e667248d33",
+      "selectedSymbols": [
+        "isRetryableCreateError"
+      ],
+      "targetOwners": [
+        "future real TaskComputeProvider adapter"
+      ],
+      "reuseClass": "T",
+      "retainedControlFlow": [
+        "retry only when the provider can prove the create did not commit",
+        "do not report timeouts or lost responses as definite rejection",
+        "preserve one stable dispatch identity across uncertainty"
+      ],
+      "semanticChanges": [
+        "map provider-specific typed errors rather than Trigger ComputeClientError status codes",
+        "do not retain runner-name suffixing because Flarex provider identity is an exact durable contract",
+        "defer this adapter until a real non-memory provider is admitted"
+      ],
+      "authorityReason": "The certainty classification is reusable, but HTTP status and gateway collision behavior belong to the eventual provider adapter.",
+      "retainedTests": [
+        "upstream/apps/supervisor/src/workloadManager/compute.test.ts: retries statuses where the create definitely did not commit",
+        "upstream/apps/supervisor/src/workloadManager/compute.test.ts: does not retry lost-response statuses",
+        "upstream/apps/supervisor/src/workloadManager/compute.test.ts: does not retry timeouts"
+      ],
+      "requiredFlarexTests": [
+        "definite provider rejection",
+        "accepted but response lost",
+        "provider timeout with unknown settlement",
+        "same-identity replay"
+      ]
+    },
+    {
+      "id": "runtime-attempt-start-route",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/workloadServer/index.ts",
+      "upstreamSha256": "3bd0c35ad390c6df32fbc9783df1f93ed8dd594b5cab4d1970c25af1fa5dc155",
+      "selectedSymbols": [
+        "POST workload attempts/start route"
+      ],
+      "targetOwners": [
+        "discarded/no second Flarex attempt-start operation"
+      ],
+      "reuseClass": "D",
+      "retainedControlFlow": [
+        "runtime execution must not begin for a stale attempt identity"
+      ],
+      "semanticChanges": [
+        "Flarex grants and fences the attempt before emitting dispatch_attempt",
+        "provider acceptance is coordination evidence and must not start the Task lifecycle again"
+      ],
+      "authorityReason": "Adapting Trigger's runner-initiated start route would create a second attempt-start authority and contradict the admitted Flarex lifecycle order.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/systems/runAttemptSystem.test.ts",
+        "upstream/internal-packages/run-engine/src/engine/tests/startRunAttemptReadResidency.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "provider acceptance cannot transition attempt_granted to executing",
+        "stale fence cannot enter Worker Loader execution"
+      ]
+    },
+    {
+      "id": "runtime-heartbeat-callback",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/workloadServer/index.ts",
+      "upstreamSha256": "3bd0c35ad390c6df32fbc9783df1f93ed8dd594b5cab4d1970c25af1fa5dc155",
+      "selectedSymbols": [
+        "POST workload heartbeat route"
+      ],
+      "targetOwners": [
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
+        "existing @flarex/durable-task RunAttemptLifecycle heartbeat operation"
+      ],
+      "reuseClass": "T",
+      "retainedControlFlow": [
+        "correlate the heartbeat to the exact current execution",
+        "return current authoritative state when a stale execution heartbeats",
+        "let missed heartbeat recovery run through durable lifecycle authority"
+      ],
+      "semanticChanges": [
+        "replace Trigger run/snapshot/runner headers with trusted scope, attempt ID, fence, lease version, and runtime callback capability",
+        "replace HTTP relay and worker timer reschedule with the existing database-clock lifecycle transaction",
+        "keep heartbeat acknowledgement distinct from provider acceptance"
+      ],
+      "authorityReason": "The callback semantics are reusable, but identity, transport, time, and lease authority are Flarex-owned.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/heartbeats.test.ts: Heartbeat keeps run alive",
+        "upstream/internal-packages/run-engine/src/engine/tests/heartbeats.test.ts: Execution timeout",
+        "upstream/internal-packages/run-engine/src/engine/systems/executionSnapshotSystem.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "current fenced heartbeat renews through Task System",
+        "stale fence and stale lease cannot renew",
+        "provider acceptance without heartbeat does not keep an attempt alive"
+      ]
+    },
+    {
+      "id": "runtime-completion-callback",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/workloadServer/index.ts",
+      "upstreamSha256": "3bd0c35ad390c6df32fbc9783df1f93ed8dd594b5cab4d1970c25af1fa5dc155",
+      "selectedSymbols": [
+        "POST workload attempts/complete route"
+      ],
+      "targetOwners": [
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
+        "existing @flarex/durable-task RunAttemptLifecycle completion operation"
+      ],
+      "reuseClass": "T",
+      "retainedControlFlow": [
+        "publish or capture the execution result before requesting lifecycle completion",
+        "correlate completion to the exact active execution",
+        "stop execution-local supervision before accepting a terminal result"
+      ],
+      "semanticChanges": [
+        "publish bounded result bytes content-addressably before committing TaskResultCommitmentV1",
+        "replace Trigger snapshot and runner identity with attempt fence and result commitment",
+        "make identical completion replay idempotent after a lost response",
+        "route retry and terminal policy through the existing lifecycle owner"
+      ],
+      "authorityReason": "Completion ordering is reusable, but result storage, fencing, idempotency, and lifecycle decisions are stronger Flarex contracts.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/trigger.test.ts",
+        "upstream/internal-packages/run-engine/src/engine/tests/attemptFailures.test.ts",
+        "upstream/internal-packages/run-engine/src/engine/tests/runAttemptSystemReplicaLag.guard.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "result publication succeeds and completion response is lost",
+        "identical completion replay returns the same terminal receipt",
+        "conflicting or stale completion cannot replace the terminal result"
+      ]
+    },
+    {
+      "id": "runtime-cancellation-delivery",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/workloadServer/index.ts",
+      "upstreamSha256": "3bd0c35ad390c6df32fbc9783df1f93ed8dd594b5cab4d1970c25af1fa5dc155",
+      "selectedSymbols": [
+        "WorkloadServer.notifyRun",
+        "run socket replacement and disconnection guards"
+      ],
+      "targetOwners": [
+        "existing TaskComputeProvider.requestCancellation",
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
+        "existing @flarex/durable-task RunAttemptLifecycle cancellation acknowledgement"
+      ],
+      "reuseClass": "T",
+      "retainedControlFlow": [
+        "cancellation delivery requests interruption but is not terminal cancellation evidence",
+        "a missing runtime connection does not manufacture acknowledgement",
+        "a stale runtime must not interrupt a newer execution"
+      ],
+      "semanticChanges": [
+        "replace process-local socket lookup with generation-correlated provider cancellation",
+        "replace runner ID guards with exact dispatch identity, execution ref, fence, and cancellation generation",
+        "require a separate fenced Task lifecycle acknowledgement after interruption is observed"
+      ],
+      "authorityReason": "The interruption-versus-acknowledgement distinction is reusable, but sockets and runner identity are not durable authority.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/cancelling.test.ts",
+        "upstream/internal-packages/run-engine/src/engine/tests/heartbeats.test.ts: Pending cancel"
+      ],
+      "requiredFlarexTests": [
+        "cancellation before dispatch acceptance remains discoverable",
+        "lower cancellation generation cannot interrupt a newer one",
+        "interruption receipt does not acknowledge Task cancellation",
+        "cancel and completion race resolves through the existing lifecycle fence"
+      ]
+    },
+    {
+      "id": "trigger-workload-http-contracts",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/packages/core/src/v3/runEngineWorker/workload/http.ts",
+      "upstreamSha256": "c534ae818612b7ce9a434da54ba68a46dc6152812c6d0730a3ea296513d3e750",
+      "selectedSymbols": [
+        "WorkloadHttpClient.startRunAttempt",
+        "WorkloadHttpClient.completeRunAttempt",
+        "WorkloadHttpClient.getSnapshotsSince"
+      ],
+      "targetOwners": [
+        "discarded Trigger workload HTTP wire",
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned private ABI)"
+      ],
+      "reuseClass": "D",
+      "retainedControlFlow": [
+        "bounded retry is operation-specific and must not turn unknown completion into a new attempt"
+      ],
+      "semanticChanges": [
+        "use a private versioned Flarex durable-task runtime ABI rather than Trigger URLs and Zod envelopes",
+        "do not expose startRunAttempt or getSnapshotsSince in the first Flarex task ABI",
+        "use capability-authenticated callbacks rather than Trigger deployment tokens"
+      ],
+      "authorityReason": "The Trigger workload HTTP contract is a product/runtime compatibility surface with the wrong identity, operations, retry rules, and transport owner.",
+      "retainedTests": [],
+      "requiredFlarexTests": [
+        "runtime ABI rejects public invoke and action identities",
+        "callback capability is scope, attempt, fence, and execution bound",
+        "completion transport retry preserves one result commitment"
+      ]
+    },
+    {
+      "id": "trigger-supervisor-and-workload-managers",
+      "admissionScope": "new-connected-runtime",
+      "upstreamPath": "upstream/apps/supervisor/src/index.ts",
+      "upstreamSha256": "e3303d873bb786f37e205efe9f68375890ee0453d568b378beaaa340b7744b86",
+      "selectedSymbols": [
+        "Supervisor process lifecycle",
+        "Docker/Kubernetes/Compute WorkloadManager composition",
+        "warm-start and checkpoint-restore branches"
+      ],
+      "targetOwners": [
+        "discarded for the first vertical",
+        "existing Flarex artifact materializer and Worker Loader owners"
+      ],
+      "reuseClass": "D",
+      "retainedControlFlow": [
+        "cold execution remains the first mandatory path",
+        "warm and restore optimizations may not replace durable recovery"
+      ],
+      "semanticChanges": [
+        "reuse Flarex R2 materialization, HostKit, Worker Loader, cache, isolation, and executor capabilities",
+        "exclude Node daemon, Docker, Kubernetes, image registry, environment-variable bootstrap, checkpoint restore, and warm placement from the first vertical"
+      ],
+      "authorityReason": "These are Trigger deployment and compute-host implementations, while Flarex already owns the required runtime and targets Cloudflare execution.",
+      "retainedTests": [
+        "upstream/apps/supervisor/src/workloadManager/compute.test.ts uncertainty cases only"
+      ],
+      "requiredFlarexTests": [
+        "cold Worker Loader materialization executes one durable_task entry",
+        "no Docker, Kubernetes, Trigger image, or public invoke dependency enters the bundle",
+        "worker loss remains recoverable through lease expiry"
+      ]
+    },
+    {
+      "id": "existing-lease-and-stall-recovery",
+      "admissionScope": "existing-admission-reference",
+      "upstreamPath": "upstream/internal-packages/run-engine/src/engine/index.ts",
+      "upstreamSha256": "e024fd612f4078f833a892eef3fb8b3f7e6757c375503150bd94215bda2362a7",
+      "selectedSymbols": [
+        "RunEngine.#handleStalledSnapshot PENDING_EXECUTING branch",
+        "RunEngine.#handleStalledSnapshot EXECUTING branch",
+        "RunEngine.#handleStalledSnapshot PENDING_CANCEL branch"
+      ],
+      "targetOwners": [
+        "packages/durable-task/src/runAttempt/Layers/RunAttemptLifecycleLive.ts",
+        "existing Roadmap 05 scheduler and repair owners"
+      ],
+      "reuseClass": "S",
+      "existingAdmission": "packages/durable-task/trigger-source-map.json",
+      "retainedControlFlow": [
+        "stale wake does nothing",
+        "unstarted or lost execution is redriven",
+        "executing lease loss becomes a lifecycle failure/retry decision",
+        "pending cancellation eventually finalizes through authority"
+      ],
+      "authorityReason": "This source is already admitted and must be called through the existing lifecycle; the connected runtime must not copy it again.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/heartbeats.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "connected worker loss reaches existing lease-expiry handling",
+        "stale provider completion loses to the current fence"
+      ]
+    },
+    {
+      "id": "existing-completion-failure-retry-cancellation",
+      "admissionScope": "existing-admission-reference",
+      "upstreamPath": "upstream/internal-packages/run-engine/src/engine/systems/runAttemptSystem.ts",
+      "upstreamSha256": "98071807cd629d7a93ed66883374c5c6ef8a78e8b766cd4ea0202f968f03bada",
+      "selectedSymbols": [
+        "RunAttemptSystem.completeRunAttempt",
+        "RunAttemptSystem.attemptSucceeded",
+        "RunAttemptSystem.attemptFailed",
+        "RunAttemptSystem.cancelRun",
+        "RunAttemptSystem.#permanentlyFailRun"
+      ],
+      "targetOwners": [
+        "packages/durable-task/src/runAttempt/Layers/RunAttemptLifecycleLive.ts"
+      ],
+      "reuseClass": "S",
+      "existingAdmission": "packages/durable-task/trigger-source-map.json",
+      "retainedControlFlow": [
+        "success, failure, retry, cancellation, and terminal cleanup remain lifecycle decisions",
+        "completion must correlate with current execution authority",
+        "runtime transport cannot create a new durable attempt"
+      ],
+      "authorityReason": "This source is already transformed and admitted; the runtime host supplies commands and evidence but does not recreate the lifecycle.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/attemptFailures.test.ts",
+        "upstream/internal-packages/run-engine/src/engine/tests/cancelling.test.ts",
+        "upstream/internal-packages/run-engine/src/engine/tests/runAttemptSystemReplicaLag.guard.test.ts"
+      ],
+      "requiredFlarexTests": [
+        "runtime success, failure, cancellation, and lost response execute through the existing lifecycle service"
+      ]
+    },
+    {
+      "id": "existing-trigger-runtime-product-projection-discard",
+      "admissionScope": "existing-admission-reference",
+      "upstreamPath": "upstream/internal-packages/run-engine/src/engine/systems/runAttemptSystem.ts",
+      "upstreamSha256": "98071807cd629d7a93ed66883374c5c6ef8a78e8b766cd4ea0202f968f03bada",
+      "selectedSymbols": [
+        "RunAttemptSystem.resolveTaskRunContext",
+        "RunAttemptSystem.#resolveTaskRunExecutionTask",
+        "BackwardsCompatibleTaskRunExecution"
+      ],
+      "targetOwners": [
+        "discarded Trigger execution payload",
+        "planned Flarex durable-task runtime projection"
+      ],
+      "reuseClass": "D",
+      "existingAdmission": "packages/durable-task/trigger-source-map.json",
+      "retainedControlFlow": [
+        "runtime projection occurs only after trusted execution authority is current"
+      ],
+      "authorityReason": "Trigger organization, project, environment, deployment, machine, queue, billing, and SDK payload identity cannot be adapted into the Flarex runtime ABI without preserving the wrong product authority.",
+      "retainedTests": [
+        "upstream/internal-packages/run-engine/src/engine/tests/runAttemptSystem.controlPlaneResolver.test.ts ordering evidence"
+      ],
+      "requiredFlarexTests": [
+        "runtime projection derives only from trusted scope, immutable task definition, runtime binding, input reference, attempt, and fence"
+      ]
+    }
+  ]
+}

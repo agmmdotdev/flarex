@@ -557,6 +557,13 @@ The decision must choose one:
 
 It must not produce a blanket authorization to copy the run engine.
 
+It also must not produce a blanket authorization to freshly implement later
+Trigger capabilities. Admission is capability-local in both directions. A
+later scheduling, delivery, runtime-supervision, observability, waitpoint,
+batching, concurrency, or SDK closure must identify its own exact Trigger
+sources, retained control flow, tests, reuse classes, and justified Flarex-owned
+replacements before code is authorized.
+
 ### Complete exit gate
 
 DTE01 is complete only when:
@@ -584,14 +591,22 @@ DTE01 source reuse and package admission
   -> Postgres/Drizzle schema and adapter translation
   -> Cloudflare wake and scheduling adapters
   -> compute-provider/runtime integration
-  -> observability, live APIs, and UI read models
   -> first production-inert private vertical
+  -> observability, live APIs, and UI read models
   -> public API and activation preflight
 ```
 
 Database design must consume the accepted lifecycle and atomic-operation
 contracts. It must not infer them from Trigger's Prisma schema or begin because
 DTE01 identified a package.
+
+The 29-entry `run-attempt-v1` map closes only the admitted lifecycle closure. It
+does not prove direct reuse for the later Drizzle adapter, scheduling host,
+compute-delivery repository, connected runner, Worker Loader adapter, or task
+supervisor. Those owners may correctly require Flarex-authored code, but each
+substantial connected capability must record that distinction before its
+implementation checkpoint. Preflight 37 applies this rule to the next Roadmap
+06 vertical.
 
 ## Non-Goals
 

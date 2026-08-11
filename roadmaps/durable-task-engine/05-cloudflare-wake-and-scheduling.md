@@ -14,7 +14,8 @@ configuration, or production activation is authorized. DTE05-E1 completes the
 unwired host-neutral repair sweep and repair-tolerant directory, and DTE05-E2
 completes its durable checkpoint, connected runner, and hard PostgreSQL
 deadline/settlement proof. DTE05-E3 remains DTE06-F-gated before a durable or
-Cloudflare-hosted cron repair system exists.
+Cloudflare-hosted cron repair system exists. DTE06-F now also depends on the
+connected-runtime reuse audit in Preflight 37; no host work may bypass it.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -154,6 +155,14 @@ lifecycle. Source provenance and retained hostile scenarios must be recorded
 before DTE05 admission. DTE05-B is a Flarex-authored seam implementation, not
 a direct source transplant; the final provenance ledger must map the retained
 behaviors and tests without falsely claiming unchanged source reuse.
+
+This classification is intentionally narrow. It proves reuse of selected
+delayed/enqueue/dequeue invariants and hostile scenarios; it does not prove that
+the broader Trigger queue, scheduler host, compute delivery, or supervision
+implementation was reused. DTE05-E3 may reuse/generalize the existing Flarex
+scheduled-event host only after Roadmap 06 closes its separate Trigger source
+audit and private end-to-end runtime proof. A Flarex host adapter must be
+reported as Flarex-authored host work, not counted as Trigger source reuse.
 
 ## Requested-Effect Ownership
 

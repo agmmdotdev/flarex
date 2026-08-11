@@ -72,10 +72,15 @@ database-owned deadlines, and PGlite plus ordinary-role genuine-PostgreSQL
 behavior. Its accepted pending-membership amendment now atomically projects
 compute requested effects, consumes membership with C2 checkpoint creation,
 backfills legacy unmaterialized effects, and proves bounded discovery over
-large checkpointed history with `EXPLAIN ANALYZE (BUFFERS)`. The backend trusted
-directory is the next admitted checkpoint; provider composition and the
-connected runner remain absent. The full discovery, continuation, budget, and
-stop boundary are recorded in
+large checkpointed history with `EXPLAIN ANALYZE (BUFFERS)`. Provider
+composition and the connected runner remain absent. Before the previously
+planned backend trusted directory may continue, the mandatory connected-runtime
+reuse audit in
+[`preflight/37-dte06-connected-runtime-reuse-audit.md`](./preflight/37-dte06-connected-runtime-reuse-audit.md)
+now maps the exact Trigger dispatch, supervision, heartbeat, cancellation,
+settlement, and recovery sources and recommends one connected vertical. Its
+candidate admission decision awaits explicit user approval. The full discovery,
+continuation, budget, and original stop boundary are recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
 The exact Worker
 Loader reuse boundary, operation-specific delivery ownership, and
@@ -167,6 +172,16 @@ lifecycle, and `@flarex/persistence-postgres` now contains its first
 production-inert scope-bound lifecycle adapter. No backend/host composes that
 capability and no imported Trigger package is production-routed.
 
+The admitted run-attempt source map contains 29 explicit decisions: 13
+seam-adapted entries, 12 adapter-translated entries, and four discarded entries;
+it contains no unchanged source entry. This is substantial reuse of Trigger
+control flow, algorithms, invariants, and tests, but it is not direct package or
+file reuse. Roadmap 05 is likewise a Flarex-authored scheduling seam that
+preserves selected Trigger behavior, while the Drizzle/Postgres, trusted-scope,
+Cloudflare, and compute-delivery infrastructure is Flarex-owned adapter code.
+Completed foundation work therefore must not be described as Trigger product
+parity or as a completed Trigger integration.
+
 ## Foundation Decisions
 
 ### 1. Reuse Is The Default
@@ -181,6 +196,12 @@ Adapted source must retain provenance to the pinned Trigger commit and the
 required upstream license notices. Behavioral compatibility must be proved
 with ported or differential tests rather than inferred from similar-looking
 code.
+
+An admitted source map authorizes only its named capability closure. A later
+scheduler, delivery, runtime, supervision, observability, or SDK capability
+must start again from its concrete Trigger sources and tests. Reusing an
+existing Flarex abstraction, or independently reproducing the same observable
+behavior, is not by itself evidence that Trigger source was reused.
 
 ### 2. The Two Workspaces Remain Separate During Extraction
 
@@ -338,6 +359,12 @@ Each extracted capability should carry a source map containing:
   and Worker bundle behavior; and
 - applicable license and notice requirements.
 
+The map must identify the actual retained implementation unit or control-flow
+segment, not merely a related upstream file or a list of similar behaviors. A
+Flarex-authored implementation may still be the correct adapter, authority, or
+host boundary, but it must be classified honestly and must not consume the
+source-reuse credit of a different capability.
+
 Where practical, a test-only compatibility runner should execute one normalized
 scenario against the frozen Trigger implementation and the transformed Flarex
 implementation, then compare transition receipts. This comparison must remain
@@ -364,6 +391,12 @@ The first proof remains deliberately smaller than Trigger parity:
 The proof begins with one queue and a bounded retry policy. Cron, batches,
 debounce, waitpoints, checkpoints, advanced fairness, broad observability UI,
 cross-provider placement, and public SDK integration remain later gates.
+
+This connected proof is now the progress gate. After the mandatory Roadmap 06
+reuse audit, do not add another generalized task foundation merely because it
+may be useful later. The next executable work must close the shortest private
+path from durable requested effect through provider delivery, the reused Flarex
+runtime, heartbeat or cancellation, and fenced terminal settlement.
 
 ## Roadmap Decomposition
 
@@ -420,12 +453,14 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A/B and DTE06-C0/C1 complete:** Worker Loader reuse,
-     operation-specific dispatch/cancellation delivery, host-neutral provider
-     and in-memory conformance adapter, canonical bounded evidence, and the two
-     production-inert Task-owned delivery checkpoint tables. No transaction
-     repository, connected provider delivery, runtime integration, or host is
-     implemented yet;
+   - **active; DTE06-A/B and DTE06-C0/C1/C2 plus C3 persistence discovery
+     complete:** the provider contract, in-memory conformance adapter,
+     operation-specific delivery evidence and tables, fenced repository, and
+     bounded pending discovery are production-inert. The connected runtime
+     reuse audit in Preflight 37 is complete as a candidate decision and awaits
+     explicit approval. The backend trusted directory, connected provider
+     delivery, Worker Loader task adapter, supervision, end-to-end proof, and
+     host remain unwritten;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;
@@ -443,6 +478,12 @@ substantial connected Trigger capability. Its admitted package checkpoint is
 large enough to exercise transition, failure, retry, cancellation, lease,
 fence, service, Layer, and requested-effect seams while excluding persistence
 implementation and host activation.
+
+That first source map is not a blanket migration permit for scheduling,
+delivery, compute, observability, or public Trigger capabilities. Each of those
+closures must earn its own reuse decision before implementation. Existing
+Flarex-authored foundations remain admitted, but they do not make a future
+clean-room implementation the default.
 
 ## Non-Goals
 

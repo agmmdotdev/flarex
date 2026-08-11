@@ -24,8 +24,10 @@ domain file.
     catalog plus a host-neutral Flarex state machine backed by a private
     FlarexDB Task System API and Cloudflare/compute-provider adapters. Current
     Flarex actions are not task authority. Trigger remains an inactive
-    compatibility island, and pnpm workspace integration is deferred to a
-    separate design decision.
+    compatibility island rather than a runtime dependency. Private lifecycle,
+    Postgres, scheduling, provider, and delivery foundations now exist, while
+    connected runtime work is held behind a capability-local Trigger source
+    audit and the first end-to-end private vertical.
 
 - `flarex-dynamic-worker-bundle-partitioning.md`
   - Accepted runtime design direction for automatic, size-bounded Dynamic
