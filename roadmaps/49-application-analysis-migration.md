@@ -1209,6 +1209,45 @@ preflight must still own whole-bundle module construction, exact target/catalog
 comparison, Worker Loader lifecycle, RPC capability settlement, timeouts, and
 host result decoding.
 
+#### AA-R6 Application function-runtime checkpoint — 2026-08-11
+
+Commit `cf817812` adds one private
+`@flarex/function-runtime/internal/application-function-runtime-v1` module.
+It executes exact public or internal query, mutation, and action registrations
+from one trusted root definition and one out-of-band internal catalog. Query and
+mutation calls reuse the existing Function API read, indexed-read, journal, auth,
+validator, table-aware document-ID, and application-error capabilities; actions
+reuse the existing bounded callback bridge. Workflow mutation fails closed with
+its own contract reason.
+
+The review challenge rejected observation-aware Promise tracking. JavaScript
+does not expose enough authority to follow a rejected internal call through
+arbitrary `Promise.all`, `Promise.resolve`, detached async work, borrowed
+intrinsics, and continuation fan-out without adding another unbounded runtime
+graph. The accepted simpler rule is therefore invocation-sticky failure: every
+rejected admitted internal call fails the root invocation even when Application
+code catches or assimilates its native Promise. Code may catch a call to finish
+local cleanup, but it cannot turn a failed child write into a successful commit.
+This matches the action callback boundary's fail-closed settlement rule and
+leaves rollback with the existing journal/transaction owner.
+
+The runtime records one settlement per admitted call, bounded by the trusted
+call-count budget, drains dynamically spawned calls to quiescence, then closes
+call admission before the read or journal boundary closes and drains. A retained
+context cannot start registry or user code during shutdown. Internal count,
+depth, aggregate argument bytes, aggregate child-result bytes, and per-call
+ancestry are deterministic; concurrent siblings do not create false cycles.
+Root worker-result size remains owned by the worker-result protocol boundary and
+is not double-charged into the internal-call aggregate.
+
+Focused validation passes 25 cases, the complete Function Runtime package passes
+85 tests, and package plus backend typechecks pass. Application Runtime,
+Function API, point query, point mutation, and every point internal-call kernel
+and exact core remained byte-identical. The broad backend build still encounters
+the pre-existing stale edge-action generated-kernel check; this checkpoint did
+not change or regenerate that owner. Both required final reviewers approved the
+exact staged implementation without findings.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
