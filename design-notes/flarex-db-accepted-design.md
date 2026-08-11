@@ -802,6 +802,11 @@ point-commit and readiness owners consume only those narrow authenticated
 facets. System simulations use the live composition and cannot mint schema-
 validation state or receipts.
 
+`M01-A` now exists inside that package as the pure bounded compatibility
+classifier. It separates document compatibility, physical-requirement drift,
+and identity ambiguity and carries no storage or readiness authority. Persisted
+candidate validation and the service/adapters remain later gates.
+
 There is one authoritative active schema pointer per scope;
 deployment metadata may reference it, but must not create a second authority.
 

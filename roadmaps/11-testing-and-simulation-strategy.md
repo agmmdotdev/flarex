@@ -487,9 +487,9 @@ Named Flarex differences are:
   it, and moves all three index sidecars to the deletion revision in PGlite and
   genuine PostgreSQL. This remains one active relation-free revision and does
   not yet authorize multi-revision schema compatibility or managed deployment.
-- `SAC01-F2l` has a completed preflight and approved separate private
-  `@flarex/managed-schema` ownership boundary but no implementation yet. After
-  managed-schema gates `M01-A` through `M03-C` exist, a separate cooking
+- `SAC01-F2l` has a completed preflight and `M01-A` pure classifier in the
+  separate private `@flarex/managed-schema` package. After managed-schema gates
+  `M01-B` through `M03-C` exist, a separate cooking
   scenario must prove populated-field removal refusal and remediation,
   required-field expand/backfill/contract, validator tightening, concurrent
   candidate shadow validation, supersession, exact readiness and activation,

@@ -1,13 +1,13 @@
 # Managed Schema Deployment And Migrationless DX
 
-Status: Accepted deferred foundation contract with the first app-document
-schema-evolution preflight and private package boundary approved. No protocol,
-DDL, repository, commit-hook, readiness, activation, CLI, backfill-runner, or
-destructive-cleanup implementation is authorized by this record. The first
-implementation slice still requires explicit approval. `M01-A` is deliberately
-pure and storage-free; the later `M03-A` through `M03-C` slices separately
-introduce target-local validation state, point-commit integration, and
-readiness and activation consumption.
+Status: Accepted deferred foundation contract with `M01-A` complete as the
+private, pure, storage-free `@flarex/managed-schema` compatibility foundation.
+No persisted validation protocol, DDL, repository, scanner, commit hook,
+readiness, activation, CLI, backfill runner, or destructive cleanup is
+implemented or authorized by that completion. `M01-B` is the next separately
+approved slice; the later `M03-A` through `M03-C` slices separately introduce
+target-local validation state, point-commit integration, and readiness and
+activation consumption.
 
 ## Decision
 
@@ -115,6 +115,15 @@ invocation, registration, or system-test packages. A machine-enforced package
 boundary check will reject those reverse dependencies. The package uses plain
 unversioned names for the accepted implementation; only canonical persisted or
 wire contracts receive compatibility versions.
+
+`M01-A` implements only the first pure portion of this boundary. The package
+currently exports `./compatibility`, declares only `flarex-protocol` as a
+production dependency, and classifies decoded manifests without Effect,
+storage, host, or runtime work. It reports document compatibility, physical-
+requirement drift, and stable-identity ambiguity as separate facets; neither a
+safe document verdict nor the aggregate result is a readiness or activation
+capability. Unknown/narrowing comparisons and exhausted bounded comparison
+work fall back to data validation.
 
 The package is organized by domain rather than adapter:
 
@@ -406,7 +415,7 @@ deployments.
 
 These are separate later goals, not one giant deployment goal:
 
-1. `M01-A` - create the private `@flarex/managed-schema` domain package,
+1. `M01-A` - **complete**: create the private `@flarex/managed-schema` domain package,
    machine-enforce its inward-only dependency boundary, and freeze a pure
    conservative app-document schema diff and compatibility-classification
    contract over two authenticated immutable schema artifacts. Include direct
@@ -444,11 +453,13 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-The first implementation-bearing request should authorize only `M01-A`, whose
-package extraction and dependency boundary are approved by this record. It
-must not opportunistically add DDL, scan rows, alter readiness, or touch point
-commit. Each later turn stops if it discovers another authority, migration,
-transaction, activation, or production-routing change beyond the named gate.
+`M01-A` is complete without DDL, row scans, readiness changes, or point-commit
+integration. The next implementation-bearing request should authorize only
+`M01-B`: canonical candidate-validation progress, failure-evidence, and receipt
+contracts plus their pure vectors and budgets. It must not add persistence or
+runtime integration. Each later turn stops if it discovers another authority,
+migration, transaction, activation, or production-routing change beyond the
+named gate.
 
 ## Multi-Revision Cooking Acceptance Matrix
 
