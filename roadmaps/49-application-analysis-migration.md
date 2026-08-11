@@ -391,6 +391,62 @@ fresh-load comparison, import-time outbound rejection, deadline behavior, and
 RPC capability disposal. Local Miniflare may provide development parity only;
 it cannot close those hosted lifecycle claims.
 
+#### Implementation checkpoint and failed hosted lifecycle gate — 2026-08-11
+
+Commit `55105371` implements the reviewed local AA-R4 candidate: the bounded
+analysis-neutral Source Artifact V2 reader, exact generated dynamic core and
+policy identities, two uncached Worker Loader loads, deterministic import
+policy, deadline/interruption adapter, exact per-directory framework shims,
+private analyzer RPC entrypoint, and failure redaction. The final local receipt
+is:
+
+- generated core `949b5cf2809b12dfa6f6000280e40b617640114e1b6b091bae912e24ea26fedd`
+  from two byte-identical 319,369-byte builds;
+- private analyzer identity
+  `60404b4c64c9227fce6bde9badffc82d882252b59b9f33701df7143594a0364e`;
+- 24 focused analyzer tests and 10 finalized-source-reader tests passing;
+- `flarex-backend` typecheck and the workspace Effect-boundary check passing;
+  analyzer-app typecheck blocked only by the separately owned concurrent error
+  at `packages/persistence-postgres/src/appRows.ts:434`;
+- the complete analyzer suite at 61 of 62 tests, with the unchanged legacy
+  Declarative V2 long-path nested-cause assertion failing; and
+- both required final staged-diff reviewers approving with no findings.
+
+The hosted challenge did not accept the lifecycle assumption:
+
+- a uniquely named remote preview running the real host returned `analyzed`
+  after two fresh loads in 85 milliseconds, returned
+  `forbidden_import_effect` for a caught import-time fetch in 62 milliseconds,
+  returned `timeout` at the requested 10-millisecond deadline while the child
+  computation remained outstanding, and then completed a fresh recovery
+  analysis in 72 milliseconds;
+- the first preview using the accepted analyzer configuration was rejected by
+  Cloudflare with code `10085` because the configured `flarex-artifacts` R2
+  bucket does not exist in the authenticated account; no bucket or production
+  resource was created; and
+- a separate hosted Worker Loader probe successfully obtained and called the
+  entrypoint stub, but the subsequent release operation failed with Cloudflare
+  `1101` and `TypeError: stub[Symbol.dispose] is not a function`. This differs
+  from the local Miniflare/fake capability surface and means the current host
+  cannot prove release of the request-owned entrypoint capability.
+
+Expected behavior was a callable, observable release operation on the hosted
+entrypoint capability. Actual behavior provides no such operation through the
+tested Worker Loader surface. The affected owner is the Cloudflare Worker
+Loader/RPC lifecycle boundary and the Application Analysis host policy that
+depends on it; this evidence does not authorize any OCC, commit, executor,
+persistence, or authoritative-row change.
+
+**Disposition: AA-R4 remains incomplete and AA-R5 must not start.** The local
+implementation commit is retained as an inert candidate, but the gate needs a
+new explicit preflight that either identifies a documented hosted lifetime
+primitive with observable release, proves a platform-owned request-lifetime
+guarantee and deliberately amends the release claim, or replaces Worker Loader
+for this host. Deployment also needs a separately named real R2 bucket before
+the accepted analyzer configuration can be uploaded. Do not infer either
+decision, create the missing bucket, deploy the analyzer, or weaken the hosted
+proof from this checkpoint.
+
 ### `AA-R5` — durable analysis and inactive registration generation
 
 Implement one cohesive persistence slice after rechecking the then-current
