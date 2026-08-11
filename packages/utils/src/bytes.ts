@@ -27,7 +27,7 @@ export function copyBytesToArrayBuffer(value: Uint8Array): ArrayBuffer {
  * views whose platform-visible byte length is zero.
  */
 export function isUint8Array(value: unknown): value is Uint8Array {
-  return intrinsicUint8ArrayByteLength(value) !== undefined;
+  return uint8ArrayByteLength(value) !== undefined;
 }
 
 /**
@@ -38,10 +38,11 @@ export function isUint8ArrayWithByteLength(
   value: unknown,
   expectedByteLength: number,
 ): value is Uint8Array {
-  return intrinsicUint8ArrayByteLength(value) === expectedByteLength;
+  return uint8ArrayByteLength(value) === expectedByteLength;
 }
 
-function intrinsicUint8ArrayByteLength(value: unknown): number | undefined {
+/** Reads the intrinsic visible byte length without consulting caller properties. */
+export function uint8ArrayByteLength(value: unknown): number | undefined {
   try {
     if (
       TYPED_ARRAY_BYTE_LENGTH_GETTER === undefined ||

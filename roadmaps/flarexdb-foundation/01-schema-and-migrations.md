@@ -149,9 +149,10 @@ These decisions are durable and are not re-opened by each implementation turn:
   rollback contract lives in `05-managed-schema-deployment.md`. The separate
   private `@flarex/managed-schema` package owns compatibility and lifecycle
   policy; persistence and current commit/readiness owners receive only narrow
-  adapters. `M01-A` now provides only the pure bounded compatibility
-  classifier; persisted progress/receipt contracts and every adapter remain
-  separately gated.
+  adapters. `M01-A` provides only the pure bounded compatibility classifier;
+  `M01-B` adds protocol-owned canonical progress, bounded failure-evidence,
+  and final-receipt contracts without storage. Persistence, scanning, commit,
+  readiness, activation, and every adapter remain separately gated.
 - The immutable manifest is the only versioned table-definition authority.
   Names in normalized catalogs are verified assertions, not competing copies.
 - Physical index definitions are normalized because runtime build identity and

@@ -9,6 +9,7 @@ import {
   encodeBytesToLowercaseHex,
   isUint8Array,
   isUint8ArrayWithByteLength,
+  uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
 
 describe("copyBytes", () => {
@@ -179,6 +180,17 @@ describe("isUint8Array", () => {
     const impostor: unknown = Object.create(Uint8Array.prototype);
     expect(impostor instanceof Uint8Array).toBe(true);
     expect(isUint8Array(impostor)).toBe(false);
+  });
+});
+
+describe("uint8ArrayByteLength", () => {
+  it("returns intrinsic visible length without consulting spoofed properties", () => {
+    const bytes = new Uint8Array([1, 2]);
+    Object.defineProperty(bytes, "byteLength", { value: 99 });
+
+    expect(uint8ArrayByteLength(bytes)).toBe(2);
+    expect(uint8ArrayByteLength(new Proxy(bytes, {}))).toBeUndefined();
+    expect(uint8ArrayByteLength(new Uint16Array([1]))).toBeUndefined();
   });
 });
 

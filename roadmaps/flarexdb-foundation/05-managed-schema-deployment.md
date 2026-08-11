@@ -1,13 +1,13 @@
 # Managed Schema Deployment And Migrationless DX
 
-Status: Accepted deferred foundation contract with `M01-A` complete as the
-private, pure, storage-free `@flarex/managed-schema` compatibility foundation.
-No persisted validation protocol, DDL, repository, scanner, commit hook,
-readiness, activation, CLI, backfill runner, or destructive cleanup is
-implemented or authorized by that completion. `M01-B` is the next separately
-approved slice; the later `M03-A` through `M03-C` slices separately introduce
-target-local validation state, point-commit integration, and readiness and
-activation consumption.
+Status: Accepted deferred foundation contract with `M01-A` and `M01-B`
+complete. The private, pure, storage-free `@flarex/managed-schema`
+compatibility foundation and the protocol-owned canonical candidate-validation
+frames now exist. No validation persistence, DDL, repository, scanner, commit
+hook, readiness, activation, CLI, backfill runner, or destructive cleanup is
+implemented or authorized by those completions. `M02` is next; the later
+`M03-A` through `M03-C` slices separately introduce target-local validation
+state, point-commit integration, and readiness and activation consumption.
 
 ## Decision
 
@@ -124,6 +124,18 @@ requirement drift, and stable-identity ambiguity as separate facets; neither a
 safe document verdict nor the aggregate result is a readiness or activation
 capability. Unknown/narrowing comparisons and exhausted bounded comparison
 work fall back to data validation.
+
+`M01-B` freezes the private candidate-validation contract at
+`flarex-protocol/internal/app-schema-candidate-validation-v1`. Its separately
+canonical progress, bounded failure-evidence, and final-receipt frames pin the
+scope generation/fence/epoch, schema version and immutable manifest digest,
+fixed snapshot frontier, and attempt fence. Progress is predecessor-linked;
+failure evidence is strictly ordered, unique, bounded, and document-body-free;
+the final receipt commits to the final progress digest and settlement frontier.
+The contract owns row/page/semantic-byte/slice-time and frame/evidence ceilings
+and fail-closed canonical decoding. Corruption, supersession, interruption,
+confirmed rollback, and decision uncertainty retain distinct recovery
+dispositions. This completion adds no storage owner or runtime integration.
 
 The package is organized by domain rather than adapter:
 
@@ -421,10 +433,11 @@ These are separate later goals, not one giant deployment goal:
    contract over two authenticated immutable schema artifacts. Include direct
    table-driven and bounded generated safety tests. It creates no storage and
    cannot declare an unknown validator transformation universally compatible.
-2. `M01-B` - freeze the candidate row-validation progress, failure evidence,
-   and final receipt contracts plus count/byte/page/time ceilings. Settle exact
-   corruption, supersession, interruption, rollback, and uncertainty errors
-   before DDL.
+2. `M01-B` - **complete**: freeze the candidate row-validation progress,
+   failure evidence, and final receipt contracts plus count/byte/page/time
+   ceilings. Settle exact corruption, supersession, interruption, rollback,
+   and uncertainty errors before DDL. This is a private protocol-only contract;
+   it creates no table, repository, scanner, or runtime authority.
 3. `M02` - implement read-only planning with explicit rename maps, bounded
    non-sensitive incompatibility evidence, remediation actions, active-schema
    and data-frontier pins, and stale-plan identity.
@@ -453,13 +466,14 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-`M01-A` is complete without DDL, row scans, readiness changes, or point-commit
-integration. The next implementation-bearing request should authorize only
-`M01-B`: canonical candidate-validation progress, failure-evidence, and receipt
-contracts plus their pure vectors and budgets. It must not add persistence or
-runtime integration. Each later turn stops if it discovers another authority,
-migration, transaction, activation, or production-routing change beyond the
-named gate.
+`M01-A` and `M01-B` are complete without DDL, row scans, readiness changes, or
+point-commit integration. The next implementation-bearing request should
+authorize only `M02`: read-only planning with explicit rename intent, bounded
+non-sensitive incompatibility evidence, remediation actions, exact active-
+schema and data-frontier pins, and stale-plan identity. It must not add
+persistence or runtime integration. Each later turn stops if it discovers
+another authority, migration, transaction, activation, or production-routing
+change beyond the named gate.
 
 ## Multi-Revision Cooking Acceptance Matrix
 

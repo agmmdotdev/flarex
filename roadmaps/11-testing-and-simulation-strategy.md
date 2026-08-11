@@ -488,8 +488,9 @@ Named Flarex differences are:
   genuine PostgreSQL. This remains one active relation-free revision and does
   not yet authorize multi-revision schema compatibility or managed deployment.
 - `SAC01-F2l` has a completed preflight and `M01-A` pure classifier in the
-  separate private `@flarex/managed-schema` package. After managed-schema gates
-  `M01-B` through `M03-C` exist, a separate cooking
+  separate private `@flarex/managed-schema` package plus the protocol-only
+  `M01-B` candidate-validation frames. After managed-schema gates `M02`
+  through `M03-C` exist, a separate cooking
   scenario must prove populated-field removal refusal and remediation,
   required-field expand/backfill/contract, validator tightening, concurrent
   candidate shadow validation, supersession, exact readiness and activation,
