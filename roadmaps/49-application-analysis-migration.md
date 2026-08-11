@@ -1151,6 +1151,64 @@ validation, transaction, action-host, and Worker Loader capabilities it will
 reuse. Workflow mutation remains contract-only until separately accepted
 execution semantics exist.
 
+#### AA-R6 Application function-runtime implementation preflight — 2026-08-11
+
+The lower-level runtime audit rejects direct composition of the existing point
+query, point mutation, and edge-action kernels. The public point roots require
+`visibility: "public"`; the internal-call kernels still require a public root
+plus their artifact-era ordinal, static catalog, call-budget, and execution
+envelopes. Wrapping an internal Application target as public or inventing those
+missing envelope fields would be false authority. The exact worker cores also
+remain unusable because their configuration and request decoders pin artifact
+and source-package identities. None may be changed or regenerated in this
+slice.
+
+The reusable seam is lower. `pointRuntimeCore` already owns canonical runtime
+value capture, validator admission, table-aware validator execution, and
+document-ID policy. `functionApiCore` owns auth, database, indexed writer,
+`runQuery`, and `runMutation` context construction. The existing read, journal,
+callback, and application-error capabilities retain their meaning when supplied
+by the later Application worker host. Reusing those contracts does not require
+reusing an artifact-era root executor.
+
+The accepted medium prerequisite is one new private Application function-runtime
+module in `@flarex/function-runtime`, not a fork of each exact runtime. It accepts
+one trusted catalog supplied out of band by the eventual worker definition and
+executes query, mutation, or action registrations at their exact public or
+internal visibility. Query contexts expose the existing read database and
+bounded internal `runQuery`; mutation contexts expose the existing journal
+database plus bounded internal `runQuery` and `runMutation`; action contexts use
+the existing callback bridge and limits. Internal callees must be exact catalog
+members with internal visibility and matching kind, validators, and registration
+markers. Calls are bounded by total count, depth, argument bytes, and result
+bytes, and active ordinals prevent cycles. No dependency graph is inferred.
+
+Workflow mutation remains fail-closed with a specific runtime contract failure.
+This prerequisite does not reinterpret it as mutation and does not authorize a
+new executor lifecycle. The module returns only a normalized Flarex value and
+classifies contract, user-code, read/journal, callback, application-error, and
+terminal internal-call failures without owning host transport or persistence.
+It uses plain Promise boundaries where user handlers and the Function API
+require them; it introduces no service, Layer, Worker Loader, or runtime bridge.
+
+Focused tests must cover public and internal root registration, exact
+kind/visibility mismatch, validator and table-aware ID checks, query and
+mutation boundary closure/drain, internal call success and wrong-kind/cycle/
+budget failures, action callback closure/drain, workflow fail-closed behavior,
+and user-versus-boundary error classification. Existing exact-runtime generated
+identities and their checks must remain byte-identical.
+
+Self-review accepts this prerequisite because one visibility-aware Application
+kernel is simpler than six adapters over incompatible roots and keeps trusted
+catalog authority outside the wire request. Stop if implementation needs an
+artifact/package identity, changes an exact runtime kernel, invents call-graph
+evidence, lets the request supply a second function definition, executes
+workflow mutation, or moves read, journal, callback, OCC, commit, or action
+lifecycle authority into `@flarex/function-runtime`. The following backend
+preflight must still own whole-bundle module construction, exact target/catalog
+comparison, Worker Loader lifecycle, RPC capability settlement, timeouts, and
+host result decoding.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
