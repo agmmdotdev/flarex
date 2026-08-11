@@ -447,6 +447,73 @@ the accepted analyzer configuration can be uploaded. Do not infer either
 decision, create the missing bucket, deploy the analyzer, or weaken the hosted
 proof from this checkpoint.
 
+#### Replacement lifecycle preflight and accepted amendment — 2026-08-11
+
+The failed release assumption is now resolved from the installed contract and
+the current hosted platform documentation, without inventing an isolate
+destructor:
+
+- In the installed `@cloudflare/workers-types@4.20260613.1`,
+  `WorkerStub.getEntrypoint()` returns `Fetcher<T>`. Neither `WorkerStub` nor
+  that entrypoint `Fetcher<T>` is `Disposable`. An object returned by an RPC
+  method is augmented with `Disposable`; that returned object is the capability
+  the caller may and should explicitly release.
+- Cloudflare's [Workers RPC lifecycle](https://developers.cloudflare.com/workers/runtime-apis/rpc/lifecycle/)
+  contract makes entrypoint-stub lifetime execution-context-owned. Stubs made
+  during an event are automatically disposed when its handler returns; an RPC
+  execution context ends when the RPC returns if it did not pass or return
+  capabilities, and a disconnected client cancels the server context.
+- The [Dynamic Workers API](https://developers.cloudflare.com/dynamic-workers/api-reference/)
+  still guarantees a fresh worker for each `load()` call, but exposes no direct
+  isolate-destruction operation. The hosted `TypeError` from attempting
+  `stub[Symbol.dispose]()` therefore demonstrated a false local model, not a
+  missing supported cleanup call.
+
+There are three distinct lifetimes and they must not be collapsed:
+
+1. The Worker Loader worker and its entrypoint `Fetcher` are owned by the
+   Cloudflare event/RPC execution context. The host must not wrap that fetcher
+   in synthetic Effect acquisition/release or claim direct isolate disposal.
+2. A data object returned by `analyze()` is a caller-owned RPC result
+   capability. The host detaches its admitted data and explicitly disposes the
+   original result, including a result that wins a deadline race after Effect
+   interruption.
+3. The outer deadline interrupts the local Effect wait. Returning the terminal
+   timeout from the named host RPC then ends its parent execution context, so
+   the platform owns cancellation and automatic stub disposal. This is the
+   release claim; Effect interruption alone is not presented as remote isolate
+   destruction.
+
+The correction slice removes the unsupported entrypoint disposer, makes the
+fake and Miniflare harnesses match the installed non-disposable fetcher
+surface, and retains explicit result disposal. Hosted proof must show a real
+returned object has a callable disposer, explicit result release succeeds, a
+timed-out call is followed by a successful fresh analysis, and two uncached
+loads still agree. It must not claim that a direct isolate destructor was
+observed.
+
+The security and artifact-reader challenge was also replayed against the
+retained candidate. Sticky forbidden-attempt detection, deterministic ambient
+policy through lazy registration inspection, framework-path collision
+rejection and exact subpath exports, deterministic corruption classification,
+and function-role/root correlation all have focused regressions. Those earlier
+findings are fixed in `55105371`; they are not new hosted evidence and do not
+replace the lifecycle proof above.
+
+The missing `flarex-artifacts` account bucket remains a deployment prerequisite,
+not authority to create infrastructure and not a reason to keep the private,
+inert migration behind AA-R4. If the corrected host passes the required hosted
+Worker Loader/RPC proof and final review, AA-R4 may close and AA-R5 may begin
+while analyzer deployment stays fail-closed. A real, explicitly approved R2
+binding remains mandatory before any later deployment or AA-R9 cutover.
+
+**Self-review decision: accepted for the bounded AA-R4 correction.** This
+amendment uses the platform's documented lifetime owner, narrows the explicit
+release claim to the capability that actually implements it, preserves the
+deadline and two-load policy, creates no alternate runtime or persistence
+authority, and authorizes no bucket creation, route, preview URL, deployment,
+OCC, commit, executor, or authoritative-row change.
+
 ### `AA-R5` — durable analysis and inactive registration generation
 
 Implement one cohesive persistence slice after rechecking the then-current
