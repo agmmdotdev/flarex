@@ -1577,6 +1577,22 @@ schema-manifest digest; it must not require the two numeric domains to be equal
 or expose analyzer ordinals to execution. The existing catalog remains the sole
 stable table, index-definition, build-state, and unique-constraint authority.
 
+Placement follows the existing control/target split rather than assuming one
+database. Schema-version reservation, publication, and immutable physical
+requirements remain on the control database. Revision-to-schema binding,
+function receipts, and the readiness verdict remain on the located target under
+its scope-clock lock. A target row may commit the immutable control artifact's
+identity and digest, but no target foreign key or transaction may pretend to
+span databases. Shared-database PGlite proof is insufficient by itself; the
+same composition must accept the existing located target capability.
+
+Readiness also consumes the existing candidate-schema validation capability and
+the point-commit owner's unique-constraint eligibility capability. It loads
+their issuer-backed evidence before the target transaction and revalidates that
+evidence while holding the exact scope-clock lock. It does not read their tables
+to reproduce either verdict. `not_required` remains the existing unique owner’s
+meaning; the Application layer does not manufacture an empty closure/build row.
+
 Readiness requires exactly one Application task-catalog row for every revision,
 including an explicitly empty catalog. This closes an ambiguity in the earlier
 wording: absence means incomplete publication, never "no tasks." The readiness
