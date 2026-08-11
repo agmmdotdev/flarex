@@ -1,8 +1,12 @@
 import { bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
-import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
+import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
+import {
+  AppDocumentSystemFieldV1Error,
+  type AppCreationTimeV1,
+  verifyAppDocumentEvidenceV1,
+} from "flarex-protocol/app-document";
 import {
   appRowIdHexV1FromBytes,
   type AppRowIdHexV1,
@@ -15,11 +19,17 @@ import {
 import type { IndexBuildStateRecord } from "./indexBuildStates";
 import {
   encodeAppOrderedIndexKeyV1,
+  OrderedIndexKeyTooLargeError,
   orderedIndexCreationTimeV1,
   orderedIndexRowIdHexV1FromBytesResult,
   type OrderedIndexKeyHexV1,
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
+import {
+  FlarexValueCodecV1Error,
+  FlarexValueEvidenceV1Error,
+  type CanonicalFlarexValueV1,
+} from "flarex-protocol/value";
 import {
   projectScopeIdUuidV1Result,
   type CommitSeq,
@@ -35,6 +45,7 @@ import {
   type AppIndexEntryTransaction,
   type ReadAppIndexRangeV1Error,
 } from "./appIndexEntries";
+import { lowerAppDeveloperIndexKeyV1 } from "./appDeveloperIndexCommitV1";
 import {
   locateAppCreationTimeIndexDefinitionForTableEffect,
   locateAppIndexDefinitionByIdEffect,
@@ -76,7 +87,9 @@ const INPUT_KEYS = Object.freeze([
   "indexDefinitionId",
   "pageSize",
 ] as const);
-export const MAX_INTRINSIC_INDEX_BUILD_PAGE_SIZE_V1 = 16;
+export const MAX_APP_ORDERED_INDEX_BUILD_PAGE_SIZE_V1 = 16;
+export const MAX_INTRINSIC_INDEX_BUILD_PAGE_SIZE_V1 =
+  MAX_APP_ORDERED_INDEX_BUILD_PAGE_SIZE_V1;
 
 const decodeDefinitionIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogIndexDefinitionIdSchema),
@@ -114,35 +127,50 @@ export function createIntrinsicCreationTimeIndexDefinitionPortV1(
   });
 }
 
-export interface BuildIntrinsicCreationTimeIndexV1Input {
+export interface BuildAppOrderedIndexV1Input {
   readonly deploymentId: string;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
   readonly pageSize: number;
 }
+export type BuildIntrinsicCreationTimeIndexV1Input =
+  BuildAppOrderedIndexV1Input;
+export type BuildAppDeveloperOrderedIndexV1Input = BuildAppOrderedIndexV1Input;
 
-export interface LocatedIntrinsicCreationTimeIndexBuildTargetV1
+export interface LocatedAppOrderedIndexBuildTargetV1
   extends LocatedReadCommittedAttemptTargetV1 {}
+export type LocatedIntrinsicCreationTimeIndexBuildTargetV1 =
+  LocatedAppOrderedIndexBuildTargetV1;
 
-export interface IntrinsicCreationTimeIndexBuildPortsV1 {
+export interface AppOrderedIndexBuildPortsV1 {
   readonly controlDb: FlarexMetadataDatabase;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
-    LocatedIntrinsicCreationTimeIndexBuildTargetV1
+    LocatedAppOrderedIndexBuildTargetV1
   >;
 }
+export type IntrinsicCreationTimeIndexBuildPortsV1 =
+  AppOrderedIndexBuildPortsV1;
+export type AppDeveloperOrderedIndexBuildPortsV1 = AppOrderedIndexBuildPortsV1;
 
-export type IntrinsicCreationTimeIndexBuildFaultPointV1 =
+export type AppOrderedIndexBuildFaultPointV1 =
+  | "afterScopeClockLock"
   | "afterLifecycleTransition"
   | "afterEntryWrite"
   | "beforeEnable";
+export type IntrinsicCreationTimeIndexBuildFaultPointV1 =
+  AppOrderedIndexBuildFaultPointV1;
 
-export interface IntrinsicCreationTimeIndexBuildOptionsV1 {
+export interface AppOrderedIndexBuildOptionsV1 {
   readonly faultAfter?: (
-    point: IntrinsicCreationTimeIndexBuildFaultPointV1,
+    point: AppOrderedIndexBuildFaultPointV1,
     rowId: OrderedIndexRowIdHexV1 | null,
-  ) => void;
+  ) => void | Promise<void>;
 }
+export type IntrinsicCreationTimeIndexBuildOptionsV1 =
+  AppOrderedIndexBuildOptionsV1;
+export type AppDeveloperOrderedIndexBuildOptionsV1 =
+  AppOrderedIndexBuildOptionsV1;
 
-export interface IntrinsicCreationTimeIndexBuildResultV1 {
+export interface AppOrderedIndexBuildResultV1 {
   readonly status: "advanced" | "enabled" | "replayed";
   readonly scopeId: ScopeId;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
@@ -155,6 +183,10 @@ export interface IntrinsicCreationTimeIndexBuildResultV1 {
   readonly replayedRows: number;
   readonly cursorRowId: OrderedIndexRowIdHexV1 | null;
 }
+export type IntrinsicCreationTimeIndexBuildResultV1 =
+  AppOrderedIndexBuildResultV1;
+export type AppDeveloperOrderedIndexBuildResultV1 =
+  AppOrderedIndexBuildResultV1;
 
 export class InvalidIntrinsicCreationTimeIndexBuildInputV1Error
   extends Data.TaggedError(
@@ -220,6 +252,72 @@ export class IntrinsicCreationTimeIndexBuildDecisionUncertainV1Error
     readonly cause: unknown;
   }> {}
 
+export class InvalidAppDeveloperOrderedIndexBuildInputV1Error
+  extends Data.TaggedError(
+    "InvalidAppDeveloperOrderedIndexBuildInputV1Error",
+  )<{
+    readonly reason:
+      | "invalidInputShape"
+      | "invalidDeploymentId"
+      | "invalidIndexDefinitionId"
+      | "invalidPageSize";
+  }> {}
+
+export class AppDeveloperOrderedIndexDefinitionUnavailableV1Error
+  extends Data.TaggedError(
+    "AppDeveloperOrderedIndexDefinitionUnavailableV1Error",
+  )<{
+    readonly deploymentId: string;
+    readonly scopeId: ScopeId;
+    readonly indexDefinitionId: CatalogIndexDefinitionId;
+    readonly reason: "missing" | "notDeveloper";
+  }> {}
+
+export class AppDeveloperOrderedIndexBuildStaleAuthorityV1Error
+  extends Data.TaggedError(
+    "AppDeveloperOrderedIndexBuildStaleAuthorityV1Error",
+  )<{
+    readonly scopeId: ScopeId;
+    readonly indexDefinitionId: CatalogIndexDefinitionId;
+    readonly reason:
+      | "storageGeneration"
+      | "storageGenerationFence"
+      | "epoch";
+  }> {}
+
+export class AppDeveloperOrderedIndexBuildStateV1Error
+  extends Data.TaggedError("AppDeveloperOrderedIndexBuildStateV1Error")<{
+    readonly scopeId: ScopeId;
+    readonly indexDefinitionId: CatalogIndexDefinitionId;
+    readonly reason:
+      | "buildMissing"
+      | "unsupportedLifecycle"
+      | "concurrentStateChange"
+      | "currentContentsMismatch"
+      | "indexHistoryMismatch"
+      | "storedDocumentInvalid"
+      | "indexKeyLimitExceeded";
+    readonly detail?: string;
+  }> {}
+
+export class AppDeveloperOrderedIndexBuildIntegrationV1Error
+  extends Data.TaggedError(
+    "AppDeveloperOrderedIndexBuildIntegrationV1Error",
+  )<{
+    readonly phase: "targetTransaction";
+    readonly retryable: boolean;
+    readonly cause: unknown;
+  }> {}
+
+export class AppDeveloperOrderedIndexBuildDecisionUncertainV1Error
+  extends Data.TaggedError(
+    "AppDeveloperOrderedIndexBuildDecisionUncertainV1Error",
+  )<{
+    readonly scopeId: ScopeId;
+    readonly indexDefinitionId: CatalogIndexDefinitionId;
+    readonly cause: unknown;
+  }> {}
+
 export type BuildIntrinsicCreationTimeIndexV1Error =
   | InvalidIntrinsicCreationTimeIndexBuildInputV1Error
   | IntrinsicCreationTimeIndexDefinitionUnavailableV1Error
@@ -234,12 +332,76 @@ export type BuildIntrinsicCreationTimeIndexV1Error =
   | AppendAppIndexEntryRevisionV1Error
   | ReadAppIndexRangeV1Error;
 
+export type BuildAppDeveloperOrderedIndexV1Error =
+  | InvalidAppDeveloperOrderedIndexBuildInputV1Error
+  | AppDeveloperOrderedIndexDefinitionUnavailableV1Error
+  | AppDeveloperOrderedIndexBuildStaleAuthorityV1Error
+  | AppDeveloperOrderedIndexBuildStateV1Error
+  | AppDeveloperOrderedIndexBuildIntegrationV1Error
+  | AppDeveloperOrderedIndexBuildDecisionUncertainV1Error
+  | ReadAppIndexDefinitionError
+  | TrustedScopeAuthorityError
+  | LockScopeClockForUpdateError
+  | IndexBuildStateCorruptionError
+  | AppendAppIndexEntryRevisionV1Error
+  | ReadAppIndexRangeV1Error;
+
+class AppOrderedIndexBuildStaleAuthorityError extends Data.TaggedError(
+  "AppOrderedIndexBuildStaleAuthorityError",
+)<{
+  readonly scopeId: ScopeId;
+  readonly indexDefinitionId: CatalogIndexDefinitionId;
+  readonly reason: "storageGeneration" | "storageGenerationFence" | "epoch";
+}> {}
+
+class AppOrderedIndexBuildStateError extends Data.TaggedError(
+  "AppOrderedIndexBuildStateError",
+)<{
+  readonly scopeId: ScopeId;
+  readonly indexDefinitionId: CatalogIndexDefinitionId;
+  readonly reason:
+    | "buildMissing"
+    | "unsupportedLifecycle"
+    | "concurrentStateChange"
+    | "currentContentsMismatch"
+    | "indexHistoryMismatch"
+    | "storedDocumentInvalid"
+    | "indexKeyLimitExceeded";
+  readonly detail?: string;
+}> {}
+
+class AppOrderedIndexBuildIntegrationError extends Data.TaggedError(
+  "AppOrderedIndexBuildIntegrationError",
+)<{
+  readonly phase: "targetTransaction";
+  readonly retryable: boolean;
+  readonly cause: unknown;
+}> {}
+
+class AppOrderedIndexBuildDecisionUncertainError extends Data.TaggedError(
+  "AppOrderedIndexBuildDecisionUncertainError",
+)<{
+  readonly scopeId: ScopeId;
+  readonly indexDefinitionId: CatalogIndexDefinitionId;
+  readonly cause: unknown;
+}> {}
+
+type AppOrderedIndexBuildRuntimeError =
+  | AppOrderedIndexBuildStaleAuthorityError
+  | AppOrderedIndexBuildStateError
+  | AppOrderedIndexBuildIntegrationError
+  | AppOrderedIndexBuildDecisionUncertainError
+  | LockScopeClockForUpdateError
+  | IndexBuildStateCorruptionError
+  | AppendAppIndexEntryRevisionV1Error
+  | ReadAppIndexRangeV1Error;
+
 type BuildTransactionErrorV1 =
   | LockScopeClockForUpdateError
   | IndexBuildStateCorruptionError
-  | IntrinsicCreationTimeIndexBuildStaleAuthorityV1Error
-  | IntrinsicCreationTimeIndexBuildStateV1Error
-  | IntrinsicCreationTimeIndexBuildIntegrationV1Error
+  | AppOrderedIndexBuildStaleAuthorityError
+  | AppOrderedIndexBuildStateError
+  | AppOrderedIndexBuildIntegrationError
   | AppendAppIndexEntryRevisionV1Error
   | ReadAppIndexRangeV1Error;
 
@@ -249,12 +411,32 @@ interface DecodedBuildInputV1 {
   readonly pageSize: number;
 }
 
-interface CurrentAppRowV1 {
+interface CurrentAppRowBaseV1 {
   readonly rowId: AppRowIdHexV1;
   readonly commitSeq: CommitSeq;
   readonly creationTime: AppCreationTimeV1;
   readonly writeEpochUuid: ScopeEpochUuidV1;
 }
+
+type CurrentAppRowV1 =
+  | Readonly<CurrentAppRowBaseV1 & {
+      readonly kind: "intrinsicCreationTime";
+    }>
+  | Readonly<CurrentAppRowBaseV1 & {
+      readonly kind: "developer";
+      readonly document: CanonicalFlarexValueV1;
+    }>;
+
+type AppOrderedIndexBuildPolicyV1 =
+  | Readonly<{ readonly kind: "intrinsicCreationTime" }>
+  | Readonly<{ readonly kind: "developer" }>;
+
+const INTRINSIC_CREATION_TIME_POLICY = Object.freeze({
+  kind: "intrinsicCreationTime",
+} as const);
+const APP_DEVELOPER_ORDERED_INDEX_POLICY = Object.freeze({
+  kind: "developer",
+} as const);
 
 export const buildIntrinsicCreationTimeIndexV1Effect = Effect.fn(
   "IntrinsicCreationTimeIndexBuild.buildOneStep",
@@ -266,7 +448,10 @@ export const buildIntrinsicCreationTimeIndexV1Effect = Effect.fn(
   IntrinsicCreationTimeIndexBuildResultV1,
   BuildIntrinsicCreationTimeIndexV1Error
 > {
-  const decoded = yield* Effect.fromResult(decodeBuildInputResult(input));
+  const decoded = yield* Effect.fromResult(decodeBuildInputResult(
+    input,
+    (reason) => new InvalidIntrinsicCreationTimeIndexBuildInputV1Error({ reason }),
+  ));
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     decoded.deploymentId,
     ports.authority,
@@ -305,49 +490,94 @@ export const buildIntrinsicCreationTimeIndexV1Effect = Effect.fn(
     definition,
     decoded.pageSize,
     options,
-  );
+    INTRINSIC_CREATION_TIME_POLICY,
+  ).pipe(Effect.mapError(mapAppOrderedIndexBuildErrorToIntrinsic));
 });
 
-function decodeBuildInputResult(
+export const buildAppDeveloperOrderedIndexV1Effect = Effect.fn(
+  "AppDeveloperOrderedIndexBuild.buildOneStep",
+)(function* (
+  ports: AppDeveloperOrderedIndexBuildPortsV1,
   input: unknown,
-): Result.Result<
-  DecodedBuildInputV1,
-  InvalidIntrinsicCreationTimeIndexBuildInputV1Error
+  options: AppDeveloperOrderedIndexBuildOptionsV1 = {},
+): Effect.fn.Return<
+  AppDeveloperOrderedIndexBuildResultV1,
+  BuildAppDeveloperOrderedIndexV1Error
 > {
+  const decoded = yield* Effect.fromResult(decodeBuildInputResult(
+    input,
+    (reason) => new InvalidAppDeveloperOrderedIndexBuildInputV1Error({ reason }),
+  ));
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    decoded.deploymentId,
+    ports.authority,
+  );
+  const definition = yield* locateAppIndexDefinitionByIdEffect(
+    ports.controlDb,
+    located.authority.scopeId,
+    decoded.indexDefinitionId,
+  );
+  if (definition === null) {
+    return yield* Effect.fail(
+      new AppDeveloperOrderedIndexDefinitionUnavailableV1Error({
+        deploymentId: decoded.deploymentId,
+        scopeId: located.authority.scopeId,
+        indexDefinitionId: decoded.indexDefinitionId,
+        reason: "missing",
+      }),
+    );
+  }
+  if (
+    definition.deploymentId !== decoded.deploymentId ||
+    definition.access.kind !== "developer"
+  ) {
+    return yield* Effect.fail(
+      new AppDeveloperOrderedIndexDefinitionUnavailableV1Error({
+        deploymentId: decoded.deploymentId,
+        scopeId: located.authority.scopeId,
+        indexDefinitionId: decoded.indexDefinitionId,
+        reason: "notDeveloper",
+      }),
+    );
+  }
+  return yield* runBuildTransaction(
+    located.target,
+    located.authority,
+    definition,
+    decoded.pageSize,
+    options,
+    APP_DEVELOPER_ORDERED_INDEX_POLICY,
+  ).pipe(Effect.mapError(mapAppOrderedIndexBuildErrorToDeveloper));
+});
+
+type InvalidAppOrderedIndexBuildInputReasonV1 =
+  | "invalidInputShape"
+  | "invalidDeploymentId"
+  | "invalidIndexDefinitionId"
+  | "invalidPageSize";
+
+function decodeBuildInputResult<E>(
+  input: unknown,
+  invalid: (reason: InvalidAppOrderedIndexBuildInputReasonV1) => E,
+): Result.Result<DecodedBuildInputV1, E> {
   return Result.gen(function* () {
     if (!hasExactOwnDataKeys(input, INPUT_KEYS)) {
-      return yield* Result.fail(
-        new InvalidIntrinsicCreationTimeIndexBuildInputV1Error({
-          reason: "invalidInputShape",
-        }),
-      );
+      return yield* Result.fail(invalid("invalidInputShape"));
     }
     if (
       typeof input.deploymentId !== "string" ||
       input.deploymentId.trim().length === 0
     ) {
-      return yield* Result.fail(
-        new InvalidIntrinsicCreationTimeIndexBuildInputV1Error({
-          reason: "invalidDeploymentId",
-        }),
-      );
+      return yield* Result.fail(invalid("invalidDeploymentId"));
     }
     const indexDefinitionId = yield* decodeDefinitionIdResult(
       input.indexDefinitionId,
-    ).pipe(Result.mapError(() =>
-      new InvalidIntrinsicCreationTimeIndexBuildInputV1Error({
-        reason: "invalidIndexDefinitionId",
-      })
-    ));
+    ).pipe(Result.mapError(() => invalid("invalidIndexDefinitionId")));
     if (
       !isPositiveSafeInteger(input.pageSize) ||
-      input.pageSize > MAX_INTRINSIC_INDEX_BUILD_PAGE_SIZE_V1
+      input.pageSize > MAX_APP_ORDERED_INDEX_BUILD_PAGE_SIZE_V1
     ) {
-      return yield* Result.fail(
-        new InvalidIntrinsicCreationTimeIndexBuildInputV1Error({
-          reason: "invalidPageSize",
-        }),
-      );
+      return yield* Result.fail(invalid("invalidPageSize"));
     }
     return Object.freeze({
       deploymentId: input.deploymentId,
@@ -358,22 +588,19 @@ function decodeBuildInputResult(
 }
 
 const runBuildTransaction = Effect.fn(
-  "IntrinsicCreationTimeIndexBuild.runTransaction",
+  "AppOrderedIndexBuild.runTransaction",
 )(function* (
-  target: LocatedIntrinsicCreationTimeIndexBuildTargetV1,
+  target: LocatedAppOrderedIndexBuildTargetV1,
   authority: TrustedScopeAuthority,
   definition: LocatedAppIndexDefinitionV1,
   pageSize: number,
-  options: IntrinsicCreationTimeIndexBuildOptionsV1,
+  options: AppOrderedIndexBuildOptionsV1,
+  policy: AppOrderedIndexBuildPolicyV1,
 ): Effect.fn.Return<
-  IntrinsicCreationTimeIndexBuildResultV1,
-  Exclude<BuildIntrinsicCreationTimeIndexV1Error,
-    | InvalidIntrinsicCreationTimeIndexBuildInputV1Error
-    | IntrinsicCreationTimeIndexDefinitionUnavailableV1Error
-    | ReadAppIndexDefinitionError
-    | TrustedScopeAuthorityError>
+  AppOrderedIndexBuildResultV1,
+  AppOrderedIndexBuildRuntimeError
 > {
-  const started = startIntrinsicCreationTimeIndexBuildTransaction(
+  const started = startAppOrderedIndexBuildTransaction(
     target,
     (tx) => buildInTransaction(
       tx,
@@ -381,6 +608,7 @@ const runBuildTransaction = Effect.fn(
       definition,
       pageSize,
       options,
+      policy,
     ),
   );
   const exit = yield* Effect.uninterruptible(Effect.exit(Effect.tryPromise({
@@ -389,7 +617,7 @@ const runBuildTransaction = Effect.fn(
   })));
   if (Exit.isSuccess(exit)) return exit.value;
   const failure = Cause.findErrorOption(exit.cause);
-  if (failure._tag === "None") return yield* Effect.die(exit.cause);
+  if (Option.isNone(failure)) return yield* Effect.die(exit.cause);
   const cause = failure.value;
   const callbackCause = started.callbackCause();
   if (
@@ -405,7 +633,7 @@ const runBuildTransaction = Effect.fn(
     cause.issue.kind === "decisionUncertain"
   ) {
     return yield* Effect.fail(
-      new IntrinsicCreationTimeIndexBuildDecisionUncertainV1Error({
+      new AppOrderedIndexBuildDecisionUncertainError({
         scopeId: authority.scopeId,
         indexDefinitionId: definition.indexDefinitionId,
         cause,
@@ -413,7 +641,7 @@ const runBuildTransaction = Effect.fn(
     );
   }
   return yield* Effect.fail(
-    new IntrinsicCreationTimeIndexBuildIntegrationV1Error({
+    new AppOrderedIndexBuildIntegrationError({
       phase: "targetTransaction",
       retryable: cause instanceof LocatedReadCommittedTransactionFailureV1,
       cause,
@@ -421,25 +649,25 @@ const runBuildTransaction = Effect.fn(
   );
 });
 
-interface StartedIntrinsicCreationTimeIndexBuildTransactionV1 {
-  readonly promise: Promise<IntrinsicCreationTimeIndexBuildResultV1>;
+interface StartedAppOrderedIndexBuildTransactionV1 {
+  readonly promise: Promise<AppOrderedIndexBuildResultV1>;
   readonly rollbackSignal: Error;
   readonly callbackCause: () => Cause.Cause<BuildTransactionErrorV1> |
     undefined;
 }
 
 /** The single audited Effect runtime bridge for this driver callback owner. */
-function startIntrinsicCreationTimeIndexBuildTransaction(
-  target: LocatedIntrinsicCreationTimeIndexBuildTargetV1,
+function startAppOrderedIndexBuildTransaction(
+  target: LocatedAppOrderedIndexBuildTargetV1,
   work: (
     tx: AppRowTransaction,
   ) => Effect.Effect<
-    IntrinsicCreationTimeIndexBuildResultV1,
+    AppOrderedIndexBuildResultV1,
     BuildTransactionErrorV1
   >,
-): StartedIntrinsicCreationTimeIndexBuildTransactionV1 {
+): StartedAppOrderedIndexBuildTransactionV1 {
   let observedCause: Cause.Cause<BuildTransactionErrorV1> | undefined;
-  const rollbackSignal = new Error("C08-I1 intrinsic index step rolled back.");
+  const rollbackSignal = new Error("C08 ordered-index build step rolled back.");
   const promise = target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
     const exit = await Effect.runPromise(Effect.exit(work(tx)));
     if (Exit.isFailure(exit)) {
@@ -456,20 +684,21 @@ function startIntrinsicCreationTimeIndexBuildTransaction(
 }
 
 const buildInTransaction = Effect.fn(
-  "IntrinsicCreationTimeIndexBuild.buildInTransaction",
+  "AppOrderedIndexBuild.buildInTransaction",
 )(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   definition: LocatedAppIndexDefinitionV1,
   pageSize: number,
-  options: IntrinsicCreationTimeIndexBuildOptionsV1,
+  options: AppOrderedIndexBuildOptionsV1,
+  policy: AppOrderedIndexBuildPolicyV1,
 ): Effect.fn.Return<
-  IntrinsicCreationTimeIndexBuildResultV1,
+  AppOrderedIndexBuildResultV1,
   | LockScopeClockForUpdateError
   | IndexBuildStateCorruptionError
-  | IntrinsicCreationTimeIndexBuildStaleAuthorityV1Error
-  | IntrinsicCreationTimeIndexBuildStateV1Error
-  | IntrinsicCreationTimeIndexBuildIntegrationV1Error
+  | AppOrderedIndexBuildStaleAuthorityError
+  | AppOrderedIndexBuildStateError
+  | AppOrderedIndexBuildIntegrationError
   | AppendAppIndexEntryRevisionV1Error
   | ReadAppIndexRangeV1Error
 > {
@@ -477,6 +706,7 @@ const buildInTransaction = Effect.fn(
     tx,
     authority.scopeId,
   );
+  yield* runFault(options, "afterScopeClockLock", null);
   yield* Effect.fromResult(requireAuthorityResult(
     authority,
     definition.indexDefinitionId,
@@ -485,7 +715,7 @@ const buildInTransaction = Effect.fn(
   const scopeUuid = yield* Effect.fromResult(
     projectScopeIdUuidV1Result(authority.scopeId),
   ).pipe(Effect.mapError((cause) =>
-    new IntrinsicCreationTimeIndexBuildStateV1Error({
+    new AppOrderedIndexBuildStateError({
       scopeId: authority.scopeId,
       indexDefinitionId: definition.indexDefinitionId,
       reason: "indexHistoryMismatch",
@@ -503,7 +733,7 @@ const buildInTransaction = Effect.fn(
   );
   const row = rows[0];
   if (row === undefined) {
-    return yield* Effect.fail(new IntrinsicCreationTimeIndexBuildStateV1Error({
+    return yield* Effect.fail(new AppOrderedIndexBuildStateError({
       scopeId: authority.scopeId,
       indexDefinitionId: definition.indexDefinitionId,
       reason: "buildMissing",
@@ -549,6 +779,7 @@ const buildInTransaction = Effect.fn(
         definition,
         pageSize,
         options,
+        policy,
       );
     case "validating":
       return yield* validateAndEnable(
@@ -558,11 +789,12 @@ const buildInTransaction = Effect.fn(
         definition,
         pageSize,
         options,
+        policy,
       );
     case "enabled":
       return result(state, "replayed", "enabled", 0, 0, null);
     case "retiring":
-      return yield* Effect.fail(new IntrinsicCreationTimeIndexBuildStateV1Error({
+      return yield* Effect.fail(new AppOrderedIndexBuildStateError({
         scopeId: state.scopeId,
         indexDefinitionId: state.indexDefinitionId,
         reason: "unsupportedLifecycle",
@@ -571,18 +803,19 @@ const buildInTransaction = Effect.fn(
 });
 
 const backfillPage = Effect.fn(
-  "IntrinsicCreationTimeIndexBuild.backfillPage",
+  "AppOrderedIndexBuild.backfillPage",
 )(function* (
   tx: AppRowTransaction,
   scopeUuid: ScopeUuidV1,
   state: IndexBuildStateRecord,
   definition: LocatedAppIndexDefinitionV1,
   pageSize: number,
-  options: IntrinsicCreationTimeIndexBuildOptionsV1,
+  options: AppOrderedIndexBuildOptionsV1,
+  policy: AppOrderedIndexBuildPolicyV1,
 ): Effect.fn.Return<
-  IntrinsicCreationTimeIndexBuildResultV1,
-  | IntrinsicCreationTimeIndexBuildIntegrationV1Error
-  | IntrinsicCreationTimeIndexBuildStateV1Error
+  AppOrderedIndexBuildResultV1,
+  | AppOrderedIndexBuildIntegrationError
+  | AppOrderedIndexBuildStateError
   | AppendAppIndexEntryRevisionV1Error
 > {
   const cursor = state.backfillCursor.afterRowId;
@@ -611,7 +844,7 @@ const backfillPage = Effect.fn(
     const rowId = yield* Effect.fromResult(
       orderedIndexRowIdHexV1FromBytesResult(candidate.rowId),
     ).pipe(Effect.mapError((cause) =>
-      new IntrinsicCreationTimeIndexBuildStateV1Error({
+      new AppOrderedIndexBuildStateError({
         scopeId: state.scopeId,
         indexDefinitionId: state.indexDefinitionId,
         reason: "indexHistoryMismatch",
@@ -619,7 +852,14 @@ const backfillPage = Effect.fn(
       })
     ));
     lastRowId = rowId;
-    const current = yield* loadCurrentAppRow(tx, scopeUuid, definition, rowId);
+    const current = yield* loadCurrentAppRow(
+      tx,
+      scopeUuid,
+      definition,
+      rowId,
+      policy,
+      state,
+    );
     if (current === null) continue;
     const disposition = yield* ensureCurrentIndexEntry(
       tx,
@@ -650,18 +890,19 @@ const backfillPage = Effect.fn(
 });
 
 const validateAndEnable = Effect.fn(
-  "IntrinsicCreationTimeIndexBuild.validateAndEnable",
+  "AppOrderedIndexBuild.validateAndEnable",
 )(function* (
   tx: AppRowTransaction,
   scopeUuid: ScopeUuidV1,
   state: IndexBuildStateRecord,
   definition: LocatedAppIndexDefinitionV1,
   pageSize: number,
-  options: IntrinsicCreationTimeIndexBuildOptionsV1,
+  options: AppOrderedIndexBuildOptionsV1,
+  policy: AppOrderedIndexBuildPolicyV1,
 ): Effect.fn.Return<
-  IntrinsicCreationTimeIndexBuildResultV1,
-  | IntrinsicCreationTimeIndexBuildIntegrationV1Error
-  | IntrinsicCreationTimeIndexBuildStateV1Error
+  AppOrderedIndexBuildResultV1,
+  | AppOrderedIndexBuildIntegrationError
+  | AppOrderedIndexBuildStateError
   | ReadAppIndexRangeV1Error
 > {
   const cursor = state.backfillCursor.afterRowId;
@@ -693,7 +934,7 @@ const validateAndEnable = Effect.fn(
     observedRowIds.push(yield* Effect.fromResult(
       orderedIndexRowIdHexV1FromBytesResult(observed.rowId),
     ).pipe(Effect.mapError((cause) =>
-      new IntrinsicCreationTimeIndexBuildStateV1Error({
+      new AppOrderedIndexBuildStateError({
         scopeId: state.scopeId,
         indexDefinitionId: state.indexDefinitionId,
         reason: "indexHistoryMismatch",
@@ -712,6 +953,8 @@ const validateAndEnable = Effect.fn(
       scopeUuid,
       definition,
       rowId,
+      policy,
+      state,
     );
     const actualRows = yield* readCurrentAppIndexEntriesForRowInTransactionEffect(
       tx,
@@ -733,7 +976,11 @@ const validateAndEnable = Effect.fn(
       );
     }
     const actualRow = actualRows[0]!;
-    const encodedKey = creationTimeKey(definition, expectedRow.creationTime);
+    const encodedKey = yield* projectIndexKey(
+      definition,
+      expectedRow,
+      state,
+    );
     if (
       rowId !== actualRow.rowId ||
       expectedRow.commitSeq !== actualRow.commitSeq ||
@@ -773,22 +1020,61 @@ const validateAndEnable = Effect.fn(
   return result(state, "enabled", "enabled", page.length, 0, null);
 });
 
-function loadCurrentAppRow(
+const loadCurrentAppRow = Effect.fn(
+  "AppOrderedIndexBuild.loadCurrentAppRow",
+)(function* (
   tx: AppRowTransaction,
   scopeUuid: ScopeUuidV1,
   definition: LocatedAppIndexDefinitionV1,
   rowId: OrderedIndexRowIdHexV1,
-): Effect.Effect<
+  policy: AppOrderedIndexBuildPolicyV1,
+  state: IndexBuildStateRecord,
+): Effect.fn.Return<
   CurrentAppRowV1 | null,
-  IntrinsicCreationTimeIndexBuildIntegrationV1Error
+  | AppOrderedIndexBuildIntegrationError
+  | AppOrderedIndexBuildStateError
 > {
   const rowIdBytes = Buffer.from(rowId, "hex");
-  return queryEffect(
+  if (policy.kind === "intrinsicCreationTime") {
+    const rows = yield* queryEffect(
+      tx.select({
+        rowId: fxAppRowRevisions.rowId,
+        commitSeq: fxAppRowRevisions.commitSeq,
+        creationTime: fxAppRowRevisions.creationTime,
+        writeEpochUuid: fxAppRowRevisions.writeEpochUuid,
+      }).from(fxAppRowCurrent).innerJoin(fxAppRowRevisions, and(
+        eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
+        eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
+        eq(fxAppRowRevisions.rowId, fxAppRowCurrent.rowId),
+        eq(fxAppRowRevisions.commitSeq, fxAppRowCurrent.commitSeq),
+      )).where(and(
+        eq(fxAppRowCurrent.scopeUuid, scopeUuid),
+        eq(fxAppRowCurrent.tableId, definition.access.tableId),
+        eq(fxAppRowCurrent.rowId, rowIdBytes),
+        eq(fxAppRowRevisions.isTombstone, false),
+      )).limit(1),
+    );
+    const row = rows[0];
+    return row === undefined
+      ? null
+      : Object.freeze({
+        kind: "intrinsicCreationTime",
+        rowId: appRowIdHexV1FromBytes(copyBytes(row.rowId)),
+        commitSeq: row.commitSeq,
+        creationTime: row.creationTime,
+        writeEpochUuid: row.writeEpochUuid,
+      });
+  }
+  const rows = yield* queryEffect(
     tx.select({
       rowId: fxAppRowRevisions.rowId,
       commitSeq: fxAppRowRevisions.commitSeq,
       creationTime: fxAppRowRevisions.creationTime,
       writeEpochUuid: fxAppRowRevisions.writeEpochUuid,
+      valueCodecVersion: fxAppRowRevisions.valueCodecVersion,
+      valueJson: fxAppRowRevisions.valueJson,
+      valueBytes: fxAppRowRevisions.valueBytes,
+      valueSha256: fxAppRowRevisions.valueSha256,
     }).from(fxAppRowCurrent).innerJoin(fxAppRowRevisions, and(
       eq(fxAppRowRevisions.scopeUuid, fxAppRowCurrent.scopeUuid),
       eq(fxAppRowRevisions.tableId, fxAppRowCurrent.tableId),
@@ -800,21 +1086,56 @@ function loadCurrentAppRow(
       eq(fxAppRowCurrent.rowId, rowIdBytes),
       eq(fxAppRowRevisions.isTombstone, false),
     )).limit(1),
-  ).pipe(Effect.map((rows) => {
-    const row = rows[0];
-    return row === undefined
-      ? null
-      : Object.freeze({
-        rowId: appRowIdHexV1FromBytes(copyBytes(row.rowId)),
-        commitSeq: row.commitSeq,
-        creationTime: row.creationTime,
-        writeEpochUuid: row.writeEpochUuid,
-      });
-  }));
-}
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  const appRowId = appRowIdHexV1FromBytes(copyBytes(row.rowId));
+  if (
+    row.valueCodecVersion === null || row.valueJson === null ||
+    row.valueBytes === null || row.valueSha256 === null
+  ) {
+    return yield* Effect.fail(new AppOrderedIndexBuildStateError({
+      scopeId: state.scopeId,
+      indexDefinitionId: state.indexDefinitionId,
+      reason: "storedDocumentInvalid",
+      detail: "live current row is missing canonical value evidence",
+    }));
+  }
+  const document = yield* Effect.tryPromise({
+    try: () => verifyAppDocumentEvidenceV1({
+      tableId: definition.access.tableId,
+      rowId: appRowId,
+      creationTime: row.creationTime,
+      codecVersion: row.valueCodecVersion,
+      valueJson: row.valueJson,
+      canonicalBytes: row.valueBytes,
+      sha256: row.valueSha256,
+    }),
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch((cause: unknown) =>
+    cause instanceof AppDocumentSystemFieldV1Error ||
+      cause instanceof FlarexValueCodecV1Error ||
+      cause instanceof FlarexValueEvidenceV1Error
+      ? Effect.fail(new AppOrderedIndexBuildStateError({
+          scopeId: state.scopeId,
+          indexDefinitionId: state.indexDefinitionId,
+          reason: "storedDocumentInvalid",
+          detail: "live current row canonical evidence does not verify",
+        }))
+      : Effect.die(cause)
+  ));
+  return Object.freeze({
+    kind: "developer",
+    rowId: appRowId,
+    commitSeq: row.commitSeq,
+    creationTime: row.creationTime,
+    writeEpochUuid: row.writeEpochUuid,
+    document,
+  });
+});
 
 const ensureCurrentIndexEntry = Effect.fn(
-  "IntrinsicCreationTimeIndexBuild.ensureCurrentEntry",
+  "AppOrderedIndexBuild.ensureCurrentEntry",
 )(function* (
   tx: AppIndexEntryTransaction,
   scopeUuid: ScopeUuidV1,
@@ -823,15 +1144,19 @@ const ensureCurrentIndexEntry = Effect.fn(
   current: CurrentAppRowV1,
 ): Effect.fn.Return<
   "written" | "replayed",
-  | IntrinsicCreationTimeIndexBuildIntegrationV1Error
-  | IntrinsicCreationTimeIndexBuildStateV1Error
+  | AppOrderedIndexBuildIntegrationError
+  | AppOrderedIndexBuildStateError
   | AppendAppIndexEntryRevisionV1Error
 > {
-  const encodedKey = creationTimeKey(definition, current.creationTime);
+  const encodedKey = yield* projectIndexKey(
+    definition,
+    current,
+    state,
+  );
   const rowId = yield* Effect.fromResult(
     orderedIndexRowIdHexV1FromBytesResult(Buffer.from(current.rowId, "hex")),
   ).pipe(Effect.mapError((cause) =>
-    new IntrinsicCreationTimeIndexBuildStateV1Error({
+    new AppOrderedIndexBuildStateError({
       scopeId: state.scopeId,
       indexDefinitionId: state.indexDefinitionId,
       reason: "indexHistoryMismatch",
@@ -908,16 +1233,41 @@ function creationTimeKey(
   });
 }
 
+function projectIndexKey(
+  definition: LocatedAppIndexDefinitionV1,
+  current: CurrentAppRowV1,
+  state: IndexBuildStateRecord,
+): Effect.Effect<
+  OrderedIndexKeyHexV1,
+  AppOrderedIndexBuildStateError
+> {
+  if (current.kind === "intrinsicCreationTime") {
+    return Effect.succeed(creationTimeKey(definition, current.creationTime));
+  }
+  return Effect.fromResult(lowerAppDeveloperIndexKeyV1(
+    definition,
+    current.document,
+    current.creationTime,
+  )).pipe(Effect.mapError((cause: OrderedIndexKeyTooLargeError) =>
+    new AppOrderedIndexBuildStateError({
+      scopeId: state.scopeId,
+      indexDefinitionId: state.indexDefinitionId,
+      reason: "indexKeyLimitExceeded",
+      detail: `ordered key uses ${cause.observedBytes} bytes; maximum is ${cause.maximumBytes}`,
+    })
+  ));
+}
+
 function transitionLifecycle(
   tx: AppRowTransaction,
   state: IndexBuildStateRecord,
   lifecycle: "building" | "backfilling" | "validating" | "enabled",
   cursorRowId: OrderedIndexRowIdHexV1 | null,
-  options: IntrinsicCreationTimeIndexBuildOptionsV1,
+  options: AppOrderedIndexBuildOptionsV1,
 ): Effect.Effect<
   void,
-  | IntrinsicCreationTimeIndexBuildIntegrationV1Error
-  | IntrinsicCreationTimeIndexBuildStateV1Error
+  | AppOrderedIndexBuildIntegrationError
+  | AppOrderedIndexBuildStateError
 > {
   return Effect.gen(function* () {
     const updated = yield* queryEffect(
@@ -943,7 +1293,7 @@ function transitionLifecycle(
     );
     if (updated.length !== 1) {
       return yield* Effect.fail(
-        new IntrinsicCreationTimeIndexBuildStateV1Error({
+        new AppOrderedIndexBuildStateError({
           scopeId: state.scopeId,
           indexDefinitionId: state.indexDefinitionId,
           reason: "concurrentStateChange",
@@ -955,15 +1305,15 @@ function transitionLifecycle(
 }
 
 function runFault(
-  options: IntrinsicCreationTimeIndexBuildOptionsV1,
-  point: IntrinsicCreationTimeIndexBuildFaultPointV1,
+  options: AppOrderedIndexBuildOptionsV1,
+  point: AppOrderedIndexBuildFaultPointV1,
   rowId: OrderedIndexRowIdHexV1 | null,
-): Effect.Effect<void, IntrinsicCreationTimeIndexBuildIntegrationV1Error> {
+): Effect.Effect<void, AppOrderedIndexBuildIntegrationError> {
   return options.faultAfter === undefined
     ? Effect.void
-    : Effect.try({
-      try: () => options.faultAfter?.(point, rowId),
-      catch: (cause) => new IntrinsicCreationTimeIndexBuildIntegrationV1Error({
+    : Effect.tryPromise({
+      try: async () => options.faultAfter?.(point, rowId),
+      catch: (cause) => new AppOrderedIndexBuildIntegrationError({
         phase: "targetTransaction",
         retryable: true,
         cause,
@@ -973,12 +1323,12 @@ function runFault(
 
 function result(
   state: IndexBuildStateRecord,
-  status: IntrinsicCreationTimeIndexBuildResultV1["status"],
-  lifecycle: IntrinsicCreationTimeIndexBuildResultV1["lifecycle"],
+  status: AppOrderedIndexBuildResultV1["status"],
+  lifecycle: AppOrderedIndexBuildResultV1["lifecycle"],
   processedRows: number,
   replayedRows: number,
   cursorRowId: OrderedIndexRowIdHexV1 | null,
-): IntrinsicCreationTimeIndexBuildResultV1 {
+): AppOrderedIndexBuildResultV1 {
   return Object.freeze({
     status,
     scopeId: state.scopeId,
@@ -993,8 +1343,8 @@ function result(
 function mismatch(
   state: IndexBuildStateRecord,
   detail: string,
-): Effect.Effect<never, IntrinsicCreationTimeIndexBuildStateV1Error> {
-  return Effect.fail(new IntrinsicCreationTimeIndexBuildStateV1Error({
+): Effect.Effect<never, AppOrderedIndexBuildStateError> {
+  return Effect.fail(new AppOrderedIndexBuildStateError({
     scopeId: state.scopeId,
     indexDefinitionId: state.indexDefinitionId,
     reason: "currentContentsMismatch",
@@ -1010,7 +1360,7 @@ function requireAuthorityResult(
     readonly storageGenerationFence: bigint;
     readonly epoch: string;
   },
-): Result.Result<void, IntrinsicCreationTimeIndexBuildStaleAuthorityV1Error> {
+): Result.Result<void, AppOrderedIndexBuildStaleAuthorityError> {
   for (const reason of [
     "storageGeneration",
     "storageGenerationFence",
@@ -1018,7 +1368,7 @@ function requireAuthorityResult(
   ] as const) {
     if (current[reason] !== expected[reason]) {
       return Result.fail(
-        new IntrinsicCreationTimeIndexBuildStaleAuthorityV1Error({
+        new AppOrderedIndexBuildStaleAuthorityError({
           scopeId: expected.scopeId,
           indexDefinitionId,
           reason,
@@ -1032,19 +1382,106 @@ function requireAuthorityResult(
 function requireBuildAuthorityResult(
   state: IndexBuildStateRecord,
   authority: TrustedScopeAuthority,
-): Result.Result<void, IntrinsicCreationTimeIndexBuildStaleAuthorityV1Error> {
+): Result.Result<void, AppOrderedIndexBuildStaleAuthorityError> {
   return requireAuthorityResult(authority, state.indexDefinitionId, state);
 }
 
 function queryEffect<Value>(
   query: PromiseLike<Value>,
-): Effect.Effect<Value, IntrinsicCreationTimeIndexBuildIntegrationV1Error> {
+): Effect.Effect<Value, AppOrderedIndexBuildIntegrationError> {
   return Effect.tryPromise({
     try: () => query,
-    catch: (cause) => new IntrinsicCreationTimeIndexBuildIntegrationV1Error({
+    catch: (cause) => new AppOrderedIndexBuildIntegrationError({
       phase: "targetTransaction",
       retryable: true,
       cause,
     }),
   });
+}
+
+function mapAppOrderedIndexBuildErrorToIntrinsic(
+  error: AppOrderedIndexBuildRuntimeError,
+): Exclude<BuildIntrinsicCreationTimeIndexV1Error,
+  | InvalidIntrinsicCreationTimeIndexBuildInputV1Error
+  | IntrinsicCreationTimeIndexDefinitionUnavailableV1Error
+  | ReadAppIndexDefinitionError
+  | TrustedScopeAuthorityError> {
+  if (error instanceof AppOrderedIndexBuildStaleAuthorityError) {
+    return new IntrinsicCreationTimeIndexBuildStaleAuthorityV1Error({
+      scopeId: error.scopeId,
+      indexDefinitionId: error.indexDefinitionId,
+      reason: error.reason,
+    });
+  }
+  if (error instanceof AppOrderedIndexBuildStateError) {
+    if (
+      error.reason === "storedDocumentInvalid" ||
+      error.reason === "indexKeyLimitExceeded"
+    ) {
+      // These failures can only originate from the developer projection policy.
+      // Crossing this intrinsic boundary is an implementation defect, not a
+      // recoverable intrinsic state variant.
+      throw error;
+    }
+    return new IntrinsicCreationTimeIndexBuildStateV1Error({
+      scopeId: error.scopeId,
+      indexDefinitionId: error.indexDefinitionId,
+      reason: error.reason,
+      ...(error.detail === undefined ? {} : { detail: error.detail }),
+    });
+  }
+  if (error instanceof AppOrderedIndexBuildIntegrationError) {
+    return new IntrinsicCreationTimeIndexBuildIntegrationV1Error({
+      phase: error.phase,
+      retryable: error.retryable,
+      cause: error.cause,
+    });
+  }
+  if (error instanceof AppOrderedIndexBuildDecisionUncertainError) {
+    return new IntrinsicCreationTimeIndexBuildDecisionUncertainV1Error({
+      scopeId: error.scopeId,
+      indexDefinitionId: error.indexDefinitionId,
+      cause: error.cause,
+    });
+  }
+  return error;
+}
+
+function mapAppOrderedIndexBuildErrorToDeveloper(
+  error: AppOrderedIndexBuildRuntimeError,
+): Exclude<BuildAppDeveloperOrderedIndexV1Error,
+  | InvalidAppDeveloperOrderedIndexBuildInputV1Error
+  | AppDeveloperOrderedIndexDefinitionUnavailableV1Error
+  | ReadAppIndexDefinitionError
+  | TrustedScopeAuthorityError> {
+  if (error instanceof AppOrderedIndexBuildStaleAuthorityError) {
+    return new AppDeveloperOrderedIndexBuildStaleAuthorityV1Error({
+      scopeId: error.scopeId,
+      indexDefinitionId: error.indexDefinitionId,
+      reason: error.reason,
+    });
+  }
+  if (error instanceof AppOrderedIndexBuildStateError) {
+    return new AppDeveloperOrderedIndexBuildStateV1Error({
+      scopeId: error.scopeId,
+      indexDefinitionId: error.indexDefinitionId,
+      reason: error.reason,
+      ...(error.detail === undefined ? {} : { detail: error.detail }),
+    });
+  }
+  if (error instanceof AppOrderedIndexBuildIntegrationError) {
+    return new AppDeveloperOrderedIndexBuildIntegrationV1Error({
+      phase: error.phase,
+      retryable: error.retryable,
+      cause: error.cause,
+    });
+  }
+  if (error instanceof AppOrderedIndexBuildDecisionUncertainError) {
+    return new AppDeveloperOrderedIndexBuildDecisionUncertainV1Error({
+      scopeId: error.scopeId,
+      indexDefinitionId: error.indexDefinitionId,
+      cause: error.cause,
+    });
+  }
+  return error;
 }

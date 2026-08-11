@@ -1655,6 +1655,11 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         logicalName: "pantryStock",
         fields: COOKING_PANTRY_FIELDS,
       }],
+      indexes: [{
+        tableLogicalName: "recipes",
+        descriptor: "by_difficulty",
+        fields: ["difficulty"],
+      }],
       fields: COOKING_FIELDS,
     }),
   },

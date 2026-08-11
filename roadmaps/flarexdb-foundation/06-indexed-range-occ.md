@@ -4,11 +4,10 @@ Status: Accepted design plus completed `O10-PF2`, `O10-P0`, `O10-A`, and
 private production-inert `O10-B`. The exact mutation runtime now admits the one
 bounded ascending developer-index range operation, including durable staged
 overlay and commit-time phantom validation. No public developer API or
-production route is active. The `O10-C` preflight found that no shared-core
-owner can advance a reconciled developer ordered-index build to `enabled`;
-readiness and the indexed journal correctly fail closed instead. `O10-C` is
-therefore blocked by `ST-CORE-019` pending a separately approved
-production-inert C08 developer-index build prerequisite. This checkpoint does
+production route is active. The `O10-C` preflight gap recorded as
+`ST-CORE-019` is closed by the accepted production-inert C08 developer
+ordered-index build prerequisite, so O10-C may resume as the next separately
+approved capability. This checkpoint does
 not authorize relations, scans, filters, search, vectors, external pagination,
 or production routing.
 
@@ -560,12 +559,12 @@ search, and vector shapes must have explicit rejection tests.
    validator, 128-commit refusal, exact O08 conflict replacement, measured
    supporting index, private analyzer ABI, RPC, and exact runtime capability
    are integrated without a second OCC/commit/retry owner.
-6. **O10-C — blocked in preflight by `ST-CORE-019`.** After a separately
-   approved C08 developer ordered-index build prerequisite exists, close
-   PGlite and genuine-PostgreSQL concurrency/plan/rollback evidence and add a
+6. **O10-C — ready for its next approved slice.** `ST-CORE-019` is closed by
+   the accepted C08 developer ordered-index build prerequisite. Continue with
+   PGlite and genuine-PostgreSQL concurrency/plan/rollback evidence and a
    Standard cooking-app scenario that makes a real business decision from an
-   indexed range. The simulation may not seed enabled C4 state or bypass
-   readiness to conceal the missing shared owner.
+   indexed range. The simulation must continue through the real build and
+   readiness owners and may not seed enabled C4 state.
 
 Each implementation-bearing capability owns one commit, focused validation,
 both mandatory exact-final reviewers, fixes, and re-review. No slice activates

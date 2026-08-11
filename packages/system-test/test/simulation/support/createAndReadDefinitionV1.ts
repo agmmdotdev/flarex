@@ -5,6 +5,8 @@ import type {
   StandardValidatorRecordV1,
 } from "@flarex/standard-application-definition/v1";
 import { standardV1 } from "@flarex/standard-application-definition/v1";
+import type { SchemaManifestAppIndexDeclarationInputV1 } from
+  "flarex-protocol/schema-manifest";
 
 type AnyStandardModuleV1 = StandardModuleV1<
   string,
@@ -35,6 +37,7 @@ export interface CreateAndReadDefinitionInputV1<
   readonly fields: Fields;
   readonly additionalTables?:
     ReadonlyArray<CreateAndReadAdditionalTableV1>;
+  readonly indexes?: ReadonlyArray<SchemaManifestAppIndexDeclarationInputV1>;
   readonly additionalFunctionModules?:
     ReadonlyArray<CreateAndReadAdditionalFunctionModuleV1>;
   readonly pointMutationLifecycle?: Readonly<{
@@ -174,7 +177,7 @@ export function makeCreateAndReadDefinitionV1<
             documentType: standardV1.object(table.fields).json,
           },
         }))],
-        indexes: [],
+        indexes: input.indexes ?? [],
       },
       modules: programModules,
     },

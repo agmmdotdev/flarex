@@ -185,8 +185,10 @@ import {
   type PGliteFlarexPersistence,
 } from "../src/pglite";
 import {
+  buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
   createIntrinsicCreationTimeIndexDefinitionPortV1,
+  type BuildAppDeveloperOrderedIndexV1Input,
 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { reconcilePublishedIndexBuildsV1Effect } from
   "../src/indexBuildReconciliation";
@@ -4571,6 +4573,103 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(afterDelete.current).toEqual([]);
   });
 
+  it("resets a developer validation cursor in the real point commit and revalidates exactly", async () => {
+    let buildPorts: Parameters<
+      typeof buildAppDeveloperOrderedIndexV1Effect
+    >[0] | undefined;
+    let buildInput: BuildAppDeveloperOrderedIndexV1Input | undefined;
+    const prepared = await prepareO07BScenario(
+      "c08_developer_build_validation_reset",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Missing developer validation-reset document.");
+        }
+        await runPointOperation(current.store, table, {
+          kind: "patch",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+          patch: { name: "changed-behind-validation-cursor" },
+        });
+      },
+      async (current) => {
+        const proofOptions = await prepareDeveloperIndexForO06(current, true);
+        await seedSecondDeveloperBuildRowAtCommitOne(current);
+        const developerIndexes = proofOptions.developerIndexes;
+        if (developerIndexes === undefined) {
+          throw new Error("Missing developer validation-reset locator.");
+        }
+        const definitions = await runEffect(developerIndexes.locate({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          schemaVersionId: current.schemaVersionId,
+          tableIds: Object.freeze([decodeCatalogTableId(1)]),
+          maximumDefinitions: 1,
+        }));
+        const definition = definitions?.[0];
+        if (definitions?.length !== 1 || definition === undefined) {
+          throw new Error("Missing developer validation-reset definition.");
+        }
+        const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
+          persistence,
+          sharedLocator,
+        );
+        buildPorts = {
+          controlDb: persistence.drizzle,
+          authority: {
+            scopeMetadata: {
+              getScopeMetadataByDeploymentId: (deploymentId: string) =>
+                persistence.getScopeMetadataByDeploymentId(deploymentId),
+            },
+            provisioningReceipts: {
+              getScopeAuthorityProvisioningReceipt: async () => null,
+            },
+            scopeClockTargets: { resolve: async () => target },
+          },
+        };
+        buildInput = {
+          deploymentId: current.anchor.deploymentId,
+          indexDefinitionId: definition.indexDefinitionId,
+          pageSize: 1,
+        };
+        for (let step = 0; step < 8; step += 1) {
+          const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
+            buildPorts,
+            buildInput,
+          ));
+          if (result.lifecycle === "validating" && result.cursorRowId !== null) {
+            return proofOptions;
+          }
+        }
+        throw new Error("Developer build did not reach a non-null validation cursor.");
+      },
+      true,
+      true,
+    );
+    if (buildPorts === undefined || buildInput === undefined) {
+      throw new Error("Developer validation-reset build inputs were not captured.");
+    }
+    expect(await developerBuildCursor(prepared.current, buildInput)).not.toBeNull();
+
+    await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+    expect(await developerBuildCursor(prepared.current, buildInput)).toBeNull();
+
+    let enabled = false;
+    for (let step = 0; step < 8; step += 1) {
+      const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
+        buildPorts,
+        buildInput,
+      ));
+      if (result.lifecycle === "enabled") {
+        enabled = true;
+        break;
+      }
+    }
+    expect(enabled).toBe(true);
+    expect(await developerIndexState(prepared.scopeUuid)).toMatchObject({
+      current: [{}, {}],
+    });
+  });
+
   it("derives indexed planning from the exact publisher and keeps same-key updates linear", async () => {
     await expect(prepareO07BScenario(
       "c08a_unfaceted_publisher",
@@ -6942,6 +7041,56 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [scopeId],
     );
     return appDocumentIdV1FromRowIdentity({ tableId, rowId });
+  }
+
+  async function seedSecondDeveloperBuildRowAtCommitOne(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+  ): Promise<void> {
+    const tableId = decodeCatalogTableId(1);
+    const rowId = decodeAppRowIdHexV1("22".repeat(16));
+    const creationTime = decodeAppCreationTimeV1(2);
+    const clock = await persistence.getScopeClock(current.anchor.scopeId);
+    if (clock === null || clock.lastCommitSeq !== 1n) {
+      throw new Error("Unexpected developer validation-reset scope frontier.");
+    }
+    const document = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: { name: "second-validation-row" },
+    });
+    await persistence.drizzle.transaction((tx) =>
+      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: current.anchor.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq: CommitSeqSchema.make(1n),
+        prevCommitSeq: null,
+        schemaVersionId: current.schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      })
+    );
+  }
+
+  async function developerBuildCursor(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    input: BuildAppDeveloperOrderedIndexV1Input,
+  ): Promise<string | null> {
+    const result = await persistence.query<{ cursor_row_hex: string | null }>(
+      `select encode(backfill_cursor_row_id, 'hex') as cursor_row_hex
+         from fx_system_index_build_state
+        where scope_id = $1 and index_definition_id = $2`,
+      [current.anchor.scopeId, input.indexDefinitionId],
+    );
+    return result.rows[0]?.cursor_row_hex ?? null;
   }
 
   async function prepareO06Scenario(

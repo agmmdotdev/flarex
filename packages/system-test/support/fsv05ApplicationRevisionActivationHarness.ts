@@ -46,8 +46,11 @@ import {
 import { RUN_LOCATED_READ_COMMITTED_V1 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import {
+  buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
 } from "@flarex/persistence-postgres/internal/system-test/intrinsicCreationTimeIndexBuildV1";
+import { locateAppIndexDefinitionByIdEffect } from
+  "@flarex/persistence-postgres/internal/system-test/appIndexDefinitions";
 import {
   reconcilePublishedIndexBuildsV1Effect,
 } from "@flarex/persistence-postgres/internal/system-test/indexBuildReconciliation";
@@ -81,7 +84,7 @@ export class Fsv05ReadyRevisionFixtureV1Error extends Data.TaggedError(
     | "register"
     | "prepareUniqueConstraintSet"
     | "reconcile"
-    | "buildIntrinsicIndex"
+    | "buildIndex"
     | "settleReadiness";
   readonly message: string;
   readonly cause: unknown;
@@ -811,24 +814,45 @@ export const prepareFsv05ReadyRevisionFixtureEffectV1 = Effect.fn(
     }));
   }
   for (const indexDefinitionId of reconciliation.definitionIds) {
+    const definition = yield* locateAppIndexDefinitionByIdEffect(
+      lane.persistence.drizzle,
+      reconciliation.scopeId,
+      indexDefinitionId,
+    );
+    if (definition === null) {
+      return yield* Effect.fail(new Fsv05ReadyRevisionFixtureV1Error({
+        phase: "reconcile",
+        message: "FSV05 reconciled index definition disappeared.",
+        cause: new Error("FSV05 reconciled index definition disappeared."),
+      }));
+    }
     for (let step = 0; step < 64; step += 1) {
-      const result = yield* buildIntrinsicCreationTimeIndexV1Effect(
-        {
-          controlDb: lane.persistence.drizzle,
-          authority: authorityPorts(lane.persistence, target),
-        },
-        {
-          deploymentId: registered.deploymentId,
-          indexDefinitionId,
-          pageSize: 4,
-        },
-      );
+      const ports = {
+        controlDb: lane.persistence.drizzle,
+        authority: authorityPorts(lane.persistence, target),
+      } as const;
+      const input = {
+        deploymentId: registered.deploymentId,
+        indexDefinitionId,
+        pageSize: 4,
+      } as const;
+      const buildEffect = (() => {
+        switch (definition.access.kind) {
+          case "developer":
+            return buildAppDeveloperOrderedIndexV1Effect(ports, input);
+          case "by_creation_time":
+            return buildIntrinsicCreationTimeIndexV1Effect(ports, input);
+        }
+        const unreachable: never = definition.access;
+        return unreachable;
+      })();
+      const result = yield* buildEffect;
       if (result.lifecycle === "enabled") break;
       if (step === 63) {
         return yield* Effect.fail(new Fsv05ReadyRevisionFixtureV1Error({
-          phase: "buildIntrinsicIndex",
-          message: "FSV05 intrinsic build did not converge.",
-          cause: new Error("FSV05 intrinsic build did not converge."),
+          phase: "buildIndex",
+          message: "FSV05 ordered-index build did not converge.",
+          cause: new Error("FSV05 ordered-index build did not converge."),
         }));
       }
     }

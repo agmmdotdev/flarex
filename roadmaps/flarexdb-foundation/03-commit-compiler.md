@@ -833,6 +833,28 @@ by that bounded validation query; it changes no C4 lifecycle row or S10 entry
 semantics, and populated-data plus genuine-PostgreSQL planner proof pins the
 access path.
 
+The separately approved production-inert developer ordered-index build
+prerequisite closes `ST-CORE-019` without creating another lifecycle or storage
+owner. It generalizes only the bounded C08-I1 build engine: the intrinsic policy
+continues to derive its key from trusted creation time, while the developer
+policy verifies the exact canonical live app-row evidence and delegates key
+projection to `lowerAppDeveloperIndexKeyV1`. Both policies use the same
+reconciled C4 row, row-ID cursor, start frontier, scope-clock lock, S10
+history/current append owner, exact-content validation, point-commit validation
+reset, rollback, replay, and decision-uncertainty boundary. The two private
+entry points still reject the other definition kind. No table,
+migration, artifact body, alternate lowerer, alternate OCC/commit lane,
+readiness verdict, activation, reader, route, or production behavior is
+authorized. Standard readiness preparation dispatches each authenticated
+reconciled definition to its exact builder. Acceptance requires focused PGlite
+and genuine-PostgreSQL proof of bounded lifecycle progress, canonical evidence
+and identity rejection, exact-kind and key-limit refusal, validation reset,
+rollback, replay, decision-uncertainty recovery, scope-clock serialization,
+exact contents, and the populated validation access plan. The real cooking
+simulation must also traverse Standard preparation and the point-mutation stack
+with its canonical `recipes.by_difficulty` definition on both persistence
+lanes.
+
 `C08-A` directly replaces C04C1's former developer-index rejection only for a
 private capability minted by the exact point-commit port that owns maintenance;
 an independent host literal cannot enable planning. Before the transaction, a

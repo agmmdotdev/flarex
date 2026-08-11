@@ -72,6 +72,7 @@ import {
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
 } from "../src/appIndexEntries";
 import {
+  buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
   createIntrinsicCreationTimeIndexDefinitionPortV1,
 } from "../src/intrinsicCreationTimeIndexBuildV1";
@@ -899,6 +900,138 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
       expect(afterDelete.revisions).toHaveLength(5);
       expect(afterDelete.revisions.filter((row) => row.isTombstone)).toHaveLength(2);
       expect(afterDelete.current).toEqual([]);
+    });
+  }, 120_000);
+
+  it("resets developer validation behind its cursor and completes exact revalidation", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96418200");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "developer_build_validation_reset",
+        true,
+      );
+      const developerOptions = await prepareDeveloperIndexForPostgres(
+        persistence,
+        scope,
+      );
+      const first = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_build_validation_first",
+      );
+      await runEffect(createPublisher(persistence, developerOptions).publish(
+        first.publicationCommand,
+      ));
+      const firstIntent = first.command.rowIntents[0];
+      if (firstIntent?.kind !== "live") {
+        throw new Error("Expected first developer validation-reset insert.");
+      }
+      const second = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_build_validation_second",
+      );
+      await runEffect(createPublisher(persistence, developerOptions).publish(
+        second.publicationCommand,
+      ));
+
+      const developerIndexes = developerOptions.developerIndexes;
+      if (developerIndexes === undefined) {
+        throw new Error("Missing PostgreSQL developer validation locator.");
+      }
+      const definitions = await runEffect(
+        developerIndexes.locate({
+          deploymentId: scope.deploymentId,
+          scopeId: scope.scopeId,
+          schemaVersionId: scope.schemaVersionId,
+          tableIds: Object.freeze([decodeCatalogTableId(1)]),
+          maximumDefinitions: 1,
+        }),
+      );
+      const definition = definitions?.[0];
+      if (definitions?.length !== 1 || definition === undefined) {
+        throw new Error("Missing PostgreSQL developer validation definition.");
+      }
+      const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
+        persistence,
+        scope.physicalLocator,
+      );
+      const buildPorts = {
+        controlDb: persistence.drizzle,
+        authority: {
+          scopeMetadata: {
+            getScopeMetadataByDeploymentId: (deploymentId: string) =>
+              persistence.getScopeMetadataByDeploymentId(deploymentId),
+          },
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => null,
+          },
+          scopeClockTargets: { resolve: async () => target },
+        },
+      } as const;
+      const buildInput = {
+        deploymentId: scope.deploymentId,
+        indexDefinitionId: definition.indexDefinitionId,
+        pageSize: 1,
+      } as const;
+      let reachedCursor = false;
+      for (let step = 0; step < 8; step += 1) {
+        const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
+          buildPorts,
+          buildInput,
+        ));
+        if (result.lifecycle === "validating" && result.cursorRowId !== null) {
+          reachedCursor = true;
+          break;
+        }
+      }
+      expect(reachedCursor).toBe(true);
+      expect(await developerIndexBuildCursor(
+        persistence,
+        scope,
+        definition.indexDefinitionId,
+      )).not.toBeNull();
+
+      const changed = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "developer_build_validation_change",
+        {
+          kind: "patch",
+          documentId: firstIntent.documentId,
+          name: "changed-behind-validation-cursor",
+        },
+      );
+      await runEffect(createPublisher(persistence, developerOptions).publish(
+        changed.publicationCommand,
+      ));
+      expect(await developerIndexBuildCursor(
+        persistence,
+        scope,
+        definition.indexDefinitionId,
+      )).toBeNull();
+
+      let enabled = false;
+      for (let step = 0; step < 8; step += 1) {
+        const result = await runEffect(buildAppDeveloperOrderedIndexV1Effect(
+          buildPorts,
+          buildInput,
+        ));
+        if (result.lifecycle === "enabled") {
+          enabled = true;
+          break;
+        }
+      }
+      expect(enabled).toBe(true);
+      expect((await developerIndexState(
+        persistence,
+        changed.command.sealIdentity.scopeUuid,
+      )).current).toHaveLength(2);
     });
   }, 120_000);
 
@@ -3458,6 +3591,20 @@ async function prepareDeveloperIndexForPostgres(
       persistence.drizzle,
     ),
   });
+}
+
+async function developerIndexBuildCursor(
+  persistence: PostgresFlarexPersistence,
+  scope: ScopeScenario,
+  indexDefinitionId: number,
+): Promise<string | null> {
+  const result = await persistence.query<{ cursor_row_hex: string | null }>(
+    `select encode(backfill_cursor_row_id, 'hex') as cursor_row_hex
+       from fx_system_index_build_state
+      where scope_id = $1 and index_definition_id = $2`,
+    [scope.scopeId, indexDefinitionId],
+  );
+  return result.rows[0]?.cursor_row_hex ?? null;
 }
 
 async function prepareUniqueConstraintForPostgres(

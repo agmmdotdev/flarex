@@ -128,21 +128,25 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         (select count(*)::text from fx_app_index_entry_rev) as revisions,
         (select count(*)::text from fx_app_index_entry_current) as current_rows`);
       expect(sidecarCounts.rows[0]).toEqual({
-        revisions: "11",
-        current_rows: "4",
+        revisions: "21",
+        current_rows: "7",
       });
       const crossTableSidecars = await persistence.query<{
+        access_kind: string;
         table_id: string;
         row_id_hex: string;
         commit_seq: string;
         is_tombstone: boolean;
         is_current: boolean;
-      }>(`select revision.table_id::text,
+      }>(`select definition.access_kind,
+          revision.table_id::text,
           encode(revision.row_id, 'hex') as row_id_hex,
           revision.commit_seq::text,
           revision.is_tombstone,
           current_entry.row_id is not null as is_current
         from fx_app_index_entry_rev as revision
+        join fx_control_index_definition as definition
+          on definition.index_definition_id = revision.index_definition_id
         left join fx_app_index_entry_current as current_entry
           on current_entry.scope_uuid = revision.scope_uuid
          and current_entry.index_definition_id = revision.index_definition_id
@@ -150,14 +154,25 @@ describePostgres("cooking simulation - PostgreSQL", () => {
          and current_entry.row_id = revision.row_id
          and current_entry.commit_seq = revision.commit_seq
         where revision.commit_seq = 10
-        order by revision.table_id`);
+        order by definition.access_kind, revision.table_id`);
       expect(crossTableSidecars.rows).toEqual([{
+        access_kind: "by_creation_time",
         table_id: "1",
         row_id_hex: pointRowIdHex(proof.workloadProof.pantryDocumentId),
         commit_seq: "10",
         is_tombstone: false,
         is_current: true,
       }, {
+        access_kind: "by_creation_time",
+        table_id: "2",
+        row_id_hex: pointRowIdHex(
+          proof.workloadProof.raceCompetitorDocumentId,
+        ),
+        commit_seq: "10",
+        is_tombstone: false,
+        is_current: true,
+      }, {
+        access_kind: "developer",
         table_id: "2",
         row_id_hex: pointRowIdHex(
           proof.workloadProof.raceCompetitorDocumentId,

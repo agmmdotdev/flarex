@@ -14,45 +14,6 @@ fixture succeeds.
 
 ## Open Issues
 
-### `ST-CORE-019` - Developer ordered indexes have no enabling build owner
-
-- **Status:** Open; found by the O10-C cooking indexed-range preflight on
-  2026-08-11. No build, readiness, activation, or system-test owner has been
-  changed.
-- **Reproduction:** Add one canonical developer ordered index to the Standard
-  cooking definition and run the existing real-system preparation path.
-  `reconcilePublishedIndexBuildsV1Effect` includes that immutable developer
-  definition in the physical requirement set and creates its C4 build row.
-  `prepareFsv05ReadyRevisionFixtureEffectV1` then sends every reconciled
-  definition to `buildIntrinsicCreationTimeIndexV1Effect`, whose public
-  contract accepts only `by_creation_time` definitions and returns
-  `IntrinsicCreationTimeIndexDefinitionUnavailableV1Error` with reason
-  `notCreationTime` for the developer definition. Independently,
-  application-revision readiness refuses every required build whose lifecycle
-  is not `enabled`, and the indexed journal refuses a developer index whose
-  build is not enabled.
-- **Expected:** One bounded shared-core developer ordered-index build owner
-  advances the existing reconciled C4 row through backfill, validation, and
-  enablement using canonical app-row evidence, the accepted C08 lowerer, S10
-  history/current storage, scope authority, and existing validation-reset
-  semantics. Standard lifecycle preparation can then activate the exact
-  indexed revision without test-owned catalog writes.
-- **Actual:** There is no repository implementation that can enable a
-  developer ordered-index C4 build. The existing point-commit owner maintains
-  developer sidecars while a build is in progress, but it does not own initial
-  backfill or the clean complete validation pass required for enablement.
-- **Owner and trust boundary:** C08 developer ordered-index build lifecycle,
-  canonical row-to-key lowering, S10 sidecar history/current authority, and
-  readiness-consumed C4 build evidence. This is shared persistence and
-  readiness authority, not an `@flarex/system-test` fixture concern.
-- **Current disposition:** O10-C is blocked before implementation. Do not seed
-  or directly update an enabled build from the cooking test, weaken readiness,
-  reuse the intrinsic builder by accepting the wrong definition kind, or add a
-  second lowering/storage path. A separately approved production-inert
-  prerequisite must define bounded backfill/validation, commit invalidation,
-  PGlite and genuine-PostgreSQL concurrency/rollback/plan evidence, and exact
-  integration with the existing C08/S10 owners.
-
 ### `ST-CORE-018` - SAP06-A2 fixture omits the application-error platform module
 
 - **Status:** Open; reproduced independently during the FSV04/FSV05 C08
@@ -151,6 +112,30 @@ fixture succeeds.
 None.
 
 ## Resolved Issues
+
+### `ST-CORE-019` - Developer ordered indexes had no enabling build owner
+
+- **Status:** Resolved by the accepted production-inert C08 developer
+  ordered-index build prerequisite.
+- **Root cause:** Reconciliation created the required C4 row and point commit
+  maintained developer S10 sidecars, but only the intrinsic
+  `by_creation_time` definition had an owner that could perform initial
+  backfill, complete validation, and enablement. Standard readiness and indexed
+  queries correctly remained fail closed.
+- **Resolution:** One domain-first ordered-index lifecycle engine now backs
+  exact intrinsic and developer entry points. The developer policy verifies
+  canonical current-row evidence and delegates to the existing C08 lowerer;
+  both policies preserve the existing C4 row, S10 history/current owner, scope
+  authority, bounded cursor, validation reset, transaction, rollback, replay,
+  and decision-uncertainty boundaries. No schema or migration was introduced.
+- **Acceptance evidence:** PGlite and genuine PostgreSQL prove bounded lifecycle
+  progress, exact-kind and key-limit refusal, canonical evidence and identity
+  rejection, real point-commit validation reset, rollback, replay,
+  decision-uncertainty recovery, scope-clock serialization, exact contents, and
+  the populated planner path. The cooking simulation traverses real Standard
+  preparation and point mutation with `recipes.by_difficulty` on both lanes.
+- **Resolution owner:** C08 developer ordered-index build lifecycle and its
+  existing C4/S10/point-commit integrations, not the system-test fixture.
 
 ### `ST-CORE-014` — root application-error evidence was lost at the mutation host boundary
 
