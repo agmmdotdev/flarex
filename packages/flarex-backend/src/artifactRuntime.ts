@@ -17,6 +17,18 @@ import {
   executionArtifactRuntimeOperationErrorFromUnknown,
 } from "./artifactRuntime/OperationError.ts";
 export {
+  APPLICATION_RUNTIME_COLD_ENTRYPOINT,
+  APPLICATION_RUNTIME_COMPATIBILITY_DATE,
+  APPLICATION_RUNTIME_HOST_IDENTITY,
+  ApplicationRuntimeMaterializationError,
+  makeApplicationRuntimeColdWorkerDefinition,
+  makeApplicationRuntimeMaterializer,
+  type ApplicationRuntimeColdWorkerDefinition,
+  type ApplicationRuntimeMaterializationInput,
+  type ApplicationRuntimeMaterializer,
+  type ApplicationRuntimeMaterializerCapabilities,
+} from "./artifactRuntime/ApplicationRuntimeMaterializer.ts";
+export {
   generatedExecutionWorkerSource,
   generatedProjectWorkerExecutorBridgeSource,
   type GeneratedExecutionWorkerSourceOptions,

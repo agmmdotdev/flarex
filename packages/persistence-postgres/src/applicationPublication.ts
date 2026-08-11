@@ -3,6 +3,12 @@ import {
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import {
+  applicationFunctionCatalogPublicationFrameV1,
+  applicationFunctionEntryPublicationFrameV1,
+  applicationPublicationCommitmentFrameV1,
+  applicationSchemaPublicationFrameV1,
+} from "@flarex/analysis/internal/application-publication-v1";
+import {
   bytesEqualFullScan,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
@@ -13,10 +19,6 @@ import {
   canonicalizeApplicationRuntimeTargetV1,
   type CanonicalApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
-import {
-  encodeCanonicalJson,
-  isJson,
-} from "flarex-protocol/json";
 
 import type { AppRowTransaction } from "./appRows";
 import type {
@@ -32,9 +34,6 @@ import {
   fxSystemApplicationRevisionsV2,
   fxSystemScopeClocks,
 } from "./schema";
-
-const UTF8 = new TextEncoder();
-const MAXIMUM_PROJECTION_BYTES = 1_048_576;
 
 export interface PublishApplicationInput {
   readonly authority: ApplicationAnalysisAuthority;
@@ -168,21 +167,27 @@ const preparePublication = Effect.fn("ApplicationPublication.prepare")(
     const sourceRootBytes = yield* Effect.fromResult(
       decodeSha256(canonicalManifest.manifest.sourceArtifact.rootSha256),
     );
-    const schemaFrame = yield* Effect.fromResult(canonicalFrame({
-      format: "flarex.application-schema-publication",
-      version: 1,
-      schema: canonicalManifest.manifest.schema,
-    }));
-    const functionCatalogFrame = yield* Effect.fromResult(canonicalFrame({
-      format: "flarex.application-function-catalog",
-      version: 1,
-      functions: canonicalManifest.manifest.functions,
-    }));
+    const schemaFrame = yield* Effect.fromResult(
+      applicationSchemaPublicationFrameV1(canonicalManifest.manifest).pipe(
+        Result.mapError(cause => failureValue("invalidInput", false, cause)),
+      ),
+    );
+    const functionCatalogFrame = yield* Effect.fromResult(
+      applicationFunctionCatalogPublicationFrameV1(
+        canonicalManifest.manifest,
+      ).pipe(
+        Result.mapError(cause => failureValue("invalidInput", false, cause)),
+      ),
+    );
     const schemaSha256Bytes = yield* sha256(schemaFrame);
     const functionCatalogSha256Bytes = yield* sha256(functionCatalogFrame);
     const functions: PreparedFunction[] = [];
     for (const fn of canonicalManifest.manifest.functions) {
-      const entryBytes = yield* Effect.fromResult(canonicalFrame(fn));
+      const entryBytes = yield* Effect.fromResult(
+        applicationFunctionEntryPublicationFrameV1(fn).pipe(
+          Result.mapError(cause => failureValue("invalidInput", false, cause)),
+        ),
+      );
       if (entryBytes.byteLength > 65_536) return yield* failure("invalidInput");
       const entrySha256Bytes = yield* sha256(entryBytes);
       functions.push(Object.freeze({
@@ -192,20 +197,22 @@ const preparePublication = Effect.fn("ApplicationPublication.prepare")(
         entryBytes,
       }));
     }
-    const publicationFrame = yield* Effect.fromResult(canonicalFrame({
-      format: "flarex.application-publication-commitment",
-      version: 1,
-      scopeId: capturedInput.authority.scopeId,
-      revisionId: capturedInput.revisionId,
-      candidateId: capturedInput.candidateId,
-      analysisId: capturedInput.analysisId,
-      sourceArtifactRootSha256:
-        canonicalManifest.manifest.sourceArtifact.rootSha256,
-      manifestSha256: capturedInput.manifestSha256,
-      schemaSha256: encodeBytesToLowercaseHex(schemaSha256Bytes),
-      functionCatalogSha256:
-        encodeBytesToLowercaseHex(functionCatalogSha256Bytes),
-    }));
+    const publicationFrame = yield* Effect.fromResult(
+      applicationPublicationCommitmentFrameV1({
+        scopeId: capturedInput.authority.scopeId,
+        revisionId: capturedInput.revisionId,
+        candidateId: capturedInput.candidateId,
+        analysisId: capturedInput.analysisId,
+        sourceArtifactRootSha256:
+          canonicalManifest.manifest.sourceArtifact.rootSha256,
+        manifestSha256: capturedInput.manifestSha256,
+        schemaSha256: encodeBytesToLowercaseHex(schemaSha256Bytes),
+        functionCatalogSha256:
+          encodeBytesToLowercaseHex(functionCatalogSha256Bytes),
+      }).pipe(
+        Result.mapError(cause => failureValue("invalidInput", false, cause)),
+      ),
+    );
     const publicationSha256Bytes = yield* sha256(publicationFrame);
     const runtimePublication = Object.freeze({
       scopeId: capturedInput.authority.scopeId,
@@ -453,17 +460,6 @@ function projection(
     }))),
     publishedAt: new Date(publishedAt.getTime()),
   });
-}
-
-function canonicalFrame(value: unknown): Result.Result<Uint8Array, ApplicationPublicationError> {
-  if (!isJson(value)) return Result.fail(failureValue("invalidInput"));
-  const text = encodeCanonicalJson(value, issue => {
-    throw new Error(`Application publication invariant: ${issue.reason}`);
-  });
-  const bytes = UTF8.encode(text);
-  return bytes.byteLength > 0 && bytes.byteLength <= MAXIMUM_PROJECTION_BYTES
-    ? Result.succeed(bytes)
-    : Result.fail(failureValue("invalidInput"));
 }
 
 function requireExactAuthority(

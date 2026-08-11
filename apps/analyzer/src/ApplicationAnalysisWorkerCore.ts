@@ -9,12 +9,15 @@ import {
   type AnalyzerDiagnostic,
   type LoadedExecutionModules,
 } from "@flarex/analysis";
+import {
+  ApplicationImportForbiddenEffectV1,
+  installApplicationImportPolicyV1,
+} from "@flarex/analysis/internal/application-import-policy-v1";
 import { Cause, Effect, Exit, Result } from "effect";
 
 export * from "flarex/server";
 export * from "flarex/values";
 
-const FIXED_UNIX_TIME_MILLISECONDS = 1_700_000_000_000;
 const MAXIMUM_DIAGNOSTICS = 100;
 const MAXIMUM_DIAGNOSTIC_BYTES = 65_536;
 const MAXIMUM_DIAGNOSTIC_MESSAGE_BYTES = 2_048;
@@ -39,16 +42,17 @@ export type ApplicationAnalysisColdLoadOutcome =
     readonly diagnostics: readonly AnalyzerDiagnostic[];
   }>;
 
-class ForbiddenImportEffect extends Error {
-  readonly _tag = "ForbiddenImportEffect";
-}
-
 export async function runApplicationAnalysisColdLoad(
   input: ApplicationAnalysisColdLoadInput,
 ): Promise<ApplicationAnalysisColdLoadOutcome> {
   const diagnostics = makeDiagnosticCapture();
   const restoreConsole = installConsoleCapture(diagnostics);
-  const importPolicy = installImportPolicy(diagnostics);
+  const importPolicy = installApplicationImportPolicyV1({
+    onForbidden: operation => diagnostics.appendMessage(
+      "error",
+      `${operation} is forbidden during application import.`,
+    ),
+  });
   try {
     let executionModule: unknown;
     let schemaModule: unknown;
@@ -59,7 +63,8 @@ export async function runApplicationAnalysisColdLoad(
         : await input.loadSchema();
     } catch (cause) {
       return rejected(
-        cause instanceof ForbiddenImportEffect || importPolicy.forbiddenAttempted()
+        cause instanceof ApplicationImportForbiddenEffectV1 ||
+            importPolicy.forbiddenAttempted()
           ? ApplicationAnalysisRejectionCodeV1.forbiddenImportEffect
           : ApplicationAnalysisRejectionCodeV1.moduleImportFailed,
         diagnostics,
@@ -138,7 +143,7 @@ export async function runApplicationAnalysisColdLoad(
     return rejected(classifyAnalysisFailure(failure.success), diagnostics);
   } catch (cause) {
     if (
-      cause instanceof ForbiddenImportEffect ||
+      cause instanceof ApplicationImportForbiddenEffectV1 ||
       importPolicy.forbiddenAttempted()
     ) {
       return rejected(
@@ -270,159 +275,6 @@ function installConsoleCapture(diagnostics: DiagnosticCapture): () => void {
     console.log = original.log;
     console.warn = original.warn;
     console.error = original.error;
-  });
-}
-
-interface InstalledImportPolicy {
-  readonly forbiddenAttempted: () => boolean;
-  readonly restore: () => void;
-}
-
-function installImportPolicy(
-  diagnostics: DiagnosticCapture,
-): InstalledImportPolicy {
-  const restorers: Array<() => void> = [];
-  let forbiddenAttempted = false;
-  const markForbidden = (): void => {
-    forbiddenAttempted = true;
-  };
-  try {
-    const OriginalDate = Date;
-    function ApplicationAnalysisDate(
-      ...args: ReadonlyArray<unknown>
-    ): string | Date {
-      if (new.target === undefined) {
-        return new OriginalDate(FIXED_UNIX_TIME_MILLISECONDS).toString();
-      }
-      return Reflect.construct(
-        OriginalDate,
-        args.length === 0 ? [FIXED_UNIX_TIME_MILLISECONDS] : Array.from(args),
-        new.target,
-      );
-    }
-    Object.setPrototypeOf(ApplicationAnalysisDate, OriginalDate);
-    const applicationAnalysisDatePrototype = Object.create(
-      OriginalDate.prototype,
-    );
-    Object.defineProperty(applicationAnalysisDatePrototype, "constructor", {
-      configurable: true,
-      writable: true,
-      value: ApplicationAnalysisDate,
-    });
-    Object.defineProperty(ApplicationAnalysisDate, "prototype", {
-      value: applicationAnalysisDatePrototype,
-    });
-    Object.defineProperty(ApplicationAnalysisDate, "now", {
-      configurable: true,
-      value: () => FIXED_UNIX_TIME_MILLISECONDS,
-    });
-    installValue(restorers, globalThis, "Date", ApplicationAnalysisDate);
-    let seed = 0x5eed1234;
-    installValue(restorers, Math, "random", () => {
-      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
-      return seed / 0x1_0000_0000;
-    });
-    installRejected(restorers, diagnostics, markForbidden, globalThis, "fetch", "fetch");
-    installRejectedGlobalObject(restorers, diagnostics, markForbidden, "crypto");
-    installDeterministicPerformance(
-      restorers,
-      diagnostics,
-      markForbidden,
-    );
-    installRejected(restorers, diagnostics, markForbidden, globalThis, "setTimeout", "setTimeout");
-    installRejected(restorers, diagnostics, markForbidden, globalThis, "setInterval", "setInterval");
-    if ("scheduler" in globalThis) {
-      installRejectedGlobalObject(restorers, diagnostics, markForbidden, "scheduler");
-    }
-  } catch (cause) {
-    for (let index = restorers.length - 1; index >= 0; index -= 1) {
-      restorers[index]?.();
-    }
-    throw cause;
-  }
-  return Object.freeze({
-    forbiddenAttempted: () => forbiddenAttempted,
-    restore: once(() => {
-      for (let index = restorers.length - 1; index >= 0; index -= 1) {
-        restorers[index]?.();
-      }
-    }),
-  });
-}
-
-function installDeterministicPerformance(
-  restorers: Array<() => void>,
-  diagnostics: DiagnosticCapture,
-  markForbidden: () => void,
-): void {
-  const deterministic = new Proxy(Object.freeze({
-    now: () => 0,
-    timeOrigin: FIXED_UNIX_TIME_MILLISECONDS,
-  }), {
-    get: (target, property, receiver) => {
-      if (property === "now" || property === "timeOrigin") {
-        return Reflect.get(target, property, receiver);
-      }
-      markForbidden();
-      diagnostics.appendMessage(
-        "error",
-        `performance.${String(property)} is forbidden during application import.`,
-      );
-      throw new ForbiddenImportEffect();
-    },
-  });
-  installValue(restorers, globalThis, "performance", deterministic);
-}
-
-function installRejectedGlobalObject(
-  restorers: Array<() => void>,
-  diagnostics: DiagnosticCapture,
-  markForbidden: () => void,
-  key: "crypto" | "performance" | "scheduler",
-): void {
-  const denied = new Proxy(Object.freeze({}), {
-    get: (_target, property) => {
-      markForbidden();
-      const operation = `${key}.${String(property)}`;
-      diagnostics.appendMessage(
-        "error",
-        `${operation} is forbidden during application import.`,
-      );
-      throw new ForbiddenImportEffect();
-    },
-  });
-  installValue(restorers, globalThis, key, denied);
-}
-
-function installRejected(
-  restorers: Array<() => void>,
-  diagnostics: DiagnosticCapture,
-  markForbidden: () => void,
-  target: object,
-  key: PropertyKey,
-  operation: string,
-): void {
-  installValue(restorers, target, key, () => {
-    markForbidden();
-    diagnostics.appendMessage("error", `${operation} is forbidden during application import.`);
-    throw new ForbiddenImportEffect();
-  });
-}
-
-function installValue(
-  restorers: Array<() => void>,
-  target: object,
-  key: PropertyKey,
-  value: unknown,
-): void {
-  const descriptor = Object.getOwnPropertyDescriptor(target, key);
-  Object.defineProperty(target, key, { configurable: true, writable: true, value });
-  restorers.push(() => {
-    if (descriptor === undefined) {
-      Reflect.deleteProperty(target, key);
-    } else {
-      Object.defineProperty(target, key, descriptor);
-    }
   });
 }
 

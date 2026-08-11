@@ -21,7 +21,7 @@ describe("private analyzer deterministic identity", () => {
     expect(installed.identity).toEqual({
       protocolIdentity: "flarex.private-source-analyzer-handshake.v1",
       protocolVersion: 1,
-      implementationIdentity: "9fd549d245a42ef119e0dbf7c56c11449a9f5faed86323fd45fed5458d2c92c2",
+      implementationIdentity: "20bc02254f2ca71d9552bdc0af06cd2aeb96f116d5ac785425fa2e6b13bc174f",
       configurationIdentity: "20ffcd819f39a5e2e7a338c79b51144f524a7f19e20317e1328c10e378a46c19",
     });
     expect(canonicalPrivateAnalyzerHostConfigurationV1(installed.configuration)).toBe(
@@ -105,6 +105,12 @@ describe("private analyzer deterministic identity", () => {
     expect(analysisPackageJson.exports).toEqual({
       ".": "./src/index.ts",
       "./application-analysis": "./src/applicationAnalysisV1.ts",
+      "./internal/application-analysis-module-path-policy":
+        "./src/applicationAnalysisModulePathPolicy.ts",
+      "./internal/application-import-policy-v1":
+        "./src/applicationImportPolicyV1.ts",
+      "./internal/application-publication-v1":
+        "./src/applicationPublicationFramesV1.ts",
       "./internal/canonical-declarative-program-v1":
         "./src/canonicalDeclarativeProgramV1.ts",
       "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",

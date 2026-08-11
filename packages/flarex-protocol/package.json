@@ -16,6 +16,7 @@
     "./artifact-runtime": "./src/artifact-runtime.ts",
     "./app-schema-catalog": "./src/app-schema-catalog.ts",
     "./internal/application-runtime-target-v1": "./src/application-runtime-target-v1.ts",
+    "./internal/application-runtime-cold-receipt-v1": "./src/application-runtime-cold-receipt-v1.ts",
     "./auth": "./src/auth.ts",
     "./catalog": "./src/catalog.ts",
     "./connection": "./src/connection.ts",

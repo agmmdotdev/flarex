@@ -8,6 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./application-analysis": "./src/applicationAnalysisV1.ts",
+    "./internal/application-publication-v1": "./src/applicationPublicationFramesV1.ts",
+    "./internal/application-import-policy-v1": "./src/applicationImportPolicyV1.ts",
     "./internal/application-analysis-module-path-policy": "./src/applicationAnalysisModulePathPolicy.ts",
     "./internal/canonical-declarative-program-v1": "./src/canonicalDeclarativeProgramV1.ts",
     "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
