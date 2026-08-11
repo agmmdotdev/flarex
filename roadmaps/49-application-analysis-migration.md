@@ -732,6 +732,62 @@ an old persisted row, copy runtime module bytes into a new store, infer a static
 dependency graph, change transaction or executor semantics, or repair a shared
 runtime defect discovered by the new proof.
 
+#### AA-R6 first-slice implementation checkpoint — 2026-08-11
+
+Commit `1c4fd455` completes the accepted executable-producer and publication
+slice. The Standard definition owner now generates one real registration
+module and one real schema module while preserving owned copies of handler
+bytes. Generated-path and analyzer framework-shim collisions fail through one
+analysis-owned path policy. A genuine Miniflare cold load proves that the
+analyzer observes the generated registrations rather than a second decoded
+program input. The unversioned Standard Analysis facade returns only the exact
+Application Manifest V1 or rejected Analysis Receipt V1 result; the existing
+`./v1` compatibility surface is unchanged.
+
+Migration `0055_familiar_jasper_sitwell` adds only the application publication
+and function catalog tables plus the exact inactive-revision key required by
+their foreign key. Publication derives canonical schema, catalog, entry, and
+commitment bytes from the accepted manifest, locks the current scope/candidate
+authority, serializes exact replays, and rejects corrupt or conflicting state.
+It persists no module body: Source Artifact V2 remains the sole immutable byte
+owner. Before any transaction opens, every derived function must canonicalize
+as a complete `ApplicationRuntimeTargetV1`, so a durable publication cannot
+contain a function that its runtime contract rejects.
+
+The runtime target is one concrete publication-and-function contract shared by
+the later host adapters. Its sole public decoding authority captures hostile
+plain data without invoking accessors, bounds and admits both validator graphs,
+enforces ordinary and default-export path spelling, snapshots ownership, and
+checks the complete canonical-byte budget. The raw structural Schema remains
+private. Default-export spelling is identical in the manifest, runtime target,
+Drizzle schema, migration SQL, and generated snapshot.
+
+Final review challenged and corrected six material gaps: changing-accessor and
+cyclic validator input, publication/target byte and multibyte-name disagreement,
+framework-shim path collisions, duplicated Promise/Effect transaction
+settlement logic, default-export database disagreement, and a public structural
+Schema that was weaker than the named decoder. Both required reviewers approved
+the corrected committed diff with no findings.
+
+Validation receipts are protocol typecheck and 65 files/505 tests, Standard
+definition typecheck and 4 files/32 tests, Standard Analysis typecheck and 5
+tests, analysis package typecheck plus the focused path-policy tests, persistence
+typecheck and 42 focused PGlite repository/migration tests, Drizzle migration
+check, 19 analyzer host/core/Miniflare tests, the workspace Effect-boundary
+check, and two clean reproductions of private analyzer identity
+`449d27278611b6750797356f1f983a7211352d7281e5693503edc382656669ff`.
+The broad analysis test command did not finish within the five-minute validation
+ceiling and reported no assertion failure; the directly affected owner test and
+typecheck passed. Analyzer package typecheck remains blocked only by the
+pre-existing untouched `packages/persistence-postgres/src/appRows.ts:434`
+`noUncheckedIndexedAccess` error.
+
+This checkpoint is still private and inactive. Its database evidence is PGlite
+only; genuine PostgreSQL concurrency and migration proof remains mandatory at
+`AA-R7`. It selects no active revision, exports no persistence repository,
+adapts no production runtime, and changes no OCC, commit, executor, or task
+authority. The next authorized work is the second AA-R6 medium slice only.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
