@@ -1399,6 +1399,74 @@ outer Application execution host and its invocation-scoped capability adapters
 only. Readiness, activation, selection, and consumer migration remain the final
 AA-R6 slice after that host proof.
 
+#### AA-R6 Application execution-host preflight and accepted amendment — 2026-08-12
+
+The production-seam audit corrects one ordering assumption in the preceding
+checkpoint. Cloudflare Worker Loader execution is owned by
+`apps/artifact-runtime`, but the real query snapshot, mutation journal, and
+action callback/outbound capabilities are issued by the executor and Standard
+Application invocation owners only after they have claimed a selected active
+revision. No Application active-publication reader or selection claim exists
+yet. Constructing those adapters in this checkpoint would therefore have to
+reuse a displaced candidate-bound target, accept caller-supplied authority, or
+prematurely implement the final readiness/activation/selection slice. All three
+options are rejected.
+
+The accepted medium checkpoint is the route-independent Application execution
+host itself. It receives an already authenticated pure
+`ApplicationWorkerDefinition`, one Application worker request, and one
+invocation-owned capability through private structural ports. Transaction and
+action execution are separate operations over one shared transport mechanism;
+there is no universal capability union and no request-controlled Worker
+definition. The transaction operation accepts only the read/journal capability
+required by its decoded mode and always sets `globalOutbound: null`. The action
+operation accepts only the callback capability plus an explicitly trusted
+outbound gateway and sets Worker Loader CPU, subrequest, and wall limits from
+the embedded host policy and the request deadline. Workflow mutation remains
+the worker runtime's explicit unsupported failure.
+
+The host validates and owns the transport boundary. It decodes the request
+before loading code, verifies the request family against the definition target,
+uses `WorkerLoader.load()` exactly once per invocation, obtains only the named
+transaction or action entrypoint, and never calls `get()` or caches a stub. It
+settles the RPC call under interruption and the bounded wall deadline, observes
+late settlement, disposes a late or consumed RPC result and the entrypoint
+lease, detaches the result into owned data, and decodes the shared Application
+worker-result contract before returning its canonical value. Expected named
+worker failures map once into an Application execution-host error family;
+unknown remote rejections remain defects because Workers RPC cannot
+authenticate arbitrary error names beyond this private generated entrypoint.
+
+Capability lifecycle stays with its existing owner. The host neither opens nor
+seals a transaction journal, closes a query snapshot, commits or retries an OCC
+attempt, settles an action invocation, nor closes/drains the callback and
+outbound pair. Its caller must keep the capability lease alive until host
+settlement and then perform the existing uninterruptible close/drain protocol.
+The worker still disposes its received RPC endpoint exactly once. This split
+prevents double ownership while making late-result disposal and entrypoint
+release the host's explicit responsibility.
+
+Focused proof must cover both Worker Loader definitions, fresh load and exact
+entrypoint selection, query/mutation/action success, request-family rejection
+before load, target and host-policy mismatch, named worker failure projection,
+unknown rejection as defect, invalid detached result, interruption/timeout with
+late-result disposal, entrypoint disposal, transaction outbound denial, and
+action outbound identity plus CPU/subrequest limits. A local fake Worker Loader
+proves settlement mechanics; Miniflare already proves the generated worker and
+capability behavior and need not be duplicated unless the host implementation
+changes that graph.
+
+Self-review accepts this amendment because it creates one concrete Worker
+Loader host without manufacturing the not-yet-existing active-selection claim.
+The final AA-R6 readiness/activation/selection checkpoint must compose this host
+with the existing executor journal session and Standard action capability
+bundle, or replace those displaced adapters with Application-owned equivalents
+under its own preflight. Stop if this checkpoint adds a hosted route or binding,
+reads persistence, claims a revision, reuses a candidate-bound target, stores a
+capability in a definition, caches a Worker, changes journal/callback/outbound
+close-and-drain semantics, or alters OCC, commit, retry, action settlement, or
+scheduling authority.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
