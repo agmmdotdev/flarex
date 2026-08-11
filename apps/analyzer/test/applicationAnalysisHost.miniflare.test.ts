@@ -97,13 +97,16 @@ function makeMiniflare(definition: WorkerLoaderWorkerCode): Miniflare {
     const secondWorker = env.LOADER.load(definition);
     const firstStub = firstWorker.getEntrypoint(${JSON.stringify(APPLICATION_ANALYSIS_COLD_LOAD_ENTRYPOINT)});
     const secondStub = secondWorker.getEntrypoint(${JSON.stringify(APPLICATION_ANALYSIS_COLD_LOAD_ENTRYPOINT)});
+    const first = await firstStub.analyze();
     try {
-      const first = await firstStub.analyze();
       const second = await secondStub.analyze();
-      return Response.json({ first, second });
+      try {
+        return Response.json({ first, second });
+      } finally {
+        second[Symbol.dispose]?.();
+      }
     } finally {
-      firstStub[Symbol.dispose]?.();
-      secondStub[Symbol.dispose]?.();
+      first[Symbol.dispose]?.();
     }
   },
 };`;

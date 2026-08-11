@@ -72,7 +72,6 @@ describe("Application Analysis trusted cold-load host", () => {
       APPLICATION_ANALYSIS_COLD_LOAD_ENTRYPOINT,
       APPLICATION_ANALYSIS_COLD_LOAD_ENTRYPOINT,
     ]);
-    expect(loader.stubDisposals).toBe(2);
     expect(loader.resultDisposals).toBe(2);
     for (const code of loader.loaded) {
       expect(code.compatibilityDate).toBe(APPLICATION_ANALYSIS_COMPATIBILITY_DATE);
@@ -206,7 +205,7 @@ describe("Application Analysis trusted cold-load host", () => {
     expect(result.detail).toHaveLength(8_192);
   });
 
-  it("maps the whole-attempt deadline to a terminal rejection and disposes the live RPC capability", async () => {
+  it("maps the deadline while leaving entrypoint lifetime to the host execution context", async () => {
     const loader = new FakeWorkerLoader([new Promise(() => undefined)]);
     const result = await runApplicationAnalysisHostWithCapabilities(
         { source: sourceReader(), loader },
@@ -217,7 +216,7 @@ describe("Application Analysis trusted cold-load host", () => {
       kind: "rejected",
       failureCode: ApplicationAnalysisRejectionCodeV1.timeout,
     });
-    expect(loader.stubDisposals).toBe(1);
+    expect(loader.resultDisposals).toBe(0);
   });
 
   it("disposes an RPC result that arrives after deadline interruption", async () => {
@@ -232,8 +231,6 @@ describe("Application Analysis trusted cold-load host", () => {
       kind: "rejected",
       failureCode: ApplicationAnalysisRejectionCodeV1.timeout,
     });
-    expect(loader.stubDisposals).toBe(1);
-
     late.resolve(analyzed(manifestText()));
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(loader.resultDisposals).toBe(1);
@@ -328,7 +325,6 @@ type FakeOutcome = object | Promise<unknown>;
 class FakeWorkerLoader implements WorkerLoader {
   readonly loaded: WorkerLoaderWorkerCode[] = [];
   readonly requestedEntrypoints: string[] = [];
-  stubDisposals = 0;
   resultDisposals = 0;
   private next = 0;
 
@@ -372,9 +368,6 @@ class FakeWorkerStub implements WorkerStub {
             owner.resultDisposals += 1;
           },
         });
-      },
-      [Symbol.dispose]: () => {
-        this.owner.stubDisposals += 1;
       },
     } as unknown as Fetcher<T>;
   }

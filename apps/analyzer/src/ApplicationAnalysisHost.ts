@@ -279,17 +279,16 @@ function runColdLoad(
   loader: WorkerLoader,
   definition: WorkerLoaderWorkerCode,
 ): Effect.Effect<ColdLoadOutcome, ApplicationAnalysisHostError> {
-  return Effect.acquireUseRelease(
-    Effect.try({
-      try: () => loader.load(definition).getEntrypoint<ColdLoadEntrypoint>(
-        APPLICATION_ANALYSIS_COLD_LOAD_ENTRYPOINT,
-      ),
-      catch: cause => new ApplicationAnalysisHostError({
-        reason: "workerLoadFailed",
-        cause,
-      }),
+  return Effect.try({
+    try: () => loader.load(definition).getEntrypoint<ColdLoadEntrypoint>(
+      APPLICATION_ANALYSIS_COLD_LOAD_ENTRYPOINT,
+    ),
+    catch: cause => new ApplicationAnalysisHostError({
+      reason: "workerLoadFailed",
+      cause,
     }),
-    stub => Effect.tryPromise({
+  }).pipe(
+    Effect.flatMap(stub => Effect.tryPromise({
       try: signal => awaitDetachedRpcOutcome(stub, signal),
       catch: cause => cause instanceof ApplicationAnalysisHostError
         ? cause
@@ -297,8 +296,7 @@ function runColdLoad(
           reason: "internalFailure",
           cause,
         }),
-    }),
-    stub => disposeRpcValue(stub),
+    })),
   );
 }
 
@@ -553,10 +551,6 @@ function invalidWorkerResult(): Result.Result<never, ApplicationAnalysisHostErro
 function isRejectionCode(value: unknown): value is ApplicationAnalysisRejectionCode {
   return typeof value === "string" &&
     Object.values(ApplicationAnalysisRejectionCodeV1).some(code => code === value);
-}
-
-function disposeRpcValue(value: unknown): Effect.Effect<void> {
-  return Effect.sync(() => disposeRpcValueNow(value));
 }
 
 function awaitDetachedRpcOutcome(
