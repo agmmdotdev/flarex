@@ -324,13 +324,18 @@ the first migration.
 
 ### `AA-R3` — host-neutral core
 
-Implement one cohesive `@flarex/analysis` slice:
+**Completed by `15beb1fc`.** The final reviewed slice implements:
 
 - analysis-owned V1 model, decoder, canonical encoder, digest input, and tests;
 - pure lowering from the existing loaded-source analysis result plus exact
   source-module identity to `ApplicationManifestV1`; and
 - no dependency on old verifier, canonical program, materializer, Semantic
   Artifact, backend, persistence, Worker Loader, or clock APIs.
+
+Focused analyzer and contract tests, package typecheck, and the workspace
+Effect-boundary check pass. Both required reviewers accepted the exact final
+diff. The full package suite exceeded repeated bounded test windows without
+emitting a failure and is recorded as timed out, not as passing evidence.
 
 The root package may retain old exports during migration. New code uses plain
 Application Analysis names; old exported contracts keep their exact names.
@@ -350,6 +355,41 @@ Worker Loader must prove fresh isolation and import-time restrictions. If its
 actual lifecycle cannot prove interruption or release within the admitted
 profile, stop and amend the host design; do not claim Miniflare disposal proves
 the hosted behavior.
+
+#### Live challenge and accepted amendment — 2026-08-11
+
+Current code changes the implementation detail but not this gate's authority:
+
+- `SourceArtifactV2FinalizedContentReader` authenticates exact R2 bytes but
+  exposes old verifier budget/path handles. Application Analysis receives a
+  narrow analysis-neutral reader that owns fixed admitted ceilings and projects
+  only root identity, canonical paths, roles, source digests, and owned source
+  bytes/text. No old budget, progress, or path handle crosses that adapter.
+- The reader currently rejects every artifact with source maps. Application
+  Analysis does not consume source maps, so the shared reader may gain an
+  opt-in mode that validates source-map metadata and root totals without
+  materializing source-map bodies. The existing default remains rejection, so
+  old verifier behavior does not change.
+- The installed Worker Loader contract provides fresh `load`, per-worker CPU
+  limits, `globalOutbound: null`, and request-owned entrypoint capabilities,
+  but no API that proves direct isolate destruction. The host therefore proves
+  two uncached `load` calls, bounded CPU, outer Effect interruption, and
+  disposal of every returned RPC capability. It must not describe this as
+  explicit isolate disposal.
+- The analyzer app gains only `ARTIFACTS` and `LOADER` resource bindings plus a
+  named private RPC entrypoint. `workers_dev`, preview URLs, routes, and the
+  default HTTP surface remain closed. The exact deployment posture and analyzer
+  configuration identity must be regenerated rather than silently accepting
+  the added bindings.
+- Analyzer identity is the generated dynamic-core digest. Policy identity is
+  an exact application-analysis policy contract covering compatibility date,
+  CPU/deadline/diagnostic limits, import restrictions, and two-load byte
+  comparison. Both are checked before source reads or worker loads.
+
+**Decision: accepted for implementation.** Hosted workerd proof must show
+fresh-load comparison, import-time outbound rejection, deadline behavior, and
+RPC capability disposal. Local Miniflare may provide development parity only;
+it cannot close those hosted lifecycle claims.
 
 ### `AA-R5` — durable analysis and inactive registration generation
 
