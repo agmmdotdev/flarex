@@ -58,6 +58,8 @@ export interface CookingWorkloadProofV1 {
   readonly queryReplay: true;
   readonly multipleRecipesIsolated: true;
   readonly optionalFieldOmissionRoundTrip: true;
+  readonly optionalFieldDeletion: true;
+  readonly optionalFieldDeletionReplay: true;
   readonly unicodeRecordRoundTrip: true;
   readonly invalidReturnRollsBack: true;
   readonly thrownFailureRollsBack: true;
@@ -169,6 +171,10 @@ const COOKING_THROW_AFTER_PATCH_REQUEST_KEY =
 const COOKING_PATCH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:patch",
 );
+const COOKING_REMOVE_DESCRIPTION_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:remove-description",
+  );
 const COOKING_REPLACE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:replace",
 );
@@ -554,6 +560,10 @@ const COOKING_PATCH_MODULE = standardV1.module("recipePatch", {
     }),
     returns: standardV1.null(),
   }),
+  removeDescription: standardV1.publicMutation({
+    args: standardV1.object({ id: standardV1.id("recipes") }),
+    returns: standardV1.null(),
+  }),
   patchThenReturnInvalid: standardV1.publicMutation({
     args: standardV1.object({ id: standardV1.id("recipes") }),
     returns: standardV1.null(),
@@ -640,6 +650,8 @@ const COOKING_RESERVATION_MODULE = standardV1.module("pantryReservation", {
 });
 const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
 const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
+const COOKING_REMOVE_DESCRIPTION =
+  COOKING_PATCH_MODULE.reference("removeDescription");
 const COOKING_PATCH_THEN_RETURN_INVALID =
   COOKING_PATCH_MODULE.reference("patchThenReturnInvalid");
 const COOKING_PATCH_THEN_THROW =
@@ -1277,6 +1289,37 @@ const runCookingWorkloadV1 = Effect.fn(
     afterPantryRace,
     String(publishedCompetitorReservation.commitSeq),
   );
+  const removedDescription = yield* client.mutation(
+    COOKING_REMOVE_DESCRIPTION,
+    { id: indexedPhantomDocumentId },
+    COOKING_REMOVE_DESCRIPTION_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    removedDescription,
+    "optional description deletion",
+    "published",
+    setup.commitSeq + 12n,
+  );
+  const replayedRemovedDescription = yield* client.mutation(
+    COOKING_REMOVE_DESCRIPTION,
+    { id: indexedPhantomDocumentId },
+    COOKING_REMOVE_DESCRIPTION_REQUEST_KEY,
+  );
+  requireLifecycleMutation(
+    replayedRemovedDescription,
+    "optional description deletion replay",
+    "replayed",
+    removedDescription.commitSeq,
+  );
+  const indexedPhantomAfterDescriptionDeletion = yield* client.query(
+    COOKING_GET,
+    { id: indexedPhantomDocumentId },
+  );
+  requireRecipeDocument(
+    indexedPhantomAfterDescriptionDeletion,
+    indexedPhantomDocumentId,
+    cookingIndexedPhantomWithoutDescription(),
+  );
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -1294,6 +1337,8 @@ const runCookingWorkloadV1 = Effect.fn(
     queryReplay: true,
     multipleRecipesIsolated: true,
     optionalFieldOmissionRoundTrip: true,
+    optionalFieldDeletion: true,
+    optionalFieldDeletionReplay: true,
     unicodeRecordRoundTrip: true,
     invalidReturnRollsBack: true,
     thrownFailureRollsBack: true,
@@ -1324,6 +1369,19 @@ const runCookingWorkloadV1 = Effect.fn(
     workloadInspection,
   };
 });
+
+function cookingIndexedPhantomWithoutDescription(): Readonly<
+  Record<string, unknown>
+> {
+  const {
+    description: _description,
+    ...recipe
+  } = COOKING_INDEXED_PHANTOM_RECIPE;
+  return {
+    ...recipe,
+    published: true,
+  };
+}
 
 function requireValueMutation(
   outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
@@ -1845,7 +1903,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 18,
-    queries: 16,
+    mutations: 19,
+    queries: 17,
   },
 });

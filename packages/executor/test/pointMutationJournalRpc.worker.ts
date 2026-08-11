@@ -50,7 +50,9 @@ interface ScenarioRecord {
   readonly defect: Error;
   operationCalls: number;
   indexCalls: number;
+  indexSyscallSequenceType: string;
   indexIdentityPreserved: boolean;
+  pointSyscallSequenceType: string;
   tableIdentityPreserved: boolean;
   closePromise:
     | Promise<
@@ -121,6 +123,7 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
       runPointOperation: (_table, operation) => {
         record.operationCalls += 1;
         record.tableIdentityPreserved &&= _table === table;
+        record.pointSyscallSequenceType = syscallSequenceType(operation);
         switch (record.scenario) {
           case "success":
           case "indexedSuccess":
@@ -179,9 +182,10 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
       resolveDeveloperIndex: () => record.scenario === "indexedSuccess"
         ? Effect.succeed(index)
         : Effect.die(new Error("index resolution must not run")),
-      runIndexedQuery: (_index) => {
+      runIndexedQuery: (_index, operation) => {
         record.indexCalls += 1;
         record.indexIdentityPreserved &&= _index === index;
+        record.indexSyscallSequenceType = syscallSequenceType(operation);
         return record.scenario === "indexedSuccess"
           ? Effect.succeed(EXECUTED_INDEX_PAGE)
           : Effect.die(new Error("indexed query must not run"));
@@ -196,7 +200,9 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
       defect,
       operationCalls: 0,
       indexCalls: 0,
+      indexSyscallSequenceType: "missing",
       indexIdentityPreserved: true,
+      pointSyscallSequenceType: "missing",
       tableIdentityPreserved: true,
       closePromise: undefined,
       closeFinished: false,
@@ -221,8 +227,10 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
       closeFinished: record.closeFinished,
       closeStarted: record.closePromise !== undefined,
       indexCalls: record.indexCalls,
+      indexSyscallSequenceType: record.indexSyscallSequenceType,
       indexIdentityPreserved: record.indexIdentityPreserved,
       operationCalls: record.operationCalls,
+      pointSyscallSequenceType: record.pointSyscallSequenceType,
       tableIdentityPreserved: record.tableIdentityPreserved,
     });
   }
@@ -267,6 +275,11 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
     }
     return Object.freeze({ kind: "unknown" });
   }
+}
+
+function syscallSequenceType(operation: unknown): string {
+  if (typeof operation !== "object" || operation === null) return "missing";
+  return typeof Reflect.get(operation, "syscallSequence");
 }
 
 function requireRecord(id: string): ScenarioRecord {

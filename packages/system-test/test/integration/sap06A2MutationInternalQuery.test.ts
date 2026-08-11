@@ -14,6 +14,7 @@ import {
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
+  decodeSystemTestStructuredCloneBridgeValueV1,
   pointMutationWorkerdDispatchModuleSourceForTest,
   proveSap06A2MutationInternalQueryV1,
 } from
@@ -85,6 +86,11 @@ describe("SAP06-A2 mutation internal query - PGlite", () => {
   }
 }`,
         },
+        {
+          type: "ESModule",
+          path: "_flarex/application-error-platform-v1.js",
+          contents: "export const captureCoreApplicationErrorV1 = () => null;",
+        },
       ],
       serviceBindings: {
         JOURNAL: () => new Response("not reached", { status: 500 }),
@@ -95,7 +101,10 @@ describe("SAP06-A2 mutation internal query - PGlite", () => {
         method: "POST",
         body: JSON.stringify({ context: { randomSeed: [] } }),
       });
-      await expect(response.json()).resolves.toMatchObject({
+      const envelope = decodeSystemTestStructuredCloneBridgeValueV1(
+        await response.json(),
+      );
+      expect(envelope).toMatchObject({
         ok: false,
         reason: "journalBoundaryFailed",
         name: "PointMutationInternalCallExactRuntimeJournalBoundaryV1Error",

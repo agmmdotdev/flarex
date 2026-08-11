@@ -1,5 +1,7 @@
 import type {
+  RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
+  SessionJournalIndexedQueryOperationV1,
   SessionJournalPointOperationV1,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
@@ -112,6 +114,16 @@ const REPLAYED_MISSING = Object.freeze({
   outcome: Object.freeze({ kind: "missing", document: null }),
 } satisfies RunSessionJournalPointOperationV1Result);
 
+const EXECUTED_INDEX_PAGE = Object.freeze({
+  kind: "completed",
+  delivery: "executed",
+  outcome: Object.freeze({
+    kind: "indexRangePage",
+    documents: Object.freeze([{ status: "open" }]),
+    isDone: true,
+  }),
+} satisfies RunSessionJournalIndexedQueryV1Result);
+
 const executionClaimsByJournal = new WeakMap<
   PointMutationJournalV1,
   PointMutationExecutionClaimVaultV1
@@ -123,7 +135,7 @@ describe("C03 executor point-mutation journal boundary", () => {
     const { table } = await openResolvedTable(harness.journal);
     let getterCalls = 0;
     const accessorOperation: Record<string, unknown> = {
-      syscallSequence: "1",
+      syscallSequence: 1n,
       documentId: DOCUMENT_ID,
     };
     Object.defineProperty(accessorOperation, "kind", {
@@ -135,7 +147,7 @@ describe("C03 executor point-mutation journal boundary", () => {
     });
     const symbolOperation = {
       kind: "get",
-      syscallSequence: "1",
+      syscallSequence: 1n,
       documentId: DOCUMENT_ID,
     };
     Object.defineProperty(symbolOperation, Symbol("fallback"), {
@@ -145,13 +157,13 @@ describe("C03 executor point-mutation journal boundary", () => {
       { input: null, reason: "notPlainObject" },
       { input: [], reason: "notPlainObject" },
       {
-        input: { kind: "scan", syscallSequence: "1" },
+        input: { kind: "scan", syscallSequence: 1n },
         reason: "invalidKind",
       },
       {
         input: {
           kind: "get",
-          syscallSequence: "1",
+          syscallSequence: 1n,
           documentId: DOCUMENT_ID,
           fallback: "legacy",
         },
@@ -161,7 +173,7 @@ describe("C03 executor point-mutation journal boundary", () => {
       {
         input: {
           kind: "get",
-          syscallSequence: "0",
+          syscallSequence: 0n,
           documentId: DOCUMENT_ID,
         },
         reason: "invalidSequence",
@@ -170,6 +182,14 @@ describe("C03 executor point-mutation journal boundary", () => {
         input: {
           kind: "get",
           syscallSequence: "1",
+          documentId: DOCUMENT_ID,
+        },
+        reason: "invalidSequence",
+      },
+      {
+        input: {
+          kind: "get",
+          syscallSequence: 1n,
           documentId: "legacy-id",
         },
         reason: "invalidFieldShape",
@@ -240,6 +260,34 @@ describe("C03 executor point-mutation journal boundary", () => {
     await expect(second).resolves.toEqual(EXECUTED_MISSING);
     expect(enteredSequences).toEqual([1n, 2n]);
     expect(lastAccepted).toBe(2n);
+  });
+
+  it("accepts only runtime bigint sequences for indexed RPC operations", async () => {
+    const harness = createHarness();
+    const { index } = await openResolvedIndex(harness.journal);
+    const operation = Object.freeze({
+      kind: "indexRange",
+      syscallSequence: 1n,
+      bounds: Object.freeze({}),
+      limit: 2,
+    });
+
+    expect(await runEffect(
+      harness.journal.runIndexedQuery(index, operation),
+    )).toEqual(EXECUTED_INDEX_PAGE);
+    expect(harness.indexedOperations).toEqual([operation]);
+
+    const failure = await runFailure(harness.journal.runIndexedQuery(index, {
+      ...operation,
+      syscallSequence: "2",
+    }));
+    expect(failure).toBeInstanceOf(
+      UnsupportedPointMutationJournalOperationV1Error,
+    );
+    expect(failure).toMatchObject({
+      reason: "invalidFieldShape",
+      operationKind: "indexRange",
+    });
   });
 
   it("shares exact-attempt serialization across independently loaded handles", async () => {
@@ -709,6 +757,10 @@ interface HarnessOptions {
     RunSessionJournalPointOperationV1Result,
     SessionJournalAttemptUnavailableV1Error
   >;
+  readonly runIndexedQuery?: (
+    persistenceIndex: unknown,
+    operation: SessionJournalIndexedQueryOperationV1,
+  ) => Promise<RunSessionJournalIndexedQueryV1Result>;
   readonly prepareSeal?: (persistenceAttempt: unknown) => Promise<Readonly<{
     readonly preparation: unknown;
     readonly journal: SessionJournalV1;
@@ -724,6 +776,7 @@ interface JournalHarness {
   readonly journal: PointMutationJournalV1;
   readonly samePersistenceJournal: PointMutationJournalV1;
   readonly operations: SessionJournalPointOperationV1[];
+  readonly indexedOperations: SessionJournalIndexedQueryOperationV1[];
   readonly completeSealCalls: number;
   readonly completedJournal: CanonicalSessionJournalV1;
   readonly completedResult: CanonicalSuccessfulResultV1;
@@ -732,6 +785,7 @@ interface JournalHarness {
 function createHarness(options: HarnessOptions = {}): JournalHarness {
   const persistenceAttempt = Object.freeze({ kind: "test-attempt" });
   const operations: SessionJournalPointOperationV1[] = [];
+  const indexedOperations: SessionJournalIndexedQueryOperationV1[] = [];
   let completeSealCalls = 0;
   let completedJournal: CanonicalSessionJournalV1 | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
@@ -783,6 +837,26 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
           cause,
         }),
       });
+    },
+    resolveDeveloperIndexEffect: (
+      table: unknown,
+      indexDescriptor: unknown,
+    ) => Effect.succeed(Object.freeze({ table, indexDescriptor })),
+    runIndexedQueryEffect: (
+      index: unknown,
+      operation: SessionJournalIndexedQueryOperationV1,
+    ) => {
+      indexedOperations.push(operation);
+      const runIndexedQuery = options.runIndexedQuery;
+      return runIndexedQuery === undefined
+        ? Effect.succeed(EXECUTED_INDEX_PAGE)
+        : Effect.tryPromise({
+            try: () => runIndexedQuery(index, operation),
+            catch: (cause) => new SessionJournalPersistenceV1Error({
+              operation: "runIndexedQuery",
+              cause,
+            }),
+          });
     },
     prepareSealEffect: (attempt: unknown) => Effect.tryPromise({
       try: () => options.prepareSeal !== undefined
@@ -837,6 +911,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     journal,
     samePersistenceJournal,
     operations,
+    indexedOperations,
     get completeSealCalls() {
       return completeSealCalls;
     },
@@ -863,6 +938,14 @@ async function openResolvedTable(journal: PointMutationJournalV1) {
   ));
   const table = await runEffect(journal.resolvePointTable(attempt, "users"));
   return Object.freeze({ attempt, table });
+}
+
+async function openResolvedIndex(journal: PointMutationJournalV1) {
+  const { attempt, table } = await openResolvedTable(journal);
+  const index = await runEffect(
+    journal.resolveDeveloperIndex(table, "by_status"),
+  );
+  return Object.freeze({ attempt, table, index });
 }
 
 function executionScopeForJournal(
@@ -940,7 +1023,7 @@ function anchor(
 function getOperation(sequence: bigint) {
   return Object.freeze({
     kind: "get",
-    syscallSequence: sequence.toString(),
+    syscallSequence: sequence,
     documentId: DOCUMENT_ID,
   });
 }

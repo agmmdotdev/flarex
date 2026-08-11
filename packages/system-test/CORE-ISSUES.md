@@ -113,6 +113,28 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-021` - journal RPC rejected the exact runtime syscall sequence type
+
+- **Status:** Resolved by the executor journal runtime-boundary correction.
+- **Root cause:** The exact mutation Worker constructs point and indexed
+  operations with a bigint `syscallSequence`, and Cloudflare RPC structured
+  cloning preserves that bigint. The journal decoded the unknown RPC value
+  through the encoded decimal-string side of
+  `CommitSyscallSequenceV1Schema`. The system-test HTTP service-binding
+  surrogate masked the mismatch by coercing every bigint to a string.
+- **Correction:** Point and indexed journal admission now validate only the
+  schema runtime type through `Schema.toType`; encoded decimal strings remain
+  confined to canonical protocol and persistence boundaries and are rejected
+  at runtime admission. The test-only HTTP bridge uses a collision-free tagged
+  structured-value codec so it preserves bigint and `undefined` like the
+  production RPC boundary instead of coercing either value.
+- **Evidence:** Direct executor tests prove bigint acceptance and decimal-string
+  rejection for point and indexed operations. The Workerd RPC test proves the
+  sequence remains a bigint across a real Cloudflare RPC binding. The cooking
+  PGlite and genuine PostgreSQL lanes then remove an existing optional field,
+  replay without another runtime execution, prove the stored JSON omits the
+  field, and move all intrinsic/developer sidecars to the deletion revision.
+
 ### `ST-CORE-020` - Standard mutation composition omitted indexed-query authority
 
 - **Status:** Resolved by the production-inert O10-C Standard composition

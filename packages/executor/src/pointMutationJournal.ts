@@ -217,10 +217,10 @@ interface JournalIndexStateV1 {
 }
 
 const decodeSyscallSequence = Schema.decodeUnknownSync(
-  CommitSyscallSequenceV1Schema,
+  Schema.toType(CommitSyscallSequenceV1Schema),
 );
 const decodeSyscallSequenceResult = Schema.decodeUnknownResult(
-  CommitSyscallSequenceV1Schema,
+  Schema.toType(CommitSyscallSequenceV1Schema),
 );
 const decodeOrderedIndexBoundResult = Schema.decodeUnknownResult(
   OrderedIndexBoundHexV1Schema,

@@ -69,7 +69,11 @@ export default {
 async function successScenario(env: Env) {
   const parent = await env.JOURNAL.open("success", "success");
   const table = await parent.resolvePointTable("orders");
-  const result = await table.runPointOperation({ id: "success" });
+  const result = await table.runPointOperation({
+    kind: "get",
+    syscallSequence: 1n,
+    documentId: "1:00000000-0000-0000-0000-000000000001",
+  });
   const disposal = {
     parent: typeof parent[Symbol.dispose],
     table: typeof table[Symbol.dispose],

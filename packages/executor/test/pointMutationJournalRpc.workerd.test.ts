@@ -68,6 +68,7 @@ describe("point-mutation journal RPC adapter in workerd", () => {
         closeFinished: false,
         closeStarted: false,
         operationCalls: 1,
+        pointSyscallSequenceType: "bigint",
         tableIdentityPreserved: true,
       },
     });
@@ -86,6 +87,7 @@ describe("point-mutation journal RPC adapter in workerd", () => {
       },
       state: {
         indexCalls: 1,
+        indexSyscallSequenceType: "bigint",
         indexIdentityPreserved: true,
         operationCalls: 0,
         tableIdentityPreserved: true,

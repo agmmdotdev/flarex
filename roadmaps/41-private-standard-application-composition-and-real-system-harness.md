@@ -111,14 +111,25 @@ Final logical inspection proves one tombstoned current row, four revisions,
 and commit sequences `1..4` aligned across committed outcomes, commit feed,
 and outbox. This remains the existing one-row runtime/OCC/commit path; it adds
 no index scan, multi-row mutation, relation, alternate transaction owner, or
-production route. The PGlite lane passes; genuine-PostgreSQL acceptance
-remains open. Cooking and English-learning own their directly inspectable JavaScript
+production route. The PGlite and genuine-PostgreSQL lanes pass. Cooking and
+English-learning own their directly inspectable JavaScript
 function fixtures beneath their simulation folders. The shared definition
 helper accepts caller-owned source bytes, copies them into the graph input, and
 only composes declarations, validators, graph entries, and budgets; it no
 longer hides application function bodies. Node test composition loads those
 fixtures explicitly, so this does not claim developer-file discovery, bundler
 lowering, or public SDK ergonomics.
+
+`SAC01-F2k` extends the same lifecycle with deletion of one already-stored
+optional field. Its preflight exposed `ST-CORE-021`: the test bridge had masked
+the exact runtime bigint syscall-sequence shape while also erasing
+`undefined`. The corrected executor boundary admits only the runtime bigint
+type, and the test bridge now emulates structured cloning without coercion.
+The cooking mutation, replay, public readback, authoritative stored JSON, and
+intrinsic/developer sidecar history pass in PGlite and genuine PostgreSQL. This
+proves document-field removal inside one active relation-free revision; it is
+not a schema-version compatibility planner, managed schema deployment, or
+automatic expand/backfill/contract workflow.
 
 This slice also exposed three related shared-core defects before runtime
 dispatch: valid multi-export modules fail preparation, patch/replace analysis
@@ -923,7 +934,8 @@ same chain supports the replacement.
 | `SAC01-F2b` | Add private controlled setup and logical authoritative inspection to the reusable runner | Complete in `@flarex/system-test` with separate setup/workload scopes and PGlite ready/replay/cancellation/failure, post-workload freshness, and exact scope/deployment-predicate audit evidence. Setup delegates to SAP04/FSV06; inspection returns immutable scope-filtered logical evidence and no SQL, database handle, physical locator, document value, or mutation authority. The matching genuine-PostgreSQL cases are implemented but unaccepted until they run with zero skips |
 | `SAC01-F2c` | Grow cooking into the first realistic complex-document workload without widening runtime authority | PGlite implementation complete for nested objects, structured arrays, optional fields, literal unions, booleans, records, nullable values, mutation replay, point-query replay, and commit-sequence alignment across feed/outbox inspection. Rich feed/outbox payload inspection is not claimed. The genuine-PostgreSQL cooking lane remains open until it runs with zero skips. Index scans, relations, multi-row mutations, and model simulation remain separate gates |
 | `SAC01-F2d` | Prove nested argument rejection and no committed side effects in the cooking workload | PGlite implementation complete for exact nested type-mismatch and missing-required-field `ValidatorValueErrorV1` evidence before runtime dispatch, with unchanged rows, revisions, commits, idempotency outcomes, feed, and outbox. The genuine-PostgreSQL cooking lane remains open until it runs with zero skips. Shared validation/runtime owners remain unchanged |
-| `SAC01-F2e` | Prove patch, replace, delete, and replay across the existing single-row point lifecycle | PGlite implementation complete with separate public lifecycle modules, exact patch preservation, full replacement, tombstone/null readback, replay without duplicate runtime execution, four revisions, and commit-sequence alignment across outcomes/feed/outbox. Genuine PostgreSQL remains open until zero skips. A separately recorded multi-export analyzer/registration defect remains open and is not bypassed or fixed by this gate |
+| `SAC01-F2e` | Prove patch, replace, delete, and replay across the existing single-row point lifecycle | Complete in PGlite and genuine PostgreSQL with separate public lifecycle modules, exact patch preservation, full replacement, tombstone/null readback, replay without duplicate runtime execution, and commit-sequence alignment across outcomes/feed/outbox |
+| `SAC01-F2k` | Prove removal of an existing optional document field through the real runtime and storage path | Complete in PGlite and genuine PostgreSQL. The analyzed Worker emits an `undefined` patch field through a structured-clone-faithful bridge; journal RPC admits only runtime bigint syscall sequences; replay adds no runtime execution; public readback and stored JSON prove field absence; and intrinsic/developer sidecars move to the deletion revision. Multi-revision schema compatibility and managed deployment remain separate gates |
 | `SAC01-F2+` | Add internal calls, actions, workflow mutations, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | Complete as private `@flarex/system-test`: cooking and English-learning are separate `defineStandardApplicationSimulationV1` configs; the package owns setup/workload scopes and real-system composition while database lanes remain explicit runner inputs; intentional versioned subpaths plus graph guards enforce the dependency leaf, reject source-tree escapes, and require declared owner dependencies; persistence publishes no test-support adapter; and the persistence-local general harness duplication was deleted in the same slice |
 

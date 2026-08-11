@@ -3,6 +3,11 @@ export async function patch(ctx, { id, patch: values }) {
   return null;
 }
 
+export async function removeDescription(ctx, { id }) {
+  await ctx.db.patch(id, { description: undefined });
+  return null;
+}
+
 export async function patchThenReturnInvalid(ctx, { id }) {
   await ctx.db.patch(id, { title: "This value must roll back." });
   return "not-null";

@@ -475,6 +475,18 @@ Named Flarex differences are:
   now proves a real indexed business decision, phantom-triggered replacement,
   losing-write rollback, replay, and terminal journal cleanup in PGlite and
   genuine PostgreSQL without a test-owned resolver.
+- `SAC01-F2k` resolves `ST-CORE-021` and extends the cooking point lifecycle
+  with real optional-field deletion. Point and indexed journal RPC admission
+  now validates only the runtime bigint syscall sequence; canonical decimal
+  strings remain encoded protocol/storage representations and are rejected at
+  runtime admission. The test-only HTTP bridge preserves bigint and
+  `undefined` with a tagged structured-value codec rather than masking the
+  production RPC shape. The analyzed cooking mutation removes an existing
+  `description`, replays without another runtime execution, reads the field as
+  absent through the public query, proves the authoritative stored JSON omits
+  it, and moves all three index sidecars to the deletion revision in PGlite and
+  genuine PostgreSQL. This remains one active relation-free revision and does
+  not yet authorize multi-revision schema compatibility or managed deployment.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate

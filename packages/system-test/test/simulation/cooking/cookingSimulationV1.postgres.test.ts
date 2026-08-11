@@ -44,6 +44,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           queryReplay: true,
           multipleRecipesIsolated: true,
           optionalFieldOmissionRoundTrip: true,
+          optionalFieldDeletion: true,
+          optionalFieldDeletionReplay: true,
           unicodeRecordRoundTrip: true,
           invalidReturnRollsBack: true,
           thrownFailureRollsBack: true,
@@ -72,8 +74,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           losingReservationWritesRolledBack: true,
           competitorReservationReplay: true,
         },
-        mutationRuntimeExecutions: 18,
-        queryRuntimeExecutions: 16,
+        mutationRuntimeExecutions: 19,
+        queryRuntimeExecutions: 17,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -97,7 +99,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         }, {
           tableName: "recipes",
           documentId: proof.workloadProof.indexedPhantomDocumentId,
-          commitSeq: "8",
+          commitSeq: "13",
           valueState: "live",
         }, {
           tableName: "recipes",
@@ -117,18 +119,18 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         }]),
         currentRowCount: 6,
         liveRowCount: 5,
-        revisionRowCount: 13,
+        revisionRowCount: 14,
         commitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
         ],
         idempotencyOutcomeCommitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
         ],
         commitFeedCommitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13",
         ],
         outboxCommitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
         ],
       });
       const sidecarCounts = await persistence.query<{
@@ -138,9 +140,58 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         (select count(*)::text from fx_app_index_entry_rev) as revisions,
         (select count(*)::text from fx_app_index_entry_current) as current_rows`);
       expect(sidecarCounts.rows[0]).toEqual({
-        revisions: "38",
+        revisions: "41",
         current_rows: "13",
       });
+      const removedFieldEvidence = await persistence.query<{
+        commit_seq: string;
+        value_json: unknown;
+      }>(`select revision.commit_seq::text,
+          revision.value_json
+        from fx_app_row_current as current_row
+        join fx_app_row_rev as revision
+          on revision.scope_uuid = current_row.scope_uuid
+         and revision.table_id = current_row.table_id
+         and revision.row_id = current_row.row_id
+         and revision.commit_seq = current_row.commit_seq
+        where encode(current_row.row_id, 'hex') = $1`, [
+        pointRowIdHex(proof.workloadProof.indexedPhantomDocumentId),
+      ]);
+      expect(removedFieldEvidence.rows).toHaveLength(1);
+      expect(removedFieldEvidence.rows[0]?.commit_seq).toBe("13");
+      expect(removedFieldEvidence.rows[0]?.value_json).not.toHaveProperty(
+        "description",
+      );
+      const optionalFieldSidecars = await persistence.query<{
+        commit_seq: string;
+        current_count: string;
+        revision_count: string;
+      }>(`select revision.commit_seq::text,
+          count(*)::text as revision_count,
+          sum(case when current_entry.row_id is null then 0 else 1 end)::text
+            as current_count
+        from fx_app_index_entry_rev as revision
+        left join fx_app_index_entry_current as current_entry
+          on current_entry.scope_uuid = revision.scope_uuid
+         and current_entry.index_definition_id = revision.index_definition_id
+         and current_entry.encoded_key = revision.encoded_key
+         and current_entry.row_id = revision.row_id
+         and current_entry.commit_seq = revision.commit_seq
+        where encode(revision.row_id, 'hex') = $1
+          and revision.commit_seq in (8, 13)
+        group by revision.commit_seq
+        order by revision.commit_seq`, [
+        pointRowIdHex(proof.workloadProof.indexedPhantomDocumentId),
+      ]);
+      expect(optionalFieldSidecars.rows).toEqual([{
+        commit_seq: "8",
+        current_count: "0",
+        revision_count: "3",
+      }, {
+        commit_seq: "13",
+        current_count: "3",
+        revision_count: "3",
+      }]);
       const indexedDecisionEvidence = await persistence.query<{
         lifecycle: string;
         current_attempt_fence: string;
