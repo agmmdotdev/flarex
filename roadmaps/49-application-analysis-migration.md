@@ -1003,6 +1003,47 @@ This checkpoint does not complete the task-binding cut. The immutable catalog
 header and definition persistence generation plus idempotent exact registration
 remain next; current task rows and consumers are still unchanged.
 
+#### AA-R6 Application task-binding persistence checkpoint — 2026-08-11
+
+Commit `79e8b818` completes the private persistence half of the accepted
+Application task-binding cut. Migration `0056_lively_yellowjacket` adds one
+immutable catalog header per scope/revision and immutable child definition rows.
+The header exists for both populated and explicitly empty catalogs and foreign
+keys to the exact inactive Application publication authority. Registration
+locks the scope clock, candidate, and publication in owner-compatible order,
+then inserts the header and all children in one transaction. Exact concurrent
+replay converges; competing replay is rejected; a child failure rolls back the
+header.
+
+The final admission boundary re-decodes and owns every binding and manifest
+before asynchronous work, rejects non-exact or accessor-backed wrapper arrays,
+NUL or non-scalar persisted text, detached, resizable, growable, or shared byte
+views, and enforces the shared 32 MiB aggregate evidence budget before copying,
+SHA, or database work. Replay compares children by exact task identity rather
+than database collation order. These checks preserve agreement between retained
+canonical bytes, digests, scalar columns, and the returned projection.
+
+Both required final reviews approved the staged checkpoint. Standard Application
+typecheck and all 40 tests passed; persistence typecheck, all 15 focused
+task-binding tests, all 27 PGlite migration tests, Drizzle schema check, targeted
+strict compilation, the Effect boundary check, and the staged diff check passed.
+Follow-up commit `231eb769` corrected the complete Application migration chain
+from `0054` through `0056` so all seven foreign keys follow the migration
+session's selected schema instead of hard-coding `public`. The exact staged
+chain passed its dedicated PGlite upgrade, failed-migration rollback, recovery,
+and replay lane plus an independent non-public-search-path migration probe; both
+required reviewers approved the correction. Genuine PostgreSQL execution was
+not available because `FLAREX_POSTGRES_DATABASE_URL` was unset and remains a
+mandatory `AA-R7` acceptance proof rather than an implied pass here.
+The repository remains private and registration-only: it does not write the old
+durable-task definition generation, create or select task runs, publish compute
+delivery, activate a revision, or change OCC/commit authority.
+
+The second AA-R6 medium slice remains open for the new Application transaction
+and action worker contracts. No current task consumer may read this generation,
+and no old task binding may be reinterpreted before final readiness and selection
+migration.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
