@@ -12,11 +12,17 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 import { Cause, Clock, Data, Effect, Encoding, Exit, Result, Schema } from "effect";
 import {
+  AppCreationTimeV1Schema,
+} from "flarex-protocol/app-document";
+import {
+  appDocumentIdV1FromRowIdentity,
   appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
+import { MAX_POINT_COMMIT_MATERIAL_ROWS_V1 } from
+  "flarex-protocol/commit-protocol";
 import {
   CatalogTableIdSchema,
   type CatalogTableId,
@@ -40,6 +46,7 @@ import {
   type AppSchemaCandidateValidationFailureEvidenceFrameV1,
   type AppSchemaCandidateValidationFrameV1,
   type AppSchemaCandidateValidationProgressFrameV1,
+  type AppSchemaCandidateValidationReceiptFrameV1,
   type CanonicalAppSchemaCandidateValidationFrameV1,
 } from "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import {
@@ -59,6 +66,7 @@ import {
   isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
+  type CanonicalFlarexValueV1,
 } from "flarex-protocol/value";
 
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -99,14 +107,26 @@ import {
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
+  isLocatedReadCommittedAttemptTargetV1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
 import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
   "./transactionSessionActivation";
+import type { PointMutationSessionAuthorityResolutionPortsV1 } from
+  "./transactionSessionActivation";
 
 const INPUT_KEYS = Object.freeze(["deploymentId", "schemaVersionId"] as const);
 const PORT_KEYS = Object.freeze(["controlDb", "authority"] as const);
+const WRITE_GUARD_DEPENDENCY_KEYS = Object.freeze([
+  "candidateValidation",
+  "pointCommitAuthority",
+] as const);
+const POINT_COMMIT_AUTHORITY_KEYS = Object.freeze([
+  "scopeMetadata",
+  "provisioningReceipts",
+  "scopeSessionTargets",
+] as const);
 const appSchemaCandidateValidationPortBrand: unique symbol = Symbol(
   "Flarex/AppSchemaCandidateValidationPort",
 );
@@ -130,6 +150,7 @@ const decodeAttemptFenceResult = Schema.decodeUnknownResult(
 const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
 );
+const isAppCreationTime = Schema.is(AppCreationTimeV1Schema);
 const FLAREXDB_V1_STORAGE_GENERATION =
   FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
 
@@ -169,6 +190,10 @@ const portStates = new WeakMap<
   AppSchemaCandidateValidationPort,
   Readonly<AppSchemaCandidateValidationPortDependencies>
 >();
+const candidateValidationPointCommitBindings = new WeakMap<
+  AppSchemaCandidateValidationPort,
+  PointMutationSessionAuthorityResolutionPortsV1
+>();
 
 export function createAppSchemaCandidateValidationPort(
   dependencies: AppSchemaCandidateValidationPortDependencies,
@@ -182,6 +207,40 @@ export function createAppSchemaCandidateValidationPort(
       authority: dependencies.authority,
     }));
   }
+  return port;
+}
+
+export function createAppSchemaCandidateValidationPortForPointCommitAuthority(
+  controlDb: FlarexMetadataDatabase,
+  pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
+): AppSchemaCandidateValidationPort {
+  if (!hasExactOwnDataKeys(pointCommitAuthority, POINT_COMMIT_AUTHORITY_KEYS)) {
+    return Object.freeze({
+      [appSchemaCandidateValidationPortBrand]: true as const,
+    });
+  }
+  const scopeMetadata = pointCommitAuthority.scopeMetadata;
+  const provisioningReceipts = pointCommitAuthority.provisioningReceipts;
+  const scopeSessionTargets = pointCommitAuthority.scopeSessionTargets;
+  const port = createAppSchemaCandidateValidationPort({
+    controlDb,
+    authority: {
+      scopeMetadata,
+      provisioningReceipts,
+      scopeClockTargets: {
+        resolve: async (locator) => {
+          const target = await scopeSessionTargets.resolve(locator);
+          if (!isLocatedReadCommittedAttemptTargetV1(target)) {
+            throw new Error(
+              "Point-commit target lacks read-committed candidate validation.",
+            );
+          }
+          return target;
+        },
+      },
+    },
+  });
+  candidateValidationPointCommitBindings.set(port, pointCommitAuthority);
   return port;
 }
 
@@ -199,6 +258,121 @@ export function hasAppSchemaCandidateValidationComposition(
     state.controlDb === controlDb &&
     state.authority === authority;
 }
+
+const appSchemaCandidateWriteGuardBrand: unique symbol = Symbol(
+  "Flarex/AppSchemaCandidateWriteGuard",
+);
+const preparedAppSchemaCandidateWriteGuardBrand: unique symbol = Symbol(
+  "Flarex/PreparedAppSchemaCandidateWriteGuard",
+);
+
+export interface AppSchemaCandidateWriteGuardPort {
+  readonly [appSchemaCandidateWriteGuardBrand]: true;
+}
+
+export interface PreparedAppSchemaCandidateWriteGuard {
+  readonly [preparedAppSchemaCandidateWriteGuardBrand]: true;
+}
+
+export interface AppSchemaCandidateWriteGuardDependencies {
+  readonly candidateValidation: AppSchemaCandidateValidationPort;
+  readonly pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1;
+}
+
+type CandidateWriteGuardState = Readonly<{
+  readonly candidateValidation: AppSchemaCandidateValidationPortDependencies;
+  readonly pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1;
+}>;
+
+type PreparedCandidateWriteGuardState = Readonly<{
+  readonly guard: AppSchemaCandidateWriteGuardPort;
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly head: StoredAppSchemaCandidateValidationHead | null;
+  readonly validator: CandidateDocumentValidator | null;
+}>;
+
+const candidateWriteGuardStates = new WeakMap<
+  AppSchemaCandidateWriteGuardPort,
+  CandidateWriteGuardState
+>();
+const preparedCandidateWriteGuardStates = new WeakMap<
+  PreparedAppSchemaCandidateWriteGuard,
+  PreparedCandidateWriteGuardState
+>();
+
+export function createAppSchemaCandidateWriteGuardPort(
+  dependencies: AppSchemaCandidateWriteGuardDependencies,
+): AppSchemaCandidateWriteGuardPort {
+  const guard = Object.freeze({
+    [appSchemaCandidateWriteGuardBrand]: true as const,
+  });
+  if (hasExactOwnDataKeys(dependencies, WRITE_GUARD_DEPENDENCY_KEYS)) {
+    const candidateValidation = portStates.get(
+      dependencies.candidateValidation,
+    );
+    const pointCommitAuthority = dependencies.pointCommitAuthority;
+    if (
+      hasExactOwnDataKeys(pointCommitAuthority, POINT_COMMIT_AUTHORITY_KEYS) &&
+      candidateValidation !== undefined &&
+      candidateValidation.authority.scopeMetadata ===
+        pointCommitAuthority.scopeMetadata &&
+      candidateValidation.authority.provisioningReceipts ===
+        pointCommitAuthority.provisioningReceipts &&
+      (
+        candidateValidation.authority.scopeClockTargets ===
+          pointCommitAuthority.scopeSessionTargets ||
+        candidateValidationPointCommitBindings.get(
+          dependencies.candidateValidation,
+        ) === pointCommitAuthority
+      )
+    ) {
+      candidateWriteGuardStates.set(guard, Object.freeze({
+        candidateValidation,
+        pointCommitAuthority,
+      }));
+    }
+  }
+  return guard;
+}
+
+export function hasAppSchemaCandidateWriteGuardComposition(
+  guard: unknown,
+  pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
+): guard is AppSchemaCandidateWriteGuardPort {
+  if (typeof guard !== "object" || guard === null) return false;
+  return candidateWriteGuardStates.get(guard as AppSchemaCandidateWriteGuardPort)
+    ?.pointCommitAuthority === pointCommitAuthority;
+}
+
+export class AppSchemaCandidateWriteGuardError extends Data.TaggedError(
+  "AppSchemaCandidateWriteGuardError",
+)<{
+  readonly reason:
+    | "notIssued"
+    | "compositionMismatch"
+    | "concurrentStateChange"
+    | "corruption"
+    | "persistence";
+  readonly cause?: unknown;
+}> {}
+
+export interface AppSchemaCandidateWriteGuardLiveRow {
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+  readonly document: CanonicalFlarexValueV1;
+}
+
+export type AppSchemaCandidateWriteGuardResult = Readonly<{
+  readonly status: "unchanged" | "candidateFailed";
+}>;
+
+const UNCHANGED_CANDIDATE_WRITE_GUARD_RESULT = Object.freeze({
+  status: "unchanged" as const,
+});
+const FAILED_CANDIDATE_WRITE_GUARD_RESULT = Object.freeze({
+  status: "candidateFailed" as const,
+});
 
 export type AppSchemaCandidateValidationFaultPoint =
   | "afterInstallWrite"
@@ -368,6 +542,226 @@ export const loadAppSchemaCandidateValidationEffect = Effect.fn(
   );
   return yield* runLocatedTransaction(located.target, "load", (tx) =>
     loadInTransaction(tx, located.authority, decoded));
+});
+
+export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
+  "AppSchemaCandidateValidation.prepareWriteGuard",
+)(function* (
+  guard: AppSchemaCandidateWriteGuardPort,
+  input: Readonly<{ readonly deploymentId: string; readonly scopeId: ScopeId }>,
+): Effect.fn.Return<
+  PreparedAppSchemaCandidateWriteGuard,
+  AppSchemaCandidateWriteGuardError
+> {
+  const state = candidateWriteGuardStates.get(guard);
+  if (state === undefined) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "notIssued",
+    }));
+  }
+  if (!isNonBlankString(input.deploymentId)) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "corruption",
+    }));
+  }
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    input.deploymentId,
+    state.candidateValidation.authority,
+  ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  if (located.authority.scopeId !== input.scopeId) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "compositionMismatch",
+    }));
+  }
+  const head = yield* runLocatedTransaction(
+    located.target,
+    "load",
+    (tx) => Effect.gen(function* () {
+      const clock = yield* lockScopeClockForShareInTransactionEffect(
+        tx,
+        located.authority.scopeId,
+      );
+      yield* Effect.fromResult(requireExactAuthorityResult(
+        located.authority,
+        clock,
+        "load",
+      ));
+      const current = yield* readHeadForShareEffect(
+        tx,
+        located.authority.scopeId,
+        "load",
+      );
+      if (current !== null) {
+        yield* Effect.fromResult(requireHeadAuthorityResult(
+          current,
+          clock,
+          "load",
+        ));
+      }
+      return current;
+    }),
+  ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  let validator: CandidateDocumentValidator | null = null;
+  if (
+    head !== null &&
+    head.frame.kind !== "app_schema_candidate_validation_failure_evidence"
+  ) {
+    const snapshot = yield* loadCandidateSnapshot(
+      state.candidateValidation.controlDb,
+      Object.freeze({
+        deploymentId: input.deploymentId,
+        schemaVersionId: head.schemaVersionId,
+      }),
+      "advance",
+    ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+    if (!headMatchesSnapshot(head, located.authority, snapshot)) {
+      return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+        reason: "corruption",
+      }));
+    }
+    validator = prepareCandidateDocumentValidator(snapshot.manifest);
+  }
+  const prepared = Object.freeze({
+    [preparedAppSchemaCandidateWriteGuardBrand]: true as const,
+  });
+  preparedCandidateWriteGuardStates.set(prepared, Object.freeze({
+    guard,
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
+    head,
+    validator,
+  }));
+  return prepared;
+});
+
+export const applyAppSchemaCandidateWriteGuardInTransactionEffect = Effect.fn(
+  "AppSchemaCandidateValidation.applyWriteGuardInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  guard: AppSchemaCandidateWriteGuardPort,
+  prepared: PreparedAppSchemaCandidateWriteGuard,
+  authority: TrustedScopeAuthority,
+  lockedClock: ScopeClockRecord,
+  commitSeq: CommitSeq,
+  liveRows: ReadonlyArray<AppSchemaCandidateWriteGuardLiveRow>,
+): Effect.fn.Return<
+  AppSchemaCandidateWriteGuardResult,
+  AppSchemaCandidateWriteGuardError
+> {
+  const guardState = candidateWriteGuardStates.get(guard);
+  const preparedState = preparedCandidateWriteGuardStates.get(prepared);
+  if (guardState === undefined || preparedState === undefined) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "notIssued",
+    }));
+  }
+  if (
+    preparedState.guard !== guard ||
+    preparedState.deploymentId !== authority.deploymentId ||
+    preparedState.scopeId !== authority.scopeId ||
+    lockedClock.scopeId !== authority.scopeId ||
+    lockedClock.storageGeneration !== authority.storageGeneration ||
+    lockedClock.storageGenerationFence !== authority.storageGenerationFence ||
+    lockedClock.epoch !== authority.epoch ||
+    commitSeq <= lockedClock.lastCommitSeq
+  ) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "compositionMismatch",
+    }));
+  }
+  if (liveRows.length > MAX_POINT_COMMIT_MATERIAL_ROWS_V1) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "corruption",
+    }));
+  }
+  const current = yield* readHeadForUpdateEffect(
+    tx,
+    authority.scopeId,
+    "advance",
+  ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  const preparedHead = preparedState.head;
+  if (preparedHead === null) {
+    return current === null
+      ? UNCHANGED_CANDIDATE_WRITE_GUARD_RESULT
+      : yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+          reason: "concurrentStateChange",
+        }));
+  }
+  if (current === null || !sameCandidateIdentity(preparedHead, current)) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "concurrentStateChange",
+    }));
+  }
+  if (
+    preparedHead.frame.kind ===
+      "app_schema_candidate_validation_failure_evidence"
+  ) {
+    return current.frame.kind ===
+          "app_schema_candidate_validation_failure_evidence" &&
+        current.frameSha256Hex === preparedHead.frameSha256Hex
+      ? UNCHANGED_CANDIDATE_WRITE_GUARD_RESULT
+      : yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+          reason: "concurrentStateChange",
+        }));
+  }
+  if (current.frame.kind === "app_schema_candidate_validation_failure_evidence") {
+    return UNCHANGED_CANDIDATE_WRITE_GUARD_RESULT;
+  }
+  if (
+    preparedHead.frame.kind === "app_schema_candidate_validation_receipt" &&
+    (
+      current.frame.kind !== "app_schema_candidate_validation_receipt" ||
+      current.frameSha256Hex !== preparedHead.frameSha256Hex
+    )
+  ) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "concurrentStateChange",
+    }));
+  }
+  const validator = preparedState.validator;
+  if (validator === null || commitSeq <= current.frame.frontierCommitSeq) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "corruption",
+    }));
+  }
+  let observedFailureCount = 0n;
+  const failures: AppSchemaCandidateValidationFailureEntryV1[] = [];
+  for (const row of liveRows) {
+    const developerFields = yield* Effect.fromResult(
+      projectDeveloperFieldsFromCanonicalDocumentResult(row),
+    );
+    const validation = validator.validate({
+      tableId: row.tableId,
+      developerFields,
+    });
+    if (validation.status === "valid") continue;
+    observedFailureCount += 1n;
+    if (
+      failures.length < MAX_APP_SCHEMA_CANDIDATE_VALIDATION_FAILURE_ENTRIES_V1
+    ) failures.push(Object.freeze({
+      tableId: row.tableId,
+      rowId: row.rowId,
+      observedCommitSeq: commitSeq,
+      source: "pointCommit" as const,
+      reason: validation.reason,
+      validatorPath: validation.validatorPath,
+    }));
+  }
+  if (failures.length === 0) return UNCHANGED_CANDIDATE_WRITE_GUARD_RESULT;
+  const predecessorProgressSha = current.frame.kind ===
+      "app_schema_candidate_validation_receipt"
+    ? current.frame.finalProgressSha256Hex
+    : current.frameSha256Hex;
+  const failureFrame = yield* canonicalizeBoundedFailureEvidenceFrameEffect(
+    current.frame,
+    predecessorProgressSha,
+    observedFailureCount,
+    failures,
+  ).pipe(Effect.mapError(mapCandidateWriteGuardError));
+  yield* replaceFrameEffect(tx, current, failureFrame, "advance").pipe(
+    Effect.mapError(mapCandidateWriteGuardError),
+  );
+  return FAILED_CANDIDATE_WRITE_GUARD_RESULT;
 });
 
 export const advanceAppSchemaCandidateValidationEffect = Effect.fn(
@@ -1049,7 +1443,9 @@ function isExhaustedScanCursor(
 export const canonicalizeBoundedFailureEvidenceFrameEffect = Effect.fn(
   "AppSchemaCandidateValidation.canonicalizeBoundedFailureFrame",
 )(function* (
-  progress: AppSchemaCandidateValidationProgressFrameV1,
+  progress:
+    | AppSchemaCandidateValidationProgressFrameV1
+    | AppSchemaCandidateValidationReceiptFrameV1,
   progressSha256Hex: StoredAppSchemaCandidateValidationHead["frameSha256Hex"],
   observedFailureCount: bigint,
   failures: ReadonlyArray<AppSchemaCandidateValidationFailureEntryV1>,
@@ -1074,7 +1470,7 @@ export const canonicalizeBoundedFailureEvidenceFrameEffect = Effect.fn(
     const entries = orderedFailures.slice(0, entryCount);
     return canonicalizeAppSchemaCandidateValidationFrameV1Effect({
         kind: "app_schema_candidate_validation_failure_evidence",
-        ...candidateIdentityFromProgress(progress),
+        ...candidateIdentityFromFrame(progress),
         progressSha256Hex:
           AppSchemaCandidateValidationFrameSha256HexV1Schema.make(
             progressSha256Hex,
@@ -1120,6 +1516,38 @@ function projectDeveloperFieldsResult(
     typeof value._id !== "string" ||
     typeof value._creationTime !== "number"
   ) return Result.fail(operationError("advance", "corruption"));
+  const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};
+  for (const [field, item] of Object.entries(value)) {
+    if (field === "_id" || field === "_creationTime") continue;
+    Object.defineProperty(fields, field, {
+      value: item,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return Result.succeed(Object.freeze(fields));
+}
+
+function projectDeveloperFieldsFromCanonicalDocumentResult(
+  row: AppSchemaCandidateWriteGuardLiveRow,
+): Result.Result<
+  CanonicalFlarexRuntimeObjectV1,
+  AppSchemaCandidateWriteGuardError
+> {
+  const value = row.document.value;
+  if (
+    !isCanonicalFlarexRuntimeObjectV1(value) ||
+    value._id !== appDocumentIdV1FromRowIdentity({
+      tableId: row.tableId,
+      rowId: row.rowId,
+    }) ||
+    !isAppCreationTime(value._creationTime)
+  ) {
+    return Result.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "corruption",
+    }));
+  }
   const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};
   for (const [field, item] of Object.entries(value)) {
     if (field === "_id" || field === "_creationTime") continue;
@@ -1502,6 +1930,14 @@ const readDatabaseClockEffect = Effect.fn(
 function candidateIdentityFromProgress(
   progress: AppSchemaCandidateValidationProgressFrameV1,
 ) {
+  return candidateIdentityFromFrame(progress);
+}
+
+function candidateIdentityFromFrame(
+  progress:
+    | AppSchemaCandidateValidationProgressFrameV1
+    | AppSchemaCandidateValidationReceiptFrameV1,
+) {
   return Object.freeze({
     codecVersion: progress.codecVersion,
     budgetIdentity: progress.budgetIdentity,
@@ -1513,6 +1949,48 @@ function candidateIdentityFromProgress(
     schemaManifestSha256Hex: progress.schemaManifestSha256Hex,
     frontierCommitSeq: progress.frontierCommitSeq,
     attemptFence: progress.attemptFence,
+  });
+}
+
+function sameCandidateIdentity(
+  left: StoredAppSchemaCandidateValidationHead,
+  right: StoredAppSchemaCandidateValidationHead,
+): boolean {
+  return left.deploymentId === right.deploymentId &&
+    left.scopeId === right.scopeId &&
+    left.schemaVersionId === right.schemaVersionId &&
+    left.frame.schemaManifestSha256Hex ===
+      right.frame.schemaManifestSha256Hex &&
+    left.frame.storageGeneration === right.frame.storageGeneration &&
+    left.frame.storageGenerationFence ===
+      right.frame.storageGenerationFence &&
+    left.frame.scopeEpoch === right.frame.scopeEpoch &&
+    left.frame.frontierCommitSeq === right.frame.frontierCommitSeq &&
+    left.frame.attemptFence === right.frame.attemptFence;
+}
+
+function mapCandidateWriteGuardError(
+  error: AppSchemaCandidateValidationError,
+): AppSchemaCandidateWriteGuardError {
+  if (error instanceof AppSchemaCandidateValidationOperationV1Error) {
+    return new AppSchemaCandidateWriteGuardError({
+      reason: error.reason === "superseded"
+        ? "concurrentStateChange"
+        : error.reason === "corruption"
+        ? "corruption"
+        : "persistence",
+      cause: error,
+    });
+  }
+  if (error instanceof AppSchemaCandidateValidationPersistenceError) {
+    return new AppSchemaCandidateWriteGuardError({
+      reason: "persistence",
+      cause: error.cause,
+    });
+  }
+  return new AppSchemaCandidateWriteGuardError({
+    reason: "persistence",
+    cause: error,
   });
 }
 

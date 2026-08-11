@@ -178,6 +178,12 @@ import {
   type AppRowTransaction,
 } from "../src/appRows";
 import {
+  createAppSchemaCandidateValidationPortForPointCommitAuthority,
+  createAppSchemaCandidateWriteGuardPort,
+  installAppSchemaCandidateValidationEffect,
+  loadAppSchemaCandidateValidationEffect,
+} from "../src/appSchemaCandidateValidation";
+import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
@@ -3740,6 +3746,205 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       attempt_count: "0",
       claim_fence: "0",
       same_initial_time: true,
+    });
+  });
+
+  it("keeps candidate failure in the real point-commit transaction", async () => {
+    let candidateValidation:
+      ReturnType<
+        typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
+      > | undefined;
+    let candidateSchemaVersionId:
+      ReturnType<typeof CatalogSchemaVersionIdSchema.make> | undefined;
+    const pointCommitAuthority = resolutionPorts(persistence);
+    const running = await prepareO07BRunningScenario(
+      "m03_b_candidate_guard",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "candidate-invalid-active-valid" },
+        });
+      },
+      async (current) => {
+        candidateSchemaVersionId = CatalogSchemaVersionIdSchema.make(
+          "m03_b_candidate_guard_empty",
+        );
+        await persistence.publishAppSchemaV1({
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+          version: CatalogSchemaVersionSchema.make(2),
+          tables: [],
+          indexes: [],
+        });
+        candidateValidation =
+          createAppSchemaCandidateValidationPortForPointCommitAuthority(
+            persistence.drizzle,
+            pointCommitAuthority,
+          );
+        await runEffect(installAppSchemaCandidateValidationEffect(
+          candidateValidation,
+          {
+            deploymentId: current.anchor.deploymentId,
+            schemaVersionId: candidateSchemaVersionId,
+          },
+        ));
+        return Object.freeze({
+          candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
+            candidateValidation,
+            pointCommitAuthority,
+          }),
+        });
+      },
+      pointCommitAuthority,
+    );
+    const plan = await runEffect(
+      running.authentication.enterPointCommitFinishing(running.runningPlan),
+    );
+    const prepared = Object.freeze({ ...running, plan });
+    if (candidateValidation === undefined || candidateSchemaVersionId === undefined) {
+      throw new Error("Candidate guard fixture was not prepared.");
+    }
+    await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      {
+        deploymentId: prepared.current.anchor.deploymentId,
+        schemaVersionId: candidateSchemaVersionId,
+      },
+    ))).resolves.toMatchObject({
+      status: "present",
+      head: { frame: {
+        kind: "app_schema_candidate_validation_progress",
+      } },
+    });
+
+    await expect(runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+    await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      {
+        deploymentId: prepared.current.anchor.deploymentId,
+        schemaVersionId: candidateSchemaVersionId,
+      },
+    ))).resolves.toMatchObject({
+      status: "present",
+      head: { frame: {
+        kind: "app_schema_candidate_validation_failure_evidence",
+        observedFailureCount: 1n,
+        entries: [{
+          source: "pointCommit",
+          reason: "candidateTableRemoved",
+          observedCommitSeq: 1n,
+        }],
+      } },
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "1",
+      commit_changes: "1",
+      outcomes: "1",
+      last_commit_seq: "1",
+    });
+  });
+
+  it("recovers candidate failure with the committed publication after uncertainty", async () => {
+    let loseCommittedResponse = false;
+    let injected = false;
+    const pointCommitAuthority = portsWithReadCommittedOverride(
+      async (target, work) => {
+        const result = await target[RUN_LOCATED_READ_COMMITTED_V1](work);
+        if (loseCommittedResponse) {
+          loseCommittedResponse = false;
+          injected = true;
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("lost M03-B commit response"),
+          }));
+        }
+        return result;
+      },
+    );
+    let candidateValidation:
+      ReturnType<
+        typeof createAppSchemaCandidateValidationPortForPointCommitAuthority
+      > | undefined;
+    let candidateSchemaVersionId:
+      ReturnType<typeof CatalogSchemaVersionIdSchema.make> | undefined;
+    const running = await prepareO07BRunningScenario(
+      "m03_b_candidate_uncertain",
+      async (current, table) => {
+        await runPointOperation(current.store, table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "candidate-uncertain" },
+        });
+      },
+      async (current) => {
+        candidateSchemaVersionId = CatalogSchemaVersionIdSchema.make(
+          "m03_b_candidate_uncertain_empty",
+        );
+        await persistence.publishAppSchemaV1({
+          deploymentId: current.anchor.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+          version: CatalogSchemaVersionSchema.make(2),
+          tables: [],
+          indexes: [],
+        });
+        candidateValidation =
+          createAppSchemaCandidateValidationPortForPointCommitAuthority(
+            persistence.drizzle,
+            pointCommitAuthority,
+          );
+        await runEffect(installAppSchemaCandidateValidationEffect(
+          candidateValidation,
+          {
+            deploymentId: current.anchor.deploymentId,
+            schemaVersionId: candidateSchemaVersionId,
+          },
+        ));
+        return Object.freeze({
+          candidateSchemaWriteGuard: createAppSchemaCandidateWriteGuardPort({
+            candidateValidation,
+            pointCommitAuthority,
+          }),
+          afterTransactionStep: (event: Readonly<{
+            readonly step: PointCommitTransactionProofStepV1;
+          }>) => {
+            if (event.step === "beforeCommit") loseCommittedResponse = true;
+            return Promise.resolve();
+          },
+        });
+      },
+      pointCommitAuthority,
+    );
+    const plan = await runEffect(
+      running.authentication.enterPointCommitFinishing(running.runningPlan),
+    );
+    await expect(runEffect(running.authentication.publishPointCommit(plan)))
+      .resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
+    expect(injected).toBe(true);
+    if (candidateValidation === undefined || candidateSchemaVersionId === undefined) {
+      throw new Error("Candidate uncertainty fixture was not prepared.");
+    }
+    await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      {
+        deploymentId: running.current.anchor.deploymentId,
+        schemaVersionId: candidateSchemaVersionId,
+      },
+    ))).resolves.toMatchObject({
+      head: { frame: {
+        kind: "app_schema_candidate_validation_failure_evidence",
+        entries: [{ source: "pointCommit", observedCommitSeq: 1n }],
+      } },
+    });
+    expect(await o06DurableState(running.scopeUuid)).toMatchObject({
+      revisions: "1",
+      current_rows: "1",
+      outcomes: "1",
+      last_commit_seq: "1",
     });
   });
 

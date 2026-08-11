@@ -69,6 +69,12 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
 import {
+  createAppSchemaCandidateValidationPortForPointCommitAuthority,
+  createAppSchemaCandidateWriteGuardPort,
+  installAppSchemaCandidateValidationEffect,
+  loadAppSchemaCandidateValidationEffect,
+} from "../src/appSchemaCandidateValidation";
+import {
   appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionResult,
 } from "../src/appIndexEntries";
 import {
@@ -2134,6 +2140,156 @@ describePostgres("real Postgres O06 point-commit transaction kernel", () => {
         wakes: "0",
         last_commit_seq: "0",
         last_outbox_seq: "0",
+      });
+    });
+  }, 120_000);
+
+  it("atomically records candidate failure on genuine PostgreSQL", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("96800000");
+      const scope = await createScope(
+        persistence,
+        randomUuid,
+        "candidate_guard",
+      );
+      const candidateSchemaVersionId = CatalogSchemaVersionIdSchema.make(
+        "schema_o06_postgres_candidate_guard_empty",
+      );
+      await persistence.publishAppSchemaV1({
+        deploymentId: scope.deploymentId,
+        schemaVersionId: candidateSchemaVersionId,
+        version: CatalogSchemaVersionSchema.make(2),
+        tables: [],
+        indexes: [],
+      });
+      const candidateValidation =
+        createAppSchemaCandidateValidationPortForPointCommitAuthority(
+          persistence.drizzle,
+          scope.ports,
+        );
+      await runEffect(installAppSchemaCandidateValidationEffect(
+        candidateValidation,
+        {
+          deploymentId: scope.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        },
+      ));
+      const guard = createAppSchemaCandidateWriteGuardPort({
+        candidateValidation,
+        pointCommitAuthority: scope.ports,
+      });
+      const attempt = await createAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "candidate_guard",
+      );
+      let candidateFailureSteps = 0;
+      const publisher = createPointCommitPublisherPortV1(scope.ports, {
+        candidateSchemaWriteGuard: guard,
+        afterTransactionStep: (event) => {
+          if (event.step === "candidateSchemaValidationFailed") {
+            candidateFailureSteps += 1;
+          }
+          return Promise.resolve();
+        },
+      });
+      await expect(runEffect(publisher.prove(attempt.command))).resolves
+        .toEqual({ kind: "wouldCommit" });
+      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+        candidateValidation,
+        {
+          deploymentId: scope.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        },
+      ))).resolves.toMatchObject({
+        head: { frame: {
+          kind: "app_schema_candidate_validation_progress",
+        } },
+      });
+      expect(candidateFailureSteps).toBe(1);
+      const trigger = await installCommitSqlStateTrigger(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+        "40001",
+        "m03_b_candidate_guard_40001",
+      );
+      try {
+        await expect(runFailure(publisher.publish(attempt.publicationCommand)))
+          .resolves.toMatchObject({
+            _tag: "PointCommitConfirmedPreDecisionRollbackV1Error",
+            operation: "writeCommitHeader",
+            sqlState: "40001",
+          });
+      } finally {
+        await dropCommitTrigger(persistence, trigger);
+      }
+      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+        candidateValidation,
+        {
+          deploymentId: scope.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        },
+      ))).resolves.toMatchObject({
+        head: { frame: {
+          kind: "app_schema_candidate_validation_progress",
+        } },
+      });
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        revisions: "0",
+        current_rows: "0",
+        commit_headers: "0",
+        commit_changes: "0",
+        outcomes: "0",
+        last_commit_seq: "0",
+      });
+      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
+        .resolves.toMatchObject({ kind: "published", token: { commitSeq: 1n } });
+      const failed = await runEffect(loadAppSchemaCandidateValidationEffect(
+        candidateValidation,
+        {
+          deploymentId: scope.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        },
+      ));
+      expect(failed).toMatchObject({
+        head: { frame: {
+          kind: "app_schema_candidate_validation_failure_evidence",
+          observedFailureCount: 1n,
+          entries: [{
+            source: "pointCommit",
+            reason: "candidateTableRemoved",
+            observedCommitSeq: 1n,
+          }],
+        } },
+      });
+      if (failed.status !== "present") {
+        throw new Error("Missing failed PostgreSQL candidate head.");
+      }
+      await expect(runEffect(publisher.publish(attempt.publicationCommand)))
+        .resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
+      await expect(runEffect(loadAppSchemaCandidateValidationEffect(
+        candidateValidation,
+        {
+          deploymentId: scope.deploymentId,
+          schemaVersionId: candidateSchemaVersionId,
+        },
+      ))).resolves.toMatchObject({
+        head: { frameSha256Hex: failed.head.frameSha256Hex },
+      });
+      expect(await durableState(
+        persistence,
+        attempt.command.sealIdentity.scopeUuid,
+      )).toMatchObject({
+        revisions: "1",
+        current_rows: "1",
+        commit_headers: "1",
+        commit_changes: "1",
+        outcomes: "1",
+        last_commit_seq: "1",
       });
     });
   }, 120_000);

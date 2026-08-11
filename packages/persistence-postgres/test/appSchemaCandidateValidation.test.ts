@@ -25,13 +25,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   advanceAppSchemaCandidateValidationEffect,
+  applyAppSchemaCandidateWriteGuardInTransactionEffect,
   canonicalizeBoundedFailureEvidenceFrameEffect,
   createAppSchemaCandidateValidationPort,
+  createAppSchemaCandidateWriteGuardPort,
   createLocatedAppSchemaCandidateValidationTarget,
   hasAppSchemaCandidateValidationComposition,
+  hasAppSchemaCandidateWriteGuardComposition,
   installAppSchemaCandidateValidationEffect,
   loadAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
+  prepareAppSchemaCandidateWriteGuardEffect,
 } from "../src/appSchemaCandidateValidation";
 import {
   appendPreparedAppRowRevisionAndAdvanceCurrentInTransactionResult,
@@ -177,6 +181,340 @@ describe("M03-A app-schema candidate validation", () => {
         reason: "candidateTableRemoved",
         validatorPath: null,
       }] } },
+    });
+  });
+
+  it("atomically fails an active candidate from final point-commit rows", async () => {
+    const fixture = await fixtureFor("write_guard");
+    const dependencies = portDependencies(fixture);
+    const candidateValidation = createAppSchemaCandidateValidationPort(
+      dependencies,
+    );
+    const pointCommitAuthority = Object.freeze({
+      scopeMetadata: dependencies.authority.scopeMetadata,
+      provisioningReceipts: dependencies.authority.provisioningReceipts,
+      scopeSessionTargets: dependencies.authority.scopeClockTargets,
+    });
+    const guard = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority,
+    });
+    await runEffect(installAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(
+      guard,
+      { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId },
+    ));
+    const clock = await fixture.target.getCurrentClock(fixture.scopeId);
+    if (clock === null) throw new Error("Missing scope clock.");
+    const authority = Object.freeze({
+      deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
+      physicalLocator: LOCATOR,
+      storageGeneration: clock.storageGeneration,
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+      lastCommitSeq: clock.lastCommitSeq,
+      lastOutboxSeq: clock.lastOutboxSeq,
+    });
+    const document = await canonicalizeAppDocumentV1({
+      tableId: fixture.tableId,
+      rowId: rowId(1),
+      creationTime: decodeAppCreationTimeV1(1_750_000_000_000),
+      fields: { name: 42 },
+    });
+    const secondaryDocument = await canonicalizeAppDocumentV1({
+      tableId: fixture.secondaryTableId,
+      rowId: rowId(2),
+      creationTime: decodeAppCreationTimeV1(1_750_000_000_001),
+      fields: { name: false },
+    });
+    const result = await fixture.persistence.drizzle.transaction(tx =>
+      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
+        tx,
+        guard,
+        prepared,
+        authority,
+        clock,
+        CommitSeqSchema.make(1n),
+        Object.freeze([
+          Object.freeze({
+            tableId: fixture.tableId,
+            rowId: rowId(1),
+            document,
+          }),
+          Object.freeze({
+            tableId: fixture.secondaryTableId,
+            rowId: rowId(2),
+            document: secondaryDocument,
+          }),
+        ]),
+      ))
+    );
+    expect(result).toEqual({ status: "candidateFailed" });
+    await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      status: "present",
+      head: { frame: {
+        kind: "app_schema_candidate_validation_failure_evidence",
+        observedFailureCount: 2n,
+        entries: [
+          {
+            tableId: fixture.tableId,
+            source: "pointCommit",
+            observedCommitSeq: 1n,
+            reason: "candidateValidatorRejected",
+            validatorPath: "$document.name",
+          },
+          {
+            tableId: fixture.secondaryTableId,
+            source: "pointCommit",
+            observedCommitSeq: 1n,
+            reason: "candidateValidatorRejected",
+            validatorPath: "$document.name",
+          },
+        ],
+      } },
+    });
+  });
+
+  it("keeps valid writes and deletes inert, then invalidates a settled receipt", async () => {
+    const fixture = await fixtureFor("write_guard_receipt");
+    const dependencies = portDependencies(fixture);
+    const candidateValidation = createAppSchemaCandidateValidationPort(
+      dependencies,
+    );
+    const pointCommitAuthority = Object.freeze({
+      scopeMetadata: dependencies.authority.scopeMetadata,
+      provisioningReceipts: dependencies.authority.provisioningReceipts,
+      scopeSessionTargets: dependencies.authority.scopeClockTargets,
+    });
+    const guard = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority,
+    });
+    const installed = await runEffect(installAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    const progressSha = installed.head.frameSha256Hex;
+    const clock = await fixture.target.getCurrentClock(fixture.scopeId);
+    if (clock === null) throw new Error("Missing scope clock.");
+    const authority = Object.freeze({
+      deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
+      physicalLocator: LOCATOR,
+      storageGeneration: clock.storageGeneration,
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+      lastCommitSeq: clock.lastCommitSeq,
+      lastOutboxSeq: clock.lastOutboxSeq,
+    });
+    const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(
+      guard,
+      { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId },
+    ));
+    const validDocument = await canonicalizeAppDocumentV1({
+      tableId: fixture.tableId,
+      rowId: rowId(1),
+      creationTime: decodeAppCreationTimeV1(1_750_000_000_000),
+      fields: { name: "valid" },
+    });
+    await expect(fixture.persistence.drizzle.transaction(tx =>
+      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
+        tx,
+        guard,
+        prepared,
+        authority,
+        clock,
+        CommitSeqSchema.make(1n),
+        Object.freeze([Object.freeze({
+          tableId: fixture.tableId,
+          rowId: rowId(1),
+          document: validDocument,
+        })]),
+      ))
+    )).resolves.toEqual({ status: "unchanged" });
+    await expect(fixture.persistence.drizzle.transaction(tx =>
+      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
+        tx,
+        guard,
+        prepared,
+        authority,
+        clock,
+        CommitSeqSchema.make(1n),
+        Object.freeze([]),
+      ))
+    )).resolves.toEqual({ status: "unchanged" });
+    await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      head: { frameSha256Hex: progressSha },
+    });
+
+    await advance(fixture, fixture.schemaVersionId);
+    await runEffect(settleAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    const receiptEvidence = await runEffect(
+      prepareAppSchemaCandidateWriteGuardEffect(guard, {
+        deploymentId: fixture.deploymentId,
+        scopeId: fixture.scopeId,
+      }),
+    );
+    const invalidDocument = await canonicalizeAppDocumentV1({
+      tableId: fixture.tableId,
+      rowId: rowId(2),
+      creationTime: decodeAppCreationTimeV1(1_750_000_000_001),
+      fields: { name: 42 },
+    });
+    await expect(fixture.persistence.drizzle.transaction(tx =>
+      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
+        tx,
+        guard,
+        receiptEvidence,
+        authority,
+        clock,
+        CommitSeqSchema.make(1n),
+        Object.freeze([Object.freeze({
+          tableId: fixture.tableId,
+          rowId: rowId(2),
+          document: invalidDocument,
+        })]),
+      ))
+    )).resolves.toEqual({ status: "candidateFailed" });
+    await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      head: { frame: {
+        kind: "app_schema_candidate_validation_failure_evidence",
+        entries: [{ source: "pointCommit", observedCommitSeq: 1n }],
+      } },
+    });
+  });
+
+  it("binds write guards to one exact point-commit authority object", async () => {
+    const fixture = await fixtureFor("write_guard_composition");
+    const dependencies = portDependencies(fixture);
+    const pointCommitAuthority = Object.freeze({
+      scopeMetadata: dependencies.authority.scopeMetadata,
+      provisioningReceipts: dependencies.authority.provisioningReceipts,
+      scopeSessionTargets: dependencies.authority.scopeClockTargets,
+    });
+    const candidateValidation = createAppSchemaCandidateValidationPort(
+      dependencies,
+    );
+    const guard = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority,
+    });
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      guard,
+      pointCommitAuthority,
+    )).toBe(true);
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      { ...guard },
+      pointCommitAuthority,
+    )).toBe(false);
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      guard,
+      { ...pointCommitAuthority },
+    )).toBe(false);
+
+    let getterReads = 0;
+    const accessorAuthority = Object.defineProperties({}, {
+      scopeMetadata: {
+        enumerable: true,
+        get: () => {
+          getterReads += 1;
+          return pointCommitAuthority.scopeMetadata;
+        },
+      },
+      provisioningReceipts: {
+        enumerable: true,
+        value: pointCommitAuthority.provisioningReceipts,
+      },
+      scopeSessionTargets: {
+        enumerable: true,
+        value: pointCommitAuthority.scopeSessionTargets,
+      },
+    }) as typeof pointCommitAuthority;
+    const unissued = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority: accessorAuthority,
+    });
+    expect(getterReads).toBe(0);
+    await expect(runEffectFailure(prepareAppSchemaCandidateWriteGuardEffect(
+      unissued,
+      { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId },
+    ))).resolves.toMatchObject({
+      _tag: "AppSchemaCandidateWriteGuardError",
+      reason: "notIssued",
+    });
+  });
+
+  it("accepts same-candidate scan progress between preparation and commit", async () => {
+    const fixture = await fixtureFor("write_guard_progress_race");
+    await appendLive(fixture, rowId(1), 1n, null, { name: "existing" });
+    await setClockCommit(fixture, 1n);
+    const dependencies = portDependencies(fixture);
+    const candidateValidation = createAppSchemaCandidateValidationPort(
+      dependencies,
+    );
+    const pointCommitAuthority = Object.freeze({
+      scopeMetadata: dependencies.authority.scopeMetadata,
+      provisioningReceipts: dependencies.authority.provisioningReceipts,
+      scopeSessionTargets: dependencies.authority.scopeClockTargets,
+    });
+    const guard = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority,
+    });
+    await runEffect(installAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      input(fixture, fixture.schemaVersionId),
+    ));
+    const prepared = await runEffect(prepareAppSchemaCandidateWriteGuardEffect(
+      guard,
+      { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId },
+    ));
+    await advance(fixture, fixture.schemaVersionId);
+    const clock = await fixture.target.getCurrentClock(fixture.scopeId);
+    if (clock === null) throw new Error("Missing scope clock.");
+    const authority = Object.freeze({
+      deploymentId: fixture.deploymentId,
+      scopeId: fixture.scopeId,
+      physicalLocator: LOCATOR,
+      storageGeneration: clock.storageGeneration,
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+      lastCommitSeq: clock.lastCommitSeq,
+      lastOutboxSeq: clock.lastOutboxSeq,
+    });
+    const invalid = await canonicalizeAppDocumentV1({
+      tableId: fixture.tableId,
+      rowId: rowId(2),
+      creationTime: decodeAppCreationTimeV1(1_750_000_000_001),
+      fields: { name: 42 },
+    });
+    await expect(fixture.persistence.drizzle.transaction(tx =>
+      runEffect(applyAppSchemaCandidateWriteGuardInTransactionEffect(
+        tx,
+        guard,
+        prepared,
+        authority,
+        clock,
+        CommitSeqSchema.make(2n),
+        Object.freeze([Object.freeze({
+          tableId: fixture.tableId,
+          rowId: rowId(2),
+          document: invalid,
+        })]),
+      ))
+    )).resolves.toEqual({ status: "candidateFailed" });
+    await expect(load(fixture, fixture.schemaVersionId)).resolves.toMatchObject({
+      head: { frame: {
+        kind: "app_schema_candidate_validation_failure_evidence",
+        entries: [{ source: "pointCommit", observedCommitSeq: 2n }],
+      } },
     });
   });
 
@@ -583,6 +921,7 @@ interface Fixture {
   readonly replacementSchemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
   readonly emptySchemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>;
   readonly tableId: CatalogTableId;
+  readonly secondaryTableId: CatalogTableId;
   readonly target: ReturnType<typeof createLocatedAppSchemaCandidateValidationTarget>;
 }
 
@@ -623,14 +962,14 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     deploymentId,
     schemaVersionId,
     version: CatalogSchemaVersionSchema.make(1),
-    tables: [appTable("recipes", false)],
+    tables: [appTable("recipes", false), appTable("ingredients", false)],
     indexes: [],
   });
   await persistence.publishAppSchemaV1({
     deploymentId,
     schemaVersionId: replacementSchemaVersionId,
     version: CatalogSchemaVersionSchema.make(2),
-    tables: [appTable("recipes", true)],
+    tables: [appTable("recipes", true), appTable("ingredients", true)],
     indexes: [],
   });
   await persistence.publishAppSchemaV1({
@@ -641,7 +980,9 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     indexes: [],
   });
   const table = first.manifest.tableDefinitions.tables[0];
+  const secondaryTable = first.manifest.tableDefinitions.tables[1];
   if (table === undefined) throw new Error("Missing recipes table.");
+  if (secondaryTable === undefined) throw new Error("Missing ingredients table.");
   return Object.freeze({
     persistence,
     deploymentId,
@@ -651,6 +992,7 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     replacementSchemaVersionId,
     emptySchemaVersionId,
     tableId: table.tableId,
+    secondaryTableId: secondaryTable.tableId,
     target: createLocatedAppSchemaCandidateValidationTarget(
       persistence.drizzle,
       LOCATOR,

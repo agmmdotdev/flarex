@@ -181,6 +181,14 @@ import {
   type AppRowPointDependencyV1,
   type AppRowTransaction,
 } from "./appRows";
+import {
+  applyAppSchemaCandidateWriteGuardInTransactionEffect,
+  hasAppSchemaCandidateWriteGuardComposition,
+  prepareAppSchemaCandidateWriteGuardEffect,
+  AppSchemaCandidateWriteGuardError,
+  type AppSchemaCandidateWriteGuardPort,
+  type PreparedAppSchemaCandidateWriteGuard,
+} from "./appSchemaCandidateValidation";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type {
   IntrinsicCreationTimeIndexDefinitionPortV1,
@@ -653,6 +661,7 @@ export type PointCommitCorruptionReasonV1 =
   | "uniqueConstraintDefinitionInvalid"
   | "uniqueConstraintBuildInvalid"
   | "uniqueKeyTransitionInvalid"
+  | "candidateSchemaValidationInvalid"
   | "successfulResultInvalid"
   | "committedOutcomeMissing"
   | "publishedOutcomeInvalid"
@@ -747,6 +756,7 @@ export type PointCommitSqlOperationV1 =
   | "resetIntrinsicIndexValidation"
   | "resetDeveloperIndexValidation"
   | "resetUniqueConstraintValidation"
+  | "validateCandidateSchema"
   | "writeTentativeRow"
   | "writeIntrinsicIndexEntry"
   | "writeDeveloperIndexEntry"
@@ -819,6 +829,7 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitIntrinsicIndexDefinitionUnavailableV1Error
   | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
   | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
+  | AppSchemaCandidateWriteGuardError
   | LocateAppDeveloperIndexDefinitionsV1Error
   | ReadAppUniqueConstraintDefinitionV1Error
   | ReadAppIndexDefinitionError
@@ -1097,6 +1108,7 @@ export type PointCommitTransactionProofStepV1 =
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"
   | "uniqueConstraintValidationReset"
+  | "candidateSchemaValidationFailed"
   | "outcomeRechecked"
   | "commitHeaderWritten"
   | "commitChangeWritten"
@@ -1126,6 +1138,8 @@ export interface PointCommitTransactionProofOptionsV1 {
    * the exact B2 definition owner on this same point-commit port.
    */
   readonly uniqueConstraintEligibility?: AppUniqueConstraintSetEligibilityPortV1;
+  /** Private M03-B composition; absence preserves the lower commit lane. */
+  readonly candidateSchemaWriteGuard?: AppSchemaCandidateWriteGuardPort;
   readonly afterTransactionStep?: (
     event: Readonly<{
       readonly scopeId: ReplacementScopeIdV1;
@@ -1148,6 +1162,7 @@ function capturePointCommitTransactionProofOptionsV1(
   const developerIndexes = options.developerIndexes;
   const uniqueConstraints = options.uniqueConstraints;
   const uniqueConstraintEligibility = options.uniqueConstraintEligibility;
+  const candidateSchemaWriteGuard = options.candidateSchemaWriteGuard;
   const afterTransactionStep = options.afterTransactionStep;
   const observeQuery = options.observeQuery;
   return Object.freeze({
@@ -1159,6 +1174,9 @@ function capturePointCommitTransactionProofOptionsV1(
     ...(uniqueConstraintEligibility === undefined
       ? {}
       : { uniqueConstraintEligibility }),
+    ...(candidateSchemaWriteGuard === undefined
+      ? {}
+      : { candidateSchemaWriteGuard }),
     ...(afterTransactionStep === undefined ? {} : { afterTransactionStep }),
     ...(observeQuery === undefined ? {} : { observeQuery }),
   });
@@ -1249,6 +1267,11 @@ interface PreparedPointMutationAttemptReplacementCommandV1
 type PreparedPointCommitDependencyCommandV1 =
   | PreparedPointCommitTransactionCommandV1
   | PreparedPointMutationAttemptReplacementCommandV1;
+
+type PreparedPointCommitCandidateSchemaWriteGuard = Readonly<{
+  readonly guard: AppSchemaCandidateWriteGuardPort;
+  readonly prepared: PreparedAppSchemaCandidateWriteGuard;
+}>;
 
 type PointCommitTransactionModeV1 = "rollbackProof" | "publish";
 type PointCommitSessionLockModeV1 =
@@ -1480,6 +1503,33 @@ const prepareUniqueConstraintDefinitions = Effect.fn(
   return definitions;
 });
 
+const prepareCandidateSchemaWriteGuard = Effect.fn(
+  "PointCommitTransaction.prepareCandidateSchemaWriteGuard",
+)(function* (
+  command: PreparedPointCommitTransactionCommandV1,
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Effect.fn.Return<
+  Readonly<{
+    readonly guard: AppSchemaCandidateWriteGuardPort;
+    readonly prepared: PreparedAppSchemaCandidateWriteGuard;
+  }> | null,
+  AppSchemaCandidateWriteGuardError
+> {
+  const guard = options.candidateSchemaWriteGuard;
+  if (command.rowIntents.length === 0 || guard === undefined) return null;
+  if (!hasAppSchemaCandidateWriteGuardComposition(guard, ports)) {
+    return yield* Effect.fail(new AppSchemaCandidateWriteGuardError({
+      reason: "compositionMismatch",
+    }));
+  }
+  const prepared = yield* prepareAppSchemaCandidateWriteGuardEffect(guard, {
+    deploymentId: command.authorityPins.deploymentId,
+    scopeId: command.authorityPins.scopeId,
+  });
+  return Object.freeze({ guard, prepared });
+});
+
 export function createPointCommitFinishingTransitionPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
@@ -1649,6 +1699,11 @@ export function createPointCommitRollbackProofPortV1(
       command,
       capturedOptions,
     );
+    const candidateSchemaWriteGuard = yield* prepareCandidateSchemaWriteGuard(
+      command,
+      ports,
+      capturedOptions,
+    );
     return yield* Effect.uninterruptible(Effect.tryPromise({
       try: () => runRollbackProof(
         target,
@@ -1657,6 +1712,7 @@ export function createPointCommitRollbackProofPortV1(
         intrinsicDefinitions,
         developerDefinitions,
         uniqueDefinitions,
+        candidateSchemaWriteGuard,
         capturedOptions,
       ),
       catch: mapTransactionFailure,
@@ -1735,6 +1791,11 @@ export function createPointCommitPublisherPortV1(
       command,
       capturedOptions,
     );
+    const candidateSchemaWriteGuard = yield* prepareCandidateSchemaWriteGuard(
+      command,
+      ports,
+      capturedOptions,
+    );
 
     const runPublication = awaitPointCommitPublicationSettlement(
       runPointCommitPublication(
@@ -1744,6 +1805,7 @@ export function createPointCommitPublisherPortV1(
         intrinsicDefinitions,
         developerDefinitions,
         uniqueDefinitions,
+        candidateSchemaWriteGuard,
         capturedOptions,
       ),
     );
@@ -3755,6 +3817,8 @@ async function runRollbackProof(
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  candidateSchemaWriteGuard:
+    PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitWouldCommitV1> {
   try {
@@ -3766,6 +3830,7 @@ async function runRollbackProof(
         intrinsicDefinitions,
         developerDefinitions,
         uniqueDefinitions,
+        candidateSchemaWriteGuard,
         options,
         "rollbackProof",
       );
@@ -3793,6 +3858,8 @@ async function runPointCommitPublication(
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  candidateSchemaWriteGuard:
+    PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PointCommitPublicationDecisionV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
@@ -3803,6 +3870,7 @@ async function runPointCommitPublication(
       intrinsicDefinitions,
       developerDefinitions,
       uniqueDefinitions,
+      candidateSchemaWriteGuard,
       options,
       "publish",
     );
@@ -3841,6 +3909,8 @@ async function runPointCommitTransactionKernel(
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  candidateSchemaWriteGuard:
+    PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
@@ -3954,6 +4024,29 @@ async function runPointCommitTransactionKernel(
     loadedHeads,
     uniqueDefinitions,
   );
+  if (candidateSchemaWriteGuard !== null) {
+    const guardResult = await runCandidateSchemaWriteGuard(
+      tx,
+      candidateSchemaWriteGuard,
+      preliminaryAuthority,
+      clock.record,
+      allocation.commitSeq,
+      command.rowIntents.flatMap((intent) => intent.kind === "live"
+        ? [Object.freeze({
+            tableId: intent.tableId,
+            rowId: intent.rowId,
+            document: intent.document,
+          })]
+        : []),
+    );
+    if (guardResult.status === "candidateFailed") {
+      await emitTransactionStep(
+        options,
+        command,
+        "candidateSchemaValidationFailed",
+      );
+    }
+  }
   let intrinsicBuildIndex = 0;
   for (const rowIntent of command.rowIntents) {
     const rowRevision = await lowerTentativePointCommitRow(
@@ -6473,7 +6566,9 @@ async function writePointCommitUniqueKeyActions(
       previous: action.previous,
       next: action.next,
     });
-    const settled = await runPointCommitUniqueKeyMutation(tx, input);
+    const settled = await runPointCommitInTransactionEffect(
+      applyAppUniqueKeyMutationInTransactionEffect(tx, input),
+    );
     projectPointCommitTransactionResult(
       settled.pipe(Result.mapError(mapPointCommitUniqueKeyFailure)),
     );
@@ -6481,14 +6576,11 @@ async function writePointCommitUniqueKeyActions(
   }
 }
 
-/** The single audited Effect runtime bridge for C07's Promise transaction. */
-function runPointCommitUniqueKeyMutation(
-  tx: AppRowTransaction,
-  input: ApplyAppUniqueKeyMutationV1Input,
+/** The single audited Effect runtime bridge for the Promise transaction. */
+function runPointCommitInTransactionEffect<Value, Failure>(
+  effect: Effect.Effect<Value, Failure>,
 ) {
-  return Effect.runPromise(Effect.result(
-    applyAppUniqueKeyMutationInTransactionEffect(tx, input),
-  ));
+  return Effect.runPromise(Effect.result(effect));
 }
 
 function mapPointCommitUniqueKeyFailure(
@@ -6503,6 +6595,39 @@ function mapPointCommitUniqueKeyFailure(
     return new PointCommitSqlFailureMarkerV1("writeUniqueKey", failure.cause);
   }
   return corruption("uniqueKeyTransitionInvalid");
+}
+
+async function runCandidateSchemaWriteGuard(
+  tx: AppRowTransaction,
+  candidate: PreparedPointCommitCandidateSchemaWriteGuard,
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+  commitSeq: CommitSeq,
+  liveRows: ReadonlyArray<Readonly<{
+    readonly tableId: CatalogTableId;
+    readonly rowId: AppRowIdHexV1;
+    readonly document: CanonicalFlarexValueV1;
+  }>>,
+) {
+  const settled = await runPointCommitInTransactionEffect(
+    applyAppSchemaCandidateWriteGuardInTransactionEffect(
+      tx,
+      candidate.guard,
+      candidate.prepared,
+      authority,
+      clock,
+      commitSeq,
+      liveRows,
+    ),
+  );
+  return projectPointCommitTransactionResult(settled.pipe(
+    Result.mapError((failure) => failure.reason === "persistence"
+      ? new PointCommitSqlFailureMarkerV1(
+          "validateCandidateSchema",
+          failure.cause ?? failure,
+        )
+      : corruption("candidateSchemaValidationInvalid")),
+  ));
 }
 
 async function resetPointCommitDeveloperIndexValidation(
@@ -7208,6 +7333,7 @@ function mapTransactionFailure(
     cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
     cause instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error ||
     cause instanceof PointCommitUniqueConstraintMaintenanceUnavailableV1Error ||
+    cause instanceof AppSchemaCandidateWriteGuardError ||
     cause instanceof AppUniqueKeyConflictError ||
     cause instanceof AppUniqueKeyHashError ||
     cause instanceof CanonicalAppUniqueKeyHashCollisionError ||

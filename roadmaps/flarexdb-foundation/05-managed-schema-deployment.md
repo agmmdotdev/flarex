@@ -1,13 +1,14 @@
 # Managed Schema Deployment And Migrationless DX
 
-Status: Accepted deferred foundation contract with `M01-A`, `M01-B`, and
-`M03-A` complete. The private managed-schema compatibility, read-only planning,
-candidate-document policy, canonical validation frames, guarded target-local
-single candidate head, and bounded exact-frontier scanner now exist. M03-A is
-production-inert: it adds no point-commit hook, readiness or activation
-consumer, CLI, backfill runner, destructive cleanup, route, or trigger. `M03-B`
-is next and separately integrates one authenticated candidate-validation facet
-into the existing point-commit transaction.
+Status: Accepted deferred foundation contract with `M01-A`, `M01-B`, `M02`,
+`M03-A`, and `M03-B` complete. The private managed-schema compatibility,
+read-only planning, candidate-document policy, canonical validation frames,
+guarded target-local single candidate head, bounded exact-frontier scanner, and
+authenticated point-commit write guard now exist. M03-B remains private and
+production-inert: no Standard live composition, readiness or activation
+consumer, CLI, backfill runner, destructive cleanup, route, or trigger uses it.
+`M03-C` is next and separately gates readiness and activation on the exact
+schema-validation receipt.
 
 ## Decision
 
@@ -285,6 +286,58 @@ later writes escape the candidate, and restarting the entire scan after every
 write. It also bounds commit work to one candidate schema and the existing
 material-row ceiling rather than every registered application revision.
 
+### M03-B point-commit integration preflight
+
+`M03-B` uses one process-local opaque candidate write-guard facet derived from
+the committed M03-A capability and bound to the exact point-commit scope
+metadata, provisioning-receipt, and target-resolver objects. Copies, accessors,
+foreign M03-A ports, and differently composed authority ports are unavailable;
+the lower O07 proof lane remains independently usable only when no managed
+candidate capability is composed.
+
+For a material point commit, preparation reads one candidate-head snapshot and
+authenticates the exact candidate manifest/digest outside the target write
+transaction, compiling its pure document validator once. The existing point-
+commit transaction remains the sole transaction and publication owner. After
+it has locked and revalidated the scope clock, proved OCC dependencies, and
+allocated the next commit sequence, it locks the one candidate head, rechecks
+its candidate/authority commitments, and validates only final live material
+documents. Deletes contribute no candidate failure. A concurrently advanced
+progress frame for the same candidate remains admissible; an absent-to-present,
+failed-to-restarted, or different-candidate transition without matching
+prepared authority fails the transaction closed so the caller can reload.
+
+If every final live document is candidate-valid, the head is unchanged. If one
+or more are incompatible, point commit builds stable ordered `pointCommit`
+failure entries at the allocated commit sequence, records the exact observed
+failure count with at most sixteen bounded entries, and atomically replaces a
+progress or receipt head with failure evidence. That candidate transition does
+not reject the active-valid user write. Any later OCC, sidecar, publication, or
+outcome failure rolls the candidate update back with the rest of the existing
+transaction. Storage corruption, capability mismatch, stale authority, or an
+unverifiable candidate artifact remains a whole-transaction failure rather
+than a permissive candidate no-op.
+
+Rollback proof exercises the same guard and then discards its tentative
+candidate transition through the existing sentinel. Publication uncertainty
+continues to resolve through the existing committed-outcome owner: a committed
+row publication and candidate failure replay together, while confirmed
+rollback preserves the prior candidate head. Work is bounded by the existing
+material-row ceiling, one prepared validator, one locked candidate row, and the
+persisted failure-entry/frame budgets. Focused acceptance requires same-table
+and cross-table multi-row validity/failure, mixed live/delete behavior,
+progress and settled-receipt invalidation, exact replay, concurrent scan/head
+movement, rollback after candidate update, confirmed rollback, decision
+uncertainty, and genuine-PostgreSQL lock/atomicity evidence.
+
+`M03-B` is complete at this private checkpoint. The point-commit publisher may
+be constructed with the exact opaque write-guard facet; when absent, the
+existing lower lane is unchanged. Guard preparation, final-live-row validation,
+candidate failure replacement, rollback proof, publication, and committed-
+outcome recovery all reuse the existing point-commit transaction and outcome
+owners. The capability is not composed into the Standard live application path
+and its failure or receipt is not readiness, activation, or routing authority.
+
 Old attempts remain pinned to their activation revision. Once a replacement is
 activated, an attempt pinned to the prior active head must fail/retry through
 the existing active-head revalidation; it cannot publish under the new schema
@@ -489,7 +542,7 @@ These are separate later goals, not one giant deployment goal:
    head and bounded exact-frontier scanner. This is one new schema/migration
    owner and requires PGlite plus genuine-PostgreSQL fresh/upgrade/replay/
    refusal/rollback/concurrency evidence.
-5. `M03-B` - integrate one authenticated candidate-validation capability into
+5. `M03-B` - **complete**: integrate one authenticated candidate-validation capability into
    the existing point-commit transaction. It validates only final material
    rows, marks an incompatible candidate failed without rejecting an
    active-valid write, preserves the current transaction/OCC/commit owners,
@@ -510,16 +563,13 @@ The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
-`M01-A`, `M01-B`, `M02`, and production-inert `M03-A` are complete. The next
-implementation-bearing request must preflight and authorize only `M03-B`: one
-opaque authenticated candidate-schema write-guard facet inside the existing
-point-commit transaction. It may validate final material live documents and
-atomically fail the one exact candidate head; it may not publish a commit,
-replace active-schema validation, reject an active-valid mutation merely for
-candidate incompatibility, create another transaction owner, or consume the
-receipt for readiness or activation. Each later turn stops if it discovers
-another authority, migration, transaction, activation, or production-routing
-change beyond the named gate.
+`M01-A`, `M01-B`, `M02`, and production-inert `M03-A`/`M03-B` are complete. The
+next implementation-bearing request must preflight and authorize only `M03-C`:
+make readiness require the exact schema-validation receipt and let the existing
+activation CAS consume it. It may not create another active-schema authority,
+transaction owner, route, trigger, or public deployment path. Each later turn
+stops if it discovers another authority, migration, transaction, activation,
+or production-routing change beyond the named gate.
 
 ## Multi-Revision Cooking Acceptance Matrix
 
