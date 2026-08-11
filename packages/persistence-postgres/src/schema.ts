@@ -4619,6 +4619,15 @@ export const fxSystemApplicationRevisionsV2 = pgTable(
       table.scopeId,
       table.analysisId,
     ),
+    unique("fx_application_revision_v2_publication_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.candidateId,
+      table.analysisId,
+      table.sourceArtifactRootSha256,
+      table.manifestSha256,
+      table.status,
+    ),
     foreignKey({
       name: "fx_application_revision_v2_analysis_fk",
       columns: [
@@ -4653,6 +4662,140 @@ export const fxSystemApplicationRevisionsV2 = pgTable(
     check(
       "fx_application_revision_v2_registered_check",
       sql`isfinite(${table.registeredAt})`,
+    ),
+  ],
+);
+
+/**
+ * Whole-application runtime publication. Source Artifact V2 remains the sole
+ * owner of module bodies; this row binds one inactive analyzed revision to
+ * canonical schema and function-catalog projections.
+ */
+export const fxSystemApplicationPublicationsV1 = pgTable(
+  "fx_system_application_publication_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    candidateId: text("candidate_id").notNull(),
+    analysisId: text("analysis_id").notNull(),
+    revisionStatus: text("revision_status").$type<"inactive">().notNull(),
+    sourceArtifactRootSha256: bytea("source_artifact_root_sha256").notNull(),
+    manifestSha256: bytea("manifest_sha256").notNull(),
+    schemaSha256: bytea("schema_sha256").notNull(),
+    schemaBytes: bytea("schema_bytes").notNull(),
+    functionCatalogSha256: bytea("function_catalog_sha256").notNull(),
+    functionCatalogBytes: bytea("function_catalog_bytes").notNull(),
+    publicationSha256: bytea("publication_sha256").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeId, table.revisionId] }),
+    unique("fx_application_publication_v1_identity_unique").on(
+      table.scopeId,
+      table.publicationSha256,
+    ),
+    unique("fx_application_publication_v1_catalog_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.functionCatalogSha256,
+    ),
+    foreignKey({
+      name: "fx_application_publication_v1_revision_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.candidateId,
+        table.analysisId,
+        table.sourceArtifactRootSha256,
+        table.manifestSha256,
+        table.revisionStatus,
+      ],
+      foreignColumns: [
+        fxSystemApplicationRevisionsV2.scopeId,
+        fxSystemApplicationRevisionsV2.revisionId,
+        fxSystemApplicationRevisionsV2.candidateId,
+        fxSystemApplicationRevisionsV2.analysisId,
+        fxSystemApplicationRevisionsV2.sourceArtifactRootSha256,
+        fxSystemApplicationRevisionsV2.manifestSha256,
+        fxSystemApplicationRevisionsV2.status,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_publication_v1_identity_check",
+      sql`length(${table.revisionId}) between 1 and 256
+        and length(${table.candidateId}) between 1 and 256
+        and length(${table.analysisId}) between 1 and 256
+        and ${table.revisionStatus} = 'inactive'
+        and octet_length(${table.sourceArtifactRootSha256}) = 32
+        and octet_length(${table.manifestSha256}) = 32
+        and octet_length(${table.schemaSha256}) = 32
+        and octet_length(${table.schemaBytes}) between 1 and 1048576
+        and octet_length(${table.functionCatalogSha256}) = 32
+        and octet_length(${table.functionCatalogBytes}) between 1 and 1048576
+        and octet_length(${table.publicationSha256}) = 32`,
+    ),
+    check(
+      "fx_application_publication_v1_published_check",
+      sql`isfinite(${table.publishedAt})`,
+    ),
+  ],
+);
+
+export const fxSystemApplicationFunctionsV1 = pgTable(
+  "fx_system_application_function_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    functionCatalogSha256: bytea("function_catalog_sha256").notNull(),
+    functionPath: text("function_path").notNull(),
+    moduleName: text("module_name").notNull(),
+    exportName: text("export_name").notNull(),
+    functionKind: text("function_kind")
+      .$type<"query" | "mutation" | "workflowMutation" | "action">()
+      .notNull(),
+    visibility: text("visibility").$type<"public" | "internal">().notNull(),
+    entrySha256: bytea("entry_sha256").notNull(),
+    entryBytes: bytea("entry_bytes").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeId, table.revisionId, table.functionPath],
+    }),
+    unique("fx_application_function_v1_entry_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.functionCatalogSha256,
+      table.entrySha256,
+    ),
+    foreignKey({
+      name: "fx_application_function_v1_publication_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.functionCatalogSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationPublicationsV1.scopeId,
+        fxSystemApplicationPublicationsV1.revisionId,
+        fxSystemApplicationPublicationsV1.functionCatalogSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_function_v1_identity_check",
+      sql`length(${table.functionPath}) between 1 and 4096
+        and length(${table.moduleName}) between 1 and 4096
+        and length(${table.exportName}) between 1 and 4096
+        and (
+          (${table.exportName} = 'default' and ${table.functionPath} = ${table.moduleName})
+          or (${table.exportName} <> 'default' and ${table.functionPath} = ${table.moduleName} || ':' || ${table.exportName})
+        )
+        and ${table.functionKind} in ('query', 'mutation', 'workflowMutation', 'action')
+        and ${table.visibility} in ('public', 'internal')
+        and octet_length(${table.functionCatalogSha256}) = 32
+        and octet_length(${table.entrySha256}) = 32
+        and octet_length(${table.entryBytes}) between 1 and 65536`,
     ),
   ],
 );
@@ -7043,6 +7186,8 @@ export const flarexSchema = {
   fxControlScopes,
   fxSystemApplicationAnalysesV1,
   fxSystemApplicationCandidatesV1,
+  fxSystemApplicationFunctionsV1,
+  fxSystemApplicationPublicationsV1,
   fxSystemApplicationRevisionRequestsV1,
   fxSystemApplicationRevisionsV1,
   fxSystemApplicationRevisionsV2,

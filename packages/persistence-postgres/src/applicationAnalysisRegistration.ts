@@ -13,7 +13,7 @@ import {
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
 import { and, eq, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 import type {
   ScopeEpoch,
   ScopeId,
@@ -24,6 +24,7 @@ import type {
 import type { AppRowTransaction } from "./appRows";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runEffectTransaction } from "./effectTransaction";
 import {
   fxSystemApplicationAnalysesV1,
   fxSystemApplicationCandidatesV1,
@@ -853,65 +854,17 @@ function runTransaction<A>(
     tx: AppRowTransaction,
   ) => Effect.Effect<A, ApplicationAnalysisPersistenceError>,
 ): Effect.Effect<A, ApplicationAnalysisPersistenceError> {
-  return Effect.suspend(() => {
-    let callbackCause: Cause.Cause<ApplicationAnalysisPersistenceError> | undefined;
-    const rollback = new Error("Application Analysis transaction rolled back.");
-    const transaction = db.transaction(async tx => {
-      const exit = await Effect.runPromiseExit(body(tx));
-      if (Exit.isFailure(exit)) {
-        callbackCause = exit.cause;
-        throw rollback;
-      }
-      return exit.value;
-    });
-    return awaitSettlement(
-      transaction,
-      cause => callbackCause !== undefined && cause === rollback,
-    ).pipe(Effect.catch(cause => {
-      if (callbackCause !== undefined && cause === rollback) {
-        return Effect.failCause(callbackCause);
-      }
-      const resource = failureValue(
-        operation,
-        "resourceFailure",
-        isRetryableTransactionCause(cause),
-        cause,
-      );
-      return callbackCause === undefined
-        ? Effect.fail(resource)
-        : Effect.failCause(Cause.combine(callbackCause, Cause.fail(resource)));
-    }));
-  });
-}
-
-function awaitSettlement<A>(
-  promise: Promise<A>,
-  isExpectedInterruptedRejection: (cause: unknown) => boolean,
-): Effect.Effect<A, unknown> {
-  return Effect.uninterruptibleMask(restore =>
-    restore(Effect.tryPromise({
-      try: () => promise,
-      catch: cause => cause,
-    })).pipe(Effect.onInterrupt(interruptors =>
-      Effect.tryPromise({
-        try: () => promise.then(() => undefined),
-        catch: cause => cause,
-      }).pipe(Effect.catch(cause => isExpectedInterruptedRejection(cause)
-        ? Effect.void
-        : Effect.failCause(interruptedSettlementCause(interruptors, cause))))
-    ))
+  return runEffectTransaction(
+    callback => db.transaction(callback),
+    "Application Analysis transaction rolled back.",
+    body,
+    cause => failureValue(
+      operation,
+      "resourceFailure",
+      isRetryableTransactionCause(cause),
+      cause,
+    ),
   );
-}
-
-function interruptedSettlementCause(
-  interruptors: ReadonlySet<number>,
-  defect: unknown,
-): Cause.Cause<never> {
-  let combined = Cause.die(defect);
-  for (const interruptor of interruptors) {
-    combined = Cause.combine(Cause.interrupt(interruptor), combined);
-  }
-  return combined;
 }
 
 function sha256(

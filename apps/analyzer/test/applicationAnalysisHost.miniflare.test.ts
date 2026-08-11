@@ -1,6 +1,13 @@
 import { Miniflare } from "miniflare";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { Result } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  produceStandardApplicationSource,
+} from "@flarex/standard-application-definition/application-source";
+import {
+  prepareStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -85,6 +92,122 @@ export default { leaked: { query } };`,
     expect(body.first).toMatchObject({
       kind: "rejected",
       failureCode: "module_import_failed",
+    });
+  });
+
+  it("cold-analyzes the generated Standard Application execution and schema modules", async () => {
+    const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
+      programBudgetInput: {
+        maximumModules: 1,
+        maximumFunctions: 1,
+        maximumIdentifierUtf8Bytes: 1_024,
+        maximumValidatorNodes: 64,
+        maximumValidatorDepth: 16,
+        maximumValidatorStringUtf8Bytes: 1_024,
+      },
+      programInput: {
+        format: "flarex.declarative-program/v1",
+        version: 1,
+        schema: {
+          tables: [{
+            logicalName: "users",
+            definition: {
+              kind: "appDocument",
+              definitionVersion: 1,
+              documentType: {
+                type: "object",
+                value: {
+                  name: {
+                    fieldType: { type: "string" },
+                    optional: false,
+                  },
+                },
+              },
+            },
+          }],
+          indexes: [],
+        },
+        modules: [{
+          modulePath: "users",
+          functions: [{
+            exportName: "get",
+            kind: "query",
+            visibility: "public",
+            argsValidator: { type: "object", value: {} },
+            returnsValidator: { type: "null" },
+          }],
+        }],
+      },
+      materializationBudgetInput: {
+        maximumModules: 1,
+        maximumEntryBindings: 1,
+        maximumSourceBytes: 4_096,
+        maximumSourceMapBytes: 0,
+        maximumBytesMaterialized: 32_768,
+        maximumSemanticRecords: 32,
+        maximumSemanticRecordBytes: 8_192,
+        maximumSemanticStreamBytes: 32_768,
+      },
+      graphInput: {
+        modules: [{
+          path: "functions/users.js",
+          roles: ["function", "execution"],
+          sourceBytes: new TextEncoder().encode(
+            "export async function get() { return null; }\n",
+          ),
+          sourceMapBytes: null,
+        }],
+        functionEntries: [{
+          logicalModulePath: "users",
+          artifactModulePath: "functions/users.js",
+        }],
+        executionPath: "functions/users.js",
+        schemaPath: null,
+        authPath: null,
+      },
+    }));
+    const produced = Result.getOrThrow(
+      produceStandardApplicationSource(prepared),
+    );
+    const modules = produced.modules.map((module, ordinal) => Object.freeze({
+      path: module.path,
+      roles: module.roles,
+      sourceSha256: (ordinal + 1).toString(16).repeat(64),
+      sourceByteLength: module.sourceBytes.byteLength,
+      source: new TextDecoder().decode(module.sourceBytes),
+    }));
+    const bundle: ApplicationAnalysisSourceBundle = Object.freeze({
+      sourceArtifact: Object.freeze({
+        rootSha256: "f".repeat(64),
+        executionModulePath: produced.executionPath,
+        schemaModulePath: produced.schemaPath,
+        modules: Object.freeze(modules.map(module => Object.freeze({
+          path: module.path,
+          roles: module.roles,
+          sourceSha256: module.sourceSha256,
+          sourceByteLength: module.sourceByteLength,
+        }))),
+      }),
+      modules: Object.freeze(modules),
+    });
+    const miniflare = makeMiniflare(
+      makeApplicationAnalysisWorkerDefinition(bundle),
+    );
+    const response = await miniflare.dispatchFetch("https://analysis.invalid/");
+    const body = decodeColdLoadPair(await response.json());
+
+    expect(body.first.kind).toBe("analyzed");
+    expect(body.second.kind).toBe("analyzed");
+    if (typeof body.first.canonicalManifest !== "string") {
+      throw new Error("Generated Standard source omitted its manifest.");
+    }
+    expect(JSON.parse(body.first.canonicalManifest)).toMatchObject({
+      schema: { tables: [{ name: "users" }] },
+      functions: [{
+        path: "users:get",
+        kind: "query",
+        visibility: "public",
+      }],
     });
   });
 });

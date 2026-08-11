@@ -4,6 +4,10 @@ import {
   type ApplicationAnalysisRejectionCodeV1 as ApplicationAnalysisRejectionCode,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
+import {
+  APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS,
+  findApplicationAnalysisFrameworkShimCollision,
+} from "@flarex/analysis/internal/application-analysis-module-path-policy";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
@@ -35,8 +39,10 @@ export const APPLICATION_ANALYSIS_POLICY_IDENTITY =
   "flarex.application-analysis-policy/compat=2026-06-14;loads=2;cpu=10000;deadline=30000;diag=100/65536;outbound=null;ambient=date-random-performance-fixed,fetch-crypto-timers-scheduler-reject" as const;
 
 const SUPPORTED_FRAMEWORK_MODULES = Object.freeze({
-  "flarex/server": APPLICATION_ANALYSIS_SERVER_EXPORTS,
-  "flarex/values": APPLICATION_ANALYSIS_VALUES_EXPORTS,
+  [APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS[0]]:
+    APPLICATION_ANALYSIS_SERVER_EXPORTS,
+  [APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS[1]]:
+    APPLICATION_ANALYSIS_VALUES_EXPORTS,
 } as const);
 const APPLICATION_MODULE_PREFIX = "__flarex_application_modules" as const;
 const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
@@ -417,18 +423,9 @@ function frameworkShimName(
 function findFrameworkShimCollision(
   source: ApplicationAnalysisSourceBundle,
 ): string | undefined {
-  const applicationPaths = new Map(
-    source.modules.map(module => [applicationModuleName(module.path), module.path]),
+  return findApplicationAnalysisFrameworkShimCollision(
+    source.modules.map(module => module.path),
   );
-  for (const importingModule of source.modules) {
-    for (const frameworkModule of Object.keys(SUPPORTED_FRAMEWORK_MODULES)) {
-      const collision = applicationPaths.get(
-        frameworkShimName(importingModule.path, frameworkModule),
-      );
-      if (collision !== undefined) return collision;
-    }
-  }
-  return undefined;
 }
 
 function decodeRequest(

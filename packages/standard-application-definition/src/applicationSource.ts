@@ -1,0 +1,345 @@
+import type {
+  CanonicalDeclarativeFunctionKindV1,
+  CanonicalDeclarativeFunctionVisibilityV1,
+} from "@flarex/declarative-program/v1";
+import {
+  findApplicationAnalysisFrameworkShimCollision,
+} from "@flarex/analysis/internal/application-analysis-module-path-policy";
+import { copyBytes } from "@flarex/utils/bytes";
+import { compareUtf16Strings } from "@flarex/utils/strings";
+import { Data, Result } from "effect";
+import {
+  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+  isSourceArtifactV2ModuleRolesV1,
+  type SourceArtifactV2ModuleRolesV1,
+} from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
+import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+
+import type { PreparedStandardApplicationDefinitionV1 } from "./v1";
+
+export const STANDARD_APPLICATION_EXECUTION_MODULE_PATH =
+  "_flarex/application.js" as const;
+export const STANDARD_APPLICATION_SCHEMA_MODULE_PATH =
+  "_flarex/schema.js" as const;
+
+const UTF8 = new TextEncoder();
+
+export interface StandardApplicationSourceModule {
+  readonly path: string;
+  readonly roles: SourceArtifactV2ModuleRolesV1;
+  readonly sourceBytes: Uint8Array;
+  readonly sourceMapBytes: Uint8Array | null;
+}
+
+/**
+ * Inert exact source input for Source Artifact V2 upload. The generated
+ * execution module is the only registration authority seen by Application
+ * Analysis; the decoded legacy program is used only to generate that source.
+ */
+export interface StandardApplicationSource {
+  readonly modules: ReadonlyArray<StandardApplicationSourceModule>;
+  readonly executionPath: typeof STANDARD_APPLICATION_EXECUTION_MODULE_PATH;
+  readonly schemaPath: typeof STANDARD_APPLICATION_SCHEMA_MODULE_PATH;
+  readonly authPath: null;
+}
+
+export class StandardApplicationSourceError extends Data.TaggedError(
+  "StandardApplicationSourceError",
+)<{
+  readonly operation: "produce";
+  readonly reason:
+    | "reservedPathCollision"
+    | "missingFunctionModule"
+    | "unsupportedRegistration"
+    | "invalidValidator";
+  readonly path?: string;
+}> {}
+
+export function produceStandardApplicationSource(
+  definition: PreparedStandardApplicationDefinitionV1,
+): Result.Result<StandardApplicationSource, StandardApplicationSourceError> {
+  return Result.gen(function* () {
+    const sourceModules = definition.artifactIngressPlan.source.modules;
+    const sourceByPath = new Map<string, typeof sourceModules[number]>(
+      sourceModules.map(module => [module.path, module]),
+    );
+    for (const reservedPath of [
+      STANDARD_APPLICATION_EXECUTION_MODULE_PATH,
+      STANDARD_APPLICATION_SCHEMA_MODULE_PATH,
+    ]) {
+      if (sourceByPath.has(reservedPath)) {
+        return yield* fail("reservedPathCollision", reservedPath);
+      }
+    }
+    const frameworkCollision = findApplicationAnalysisFrameworkShimCollision([
+      ...sourceByPath.keys(),
+      STANDARD_APPLICATION_EXECUTION_MODULE_PATH,
+      STANDARD_APPLICATION_SCHEMA_MODULE_PATH,
+    ]);
+    if (frameworkCollision !== undefined) {
+      return yield* fail("reservedPathCollision", frameworkCollision);
+    }
+
+    const artifactByLogicalModule = new Map(
+      definition.artifactIngressPlan.source.functionEntries.map(binding => [
+        binding.logicalModulePath,
+        binding.artifactModulePath,
+      ]),
+    );
+    const imports: string[] = [];
+    const registrations: string[] = [];
+    for (const [moduleOrdinal, module] of definition.program.modules.entries()) {
+      const artifactPath = artifactByLogicalModule.get(module.modulePath);
+      if (artifactPath === undefined || !sourceByPath.has(artifactPath)) {
+        return yield* fail("missingFunctionModule", module.modulePath);
+      }
+      const bindingName = `applicationModule${moduleOrdinal}`;
+      imports.push(
+        `import * as ${bindingName} from ${JSON.stringify(relativeModuleSpecifier(
+          STANDARD_APPLICATION_EXECUTION_MODULE_PATH,
+          artifactPath,
+        ))};`,
+      );
+      const functions: string[] = [];
+      for (const fn of module.functions) {
+        const builder = registrationBuilder(fn.kind, fn.visibility);
+        if (builder === undefined) {
+          return yield* fail(
+            "unsupportedRegistration",
+            `${module.modulePath}:${fn.exportName}`,
+          );
+        }
+        const args = yield* validatorSource(fn.argsValidator).pipe(
+          Result.mapError(() => error(
+            "invalidValidator",
+            `${module.modulePath}:${fn.exportName}.args`,
+          )),
+        );
+        const returns = fn.returnsValidator === null
+          ? null
+          : yield* validatorSource(fn.returnsValidator).pipe(
+            Result.mapError(() => error(
+              "invalidValidator",
+              `${module.modulePath}:${fn.exportName}.returns`,
+            )),
+          );
+        const handler = `${bindingName}[${JSON.stringify(fn.exportName)}]`;
+        functions.push([
+          `${JSON.stringify(fn.exportName)}: ${builder}({`,
+          `args: ${args},`,
+          ...(returns === null ? [] : [`returns: ${returns},`]),
+          `handler: requireApplicationHandler(${handler}, ${JSON.stringify(
+            `${module.modulePath}:${fn.exportName}`,
+          )}),`,
+          "})",
+        ].join(" "));
+      }
+      registrations.push(
+        `${JSON.stringify(module.modulePath)}: { ${functions.join(", ")} }`,
+      );
+    }
+
+    const executionSource = [
+      "// Generated by @flarex/standard-application-definition.",
+      'import { action, internalAction, internalMutation, internalQuery, mutation, query, workflowMutation } from "flarex/server";',
+      'import { v } from "flarex/values";',
+      ...imports,
+      "function requireApplicationHandler(value, path) {",
+      '  if (typeof value !== "function") throw new TypeError(`Missing application handler: ${path}`);',
+      "  return value;",
+      "}",
+      `export default { ${registrations.join(", ")} };`,
+      "",
+    ].join("\n");
+    const schemaSource = yield* generateSchemaSource(definition).pipe(
+      Result.mapError(issue => error("invalidValidator", issue.path)),
+    );
+    const ownedModules: StandardApplicationSourceModule[] = sourceModules.map(
+      module => Object.freeze({
+        path: module.path,
+        roles: sourceRoles(SOURCE_ARTIFACT_V2_ROLE_FUNCTION),
+        sourceBytes: copyBytes(module.sourceBytes),
+        sourceMapBytes: module.sourceMapBytes === null
+          ? null
+          : copyBytes(module.sourceMapBytes),
+      }),
+    );
+    ownedModules.push(
+      Object.freeze({
+        path: STANDARD_APPLICATION_EXECUTION_MODULE_PATH,
+        roles: sourceRoles(SOURCE_ARTIFACT_V2_ROLE_EXECUTION),
+        sourceBytes: UTF8.encode(executionSource),
+        sourceMapBytes: null,
+      }),
+      Object.freeze({
+        path: STANDARD_APPLICATION_SCHEMA_MODULE_PATH,
+        roles: sourceRoles(SOURCE_ARTIFACT_V2_ROLE_SCHEMA),
+        sourceBytes: UTF8.encode(schemaSource),
+        sourceMapBytes: null,
+      }),
+    );
+    ownedModules.sort((left, right) => compareUtf16Strings(left.path, right.path));
+    return Object.freeze({
+      modules: Object.freeze(ownedModules),
+      executionPath: STANDARD_APPLICATION_EXECUTION_MODULE_PATH,
+      schemaPath: STANDARD_APPLICATION_SCHEMA_MODULE_PATH,
+      authPath: null,
+    });
+  });
+}
+
+function generateSchemaSource(
+  definition: PreparedStandardApplicationDefinitionV1,
+): Result.Result<string, Readonly<{ readonly path: string }>> {
+  return Result.gen(function* () {
+    const indexesByTable = new Map<string, typeof definition.program.schema.indexes>();
+    for (const index of definition.program.schema.indexes) {
+      const current = indexesByTable.get(index.tableLogicalName) ?? [];
+      indexesByTable.set(index.tableLogicalName, [...current, index]);
+    }
+    const tables: string[] = [];
+    for (const table of definition.program.schema.tables) {
+      let tableSource = `definePartitionTable(${
+        yield* validatorSource(table.definition.documentType).pipe(
+          Result.mapError(() => ({ path: `schema.${table.logicalName}` })),
+        )
+      })`;
+      for (const index of indexesByTable.get(table.logicalName) ?? []) {
+        tableSource += `.index(${JSON.stringify(index.descriptor)}, ${JSON.stringify(
+          index.fields,
+        )})`;
+      }
+      tables.push(`${JSON.stringify(table.logicalName)}: ${tableSource}`);
+    }
+    return [
+      "// Generated by @flarex/standard-application-definition.",
+      'import { definePartitionTable, defineSchema } from "flarex/server";',
+      'import { v } from "flarex/values";',
+      `export default defineSchema({ ${tables.join(", ")} });`,
+      "",
+    ].join("\n");
+  });
+}
+
+function registrationBuilder(
+  kind: CanonicalDeclarativeFunctionKindV1,
+  visibility: CanonicalDeclarativeFunctionVisibilityV1,
+): string | undefined {
+  switch (`${visibility}:${kind}`) {
+    case "public:query":
+      return "query";
+    case "internal:query":
+      return "internalQuery";
+    case "public:mutation":
+      return "mutation";
+    case "internal:mutation":
+      return "internalMutation";
+    case "public:workflowMutation":
+      return "workflowMutation";
+    case "public:action":
+      return "action";
+    case "internal:action":
+      return "internalAction";
+    default:
+      return undefined;
+  }
+}
+
+function validatorSource(
+  validator: ValidatorJsonV1,
+): Result.Result<string, Readonly<{ readonly invalid: true }>> {
+  return Result.gen(function* () {
+    switch (validator.type) {
+      case "null":
+      case "number":
+      case "bigint":
+      case "boolean":
+      case "string":
+      case "bytes":
+      case "any":
+        return `v.${validator.type}()`;
+      case "id":
+        return `v.id(${JSON.stringify(validator.tableName)})`;
+      case "literal":
+        return `v.literal(${yield* literalSource(validator.value)})`;
+      case "array":
+        return `v.array(${yield* validatorSource(validator.value)})`;
+      case "record": {
+        const keys = yield* validatorSource(validator.keys);
+        const values = yield* validatorSource(validator.values);
+        return `v.record(${keys}, ${values})`;
+      }
+      case "union": {
+        const members: string[] = [];
+        for (const member of validator.value) {
+          members.push(yield* validatorSource(member));
+        }
+        return `v.union(${members.join(", ")})`;
+      }
+      case "object": {
+        const fields: string[] = [];
+        for (const fieldName of Object.keys(validator.value).sort(compareUtf16Strings)) {
+          const field = validator.value[fieldName];
+          if (field === undefined) return yield* Result.fail({ invalid: true as const });
+          const value = yield* validatorSource(field.fieldType);
+          fields.push(
+            `${JSON.stringify(fieldName)}: ${field.optional ? `v.optional(${value})` : value}`,
+          );
+        }
+        return `v.object({ ${fields.join(", ")} })`;
+      }
+    }
+  });
+}
+
+function literalSource(
+  value: string | number | bigint | boolean,
+): Result.Result<string, Readonly<{ readonly invalid: true }>> {
+  if (typeof value === "bigint") return Result.succeed(`${value}n`);
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return Result.fail({ invalid: true });
+  }
+  return Result.succeed(JSON.stringify(value));
+}
+
+function relativeModuleSpecifier(from: string, to: string): string {
+  const fromDirectory = from.split("/").slice(0, -1);
+  const target = to.split("/");
+  let common = 0;
+  while (
+    common < fromDirectory.length &&
+    common < target.length &&
+    fromDirectory[common] === target[common]
+  ) common += 1;
+  const prefix = "../".repeat(fromDirectory.length - common);
+  const suffix = target.slice(common).join("/");
+  const relative = `${prefix}${suffix}`;
+  return relative.startsWith(".") ? relative : `./${relative}`;
+}
+
+function sourceRoles(value: number): SourceArtifactV2ModuleRolesV1 {
+  if (!isSourceArtifactV2ModuleRolesV1(value)) {
+    throw new Error("Standard Application generated an invalid source role.");
+  }
+  return value;
+}
+
+function fail(
+  reason: StandardApplicationSourceError["reason"],
+  path?: string,
+): Result.Result<never, StandardApplicationSourceError> {
+  return Result.fail(error(reason, path));
+}
+
+function error(
+  reason: StandardApplicationSourceError["reason"],
+  path?: string,
+): StandardApplicationSourceError {
+  return new StandardApplicationSourceError({
+    operation: "produce",
+    reason,
+    ...(path === undefined ? {} : { path }),
+  });
+}
