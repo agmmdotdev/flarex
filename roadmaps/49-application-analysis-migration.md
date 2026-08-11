@@ -1469,6 +1469,42 @@ capability in a definition, caches a Worker, changes journal/callback/outbound
 close-and-drain semantics, or alters OCC, commit, retry, action settlement, or
 scheduling authority.
 
+#### AA-R6 Application execution-host checkpoint — 2026-08-12
+
+Commit `42f64445` completes the accepted route-independent execution-host
+checkpoint. `ApplicationExecutionHost` now validates and binds transaction and
+action requests to an owned worker definition before loading code, performs one
+fresh `WorkerLoader.load()` per invocation, installs the exact transaction or
+action outbound policy and limits, and maps the private generated worker's
+named failures into one typed host error family. Effect clock and timeout
+authority bound action deadlines and wall execution without an ambient timer.
+
+The RPC settlement adapter registers its owned result lease before waiting, so
+normal completion, timeout, interruption, and late settlement all have one
+disposal owner. It detaches and decodes the shared worker-result contract before
+returning the value. Installed Worker Loader entrypoints remain
+execution-context-owned and are not given an invented disposal contract. The
+fresh-load regression invokes the same host twice and proves distinct Worker
+stubs and entrypoints rather than merely counting requested names.
+
+Validation passed 40 focused tests across the execution host, generated worker,
+and runtime materializer; the complete `flarex-backend` build; the Effect
+runtime-boundary check; and staged diff hygiene. The generated Application
+Runtime core remains
+`87592eba2b544223f59312d64f5d42847ca1dc5e4f1ca95015fdf0874fc076ae`
+and the generated Application Worker core remains
+`bd7aa2651f95f5af3f98e7e30bf37e79adea538432ec0bc5a19f9b936f9973e1`.
+Both required final reviewers approved the exact committed checkpoint with no
+findings.
+
+This checkpoint remains private and unwired. It does not issue a query
+snapshot, mutation journal, action callback or outbound capability; read
+persistence; select or claim a revision; create readiness or activation
+evidence; install a route; or alter close/drain, OCC, commit, retry,
+idempotency, action-settlement, or scheduling authority. The next authorized
+medium checkpoint is the final AA-R6 readiness, activation, active-selection,
+capability-composition, and private-consumer migration preflight.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
