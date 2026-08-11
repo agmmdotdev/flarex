@@ -3,7 +3,6 @@ import {
   copyBytes,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
-import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result, Scope } from "effect";
@@ -33,6 +32,7 @@ import {
   validateStoredApplicationRevisionReadinessEvidenceInTransactionV1,
 } from "./applicationRevisionReadinessV1";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import {
   makeLiveDeclarativeV2Sha256V1,
   type DeclarativeV2Sha256V1Error,
@@ -961,7 +961,7 @@ const replayActivationRevision = Effect.fn(
       verdictSha256: row.verdictSha256,
     } satisfies DeclarativeV2ActivationHeadFrameV1),
   );
-  const activatedAt = databaseTimestamp(row.activatedAt);
+  const activatedAt = databaseTimestampFromUnknown(row.activatedAt);
   if (activatedAt === null) {
     return yield* corruption(
       prepared.revision.revisionId,
@@ -1441,19 +1441,11 @@ function databaseTime(tx: AppRowTransaction, revisionId: string) {
   return query(tx.select({ now: sql<Date>`current_timestamp` })
     .from(fxSystemDeclarativeV2Verdicts)
     .limit(1)).pipe(Effect.flatMap(rows => {
-      const value = databaseTimestamp(rows[0]?.now);
+      const value = databaseTimestampFromUnknown(rows[0]?.now);
       return value === null
         ? corruption(revisionId, "PostgreSQL returned an invalid activation time")
         : Effect.succeed(value);
     }));
-}
-
-function databaseTimestamp(value: unknown): Date | null {
-  const date = copyFiniteDate(value);
-  if (date !== undefined) return date;
-  if (typeof value !== "string") return null;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function runFault(

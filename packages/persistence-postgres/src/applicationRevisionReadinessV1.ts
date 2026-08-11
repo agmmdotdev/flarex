@@ -2,7 +2,6 @@ import {
   bytesEqualFullScan,
   copyBytes,
 } from "@flarex/utils/bytes";
-import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result, Scope } from "effect";
@@ -29,6 +28,7 @@ import {
   type LoadedCandidateRuntimePublicationV1,
 } from "./candidateRuntimePublicationRepositoryV1";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   type IndexBuildReconciliationCatalogV1Error,
@@ -1000,7 +1000,7 @@ const settleWithLockedClock = Effect.fn(
       .where(eq(fxSystemApplicationRevisionsV1.revisionId, revisionId))
       .limit(1),
   );
-  const readyAt = databaseTimestamp(timeRows[0]?.readyAt);
+  const readyAt = databaseTimestampFromUnknown(timeRows[0]?.readyAt);
   if (readyAt === null) {
     return yield* new ApplicationRevisionReadinessIntegrationV1Error({
       phase: "targetTransaction",
@@ -1610,14 +1610,6 @@ function u64(value: bigint): Uint8Array {
   const bytes = new Uint8Array(8);
   new DataView(bytes.buffer).setBigUint64(0, value, false);
   return bytes;
-}
-
-function databaseTimestamp(value: unknown): Date | null {
-  const date = copyFiniteDate(value);
-  if (date !== undefined) return date;
-  if (typeof value !== "string") return null;
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function runFault<E>(
