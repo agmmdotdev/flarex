@@ -1,8 +1,13 @@
 # Managed Schema Deployment And Migrationless DX
 
-Status: Accepted deferred foundation contract. This document freezes the
-developer experience and safety classes; it does not implement the public CLI,
-backfill runner, activation service, or destructive cleanup.
+Status: Accepted deferred foundation contract with the first app-document
+schema-evolution preflight complete. No protocol, DDL, repository, commit-hook,
+readiness, activation, CLI, backfill-runner, or destructive-cleanup
+implementation is authorized by this record. The first implementation slice
+still requires explicit approval. `M01-A` is deliberately pure and
+storage-free; the later `M03-A` through `M03-C` slices separately introduce
+target-local validation state, point-commit integration, and readiness and
+activation consumption.
 
 ## Decision
 
@@ -48,6 +53,137 @@ can provide rename mappings non-interactively:
 
 Flarex adopts that desired-state UX while retaining stronger Postgres build,
 OCC, generation, and rollback gates.
+
+The local Convex implementation adds an important concurrency rule beyond the
+public documentation:
+
+- `crates/database/src/bootstrap_model/schema/mod.rs` permits one active schema
+  and at most one pending or validated non-active schema per namespace;
+- writes are checked against the active schema, while an incompatibility with
+  the pending/validated schema fails that candidate rather than rejecting a
+  write that is still valid under the active schema;
+- `crates/application/src/schema_worker/mod.rs` validates existing documents
+  from a fixed snapshot, persists bounded progress, and stops when the pending
+  schema is failed or superseded; and
+- `crates/application/src/deploy_config.rs` waits for both document validation
+  and required index backfills before finish/activation.
+
+Flarex adopts those semantics, not Convex's physical system-table shapes. Its
+scope clock, immutable schema artifacts, stable table IDs, row-revision model,
+point-commit owner, readiness receipt, and activation CAS remain authoritative.
+
+## Current Implementation Gap
+
+The current private Flarex lifecycle already publishes immutable schema
+artifacts, keeps stable table and logical-index identities across versions,
+builds required physical indexes and unique sets, settles readiness, and
+atomically activates one complete application revision. C03-V validates new
+insert/patch/replace values against the active activation-fenced schema.
+
+It does **not** yet prove that every existing live application row satisfies a
+candidate schema. `applicationRevisionReadinessV1` currently folds physical
+index builds, unique-set eligibility, runtime publication, and cold
+materialization into readiness, but has no candidate-schema row-validation
+receipt. The reusable system-test environment likewise prepares and activates
+exactly one relation-free revision.
+
+Therefore the next cooking tests cannot honestly activate a narrowed or
+required-field schema merely by registering a second revision. A test-owned
+scan, direct readiness row, seeded activation, or second validator would create
+false authority and is forbidden.
+
+## Accepted First App-Document Concurrency Model
+
+For ordinary app-document schemas, Flarex will keep exactly one non-active
+schema-validation head per scope. The head is schema-version authority, not an
+application-analysis or function-revision identity, so multiple application
+revisions that reference the same exact schema version may consume one result.
+A different candidate schema supersedes the previous non-active head; both are
+never shadow-enforced concurrently.
+
+The lifecycle is conceptually:
+
+```text
+absent
+  -> validating(frontier, cursor, attempt fence)
+  -> validated(exact receipt)
+  -> activated by the existing application-revision activation owner
+  -> historical
+
+validating | validated
+  -> failed(bounded incompatibility evidence)
+  -> superseded
+```
+
+The exact persisted contract and DDL remain an implementation preflight, but
+the following transaction semantics are fixed:
+
+1. Installing a validation head locks the scope clock, authenticates the exact
+   immutable candidate schema artifact, records the current commit frontier,
+   and makes all later material commits observe that head.
+2. A bounded scanner validates every live row at that exact frontier in stable
+   `(table_id, row_id)` order. It reads authoritative row revisions rather than
+   treating mutable current pointers as a historical snapshot.
+3. Every later successful point commit continues to validate its final live
+   documents against the active schema. In the same existing scope-clock-first
+   commit transaction, it also checks the one non-active schema head.
+4. A value invalid under the active schema still rejects the mutation through
+   the existing catchable validation boundary. A value valid under the active
+   schema but invalid under the non-active candidate commits normally and
+   atomically marks that candidate failed. Candidate deployment must not make
+   the currently active application unavailable.
+5. A valid concurrent write needs no cursor reset: the historical value was
+   checked by the scanner and the replacement final value was checked by the
+   commit hook. A delete removes an incompatibility and does not fail a
+   candidate merely because its old value would have been invalid.
+6. Final validation settlement locks the scope clock, rechecks the exact
+   schema head, artifact digest, generation/fence/epoch, frontier, cursor, and
+   attempt fence, then emits one immutable receipt. Missing, changed, failed,
+   superseded, corrupt, or uncertain evidence cannot become readiness.
+7. Application-revision readiness consumes that exact schema-validation
+   receipt in addition to the existing index, unique, runtime, and cold-load
+   evidence. Only the existing activation CAS changes the active schema.
+
+This model avoids two unsafe alternatives: validating only a snapshot while
+later writes escape the candidate, and restarting the entire scan after every
+write. It also bounds commit work to one candidate schema and the existing
+material-row ceiling rather than every registered application revision.
+
+Old attempts remain pinned to their activation revision. Once a replacement is
+activated, an attempt pinned to the prior active head must fail/retry through
+the existing active-head revalidation; it cannot publish under the new schema
+by reinterpretation. Rolling back to an older schema is itself a new candidate
+validation against current data, never a pointer-only reversal.
+
+## Exact First-Cut Compatibility Rules
+
+The first classifier is deliberately conservative. It may return
+`universallyCompatible` only when it can prove that every value accepted by the
+old table validator is accepted by the new one. Exact equality, adding an
+optional object field, changing a required field to optional without changing
+its validator, and adding a demonstrably new union branch are representative
+safe cases. Unknown or complex subsumption is `requiresDataValidation`, not
+safe-by-default.
+
+Because app-document object validators are strict:
+
+| Desired change | First-cut result |
+| --- | --- |
+| Add table or optional field | Universally compatible when stable-ID and index requirements agree |
+| Remove an optional field | Requires data validation; any retained occurrence is incompatible |
+| Add a required field | Requires data validation and normally fails until old-schema mutations backfill it |
+| Required to optional | Universally compatible when the nested validator is unchanged |
+| Widen a literal/union/type | Safe only when conservative subsumption proves it; otherwise scan |
+| Tighten a validator or remove a union member | Requires data validation; incompatible rows block |
+| Remove a populated table | Blocked while any live row remains; table deletion policy remains separate |
+| Rename a field/table | Blocked without explicit rename intent; first app-document slice does not invent stable field IDs |
+| Add/replace index or unique constraint | Uses the existing physical build/unique readiness owners in addition to row validation |
+
+The first implementation does not invent business values. A required-field or
+type-change remediation uses an ordinary bounded application/system mutation
+while the old schema is still active, followed by a new plan/validation
+attempt. A later managed backfill contract may automate only an explicitly
+declared deterministic transformation with its own authority and receipts.
 
 ## Change Classification
 
@@ -144,9 +280,10 @@ physical identities. A backfill must not update old edge rows in place or let
 new mutations cross-delete occurrences owned by the other physical definition.
 The active schema binding selects the semantic definition and physical edge
 binding used by new reads and writes. Attempts already pinned to an older schema
-must never reinterpret themselves through the new binding. M03 must explicitly
-choose whether a compatible retained binding may finish or the attempt must
-fail/retry after activation.
+must never reinterpret themselves through the new binding. The first
+app-document cut requires stale attempts to fail/retry after activation;
+relation work may not weaken that rule merely because an old physical edge
+definition remains retained.
 
 An additive relation is safe metadata activation only when it requires no
 derived edge population for already-valid rows and no new read/delete
@@ -194,25 +331,83 @@ example: keep a field optional, run a named backfill, remove incompatible
 values, declare a rename, or split the change into expand/backfill/contract
 deployments.
 
-## Deferred Turn Sequence
+## Ordered Turn Sequence
 
 These are separate later goals, not one giant deployment goal:
 
-1. `M01` - freeze the canonical schema-diff and compatibility-classification
-   protocol over immutable schema artifacts.
-2. `M02` - implement read-only production planning with explicit rename maps,
-   bounded incompatibility evidence, and stale-plan identity.
-3. `M03` - compose existing physical build/backfill/validation state with one
-   atomic semantic/physical active-schema transition, an explicit pinned-attempt
-   overlap rule, and retained rollback definitions.
-4. `M04` - expose plan/apply through developer CLI and AI tooling with
+1. `M01-A` - freeze a pure conservative app-document schema diff and
+   compatibility-classification contract over two authenticated immutable
+   schema artifacts. It creates no storage and cannot declare an unknown
+   validator transformation universally compatible.
+2. `M01-B` - freeze the candidate row-validation progress, failure evidence,
+   and final receipt contracts plus count/byte/page/time ceilings. Settle exact
+   corruption, supersession, interruption, rollback, and uncertainty errors
+   before DDL.
+3. `M02` - implement read-only planning with explicit rename maps, bounded
+   non-sensitive incompatibility evidence, remediation actions, active-schema
+   and data-frontier pins, and stale-plan identity.
+4. `M03-A` - add the guarded target-local single non-active schema-validation
+   head and bounded exact-frontier scanner. This is one new schema/migration
+   owner and requires PGlite plus genuine-PostgreSQL fresh/upgrade/replay/
+   refusal/rollback/concurrency evidence.
+5. `M03-B` - integrate one authenticated candidate-validation capability into
+   the existing point-commit transaction. It validates only final material
+   rows, marks an incompatible candidate failed without rejecting an
+   active-valid write, preserves the current transaction/OCC/commit owners,
+   and proves same-table/cross-table multi-row rollback and bounded work.
+6. `M03-C` - make application readiness require the exact schema-validation
+   receipt and let the existing activation CAS consume it. Reprove index,
+   unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
+   uncertainty behavior without a second active-schema authority.
+7. `M03-D` - extend `@flarex/system-test` with a separate multi-revision
+   cooking scenario. The existing single-revision runner remains unchanged
+   until the lifecycle owner exists.
+8. `M04` - expose plan/apply through developer CLI and AI tooling with
    non-interactive machine-readable output.
-5. `M05` - add explicit retirement/purge policy after rollback, snapshot,
+9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
    reconnect, and adapter retention gates pass.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
+
+The first implementation-bearing request should authorize only `M01-A`. It
+must not opportunistically add DDL, scan rows, alter readiness, or touch point
+commit. Each later turn stops if it discovers another authority, migration,
+transaction, activation, or production-routing change beyond the named gate.
+
+## Multi-Revision Cooking Acceptance Matrix
+
+`M03-D` is complete only when the same scenario passes in PGlite and genuine
+PostgreSQL through real analysis, schema publication, readiness, activation,
+Workerd execution, journal/OCC/commit, and authoritative inspection:
+
+1. activate schema A with optional `description` and seed rows both with and
+   without the field;
+2. plan schema B that removes `description`; prove the populated row blocks B,
+   B never activates, and schema-A reads/writes continue;
+3. remove the field through a normal schema-A mutation, submit B again, finish
+   candidate validation, and atomically activate B;
+4. prove a schema-B mutation cannot reintroduce `description`;
+5. submit schema C with required `slug`; prove rows missing `slug` block it,
+   backfill through ordinary schema-B mutations, then validate and activate C;
+6. tighten a nested validator and prove bounded incompatibility evidence names
+   the table/path without exposing the document body;
+7. pause validation after a non-null cursor, commit one candidate-valid row and
+   one active-valid/candidate-invalid row, and prove respectively that progress
+   remains sound and the candidate fails atomically while both active-valid
+   commits publish normally;
+8. prove supersession, exact replay, cold reload, corruption rejection,
+   confirmed rollback, decision uncertainty, and concurrent activation; and
+9. start an attempt under the old active revision, activate the replacement,
+   and prove the stale attempt cannot publish without an ordinary owner-driven
+   retry under the new revision.
+
+The scenario must inspect active schema/application revision, validation head
+and receipt, app revisions/current rows, index and unique sidecars, outcomes,
+feed, and outbox. It must not inspect or mutate raw authority tables through an
+application-facing API, and it must not use a test-owned row scanner,
+validator, readiness receipt, activation pointer, or commit path.
 
 ## Known Limitations
 
@@ -222,34 +417,14 @@ changes during current codec/catalog slices.
   that Flarex can invent business transformations.
 - Relation compatibility depends on `R01`/`R02`; Payload lifecycle parity and
   Medusa migration compilation remain separate source-driven plans.
+- The current schema manifest has stable table and logical-index identities but
+  no stable field catalog. The first classifier uses validator paths and
+  explicit rename intent; it does not pretend a field rename already has a
+  durable `field_id`.
+- Application Analysis migration may replace application-revision, readiness,
+  and activation contract generations. Candidate row validation must therefore
+  remain schema-version/scope authority and expose a narrow receipt consumer,
+  rather than foreign-keying its lifecycle to the displaced static-verifier
+  generation.
 - Real Postgres remains mandatory for DDL locks, concurrent builds,
   constraints, isolation, activation, and rollback proofs.
-
-## Checkpoint Record
-
-Previous completed checkpoint: `a4f3aec` -
-`Freeze Payload relational compatibility contract`.
-
-What changed: accepted desired-state schema deployment without developer SQL
-migration files, classified changes as safe/build/blocked, required explicit
-rename intent and stable identity preservation, separated app/Payload logical
-changes from Medusa physical migrations, and defined AI-readable plan/apply
-requirements plus narrow later turns.
-
-Why: a Convex-like deploy experience is compatible with Postgres only when
-internal migrations remain explicit, resumable, fenced, validated, and
-rollback-aware. Hiding migration files must not hide destructive behavior.
-
-Convex source files were not inspected for this docs-only UX checkpoint because
-the current official schema and production deployment documentation is the
-authoritative user-visible behavior being compared. Existing roadmap references
-to `crates/application/src/deploy_config.rs` continue to govern the portable
-implementation pattern.
-
-Verification:
-
-```sh
-git diff --check
-rg -n "migrationless|M01|explicit rename|schema-diff|InstantDB|Convex" \
-  roadmaps/flarexdb-foundation
-```

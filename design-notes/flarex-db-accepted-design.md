@@ -780,7 +780,20 @@ replacement access fails closed instead of inventing an unrelated mapping. A
 one-time compatibility projection is needed only for proven durable rows.
 
 A schema version is activatable only when its required target-native population,
-any evidence-triggered backfill, and validation have succeeded. There is one
+any evidence-triggered backfill, and validation have succeeded. For ordinary
+app-document evolution, each scope may have at most one non-active schema-
+validation head. It authenticates one immutable schema version, scans live rows
+at a fixed commit frontier, and remains shadow-enforced by later material point
+commits. A final row that is valid under the active schema but invalid under the
+candidate still commits and atomically fails the candidate; candidate
+deployment cannot make the active application unavailable. Valid concurrent
+writes do not restart the historical scan. Candidate readiness requires the
+exact settled validation receipt, and rollback to an older schema requires a
+new validation against current data rather than a pointer reversal. The
+detailed bounded lifecycle and implementation gates live in
+`roadmaps/flarexdb-foundation/05-managed-schema-deployment.md`.
+
+There is one
 authoritative active schema pointer per scope;
 deployment metadata may reference it, but must not create a second authority.
 

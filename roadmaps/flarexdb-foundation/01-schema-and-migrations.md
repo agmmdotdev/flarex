@@ -143,6 +143,11 @@ These decisions are durable and are not re-opened by each implementation turn:
   are trusted deterministic products of final rows and the pinned catalog.
 - Stable table and logical-index identities survive schema versions. Immutable
   physical definitions/builds are separate so old and new builds can coexist.
+- Ordinary app-document evolution may shadow-enforce at most one non-active
+  candidate schema per scope while the active schema remains authoritative.
+  The accepted fixed-frontier scan, concurrent-write, receipt, activation, and
+  rollback contract lives in `05-managed-schema-deployment.md`; its first
+  implementation remains separately gated.
 - The immutable manifest is the only versioned table-definition authority.
   Names in normalized catalogs are verified assertions, not competing copies.
 - Physical index definitions are normalized because runtime build identity and

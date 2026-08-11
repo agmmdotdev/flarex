@@ -137,7 +137,7 @@ consumers.
 | [`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md) | Accepted and complete privately | Implements the private candidate-bound action target/profile/ABI, host-owned canonical egress policy, fresh Worker Loader isolation, authenticated outbound/callback bridges, and resource ceilings with no schema, SAP07, route, or production behavior. |
 | [`49-application-analysis-migration.md`](./49-application-analysis-migration.md) | Accepted active focused execution plan | Replaces the private static verifier with exact-byte cold-load Application Analysis through additive contracts, hosted isolation, new persistence/readiness/activation generations, private system proof, and guarded old-system removal; stops before production cutover. |
 | [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md) | Accepted deferred contract | Relation semantics and stable occurrence identity required before `R01`/`R02`/`S12`/`C09`. |
-| [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract | Migrationless developer experience and managed schema safety classes; implementation remains deferred. |
+| [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract; first app-document preflight complete | Migrationless developer experience, conservative schema safety classes, one candidate-validation head, concurrent shadow validation, and readiness/activation gates; implementation still requires separately approved bounded slices. |
 
 ## Active Inventories Awaiting Compaction
 
