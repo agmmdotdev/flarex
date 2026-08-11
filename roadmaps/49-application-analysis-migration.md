@@ -946,9 +946,11 @@ The accepted implementation cut is:
    catalog binding commits scope, inactive Application Revision V2,
    candidate/analysis identities, publication digest, Source Artifact V2 root,
    canonical task-catalog digest and count, runtime-host identity, and
-   compatibility date. Each definition binding additionally commits its task
-   identity, canonical manifest digest, and exact logical module, authenticated
-   source module, and export name.
+   compatibility date. Each definition binding commits that catalog-binding
+   digest and additionally commits its task identity, canonical manifest
+   digest, and exact logical module, authenticated source module, and export
+   name; it does not repeat authority fields that the catalog digest already
+   binds.
 2. The Standard producer accepts an already canonical hashed task catalog and
    a prepared Standard Application definition. For every task it proves that
    the logical-to-source module pair exactly matches
@@ -975,6 +977,31 @@ authority needed by later readiness and selection. The stop conditions are any
 need to reinterpret an old task digest, manufacture artifact or semantic
 identity, inspect user code statically to prove an export, dual-write task
 generations, or change current run-creation/compute-delivery semantics.
+
+#### AA-R6 Application task-binding producer checkpoint — 2026-08-11
+
+Commit `243616dd` completes the contract and Standard-producer half of the
+accepted task-binding cut. The private Application task-catalog binding commits
+the exact inactive revision, candidate/analysis identities,
+publication/source authority, canonical task catalog, and runtime-host policy.
+Each ordered task definition commits the catalog-binding digest, canonical task
+manifest digest, and correlated logical/source module and export. The producer
+rehashes the supplied catalog and every manifest, rejects any digest mismatch,
+and proves the logical-to-source module mapping against the prepared Standard
+Application graph without inspecting or executing user code.
+
+The final diff also rejects symbol keys, accessors, hostile Proxy reflection,
+and conflicting extra fields through the typed decoder channel without
+invoking caller code. Impossible internally constructed SHA input failures are
+named defects; actual SHA resource failures remain recoverable. Typecheck, all
+39 Standard Application tests, the Effect boundary check, and both required
+final reviews passed. The package export remains private and no persistence,
+run creation, compute delivery, activation, selection, OCC, or commit owner was
+changed.
+
+This checkpoint does not complete the task-binding cut. The immutable catalog
+header and definition persistence generation plus idempotent exact registration
+remain next; current task rows and consumers are still unchanged.
 
 First migrate executable authority and publication:
 
