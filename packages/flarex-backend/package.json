@@ -42,9 +42,11 @@
     "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {
-    "build": "pnpm check:application-runtime-core && pnpm check:function-api-core && pnpm check:edge-action-runtime-kernel && pnpm check:edge-action-exact-runtime-core && pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && pnpm check:point-query-runtime-kernel && pnpm check:point-query-exact-runtime-core && pnpm check:point-query-internal-call-runtime-kernel && pnpm check:point-query-internal-call-exact-runtime-core && pnpm check:point-mutation-internal-query-runtime-kernel && pnpm check:point-mutation-internal-query-exact-runtime-core && pnpm check:point-mutation-internal-call-runtime-kernel && pnpm check:point-mutation-internal-call-exact-runtime-core && tsc -p tsconfig.json",
+    "build": "pnpm check:application-runtime-core && pnpm check:application-worker-core && pnpm check:function-api-core && pnpm check:edge-action-runtime-kernel && pnpm check:edge-action-exact-runtime-core && pnpm check:exact-runtime-core && pnpm check:point-mutation-runtime-kernel && pnpm check:point-query-runtime-kernel && pnpm check:point-query-exact-runtime-core && pnpm check:point-query-internal-call-runtime-kernel && pnpm check:point-query-internal-call-exact-runtime-core && pnpm check:point-mutation-internal-query-runtime-kernel && pnpm check:point-mutation-internal-query-exact-runtime-core && pnpm check:point-mutation-internal-call-runtime-kernel && pnpm check:point-mutation-internal-call-exact-runtime-core && tsc -p tsconfig.json",
     "check:application-runtime-core": "tsx scripts/buildApplicationRuntimeWorkerCore.ts check",
     "application-runtime-core:update": "tsx scripts/buildApplicationRuntimeWorkerCore.ts update",
+    "check:application-worker-core": "tsx scripts/buildApplicationWorkerCore.ts check",
+    "application-worker-core:update": "tsx scripts/buildApplicationWorkerCore.ts update",
     "check:function-api-core": "tsx scripts/buildFunctionApiCore.ts check",
     "function-api-core:update": "tsx scripts/buildFunctionApiCore.ts update",
     "check:edge-action-runtime-kernel": "tsx scripts/buildEdgeActionRuntimeKernel.ts check",

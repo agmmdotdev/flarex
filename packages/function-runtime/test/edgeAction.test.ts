@@ -118,6 +118,9 @@ describe("@flarex/function-runtime/edge-action", () => {
     boundary.close();
     await expect(boundary.context.runQuery("orders:get", {})).rejects
       .toMatchObject({ reason: "callbackClosed" });
+    await expect(boundary.drain()).rejects.toMatchObject({
+      reason: "callbackClosed",
+    });
 
     const limited = openCallbackBoundary(null, { invoke: () => null }, {
       ...LIMITS,
@@ -130,6 +133,23 @@ describe("@flarex/function-runtime/edge-action", () => {
     await expect(limited.drain()).rejects.toMatchObject({
       reason: "resourceExceeded",
     });
+  });
+
+  it("retains a closed callback attempt made while drain is pending", async () => {
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const boundary = openCallbackBoundary(
+      null,
+      { invoke: () => pending.then(() => null) },
+      LIMITS,
+    );
+    void boundary.context.runMutation("orders:update", {});
+    boundary.close();
+    const draining = boundary.drain();
+    await expect(boundary.context.runQuery("orders:late", {})).rejects
+      .toMatchObject({ reason: "callbackClosed" });
+    release?.();
+    await expect(draining).rejects.toMatchObject({ reason: "callbackClosed" });
   });
 });
 

@@ -6,10 +6,6 @@ import {
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import {
-  APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS,
-  findApplicationAnalysisFrameworkShimCollision,
-} from "@flarex/analysis/internal/application-analysis-module-path-policy";
-import {
   applicationFunctionCatalogPublicationFrameV1,
   applicationFunctionEntryPublicationFrameV1,
   applicationPublicationCommitmentFrameV1,
@@ -44,6 +40,10 @@ import {
 import {
   makeLiveDeclarativeV2RuntimeArtifactSha256V1,
 } from "./DeclarativeV2RuntimeArtifactSha256";
+import { makeApplicationRuntimeModuleGraph } from
+  "./ApplicationRuntimeModuleGraph";
+import { applicationRuntimeSourceMatchesManifest } from
+  "./ApplicationRuntimeSourceAuthority";
 
 export const APPLICATION_RUNTIME_COLD_ENTRYPOINT =
   "FlarexApplicationRuntimeColdLoad" as const;
@@ -51,14 +51,6 @@ export const APPLICATION_RUNTIME_COMPATIBILITY_DATE = "2026-06-14" as const;
 export const APPLICATION_RUNTIME_COLD_CPU_MILLISECONDS = 10_000;
 export const APPLICATION_RUNTIME_HOST_IDENTITY =
   `flarex.application-runtime-host/v1;core=${APPLICATION_RUNTIME_WORKER_CORE_SHA256};import=${APPLICATION_IMPORT_POLICY_IDENTITY_V1};cpu=10000;subrequests=0;outbound=null;mode=registration-resolution-only` as const;
-
-const APPLICATION_MODULE_PREFIX = "__flarex_application_modules" as const;
-const SUPPORTED_FRAMEWORK_MODULES = Object.freeze({
-  [APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS[0]]:
-    APPLICATION_RUNTIME_SERVER_EXPORTS,
-  [APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS[1]]:
-    APPLICATION_RUNTIME_VALUES_EXPORTS,
-} as const);
 
 export interface ApplicationRuntimeMaterializationInput {
   readonly target: unknown;
@@ -147,7 +139,7 @@ export function makeApplicationRuntimeMaterializer(
       const source = yield* capabilities.source.read(
         target.target.sourceArtifactRootSha256,
       ).pipe(Effect.mapError(cause => failure("sourceReadFailed", cause)));
-      if (!sourceBundleMatchesManifest(source, manifest.manifest)) {
+      if (!applicationRuntimeSourceMatchesManifest(source, manifest.manifest)) {
         return yield* failure("sourceMismatch");
       }
       const definition = yield* Effect.try({
@@ -200,63 +192,25 @@ export function makeApplicationRuntimeColdWorkerDefinition(input: {
   if (!isCompatibilityDate(input.compatibilityDate)) {
     throw new Error("Application runtime compatibility date is invalid.");
   }
-  const collision = findApplicationAnalysisFrameworkShimCollision(
-    input.source.modules.map(module => module.path),
-  );
-  if (collision !== undefined) {
-    throw new Error(`Application runtime source collides at ${collision}.`);
-  }
-  const trusted = trustedModuleNames(input.source.sourceArtifact.rootSha256);
-  const modules: Record<string, WorkerLoaderModule | string> = Object.create(null);
-  modules[trusted.entrypoint] = {
-    js: coldEntrypointSource(
-      input.source.sourceArtifact.executionModulePath,
+  const graph = makeApplicationRuntimeModuleGraph({
+    source: input.source,
+    coreSource: APPLICATION_RUNTIME_WORKER_CORE_SOURCE,
+    serverExports: APPLICATION_RUNTIME_SERVER_EXPORTS,
+    valuesExports: APPLICATION_RUNTIME_VALUES_EXPORTS,
+    entrypointSource: imports => coldEntrypointSource(
       input.function,
-      `./${trusted.core}`,
+      imports.core,
+      imports.execution,
     ),
-  };
-  modules[trusted.core] = { js: APPLICATION_RUNTIME_WORKER_CORE_SOURCE };
-  for (const module of input.source.modules) {
-    const name = applicationModuleName(module.path);
-    if (Object.hasOwn(modules, name)) {
-      throw new Error(`Duplicate application runtime module ${module.path}.`);
-    }
-    modules[name] = { js: module.source };
-  }
-  const generatedShims = new Set<string>();
-  for (const applicationModule of input.source.modules) {
-    for (const [frameworkModule, exportNames] of Object.entries(
-      SUPPORTED_FRAMEWORK_MODULES,
-    )) {
-      const shimName = frameworkShimName(applicationModule.path, frameworkModule);
-      if (generatedShims.has(shimName)) continue;
-      if (Object.hasOwn(modules, shimName)) {
-        throw new Error(`Application runtime framework collision ${shimName}.`);
-      }
-      generatedShims.add(shimName);
-      const coreImport = JSON.stringify(relativeFrameworkImport(
-        shimName,
-        trusted.core,
-      ));
-      modules[shimName] = {
-        js: [
-          `import * as applicationRuntimeCore from ${coreImport};`,
-          ...exportNames.map(name =>
-            `export const ${name} = applicationRuntimeCore.${name};`
-          ),
-          "",
-        ].join("\n"),
-      };
-    }
-  }
+  });
   return Object.freeze({
     compatibilityDate: input.compatibilityDate,
     limits: Object.freeze({
       cpuMs: APPLICATION_RUNTIME_COLD_CPU_MILLISECONDS,
       subRequests: 0,
     }),
-    mainModule: trusted.entrypoint,
-    modules: Object.freeze(modules),
+    mainModule: graph.mainModule,
+    modules: graph.modules,
     env: Object.freeze({}),
     globalOutbound: null,
     entrypoint: APPLICATION_RUNTIME_COLD_ENTRYPOINT,
@@ -344,39 +298,6 @@ function publicationFrame(
   return Effect.fromResult(frame.pipe(
     Result.mapError(cause => failure("authorityMismatch", cause)),
   ));
-}
-
-function sourceBundleMatchesManifest(
-  source: ApplicationAnalysisSourceBundle,
-  manifest: ApplicationManifestV1,
-): boolean {
-  const expected = manifest.sourceArtifact;
-  const observed = source.sourceArtifact;
-  if (
-    observed.rootSha256 !== expected.rootSha256 ||
-    observed.executionModulePath !== expected.executionModulePath ||
-    observed.schemaModulePath !== expected.schemaModulePath ||
-    observed.modules.length !== expected.modules.length ||
-    source.modules.length !== expected.modules.length
-  ) return false;
-  for (let index = 0; index < expected.modules.length; index += 1) {
-    const expectedModule = expected.modules[index];
-    const observedIdentity = observed.modules[index];
-    const observedModule = source.modules[index];
-    if (
-      expectedModule === undefined || observedIdentity === undefined ||
-      observedModule === undefined ||
-      observedIdentity.path !== expectedModule.path ||
-      observedIdentity.roles !== expectedModule.roles ||
-      observedIdentity.sourceSha256 !== expectedModule.sourceSha256 ||
-      observedIdentity.sourceByteLength !== expectedModule.sourceByteLength ||
-      observedModule.path !== expectedModule.path ||
-      observedModule.roles !== expectedModule.roles ||
-      observedModule.sourceSha256 !== expectedModule.sourceSha256 ||
-      observedModule.sourceByteLength !== expectedModule.sourceByteLength
-    ) return false;
-  }
-  return true;
 }
 
 function runColdResolution(
@@ -515,9 +436,9 @@ function sha256(
 }
 
 function coldEntrypointSource(
-  executionModulePath: string,
   fn: ApplicationRuntimeFunctionV1,
   coreImport: string,
+  executionImport: string,
 ): string {
   return [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
@@ -537,51 +458,13 @@ function coldEntrypointSource(
     `export class ${APPLICATION_RUNTIME_COLD_ENTRYPOINT} extends WorkerEntrypoint {`,
     "  async resolve() {",
     "    return runApplicationRuntimeColdResolutionV1({",
-    `      loadExecution: () => import(${JSON.stringify(relativeImport(
-      applicationModuleName(executionModulePath),
-    ))}),`,
+    `      loadExecution: () => import(${JSON.stringify(executionImport)}),`,
     "      function: applicationFunction,",
     "    });",
     "  }",
     "}",
     "",
   ].join("\n");
-}
-
-function trustedModuleNames(rootSha256: string): Readonly<{
-  readonly entrypoint: string;
-  readonly core: string;
-}> {
-  const stem = `__flarex_application_runtime_${rootSha256}`;
-  return Object.freeze({
-    entrypoint: `${stem}_entrypoint.js`,
-    core: `${stem}_core.js`,
-  });
-}
-
-function applicationModuleName(path: string): string {
-  return `${APPLICATION_MODULE_PREFIX}/${path}`;
-}
-
-function frameworkShimName(
-  importingApplicationPath: string,
-  frameworkModule: string,
-): string {
-  const importingModule = applicationModuleName(importingApplicationPath);
-  const lastSlash = importingModule.lastIndexOf("/");
-  return `${importingModule.slice(0, lastSlash + 1)}${frameworkModule}`;
-}
-
-function relativeFrameworkImport(
-  frameworkModule: string,
-  coreModule: string,
-): string {
-  const directoryDepth = frameworkModule.split("/").length - 1;
-  return `${directoryDepth === 0 ? "./" : "../".repeat(directoryDepth)}${coreModule}`;
-}
-
-function relativeImport(path: string): string {
-  return path.startsWith("./") ? path : `./${path}`;
 }
 
 function isFunctionKind(

@@ -12,6 +12,19 @@ import {
   type ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
 
+const ARRAY_FROM = Array.from;
+const ARRAY_IS_ARRAY = Array.isArray;
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTORS = Object.getOwnPropertyDescriptors;
+const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
+const OBJECT_HAS_OWN = Object.hasOwn;
+const OBJECT_PROTOTYPE = Object.prototype;
+const PROMISE = Promise;
+const SET = Set;
+const WEAK_MAP = WeakMap;
+
 export interface EdgeActionRuntimeFunctionV1 {
   readonly path: string;
   readonly kind: "action";
@@ -86,7 +99,7 @@ export class EdgeActionRuntimeContractV1Error extends Error {
     defineErrorName(this, "EdgeActionRuntimeContractV1Error");
     this.reason = reason;
     if (cause !== undefined) this.cause = cause;
-    inspections.set(this, Object.freeze({ kind: "contract", reason, cause }));
+    inspections.set(this, OBJECT_FREEZE({ kind: "contract", reason, cause }));
   }
 }
 
@@ -97,7 +110,7 @@ export class EdgeActionRuntimeUserCodeV1Error extends Error {
     super("Exact edge-action user code failed.");
     defineErrorName(this, "EdgeActionRuntimeUserCodeV1Error");
     this.cause = cause;
-    inspections.set(this, Object.freeze({ kind: "userCode", cause }));
+    inspections.set(this, OBJECT_FREEZE({ kind: "userCode", cause }));
   }
 }
 
@@ -108,7 +121,7 @@ export class EdgeActionRuntimeCallbackBoundaryV1Error extends Error {
     super("Exact edge-action callback boundary failed.");
     defineErrorName(this, "EdgeActionRuntimeCallbackBoundaryV1Error");
     this.cause = cause;
-    inspections.set(this, Object.freeze({ kind: "callbackBoundary", cause }));
+    inspections.set(this, OBJECT_FREEZE({ kind: "callbackBoundary", cause }));
   }
 }
 
@@ -121,7 +134,7 @@ export type EdgeActionRuntimeFailureInspectionV1 =
   | Readonly<{ readonly kind: "userCode"; readonly cause: unknown }>
   | Readonly<{ readonly kind: "callbackBoundary"; readonly cause: unknown }>;
 
-const inspections = new WeakMap<object, EdgeActionRuntimeFailureInspectionV1>();
+const inspections = new WEAK_MAP<object, EdgeActionRuntimeFailureInspectionV1>();
 const NO_FAILURE = Symbol("FlarexEdgeActionNoFailure");
 
 export function inspectEdgeActionRuntimeFailureV1(
@@ -233,7 +246,7 @@ export function openCallbackBoundary(
   let open = true;
   let ordinal = 0n;
   let firstFailure: unknown | typeof NO_FAILURE = NO_FAILURE;
-  const pending = new Set<Promise<unknown>>();
+  const pending = new SET<Promise<unknown>>();
 
   const invokeOpen = (
     kind: EdgeActionRuntimeCallbackRequestV1["kind"],
@@ -259,14 +272,14 @@ export function openCallbackBoundary(
       normalizedArguments.semanticSizeBytes >
         limits.maximumCallbackArgumentBytes
     ) throw new EdgeActionRuntimeContractV1Error("resourceExceeded");
-    const request = Object.freeze({
+    const request = OBJECT_FREEZE({
       kind,
       ordinal,
       functionPath,
       arguments: normalizedArguments.value,
       argumentSemanticBytes: normalizedArguments.semanticSizeBytes,
     });
-    const operation = Promise.resolve().then(() => bridge.invoke(request))
+    const operation = PROMISE.resolve().then(() => bridge.invoke(request))
       .then(value => {
       const normalized = normalizeFlarexValueV1(value);
       if (normalized.semanticSizeBytes > limits.maximumCallbackResultBytes) {
@@ -295,17 +308,18 @@ export function openCallbackBoundary(
     } catch (cause) {
       if (
         cause instanceof EdgeActionRuntimeContractV1Error &&
-        cause.reason === "resourceExceeded" &&
         firstFailure === NO_FAILURE
       ) firstFailure = cause;
-      return Promise.reject(cause);
+      const rejected = PROMISE.reject(cause);
+      void rejected.catch(() => undefined);
+      return rejected;
     }
   };
 
-  return Object.freeze({
-    context: Object.freeze({
-      auth: Object.freeze({
-        getUserIdentity: () => Promise.resolve(auth),
+  return OBJECT_FREEZE({
+    context: OBJECT_FREEZE({
+      auth: OBJECT_FREEZE({
+        getUserIdentity: () => PROMISE.resolve(auth),
       }),
       runQuery: (path: string, args?: unknown) => invoke("runQuery", path, args),
       runMutation: (path: string, args?: unknown) =>
@@ -313,7 +327,7 @@ export function openCallbackBoundary(
     }),
     close: () => { open = false; },
     drain: async () => {
-      const outcomes = await Promise.allSettled(Array.from(pending));
+      const outcomes = await PROMISE.allSettled(ARRAY_FROM(pending));
       const rejected = outcomes.find(
         (outcome): outcome is PromiseRejectedResult =>
           outcome.status === "rejected",
@@ -330,11 +344,11 @@ function exactPublicActionHandler(value: unknown): ActionHandlerV1 {
   if (!isPlainRecord(value)) {
     throw new EdgeActionRuntimeContractV1Error("functionMetadataInvalid");
   }
-  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const descriptors = OBJECT_GET_OWN_PROPERTY_DESCRIPTORS(value);
   const kinds = ["isQuery", "isMutation", "isWorkflowMutation", "isAction"]
-    .filter(marker => Object.hasOwn(descriptors, marker));
+    .filter(marker => OBJECT_HAS_OWN(descriptors, marker));
   const visibilities = ["isPublic", "isInternal"]
-    .filter(marker => Object.hasOwn(descriptors, marker));
+    .filter(marker => OBJECT_HAS_OWN(descriptors, marker));
   const handler = descriptors._handler;
   if (
     kinds.length !== 1 || kinds[0] !== "isAction" ||
@@ -357,15 +371,15 @@ function requireValidator(value: ValidatorJsonV1): void {
 
 function requireLimits(value: EdgeActionRuntimeLimitsV1): void {
   if (
-    !Number.isSafeInteger(value.maximumSyscalls) ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumSyscalls) ||
     value.maximumSyscalls < 1 ||
-    !Number.isSafeInteger(value.maximumArgumentBytes) ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumArgumentBytes) ||
     value.maximumArgumentBytes < 1 ||
-    !Number.isSafeInteger(value.maximumResultBytes) ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumResultBytes) ||
     value.maximumResultBytes < 1 ||
-    !Number.isSafeInteger(value.maximumCallbackArgumentBytes) ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumCallbackArgumentBytes) ||
     value.maximumCallbackArgumentBytes < 1 ||
-    !Number.isSafeInteger(value.maximumCallbackResultBytes) ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumCallbackResultBytes) ||
     value.maximumCallbackResultBytes < 1
   ) throw new EdgeActionRuntimeContractV1Error("resourceExceeded");
 }
@@ -373,15 +387,15 @@ function requireLimits(value: EdgeActionRuntimeLimitsV1): void {
 function isPlainRecord(
   value: unknown,
 ): value is Readonly<Record<PropertyKey, unknown>> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || ARRAY_IS_ARRAY(value)) {
     return false;
   }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+  const prototype = OBJECT_GET_PROTOTYPE_OF(value);
+  return prototype === OBJECT_PROTOTYPE || prototype === null;
 }
 
 function defineErrorName(error: Error, name: string): void {
-  Object.defineProperty(error, "name", {
+  OBJECT_DEFINE_PROPERTY(error, "name", {
     value: name,
     enumerable: false,
     configurable: false,

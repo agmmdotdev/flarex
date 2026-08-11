@@ -3,6 +3,7 @@ import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 
 const freeze = Object.freeze;
 const clone = globalThis.structuredClone;
+const defineProperty = Object.defineProperty;
 
 export type FunctionRuntimeAuthProjectionV1 =
   | Readonly<{ readonly kind: "anonymous" }>
@@ -412,7 +413,7 @@ export function createFunctionRuntimeApplicationErrorRegistryV1(
     constructor(code: unknown, message: unknown, data?: unknown) {
       const captured = capture(code, message, data);
       super(captured.message);
-      Object.defineProperty(this, "name", { value: "FlarexError" });
+      defineProperty(this, "name", { value: "FlarexError" });
       this.code = captured.code;
       if (captured.data !== undefined) this.data = captured.data;
       capturedByError.set(this, captured);
@@ -423,7 +424,7 @@ export function createFunctionRuntimeApplicationErrorRegistryV1(
     create: (code: unknown, message: unknown, data?: unknown): Error => {
       const captured = capture(code, message, data);
       const error = new Error(captured.message);
-      Object.defineProperty(error, "name", { value: "CoreApplicationErrorV1" });
+      defineProperty(error, "name", { value: "CoreApplicationErrorV1" });
       capturedByError.set(error, captured);
       return error;
     },

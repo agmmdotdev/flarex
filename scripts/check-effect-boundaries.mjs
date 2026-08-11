@@ -45,6 +45,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/executor/src/transactionGrant.ts", "verify"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime.ts", "ServiceBindingExecutionArtifactRuntime.invoke"), 1],
   [siteKey("packages/flarex-backend/src/artifactRuntime.ts", "fetch"), 1],
+  [siteKey("packages/flarex-backend/src/artifactRuntime/ApplicationWorkerCore.ts", "runWorkerProtocolDecoder"), 1],
   [siteKey("packages/flarex-backend/src/connectionDO.ts", "requireProjectId"), 1],
   [siteKey("packages/flarex-backend/src/connectionDO.ts", "runConnectionRoute"), 1],
   [siteKey("packages/flarex-backend/src/connectionDO.ts", "runConnectionWebSocketMessage"), 1],

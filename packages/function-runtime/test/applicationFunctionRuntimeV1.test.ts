@@ -232,6 +232,41 @@ describe("@flarex/function-runtime/internal/application-function-runtime-v1", ()
     )).resolves.toEqual(value);
   });
 
+  it.each(["query", "mutation"] as const)(
+    "enforces the independent %s root-result budget at the exact boundary",
+    async kind => {
+      const exactValue = "root-result";
+      const exactBytes = normalizeFlarexValueV1(exactValue).semanticSizeBytes;
+      const input = transactionInput({
+        function: definition({ kind }),
+        callBudget: {
+          ...transactionInput().callBudget,
+          maximumRootResultBytes: exactBytes,
+        },
+      });
+      const entries = registry({
+        "users:get": registered(kind, "public", () => exactValue),
+      });
+
+      await expect(executeApplicationFunctionTransactionRuntimeV1(
+        input,
+        entries,
+        invocation([]),
+      )).resolves.toBe(exactValue);
+      await expect(executeApplicationFunctionTransactionRuntimeV1(
+        {
+          ...input,
+          callBudget: {
+            ...input.callBudget,
+            maximumRootResultBytes: exactBytes - 1,
+          },
+        },
+        entries,
+        invocation([]),
+      )).rejects.toMatchObject({ reason: "resourceExceeded" });
+    },
+  );
+
   it("keeps internal-call failures sticky whether dropped or caught", async () => {
     const root = definition({ kind: "mutation" });
     const child = definition({
@@ -806,6 +841,7 @@ function transactionInput(
       maximumDepth: 4,
       maximumArgumentBytes: 4_096,
       maximumResultBytes: 4_096,
+      maximumRootResultBytes: 4_096,
     },
     arguments: {},
     tables: [{ tableId: 7, logicalName: "users" }],

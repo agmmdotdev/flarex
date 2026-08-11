@@ -1,5 +1,3 @@
-import type { ApplicationRuntimeFunctionV1 } from
-  "flarex-protocol/internal/application-runtime-target-v1";
 import { validateValidatorValueIssueV1 } from
   "flarex-protocol/internal/validator-engine-core";
 import type { UserIdentity } from "flarex-protocol/auth";
@@ -30,8 +28,27 @@ import {
   validatePointRuntimeValueIssueV1,
 } from "./pointRuntimeCore";
 
-export interface ApplicationFunctionRuntimeFunctionV1
-  extends ApplicationRuntimeFunctionV1 {
+const ARRAY_IS_ARRAY = Array.isArray;
+const MAP = Map;
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
+const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
+const OBJECT_PROTOTYPE = Object.prototype;
+const PROMISE = Promise;
+const SET = Set;
+
+export interface ApplicationFunctionRuntimeFunctionV1 {
+  readonly path: string;
+  readonly moduleName: string;
+  readonly exportName: string;
+  readonly kind: "query" | "mutation" | "workflowMutation" | "action";
+  readonly visibility: "public" | "internal";
+  readonly args: ValidatorJsonV1;
+  readonly returns: ValidatorJsonV1 | null;
+  readonly partition: unknown;
+  readonly entrySha256?: string;
   readonly ordinal: number;
 }
 
@@ -45,6 +62,7 @@ export interface ApplicationFunctionRuntimeCallBudgetV1 {
   readonly maximumDepth: number;
   readonly maximumArgumentBytes: number;
   readonly maximumResultBytes: number;
+  readonly maximumRootResultBytes: number;
 }
 
 export interface ApplicationFunctionTransactionRuntimeInputV1 {
@@ -182,7 +200,7 @@ export class ApplicationFunctionRuntimeContractV1Error extends Error {
     defineErrorName(this, "ApplicationFunctionRuntimeContractV1Error");
     this.reason = reason;
     if (cause !== undefined) this.cause = cause;
-    inspections.set(this, Object.freeze({ kind: "contract", reason, cause }));
+    inspections.set(this, OBJECT_FREEZE({ kind: "contract", reason, cause }));
   }
 }
 
@@ -193,7 +211,7 @@ export class ApplicationFunctionRuntimeUserCodeV1Error extends Error {
     super("Application function user code failed.");
     defineErrorName(this, "ApplicationFunctionRuntimeUserCodeV1Error");
     this.cause = cause;
-    inspections.set(this, Object.freeze({ kind: "userCode", cause }));
+    inspections.set(this, OBJECT_FREEZE({ kind: "userCode", cause }));
   }
 }
 
@@ -211,7 +229,7 @@ export class ApplicationFunctionRuntimeBoundaryV1Error extends Error {
     this.cause = cause;
     inspections.set(
       this,
-      Object.freeze({ kind: "boundary", boundary, cause }),
+      OBJECT_FREEZE({ kind: "boundary", boundary, cause }),
     );
   }
 }
@@ -230,7 +248,7 @@ export class ApplicationFunctionRuntimeApplicationV1Error extends Error {
     if (cause !== undefined) this.cause = cause;
     inspections.set(
       this,
-      Object.freeze({ kind: "applicationError", reason, cause }),
+      OBJECT_FREEZE({ kind: "applicationError", reason, cause }),
     );
   }
 }
@@ -251,7 +269,7 @@ export class ApplicationFunctionRuntimeTerminalV1Error extends Error {
     defineErrorName(this, "ApplicationFunctionRuntimeTerminalV1Error");
     this.reason = reason;
     if (cause !== undefined) this.cause = cause;
-    inspections.set(this, Object.freeze({ kind: "terminal", reason, cause }));
+    inspections.set(this, OBJECT_FREEZE({ kind: "terminal", reason, cause }));
   }
 }
 
@@ -368,8 +386,8 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
     source: Promise<Value>,
   ): Promise<Value> => {
     calls.push(source.then(
-      () => Object.freeze({ kind: "success" as const }),
-      failure => Object.freeze({ kind: "failure" as const, failure }),
+      () => OBJECT_FREEZE({ kind: "success" as const }),
+      failure => OBJECT_FREEZE({ kind: "failure" as const, failure }),
     ));
     return source;
   };
@@ -430,7 +448,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
       return terminal("callBudgetExceeded");
     }
     try {
-      invocation.recordCallFrame(Object.freeze({
+      invocation.recordCallFrame(OBJECT_FREEZE({
         rootExecutionId: input.executionId,
         parentOrdinal,
         calleeOrdinal: callee.ordinal,
@@ -472,7 +490,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
     } catch (cause) {
       return terminal("internalTargetInvalid", cause);
     }
-    const childAncestry = Object.freeze([...ancestry, callee.ordinal]);
+    const childAncestry = OBJECT_FREEZE([...ancestry, callee.ordinal]);
     let childResult: unknown;
     try {
       childResult = callee.kind === "query"
@@ -544,7 +562,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
       } catch (cause) {
         failure = cause;
       }
-      const rejected = Promise.reject(failure);
+      const rejected = PROMISE.reject(failure);
       void rejected.catch(() => undefined);
       return rejected;
     }
@@ -560,7 +578,7 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
 
   let handlerResult: unknown;
   let handlerFailure: unknown | typeof NO_FAILURE = NO_FAILURE;
-  const rootAncestry = Object.freeze([input.function.ordinal]);
+  const rootAncestry = OBJECT_FREEZE([input.function.ordinal]);
   try {
     handlerResult = input.function.kind === "query"
       ? await (rootHandler as QueryHandler)(
@@ -578,12 +596,12 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
   let inspectedCallCount = 0;
   while (inspectedCallCount < calls.length) {
     const currentCalls = calls.slice(inspectedCallCount);
-    await Promise.all(currentCalls);
+    await PROMISE.all(currentCalls);
     inspectedCallCount += currentCalls.length;
   }
   callAdmissionOpen = false;
   const finalCalls = calls.slice();
-  const finalSettlements = await Promise.all(finalCalls);
+  const finalSettlements = await PROMISE.all(finalCalls);
   let droppedFailure: unknown | typeof NO_FAILURE = NO_FAILURE;
   for (const settlement of finalSettlements) {
     if (
@@ -637,6 +655,10 @@ export async function executeApplicationFunctionTransactionRuntimeV1(
   } catch (cause) {
     throw new ApplicationFunctionRuntimeUserCodeV1Error(cause);
   }
+  if (
+    normalizedRoot.semanticSizeBytes >
+      input.callBudget.maximumRootResultBytes
+  ) throw new ApplicationFunctionRuntimeContractV1Error("resourceExceeded");
   if (input.function.returns !== null) {
     const rootResultIssue = validatorIssue(
       input.function.returns,
@@ -801,7 +823,7 @@ function requireFunctionContract(
   }
   if (
     admissionFailure !== undefined ||
-    !Number.isSafeInteger(definition.ordinal) ||
+    !NUMBER_IS_SAFE_INTEGER(definition.ordinal) ||
     definition.ordinal < 0 ||
     typeof definition.path !== "string" ||
     definition.path.length === 0 ||
@@ -820,8 +842,8 @@ function requireInternalCatalog(
   definitions: ReadonlyArray<ApplicationFunctionRuntimeFunctionV1>,
   root: ApplicationFunctionRuntimeFunctionV1,
 ): ReadonlyMap<string, ApplicationFunctionRuntimeFunctionV1> {
-  const catalog = new Map<string, ApplicationFunctionRuntimeFunctionV1>();
-  const ordinals = new Set<number>();
+  const catalog = new MAP<string, ApplicationFunctionRuntimeFunctionV1>();
+  const ordinals = new SET<number>();
   let previousOrdinal = -1;
   let previousPath = "";
   for (const definition of definitions) {
@@ -886,7 +908,7 @@ function captureInternalArguments(
       "argumentsInvalid",
     );
   }
-  return Object.freeze({
+  return OBJECT_FREEZE({
     value: normalized.value,
     semanticSizeBytes: normalized.semanticSizeBytes,
   });
@@ -894,8 +916,8 @@ function captureInternalArguments(
 
 function exactHandler(
   value: unknown,
-  kind: ApplicationRuntimeFunctionV1["kind"],
-  visibility: ApplicationRuntimeFunctionV1["visibility"],
+  kind: ApplicationFunctionRuntimeFunctionV1["kind"],
+  visibility: ApplicationFunctionRuntimeFunctionV1["visibility"],
 ): QueryHandler | MutationHandler | ActionHandler {
   try {
     if (!isPlainRecord(value)) {
@@ -909,13 +931,13 @@ function exactHandler(
       : "isInternal";
     const kinds = ["isQuery", "isMutation", "isWorkflowMutation", "isAction"]
       .filter(marker =>
-        Object.getOwnPropertyDescriptor(value, marker) !== undefined
+        OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, marker) !== undefined
       );
     const visibilities = ["isPublic", "isInternal"]
       .filter(marker =>
-        Object.getOwnPropertyDescriptor(value, marker) !== undefined
+        OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, marker) !== undefined
       );
-    const handler = Object.getOwnPropertyDescriptor(value, "_handler");
+    const handler = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, "_handler");
     if (
       kinds.length !== 1 || kinds[0] !== expectedKind ||
       visibilities.length !== 1 || visibilities[0] !== expectedVisibility ||
@@ -936,7 +958,9 @@ function exactHandler(
   }
 }
 
-function kindMarker(kind: ApplicationRuntimeFunctionV1["kind"]): string {
+function kindMarker(
+  kind: ApplicationFunctionRuntimeFunctionV1["kind"],
+): string {
   switch (kind) {
     case "query": return "isQuery";
     case "mutation": return "isMutation";
@@ -949,7 +973,7 @@ function staticFunctionPath(reference: unknown): string | undefined {
   if (typeof reference === "string" && reference.length > 0) return reference;
   try {
     if (!isPlainRecord(reference)) return undefined;
-    const descriptor = Object.getOwnPropertyDescriptor(reference, "_path");
+    const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(reference, "_path");
     return descriptor !== undefined && "value" in descriptor &&
         typeof descriptor.value === "string" && descriptor.value.length > 0
       ? descriptor.value
@@ -976,19 +1000,21 @@ function validatorIssue(
 function tableIdsByLogicalName(
   tables: ReadonlyArray<ApplicationFunctionRuntimeTableV1>,
 ): ReadonlyMap<string, number> {
-  const output = new Map<string, number>();
+  const output = new MAP<string, number>();
   for (const table of tables) output.set(table.logicalName, table.tableId);
   return output;
 }
 
 function requireCallBudget(value: ApplicationFunctionRuntimeCallBudgetV1): void {
   if (
-    !Number.isSafeInteger(value.maximumCalls) || value.maximumCalls < 1 ||
-    !Number.isSafeInteger(value.maximumDepth) || value.maximumDepth < 1 ||
-    !Number.isSafeInteger(value.maximumArgumentBytes) ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumCalls) || value.maximumCalls < 1 ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumDepth) || value.maximumDepth < 1 ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumArgumentBytes) ||
     value.maximumArgumentBytes < 1 ||
-    !Number.isSafeInteger(value.maximumResultBytes) ||
-    value.maximumResultBytes < 1
+    !NUMBER_IS_SAFE_INTEGER(value.maximumResultBytes) ||
+    value.maximumResultBytes < 1 ||
+    !NUMBER_IS_SAFE_INTEGER(value.maximumRootResultBytes) ||
+    value.maximumRootResultBytes < 1
   ) {
     throw new ApplicationFunctionRuntimeContractV1Error(
       "functionMetadataInvalid",
@@ -1003,7 +1029,7 @@ function addWithinBudget(
   exceeded: () => never,
 ): number {
   const next = current + increment;
-  return Number.isSafeInteger(next) && next <= maximum ? next : exceeded();
+  return NUMBER_IS_SAFE_INTEGER(next) && next <= maximum ? next : exceeded();
 }
 
 function boundaryError(
@@ -1021,12 +1047,12 @@ function boundaryError(
 function isPlainRecord(
   value: unknown,
 ): value is Readonly<Record<PropertyKey, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype;
+  return typeof value === "object" && value !== null && !ARRAY_IS_ARRAY(value) &&
+    OBJECT_GET_PROTOTYPE_OF(value) === OBJECT_PROTOTYPE;
 }
 
 function defineErrorName(error: Error, name: string): void {
-  Object.defineProperty(error, "name", {
+  OBJECT_DEFINE_PROPERTY(error, "name", {
     value: name,
     enumerable: false,
     configurable: false,
