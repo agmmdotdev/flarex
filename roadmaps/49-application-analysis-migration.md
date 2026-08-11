@@ -1524,7 +1524,7 @@ individually committed checkpoints while preserving one-way migration:
    Application Manifest schema into the existing app-schema publication input,
    derive its immutable schema-version identity from the canonical Application
    schema digest, publish or replay it through the existing schema catalog, and
-   verify that the resulting bound table/index identities agree exactly with
+   verify that the resulting bound schema is a complete semantic projection of
    the analyzed manifest. Add a new Application readiness receipt and tables
    that correlate Application Revision V2, analysis, whole-bundle publication,
    the bound app-schema artifact, current scope clock, an explicit Application
@@ -1553,9 +1553,13 @@ publication and build owners. It may derive a stable PostgreSQL-safe
 schema-version identifier from the canonical Application schema digest, but it
 may not relabel that digest as a readiness verdict. After publication it must
 compare the resulting manifest's table names, validators, index declarations,
-and bound logical IDs with the analyzed schema before any readiness work. The
-existing catalog remains the sole stable table, index-definition, build-state,
-and unique-constraint authority.
+and relationships with the analyzed schema before any readiness work. The
+analyzer's numeric table and index IDs are dense canonical ordinals within the
+Application Manifest, not deployment-stable storage IDs. The bridge must record
+their complete name-based mapping to the bound catalog IDs and commit the bound
+schema-manifest digest; it must not require the two numeric domains to be equal
+or expose analyzer ordinals to execution. The existing catalog remains the sole
+stable table, index-definition, build-state, and unique-constraint authority.
 
 Readiness requires exactly one Application task-catalog row for every revision,
 including an explicitly empty catalog. This closes an ambiguity in the earlier
@@ -1573,10 +1577,10 @@ not authorize a second schema/index planner, mutation of Application Revision
 V2's immutable `inactive` row, old/new dual writes, caller-authored readiness,
 route installation, OCC or commit changes, action lifecycle changes, or task
 run reinterpretation. Stop and record an owner issue if exact schema lowering
-cannot preserve the analyzed table/index identities, if existing readiness
-cannot expose a narrow authenticated snapshot, or if consumer composition
-requires changing an existing journal, commit, callback, outbound, scheduler,
-or run-evidence contract.
+cannot preserve the analyzed logical schema and produce a complete ordinal-to-
+stable binding, if existing readiness cannot expose a narrow authenticated
+snapshot, or if consumer composition requires changing an existing journal,
+commit, callback, outbound, scheduler, or run-evidence contract.
 
 First migrate executable authority and publication:
 
