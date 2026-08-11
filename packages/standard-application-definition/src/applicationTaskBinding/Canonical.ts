@@ -1,0 +1,406 @@
+import {
+  copyBytes,
+  encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { Result } from "effect";
+import { encodeCanonicalJson } from "flarex-protocol/json";
+
+import {
+  ApplicationTaskBindingCanonicalEncodingV1Defect,
+  InvalidApplicationTaskBindingV1Error,
+  type ApplicationTaskBindingOperationV1,
+  type ApplicationTaskBindingReasonV1,
+} from "./Errors.js";
+import {
+  APPLICATION_TASK_CATALOG_BINDING_CODEC_V1,
+  APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
+  MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1,
+  type ApplicationTaskBindingAuthorityV1,
+  type ApplicationTaskCatalogBindingV1,
+  type ApplicationTaskDefinitionBindingV1,
+  type ApplicationTaskHandlerBindingV1,
+  type ApplicationTaskRuntimeHostPolicyV1,
+} from "./Model.js";
+import {
+  MAX_TASK_CATALOG_ENTRIES_V1,
+  MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1,
+  type TaskDefinitionSha256V1,
+  type TaskIdV1,
+} from "../taskDefinition/Model.js";
+import { decodeTaskIdV1 } from "../taskDefinition/Schema.js";
+
+const UTF8 = new TextEncoder();
+const AUTHORITY_KEYS = [
+  "analysisId",
+  "candidateId",
+  "publicationSha256",
+  "revisionId",
+  "scopeId",
+  "sourceArtifactRootSha256",
+] as const;
+const POLICY_KEYS = ["compatibilityDate", "runtimeHostIdentity"] as const;
+
+export function decodeApplicationTaskCatalogBindingV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskCatalogBindingV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  const operation = "decode_catalog_binding" as const;
+  return Result.gen(function* () {
+    const value = yield* exactRecord(input, [
+      ...AUTHORITY_KEYS,
+      ...POLICY_KEYS,
+      "taskCatalogSha256",
+      "taskCount",
+      "version",
+    ], operation);
+    if (value.version !== 1) {
+      return yield* failure(operation, "invalidShape", "version");
+    }
+    const authority = yield* decodeAuthority(value, operation);
+    const policy = yield* decodePolicy(value, operation);
+    const taskCatalogSha256 = yield* digest(
+      value.taskCatalogSha256,
+      operation,
+      "taskCatalogSha256",
+    );
+    if (
+      !Number.isSafeInteger(value.taskCount) || Number(value.taskCount) < 0 ||
+      Number(value.taskCount) > MAX_TASK_CATALOG_ENTRIES_V1
+    ) return yield* failure(operation, "invalidCatalog", "taskCount");
+    return Object.freeze({
+      version: 1,
+      ...authority,
+      ...policy,
+      taskCatalogSha256,
+      taskCount: Number(value.taskCount),
+    });
+  });
+}
+
+export function decodeApplicationTaskDefinitionBindingV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskDefinitionBindingV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  const operation = "decode_definition_binding" as const;
+  return Result.gen(function* () {
+    const value = yield* exactRecord(input, [
+      "applicationTaskCatalogBindingSha256",
+      "canonicalTaskManifestSha256",
+      "handler",
+      "taskId",
+      "version",
+    ], operation);
+    if (value.version !== 1) {
+      return yield* failure(operation, "invalidShape", "version");
+    }
+    const applicationTaskCatalogBindingSha256 = yield* digest(
+      value.applicationTaskCatalogBindingSha256,
+      operation,
+      "applicationTaskCatalogBindingSha256",
+    );
+    const canonicalTaskManifestSha256 = yield* digest(
+      value.canonicalTaskManifestSha256,
+      operation,
+      "canonicalTaskManifestSha256",
+    );
+    const taskId = yield* decodeTaskIdV1(value.taskId).pipe(
+      Result.mapError(() => invalid(operation, "invalidShape", "taskId")),
+    );
+    const handler = yield* decodeHandler(value.handler, operation);
+    return Object.freeze({
+      version: 1,
+      applicationTaskCatalogBindingSha256,
+      taskId,
+      canonicalTaskManifestSha256,
+      handler,
+    });
+  });
+}
+
+export function encodeApplicationTaskCatalogBindingPreimageV1(
+  input: unknown,
+): Result.Result<Uint8Array, InvalidApplicationTaskBindingV1Error> {
+  const operation = "encode_catalog_binding" as const;
+  return decodeApplicationTaskCatalogBindingV1(input).pipe(
+    Result.mapError(error => reoperation(error, operation)),
+    Result.flatMap(binding => canonicalBytes({
+      binding: {
+        analysisId: binding.analysisId,
+        candidateId: binding.candidateId,
+        compatibilityDate: binding.compatibilityDate,
+        publicationSha256: binding.publicationSha256,
+        revisionId: binding.revisionId,
+        runtimeHostIdentity: binding.runtimeHostIdentity,
+        scopeId: binding.scopeId,
+        sourceArtifactRootSha256: binding.sourceArtifactRootSha256,
+        taskCatalogSha256: encodeBytesToLowercaseHex(binding.taskCatalogSha256),
+        taskCount: binding.taskCount,
+        version: 1,
+      },
+      codec: APPLICATION_TASK_CATALOG_BINDING_CODEC_V1,
+    }, operation)),
+  );
+}
+
+export function encodeApplicationTaskDefinitionBindingPreimageV1(
+  input: unknown,
+): Result.Result<Uint8Array, InvalidApplicationTaskBindingV1Error> {
+  const operation = "encode_definition_binding" as const;
+  return decodeApplicationTaskDefinitionBindingV1(input).pipe(
+    Result.mapError(error => reoperation(error, operation)),
+    Result.flatMap(binding => canonicalBytes({
+      binding: {
+        applicationTaskCatalogBindingSha256: encodeBytesToLowercaseHex(
+          binding.applicationTaskCatalogBindingSha256,
+        ),
+        canonicalTaskManifestSha256: encodeBytesToLowercaseHex(
+          binding.canonicalTaskManifestSha256,
+        ),
+        handler: {
+          exportName: binding.handler.exportName,
+          logicalModulePath: binding.handler.logicalModulePath,
+          sourceModulePath: binding.handler.sourceModulePath,
+        },
+        taskId: binding.taskId,
+        version: 1,
+      },
+      codec: APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
+    }, operation)),
+  );
+}
+
+function decodeAuthority(
+  value: Readonly<Record<string, unknown>>,
+  operation: ApplicationTaskBindingOperationV1,
+): Result.Result<
+  ApplicationTaskBindingAuthorityV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  return Result.gen(function* () {
+    const scopeId = yield* identity(value.scopeId, operation, "scopeId");
+    const revisionId = yield* identity(value.revisionId, operation, "revisionId");
+    const candidateId = yield* identity(value.candidateId, operation, "candidateId");
+    const analysisId = yield* identity(value.analysisId, operation, "analysisId");
+    const publicationSha256 = yield* lowercaseSha256(
+      value.publicationSha256,
+      operation,
+      "publicationSha256",
+    );
+    const sourceArtifactRootSha256 = yield* lowercaseSha256(
+      value.sourceArtifactRootSha256,
+      operation,
+      "sourceArtifactRootSha256",
+    );
+    return Object.freeze({
+      scopeId,
+      revisionId,
+      candidateId,
+      analysisId,
+      publicationSha256,
+      sourceArtifactRootSha256,
+    });
+  });
+}
+
+function decodePolicy(
+  value: Readonly<Record<string, unknown>>,
+  operation: ApplicationTaskBindingOperationV1,
+): Result.Result<
+  ApplicationTaskRuntimeHostPolicyV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  return Result.gen(function* () {
+    const runtimeHostIdentity = yield* identity(
+      value.runtimeHostIdentity,
+      operation,
+      "runtimeHostIdentity",
+    ).pipe(Result.mapError(() => invalid(
+      operation,
+      "invalidRuntimePolicy",
+      "runtimeHostIdentity",
+    )));
+    if (!isCompatibilityDate(value.compatibilityDate)) {
+      return yield* failure(
+        operation,
+        "invalidRuntimePolicy",
+        "compatibilityDate",
+      );
+    }
+    return Object.freeze({
+      runtimeHostIdentity,
+      compatibilityDate: value.compatibilityDate,
+    });
+  });
+}
+
+function decodeHandler(
+  input: unknown,
+  operation: ApplicationTaskBindingOperationV1,
+): Result.Result<
+  ApplicationTaskHandlerBindingV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  return Result.gen(function* () {
+    const value = yield* exactRecord(input, [
+      "exportName",
+      "logicalModulePath",
+      "sourceModulePath",
+    ], operation, "handler");
+    const logicalModulePath = yield* boundedText(
+      value.logicalModulePath,
+      operation,
+      "handler.logicalModulePath",
+    );
+    const sourceModulePath = yield* boundedText(
+      value.sourceModulePath,
+      operation,
+      "handler.sourceModulePath",
+    );
+    const exportName = yield* boundedText(
+      value.exportName,
+      operation,
+      "handler.exportName",
+    );
+    return Object.freeze({ logicalModulePath, sourceModulePath, exportName });
+  });
+}
+
+function exactRecord(
+  input: unknown,
+  keys: ReadonlyArray<string>,
+  operation: ApplicationTaskBindingOperationV1,
+  path?: string,
+): Result.Result<
+  Readonly<Record<string, unknown>>,
+  InvalidApplicationTaskBindingV1Error
+> {
+  try {
+    if (!isNonArrayRecord(input)) {
+      return failure(operation, "invalidShape", path);
+    }
+    const ownKeys = Reflect.ownKeys(input);
+    if (ownKeys.some(key => typeof key !== "string")) {
+      return failure(operation, "invalidShape", path);
+    }
+    const observed = (ownKeys as string[]).sort();
+    const expected = [...keys].sort();
+    if (
+      observed.length !== expected.length ||
+      !observed.every((key, index) => key === expected[index])
+    ) return failure(operation, "invalidShape", path);
+    const captured: Record<string, unknown> = Object.create(null);
+    for (const key of expected) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (
+        descriptor === undefined || !descriptor.enumerable ||
+        !("value" in descriptor)
+      ) return failure(operation, "invalidShape", path);
+      captured[key] = descriptor.value;
+    }
+    return Result.succeed(captured);
+  } catch {
+    return failure(operation, "invalidShape", path);
+  }
+}
+
+function identity(
+  input: unknown,
+  operation: ApplicationTaskBindingOperationV1,
+  path: string,
+): Result.Result<string, InvalidApplicationTaskBindingV1Error> {
+  return typeof input === "string" && input.length > 0 && input.length <= 256
+    ? Result.succeed(input)
+    : failure(operation, "invalidAuthority", path);
+}
+
+function boundedText(
+  input: unknown,
+  operation: ApplicationTaskBindingOperationV1,
+  path: string,
+): Result.Result<string, InvalidApplicationTaskBindingV1Error> {
+  return typeof input === "string" && input.length > 0 &&
+      UTF8.encode(input).byteLength <= MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1
+    ? Result.succeed(input)
+    : failure(operation, "invalidShape", path);
+}
+
+function lowercaseSha256(
+  input: unknown,
+  operation: ApplicationTaskBindingOperationV1,
+  path: string,
+): Result.Result<string, InvalidApplicationTaskBindingV1Error> {
+  return typeof input === "string" && /^[0-9a-f]{64}$/.test(input)
+    ? Result.succeed(input)
+    : failure(operation, "invalidAuthority", path);
+}
+
+function digest(
+  input: unknown,
+  operation: ApplicationTaskBindingOperationV1,
+  path: string,
+): Result.Result<
+  TaskDefinitionSha256V1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  return isUint8ArrayWithByteLength(input, 32)
+    ? Result.succeed(copyBytes(input) as TaskDefinitionSha256V1)
+    : failure(operation, "invalidShape", path);
+}
+
+function isCompatibilityDate(input: unknown): input is string {
+  if (typeof input !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    return false;
+  }
+  const milliseconds = Date.parse(`${input}T00:00:00.000Z`);
+  return Number.isFinite(milliseconds) &&
+    new Date(milliseconds).toISOString().slice(0, 10) === input;
+}
+
+function canonicalBytes(
+  value: Parameters<typeof encodeCanonicalJson>[0],
+  operation: ApplicationTaskBindingOperationV1,
+): Result.Result<Uint8Array, InvalidApplicationTaskBindingV1Error> {
+  const text = encodeCanonicalJson(value, issue => {
+    throw new ApplicationTaskBindingCanonicalEncodingV1Defect({
+      operation,
+      issue,
+    });
+  });
+  const bytes = UTF8.encode(text);
+  return bytes.byteLength <= MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1
+    ? Result.succeed(bytes)
+    : failure(operation, "canonicalBytesExceeded");
+}
+
+function reoperation(
+  error: InvalidApplicationTaskBindingV1Error,
+  operation: ApplicationTaskBindingOperationV1,
+): InvalidApplicationTaskBindingV1Error {
+  return invalid(operation, error.reason, error.path);
+}
+
+function failure(
+  operation: ApplicationTaskBindingOperationV1,
+  reason: ApplicationTaskBindingReasonV1,
+  path?: string,
+): Result.Result<never, InvalidApplicationTaskBindingV1Error> {
+  return Result.fail(invalid(operation, reason, path));
+}
+
+function invalid(
+  operation: ApplicationTaskBindingOperationV1,
+  reason: ApplicationTaskBindingReasonV1,
+  path?: string,
+): InvalidApplicationTaskBindingV1Error {
+  return new InvalidApplicationTaskBindingV1Error({
+    operation,
+    reason,
+    ...(path === undefined ? {} : { path }),
+  });
+}
