@@ -660,8 +660,8 @@ consumer is introduced by `AA-R6`.
 
 ### `AA-R6` — executable producer, publication, and authority migration
 
-This gate is larger than a receipt-table change and is divided into two medium
-slices.
+This gate is larger than a receipt-table change and is divided into three
+medium slices after the post-publication owner audit below.
 
 #### AA-R6 executable-authority preflight and accepted cut — 2026-08-11
 
@@ -717,12 +717,14 @@ The first medium slice is therefore accepted with this exact cut:
    does not select an active revision, adapt a production runtime, change an
    OCC or commit owner, deploy the analyzer, or claim genuine PostgreSQL proof.
 
-The second medium slice consumes these exact outputs. It adds new readiness and
-activation generations, an active-selection generation, runtime-host adapters,
-and task binding without a semantic root. Readiness proves the stored schema and
-function catalog, every manifest module's authenticated Source Artifact V2
-identity, cold materialization, and existing index readiness. It does not
-introduce a second bundle object or static call graph.
+The remaining gate consumes these exact outputs through two medium slices. The
+first adds private whole-bundle runtime materialization and a genuinely new task
+binding without a semantic root. The second adds new readiness and activation
+generations, an active-selection generation, and private consumer migration.
+Readiness proves the stored schema and function catalog, every manifest module's
+authenticated Source Artifact V2 identity, cold materialization through the new
+runtime host, and existing index readiness. It does not introduce a second
+bundle object or static call graph.
 
 Preflight self-review found no owner-boundary exception requiring wider
 approval. The implementation is additive, keeps Source Artifact V2 and the
@@ -788,6 +790,89 @@ only; genuine PostgreSQL concurrency and migration proof remains mandatory at
 adapts no production runtime, and changes no OCC, commit, executor, or task
 authority. The next authorized work is the second AA-R6 medium slice only.
 
+#### AA-R6 remaining-authority preflight and accepted amendment — 2026-08-11
+
+The post-publication owner inventory rejects the earlier readiness-first order.
+The old readiness operation proves cold materialization of candidate-derived
+runtime projections. Application publication intentionally has no such
+projection and Source Artifact V2 is now the only module-body owner. A new
+readiness row created before a whole-bundle runtime host exists could prove only
+that bytes were readable or that analysis could run again; neither proves that
+the selected application can execute. Readiness therefore follows runtime
+materialization rather than preceding it.
+
+The inventory also rejects reuse of the current durable-task binding. Its wire
+contract, persistence row, run-creation authority, and compute-delivery evidence
+all commit the displaced candidate digest, package/artifact identities, and
+`semanticRootSha256`, and its foreign key selects Application Revision V1.
+Removing one field or pointing that row at Application Revision V2 would
+reinterpret shipped evidence. Application Manifest V1 deliberately contains
+only analyzed source, schema, and function registrations; a task catalog remains
+a separate Standard definition input and must be correlated to the accepted
+source/publication explicitly.
+
+The next medium slice is accepted with this cut:
+
+1. Add one private Application Runtime materialization owner. It receives a
+   canonical `ApplicationRuntimeTargetV1`, the exact stored Application Manifest
+   V1, and an authenticated Source Artifact V2 reader. It rereads the complete
+   source graph, compares the root, execution/schema paths, ordered module
+   paths, roles, byte lengths, and source digests with the manifest, and builds
+   Worker Loader code from those bytes. It does not store or republish a module
+   body.
+2. Reuse the existing exact-runtime worker cores and invocation capability
+   owners through new narrow definition adapters. Point mutation, query,
+   internal-call, and edge-action adapters accept the one application target
+   and reject the wrong kind or visibility. They may add host configuration and
+   invocation envelopes, but they must not manufacture candidate, semantic,
+   projection, package, artifact, or static-call-graph evidence.
+3. Cold proof means Worker Loader evaluates the authenticated whole bundle with
+   outbound networking disabled and resolves the exact registered function from
+   the generated execution module. It is not a second analysis pass and does
+   not invoke a database mutation. The receipt binds runtime-host identity,
+   compatibility date, source root, manifest/publication digests, and the exact
+   target digest.
+4. Add a new concrete Application task-binding generation rather than mutate
+   the existing task-definition contracts. Its Standard producer correlates a
+   canonical task catalog and handler module/export with the prepared source
+   mapping. Its commitment binds scope, Application Revision V2, candidate and
+   analysis identities, publication digest, Source Artifact V2 root, task
+   catalog/manifest identity, exact handler module/export, and runtime-host
+   policy. It contains no semantic root, package/artifact digest, candidate
+   frame, or runtime projection object.
+5. The new task definition persistence generation is private and inactive. It
+   does not dual-write or reinterpret `fx_system_durable_task_definition_revision_v1`.
+   Existing run creation and compute delivery remain unchanged until their
+   bounded migration in the following slice; no task run may select the new row
+   early.
+
+The final AA-R6 medium slice then adds Application Revision V2 readiness,
+activation revision/head, and issuer-backed active selection generations plus
+the bounded runtime and Task System consumer migrations. The revision row stays
+immutable with its registered `inactive` status; activation is separate
+scope-clock-locked head history, not a status mutation. The selection retains
+only the exact authority, manifest, publication, and optional new task binding
+needed by consumers. It must not copy the old active metadata's semantic,
+projection, package, or candidate-frame fields.
+
+Readiness in that final slice must prove exact publication replay, authenticated
+source/manifest agreement, a successful cold receipt for every published
+function target under the same runtime-host policy, the separately bound task
+catalog when present, and existing index readiness through an injected narrow
+index-readiness port. It may not claim index readiness from manifest bytes
+alone. Activation locks the scope clock before its new head, validates the
+readiness receipt again in the same transaction, uses an explicit compare-and-
+swap token, and never writes the displaced activation or verdict tables.
+
+Self-review accepts this amendment because it removes two false shortcuts:
+analysis replay as runtime proof and field-deleted reuse of the old task row.
+The stop conditions are any need to change an exact runtime worker's invocation
+semantics, modify OCC/commit authority, weaken Source Artifact V2 authentication,
+write both task generations, infer a dependency graph, or treat an old
+readiness/activation/selection/task value as new evidence. A defect exposed in
+one of those shared owners is recorded and stopped at its boundary under the
+repository rule.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
@@ -851,12 +936,14 @@ or `AA-R9` cutover.
 1. **Contracts and pure core:** `AA-R2` plus `AA-R3`.
 2. **Trusted exact-byte host:** `AA-R4`.
 3. **Durable analysis and inactive revision:** `AA-R5`.
-4. **Executable producer and whole-bundle publication:** first half of
+4. **Executable producer and whole-bundle publication:** first slice of
    `AA-R6`.
-5. **Readiness, activation, runtime-target, and task-binding migration:** second
-   half of `AA-R6`.
-6. **Private system proof:** `AA-R7`.
-7. **Removal and guarded retirement migration:** `AA-R8`, then stop.
+5. **Whole-bundle runtime materialization and new task-binding generation:**
+   second slice of `AA-R6`.
+6. **Readiness, activation, active selection, and private consumer migration:**
+   final slice of `AA-R6`.
+7. **Private system proof:** `AA-R7`.
+8. **Removal and guarded retirement migration:** `AA-R8`, then stop.
 
 Each slice is reviewed against this plan before implementation and again
 against its final diff. Significant code checkpoints require both repository
