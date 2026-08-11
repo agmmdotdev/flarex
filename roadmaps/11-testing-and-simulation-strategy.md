@@ -458,6 +458,16 @@ Named Flarex differences are:
   settlement-bounded eight-writer contention profile. No scheduler,
   model checker, retry API, alternate OCC/commit path, or production behavior
   is authorized by this slice.
+- The O10-C cooking indexed-range preflight opened `ST-CORE-019`. The Standard
+  definition can declare and publish a developer ordered index, C08 can
+  maintain its S10 entries during later point commits, and readiness plus the
+  indexed journal correctly require an enabled build. However, the only
+  implemented C4 build executor is intrinsic-creation-time-only and rejects a
+  developer definition. The simulation must remain blocked rather than seed
+  enabled build state or add test-owned backfill/lowering logic. A separate
+  production-inert C08 developer ordered-index build prerequisite is required
+  before the cooking scenario can honestly prove indexed business decisions,
+  phantom conflict, O08 rerun, rollback, and PostgreSQL plan behavior.
 - `SAC01-G` private `@flarex/system-test` extraction. The package owns the
   real-system environment, unified `defineStandardApplicationSimulationV1`
   configuration contract, logical inspection, database lanes, and separate
