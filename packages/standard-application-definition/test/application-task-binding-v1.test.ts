@@ -175,6 +175,49 @@ describe("Application task binding V1", () => {
     )).toBe(true);
   });
 
+  it("admits only NUL-free Unicode scalar runtime-host identities", async () => {
+    const catalog = await makeCatalog();
+    for (const runtimeHostIdentity of ["\0", "\ud800", "\udc00"]) {
+      const decoded = decodeApplicationTaskCatalogBindingV1({
+        version: 1,
+        ...authority,
+        ...runtimePolicy,
+        runtimeHostIdentity,
+        taskCatalogSha256: catalog.taskCatalogSha256,
+        taskCount: 1,
+      });
+      expect(Result.isFailure(decoded)).toBe(true);
+      if (Result.isFailure(decoded)) {
+        expect(decoded.failure).toMatchObject({
+          reason: "invalidRuntimePolicy",
+          path: "runtimeHostIdentity",
+        });
+      }
+    }
+    expect(Result.isSuccess(decodeApplicationTaskCatalogBindingV1({
+      version: 1,
+      ...authority,
+      ...runtimePolicy,
+      runtimeHostIdentity: "application-runtime-\ud83d\ude80",
+      taskCatalogSha256: catalog.taskCatalogSha256,
+      taskCount: 1,
+    }))).toBe(true);
+    expect(decodeApplicationTaskCatalogBindingV1({
+      version: 1,
+      ...authority,
+      ...runtimePolicy,
+      scopeId: "scope\0unsafe",
+      taskCatalogSha256: catalog.taskCatalogSha256,
+      taskCount: 1,
+    })).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        reason: "invalidAuthority",
+        path: "scopeId",
+      },
+    });
+  });
+
   it("treats impossible binding digest input failures as defects", async () => {
     const catalog = await makeCatalog();
     const binding = Result.getOrThrow(decodeApplicationTaskCatalogBindingV1({

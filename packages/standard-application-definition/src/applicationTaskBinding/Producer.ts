@@ -32,10 +32,11 @@ import {
   InvalidApplicationTaskBindingV1Error,
   type ApplicationTaskBindingReasonV1,
 } from "./Errors.js";
-import type {
-  ApplicationTaskBindingAuthorityV1,
-  ApplicationTaskRuntimeHostPolicyV1,
-  PreparedApplicationTaskBindingsV1,
+import {
+  MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1,
+  type ApplicationTaskBindingAuthorityV1,
+  type ApplicationTaskRuntimeHostPolicyV1,
+  type PreparedApplicationTaskBindingsV1,
 } from "./Model.js";
 
 export type ProduceApplicationTaskBindingsV1Error =
@@ -86,6 +87,7 @@ export const produceApplicationTaskBindingsV1 = Effect.fn(
       Result.mapError(error => reoperation(error)),
     ),
   );
+  let evidenceByteLength = catalogCanonicalBytes.byteLength;
   const catalogBindingSha256 = yield* hashApplicationTaskCatalogBindingV1(
     catalogBinding,
     sha256,
@@ -141,12 +143,19 @@ export const produceApplicationTaskBindingsV1 = Effect.fn(
         Result.mapError(error => reoperation(error)),
       ),
     );
+    const canonicalManifestBytes = yield* Effect.fromResult(
+      encodeCanonicalTaskManifestPreimageV1(entry.manifest),
+    );
+    const nextEvidenceByteLength = evidenceByteLength +
+      canonicalBytes.byteLength + canonicalManifestBytes.byteLength;
+    if (
+      !Number.isSafeInteger(nextEvidenceByteLength) ||
+      nextEvidenceByteLength > MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1
+    ) return yield* invalid("canonicalBytesExceeded", "bindings");
+    evidenceByteLength = nextEvidenceByteLength;
     const bindingSha256 = yield* hashApplicationTaskDefinitionBindingV1(
       binding,
       sha256,
-    );
-    const canonicalManifestBytes = yield* Effect.fromResult(
-      encodeCanonicalTaskManifestPreimageV1(entry.manifest),
     );
     definitions.push(Object.freeze({
       binding,

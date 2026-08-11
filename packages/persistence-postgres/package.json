@@ -11,6 +11,7 @@
     "./application-revision-registration-v1": "./src/applicationRevisionRegistrationV1.ts",
     "./internal/application-revision-readiness-v1": "./src/applicationRevisionReadinessV1.ts",
     "./internal/application-revision-activation-v1": "./src/applicationRevisionActivationV1.ts",
+    "./internal/application-task-bindings": "./src/applicationTaskBindings.ts",
     "./internal/task-wake-scheduler-partition-v1": "./src/taskSystemWakeSchedulerPartitionV1.ts",
     "./internal/task-wake-scheduler-directory-v1": "./src/taskSystemWakeSchedulerDirectoryV1.ts",
     "./internal/task-wake-scheduler-repair-directory-v1": "./src/taskSystemWakeSchedulerRepairDirectoryV1.ts",

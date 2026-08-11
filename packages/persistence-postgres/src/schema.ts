@@ -4701,6 +4701,14 @@ export const fxSystemApplicationPublicationsV1 = pgTable(
       table.revisionId,
       table.functionCatalogSha256,
     ),
+    unique("fx_application_publication_v1_task_authority_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.candidateId,
+      table.analysisId,
+      table.sourceArtifactRootSha256,
+      table.publicationSha256,
+    ),
     foreignKey({
       name: "fx_application_publication_v1_revision_fk",
       columns: [
@@ -4796,6 +4804,132 @@ export const fxSystemApplicationFunctionsV1 = pgTable(
         and octet_length(${table.functionCatalogSha256}) = 32
         and octet_length(${table.entrySha256}) = 32
         and octet_length(${table.entryBytes}) between 1 and 65536`,
+    ),
+  ],
+);
+
+/**
+ * Private immutable Application task-catalog binding. One row exists even for
+ * an explicitly empty catalog; current task-run consumers do not read it.
+ */
+export const fxSystemApplicationTaskCatalogsV1 = pgTable(
+  "fx_system_application_task_catalog_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    candidateId: text("candidate_id").notNull(),
+    analysisId: text("analysis_id").notNull(),
+    sourceArtifactRootSha256: bytea("source_artifact_root_sha256").notNull(),
+    publicationSha256: bytea("publication_sha256").notNull(),
+    taskCatalogSha256: bytea("task_catalog_sha256").notNull(),
+    taskCatalogBindingSha256: bytea("task_catalog_binding_sha256").notNull(),
+    taskCount: integer("task_count").notNull(),
+    runtimeHostIdentity: text("runtime_host_identity").notNull(),
+    compatibilityDate: text("compatibility_date").notNull(),
+    bindingBytes: bytea("binding_bytes").notNull(),
+    registeredAt: timestamp("registered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeId, table.revisionId] }),
+    unique("fx_application_task_catalog_v1_binding_unique").on(
+      table.scopeId,
+      table.taskCatalogBindingSha256,
+    ),
+    unique("fx_application_task_catalog_v1_child_fk_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.taskCatalogBindingSha256,
+    ),
+    foreignKey({
+      name: "fx_application_task_catalog_v1_publication_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.candidateId,
+        table.analysisId,
+        table.sourceArtifactRootSha256,
+        table.publicationSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationPublicationsV1.scopeId,
+        fxSystemApplicationPublicationsV1.revisionId,
+        fxSystemApplicationPublicationsV1.candidateId,
+        fxSystemApplicationPublicationsV1.analysisId,
+        fxSystemApplicationPublicationsV1.sourceArtifactRootSha256,
+        fxSystemApplicationPublicationsV1.publicationSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_task_catalog_v1_identity_check",
+      sql`length(${table.revisionId}) between 1 and 256
+        and length(${table.candidateId}) between 1 and 256
+        and length(${table.analysisId}) between 1 and 256
+        and length(${table.runtimeHostIdentity}) between 1 and 256
+        and ${table.compatibilityDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'
+        and octet_length(${table.sourceArtifactRootSha256}) = 32
+        and octet_length(${table.publicationSha256}) = 32
+        and octet_length(${table.taskCatalogSha256}) = 32
+        and octet_length(${table.taskCatalogBindingSha256}) = 32
+        and ${table.taskCount} between 0 and 4096
+        and octet_length(${table.bindingBytes}) between 1 and 16777216`,
+    ),
+    check(
+      "fx_application_task_catalog_v1_registered_check",
+      sql`isfinite(${table.registeredAt})`,
+    ),
+  ],
+);
+
+/** Immutable child definitions for one private Application task catalog. */
+export const fxSystemApplicationTaskDefinitionsV1 = pgTable(
+  "fx_system_application_task_definition_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    taskCatalogBindingSha256: bytea("task_catalog_binding_sha256").notNull(),
+    taskDefinitionBindingSha256: bytea("task_definition_binding_sha256")
+      .notNull(),
+    taskId: text("task_id").notNull(),
+    canonicalTaskManifestSha256: bytea("canonical_task_manifest_sha256")
+      .notNull(),
+    logicalModulePath: text("logical_module_path").notNull(),
+    sourceModulePath: text("source_module_path").notNull(),
+    exportName: text("export_name").notNull(),
+    manifestBytes: bytea("manifest_bytes").notNull(),
+    bindingBytes: bytea("binding_bytes").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeId, table.revisionId, table.taskId] }),
+    unique("fx_application_task_definition_v1_binding_unique").on(
+      table.scopeId,
+      table.taskDefinitionBindingSha256,
+    ),
+    foreignKey({
+      name: "fx_application_task_definition_v1_catalog_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.taskCatalogBindingSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationTaskCatalogsV1.scopeId,
+        fxSystemApplicationTaskCatalogsV1.revisionId,
+        fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_task_definition_v1_identity_check",
+      sql`octet_length(convert_to(${table.taskId}, 'UTF8')) between 1 and 255
+        and octet_length(convert_to(${table.logicalModulePath}, 'UTF8')) between 1 and 1024
+        and octet_length(convert_to(${table.sourceModulePath}, 'UTF8')) between 1 and 1024
+        and octet_length(convert_to(${table.exportName}, 'UTF8')) between 1 and 1024
+        and octet_length(${table.taskCatalogBindingSha256}) = 32
+        and octet_length(${table.taskDefinitionBindingSha256}) = 32
+        and octet_length(${table.canonicalTaskManifestSha256}) = 32
+        and octet_length(${table.manifestBytes}) between 1 and 16777216
+        and octet_length(${table.bindingBytes}) between 1 and 16777216`,
     ),
   ],
 );

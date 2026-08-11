@@ -216,15 +216,13 @@ function decodePolicy(
   InvalidApplicationTaskBindingV1Error
 > {
   return Result.gen(function* () {
-    const runtimeHostIdentity = yield* identity(
-      value.runtimeHostIdentity,
-      operation,
-      "runtimeHostIdentity",
-    ).pipe(Result.mapError(() => invalid(
-      operation,
-      "invalidRuntimePolicy",
-      "runtimeHostIdentity",
-    )));
+    if (!isRuntimeHostIdentity(value.runtimeHostIdentity)) {
+      return yield* failure(
+        operation,
+        "invalidRuntimePolicy",
+        "runtimeHostIdentity",
+      );
+    }
     if (!isCompatibilityDate(value.compatibilityDate)) {
       return yield* failure(
         operation,
@@ -233,7 +231,7 @@ function decodePolicy(
       );
     }
     return Object.freeze({
-      runtimeHostIdentity,
+      runtimeHostIdentity: value.runtimeHostIdentity,
       compatibilityDate: value.compatibilityDate,
     });
   });
@@ -314,7 +312,8 @@ function identity(
   operation: ApplicationTaskBindingOperationV1,
   path: string,
 ): Result.Result<string, InvalidApplicationTaskBindingV1Error> {
-  return typeof input === "string" && input.length > 0 && input.length <= 256
+  return typeof input === "string" && input.length > 0 && input.length <= 256 &&
+      isNulFreeScalarText(input)
     ? Result.succeed(input)
     : failure(operation, "invalidAuthority", path);
 }
@@ -325,6 +324,7 @@ function boundedText(
   path: string,
 ): Result.Result<string, InvalidApplicationTaskBindingV1Error> {
   return typeof input === "string" && input.length > 0 &&
+      isNulFreeScalarText(input) &&
       UTF8.encode(input).byteLength <= MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1
     ? Result.succeed(input)
     : failure(operation, "invalidShape", path);
@@ -360,6 +360,26 @@ function isCompatibilityDate(input: unknown): input is string {
   const milliseconds = Date.parse(`${input}T00:00:00.000Z`);
   return Number.isFinite(milliseconds) &&
     new Date(milliseconds).toISOString().slice(0, 10) === input;
+}
+
+function isRuntimeHostIdentity(input: unknown): input is string {
+  return typeof input === "string" && input.length > 0 && input.length <= 256 &&
+    isNulFreeScalarText(input);
+}
+
+function isNulFreeScalarText(value: string): boolean {
+  if (value.includes("\0")) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+      index += 1;
+      continue;
+    }
+    if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) return false;
+  }
+  return true;
 }
 
 function canonicalBytes(
