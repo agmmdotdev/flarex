@@ -1340,6 +1340,65 @@ stub, widens outbound/subrequest authority, executes workflow mutation, or
 moves read, journal, callback, OCC, commit, retry, or scheduling authority into
 the new host.
 
+#### AA-R6 Application worker-host checkpoint — 2026-08-12
+
+Commit `d16f49ae` completes the first worker-host checkpoint accepted above. The
+cold materializer and executable definition now share one Application-owned
+module-graph builder and one complete source/manifest authority comparison. The
+cold Application Runtime core remains byte-identical. The new private
+Application worker definition embeds one canonical target, its ordered internal
+query/mutation catalog, and the trusted action host policy; it exposes separate
+transaction and action entrypoints and stores no RPC or outbound capability.
+
+The generated self-contained core installs the request time and seeded random
+state before application module evaluation. It preserves ordinary `Date`
+constructor and static behavior, fixes `performance`, denies or gates ambient
+capabilities, and hardens the named and hidden intrinsic prototypes used by
+runtime authority, including iterator, typed-array, `WeakMap`, and `WeakSet`
+state. Import-time or handler-time attempts cannot change pending-operation
+drain, call settlement, failure inspection, or capability classification.
+Forbidden import attempts remain sticky even when application code catches the
+immediate error.
+
+Transaction reads, index pages, and inserted document IDs are normalized by
+their protocol owners before reaching the Function API. Capability methods are
+snapshotted once, query mode never inspects journal members, and foreign errors
+cannot spoof the worker's private error families by changing `name`. Read,
+journal, callback, internal-call, and post-close failures remain invocation-
+sticky. Duplicate entrypoint admission, early request rejection, ordinary
+success, and boundary failure all release the received capability through the
+same `finally`; a local-in-Worker regression proves the explicit disposal path
+without relying on Cloudflare's automatic RPC-parameter lifecycle.
+
+Root transaction results now have an independent 8 MiB Application worker wire
+ceiling, so they are not double-charged into the internal-call aggregate and
+cannot produce a statically typed result that the protocol decoder rejects.
+Action results use the smaller of the trusted host-policy limit and that wire
+ceiling. Resource exhaustion caused by application output is classified as
+user-code failure rather than immutable definition corruption. The simpler
+sticky-failure rule remains deliberate: catching a failed child or callback may
+finish local cleanup but cannot convert its effects into a successful root.
+
+Validation passed the complete backend build, including every deterministic
+generated core and kernel check, both affected package typechecks, 22 focused
+backend Miniflare/materializer tests, all eight Function Runtime files and 88
+tests, the Effect runtime-boundary check, and staged diff hygiene. The executable
+Application worker core identity is
+`bd7aa2651f95f5af3f98e7e30bf37e79adea538432ec0bc5a19f9b936f9973e1`;
+the unchanged cold core identity is
+`87592eba2b544223f59312d64f5d42847ca1dc5e4f1ca95015fdf0874fc076ae`.
+Both required final reviewers approved the exact committed implementation with
+no actionable findings.
+
+This checkpoint remains private and unwired. It does not load a production
+Worker, construct a real read/journal/callback adapter, provide the trusted
+action outbound gateway, select a revision, create readiness or activation
+evidence, or alter persistence, OCC, commit, retry, idempotency, task-run, or
+action-scheduling authority. The next authorized medium checkpoint is the
+outer Application execution host and its invocation-scoped capability adapters
+only. Readiness, activation, selection, and consumer migration remain the final
+AA-R6 slice after that host proof.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
