@@ -2,6 +2,8 @@ import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { makeGrantRetentionPolicyV1Result } from
+  "../src/grant-retention-policy";
 
 import {
   APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
@@ -106,6 +108,39 @@ describe("ApplicationMutationGrantV1", () => {
     );
     expect(Result.isFailure(rejectedSignature)).toBe(true);
   });
+
+  it.each([
+    ["issued in future", "2026-08-12T10:02:00.000Z", "2026-08-12T10:05:00.000Z"],
+    ["expired", "2026-08-12T09:50:00.000Z", "2026-08-12T10:00:00.000Z"],
+    ["lifetime exceeded", "2026-08-12T10:00:00.000Z", "2026-08-12T10:11:00.000Z"],
+  ])("rejects %s grants", async (_case, issuedAt, expiresAt) => {
+    const prepared = await Effect.runPromise(prepareApplicationMutationGrantV1({
+      ...(await grantInput()),
+      issuedAt: TransactionGrantTimestampV1Schema.make(issuedAt),
+      expiresAt: TransactionGrantTimestampV1Schema.make(expiresAt),
+    }));
+    const signed = await signedGrant(prepared);
+    const result = await Effect.runPromise(
+      verifyApplicationMutationGrantV1(signed.jws, signed.namespace).pipe(
+        Effect.result,
+      ),
+    );
+    expect(Result.isFailure(result)).toBe(true);
+  });
+
+  it.each(["prepublished", "retired"] as const)(
+    "rejects %s key windows",
+    async phase => {
+      const prepared = await prepareGrant();
+      const signed = await signedGrant(prepared, phase);
+      const result = await Effect.runPromise(
+        verifyApplicationMutationGrantV1(signed.jws, signed.namespace).pipe(
+          Effect.result,
+        ),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+    },
+  );
 });
 
 async function prepareGrant() {
@@ -116,6 +151,7 @@ async function prepareGrant() {
 
 async function signedGrant(
   prepared: Awaited<ReturnType<typeof prepareGrant>>,
+  phase?: "prepublished" | "retired",
 ) {
   const keyPair = await globalThis.crypto.subtle.generateKey(
     "Ed25519",
@@ -136,10 +172,44 @@ async function signedGrant(
       deploymentId: TransactionGrantDeploymentIdV1Schema.make(
         "deployment-cooking",
       ),
-      keys: [{
+      grantRetentionPolicy: Result.getOrThrow(
+        makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 10 * 60_000,
+          maximumFutureIssuedAtSkewMilliseconds: 30_000,
+          maximumLiveSnapshotRetentionMilliseconds: 20 * 60_000,
+        }),
+      ),
+      trustedNowEpochMilliseconds: Effect.succeed(Date.parse(
+        "2026-08-12T10:01:00.000Z",
+      )),
+      keys: [phase === "prepublished" ? {
+        kid: TransactionGrantKeyIdV1Schema.make("application-grant-key-1"),
+        purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+        state: "verifyOnly",
+        phase,
+        publicKey: keyPair.publicKey,
+      } : phase === "retired" ? {
+        kid: TransactionGrantKeyIdV1Schema.make("application-grant-key-1"),
+        purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+        state: "verifyOnly",
+        phase,
+        issuedAtInclusiveEpochMilliseconds: Date.parse(
+          "2026-08-12T00:00:00.000Z",
+        ),
+        issuedAtExclusiveEpochMilliseconds: Date.parse(
+          "2026-08-12T10:00:00.000Z",
+        ),
+        verificationEndsAtExclusiveEpochMilliseconds: Date.parse(
+          "2026-08-12T10:00:30.000Z",
+        ),
+        publicKey: keyPair.publicKey,
+      } : {
         kid: TransactionGrantKeyIdV1Schema.make("application-grant-key-1"),
         purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
         state: "active",
+        issuedAtInclusiveEpochMilliseconds: Date.parse(
+          "2026-08-12T00:00:00.000Z",
+        ),
         publicKey: keyPair.publicKey,
       }],
     }),

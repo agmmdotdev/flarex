@@ -910,6 +910,14 @@ function materializeStoredAttemptEvidence(
   ) {
     return corrupt("sessionRecordInvalid");
   }
+  if (
+    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
+    session.packageId === null ||
+    session.artifactRuntime === null ||
+    session.artifactId === null ||
+    session.sourcePackageHash === null ||
+    session.executionModule === null
+  ) return corrupt("sessionRecordInvalid");
   if (session.lifecycle === "committed") {
     return Object.freeze({
       kind: "alreadyCommitted",
@@ -1085,6 +1093,11 @@ function materializeStoredAttemptEvidence(
       attemptFence: selector.attemptFence,
       databaseNowMilliseconds,
       session: captureSessionScalars(session, {
+        packageId: session.packageId,
+        artifactRuntime: session.artifactRuntime,
+        artifactId: session.artifactId,
+        sourcePackageHash: session.sourcePackageHash,
+        executionModule: session.executionModule,
         authorizationGrantExpiresAtMilliseconds,
         hardExpiresAtMilliseconds,
         createdAtMilliseconds,
@@ -1141,6 +1154,17 @@ function classifyExecutionClaimEvidence(
 function captureSessionScalars(
   session: StoredAttemptSessionProjectionV1,
   timestamps: Readonly<{
+    packageId: NonNullable<StoredAttemptSessionProjectionV1["packageId"]>;
+    artifactRuntime: NonNullable<
+      StoredAttemptSessionProjectionV1["artifactRuntime"]
+    >;
+    artifactId: NonNullable<StoredAttemptSessionProjectionV1["artifactId"]>;
+    sourcePackageHash: NonNullable<
+      StoredAttemptSessionProjectionV1["sourcePackageHash"]
+    >;
+    executionModule: NonNullable<
+      StoredAttemptSessionProjectionV1["executionModule"]
+    >;
     authorizationGrantExpiresAtMilliseconds: number;
     hardExpiresAtMilliseconds: number;
     createdAtMilliseconds: number;
@@ -1150,23 +1174,15 @@ function captureSessionScalars(
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     throw new Error("Stored attempt session is not active.");
   }
-  if (
-    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
-    session.packageId === null ||
-    session.artifactRuntime === null ||
-    session.artifactId === null ||
-    session.sourcePackageHash === null ||
-    session.executionModule === null
-  ) throw new Error("Stored attempt authority is not legacy dynamic-worker.");
   return Object.freeze({
     lifecycle: session.lifecycle,
     storageGeneration: session.storageGeneration,
     storageGenerationFence: session.storageGenerationFence,
-    packageId: session.packageId,
-    artifactRuntime: session.artifactRuntime,
-    artifactId: session.artifactId,
-    sourcePackageHash: session.sourcePackageHash,
-    executionModule: session.executionModule,
+    packageId: timestamps.packageId,
+    artifactRuntime: timestamps.artifactRuntime,
+    artifactId: timestamps.artifactId,
+    sourcePackageHash: timestamps.sourcePackageHash,
+    executionModule: timestamps.executionModule,
     functionPath: session.functionPath,
     functionKind: session.functionKind,
     schemaVersionId: session.schemaVersionId,

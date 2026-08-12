@@ -16,6 +16,7 @@ import {
   decodeCanonicalBase64Url,
 } from "./canonical-base64url";
 import { type Json, type JsonObject } from "./json";
+import type { GrantRetentionPolicyV1 } from "./grant-retention-policy";
 import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
@@ -32,6 +33,7 @@ import {
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   canonicalizeTransactionGrantIdentityAccessPolicyV1Effect,
+  isTransactionGrantEpochMillisecondsV1,
   type CanonicalTransactionGrantIdentityAccessPolicyV1,
 } from "./transaction-grant";
 import {
@@ -208,6 +210,11 @@ export interface ApplicationMutationGrantVerifierNamespaceV1 {
 
 interface ApplicationMutationGrantVerifierNamespaceStateV1 {
   readonly deploymentId: ApplicationMutationGrantPayloadV1["deploymentId"];
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
+  readonly trustedNowEpochMilliseconds: Effect.Effect<
+    number,
+    ApplicationMutationGrantV1Error
+  >;
   readonly keysById: ReadonlyMap<
     string,
     StoredApplicationMutationGrantVerificationKeyV1
@@ -221,7 +228,23 @@ interface ApplicationMutationGrantVerificationKeyBaseV1 {
 
 export type ApplicationMutationGrantVerificationKeyV1 =
   | (ApplicationMutationGrantVerificationKeyBaseV1 & {
-      readonly state: "active" | "verifyOnly";
+      readonly state: "active";
+      readonly issuedAtInclusiveEpochMilliseconds: number;
+      readonly issuedAtExclusiveEpochMilliseconds?: number;
+      readonly verificationEndsAtExclusiveEpochMilliseconds?: number;
+      readonly publicKey: CryptoKey;
+    })
+  | (ApplicationMutationGrantVerificationKeyBaseV1 & {
+      readonly state: "verifyOnly";
+      readonly phase: "prepublished";
+      readonly publicKey: CryptoKey;
+    })
+  | (ApplicationMutationGrantVerificationKeyBaseV1 & {
+      readonly state: "verifyOnly";
+      readonly phase: "retired";
+      readonly issuedAtInclusiveEpochMilliseconds: number;
+      readonly issuedAtExclusiveEpochMilliseconds: number;
+      readonly verificationEndsAtExclusiveEpochMilliseconds: number;
       readonly publicKey: CryptoKey;
     })
   | (ApplicationMutationGrantVerificationKeyBaseV1 & {
@@ -235,7 +258,23 @@ interface StoredApplicationMutationGrantVerificationKeyBaseV1 {
 
 type StoredApplicationMutationGrantVerificationKeyV1 =
   | (StoredApplicationMutationGrantVerificationKeyBaseV1 & {
-      readonly state: "active" | "verifyOnly";
+      readonly state: "active";
+      readonly issuedAtInclusiveEpochMilliseconds: number;
+      readonly issuedAtExclusiveEpochMilliseconds?: number;
+      readonly verificationEndsAtExclusiveEpochMilliseconds?: number;
+      readonly publicKey: CryptoKey;
+    })
+  | (StoredApplicationMutationGrantVerificationKeyBaseV1 & {
+      readonly state: "verifyOnly";
+      readonly phase: "prepublished";
+      readonly publicKey: CryptoKey;
+    })
+  | (StoredApplicationMutationGrantVerificationKeyBaseV1 & {
+      readonly state: "verifyOnly";
+      readonly phase: "retired";
+      readonly issuedAtInclusiveEpochMilliseconds: number;
+      readonly issuedAtExclusiveEpochMilliseconds: number;
+      readonly verificationEndsAtExclusiveEpochMilliseconds: number;
       readonly publicKey: CryptoKey;
     })
   | (StoredApplicationMutationGrantVerificationKeyBaseV1 & {
@@ -244,13 +283,19 @@ type StoredApplicationMutationGrantVerificationKeyV1 =
 
 export interface CreateApplicationMutationGrantVerifierNamespaceV1Input {
   readonly deploymentId: ApplicationMutationGrantPayloadV1["deploymentId"];
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
+  readonly trustedNowEpochMilliseconds: Effect.Effect<
+    number,
+    ApplicationMutationGrantV1Error
+  >;
   readonly keys: ReadonlyArray<ApplicationMutationGrantVerificationKeyV1>;
 }
 
 export type ApplicationMutationGrantVerifierConfigurationV1Issue =
   | "duplicateKeyId"
   | "wrongKeyPurpose"
-  | "invalidPublicKey";
+  | "invalidPublicKey"
+  | "invalidKeyWindow";
 
 export class ApplicationMutationGrantVerifierConfigurationV1Error
   extends Error {
@@ -299,21 +344,85 @@ export function createApplicationMutationGrantVerifierNamespaceV1(
         "invalidPublicKey",
       );
     }
-    keysById.set(key.kid, Object.freeze({
-      kid: key.kid,
-      purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
-      state: key.state,
-      publicKey: key.publicKey,
-    }));
+    keysById.set(key.kid, copyVerificationKey(key));
   }
   const handle = Object.freeze({
     [applicationMutationGrantVerifierNamespaceBrand]: true as const,
   });
   verifierNamespaceStateByHandle.set(handle, Object.freeze({
     deploymentId: input.deploymentId,
+    grantRetentionPolicy: input.grantRetentionPolicy,
+    trustedNowEpochMilliseconds: input.trustedNowEpochMilliseconds,
     keysById,
   }));
   return handle;
+}
+
+function copyVerificationKey(
+  key: Exclude<ApplicationMutationGrantVerificationKeyV1, {
+    readonly state: "disabled";
+  }>,
+): StoredApplicationMutationGrantVerificationKeyV1 {
+  const common = {
+    kid: key.kid,
+    purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+    publicKey: key.publicKey,
+  } as const;
+  if (key.state === "verifyOnly" && key.phase === "prepublished") {
+    return Object.freeze({ ...common, state: key.state, phase: key.phase });
+  }
+  if (!isValidKeyWindow(
+    key.issuedAtInclusiveEpochMilliseconds,
+    key.issuedAtExclusiveEpochMilliseconds,
+    key.verificationEndsAtExclusiveEpochMilliseconds,
+  )) {
+    throw new ApplicationMutationGrantVerifierConfigurationV1Error(
+      "invalidKeyWindow",
+    );
+  }
+  return key.state === "active"
+    ? Object.freeze({
+        ...common,
+        state: key.state,
+        issuedAtInclusiveEpochMilliseconds:
+          key.issuedAtInclusiveEpochMilliseconds,
+        ...(key.issuedAtExclusiveEpochMilliseconds === undefined ? {} : {
+          issuedAtExclusiveEpochMilliseconds:
+            key.issuedAtExclusiveEpochMilliseconds,
+        }),
+        ...(key.verificationEndsAtExclusiveEpochMilliseconds === undefined
+          ? {}
+          : {
+              verificationEndsAtExclusiveEpochMilliseconds:
+                key.verificationEndsAtExclusiveEpochMilliseconds,
+            }),
+      })
+    : Object.freeze({
+        ...common,
+        state: key.state,
+        phase: key.phase,
+        issuedAtInclusiveEpochMilliseconds:
+          key.issuedAtInclusiveEpochMilliseconds,
+        issuedAtExclusiveEpochMilliseconds:
+          key.issuedAtExclusiveEpochMilliseconds,
+        verificationEndsAtExclusiveEpochMilliseconds:
+          key.verificationEndsAtExclusiveEpochMilliseconds,
+      });
+}
+
+function isValidKeyWindow(
+  start: number,
+  issuanceEnd: number | undefined,
+  verificationEnd: number | undefined,
+): boolean {
+  return isTransactionGrantEpochMillisecondsV1(start) &&
+    (issuanceEnd === undefined ||
+      (isTransactionGrantEpochMillisecondsV1(issuanceEnd) &&
+        issuanceEnd > start)) &&
+    (verificationEnd === undefined ||
+      (isTransactionGrantEpochMillisecondsV1(verificationEnd) &&
+        verificationEnd > start &&
+        (issuanceEnd === undefined || verificationEnd >= issuanceEnd)));
 }
 
 function isEd25519VerificationKey(key: CryptoKey): boolean {
@@ -601,6 +710,9 @@ export const verifyApplicationMutationGrantV1 = Effect.fn(
       field: "signature",
     }));
   }
+  if (key.state === "verifyOnly" && key.phase === "prepublished") {
+    return yield* Effect.fail(grantVerificationFailure("invalidSignature"));
+  }
   const signatureValid = yield* Effect.tryPromise({
     try: () => globalThis.crypto.subtle.verify(
       APPLICATION_MUTATION_GRANT_JWS_ALGORITHM_V1,
@@ -622,12 +734,45 @@ export const verifyApplicationMutationGrantV1 = Effect.fn(
       field: "signature",
     }));
   }
+  const nowEpochMilliseconds = yield* verifier.trustedNowEpochMilliseconds;
+  if (!isTransactionGrantEpochMillisecondsV1(nowEpochMilliseconds)) {
+    return yield* Effect.fail(grantVerificationFailure(
+      "signatureVerificationFailed",
+    ));
+  }
+  const issuedAtEpochMilliseconds = Date.parse(evidence.payload.issuedAt);
+  const expiresAtEpochMilliseconds = Date.parse(evidence.payload.expiresAt);
+  if (
+    issuedAtEpochMilliseconds > nowEpochMilliseconds +
+      verifier.grantRetentionPolicy.maximumFutureIssuedAtSkewMilliseconds ||
+    expiresAtEpochMilliseconds <= nowEpochMilliseconds ||
+    expiresAtEpochMilliseconds - issuedAtEpochMilliseconds >
+      verifier.grantRetentionPolicy.maximumGrantLifetimeMilliseconds ||
+    issuedAtEpochMilliseconds < key.issuedAtInclusiveEpochMilliseconds ||
+    (key.issuedAtExclusiveEpochMilliseconds !== undefined &&
+      issuedAtEpochMilliseconds >= key.issuedAtExclusiveEpochMilliseconds) ||
+    (key.verificationEndsAtExclusiveEpochMilliseconds !== undefined &&
+      (expiresAtEpochMilliseconds >
+          key.verificationEndsAtExclusiveEpochMilliseconds ||
+        nowEpochMilliseconds >=
+          key.verificationEndsAtExclusiveEpochMilliseconds))
+  ) return yield* Effect.fail(grantVerificationFailure("invalidSignature"));
   const handle = Object.freeze({
     [verifiedApplicationMutationGrantBrand]: true as const,
   });
   verifiedGrantEvidenceByHandle.set(handle, evidence);
   return handle;
 });
+
+function grantVerificationFailure(
+  reason: "invalidSignature" | "signatureVerificationFailed",
+): ApplicationMutationGrantV1Error {
+  return new ApplicationMutationGrantV1Error({
+    operation: "decode",
+    reason,
+    field: "signature",
+  });
+}
 
 function decodeEffect<A>(
   schema: Schema.ConstraintDecoder<A, never>,

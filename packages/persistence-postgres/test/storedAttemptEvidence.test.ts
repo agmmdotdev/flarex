@@ -443,6 +443,34 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it.each(["running", "committed", "aborted"] as const)(
+    "returns typed corruption for an Application-authority %s session",
+    async lifecycle => {
+    const current = await scenario(`application_authority_${lifecycle}`);
+    if (lifecycle === "running") await seal(current);
+    await persistence.query(
+      `update fx_system_tx_session
+          set execution_authority_generation = 'application_v1',
+              lifecycle = $1,
+              package_id = null,
+              artifact_runtime = null,
+              artifact_id = null,
+              source_package_hash = null,
+              execution_module = null,
+              application_execution_authority_json = '{}'::jsonb,
+              application_execution_authority_canonical_bytes = $2,
+              application_execution_authority_sha256 = $3
+        where session_id = $4`,
+      [lifecycle, new Uint8Array([1]), new Uint8Array(32), current.anchor.sessionId],
+    );
+    await expect(runEffect(current.loader.loadEffect(current.authority)))
+      .resolves.toMatchObject({
+        kind: "corrupt",
+        reason: "sessionRecordInvalid",
+      });
+    },
+  );
+
   it("loads a sealed lease promoted to a hard expiry below the grant", async () => {
     const current = await scenario("hard_before_grant");
     const updated = await persistence.query<{ hard_expires_at: Date }>(

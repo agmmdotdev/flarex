@@ -10,6 +10,8 @@ import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { makeGrantRetentionPolicyV1Result } from
+  "flarex-protocol/grant-retention-policy";
 import {
   produceApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
@@ -1720,6 +1722,7 @@ async function applicationMutationActivationInput(
     grantId: "grant_application_mutation_1",
   },
 ) {
+  const trustedNowEpochMilliseconds = Date.now();
   const fn = active.basis.manifest.functions[0];
   if (fn === undefined || fn.kind !== "mutation") {
     throw new Error("Expected one Application mutation function.");
@@ -1803,10 +1806,10 @@ async function applicationMutationActivationInput(
     requestKey,
     requestSha256: hex(requestSha256),
     issuedAt: TransactionGrantTimestampV1Schema.make(
-      "2026-08-12T10:00:00.000Z",
+      new Date(trustedNowEpochMilliseconds - 60_000).toISOString(),
     ),
     expiresAt: TransactionGrantTimestampV1Schema.make(
-      "2099-01-01T00:00:00.000Z",
+      new Date(trustedNowEpochMilliseconds + 5 * 60_000).toISOString(),
     ),
     authorizationRevocationEpoch:
       TransactionAuthorizationRevocationEpochSchema.make(0n),
@@ -1833,10 +1836,22 @@ async function applicationMutationActivationInput(
       deploymentId: TransactionGrantDeploymentIdV1Schema.make(
         fixture.input.deploymentId,
       ),
+      grantRetentionPolicy: Result.getOrThrow(
+        makeGrantRetentionPolicyV1Result({
+          maximumGrantLifetimeMilliseconds: 10 * 60_000,
+          maximumFutureIssuedAtSkewMilliseconds: 30_000,
+          maximumLiveSnapshotRetentionMilliseconds: 20 * 60_000,
+        }),
+      ),
+      trustedNowEpochMilliseconds: Effect.succeed(
+        trustedNowEpochMilliseconds,
+      ),
       keys: [{
         kid: TransactionGrantKeyIdV1Schema.make("application-key-1"),
         purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
         state: "active",
+        issuedAtInclusiveEpochMilliseconds:
+          trustedNowEpochMilliseconds - 60 * 60_000,
         publicKey: grantKeyPair.publicKey,
       }],
     }),
