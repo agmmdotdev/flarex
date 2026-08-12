@@ -101,13 +101,13 @@ export class PinnedFunctionMetadataSourceV1Error extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export interface StoredCommitAuthoritySessionEvidencePortV1
-  extends StoredAttemptSessionScalarsPortV1 {
+export type StoredCommitAuthoritySessionEvidencePortV1 =
+  StoredAttemptSessionScalarsPortV1 & Readonly<{
   readonly validatedArgsJson: JsonObject;
   readonly validatedArgsCanonicalBytes: Uint8Array;
   readonly authorizationGrantJson: JsonObject;
   readonly authorizationGrantCanonicalBytes: Uint8Array;
-}
+}>;
 
 export interface StoredCommitAuthorityEvidenceAuthorityPortV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;

@@ -975,6 +975,7 @@ function captureSessionScalars(
     return undefined;
   }
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     lifecycle: session.lifecycle,
     storageGeneration: session.storageGeneration,
     storageGenerationFence: session.storageGenerationFence,

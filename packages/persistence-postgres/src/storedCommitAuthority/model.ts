@@ -88,13 +88,13 @@ export interface StoredCommitAuthorityEvidenceAuthorityV1
   readonly sealIdentity: StoredCommitAuthoritySealIdentityV1;
 }
 
-export interface StoredCommitAuthoritySessionEvidenceV1
-  extends StoredCommitAuthoritySessionScalarsV1 {
+export type StoredCommitAuthoritySessionEvidenceV1 =
+  StoredCommitAuthoritySessionScalarsV1 & Readonly<{
   readonly validatedArgsJson: JsonObject;
   readonly validatedArgsCanonicalBytes: Uint8Array;
   readonly authorizationGrantJson: JsonObject;
   readonly authorizationGrantCanonicalBytes: Uint8Array;
-}
+}>;
 
 export interface StoredCommitAuthorityEvidenceV1 {
   readonly databaseNowMilliseconds: number;

@@ -3,6 +3,7 @@ import { isNonBlankString } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import { isCanonicalUuidTextV1 } from "./canonical-uuid";
+import { jsonEqual, type JsonObject } from "./json";
 import {
   CanonicalNonNegativePostgresBigIntFromString,
   CanonicalPositivePostgresBigIntFromString,
@@ -212,15 +213,10 @@ export type TransactionRequestSha256V1 =
  * authority boundaries. The broad scalar spellings preserve the decoded port
  * contract; their owning row decoders retain canonical and range validation.
  */
-export interface StoredTransactionSessionScalarsV1 {
+interface StoredTransactionSessionCommonScalarsV1 {
   readonly lifecycle: "running" | "finishing";
   readonly storageGeneration: string;
   readonly storageGenerationFence: bigint;
-  readonly packageId: string;
-  readonly artifactRuntime: string;
-  readonly artifactId: string;
-  readonly sourcePackageHash: string;
-  readonly executionModule: string;
   readonly functionPath: string;
   readonly functionKind: string;
   readonly schemaVersionId: string;
@@ -243,6 +239,36 @@ export interface StoredTransactionSessionScalarsV1 {
   readonly updatedAtMilliseconds: number;
 }
 
+export interface StoredLegacyDynamicWorkerSessionScalarsV1
+  extends StoredTransactionSessionCommonScalarsV1 {
+  readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+  readonly packageId: string;
+  readonly artifactRuntime: string;
+  readonly artifactId: string;
+  readonly sourcePackageHash: string;
+  readonly executionModule: string;
+  readonly applicationExecutionAuthorityJson?: never;
+  readonly applicationExecutionAuthorityCanonicalBytes?: never;
+  readonly applicationExecutionAuthoritySha256?: never;
+}
+
+export interface StoredApplicationSessionScalarsV1
+  extends StoredTransactionSessionCommonScalarsV1 {
+  readonly executionAuthorityGeneration: "application_v1";
+  readonly applicationExecutionAuthorityJson: JsonObject;
+  readonly applicationExecutionAuthorityCanonicalBytes: Uint8Array;
+  readonly applicationExecutionAuthoritySha256: Uint8Array;
+  readonly packageId?: never;
+  readonly artifactRuntime?: never;
+  readonly artifactId?: never;
+  readonly sourcePackageHash?: never;
+  readonly executionModule?: never;
+}
+
+export type StoredTransactionSessionScalarsV1 =
+  | StoredLegacyDynamicWorkerSessionScalarsV1
+  | StoredApplicationSessionScalarsV1;
+
 const STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1 = [
   "identityAccessPolicySha256",
   "validatedArgsSha256",
@@ -251,9 +277,11 @@ const STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1 = [
 ] as const satisfies ReadonlyArray<StoredTransactionSessionByteFieldV1>;
 
 type StoredTransactionSessionByteFieldV1 = {
-  readonly [Field in keyof StoredTransactionSessionScalarsV1]:
-    StoredTransactionSessionScalarsV1[Field] extends Uint8Array ? Field : never;
-}[keyof StoredTransactionSessionScalarsV1];
+  readonly [Field in keyof StoredTransactionSessionCommonScalarsV1]:
+    StoredTransactionSessionCommonScalarsV1[Field] extends Uint8Array
+      ? Field
+      : never;
+}[keyof StoredTransactionSessionCommonScalarsV1];
 
 const EXACT_STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1:
   Exclude<
@@ -264,7 +292,7 @@ const EXACT_STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1:
     : never = STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1;
 
 type StoredTransactionSessionScalarFieldV1 = Exclude<
-  keyof StoredTransactionSessionScalarsV1,
+  keyof StoredTransactionSessionCommonScalarsV1,
   StoredTransactionSessionByteFieldV1
 >;
 
@@ -272,11 +300,6 @@ const STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1 = [
   "lifecycle",
   "storageGeneration",
   "storageGenerationFence",
-  "packageId",
-  "artifactRuntime",
-  "artifactId",
-  "sourcePackageHash",
-  "executionModule",
   "functionPath",
   "functionKind",
   "schemaVersionId",
@@ -308,10 +331,41 @@ export function storedTransactionSessionScalarsEqualV1(
   actual: StoredTransactionSessionScalarsV1,
   expected: StoredTransactionSessionScalarsV1,
 ): boolean {
-  return EXACT_STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1.every(
+  if (
+    !EXACT_STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1.every(
     (field) => actual[field] === expected[field],
-  ) &&
-    EXACT_STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1.every((field) =>
+    ) ||
+    !EXACT_STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1.every((field) =>
       bytesEqualFullScan(actual[field], expected[field])
-    );
+    ) ||
+    actual.executionAuthorityGeneration !== expected.executionAuthorityGeneration
+  ) return false;
+  if (
+    actual.executionAuthorityGeneration === "legacy_dynamic_worker_v1" &&
+    expected.executionAuthorityGeneration === "legacy_dynamic_worker_v1"
+  ) {
+    return actual.packageId === expected.packageId &&
+      actual.artifactRuntime === expected.artifactRuntime &&
+      actual.artifactId === expected.artifactId &&
+      actual.sourcePackageHash === expected.sourcePackageHash &&
+      actual.executionModule === expected.executionModule;
+  }
+  if (
+    actual.executionAuthorityGeneration === "application_v1" &&
+    expected.executionAuthorityGeneration === "application_v1"
+  ) {
+    return jsonEqual(
+      actual.applicationExecutionAuthorityJson,
+      expected.applicationExecutionAuthorityJson,
+    ) &&
+      bytesEqualFullScan(
+        actual.applicationExecutionAuthorityCanonicalBytes,
+        expected.applicationExecutionAuthorityCanonicalBytes,
+      ) &&
+      bytesEqualFullScan(
+        actual.applicationExecutionAuthoritySha256,
+        expected.applicationExecutionAuthoritySha256,
+      );
+  }
+  return false;
 }

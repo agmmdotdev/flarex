@@ -353,6 +353,7 @@ function captureInitialSessionScalars(
     );
   }
   return Result.succeed(Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     lifecycle: "running",
     storageGeneration: anchor.storageGeneration,
     storageGenerationFence: anchor.storageGenerationFence,

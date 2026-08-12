@@ -79,6 +79,7 @@ import type {
 } from "./commitAuthorityModel";
 import {
   capturePinnedFunctionSelector,
+  isLegacyCommitAuthorityVerificationStateV1,
   verifyPinnedFunctionMetadataEffect,
   type VerifiedCommitAuthorityEvidenceV1,
 } from "./commitAuthorityVerification";
@@ -210,7 +211,12 @@ export function makeExactPointMutationExecutionOperationsV1(
         >
       >,
     ) {
-      if (input.executionEvidence.session.artifactRuntime !== "dynamic-worker") {
+      if (
+        input.executionEvidence.session.executionAuthorityGeneration !==
+          "legacy_dynamic_worker_v1" ||
+        input.executionEvidence.session.artifactRuntime !== "dynamic-worker" ||
+        !isLegacyCommitAuthorityVerificationStateV1(input.verificationState)
+      ) {
         return yield* Effect.fail(
           new PointMutationOccExecutionAuthorityCorruptionV1Error({
             reason: "runtimePinInvalid",

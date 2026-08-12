@@ -200,62 +200,103 @@ function capturePointCommitAttemptScalarCommand(
   const pins = state.plan.authorityPins;
   const session = state.provenance.session;
   const seal = state.plan.sealIdentity;
+  if (pins.executionAuthorityGeneration !== session.executionAuthorityGeneration) {
+    throw new Error("Point commit execution authority generations differ.");
+  }
   return Object.freeze({
-    authorityPins: Object.freeze({
-      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-        pins.deploymentId,
-      ),
-      scopeId: ReplacementScopeIdV1Schema.make(pins.scopeId),
-      sessionId: pins.sessionId,
-      attemptFence: pins.attemptFence,
-      storageGeneration: pins.storageGeneration,
-      storageGenerationFence: pins.storageGenerationFence,
-      snapshotToken: Object.freeze({ ...pins.snapshotToken }),
-      schemaVersionId: CatalogSchemaVersionIdSchema.make(
-        pins.schemaVersionId,
-      ),
-      packageId: TransactionPackageIdV1Schema.make(pins.packageId),
-      artifactRuntime: decodeTransactionArtifactRuntimeV1(
-        pins.artifactRuntime,
-      ),
-      artifactId: TransactionArtifactIdV1Schema.make(pins.artifactId),
-      sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-        pins.sourcePackageHash,
-      ),
-      executionModule: TransactionExecutionModuleV1Schema.make(
-        pins.executionModule,
-      ),
-      functionPath: TransactionFunctionPathV1Schema.make(
-        pins.functionPath,
-      ),
-      functionKind: pins.functionKind,
-      policyVersion: TransactionPolicyVersionV1Schema.make(
-        pins.policyVersion,
-      ),
-      authorizationRevocationEpoch:
-        TransactionAuthorizationRevocationEpochSchema.make(
-          pins.authorizationRevocationEpoch,
-        ),
-      requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
-    }),
-    session: Object.freeze({
-      ...session,
-      authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
-        session.authorizationGrantId,
-      ),
-      identityAccessPolicySha256:
-        copyBytes(session.identityAccessPolicySha256),
-      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
-      authorizationGrantSha256:
-        copyBytes(session.authorizationGrantSha256),
-      requestSha256: copyBytes(session.requestSha256),
-    }),
+    authorityPins: capturePointCommitAuthorityPins(pins),
+    session: capturePointCommitSessionScalars(session),
     sealIdentity: Object.freeze({
       ...seal,
       journalSha256: copyBytes(seal.journalSha256),
       resultSha256: copyBytes(seal.resultSha256),
     }),
   } satisfies PointCommitAttemptScalarCommandV1);
+}
+
+function capturePointCommitAuthorityPins(
+  pins: PreparedPointCommitCapabilityStateV1["plan"]["authorityPins"],
+): PointCommitAuthorityPinsV1 {
+  const common = {
+    deploymentId: TransactionGrantDeploymentIdV1Schema.make(pins.deploymentId),
+    scopeId: ReplacementScopeIdV1Schema.make(pins.scopeId),
+    sessionId: pins.sessionId,
+    attemptFence: pins.attemptFence,
+    storageGeneration: pins.storageGeneration,
+    storageGenerationFence: pins.storageGenerationFence,
+    snapshotToken: Object.freeze({ ...pins.snapshotToken }),
+    schemaVersionId: CatalogSchemaVersionIdSchema.make(pins.schemaVersionId),
+    functionPath: TransactionFunctionPathV1Schema.make(pins.functionPath),
+    functionKind: pins.functionKind,
+    policyVersion: TransactionPolicyVersionV1Schema.make(pins.policyVersion),
+    authorizationRevocationEpoch:
+      TransactionAuthorizationRevocationEpochSchema.make(
+        pins.authorizationRevocationEpoch,
+      ),
+    requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
+  } as const;
+  if (pins.executionAuthorityGeneration === "application_v1") {
+    return Object.freeze({
+      ...common,
+      executionAuthorityGeneration: "application_v1" as const,
+      applicationExecutionAuthoritySha256: copyBytes(
+        pins.applicationExecutionAuthoritySha256,
+      ),
+    });
+  }
+  return Object.freeze({
+    ...common,
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+    packageId: TransactionPackageIdV1Schema.make(pins.packageId),
+    artifactRuntime: decodeTransactionArtifactRuntimeV1(pins.artifactRuntime),
+    artifactId: TransactionArtifactIdV1Schema.make(pins.artifactId),
+    sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
+      pins.sourcePackageHash,
+    ),
+    executionModule: TransactionExecutionModuleV1Schema.make(
+      pins.executionModule,
+    ),
+  });
+}
+
+function capturePointCommitSessionScalars(
+  session: PreparedPointCommitCapabilityStateV1["provenance"]["session"],
+): PointCommitAttemptScalarCommandV1["session"] {
+  if (session.executionAuthorityGeneration === "application_v1") {
+    return Object.freeze({
+      ...session,
+      executionAuthorityGeneration: "application_v1" as const,
+      authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
+        session.authorizationGrantId,
+      ),
+      identityAccessPolicySha256: copyBytes(session.identityAccessPolicySha256),
+      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
+      authorizationGrantSha256: copyBytes(session.authorizationGrantSha256),
+      requestSha256: copyBytes(session.requestSha256),
+      // Stored-attempt authentication already owns and recursively freezes
+      // this canonical JSON graph. Preserve that authenticated snapshot by
+      // identity instead of cloning it back into a shallow-mutable graph.
+      applicationExecutionAuthorityJson:
+        session.applicationExecutionAuthorityJson,
+      applicationExecutionAuthorityCanonicalBytes: copyBytes(
+        session.applicationExecutionAuthorityCanonicalBytes,
+      ),
+      applicationExecutionAuthoritySha256: copyBytes(
+        session.applicationExecutionAuthoritySha256,
+      ),
+    });
+  }
+  return Object.freeze({
+    ...session,
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+    authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
+      session.authorizationGrantId,
+    ),
+    identityAccessPolicySha256: copyBytes(session.identityAccessPolicySha256),
+    validatedArgsSha256: copyBytes(session.validatedArgsSha256),
+    authorizationGrantSha256: copyBytes(session.authorizationGrantSha256),
+    requestSha256: copyBytes(session.requestSha256),
+  });
 }
 
 export function capturePointCommitTransactionCommand(
@@ -383,11 +424,7 @@ const POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS = [
   "storageGeneration",
   "storageGenerationFence",
   "schemaVersionId",
-  "packageId",
-  "artifactRuntime",
-  "artifactId",
-  "sourcePackageHash",
-  "executionModule",
+  "executionAuthorityGeneration",
   "functionPath",
   "functionKind",
   "policyVersion",
@@ -532,11 +569,37 @@ function pointCommitAuthorityPinsEqual(
     keyof PointCommitAuthorityPinsV1,
     | typeof POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS[number]
     | "snapshotToken"
+    | "packageId"
+    | "artifactRuntime"
+    | "artifactId"
+    | "sourcePackageHash"
+    | "executionModule"
+    | "applicationExecutionAuthoritySha256"
   > extends never ? true : never = true;
   void fieldsAreExhaustive;
   for (const field of POINT_COMMIT_AUTHORITY_PIN_SCALAR_FIELDS) {
     if (left[field] !== right[field]) return false;
   }
+  if (left.executionAuthorityGeneration !== right.executionAuthorityGeneration) {
+    return false;
+  }
+  if (
+    left.executionAuthorityGeneration === "legacy_dynamic_worker_v1" &&
+    right.executionAuthorityGeneration === "legacy_dynamic_worker_v1" &&
+    (left.packageId !== right.packageId ||
+      left.artifactRuntime !== right.artifactRuntime ||
+      left.artifactId !== right.artifactId ||
+      left.sourcePackageHash !== right.sourcePackageHash ||
+      left.executionModule !== right.executionModule)
+  ) return false;
+  if (
+    left.executionAuthorityGeneration === "application_v1" &&
+    right.executionAuthorityGeneration === "application_v1" &&
+    !bytesEqual(
+      left.applicationExecutionAuthoritySha256,
+      right.applicationExecutionAuthoritySha256,
+    )
+  ) return false;
   return left.snapshotToken.scopeId === right.snapshotToken.scopeId &&
     left.snapshotToken.epoch === right.snapshotToken.epoch &&
     left.snapshotToken.commitSeq === right.snapshotToken.commitSeq;

@@ -164,44 +164,70 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
   }
   const session = evidence.session;
   const root = evidence.root;
-  return Object.freeze({
-    authorityPins: Object.freeze({
-      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-        authority.deploymentId,
-      ),
-      scopeId: authority.scopeId,
-      sessionId: authority.sessionId,
-      attemptFence: authority.attemptFence,
-      storageGeneration: authority.storageGeneration,
-      storageGenerationFence: authority.storageGenerationFence,
-      snapshotToken: Object.freeze({ ...authority.snapshotToken }),
-      schemaVersionId: CatalogSchemaVersionIdSchema.make(
-        authority.schemaVersionId,
-      ),
-      packageId: TransactionPackageIdV1Schema.make(session.packageId),
-      artifactRuntime: TransactionArtifactRuntimeV1Schema.make(
-        session.artifactRuntime,
-      ),
-      artifactId: TransactionArtifactIdV1Schema.make(session.artifactId),
-      sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-        session.sourcePackageHash,
-      ),
-      executionModule: TransactionExecutionModuleV1Schema.make(
-        session.executionModule,
-      ),
-      functionPath: TransactionFunctionPathV1Schema.make(
-        session.functionPath,
-      ),
-      functionKind: "mutation",
-      policyVersion: TransactionPolicyVersionV1Schema.make(
-        session.policyVersion,
-      ),
-      authorizationRevocationEpoch:
-        TransactionAuthorizationRevocationEpochSchema.make(
-          session.authorizationRevocationEpoch,
+  const authorityPins = session.executionAuthorityGeneration ===
+      "legacy_dynamic_worker_v1"
+    ? Object.freeze({
+        executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+        deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+          authority.deploymentId,
         ),
-      requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
-    }),
+        scopeId: authority.scopeId,
+        sessionId: authority.sessionId,
+        attemptFence: authority.attemptFence,
+        storageGeneration: authority.storageGeneration,
+        storageGenerationFence: authority.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          authority.schemaVersionId,
+        ),
+        packageId: TransactionPackageIdV1Schema.make(session.packageId),
+        artifactRuntime: TransactionArtifactRuntimeV1Schema.make(
+          session.artifactRuntime,
+        ),
+        artifactId: TransactionArtifactIdV1Schema.make(session.artifactId),
+        sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
+          session.sourcePackageHash,
+        ),
+        executionModule: TransactionExecutionModuleV1Schema.make(
+          session.executionModule,
+        ),
+        functionPath: TransactionFunctionPathV1Schema.make(session.functionPath),
+        functionKind: "mutation" as const,
+        policyVersion: TransactionPolicyVersionV1Schema.make(session.policyVersion),
+        authorizationRevocationEpoch:
+          TransactionAuthorizationRevocationEpochSchema.make(
+            session.authorizationRevocationEpoch,
+          ),
+        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
+      })
+    : Object.freeze({
+        executionAuthorityGeneration: "application_v1" as const,
+        deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+          authority.deploymentId,
+        ),
+        scopeId: authority.scopeId,
+        sessionId: authority.sessionId,
+        attemptFence: authority.attemptFence,
+        storageGeneration: authority.storageGeneration,
+        storageGenerationFence: authority.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          authority.schemaVersionId,
+        ),
+        applicationExecutionAuthoritySha256: new Uint8Array(
+          session.applicationExecutionAuthoritySha256,
+        ),
+        functionPath: TransactionFunctionPathV1Schema.make(session.functionPath),
+        functionKind: "mutation" as const,
+        policyVersion: TransactionPolicyVersionV1Schema.make(session.policyVersion),
+        authorizationRevocationEpoch:
+          TransactionAuthorizationRevocationEpochSchema.make(
+            session.authorizationRevocationEpoch,
+          ),
+        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
+      });
+  return Object.freeze({
+    authorityPins,
     session: Object.freeze({
       ...session,
       lifecycle,

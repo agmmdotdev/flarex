@@ -1,5 +1,6 @@
 import {
   copyBytes,
+  bytesEqualFullScan as bytesEqual,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
@@ -8,6 +9,9 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
@@ -40,8 +44,13 @@ import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAttemptFenceSchema,
+  TransactionArtifactIdV1Schema,
+  TransactionArtifactRuntimeV1Schema,
   TransactionAuthorizationRevocationEpochSchema,
+  TransactionExecutionModuleV1Schema,
+  TransactionPackageIdV1Schema,
   TransactionSessionIdV1Schema,
+  TransactionSourcePackageSha256HexV1Schema,
   type StoredTransactionSessionScalarsV1,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
@@ -57,6 +66,7 @@ import {
 } from "flarex-protocol/value";
 
 import type { AppRowTransaction } from "./appRows";
+import { snapshotApplicationExecutionAuthorityJson } from "./applicationExecutionAuthoritySnapshot";
 import { detachDriverRows } from "./detachDriverRows";
 import {
   observeDrizzleQuery as observeStoredAttemptQuery,
@@ -177,11 +187,6 @@ export type StoredAttemptCorruptionReasonV1 =
 type StoredAttemptSessionRowScalarFieldV1 =
   | "storageGeneration"
   | "storageGenerationFence"
-  | "packageId"
-  | "artifactRuntime"
-  | "artifactId"
-  | "sourcePackageHash"
-  | "executionModule"
   | "functionPath"
   | "functionKind"
   | "schemaVersionId"
@@ -194,16 +199,43 @@ type StoredAttemptSessionRowScalarFieldV1 =
   | "protocolVersion";
 
 /** Protocol-owned comparison shape plus persistence-decoded row refinements. */
+type StoredAttemptSessionCommonRowScalarsV1 = Readonly<
+  Pick<TransactionSessionRow, StoredAttemptSessionRowScalarFieldV1> & {
+    readonly lifecycle: Extract<
+      TransactionSessionLifecycleV1,
+      "running" | "finishing"
+    >;
+  }
+>;
+
+type StoredAttemptLegacyAuthorityRowScalarsV1 = Readonly<{
+  readonly packageId: NonNullable<TransactionSessionRow["packageId"]>;
+  readonly artifactRuntime: NonNullable<TransactionSessionRow["artifactRuntime"]>;
+  readonly artifactId: NonNullable<TransactionSessionRow["artifactId"]>;
+  readonly sourcePackageHash: NonNullable<TransactionSessionRow["sourcePackageHash"]>;
+  readonly executionModule: NonNullable<TransactionSessionRow["executionModule"]>;
+}>;
+
+type StoredAttemptLegacySessionScalarsV1 = Extract<
+  StoredTransactionSessionScalarsV1,
+  { readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1" }
+>;
+type StoredAttemptApplicationSessionScalarsV1 = Extract<
+  StoredTransactionSessionScalarsV1,
+  { readonly executionAuthorityGeneration: "application_v1" }
+>;
+
 export type StoredAttemptSessionScalarsV1 =
-  StoredTransactionSessionScalarsV1 &
-  Readonly<
-    Pick<TransactionSessionRow, StoredAttemptSessionRowScalarFieldV1> & {
-      readonly lifecycle: Extract<
-        TransactionSessionLifecycleV1,
-        "running" | "finishing"
-      >;
-    }
-  >;
+  | (Omit<
+      StoredAttemptLegacySessionScalarsV1,
+      keyof StoredAttemptSessionCommonRowScalarsV1 |
+        keyof StoredAttemptLegacyAuthorityRowScalarsV1
+    > & StoredAttemptSessionCommonRowScalarsV1 &
+      StoredAttemptLegacyAuthorityRowScalarsV1)
+  | (Omit<
+      StoredAttemptApplicationSessionScalarsV1,
+      keyof StoredAttemptSessionCommonRowScalarsV1
+    > & StoredAttemptSessionCommonRowScalarsV1);
 
 export interface StoredAttemptLeaseScalarsV1 {
   readonly snapshotToken: SnapshotToken;
@@ -352,6 +384,9 @@ type StoredAttemptSessionProjectionV1 = Readonly<
     | "storageGeneration"
     | "storageGenerationFence"
     | "executionAuthorityGeneration"
+    | "applicationExecutionAuthorityJson"
+    | "applicationExecutionAuthorityCanonicalBytes"
+    | "applicationExecutionAuthoritySha256"
     | "packageId"
     | "artifactRuntime"
     | "artifactId"
@@ -476,11 +511,11 @@ export function createStoredAttemptEvidenceLoaderV1(
         }),
       });
     }
-    return materializeStoredAttemptEvidence(
+    return yield* materializeStoredAttemptEvidence(
       request,
       located.authority,
       captured,
-    );
+    ).pipe(Effect.catch(failure => Effect.succeed(failure)));
   });
 
   const loadEffect: StoredAttemptEvidenceLoaderV1["loadEffect"] = Effect.fn(
@@ -668,6 +703,12 @@ async function selectStoredAttemptSessionRows(
         fxSystemTransactionSessions.storageGenerationFence,
       executionAuthorityGeneration:
         fxSystemTransactionSessions.executionAuthorityGeneration,
+      applicationExecutionAuthorityJson:
+        fxSystemTransactionSessions.applicationExecutionAuthorityJson,
+      applicationExecutionAuthorityCanonicalBytes:
+        fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
+      applicationExecutionAuthoritySha256:
+        fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
       packageId: fxSystemTransactionSessions.packageId,
       artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
       artifactId: fxSystemTransactionSessions.artifactId,
@@ -768,11 +809,16 @@ function decodeStoredAttemptLeaseSnapshotResult(
   });
 }
 
-function materializeStoredAttemptEvidence(
+const materializeStoredAttemptEvidence = Effect.fn(
+  "StoredAttemptEvidence.materialize",
+)(function* (
   request: StoredAttemptEvidenceRequestV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedStoredAttemptRowsV1,
-): StoredAttemptEvidenceLoadResultV1 {
+): Effect.fn.Return<
+  StoredAttemptEvidenceLoadResultV1,
+  StoredAttemptCorruptionResultV1
+> {
   const selector = request.kind === "expectedAuthority"
     ? request.authority
     : request.selector;
@@ -783,25 +829,20 @@ function materializeStoredAttemptEvidence(
   if (clockRow === undefined) {
     return corrupt("scopeClockMissingOrDuplicate");
   }
-  const decodedClockAuthority = decodeStoredAttemptClockAuthorityResult(
-    clockRow,
-  );
-  if (Result.isFailure(decodedClockAuthority)) {
-    return corrupt("sessionRecordInvalid", decodedClockAuthority.failure);
-  }
+  const decodedClockAuthority = yield* Effect.fromResult(
+    decodeStoredAttemptClockAuthorityResult(clockRow),
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
   const { clock, scopeUuid, epochUuid, revocationEpoch } =
-    decodedClockAuthority.success;
-  const selectorScopeProjection = projectScopeIdUuidV1Result(selector.scopeId);
-  if (Result.isFailure(selectorScopeProjection)) {
-    return corrupt("sessionRecordInvalid", selectorScopeProjection.failure);
-  }
-  const clockEpochProjection = projectScopeEpochUuidV1Result(clock.epoch);
-  if (Result.isFailure(clockEpochProjection)) {
-    return corrupt("sessionRecordInvalid", clockEpochProjection.failure);
-  }
+    decodedClockAuthority;
+  const selectorScopeProjection = yield* Effect.fromResult(
+    projectScopeIdUuidV1Result(selector.scopeId),
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
+  const clockEpochProjection = yield* Effect.fromResult(
+    projectScopeEpochUuidV1Result(clock.epoch),
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
   if (
-    scopeUuid !== selectorScopeProjection.success.scopeUuid ||
-    epochUuid !== clockEpochProjection.success.epochUuid ||
+    scopeUuid !== selectorScopeProjection.scopeUuid ||
+    epochUuid !== clockEpochProjection.epochUuid ||
     clock.scopeId !== selector.scopeId ||
     preliminary.scopeId !== selector.scopeId
   ) {
@@ -847,14 +888,11 @@ function materializeStoredAttemptEvidence(
   if (session === undefined) {
     return corrupt("sessionRecordDuplicate");
   }
-  const decodedSessionIdentity = decodeStoredAttemptSessionIdentityResult(
-    session,
-  );
-  if (Result.isFailure(decodedSessionIdentity)) {
-    return corrupt("sessionRecordInvalid", decodedSessionIdentity.failure);
-  }
+  const decodedSessionIdentity = yield* Effect.fromResult(
+    decodeStoredAttemptSessionIdentityResult(session),
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
   const { sessionId, attemptFence, storageGenerationFence } =
-    decodedSessionIdentity.success;
+    decodedSessionIdentity;
   if (
     session.scopeUuid !== scopeUuid ||
     sessionId !== selector.sessionId
@@ -870,14 +908,9 @@ function materializeStoredAttemptEvidence(
   ) {
     return authorityMismatch("generationChanged");
   }
-  const decodedSchemaVersionId = decodeStoredAttemptSchemaVersionIdResult(
-    session.schemaVersionId,
-  );
-  if (Result.isFailure(decodedSchemaVersionId)) {
-    return corrupt("sessionRecordInvalid", decodedSchemaVersionId.failure);
-  }
-  const schemaVersionId: CatalogSchemaVersionId =
-    decodedSchemaVersionId.success;
+  const schemaVersionId: CatalogSchemaVersionId = yield* Effect.fromResult(
+    decodeStoredAttemptSchemaVersionIdResult(session.schemaVersionId),
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
   if (
     request.kind === "expectedAuthority" &&
     schemaVersionId !== request.authority.schemaVersionId
@@ -910,14 +943,7 @@ function materializeStoredAttemptEvidence(
   ) {
     return corrupt("sessionRecordInvalid");
   }
-  if (
-    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
-    session.packageId === null ||
-    session.artifactRuntime === null ||
-    session.artifactId === null ||
-    session.sourcePackageHash === null ||
-    session.executionModule === null
-  ) return corrupt("sessionRecordInvalid");
+  const executionAuthority = yield* captureSessionExecutionAuthority(session);
   if (session.lifecycle === "committed") {
     return Object.freeze({
       kind: "alreadyCommitted",
@@ -985,14 +1011,9 @@ function materializeStoredAttemptEvidence(
   if (lease === undefined) {
     return corrupt("snapshotLeaseMissingOrDuplicate");
   }
-  const decodedLeaseSnapshot = decodeStoredAttemptLeaseSnapshotResult(
-    lease,
-    selector.scopeId,
-  );
-  if (Result.isFailure(decodedLeaseSnapshot)) {
-    return corrupt("sessionRecordInvalid", decodedLeaseSnapshot.failure);
-  }
-  const leaseSnapshot = decodedLeaseSnapshot.success;
+  const leaseSnapshot = yield* Effect.fromResult(
+    decodeStoredAttemptLeaseSnapshotResult(lease, selector.scopeId),
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
   const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
     lease.leaseExpiresAt,
   );
@@ -1092,12 +1113,7 @@ function materializeStoredAttemptEvidence(
       sessionId: selector.sessionId,
       attemptFence: selector.attemptFence,
       databaseNowMilliseconds,
-      session: captureSessionScalars(session, {
-        packageId: session.packageId,
-        artifactRuntime: session.artifactRuntime,
-        artifactId: session.artifactId,
-        sourcePackageHash: session.sourcePackageHash,
-        executionModule: session.executionModule,
+      session: captureSessionScalars(session, executionAuthority, {
         authorizationGrantExpiresAtMilliseconds,
         hardExpiresAtMilliseconds,
         createdAtMilliseconds,
@@ -1111,7 +1127,7 @@ function materializeStoredAttemptEvidence(
       points,
     }),
   });
-}
+});
 
 function classifyExecutionClaimEvidence(
   rows: CapturedStoredAttemptRowsV1["executionClaimRows"],
@@ -1153,18 +1169,28 @@ function classifyExecutionClaimEvidence(
 
 function captureSessionScalars(
   session: StoredAttemptSessionProjectionV1,
+  executionAuthority:
+    | Pick<
+        Extract<StoredAttemptSessionScalarsV1, {
+          readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+        }>,
+        | "executionAuthorityGeneration"
+        | "packageId"
+        | "artifactRuntime"
+        | "artifactId"
+        | "sourcePackageHash"
+        | "executionModule"
+      >
+    | Pick<
+        Extract<StoredAttemptSessionScalarsV1, {
+          readonly executionAuthorityGeneration: "application_v1";
+        }>,
+        | "executionAuthorityGeneration"
+        | "applicationExecutionAuthorityJson"
+        | "applicationExecutionAuthorityCanonicalBytes"
+        | "applicationExecutionAuthoritySha256"
+      >,
   timestamps: Readonly<{
-    packageId: NonNullable<StoredAttemptSessionProjectionV1["packageId"]>;
-    artifactRuntime: NonNullable<
-      StoredAttemptSessionProjectionV1["artifactRuntime"]
-    >;
-    artifactId: NonNullable<StoredAttemptSessionProjectionV1["artifactId"]>;
-    sourcePackageHash: NonNullable<
-      StoredAttemptSessionProjectionV1["sourcePackageHash"]
-    >;
-    executionModule: NonNullable<
-      StoredAttemptSessionProjectionV1["executionModule"]
-    >;
     authorizationGrantExpiresAtMilliseconds: number;
     hardExpiresAtMilliseconds: number;
     createdAtMilliseconds: number;
@@ -1175,14 +1201,10 @@ function captureSessionScalars(
     throw new Error("Stored attempt session is not active.");
   }
   return Object.freeze({
+    ...executionAuthority,
     lifecycle: session.lifecycle,
     storageGeneration: session.storageGeneration,
     storageGenerationFence: session.storageGenerationFence,
-    packageId: timestamps.packageId,
-    artifactRuntime: timestamps.artifactRuntime,
-    artifactId: timestamps.artifactId,
-    sourcePackageHash: timestamps.sourcePackageHash,
-    executionModule: timestamps.executionModule,
     functionPath: session.functionPath,
     functionKind: session.functionKind,
     schemaVersionId: session.schemaVersionId,
@@ -1210,6 +1232,68 @@ function captureSessionScalars(
     updatedAtMilliseconds: timestamps.updatedAtMilliseconds,
   });
 }
+
+const captureSessionExecutionAuthority = Effect.fn(
+  "StoredAttemptEvidence.captureSessionExecutionAuthority",
+)(function* (session: StoredAttemptSessionProjectionV1) {
+  if (session.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (
+      session.packageId === null || session.artifactRuntime === null ||
+      session.artifactId === null || session.sourcePackageHash === null ||
+      session.executionModule === null ||
+      session.applicationExecutionAuthorityJson !== null ||
+      session.applicationExecutionAuthorityCanonicalBytes !== null ||
+      session.applicationExecutionAuthoritySha256 !== null
+    ) return yield* Effect.fail(corrupt("sessionRecordInvalid"));
+    const packageId = session.packageId;
+    const artifactRuntime = session.artifactRuntime;
+    const artifactId = session.artifactId;
+    const sourcePackageHash = session.sourcePackageHash;
+    const executionModule = session.executionModule;
+    return yield* Effect.try({
+      try: () => Object.freeze({
+        executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+        packageId: TransactionPackageIdV1Schema.make(packageId),
+        artifactRuntime: TransactionArtifactRuntimeV1Schema.make(
+          artifactRuntime,
+        ),
+        artifactId: TransactionArtifactIdV1Schema.make(artifactId),
+        sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
+          sourcePackageHash,
+        ),
+        executionModule: TransactionExecutionModuleV1Schema.make(
+          executionModule,
+        ),
+      }),
+      catch: cause => corrupt("sessionRecordInvalid", cause),
+    });
+  }
+  if (
+    session.executionAuthorityGeneration !== "application_v1" ||
+    session.packageId !== null || session.artifactRuntime !== null ||
+    session.artifactId !== null || session.sourcePackageHash !== null ||
+    session.executionModule !== null ||
+    session.applicationExecutionAuthorityJson === null ||
+    session.applicationExecutionAuthorityCanonicalBytes === null ||
+    session.applicationExecutionAuthoritySha256 === null
+  ) return yield* Effect.fail(corrupt("sessionRecordInvalid"));
+  const canonical = yield* canonicalizeApplicationMutationExecutionAuthorityV1(
+    session.applicationExecutionAuthorityJson,
+  ).pipe(Effect.mapError(cause => corrupt("sessionRecordInvalid", cause)));
+  if (
+    !bytesEqual(
+      canonical.canonicalBytes,
+      session.applicationExecutionAuthorityCanonicalBytes,
+    ) || !bytesEqual(canonical.sha256, session.applicationExecutionAuthoritySha256)
+  ) return yield* Effect.fail(corrupt("sessionRecordInvalid"));
+  return Object.freeze({
+    executionAuthorityGeneration: "application_v1" as const,
+    applicationExecutionAuthorityJson:
+      snapshotApplicationExecutionAuthorityJson(canonical.authorityJson),
+    applicationExecutionAuthorityCanonicalBytes: canonical.canonicalBytes,
+    applicationExecutionAuthoritySha256: canonical.sha256,
+  });
+});
 
 function captureSealedRoot(
   root: JournalRootRow,
@@ -1352,6 +1436,10 @@ function authorityMismatch(
 function corrupt(
   reason: StoredAttemptCorruptionReasonV1,
   cause?: unknown,
-): StoredAttemptEvidenceLoadResultV1 {
+): StoredAttemptCorruptionResultV1 {
   return storedAuthorityCorruptionResult(reason, cause);
 }
+
+type StoredAttemptCorruptionResultV1 = StoredAuthorityCorruptionResult<
+  StoredAttemptCorruptionReasonV1
+>;

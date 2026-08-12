@@ -288,12 +288,14 @@ describe("C05-A point-commit finishing transition", () => {
           ...base,
           authorityPins: Object.freeze({
             ...base.authorityPins,
+            executionAuthorityGeneration: "legacy_dynamic_worker_v1",
             packageId: TransactionPackageIdV1Schema.make("package_changed"),
-          }),
+          }) as PointCommitFinishingTransitionCommandV1["authorityPins"],
           session: Object.freeze({
             ...base.session,
+            executionAuthorityGeneration: "legacy_dynamic_worker_v1",
             packageId: "package_changed",
-          }),
+          }) as PointCommitFinishingTransitionCommandV1["session"],
         }),
         error: PointCommitCorruptionV1Error,
         reason: "sessionInvalid",

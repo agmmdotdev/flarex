@@ -124,6 +124,7 @@ import {
   type AppDeveloperIndexDefinitionPortV1,
   type LocateAppDeveloperIndexDefinitionsV1Error,
 } from "./appDeveloperIndexCommitV1";
+import { snapshotApplicationExecutionAuthorityJson } from "./applicationExecutionAuthoritySnapshot";
 import {
   hasAppUniqueConstraintDefinitionAuthorityV1,
   lowerCanonicalAppUniqueConstraintV1Result,
@@ -317,7 +318,7 @@ const decodePointCommitRowIdResult = Schema.decodeUnknownResult(
   Schema.toType(AppRowIdHexV1Schema),
 );
 
-export interface PointCommitAuthorityPinsV1 {
+interface PointCommitAuthorityCommonPinsV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
   readonly sessionId: TransactionSessionIdV1;
@@ -326,11 +327,6 @@ export interface PointCommitAuthorityPinsV1 {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly packageId: TransactionPackageIdV1;
-  readonly artifactRuntime: TransactionArtifactRuntimeV1;
-  readonly artifactId: TransactionArtifactIdV1;
-  readonly sourcePackageHash: TransactionSourcePackageSha256HexV1;
-  readonly executionModule: TransactionExecutionModuleV1;
   readonly functionPath: TransactionFunctionPathV1;
   readonly functionKind: "mutation";
   readonly policyVersion: TransactionPolicyVersionV1;
@@ -338,12 +334,34 @@ export interface PointCommitAuthorityPinsV1 {
   readonly requestKey: TransactionRequestKeyV1;
 }
 
-export type PointCommitSessionScalarsV1 = Omit<
-  StoredTransactionSessionScalarsV1,
-  "authorizationGrantId"
-> & {
-  readonly authorizationGrantId: TransactionAuthorizationGrantIdV1;
-};
+export type PointCommitAuthorityPinsV1 =
+  | Readonly<PointCommitAuthorityCommonPinsV1 & {
+      readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+      readonly packageId: TransactionPackageIdV1;
+      readonly artifactRuntime: TransactionArtifactRuntimeV1;
+      readonly artifactId: TransactionArtifactIdV1;
+      readonly sourcePackageHash: TransactionSourcePackageSha256HexV1;
+      readonly executionModule: TransactionExecutionModuleV1;
+      readonly applicationExecutionAuthoritySha256?: never;
+    }>
+  | Readonly<PointCommitAuthorityCommonPinsV1 & {
+      readonly executionAuthorityGeneration: "application_v1";
+      readonly applicationExecutionAuthoritySha256: Uint8Array;
+      readonly packageId?: never;
+      readonly artifactRuntime?: never;
+      readonly artifactId?: never;
+      readonly sourcePackageHash?: never;
+      readonly executionModule?: never;
+    }>;
+
+export type PointCommitSessionScalarsV1 =
+  StoredTransactionSessionScalarsV1 extends infer Session
+    ? Session extends StoredTransactionSessionScalarsV1
+      ? Omit<Session, "authorizationGrantId"> & {
+          readonly authorizationGrantId: TransactionAuthorizationGrantIdV1;
+        }
+      : never
+    : never;
 
 export interface PointCommitSealIdentityV1 {
   readonly scopeUuid: ScopeUuidV1;
@@ -385,11 +403,7 @@ export interface PointCommitAttemptScalarCommandV1 {
 
 export interface PointCommitFinishingTransitionCommandV1
   extends Omit<PointCommitAttemptScalarCommandV1, "session" | "sealIdentity"> {
-  readonly session: Readonly<
-    Omit<PointCommitSessionScalarsV1, "lifecycle"> & {
-      readonly lifecycle: "running";
-    }
-  >;
+  readonly session: PointCommitRunningSessionScalarsV1;
   readonly sealIdentity: Readonly<
     Omit<PointCommitSealIdentityV1, "lifecycle"> & {
       readonly lifecycle: "running";
@@ -397,6 +411,13 @@ export interface PointCommitFinishingTransitionCommandV1
   >;
   readonly executionClaim: TransactionExecutionClaimPinV1;
 }
+
+type PointCommitRunningSessionScalarsV1 =
+  PointCommitSessionScalarsV1 extends infer Session
+    ? Session extends PointCommitSessionScalarsV1
+      ? Readonly<Omit<Session, "lifecycle"> & { readonly lifecycle: "running" }>
+      : never
+    : never;
 
 export interface PointCommitDependencyV1 {
   readonly documentId: AppDocumentIdV1;
@@ -2475,10 +2496,58 @@ function captureAuthorityPinsResult(
   ) {
     return Result.fail(corruption("commandInvalid"));
   }
+  if (input.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (hasOwn(input, "applicationExecutionAuthoritySha256")) {
+      return Result.fail(corruption("commandInvalid"));
+    }
+    return Result.succeed(Object.freeze({
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+      deploymentId: input.deploymentId,
+      scopeId: input.scopeId,
+      sessionId: input.sessionId,
+      attemptFence: input.attemptFence,
+      storageGeneration: input.storageGeneration,
+      storageGenerationFence: input.storageGenerationFence,
+      snapshotToken: Object.freeze({ ...input.snapshotToken }),
+      schemaVersionId: input.schemaVersionId,
+      packageId: input.packageId,
+      artifactRuntime: input.artifactRuntime,
+      artifactId: input.artifactId,
+      sourcePackageHash: input.sourcePackageHash,
+      executionModule: input.executionModule,
+      functionPath: input.functionPath,
+      functionKind: input.functionKind,
+      policyVersion: input.policyVersion,
+      authorizationRevocationEpoch: input.authorizationRevocationEpoch,
+      requestKey: input.requestKey,
+    }));
+  }
+  if (
+    input.executionAuthorityGeneration !== "application_v1" ||
+    hasAnyOwn(input, LEGACY_EXECUTION_AUTHORITY_FIELDS) ||
+    !validHash(input.applicationExecutionAuthoritySha256)
+  ) {
+    return Result.fail(corruption("commandInvalid"));
+  }
   return Result.succeed(Object.freeze({
-    ...input,
+    executionAuthorityGeneration: "application_v1",
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
+    sessionId: input.sessionId,
+    attemptFence: input.attemptFence,
+    storageGeneration: input.storageGeneration,
+    storageGenerationFence: input.storageGenerationFence,
     snapshotToken: Object.freeze({ ...input.snapshotToken }),
-  }));
+    schemaVersionId: input.schemaVersionId,
+    applicationExecutionAuthoritySha256: new Uint8Array(
+      input.applicationExecutionAuthoritySha256,
+    ),
+    functionPath: input.functionPath,
+    functionKind: input.functionKind,
+    policyVersion: input.policyVersion,
+    authorizationRevocationEpoch: input.authorizationRevocationEpoch,
+    requestKey: input.requestKey,
+  }) satisfies Readonly<PointCommitAuthorityPinsV1>);
 }
 
 function captureSessionScalarsResult(
@@ -2510,15 +2579,118 @@ function captureSessionScalarsResult(
   ) {
     return Result.fail(corruption("commandInvalid"));
   }
-  return Result.succeed(Object.freeze({
-    ...input,
-    identityAccessPolicySha256:
-      new Uint8Array(input.identityAccessPolicySha256),
-    validatedArgsSha256: new Uint8Array(input.validatedArgsSha256),
-    authorizationGrantSha256:
-      new Uint8Array(input.authorizationGrantSha256),
-    requestSha256: new Uint8Array(input.requestSha256),
-  }));
+  if (input.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (hasAnyOwn(input, APPLICATION_EXECUTION_AUTHORITY_FIELDS)) {
+      return Result.fail(corruption("commandInvalid"));
+    }
+    return Result.succeed(Object.freeze({
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+      lifecycle: input.lifecycle,
+      storageGeneration: input.storageGeneration,
+      storageGenerationFence: input.storageGenerationFence,
+      packageId: input.packageId,
+      artifactRuntime: input.artifactRuntime,
+      artifactId: input.artifactId,
+      sourcePackageHash: input.sourcePackageHash,
+      executionModule: input.executionModule,
+      functionPath: input.functionPath,
+      functionKind: input.functionKind,
+      schemaVersionId: input.schemaVersionId,
+      policyVersion: input.policyVersion,
+      identityAccessPolicySha256: new Uint8Array(input.identityAccessPolicySha256),
+      validatedArgsValueCodecVersion: input.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalByteLength: input.validatedArgsCanonicalByteLength,
+      validatedArgsSha256: new Uint8Array(input.validatedArgsSha256),
+      authorizationGrantId: input.authorizationGrantId,
+      authorizationGrantValueCodecVersion:
+        input.authorizationGrantValueCodecVersion,
+      authorizationGrantCanonicalByteLength:
+        input.authorizationGrantCanonicalByteLength,
+      authorizationGrantSha256: new Uint8Array(input.authorizationGrantSha256),
+      authorizationRevocationEpoch: input.authorizationRevocationEpoch,
+      authorizationGrantExpiresAtMilliseconds:
+        input.authorizationGrantExpiresAtMilliseconds,
+      requestKey: input.requestKey,
+      requestSha256: new Uint8Array(input.requestSha256),
+      protocolVersion: input.protocolVersion,
+      hardExpiresAtMilliseconds: input.hardExpiresAtMilliseconds,
+      createdAtMilliseconds: input.createdAtMilliseconds,
+      updatedAtMilliseconds: input.updatedAtMilliseconds,
+    }));
+  }
+  if (
+    input.executionAuthorityGeneration !== "application_v1" ||
+    hasAnyOwn(input, LEGACY_EXECUTION_AUTHORITY_FIELDS) ||
+    !validHash(input.applicationExecutionAuthoritySha256) ||
+    !isUint8Array(input.applicationExecutionAuthorityCanonicalBytes)
+  ) return Result.fail(corruption("commandInvalid"));
+  return Result.try({
+    try: () => Object.freeze({
+      executionAuthorityGeneration: "application_v1" as const,
+      lifecycle: input.lifecycle,
+      storageGeneration: input.storageGeneration,
+      storageGenerationFence: input.storageGenerationFence,
+      applicationExecutionAuthorityJson:
+        snapshotApplicationExecutionAuthorityJson(
+          input.applicationExecutionAuthorityJson,
+        ),
+      applicationExecutionAuthorityCanonicalBytes: new Uint8Array(
+        input.applicationExecutionAuthorityCanonicalBytes,
+      ),
+      applicationExecutionAuthoritySha256: new Uint8Array(
+        input.applicationExecutionAuthoritySha256,
+      ),
+      functionPath: input.functionPath,
+      functionKind: input.functionKind,
+      schemaVersionId: input.schemaVersionId,
+      policyVersion: input.policyVersion,
+      identityAccessPolicySha256: new Uint8Array(input.identityAccessPolicySha256),
+      validatedArgsValueCodecVersion: input.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalByteLength: input.validatedArgsCanonicalByteLength,
+      validatedArgsSha256: new Uint8Array(input.validatedArgsSha256),
+      authorizationGrantId: input.authorizationGrantId,
+      authorizationGrantValueCodecVersion:
+        input.authorizationGrantValueCodecVersion,
+      authorizationGrantCanonicalByteLength:
+        input.authorizationGrantCanonicalByteLength,
+      authorizationGrantSha256: new Uint8Array(input.authorizationGrantSha256),
+      authorizationRevocationEpoch: input.authorizationRevocationEpoch,
+      authorizationGrantExpiresAtMilliseconds:
+        input.authorizationGrantExpiresAtMilliseconds,
+      requestKey: input.requestKey,
+      requestSha256: new Uint8Array(input.requestSha256),
+      protocolVersion: input.protocolVersion,
+      hardExpiresAtMilliseconds: input.hardExpiresAtMilliseconds,
+      createdAtMilliseconds: input.createdAtMilliseconds,
+      updatedAtMilliseconds: input.updatedAtMilliseconds,
+    }) satisfies Readonly<PointCommitSessionScalarsV1>,
+    catch: () => corruption("commandInvalid"),
+  });
+}
+
+const LEGACY_EXECUTION_AUTHORITY_FIELDS = [
+  "packageId",
+  "artifactRuntime",
+  "artifactId",
+  "sourcePackageHash",
+  "executionModule",
+] as const;
+
+const APPLICATION_EXECUTION_AUTHORITY_FIELDS = [
+  "applicationExecutionAuthorityJson",
+  "applicationExecutionAuthorityCanonicalBytes",
+  "applicationExecutionAuthoritySha256",
+] as const;
+
+function hasAnyOwn(
+  value: object,
+  fields: ReadonlyArray<PropertyKey>,
+): boolean {
+  return fields.some(field => hasOwn(value, field));
+}
+
+function hasOwn(value: object, field: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, field);
 }
 
 function captureSealIdentityResult(
@@ -2601,11 +2773,7 @@ function requireCommandAuthorityConsistencyResult(
       seal.leaseExpiresAtMilliseconds > session.hardExpiresAtMilliseconds ||
       pins.storageGeneration !== session.storageGeneration ||
       pins.storageGenerationFence !== session.storageGenerationFence ||
-      pins.packageId !== session.packageId ||
-      pins.artifactRuntime !== session.artifactRuntime ||
-      pins.artifactId !== session.artifactId ||
-      pins.sourcePackageHash !== session.sourcePackageHash ||
-      pins.executionModule !== session.executionModule ||
+      !commandExecutionAuthorityConsistent(pins, session) ||
       pins.functionPath !== session.functionPath ||
       pins.functionKind !== session.functionKind ||
       pins.schemaVersionId !== session.schemaVersionId ||
@@ -2617,6 +2785,31 @@ function requireCommandAuthorityConsistencyResult(
       return yield* Result.fail(corruption("commandInvalid"));
     }
   });
+}
+
+function commandExecutionAuthorityConsistent(
+  pins: Readonly<PointCommitAuthorityPinsV1>,
+  session: Readonly<PointCommitSessionScalarsV1>,
+): boolean {
+  if (pins.executionAuthorityGeneration !== session.executionAuthorityGeneration) {
+    return false;
+  }
+  if (
+    pins.executionAuthorityGeneration === "legacy_dynamic_worker_v1" &&
+    session.executionAuthorityGeneration === "legacy_dynamic_worker_v1"
+  ) {
+    return pins.packageId === session.packageId &&
+      pins.artifactRuntime === session.artifactRuntime &&
+      pins.artifactId === session.artifactId &&
+      pins.sourcePackageHash === session.sourcePackageHash &&
+      pins.executionModule === session.executionModule;
+  }
+  return pins.executionAuthorityGeneration === "application_v1" &&
+    session.executionAuthorityGeneration === "application_v1" &&
+    bytesEqual(
+      pins.applicationExecutionAuthoritySha256,
+      session.applicationExecutionAuthoritySha256,
+    );
 }
 
 function capturePointDependencyResult(
@@ -4463,6 +4656,10 @@ async function lockPointCommitSession(
       storageGeneration: fxSystemTransactionSessions.storageGeneration,
       storageGenerationFence:
         fxSystemTransactionSessions.storageGenerationFence,
+      executionAuthorityGeneration:
+        fxSystemTransactionSessions.executionAuthorityGeneration,
+      applicationExecutionAuthoritySha256:
+        fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
       packageId: fxSystemTransactionSessions.packageId,
       artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
       artifactId: fxSystemTransactionSessions.artifactId,
@@ -4566,11 +4763,11 @@ async function lockPointCommitSession(
       row.sessionId !== command.authorityPins.sessionId ||
       row.storageGeneration !== expected.storageGeneration ||
       row.storageGenerationFence !== expected.storageGenerationFence ||
-      row.packageId !== expected.packageId ||
-      row.artifactRuntime !== expected.artifactRuntime ||
-      row.artifactId !== expected.artifactId ||
-      row.sourcePackageHash !== expected.sourcePackageHash ||
-      row.executionModule !== expected.executionModule ||
+      !storedExecutionAuthorityMatchesPointCommit(
+        row,
+        command.authorityPins,
+        expected,
+      ) ||
       row.functionPath !== expected.functionPath ||
       row.functionKind !== expected.functionKind ||
       row.schemaVersionId !== expected.schemaVersionId ||
@@ -4631,6 +4828,56 @@ async function lockPointCommitSession(
       updatedAtMilliseconds,
     });
   }));
+}
+
+function storedExecutionAuthorityMatchesPointCommit(
+  row: Readonly<{
+    readonly executionAuthorityGeneration: string;
+    readonly packageId: string | null;
+    readonly artifactRuntime: string | null;
+    readonly artifactId: string | null;
+    readonly sourcePackageHash: string | null;
+    readonly executionModule: string | null;
+    readonly applicationExecutionAuthoritySha256: Uint8Array | null;
+  }>,
+  pins: PointCommitAuthorityPinsV1,
+  session: PointCommitSessionScalarsV1,
+): boolean {
+  if (
+    row.executionAuthorityGeneration !== pins.executionAuthorityGeneration ||
+    session.executionAuthorityGeneration !== pins.executionAuthorityGeneration
+  ) return false;
+  if (
+    pins.executionAuthorityGeneration === "legacy_dynamic_worker_v1" &&
+    session.executionAuthorityGeneration === "legacy_dynamic_worker_v1"
+  ) {
+    return row.packageId === pins.packageId && pins.packageId === session.packageId &&
+      row.artifactRuntime === pins.artifactRuntime &&
+      pins.artifactRuntime === session.artifactRuntime &&
+      row.artifactId === pins.artifactId && pins.artifactId === session.artifactId &&
+      row.sourcePackageHash === pins.sourcePackageHash &&
+      pins.sourcePackageHash === session.sourcePackageHash &&
+      row.executionModule === pins.executionModule &&
+      pins.executionModule === session.executionModule &&
+      row.applicationExecutionAuthoritySha256 === null;
+  }
+  if (
+    pins.executionAuthorityGeneration === "application_v1" &&
+    session.executionAuthorityGeneration === "application_v1"
+  ) {
+    return row.packageId === null && row.artifactRuntime === null &&
+      row.artifactId === null && row.sourcePackageHash === null &&
+      row.executionModule === null &&
+      row.applicationExecutionAuthoritySha256 !== null &&
+      bytesEqual(
+        row.applicationExecutionAuthoritySha256,
+        pins.applicationExecutionAuthoritySha256,
+      ) && bytesEqual(
+        pins.applicationExecutionAuthoritySha256,
+        session.applicationExecutionAuthoritySha256,
+      );
+  }
+  return false;
 }
 
 async function lockPointCommitLease(

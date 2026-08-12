@@ -56,6 +56,7 @@ export class InvalidAuthenticatedCommitAuthorityV1Error extends Data.TaggedError
 }> {}
 
 export type CommitInputAuthorityCorruptionReasonV1 =
+  | "executionAuthorityGenerationInvalid"
   | "duplicateTableAuthority"
   | "pointTableAuthorityMissing"
   | "pointWritableDependencyInvalid"
@@ -109,7 +110,7 @@ export type CommitInputVerificationV1Error =
   | CommitDocumentValidationV1Error
   | CommitSuccessfulResultValidationV1Error;
 
-export interface CommitInputAuthorityPinsV1 {
+interface CommitInputAuthorityCommonPinsV1 {
   readonly deploymentId: StoredAttemptAuthorityStateV1["deploymentId"];
   readonly scopeId: StoredAttemptAuthorityStateV1["scopeId"];
   readonly sessionId: TransactionSessionIdV1;
@@ -119,17 +120,32 @@ export interface CommitInputAuthorityPinsV1 {
     StoredAttemptAuthorityStateV1["storageGenerationFence"];
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: StoredAttemptAuthorityStateV1["schemaVersionId"];
-  readonly packageId: string;
-  readonly artifactRuntime: string;
-  readonly artifactId: string;
-  readonly sourcePackageHash: string;
-  readonly executionModule: string;
   readonly functionPath: string;
   readonly functionKind: "mutation";
   readonly policyVersion: string;
   readonly authorizationRevocationEpoch: bigint;
   readonly requestKey: string;
 }
+
+export type CommitInputAuthorityPinsV1 =
+  | Readonly<CommitInputAuthorityCommonPinsV1 & {
+      readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+      readonly packageId: string;
+      readonly artifactRuntime: string;
+      readonly artifactId: string;
+      readonly sourcePackageHash: string;
+      readonly executionModule: string;
+      readonly applicationExecutionAuthoritySha256?: never;
+    }>
+  | Readonly<CommitInputAuthorityCommonPinsV1 & {
+      readonly executionAuthorityGeneration: "application_v1";
+      readonly applicationExecutionAuthoritySha256: Uint8Array;
+      readonly packageId?: never;
+      readonly artifactRuntime?: never;
+      readonly artifactId?: never;
+      readonly sourcePackageHash?: never;
+      readonly executionModule?: never;
+    }>;
 
 type VerifiedCommitPointDependencyV1 =
   AuthenticatedStoredAttemptPointV1["dependency"];
@@ -225,6 +241,11 @@ export const verifyCommitInputStateEffect = Effect.fn(
     InvalidAuthenticatedCommitAuthorityV1Error
   >
 > {
+  if (source.session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+    return yield* authorityCorruptionEffect(
+      "executionAuthorityGenerationInvalid",
+    );
+  }
   const tablesById = new Map<
     CatalogTableId,
     SchemaManifestAppSchemaV1["tableDefinitions"]["tables"][number]
@@ -525,9 +546,12 @@ function detachSealIdentity(
 
 function captureAuthorityPins(
   authority: StoredAttemptAuthorityStateV1,
-  session: StoredAttemptSessionScalarsPortV1,
+  session: Extract<StoredAttemptSessionScalarsPortV1, {
+    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+  }>,
 ): Readonly<CommitInputAuthorityPinsV1> {
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     deploymentId: authority.deploymentId,
     scopeId: authority.scopeId,
     sessionId: authority.sessionId,

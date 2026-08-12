@@ -57,6 +57,38 @@ describe("transaction-session protocol", () => {
     }
   });
 
+  it("compares the exact Application authority branch", () => {
+    const legacy = storedSessionScalars();
+    const {
+      packageId: _packageId,
+      artifactRuntime: _artifactRuntime,
+      artifactId: _artifactId,
+      sourcePackageHash: _sourcePackageHash,
+      executionModule: _executionModule,
+      ...common
+    } = legacy;
+    const application = {
+      ...common,
+      executionAuthorityGeneration: "application_v1" as const,
+      applicationExecutionAuthorityJson: { format: "authority", version: 1 },
+      applicationExecutionAuthorityCanonicalBytes: new Uint8Array([1, 2]),
+      applicationExecutionAuthoritySha256: new Uint8Array(32).fill(3),
+    };
+    const exact = {
+      ...application,
+      applicationExecutionAuthorityCanonicalBytes: new Uint8Array([1, 2]),
+      applicationExecutionAuthoritySha256: new Uint8Array(32).fill(3),
+    };
+    expect(storedTransactionSessionScalarsEqualV1(application, exact)).toBe(true);
+    const changed = new Uint8Array(32).fill(3);
+    changed[31] = 4;
+    expect(storedTransactionSessionScalarsEqualV1(
+      application,
+      { ...exact, applicationExecutionAuthoritySha256: changed },
+    )).toBe(false);
+    expect(storedTransactionSessionScalarsEqualV1(application, legacy)).toBe(false);
+  });
+
   it("preserves native number equality for signed zero", () => {
     const actual = {
       ...storedSessionScalars(),
@@ -298,6 +330,7 @@ describe("transaction-session protocol", () => {
 
 function storedSessionScalars(): StoredTransactionSessionScalarsV1 {
   return {
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     lifecycle: "finishing",
     storageGeneration: "generation-a",
     storageGenerationFence: 2n,

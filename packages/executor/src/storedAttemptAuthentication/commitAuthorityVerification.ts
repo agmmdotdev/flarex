@@ -112,6 +112,20 @@ export interface CommitAuthorityVerificationStateV1 {
   readonly session: StoredAttemptSessionScalarsPortV1;
 }
 
+type LegacyCommitAuthorityVerificationStateV1 = Readonly<{
+  readonly authority: StoredAttemptAuthorityStateV1;
+  readonly session: Extract<StoredAttemptSessionScalarsPortV1, {
+    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+  }>;
+}>;
+
+export function isLegacyCommitAuthorityVerificationStateV1(
+  state: CommitAuthorityVerificationStateV1,
+): state is LegacyCommitAuthorityVerificationStateV1 {
+  return state.session.executionAuthorityGeneration ===
+    "legacy_dynamic_worker_v1";
+}
+
 export const requireLoadedCommitAuthorityEvidenceEffect = Effect.fn(
   "StoredAttemptAuthentication.requireLoadedCommitAuthorityEvidence",
 )(function* (result: StoredCommitAuthorityEvidenceLoadResultPortV1) {
@@ -143,6 +157,13 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
   evidence: StoredCommitAuthorityEvidencePortV1,
   grantKernel: TransactionGrantVerificationKernelV1,
 ) {
+  if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+    return yield* commitAuthorityCorruptionEffect("sessionEvidenceInvalid");
+  }
+  const legacyStoredAttempt = Object.freeze({
+    authority: storedAttempt.authority,
+    session: storedAttempt.session,
+  }) satisfies LegacyCommitAuthorityVerificationStateV1;
   if (
     evidence.currentAuthorizationRevocationEpoch !==
       storedAttempt.session.authorizationRevocationEpoch
@@ -208,7 +229,7 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
   }
 
   const expectedLogicalPins = yield* Effect.try({
-    try: () => buildExpectedTransactionGrantPins(storedAttempt),
+    try: () => buildExpectedTransactionGrantPins(legacyStoredAttempt),
     catch: (cause) => commitAuthorityCorruption(
       "sessionEvidenceInvalid",
       cause,
@@ -265,6 +286,13 @@ export const verifyPinnedFunctionMetadataEffect = Effect.fn(
   storedAttempt: CommitAuthorityVerificationStateV1,
   input: unknown | null,
 ) {
+  if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+    return yield* commitAuthorityCorruptionEffect("sessionEvidenceInvalid");
+  }
+  const legacyStoredAttempt = Object.freeze({
+    authority: storedAttempt.authority,
+    session: storedAttempt.session,
+  }) satisfies LegacyCommitAuthorityVerificationStateV1;
   if (input === null) {
     return yield* commitAuthorityCorruptionEffect("functionMetadataMissing");
   }
@@ -275,7 +303,7 @@ export const verifyPinnedFunctionMetadataEffect = Effect.fn(
       cause,
     ),
   });
-  const expected = capturePinnedFunctionSelector(storedAttempt);
+  const expected = capturePinnedFunctionSelector(legacyStoredAttempt);
   if (
     snapshot.deploymentId !== expected.deploymentId ||
     snapshot.scopeId !== expected.scopeId ||
@@ -300,24 +328,25 @@ export const verifyPinnedFunctionMetadataEffect = Effect.fn(
 });
 
 export function capturePinnedFunctionSelector(
-  state: CommitAuthorityVerificationStateV1,
+  state: LegacyCommitAuthorityVerificationStateV1,
 ): PinnedPointMutationFunctionMetadataSelectorV1 {
+  const session = state.session;
   return Object.freeze({
     deploymentId: state.authority.deploymentId,
     scopeId: state.authority.scopeId,
-    packageId: state.session.packageId,
-    artifactRuntime: state.session.artifactRuntime,
-    artifactId: state.session.artifactId,
-    sourcePackageHash: state.session.sourcePackageHash,
-    executionModule: state.session.executionModule,
-    functionPath: state.session.functionPath,
+    packageId: session.packageId,
+    artifactRuntime: session.artifactRuntime,
+    artifactId: session.artifactId,
+    sourcePackageHash: session.sourcePackageHash,
+    executionModule: session.executionModule,
+    functionPath: session.functionPath,
     functionKind: "mutation",
     schemaVersionId: state.authority.schemaVersionId,
   });
 }
 
 function buildExpectedTransactionGrantPins(
-  state: CommitAuthorityVerificationStateV1,
+  state: LegacyCommitAuthorityVerificationStateV1,
 ) {
   const session = state.session;
   return Object.freeze({

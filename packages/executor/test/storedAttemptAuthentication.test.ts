@@ -2075,6 +2075,44 @@ describe("C04A stored-attempt authentication", () => {
     });
   });
 
+  it("rejects Application authority through the legacy commit-input verifier as typed corruption", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("application-authority"),
+      returnsValidator: { type: "string" },
+    });
+    const source = commitInputSourceForTest(current);
+    if (source.session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+      throw new Error("Expected the legacy fixture authority.");
+    }
+    const {
+      packageId: _packageId,
+      artifactRuntime: _artifactRuntime,
+      artifactId: _artifactId,
+      sourcePackageHash: _sourcePackageHash,
+      executionModule: _executionModule,
+      ...commonSession
+    } = source.session;
+    void _packageId;
+    void _artifactRuntime;
+    void _artifactId;
+    void _sourcePackageHash;
+    void _executionModule;
+    const failure = await runFailure(verifyCommitInputStateEffect({
+      ...source,
+      session: Object.freeze({
+        ...commonSession,
+        executionAuthorityGeneration: "application_v1" as const,
+        applicationExecutionAuthorityJson: Object.freeze({}),
+        applicationExecutionAuthorityCanonicalBytes: new Uint8Array(),
+        applicationExecutionAuthoritySha256: new Uint8Array(32),
+      }),
+    }));
+    expect(failure).toBeInstanceOf(CommitInputAuthorityCorruptionV1Error);
+    expect(failure).toMatchObject({
+      reason: "executionAuthorityGenerationInvalid",
+    });
+  });
+
   it("mints an opaque same-factory C04C1 capability with zero I/O", async () => {
     type RootLeak = Extract<
       keyof typeof executorRoot,
@@ -6228,6 +6266,7 @@ async function fixtureForJournal(
     attemptFence: ATTEMPT_FENCE,
     databaseNowMilliseconds: 1_700_000_000_000,
     session: {
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
       lifecycle: "running",
       storageGeneration: "flarexdb_v1",
       storageGenerationFence: STORAGE_FENCE,

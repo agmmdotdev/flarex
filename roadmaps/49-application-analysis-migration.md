@@ -2139,6 +2139,25 @@ ownership. Stop and amend again if implementation needs a new commit table,
 dual writes, placeholder legacy evidence, current-active-head revalidation,
 or a branch inside row-intent compilation or write application.
 
+The commit-owner correction is now implemented and stops at that boundary.
+Stored transaction session evidence is an exact legacy-or-Application union;
+the stored-attempt loader recanonicalizes and rehashes Application authority
+JSON/bytes/digest; commit input and point-commit authority pins carry a matching
+generation; and the locked-session transaction compares the legacy fields or
+Application authority digest without changing its lock order or downstream
+write behavior. Legacy executor authentication remains intentionally fail-
+closed for the Application branch until the immutable Application graph and
+runner portion of checkpoint 2 is implemented.
+
+Focused receipts are green: protocol typecheck and 9/9 transaction-session
+tests, persistence and executor typechecks, 61/61 stored-attempt authentication
+tests, 4/4 point-commit finishing tests, and the exact canonical Application
+stored-attempt regression. The broader stored-attempt suite still has the same
+two connected execution failures observed before this correction: a test
+runtime emits string syscall sequence `"1"` where the journal owner requires a
+bigint. That shared journal-sequence defect is recorded as diagnostic evidence
+and is not repaired or weakened in this authority-only slice.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
