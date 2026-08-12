@@ -2,11 +2,18 @@
 
 ## Status
 
-**Decision:** implementation is approved and complete only through step 2. The
+**Decision:** implementation remains complete only through step 2. A backend
+step-3A prototype exposed a Standard Application ownership prerequisite and is
+blocked before commit. The
 shared task-catalog snapshot prerequisite and the pure Standard Application
 cold-verification/readiness-basis contract were completed on 2026-08-12.
-Backend object reading, persistence/schema, readiness issuance, activation,
-and production wiring remain unapproved.
+The discarded prototype demonstrated the intended immutable-store provenance,
+host admission, sequential canonical ordering, and opaque composition shape,
+but none of that code was retained because the shared owner must first provide
+a pre-read preparation capability.
+Hosted R2 hard-deadline/settlement and measured Worker-heap proof, persistence/
+schema, readiness issuance, activation, and production wiring remain blocked
+and unapproved.
 
 SAP-TRP1 through SAP-TRP4 are complete and production-inert. They provide the
 canonical task-runtime object formats, an authenticated publication plan, an
@@ -333,6 +340,13 @@ Deterministic in-memory or Miniflare timeout tests do not establish hosted R2
 settlement. Production-capable claims require a hosted test or an authoritative
 Cloudflare contract that proves the chosen deadline/disposition behavior.
 
+The current Cloudflare Workers R2 API documents
+`get(key, options?)` without an `AbortSignal` or cancellation option. Therefore
+step 3A deliberately does not put `Effect.timeout` around `bucket.get`, does not
+claim a timed-out read has settled, and exposes no deadline configuration it
+cannot enforce. The official API surface is recorded at
+<https://developers.cloudflare.com/r2/api/workers/workers-api-reference/>.
+
 ## Completed Pure Verification Contract
 
 The Standard Application owner now exports the current unversioned
@@ -357,6 +371,80 @@ capability that obtains bodies only through the existing immutable store,
 applies host admission/deadline policy, calls this verifier, and mints any proof
 later accepted by persistence. Persistence must never accept the freely
 callable pure result as cold-read authority.
+
+## Blocked Backend Step 3A Prototype
+
+The discarded uncommitted backend prototype used one unversioned
+`TaskRuntimeReadinessColdVerificationAuthority`. Its verifier:
+
+- captures receipt bytes, digest, and expected evidence before asynchronous
+  work;
+- canonically decodes and authenticates the SAP-TRP4 receipt digest before any
+  object-store call;
+- admits the complete membership against configured object-count,
+  per-object-byte, and total-retained-object-byte ceilings before the first
+  read;
+- calls only the existing `TaskRuntimeObjectStore.read` operation, once per
+  receipt member, sequentially and in canonical receipt order;
+- passes exactly those returned references and owned bytes to the completed
+  Standard Application verifier; and
+- mints a process-local opaque proof only after the pure verifier succeeds.
+
+The matching authority capture is the only operation that can recover the
+owned basis, canonical basis bytes, and basis digest from that proof. A
+structurally identical object is rejected. Later persistence composition must
+receive only the capture projection from the same authority instance; it must
+not accept `PreparedTaskRuntimeReadinessBasisV1` directly.
+
+The authority is a deliberate plain multi-instance composition capability, not
+a global Context service. Each readiness host composition must create exactly
+one instance, project its verifier to the read phase and its proof capture to
+the future persistence phase, and close it over the intended immutable store.
+
+Step 3A uses concurrency one and retains admitted canonical bodies until the
+pure verifier captures them. Its policy bounds retained body bytes, not total
+Worker heap. Hashing, defensive copies, decoded frames, and runtime overhead
+still require measured host admission. No route, Worker binding, Cron, Queue,
+readiness repository, or production runtime consumes this capability.
+
+### Shared-owner prerequisite discovered by step 3A
+
+Reproducible scenario: supply a canonical SAP-TRP4 receipt plus malformed or
+authoritatively mismatched expected evidence and a store whose first read is
+missing/unavailable. The backend can decode and hash the receipt before R2, but
+the current `verifyTaskRuntimeReadiness` operation captures and correlates the
+expected task catalog, parent digests, identities, and runtime policy only when
+called with all already-read bodies. Consequently the prototype performs every
+admitted R2 read first and may surface an object-store error instead of the
+owning `invalid_input` or `authoritative_evidence_mismatch` decision.
+
+Expected behavior: Standard Application must prepare and own the canonical
+receipt plus expected-evidence validation/correlation before any backend store
+call, return an owned membership/prepared handle, and later complete graph/body
+verification from that exact handle. Actual behavior: the only current public
+operation combines preparation and body verification after bodies are already
+held. A backend reimplementation of the validation is forbidden because it
+would create a second protocol/trust owner.
+
+The same prototype exposed an ownership defect in its attempted backend-side
+capture. `structuredClone(expected)` does not detach `Uint8Array` views backed
+by `SharedArrayBuffer`; a caller can mutate those bytes after the first
+asynchronous hash or store operation begins. Expected behavior is that the
+Standard Application preparation operation synchronously validates and copies
+every retained digest and evidence byte into ordinary owned storage (or rejects
+shared-backed views) before any asynchronous work. Actual behavior in the
+discarded prototype did not establish that ownership.
+
+Affected owner: `@flarex/standard-application-definition` task-runtime
+readiness verification. Evidence: final step-3A TypeScript and code-quality
+reviews of the candidate backend composition, the focused malformed/mismatched
+expected-input flow, and a shared-backed digest mutation scenario. Disposition:
+keep step 3A blocked and uncommitted; require separate approval for a bounded
+Standard Application split into pre-read preparation and post-read completion,
+including synchronous owned-byte capture, while preserving the current
+one-shot operation as a composition wrapper if needed. After that prerequisite
+is reviewed and committed, rebuild the backend composition on the prepared
+handle and rerun both reviewers.
 
 ## Failure And Retry Policy
 
@@ -429,14 +517,23 @@ object existence as a readiness receipt.
 
 ### Backend object-read composition
 
-- in-memory and Miniflare empty/populated cold reads;
-- missing/corrupt/resource/settlement-uncertain mapping;
-- exact requested-versus-returned reference correlation;
-- no arbitrary key, raw bucket, database, launch, or Worker Loader authority;
-- deterministic fixed-pool scheduling and canonical-order proof;
-- admitted concurrency/peak-memory/whole-operation budget proof;
-- a non-settling-get test that cannot be presented as settled merely because an
-  outer Effect timed out; and
+- prototype evidence: in-memory empty and populated cold verification;
+- prototype evidence: Miniflare populated publication and cold read;
+- prototype evidence only: missing, corrupt, resource, and
+  settlement-uncertain store failures preserved their exact source error and
+  provenance;
+- prototype evidence: exact requested-versus-returned reference correlation remains
+  enforced by the Standard verifier after the store read;
+- prototype evidence: no arbitrary key, raw bucket, database, launch, or Worker
+  Loader authority;
+- prototype evidence: deterministic concurrency-one scheduling and canonical-order
+  proof;
+- prototype evidence: object-count, per-object and retained-total admission before
+  the first store call;
+- measured peak-memory and whole-operation deadline proof remain blocked;
+- prototype evidence as a negative boundary proof: an interrupted non-settling get
+  returns no proof while the foreign get remains outstanding; this is why 3A
+  exposes no false settled-timeout claim; and
 - hosted Cloudflare R2 proof before any production-capable claim.
 
 ### Persistence and activation
@@ -480,7 +577,11 @@ After explicit approval of each remaining checkpoint:
    as its own bounded prerequisite commit;
 2. **Complete:** add the pure Standard Application
    cold-verification/readiness-basis contract;
-3. add the backend verifier using only the existing task-runtime store `read`;
+3. **Blocked prototype:** first split Standard Application readiness into an
+   owned pre-read preparation and post-read completion contract; then add the
+   backend verifier using only the existing task-runtime store `read`, with
+   exact admission and opaque proof. Hosted deadline/settlement and measured
+   heap proof remain step 3B;
 4. add the persistence snapshot and version-2 readiness schema/migration;
 5. integrate version-2 issuance and legacy version-1 read compatibility into
    the existing readiness repository;
@@ -514,12 +615,22 @@ SAP-TRP5 does not authorize:
 
 ## Stop Boundary
 
-SAP-TRP5 is implemented only through the pure step-2 boundary. The next
-decision is whether to approve a bounded backend step-3 preflight that closes
-the R2 admission/deadline/settlement gap, reads exact SAP-TRP4 membership only
-through the existing immutable store, and wraps the pure basis in a
-composition-owned proof. It must remain independent of persistence/schema,
-readiness issuance, activation changes, and production wiring.
+SAP-TRP5 remains implemented only through step 2. The discarded step-3A
+prototype read exact SAP-TRP4 membership only through the existing immutable
+store, enforced configured admission before R2, and wrapped the pure basis in a
+composition-owned proof. It was removed because authoritative expected
+evidence is not yet prepared, correlated, and synchronously copied into owned
+bytes by its Standard Application owner before R2.
+
+The next decision is whether to approve the bounded Standard Application
+pre-read preparation/post-read completion prerequisite described above. Only
+after it lands may step 3A be finalized. The next backend decision after 3A is
+step 3B: obtain an enforceable hosted R2
+deadline/settlement contract and measured Worker-heap admission. Until that
+exists, no timeout wrapper, host Layer, deployment binding, or
+production-capable claim is authorized. Persistence step 4 may be designed in
+parallel only if its receipt transaction remains incapable of accepting a
+step-2 basis or an unrecognized/foreign step-3 proof.
 
 If implemented, SAP-TRP5 ends when the existing Application readiness and
 active-selection chain can prove an explicit empty or fully cold-verified

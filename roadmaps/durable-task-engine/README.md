@@ -127,10 +127,17 @@ revision, readiness, activation, or active-head system. SAP-TRP5 readiness and
 active-selection agreement is recorded in
 [`preflight/41-standard-application-task-runtime-readiness.md`](./preflight/41-standard-application-task-runtime-readiness.md).
 Its task-catalog prerequisite and pure Standard Application
-cold-verification/canonical readiness-basis checkpoint are complete. The pure
-result explicitly carries no R2-read authority; backend store composition,
-task-aware readiness persistence/issuance, activation changes, and production
-wiring remain behind later approval gates.
+cold-verification/canonical readiness-basis checkpoint are complete. A backend
+step-3A prototype demonstrated the intended sequential admitted store
+composition and opaque proof, but final review found that authoritative
+expected evidence is not owned/correlated until after R2 reads and that a
+shared-backed byte view can survive an attempted generic clone. The prototype
+was removed. Step 3A is therefore blocked on a bounded Standard Application
+pre-read preparation/post-read completion contract with synchronous owned-byte
+capture; backend duplication is forbidden. The pure result alone still
+carries no R2-read authority. Hosted R2 deadline/
+settlement and measured Worker-heap proof, task-aware readiness persistence/
+issuance, activation changes, and production wiring remain behind later gates.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime
