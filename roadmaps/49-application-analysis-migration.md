@@ -1856,6 +1856,66 @@ If implementation discovers that the existing row/index primitives cannot
 provide the promised snapshot semantics without changing their authority, stop
 at that owner boundary and amend this preflight before proceeding.
 
+#### AA-R6 query-first active composition checkpoint — 2026-08-12
+
+The query-only cut is implemented without adding a query grant, session,
+journal, outcome row, runtime artifact copy, or alternate active source.
+Persistence now issues one Scope-owned `ApplicationQuerySnapshot` only after
+claiming the process-local active selection, replaying the exact Application
+Schema Authority projection, resolving the complete developer-index definition
+set, validating the active head under the shared scope-clock lock, and matching
+the selected public-query manifest entry to the canonical stored Application
+function row. Every capability use revalidates the active selection and retained
+history floor at the pinned commit sequence.
+
+Point reads delegate to the existing snapshot row owner. Developer-index reads
+require the exact schema binding and opaque located definition, require the
+current fenced build to remain enabled, scan the existing ordered-index history,
+re-derive each selected row's key, and materialize documents in bounded
+eight-document batches while charging the shared point/index/document/semantic-byte
+budget. This is deliberately a read capability only: it records no OCC read set
+and has no write or commit authority.
+
+One snapshot-local semaphore serializes document-producing point and index RPC
+operations. This is part of the resource contract, not database consistency:
+each operation observes all prior document and semantic-byte charges before it
+can start another materialization transaction, so concurrent user-code fan-out
+cannot turn a small cumulative budget into many simultaneous large reads.
+Scope finalization marks the snapshot closed before removing its opaque handle;
+queued RPCs re-check that state after acquiring the semaphore and therefore
+cannot start transactions after Worker timeout, interruption, or normal return.
+
+The new unversioned private `ApplicationQuerySystem` reads the new Application
+active selection, opens that snapshot, reads the authenticated Source Artifact
+bundle, constructs the exact Application runtime target and Worker definition,
+and invokes the committed fresh-load `ApplicationExecutionHost`. Query argument
+normalization now reuses the protocol owner's operation-specific 1 MiB traversal
+ceiling, so composition does not first allocate under the broader general Value
+limit. The Worker sees only the bounded RPC snapshot adapter. The Standard
+point-query compatibility entrypoint requires only this new service and Scope;
+it no longer reads Application Revision V1 or invokes the candidate-bound query
+System. Mutation and action still use the displaced reader pending their own
+approved authority checkpoints.
+
+Focused proof covers canonical stored-function selection and corruption,
+foreign-control developer-index composition refusal, active-head and retained-
+history staleness, all four operation-budget dimensions, disabled-index
+refusal, a real PGlite row plus developer-index build and ordered page,
+anonymous and authenticated-user request projection, operation-specific
+argument traversal, single-capture Layer construction, and a Standard
+invocation that cannot obtain the old active reader. The existing committed
+Application execution-host tests remain the owner proof for request/result
+decoding, fresh Worker load, interruption, late-result disposal, and timeout.
+The query checkpoint is validated and reviewed without absorbing or repairing
+unrelated concurrent R2 or Task Runtime work.
+
+This checkpoint completes only the first of the four accepted consumer cuts.
+It does not satisfy the mutation transaction-start/grant authority, action
+history authority, Task definition/run generation, AA-R7 genuine-PostgreSQL
+proof, or AA-R8 removal gates. The next authorized work is the mutation-authority
+preflight; no mutation implementation begins until that preflight shows an
+honest ingress to the unchanged journal, OCC, terminalization, and commit owners.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration

@@ -15,6 +15,7 @@
     "./internal/application-schema-authority": "./src/applicationSchemaAuthority.ts",
     "./internal/application-readiness": "./src/applicationReadiness.ts",
     "./internal/application-activation": "./src/applicationActivation.ts",
+    "./internal/application-query-snapshot": "./src/applicationQuerySnapshot.ts",
     "./internal/task-wake-scheduler-partition-v1": "./src/taskSystemWakeSchedulerPartitionV1.ts",
     "./internal/task-wake-scheduler-directory-v1": "./src/taskSystemWakeSchedulerDirectoryV1.ts",
     "./internal/task-wake-scheduler-repair-directory-v1": "./src/taskSystemWakeSchedulerRepairDirectoryV1.ts",

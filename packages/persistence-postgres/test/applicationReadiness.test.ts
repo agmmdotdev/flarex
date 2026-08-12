@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { eq } from "drizzle-orm";
 
 import {
   canonicalizeApplicationManifestV1,
@@ -13,7 +14,7 @@ import {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
-import { Effect, Result } from "effect";
+import { Effect, Exit, Result, Scope } from "effect";
 import {
   canonicalizeApplicationRuntimeColdReceiptV1,
 } from "flarex-protocol/internal/application-runtime-cold-receipt-v1";
@@ -22,11 +23,21 @@ import {
   type CanonicalApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
+  decodeAppDocumentIdV1,
+  decodeAppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import { CommitSeqSchema } from "flarex-protocol/storage-authority";
+import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -60,6 +71,12 @@ import {
   makeApplicationActivationRepository,
   validateApplicationActiveSelectionInTransaction,
 } from "../src/applicationActivation";
+import {
+  openApplicationQuerySnapshot,
+  readApplicationQueryIndex,
+  readApplicationQueryPoint,
+  revalidateApplicationQuerySnapshot,
+} from "../src/applicationQuerySnapshot";
 import { makeApplicationSchemaAuthorityPublisher } from
   "../src/applicationSchemaAuthority";
 import {
@@ -78,14 +95,23 @@ import {
 } from "../src/transactionSessionAttemptKernel";
 import type { AppRowTransaction } from "../src/appRows";
 import {
+  locateAppIndexDefinitionByIdEffect,
+} from "../src/appIndexDefinitions";
+import {
+  appendAppRowRevisionAndAdvanceCurrentInTransaction,
+} from "../src/appRows";
+import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
 } from "../src/indexBuildReconciliation";
 import {
+  buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createPointCommitPublisherPortV1 } from
   "../src/pointCommitTransaction";
+import { createAppDeveloperIndexDefinitionPortV1 } from
+  "../src/appDeveloperIndexCommitV1";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
 import { runEffect } from "./effectTestRuntime";
@@ -93,6 +119,10 @@ import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import { lockScopeClockForShareInTransactionEffect } from
   "../src/scopeClock";
+import {
+  fxSystemIndexBuildStates,
+  fxSystemScopeClocks,
+} from "../src/schema";
 
 const ROOT = "a".repeat(64);
 const EXECUTION_SOURCE = "b".repeat(64);
@@ -743,6 +773,541 @@ describe("Application activation", { timeout: 30_000 }, () => {
       "fx_system_application_active_head_v1",
     )).toBe(1);
   });
+
+  it("opens and revalidates an Application query snapshot from exact active function evidence", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const metadata = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      const revalidated = yield* revalidateApplicationQuerySnapshot(
+        opened.snapshot,
+      );
+      expect(revalidated).toEqual(opened.metadata);
+      return revalidated;
+    })));
+
+    expect(metadata).toMatchObject({
+      function: {
+        path: "users:get",
+        kind: "query",
+        visibility: "public",
+      },
+      snapshotToken: {
+        scopeId: fixture.authority.scopeId,
+      },
+    });
+    expect(metadata.function.entrySha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("rejects corrupted stored Application function evidence before issuing a query snapshot", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    await fixture.target.query(
+      `update fx_system_application_function_v1
+          set entry_bytes = $1
+        where scope_id = $2 and revision_id = $3`,
+      [new Uint8Array([1]), fixture.authority.scopeId, fixture.input.revisionId],
+    );
+
+    const result = await runEffect(Effect.result(Effect.scoped(
+      openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      ),
+    )));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ reason: "storedFunction" });
+    }
+  });
+
+  it("rejects a developer-index port issued by another control database", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const result = await runEffect(Effect.result(Effect.scoped(
+      openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: createAppDeveloperIndexDefinitionPortV1(
+            fixture.target.drizzle,
+          ),
+        },
+      ),
+    )));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ reason: "invalidComposition" });
+    }
+  });
+
+  it("enforces point-read budgets and retained-history staleness on an issued query snapshot", async () => {
+    const fixture = await readinessFixture({ includeTable: true });
+    const schemaVersionId = await prepareReadinessAuthorities(fixture);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const result = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        Object.freeze({
+          ...queryBudget(),
+          maximumPointReads: 1,
+        }),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      const missing = yield* readApplicationQueryPoint(
+        opened.snapshot,
+        "users",
+        decodeAppDocumentIdV1("1:00000000-0000-0000-0000-000000000001"),
+      );
+      const budget = yield* Effect.result(readApplicationQueryPoint(
+        opened.snapshot,
+        "users",
+        decodeAppDocumentIdV1("1:00000000-0000-0000-0000-000000000002"),
+      ));
+      const staleOpened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      yield* Effect.promise(() => fixture.target.query(
+        `update fx_system_scope_clock
+            set last_commit_seq = last_commit_seq + 1,
+                oldest_available_commit_seq = last_commit_seq + 1
+          where scope_id = $1`,
+        [fixture.authority.scopeId],
+      ));
+      const stale = yield* Effect.result(
+        revalidateApplicationQuerySnapshot(opened.snapshot),
+      );
+      const stalePoint = yield* Effect.result(readApplicationQueryPoint(
+        staleOpened.snapshot,
+        "users",
+        decodeAppDocumentIdV1("1:00000000-0000-0000-0000-000000000003"),
+      ));
+      return { missing, budget, stale, stalePoint };
+    })));
+
+    expect(result.missing).toEqual({ kind: "missing" });
+    expect(Result.isFailure(result.budget)).toBe(true);
+    if (Result.isFailure(result.budget)) {
+      expect(result.budget.failure).toMatchObject({ reason: "budgetExceeded" });
+    }
+    expect(Result.isFailure(result.stale)).toBe(true);
+    if (Result.isFailure(result.stale)) {
+      expect(result.stale.failure).toMatchObject({
+        operation: "revalidate",
+        reason: "historyUnavailable",
+      });
+    }
+    expect(Result.isFailure(result.stalePoint)).toBe(true);
+    if (Result.isFailure(result.stalePoint)) {
+      expect(result.stalePoint.failure).toMatchObject({
+        operation: "pointRead",
+        reason: "historyUnavailable",
+      });
+    }
+  });
+
+  it("rejects a query snapshot after the Application active head moves", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    const first = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+
+    const stale = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      const nextRevisionId = yield* Effect.promise(() =>
+        createAdditionalApplicationRevision(fixture)
+      );
+      yield* fixture.repository.settle({
+        deploymentId: fixture.input.deploymentId,
+        revisionId: nextRevisionId,
+      });
+      yield* activation.activate({
+        revisionId: nextRevisionId,
+        expectedActiveHead: first.expectedActiveHead,
+      });
+      return yield* Effect.result(
+        revalidateApplicationQuerySnapshot(opened.snapshot),
+      );
+    })));
+
+    expect(Result.isFailure(stale)).toBe(true);
+    if (Result.isFailure(stale)) {
+      expect(stale.failure).toMatchObject({ reason: "concurrentHead" });
+    }
+  });
+
+  it("closes queued query reads before they start another transaction", async () => {
+    const fixture = await readinessFixture({ includeTable: true });
+    const schemaVersionId = await prepareReadinessAuthorities(fixture);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const resolved = await fixture.authorityPorts.scopeClockTargets.resolve();
+    const runner = Reflect.get(resolved, RUN_LOCATED_READ_COMMITTED_V1);
+    if (typeof runner !== "function") {
+      throw new Error("Expected the located query transaction runner.");
+    }
+    const runReadCommitted = runner as RunLocatedReadCommittedTransactionV1;
+    let transactionStarts = 0;
+    const firstStarted = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const observedTarget = Object.freeze({
+      ...resolved,
+      [RUN_LOCATED_READ_COMMITTED_V1]: async <Value>(
+        work: (tx: AppRowTransaction) => Promise<Value>,
+      ): Promise<Value> => {
+        transactionStarts += 1;
+        if (transactionStarts === 2) {
+          firstStarted.resolve();
+          await releaseFirst.promise;
+        }
+        return runReadCommitted(work);
+      },
+    });
+    fixture.authorityPorts.scopeClockTargets.resolve = async () => observedTarget;
+    const scope = await runEffect(Scope.make());
+    const opened = await runEffect(openApplicationQuerySnapshot(
+      active.selection,
+      "users:get",
+      queryBudget(),
+      {
+        deploymentId: fixture.input.deploymentId,
+        controlDb: fixture.control.drizzle,
+        authority: fixture.authorityPorts,
+        schema: fixture.schema,
+        developerIndexes: queryDeveloperIndexes(fixture),
+      },
+    ).pipe(Scope.provide(scope)));
+    const read = () => readApplicationQueryPoint(
+      opened.snapshot,
+      "users",
+      decodeAppDocumentIdV1("1:00000000-0000-0000-0000-000000000001"),
+    );
+    const first = Effect.runPromise(Effect.result(read()));
+    await firstStarted.promise;
+    const queued = Array.from({ length: 8 }, () =>
+      Effect.runPromise(Effect.result(read()))
+    );
+    await runEffect(Scope.close(scope, Exit.succeed(undefined)));
+    releaseFirst.resolve();
+    const [firstResult, ...queuedResults] = await Promise.all([first, ...queued]);
+
+    expect(Result.isSuccess(firstResult)).toBe(true);
+    expect(queuedResults.every(Result.isFailure)).toBe(true);
+    expect(transactionStarts).toBe(2);
+  });
+
+  it("materializes an ordered developer-index page from the active snapshot", async () => {
+    const fixture = await readinessFixture({
+      includeTable: true,
+      includeIndex: true,
+    });
+    const schemaVersionId = await prepareReadinessAuthorities(fixture);
+    const expected = await insertApplicationQueryRow(fixture, schemaVersionId);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    await runEffect(fixture.repository.settle(fixture.input));
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+
+    const page = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      return yield* readApplicationQueryIndex(
+        opened.snapshot,
+        "users",
+        "by_name",
+        {},
+        10,
+      );
+    })));
+
+    expect(page).toEqual({ documents: [expected.value], isDone: true });
+
+    const indexBudget = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        Object.freeze({ ...queryBudget(), maximumIndexReads: 1 }),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      yield* readApplicationQueryIndex(opened.snapshot, "users", "by_name", {}, 10);
+      return yield* readApplicationQueryIndex(
+        opened.snapshot,
+        "users",
+        "by_name",
+        {},
+        10,
+      );
+    }))));
+    expect(Result.isFailure(indexBudget)).toBe(true);
+    if (Result.isFailure(indexBudget)) {
+      expect(indexBudget.failure).toMatchObject({ reason: "budgetExceeded" });
+    }
+
+    const documentBudget = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        Object.freeze({ ...queryBudget(), maximumDocuments: 1 }),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      yield* readApplicationQueryIndex(opened.snapshot, "users", "by_name", {}, 10);
+      return yield* readApplicationQueryPoint(
+        opened.snapshot,
+        "users",
+        decodeAppDocumentIdV1(
+          "1:11111111-1111-1111-1111-111111111111",
+        ),
+      );
+    }))));
+    expect(Result.isFailure(documentBudget)).toBe(true);
+    if (Result.isFailure(documentBudget)) {
+      expect(documentBudget.failure).toMatchObject({ reason: "budgetExceeded" });
+    }
+
+    const semanticBudget = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        Object.freeze({ ...queryBudget(), maximumSemanticBytes: 1 }),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      return yield* readApplicationQueryIndex(
+        opened.snapshot,
+        "users",
+        "by_name",
+        {},
+        10,
+      );
+    }))));
+    expect(Result.isFailure(semanticBudget)).toBe(true);
+    if (Result.isFailure(semanticBudget)) {
+      expect(semanticBudget.failure).toMatchObject({ reason: "budgetExceeded" });
+    }
+
+    const resolved = await fixture.authorityPorts.scopeClockTargets.resolve();
+    const runner = Reflect.get(resolved, RUN_LOCATED_READ_COMMITTED_V1);
+    if (typeof runner !== "function") {
+      throw new Error("Expected the located query transaction runner.");
+    }
+    const runReadCommitted = runner as RunLocatedReadCommittedTransactionV1;
+    let transactionStarts = 0;
+    const observedTarget = Object.freeze({
+      ...resolved,
+      [RUN_LOCATED_READ_COMMITTED_V1]: <Value>(
+        work: (tx: AppRowTransaction) => Promise<Value>,
+      ): Promise<Value> => {
+        transactionStarts += 1;
+        return runReadCommitted(work);
+      },
+    });
+    fixture.authorityPorts.scopeClockTargets.resolve = async () => observedTarget;
+    const fanOut = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        Object.freeze({ ...queryBudget(), maximumDocuments: 1 }),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      yield* readApplicationQueryIndex(opened.snapshot, "users", "by_name", {}, 10);
+      const startsBeforeFanOut = transactionStarts;
+      const results = yield* Effect.all(
+        Array.from({ length: 8 }, () => Effect.result(
+          readApplicationQueryPoint(
+            opened.snapshot,
+            "users",
+            decodeAppDocumentIdV1(
+              "1:11111111-1111-1111-1111-111111111111",
+            ),
+          ),
+        )),
+        { concurrency: "unbounded" },
+      );
+      return { results, startsBeforeFanOut };
+    })));
+    expect(fanOut.results.every(Result.isFailure)).toBe(true);
+    expect(transactionStarts).toBe(fanOut.startsBeforeFanOut);
+
+    await fixture.target.drizzle.update(fxSystemIndexBuildStates).set({
+      lifecycle: "validating",
+    }).where(eq(fxSystemIndexBuildStates.scopeId, fixture.authority.scopeId));
+    const unavailable = await runEffect(Effect.result(Effect.scoped(Effect.gen(function* () {
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      return yield* readApplicationQueryIndex(
+        opened.snapshot,
+        "users",
+        "by_name",
+        {},
+        10,
+      );
+    }))));
+    expect(Result.isFailure(unavailable)).toBe(true);
+    if (Result.isFailure(unavailable)) {
+      expect(unavailable.failure).toMatchObject({ reason: "indexUnavailable" });
+    }
+  });
 });
 
 type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
@@ -751,6 +1316,7 @@ interface ReadinessFixtureOptions {
   readonly registerTaskCatalog?: boolean;
   readonly includeFunction?: boolean;
   readonly includeTable?: boolean;
+  readonly includeIndex?: boolean;
   readonly includeTask?: boolean;
   readonly coldMode?: "normal" | "wrongTarget" | "advanceAuthority";
   readonly foreignSchemaControl?: boolean;
@@ -802,6 +1368,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
   const manifest = applicationManifest(
     options.includeFunction !== false,
     options.includeTable === true,
+    options.includeIndex === true,
   );
   const analysis = await createApplicationRevision(target, authority, manifest);
   const publication = await runEffect(
@@ -940,12 +1507,28 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     candidateValidation,
     pointCommit,
     repository,
+    schema: readinessContext.schema,
     input: Object.freeze({
       deploymentId,
       revisionId: publication.revisionId,
     }),
     materializationCount: () => materializations,
   });
+}
+
+function queryBudget() {
+  return Object.freeze({
+    maximumPointReads: 16,
+    maximumIndexReads: 16,
+    maximumDocuments: 64,
+    maximumSemanticBytes: 1_048_576,
+  });
+}
+
+function queryDeveloperIndexes(
+  fixture: Awaited<ReturnType<typeof readinessFixture>>,
+) {
+  return createAppDeveloperIndexDefinitionPortV1(fixture.control.drizzle);
 }
 
 async function prepareReadinessAuthorities(
@@ -989,21 +1572,68 @@ async function enablePhysicalBuilds(
     throw new Error("Expected Application physical requirements.");
   }
   for (const definition of requirements.definitions) {
+    const located = await runEffect(locateAppIndexDefinitionByIdEffect(
+      fixture.control.drizzle,
+      fixture.authority.scopeId,
+      definition.indexDefinitionId,
+    ));
+    if (located === null) throw new Error("Application index definition missing.");
     for (let step = 0; step < 16; step += 1) {
-      const built = await runEffect(buildIntrinsicCreationTimeIndexV1Effect(
-        ports,
-        Object.freeze({
-          deploymentId: fixture.input.deploymentId,
-          indexDefinitionId: definition.indexDefinitionId,
-          pageSize: 16,
-        }),
-      ));
+      const input = Object.freeze({
+        deploymentId: fixture.input.deploymentId,
+        indexDefinitionId: definition.indexDefinitionId,
+        pageSize: 16,
+      });
+      const built = located.access.kind === "developer"
+        ? await runEffect(buildAppDeveloperOrderedIndexV1Effect(ports, input))
+        : await runEffect(buildIntrinsicCreationTimeIndexV1Effect(ports, input));
       if (built.lifecycle === "enabled") break;
       if (step === 15) {
         throw new Error("Application physical build did not enable.");
       }
     }
   }
+}
+
+async function insertApplicationQueryRow(
+  fixture: Awaited<ReturnType<typeof readinessFixture>>,
+  schemaVersionId: CatalogSchemaVersionId,
+) {
+  const tableId = decodeCatalogTableId(1);
+  const rowId = decodeAppRowIdHexV1("11".repeat(16));
+  const creationTime = decodeAppCreationTimeV1(1);
+  const document = await canonicalizeAppDocumentV1({
+    tableId,
+    rowId,
+    creationTime,
+    fields: { name: "Ada" },
+  });
+  const clock = await fixture.target.getScopeClock(fixture.authority.scopeId);
+  if (clock === null) throw new Error("Application query clock missing.");
+  const commitSeq = CommitSeqSchema.make(1n);
+  await fixture.target.drizzle.transaction(async tx => {
+    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+      kind: "live",
+      scopeId: fixture.authority.scopeId,
+      tableId,
+      rowId,
+      writeEpoch: clock.epoch,
+      commitSeq,
+      prevCommitSeq: null,
+      schemaVersionId,
+      creationTime,
+      value: {
+        codecVersion: document.codecVersion,
+        valueJson: document.valueJson,
+        canonicalBytes: document.canonicalBytes,
+        sha256: document.sha256,
+      },
+    });
+    await tx.update(fxSystemScopeClocks).set({ lastCommitSeq: commitSeq }).where(
+      eq(fxSystemScopeClocks.scopeId, fixture.authority.scopeId),
+    );
+  });
+  return document;
 }
 
 async function createApplicationRevision(
@@ -1162,7 +1792,21 @@ async function scalarCount(
   return Number(count);
 }
 
-function applicationManifest(includeFunction: boolean, includeTable: boolean) {
+function deferred<Value>() {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  let reject!: (cause?: unknown) => void;
+  const promise = new Promise<Value>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function applicationManifest(
+  includeFunction: boolean,
+  includeTable: boolean,
+  includeIndex = false,
+) {
   return Result.getOrThrow(canonicalizeApplicationManifestV1({
     format: "flarex.application-manifest",
     version: 1,
@@ -1198,7 +1842,12 @@ function applicationManifest(includeFunction: boolean, includeTable: boolean) {
         },
         placement: { kind: "global" },
       }] : [],
-      indexes: [],
+      indexes: includeIndex ? [{
+        indexId: 1,
+        tableId: 1,
+        name: "by_name",
+        fields: ["name"],
+      }] : [],
     },
     functions: includeFunction ? [{
       path: "users:get",

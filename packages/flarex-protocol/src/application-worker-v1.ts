@@ -138,6 +138,11 @@ export interface ApplicationWorkerResultV1 {
   readonly value: CanonicalFlarexRuntimeValueV1;
 }
 
+export interface NormalizedApplicationWorkerArgumentsV1 {
+  readonly value: CanonicalFlarexRuntimeObjectV1;
+  readonly semanticSizeBytes: number;
+}
+
 export class ApplicationWorkerProtocolV1Error extends Data.TaggedError(
   "ApplicationWorkerProtocolV1Error",
 )<{
@@ -153,6 +158,22 @@ export class ApplicationWorkerProtocolV1Error extends Data.TaggedError(
   readonly path?: string;
   readonly cause?: unknown;
 }> {}
+
+/**
+ * Own and normalize query arguments under the query-family traversal budget.
+ * Request composers use this to derive the advertised semantic byte count
+ * without first entering the broader general Value normalization ceiling.
+ */
+export const normalizeApplicationQueryArgumentsV1Effect = Effect.fn(
+  "ApplicationWorkerProtocol.normalizeQueryArgumentsV1",
+)((input: unknown): Effect.Effect<
+  NormalizedApplicationWorkerArgumentsV1,
+  ApplicationWorkerProtocolV1Error
+> => decodeArguments(
+  input,
+  MAX_APPLICATION_QUERY_ARGUMENT_SEMANTIC_BYTES_V1,
+  "transactionRequest",
+));
 
 export const decodeApplicationTransactionWorkerRequestV1Effect = Effect.fn(
   "ApplicationWorkerProtocol.decodeTransactionRequestV1",
@@ -381,10 +402,7 @@ function decodeArguments(
   maximumSemanticBytes: number,
   boundary: "transactionRequest" | "actionRequest",
 ): Effect.Effect<
-  Readonly<{
-    readonly value: CanonicalFlarexRuntimeObjectV1;
-    readonly semanticSizeBytes: number;
-  }>,
+  NormalizedApplicationWorkerArgumentsV1,
   ApplicationWorkerProtocolV1Error
 > {
   return captureValueWithinBudgetEffect(

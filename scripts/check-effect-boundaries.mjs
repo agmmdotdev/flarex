@@ -101,6 +101,9 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/scopeAuthorizationEpochAuthority.ts", "runScopeAuthorizationEpochEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/stableTableCatalog.ts", "runStableTableCatalogEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "runExactRunningAttemptEffectTransaction"), 1],
+  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.revalidate"), 1],
+  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.readPointDocument"), 1],
+  [siteKey("packages/standard-application-invocation/src/ApplicationQuerySystem.ts", "ApplicationQueryRpcCapability.queryIndexRange"), 1],
 ]);
 
 if (isCliEntrypoint()) {

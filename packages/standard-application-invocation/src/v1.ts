@@ -9,6 +9,7 @@ import type {
   TransactionFunctionPathV1,
   TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 
 import {
@@ -18,10 +19,10 @@ import {
   type InvokeApplicationPointMutationV1Error,
 } from "./systemV1";
 import {
-  ApplicationPointQuerySystemV1,
-  invokeApplicationPointQueryV1,
-  type InvokeApplicationPointQueryV1Error,
-} from "./querySystemV1";
+  ApplicationQuerySystem,
+  invokeApplicationQuery,
+  type InvokeApplicationQueryError,
+} from "./ApplicationQuerySystem";
 import {
   ApplicationActionSystemV1,
   invokeApplicationActionV1,
@@ -45,8 +46,7 @@ export type InvokeStandardApplicationPointMutationV1Error =
   | InvokeApplicationPointMutationV1Error;
 
 export type InvokeStandardApplicationPointQueryV1Error =
-  | ReadActiveApplicationRevisionV1Error
-  | InvokeApplicationPointQueryV1Error;
+  InvokeApplicationQueryError;
 
 export type InvokeStandardApplicationActionV1Error =
   | ReadActiveApplicationRevisionV1Error
@@ -90,20 +90,14 @@ export const invokeStandardApplicationPointQueryV1 = Effect.fn(
 )(function* (
   functionRef: TransactionFunctionPathV1,
   args: unknown,
+  identity?: ExecutionIdentity,
 ): Effect.fn.Return<
   CanonicalFlarexRuntimeValueV1,
   InvokeStandardApplicationPointQueryV1Error,
-  | StandardApplicationActiveRevisionReaderV1
-  | ApplicationPointQuerySystemV1
+  | ApplicationQuerySystem
   | Scope.Scope
 > {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
-  const active = yield* reader.read;
-  return yield* invokeApplicationPointQueryV1(
-    active.selection,
-    functionRef,
-    args,
-  );
+  return yield* invokeApplicationQuery(functionRef, args, identity);
 });
 
 /**
