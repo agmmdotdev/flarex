@@ -5,6 +5,7 @@ export * from "./Model.js";
 export * from "./RuntimePublicationCanonical.js";
 export * from "./RuntimePublicationDigest.js";
 export * from "./RuntimePublicationErrors.js";
+export * from "./RuntimePublicationPreparation.js";
 export * from "./RuntimePublicationSchema.js";
 export * from "./Schema.js";
 export * from "./Sha256.js";

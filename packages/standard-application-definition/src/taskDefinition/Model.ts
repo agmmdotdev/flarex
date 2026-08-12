@@ -4,10 +4,20 @@ import type {
   TaskDefinitionRevisionIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import type { Brand } from "effect";
-import type {
-  SourceArtifactV2ModuleRolesV1,
+import {
+  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  isSourceArtifactV2ModuleRolesV1,
+  type SourceArtifactV2ModuleRolesV1,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
+
+export {
+  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  isSourceArtifactV2ModuleRolesV1,
+  type SourceArtifactV2ModuleRolesV1,
+};
 
 export const CANONICAL_TASK_MANIFEST_CODEC_V1 =
   "flarex.standard-application/task-manifest/v1" as const;
@@ -43,11 +53,18 @@ export const MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1 = 1_024;
 export const MAX_TASK_RUNTIME_OBJECT_REFERENCES_V1 = 4_096;
 export const MAX_TASK_DEFINITION_CANONICAL_BYTES_V1 = 16 * 1_024 * 1_024;
 export const MAX_TASK_RUNTIME_MODULES_V1 = 4_096;
+/** Leaves one task entry plus three singleton roles within one runtime binding. */
+export const MAX_TASK_RUNTIME_PUBLICATION_MODULES_V1 =
+  MAX_TASK_RUNTIME_OBJECT_REFERENCES_V1 - 4;
 export const MAX_TASK_RUNTIME_MODULE_SOURCE_BYTES_V1 = 8 * 1_024 * 1_024;
 export const MAX_TASK_RUNTIME_PROJECTION_RAW_BYTES_V1 = 64 * 1_024 * 1_024;
 export const MAX_TASK_RUNTIME_COMPUTE_PROFILES_V1 = 256;
 export const MAX_TASK_RUNTIME_COMPATIBILITY_FLAGS_V1 = 64;
 export const MAX_TASK_RUNTIME_PUBLICATION_TEXT_UTF8_BYTES_V1 = 1_024;
+export const MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1 =
+  MAX_TASK_RUNTIME_PUBLICATION_MODULES_V1 + MAX_TASK_CATALOG_ENTRIES_V1 + 3;
+export const MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1 =
+  128 * 1_024 * 1_024;
 export const TASK_RUNTIME_CONTRACT_IDENTITY_V1 =
   "flarex.task-runtime/durable-task/v1" as const;
 export const TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1 =

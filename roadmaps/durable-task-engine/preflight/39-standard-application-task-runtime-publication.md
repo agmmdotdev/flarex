@@ -2,9 +2,9 @@
 
 ## Status
 
-**Decision:** Approved. SAP-TRP1 is complete as a production-inert pure
-contract checkpoint. SAP-TRP2 through SAP-TRP6 remain pending and require the
-ordered approvals below.
+**Decision:** Approved. SAP-TRP1 and SAP-TRP2 are complete as
+production-inert pure checkpoints. SAP-TRP3 through SAP-TRP6 remain pending
+and require the ordered approvals below.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -276,6 +276,8 @@ their owning slice.
 
 ### SAP-TRP2: Pure publication preparation
 
+**Complete (2026-08-12).**
+
 - derive every body/reference from authenticated prepared Standard Application
   evidence and trusted runtime policy;
 - prove all candidate/binding/artifact/source/semantic correlations;
@@ -283,6 +285,30 @@ their owning slice.
 - reject collisions, missing execution module, unsupported policy, and budget
   breaches; and
 - perform no DB, R2, readiness, activation, or Worker Loader operation.
+
+The package-local `prepareTaskRuntimePublicationV1` now reuses the existing
+prepared Standard Application graph, hashed task catalog, application task
+bindings, SAP-TRP1 codecs/digests, and SHA-256 capability. It rehashes the
+catalog, decodes and hashes one candidate frame that commits the
+package/artifact/source/semantic roots, correlates that frame to the exact
+scope/candidate/revision and authenticated Source Artifact root evidence,
+verifies ordered authenticated module membership, enforces the
+trusted compatibility/implementation/compute-profile policy, and derives the
+application-task binding digests and application-revision task-binding digest
+rather than accepting unchecked digests from its caller. Populated catalogs
+retain private owned canonical bodies behind copy-on-read accessors, exact
+store/role/codec/ordinal/key/length/digest membership, binding roots, and an
+immutable publication-receipt preimage. Explicitly empty catalogs produce a
+derived empty entry root and binding with no runtime objects.
+
+Validation receipt:
+
+- `pnpm --filter @flarex/standard-application-definition typecheck`;
+- `pnpm --filter @flarex/standard-application-definition test` — seven files,
+  54 tests; and
+- focused SAP-TRP2 preparation tests cover deterministic replay and defensive
+  ownership, empty catalogs, forged catalog/source/binding evidence, and
+  unsupported runtime policy.
 
 After SAP-TRP1 closes, DTE06-D2 is no longer blocked on undefined object/spec
 contracts and may proceed independently. DTE06-D3 remains blocked on SAP-TRP6
@@ -345,11 +371,13 @@ not application-revision artifacts.
 
 ## Stop Boundary
 
-Approval and implementation close only SAP-TRP1, the pure canonical
-role-contract checkpoint. DTE06-D2 may now begin under its already approved
-Preflight 38 because the private ABI/materialization identities are fixed;
-that does not authorize DTE06-D3 or any production composition. SAP-TRP4
-requires a fresh
+Approval and implementation close SAP-TRP1 and SAP-TRP2, the pure canonical
+role-contract and publication-preparation checkpoints. DTE06-D2 may proceed
+under its already approved Preflight 38 because the private
+ABI/materialization identities are fixed;
+that does not authorize DTE06-D3 or any production composition. SAP-TRP3 is
+the next Standard Application checkpoint and remains separately gated by the
+immutable object-store adapter contract. SAP-TRP4 requires a fresh
 schema/migration preflight. DTE06-D1 remains a
 committed contract/verification foundation but production-incomplete until
 SAP-TRP6 and the separate run-input object-store gate both close. DTE06-D2 does

@@ -2,6 +2,7 @@ import { Data } from "effect";
 import type { CanonicalJsonEncodingInvariantIssue } from "flarex-protocol/json";
 
 export type TaskRuntimePublicationOperationV1 =
+  | "prepare_publication"
   | "decode_projection_module"
   | "decode_projection_modules"
   | "encode_projection_module"
@@ -28,6 +29,12 @@ export type TaskRuntimePublicationOperationV1 =
   | "hash_entry_root";
 
 export type TaskRuntimePublicationReasonV1 =
+  | "invalid_preparation_input"
+  | "authenticated_evidence_mismatch"
+  | "task_binding_mismatch"
+  | "unsupported_materialization_policy"
+  | "module_collision"
+  | "publication_budget_exceeded"
   | "invalid_shape"
   | "invalid_digest"
   | "invalid_ordinal"
