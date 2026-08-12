@@ -132,9 +132,10 @@ step-3A prototype demonstrated the intended sequential admitted store
 composition and opaque proof, but final review found that authoritative
 expected evidence is not owned/correlated until after R2 reads and that a
 shared-backed byte view can survive an attempted generic clone. The prototype
-was removed. Step 3A is therefore blocked on a bounded Standard Application
-pre-read preparation/post-read completion contract with synchronous owned-byte
-capture; backend duplication is forbidden. The pure result alone still
+was removed. The bounded Standard Application pre-read preparation/post-read
+completion contract with synchronous owned-byte capture is now complete, while
+backend step 3A remains unimplemented and must consume that opaque prepared
+handle; backend duplication is forbidden. The pure result alone still
 carries no R2-read authority. Hosted R2 deadline/
 settlement and measured Worker-heap proof, task-aware readiness persistence/
 issuance, activation changes, and production wiring remain behind later gates.

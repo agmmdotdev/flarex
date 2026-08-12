@@ -85,6 +85,22 @@ export interface TaskRuntimeReadinessVerificationInput {
   readonly runtimeObjects: ReadonlyArray<TaskRuntimeReadinessObject>;
 }
 
+export interface TaskRuntimeReadinessPreparationInput {
+  readonly receiptCanonicalBytes: Uint8Array;
+  readonly receiptSha256: TaskDefinitionSha256V1;
+  readonly expected: TaskRuntimeReadinessExpectedEvidence;
+}
+
+export interface PreparedTaskRuntimeReadinessVerification {
+  readonly readRuntimeObjectReferences: () =>
+    ReadonlyArray<TaskRuntimeObjectReferenceV1>;
+}
+
+export interface TaskRuntimeReadinessCompletionInput {
+  readonly prepared: PreparedTaskRuntimeReadinessVerification;
+  readonly runtimeObjects: ReadonlyArray<TaskRuntimeReadinessObject>;
+}
+
 export interface TaskRuntimeReadinessBasisV1 {
   readonly version: 1;
   readonly kind: "empty" | "populated";
@@ -129,6 +145,12 @@ export interface PreparedTaskRuntimeReadinessBasisV1 {
 export type VerifyTaskRuntimeReadinessError =
   | InvalidTaskRuntimeReadinessV1Error<"verify_readiness">
   | StandardApplicationTaskSha256V1Error;
+
+export type PrepareTaskRuntimeReadinessVerificationError =
+  VerifyTaskRuntimeReadinessError;
+
+export type CompleteTaskRuntimeReadinessVerificationError =
+  VerifyTaskRuntimeReadinessError;
 
 export function invalidTaskRuntimeReadiness<
   Operation extends TaskRuntimeReadinessOperationV1,

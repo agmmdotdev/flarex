@@ -8,14 +8,23 @@ export {
 export {
   InvalidTaskRuntimeReadinessV1Error,
   TaskRuntimeReadinessCanonicalEncodingV1Defect,
+  type CompleteTaskRuntimeReadinessVerificationError,
+  type PreparedTaskRuntimeReadinessVerification,
   type PreparedTaskRuntimeReadinessBasisV1,
+  type PrepareTaskRuntimeReadinessVerificationError,
   type TaskRuntimeReadinessBasisV1,
+  type TaskRuntimeReadinessCompletionInput,
   type TaskRuntimeReadinessExpectedEvidence,
   type TaskRuntimeReadinessObject,
   type TaskRuntimeReadinessOperationV1,
+  type TaskRuntimeReadinessPreparationInput,
   type TaskRuntimeReadinessReasonV1,
   type TaskRuntimeReadinessVerificationInput,
   type VerifyTaskRuntimeReadinessError,
 } from "./RuntimeReadinessModel.js";
-export { verifyTaskRuntimeReadiness } from
+export {
+  completeTaskRuntimeReadinessVerification,
+  prepareTaskRuntimeReadinessVerification,
+  verifyTaskRuntimeReadiness,
+} from
   "./RuntimeReadinessVerification.js";

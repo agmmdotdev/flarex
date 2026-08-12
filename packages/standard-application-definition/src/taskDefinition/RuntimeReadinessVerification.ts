@@ -50,11 +50,16 @@ import { isTaskRuntimeReadinessIdentity as validIdentity } from
 import {
   InvalidTaskRuntimeReadinessV1Error,
   invalidTaskRuntimeReadiness as readinessInvalid,
+  type CompleteTaskRuntimeReadinessVerificationError,
+  type PreparedTaskRuntimeReadinessVerification,
   type PreparedTaskRuntimeReadinessBasisV1,
+  type PrepareTaskRuntimeReadinessVerificationError,
   type TaskRuntimeReadinessBasisV1,
+  type TaskRuntimeReadinessCompletionInput,
   type TaskRuntimeReadinessExpectedEvidence,
   type TaskRuntimeReadinessObject,
   type TaskRuntimeReadinessOperationV1,
+  type TaskRuntimeReadinessPreparationInput,
   type TaskRuntimeReadinessReasonV1,
   type TaskRuntimeReadinessVerificationInput,
   type VerifyTaskRuntimeReadinessError,
@@ -82,12 +87,25 @@ import { decodeTaskRuntimeMaterializationSpecV1 } from
 import { decodeCanonicalTaskManifestV1 } from "./Schema.js";
 import type { StandardApplicationTaskSha256V1 } from "./Sha256.js";
 
-type CapturedVerificationInput = Readonly<{
+type CapturedPreparationInput = Readonly<{
   receiptCanonicalBytes: Uint8Array;
   receiptSha256: TaskDefinitionSha256V1;
   expected: TaskRuntimeReadinessExpectedEvidence;
+}>;
+
+type CapturedRuntimeObjects = Readonly<{
   runtimeObjects: ReadonlyArray<TaskRuntimeReadinessObject>;
   canonicalObjectByteLength: number;
+}>;
+
+type CapturedVerificationInput = CapturedPreparationInput &
+  CapturedRuntimeObjects;
+
+type PreparedReadinessState = Readonly<{
+  receipt: TaskRuntimePublicationReceiptPreimageV1;
+  receiptSha256: TaskDefinitionSha256V1;
+  expected: TaskRuntimeReadinessExpectedEvidence;
+  sha256: StandardApplicationTaskSha256V1;
 }>;
 
 type DecodedObjects = Readonly<{
@@ -98,6 +116,35 @@ type DecodedObjects = Readonly<{
   materialization: TaskRuntimeMaterializationSpecV1;
 }>;
 
+const preparedReadinessStates = new WeakMap<object, PreparedReadinessState>();
+
+export const prepareTaskRuntimeReadinessVerification = Effect.fn(
+  "StandardApplicationTask.prepareRuntimeReadinessVerification",
+)(function* (
+  input: TaskRuntimeReadinessPreparationInput,
+  sha256: StandardApplicationTaskSha256V1,
+): Effect.fn.Return<
+  PreparedTaskRuntimeReadinessVerification,
+  PrepareTaskRuntimeReadinessVerificationError
+> {
+  const captured = yield* Effect.fromResult(capturePreparationInput(input));
+  return yield* prepareCapturedReadiness(captured, sha256);
+});
+
+export const completeTaskRuntimeReadinessVerification = Effect.fn(
+  "StandardApplicationTask.completeRuntimeReadinessVerification",
+)(function* (
+  input: TaskRuntimeReadinessCompletionInput,
+): Effect.fn.Return<
+  PreparedTaskRuntimeReadinessBasisV1,
+  CompleteTaskRuntimeReadinessVerificationError
+> {
+  const captured = yield* Effect.fromResult(captureCompletionInput(input));
+  return yield* completeCapturedReadiness(
+    captured.state,
+    captured.runtimeObjects,
+  );
+});
 
 export const verifyTaskRuntimeReadiness = Effect.fn(
   "StandardApplicationTask.verifyRuntimeReadiness",
@@ -109,6 +156,23 @@ export const verifyTaskRuntimeReadiness = Effect.fn(
   VerifyTaskRuntimeReadinessError
 > {
   const captured = yield* Effect.fromResult(captureVerificationInput(input));
+  const prepared = yield* prepareCapturedReadiness(captured, sha256);
+  const state = preparedReadinessStates.get(prepared);
+  if (state === undefined) {
+    return yield* readinessFailure("invalid_input", "prepared");
+  }
+  return yield* completeCapturedReadiness(state, captured);
+});
+
+const prepareCapturedReadiness = Effect.fn(
+  "StandardApplicationTask.prepareCapturedRuntimeReadiness",
+)(function* (
+  captured: CapturedPreparationInput,
+  sha256: StandardApplicationTaskSha256V1,
+): Effect.fn.Return<
+  PreparedTaskRuntimeReadinessVerification,
+  PrepareTaskRuntimeReadinessVerificationError
+> {
   const receipt = yield* Effect.fromResult(
     decodeTaskRuntimePublicationReceiptPreimageV1(
       captured.receiptCanonicalBytes,
@@ -153,34 +217,42 @@ export const verifyTaskRuntimeReadiness = Effect.fn(
       "expected.taskCatalog",
     );
   }
-
-  const taskEntryRootSha256 = captured.runtimeObjects.length === 0
-    ? yield* hashEntryRoot([], sha256)
-    : undefined;
-  let materialization = captured.expected.materializationPolicy;
-  if (captured.runtimeObjects.length === 0) {
-    if (
-      captured.expected.taskCatalog.entries.length !== 0 ||
-      receipt.runtimeObjects.length !== 0 ||
-      taskEntryRootSha256 === undefined ||
-      !bytesEqualFullScan(taskEntryRootSha256, receipt.taskEntryRootSha256)
-    ) {
-      return yield* readinessFailure("runtime_root_mismatch", "empty");
-    }
-  } else {
-    const decoded = yield* decodeAndVerifyObjects(captured, receipt, sha256);
-    materialization = decoded.materialization;
-    yield* verifyPopulatedGraph(
-      decoded,
-      receipt,
-      captured.expected,
-      sha256,
+  const receiptTaskCount = receipt.runtimeObjects.filter(
+    membership => membership.reference.role === "task_runtime_entry",
+  ).length;
+  if (receiptTaskCount !== captured.expected.taskCatalog.entries.length) {
+    return yield* readinessFailure(
+      "authoritative_evidence_mismatch",
+      "expected.taskCatalog.entries",
     );
   }
 
-  const applicationBinding = applicationRevisionTaskBinding(receipt);
+  if (receipt.runtimeObjects.length > 0) {
+    const expectedPolicySha256 = yield* hashTaskRuntimeMaterializationSpecV1(
+      captured.expected.materializationPolicy,
+      sha256,
+    ).pipe(Effect.catchTag(
+      "InvalidTaskRuntimePublicationV1Error",
+      cause => readinessFailure(
+        "runtime_policy_unsupported",
+        "expected.materializationPolicy",
+        cause,
+      ),
+    ));
+    if (
+      receipt.taskRuntimeMaterializationSpecSha256 === null ||
+      !bytesEqualFullScan(
+        expectedPolicySha256,
+        receipt.taskRuntimeMaterializationSpecSha256,
+      )
+    ) return yield* readinessFailure(
+      "runtime_policy_unsupported",
+      "expected.materializationPolicy",
+    );
+  }
+
   const applicationBindingSha256 = yield* hashApplicationRevisionTaskBindingFrameV1(
-    applicationBinding,
+    applicationRevisionTaskBinding(receipt),
     sha256,
   ).pipe(
     Effect.catchTag(
@@ -195,16 +267,66 @@ export const verifyTaskRuntimeReadiness = Effect.fn(
   if (!bytesEqualFullScan(
     applicationBindingSha256,
     receipt.applicationRevisionTaskBindingSha256,
-  )) {
-    return yield* readinessFailure(
-      "runtime_root_mismatch",
-      "applicationRevisionTaskBindingSha256",
+  )) return yield* readinessFailure(
+    "runtime_root_mismatch",
+    "applicationRevisionTaskBindingSha256",
+  );
+
+  const ownedReferences = Object.freeze(receipt.runtimeObjects.map(
+    membership => copyReference(membership.reference),
+  ));
+  const prepared = Object.freeze({
+    readRuntimeObjectReferences: () => Object.freeze(
+      ownedReferences.map(copyReference),
+    ),
+  });
+  preparedReadinessStates.set(prepared, Object.freeze({
+    receipt,
+    receiptSha256: copyDigest(captured.receiptSha256),
+    expected: captured.expected,
+    sha256,
+  }));
+  return prepared;
+});
+
+const completeCapturedReadiness = Effect.fn(
+  "StandardApplicationTask.completeCapturedRuntimeReadiness",
+)(function* (
+  state: PreparedReadinessState,
+  captured: CapturedRuntimeObjects,
+): Effect.fn.Return<
+  PreparedTaskRuntimeReadinessBasisV1,
+  CompleteTaskRuntimeReadinessVerificationError
+> {
+  const { expected, receipt, sha256 } = state;
+
+  const taskEntryRootSha256 = captured.runtimeObjects.length === 0
+    ? yield* hashEntryRoot([], sha256)
+    : undefined;
+  let materialization = expected.materializationPolicy;
+  if (captured.runtimeObjects.length === 0) {
+    if (
+      expected.taskCatalog.entries.length !== 0 ||
+      receipt.runtimeObjects.length !== 0 ||
+      taskEntryRootSha256 === undefined ||
+      !bytesEqualFullScan(taskEntryRootSha256, receipt.taskEntryRootSha256)
+    ) {
+      return yield* readinessFailure("runtime_root_mismatch", "empty");
+    }
+  } else {
+    const decoded = yield* decodeAndVerifyObjects(captured, receipt, sha256);
+    materialization = decoded.materialization;
+    yield* verifyPopulatedGraph(
+      decoded,
+      receipt,
+      expected,
+      sha256,
     );
   }
 
   const basis = makeBasis(
     receipt,
-    captured.receiptSha256,
+    state.receiptSha256,
     materialization,
     captured.canonicalObjectByteLength,
   );
@@ -261,7 +383,7 @@ function authoritativeEvidenceMatches(
 const decodeAndVerifyObjects = Effect.fn(
   "StandardApplicationTask.decodeRuntimeReadinessObjects",
 )(function* (
-  input: CapturedVerificationInput,
+  input: CapturedRuntimeObjects,
   receipt: TaskRuntimePublicationReceiptPreimageV1,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<DecodedObjects, VerifyTaskRuntimeReadinessError> {
@@ -480,6 +602,39 @@ function captureVerificationInput(
     if (outer === undefined) {
       return yield* Result.fail(readinessInvalid(operation, "invalid_input"));
     }
+    const preparation = yield* capturePreparationFields(outer);
+    const runtime = yield* captureRuntimeObjects(outer.runtimeObjects);
+    return Object.freeze({
+      ...preparation,
+      ...runtime,
+    });
+  });
+}
+
+function capturePreparationInput(
+  input: unknown,
+): Result.Result<
+  CapturedPreparationInput,
+  InvalidTaskRuntimeReadinessV1Error<"verify_readiness">
+> {
+  const outer = exactDataRecord(input, [
+    "expected",
+    "receiptCanonicalBytes",
+    "receiptSha256",
+  ]);
+  return outer === undefined
+    ? Result.fail(readinessInvalid("verify_readiness", "invalid_input"))
+    : capturePreparationFields(outer);
+}
+
+function capturePreparationFields(
+  outer: Readonly<Record<string, unknown>>,
+): Result.Result<
+  CapturedPreparationInput,
+  InvalidTaskRuntimeReadinessV1Error<"verify_readiness">
+> {
+  const operation = "verify_readiness" as const;
+  return Result.gen(function* () {
     const receiptCanonicalBytes = yield* captureBytes(
       outer.receiptCanonicalBytes,
       MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1,
@@ -492,17 +647,60 @@ function captureVerificationInput(
       "receiptSha256",
     );
     const expected = yield* captureExpectedEvidence(outer.expected);
-    const rawObjects = denseDataArray(
-      outer.runtimeObjects,
-      MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1,
-    );
-    if (rawObjects === undefined) {
-      return yield* Result.fail(readinessInvalid(
-        operation,
-        "invalid_input",
-        "runtimeObjects",
-      ));
-    }
+    return Object.freeze({ receiptCanonicalBytes, receiptSha256, expected });
+  });
+}
+
+function captureCompletionInput(
+  input: unknown,
+): Result.Result<
+  Readonly<{
+    state: PreparedReadinessState;
+    runtimeObjects: CapturedRuntimeObjects;
+  }>,
+  InvalidTaskRuntimeReadinessV1Error<"verify_readiness">
+> {
+  const outer = exactDataRecord(input, ["prepared", "runtimeObjects"]);
+  if (outer === undefined || typeof outer.prepared !== "object" ||
+    outer.prepared === null) {
+    return Result.fail(readinessInvalid(
+      "verify_readiness",
+      "invalid_input",
+      "prepared",
+    ));
+  }
+  const state = preparedReadinessStates.get(outer.prepared);
+  if (state === undefined) {
+    return Result.fail(readinessInvalid(
+      "verify_readiness",
+      "invalid_input",
+      "prepared",
+    ));
+  }
+  return captureRuntimeObjects(outer.runtimeObjects).pipe(
+    Result.map(runtimeObjects => Object.freeze({ state, runtimeObjects })),
+  );
+}
+
+function captureRuntimeObjects(
+  input: unknown,
+): Result.Result<
+  CapturedRuntimeObjects,
+  InvalidTaskRuntimeReadinessV1Error<"verify_readiness">
+> {
+  const operation = "verify_readiness" as const;
+  const rawObjects = denseDataArray(
+    input,
+    MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1,
+  );
+  if (rawObjects === undefined) {
+    return Result.fail(readinessInvalid(
+      operation,
+      "invalid_input",
+      "runtimeObjects",
+    ));
+  }
+  return Result.gen(function* () {
     const runtimeObjects: TaskRuntimeReadinessObject[] = [];
     let canonicalObjectByteLength = 0;
     for (let index = 0; index < rawObjects.length; index += 1) {
@@ -541,9 +739,6 @@ function captureVerificationInput(
       runtimeObjects.push(Object.freeze({ reference, canonicalBytes }));
     }
     return Object.freeze({
-      receiptCanonicalBytes,
-      receiptSha256,
-      expected,
       runtimeObjects: Object.freeze(runtimeObjects),
       canonicalObjectByteLength,
     });
@@ -1013,6 +1208,18 @@ function copyNullableDigest(
   value: TaskDefinitionSha256V1 | null,
 ): TaskDefinitionSha256V1 | null {
   return value === null ? null : copyDigest(value);
+}
+
+function copyReference(
+  reference: TaskRuntimeObjectReferenceV1,
+): TaskRuntimeObjectReferenceV1 {
+  return Object.freeze({
+    storeIdentity: reference.storeIdentity,
+    role: reference.role,
+    objectKey: reference.objectKey,
+    byteLength: reference.byteLength,
+    sha256: copyDigest(reference.sha256),
+  });
 }
 
 function readinessFailure(

@@ -12,6 +12,7 @@ import { produceStandardApplicationSource } from "../src/applicationSource";
 import { produceApplicationTaskBindingsV1 } from
   "../src/applicationTaskBinding/v1";
 import {
+  completeTaskRuntimeReadinessVerification,
   decodeTaskRuntimeReadinessBasisPreimageV1,
   decodeTaskRuntimePublicationReceiptPreimageV1,
   encodeTaskRuntimeReadinessBasisPreimageV1,
@@ -20,10 +21,14 @@ import {
   hashTaskRuntimeReadinessBasisV1,
   makeStandardApplicationTaskSha256V1,
   makeTaskRuntimePublicationReceiptAuthorityV1,
+  prepareTaskRuntimeReadinessVerification,
   prepareTaskRuntimePublicationV1,
   taskRuntimeObjectKeyV1,
   verifyTaskRuntimeReadiness,
+  type CompleteTaskRuntimeReadinessVerificationError,
+  type PreparedTaskRuntimeReadinessVerification,
   type PreparedTaskRuntimeReadinessBasisV1,
+  type PrepareTaskRuntimeReadinessVerificationError,
   type TaskDefinitionSha256V1,
   type TaskRuntimeReadinessVerificationInput,
   type TaskRuntimePublicationPreparationInputV1,
@@ -41,6 +46,183 @@ const digest = (byte: number) =>
   new Uint8Array(32).fill(byte) as TaskDefinitionSha256V1;
 
 describe("task runtime readiness V1", () => {
+  it("prepares owned receipt membership before bodies and completes the exact handle", async () => {
+    const fixture = await readinessFixture();
+    const preparationInput = {
+      receiptCanonicalBytes: fixture.verificationInput.receiptCanonicalBytes,
+      receiptSha256: fixture.verificationInput.receiptSha256,
+      expected: fixture.verificationInput.expected,
+    };
+
+    expectTypeOf(prepareTaskRuntimeReadinessVerification(
+      preparationInput,
+      sha256,
+    )).toEqualTypeOf<Effect.Effect<
+      PreparedTaskRuntimeReadinessVerification,
+      PrepareTaskRuntimeReadinessVerificationError
+    >>();
+    const prepared = await Effect.runPromise(
+      prepareTaskRuntimeReadinessVerification(preparationInput, sha256),
+    );
+    const references = prepared.readRuntimeObjectReferences();
+    expect(references).toEqual(fixture.verificationInput.runtimeObjects.map(
+      object => object.reference,
+    ));
+    expect(Object.isFrozen(references)).toBe(true);
+    references[0]!.sha256.fill(0);
+    expect(prepared.readRuntimeObjectReferences()[0]!.sha256).toEqual(
+      fixture.verificationInput.runtimeObjects[0]!.reference.sha256,
+    );
+
+    const completionInput = {
+      prepared,
+      runtimeObjects: fixture.verificationInput.runtimeObjects,
+    };
+    expectTypeOf(completeTaskRuntimeReadinessVerification(
+      completionInput,
+    )).toEqualTypeOf<Effect.Effect<
+      PreparedTaskRuntimeReadinessBasisV1,
+      CompleteTaskRuntimeReadinessVerificationError
+    >>();
+    const completed = await Effect.runPromise(
+      completeTaskRuntimeReadinessVerification(completionInput),
+    );
+    expect(completed.readBasis()).toMatchObject({
+      kind: "populated",
+      objectCount: 7n,
+    });
+
+    await expect(Effect.runPromise(completeTaskRuntimeReadinessVerification({
+      prepared: {
+        readRuntimeObjectReferences: prepared.readRuntimeObjectReferences,
+      },
+      runtimeObjects: fixture.verificationInput.runtimeObjects,
+    }))).rejects.toMatchObject({
+      _tag: "InvalidTaskRuntimeReadinessV1Error",
+      reason: "invalid_input",
+      path: "prepared",
+    });
+  });
+
+  it("rejects malformed, mismatched, and unsupported expected evidence during preparation", async () => {
+    const fixture = await readinessFixture();
+    const cases = [
+      {
+        expected: {
+          ...fixture.verificationInput.expected,
+          scopeId: " scope-orders",
+        },
+        reason: "invalid_input",
+      },
+      {
+        expected: {
+          ...fixture.verificationInput.expected,
+          candidateSha256: digest(0xee),
+        },
+        reason: "authoritative_evidence_mismatch",
+      },
+      {
+        expected: {
+          ...fixture.verificationInput.expected,
+          materializationPolicy: {
+            ...fixture.verificationInput.expected.materializationPolicy,
+            runtimeImplementationVersion: "worker-loader-other",
+          },
+        },
+        reason: "runtime_policy_unsupported",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      await expect(Effect.runPromise(prepareTaskRuntimeReadinessVerification({
+        receiptCanonicalBytes: fixture.verificationInput.receiptCanonicalBytes,
+        receiptSha256: fixture.verificationInput.receiptSha256,
+        expected: testCase.expected,
+      }, sha256))).rejects.toMatchObject({
+        _tag: "InvalidTaskRuntimeReadinessV1Error",
+        reason: testCase.reason,
+      });
+    }
+
+    const receipt = Result.getOrThrow(
+      decodeTaskRuntimePublicationReceiptPreimageV1(
+        fixture.verificationInput.receiptCanonicalBytes,
+      ),
+    );
+    const taskEntryIndex = receipt.runtimeObjects.findIndex(
+      membership => membership.reference.role === "task_runtime_entry",
+    );
+    const taskEntry = receipt.runtimeObjects[taskEntryIndex]!;
+    const additionalTaskEntrySha256 = digest(0xac);
+    const cardinalityDriftBytes = Result.getOrThrow(
+      encodeTaskRuntimePublicationReceiptPreimageV1({
+        ...receipt,
+        runtimeObjects: [
+          ...receipt.runtimeObjects.slice(0, taskEntryIndex + 1),
+          {
+            ...taskEntry,
+            ordinal: 1n,
+            reference: {
+              ...taskEntry.reference,
+              objectKey: taskRuntimeObjectKeyV1(
+                "task_runtime_entry",
+                encodeBytesToLowercaseHex(additionalTaskEntrySha256),
+              ),
+              sha256: additionalTaskEntrySha256,
+            },
+          },
+          ...receipt.runtimeObjects.slice(taskEntryIndex + 1),
+        ],
+      }),
+    );
+    const cardinalityDriftSha256 = await Effect.runPromise(sha256(
+      cardinalityDriftBytes,
+      { maximumInputBytes: cardinalityDriftBytes.byteLength },
+    )) as TaskDefinitionSha256V1;
+    await expect(Effect.runPromise(prepareTaskRuntimeReadinessVerification({
+      receiptCanonicalBytes: cardinalityDriftBytes,
+      receiptSha256: cardinalityDriftSha256,
+      expected: fixture.verificationInput.expected,
+    }, sha256))).rejects.toMatchObject({
+      _tag: "InvalidTaskRuntimeReadinessV1Error",
+      reason: "authoritative_evidence_mismatch",
+      path: "expected.taskCatalog.entries",
+    });
+  });
+
+  it("copies shared-backed expected digests before asynchronous preparation", async () => {
+    const fixture = await readinessFixture();
+    const sharedCandidateSha256 = new Uint8Array(new SharedArrayBuffer(32));
+    sharedCandidateSha256.set(fixture.verificationInput.expected.candidateSha256);
+    let started!: () => void;
+    const startedPromise = new Promise<void>(resolve => { started = resolve; });
+    let release!: () => void;
+    const releasePromise = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
+    const gatedSha256 = makeStandardApplicationTaskSha256V1((input) => {
+      calls += 1;
+      if (calls !== 1) return nativeDigest("SHA-256", input);
+      started();
+      return releasePromise.then(() => nativeDigest("SHA-256", input));
+    });
+
+    const pending = Effect.runPromise(prepareTaskRuntimeReadinessVerification({
+      receiptCanonicalBytes: fixture.verificationInput.receiptCanonicalBytes,
+      receiptSha256: fixture.verificationInput.receiptSha256,
+      expected: {
+        ...fixture.verificationInput.expected,
+        candidateSha256: sharedCandidateSha256 as TaskDefinitionSha256V1,
+      },
+    }, gatedSha256));
+    await startedPromise;
+    sharedCandidateSha256.fill(0);
+    release();
+
+    const prepared = await pending;
+    expect(prepared.readRuntimeObjectReferences()).toHaveLength(7);
+  });
+
   it("cold-verifies a populated publication and owns its canonical basis", async () => {
     const fixture = await readinessFixture();
 
