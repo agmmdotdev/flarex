@@ -1762,6 +1762,100 @@ read primitives. The later mutation, action, and Task slices must not begin
 until their separate preflights show how their new evidence reaches the
 unchanged OCC/commit, callback/outbound, and run-lifecycle owners.
 
+#### AA-R6 query-first active composition preflight and accepted amendment — 2026-08-12
+
+The exact source audit accepts one medium query-only implementation checkpoint.
+It composes already-issued authority; it does not add a durable query request,
+outcome, grant, session, or active-head generation.
+
+The implementation has three explicit owners:
+
+1. **Persistence owns the scoped Application query snapshot.** Opening a
+   snapshot claims an opaque `ApplicationActiveSelection`, replays the bound
+   Application schema through the existing Application Schema Authority
+   reader, resolves the bounded developer-index definition set through the
+   existing control-catalog port, and opens the located data target. In the
+   data transaction it takes the shared scope-clock lock, validates the issued
+   selection against the current Application active head, loads the exact
+   `fx_system_application_function_v1` row, verifies its catalog digest,
+   canonical entry bytes, entry digest, kind, visibility, module/export
+   identity, and validator fields against the active manifest, then pins the
+   current snapshot token and retained-history floor. The selected root must be
+   a public query. Missing, duplicated, malformed, mismatched, or stale state
+   fails closed.
+2. **The same snapshot owns read capability.** `revalidate`, point read, and
+   index-range read each revalidate the active selection and retained floor in
+   their located transaction. Point reads use the existing snapshot app-row
+   primitive. Index reads decode the table, descriptor, bounds, and limit;
+   require the exact schema binding and opaque located definition; require its
+   current fenced build to be enabled; scan the existing ordered index at the
+   pinned snapshot; materialize the selected live rows through the existing
+   bounded set read; and return detached canonical documents. One operation
+   budget bounds point reads, index syscalls, documents, and semantic bytes.
+   The snapshot adds no journal, OCC evidence, read set, commit behavior, or
+   fallback because a query has no write authority to protect.
+3. **Standard Application Invocation owns composition.** An unversioned
+   private `ApplicationQuerySystem` reads the current Application active
+   selection, opens the scoped snapshot, reads authenticated Source Artifact
+   V2 bytes by the selected root, constructs the canonical runtime target from
+   the selected manifest plus the stored function entry, builds an
+   `ApplicationWorkerDefinition`, constructs the exact transaction request,
+   and calls the committed `ApplicationExecutionHost`. The Worker receives
+   only a bounded RPC adapter over the snapshot. Its target, tables, snapshot
+   sequence, execution time, random seed, authentication value, arguments, and
+   argument semantic size are decoded by their existing protocol owners. The
+   returned value is decoded by the host and returned without a second runtime
+   or result path.
+
+The Source Artifact reader and Worker Loader remain injected host capabilities.
+The query service is a reusable Effect service; its Layer owns construction,
+while the invocation Scope owns the snapshot capability. Narrow Promise calls
+exist only at the Worker RPC adapter. Typed schema, selection, persistence,
+source, definition, protocol, host, and cleanup failures remain distinguishable
+at their owning boundaries; defects are not converted into input failures.
+
+The shared Worker definition currently contains action policy fields even when
+only its transaction entrypoint is loaded. This checkpoint supplies one
+construction-owned, canonically encoded deny-all action policy solely to meet
+that existing definition contract. It is not request input, active evidence,
+or query authority. The implementation must not widen that policy or attach it
+to the transaction request. Splitting transaction and action definitions may
+be considered with the action checkpoint, when both consumers and the concrete
+simplification can be reviewed together.
+
+The private cut replaces only
+`invokeStandardApplicationPointQueryV1`. Its compatibility name may remain,
+but it must require the new unversioned query service and must not read
+`ApplicationRevisionV1`, call `ApplicationPointQuerySystemV1`, prepare a
+candidate-bound target, read Declarative V2 runtime artifacts, or fall back to
+the displaced path. The old query System is renamed `Legacy...` only where the
+bounded cut touches its retained exports; full deletion remains AA-R8.
+Mutation and action continue using their old active reader until their own
+authority checkpoints, which is explicit temporary coexistence between
+different operations rather than dual authority for one query.
+
+Required proof covers exact function selection, argument/result validation,
+anonymous and user authentication projection, point read, developer-index
+range order and page completion, all four budget dimensions, stale active head,
+stale retained floor, disabled or mismatched index definition, malformed
+stored function evidence, Source Artifact corruption, Worker definition or
+load failure, fresh Worker load per invocation, RPC disposal, and interruption.
+An integration assertion must prove that the Standard point-query consumer
+never invokes the old active reader, legacy query System, candidate runtime
+artifact store, or dispatcher. Focused PGlite proof is required here; genuine
+PostgreSQL remains the mandatory AA-R7 gate.
+
+Self-review accepts this amendment. It is the smallest complete query cut
+because omitting stored-function validation would weaken publication
+authority, omitting schema/index replay would trust caller structure, and
+reusing the legacy query snapshot would preserve the very candidate/runtime
+artifact dependencies being displaced. It preserves the source, schema,
+activation, app-row, ordered-index, Worker Loader, and protocol owners and
+changes no OCC, commit, route, deployment, mutation, action, or Task behavior.
+If implementation discovers that the existing row/index primitives cannot
+provide the promised snapshot semantics without changing their authority, stop
+at that owner boundary and amend this preflight before proceeding.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
@@ -1833,10 +1927,13 @@ or `AA-R9` cutover.
    the final slice of `AA-R6`.
 7. **Application activation and issuer-backed active selection:** second
    checkpoint of the final slice of `AA-R6`.
-8. **Capability composition and private consumer migration:** third checkpoint
+8. **Query-first active composition and private query cut:** third checkpoint
    of the final slice of `AA-R6`.
-9. **Private system proof:** `AA-R7`.
-10. **Removal and guarded retirement migration:** `AA-R8`, then stop.
+9. **Mutation authority bridge, action lifecycle generation, and Task System
+   generation:** three separately preflighted medium checkpoints that complete
+   the final slice of `AA-R6`.
+10. **Private system proof:** `AA-R7`.
+11. **Removal and guarded retirement migration:** `AA-R8`, then stop.
 
 Each slice is reviewed against this plan before implementation and again
 against its final diff. Significant code checkpoints require both repository
