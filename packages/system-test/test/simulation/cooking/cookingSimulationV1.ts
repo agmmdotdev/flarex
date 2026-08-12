@@ -21,7 +21,6 @@ import {
 import type {
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   InvokeStandardApplicationPointMutationV1Error,
-  InvokeStandardApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/v1";
 import {
   ValidatorValueErrorV1,
@@ -30,6 +29,7 @@ import {
 import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
+  StandardApplicationLegacySimulationQueryErrorV1,
   StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";
 import type {
@@ -97,7 +97,7 @@ export interface CookingSetupProofV1 {
 
 type CookingWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
-  | InvokeStandardApplicationPointQueryV1Error
+  | StandardApplicationLegacySimulationQueryErrorV1
   | StandardApplicationSystemTestInspectionV1Error
   | StandardApplicationTypedReferenceV1Error;
 

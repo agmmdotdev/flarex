@@ -11,11 +11,11 @@ import { standardV1 } from
 
 import type {
   InvokeStandardApplicationPointMutationV1Error,
-  InvokeStandardApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/v1";
 import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
+  StandardApplicationLegacySimulationQueryErrorV1,
   StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";
 import {
@@ -37,7 +37,7 @@ export interface EnglishLearningSetupProofV1 {
 
 type EnglishLearningWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
-  | InvokeStandardApplicationPointQueryV1Error
+  | StandardApplicationLegacySimulationQueryErrorV1
   | StandardApplicationTypedReferenceV1Error;
 
 const ENGLISH_LEARNING_FIELDS = {

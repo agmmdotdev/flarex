@@ -26,7 +26,9 @@ import type {
 
 import {
   ApplicationPointQuerySystemV1,
+  invokeApplicationPointQueryV1,
   makeApplicationPointQuerySystemV1Layer,
+  type InvokeApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/internal/system-query-v1";
 import {
   ApplicationPointMutationSystemV1,
@@ -34,16 +36,15 @@ import {
 } from "@flarex/standard-application-invocation/internal/system-v1";
 import {
   invokeStandardApplicationPointMutationV1,
-  invokeStandardApplicationPointQueryV1,
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   type InvokeStandardApplicationPointMutationV1Error,
-  type InvokeStandardApplicationPointQueryV1Error,
   makeStandardApplicationActiveRevisionReaderV1Layer,
   StandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
 import {
   activateApplicationRevisionV1,
   type ActivateApplicationRevisionV1Error,
+  type ReadActiveApplicationRevisionV1Error,
 } from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
 import {
   type Fsv06StandardPointMutationLaneV1 as PersistenceStandardApplicationSystemTestLaneV1,
@@ -69,6 +70,27 @@ type ApplicationTestRequirementsV1 =
   | ApplicationPointQuerySystemV1
   | StandardApplicationActiveRevisionReaderV1
   | Scope.Scope;
+
+export type StandardApplicationLegacySimulationQueryErrorV1 =
+  | ReadActiveApplicationRevisionV1Error
+  | InvokeApplicationPointQueryV1Error;
+
+/**
+ * This Application Revision V1 simulation remains legacy coverage until the
+ * AA-R7 Application system proof replaces it. Keep its displaced query
+ * authority local instead of routing through the migrated Standard consumer.
+ */
+const invokeLegacySimulationPointQueryV1 = Effect.fn(
+  "StandardApplicationSimulation.invokeLegacyPointQueryV1",
+)(function* (functionPath: TransactionFunctionPathV1, args: unknown) {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeApplicationPointQueryV1(
+    active.selection,
+    functionPath,
+    args,
+  );
+});
 
 export interface StandardApplicationSystemTestSetupClientV1 {
   readonly mutation: <
@@ -115,7 +137,7 @@ export interface StandardApplicationSystemTestClientV1
     args: InferStandardFunctionArgsV1<Contract>,
   ) => Effect.Effect<
     InferStandardFunctionReturnV1<Contract>,
-    | InvokeStandardApplicationPointQueryV1Error
+    | StandardApplicationLegacySimulationQueryErrorV1
     | StandardApplicationTypedReferenceV1Error
   >;
   readonly unsafeInvokeQuery: (
@@ -123,7 +145,7 @@ export interface StandardApplicationSystemTestClientV1
     args: unknown,
   ) => Effect.Effect<
     CanonicalFlarexRuntimeValueV1,
-    InvokeStandardApplicationPointQueryV1Error
+    StandardApplicationLegacySimulationQueryErrorV1
   >;
   readonly inspectAuthoritativeState: () => Effect.Effect<
     StandardApplicationAuthoritativeInspectionV1,
@@ -428,7 +450,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             reference,
           ).pipe(Effect.flatMap(() => invokeApplication(
               invocationScope,
-              invokeStandardApplicationPointQueryV1(
+              invokeLegacySimulationPointQueryV1(
                 TransactionFunctionPathV1Schema.make(reference.path),
                 args,
               ).pipe(Effect.flatMap(value =>
@@ -455,7 +477,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         )((functionPath, args) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
-            invokeStandardApplicationPointQueryV1(functionPath, args),
+            invokeLegacySimulationPointQueryV1(functionPath, args),
           )
         )),
         inspectAuthoritativeState: Effect.fn(

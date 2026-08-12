@@ -31,7 +31,6 @@ import {
   type ApplicationPointQuerySystemLiveV1,
 } from "@flarex/standard-application-invocation/internal/system-query-v1";
 import {
-  invokeStandardApplicationPointQueryV1,
   makeStandardApplicationActiveRevisionReaderV1Layer,
   StandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
@@ -88,6 +87,23 @@ const TARGET_BUDGET = Object.freeze({
   maximumRawBytes: 8 * 1_048_576,
   maximumHashBytes: 64 * 1_048_576,
   maximumResultBytes: 1_048_576,
+});
+
+/**
+ * SAP05 is retained coverage for the displaced Application Revision V1 query
+ * runtime. Keep that legacy authority inside this test harness; the migrated
+ * Standard consumer must never fall back to it.
+ */
+const invokeLegacySap05PointQueryV1 = Effect.fn(
+  "Sap05LegacyPointQuery.invokeV1",
+)(function* (functionPath: string, args: unknown) {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeApplicationPointQueryV1(
+    active.selection,
+    TransactionFunctionPathV1Schema.make(functionPath),
+    args,
+  );
 });
 
 interface Sap05DispatcherControlsV1 {
@@ -165,24 +181,24 @@ export async function proveSap05StandardPointQueryV1(
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(layer))));
 
-  const present = await invoke(invokeStandardApplicationPointQueryV1(
+  const present = await invoke(invokeLegacySap05PointQueryV1(
     FUNCTION_PATH,
     { id: documentId },
   ));
   if (!isRecord(present) || present.status !== "pending") {
     throw new Error("SAP05 did not return the authoritative document.");
   }
-  const missing = await invoke(invokeStandardApplicationPointQueryV1(
+  const missing = await invoke(invokeLegacySap05PointQueryV1(
     FUNCTION_PATH,
     { id: missingDocumentId },
   ));
   if (missing !== null) throw new Error("SAP05 missing document was not null.");
-  const replay = await invoke(invokeStandardApplicationPointQueryV1(
+  const replay = await invoke(invokeLegacySap05PointQueryV1(
     FUNCTION_PATH,
     { id: documentId },
   ));
   const invalidArgumentsRejected = await failsWithTag(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: 123 }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: 123 }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -191,7 +207,7 @@ export async function proveSap05StandardPointQueryV1(
   dispatcherControls.overrideNextResult = true;
   dispatcherControls.nextResult = 42;
   const invalidResultRejected = await failsWithTag(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -199,7 +215,7 @@ export async function proveSap05StandardPointQueryV1(
   );
   dispatcherControls.nextReadCause = Cause.die(new Error("sap05-read-defect"));
   const defectExit = await Effect.runPromiseExit(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -211,7 +227,7 @@ export async function proveSap05StandardPointQueryV1(
   }
   dispatcherControls.failNextWorkerWithUnknownError = true;
   const unknownWorkerExit = await Effect.runPromiseExit(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -223,7 +239,7 @@ export async function proveSap05StandardPointQueryV1(
   }
   dispatcherControls.failNextWorkerWithTerminalError = true;
   const terminalFailureTyped = await failsWithReason(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -237,7 +253,7 @@ export async function proveSap05StandardPointQueryV1(
   dispatcherControls.beforeNextRead = gate.wait;
   const interruptedController = new AbortController();
   const interruptedPromise = Effect.runPromiseExit(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -254,7 +270,7 @@ export async function proveSap05StandardPointQueryV1(
   }
   dispatcherControls.failNextCleanup = true;
   const cleanupUncertaintyTyped = await failsWithReason(
-    invokeStandardApplicationPointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
+    invokeLegacySap05PointQueryV1(FUNCTION_PATH, { id: documentId }).pipe(
       Effect.provide(layer),
       Effect.scoped,
     ),
@@ -262,7 +278,7 @@ export async function proveSap05StandardPointQueryV1(
     "cleanupUncertain",
   );
   const unknownFunctionRejected = await failsWithTag(
-    invokeStandardApplicationPointQueryV1(
+    invokeLegacySap05PointQueryV1(
       TransactionFunctionPathV1Schema.make("orders:missing"),
       { id: documentId },
     ).pipe(Effect.provide(layer), Effect.scoped),
@@ -295,7 +311,7 @@ export async function proveSap05StandardPointQueryV1(
     artifacts.replaceBodyForTest(key, new Uint8Array([1, 2, 3]));
   }
   const corruptArtifactRejected = await failsWithTag(
-    invokeStandardApplicationPointQueryV1(
+    invokeLegacySap05PointQueryV1(
       FUNCTION_PATH,
       { id: documentId },
     ).pipe(Effect.provide(layer), Effect.scoped),

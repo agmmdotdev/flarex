@@ -48,7 +48,6 @@ import {
   type ApplicationQuerySnapshot,
   type ApplicationQuerySnapshotContext,
   type OpenApplicationQuerySnapshotError,
-  type UseApplicationQuerySnapshotError,
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
 import type {
@@ -147,7 +146,6 @@ export class ApplicationQueryCompositionError extends Data.TaggedError(
 export type InvokeApplicationQueryError =
   | Effect.Error<ReturnType<ApplicationQuerySystemLive["activation"]["readActive"]>>
   | OpenApplicationQuerySnapshotError
-  | UseApplicationQuerySnapshotError
   | ApplicationQueryInputError
   | ApplicationQueryCompositionError
   | ApplicationExecutionHostError;

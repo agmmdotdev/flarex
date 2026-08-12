@@ -18,6 +18,8 @@ import { TransactionFunctionPathV1Schema } from
 import { SOURCE_ARTIFACT_V2_ROLE_EXECUTION } from
   "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { describe, expect, it, vi } from "vitest";
+import { ApplicationExecutionHostError } from
+  "flarex-backend/internal/application-execution-host";
 
 const operations = vi.hoisted(() => ({
   open: vi.fn(),
@@ -244,6 +246,82 @@ describe("Application query system", () => {
     ));
 
     expect(hostRun).toHaveBeenCalledOnce();
+  });
+
+  it("exposes rejected Worker read capabilities through the host boundary", async () => {
+    const manifest = applicationManifest();
+    const selection = Object.freeze({}) as ApplicationActiveSelection;
+    const basis = activeBasis(manifest);
+    operations.open.mockReturnValue(Effect.succeed({
+      snapshot: Object.freeze({}),
+      metadata: Object.freeze({
+        basis,
+        function: Object.freeze({
+          ...manifest.functions[0]!,
+          kind: "query" as const,
+          visibility: "public" as const,
+          entrySha256: "a".repeat(64),
+        }),
+        tables: Object.freeze([]),
+        snapshotToken: Object.freeze({
+          scopeId: "scope_query",
+          epoch: "epoch-query",
+          commitSeq: 7n,
+        }),
+        budget: queryBudget(),
+      }),
+    }));
+    const readBoundaryError = new ApplicationExecutionHostError({
+      operation: "transaction",
+      reason: "readBoundaryFailed",
+    });
+    const live = {
+      activation: { readActive: () => Effect.succeed({
+        selection,
+        basis,
+        expectedActiveHead: {
+          activationSequence: 1n,
+          headSha256: "b".repeat(64),
+        },
+      } as CoherentActiveApplication) },
+      snapshot: {} as ApplicationQuerySystemLive["snapshot"],
+      snapshotBudget: queryBudget(),
+      source: { read: () => Effect.succeed({
+        sourceArtifact: manifest.sourceArtifact,
+        modules: Object.freeze([{
+          path: "_flarex/application.js",
+          roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+          sourceSha256: "c".repeat(64),
+          sourceByteLength: 65,
+          source: "export const get = query(() => ({ ok: true }));\n",
+        }]),
+      }) },
+      host: {
+        runTransaction: () => Effect.fail(readBoundaryError),
+        runAction: vi.fn(),
+      },
+      executionContextFactory: () => ({
+        executionId: "execution-query-read-boundary",
+        executionTime: 1_800_000_000_000,
+        randomSeed: new Uint8Array(32).fill(6),
+      }),
+    } satisfies ApplicationQuerySystemLive;
+
+    const result = await Effect.runPromise(Effect.result(Effect.scoped(
+      invokeApplicationQuery("users:get", { value: 1 }).pipe(
+        Effect.provide(makeApplicationQuerySystemLayer(live)),
+      ),
+    )));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBe(readBoundaryError);
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationExecutionHostError",
+        operation: "transaction",
+        reason: "readBoundaryFailed",
+      });
+    }
   });
 
   it("rejects non-object arguments before reading active authority", async () => {

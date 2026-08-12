@@ -1909,6 +1909,14 @@ decoding, fresh Worker load, interruption, late-result disposal, and timeout.
 The query checkpoint is validated and reviewed without absorbing or repairing
 unrelated concurrent R2 or Task Runtime work.
 
+The committed Application Revision V1 SAP05 harness and shared simulation are
+retained legacy proofs, not composition roots for this migrated entrypoint.
+They call their displaced query System through test-local legacy helpers; they
+do not receive `ApplicationQuerySystem` and cannot call the Standard query
+compatibility entrypoint. This prevents either harness from manufacturing new
+Application authority from old revision evidence while keeping the production
+cut exclusive. AA-R7 owns the new end-to-end Application system proof.
+
 This checkpoint completes only the first of the four accepted consumer cuts.
 It does not satisfy the mutation transaction-start/grant authority, action
 history authority, Task definition/run generation, AA-R7 genuine-PostgreSQL
