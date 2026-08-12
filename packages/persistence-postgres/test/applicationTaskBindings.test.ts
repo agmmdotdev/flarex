@@ -30,8 +30,10 @@ import {
 } from "../src/applicationAnalysisRegistration";
 import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
-import { makeApplicationTaskBindingRepository } from
-  "../src/applicationTaskBindings";
+import {
+  createApplicationTaskCatalogSnapshotPort,
+  makeApplicationTaskBindingRepository,
+} from "../src/applicationTaskBindings";
 import { createPGlitePersistence } from "../src/pglite";
 import { runEffect } from "./effectTestRuntime";
 import {
@@ -81,6 +83,29 @@ describe("Application task-binding persistence", () => {
     expect((await fixture.persistence.query<{ count: string }>(
       "select count(*)::text as count from fx_system_application_task_definition_v1",
     )).rows).toEqual([{ count: "1" }]);
+  });
+
+  it("returns an owned frozen populated snapshot", async () => {
+    const fixture = await taskBindingFixture();
+    await runEffect(fixture.repository.register(fixture.input));
+    const port = createApplicationTaskCatalogSnapshotPort();
+    const load = () => fixture.persistence.drizzle.transaction(tx => runEffect(
+      port.loadInTransaction(tx, AUTHORITY, fixture.publication.revisionId),
+    ));
+
+    const first = await load();
+    if (first === null) throw new Error("Expected task-catalog snapshot.");
+    const expectedTaskCatalogSha256 = first.taskCatalogSha256.slice();
+
+    expect(Object.isFrozen(first)).toBe(true);
+    first.taskCatalogSha256.fill(0);
+
+    const second = await load();
+    if (second === null) {
+      throw new Error("Expected replayed task-catalog snapshot.");
+    }
+    expect(second.taskCatalogSha256).toEqual(expectedTaskCatalogSha256);
+    expect(second.taskCatalogSha256).not.toBe(first.taskCatalogSha256);
   });
 
   it("converges concurrent exact registration", async () => {

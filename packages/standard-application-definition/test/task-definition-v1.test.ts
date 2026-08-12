@@ -13,6 +13,7 @@ import {
   InvalidStandardApplicationTaskDefinitionV1Error,
   decodeApplicationRevisionTaskBindingFrameV1,
   decodeCanonicalTaskCatalogV1,
+  decodeCanonicalTaskManifestPreimageV1,
   decodeCanonicalTaskManifestV1,
   decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
@@ -221,6 +222,52 @@ describe("Standard Application task definition V1", () => {
         { ...hashed.entries[0]!, taskId: a.taskId, manifest: a },
       ],
     }))).toMatchObject({ reason: "inconsistent_binding" });
+  });
+
+  it("decodes only exact owned canonical manifest preimages", () => {
+    const canonical = success(
+      encodeCanonicalTaskManifestPreimageV1(makeManifest("orders.process")),
+    );
+    expectTypeOf(decodeCanonicalTaskManifestPreimageV1(canonical)).toEqualTypeOf<
+      Result.Result<
+        CanonicalTaskManifestV1,
+        InvalidStandardApplicationTaskDefinitionV1Error<
+          "decode_manifest_preimage"
+        >
+      >
+    >();
+    const decoded = success(decodeCanonicalTaskManifestPreimageV1(canonical));
+
+    canonical.fill(0);
+    expect(decoded).toMatchObject({
+      taskId: "orders.process",
+      handler: { artifactModulePath: "tasks/orders.js", exportName: "run" },
+    });
+    expect(Object.isFrozen(decoded)).toBe(true);
+    expect(Object.isFrozen(decoded.payloadValidator)).toBe(true);
+
+    const noncanonical = UTF8_ENCODER.encode(
+      ` ${UTF8.decode(success(
+        encodeCanonicalTaskManifestPreimageV1(makeManifest("orders.process")),
+      ))}`,
+    );
+    expect(failure(decodeCanonicalTaskManifestPreimageV1(noncanonical)))
+      .toMatchObject({
+        operation: "decode_manifest_preimage",
+        reason: "inconsistent_binding",
+      });
+    expect(failure(decodeCanonicalTaskManifestPreimageV1(
+      new Uint8Array([0xff]),
+    ))).toMatchObject({
+      operation: "decode_manifest_preimage",
+      reason: "invalid_shape",
+    });
+    expect(failure(decodeCanonicalTaskManifestPreimageV1(
+      makeManifest("orders.process"),
+    ))).toMatchObject({
+      operation: "decode_manifest_preimage",
+      reason: "invalid_shape",
+    });
   });
 
   it("hashes catalog entries deterministically and changes every changed manifest", async () => {

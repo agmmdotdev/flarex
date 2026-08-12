@@ -404,6 +404,108 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     expect(fixture.materializationCount()).toBe(0);
   });
 
+  it("settles a populated task catalog from its canonical stored manifest", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(fixture);
+
+    const first = await runEffect(fixture.repository.settle(fixture.input));
+    const replay = await runEffect(fixture.repository.readReady(fixture.input));
+
+    expect(first).toMatchObject({ status: "ready", disposition: "inserted" });
+    expect(replay).toMatchObject({
+      status: "ready",
+      disposition: "replayed",
+      readinessSha256: first.status === "ready"
+        ? first.readinessSha256
+        : undefined,
+    });
+    expect(fixture.materializationCount()).toBe(1);
+  });
+
+  it("rejects a noncanonical stored task manifest before materialization", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    const rows = await fixture.target.query<{ manifest_bytes: Uint8Array }>(
+      `select manifest_bytes
+         from fx_system_application_task_definition_v1
+        where scope_id = $1 and revision_id = $2`,
+      [fixture.authority.scopeId, fixture.input.revisionId],
+    );
+    const manifestBytes = rows.rows[0]?.manifest_bytes;
+    if (manifestBytes === undefined) throw new Error("Expected task manifest.");
+    const noncanonical = new Uint8Array(manifestBytes.byteLength + 1);
+    noncanonical[0] = 0x20;
+    noncanonical.set(manifestBytes, 1);
+    await fixture.target.query(
+      `update fx_system_application_task_definition_v1
+          set manifest_bytes = $1
+        where scope_id = $2 and revision_id = $3`,
+      [noncanonical, fixture.authority.scopeId, fixture.input.revisionId],
+    );
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationTaskCatalogSnapshotError",
+        reason: "storedState",
+        cause: {
+          operation: "decode_manifest_preimage",
+          reason: "inconsistent_binding",
+        },
+      });
+    }
+    expect(fixture.materializationCount()).toBe(0);
+  });
+
+  it("rejects drifted stored task-manifest digest before materialization", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await fixture.target.query(
+      `update fx_system_application_task_definition_v1
+          set canonical_task_manifest_sha256 = $1
+        where scope_id = $2 and revision_id = $3`,
+      [new Uint8Array(32), fixture.authority.scopeId, fixture.input.revisionId],
+    );
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationTaskCatalogSnapshotError",
+        reason: "storedState",
+      });
+    }
+    expect(fixture.materializationCount()).toBe(0);
+  });
+
+  it("rejects drifted stored task-definition binding before materialization", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await fixture.target.query(
+      `update fx_system_application_task_definition_v1
+          set binding_bytes = $1
+        where scope_id = $2 and revision_id = $3`,
+      [new Uint8Array([1]), fixture.authority.scopeId, fixture.input.revisionId],
+    );
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationTaskCatalogSnapshotError",
+        reason: "storedState",
+      });
+    }
+    expect(fixture.materializationCount()).toBe(0);
+  });
+
   it("rejects corrupted task-catalog binding evidence", async () => {
     const fixture = await readinessFixture();
     await fixture.target.query(

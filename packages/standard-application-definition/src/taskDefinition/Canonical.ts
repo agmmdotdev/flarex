@@ -29,6 +29,7 @@ import {
   TASK_DEFINITION_RUNTIME_BINDING_CODEC_V1,
   TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1,
   TASK_RUNTIME_ENTRY_CODEC_V1,
+  type CanonicalTaskManifestV1,
   type HashedCanonicalTaskCatalogV1,
   type TaskDefinitionRuntimeBindingCommitmentV1,
   type TaskDefinitionSha256V1,
@@ -47,6 +48,44 @@ import {
 
 const UTF8 = new TextEncoder();
 const FATAL_UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+export function decodeCanonicalTaskManifestPreimageV1(
+  input: unknown,
+): Result.Result<
+  CanonicalTaskManifestV1,
+  InvalidStandardApplicationTaskDefinitionV1Error<"decode_manifest_preimage">
+> {
+  const operation = "decode_manifest_preimage" as const;
+  const byteLength = uint8ArrayByteLength(input);
+  if (
+    byteLength === undefined || byteLength < 1 ||
+    byteLength > MAX_TASK_DEFINITION_CANONICAL_BYTES_V1
+  ) return Result.fail(invalid(operation, "invalid_shape"));
+  return Result.gen(function* () {
+    const bytes = yield* Result.try({
+      try: () => copyBytes(input as Uint8Array),
+      catch: () => invalid(operation, "invalid_shape"),
+    });
+    const parsed = yield* Result.try({
+      try: () => JSON.parse(FATAL_UTF8.decode(bytes)) as unknown,
+      catch: () => invalid(operation, "invalid_shape"),
+    });
+    if (
+      !isJsonObjectFromUnknown(parsed) ||
+      !hasExactKeys(parsed, ["codec", "task"]) ||
+      parsed.codec !== CANONICAL_TASK_MANIFEST_CODEC_V1
+    ) return yield* Result.fail(invalid(operation, "invalid_shape"));
+    const manifest = yield* decodeCanonicalTaskManifestV1(parsed.task).pipe(
+      Result.mapError(failure => reoperation(failure, operation)),
+    );
+    const canonical = yield* encodeCanonicalTaskManifestPreimageV1(manifest)
+      .pipe(Result.mapError(failure => reoperation(failure, operation)));
+    if (!bytesEqual(canonical, bytes)) {
+      return yield* Result.fail(invalid(operation, "inconsistent_binding"));
+    }
+    return manifest;
+  });
+}
 
 export function encodeCanonicalTaskManifestPreimageV1(
   input: unknown,

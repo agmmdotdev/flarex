@@ -2,8 +2,9 @@
 
 ## Status
 
-**Decision:** Proposed for approval. No implementation is authorized by this
-document yet.
+**Decision:** SAP-TRP5 remains proposed for approval. Its separately approved
+shared task-catalog snapshot prerequisite was completed on 2026-08-12. No
+SAP-TRP5 implementation is authorized by this document yet.
 
 SAP-TRP1 through SAP-TRP4 are complete and production-inert. They provide the
 canonical task-runtime object formats, an authenticated publication plan, an
@@ -259,22 +260,27 @@ digest; no task-specific head is needed.
 This preserves old immutable evidence while making the new readiness rule
 fail closed and unambiguous.
 
-## Known Prerequisite Defect And Ownership Stop
+## Completed Shared-Owner Prerequisite
 
-The SAP-TRP4 connected fixture already proved a defect in the existing
+The SAP-TRP4 connected fixture proved a defect in the existing
 `ApplicationTaskCatalogSnapshotPort`: for a populated registered catalog it
-passes stored canonical manifest bytes to an API that expects an already
+passed stored canonical manifest bytes to an API that expects an already
 decoded manifest object, producing typed `storedState` at
 `definitions[0].manifestBytes`.
 
 Expected behavior is to decode and canonically verify the stored manifest
-preimage, or return the already authenticated owned catalog snapshot. Actual
-behavior prevents the existing readiness owner from reserving a populated task
-catalog. This defect is in the shared Application task-binding snapshot owner,
-not in SAP-TRP4 and not in the R2 verifier.
+preimage, or return the already authenticated owned catalog snapshot. The
+actual behavior prevented the existing readiness owner from reserving a
+populated task catalog. This defect was in the shared Application task-binding
+snapshot owner, not in SAP-TRP4 and not in the R2 verifier.
 
-SAP-TRP5 implementation must therefore begin with an explicitly approved,
-bounded prerequisite correction in that owner, with:
+The separately approved prerequisite correction is now complete in that owner.
+It also closed the second representation mismatch exposed by the positive
+populated regression: stored definition-binding digests are byte arrays, while
+the snapshot reconstruction had converted them to hexadecimal text before
+calling the byte-array decoder.
+
+The bounded correction provides:
 
 - canonical stored-manifest decode and re-encode verification;
 - exact digest and binding correlation;
@@ -283,10 +289,18 @@ bounded prerequisite correction in that owner, with:
 - no change to task registration, publication, readiness, or activation
   authority.
 
-Do not work around the defect by bypassing the snapshot port, trusting raw rows,
-weakening the fixture, adding a second catalog reader, or duplicating the
-decoder in SAP-TRP5. Until that correction is separately approved, populated
-SAP-TRP5 implementation is blocked at this shared-owner boundary.
+The Standard Application owner now supplies the canonical manifest-preimage
+decoder. The persistence snapshot owner uses that decoder, reconstructs
+definition bindings with their native byte representation, recomputes the
+manifest, definition-binding, catalog-binding, and catalog digests, and returns
+only owned snapshot bytes. PGlite coverage proves empty and populated reads,
+successful populated readiness, noncanonical stored bytes, digest drift,
+missing definitions, and returned-byte ownership. No transaction or schema
+contract changed, so this prerequisite did not require a new genuine-PostgreSQL
+lane.
+
+SAP-TRP5 must continue to use this corrected snapshot port. It must not bypass
+the port, trust raw rows, add a second catalog reader, or duplicate the decoder.
 
 ## R2 Deadline And Memory Admission Boundary
 
@@ -416,10 +430,10 @@ final staged diff.
 
 ## Proposed Implementation Order
 
-After explicit approval:
+After explicit approval of each remaining checkpoint:
 
-1. correct the shared `ApplicationTaskCatalogSnapshotPort` defect as its own
-   bounded prerequisite commit;
+1. **Complete:** correct the shared `ApplicationTaskCatalogSnapshotPort` defect
+   as its own bounded prerequisite commit;
 2. add the pure Standard Application cold-verification/basis contract;
 3. add the backend verifier using only the existing task-runtime store `read`;
 4. add the persistence snapshot and version-2 readiness schema/migration;
@@ -455,9 +469,11 @@ SAP-TRP5 does not authorize:
 
 ## Stop Boundary
 
-This document is a proposal only. The next decision is whether to approve the
-bounded task-catalog snapshot correction and then SAP-TRP5 in the ordered
-owner-separated sequence above.
+This document remains a proposal for SAP-TRP5 only. The bounded task-catalog
+snapshot correction is complete. The next decision is whether to approve step
+2, the pure Standard Application cold-verification and readiness-basis
+contract. Approval of that step does not authorize backend R2 composition,
+persistence/schema changes, activation changes, or production wiring.
 
 If implemented, SAP-TRP5 ends when the existing Application readiness and
 active-selection chain can prove an explicit empty or fully cold-verified

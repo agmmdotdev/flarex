@@ -80,12 +80,16 @@ During the SAP-TRP4 connected fixture, the existing
 catalog as corrupt because it passed stored canonical manifest bytes to the
 decoded-object manifest API. The expected behavior is to decode the canonical
 preimage or otherwise return the already authenticated catalog snapshot; the
-actual behavior is a typed `storedState` failure at
+actual behavior was a typed `storedState` failure at
 `definitions[0].manifestBytes`. That defect belongs to the existing
-application-task-binding snapshot owner and is not repaired by SAP-TRP4.
+application-task-binding snapshot owner and was not repaired by SAP-TRP4.
 SAP-TRP4 instead locks and validates only the exact parent catalog header it
-owns as a foreign-key prerequisite. A separate owner-approved correction may
-repair and retest the shared snapshot port later.
+owns as a foreign-key prerequisite.
+
+The later, separately approved SAP-TRP5 prerequisite corrected and retested the
+shared snapshot port without changing SAP-TRP4 authority or receipt semantics.
+The current disposition and validation boundary are recorded in
+[`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md).
 
 ## Required Receipt Contract Amendment
 
