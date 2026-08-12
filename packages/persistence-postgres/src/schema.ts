@@ -5038,6 +5038,322 @@ export const fxSystemApplicationTaskDefinitionsV1 = pgTable(
 );
 
 /**
+ * Reserved and then published bridge from one canonical Application schema
+ * digest to the existing deployment-stable app-schema catalog.
+ */
+export const fxControlApplicationSchemaAuthoritiesV1 = pgTable(
+  "fx_control_application_schema_authority_v1",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    applicationSchemaSha256: bytea("application_schema_sha256").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    schemaVersion: integer("schema_version")
+      .$type<CatalogSchemaVersion>()
+      .notNull(),
+    status: text("status").$type<"reserved" | "published">().notNull(),
+    schemaManifestSha256: bytea("schema_manifest_sha256"),
+    bindingSha256: bytea("binding_sha256"),
+    bindingBytes: bytea("binding_bytes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deploymentId, table.applicationSchemaSha256],
+    }),
+    unique("fx_application_schema_authority_v1_version_id_unique").on(
+      table.deploymentId,
+      table.schemaVersionId,
+    ),
+    unique("fx_application_schema_authority_v1_version_unique").on(
+      table.deploymentId,
+      table.schemaVersion,
+    ),
+    unique("fx_application_schema_authority_v1_binding_unique").on(
+      table.deploymentId,
+      table.applicationSchemaSha256,
+      table.schemaVersionId,
+      table.schemaVersion,
+    ),
+    foreignKey({
+      name: "fx_application_schema_authority_v1_deployment_fk",
+      columns: [table.deploymentId],
+      foreignColumns: [deployments.deploymentId],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_schema_authority_v1_identity_check",
+      sql`${nonBlankText(table.deploymentId)}
+        and octet_length(${table.applicationSchemaSha256}) = 32
+        and ${nonBlankText(table.schemaVersionId)}
+        and ${table.schemaVersion} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_application_schema_authority_v1_state_check",
+      sql`(
+          ${table.status} = 'reserved'
+          and ${table.schemaManifestSha256} is null
+          and ${table.bindingSha256} is null
+          and ${table.bindingBytes} is null
+          and ${table.publishedAt} is null
+        ) or (
+          ${table.status} = 'published'
+          and octet_length(${table.schemaManifestSha256}) = 32
+          and octet_length(${table.bindingSha256}) = 32
+          and octet_length(${table.bindingBytes}) between 1 and 1048576
+          and ${table.publishedAt} is not null
+        )`,
+    ),
+    check(
+      "fx_application_schema_authority_v1_time_check",
+      sql`isfinite(${table.createdAt})
+        and (${table.publishedAt} is null or (
+          isfinite(${table.publishedAt}) and ${table.publishedAt} >= ${table.createdAt}
+        ))`,
+    ),
+  ],
+);
+
+/** One inactive Application Revision V2 bound to its catalog schema. */
+export const fxSystemApplicationRevisionSchemasV1 = pgTable(
+  "fx_system_application_revision_schema_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    deploymentId: text("deployment_id").notNull(),
+    applicationSchemaSha256: bytea("application_schema_sha256").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    schemaVersion: integer("schema_version")
+      .$type<CatalogSchemaVersion>()
+      .notNull(),
+    schemaManifestSha256: bytea("schema_manifest_sha256").notNull(),
+    schemaBindingSha256: bytea("schema_binding_sha256").notNull(),
+    boundAt: timestamp("bound_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeId, table.revisionId] }),
+    unique("fx_application_revision_schema_v1_binding_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.applicationSchemaSha256,
+      table.schemaVersionId,
+      table.schemaManifestSha256,
+      table.schemaBindingSha256,
+    ),
+    foreignKey({
+      name: "fx_application_revision_schema_v1_revision_fk",
+      columns: [table.scopeId, table.revisionId],
+      foreignColumns: [
+        fxSystemApplicationRevisionsV2.scopeId,
+        fxSystemApplicationRevisionsV2.revisionId,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_revision_schema_v1_identity_check",
+      sql`${nonBlankText(table.revisionId)}
+        and ${nonBlankText(table.deploymentId)}
+        and octet_length(${table.applicationSchemaSha256}) = 32
+        and ${nonBlankText(table.schemaVersionId)}
+        and ${table.schemaVersion} between 1 and 2147483647
+        and octet_length(${table.schemaManifestSha256}) = 32
+        and octet_length(${table.schemaBindingSha256}) = 32`,
+    ),
+    check(
+      "fx_application_revision_schema_v1_time_check",
+      sql`isfinite(${table.boundAt})`,
+    ),
+  ],
+);
+
+/** Immutable Application readiness receipt; this table owns no active head. */
+export const fxSystemApplicationReadinessV1 = pgTable(
+  "fx_system_application_readiness_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    deploymentId: text("deployment_id").notNull(),
+    candidateId: text("candidate_id").notNull(),
+    analysisId: text("analysis_id").notNull(),
+    sourceArtifactRootSha256: bytea("source_artifact_root_sha256").notNull(),
+    manifestSha256: bytea("manifest_sha256").notNull(),
+    publicationSha256: bytea("publication_sha256").notNull(),
+    applicationSchemaSha256: bytea("application_schema_sha256").notNull(),
+    functionCatalogSha256: bytea("function_catalog_sha256").notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    schemaManifestSha256: bytea("schema_manifest_sha256").notNull(),
+    schemaBindingSha256: bytea("schema_binding_sha256").notNull(),
+    taskCatalogBindingSha256: bytea("task_catalog_binding_sha256").notNull(),
+    runtimeHostIdentity: text("runtime_host_identity").notNull(),
+    compatibilityDate: text("compatibility_date").notNull(),
+    coldReceiptSetSha256: bytea("cold_receipt_set_sha256").notNull(),
+    candidateValidationReceiptSha256:
+      bytea("candidate_validation_receipt_sha256").notNull(),
+    uniqueConstraintStatus: text("unique_constraint_status")
+      .$type<"not_required" | "eligible">()
+      .notNull(),
+    uniqueConstraintEligibilitySha256:
+      bytea("unique_constraint_eligibility_sha256").notNull(),
+    physicalReadinessSha256: bytea("physical_readiness_sha256").notNull(),
+    readinessSha256: bytea("readiness_sha256").notNull(),
+    readinessBytes: bytea("readiness_bytes").notNull(),
+    readyAt: timestamp("ready_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeId, table.revisionId] }),
+    unique("fx_application_readiness_v1_receipt_unique").on(
+      table.scopeId,
+      table.readinessSha256,
+    ),
+    unique("fx_application_readiness_v1_child_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.readinessSha256,
+    ),
+    foreignKey({
+      name: "fx_application_readiness_v1_publication_fk",
+      columns: [table.scopeId, table.revisionId],
+      foreignColumns: [
+        fxSystemApplicationPublicationsV1.scopeId,
+        fxSystemApplicationPublicationsV1.revisionId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_application_readiness_v1_schema_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+      table.applicationSchemaSha256,
+      table.schemaVersionId,
+      table.schemaManifestSha256,
+      table.schemaBindingSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationRevisionSchemasV1.scopeId,
+        fxSystemApplicationRevisionSchemasV1.revisionId,
+        fxSystemApplicationRevisionSchemasV1.applicationSchemaSha256,
+        fxSystemApplicationRevisionSchemasV1.schemaVersionId,
+        fxSystemApplicationRevisionSchemasV1.schemaManifestSha256,
+        fxSystemApplicationRevisionSchemasV1.schemaBindingSha256,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_application_readiness_v1_task_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.taskCatalogBindingSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationTaskCatalogsV1.scopeId,
+        fxSystemApplicationTaskCatalogsV1.revisionId,
+        fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_readiness_v1_identity_check",
+      sql`${nonBlankText(table.revisionId)}
+        and ${nonBlankText(table.deploymentId)}
+        and ${nonBlankText(table.candidateId)}
+        and ${nonBlankText(table.analysisId)}
+        and octet_length(${table.sourceArtifactRootSha256}) = 32
+        and octet_length(${table.manifestSha256}) = 32
+        and octet_length(${table.publicationSha256}) = 32
+        and octet_length(${table.applicationSchemaSha256}) = 32
+        and octet_length(${table.functionCatalogSha256}) = 32
+        and ${table.storageGeneration} = 'flarexdb_v1'
+        and ${table.storageGenerationFence} >= 1
+        and ${nonBlankText(table.epoch)}
+        and ${nonBlankText(table.schemaVersionId)}
+        and octet_length(${table.schemaManifestSha256}) = 32
+        and octet_length(${table.schemaBindingSha256}) = 32
+        and octet_length(${table.taskCatalogBindingSha256}) = 32
+        and ${nonBlankText(table.runtimeHostIdentity)}
+        and ${table.compatibilityDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'
+        and octet_length(${table.coldReceiptSetSha256}) = 32
+        and octet_length(${table.candidateValidationReceiptSha256}) = 32
+        and ${table.uniqueConstraintStatus} in ('not_required', 'eligible')
+        and octet_length(${table.uniqueConstraintEligibilitySha256}) = 32
+        and octet_length(${table.physicalReadinessSha256}) = 32
+        and octet_length(${table.readinessSha256}) = 32
+        and octet_length(${table.readinessBytes}) between 1 and 16777216`,
+    ),
+    check(
+      "fx_application_readiness_v1_time_check",
+      sql`isfinite(${table.readyAt})`,
+    ),
+  ],
+);
+
+/** Per-function cold proof committed by one Application readiness receipt. */
+export const fxSystemApplicationReadinessFunctionsV1 = pgTable(
+  "fx_system_application_readiness_function_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    readinessSha256: bytea("readiness_sha256").notNull(),
+    functionPath: text("function_path").notNull(),
+    runtimeTargetSha256: bytea("runtime_target_sha256").notNull(),
+    coldReceiptSha256: bytea("cold_receipt_sha256").notNull(),
+    coldReceiptBytes: bytea("cold_receipt_bytes").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeId, table.revisionId, table.functionPath],
+    }),
+    unique("fx_application_readiness_function_v1_receipt_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.readinessSha256,
+      table.coldReceiptSha256,
+    ),
+    foreignKey({
+      name: "fx_application_readiness_function_v1_readiness_fk",
+      columns: [table.scopeId, table.revisionId, table.readinessSha256],
+      foreignColumns: [
+        fxSystemApplicationReadinessV1.scopeId,
+        fxSystemApplicationReadinessV1.revisionId,
+        fxSystemApplicationReadinessV1.readinessSha256,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_application_readiness_function_v1_function_fk",
+      columns: [table.scopeId, table.revisionId, table.functionPath],
+      foreignColumns: [
+        fxSystemApplicationFunctionsV1.scopeId,
+        fxSystemApplicationFunctionsV1.revisionId,
+        fxSystemApplicationFunctionsV1.functionPath,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_readiness_function_v1_identity_check",
+      sql`${nonBlankText(table.functionPath)}
+        and octet_length(${table.readinessSha256}) = 32
+        and octet_length(${table.runtimeTargetSha256}) = 32
+        and octet_length(${table.coldReceiptSha256}) = 32
+        and octet_length(${table.coldReceiptBytes}) between 1 and 16384`,
+    ),
+  ],
+);
+
+/**
  * Inactive legacy application-revision registration evidence.
  *
  * These rows bind one authenticated, settled registration command to the
@@ -7425,9 +7741,13 @@ export const flarexSchema = {
   fxSystemApplicationCandidatesV1,
   fxSystemApplicationFunctionsV1,
   fxSystemApplicationPublicationsV1,
+  fxSystemApplicationReadinessFunctionsV1,
+  fxSystemApplicationReadinessV1,
   fxSystemApplicationRevisionRequestsV1,
+  fxSystemApplicationRevisionSchemasV1,
   fxSystemApplicationRevisionsV1,
   fxSystemApplicationRevisionsV2,
+  fxControlApplicationSchemaAuthoritiesV1,
   fxSystemApplicationActionInvocationsV1,
   fxSystemDeclarativeV2ActivationHeads,
   fxSystemDeclarativeV2ActivationRevisions,

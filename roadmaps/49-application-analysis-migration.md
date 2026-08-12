@@ -1614,6 +1614,59 @@ stable binding, if existing readiness cannot expose a narrow authenticated
 snapshot, or if consumer composition requires changing an existing journal,
 commit, callback, outbound, scheduler, or run-evidence contract.
 
+#### AA-R6 schema-authority and readiness checkpoint — 2026-08-12
+
+The first final-authority checkpoint now implements the accepted control/target
+split without introducing another schema or index owner. The Application schema
+bridge canonicalizes the analyzed manifest, reserves a deployment-monotonic
+catalog version under the deployment lock, publishes through the existing
+app-schema owner, and records the complete analyzer-ordinal-to-catalog binding.
+The publisher is an opaque process-local composition over the exact control
+database repository; a structural or foreign-control publisher is rejected.
+Returned artifact deployment, schema-version identity, numeric version,
+canonical manifest bytes, and digest are verified before projection. The
+control artifact and physical requirements are reloaded from that same database
+before the reserved Application authority may transition to `published`, so a
+failed or incomplete publication leaves repairable reserved state rather than a
+false durable authority.
+The located target stores only the immutable revision/schema binding, readiness
+receipt, and per-function cold evidence; it stores no user-code or module body.
+
+Readiness is production-inert and creates no active head. It requires the exact
+Application Revision V2 analysis, whole-bundle publication, explicit task
+catalog including the empty catalog, authenticated candidate-validation and
+unique-set evidence, current scope authority, enabled physical requirements,
+and runtime materialization policy. The candidate and unique evidence are
+loaded before the target transaction and revalidated while holding the scope
+clock. The task catalog's runtime-host identity and compatibility date must
+equal the cold materializer policy even when the function set is empty.
+
+Focused PGlite proof covers the legitimate two-phase lifecycle: the first call
+publishes schema authority and reports missing candidate validation, the
+existing validation and unique-closure owners then settle, and readiness inserts
+once and replays exactly. A table-bearing case advances the existing intrinsic
+index-build owner to `enabled`; readiness rejects enabled build evidence whose
+start frontier is ahead of the locked scope clock. Migration proof covers
+fresh/upgrade, injected failure rollback, replay, preservation of existing rows,
+and non-public schema installation in PGlite.
+
+Zero-skip PostgreSQL 18 proof now runs the same split control/target,
+table-bearing lifecycle against isolated schemas. It proves real schema
+publication, candidate and unique closure, physical build enablement,
+future-frontier rejection with no readiness row, and deterministic lock
+contention: two readiness settlements are observed blocked behind a held target
+scope-clock lock, then produce exactly one insert and one replay after release.
+The first PostgreSQL run exposed a driver-specific byte-ownership defect:
+hashing `Buffer.slice().buffer` included pooled backing-array capacity although
+PGlite's plain `Uint8Array` passed. The readiness hash boundary now uses the
+shared exact detached-byte conversion; the genuine-PostgreSQL lifecycle and
+migration suites pass after that correction. The package-wide migration
+inventory includes the new tables and migration receipt. This checkpoint does
+not authorize activation, active selection, private consumer migration, routes,
+or any change to OCC, commit, action,
+task-run, or scheduler ownership. The next authorized checkpoint is Application
+activation and issuer-backed selection.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
@@ -1699,10 +1752,11 @@ not.
 
 The worktree currently contains unrelated persistence, durable-task,
 system-test, foundation-roadmap, and script changes. They are not part of this
-goal and must not be reverted or absorbed. The first contracts/core slice is
-package-local and can proceed. Before any persistence or simulation slice, the
-main thread must re-read the current schema/migration head and protect or
-coordinate overlapping files.
+goal and must not be reverted or absorbed. The schema-authority/readiness
+checkpoint remains bounded to its Application owners and migration closure.
+Before activation/selection or any later simulation slice, the main thread must
+re-read the current schema/migration head and protect or coordinate overlapping
+files.
 
 ## Preflight Review Decision
 

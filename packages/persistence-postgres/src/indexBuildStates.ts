@@ -342,13 +342,10 @@ function materializeFencedIndexBuildState(
       input.scopeId,
       input.indexDefinitionId,
     );
-    if (buildState.startCommitSeq > clock.lastCommitSeq) {
-      return yield* Result.fail(new IndexBuildStateCorruptionError(
-        buildState.scopeId,
-        buildState.indexDefinitionId,
-        `start commit sequence ${buildState.startCommitSeq} is ahead of scope clock ${clock.lastCommitSeq}`,
-      ));
-    }
+    yield* validateIndexBuildStateFrontierResult(
+      buildState,
+      clock.lastCommitSeq,
+    );
     const mismatches = collectAuthorityMismatches(
       buildState,
       currentAuthority,
@@ -503,6 +500,20 @@ export function decodeIndexBuildStateRowResult(
     }
     return Object.freeze({ ...common, lifecycle, backfillCursor });
   });
+}
+
+/** Package-internal frontier invariant shared by fenced reads and readiness. */
+export function validateIndexBuildStateFrontierResult(
+  state: IndexBuildStateRecord,
+  lastCommitSeq: CommitSeq,
+): Result.Result<void, IndexBuildStateCorruptionError> {
+  return state.startCommitSeq <= lastCommitSeq
+    ? Result.succeed(undefined)
+    : Result.fail(new IndexBuildStateCorruptionError(
+      state.scopeId,
+      state.indexDefinitionId,
+      `start commit sequence ${state.startCommitSeq} is ahead of scope clock ${lastCommitSeq}`,
+    ));
 }
 
 function decodeReadInput(

@@ -44,6 +44,7 @@ import {
   decodeIndexBuildStateRowResult,
   IndexBuildStateCorruptionError,
   type IndexBuildStateRecord,
+  validateIndexBuildStateFrontierResult,
 } from "./indexBuildStates";
 import {
   getScopeClock,
@@ -695,7 +696,7 @@ const reconcileInTransaction = Effect.fn(
       authority.scopeId,
       definitionId,
     ));
-    yield* Effect.fromResult(requireBuildFrontierResult(
+    yield* Effect.fromResult(validateIndexBuildStateFrontierResult(
       state,
       clock.lastCommitSeq,
     ));
@@ -911,7 +912,7 @@ const observeCompletionInTransaction = Effect.fn(
       authority.scopeId,
       expectedId,
     ));
-    yield* Effect.fromResult(requireBuildFrontierResult(
+    yield* Effect.fromResult(validateIndexBuildStateFrontierResult(
       state,
       clock.lastCommitSeq,
     ));
@@ -1001,19 +1002,6 @@ function buildAuthorityIsCurrent(
   return state.storageGeneration === clock.storageGeneration &&
     state.storageGenerationFence === clock.storageGenerationFence &&
     state.epoch === clock.epoch;
-}
-
-function requireBuildFrontierResult(
-  state: IndexBuildStateRecord,
-  lastCommitSeq: bigint,
-): Result.Result<void, IndexBuildStateCorruptionError> {
-  return state.startCommitSeq <= lastCommitSeq
-    ? Result.succeed(undefined)
-    : Result.fail(new IndexBuildStateCorruptionError(
-      state.scopeId,
-      state.indexDefinitionId,
-      `start commit sequence ${state.startCommitSeq} is ahead of scope clock ${lastCommitSeq}`,
-    ));
 }
 
 function runFault(
