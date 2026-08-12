@@ -124,12 +124,13 @@ Application-owned canonical receipt before persistence, and fixes exact
 replay, conflict, corruption, rollback, and genuine-PostgreSQL uncertainty
 proofs. It remains private, production-inert, and unwired and creates no second
 revision, readiness, activation, or active-head system. SAP-TRP5 readiness and
-active-selection agreement is now proposed in
+active-selection agreement is recorded in
 [`preflight/41-standard-application-task-runtime-readiness.md`](./preflight/41-standard-application-task-runtime-readiness.md).
-It reuses the existing readiness/activation chain, the task-specific immutable
-store, and the Standard Application codecs, while keeping implementation behind
-an explicit approval and a separately approved task-catalog snapshot-owner
-correction.
+Its task-catalog prerequisite and pure Standard Application
+cold-verification/canonical readiness-basis checkpoint are complete. The pure
+result explicitly carries no R2-read authority; backend store composition,
+task-aware readiness persistence/issuance, activation changes, and production
+wiring remain behind later approval gates.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime

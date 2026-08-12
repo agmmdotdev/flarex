@@ -2,9 +2,11 @@
 
 ## Status
 
-**Decision:** SAP-TRP5 remains proposed for approval. Its separately approved
-shared task-catalog snapshot prerequisite was completed on 2026-08-12. No
-SAP-TRP5 implementation is authorized by this document yet.
+**Decision:** implementation is approved and complete only through step 2. The
+shared task-catalog snapshot prerequisite and the pure Standard Application
+cold-verification/readiness-basis contract were completed on 2026-08-12.
+Backend object reading, persistence/schema, readiness issuance, activation,
+and production wiring remain unapproved.
 
 SAP-TRP1 through SAP-TRP4 are complete and production-inert. They provide the
 canonical task-runtime object formats, an authenticated publication plan, an
@@ -331,6 +333,31 @@ Deterministic in-memory or Miniflare timeout tests do not establish hosted R2
 settlement. Production-capable claims require a hosted test or an authoritative
 Cloudflare contract that proves the chosen deadline/disposition behavior.
 
+## Completed Pure Verification Contract
+
+The Standard Application owner now exports the current unversioned
+`verifyTaskRuntimeReadiness` operation plus the concrete version-1 canonical
+readiness-basis contract. The operation accepts only exact SAP-TRP4 receipt
+bytes/digest, authoritative parent/catalog evidence, one trusted
+materialization policy, and already-read object references with owned bodies.
+
+It decodes and canonically verifies every SAP-TRP1 role, proves exact returned
+reference and receipt membership, recomputes the module, projection, entry,
+group, materialization, and Application revision binding roots, correlates
+each task entry with the owned catalog, and applies the exact trusted runtime
+policy. The empty path proves the canonical empty entry root and performs no
+object-body work. Its returned canonical basis commits the SAP-TRP4 receipt,
+authoritative parents and roots, admitted policy, object count, and canonical
+object-byte total. Inputs are captured before the first asynchronous hash and
+all returned bytes and digests are copy-on-read.
+
+This pure result deliberately does **not** prove that R2 was read. Any caller
+can present already-held bytes to it. Step 3 must own a separate backend
+capability that obtains bodies only through the existing immutable store,
+applies host admission/deadline policy, calls this verifier, and mints any proof
+later accepted by persistence. Persistence must never accept the freely
+callable pure result as cold-read authority.
+
 ## Failure And Retry Policy
 
 | Condition | Result |
@@ -385,16 +412,20 @@ object existence as a readiness receipt.
 
 ### Standard Application verifier
 
-- empty and populated golden evidence;
-- every role decode/re-encode path;
-- missing, duplicate, reordered, wrong-role, wrong-ordinal, wrong-codec,
-  wrong-key, length, digest, and noncanonical object negatives;
-- recomputed module/projection/entry/group/materialization roots;
-- catalog/candidate/source/semantic/package/artifact/revision correlation;
-- unsupported ABI/profile/implementation/date/flag/compute-profile cases;
-- protocol maxima at the pure codec boundary; maximum admitted host policy,
-  above-policy rejection, ownership, hostile input, and interruption; and
-- exact error-channel and package-boundary type tests.
+- **complete for the pure owner:** empty and populated golden evidence and
+  every role decode/re-encode path;
+- **complete:** missing, reordered, wrong-reference, wrong-ordinal,
+  wrong-codec, length, digest, and noncanonical object negatives;
+- **complete:** recomputed module/projection/entry/group/materialization and
+  Application revision binding roots;
+- **complete:** catalog/candidate/source/semantic/package/artifact/revision
+  correlation and implementation/date/flag/compute-profile admission cases;
+- **complete:** canonical-basis round trip, exact error-channel typing,
+  ownership, hostile accessor/detached-byte rejection, and mutation across an
+  asynchronous hash boundary;
+- protocol maximum shapes remain covered by the SAP-TRP1/SAP-TRP4 codecs; and
+- maximum admitted host policy, above-host-policy rejection, I/O interruption,
+  and settlement remain step-3 backend responsibilities.
 
 ### Backend object-read composition
 
@@ -428,13 +459,27 @@ typechecks/tests, migration checks, Trigger boundary checks, scripts typecheck,
 frozen-lockfile/diff checks, and both required project reviewers against the
 final staged diff.
 
+The live `check:standard-application-definition-boundaries` command currently
+has a pre-existing baseline defect: its checker still requires exactly two
+package exports and an older import allowlist, while the committed package has
+four exports and the newer Application/task-runtime owners already use the
+reported imports. The checker reports those committed files even without this
+checkpoint. Its own 42 focused checker tests pass, and this checkpoint adds no
+new package export or forbidden dependency. This roadmap records the expected
+behavior (the checker must describe the current committed package boundary),
+the actual stale baseline, the owning tooling boundary, and the disposition:
+do not weaken or opportunistically repair that shared checker here; require a
+separate owner-approved correction before presenting the live command as a
+green SAP-TRP5 release gate.
+
 ## Proposed Implementation Order
 
 After explicit approval of each remaining checkpoint:
 
 1. **Complete:** correct the shared `ApplicationTaskCatalogSnapshotPort` defect
    as its own bounded prerequisite commit;
-2. add the pure Standard Application cold-verification/basis contract;
+2. **Complete:** add the pure Standard Application
+   cold-verification/readiness-basis contract;
 3. add the backend verifier using only the existing task-runtime store `read`;
 4. add the persistence snapshot and version-2 readiness schema/migration;
 5. integrate version-2 issuance and legacy version-1 read compatibility into
@@ -469,11 +514,12 @@ SAP-TRP5 does not authorize:
 
 ## Stop Boundary
 
-This document remains a proposal for SAP-TRP5 only. The bounded task-catalog
-snapshot correction is complete. The next decision is whether to approve step
-2, the pure Standard Application cold-verification and readiness-basis
-contract. Approval of that step does not authorize backend R2 composition,
-persistence/schema changes, activation changes, or production wiring.
+SAP-TRP5 is implemented only through the pure step-2 boundary. The next
+decision is whether to approve a bounded backend step-3 preflight that closes
+the R2 admission/deadline/settlement gap, reads exact SAP-TRP4 membership only
+through the existing immutable store, and wraps the pure basis in a
+composition-owned proof. It must remain independent of persistence/schema,
+readiness issuance, activation changes, and production wiring.
 
 If implemented, SAP-TRP5 ends when the existing Application readiness and
 active-selection chain can prove an explicit empty or fully cold-verified

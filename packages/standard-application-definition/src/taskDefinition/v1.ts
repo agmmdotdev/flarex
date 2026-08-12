@@ -8,5 +8,6 @@ export * from "./RuntimePublicationErrors.js";
 export * from "./RuntimePublicationPreparation.js";
 export * from "./RuntimePublicationReceipt.js";
 export * from "./RuntimePublicationSchema.js";
+export * from "./RuntimeReadiness.js";
 export * from "./Schema.js";
 export * from "./Sha256.js";
