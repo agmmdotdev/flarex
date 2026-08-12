@@ -117,7 +117,8 @@
       ],
       "targetOwners": [
         "packages/flarex-backend/src/taskComputeDelivery/DispatchRecoveryDecision.ts",
-        "packages/flarex-backend/src/taskComputeDelivery/ConnectedRunner.ts (planned private ABI)"
+        "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts",
+        "packages/persistence-postgres/src/taskComputeDeliveryRepositoryV1.ts"
       ],
       "reuseClass": "S",
       "retainedControlFlow": [

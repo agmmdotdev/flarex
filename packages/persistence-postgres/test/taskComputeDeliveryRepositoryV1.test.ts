@@ -549,6 +549,15 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       }));
       if (replay.kind !== "claimed") throw new Error("expired claim was not taken over");
       expect(replay.deliveryMode).toBe("uncertain_replay");
+      expect(await runEffectFailure(
+        secondRepository.markDispatchDeliveryStarted(replay.handle),
+      )).toMatchObject({
+        operation: "mark_dispatch_delivery_started",
+        reason: "state_mismatch",
+      });
+      expect(await runEffect(
+        secondRepository.verifyDispatchRecovery(replay.handle),
+      )).toEqual({ kind: "state_unchanged" });
       const started = await runEffect(
         secondRepository.markDispatchDeliveryStarted(replay.handle),
       );
@@ -922,6 +931,9 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       }));
       if (replay.kind !== "claimed") throw new Error("uncertain replay not claimed");
       expect(replay.deliveryMode).toBe("uncertain_replay");
+      expect(await runEffect(
+        recoveryRepository.verifyDispatchRecovery(replay.handle),
+      )).toEqual({ kind: "state_unchanged" });
       expect((await runEffect(
         recoveryRepository.markDispatchDeliveryStarted(replay.handle),
       )).deliveryAttemptCount).toBe(3n);
@@ -1173,7 +1185,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
     });
   });
 
-  it("settles a started terminal race as cleanup-only without reopening Task authority", async () => {
+  it("closes a started cancellation recovery when lifecycle state moved", async () => {
     await withFixture(async (fixture) => {
       const firstRepository = repository(
         fixture.deliveryLocated,
@@ -1210,17 +1222,20 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         throw new Error("started cancellation race was not recoverable");
       }
       expect(replay.deliveryMode).toBe("uncertain_replay");
-      expect((await runEffect(
+      expect(await runEffect(
+        recoveryRepository.verifyCancellationRecovery(replay.handle),
+      )).toEqual({ kind: "state_moved" });
+      expect(await runEffectFailure(
         recoveryRepository.markCancellationDeliveryStarted(replay.handle),
-      )).deliveryAttemptCount).toBe(2n);
-      const receipt = cancellationReceipt(replay.request);
-      expect(await runEffect(recoveryRepository.recordCancellationReceipt(
-        replay.handle,
-        receipt,
-      ))).toEqual({
-        kind: "cancellation_delivered",
-        receipt,
-        disposition: "cleanup_only",
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(await readCancellationSettlement(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      )).toMatchObject({
+        delivery_state: "rejected",
+        claim_owner: null,
+        reason_code: "lifecycle_obsolete",
       });
       expect((await inspectFixtureAttempt(fixture)).state).toMatchObject({
         phase: "terminal",
@@ -1726,6 +1741,9 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       }));
       if (replay.kind !== "claimed") throw new Error("uncertain replay not claimed");
       expect(replay.deliveryMode).toBe("uncertain_replay");
+      expect(await runEffect(
+        recoveryRepository.verifyCancellationRecovery(replay.handle),
+      )).toEqual({ kind: "state_unchanged" });
       expect((await runEffect(
         recoveryRepository.markCancellationDeliveryStarted(replay.handle),
       )).deliveryAttemptCount).toBe(3n);
@@ -2024,6 +2042,51 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         delivery_state: "delivering",
         delivery_attempt_count: "1",
       });
+      await fixture.persistence.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set claimed_at = clock_timestamp() - interval '2 minutes',
+            claim_expires_at = clock_timestamp() - interval '1 minute'
+        where scope_id = $1 and run_id = $2
+          and requested_effect_sequence = $3
+      `, [TASK_SCOPE_ID, fixture.runId, fixture.dispatchSequence]);
+      let recoveryCalls = 0;
+      const uncertainProbeRunner: RunLocatedReadCommittedTransactionV1 =
+        async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
+          recoveryCalls += 1;
+          const value = await base(work);
+          if (recoveryCalls === 2) {
+            throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("probe response lost"),
+            }));
+          }
+          return value;
+        };
+      const recoveryRepository = repository(
+        deliveryLocatedWithRunner(fixture, uncertainProbeRunner),
+        CLAIM_OWNER_B,
+      );
+      const recovery = await runEffect(recoveryRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (recovery.kind !== "claimed") {
+        throw new Error("uncertain recovery was not claimed");
+      }
+      const observation = await runEffect(
+        recoveryRepository.verifyDispatchRecovery(recovery.handle),
+      );
+      expect(observation).toMatchObject({
+        kind: "probe_uncertain",
+        cause: {
+          _tag: "TaskComputeDeliveryRepositoryDecisionUncertainV1Error",
+          operation: "verify_dispatch_recovery",
+        },
+      });
+      expect(await runEffectFailure(
+        recoveryRepository.markDispatchDeliveryStarted(recovery.handle),
+      )).toMatchObject({ reason: "closed_handle" });
+      expect(recoveryCalls).toBe(2);
     });
 
     await withFixture(async (fixture) => {

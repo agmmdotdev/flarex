@@ -15,6 +15,9 @@ import {
 import type {
   TaskComputeDeliveryRepositoryV1,
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-repository-v1";
+import {
+  TaskComputeDeliveryRepositorySqlV1Error,
+} from "@flarex/persistence-postgres/internal/task-compute-delivery-repository-v1";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import {
@@ -26,6 +29,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   TaskComputeDeliveryCandidateRunner,
   TaskComputeDeliveryCandidateRunnerInputError,
+  type TaskComputeCancellationCandidateRunnerError,
+  type TaskComputeDispatchCandidateRunnerError,
   type TaskComputeDeliveryCandidateRunnerShape,
 } from "../src/taskComputeDelivery/CandidateRunner";
 import {
@@ -399,6 +404,39 @@ describe("DTE06-C3 bounded connected delivery runner", () => {
       confirmedDispatchCandidatesHandled: 0,
       confirmedDispatchProviderCalls: 0,
       confirmedCancellationCandidatesHandled: 1,
+    });
+  });
+
+  it("keeps uncertain recovery probes unconfirmed for both operations", async () => {
+    const order: string[] = [];
+    const candidateRunner = recordingCandidateRunner(order, {
+      dispatchFailure: new TaskComputeDeliveryRepositorySqlV1Error({
+        operation: "verify_dispatch_recovery",
+        phase: "infrastructure",
+        cause: "dispatch probe unavailable",
+      }),
+      cancellationFailure: new TaskComputeDeliveryRepositorySqlV1Error({
+        operation: "verify_cancellation_recovery",
+        phase: "infrastructure",
+        cause: "cancellation probe response lost",
+      }),
+    });
+    const receipt = await run(
+      singleScopeDirectory(order),
+      candidateRunner,
+      policy(),
+      null,
+    );
+
+    expect(receipt).toMatchObject({
+      stopReason: "cycle_exhausted",
+      candidateFailures: 2,
+      dispatchProviderCallsCharged: 1,
+      cancellationProviderCallsCharged: 1,
+      confirmedDispatchCandidatesHandled: 0,
+      confirmedDispatchProviderCalls: 0,
+      confirmedCancellationCandidatesHandled: 0,
+      confirmedCancellationProviderCalls: 0,
     });
   });
 
@@ -917,7 +955,8 @@ function continuationPosition(candidate: TaskComputeDeliveryCandidate) {
 function recordingCandidateRunner(
   order: string[],
   options: Readonly<{
-    readonly dispatchFailure?: TaskComputeDeliveryCandidateRunnerInputError;
+    readonly dispatchFailure?: TaskComputeDispatchCandidateRunnerError;
+    readonly cancellationFailure?: TaskComputeCancellationCandidateRunnerError;
   }> = {},
 ): TaskComputeDeliveryCandidateRunnerShape {
   let runner: TaskComputeDeliveryCandidateRunnerShape;
@@ -941,12 +980,14 @@ function recordingCandidateRunner(
       if (this !== runner) {
         return Effect.die("cancellation runner receiver lost");
       }
-      return Effect.sync(() => {
-      order.push(`${deploymentFor(value)}:cancellation:run`);
-      return Object.freeze({
-        kind: "cancellation_not_called" as const,
-        acquisition: Object.freeze({ kind: "waiting_dispatch" as const }),
-      });
+      return Effect.suspend(() => {
+        order.push(`${deploymentFor(value)}:cancellation:run`);
+        return options.cancellationFailure === undefined
+          ? Effect.succeed(Object.freeze({
+            kind: "cancellation_not_called" as const,
+            acquisition: Object.freeze({ kind: "waiting_dispatch" as const }),
+          }))
+          : Effect.fail(options.cancellationFailure);
       });
     },
   };
@@ -962,12 +1003,14 @@ function unusedRepository(): TaskComputeDeliveryRepositoryV1 {
   const unused = () => Effect.die("repository must not be called by test runner");
   return Object.freeze({
     acquireDispatch: unused,
+    verifyDispatchRecovery: unused,
     markDispatchDeliveryStarted: unused,
     renewDispatchClaim: unused,
     releaseDispatchBeforeDelivery: unused,
     recordDispatchAcceptance: unused,
     recordDispatchKnownFailure: unused,
     acquireCancellation: unused,
+    verifyCancellationRecovery: unused,
     markCancellationDeliveryStarted: unused,
     renewCancellationClaim: unused,
     releaseCancellationBeforeDelivery: unused,

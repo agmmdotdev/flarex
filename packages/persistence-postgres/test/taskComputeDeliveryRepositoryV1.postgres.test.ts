@@ -466,15 +466,24 @@ describePostgres("real PostgreSQL DTE06-C2 compute delivery repository", () => {
       )).toMatchObject({ reason: "closed_handle" });
 
       await waitForDispatchClaimExpiry(fixture);
-      const recovery = await runEffect(repository(
+      const recoveryRepository = repository(
         fixture.deliveryLocated,
         CLAIM_OWNER_B,
         250,
-      ).acquireDispatch(dispatchRequest(fixture)));
+      );
+      const recovery = await runEffect(
+        recoveryRepository.acquireDispatch(dispatchRequest(fixture)),
+      );
       expect(recovery).toMatchObject({
         kind: "claimed",
         deliveryMode: "uncertain_replay",
       });
+      if (recovery.kind !== "claimed") {
+        throw new Error("uncertain replay was not claimed");
+      }
+      expect(await runEffect(
+        recoveryRepository.verifyDispatchRecovery(recovery.handle),
+      )).toEqual({ kind: "state_unchanged" });
     });
   }, 120_000);
 

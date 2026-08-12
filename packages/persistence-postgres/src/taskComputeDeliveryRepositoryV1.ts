@@ -155,12 +155,14 @@ export type TaskComputeDispatchClosedReasonV1 =
 
 export type TaskComputeDeliveryRepositoryOperationV1 =
   | "acquire_dispatch"
+  | "verify_dispatch_recovery"
   | "mark_dispatch_delivery_started"
   | "renew_dispatch_claim"
   | "release_dispatch_before_delivery"
   | "record_dispatch_acceptance"
   | "record_dispatch_known_failure"
   | "acquire_cancellation"
+  | "verify_cancellation_recovery"
   | "mark_cancellation_delivery_started"
   | "renew_cancellation_claim"
   | "release_cancellation_before_delivery"
@@ -175,6 +177,7 @@ interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
     | "encode_dispatch_request"
     | "decode_dispatch_request"
     | "decode_dispatch_acceptance";
+  readonly verify_dispatch_recovery: "decode_dispatch_request";
   readonly mark_dispatch_delivery_started: "decode_dispatch_request";
   readonly renew_dispatch_claim: "decode_dispatch_request";
   readonly release_dispatch_before_delivery: "decode_dispatch_request";
@@ -189,6 +192,10 @@ interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
     | "encode_cancellation_request"
     | "decode_cancellation_request"
     | "decode_cancellation_receipt";
+  readonly verify_cancellation_recovery:
+    | "decode_dispatch_request"
+    | "decode_dispatch_acceptance"
+    | "decode_cancellation_request";
   readonly mark_cancellation_delivery_started:
     | "decode_dispatch_request"
     | "decode_dispatch_acceptance"
@@ -214,6 +221,7 @@ interface TaskComputeDeliveryRepositoryEvidenceOperationByOperationV1 {
 }
 interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
   readonly acquire_dispatch: "invalid_request" | "claim_owner_invalid";
+  readonly verify_dispatch_recovery: "invalid_handle" | "closed_handle";
   readonly mark_dispatch_delivery_started: "invalid_handle" | "closed_handle";
   readonly renew_dispatch_claim: "invalid_handle" | "closed_handle";
   readonly release_dispatch_before_delivery: "invalid_handle" | "closed_handle";
@@ -228,6 +236,7 @@ interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
     | "invalid_known_failure"
     | "known_failure_correlation_mismatch";
   readonly acquire_cancellation: "invalid_request" | "claim_owner_invalid";
+  readonly verify_cancellation_recovery: "invalid_handle" | "closed_handle";
   readonly mark_cancellation_delivery_started:
     | "invalid_handle"
     | "closed_handle";
@@ -248,6 +257,10 @@ interface TaskComputeDeliveryRepositoryInputReasonByOperationV1 {
 }
 interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
   readonly acquire_dispatch: never;
+  readonly verify_dispatch_recovery:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "verify_dispatch_recovery"
+    >;
   readonly mark_dispatch_delivery_started:
     TaskComputeDeliveryRepositoryStaleClaimV1Error<
       "mark_dispatch_delivery_started"
@@ -267,6 +280,10 @@ interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
       "record_dispatch_known_failure"
     >;
   readonly acquire_cancellation: never;
+  readonly verify_cancellation_recovery:
+    TaskComputeDeliveryRepositoryStaleClaimV1Error<
+      "verify_cancellation_recovery"
+    >;
   readonly mark_cancellation_delivery_started:
     TaskComputeDeliveryRepositoryStaleClaimV1Error<
       "mark_cancellation_delivery_started"
@@ -289,6 +306,7 @@ interface TaskComputeDeliveryRepositoryStaleErrorByOperationV1 {
 interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
   readonly acquire_dispatch:
     TaskComputeDeliveryRepositoryResourceExhaustedV1Error<"acquire_dispatch">;
+  readonly verify_dispatch_recovery: never;
   readonly mark_dispatch_delivery_started:
     TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
       "mark_dispatch_delivery_started"
@@ -301,6 +319,7 @@ interface TaskComputeDeliveryRepositoryResourceErrorByOperationV1 {
     TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
       "acquire_cancellation"
     >;
+  readonly verify_cancellation_recovery: never;
   readonly mark_cancellation_delivery_started:
     TaskComputeDeliveryRepositoryResourceExhaustedV1Error<
       "mark_cancellation_delivery_started"
@@ -550,6 +569,37 @@ export interface TaskComputeDispatchDeliveryStartedV1 {
   readonly deliveryStartedAt: Date;
 }
 
+type TaskComputeDeliveryRecoveryProbeOperationV1 =
+  | "verify_dispatch_recovery"
+  | "verify_cancellation_recovery";
+
+export type TaskComputeDeliveryRecoveryProbeUncertainCauseV1<
+  Operation extends TaskComputeDeliveryRecoveryProbeOperationV1 =
+    TaskComputeDeliveryRecoveryProbeOperationV1,
+> =
+  | TaskComputeDeliveryRepositoryConfirmedRollbackV1Error<Operation>
+  | TaskComputeDeliveryRepositoryDecisionUncertainV1Error<Operation>
+  | TaskComputeDeliveryRepositorySqlV1Error<Operation>;
+
+export type TaskComputeDeliveryRecoveryProbeErrorV1<
+  Operation extends TaskComputeDeliveryRecoveryProbeOperationV1 =
+    TaskComputeDeliveryRecoveryProbeOperationV1,
+> = Exclude<
+  TaskComputeDeliveryRepositoryErrorV1<Operation>,
+  TaskComputeDeliveryRecoveryProbeUncertainCauseV1<Operation>
+>;
+
+export type TaskComputeDeliveryRecoveryObservationV1<
+  Operation extends TaskComputeDeliveryRecoveryProbeOperationV1 =
+    TaskComputeDeliveryRecoveryProbeOperationV1,
+> =
+  | Readonly<{ readonly kind: "state_moved" }>
+  | Readonly<{ readonly kind: "state_unchanged" }>
+  | Readonly<{
+      readonly kind: "probe_uncertain";
+      readonly cause: TaskComputeDeliveryRecoveryProbeUncertainCauseV1<Operation>;
+    }>;
+
 export interface TaskComputeDispatchClaimRenewedV1 {
   readonly kind: "claim_renewed";
   readonly claimExpiresAt: Date;
@@ -671,6 +721,12 @@ export interface TaskComputeDeliveryRepositoryV1 {
     TaskComputeDispatchAcquireResultV1,
     TaskComputeDeliveryRepositoryErrorV1<"acquire_dispatch">
   >;
+  readonly verifyDispatchRecovery: (
+    handle: TaskComputeDispatchClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeDeliveryRecoveryObservationV1<"verify_dispatch_recovery">,
+    TaskComputeDeliveryRecoveryProbeErrorV1<"verify_dispatch_recovery">
+  >;
   readonly markDispatchDeliveryStarted: (
     handle: TaskComputeDispatchClaimHandleV1,
   ) => Effect.Effect<
@@ -708,6 +764,12 @@ export interface TaskComputeDeliveryRepositoryV1 {
   ) => Effect.Effect<
     TaskComputeCancellationAcquireResultV1,
     TaskComputeDeliveryRepositoryErrorV1<"acquire_cancellation">
+  >;
+  readonly verifyCancellationRecovery: (
+    handle: TaskComputeCancellationClaimHandleV1,
+  ) => Effect.Effect<
+    TaskComputeDeliveryRecoveryObservationV1<"verify_cancellation_recovery">,
+    TaskComputeDeliveryRecoveryProbeErrorV1<"verify_cancellation_recovery">
   >;
   readonly markCancellationDeliveryStarted: (
     handle: TaskComputeCancellationClaimHandleV1,
@@ -808,6 +870,8 @@ interface MutableHandleStateV1 {
   readonly requestedEffectSequence: TaskRequestedEffectSequenceV1;
   readonly claimOwner: string;
   readonly claimFence: bigint;
+  readonly deliveryMode: TaskComputeDeliveryModeV1;
+  recoveryVerified: boolean;
   phase: "claimed" | "delivering";
   closed: boolean;
   readonly operationGate: Semaphore.Semaphore;
@@ -940,6 +1004,61 @@ function makeRepository(
       },
     );
 
+  const verifyDispatchRecovery: TaskComputeDeliveryRepositoryV1[
+    "verifyDispatchRecovery"
+  ] = Effect.fn("TaskComputeDeliveryRepository.verifyDispatchRecovery")(
+    (handle) => withHandleOperation(
+      handles,
+      handle,
+      "verify_dispatch_recovery",
+      (state) => state.phase !== "claimed"
+          || state.deliveryMode !== "uncertain_replay"
+        ? Effect.fail(staleClaim(
+            "verify_dispatch_recovery",
+            state.runId,
+            "state_mismatch",
+          ))
+        : runClaimOperation(
+            state,
+            "verify_dispatch_recovery",
+            () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+              verifyDispatchRecoveryTransaction(
+                tx,
+                authority,
+                replacementScopeId,
+                target,
+                configuration,
+                state,
+              )
+            ),
+          ).pipe(
+            Effect.catchTags({
+              TaskComputeDeliveryRepositoryConfirmedRollbackV1Error: (cause) =>
+                Effect.succeed(Object.freeze({
+                  kind: "probe_uncertain" as const,
+                  cause,
+                })),
+              TaskComputeDeliveryRepositoryDecisionUncertainV1Error: (cause) =>
+                Effect.succeed(Object.freeze({
+                  kind: "probe_uncertain" as const,
+                  cause,
+                })),
+              TaskComputeDeliveryRepositorySqlV1Error: (cause) =>
+                Effect.succeed(Object.freeze({
+                  kind: "probe_uncertain" as const,
+                  cause,
+                })),
+            }),
+            Effect.tap((observation) => Effect.sync(() => {
+              if (observation.kind === "state_moved") closeHandle(state);
+              else if (observation.kind === "state_unchanged") {
+                state.recoveryVerified = true;
+              }
+            })),
+          ),
+    ),
+  );
+
   const markDispatchDeliveryStarted: TaskComputeDeliveryRepositoryV1[
     "markDispatchDeliveryStarted"
   ] = Effect.fn("TaskComputeDeliveryRepository.markDispatchDeliveryStarted")(
@@ -947,7 +1066,7 @@ function makeRepository(
       handles,
       handle,
       "mark_dispatch_delivery_started",
-      (state) => state.phase === "delivering"
+      (state) => state.phase === "delivering" || !state.recoveryVerified
         ? Effect.fail(staleClaim(
             "mark_dispatch_delivery_started",
             state.runId,
@@ -1159,6 +1278,61 @@ function makeRepository(
     },
   );
 
+  const verifyCancellationRecovery: TaskComputeDeliveryRepositoryV1[
+    "verifyCancellationRecovery"
+  ] = Effect.fn("TaskComputeDeliveryRepository.verifyCancellationRecovery")(
+    (handle) => withHandleOperation(
+      cancellationHandles,
+      handle,
+      "verify_cancellation_recovery",
+      (state) => state.phase !== "claimed"
+          || state.deliveryMode !== "uncertain_replay"
+        ? Effect.fail(staleClaim(
+            "verify_cancellation_recovery",
+            state.runId,
+            "state_mismatch",
+          ))
+        : runClaimOperation(
+            state,
+            "verify_cancellation_recovery",
+            () => target[RUN_LOCATED_READ_COMMITTED_V1]((tx) =>
+              verifyCancellationRecoveryTransaction(
+                tx,
+                authority,
+                replacementScopeId,
+                target,
+                configuration,
+                state,
+              )
+            ),
+          ).pipe(
+            Effect.catchTags({
+              TaskComputeDeliveryRepositoryConfirmedRollbackV1Error: (cause) =>
+                Effect.succeed(Object.freeze({
+                  kind: "probe_uncertain" as const,
+                  cause,
+                })),
+              TaskComputeDeliveryRepositoryDecisionUncertainV1Error: (cause) =>
+                Effect.succeed(Object.freeze({
+                  kind: "probe_uncertain" as const,
+                  cause,
+                })),
+              TaskComputeDeliveryRepositorySqlV1Error: (cause) =>
+                Effect.succeed(Object.freeze({
+                  kind: "probe_uncertain" as const,
+                  cause,
+                })),
+            }),
+            Effect.tap((observation) => Effect.sync(() => {
+              if (observation.kind === "state_moved") closeHandle(state);
+              else if (observation.kind === "state_unchanged") {
+                state.recoveryVerified = true;
+              }
+            })),
+          ),
+    ),
+  );
+
   const markCancellationDeliveryStarted: TaskComputeDeliveryRepositoryV1[
     "markCancellationDeliveryStarted"
   ] = Effect.fn("TaskComputeDeliveryRepository.markCancellationDeliveryStarted")(
@@ -1166,7 +1340,7 @@ function makeRepository(
       cancellationHandles,
       handle,
       "mark_cancellation_delivery_started",
-      (state) => state.phase === "delivering"
+      (state) => state.phase === "delivering" || !state.recoveryVerified
         ? Effect.fail(staleClaim(
             "mark_cancellation_delivery_started",
             state.runId,
@@ -1327,12 +1501,14 @@ function makeRepository(
 
   return Object.freeze({
     acquireDispatch,
+    verifyDispatchRecovery,
     markDispatchDeliveryStarted,
     renewDispatchClaim,
     releaseDispatchBeforeDelivery,
     recordDispatchAcceptance,
     recordDispatchKnownFailure,
     acquireCancellation,
+    verifyCancellationRecovery,
     markCancellationDeliveryStarted,
     renewCancellationClaim,
     releaseCancellationBeforeDelivery,
@@ -1635,6 +1811,60 @@ interface CorrelatedHandleContextV1 {
     readonly claimExpiresAt: Date;
   }>;
   readonly lifecycleCurrent: boolean;
+}
+
+async function verifyDispatchRecoveryTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<
+  TaskComputeDeliveryRecoveryObservationV1<"verify_dispatch_recovery">
+> {
+  const operation = "verify_dispatch_recovery" as const;
+  const context = await loadCorrelatedHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    || context.checkpoint.deliveryAttemptCount < 1n
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (context.lifecycleCurrent) {
+    return Object.freeze({ kind: "state_unchanged" });
+  }
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    deliveryState: "rejected",
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: "lifecycle_obsolete",
+    settledAt: context.databaseTime.now,
+    updatedAt: context.databaseTime.now,
+  }).where(dispatchClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (
+    row?.deliveryState !== "rejected"
+    || row.claimOwner !== null
+    || row.reasonCode !== "lifecycle_obsolete"
+    || row.settledAt === null
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({ kind: "state_moved" });
 }
 
 async function markDispatchDeliveryStartedTransaction(
@@ -2382,6 +2612,60 @@ interface CorrelatedCancellationHandleContextV1 {
     readonly claimExpiresAt: Date;
   }>;
   readonly lifecycleCurrent: boolean;
+}
+
+async function verifyCancellationRecoveryTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  configuration: CapturedConfigurationV1,
+  state: MutableHandleStateV1,
+): Promise<
+  TaskComputeDeliveryRecoveryObservationV1<"verify_cancellation_recovery">
+> {
+  const operation = "verify_cancellation_recovery" as const;
+  const context = await loadCorrelatedCancellationHandleContext(
+    tx,
+    authority,
+    replacementScopeId,
+    target,
+    configuration,
+    state,
+    operation,
+  );
+  requireCurrentCancellationClaim(context, state, operation);
+  if (
+    context.checkpoint.deliveryState !== "delivering"
+    || context.checkpoint.deliveryAttemptCount < 1n
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  if (context.lifecycleCurrent) {
+    return Object.freeze({ kind: "state_unchanged" });
+  }
+  const updated = await statement(operation, () => tx.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryState: "rejected",
+    claimOwner: null,
+    claimedAt: null,
+    claimExpiresAt: null,
+    nextAttemptAt: null,
+    reasonCode: "lifecycle_obsolete",
+    settledAt: context.databaseTime.now,
+    updatedAt: context.databaseTime.now,
+  }).where(cancellationClaimKey(authority.scopeId, state)).returning());
+  const row = updated[0];
+  if (
+    row?.deliveryState !== "rejected"
+    || row.claimOwner !== null
+    || row.reasonCode !== "lifecycle_obsolete"
+    || row.settledAt === null
+  ) {
+    throw rollback(staleClaim(operation, state.runId, "state_mismatch"));
+  }
+  return Object.freeze({ kind: "state_moved" });
 }
 
 async function markCancellationDeliveryStartedTransaction(
@@ -4252,6 +4536,8 @@ function mintClaim(
       transaction.prepared.dispatchRequest.identity.requestedEffectSequence,
     claimOwner: transaction.claimOwner,
     claimFence: transaction.claimFence,
+    deliveryMode: transaction.deliveryMode,
+    recoveryVerified: transaction.deliveryMode !== "uncertain_replay",
     phase: "claimed",
     closed: false,
     operationGate: Semaphore.makeUnsafe(1),
@@ -4278,6 +4564,8 @@ function mintCancellationClaim(
     requestedEffectSequence: transaction.requestedEffectSequence,
     claimOwner: transaction.claimOwner,
     claimFence: transaction.claimFence,
+    deliveryMode: transaction.deliveryMode,
+    recoveryVerified: transaction.deliveryMode !== "uncertain_replay",
     phase: "claimed",
     closed: false,
     operationGate: Semaphore.makeUnsafe(1),
@@ -4826,6 +5114,7 @@ function isRepositoryErrorForOperation<
 ): error is TaskComputeDeliveryRepositoryErrorV1<Operation> {
   if (error instanceof TaskComputeDeliveryEvidenceV1Error) {
     const cancellationOperation = operation === "acquire_cancellation"
+      || operation === "verify_cancellation_recovery"
       || operation === "mark_cancellation_delivery_started"
       || operation === "renew_cancellation_claim"
       || operation === "release_cancellation_before_delivery"

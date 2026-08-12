@@ -3,7 +3,7 @@
 ## Status
 
 **Decision:** the C3 preflight and its bounded pending-membership amendment are
-approved. The first implementation checkpoint is complete: operation-specific
+complete and production-inert. The first implementation checkpoint is complete: operation-specific
 discovery reads the indexed projection and closes its migration, transaction,
 high-cardinality, PGlite, and ordinary-role PostgreSQL gates. The backend
 trusted directory and single-candidate provider operations are now complete and
@@ -19,8 +19,11 @@ A controlled lost-receipt case proves persistence-backed unknown progress:
 the dispatch settles as accepted while the runner conservatively charges but
 does not confirm candidate/provider work. The equivalent ordinary-role genuine-
 PostgreSQL 18 lane now proves two-scope transaction/provider delivery, exact
-fresh-runner resume, and final stored settlement. The connected C3 persistence
-gate is complete and production-inert.
+fresh-runner resume, and final stored settlement. The final private recovery
+subgate now proves exact dispatch and cancellation same-identity replay after
+post-start uncertainty in PGlite and ordinary-role PostgreSQL 18, while moved
+state and probe uncertainty make zero provider calls. The connected C3 gate is
+complete and production-inert; no host or activation path exists.
 
 The connected-flow prerequisite is resolved. C2 now captures and correlates a
 provider `TaskComputeCancellationStaleError`, rejects the older checkpoint as
@@ -383,6 +386,40 @@ uses exhaustive tag-specific policy:
 | Contract mismatch or dispatch semantic conflict | No known settlement; fail closed and surface candidate evidence. |
 | Defect or interruption | Preserve the Cause; do not translate it into a business failure. |
 
+### Unknown-delivery recovery subgate
+
+An expired `delivering` dispatch or cancellation is not immediately sent to
+the provider again. C2 first reacquires the exact checkpoint identity and
+fence, then exposes a dedicated recovery probe that re-locks and correlates the
+same scope, run, requested effect, lifecycle ledger, checkpoint, and stored
+provider request before any new delivery-attempt count or provider call.
+
+The backend owns the mapped Trigger three-way decision:
+
+| Probe observation | Decision and durable action |
+| --- | --- |
+| correlated lifecycle/checkpoint moved | `do_not_replay`; C2 atomically closes the old checkpoint as lifecycle-obsolete and clears its claim |
+| exact lifecycle/checkpoint unchanged | `replay_same_identity`; use the already stored request and the same dispatch identity, then mark delivery started and call the provider |
+| typed probe failure or uncertain transaction disposition | `do_not_decide`; do not call the provider or manufacture a new identity, and leave durable expiry/reacquisition as the backstop |
+
+Corruption, stale authority, contract failure, defects, and interruption remain
+their existing typed failure or full-Cause outcomes; they are not normalized
+into an unchanged observation. The moved-state cleanup and unchanged verdict
+are one database-owned settled transaction. A race after that verdict can
+still only replay the same fenced identity, so the existing runtime lifecycle
+guards remain authoritative.
+
+`probe_uncertain` retains its typed persistence cause in the candidate-runner
+error channel. The connected runner conservatively charges that admitted work
+but records an unconfirmed candidate failure; it never reports the candidate
+or provider call as completed.
+
+This subgate requires dispatch and cancellation tests for same-identity replay
+after an accepted response is lost, moved lifecycle before replay, typed probe
+uncertainty with zero provider calls, and fresh-runner recovery through PGlite
+plus genuine PostgreSQL. It adds no provider verification API, process timer,
+Redis state, second lifecycle owner, Worker Loader path, or host activation.
+
 ## Fairness And Boundedness
 
 Policy is captured once and validates independent ceilings for:
@@ -519,7 +556,7 @@ The C3 implementation must prove:
    defects, and interruption for expiry replay.
 6. **Complete:** add the canonical active-scope continuation codec with exact
    directory/operation correlation and persisted per-scope fairness charges.
-7. **Partially complete:** the bounded alternating connected runner now owns
+7. **Complete:** the bounded alternating connected runner now owns
    exact service/Layer, policy, aggregate receipt, restart, fairness,
    conservative-charge, timeout, receiver, and hostile-page behavior in
    deterministic tests. Its deadline-owned control-directory persistence
@@ -534,10 +571,11 @@ The C3 implementation must prove:
    route, schedule, binding, or activation path was added.
 8. **Complete:** run the connected persistence gates and final reviewers,
    update the roadmap receipt, and leave every host and activation path absent.
-9. **Next private subgate:** give the runner ownership of the mapped
-   verification probe and Trigger-derived moved/unchanged/probe-uncertain
-   decision, then prove exact dispatch/cancellation replay and post-start
-   uncertainty before admitting Worker Loader work.
+9. **Complete:** the runner now owns the mapped verification probe and
+   Trigger-derived moved/unchanged/probe-uncertain decision. PGlite and
+   ordinary-role PostgreSQL 18 prove exact dispatch/cancellation same-identity
+   replay after post-start uncertainty; focused tests prove moved state and
+   probe uncertainty make no provider call.
 
 ## Stop Boundary
 
@@ -553,6 +591,6 @@ This preflight does not authorize:
 - public SDK, management, observability, log, trace, or output-stream APIs; or
 - DTE06-D/E/F or DTE05-E3 implementation.
 
-Preflight 37 admits only the recorded sequence. Steps 7 through 9 remain
+Preflight 37 admits only the recorded sequence. Steps 7 through 9 are complete
 private, production-inert checkpoints and do not authorize DTE06-D/E/F or
 DTE05-E3.

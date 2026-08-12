@@ -1,4 +1,6 @@
 import {
+  TaskComputeCancellationUncertainError,
+  TaskComputeDispatchUncertainError,
   TaskComputeProvider,
   decodeTaskComputeProviderDescriptorV1,
   type TaskComputeProviderShape,
@@ -214,6 +216,159 @@ describePostgres("DTE06-C3 connected delivery - PostgreSQL", () => {
           expect(provider.acceptedDispatches()).toHaveLength(2);
           expect(provider.acceptedCancellations()).toHaveLength(2);
           await expectSettledDelivery(persistence, secondary);
+        } finally {
+          await controlResource.close();
+        }
+      } finally {
+        await persistence.close();
+      }
+    });
+  });
+
+  it("replays exact dispatch and cancellation identities after post-start uncertainty", async () => {
+    await withTemporaryPostgresSchema(async (databaseOptions) => {
+      const persistence = await createPostgresPersistence({
+        migrationsSchema: databaseOptions.migrationsSchema,
+        poolConfig: {
+          ...databaseOptions.poolConfig,
+          connectionString: databaseOptions.connectionString,
+        },
+      });
+      try {
+        await persistence.migrate();
+        const controlResource = Result.getOrThrow(
+          createPostgresTaskComputeDeliveryControlDirectoryResource({
+            ...databaseOptions.poolConfig,
+            connectionString: databaseOptions.connectionString,
+            max: 1,
+          }, DEADLINE_POLICY),
+        );
+        try {
+          await expectOrdinaryPostgres18(persistence);
+          const fixture = await createDeliveryFixture(
+            persistence,
+            PRIMARY_FIXTURE,
+          );
+          const provider = Result.getOrThrow(makeInMemoryTaskComputeProviderV1(
+            PROVIDER_DESCRIPTOR,
+            {
+              afterDispatchAccepted: (acceptance) => Effect.fail(
+                new TaskComputeDispatchUncertainError({
+                  operation: "dispatch",
+                  identity: acceptance.identity,
+                  cause: "dispatch_response_lost",
+                }),
+              ),
+              afterCancellationAccepted: (receipt) => Effect.fail(
+                new TaskComputeCancellationUncertainError({
+                  operation: "request_cancellation",
+                  identity: receipt.identity,
+                  cause: "cancellation_response_lost",
+                }),
+              ),
+            },
+          ));
+          const authority = authorityPorts(
+            persistence,
+            async () => fixture.deliveryTarget,
+          );
+
+          const uncertainDispatch = await runConnected(connectedLayer(
+            controlResource.target,
+            authority,
+            provider,
+            "a3000000-0000-4000-8000-000000000041",
+            policy({}),
+          ), null);
+          expect(uncertainDispatch).toMatchObject({
+            stopReason: "cycle_exhausted",
+            candidateFailures: 1,
+            confirmedDispatchProviderCalls: 0,
+          });
+          await expireDeliveryClaim(
+            persistence,
+            "fx_system_durable_task_compute_dispatch_v1",
+            fixture,
+          );
+
+          const recoveredDispatch = await runConnected(connectedLayer(
+            controlResource.target,
+            authority,
+            provider,
+            "a3000000-0000-4000-8000-000000000042",
+            policy({}),
+          ), null);
+          expect(recoveredDispatch).toMatchObject({
+            stopReason: "cycle_exhausted",
+            candidateFailures: 0,
+            confirmedDispatchProviderCalls: 1,
+          });
+          expect(provider.dispatchRequests()).toHaveLength(2);
+          expect(provider.dispatchRequests()[1]).toEqual(
+            provider.dispatchRequests()[0],
+          );
+          expect(provider.acceptedDispatches()).toHaveLength(1);
+
+          await requestCancellation(fixture.lifecycleLayer, fixture.runId);
+          const uncertainCancellation = await runConnected(connectedLayer(
+            controlResource.target,
+            authority,
+            provider,
+            "a3000000-0000-4000-8000-000000000043",
+            policy({}),
+          ), null);
+          expect(uncertainCancellation).toMatchObject({
+            stopReason: "cycle_exhausted",
+            candidateFailures: 1,
+            confirmedCancellationProviderCalls: 0,
+          });
+          await expireDeliveryClaim(
+            persistence,
+            "fx_system_durable_task_compute_cancellation_v1",
+            fixture,
+          );
+
+          const recoveredCancellation = await runConnected(connectedLayer(
+            controlResource.target,
+            authority,
+            provider,
+            "a3000000-0000-4000-8000-000000000044",
+            policy({}),
+          ), null);
+          expect(recoveredCancellation).toMatchObject({
+            stopReason: "cycle_exhausted",
+            candidateFailures: 0,
+            confirmedCancellationProviderCalls: 1,
+          });
+          expect(provider.cancellationRequests()).toHaveLength(2);
+          expect(provider.cancellationRequests()[1]).toEqual(
+            provider.cancellationRequests()[0],
+          );
+          expect(provider.acceptedCancellations()).toHaveLength(1);
+
+          const rows = await persistence.query<{
+            dispatch_state: string;
+            dispatch_attempts: string;
+            cancellation_state: string;
+            cancellation_attempts: string;
+          }>(`
+            select d.delivery_state as dispatch_state,
+                   d.delivery_attempt_count::text as dispatch_attempts,
+                   c.delivery_state as cancellation_state,
+                   c.delivery_attempt_count::text as cancellation_attempts
+            from fx_system_durable_task_compute_dispatch_v1 d
+            join fx_system_durable_task_compute_cancellation_v1 c
+              on c.scope_id = d.scope_id
+             and c.run_id = d.run_id
+             and c.dispatch_requested_effect_sequence = d.requested_effect_sequence
+            where d.scope_id = $1 and d.run_id = $2
+          `, [fixture.scopeId, fixture.runId]);
+          expect(rows.rows).toEqual([{
+            dispatch_state: "accepted",
+            dispatch_attempts: "2",
+            cancellation_state: "delivered",
+            cancellation_attempts: "2",
+          }]);
         } finally {
           await controlResource.close();
         }
@@ -567,5 +722,26 @@ async function readDeliveryState(
     throw new Error("connected delivery fixture had multiple state rows");
   }
   return Object.freeze({ ...rows.rows[0] });
+}
+
+async function expireDeliveryClaim(
+  persistence: PostgresFlarexPersistence,
+  table:
+    | "fx_system_durable_task_compute_dispatch_v1"
+    | "fx_system_durable_task_compute_cancellation_v1",
+  fixture: Awaited<ReturnType<typeof createDeliveryFixture>>,
+): Promise<void> {
+  await persistence.query(`
+    update ${table}
+    set claimed_at = date_trunc(
+          'milliseconds',
+          clock_timestamp() - interval '2 minutes'
+        ),
+        claim_expires_at = date_trunc(
+          'milliseconds',
+          clock_timestamp() - interval '1 minute'
+        )
+    where scope_id = $1 and run_id = $2
+  `, [fixture.scopeId, fixture.runId]);
 }
 import { Buffer } from "node:buffer";

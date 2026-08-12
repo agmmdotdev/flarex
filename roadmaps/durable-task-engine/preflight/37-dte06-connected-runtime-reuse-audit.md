@@ -10,8 +10,9 @@ single-candidate dispatch/cancellation operation from the existing provider and
 persistence owners. The second completes the canonical active-scope
 continuation. The third completes the deterministic bounded multi-scope runner
 core. All remain private and hostless. Connected persistence proof is complete.
-Unknown-delivery replay/recovery, the Worker Loader task adapter, supervision,
-and private end-to-end proof remain pending.
+The mapped unknown-delivery replay/recovery subgate is complete and hostless.
+The Worker Loader task adapter, supervision, and private end-to-end proof
+remain pending.
 
 The audit itself changed no code or runtime configuration. Its approved first
 implementation checkpoint adds only private package code and private package
@@ -285,15 +286,16 @@ claim runner restart, fairness, or connected database behavior.
 
 The third backend checkpoint implements the private bounded alternating runner
 core and updates the applicable approved source-map targets from planned to
-implemented. Unknown-delivery recovery remains planned until the runner owns
-the mapped verification probe and three-way recovery decision.
+implemented. The later recovery checkpoint gives the candidate runner the
+mapped three-way decision and gives persistence the exact fenced verification
+probe and moved-state cleanup transaction.
 Its deterministic suite proves exact active-scope resume through a fresh Layer,
 later-scope progress, independent dispatch/cancellation turns and ceilings,
 conservative unknown-progress and timeout charges, separate confirmed counters,
 receiver preservation, hostile directory-page failure, fail-closed scope
 re-resolution, strict resumed snapshot/page correlation, deterministic timeout
 settlement, and preservation of external interruption without a receipt. The
-current focused command passes five files and 42 tests. The separately approved
+current focused command passes five files and 47 tests. The separately approved
 control-directory persistence correction now reuses the replacement-scope query
 behind an opaque deadline-owned transaction target. Its focused PGlite test
 passes three tests, and its ordinary-role genuine PostgreSQL 18 lane passes two
@@ -321,11 +323,14 @@ scope without rereading the directory. Both scope-local checkpoints settle as
 settle provider acceptance and the C2 repository transaction, then withholds
 that receipt from the connected runner. The stored dispatch is `accepted`, but
 the runner conservatively charges the page, candidate, and provider call while
-confirming only the page. The focused PGlite command passes one file and three
-tests. The ordinary-role genuine-PostgreSQL 18 lane then proves the equivalent
+confirming only the page. The focused PGlite command passes one file and four
+tests, including fresh-runner exact dispatch and cancellation same-identity
+replay after post-start provider uncertainty. The ordinary-role genuine-
+PostgreSQL 18 lane then proves the equivalent
 two-scope budget stop, exact fresh-runner resume without directory reread,
 alternating dispatch/cancellation provider delivery, and both scopes stored as
-`accepted` and `delivered`; its focused command passes one file and two tests.
+`accepted` and `delivered`, plus the same dispatch/cancellation recovery; its
+focused command passes one file and three tests.
 The fixture establishes real candidate, verifier-attempt, schema-version, and
 application-revision parent rows and does not use `session_replication_role`.
 The bounded connected persistence gate is complete and production-inert.
@@ -351,15 +356,17 @@ two-host exclusion, dispatch acceptance, lifecycle-owned cancellation request,
 cancellation settlement, alternating later-scope progress across two real
 scope databases, conservative persistence-backed accounting for a lost
 accepted-dispatch receipt, and equivalent ordinary-role genuine-PostgreSQL 18
-transaction/provider behavior. The connected persistence gate is complete.
-Next, close the mapped unknown-delivery recovery subgate before Worker Loader:
-the runner must own the verification probe and the Trigger-derived
-moved/unchanged/probe-uncertain decision, and tests must prove exact dispatch
-and cancellation replay plus post-start uncertainty. The lost-receipt test in
-this checkpoint proves conservative accounting after durable acceptance; it
-does not by itself prove provider-outcome recovery. Only after that subgate may
-the roadmap continue through the still-private Worker Loader task adapter and
-fenced settlement composition. This does not authorize a Worker host, route,
+transaction/provider behavior. The connected persistence and mapped unknown-
+delivery recovery gates are complete. The next roadmap checkpoint is the
+still-private DTE06-D Worker Loader task adapter and its minimal runtime ABI,
+followed by fenced settlement composition. This does not authorize a Worker host, route,
 schedule, binding, deployment, public API, or production activation.
 Only blockers discovered by that vertical may justify another foundation
 preflight.
+
+The accepted implementation boundary is recorded in Preflight 36's
+"Unknown-delivery recovery subgate": persistence owns the exact fenced
+state probe and moved-state cleanup transaction, while the backend owns the
+portable three-way decision and same-identity provider replay. No new provider
+probe, lifecycle transition owner, timer, schema generation, or host is
+admitted.

@@ -24,6 +24,9 @@ import type {
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-repository-v1";
 import { Context, Data, Effect, Layer, Result } from "effect";
 
+import { decideTaskComputeDispatchRecovery } from
+  "./DispatchRecoveryDecision.js";
+
 type DispatchAcquireWithoutClaim = Exclude<
   TaskComputeDispatchAcquireResultV1,
   { readonly kind: "claimed" }
@@ -49,6 +52,11 @@ export type TaskComputeDispatchCandidateOutcome =
       readonly deliveryMode: TaskComputeDeliveryModeV1;
       readonly deliveryAttemptCount: bigint;
       readonly settlement: TaskComputeDispatchKnownFailureRecordedV1;
+    }>
+  | Readonly<{
+      readonly kind: "dispatch_recovery_not_replayed";
+      readonly deliveryMode: "uncertain_replay";
+      readonly reason: "state_moved";
     }>;
 
 export type TaskComputeCancellationCandidateOutcome =
@@ -67,6 +75,11 @@ export type TaskComputeCancellationCandidateOutcome =
       readonly deliveryMode: TaskComputeDeliveryModeV1;
       readonly deliveryAttemptCount: bigint;
       readonly settlement: TaskComputeCancellationKnownFailureRecordedV1;
+    }>
+  | Readonly<{
+      readonly kind: "cancellation_recovery_not_replayed";
+      readonly deliveryMode: "uncertain_replay";
+      readonly reason: "state_moved";
     }>;
 
 export class TaskComputeDeliveryCandidateRunnerInputError
@@ -92,6 +105,7 @@ export type TaskComputeDispatchCandidateRunnerError =
   | DispatchProviderUnsettledError
   | TaskComputeDeliveryRepositoryErrorV1<
       | "acquire_dispatch"
+      | "verify_dispatch_recovery"
       | "mark_dispatch_delivery_started"
       | "record_dispatch_acceptance"
       | "record_dispatch_known_failure"
@@ -102,6 +116,7 @@ export type TaskComputeCancellationCandidateRunnerError =
   | CancellationProviderUnsettledError
   | TaskComputeDeliveryRepositoryErrorV1<
       | "acquire_cancellation"
+      | "verify_cancellation_recovery"
       | "mark_cancellation_delivery_started"
       | "record_cancellation_receipt"
       | "record_cancellation_known_failure"
@@ -146,6 +161,7 @@ export const TaskComputeDeliveryCandidateRunnerLive = Layer.effect(
           );
           const repositoryOwner = repository;
           const acquireDispatch = repository.acquireDispatch;
+          const verifyRecovery = repository.verifyDispatchRecovery;
           const markDeliveryStarted = repository.markDispatchDeliveryStarted;
           const recordAcceptance = repository.recordDispatchAcceptance;
           const recordKnownFailure = repository.recordDispatchKnownFailure;
@@ -158,6 +174,26 @@ export const TaskComputeDeliveryCandidateRunnerLive = Layer.effect(
               kind: "dispatch_not_called" as const,
               acquisition,
             });
+          }
+
+          if (acquisition.deliveryMode === "uncertain_replay") {
+            const observation = yield* verifyRecovery.call(
+              repositoryOwner,
+              acquisition.handle,
+            );
+            const decision = decideTaskComputeDispatchRecovery(observation);
+            if (decision.kind === "do_not_replay") {
+              return Object.freeze({
+                kind: "dispatch_recovery_not_replayed" as const,
+                deliveryMode: acquisition.deliveryMode,
+                reason: decision.reason,
+              });
+            }
+            if (decision.kind === "do_not_decide") {
+              return yield* observation.kind === "probe_uncertain"
+                ? Effect.fail(observation.cause)
+                : Effect.die("recovery decision and observation diverged");
+            }
           }
 
           const started = yield* markDeliveryStarted.call(
@@ -219,6 +255,7 @@ export const TaskComputeDeliveryCandidateRunnerLive = Layer.effect(
         );
         const repositoryOwner = repository;
         const acquireCancellation = repository.acquireCancellation;
+        const verifyRecovery = repository.verifyCancellationRecovery;
         const markDeliveryStarted =
           repository.markCancellationDeliveryStarted;
         const recordReceipt = repository.recordCancellationReceipt;
@@ -233,6 +270,26 @@ export const TaskComputeDeliveryCandidateRunnerLive = Layer.effect(
             kind: "cancellation_not_called" as const,
             acquisition,
           });
+        }
+
+        if (acquisition.deliveryMode === "uncertain_replay") {
+          const observation = yield* verifyRecovery.call(
+            repositoryOwner,
+            acquisition.handle,
+          );
+          const decision = decideTaskComputeDispatchRecovery(observation);
+          if (decision.kind === "do_not_replay") {
+            return Object.freeze({
+              kind: "cancellation_recovery_not_replayed" as const,
+              deliveryMode: acquisition.deliveryMode,
+              reason: decision.reason,
+            });
+          }
+          if (decision.kind === "do_not_decide") {
+            return yield* observation.kind === "probe_uncertain"
+              ? Effect.fail(observation.cause)
+              : Effect.die("recovery decision and observation diverged");
+          }
         }
 
         const started = yield* markDeliveryStarted.call(

@@ -1278,7 +1278,10 @@ function captureCandidateOutcome(
     });
     let providerCalled: boolean;
     if (operation === "dispatch") {
-      if (kind === "dispatch_not_called") providerCalled = false;
+      if (
+        kind === "dispatch_not_called"
+        || kind === "dispatch_recovery_not_replayed"
+      ) providerCalled = false;
       else if (kind === "dispatch_accepted" || kind === "dispatch_known_failure") {
         providerCalled = true;
       } else {
@@ -1289,7 +1292,10 @@ function captureCandidateOutcome(
           }),
         );
       }
-    } else if (kind === "cancellation_not_called") providerCalled = false;
+    } else if (
+      kind === "cancellation_not_called"
+      || kind === "cancellation_recovery_not_replayed"
+    ) providerCalled = false;
     else if (
       kind === "cancellation_delivered"
       || kind === "cancellation_known_failure"

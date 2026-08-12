@@ -528,12 +528,14 @@ function captureRepository(
 ): TaskComputeDeliveryRepositoryV1 {
   const owner = input;
   const acquireDispatch = input.acquireDispatch;
+  const verifyDispatchRecovery = input.verifyDispatchRecovery;
   const markDispatchDeliveryStarted = input.markDispatchDeliveryStarted;
   const renewDispatchClaim = input.renewDispatchClaim;
   const releaseDispatchBeforeDelivery = input.releaseDispatchBeforeDelivery;
   const recordDispatchAcceptance = input.recordDispatchAcceptance;
   const recordDispatchKnownFailure = input.recordDispatchKnownFailure;
   const acquireCancellation = input.acquireCancellation;
+  const verifyCancellationRecovery = input.verifyCancellationRecovery;
   const markCancellationDeliveryStarted = input.markCancellationDeliveryStarted;
   const renewCancellationClaim = input.renewCancellationClaim;
   const releaseCancellationBeforeDelivery =
@@ -543,6 +545,9 @@ function captureRepository(
   const capturedAcquireDispatch: TaskComputeDeliveryRepositoryV1[
     "acquireDispatch"
   ] = (request) => acquireDispatch.call(owner, request);
+  const capturedVerifyDispatchRecovery: TaskComputeDeliveryRepositoryV1[
+    "verifyDispatchRecovery"
+  ] = (handle) => verifyDispatchRecovery.call(owner, handle);
   const capturedMarkDispatch: TaskComputeDeliveryRepositoryV1[
     "markDispatchDeliveryStarted"
   ] = (handle) => markDispatchDeliveryStarted.call(owner, handle);
@@ -563,6 +568,9 @@ function captureRepository(
   const capturedAcquireCancellation: TaskComputeDeliveryRepositoryV1[
     "acquireCancellation"
   ] = (request) => acquireCancellation.call(owner, request);
+  const capturedVerifyCancellationRecovery: TaskComputeDeliveryRepositoryV1[
+    "verifyCancellationRecovery"
+  ] = (handle) => verifyCancellationRecovery.call(owner, handle);
   const capturedMarkCancellation: TaskComputeDeliveryRepositoryV1[
     "markCancellationDeliveryStarted"
   ] = (handle) => markCancellationDeliveryStarted.call(owner, handle);
@@ -582,12 +590,14 @@ function captureRepository(
     recordCancellationKnownFailure.call(owner, handle, failure);
   const captured: TaskComputeDeliveryRepositoryV1 = Object.freeze({
     acquireDispatch: capturedAcquireDispatch,
+    verifyDispatchRecovery: capturedVerifyDispatchRecovery,
     markDispatchDeliveryStarted: capturedMarkDispatch,
     renewDispatchClaim: capturedRenewDispatch,
     releaseDispatchBeforeDelivery: capturedReleaseDispatch,
     recordDispatchAcceptance: capturedRecordDispatchAcceptance,
     recordDispatchKnownFailure: capturedRecordDispatchFailure,
     acquireCancellation: capturedAcquireCancellation,
+    verifyCancellationRecovery: capturedVerifyCancellationRecovery,
     markCancellationDeliveryStarted: capturedMarkCancellation,
     renewCancellationClaim: capturedRenewCancellation,
     releaseCancellationBeforeDelivery: capturedReleaseCancellation,

@@ -66,7 +66,7 @@ ordinary-role genuine-PostgreSQL transaction proofs. The approved bounded C2
 correction now durably rejects an older provider-stale cancellation generation
 as `provider_stale_generation`, without a receipt or Task cancellation
 acknowledgement, and proves the outcome in PGlite and genuine PostgreSQL.
-DTE06-C3 is active and production-inert. Its candidate persistence-discovery
+DTE06-C3 is complete and production-inert. Its candidate persistence-discovery
 implementation now proves the strict V1 cursor, operation-specific semantics,
 database-owned deadlines, and PGlite plus ordinary-role genuine-PostgreSQL
 behavior. Its accepted pending-membership amendment now atomically projects
@@ -96,8 +96,14 @@ canonical evidence, exact directory/operation correlation, and restart-stable
 per-operation fairness charges. The deterministic bounded runner core and its
 connected PGlite transaction/provider proof across two real scopes are now
 implemented, including a persistence-backed lost-receipt case and ordinary-role
-genuine-PostgreSQL 18 parity. The connected C3 persistence gate is complete and
-production-inert.
+genuine-PostgreSQL 18 parity. The connected C3 persistence gate and final
+unknown-delivery recovery subgate are complete and production-inert. The
+recovery path reuses Trigger's mapped moved/unchanged/probe-uncertain decision
+over a Flarex-owned exact fenced persistence probe. Fresh-runner PGlite and
+ordinary-role PostgreSQL 18 tests prove dispatch and cancellation replay the
+same stored provider request after post-start uncertainty without minting a
+second identity. DTE06-D's private Worker Loader adapter is next; no host or
+activation is admitted.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).

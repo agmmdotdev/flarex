@@ -29,6 +29,9 @@ import type {
   TaskComputeDispatchClaimHandleV1,
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-repository-v1";
 import {
+  TaskComputeDeliveryRepositorySqlV1Error,
+} from "@flarex/persistence-postgres/internal/task-compute-delivery-repository-v1";
+import {
   TASK_RUNTIME_OBJECT_STORE_V1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
   decodeTaskRuntimeEntryFrameV1,
@@ -201,6 +204,126 @@ describe("DTE06-C3 single-candidate compute-delivery runner", () => {
     expect(provider.acceptedDispatches()).toHaveLength(1);
   });
 
+  it("verifies unchanged recovery before replaying the same dispatch identity", async () => {
+    const order: string[] = [];
+    const request = dispatchRequest();
+    const provider = success(makeInMemoryTaskComputeProviderV1(PROVIDER, {
+      beforeDispatch: () => Effect.sync(() => {
+        order.push("provider");
+      }),
+    }));
+    const repository = claimedDispatchRepository(request, {
+      acquireDispatch: () => Effect.succeed(Object.freeze({
+        kind: "claimed" as const,
+        prepared: preparedExecution(request),
+        handle: DISPATCH_HANDLE,
+        deliveryMode: "uncertain_replay" as const,
+        claimExpiresAt: new Date("2026-08-11T00:01:00.000Z"),
+      })),
+      verifyDispatchRecovery: () => Effect.sync(() => {
+        order.push("verify");
+        return Object.freeze({ kind: "state_unchanged" as const });
+      }),
+      markDispatchDeliveryStarted: () => Effect.sync(() => {
+        order.push("mark_started");
+        return Object.freeze({
+          kind: "delivery_started" as const,
+          deliveryAttemptCount: 2n,
+          deliveryStartedAt: new Date("2026-08-11T00:00:30.000Z"),
+        });
+      }),
+      recordDispatchAcceptance: (_handle, acceptance) => Effect.succeed(
+        Object.freeze({
+          kind: "dispatch_accepted" as const,
+          acceptance,
+          disposition: "current" as const,
+        }),
+      ),
+    });
+
+    const outcome = await runDispatch(
+      provider,
+      repository,
+      dispatchCandidate(request),
+    );
+
+    expect(order).toEqual(["verify", "mark_started", "provider"]);
+    expect(outcome).toMatchObject({
+      kind: "dispatch_accepted",
+      deliveryMode: "uncertain_replay",
+      deliveryAttemptCount: 2n,
+    });
+    expect(provider.dispatchRequests()).toEqual([request]);
+  });
+
+  it("does not replay dispatch when the exact lifecycle state moved", async () => {
+    const request = dispatchRequest();
+    const provider = success(makeInMemoryTaskComputeProviderV1(PROVIDER));
+    const repository = claimedDispatchRepository(request, {
+      acquireDispatch: () => Effect.succeed(Object.freeze({
+        kind: "claimed" as const,
+        prepared: preparedExecution(request),
+        handle: DISPATCH_HANDLE,
+        deliveryMode: "uncertain_replay" as const,
+        claimExpiresAt: new Date("2026-08-11T00:01:00.000Z"),
+      })),
+      verifyDispatchRecovery: () => Effect.succeed(Object.freeze({
+        kind: "state_moved" as const,
+      })),
+      markDispatchDeliveryStarted: () => Effect.die(
+        "moved recovery must not start delivery",
+      ),
+    });
+
+    const outcome = await runDispatch(
+      provider,
+      repository,
+      dispatchCandidate(request),
+    );
+
+    expect(outcome).toEqual({
+      kind: "dispatch_recovery_not_replayed",
+      deliveryMode: "uncertain_replay",
+      reason: "state_moved",
+    });
+    expect(provider.dispatchRequests()).toEqual([]);
+  });
+
+  it("does not decide or call the provider when the recovery probe is uncertain", async () => {
+    const request = dispatchRequest();
+    const provider = success(makeInMemoryTaskComputeProviderV1(PROVIDER));
+    const probeCause = new TaskComputeDeliveryRepositorySqlV1Error({
+      operation: "verify_dispatch_recovery",
+      phase: "infrastructure",
+      cause: "probe unavailable",
+    });
+    const repository = claimedDispatchRepository(request, {
+      acquireDispatch: () => Effect.succeed(Object.freeze({
+        kind: "claimed" as const,
+        prepared: preparedExecution(request),
+        handle: DISPATCH_HANDLE,
+        deliveryMode: "uncertain_replay" as const,
+        claimExpiresAt: new Date("2026-08-11T00:01:00.000Z"),
+      })),
+      verifyDispatchRecovery: () => Effect.succeed(Object.freeze({
+        kind: "probe_uncertain" as const,
+        cause: probeCause,
+      })),
+      markDispatchDeliveryStarted: () => Effect.die(
+        "uncertain recovery must not start delivery",
+      ),
+    });
+
+    const failure = await runDispatchFailure(
+      provider,
+      repository,
+      dispatchCandidate(request),
+    );
+
+    expect(failure).toBe(probeCause);
+    expect(provider.dispatchRequests()).toEqual([]);
+  });
+
   it("preserves interruption after delivery start without manufacturing settlement", async () => {
     const request = dispatchRequest();
     let settlementCalls = 0;
@@ -311,6 +434,63 @@ describe("DTE06-C3 single-candidate compute-delivery runner", () => {
     });
     expect(provider.acceptedCancellations()).toHaveLength(1);
   });
+
+  it("verifies unchanged recovery before replaying the same cancellation identity", async () => {
+    const request = dispatchRequest();
+    const provider = success(makeInMemoryTaskComputeProviderV1(PROVIDER));
+    const acceptance = await Effect.runPromise(provider.dispatch(request));
+    const cancellation = success(decodeTaskComputeCancellationRequestV1({
+      version: TASK_COMPUTE_CANCELLATION_REQUEST_VERSION_V1,
+      identity: {
+        ...request.identity,
+        requestedEffectSequence:
+          request.identity.requestedEffectSequence.toString(),
+        executionFence: request.identity.executionFence.toString(),
+      },
+      execution: acceptance.execution,
+      cancellationGeneration: "1",
+    }));
+    const repository = makeRepository({
+      acquireCancellation: () => Effect.succeed(Object.freeze({
+        kind: "claimed" as const,
+        request: cancellation,
+        handle: CANCELLATION_HANDLE,
+        deliveryMode: "uncertain_replay" as const,
+        claimExpiresAt: new Date("2026-08-11T00:01:00.000Z"),
+      })),
+      verifyCancellationRecovery: () => Effect.succeed(Object.freeze({
+        kind: "state_unchanged" as const,
+      })),
+      markCancellationDeliveryStarted: () => Effect.succeed(Object.freeze({
+        kind: "delivery_started" as const,
+        deliveryAttemptCount: 2n,
+        deliveryStartedAt: new Date("2026-08-11T00:00:30.000Z"),
+      })),
+      recordCancellationReceipt: (_handle, receipt) => Effect.succeed(
+        Object.freeze({
+          kind: "cancellation_delivered" as const,
+          receipt,
+          disposition: "current" as const,
+        }),
+      ),
+    });
+    const candidate: TaskComputeDeliveryCandidate<"cancellation"> =
+      Object.freeze({
+        operation: "cancellation",
+        eligibleAt: "2026-08-11T00:00:00.000Z",
+        runId: request.identity.runId,
+        requestedEffectSequence: request.identity.requestedEffectSequence,
+      });
+
+    const outcome = await runCancellation(provider, repository, candidate);
+
+    expect(outcome).toMatchObject({
+      kind: "cancellation_delivered",
+      deliveryMode: "uncertain_replay",
+      deliveryAttemptCount: 2n,
+    });
+    expect(provider.cancellationRequests()).toEqual([cancellation]);
+  });
 });
 
 function runDispatch(
@@ -386,6 +566,9 @@ function makeRepository(
       return overrides.acquireDispatch?.call(repository, request) ??
         unexpected("acquireDispatch");
     },
+    verifyDispatchRecovery: (handle) =>
+      overrides.verifyDispatchRecovery?.call(repository, handle) ??
+      unexpected("verifyDispatchRecovery"),
     markDispatchDeliveryStarted(this: unknown, handle) {
       if (this !== repository) return Effect.die("mark receiver lost");
       return overrides.markDispatchDeliveryStarted?.call(repository, handle) ??
@@ -416,6 +599,9 @@ function makeRepository(
     acquireCancellation: (request) =>
       overrides.acquireCancellation?.call(repository, request) ??
       unexpected("acquireCancellation"),
+    verifyCancellationRecovery: (handle) =>
+      overrides.verifyCancellationRecovery?.call(repository, handle) ??
+      unexpected("verifyCancellationRecovery"),
     markCancellationDeliveryStarted: (handle) =>
       overrides.markCancellationDeliveryStarted?.call(repository, handle) ??
       unexpected("markCancellationDeliveryStarted"),

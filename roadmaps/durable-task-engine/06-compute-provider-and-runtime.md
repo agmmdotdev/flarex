@@ -421,7 +421,7 @@ semantic-conflict rejection, cancellation generations, accepted-but-unknown
 recovery, receiver preservation, hostile input rejection, and interruption and
 timeout behavior without claiming Task lifecycle acknowledgement.
 
-### DTE06-C: Dispatch Preparation And Durable Checkpoint — C3 Discovery Complete
+### DTE06-C: Dispatch Preparation And Durable Checkpoint — C3 Complete
 
 - DTE06-C0 fixes the operation-specific dispatch/cancellation delivery schema,
   prepared execution subject, fenced transaction protocol, uncertainty rules,
@@ -444,6 +444,13 @@ timeout behavior without claiming Task lifecycle acknowledgement.
   PostgreSQL; and
 - keep provider execution mocked and production-inert.
 
+The final C3 recovery subgate is complete. Persistence owns the exact fenced
+moved/unchanged/probe-uncertain recovery observation, the candidate runner
+applies the mapped Trigger three-way decision, and fresh PGlite plus ordinary-
+role PostgreSQL 18 compositions replay the original dispatch and cancellation
+requests after post-start uncertainty without minting a second provider
+identity.
+
 C0 and C1's original checkpoints are complete. C1 deliberately adds no claim
 transaction, effect-ledger discovery, provider call, or runtime wiring. The
 approved prepared-subject correction carries only the verified immutable
@@ -462,8 +469,9 @@ case also proves persistence-backed unknown-progress accounting: the dispatch
 is stored as accepted while the runner reports charged but unconfirmed
 candidate/provider work. The ordinary-role genuine-PostgreSQL 18 lane now
 proves the same two-scope budget stop, exact fresh-runner resume, alternating
-dispatch/cancellation delivery, and final stored states. The connected C3
-persistence gate is complete; no host or activation path exists.
+dispatch/cancellation delivery, final stored states, and exact dispatch plus
+cancellation recovery after post-start uncertainty. The connected C3 gate is
+complete; no host or activation path exists.
 The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
@@ -595,12 +603,11 @@ repository/discovery/provider transaction flow, exact continuation resume,
 two-host exclusion, fair later-scope progress across two real scopes, and
 conservative persistence-backed accounting when an accepted dispatch receipt
 is lost before the runner observes it. Ordinary-role genuine-PostgreSQL 18
-parity now proves the same two-scope connected transaction path. The next
-roadmapped work is the still-private unknown-delivery recovery subgate: wire
-the mapped verification probe and Trigger-derived three-way recovery decision,
-then prove exact dispatch/cancellation replay and post-start uncertainty. The
-Worker Loader task adapter and fenced settlement composition follow that gate;
-host activation does not.
+parity now proves the same two-scope connected transaction path and exact
+dispatch/cancellation recovery after post-start uncertainty. The next
+roadmapped work is the still-private DTE06-D Worker Loader task adapter and
+minimal runtime ABI; fenced settlement composition follows that gate, and host
+activation does not.
 This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,
 routes, bindings, deployment, or production

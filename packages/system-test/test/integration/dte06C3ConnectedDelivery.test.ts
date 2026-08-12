@@ -1,4 +1,6 @@
 import {
+  TaskComputeCancellationUncertainError,
+  TaskComputeDispatchUncertainError,
   TaskComputeProvider,
   decodeTaskComputeProviderDescriptorV1,
   type TaskComputeProviderShape,
@@ -369,7 +371,169 @@ describe("DTE06-C3 connected delivery - PGlite", () => {
       claim_owner: null,
     }]);
   });
+
+  it("replays post-start dispatch and cancellation uncertainty with exact identities", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    const fixture = await createDeliveryFixture(
+      persistence,
+      persistence,
+      PRIMARY_FIXTURE,
+    );
+    const provider = Result.getOrThrow(makeInMemoryTaskComputeProviderV1(
+      PROVIDER_DESCRIPTOR,
+      {
+        afterDispatchAccepted: (acceptance) => Effect.fail(
+          new TaskComputeDispatchUncertainError({
+            operation: "dispatch",
+            identity: acceptance.identity,
+            cause: "dispatch_response_lost",
+          }),
+        ),
+        afterCancellationAccepted: (receipt) => Effect.fail(
+          new TaskComputeCancellationUncertainError({
+            operation: "request_cancellation",
+            identity: receipt.identity,
+            cause: "cancellation_response_lost",
+          }),
+        ),
+      },
+    ));
+    const controlTarget = Result.getOrThrow(
+      createPGliteTaskComputeDeliveryControlDirectoryTarget(
+        persistence,
+        DEADLINE_POLICY,
+      ),
+    );
+    const authority = authorityPorts(
+      persistence,
+      async () => fixture.deliveryTarget,
+    );
+
+    const uncertainDispatch = await runConnected(connectedLayer(
+      controlTarget,
+      authority,
+      provider,
+      "a3000000-0000-4000-8000-000000000031",
+      fullCyclePolicy(),
+    ), null);
+    expect(uncertainDispatch).toMatchObject({
+      stopReason: "cycle_exhausted",
+      candidateFailures: 1,
+      confirmedDispatchCandidatesHandled: 0,
+      confirmedDispatchProviderCalls: 0,
+    });
+    expect(provider.dispatchRequests()).toHaveLength(1);
+    expect(provider.acceptedDispatches()).toHaveLength(1);
+    await expireDeliveryClaim(
+      persistence,
+      "fx_system_durable_task_compute_dispatch_v1",
+      fixture.runId,
+    );
+
+    const recoveredDispatch = await runConnected(connectedLayer(
+      controlTarget,
+      authority,
+      provider,
+      "a3000000-0000-4000-8000-000000000032",
+      fullCyclePolicy(),
+    ), null);
+    expect(recoveredDispatch).toMatchObject({
+      stopReason: "cycle_exhausted",
+      candidateFailures: 0,
+      confirmedDispatchCandidatesHandled: 1,
+      confirmedDispatchProviderCalls: 1,
+    });
+    expect(provider.dispatchRequests()).toHaveLength(2);
+    expect(provider.dispatchRequests()[1]).toEqual(provider.dispatchRequests()[0]);
+    expect(provider.acceptedDispatches()).toHaveLength(1);
+    await requestCancellation(fixture.lifecycleLayer, fixture.runId);
+
+    const uncertainCancellation = await runConnected(connectedLayer(
+      controlTarget,
+      authority,
+      provider,
+      "a3000000-0000-4000-8000-000000000033",
+      fullCyclePolicy(),
+    ), null);
+    expect(uncertainCancellation).toMatchObject({
+      stopReason: "cycle_exhausted",
+      candidateFailures: 1,
+      confirmedCancellationCandidatesHandled: 0,
+      confirmedCancellationProviderCalls: 0,
+    });
+    expect(provider.cancellationRequests()).toHaveLength(1);
+    expect(provider.acceptedCancellations()).toHaveLength(1);
+    await expireDeliveryClaim(
+      persistence,
+      "fx_system_durable_task_compute_cancellation_v1",
+      fixture.runId,
+    );
+
+    const recoveredCancellation = await runConnected(connectedLayer(
+      controlTarget,
+      authority,
+      provider,
+      "a3000000-0000-4000-8000-000000000034",
+      fullCyclePolicy(),
+    ), null);
+    expect(recoveredCancellation).toMatchObject({
+      stopReason: "cycle_exhausted",
+      candidateFailures: 0,
+      confirmedCancellationCandidatesHandled: 1,
+      confirmedCancellationProviderCalls: 1,
+    });
+    expect(provider.cancellationRequests()).toHaveLength(2);
+    expect(provider.cancellationRequests()[1]).toEqual(
+      provider.cancellationRequests()[0],
+    );
+    expect(provider.acceptedCancellations()).toHaveLength(1);
+
+    const rows = await persistence.query<{
+      dispatch_state: string;
+      dispatch_attempts: string;
+      cancellation_state: string;
+      cancellation_attempts: string;
+    }>(`
+      select d.delivery_state as dispatch_state,
+             d.delivery_attempt_count::text as dispatch_attempts,
+             c.delivery_state as cancellation_state,
+             c.delivery_attempt_count::text as cancellation_attempts
+      from fx_system_durable_task_compute_dispatch_v1 d
+      join fx_system_durable_task_compute_cancellation_v1 c
+        on c.scope_id = d.scope_id
+       and c.run_id = d.run_id
+       and c.dispatch_requested_effect_sequence = d.requested_effect_sequence
+      where d.scope_id = $1 and d.run_id = $2
+    `, [fixture.scopeId, fixture.runId]);
+    expect(rows.rows).toEqual([{
+      dispatch_state: "accepted",
+      dispatch_attempts: "2",
+      cancellation_state: "delivered",
+      cancellation_attempts: "2",
+    }]);
+  });
 });
+
+async function expireDeliveryClaim(
+  persistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,
+  table:
+    | "fx_system_durable_task_compute_dispatch_v1"
+    | "fx_system_durable_task_compute_cancellation_v1",
+  runId: string,
+): Promise<void> {
+  await persistence.query(`
+    update ${table}
+    set claimed_at = date_trunc(
+          'milliseconds',
+          clock_timestamp() - interval '2 minutes'
+        ),
+        claim_expires_at = date_trunc(
+          'milliseconds',
+          clock_timestamp() - interval '1 minute'
+        )
+    where scope_id = $1 and run_id = $2
+  `, [PRIMARY_FIXTURE.scopeId, runId]);
+}
 
 async function createDeliveryFixture(
   scopePersistence: Awaited<ReturnType<typeof createMigratedPGlitePersistence>>,
