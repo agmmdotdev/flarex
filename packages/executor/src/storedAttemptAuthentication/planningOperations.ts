@@ -30,6 +30,7 @@ import {
 } from "./commitAuthorityModel";
 import {
   capturePinnedFunctionSelector,
+  isLegacyCommitAuthorityVerificationStateV1,
   requireLoadedCommitAuthorityEvidenceEffect,
   verifyCommitAuthorityEvidenceEffect,
   verifyPinnedFunctionMetadataEffect,
@@ -178,6 +179,11 @@ export function makeStoredPointCommitPlanningOperationsV1(
       evidence,
       grantKernel,
     );
+    if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+      return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
+        reason: "sessionEvidenceInvalid",
+      }));
+    }
     const metadataUnknown = yield* configuration.functionMetadata.load(
       capturePinnedFunctionSelector(storedAttempt),
     );
