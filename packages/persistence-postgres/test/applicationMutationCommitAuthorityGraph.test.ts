@@ -46,7 +46,7 @@ const REVISION_ID = "revision";
 const CANDIDATE_ID = "candidate";
 const ANALYSIS_ID = "analysis";
 const SCHEMA_VERSION_ID = "schema-version";
-const FUNCTION_PATH = "recipes:update";
+const FUNCTION_PATH = "recipes:alpha";
 const READY_AT = "2026-08-12T00:00:00.000Z";
 const ACTIVATED_AT = "2026-08-12T00:00:01.000Z";
 
@@ -81,6 +81,16 @@ describe("Application mutation commit-authority graph", () => {
     expect(() => inspectApplicationMutationCommitAuthorityGraph({
       ...capability,
     })).toThrow(InvalidApplicationMutationCommitAuthorityGraphError);
+  });
+
+  it("reconstructs readiness in manifest order from a path-ordered directory", async () => {
+    const snapshot = await graphSnapshot("_flarex/application.js", true);
+    const capability = await runEffect(
+      verifyApplicationMutationCommitAuthorityGraph(snapshot),
+    );
+
+    expect(inspectApplicationMutationCommitAuthorityGraph(capability)
+      .runtimeTarget.function.path).toBe(FUNCTION_PATH);
   });
 
   it.each([
@@ -235,6 +245,7 @@ type MutableSnapshot = ApplicationMutationCommitAuthorityGraphSnapshot & {
 
 async function graphSnapshot(
   runtimeExecutionModulePath = "_flarex/application.js",
+  includeDefaultFunction = false,
 ): Promise<
   ApplicationMutationCommitAuthorityGraphSnapshot
 > {
@@ -270,13 +281,22 @@ async function graphSnapshot(
     functions: [{
       path: FUNCTION_PATH,
       moduleName: "recipes",
-      exportName: "update",
+      exportName: "alpha",
       kind: "mutation",
       visibility: "public",
       args: { type: "any" },
       returns: { type: "null" },
       partition: null,
-    }],
+    }, ...(includeDefaultFunction ? [{
+      path: "recipes",
+      moduleName: "recipes",
+      exportName: "default",
+      kind: "query" as const,
+      visibility: "public" as const,
+      args: { type: "any" as const },
+      returns: { type: "null" as const },
+      partition: null,
+    }] : [])],
   }));
   const manifestSha256 = await sha256(canonicalManifest.canonicalBytes);
   const schemaBytes = Result.getOrThrow(
@@ -305,6 +325,17 @@ async function graphSnapshot(
     }),
   );
   const publicationSha256 = await sha256(publicationCommitment);
+  const publicationFunctions = await Promise.all(
+    canonicalManifest.manifest.functions.map(async functionEntry => {
+      const bytes = Result.getOrThrow(
+        applicationFunctionEntryPublicationFrameV1(functionEntry),
+      );
+      return Object.freeze({
+        ...functionEntry,
+        entrySha256: hex(await sha256(bytes)),
+      });
+    }),
+  );
   const publication: ApplicationPublication = Object.freeze({
     scopeId: SCOPE_ID,
     revisionId: REVISION_ID,
@@ -316,12 +347,7 @@ async function graphSnapshot(
     functionCatalogSha256: hex(catalogSha256),
     publicationSha256: hex(publicationSha256),
     executionModulePath: runtimeExecutionModulePath,
-    functions: Object.freeze([Object.freeze({
-      ...fn,
-      kind: "mutation" as const,
-      visibility: "public" as const,
-      entrySha256: hex(entrySha256),
-    })]),
+    functions: Object.freeze(publicationFunctions),
     publishedAt: new Date(0),
   });
   const runtimeTarget = Result.getOrThrow(
@@ -331,6 +357,23 @@ async function graphSnapshot(
   const schemaManifestSha256 = bytes(0x44);
   const schemaBindingSha256 = bytes(0x55);
   const coldReceiptSha256 = bytes(0x66);
+  const coldReceipts = await Promise.all(
+    canonicalManifest.manifest.functions.map(async manifestFunction => {
+      const functionTarget = Result.getOrThrow(
+        applicationRuntimeTargetFromPublication(
+          publication,
+          manifestFunction.path,
+        ),
+      );
+      return {
+        functionPath: manifestFunction.path,
+        runtimeTargetSha256: hex(await sha256(functionTarget.canonicalBytes)),
+        coldReceiptSha256: manifestFunction.path === FUNCTION_PATH
+          ? hex(coldReceiptSha256)
+          : "67".repeat(32),
+      };
+    }),
+  );
   const readinessValue: Json = {
     format: "flarex.application-readiness",
     version: 1,
@@ -359,11 +402,7 @@ async function graphSnapshot(
     uniqueConstraintStatus: "not_required",
     uniqueConstraintEligibilitySha256: "aa".repeat(32),
     physicalReadinessSha256: "bb".repeat(32),
-    coldReceipts: [{
-      functionPath: FUNCTION_PATH,
-      runtimeTargetSha256: hex(runtimeTargetSha256),
-      coldReceiptSha256: hex(coldReceiptSha256),
-    }],
+    coldReceipts,
     readyAt: READY_AT,
   };
   const readinessBytes = canonicalBytes(readinessValue);
@@ -497,14 +536,14 @@ async function graphSnapshot(
       readinessSha256,
       readinessBytes,
       readyAt: READY_AT,
-      functions: [{
+      functions: coldReceipts.slice().reverse().map(receipt => ({
         scopeId: SCOPE_ID,
         revisionId: REVISION_ID,
         readinessSha256,
-        functionPath: FUNCTION_PATH,
-        runtimeTargetSha256,
-        coldReceiptSha256,
-      }],
+        functionPath: receipt.functionPath,
+        runtimeTargetSha256: hexBytes(receipt.runtimeTargetSha256),
+        coldReceiptSha256: hexBytes(receipt.coldReceiptSha256),
+      })),
     },
     activation: {
       scopeId: SCOPE_ID,

@@ -32,6 +32,9 @@ import {
   type StoredAuthorityCorruptionResult,
   type StoredAuthorityMismatchResult,
 } from "../storedAuthorityLoadResult";
+import type {
+  AuthenticatedApplicationMutationCommitAuthorityGraph,
+} from "../applicationMutationCommitAuthorityGraph";
 
 export const MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 =
   64 * 1024 * 1024;
@@ -96,10 +99,9 @@ export type StoredCommitAuthoritySessionEvidenceV1 =
   readonly authorizationGrantCanonicalBytes: Uint8Array;
 }>;
 
-export interface StoredCommitAuthorityEvidenceV1 {
+export interface StoredCommitAuthorityEvidenceCommonV1 {
   readonly databaseNowMilliseconds: number;
   readonly currentAuthorizationRevocationEpoch: bigint;
-  readonly session: StoredCommitAuthoritySessionEvidenceV1;
   readonly schema: Readonly<{
     readonly deploymentId: TransactionGrantDeploymentIdV1;
     readonly schemaVersionId: CatalogSchemaVersionId;
@@ -111,12 +113,34 @@ export interface StoredCommitAuthorityEvidenceV1 {
   }>;
 }
 
+export type StoredCommitAuthorityEvidenceV1 =
+  StoredCommitAuthorityEvidenceCommonV1 & (
+    | Readonly<{
+        readonly session: Extract<
+          StoredCommitAuthoritySessionEvidenceV1,
+          { readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1" }
+        >;
+        readonly applicationGraph?: never;
+      }>
+    | Readonly<{
+        readonly session: Extract<
+          StoredCommitAuthoritySessionEvidenceV1,
+          { readonly executionAuthorityGeneration: "application_v1" }
+        >;
+        readonly applicationGraph:
+          AuthenticatedApplicationMutationCommitAuthorityGraph;
+      }>
+  );
+
 export type StoredCommitAuthorityCorruptionReasonV1 =
   | "repeatableReadCapabilityMissing"
   | "authorityProjectionInvalid"
   | "databaseClockInvalid"
   | "sessionEvidenceMissingOrDuplicate"
   | "sessionEvidenceInvalid"
+  | "applicationGraphMissingOrDuplicate"
+  | "applicationGraphInvalid"
+  | "applicationGraphFunctionOverflow"
   | "snapshotLeaseMissingOrDuplicate"
   | "snapshotLeaseInvalid"
   | "journalRootMissingOrDuplicate"

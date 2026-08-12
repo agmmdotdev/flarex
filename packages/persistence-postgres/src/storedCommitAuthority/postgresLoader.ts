@@ -60,6 +60,12 @@ import {
   type StoredCommitAuthorityEvidenceLoaderV1,
   StoredCommitAuthorityEvidencePersistenceV1Error,
 } from "./model";
+import {
+  EMPTY_APPLICATION_GRAPH_ROWS_V1,
+  captureApplicationGraphPayloadRowsV1,
+  captureApplicationGraphSizeRowsV1,
+  type ApplicationGraphSelectorV1,
+} from "./applicationGraphRows";
 
 export interface StoredCommitAuthorityEvidenceQueryV1 {
   readonly name:
@@ -70,6 +76,17 @@ export interface StoredCommitAuthorityEvidenceQueryV1 {
     | "executionClaim"
     | "attemptChildren"
     | "schemaSizes"
+    | "applicationGraphSizes"
+    | "applicationGraphFunctionSizes"
+    | "applicationGraphCandidate"
+    | "applicationGraphAnalysis"
+    | "applicationGraphRevision"
+    | "applicationGraphPublication"
+    | "applicationGraphFunction"
+    | "applicationGraphSchema"
+    | "applicationGraphReadiness"
+    | "applicationGraphReadinessFunctions"
+    | "applicationGraphActivation"
     | "authorityPayload"
     | "schemaPayload"
     | "stableBindings";
@@ -343,11 +360,26 @@ async function captureRows(
   );
   observeDrizzleQuery("schemaSizes", schemaSizeQuery, options.observeQuery);
   const schemaSizeRows = await schemaSizeQuery;
+  const applicationGraphSelector = captureApplicationGraphSelector(
+    authority,
+    sessionSizeRows,
+  );
+  const applicationGraphSizeRows = applicationGraphSelector === undefined
+    ? Object.freeze({
+        parentSizeRows: Object.freeze([]),
+        readinessFunctionSizeRows: Object.freeze([]),
+      })
+    : await captureApplicationGraphSizeRowsV1(
+        tx,
+        applicationGraphSelector,
+        options,
+      );
   await options.afterSizeProjection?.();
 
   const skipReason = sizeProjectionFailure(
     sessionSizeRows,
     schemaSizeRows,
+    applicationGraphSizeRows,
   );
   if (skipReason !== undefined) {
     return Object.freeze({
@@ -359,6 +391,10 @@ async function captureRows(
       executionClaimRows: detachDriverRows(executionClaimRows),
       attemptChildRows: detachDriverRows(attemptChildRows),
       schemaSizeRows: detachDriverRows(schemaSizeRows),
+      applicationGraphRows: Object.freeze({
+        ...EMPTY_APPLICATION_GRAPH_ROWS_V1,
+        ...applicationGraphSizeRows,
+      }),
       skipReason,
       sessionPayloadRows: Object.freeze([]),
       schemaPayloadRows: Object.freeze([]),
@@ -401,6 +437,14 @@ async function captureRows(
     options.observeQuery,
   );
   const sessionPayloadRows = await sessionPayloadQuery;
+  const applicationGraphRows = applicationGraphSelector === undefined
+    ? EMPTY_APPLICATION_GRAPH_ROWS_V1
+    : await captureApplicationGraphPayloadRowsV1(
+        tx,
+        applicationGraphSelector,
+        applicationGraphSizeRows,
+        options,
+      );
   const schemaPayloadQuery = tx
     .select({
       deploymentId: fxControlSchemaVersions.deploymentId,
@@ -481,6 +525,7 @@ async function captureRows(
     executionClaimRows: detachDriverRows(executionClaimRows),
     attemptChildRows: detachDriverRows(attemptChildRows),
     schemaSizeRows: detachDriverRows(schemaSizeRows),
+    applicationGraphRows,
     sessionPayloadRows: detachSessionPayloadRows(sessionPayloadRows),
     schemaPayloadRows: detachSchemaPayloadRows(schemaPayloadRows),
     bindingRows: detachUnknownDriverRows(
@@ -630,6 +675,22 @@ function selectSessionSizeRows(
         0
       )::bigint::text
     `,
+    applicationRevisionId: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{runtimeTarget,revisionId}'
+    `,
+    applicationCandidateId: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{runtimeTarget,candidateId}'
+    `,
+    applicationAnalysisId: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{runtimeTarget,analysisId}'
+    `,
+    applicationActivationSequenceText: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{activationSequence}'
+    `,
   }).from(fxSystemTransactionSessions).where(and(
     eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
     eq(fxSystemTransactionSessions.sessionId, sessionId),
@@ -720,6 +781,20 @@ function selectSchemaSizeRows(
 function sizeProjectionFailure(
   sessionRows: ReadonlyArray<SessionSizeRow>,
   schemaRows: ReadonlyArray<SchemaSizeRow>,
+  applicationGraph: Readonly<{
+    readonly parentSizeRows: ReadonlyArray<{
+      readonly manifestByteLengthText: string | null;
+      readonly schemaByteLengthText: string;
+      readonly functionCatalogByteLengthText: string;
+      readonly functionEntryByteLengthText: string;
+      readonly readinessByteLengthText: string;
+      readonly activationByteLengthText: string;
+    }>;
+    readonly readinessFunctionSizeRows: ReadonlyArray<{
+      readonly functionCountText: string;
+      readonly functionPathByteLengthText: string;
+    }>;
+  }>,
 ): StoredCommitAuthorityCorruptionReasonV1 | undefined {
   if (sessionRows.length !== 1 || schemaRows.length !== 1) {
     return sessionRows.length !== 1
@@ -741,6 +816,35 @@ function sizeProjectionFailure(
     schema.manifestJsonByteLengthText,
     schema.manifestCanonicalByteLengthText,
   ].map(parseLength);
+  if (session.executionAuthorityGeneration === "application_v1") {
+    if (
+      applicationGraph.parentSizeRows.length !== 1 ||
+      applicationGraph.readinessFunctionSizeRows.length !== 1
+    ) return "applicationGraphMissingOrDuplicate";
+    const parent = applicationGraph.parentSizeRows[0];
+    const children = applicationGraph.readinessFunctionSizeRows[0];
+    if (parent === undefined || children === undefined) {
+      return "applicationGraphMissingOrDuplicate";
+    }
+    const childCount = parseLength(children.functionCountText);
+    if (childCount === undefined) return "sizeProjectionInvalid";
+    if (childCount > 1_024) return "applicationGraphFunctionOverflow";
+    lengths.push(...[
+      parent.manifestByteLengthText,
+      parent.schemaByteLengthText,
+      parent.functionCatalogByteLengthText,
+      parent.functionEntryByteLengthText,
+      parent.readinessByteLengthText,
+      parent.activationByteLengthText,
+      children.functionPathByteLengthText,
+      String(childCount * 96),
+    ].map(parseLength));
+  } else if (
+    applicationGraph.parentSizeRows.length !== 0 ||
+    applicationGraph.readinessFunctionSizeRows.length !== 0
+  ) {
+    return "applicationGraphInvalid";
+  }
   if (lengths.some((length) => length === undefined)) {
     return "sizeProjectionInvalid";
   }
@@ -769,10 +873,45 @@ function emptyCapture(
     executionClaimRows: Object.freeze([]),
     attemptChildRows: Object.freeze([]),
     schemaSizeRows: Object.freeze([]),
+    applicationGraphRows: EMPTY_APPLICATION_GRAPH_ROWS_V1,
     sessionPayloadRows: Object.freeze([]),
     schemaPayloadRows: Object.freeze([]),
     bindingRows: Object.freeze([]),
   });
+}
+
+function captureApplicationGraphSelector(
+  authority: StoredCommitAuthorityCaptureAuthorityV1,
+  sessionRows: ReadonlyArray<SessionSizeRow>,
+): ApplicationGraphSelectorV1 | undefined {
+  if (sessionRows.length !== 1) return undefined;
+  const session = sessionRows[0];
+  if (session?.executionAuthorityGeneration !== "application_v1") {
+    return undefined;
+  }
+  const activationSequence = parsePositiveBigint(
+    session.applicationActivationSequenceText,
+  );
+  if (
+    session.applicationRevisionId === null ||
+    session.applicationCandidateId === null ||
+    session.applicationAnalysisId === null ||
+    activationSequence === undefined
+  ) return undefined;
+  return Object.freeze({
+    scopeId: authority.scopeId,
+    revisionId: session.applicationRevisionId,
+    candidateId: session.applicationCandidateId,
+    analysisId: session.applicationAnalysisId,
+    functionPath: session.functionPath,
+    activationSequence,
+  });
+}
+
+function parsePositiveBigint(value: string | null): bigint | undefined {
+  if (value === null || !/^[1-9][0-9]{0,18}$/u.test(value)) return undefined;
+  const decoded = BigInt(value);
+  return decoded <= 9_223_372_036_854_775_807n ? decoded : undefined;
 }
 
 function detachSessionPayloadRows(

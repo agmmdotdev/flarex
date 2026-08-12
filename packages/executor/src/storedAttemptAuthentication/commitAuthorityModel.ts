@@ -25,6 +25,9 @@ import type {
 
 import type { TransactionGrantVerifierV1 } from "../transactionGrant";
 import type {
+  AuthenticatedApplicationMutationCommitAuthorityGraph,
+} from "@flarex/persistence-postgres/internal/application-mutation-commit-authority-graph";
+import type {
   StoredAttemptSealIdentityPortV1,
   StoredAttemptSessionScalarsPortV1,
 } from "../storedAttemptAuthentication";
@@ -75,6 +78,9 @@ export type StoredCommitAuthorityCorruptionReasonV1 =
   | "databaseClockInvalid"
   | "sessionEvidenceMissingOrDuplicate"
   | "sessionEvidenceInvalid"
+  | "applicationGraphMissingOrDuplicate"
+  | "applicationGraphInvalid"
+  | "applicationGraphFunctionOverflow"
   | "snapshotLeaseMissingOrDuplicate"
   | "snapshotLeaseInvalid"
   | "journalRootMissingOrDuplicate"
@@ -139,6 +145,9 @@ export interface StoredCommitAuthorityEvidencePortV1 {
   readonly databaseNowMilliseconds: number;
   readonly currentAuthorizationRevocationEpoch: bigint;
   readonly session: StoredCommitAuthoritySessionEvidencePortV1;
+  /** Required by persistence for Application evidence; consumed next by the runner cut. */
+  readonly applicationGraph?:
+    AuthenticatedApplicationMutationCommitAuthorityGraph;
   readonly schema: StoredCommitAuthoritySchemaEvidencePortV1;
 }
 

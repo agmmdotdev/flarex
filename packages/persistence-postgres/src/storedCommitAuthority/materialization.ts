@@ -60,6 +60,11 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import {
+  verifyApplicationMutationCommitAuthorityGraph,
+  type AuthenticatedApplicationMutationCommitAuthorityGraph,
+  type ApplicationMutationCommitAuthorityGraphSnapshot,
+} from "../applicationMutationCommitAuthorityGraph";
 import { snapshotApplicationExecutionAuthorityJson } from
   "../applicationExecutionAuthoritySnapshot";
 import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
@@ -93,6 +98,7 @@ import {
   type StoredCommitAuthoritySealIdentityV1,
   type StoredCommitAuthoritySessionScalarsV1,
 } from "./model";
+import type { CapturedApplicationGraphRowsV1 } from "./applicationGraphRows";
 
 type SessionRow =
   typeof import("../schema").fxSystemTransactionSessions.$inferSelect;
@@ -122,6 +128,10 @@ export interface SessionSizeRow extends Omit<
   readonly authorizationGrantCanonicalByteLengthText: string;
   readonly applicationExecutionAuthorityJsonByteLengthText: string;
   readonly applicationExecutionAuthorityCanonicalByteLengthText: string;
+  readonly applicationRevisionId: string | null;
+  readonly applicationCandidateId: string | null;
+  readonly applicationAnalysisId: string | null;
+  readonly applicationActivationSequenceText: string | null;
 }
 
 export interface SessionPayloadRow {
@@ -176,6 +186,7 @@ export interface CapturedRowsV1 {
   readonly executionClaimRows: ReadonlyArray<ExecutionClaimRow>;
   readonly attemptChildRows: ReadonlyArray<AttemptChildExistenceRow>;
   readonly schemaSizeRows: ReadonlyArray<SchemaSizeRow>;
+  readonly applicationGraphRows: CapturedApplicationGraphRowsV1;
   readonly skipReason?: StoredCommitAuthorityCorruptionReasonV1;
   readonly sessionPayloadRows: ReadonlyArray<SessionPayloadRow>;
   readonly schemaPayloadRows: ReadonlyArray<SchemaPayloadRow>;
@@ -755,22 +766,25 @@ function materializeStoredAuthorityEffect(
       return materializationCorrupt(mode, "stableBindingMismatch");
     }
 
-    const evidence = Object.freeze({
+    const applicationGraph = sessionScalars.executionAuthorityGeneration ===
+        "application_v1"
+      ? yield* verifyCapturedApplicationGraphEffect(
+          expected,
+          clock,
+          sessionScalars.applicationExecutionAuthorityCanonicalBytes,
+          captured.applicationGraphRows,
+        )
+      : undefined;
+    if (
+      sessionScalars.executionAuthorityGeneration === "application_v1" &&
+      applicationGraph === undefined
+    ) {
+      return materializationCorrupt(mode, "applicationGraphInvalid");
+    }
+
+    const commonEvidence = Object.freeze({
       databaseNowMilliseconds,
       currentAuthorizationRevocationEpoch: revocationEpoch,
-      session: Object.freeze({
-        ...sessionScalars,
-        validatedArgsJson: Object.freeze(structuredClone(validatedArgsJson)),
-        validatedArgsCanonicalBytes: copyBytes(
-          payload.validatedArgsCanonicalBytes,
-        ),
-        authorizationGrantJson: Object.freeze(
-          structuredClone(authorizationGrantJson),
-        ),
-        authorizationGrantCanonicalBytes: copyBytes(
-          payload.authorizationGrantCanonicalBytes,
-        ),
-      }),
       schema: Object.freeze({
         deploymentId: expected.deploymentId,
         schemaVersionId: expected.schemaVersionId,
@@ -778,6 +792,27 @@ function materializeStoredAuthorityEffect(
         stableBindings,
       }),
     });
+    const sessionEvidence = Object.freeze({
+      ...sessionScalars,
+      validatedArgsJson: Object.freeze(structuredClone(validatedArgsJson)),
+      validatedArgsCanonicalBytes: copyBytes(
+        payload.validatedArgsCanonicalBytes,
+      ),
+      authorizationGrantJson: Object.freeze(
+        structuredClone(authorizationGrantJson),
+      ),
+      authorizationGrantCanonicalBytes: copyBytes(
+        payload.authorizationGrantCanonicalBytes,
+      ),
+    });
+    const evidence: import("./model").StoredCommitAuthorityEvidenceV1 =
+      sessionEvidence.executionAuthorityGeneration === "application_v1"
+        ? Object.freeze({
+            ...commonEvidence,
+            session: sessionEvidence,
+            applicationGraph: applicationGraph!,
+          })
+        : Object.freeze({ ...commonEvidence, session: sessionEvidence });
     return mode.kind === "sealed"
       ? Object.freeze({ kind: "loaded", evidence })
       : Object.freeze({
@@ -788,6 +823,109 @@ function materializeStoredAuthorityEffect(
           }),
         });
   });
+}
+
+const verifyCapturedApplicationGraphEffect = Effect.fn(
+  "StoredCommitAuthority.verifyApplicationGraph",
+)(function* (
+  expected: StoredCommitAuthorityCaptureAuthorityV1,
+  clock: ScopeClockRecord,
+  authorityBytes: Uint8Array,
+  captured: CapturedApplicationGraphRowsV1,
+): Effect.fn.Return<
+  AuthenticatedApplicationMutationCommitAuthorityGraph | undefined
+> {
+  const snapshot = applicationGraphSnapshot(
+    expected,
+    clock,
+    authorityBytes,
+    captured,
+  );
+  if (snapshot === undefined) return undefined;
+  const verified = yield* verifyApplicationMutationCommitAuthorityGraph(
+    snapshot,
+  ).pipe(Effect.option);
+  return verified._tag === "Some" ? verified.value : undefined;
+});
+
+function applicationGraphSnapshot(
+  expected: StoredCommitAuthorityCaptureAuthorityV1,
+  clock: ScopeClockRecord,
+  authorityBytes: Uint8Array,
+  captured: CapturedApplicationGraphRowsV1,
+): ApplicationMutationCommitAuthorityGraphSnapshot | undefined {
+  if (
+    captured.candidateRows.length !== 1 ||
+    captured.analysisRows.length !== 1 ||
+    captured.revisionRows.length !== 1 ||
+    captured.publicationRows.length !== 1 ||
+    captured.functionRows.length !== 1 ||
+    captured.schemaRows.length !== 1 ||
+    captured.readinessRows.length !== 1 ||
+    captured.activationRows.length !== 1 ||
+    captured.readinessFunctionRows.length > 1_024
+  ) return undefined;
+  const candidate = captured.candidateRows[0];
+  const analysis = captured.analysisRows[0];
+  const revision = captured.revisionRows[0];
+  const publication = captured.publicationRows[0];
+  const selectedFunction = captured.functionRows[0];
+  const schema = captured.schemaRows[0];
+  const readiness = captured.readinessRows[0];
+  const activation = captured.activationRows[0];
+  const readyAt = readiness === undefined
+    ? undefined
+    : dateIsoString(readiness.readyAt);
+  const activatedAt = activation === undefined
+    ? undefined
+    : dateIsoString(activation.activatedAt);
+  if (
+    candidate === undefined || analysis === undefined ||
+    revision === undefined || publication === undefined ||
+    selectedFunction === undefined || schema === undefined ||
+    readiness === undefined || activation === undefined ||
+    clock.storageGeneration !== "flarexdb_v1" ||
+    analysis.status !== "analyzed" || analysis.manifestSha256 === null ||
+    analysis.manifestBytes === null || revision.status !== "inactive" ||
+    readyAt === undefined || activatedAt === undefined
+  ) return undefined;
+  return Object.freeze({
+    authorityBytes,
+    deploymentId: expected.deploymentId,
+    scope: Object.freeze({
+      scopeId: expected.scopeId,
+      storageGeneration: "flarexdb_v1" as const,
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+    }),
+    candidate,
+    analysis: Object.freeze({
+      scopeId: analysis.scopeId,
+      analysisId: analysis.analysisId,
+      candidateId: analysis.candidateId,
+      sourceArtifactRootSha256: analysis.sourceArtifactRootSha256,
+      status: "analyzed" as const,
+      manifestSha256: analysis.manifestSha256,
+      manifestBytes: analysis.manifestBytes,
+    }),
+    revision: Object.freeze({ ...revision, status: "inactive" as const }),
+    publication,
+    selectedFunction,
+    schema,
+    readiness: Object.freeze({
+      ...readiness,
+      readyAt,
+      functions: captured.readinessFunctionRows,
+    }),
+    activation: Object.freeze({ ...activation, activatedAt }),
+  });
+}
+
+function dateIsoString(value: Date): string | undefined {
+  const milliseconds = finiteDateMilliseconds(value);
+  return milliseconds === undefined
+    ? undefined
+    : new Date(milliseconds).toISOString();
 }
 
 function materializationAuthorityMismatch(

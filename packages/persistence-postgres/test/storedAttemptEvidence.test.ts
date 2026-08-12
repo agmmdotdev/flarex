@@ -476,7 +476,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     },
   );
 
-  it("loads an exact canonical Application-authority session", async () => {
+  it("loads an exact canonical Application session but rejects its hollow commit graph", async () => {
     const current = await scenario("application_authority_exact");
     await seal(current);
     const authority = await applicationExecutionAuthority(
@@ -531,23 +531,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const commitEvidence = await runEffect(
       commitLoader.loadEffect(commitAuthority),
     );
-    expect(commitEvidence.kind).toBe("loaded");
-    if (commitEvidence.kind !== "loaded") {
-      throw new Error("Expected Application commit authority evidence.");
-    }
-    expect(commitEvidence.evidence.session.executionAuthorityGeneration).toBe(
-      "application_v1",
-    );
-    if (
-      commitEvidence.evidence.session.executionAuthorityGeneration !==
-        "application_v1"
-    ) throw new Error("Expected Application commit authority.");
-    expect(bytesToHex(
-      commitEvidence.evidence.session.applicationExecutionAuthoritySha256,
-    )).toBe(bytesToHex(authority.sha256));
-    expect(Object.isFrozen(
-      commitEvidence.evidence.session.applicationExecutionAuthorityJson,
-    )).toBe(true);
+    expect(commitEvidence).toMatchObject({
+      kind: "corrupt",
+      reason: "applicationGraphMissingOrDuplicate",
+    });
 
     await persistence.query(
       `update fx_system_tx_session
@@ -558,7 +545,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await expect(runEffect(commitLoader.loadEffect(commitAuthority))).resolves
       .toMatchObject({
         kind: "corrupt",
-        reason: "sessionEvidenceInvalid",
+        reason: "applicationGraphMissingOrDuplicate",
       });
   });
 

@@ -314,7 +314,11 @@ const verifyCapturedGraph = Effect.fn(
       return yield* fail("functionMismatch", "runtimeTarget");
     }
     yield* Effect.fromResult(requireExactSchema(snapshot, authority, target));
-    yield* verifyReadiness(snapshot, canonicalTarget.canonicalBytes);
+    yield* verifyReadiness(
+      snapshot,
+      canonicalManifest.manifest,
+      canonicalTarget.canonicalBytes,
+    );
     const activationSha256 = yield* verifyActivation(snapshot, authority);
 
     if (!isPublicMutationRuntimeTarget(canonicalTarget.target)) {
@@ -563,6 +567,7 @@ function requireExactSchema(
 
 function verifyReadiness(
   snapshot: ApplicationMutationCommitAuthorityGraphSnapshot,
+  manifest: ApplicationManifestV1,
   runtimeTargetBytes: Uint8Array,
 ): Effect.Effect<void, ApplicationMutationCommitAuthorityGraphError> {
   return Effect.gen(function* () {
@@ -587,6 +592,14 @@ function verifyReadiness(
       selected.length !== 1 ||
       !bytesEqualFullScan(selected[0]!.runtimeTargetSha256, runtimeTargetSha256)
     ) return yield* fail("readinessMismatch", "runtimeTargetSha256");
+    const children = new Map(
+      row.functions.map(child => [child.functionPath, child] as const),
+    );
+    if (
+      children.size !== row.functions.length ||
+      children.size !== manifest.functions.length ||
+      manifest.functions.some(fn => !children.has(fn.path))
+    ) return yield* fail("readinessMismatch", "functions");
     const expected: Json = {
       format: "flarex.application-readiness",
       version: 1,
@@ -617,11 +630,14 @@ function verifyReadiness(
       uniqueConstraintEligibilitySha256:
         hex(row.uniqueConstraintEligibilitySha256),
       physicalReadinessSha256: hex(row.physicalReadinessSha256),
-      coldReceipts: row.functions.map(child => ({
-        functionPath: child.functionPath,
-        runtimeTargetSha256: hex(child.runtimeTargetSha256),
-        coldReceiptSha256: hex(child.coldReceiptSha256),
-      })),
+      coldReceipts: manifest.functions.map(fn => {
+        const child = children.get(fn.path)!;
+        return {
+          functionPath: child.functionPath,
+          runtimeTargetSha256: hex(child.runtimeTargetSha256),
+          coldReceiptSha256: hex(child.coldReceiptSha256),
+        };
+      }),
       readyAt: row.readyAt,
     };
     const bytes = canonicalBytes(expected);

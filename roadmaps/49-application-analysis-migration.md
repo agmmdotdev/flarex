@@ -2163,14 +2163,19 @@ admission-time active-head digest from immutable activation history. It never
 consults the mutable active head, queries a database, loads R2, or constructs a
 Worker. Structural copies of the issued capability fail closed.
 
-The next bounded slice must capture those exact immutable rows inside the
-existing stored-commit-authority repeatable-read transaction, including the
-complete bounded readiness-function directory, and attach the authenticated
-graph capability to the Application authority branch. Only after that capture
-is proven may a later slice use the capability to construct the existing
-Application Worker runner. Neither slice may wire the Standard mutation
-consumer or reach the shared commit tail prematurely. Exact validation receipts
-belong in the owning commit report rather than this living roadmap.
+The stored-commit-authority repeatable-read loader now captures those exact
+immutable rows, including the complete bounded readiness-function directory,
+and attaches the opaque authenticated graph capability to Application evidence.
+Graph payloads are read only after bounded parent/function size projections;
+legacy sessions issue no graph queries; a hollow, oversized, missing, or
+corrupted graph fails closed; and post-capture changes cannot alter the
+detached snapshot being verified. No new transaction or lock phase was added.
+
+The next bounded slice may consume this capability to construct the existing
+Application Worker runner and generation-aware authenticated runner input. It
+must remain private and Standard-unwired, and it must not branch the journal,
+OCC, row-intent, commit, outcome, feed, or outbox tail. Exact validation
+receipts belong in the owning commit report rather than this living roadmap.
 
 First migrate executable authority and publication:
 

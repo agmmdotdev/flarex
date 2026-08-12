@@ -2,6 +2,13 @@ import { webcrypto } from "node:crypto";
 import { eq } from "drizzle-orm";
 
 import {
+  canonicalizeSessionJournalV1Effect,
+  canonicalizeSuccessfulResultV1Effect,
+  SESSION_JOURNAL_FORMAT_V1,
+} from "flarex-protocol/commit-protocol";
+import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1 } from
+  "flarex-protocol/transaction-session";
+import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
@@ -132,6 +139,20 @@ import {
   createApplicationMutationSessionActivationPersistenceV1,
 } from "../src/transactionSessionActivation";
 import {
+  createSessionJournalStorePersistenceV1,
+} from "../src/sessionJournalStore";
+import {
+  createStoredAttemptEvidenceLoaderV1,
+  type StoredAttemptEvidenceAuthorityV1,
+} from "../src/storedAttemptEvidence";
+import {
+  createStoredCommitAuthorityEvidenceLoaderV1,
+  type StoredCommitAuthorityEvidenceAuthorityV1,
+} from "../src/storedCommitAuthorityEvidence";
+import {
+  inspectApplicationMutationCommitAuthorityGraph,
+} from "../src/applicationMutationCommitAuthorityGraph";
+import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type RunLocatedReadCommittedTransactionV1,
@@ -168,6 +189,13 @@ import {
   fxSystemApplicationActiveHeadsV1,
   fxSystemScopeClocks,
 } from "../src/schema";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+} from "./transactionSessionActivationTestSupport";
+import {
+  completeSessionJournalSeal,
+  prepareSessionJournalSeal,
+} from "./effectTestRuntime";
 
 const ROOT = "a".repeat(64);
 const EXECUTION_SOURCE = "b".repeat(64);
@@ -770,6 +798,9 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const created = await runEffect(sessionActivation.activateEffect(input));
     const replayed = await runEffect(sessionActivation.activateEffect(input));
     expect(created.status).toBe("created");
+    if (created.status !== "created") {
+      throw new Error("Expected newly created Application mutation session.");
+    }
     expect(replayed).toMatchObject({ status: "busy", anchor: created.anchor });
     const stored = await fixture.target.query<{
       generation: string;
@@ -788,6 +819,166 @@ describe("Application activation", { timeout: 30_000 }, () => {
       package_id: null,
       authority_format: "flarex.application-mutation-execution-authority",
     }]);
+
+    const sessionPorts = Object.freeze({
+      ...fixture.authorityPorts,
+      scopeSessionTargets: {
+        resolve: async (locator: SplitScopePhysicalLocator) =>
+          createPGliteLocatedPointMutationSessionActivationTargetV1(
+            fixture.target,
+            locator,
+          ),
+      },
+    });
+    const store = createSessionJournalStorePersistenceV1(
+      sessionPorts,
+      {
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        randomUuid: uuidSequence(90, 91, 92, 93),
+      },
+    );
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: {
+        deploymentId: input.deploymentId,
+        scopeId: created.anchor.scopeId,
+        sessionId: created.anchor.sessionId,
+        attemptFence: created.anchor.attemptFence,
+      },
+      executionClaim: created.executionClaim,
+      snapshotToken: created.anchor.snapshotToken,
+      schemaVersionId: input.evidence.schemaVersionId,
+    }));
+    const preparedSeal = await prepareSessionJournalSeal(store, attempt);
+    const journal = await runEffect(canonicalizeSessionJournalV1Effect(
+      preparedSeal.journal,
+    ));
+    const result = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    await completeSessionJournalSeal(
+      store,
+      preparedSeal.preparation,
+      journal,
+      result,
+    );
+    const attemptAuthority: StoredAttemptEvidenceAuthorityV1 = Object.freeze({
+      deploymentId: input.deploymentId,
+      scopeId: created.anchor.scopeId,
+      sessionId: created.anchor.sessionId,
+      attemptFence: created.anchor.attemptFence,
+      storageGeneration: created.anchor.storageGeneration,
+      storageGenerationFence: created.anchor.storageGenerationFence,
+      snapshotToken: created.anchor.snapshotToken,
+      schemaVersionId: input.evidence.schemaVersionId,
+      executionClaim: created.executionClaim,
+    });
+    const attemptEvidence = await runEffect(
+      createStoredAttemptEvidenceLoaderV1(sessionPorts)
+        .loadEffect(attemptAuthority),
+    );
+    expect(attemptEvidence.kind).toBe("loaded");
+    if (attemptEvidence.kind !== "loaded") {
+      throw new Error("Expected sealed Application attempt evidence.");
+    }
+    const commitAuthority: StoredCommitAuthorityEvidenceAuthorityV1 =
+      Object.freeze({
+        ...attemptAuthority,
+        session: attemptEvidence.evidence.session,
+        sealIdentity: Object.freeze({
+          scopeUuid: attemptEvidence.evidence.scopeUuid,
+          lifecycle: attemptEvidence.evidence.session.lifecycle,
+          sessionUpdatedAtMilliseconds:
+            attemptEvidence.evidence.session.updatedAtMilliseconds,
+          leaseExpiresAtMilliseconds:
+            attemptEvidence.evidence.lease.leaseExpiresAtMilliseconds,
+          rootCreatedAtMilliseconds:
+            attemptEvidence.evidence.root.createdAtMilliseconds,
+          rootUpdatedAtMilliseconds:
+            attemptEvidence.evidence.root.updatedAtMilliseconds,
+          sealedAtMilliseconds:
+            attemptEvidence.evidence.root.sealedAtMilliseconds,
+          finalSyscallSequence:
+            attemptEvidence.evidence.root.sealedFinalSyscallSequence,
+          creationTimeSeed: attemptEvidence.evidence.root.creationTimeSeed,
+          nextCreationTime: attemptEvidence.evidence.root.nextCreationTime,
+          journalFormat: SESSION_JOURNAL_FORMAT_V1,
+          journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+          journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+          journalByteLength: attemptEvidence.evidence.root.journalBytes.byteLength,
+          journalSha256: attemptEvidence.evidence.root.journalSha256,
+          resultValueCodecVersion:
+            attemptEvidence.evidence.root.resultValueCodecVersion,
+          resultSemanticBytes:
+            attemptEvidence.evidence.root.resultSemanticBytes,
+          resultByteLength: attemptEvidence.evidence.root.resultBytes.byteLength,
+          resultSha256: attemptEvidence.evidence.root.resultSha256,
+          readDocuments: attemptEvidence.evidence.root.readDocuments,
+          readSemanticBytes: attemptEvidence.evidence.root.readSemanticBytes,
+          pointDependencyCount:
+            attemptEvidence.evidence.root.pointDependencyCount,
+          indexedQuerySyscalls:
+            attemptEvidence.evidence.root.indexedQuerySyscalls,
+          indexRangeDependencyCount:
+            attemptEvidence.evidence.root.indexRangeDependencyCount,
+          indexRangeDependencyEvidenceBytes:
+            attemptEvidence.evidence.root.indexRangeDependencyEvidenceBytes,
+          writeOperations: attemptEvidence.evidence.root.writeOperations,
+          writeSemanticBytes: attemptEvidence.evidence.root.writeSemanticBytes,
+          materialWriteEventEvidenceBytes:
+            attemptEvidence.evidence.root.materialWriteEventEvidenceBytes,
+        }),
+      });
+    await mirrorCommitSchemaEvidenceToTarget(
+      fixture,
+      input.evidence.schemaVersionId,
+    );
+    const commitQueries: string[] = [];
+    let corruptedAfterCapture = false;
+    const commitLoader = createStoredCommitAuthorityEvidenceLoaderV1(
+      sessionPorts,
+      {
+        observeQuery: query => commitQueries.push(query.name),
+        afterRepeatableRead: async () => {
+          if (corruptedAfterCapture) return;
+          corruptedAfterCapture = true;
+          await fixture.target.query(
+            `update fx_system_application_readiness_v1
+                set readiness_bytes = $1
+              where scope_id = $2 and revision_id = $3`,
+            [
+              new Uint8Array([0x7b, 0x7d]),
+              fixture.authority.scopeId,
+              fixture.input.revisionId,
+            ],
+          );
+        },
+      },
+    );
+    const commitEvidence = await runEffect(
+      commitLoader.loadEffect(commitAuthority),
+    );
+    expect(commitEvidence).toMatchObject({
+      kind: "loaded",
+    });
+    if (commitEvidence.kind !== "loaded" ||
+      commitEvidence.evidence.applicationGraph === undefined) {
+      throw new Error("Expected authenticated Application commit graph.");
+    }
+    expect(inspectApplicationMutationCommitAuthorityGraph(
+      commitEvidence.evidence.applicationGraph,
+    ).runtimeTarget.function.path).toBe(input.evidence.functionPath);
+    expect(commitQueries.indexOf("applicationGraphSizes")).toBeLessThan(
+      commitQueries.indexOf("authorityPayload"),
+    );
+    expect(commitQueries.indexOf("applicationGraphFunctionSizes")).toBeLessThan(
+      commitQueries.indexOf("applicationGraphReadinessFunctions"),
+    );
+    await expect(runEffect(
+      commitLoader.loadEffect(commitAuthority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "applicationGraphInvalid",
+    });
 
     const foreignGrant = await runEffect(Effect.result(
       sessionActivation.activateEffect(Object.freeze({
@@ -814,7 +1005,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
     );
     expect(afterHeadMovement).toMatchObject({
       status: "busy",
-      anchor: created.anchor,
+      anchor: {
+        sessionId: created.anchor.sessionId,
+        attemptFence: created.anchor.attemptFence,
+        snapshotToken: created.anchor.snapshotToken,
+      },
     });
     const staleAdmission = await runEffect(Effect.result(
       sessionActivation.activateEffect(staleNewRequest),
@@ -1586,6 +1781,74 @@ interface ReadinessFixtureOptions {
   readonly foreignSchemaControl?: boolean;
   readonly failSchemaPublication?: boolean;
   readonly functionKind?: "query" | "mutation";
+}
+
+async function mirrorCommitSchemaEvidenceToTarget(
+  fixture: Awaited<ReturnType<typeof readinessFixture>>,
+  schemaVersionId: CatalogSchemaVersionId,
+): Promise<void> {
+  const artifacts = await fixture.control.query<{
+    version: number;
+    manifest_codec_version: number;
+    manifest_json: unknown;
+    manifest_bytes: Uint8Array;
+    manifest_sha256: Uint8Array;
+  }>(
+    `select version, manifest_codec_version, manifest_json,
+            manifest_bytes, manifest_sha256
+       from fx_control_schema_version
+      where deployment_id = $1 and schema_version_id = $2`,
+    [fixture.input.deploymentId, schemaVersionId],
+  );
+  const artifact = artifacts.rows[0];
+  if (artifact === undefined) throw new Error("Expected schema artifact.");
+  await fixture.target.query(
+    `insert into deployments (
+       deployment_id, project_id, active_schema_version
+     ) values ($1, $2, 0)
+     on conflict (deployment_id) do nothing`,
+    [fixture.input.deploymentId, "project_application_commit_graph"],
+  );
+  await fixture.target.query(
+    `insert into fx_control_schema_version (
+       deployment_id, schema_version_id, version, manifest_codec_version,
+       manifest_json, manifest_bytes, manifest_sha256
+     ) values ($1, $2, $3, $4, $5::jsonb, $6, $7)
+     on conflict (deployment_id, schema_version_id) do nothing`,
+    [
+      fixture.input.deploymentId,
+      schemaVersionId,
+      artifact.version,
+      artifact.manifest_codec_version,
+      JSON.stringify(artifact.manifest_json),
+      artifact.manifest_bytes,
+      artifact.manifest_sha256,
+    ],
+  );
+  const tables = await fixture.control.query<{
+    table_id: number;
+    namespace: string;
+    logical_name: string;
+  }>(
+    `select table_id, namespace, logical_name
+       from fx_control_table
+      where deployment_id = $1`,
+    [fixture.input.deploymentId],
+  );
+  for (const table of tables.rows) {
+    await fixture.target.query(
+      `insert into fx_control_table (
+         deployment_id, table_id, namespace, logical_name
+       ) values ($1, $2, $3, $4)
+       on conflict (deployment_id, table_id) do nothing`,
+      [
+        fixture.input.deploymentId,
+        table.table_id,
+        table.namespace,
+        table.logical_name,
+      ],
+    );
+  }
 }
 
 async function readinessFixture(options: ReadinessFixtureOptions = {}) {
