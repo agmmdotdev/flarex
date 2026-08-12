@@ -506,6 +506,11 @@ The next roadmap action is therefore a separate Standard Application
 runtime-object publication/read-authority preflight. DTE06-D2 remains pending
 behind that gate.
 
+That owner preflight is now recorded in
+[`39-standard-application-task-runtime-publication.md`](./39-standard-application-task-runtime-publication.md).
+It begins with pure canonical role contracts only; DTE06-D2 remains outside
+that approval.
+
 This preflight authorizes only DTE06-D1 through D4 in the stated order. The
 first code slice is D1 launch-subject resolution and read-side object ports. It
 must stop before Worker Loader composition if exact runtime objects are not

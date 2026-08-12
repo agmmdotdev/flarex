@@ -107,6 +107,13 @@ object/input read contracts are now implemented and unwired. Its required stop
 probe found no production runtime-object publication/read/codec owner, so the next
 action is a separate Standard Application publication preflight; no Worker
 Loader, host, or activation is admitted.
+That preflight is now recorded in
+[`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md).
+It begins with pure canonical role contracts and keeps persistence, readiness,
+the real located reader, Worker Loader, and activation behind ordered gates.
+It does not absorb the distinct per-run task-input object store; that writer,
+reader, and `run_lifetime` retention authority need a separate Task-owned
+preflight before D1 is production-complete.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime
@@ -503,7 +510,8 @@ files remain candidates:
      private trusted launch-subject resolver plus verified runtime-object/input
      contracts. The stop probe found no production runtime-object publication
      and role-codec owner, so a separate Standard Application publication
-     preflight is next;
+     preflight is next. Preflight 39 records that sequence, beginning with pure
+     canonical task-runtime role contracts;
      the real read adapter, private task ABI, existing-runtime composition,
      fenced settlement, supervision, end-to-end proof, and host remain
      unwritten;

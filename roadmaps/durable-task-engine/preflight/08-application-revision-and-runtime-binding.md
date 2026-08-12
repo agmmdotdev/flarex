@@ -316,10 +316,17 @@ It must commit:
 - compatibility date and compatibility flags when the selected provider uses
   them;
 - exact runtime profile and runtime implementation version;
-- task compute-profile reference;
+- deterministic catalog-wide supported compute-profile policy/set; each task
+  manifest remains authoritative for its exact per-task profile;
 - deterministic module-entry construction policy; and
 - any other configuration whose change can alter handler behavior or the
   generated compute artifact.
+
+Preflight 39 clarifies the catalog cardinality behind this field: because one
+application revision has one materialization-spec digest but may contain tasks
+with different manifest-level compute profiles, the spec commits the supported
+catalog-wide profile policy/set rather than one task's profile. The selected
+task manifest remains the exact per-task profile authority.
 
 Its canonical digest is:
 

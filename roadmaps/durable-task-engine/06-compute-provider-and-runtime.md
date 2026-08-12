@@ -526,6 +526,15 @@ but no production readiness owner publishes, serves, and role-decodes the
 referenced runtime-object bodies. The next action is a separately approved Standard Application
 runtime-object publication/read-authority preflight. DTE06-D2 must not begin by
 inventing that write path inside the compute adapter.
+The exact upstream sequence is recorded in
+[`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md): canonical role
+contracts first, then pure preparation, immutable object publication,
+persistence/readiness integration, and only then the real D1 located adapter.
+That sequence covers application-owned runtime objects only. The per-run
+`TaskInputReferenceV1` store still requires a separate Task run-input
+publication/read/retention preflight before the complete production D1 adapter
+or the real DTE06-D3 provider composition can proceed. DTE06-D2 may begin only
+after SAP-TRP1 closes and fixes the private ABI/materialization identities.
 
 Preflight 38 approves an ordered, production-inert implementation rather than
 a direct extension of the current invocation host:
@@ -642,6 +651,8 @@ runtime-object publication/read authority required by the now-implemented,
 still-private DTE06-D1 launch-subject resolver. Private ABI and Worker Loader
 composition follow only after that publication gate; fenced settlement
 composition follows DTE06-D, and host activation does not.
+Preflight 39 now records that upstream sequence; its first code checkpoint,
+after explicit approval, is pure canonical role contracts only.
 This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,
 routes, bindings, deployment, or production
