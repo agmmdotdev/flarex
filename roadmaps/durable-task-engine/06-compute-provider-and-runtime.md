@@ -23,6 +23,10 @@ and its accepted indexed pending-membership discovery are recorded in
 The mandatory source-reuse correction before backend orchestration continues is
 recorded in
 [`preflight/37-dte06-connected-runtime-reuse-audit.md`](./preflight/37-dte06-connected-runtime-reuse-audit.md).
+The approved Worker Loader task-adapter boundary, trusted launch-subject
+resolution, private runtime ABI, and DTE06-D implementation order are recorded
+in
+[`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 The provider port, deterministic in-memory conformance adapter, canonical
 evidence boundary, checkpoint tables, and C2 transactions now exist; no
 connected requested-effect delivery operation, task runtime route, Worker
@@ -506,16 +510,29 @@ runner checkpoints add bounded alternating orchestration without adding a
 Worker Loader runtime, host, schema, migration, route, binding, or production
 activation.
 
-### DTE06-D: Worker Loader Task Runtime Adapter — Pending
+### DTE06-D: Worker Loader Task Runtime Adapter — Preflight Complete
 
-- generalize the existing artifact-runtime owner at its narrow reusable seam;
-- add a private versioned task runtime ABI/route/profile without weakening
-  current query/mutation behavior;
-- resolve the exact `durable_task` runtime entry and verified input;
-- preserve egress denial, internal authentication, cache identity, and
-  restricted executor capabilities; and
-- prove local Miniflare/hosted-adapter conformance, bundle safety, and no legacy
-  fallback.
+Preflight 38 approves an ordered, production-inert implementation rather than
+a direct extension of the current invocation host:
+
+1. add a backend-owned trusted launch authority that resolves the provider
+   request to the exact full runtime binding, runtime objects, and input
+   reference without widening `TaskComputeDispatchRequestV1`;
+2. add verified read-side runtime-object and input ports at their existing
+   owners, stopping if the Standard Application readiness path does not yet
+   publish the required runtime objects;
+3. define a private strict versioned task start/cancel RPC ABI and a separate
+   `durable_task` runtime entrypoint;
+4. generalize the existing artifact-runtime owner at its narrow materializer,
+   module-graph, Worker Loader, cache, and isolation seams; and
+5. compose a real Cloudflare provider only in a private Miniflare/system-test
+   owner, proving cold/warm identity, egress denial, cancellation generations,
+   cleanup, bundle safety, and no `/invoke` or action/query/mutation fallback.
+
+Dispatch acceptance means that the exact Worker runtime accepted the same
+identity and execution ID. It is not heartbeat, completion, cancellation
+acknowledgement, result durability, or proof that a bounded Worker execution
+context is durable supervision. Those remain DTE06-E work.
 
 ### DTE06-E: Attempt Supervision And Settlement — Pending
 
@@ -605,9 +622,10 @@ conservative persistence-backed accounting when an accepted dispatch receipt
 is lost before the runner observes it. Ordinary-role genuine-PostgreSQL 18
 parity now proves the same two-scope connected transaction path and exact
 dispatch/cancellation recovery after post-start uncertainty. The next
-roadmapped work is the still-private DTE06-D Worker Loader task adapter and
-minimal runtime ABI; fenced settlement composition follows that gate, and host
-activation does not.
+roadmapped work is DTE06-D1 from Preflight 38: the still-private trusted
+launch-subject resolver and its verified read-side runtime-object/input ports.
+Worker Loader composition follows only after that gate; fenced settlement
+composition follows DTE06-D, and host activation does not.
 This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,
 routes, bindings, deployment, or production

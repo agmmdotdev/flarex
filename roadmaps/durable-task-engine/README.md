@@ -104,6 +104,12 @@ ordinary-role PostgreSQL 18 tests prove dispatch and cancellation replay the
 same stored provider request after post-start uncertainty without minting a
 second identity. DTE06-D's private Worker Loader adapter is next; no host or
 activation is admitted.
+The approved DTE06-D adapter boundary and implementation order are recorded in
+[`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
+It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime
+and input evidence through a trusted backend launch authority, reuses the
+existing Flarex materializer/module graph/Worker Loader owners, and reserves
+durable supervision and settlement for DTE06-E.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -489,8 +495,11 @@ files remain candidates:
      unwired. The deadline-owned control-directory prerequisite and connected
      PGlite repository/discovery/provider proof across two real scopes are
      complete, including conservative persistence-backed lost-receipt
-     accounting and ordinary-role genuine-PostgreSQL 18 parity. The Worker
-     Loader task adapter, fenced settlement, supervision, end-to-end proof, and
+     accounting and ordinary-role genuine-PostgreSQL 18 parity. DTE06-D's
+     Worker Loader adapter preflight is complete: its first implementation
+     slice is the trusted launch-subject resolver and verified runtime-object/
+     input readers, followed by the private task ABI and existing-runtime
+     composition. Fenced settlement, supervision, end-to-end proof, and the
      host remain unwritten;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,

@@ -359,8 +359,12 @@ accepted-dispatch receipt, and equivalent ordinary-role genuine-PostgreSQL 18
 transaction/provider behavior. The connected persistence and mapped unknown-
 delivery recovery gates are complete. The next roadmap checkpoint is the
 still-private DTE06-D Worker Loader task adapter and its minimal runtime ABI,
-followed by fenced settlement composition. This does not authorize a Worker host, route,
-schedule, binding, deployment, public API, or production activation.
+whose approved boundary and implementation order now live in
+[`38-dte06-worker-loader-task-adapter.md`](./38-dte06-worker-loader-task-adapter.md).
+Its first code slice is trusted launch-subject resolution, followed by the
+private ABI and existing-runtime composition; fenced settlement follows that
+gate. This does not authorize a Worker host, route, schedule, binding,
+deployment, public API, or production activation.
 Only blockers discovered by that vertical may justify another foundation
 preflight.
 
