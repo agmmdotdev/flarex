@@ -3,15 +3,13 @@
 ## Status
 
 **Decision:** the bounded Standard Application pre-read preparation/post-read
-completion prerequisite is complete. SAP-TRP5 runtime integration remains
-implemented only through step 2 because backend step 3A has not yet been
-rebuilt or committed. The shared task-catalog snapshot prerequisite, the pure
-Standard Application cold-verification/readiness-basis contract, and the
-pre-read owner split were completed on 2026-08-12. The discarded backend
-prototype demonstrated the intended immutable-store provenance, host admission,
-sequential canonical ordering, and opaque composition shape; its code was not
-retained. Backend step 3A must now consume the Standard-owned prepared handle
-rather than duplicating its validation.
+completion prerequisite and production-inert backend step 3A are complete.
+The shared task-catalog snapshot prerequisite, the pure Standard Application
+cold-verification/readiness-basis contract, and the pre-read owner split were
+completed on 2026-08-12. The rebuilt backend authority consumes that
+Standard-owned prepared handle, admits the exact membership before I/O,
+cold-reads only through the existing immutable task-runtime store in canonical
+order, and mints a process-local opaque proof only after completion.
 Hosted R2 hard-deadline/settlement and measured Worker-heap proof, persistence/
 schema, readiness issuance, activation, and production wiring remain blocked
 and unapproved.
@@ -373,9 +371,9 @@ applies host admission/deadline policy, calls this verifier, and mints any proof
 later accepted by persistence. Persistence must never accept the freely
 callable pure result as cold-read authority.
 
-## Discarded Backend Step 3A Prototype
+## Completed Backend Step 3A
 
-The discarded uncommitted backend prototype used one unversioned
+The backend now exposes one private unversioned
 `TaskRuntimeReadinessColdVerificationAuthority`. Its verifier:
 
 - captures receipt bytes, digest, and expected evidence before asynchronous
@@ -406,7 +404,9 @@ Step 3A uses concurrency one and retains admitted canonical bodies until the
 pure verifier captures them. Its policy bounds retained body bytes, not total
 Worker heap. Hashing, defensive copies, decoded frames, and runtime overhead
 still require measured host admission. No route, Worker binding, Cron, Queue,
-readiness repository, or production runtime consumes this capability.
+readiness repository, or production runtime consumes this capability. The
+Trigger compatibility checker admits the exact readiness-authority-to-store
+edge and rejects other production consumers of the private readiness subpath.
 
 ### Shared-owner prerequisite discovered by step 3A
 
@@ -459,7 +459,7 @@ Focused tests prove malformed, mismatched, and unsupported expected evidence
 fails during preparation; a forged structural handle is rejected; returned
 membership is copy-on-read; and mutation of a `SharedArrayBuffer`-backed digest
 after asynchronous hashing starts cannot change the captured decision. Backend
-step 3A remains a separate checkpoint and must use this handle directly.
+step 3A uses this handle directly and does not duplicate those checks.
 
 ## Failure And Retry Policy
 
@@ -535,23 +535,22 @@ object existence as a readiness receipt.
 
 ### Backend object-read composition
 
-- prototype evidence: in-memory empty and populated cold verification;
-- prototype evidence: Miniflare populated publication and cold read;
-- prototype evidence only: missing, corrupt, resource, and
+- **complete for step 3A:** in-memory empty and populated cold verification;
+- **complete for step 3A:** Miniflare populated publication and cold read;
+- **complete for step 3A:** missing, corrupt, resource, and
   settlement-uncertain store failures preserved their exact source error and
   provenance;
-- prototype evidence: exact requested-versus-returned reference correlation remains
+- **complete for step 3A:** exact requested-versus-returned reference correlation remains
   enforced by the Standard verifier after the store read;
-- prototype evidence: no arbitrary key, raw bucket, database, launch, or Worker
+- **complete for step 3A:** no arbitrary key, raw bucket, database, launch, or Worker
   Loader authority;
-- prototype evidence: deterministic concurrency-one scheduling and canonical-order
+- **complete for step 3A:** deterministic concurrency-one scheduling and canonical-order
   proof;
-- prototype evidence: object-count, per-object and retained-total admission before
+- **complete for step 3A:** object-count, per-object and retained-total admission before
   the first store call;
 - measured peak-memory and whole-operation deadline proof remain blocked;
-- prototype evidence as a negative boundary proof: an interrupted non-settling get
-  returns no proof while the foreign get remains outstanding; this is why 3A
-  exposes no false settled-timeout claim; and
+- **complete as a negative boundary proof:** external Effect interruption
+  returns no proof; step 3A does not install or claim a settled R2 timeout; and
 - hosted Cloudflare R2 proof before any production-capable claim.
 
 ### Persistence and activation
@@ -595,11 +594,11 @@ After explicit approval of each remaining checkpoint:
    as its own bounded prerequisite commit;
 2. **Complete:** add the pure Standard Application
    cold-verification/readiness-basis contract;
-3. **Prerequisite complete; backend checkpoint next:** Standard Application
-   readiness now has owned pre-read preparation and post-read completion.
-   Rebuild the backend verifier using only the existing task-runtime store
-   `read`, exact admission, the prepared handle, and an opaque backend proof.
-   Hosted deadline/settlement and measured heap proof remain step 3B;
+3. **Complete through backend step 3A:** Standard Application readiness has
+   owned pre-read preparation and post-read completion. The backend verifier
+   uses only the existing task-runtime store `read`, exact admission, the
+   prepared handle, and an opaque backend proof. Hosted deadline/settlement and
+   measured heap proof remain step 3B;
 4. add the persistence snapshot and version-2 readiness schema/migration;
 5. integrate version-2 issuance and legacy version-1 read compatibility into
    the existing readiness repository;
@@ -633,15 +632,14 @@ SAP-TRP5 does not authorize:
 
 ## Stop Boundary
 
-SAP-TRP5 runtime integration remains implemented only through step 2. The
-Standard Application prerequisite now prepares, correlates, and synchronously
-copies authoritative expected evidence before R2, but no backend verifier or
-R2 authority is part of this checkpoint. The discarded step-3A prototype is
-still absent.
+SAP-TRP5 runtime integration is complete through production-inert backend step
+3A. The Standard Application prerequisite prepares, correlates, and
+synchronously copies authoritative expected evidence before R2. The backend
+authority then applies conservative count/per-object/retained-byte admission,
+reads sequentially through the existing store, completes the exact prepared
+handle, and exposes only its own opaque proof and capture projection.
 
-The next decision is whether to approve rebuilding backend step 3A on the
-prepared handle. The next backend decision after 3A is step 3B: obtain an
-enforceable hosted R2
+The next backend decision is step 3B: obtain an enforceable hosted R2
 deadline/settlement contract and measured Worker-heap admission. Until that
 exists, no timeout wrapper, host Layer, deployment binding, or
 production-capable claim is authorized. Persistence step 4 may be designed in

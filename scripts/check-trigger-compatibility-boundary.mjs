@@ -25,6 +25,10 @@ const flarexBackendTaskRuntimeLaunchSourcePrefix =
   "packages/flarex-backend/src/taskRuntimeLaunch/";
 const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
+const flarexBackendTaskRuntimeReadinessAuthorityPath =
+  "packages/flarex-backend/src/taskRuntimeReadiness/Authority.ts";
+const flarexBackendTaskRuntimeReadinessSourcePrefix =
+  "packages/flarex-backend/src/taskRuntimeReadiness/";
 const flarexBackendImmutableR2SourcePrefix =
   "packages/flarex-backend/src/immutableR2/";
 const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
@@ -645,8 +649,20 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       if (
         specifier !== undefined
         && isProductionSource(relativePath)
+        && isFlarexBackendTaskRuntimeReadinessSpecifier(specifier, relativePath)
+        && !relativePath.startsWith(flarexBackendTaskRuntimeReadinessSourcePrefix)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task runtime readiness authority before readiness-host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
         && isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRuntimeObjectStorePath
+        && relativePath !== flarexBackendTaskRuntimeReadinessAuthorityPath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1163,6 +1179,14 @@ function isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath)
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   return normalized === "flarex-backend/internal/task-runtime-object-store"
     || matchesRepositoryModule(resolved, flarexBackendTaskRuntimeObjectStorePath);
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskRuntimeReadinessSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-runtime-readiness"
+    || resolved.startsWith(flarexBackendTaskRuntimeReadinessSourcePrefix);
 }
 
 /** @param {string} specifier @param {string} relativePath */

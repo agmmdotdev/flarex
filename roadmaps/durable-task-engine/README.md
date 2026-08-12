@@ -126,17 +126,15 @@ proofs. It remains private, production-inert, and unwired and creates no second
 revision, readiness, activation, or active-head system. SAP-TRP5 readiness and
 active-selection agreement is recorded in
 [`preflight/41-standard-application-task-runtime-readiness.md`](./preflight/41-standard-application-task-runtime-readiness.md).
-Its task-catalog prerequisite and pure Standard Application
-cold-verification/canonical readiness-basis checkpoint are complete. A backend
-step-3A prototype demonstrated the intended sequential admitted store
-composition and opaque proof, but final review found that authoritative
-expected evidence is not owned/correlated until after R2 reads and that a
-shared-backed byte view can survive an attempted generic clone. The prototype
-was removed. The bounded Standard Application pre-read preparation/post-read
-completion contract with synchronous owned-byte capture is now complete, while
-backend step 3A remains unimplemented and must consume that opaque prepared
-handle; backend duplication is forbidden. The pure result alone still
-carries no R2-read authority. Hosted R2 deadline/
+Its task-catalog prerequisite, pure Standard Application
+cold-verification/canonical readiness-basis checkpoint, and backend step 3A
+are complete. The Standard Application owner prepares and owns receipt,
+expected evidence, catalog, policy, and membership before R2. The private
+backend authority admits the complete membership before I/O, reads only through
+the existing immutable task-runtime store sequentially in canonical order,
+completes the exact prepared handle, and mints its own process-local opaque
+proof. The private subpath remains blocked from production consumers. The pure
+Standard Application result alone still carries no R2-read authority. Hosted R2 deadline/
 settlement and measured Worker-heap proof, task-aware readiness persistence/
 issuance, activation changes, and production wiring remain behind later gates.
 The approved DTE06-D adapter boundary and implementation order are recorded in

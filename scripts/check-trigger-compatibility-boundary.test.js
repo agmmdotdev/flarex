@@ -738,6 +738,26 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("keeps the task runtime readiness authority production-inert", () => {
+    const authority =
+      "packages/flarex-backend/src/taskRuntimeReadiness/Authority.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: authority,
+      text: 'import type { TaskRuntimeObjectStore } from "../taskRuntimePublication/TaskRuntimeObjectStore.js";',
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskRuntimeReadinessColdVerificationAuthority } from "flarex-backend/internal/task-runtime-readiness";
+        import { verify } from "./taskRuntimeReadiness/Authority.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task runtime readiness authority before readiness-host admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the Task runtime readiness authority before readiness-host admission.",
+    ]);
+  });
+
   it("keeps the control-directory adapter inside its inert composition owners", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
