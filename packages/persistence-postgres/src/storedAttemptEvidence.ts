@@ -351,6 +351,7 @@ type StoredAttemptSessionProjectionV1 = Readonly<
     | "sessionId"
     | "storageGeneration"
     | "storageGenerationFence"
+    | "executionAuthorityGeneration"
     | "packageId"
     | "artifactRuntime"
     | "artifactId"
@@ -665,6 +666,8 @@ async function selectStoredAttemptSessionRows(
       storageGeneration: fxSystemTransactionSessions.storageGeneration,
       storageGenerationFence:
         fxSystemTransactionSessions.storageGenerationFence,
+      executionAuthorityGeneration:
+        fxSystemTransactionSessions.executionAuthorityGeneration,
       packageId: fxSystemTransactionSessions.packageId,
       artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
       artifactId: fxSystemTransactionSessions.artifactId,
@@ -1147,6 +1150,14 @@ function captureSessionScalars(
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     throw new Error("Stored attempt session is not active.");
   }
+  if (
+    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
+    session.packageId === null ||
+    session.artifactRuntime === null ||
+    session.artifactId === null ||
+    session.sourcePackageHash === null ||
+    session.executionModule === null
+  ) throw new Error("Stored attempt authority is not legacy dynamic-worker.");
   return Object.freeze({
     lifecycle: session.lifecycle,
     storageGeneration: session.storageGeneration,

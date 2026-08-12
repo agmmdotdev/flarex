@@ -9,12 +9,23 @@ import {
   hashCanonicalTaskCatalogV1,
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   produceApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
 import { Effect, Exit, Result, Scope } from "effect";
+import {
+  APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+  assembleApplicationMutationGrantJwsV1,
+  createApplicationMutationGrantVerifierNamespaceV1,
+  prepareApplicationMutationGrantV1,
+  verifyApplicationMutationGrantV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
   canonicalizeApplicationRuntimeColdReceiptV1,
 } from "flarex-protocol/internal/application-runtime-cold-receipt-v1";
@@ -30,7 +41,32 @@ import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
-import { CommitSeqSchema } from "flarex-protocol/storage-authority";
+import {
+  CommitSeqSchema,
+  decodeReplacementScopeIdV1,
+} from "flarex-protocol/storage-authority";
+import {
+  TransactionGrantDeploymentIdV1Schema,
+  TransactionGrantKeyIdV1Schema,
+  TransactionGrantTimestampV1Schema,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+} from "flarex-protocol/transaction-grant";
+import {
+  CanonicalTransactionArgumentsBytesV1Schema,
+  TransactionArgumentsSha256V1Schema,
+  TransactionAuthorizationGrantIdV1Schema,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionFunctionKindV1Schema,
+  TransactionFunctionPathV1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionPolicyVersionV1Schema,
+  TransactionRequestKeyV1Schema,
+  TransactionRequestSha256V1Schema,
+} from "flarex-protocol/transaction-session";
+import {
+  canonicalizeFlarexValueJsonV1,
+  FLAREX_VALUE_CODEC_VERSION_V1,
+} from "flarex-protocol/value";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -70,6 +106,7 @@ import {
   claimApplicationActiveSelection,
   makeApplicationActivationRepository,
   validateApplicationActiveSelectionInTransaction,
+  type CoherentActiveApplication,
 } from "../src/applicationActivation";
 import {
   openApplicationQuerySnapshot,
@@ -85,9 +122,13 @@ import {
 } from "../src/applicationTaskBindings";
 import {
   createPGliteLocatedSplitScopeClockTarget,
+  createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSplitScopeAuthorityProvisioner,
 } from "../src/pglite";
+import {
+  createApplicationMutationSessionActivationPersistenceV1,
+} from "../src/transactionSessionActivation";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -121,6 +162,8 @@ import { lockScopeClockForShareInTransactionEffect } from
   "../src/scopeClock";
 import {
   fxSystemIndexBuildStates,
+  fxSystemApplicationFunctionsV1,
+  fxSystemApplicationActiveHeadsV1,
   fxSystemScopeClocks,
 } from "../src/schema";
 
@@ -578,6 +621,123 @@ describe("Application activation", { timeout: 30_000 }, () => {
       }),
     ));
     expect(validated.revisionId).toBe(fixture.input.revisionId);
+  });
+
+  it("admits and replays exact Application mutation authority and rejects stale or foreign authority", async () => {
+    const fixture = await readinessFixture({ functionKind: "mutation" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const input = await applicationMutationActivationInput(fixture, active);
+    const staleNewRequest = await applicationMutationActivationInput(
+      fixture,
+      active,
+      {
+        requestKey: "request:application:mutation:stale-new-admission",
+        grantId: "grant_application_mutation_stale_new",
+      },
+    );
+    const sessionActivation = createApplicationMutationSessionActivationPersistenceV1(
+      {
+        scopeMetadata: fixture.control,
+        provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+        scopeSessionTargets: {
+          resolve: async locator =>
+            createPGliteLocatedPointMutationSessionActivationTargetV1(
+              fixture.target,
+              locator,
+            ),
+        },
+      },
+      {
+        leaseDurationMilliseconds: 60_000,
+        randomUuid: uuidSequence(80, 81, 82, 83, 84, 85),
+      },
+    );
+
+    const created = await runEffect(sessionActivation.activateEffect(input));
+    const replayed = await runEffect(sessionActivation.activateEffect(input));
+    expect(created.status).toBe("created");
+    expect(replayed).toMatchObject({ status: "busy", anchor: created.anchor });
+    const stored = await fixture.target.query<{
+      generation: string;
+      package_id: string | null;
+      authority_format: string;
+    }>(
+      `select execution_authority_generation as generation,
+              package_id,
+              application_execution_authority_json->>'format' as authority_format
+         from fx_system_tx_session
+        where session_id = $1`,
+      [created.anchor.sessionId],
+    );
+    expect(stored.rows).toEqual([{
+      generation: "application_v1",
+      package_id: null,
+      authority_format: "flarex.application-mutation-execution-authority",
+    }]);
+
+    const foreignGrant = await runEffect(Effect.result(
+      sessionActivation.activateEffect(Object.freeze({
+        ...input,
+        evidence: Object.freeze({
+          ...input.evidence,
+          requestKey: TransactionRequestKeyV1Schema.make(
+            "request:application:foreign-grant",
+          ),
+          verifiedGrant: Object.freeze({ grant: "legacy" }),
+        }),
+      }) as unknown as typeof input),
+    ));
+    expect(Result.isFailure(foreignGrant)).toBe(true);
+
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+      headSha256: new Uint8Array(32).fill(0xee),
+    }).where(eq(
+      fxSystemApplicationActiveHeadsV1.scopeId,
+      active.basis.authority.scopeId,
+    ));
+    const afterHeadMovement = await runEffect(
+      sessionActivation.activateEffect(input),
+    );
+    expect(afterHeadMovement).toMatchObject({
+      status: "busy",
+      anchor: created.anchor,
+    });
+    const staleAdmission = await runEffect(Effect.result(
+      sessionActivation.activateEffect(staleNewRequest),
+    ));
+    expect(Result.isFailure(staleAdmission)).toBe(true);
+    if (Result.isFailure(staleAdmission)) {
+      expect(staleAdmission.failure).toMatchObject({
+        operation: "validateSelection",
+        reason: "storedState",
+      });
+    }
+    const conflictingReplay = await runEffect(Effect.result(
+      sessionActivation.activateEffect(Object.freeze({
+        ...input,
+        evidence: Object.freeze({
+          ...input.evidence,
+          validatedArgsJson: Object.freeze({ body: "conflicting" }),
+        }),
+      })),
+    ));
+    expect(Result.isFailure(conflictingReplay)).toBe(true);
+    if (Result.isFailure(conflictingReplay)) {
+      expect(conflictingReplay.failure).toMatchObject({
+        issue: { reason: "invalidPreparedEvidence" },
+      });
+    }
+    expect(await scalarCount(fixture.target, "fx_system_tx_session")).toBe(1);
   });
 
   it("rolls back history and head together after a late injected failure", async () => {
@@ -1321,6 +1481,7 @@ interface ReadinessFixtureOptions {
   readonly coldMode?: "normal" | "wrongTarget" | "advanceAuthority";
   readonly foreignSchemaControl?: boolean;
   readonly failSchemaPublication?: boolean;
+  readonly functionKind?: "query" | "mutation";
 }
 
 async function readinessFixture(options: ReadinessFixtureOptions = {}) {
@@ -1369,6 +1530,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     options.includeFunction !== false,
     options.includeTable === true,
     options.includeIndex === true,
+    options.functionKind ?? "query",
   );
   const analysis = await createApplicationRevision(target, authority, manifest);
   const publication = await runEffect(
@@ -1545,6 +1707,178 @@ async function prepareReadinessAuthorities(
   await closeEmptyUniqueConstraintSet(fixture, schemaVersionId);
   await settleCandidateValidation(fixture, schemaVersionId);
   return schemaVersionId;
+}
+
+async function applicationMutationActivationInput(
+  fixture: Awaited<ReturnType<typeof readinessFixture>>,
+  active: CoherentActiveApplication,
+  options: Readonly<{
+    requestKey: string;
+    grantId: string;
+  }> = {
+    requestKey: "request:application:mutation",
+    grantId: "grant_application_mutation_1",
+  },
+) {
+  const fn = active.basis.manifest.functions[0];
+  if (fn === undefined || fn.kind !== "mutation") {
+    throw new Error("Expected one Application mutation function.");
+  }
+  const rows = await fixture.target.drizzle.select({
+    entrySha256: fxSystemApplicationFunctionsV1.entrySha256,
+  }).from(fxSystemApplicationFunctionsV1).where(eq(
+    fxSystemApplicationFunctionsV1.functionPath,
+    fn.path,
+  )).limit(1);
+  const storedFunction = rows[0];
+  if (storedFunction === undefined) {
+    throw new Error("Expected stored Application mutation function.");
+  }
+  const runtimeTarget = Result.getOrThrow(canonicalizeApplicationRuntimeTargetV1({
+    format: "flarex.application-runtime-target",
+    version: 1,
+    scopeId: active.basis.authority.scopeId,
+    revisionId: active.basis.revisionId,
+    candidateId: active.basis.candidateId,
+    analysisId: active.basis.analysisId,
+    sourceArtifactRootSha256: hex(active.basis.sourceArtifactRootSha256),
+    manifestSha256: hex(active.basis.manifestSha256),
+    schemaSha256: hex(active.basis.applicationSchemaSha256),
+    functionCatalogSha256: hex(active.basis.functionCatalogSha256),
+    publicationSha256: hex(active.basis.publicationSha256),
+    executionModulePath: active.basis.manifest.sourceArtifact.executionModulePath,
+    function: { ...fn, entrySha256: hex(storedFunction.entrySha256) },
+  }));
+  const executionAuthority = await runEffect(
+    canonicalizeApplicationMutationExecutionAuthorityV1({
+      format: "flarex.application-mutation-execution-authority",
+      version: 1,
+      runtimeTarget: runtimeTarget.target,
+      runtimeTargetSha256: await sha256Hex(runtimeTarget.canonicalBytes),
+      activationSequence: active.basis.activationSequence.toString(),
+      activeHeadSha256: hex(active.basis.headSha256),
+      schemaVersionId: active.basis.schemaVersionId,
+    }),
+  );
+  const policyVersion = TransactionPolicyVersionV1Schema.make(
+    "policy_point_mutation_v1",
+  );
+  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+    policyVersion,
+    auth: { kind: "anonymous" },
+    capabilities: [
+      "db:get",
+      "db:insert",
+      "db:patch",
+      "db:replace",
+      "db:delete",
+    ],
+  });
+  const validatedArgsJson = Object.freeze({ body: "hello" });
+  const canonicalArgs = await canonicalizeFlarexValueJsonV1(
+    validatedArgsJson,
+  );
+  const validatedArgsSha256 = TransactionArgumentsSha256V1Schema.make(
+    canonicalArgs.sha256,
+  );
+  const requestSha256 = TransactionRequestSha256V1Schema.make(
+    new Uint8Array(32).fill(0x41),
+  );
+  const requestKey = TransactionRequestKeyV1Schema.make(
+    options.requestKey,
+  );
+  const grantSegments = await runEffect(prepareApplicationMutationGrantV1({
+    kid: TransactionGrantKeyIdV1Schema.make("application-key-1"),
+    grantId: TransactionAuthorizationGrantIdV1Schema.make(
+      options.grantId,
+    ),
+    deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+      fixture.input.deploymentId,
+    ),
+    executionAuthority,
+    policyVersion,
+    identityAccessPolicy: policy,
+    validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+    validatedArgsSha256: hex(validatedArgsSha256),
+    requestKey,
+    requestSha256: hex(requestSha256),
+    issuedAt: TransactionGrantTimestampV1Schema.make(
+      "2026-08-12T10:00:00.000Z",
+    ),
+    expiresAt: TransactionGrantTimestampV1Schema.make(
+      "2099-01-01T00:00:00.000Z",
+    ),
+    authorizationRevocationEpoch:
+      TransactionAuthorizationRevocationEpochSchema.make(0n),
+  }));
+  const grantKeyPair = await globalThis.crypto.subtle.generateKey(
+    "Ed25519",
+    false,
+    ["sign", "verify"],
+  );
+  if (!("privateKey" in grantKeyPair) || !("publicKey" in grantKeyPair)) {
+    throw new Error("Expected an Ed25519 key pair.");
+  }
+  const authorizationGrant = assembleApplicationMutationGrantJwsV1(
+    grantSegments,
+    new Uint8Array(await globalThis.crypto.subtle.sign(
+      "Ed25519",
+      grantKeyPair.privateKey,
+      copyBytesToArrayBuffer(grantSegments.signingInput),
+    )),
+  );
+  const verifiedGrant = await runEffect(verifyApplicationMutationGrantV1(
+    authorizationGrant,
+    createApplicationMutationGrantVerifierNamespaceV1({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+        fixture.input.deploymentId,
+      ),
+      keys: [{
+        kid: TransactionGrantKeyIdV1Schema.make("application-key-1"),
+        purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+        state: "active",
+        publicKey: grantKeyPair.publicKey,
+      }],
+    }),
+  ));
+  return Object.freeze({
+    deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+      fixture.input.deploymentId,
+    ),
+    scopeId: decodeReplacementScopeIdV1(active.basis.authority.scopeId),
+    activeSelection: active.selection,
+    evidence: Object.freeze({
+      executionAuthority: executionAuthority.authority,
+      verifiedGrant,
+      functionPath: TransactionFunctionPathV1Schema.make(fn.path),
+      functionKind: TransactionFunctionKindV1Schema.make("mutation"),
+      schemaVersionId: active.basis.schemaVersionId,
+      policyVersion,
+      identityAccessPolicySha256:
+        TransactionIdentityAccessPolicySha256V1Schema.make(
+          hexBytes(policy.sha256Hex),
+        ),
+      validatedArgsJson,
+      validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      validatedArgsCanonicalBytes:
+        CanonicalTransactionArgumentsBytesV1Schema.make(
+          canonicalArgs.canonicalBytes,
+        ),
+      validatedArgsSha256,
+      requestKey,
+      requestSha256,
+    }),
+  });
+}
+
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function hexBytes(value: string): Uint8Array {
+  return Uint8Array.from({ length: value.length / 2 }, (_, index) =>
+    Number.parseInt(value.slice(index * 2, index * 2 + 2), 16)
+  );
 }
 
 async function enablePhysicalBuilds(
@@ -1806,6 +2140,7 @@ function applicationManifest(
   includeFunction: boolean,
   includeTable: boolean,
   includeIndex = false,
+  functionKind: "query" | "mutation" = "query",
 ) {
   return Result.getOrThrow(canonicalizeApplicationManifestV1({
     format: "flarex.application-manifest",
@@ -1853,7 +2188,7 @@ function applicationManifest(
       path: "users:get",
       moduleName: "users",
       exportName: "get",
-      kind: "query",
+      kind: functionKind,
       visibility: "public",
       args: { type: "any" },
       returns: null,

@@ -942,6 +942,14 @@ function captureSessionScalars(
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     return undefined;
   }
+  if (
+    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
+    session.packageId === null ||
+    session.artifactRuntime === null ||
+    session.artifactId === null ||
+    session.sourcePackageHash === null ||
+    session.executionModule === null
+  ) return undefined;
   const argsLength = parseLength(
     session.validatedArgsCanonicalByteLengthText,
   );

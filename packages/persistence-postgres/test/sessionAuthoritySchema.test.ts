@@ -154,6 +154,100 @@ describe("S07 transaction-session authority schema", () => {
     expect(count.rows).toEqual([{ count: "0" }]);
   });
 
+  it("preserves legacy authority and admits exactly one complete Application authority branch", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    await insertSessionTestScope(persistence);
+    const sessionId = transactionSessionIdAt(41);
+    await insertTransactionSessionFixture(
+      persistence,
+      transactionSessionFixture(sessionId),
+    );
+
+    const legacy = await persistence.query<{
+      generation: string;
+      package_id: string | null;
+      application_authority: string | null;
+    }>(`
+      select execution_authority_generation as generation,
+             package_id,
+             application_execution_authority_json::text as application_authority
+      from fx_system_tx_session
+      where session_id = '${sessionId}'::uuid
+    `);
+    expect(legacy.rows).toEqual([{
+      generation: "legacy_dynamic_worker_v1",
+      package_id: "package_session_v1",
+      application_authority: null,
+    }]);
+
+    await expect(
+      persistence.query(
+        `update fx_system_tx_session
+         set execution_authority_generation = 'application_v1',
+             application_execution_authority_json = $2::jsonb,
+             application_execution_authority_canonical_bytes = $3,
+             application_execution_authority_sha256 = $4
+         where session_id = $1`,
+        [sessionId, JSON.stringify({ format: "application" }),
+          new Uint8Array([1]), new Uint8Array(32)],
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      persistence.query(
+        `update fx_system_tx_session
+         set execution_authority_generation = 'application_v1',
+             package_id = null,
+             artifact_runtime = null,
+             artifact_id = null,
+             source_package_hash = null,
+             execution_module = null,
+             application_execution_authority_json = $2::jsonb
+         where session_id = $1`,
+        [sessionId, JSON.stringify({ format: "application" })],
+      ),
+    ).rejects.toThrow();
+
+    await persistence.query(
+      `update fx_system_tx_session
+       set execution_authority_generation = 'application_v1',
+           package_id = null,
+           artifact_runtime = null,
+           artifact_id = null,
+           source_package_hash = null,
+           execution_module = null,
+           application_execution_authority_json = $2::jsonb,
+           application_execution_authority_canonical_bytes = $3,
+           application_execution_authority_sha256 = $4
+       where session_id = $1`,
+      [sessionId, JSON.stringify({ format: "application" }),
+        new Uint8Array([1]), new Uint8Array(32)],
+    );
+
+    const application = await persistence.query<{
+      generation: string;
+      package_id: string | null;
+      authority_byte_length: number;
+      authority_sha_length: number;
+    }>(`
+      select execution_authority_generation as generation,
+             package_id,
+             octet_length(application_execution_authority_canonical_bytes)::int
+               as authority_byte_length,
+             octet_length(application_execution_authority_sha256)::int
+               as authority_sha_length
+      from fx_system_tx_session
+      where session_id = '${sessionId}'::uuid
+    `);
+    expect(application.rows).toEqual([{
+      generation: "application_v1",
+      package_id: null,
+      authority_byte_length: 1,
+      authority_sha_length: 32,
+    }]);
+  });
+
   it("constrains leases to the exact current attempt and explicit removal", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();

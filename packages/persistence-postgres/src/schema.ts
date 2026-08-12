@@ -162,6 +162,9 @@ import type {
   TransactionSessionProtocolVersionV1,
   TransactionSourcePackageSha256HexV1,
 } from "flarex-protocol/transaction-session";
+import type {
+  ApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
 import type {
   CanonicalFlarexValueBytesV1,
@@ -1768,19 +1771,28 @@ export const fxSystemTransactionSessions = pgTable(
     })
       .$type<StorageGenerationFence>()
       .notNull(),
-    packageId: text("package_id").$type<TransactionPackageIdV1>().notNull(),
+    executionAuthorityGeneration: text("execution_authority_generation")
+      .$type<"legacy_dynamic_worker_v1" | "application_v1">()
+      .notNull()
+      .default("legacy_dynamic_worker_v1"),
+    applicationExecutionAuthorityJson: jsonb(
+      "application_execution_authority_json",
+    ).$type<ApplicationMutationExecutionAuthorityV1>(),
+    applicationExecutionAuthorityCanonicalBytes: bytea(
+      "application_execution_authority_canonical_bytes",
+    ),
+    applicationExecutionAuthoritySha256: bytea(
+      "application_execution_authority_sha256",
+    ),
+    packageId: text("package_id").$type<TransactionPackageIdV1>(),
     artifactRuntime: text("artifact_runtime")
-      .$type<TransactionArtifactRuntimeV1>()
-      .notNull(),
+      .$type<TransactionArtifactRuntimeV1>(),
     artifactId: text("artifact_id")
-      .$type<TransactionArtifactIdV1>()
-      .notNull(),
+      .$type<TransactionArtifactIdV1>(),
     sourcePackageHash: text("source_package_hash")
-      .$type<TransactionSourcePackageSha256HexV1>()
-      .notNull(),
+      .$type<TransactionSourcePackageSha256HexV1>(),
     executionModule: text("execution_module")
-      .$type<TransactionExecutionModuleV1>()
-      .notNull(),
+      .$type<TransactionExecutionModuleV1>(),
     functionPath: text("function_path")
       .$type<TransactionFunctionPathV1>()
       .notNull(),
@@ -1899,28 +1911,37 @@ export const fxSystemTransactionSessions = pgTable(
       sql`${table.storageGenerationFence} >= 1`,
     ),
     check(
-      "fx_system_tx_session_package_id_check",
-      nonBlankText(table.packageId),
-    ),
-    check(
-      "fx_system_tx_session_artifact_runtime_check",
-      sql`${table.artifactRuntime} = 'dynamic-worker'`,
-    ),
-    check(
-      "fx_system_tx_session_artifact_id_check",
-      sql`${table.artifactId} ~ '^artifact_[0-9a-f]{32}$'`,
-    ),
-    check(
-      "fx_system_tx_session_source_hash_check",
-      sql`${table.sourcePackageHash} ~ '^[0-9a-f]{64}$'`,
-    ),
-    check(
-      "fx_system_tx_session_artifact_source_pair_check",
-      sql`${table.artifactId} = 'artifact_' || left(${table.sourcePackageHash}, 32)`,
-    ),
-    check(
-      "fx_system_tx_session_execution_module_check",
-      nonBlankText(table.executionModule),
+      "fx_system_tx_session_execution_authority_check",
+      sql`
+        (${table.executionAuthorityGeneration} = 'legacy_dynamic_worker_v1'
+          and ${table.packageId} is not null
+          and ${nonBlankText(table.packageId)}
+          and ${table.artifactRuntime} is not null
+          and ${table.artifactRuntime} = 'dynamic-worker'
+          and ${table.artifactId} is not null
+          and ${table.artifactId} ~ '^artifact_[0-9a-f]{32}$'
+          and ${table.sourcePackageHash} is not null
+          and ${table.sourcePackageHash} ~ '^[0-9a-f]{64}$'
+          and ${table.artifactId} = 'artifact_' || left(${table.sourcePackageHash}, 32)
+          and ${table.executionModule} is not null
+          and ${nonBlankText(table.executionModule)}
+          and ${table.applicationExecutionAuthorityJson} is null
+          and ${table.applicationExecutionAuthorityCanonicalBytes} is null
+          and ${table.applicationExecutionAuthoritySha256} is null)
+        or
+        (${table.executionAuthorityGeneration} = 'application_v1'
+          and ${table.packageId} is null
+          and ${table.artifactRuntime} is null
+          and ${table.artifactId} is null
+          and ${table.sourcePackageHash} is null
+          and ${table.executionModule} is null
+          and ${table.applicationExecutionAuthorityJson} is not null
+          and jsonb_typeof(${table.applicationExecutionAuthorityJson}) = 'object'
+          and ${table.applicationExecutionAuthorityCanonicalBytes} is not null
+          and octet_length(${table.applicationExecutionAuthorityCanonicalBytes}) between 1 and 131072
+          and ${table.applicationExecutionAuthoritySha256} is not null
+          and octet_length(${table.applicationExecutionAuthoritySha256}) = 32)
+      `,
     ),
     check(
       "fx_system_tx_session_function_path_check",

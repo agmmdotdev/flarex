@@ -564,6 +564,14 @@ function selectSessionSizeRows(
     storageGeneration: fxSystemTransactionSessions.storageGeneration,
     storageGenerationFence:
       fxSystemTransactionSessions.storageGenerationFence,
+    executionAuthorityGeneration:
+      fxSystemTransactionSessions.executionAuthorityGeneration,
+    applicationExecutionAuthorityJson:
+      fxSystemTransactionSessions.applicationExecutionAuthorityJson,
+    applicationExecutionAuthorityCanonicalBytes:
+      fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
+    applicationExecutionAuthoritySha256:
+      fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
     packageId: fxSystemTransactionSessions.packageId,
     artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
     artifactId: fxSystemTransactionSessions.artifactId,

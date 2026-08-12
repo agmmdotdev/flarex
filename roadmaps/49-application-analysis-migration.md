@@ -2062,6 +2062,22 @@ revalidation after session admission, a schema or function selected from the
 request, or any change to commit compilation, commit publication,
 idempotency outcomes, change feeds, or outbox semantics.
 
+Checkpoint 1 is now implemented as an inert private boundary. Application
+Mutation Grant V1 and the canonical Application mutation execution-authority
+envelope are distinct from the legacy Transaction Grant family, and session
+admission accepts only an opaque grant handle produced after signature
+verification. Migration `0060` adds the execution-authority discriminator and
+an exclusive all-or-none database constraint: existing rows default to the
+unchanged legacy branch, while Application rows require the canonical envelope
+and forbid all legacy package/artifact fields. The Application admission
+transaction validates the exact active-selection witness under the existing
+scope-clock ordering before initial session creation. Exact replay relies on
+the stored immutable authority and evidence and does not revalidate the mutable
+active head. Both paths reuse the unchanged session, journal, lease, and
+execution-claim owners. Stored-attempt and commit-authority
+materialization still reject the Application branch until checkpoint 2; no
+Standard mutation consumer or user-code runner is wired by this checkpoint.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration

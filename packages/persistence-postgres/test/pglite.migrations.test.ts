@@ -157,6 +157,68 @@ describe("createPGlitePersistence", () => {
     ]);
   });
 
+  it("upgrades a pre-0060 legacy transaction session without changing its authority", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-aa-r6-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const parsed: unknown = JSON.parse(await readFile(currentJournal, "utf8"));
+      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Current Drizzle journal is missing its entries array.");
+      }
+      await writeFile(copiedJournal, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter(entry =>
+          isNonArrayRecord(entry) && typeof entry.idx === "number" &&
+          entry.idx < 60
+        ),
+      }, null, 2)}\n`, "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await insertSessionTestScope(previous);
+      const sessionId = transactionSessionIdAt(60);
+      await insertTransactionSessionFixture(
+        previous,
+        transactionSessionFixture(sessionId),
+      );
+
+      await copyFile(currentJournal, copiedJournal);
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      const row = await current.query<{
+        generation: string;
+        package_id: string | null;
+        artifact_id: string | null;
+        application_authority: string | null;
+      }>(`
+        select execution_authority_generation as generation,
+               package_id,
+               artifact_id,
+               application_execution_authority_json::text as application_authority
+          from fx_system_tx_session
+         where session_id = $1
+      `, [sessionId]);
+      expect(row.rows).toEqual([{
+        generation: "legacy_dynamic_worker_v1",
+        package_id: "package_session_v1",
+        artifact_id: `artifact_${"a".repeat(32)}`,
+        application_authority: null,
+      }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
   it("upgrades legacy deployment metadata without backfilling scopes", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-scope-upgrade-"));
     const previousMigrationsFolder = resolve(testRoot, "drizzle");
@@ -1190,7 +1252,9 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "60" }]);
+      expect(recoveredReceipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -1384,7 +1448,9 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "60" }]);
+      expect(recoveredReceipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -1495,7 +1561,9 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "60" }]);
+      expect(recoveredReceipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -2014,7 +2082,9 @@ describe("createPGlitePersistence", () => {
       const currentReceipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(currentReceipts.rows).toEqual([{ count: "60" }]);
+      expect(currentReceipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -2113,7 +2183,9 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "60" }]);
+      expect(receipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -2214,7 +2286,9 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "60" }]);
+      expect(receipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -2332,7 +2406,9 @@ describe("createPGlitePersistence", () => {
       const receipts = await current.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(receipts.rows).toEqual([{ count: "60" }]);
+      expect(receipts.rows).toEqual([{
+        count: await currentMigrationReceiptCount(),
+      }]);
     } finally {
       try {
         await db.close();
@@ -2425,7 +2501,7 @@ describe("createPGlitePersistence", () => {
         revision_column: "1",
         attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
         revision_target: "fx_system_application_revision_v1",
-        receipts: "60",
+        receipts: await currentMigrationReceiptCount(),
       }]);
     } finally {
       try {
@@ -2601,7 +2677,7 @@ describe("createPGlitePersistence", () => {
       `);
       expect(installed.rows).toEqual([{
         table_count: "2",
-        receipts: "60",
+        receipts: await currentMigrationReceiptCount(),
       }]);
     } finally {
       try {
@@ -2612,3 +2688,16 @@ describe("createPGlitePersistence", () => {
     }
   }, 30_000);
 });
+
+async function currentMigrationReceiptCount(): Promise<string> {
+  const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const journalText = await readFile(
+    resolve(packageRoot, "drizzle/meta/_journal.json"),
+    "utf8",
+  );
+  const parsed: unknown = JSON.parse(journalText);
+  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+    throw new Error("Current Drizzle journal is missing its entries array.");
+  }
+  return String(parsed.entries.length);
+}

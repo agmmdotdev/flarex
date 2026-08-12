@@ -4,7 +4,7 @@ import {
   copyBytesToArrayBuffer,
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
@@ -248,6 +248,40 @@ export async function canonicalizeFlarexValueJsonV1(
 ): Promise<CanonicalFlarexValueV1> {
   return canonicalizeNormalizedValue(normalizeFlarexValueJsonV1(value, profile));
 }
+
+/**
+ * Effect boundary for the Promise-based Value Codec. Expected codec failures
+ * remain typed; foreign hashing/runtime failures remain defects.
+ */
+export const canonicalizeFlarexValueV1Effect = Effect.fn(
+  "FlarexValue.canonicalizeV1",
+)((
+  value: unknown,
+  profile: FlarexValueProfileV1 = "generalValue",
+): Effect.Effect<CanonicalFlarexValueV1, FlarexValueCodecV1Error> =>
+  Effect.tryPromise({
+    try: () => canonicalizeFlarexValueV1(value, profile),
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch((cause: unknown) =>
+    cause instanceof FlarexValueCodecV1Error
+      ? Effect.fail(cause)
+      : Effect.die(cause)
+  )));
+
+export const canonicalizeFlarexValueJsonV1Effect = Effect.fn(
+  "FlarexValue.canonicalizeJsonV1",
+)((
+  value: unknown,
+  profile: FlarexValueProfileV1 = "generalValue",
+): Effect.Effect<CanonicalFlarexValueV1, FlarexValueCodecV1Error> =>
+  Effect.tryPromise({
+    try: () => canonicalizeFlarexValueJsonV1(value, profile),
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch((cause: unknown) =>
+    cause instanceof FlarexValueCodecV1Error
+      ? Effect.fail(cause)
+      : Effect.die(cause)
+  )));
 
 export async function verifyFlarexValueEvidenceV1(
   input: VerifyFlarexValueEvidenceV1Input,
