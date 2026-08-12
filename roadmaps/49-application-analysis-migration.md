@@ -2158,6 +2158,90 @@ runtime emits string syscall sequence `"1"` where the journal owner requires a
 bigint. That shared journal-sequence defect is recorded as diagnostic evidence
 and is not repaired or weakened in this authority-only slice.
 
+#### AA-R6 mutation checkpoint 2 immutable-authority preflight and accepted amendment — 2026-08-12
+
+The commit-owner correction proves that the stored session and final commit
+refer to the same Application authority digest. It does not yet prove that the
+digest names an admitted immutable Application graph or that the stored
+Application Mutation Grant authorized that graph at the database time captured
+for commit authentication. This next medium checkpoint closes only those two
+gaps. It remains persistence-and-authentication-only: it does not load Source
+Artifact bodies, construct a Worker, run application code, or wire Standard.
+
+All Application evidence is captured inside the existing located
+repeatable-read used by `StoredCommitAuthorityEvidenceLoader`. The loader must
+not call a repository that opens a second transaction and must never consult
+the mutable active-head row after session admission. Instead it proves the
+historical head witness from immutable rows selected by the stored authority:
+
+1. the exact activation at the stored activation sequence and its canonical
+   bytes/digest;
+2. the readiness receipt selected by that activation and the historical
+   active-head frame reconstructed from activation plus readiness, whose digest
+   must equal the stored head digest;
+3. the exact revision, analyzed analysis manifest, publication frames,
+   selected public mutation entry, and canonical runtime target named by the
+   stored execution authority; and
+4. the revision-schema publication, control schema version, stable bindings,
+   and canonical Application schema-binding frame.
+
+The readiness receipt is an immutable commitment used as evidence; this
+checkpoint does not re-run cold eligibility, enumerate task definitions, or
+re-evaluate current activation policy. The selected mutation proof recomputes
+the complete schema and function-catalog commitments from the canonical
+manifest, so loading every function row is unnecessary. Candidate-row and
+analysis-receipt replay are likewise outside this selected-path authorization
+proof. If implementation needs those rows to establish an identity claimed
+above, this preflight must be amended rather than silently widening the graph.
+
+Large graph evidence follows the loader's existing size-before-payload rule.
+An Application-only scalar projection captures unique row identities and byte
+lengths first; those lengths count toward the existing aggregate
+materialization ceiling. Only an admitted size projection may fetch payload
+bytes. Missing, duplicate, oversized, non-canonical, digest-mismatched, or
+cross-linked rows become the existing typed stored-authority corruption or
+mismatch result. Legacy query order, evidence, and behavior remain unchanged.
+
+Application Mutation Grant verification cannot use one long-lived protocol
+namespace whose trusted clock was fixed during host construction. Commit
+authentication owns the database timestamp captured in the same
+repeatable-read as the evidence. The executor therefore adds a private
+Application grant verification kernel parallel to the existing Transaction
+Grant kernel: immutable deployment/key/retention configuration is captured
+once, while each verification call supplies the captured database time and the
+exact expected logical pins. The kernel delegates canonical JWS, Ed25519, key
+lifecycle, issuance, expiry, and lifetime checks to the protocol verifier,
+then compares deployment, scope, execution-authority digest, activation/head,
+schema version, public mutation path/kind, policy, identity-policy digest,
+argument codec/digest, request key/digest, capabilities, auth, and revocation
+epoch. Stored grant JSON/bytes/digest/expiry/revocation evidence must also agree
+exactly. There is no Transaction Grant fallback.
+
+The resulting authenticated evidence is a discriminated union. The legacy
+member retains the existing verified Transaction Grant and pinned dynamic-
+worker function metadata. The Application member carries inspected Application
+grant evidence plus the authenticated immutable Application runtime target and
+schema evidence; it must not be typed as legacy function metadata. Downstream
+runner and commit-input adaptation remain fail-closed until their separately
+validated runner slice.
+
+Required proof for this checkpoint is: immutable Application graph success;
+missing, duplicate, oversized, non-canonical, wrong-digest, wrong-link, wrong-
+function, wrong-runtime-target, wrong-schema-binding, and wrong historical-head
+rejection; size projection before payload; a later active-head change that does
+not invalidate the admitted historical witness; database-clock grant success;
+wrong logical pin, physical grant evidence, key phase/window, time, lifetime,
+and cross-family rejection; and unchanged legacy authentication. Focused
+PGlite and unit receipts are sufficient here; genuine PostgreSQL and the full
+Application vertical remain AA-R7 gates.
+
+Self-review accepts this preflight because it authenticates the already-stored
+authority at the existing evidence seam without creating a second transaction,
+consulting mutable selection, or changing journal/OCC/commit behavior. Stop and
+amend if implementation requires current-head revalidation, ambient verifier
+time, a legacy/Application fallback, eager unbounded joins, Source Artifact
+execution, or any change below the authenticated-authority boundary.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
