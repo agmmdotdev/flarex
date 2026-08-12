@@ -256,9 +256,10 @@ The implementation migration is additive:
 - keep all production composition absent.
 
 Existing inactive revisions remain valid but have no task-runtime publication.
-SAP-TRP5 will later define whether an empty catalog can become ready without a
-runtime receipt from an older revision; SAP-TRP4 does not silently synthesize
-one.
+The SAP-TRP5 proposal now requires an explicit runtime receipt for every newly
+issued task-aware readiness result, including an empty catalog. It preserves an
+already stored legacy readiness receipt but never synthesizes or upgrades one
+in place. SAP-TRP4 itself still performs no synthesis.
 
 The migration must use the persistence-owned bundled migration resolver. It
 must work from an empty database and from the immediately prior committed
@@ -354,4 +355,7 @@ SAP-TRP4 completed as one bounded implementation slice in this order:
 Completion of SAP-TRP4 authorizes no readiness or runtime composition. The
 implementation stops after the inert publication receipt. SAP-TRP5 is the next
 separately approved checkpoint and owns extension of the single existing
-readiness and active-selection evidence chain.
+readiness and active-selection evidence chain. Its proposed repository-grounded
+contract is recorded in
+[`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md);
+that proposal does not yet authorize implementation.

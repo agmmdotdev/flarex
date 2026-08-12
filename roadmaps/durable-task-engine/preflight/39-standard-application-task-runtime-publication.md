@@ -9,7 +9,10 @@ private, production-inert persistence-publication checkpoint under the
 repository-grounded schema/transaction contract in
 [`40-standard-application-task-runtime-persistence.md`](./40-standard-application-task-runtime-persistence.md),
 including its canonical receipt and PGlite/genuine-PostgreSQL proof. SAP-TRP5
-and SAP-TRP6 remain pending and require the ordered approvals below.
+is now proposed in
+[`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md)
+and remains unapproved; SAP-TRP6 remains pending. Both require the ordered
+approvals below.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -374,6 +377,8 @@ or active revision and does not wire a route, Worker, Queue, Cron, or host.
 
 ### SAP-TRP5: Readiness and active-selection agreement
 
+- follow the proposed owner and compatibility contract in
+  [Preflight 41](./41-standard-application-task-runtime-readiness.md);
 - extend the existing application readiness/activation evidence chain;
 - cold-read, role-decode, and recompute all task roots;
 - prove empty/populated catalog and unsupported-runtime policy;
