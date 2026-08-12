@@ -19,6 +19,10 @@ const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
   "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
 const flarexBackendTaskComputeDeliverySourcePrefix =
   "packages/flarex-backend/src/taskComputeDelivery/";
+const flarexBackendTaskRuntimeLaunchModelPath =
+  "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
+const flarexBackendTaskRuntimeLaunchSourcePrefix =
+  "packages/flarex-backend/src/taskRuntimeLaunch/";
 const persistencePostgresSchemaPath =
   "packages/persistence-postgres/src/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
@@ -191,6 +195,16 @@ const admittedFlarexBackendTaskComputeDeliveryCandidateRunnerSymbols =
     "TaskComputeDispatchTransportError",
     "TaskComputeProvider",
   ]);
+const admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier = new Map([
+  ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+    "TaskComputeDispatchRequestV1",
+    "validateTaskComputeDispatchRequestV1",
+  ])],
+  ["@flarex/durable-task/internal/run-creation-v1", new Set([
+    "TaskInputReferenceV1",
+    "decodeTaskInputReferenceV1",
+  ])],
+]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "InvalidRunAttemptTransitionError",
   "PersistedTaskRequestedEffectV1",
@@ -608,6 +622,19 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the connected Task compute-delivery runtime before host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath)
+        && !relativePath.startsWith(
+          flarexBackendTaskRuntimeLaunchSourcePrefix,
+        )
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task runtime launch authority before Worker Loader admission.`);
       }
       if (
         specifier !== undefined
@@ -1094,6 +1121,14 @@ function isFlarexBackendTaskComputeDeliverySpecifier(specifier, relativePath) {
 }
 
 /** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-runtime-launch"
+    || resolved.startsWith(flarexBackendTaskRuntimeLaunchSourcePrefix);
+}
+
+/** @param {string} specifier @param {string} relativePath */
 function isTaskComputeDeliveryControlDirectorySpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
@@ -1216,6 +1251,26 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
+  if (relativePath === flarexBackendTaskRuntimeLaunchModelPath) {
+    const admittedSymbols =
+      admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier.get(specifier);
+    if (admittedSymbols === undefined || !ts.isImportDeclaration(node)) {
+      return false;
+    }
+    const clause = node.importClause;
+    if (
+      clause === undefined || clause.name !== undefined
+      || clause.namedBindings === undefined
+      || !ts.isNamedImports(clause.namedBindings)
+      || clause.namedBindings.elements.length === 0
+    ) {
+      return false;
+    }
+    return clause.namedBindings.elements.every((element) => {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      return admittedSymbols.has(importedName);
+    });
+  }
   if (
     relativePath !== flarexBackendTaskComputeDeliveryCandidateRunnerPath
     || specifier !== "@flarex/durable-task/internal/compute-provider-v1"

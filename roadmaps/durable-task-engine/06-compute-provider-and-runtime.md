@@ -510,7 +510,22 @@ runner checkpoints add bounded alternating orchestration without adding a
 Worker Loader runtime, host, schema, migration, route, binding, or production
 activation.
 
-### DTE06-D: Worker Loader Task Runtime Adapter — Preflight Complete
+### DTE06-D: Worker Loader Task Runtime Adapter — D1 Foundation Complete, Publication Owner Blocked
+
+DTE06-D1 now implements the private backend launch authority and verified
+read-side contracts. It correlates the exact C2 prepared execution with the
+full canonical Standard Application runtime binding, checks every declared
+runtime-object length and digest under explicit budgets, requires a trusted
+role-codec capability, and exposes only an exact lazy input capability. The
+role codec is a deterministic fake in this checkpoint. It does not implement a real R2/definition
+adapter, Worker Loader, runtime ABI, or host.
+
+The D1 stop probe found the expected upstream gap: the repository stores the
+full binding, immutable runtime-object references, and task-input reference,
+but no production readiness owner publishes, serves, and role-decodes the
+referenced runtime-object bodies. The next action is a separately approved Standard Application
+runtime-object publication/read-authority preflight. DTE06-D2 must not begin by
+inventing that write path inside the compute adapter.
 
 Preflight 38 approves an ordered, production-inert implementation rather than
 a direct extension of the current invocation host:
@@ -622,9 +637,10 @@ conservative persistence-backed accounting when an accepted dispatch receipt
 is lost before the runner observes it. Ordinary-role genuine-PostgreSQL 18
 parity now proves the same two-scope connected transaction path and exact
 dispatch/cancellation recovery after post-start uncertainty. The next
-roadmapped work is DTE06-D1 from Preflight 38: the still-private trusted
-launch-subject resolver and its verified read-side runtime-object/input ports.
-Worker Loader composition follows only after that gate; fenced settlement
+roadmapped work is a separate preflight for the Standard Application
+runtime-object publication/read authority required by the now-implemented,
+still-private DTE06-D1 launch-subject resolver. Private ABI and Worker Loader
+composition follow only after that publication gate; fenced settlement
 composition follows DTE06-D, and host activation does not.
 This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,

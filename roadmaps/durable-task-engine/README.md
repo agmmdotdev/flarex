@@ -102,8 +102,11 @@ recovery path reuses Trigger's mapped moved/unchanged/probe-uncertain decision
 over a Flarex-owned exact fenced persistence probe. Fresh-runner PGlite and
 ordinary-role PostgreSQL 18 tests prove dispatch and cancellation replay the
 same stored provider request after post-start uncertainty without minting a
-second identity. DTE06-D's private Worker Loader adapter is next; no host or
-activation is admitted.
+second identity. DTE06-D1's private launch authority and verified runtime-
+object/input read contracts are now implemented and unwired. Its required stop
+probe found no production runtime-object publication/read/codec owner, so the next
+action is a separate Standard Application publication preflight; no Worker
+Loader, host, or activation is admitted.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime
@@ -496,11 +499,14 @@ files remain candidates:
      PGlite repository/discovery/provider proof across two real scopes are
      complete, including conservative persistence-backed lost-receipt
      accounting and ordinary-role genuine-PostgreSQL 18 parity. DTE06-D's
-     Worker Loader adapter preflight is complete: its first implementation
-     slice is the trusted launch-subject resolver and verified runtime-object/
-     input readers, followed by the private task ABI and existing-runtime
-     composition. Fenced settlement, supervision, end-to-end proof, and the
-     host remain unwritten;
+     Worker Loader adapter preflight is complete, and D1 now supplies the
+     private trusted launch-subject resolver plus verified runtime-object/input
+     contracts. The stop probe found no production runtime-object publication
+     and role-codec owner, so a separate Standard Application publication
+     preflight is next;
+     the real read adapter, private task ABI, existing-runtime composition,
+     fenced settlement, supervision, end-to-end proof, and host remain
+     unwritten;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;

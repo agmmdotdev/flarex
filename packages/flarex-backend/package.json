@@ -24,6 +24,7 @@
     "./internal/semantic-artifact-v1-finalized-source-proof": "./src/semanticArtifactV1/FinalizedSourceProof.ts",
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/task-compute-delivery": "./src/taskComputeDelivery/index.ts",
+    "./internal/task-runtime-launch": "./src/taskRuntimeLaunch/index.ts",
     "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",
     "./internal/candidate-bound-edge-action-runtime-target-v1": "./src/artifactRuntime/CandidateBoundEdgeActionRuntimeTargetV1.ts",
     "./internal/edge-action-route-independent-coordinator-v1": "./src/artifactRuntime/EdgeActionRouteIndependentCoordinatorV1.ts",
@@ -75,7 +76,8 @@
     "point-mutation-internal-call-exact-runtime-core:update": "tsx scripts/buildPointMutationInternalCallExactRuntimeCore.ts update",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:dte06-c3": "vitest run test/taskComputeDispatchRecoveryDecision.test.ts test/taskComputeDeliveryTrustedDirectory.test.ts test/taskComputeDeliveryCandidateRunner.test.ts test/taskComputeDeliveryConnectedContinuation.test.ts test/taskComputeDeliveryConnectedRunner.test.ts --no-file-parallelism"
+    "test:dte06-c3": "vitest run test/taskComputeDispatchRecoveryDecision.test.ts test/taskComputeDeliveryTrustedDirectory.test.ts test/taskComputeDeliveryCandidateRunner.test.ts test/taskComputeDeliveryConnectedContinuation.test.ts test/taskComputeDeliveryConnectedRunner.test.ts --no-file-parallelism",
+    "test:dte06-d1": "vitest run test/taskRuntimeLaunchAuthority.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
@@ -83,6 +85,7 @@
     "@flarex/executor-http": "workspace:*",
     "@flarex/function-runtime": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",
@@ -104,7 +107,6 @@
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
     "@flarex/executor": "workspace:*",
-    "@flarex/standard-application-definition": "workspace:*",
     "miniflare": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

@@ -6,6 +6,19 @@
 sequence defined here. Do not wire a Worker host, route, Queue, Cron Trigger,
 deployment binding, public API, or production activation.
 
+**DTE06-D1 checkpoint:** The private launch-subject contract and verification
+authority are implemented. The authority resolves one exact trusted scope,
+correlates the C2 prepared execution with the full canonical runtime binding,
+verifies all content-addressed runtime objects under explicit byte budgets, and
+returns a lazy exact-input capability. The repository still has no production
+publisher/reader or role-owned body codec for the referenced runtime-object
+bodies. The authority therefore requires an explicit trusted role-codec port,
+which only a deterministic fake implements in this checkpoint. D1 stops
+at its approved ownership boundary: only located-source ports and deterministic
+fakes exist, no real storage adapter or Worker Loader composition is claimed,
+and D2 is not the next implementation step until the Standard Application
+publication owner is separately preflighted and approved.
+
 This preflight closes the design question left by Preflights 33 and 37: the
 Cloudflare provider must reuse Flarex's existing artifact-runtime and Worker
 Loader owners, but it cannot launch from `TaskComputeDispatchRequestV1` alone.
@@ -457,6 +470,41 @@ DTE06-D does not authorize:
 - claims of Trigger runtime parity from a private Worker Loader adapter.
 
 ## Stop Boundary
+
+### DTE06-D1 implementation receipt
+
+The completed production-inert foundation adds:
+
+- `flarex-backend/internal/task-runtime-launch`, containing the unversioned
+  `TaskRuntimeLaunchAuthority` service and its explicit multi-instance located
+  source/directory ports;
+- exact decoding and correlation of `TaskComputeDispatchRequestV1`, the C2
+  `TaskComputePreparedExecutionV1`, the full
+  `TaskDefinitionRuntimeBindingV1`, and its canonical commitment projection;
+- bounded, content-addressed reads for every declared task runtime object,
+  including owned-byte capture, exact byte-length/digest verification, and a
+  required trusted role-codec validation capability;
+- a lazy exact-input capability that revalidates the immutable input reference
+  and canonical Flarex value evidence on every read; and
+- Trigger boundary admission for only the exact provider-request and
+  input-reference symbols consumed by this private owner, with negative host
+  import coverage.
+
+Focused evidence is package typecheck, ten deterministic authority tests,
+the live Trigger compatibility checker, its 27-test suite, scripts typecheck,
+and both required project reviewers. No schema, migration, transaction,
+Worker Loader call, runtime ABI, route, binding, host, or deployment is part of
+this checkpoint.
+
+Repository inspection confirmed the stop condition anticipated by this
+preflight: Standard Application definitions persist the full binding and
+content-addressed references, while task creation persists the immutable input
+reference, but no production owner publishes, serves, and role-decodes the
+referenced runtime-object bodies. A fake adapter would conceal that missing
+readiness guarantee.
+The next roadmap action is therefore a separate Standard Application
+runtime-object publication/read-authority preflight. DTE06-D2 remains pending
+behind that gate.
 
 This preflight authorizes only DTE06-D1 through D4 in the stated order. The
 first code slice is D1 launch-subject resolution and read-side object ports. It

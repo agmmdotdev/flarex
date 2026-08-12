@@ -502,6 +502,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
+      '@flarex/standard-application-definition':
+        specifier: workspace:*
+        version: link:../standard-application-definition
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils
@@ -524,9 +527,6 @@ importers:
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
-      '@flarex/standard-application-definition':
-        specifier: workspace:*
-        version: link:../standard-application-definition
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0

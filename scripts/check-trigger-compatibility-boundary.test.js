@@ -385,6 +385,41 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits the DTE06-D1 launch model without admitting a host", () => {
+    const modelPath =
+      "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: modelPath,
+      text: `
+        import {
+          type TaskComputeDispatchRequestV1,
+          validateTaskComputeDispatchRequestV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+        import {
+          type TaskInputReferenceV1,
+          decodeTaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: modelPath,
+      text: `
+        import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { TaskRuntimeLaunchAuthority } from "flarex-backend/internal/task-runtime-launch";
+        import { TaskRuntimeLaunchAuthority as RelativeAuthority } from "./taskRuntimeLaunch/index.js";
+      `,
+    }]).errors).toEqual([
+      `${modelPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task runtime launch authority before Worker Loader admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the Task runtime launch authority before Worker Loader admission.",
+    ]);
+  });
+
   it("admits only the checkpoint-owned persistence task symbols", () => {
     const schemaPath = "packages/persistence-postgres/src/schema.ts";
     expect(analyzeTriggerCompatibilityBoundary([{
