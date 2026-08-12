@@ -512,11 +512,17 @@ files remain candidates:
      private trusted launch-subject resolver plus verified runtime-object/input
      contracts. The stop probe found no production runtime-object publication
      and role-codec owner, so Preflight 39 separated that Standard Application
-     sequence; its pure canonical task-runtime role-contract and publication
-     preparation checkpoints are complete. The preparation reuses the existing
+     sequence; its pure canonical task-runtime role-contract, publication
+     preparation, and private immutable object-store checkpoints are complete.
+     The preparation reuses the existing
      Standard Application graph/catalog/binding owners and emits only an owned
-     immutable object plan plus publication-receipt preimage; it performs no
-     DB, R2, readiness, activation, or Worker Loader operation. DTE06-D2's
+     immutable object plan plus publication-receipt preimage. The object-store
+     checkpoint reuses the existing Declarative V2 conditional R2 mechanics
+     through one backend-local immutable-byte core, adds an exact task-specific
+     reference adapter, and proves replay/collision/uncertainty/ownership in
+     memory and Miniflare while remaining production-inert. Database receipt,
+     hosted R2, readiness, activation, and Worker Loader composition remain
+     absent. DTE06-D2's
      private ABI/runtime core may proceed independently; the real read adapter,
      existing-runtime composition,
      fenced settlement, supervision, end-to-end proof, and host remain

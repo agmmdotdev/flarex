@@ -23,6 +23,12 @@ const flarexBackendTaskRuntimeLaunchModelPath =
   "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
 const flarexBackendTaskRuntimeLaunchSourcePrefix =
   "packages/flarex-backend/src/taskRuntimeLaunch/";
+const flarexBackendTaskRuntimeObjectStorePath =
+  "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
+const flarexBackendImmutableR2SourcePrefix =
+  "packages/flarex-backend/src/immutableR2/";
+const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
+  "packages/flarex-backend/src/artifactRuntime/DeclarativeV2RuntimeArtifactStore.ts";
 const persistencePostgresSchemaPath =
   "packages/persistence-postgres/src/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
@@ -638,6 +644,29 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       }
       if (
         specifier !== undefined
+        && isProductionSource(relativePath)
+        && isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath)
+        && relativePath !== flarexBackendTaskRuntimeObjectStorePath
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task runtime object store before publication-host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isFlarexBackendImmutableR2Specifier(specifier, relativePath)
+        && relativePath !== flarexBackendTaskRuntimeObjectStorePath
+        && relativePath !== flarexBackendDeclarativeV2RuntimeArtifactStorePath
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not consume the private immutable R2 mechanics outside admitted store adapters.`);
+      }
+      if (
+        specifier !== undefined
         && !relativePath.startsWith(durableTaskSourcePrefix)
         && isProductionSource(relativePath)
         && isDurableTaskProductionSpecifier(specifier, relativePath)
@@ -1126,6 +1155,20 @@ function isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath) {
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   return normalized === "flarex-backend/internal/task-runtime-launch"
     || resolved.startsWith(flarexBackendTaskRuntimeLaunchSourcePrefix);
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-runtime-object-store"
+    || matchesRepositoryModule(resolved, flarexBackendTaskRuntimeObjectStorePath);
+}
+
+/** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendImmutableR2Specifier(specifier, relativePath) {
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return resolved.startsWith(flarexBackendImmutableR2SourcePrefix);
 }
 
 /** @param {string} specifier @param {string} relativePath */

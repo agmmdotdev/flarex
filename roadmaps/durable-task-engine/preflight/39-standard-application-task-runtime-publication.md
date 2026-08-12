@@ -3,8 +3,9 @@
 ## Status
 
 **Decision:** Approved. SAP-TRP1 and SAP-TRP2 are complete as
-production-inert pure checkpoints. SAP-TRP3 through SAP-TRP6 remain pending
-and require the ordered approvals below.
+production-inert pure checkpoints. SAP-TRP3 is complete as a private,
+production-inert immutable object-store checkpoint. SAP-TRP4 through
+SAP-TRP6 remain pending and require the ordered approvals below.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -316,11 +317,44 @@ and the separate run-input object-store gate.
 
 ### SAP-TRP3: Immutable object-store adapter
 
+**Complete (2026-08-12).**
+
 - reuse existing R2 mechanics behind the task-specific reference;
 - prove bounded no-replace put/read, replay, collision, reconciliation,
   ownership, and typed failure;
 - use in-memory/Miniflare and later hosted Cloudflare proof; and
 - expose no generic bucket/key authority.
+
+The backend now owns one package-local immutable R2 byte-store core extracted
+from the already proven Declarative V2 runtime-artifact adapter. That core
+retains conditional no-replace create, exact bounded streaming reads,
+defensive body ownership, digest and byte-length verification, replay
+convergence, collision detection, resource-cause retention, and uncertain-put
+reconciliation. The existing Declarative V2 adapter now delegates to that
+same core, so SAP-TRP3 reuses the storage algorithm instead of copying it.
+
+The private `TaskRuntimeObjectStore` adapter accepts only SAP-TRP2
+`PreparedTaskRuntimeObjectV1` values for publication and exact
+`TaskRuntimeObjectReferenceV1` evidence for reads. It derives no arbitrary key,
+exposes no bucket or generic immutable-store capability, validates the fixed
+task store/role/key/length/digest contract, and returns owned bytes and copied
+references. The Trigger compatibility gate admits the shared core only to the
+Declarative V2 and task-runtime store adapters and rejects production consumers
+of the unwired task store.
+
+Validation receipt:
+
+- `pnpm --filter flarex-backend typecheck`;
+- focused in-memory, existing Declarative V2 regression, and Miniflare R2
+  tests — three files, 16 tests;
+- Trigger compatibility boundary checker — 28 tests plus the live checker;
+- `pnpm typecheck:scripts`; and
+- offline frozen-lockfile install after explicitly pinning the already resolved
+  `workerd` peer required by the Miniflare lane.
+
+Hosted Cloudflare R2 remains a deployment-environment proof before production
+activation. SAP-TRP3 does not publish a database receipt, readiness evidence,
+or active revision and does not wire a route, Worker, Queue, Cron, or host.
 
 ### SAP-TRP4: Persistence publication
 
@@ -371,13 +405,13 @@ not application-revision artifacts.
 
 ## Stop Boundary
 
-Approval and implementation close SAP-TRP1 and SAP-TRP2, the pure canonical
-role-contract and publication-preparation checkpoints. DTE06-D2 may proceed
+Approval and implementation close SAP-TRP1 through SAP-TRP3: the pure canonical
+role contract, publication preparation, and private immutable object-store
+checkpoints. DTE06-D2 may proceed
 under its already approved Preflight 38 because the private
 ABI/materialization identities are fixed;
-that does not authorize DTE06-D3 or any production composition. SAP-TRP3 is
-the next Standard Application checkpoint and remains separately gated by the
-immutable object-store adapter contract. SAP-TRP4 requires a fresh
+that does not authorize DTE06-D3 or any production composition. SAP-TRP4 is
+the next Standard Application checkpoint and requires a fresh
 schema/migration preflight. DTE06-D1 remains a
 committed contract/verification foundation but production-incomplete until
 SAP-TRP6 and the separate run-input object-store gate both close. DTE06-D2 does

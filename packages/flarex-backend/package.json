@@ -25,6 +25,7 @@
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/task-compute-delivery": "./src/taskComputeDelivery/index.ts",
     "./internal/task-runtime-launch": "./src/taskRuntimeLaunch/index.ts",
+    "./internal/task-runtime-object-store": "./src/taskRuntimePublication/TaskRuntimeObjectStore.ts",
     "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",
     "./internal/candidate-bound-edge-action-runtime-target-v1": "./src/artifactRuntime/CandidateBoundEdgeActionRuntimeTargetV1.ts",
     "./internal/edge-action-route-independent-coordinator-v1": "./src/artifactRuntime/EdgeActionRouteIndependentCoordinatorV1.ts",
@@ -111,6 +112,7 @@
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "workerd": "1.20260611.1"
   }
 }

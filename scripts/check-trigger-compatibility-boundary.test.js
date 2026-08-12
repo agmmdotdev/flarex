@@ -713,6 +713,31 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("keeps the task runtime object store production-inert", () => {
+    const taskStore =
+      "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
+    const declarativeStore =
+      "packages/flarex-backend/src/artifactRuntime/DeclarativeV2RuntimeArtifactStore.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: taskStore,
+      text: 'import { makeImmutableR2ByteStore } from "../immutableR2/ImmutableR2ByteStore.js";',
+    }, {
+      relativePath: declarativeStore,
+      text: 'import { makeImmutableR2ByteStore } from "../immutableR2/ImmutableR2ByteStore.js";',
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskRuntimeObjectStore } from "flarex-backend/internal/task-runtime-object-store";
+        import { makeImmutableR2ByteStore } from "./immutableR2/ImmutableR2ByteStore.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task runtime object store before publication-host admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not consume the private immutable R2 mechanics outside admitted store adapters.",
+    ]);
+  });
+
   it("keeps the control-directory adapter inside its inert composition owners", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
