@@ -71,6 +71,11 @@ export interface ApplicationPublication {
   readonly publishedAt: Date;
 }
 
+export type ApplicationRuntimeTargetPublication = Omit<
+  ApplicationPublication,
+  "publishedAt"
+>;
+
 export class ApplicationPublicationError extends Data.TaggedError(
   "ApplicationPublicationError",
 )<{
@@ -109,7 +114,7 @@ export function makeApplicationPublicationRepository(
 }
 
 export function applicationRuntimeTargetFromPublication(
-  publication: ApplicationPublication,
+  publication: ApplicationRuntimeTargetPublication,
   functionPath: string,
 ): Result.Result<CanonicalApplicationRuntimeTargetV1, ApplicationPublicationError> {
   const fn = publication.functions.find(value => value.path === functionPath);
@@ -255,7 +260,10 @@ const preparePublication = Effect.fn("ApplicationPublication.prepare")(
   },
 );
 
-type RuntimeTargetPublication = Omit<ApplicationPublication, "functions" | "publishedAt">;
+type RuntimeTargetPublication = Omit<
+  ApplicationRuntimeTargetPublication,
+  "functions"
+>;
 
 function runtimeTargetValue(
   publication: RuntimeTargetPublication,

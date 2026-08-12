@@ -2154,12 +2154,23 @@ authority/session pins without a legacy fallback. The resulting grant and
 authority projections retain their protocol-owned recursive immutability.
 
 This checkpoint remains deliberately fail-closed before planning and execution
-for Application sessions. The next bounded implementation slice must add the
-immutable Application publication/function/schema graph verifier and use that
-authenticated evidence to construct the existing Application Worker runner.
-It must not wire the Standard mutation consumer or reach the shared commit tail
-until those identities are verified. Exact validation receipts belong in the
-owning commit report rather than this living roadmap.
+for Application sessions. Its first graph-verification slice now owns one
+bounded detached snapshot contract and one opaque authenticated capability. It
+recanonicalizes the stored Application authority and manifest, rebuilds the
+publication, selected public-mutation entry and runtime target, correlates the
+schema pins, reconstructs the complete readiness commitment, and derives the
+admission-time active-head digest from immutable activation history. It never
+consults the mutable active head, queries a database, loads R2, or constructs a
+Worker. Structural copies of the issued capability fail closed.
+
+The next bounded slice must capture those exact immutable rows inside the
+existing stored-commit-authority repeatable-read transaction, including the
+complete bounded readiness-function directory, and attach the authenticated
+graph capability to the Application authority branch. Only after that capture
+is proven may a later slice use the capability to construct the existing
+Application Worker runner. Neither slice may wire the Standard mutation
+consumer or reach the shared commit tail prematurely. Exact validation receipts
+belong in the owning commit report rather than this living roadmap.
 
 First migrate executable authority and publication:
 
