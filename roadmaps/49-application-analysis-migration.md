@@ -2171,10 +2171,21 @@ legacy sessions issue no graph queries; a hollow, oversized, missing, or
 corrupted graph fails closed; and post-capture changes cannot alter the
 detached snapshot being verified. No new transaction or lock phase was added.
 
-The next bounded slice may consume this capability to construct the existing
-Application Worker runner and generation-aware authenticated runner input. It
-must remain private and Standard-unwired, and it must not branch the journal,
-OCC, row-intent, commit, outcome, feed, or outbox tail. Exact validation
+The executor now consumes that capability through an exact generation-aware
+commit-authority and runner-input union. Application evidence requires the
+opaque graph at the type and runtime boundary, carries the distinct verified
+Application Mutation Grant, omits legacy pinned-function metadata, and reaches
+the existing execution kernel without invoking the legacy metadata reader.
+Legacy runner inputs remain byte-for-byte on their old branch, and the legacy
+dynamic-worker runner refuses an Application input before contacting its host.
+The liveness reload, journal admission, sealing, OCC planning, finishing,
+publication, outcome, feed, and outbox tail are still one unchanged owner.
+
+The next bounded slice may construct the private Application Worker runner
+adapter from this authenticated input. It must read the exact Source Artifact
+objects, build the exact Application Worker definition, translate the existing
+bound journal into the Application transaction capability without reproducing
+journal or syscall authority, and remain Standard-unwired. Exact validation
 receipts belong in the owning commit report rather than this living roadmap.
 
 First migrate executable authority and publication:

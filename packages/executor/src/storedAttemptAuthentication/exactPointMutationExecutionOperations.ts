@@ -141,10 +141,12 @@ export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointCommitOutcomeResolutionV1Error
   | PointMutationExecutionLivenessV1Error;
 
-type PointMutationOccDetachedRunnerEvidenceV1 = Omit<
-  PointMutationOccRuntimeNeutralRunnerInputV1,
-  "context" | "journal"
->;
+type PointMutationOccDetachedRunnerEvidenceV1 =
+  PointMutationOccRuntimeNeutralRunnerInputV1 extends infer Input
+    ? Input extends PointMutationOccRuntimeNeutralRunnerInputV1
+      ? Omit<Input, "context" | "journal">
+      : never
+    : never;
 
 export interface ExactPointMutationExecutionOperationDependenciesV1 {
   readonly functionMetadata:
@@ -213,9 +215,9 @@ export function makeExactPointMutationExecutionOperationsV1(
     ) {
       if (
         input.executionEvidence.session.executionAuthorityGeneration !==
-          "legacy_dynamic_worker_v1" ||
-        input.executionEvidence.session.artifactRuntime !== "dynamic-worker" ||
-        !isLegacyCommitAuthorityVerificationStateV1(input.verificationState)
+          input.verifiedEvidence.executionAuthorityGeneration ||
+        input.verificationState.session.executionAuthorityGeneration !==
+          input.verifiedEvidence.executionAuthorityGeneration
       ) {
         return yield* Effect.fail(
           new PointMutationOccExecutionAuthorityCorruptionV1Error({
@@ -251,17 +253,15 @@ export function makeExactPointMutationExecutionOperationsV1(
           }),
         );
       }
-      const metadataUnknown = yield* functionMetadata.load(
-        capturePinnedFunctionSelector(input.verificationState),
-      );
-      const pinnedFunctionMetadata = yield* verifyPinnedFunctionMetadataEffect(
-        input.verificationState,
-        metadataUnknown,
-      );
-      const runnerEvidence = capturePointMutationOccRunnerEvidence(
-        input.verifiedEvidence,
-        pinnedFunctionMetadata,
-      );
+      const runnerEvidence = input.verifiedEvidence
+          .executionAuthorityGeneration === "legacy_dynamic_worker_v1"
+        ? yield* captureLegacyPointMutationOccRunnerEvidenceEffect(
+            input,
+            functionMetadata,
+          )
+        : captureApplicationPointMutationOccRunnerEvidence(
+            input.verifiedEvidence,
+          );
       // Runtime-local entropy may be fresh. Persisted creation time remains the
       // exact attempt seed authenticated above.
       const entropy = yield* contextFactory.make();
@@ -421,22 +421,72 @@ function bindPointMutationOccJournal(
   });
 }
 
-function capturePointMutationOccRunnerEvidence(
-  evidence: VerifiedCommitAuthorityEvidenceV1,
+const captureLegacyPointMutationOccRunnerEvidenceEffect = Effect.fn(
+  "StoredAttemptAuthentication.captureLegacyRunnerEvidence",
+)(function* <InspectionUnavailableError, CurrentValidationError>(
+  input: Readonly<ExecuteExactPointMutationAttemptInputV1<
+    InspectionUnavailableError,
+    CurrentValidationError
+  >>,
+  functionMetadata: PinnedPointMutationFunctionMetadataReaderPortV1,
+) {
+  if (
+    input.executionEvidence.session.executionAuthorityGeneration !==
+      "legacy_dynamic_worker_v1" ||
+    input.executionEvidence.session.artifactRuntime !== "dynamic-worker" ||
+    !isLegacyCommitAuthorityVerificationStateV1(input.verificationState) ||
+    input.verifiedEvidence.executionAuthorityGeneration !==
+      "legacy_dynamic_worker_v1"
+  ) {
+    return yield* Effect.fail(
+      new PointMutationOccExecutionAuthorityCorruptionV1Error({
+        reason: "runtimePinInvalid",
+      }),
+    );
+  }
+  const metadataUnknown = yield* functionMetadata.load(
+    capturePinnedFunctionSelector(input.verificationState),
+  );
+  const pinnedFunctionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+    input.verificationState,
+    metadataUnknown,
+  );
+  return captureLegacyPointMutationOccRunnerEvidence(
+    input.verifiedEvidence,
+    pinnedFunctionMetadata,
+  );
+});
+
+function captureLegacyPointMutationOccRunnerEvidence(
+  evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
+    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+  }>,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): PointMutationOccDetachedRunnerEvidenceV1 {
-  if (evidence.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
-    throw new PointMutationOccExecutionAuthorityCorruptionV1Error({
-      reason: "runtimePinInvalid",
-    });
-  }
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
     argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
     argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
     verifiedGrant: detachVerifiedGrant(evidence.verifiedGrant),
     schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
     stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
     functionMetadata: Object.freeze(structuredClone(functionMetadata)),
+  });
+}
+
+function captureApplicationPointMutationOccRunnerEvidence(
+  evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
+    readonly executionAuthorityGeneration: "application_v1";
+  }>,
+): PointMutationOccDetachedRunnerEvidenceV1 {
+  return Object.freeze({
+    executionAuthorityGeneration: "application_v1" as const,
+    argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
+    argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
+    verifiedGrant: evidence.verifiedGrant,
+    applicationGraph: evidence.applicationGraph,
+    schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
+    stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
   });
 }
 

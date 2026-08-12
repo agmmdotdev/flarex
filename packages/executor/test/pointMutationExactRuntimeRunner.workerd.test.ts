@@ -78,6 +78,18 @@ describe("point-mutation exact-runtime executor runner in workerd", () => {
     });
   });
 
+  it("rejects Application authority before the legacy host or journal", async () => {
+    expect(await scenario("/application-generation")).toMatchObject({
+      hostCalls: 0,
+      journalCalls: 0,
+      outcome: {
+        kind: "failure",
+        tag: "PointMutationExactRuntimeRunnerHostV1Error",
+        reason: "requestProjectionInvalid",
+      },
+    });
+  });
+
   it("separates user-code failure from bounded host failure", async () => {
     expect(await scenario("/user-failure")).toMatchObject({
       kind: "failure",

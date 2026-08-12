@@ -25,6 +25,9 @@ import {
 import type {
   StoredOccExecutionEvidenceLoaderV1,
 } from "@flarex/persistence-postgres/stored-occ-execution";
+import type {
+  AuthenticatedApplicationMutationCommitAuthorityGraph,
+} from "@flarex/persistence-postgres/internal/application-mutation-commit-authority-graph";
 import {
   type PointMutationExecutionClaimAcquisitionV1Error,
   type PointMutationSessionAttemptSelectorV1,
@@ -75,6 +78,9 @@ import {
   type CanonicalFlarexRuntimeValueV1,
   type FlarexValueCodecVersion,
 } from "flarex-protocol/value";
+import type {
+  InertApplicationMutationGrantEvidenceV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
 
 import {
   ActivatedPointMutationSessionBusyV1Error,
@@ -421,16 +427,31 @@ export interface PointMutationOccBoundJournalV1 {
   ) => ReturnType<PointMutationJournalV1["runIndexedQuery"]>;
 }
 
-export interface PointMutationOccRuntimeNeutralRunnerInputV1 {
+interface PointMutationOccRuntimeNeutralRunnerInputCommonV1 {
   readonly argumentsJson: JsonObject;
   readonly argumentArraySemanticBytes: number;
-  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
   readonly stableBindings: StoredCommitAuthoritySchemaEvidencePortV1["stableBindings"];
-  readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
   readonly context: PointMutationOccExecutionContextV1;
   readonly journal: PointMutationOccBoundJournalV1;
 }
+
+export type PointMutationOccRuntimeNeutralRunnerInputV1 =
+  PointMutationOccRuntimeNeutralRunnerInputCommonV1 & (
+    | Readonly<{
+        readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+        readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+        readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
+        readonly applicationGraph?: never;
+      }>
+    | Readonly<{
+        readonly executionAuthorityGeneration: "application_v1";
+        readonly verifiedGrant: InertApplicationMutationGrantEvidenceV1;
+        readonly applicationGraph:
+          AuthenticatedApplicationMutationCommitAuthorityGraph;
+        readonly functionMetadata?: never;
+      }>
+  );
 
 export interface PointMutationOccExecutionContextFactoryV1 {
   readonly make: () => Effect.Effect<
@@ -788,7 +809,9 @@ export interface AuthenticatedCommitAuthorityStateV1 {
   readonly databaseNowMilliseconds: number;
   readonly argumentsJson: JsonObject;
   readonly argumentArraySemanticBytes: number;
-  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+  readonly verifiedGrant:
+    | VerifiedTransactionGrantInspectionV1
+    | InertApplicationMutationGrantEvidenceV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
   readonly stableBindings: StoredCommitAuthoritySchemaEvidencePortV1[
     "stableBindings"

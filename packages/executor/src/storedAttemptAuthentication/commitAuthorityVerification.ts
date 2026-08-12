@@ -127,6 +127,11 @@ type VerifiedCommitAuthorityGenerationEvidenceV1 =
       readonly executionAuthorityGeneration: "application_v1";
       readonly verifiedGrant: InertApplicationMutationGrantEvidenceV1;
       readonly applicationAuthority: ApplicationMutationExecutionAuthorityV1;
+      readonly applicationGraph:
+        Extract<
+          StoredCommitAuthorityEvidencePortV1,
+          { readonly session: { readonly executionAuthorityGeneration: "application_v1" } }
+        >["applicationGraph"];
     }>;
 
 export type VerifiedCommitAuthorityEvidenceV1 =
@@ -283,6 +288,13 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
     if (storedAttempt.session.executionAuthorityGeneration !== "application_v1") {
       return yield* commitAuthorityCorruptionEffect("sessionEvidenceInvalid");
     }
+    if (
+      evidence.session.executionAuthorityGeneration !== "application_v1" ||
+      evidence.applicationGraph === undefined
+    ) {
+      return yield* commitAuthorityCorruptionEffect("applicationGraphInvalid");
+    }
+    const applicationGraph = evidence.applicationGraph;
     const applicationSession = storedAttempt.session;
     const canonicalAuthority = yield*
       canonicalizeApplicationMutationExecutionAuthorityV1(
@@ -327,6 +339,7 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
       executionAuthorityGeneration: "application_v1" as const,
       verifiedGrant,
       applicationAuthority: canonicalAuthority.authority,
+      applicationGraph,
     });
   }
 

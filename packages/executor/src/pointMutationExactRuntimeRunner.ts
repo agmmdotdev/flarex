@@ -84,6 +84,13 @@ export function makePointMutationExactRuntimeRunnerV1(
 ): PointMutationOccRuntimeNeutralRunnerV1 {
   const run = Effect.fn("PointMutationExactRuntimeRunner.run")(
     function* (input: PointMutationOccRuntimeNeutralRunnerInputV1) {
+      if (input.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+        return yield* Effect.fail(
+          new PointMutationExactRuntimeRunnerHostV1Error({
+            reason: "requestProjectionInvalid",
+          }),
+        );
+      }
       const request = yield* projectExactRuntimeRequestV1(input);
       const session = yield* Effect.sync(() =>
         makePointMutationJournalRpcSessionV1(input.journal)
@@ -101,7 +108,10 @@ export function makePointMutationExactRuntimeRunnerV1(
 const projectExactRuntimeRequestV1 = Effect.fn(
   "PointMutationExactRuntimeRunner.projectRequest",
 )(function* (
-  input: PointMutationOccRuntimeNeutralRunnerInputV1,
+  input: Extract<
+    PointMutationOccRuntimeNeutralRunnerInputV1,
+    { readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1" }
+  >,
 ): Effect.fn.Return<
   PointMutationExactRuntimeRequestV1,
   PointMutationExactRuntimeRunnerHostV1Error

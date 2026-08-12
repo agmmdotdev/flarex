@@ -2111,7 +2111,7 @@ describe("C04A stored-attempt authentication", () => {
     });
   });
 
-  it("rejects Application authority through the legacy commit-input verifier as typed corruption", async () => {
+  it("captures Application commit-input authority pins without legacy fields", async () => {
     const current = await commitAuthorityFixture({}, undefined, {
       fixture: await emptyFixture("application-authority"),
       returnsValidator: { type: "string" },
@@ -2133,7 +2133,7 @@ describe("C04A stored-attempt authentication", () => {
     void _artifactId;
     void _sourcePackageHash;
     void _executionModule;
-    const failure = await runFailure(verifyCommitInputStateEffect({
+    const verified = await runEffect(verifyCommitInputStateEffect({
       ...source,
       session: Object.freeze({
         ...commonSession,
@@ -2143,10 +2143,12 @@ describe("C04A stored-attempt authentication", () => {
         applicationExecutionAuthoritySha256: new Uint8Array(32),
       }),
     }));
-    expect(failure).toBeInstanceOf(CommitInputAuthorityCorruptionV1Error);
-    expect(failure).toMatchObject({
-      reason: "executionAuthorityGenerationInvalid",
+    expect(verified.authorityPins).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      applicationExecutionAuthoritySha256: new Uint8Array(32),
     });
+    expect("packageId" in verified.authorityPins).toBe(false);
+    expect("artifactRuntime" in verified.authorityPins).toBe(false);
   });
 
   it("mints an opaque same-factory C04C1 capability with zero I/O", async () => {
@@ -4918,6 +4920,10 @@ async function commitAuthorityFixture(
     ),
   });
   const sessionEvidence = fixture.evidence.session;
+  if (
+    sessionEvidence.executionAuthorityGeneration !==
+      "legacy_dynamic_worker_v1"
+  ) throw new Error("Expected legacy commit authority evidence.");
   const commitEvidence: StoredCommitAuthorityEvidencePortV1 = {
     databaseNowMilliseconds: fixture.evidence.databaseNowMilliseconds,
     currentAuthorizationRevocationEpoch: revocationEpoch,

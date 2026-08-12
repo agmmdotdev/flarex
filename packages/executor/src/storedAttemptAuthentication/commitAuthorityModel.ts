@@ -141,15 +141,30 @@ export interface StoredCommitAuthoritySchemaEvidencePortV1 {
   }>>;
 }
 
-export interface StoredCommitAuthorityEvidencePortV1 {
+interface StoredCommitAuthorityEvidenceCommonPortV1 {
   readonly databaseNowMilliseconds: number;
   readonly currentAuthorizationRevocationEpoch: bigint;
-  readonly session: StoredCommitAuthoritySessionEvidencePortV1;
-  /** Required by persistence for Application evidence; consumed next by the runner cut. */
-  readonly applicationGraph?:
-    AuthenticatedApplicationMutationCommitAuthorityGraph;
   readonly schema: StoredCommitAuthoritySchemaEvidencePortV1;
 }
+
+export type StoredCommitAuthorityEvidencePortV1 =
+  StoredCommitAuthorityEvidenceCommonPortV1 & (
+    | Readonly<{
+        readonly session: Extract<
+          StoredCommitAuthoritySessionEvidencePortV1,
+          { readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1" }
+        >;
+        readonly applicationGraph?: never;
+      }>
+    | Readonly<{
+        readonly session: Extract<
+          StoredCommitAuthoritySessionEvidencePortV1,
+          { readonly executionAuthorityGeneration: "application_v1" }
+        >;
+        readonly applicationGraph:
+          AuthenticatedApplicationMutationCommitAuthorityGraph;
+      }>
+  );
 
 export type StoredCommitAuthorityEvidenceLoadResultPortV1 =
   | Readonly<{

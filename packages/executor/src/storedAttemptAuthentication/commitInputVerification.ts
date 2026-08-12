@@ -56,7 +56,6 @@ export class InvalidAuthenticatedCommitAuthorityV1Error extends Data.TaggedError
 }> {}
 
 export type CommitInputAuthorityCorruptionReasonV1 =
-  | "executionAuthorityGenerationInvalid"
   | "duplicateTableAuthority"
   | "pointTableAuthorityMissing"
   | "pointWritableDependencyInvalid"
@@ -241,11 +240,6 @@ export const verifyCommitInputStateEffect = Effect.fn(
     InvalidAuthenticatedCommitAuthorityV1Error
   >
 > {
-  if (source.session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
-    return yield* authorityCorruptionEffect(
-      "executionAuthorityGenerationInvalid",
-    );
-  }
   const tablesById = new Map<
     CatalogTableId,
     SchemaManifestAppSchemaV1["tableDefinitions"]["tables"][number]
@@ -546,12 +540,9 @@ function detachSealIdentity(
 
 function captureAuthorityPins(
   authority: StoredAttemptAuthorityStateV1,
-  session: Extract<StoredAttemptSessionScalarsPortV1, {
-    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
-  }>,
+  session: StoredAttemptSessionScalarsPortV1,
 ): Readonly<CommitInputAuthorityPinsV1> {
-  return Object.freeze({
-    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+  const common = {
     deploymentId: authority.deploymentId,
     scopeId: authority.scopeId,
     sessionId: authority.sessionId,
@@ -560,17 +551,29 @@ function captureAuthorityPins(
     storageGenerationFence: authority.storageGenerationFence,
     snapshotToken: Object.freeze({ ...authority.snapshotToken }),
     schemaVersionId: authority.schemaVersionId,
-    packageId: session.packageId,
-    artifactRuntime: session.artifactRuntime,
-    artifactId: session.artifactId,
-    sourcePackageHash: session.sourcePackageHash,
-    executionModule: session.executionModule,
     functionPath: session.functionPath,
-    functionKind: "mutation",
+    functionKind: "mutation" as const,
     policyVersion: session.policyVersion,
     authorizationRevocationEpoch: session.authorizationRevocationEpoch,
     requestKey: session.requestKey,
-  } satisfies CommitInputAuthorityPinsV1);
+  };
+  return session.executionAuthorityGeneration === "legacy_dynamic_worker_v1"
+    ? Object.freeze({
+        ...common,
+        executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+        packageId: session.packageId,
+        artifactRuntime: session.artifactRuntime,
+        artifactId: session.artifactId,
+        sourcePackageHash: session.sourcePackageHash,
+        executionModule: session.executionModule,
+      } satisfies CommitInputAuthorityPinsV1)
+    : Object.freeze({
+        ...common,
+        executionAuthorityGeneration: "application_v1" as const,
+        applicationExecutionAuthoritySha256: copyBytes(
+          session.applicationExecutionAuthoritySha256,
+        ),
+      } satisfies CommitInputAuthorityPinsV1);
 }
 
 function lowercaseHexOrUndefined(bytes: Uint8Array): string | undefined {

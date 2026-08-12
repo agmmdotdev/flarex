@@ -1,5 +1,5 @@
 import { copyBytes } from "@flarex/utils/bytes";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 import {
   loadPointCommitUniqueConstraintEligibilityV1Effect,
@@ -8,6 +8,8 @@ import {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 
 import type { PointMutationTargetFunctionMetadataV1 } from
+  "flarex-protocol/point-mutation-start";
+import { PointMutationTargetFunctionMetadataV1Schema } from
   "flarex-protocol/point-mutation-start";
 
 import type { PointMutationExecutionScopeV1 } from
@@ -180,27 +182,18 @@ export function makeStoredPointCommitPlanningOperationsV1(
       grantKernel,
       configuration.applicationMutationGrantVerifier,
     );
-    if (
-      !isLegacyCommitAuthorityVerificationStateV1(storedAttempt) ||
-      verifiedEvidence.executionAuthorityGeneration !==
+    const state = verifiedEvidence.executionAuthorityGeneration ===
         "legacy_dynamic_worker_v1"
-    ) {
-      return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
-        reason: "sessionEvidenceInvalid",
-      }));
-    }
-    const metadataUnknown = yield* configuration.functionMetadata.load(
-      capturePinnedFunctionSelector(storedAttempt),
-    );
-    const functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
-      storedAttempt,
-      metadataUnknown,
-    );
-    const state = deepDetachCommitAuthorityState(
-      storedAttempt,
-      verifiedEvidence,
-      functionMetadata,
-    );
+      ? yield* loadLegacyCommitAuthorityState(
+          storedAttempt,
+          verifiedEvidence,
+          configuration,
+        )
+      : deepDetachCommitAuthorityState(
+          storedAttempt,
+          verifiedEvidence,
+          yield* applicationFunctionMetadataEffect(verifiedEvidence),
+        );
     const handle: AuthenticatedCommitAuthorityV1 = Object.freeze({
       [authenticatedCommitAuthorityBrand]: PROCESS_LOCAL_CAPABILITY,
     });
@@ -501,22 +494,77 @@ function deepDetachCommitAuthorityState(
   evidence: VerifiedCommitAuthorityEvidenceV1,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): AuthenticatedCommitAuthorityStateV1 {
-  if (evidence.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
-    throw new StoredCommitAuthorityCorruptionV1Error({
-      reason: "sessionEvidenceInvalid",
-    });
-  }
   return Object.freeze({
     storedAttempt,
     databaseNowMilliseconds: evidence.databaseNowMilliseconds,
     argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
     argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
-    verifiedGrant: detachVerifiedGrant(evidence.verifiedGrant),
+    verifiedGrant: evidence.executionAuthorityGeneration ===
+        "legacy_dynamic_worker_v1"
+      ? detachVerifiedGrant(evidence.verifiedGrant)
+      : evidence.verifiedGrant,
     schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
     stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
     functionMetadata: Object.freeze(structuredClone(functionMetadata)),
   });
 }
+
+const loadLegacyCommitAuthorityState = Effect.fn(
+  "StoredAttemptAuthentication.loadLegacyCommitAuthorityState",
+)(function* (
+  storedAttempt: AuthenticatedStoredAttemptStateV1,
+  evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
+    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+  }>,
+  configuration: StoredCommitAuthorityAuthenticationConfigV1,
+) {
+  if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+    return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
+      reason: "sessionEvidenceInvalid",
+    }));
+  }
+  const metadataUnknown = yield* configuration.functionMetadata.load(
+    capturePinnedFunctionSelector(storedAttempt),
+  );
+  const functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+    storedAttempt,
+    metadataUnknown,
+  );
+  return deepDetachCommitAuthorityState(
+    storedAttempt,
+    evidence,
+    functionMetadata,
+  );
+});
+
+const applicationFunctionMetadataEffect = Effect.fn(
+  "StoredAttemptAuthentication.applicationFunctionMetadata",
+)(function* (
+  evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
+    readonly executionAuthorityGeneration: "application_v1";
+  }>,
+): Effect.fn.Return<
+  PointMutationTargetFunctionMetadataV1,
+  StoredCommitAuthorityCorruptionV1Error
+> {
+  const target = evidence.applicationAuthority.runtimeTarget;
+  return yield* Schema.decodeUnknownEffect(
+    PointMutationTargetFunctionMetadataV1Schema,
+    { onExcessProperty: "error" },
+  )({
+    path: target.function.path,
+    executionModule: target.executionModulePath,
+    kind: "mutation",
+    visibility: "public",
+    argsValidator: target.function.args,
+    returnsValidator: target.function.returns,
+  }).pipe(Effect.mapError(cause =>
+    new StoredCommitAuthorityCorruptionV1Error({
+      reason: "functionMetadataInvalid",
+      cause,
+    })
+  ));
+});
 
 function capturePointCommitScalarProvenance(
   storedAttempt: AuthenticatedStoredAttemptStateV1,

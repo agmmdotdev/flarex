@@ -63,6 +63,12 @@ import type {
 import {
   PointMutationOccApplicationErrorV1,
 } from "../src/storedAttemptAuthentication";
+import type {
+  AuthenticatedApplicationMutationCommitAuthorityGraph,
+} from "@flarex/persistence-postgres/internal/application-mutation-commit-authority-graph";
+import type {
+  InertApplicationMutationGrantEvidenceV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_p02c2",
@@ -141,6 +147,8 @@ export default {
         }));
       case "/trusted-dev":
         return Response.json(await trustedDevScenario());
+      case "/application-generation":
+        return Response.json(await applicationGenerationScenario());
       case "/user-failure":
         return Response.json(await failureScenario("userCodeFailed"));
       case "/application-error":
@@ -202,6 +210,52 @@ async function trustedDevScenario() {
   });
   const exit = await Effect.runPromiseExit(makeRunner(binding).run(input));
   return { calls, outcome: summarizeExit(exit) };
+}
+
+async function applicationGenerationScenario() {
+  let hostCalls = 0;
+  let journalCalls = 0;
+  const legacyInput = await makeInput({ kind: "anonymous" });
+  const {
+    verifiedGrant: _verifiedGrant,
+    functionMetadata: _functionMetadata,
+    ...common
+  } = legacyInput;
+  void _verifiedGrant;
+  void _functionMetadata;
+  const input: PointMutationOccRuntimeNeutralRunnerInputV1 = Object.freeze({
+    ...common,
+    executionAuthorityGeneration: "application_v1",
+    verifiedGrant: Object.freeze({}) as InertApplicationMutationGrantEvidenceV1,
+    applicationGraph: Object.freeze({}) as unknown as
+      AuthenticatedApplicationMutationCommitAuthorityGraph,
+    journal: Object.freeze({
+      resolvePointTable: () => {
+        journalCalls += 1;
+        return Effect.die(new Error("journal must not run"));
+      },
+      runPointOperation: () => {
+        journalCalls += 1;
+        return Effect.die(new Error("journal must not run"));
+      },
+      resolveDeveloperIndex: () => {
+        journalCalls += 1;
+        return Effect.die(new Error("journal must not run"));
+      },
+      runIndexedQuery: () => {
+        journalCalls += 1;
+        return Effect.die(new Error("journal must not run"));
+      },
+    }),
+  });
+  const runner = makeRunner(bindingFrom(async () => {
+    hostCalls += 1;
+    return successResponse(null);
+  }));
+  const outcome = summarizeExit(
+    await Effect.runPromiseExit(runner.run(input)),
+  );
+  return { hostCalls, journalCalls, outcome };
 }
 
 async function failureScenario(
@@ -437,6 +491,7 @@ async function makeInput(
   });
   const normalizedArguments = normalizeFlarexValueV1(ARGUMENTS);
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
     argumentsJson: prepared.validatedArguments.valueJson,
     argumentArraySemanticBytes:
       requirePointMutationArgumentSemanticSizeV1(
