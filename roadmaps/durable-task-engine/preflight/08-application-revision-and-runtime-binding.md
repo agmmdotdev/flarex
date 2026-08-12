@@ -241,12 +241,17 @@ interface TaskRuntimeProjectionFrameV1 {
 }
 ```
 
-Each module frame commits ordinal, artifact module path, source roles, raw byte
-length, source digest, and immutable object reference. The first version may
-conservatively include every runtime-role module because the current ingress
+Each module frame commits ordinal, artifact module path, the Source Artifact V2
+role mask, `isolate` / `es_module` metadata, raw byte length, source digest, and
+owned authenticated source bytes. The first version conservatively includes
+every runtime-role module because the current ingress
 contract does not publish a complete transitive import graph. That is a
 bounded reuse of current projection behavior, not permission to include
 analyzer evidence, source maps, credentials, or unrelated object bodies.
+
+SAP-TRP1 now implements these task-owned frames, their canonical bodies, exact
+UTF-8 path ordering, and a distinct typed module-root preimage. It does not
+reuse the ordinary function projection codec or root namespace.
 
 The projection digest is named:
 

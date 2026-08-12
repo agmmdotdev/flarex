@@ -104,12 +104,14 @@ ordinary-role PostgreSQL 18 tests prove dispatch and cancellation replay the
 same stored provider request after post-start uncertainty without minting a
 second identity. DTE06-D1's private launch authority and verified runtime-
 object/input read contracts are now implemented and unwired. Its required stop
-probe found no production runtime-object publication/read/codec owner, so the next
-action is a separate Standard Application publication preflight; no Worker
-Loader, host, or activation is admitted.
+probe found no production runtime-object publication/read/codec owner, so the
+Standard Application publication track was separated; no Worker Loader, host,
+or activation was admitted by D1.
 That preflight is now recorded in
 [`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md).
-It begins with pure canonical role contracts and keeps persistence, readiness,
+Its pure canonical role-contract checkpoint is now complete, including all
+five role decode/re-encode paths, task-owned roots, and fixed private
+ABI/profile identities. It keeps persistence, readiness,
 the real located reader, Worker Loader, and activation behind ordered gates.
 It does not absorb the distinct per-run task-input object store; that writer,
 reader, and `run_lifetime` retention authority need a separate Task-owned
@@ -509,10 +511,11 @@ files remain candidates:
      Worker Loader adapter preflight is complete, and D1 now supplies the
      private trusted launch-subject resolver plus verified runtime-object/input
      contracts. The stop probe found no production runtime-object publication
-     and role-codec owner, so a separate Standard Application publication
-     preflight is next. Preflight 39 records that sequence, beginning with pure
-     canonical task-runtime role contracts;
-     the real read adapter, private task ABI, existing-runtime composition,
+     and role-codec owner, so Preflight 39 separated that Standard Application
+     sequence; its pure
+     canonical task-runtime role-contract checkpoint is complete. DTE06-D2's
+     private ABI/runtime core may proceed independently; the real read adapter,
+     existing-runtime composition,
      fenced settlement, supervision, end-to-end proof, and host remain
      unwritten;
 7. `07-observability-live-apis-and-ui.md`

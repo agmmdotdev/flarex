@@ -4,6 +4,9 @@ import type {
   TaskDefinitionRevisionIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import type { Brand } from "effect";
+import type {
+  SourceArtifactV2ModuleRolesV1,
+} from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
 export const CANONICAL_TASK_MANIFEST_CODEC_V1 =
@@ -12,6 +15,18 @@ export const CANONICAL_TASK_CATALOG_CODEC_V1 =
   "flarex.standard-application/task-catalog/v1" as const;
 export const TASK_RUNTIME_ENTRY_CODEC_V1 =
   "flarex.standard-application/task-runtime-entry/v1" as const;
+export const TASK_RUNTIME_PROJECTION_MODULE_CODEC_V1 =
+  "flarex.standard-application/task-runtime-projection-module/v1" as const;
+export const TASK_RUNTIME_PROJECTION_CODEC_V1 =
+  "flarex.standard-application/task-runtime-projection/v1" as const;
+export const TASK_RUNTIME_GROUP_MANIFEST_CODEC_V1 =
+  "flarex.standard-application/task-runtime-group-manifest/v1" as const;
+export const TASK_RUNTIME_MATERIALIZATION_SPEC_CODEC_V1 =
+  "flarex.standard-application/task-runtime-materialization-spec/v1" as const;
+export const TASK_RUNTIME_MODULE_ROOT_CODEC_V1 =
+  "flarex.standard-application/task-runtime-module-root/v1" as const;
+export const TASK_RUNTIME_ENTRY_ROOT_CODEC_V1 =
+  "flarex.standard-application/task-runtime-entry-root/v1" as const;
 export const APPLICATION_REVISION_TASK_BINDING_CODEC_V1 =
   "flarex.standard-application/application-revision-task-binding/v1" as const;
 export const TASK_DEFINITION_RUNTIME_BINDING_CODEC_V1 =
@@ -27,6 +42,22 @@ export const MAX_TASK_CATALOG_VALIDATOR_NODES_V1 = 65_536;
 export const MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1 = 1_024;
 export const MAX_TASK_RUNTIME_OBJECT_REFERENCES_V1 = 4_096;
 export const MAX_TASK_DEFINITION_CANONICAL_BYTES_V1 = 16 * 1_024 * 1_024;
+export const MAX_TASK_RUNTIME_MODULES_V1 = 4_096;
+export const MAX_TASK_RUNTIME_MODULE_SOURCE_BYTES_V1 = 8 * 1_024 * 1_024;
+export const MAX_TASK_RUNTIME_PROJECTION_RAW_BYTES_V1 = 64 * 1_024 * 1_024;
+export const MAX_TASK_RUNTIME_COMPUTE_PROFILES_V1 = 256;
+export const MAX_TASK_RUNTIME_COMPATIBILITY_FLAGS_V1 = 64;
+export const MAX_TASK_RUNTIME_PUBLICATION_TEXT_UTF8_BYTES_V1 = 1_024;
+export const TASK_RUNTIME_CONTRACT_IDENTITY_V1 =
+  "flarex.task-runtime/durable-task/v1" as const;
+export const TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1 =
+  "flarex.task-runtime-rpc/v1" as const;
+export const TASK_RUNTIME_PROFILE_IDENTITY_V1 =
+  "flarex.worker-loader/task-runtime/v1" as const;
+export const TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1 =
+  "flarex.task-runtime/module-entry/exact-artifact-path/v1" as const;
+export const TASK_RUNTIME_RESERVED_MODULE_PATH_PREFIX_V1 =
+  "__flarex_task_runtime__/" as const;
 export const MAX_TASK_DURATION_SECONDS_V1 = Math.floor(
   Number.MAX_SAFE_INTEGER / 1_000,
 );
@@ -85,6 +116,50 @@ export interface TaskRuntimeEntryFrameV1 {
   readonly exportName: string;
   readonly group: "durable_task";
   readonly projectionSha256: TaskDefinitionSha256V1;
+}
+
+export interface TaskRuntimeProjectionModuleFrameV1 {
+  readonly kind: "runtime_projection_module";
+  readonly group: "durable_task";
+  readonly moduleOrdinal: bigint;
+  readonly artifactModulePath: string;
+  readonly sourceRoles: SourceArtifactV2ModuleRolesV1;
+  readonly sourceEnvironment: "isolate";
+  readonly moduleFormat: "es_module";
+  readonly rawByteLength: bigint;
+  readonly sourceSha256: TaskDefinitionSha256V1;
+  readonly sourceBytes: Uint8Array;
+}
+
+export interface TaskRuntimeProjectionFrameV1 {
+  readonly kind: "task_runtime_projection";
+  readonly group: "durable_task";
+  readonly executionModule: string;
+  readonly moduleCount: bigint;
+  readonly rawByteLength: bigint;
+  readonly moduleRootSha256: TaskDefinitionSha256V1;
+}
+
+export interface TaskRuntimeGroupManifestFrameV1 {
+  readonly kind: "task_runtime_group_manifest";
+  readonly taskCatalogSha256: TaskDefinitionSha256V1;
+  readonly taskCount: bigint;
+  readonly taskEntryRootSha256: TaskDefinitionSha256V1;
+  readonly taskRuntimeProjectionSha256: TaskDefinitionSha256V1;
+  readonly taskRuntimeMaterializationSpecSha256: TaskDefinitionSha256V1;
+}
+
+export interface TaskRuntimeMaterializationSpecV1 {
+  readonly kind: "task_runtime_materialization_spec";
+  readonly runtimeContractIdentity: typeof TASK_RUNTIME_CONTRACT_IDENTITY_V1;
+  readonly bridgeAbiIdentity: typeof TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1;
+  readonly compatibilityDate: string;
+  readonly compatibilityFlags: ReadonlyArray<string>;
+  readonly runtimeProfileIdentity: typeof TASK_RUNTIME_PROFILE_IDENTITY_V1;
+  readonly runtimeImplementationVersion: string;
+  readonly supportedComputeProfiles: ReadonlyArray<TaskComputeProfileRefV1>;
+  readonly moduleEntryPolicyIdentity:
+    typeof TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1;
 }
 
 export interface ApplicationRevisionTaskBindingFrameV1 {

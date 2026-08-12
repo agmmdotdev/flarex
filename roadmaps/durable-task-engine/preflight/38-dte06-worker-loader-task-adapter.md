@@ -502,14 +502,18 @@ content-addressed references, while task creation persists the immutable input
 reference, but no production owner publishes, serves, and role-decodes the
 referenced runtime-object bodies. A fake adapter would conceal that missing
 readiness guarantee.
-The next roadmap action is therefore a separate Standard Application
-runtime-object publication/read-authority preflight. DTE06-D2 remains pending
-behind that gate.
+The next roadmap action was therefore a separate Standard Application
+runtime-object publication/read-authority preflight. SAP-TRP1 is now complete:
+all five role codecs, root preimages, and the private ABI/materialization
+identities are fixed. DTE06-D2 may proceed under this preflight, while the real
+D1 located adapter and DTE06-D3 remain blocked on later publication/readiness
+and the separate run-input store.
 
 That owner preflight is now recorded in
 [`39-standard-application-task-runtime-publication.md`](./39-standard-application-task-runtime-publication.md).
-It begins with pure canonical role contracts only; DTE06-D2 remains outside
-that approval.
+Its approved pure canonical role-contract checkpoint is complete. No
+persistence, R2, readiness, real located reader, Worker Loader, or host was
+added by that checkpoint.
 
 This preflight authorizes only DTE06-D1 through D4 in the stated order. The
 first code slice is D1 launch-subject resolution and read-side object ports. It

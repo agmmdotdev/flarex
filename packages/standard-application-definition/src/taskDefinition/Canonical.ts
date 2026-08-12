@@ -1,7 +1,9 @@
 import {
+  copyBytes,
   encodeBytesToLowercaseHex,
   isUint8Array,
   isUint8ArrayWithByteLength,
+  uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
 import type {
   RunAttemptPolicyV1,
@@ -123,6 +125,54 @@ export function encodeTaskRuntimeEntryPreimageV1(
       entry: taskRuntimeEntryJson(entry),
     }, "encode_runtime_entry")),
   );
+}
+
+export function decodeTaskRuntimeEntryPreimageV1(
+  input: unknown,
+): Result.Result<
+  TaskRuntimeEntryFrameV1,
+  InvalidStandardApplicationTaskDefinitionV1Error<
+    "decode_runtime_entry_preimage"
+  >
+> {
+  const operation = "decode_runtime_entry_preimage" as const;
+  const byteLength = uint8ArrayByteLength(input);
+  if (
+    byteLength === undefined || byteLength > MAX_TASK_DEFINITION_CANONICAL_BYTES_V1
+  ) {
+    return Result.fail(invalid(operation, "invalid_shape"));
+  }
+  return Result.gen(function* () {
+    const bytes = yield* Result.try({
+      try: () => copyBytes(input as Uint8Array),
+      catch: () => invalid(operation, "invalid_shape"),
+    });
+    const parsed = yield* Result.try({
+      try: () => JSON.parse(FATAL_UTF8.decode(bytes)) as unknown,
+      catch: () => invalid(operation, "invalid_shape"),
+    });
+    if (
+      !isJsonObjectFromUnknown(parsed)
+      || !hasExactKeys(parsed, ["codec", "entry"])
+      || parsed.codec !== TASK_RUNTIME_ENTRY_CODEC_V1
+    ) {
+      return yield* Result.fail(invalid(operation, "invalid_shape"));
+    }
+    const entry = decodeCanonicalTaskRuntimeEntry(parsed.entry);
+    if (entry === undefined) {
+      return yield* Result.fail(invalid(operation, "invalid_shape"));
+    }
+    const decoded = yield* decodeTaskRuntimeEntryFrameV1(entry).pipe(
+      Result.mapError((failure) => reoperation(failure, operation)),
+    );
+    const canonical = yield* encodeTaskRuntimeEntryPreimageV1(decoded).pipe(
+      Result.mapError((failure) => reoperation(failure, operation)),
+    );
+    if (!bytesEqual(canonical, bytes)) {
+      return yield* Result.fail(invalid(operation, "inconsistent_binding"));
+    }
+    return decoded;
+  });
 }
 
 export function encodeApplicationRevisionTaskBindingPreimageV1(

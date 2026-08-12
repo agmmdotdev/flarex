@@ -10,6 +10,7 @@ export type StandardApplicationTaskDefinitionOperationV1 =
   | "encode_manifest"
   | "encode_catalog"
   | "decode_runtime_entry"
+  | "decode_runtime_entry_preimage"
   | "encode_runtime_entry"
   | "decode_application_revision_task_binding"
   | "encode_application_revision_task_binding"

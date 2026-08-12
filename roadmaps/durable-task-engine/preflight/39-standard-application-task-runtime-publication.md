@@ -2,9 +2,9 @@
 
 ## Status
 
-**Decision requested:** Approve an ordered, production-inert Standard
-Application publication/readiness foundation for the five immutable task
-runtime object roles already named by `TaskDefinitionRuntimeBindingV1`.
+**Decision:** Approved. SAP-TRP1 is complete as a production-inert pure
+contract checkpoint. SAP-TRP2 through SAP-TRP6 remain pending and require the
+ordered approvals below.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -91,8 +91,9 @@ deterministic ordering, owned bytes, and semantic correlation.
 ### Runtime projection module
 
 The module frame commits its task-owned codec, deterministic ordinal and
-artifact module path, authenticated source role/reference and source digest,
-raw byte length, owned source bytes, and required module-format metadata. The
+artifact module path, authenticated Source Artifact V2 role mask and source
+digest, raw byte length, owned source bytes, and exact `isolate` / `es_module`
+metadata. The
 first version embeds those authenticated source bytes in the canonical module
 frame, matching the existing cold-materialization mechanics; it does not add a
 second nested task-module reference. It may conservatively
@@ -123,9 +124,13 @@ the function-group manifest with a changed tag.
 ### Materialization specification
 
 Implement `TaskRuntimeMaterializationSpecV1` as provider-neutral immutable
-policy: task runtime and bridge/ABI identity, compatibility date/flags, runtime
-profile and implementation version, a deterministic sorted set/mapping of the
-compute profiles admitted for this catalog, and
+policy. SAP-TRP1 fixes the runtime identity as
+`flarex.task-runtime/durable-task/v1`, the private bridge identity as
+`flarex.task-runtime-rpc/v1`, the runtime profile as
+`flarex.worker-loader/task-runtime/v1`, and the module-entry policy as
+`flarex.task-runtime/module-entry/exact-artifact-path/v1`. It also commits the
+compatibility date/flags, implementation version, a deterministic sorted
+compute-profile set admitted for the catalog, and
 deterministic module-entry construction policy. Credentials, account/region,
 ephemeral Worker names, attempts, leases, and provider execution IDs are
 forbidden.
@@ -226,6 +231,8 @@ runs, and shared content-addressed references.
 
 ### SAP-TRP1: Canonical role contracts
 
+**Complete (2026-08-12).**
+
 - implement missing module, projection, group-manifest, and
   materialization-spec models/codecs;
 - reuse the task-entry codec;
@@ -233,6 +240,39 @@ runs, and shared content-addressed references.
 - add golden, hostile, excess-field, malformed UTF-8, noncanonical, duplicate,
   overflow, and field-sensitivity tests; and
 - remain pure with no persistence or R2.
+
+The implemented contract supplies:
+
+- strict models and canonical codecs for projection modules, the task
+  projection, group manifest, and materialization specification;
+- a strict canonical decoder for the existing task-entry body, so every one of
+  the five stored roles has a role-owned decode/re-encode path;
+- separate typed module-root and task-entry-root preimages, including the fixed
+  canonical empty task-entry root;
+- exact UTF-8 artifact-path and compute-profile ordering, contiguous ordinals,
+  duplicate/reserved-path rejection, bounded role masks, module/source/total
+  byte ceilings, and exact source length/digest verification during root
+  construction;
+- owned byte capture, fatal UTF-8 source validation, canonical unpadded
+  base64url module bodies, lowercase digest text, exact object fields, and
+  noncanonical-preimage rejection; and
+- pure digest/correlation operations that prove projection count, total bytes,
+  module root, and execution-module membership without persistence, R2,
+  readiness, Worker Loader, or provider authority.
+
+Validation receipt:
+
+- `pnpm --filter @flarex/standard-application-definition typecheck`;
+- `pnpm --filter @flarex/standard-application-definition test` — six files,
+  50 tests;
+- `pnpm check:trigger-compatibility-boundary`;
+- focused diff checking and both required project reviewers before commit.
+
+The repository-wide Standard Application boundary checker currently has a
+pre-existing source/export-policy mismatch with the already committed
+`applicationSource` and `applicationTaskBinding` surfaces. SAP-TRP1 does not
+change those surfaces or weaken that checker; its correction remains with
+their owning slice.
 
 ### SAP-TRP2: Pure publication preparation
 
@@ -305,9 +345,11 @@ not application-revision artifacts.
 
 ## Stop Boundary
 
-Approval starts only SAP-TRP1, the pure canonical role-contract checkpoint.
-Closing SAP-TRP1 may unblock DTE06-D2 under its already approved Preflight 38;
-approval of this document alone does not. SAP-TRP4 requires a fresh
+Approval and implementation close only SAP-TRP1, the pure canonical
+role-contract checkpoint. DTE06-D2 may now begin under its already approved
+Preflight 38 because the private ABI/materialization identities are fixed;
+that does not authorize DTE06-D3 or any production composition. SAP-TRP4
+requires a fresh
 schema/migration preflight. DTE06-D1 remains a
 committed contract/verification foundation but production-incomplete until
 SAP-TRP6 and the separate run-input object-store gate both close. DTE06-D2 does
