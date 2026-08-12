@@ -2402,6 +2402,91 @@ invalid write and completes a valid write, while the flat-adapter proof pins
 sequence reuse. The shared executor-tail regression also carries one successful
 Application result through sealing and planning exactly once.
 
+#### AA-R6 mutation checkpoint 3 Standard composition preflight and accepted amendment — 2026-08-13
+
+The runner checkpoint proves an authenticated Application attempt can execute
+and reach the existing seal, planning, and publication tail. It does not yet
+provide an honest Standard ingress. A direct replacement of the legacy System
+would still be incomplete: persistence can insert an Application session row,
+but executor's process-local activated-session capability is issued only from
+the legacy prepared start; no production owner yet selects and authenticates a
+public mutation before grant preparation; and the protocol intentionally
+provides grant frames and verification rather than retaining a private signing
+key. Standard must not forge any of those authorities.
+
+The accepted composition adds one unversioned `ApplicationMutationSystem` with
+four narrow injected owners:
+
+1. A persistence-owned Application mutation admission projection consumes the
+   opaque active selection and requested function path, requires the exact
+   manifest entry to be a public mutation, correlates its stored function,
+   publication, schema, and active-head evidence, and returns an owned canonical
+   runtime target plus the selection witness. It uses the same immutable frame
+   constructors as readiness and stored-authority verification. It does not
+   open a query snapshot, read user rows, or select authority from caller data.
+2. A narrow Application grant issuer owns the active signing key and issuance
+   clock. The System supplies the exact prepared logical pins: canonical
+   execution authority, anonymous identity-access policy, canonical validated
+   arguments, request key/hash, revocation epoch, and bounded expiry. The issuer
+   signs and verifies the JWS against its owned public-key lifecycle snapshot
+   and returns only `VerifiedApplicationMutationGrantV1`; neither Standard nor
+   persistence receives the private key or manufactures an opaque handle.
+3. An executor-owned Application session-activation adapter accepts the
+   persistence activation port, the verified grant, exact prepared Application
+   evidence, and execution-claim issuer. It snapshots the prepared input,
+   delegates the scope-clock/head check and row insertion to persistence, and
+   alone registers the existing opaque `ActivatedPointMutationSessionV1`. The
+   registered state becomes an exact legacy-or-Application prepared union. No
+   public structural constructor is added.
+4. The existing initial-execution and committed-outcome owners receive that
+   opaque handle. A created session executes through the already committed
+   generation-aware runner and shared tail. Busy, replay, conflict, and terminal
+   outcomes are resolved through the existing request-key/outcome contracts;
+   Standard does not poll tables, retry user code, or publish a result itself.
+
+`ApplicationMutationSystem` is a domain service assembled by a Layer from those
+owners plus the existing active-selection reader, argument validator/canonical
+value codec, request-key policy, revocation authority, session timing policy,
+initial execution configuration, and committed-outcome reader. Construction
+captures and validates immutable policy once. Invocation remains one Effect
+operation with typed admission, signing, persistence, execution, and outcome
+failures; foreign signing or random/id generation failures are mapped once at
+their owning adapter. This is a positive service/Layer boundary because it is a
+reusable injected operation with lifecycle-owned persistence, cryptographic,
+and executor capabilities, not a pure helper or a dynamic per-request value.
+
+The Standard compatibility entrypoint changes only its private mutation
+dependency from the displaced `ApplicationPointMutationSystemV1` to
+`ApplicationMutationSystem`. The touched displaced service and helper exports
+are renamed `LegacyApplicationPointMutationSystem...` and retained only for
+explicit legacy tests and drain support until `AA-R8`; no production Standard
+entrypoint, Layer, or export may provide a legacy fallback, comparison run, or
+dual execution. Query and action routing are unchanged by this checkpoint.
+
+The medium checkpoint includes one focused PGlite composition proof, not only
+mocked ports. It must cover exact public-mutation selection and a successful
+write; same request key plus same request returning the durable result; the
+same key plus different request rejecting; head movement before insertion
+rejecting; head movement after admission not changing the pinned target; fresh
+Worker loads for initial execution and an OCC rerun; conflict replacement then
+one commit; terminal Worker and journal failures without commit; exact result
+replay; and unchanged commit, change-feed, and outbox receipts. Focused unit
+proof also pins the opaque Application activation handle, signed grant pins,
+unknown/mixed generation rejection, non-public/non-mutation selection, and the
+absence of a legacy System requirement from the Standard entrypoint. Genuine
+PostgreSQL and the complete cross-product vertical remain `AA-R7` gates.
+
+Self-review accepts this amendment because every new step terminates at an
+existing authority owner and the orchestration has one deterministic route.
+The persistence projection proves selection, the issuer proves the signature,
+executor proves capability membership, and the existing tail proves the
+commit. Stop and amend before implementation if the slice requires a private
+key in Standard, a structurally forged grant or activated-session handle,
+caller-selected schema/function/publication evidence, mutable-head validation
+after admission, a legacy fallback, a second outcome/idempotency path, or any
+change to journal, OCC, commit compilation, commit publication, change-feed,
+or outbox semantics.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
