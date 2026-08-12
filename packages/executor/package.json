@@ -13,6 +13,8 @@
     "./point-mutation-initial-execution": "./src/pointMutationInitialExecution.ts",
     "./point-mutation-journal": "./src/pointMutationJournal.ts",
     "./point-mutation-journal-rpc": "./src/pointMutationJournalRpc.ts",
+    "./internal/application-point-mutation-journal-capability": "./src/applicationPointMutationJournalCapability.ts",
+    "./internal/application-point-mutation-runner": "./src/storedAttemptAuthentication.ts",
     "./point-mutation-redelivery-scheduler-host-contract": "./src/pointMutationRedeliverySchedulerHostContract.ts",
     "./point-mutation-start": "./src/pointMutationStartPreparation.ts",
     "./point-mutation-session": "./src/pointMutationSessionActivation.ts",
@@ -34,6 +36,7 @@
     "test:postgres": "vitest run test/postgresRetry.test.ts test/deploymentAuthority.postgres.test.ts test/transactionGrantVerifier.test.ts"
   },
   "dependencies": {
+    "@flarex/analysis": "workspace:*",
     "@flarex/freshness": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/utils": "workspace:*",

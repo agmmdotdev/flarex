@@ -1227,6 +1227,9 @@ const materializeApplicationGraphEffect = Effect.fn(
   }
 
   return Object.freeze({
+    manifest: manifest.manifest,
+    runtimeHostIdentity: readinessFrame.runtimeHostIdentity,
+    compatibilityDate: readinessFrame.compatibilityDate,
     executionAuthority: canonicalAuthority.authority,
     runtimeTarget: canonicalAuthority.authority.runtimeTarget,
     activationSequence: activation.activationSequence,

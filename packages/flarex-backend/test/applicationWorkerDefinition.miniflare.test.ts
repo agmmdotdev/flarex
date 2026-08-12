@@ -378,6 +378,59 @@ describe("Application Worker definition", () => {
     });
   });
 
+  it("lets application code catch schema validation and continue writing", async () => {
+    const fixture = applicationFixture("mutation", "catchValidation");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 8),
+      "mutation",
+      {
+        capabilityMembers: `
+          insertPointDocument(_tableName, value) {
+            if (value.invalid === true) {
+              const error = new Error("The resulting document failed the active schema validator.");
+              Object.defineProperty(error, "name", { value: "ApplicationRevisionSyscallDocumentValidationV1Error" });
+              throw error;
+            }
+            return "1:00000000-0000-0000-0000-000000000002";
+          }
+        `,
+      },
+    );
+
+    expect(response).toMatchObject({
+      value: "1:00000000-0000-0000-0000-000000000002",
+    });
+  });
+
+  it("returns a public FlarexError as structured Application evidence", async () => {
+    const fixture = applicationFixture("mutation", "applicationError");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {}, "write", 8),
+      "mutation",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      kind: "applicationError",
+      error: { code: "CLOSED", message: "closed", data: { orderId: "1" } },
+    });
+  });
+
   it("rejects a journal document id outside the protocol identity contract", async () => {
     const fixture = applicationFixture("mutation");
     const definition = makeApplicationWorkerDefinition({
@@ -486,6 +539,8 @@ type ApplicationSourceScenario =
   | "determinism"
   | "largeResult"
   | "closedRead"
+  | "applicationError"
+  | "catchValidation"
   | "iteratorTamper";
 
 function applicationFixture(
@@ -674,7 +729,23 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: scenario === "iteratorTamper"
+    handlers: scenario === "catchValidation"
+      ? [
+          "export async function create(context) {",
+          "  try { await context.db.insert(\"users\", { invalid: true }); } catch {}",
+          "  return context.db.insert(\"users\", { valid: true });",
+          "}",
+          "",
+        ].join("\n")
+      : scenario === "applicationError"
+      ? [
+          'import { FlarexError } from "flarex/values";',
+          "export function create() {",
+          '  throw new FlarexError("CLOSED", "closed", { orderId: "1" });',
+          "}",
+          "",
+        ].join("\n")
+      : scenario === "iteratorTamper"
       ? [
           "try {",
           "  Object.getPrototypeOf([][Symbol.iterator]()).next = () => ({ done: true });",

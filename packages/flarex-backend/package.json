@@ -23,6 +23,7 @@
     "./internal/application-analysis-source-reader": "./src/sourceArtifactV2/ApplicationAnalysisReader.ts",
     "./internal/application-execution-host": "./src/artifactRuntime/ApplicationExecutionHost.ts",
     "./internal/application-worker-definition": "./src/artifactRuntime/ApplicationWorkerDefinition.ts",
+    "./internal/application-point-mutation-runner": "./src/artifactRuntime/ApplicationPointMutationRunner.ts",
     "./internal/semantic-artifact-v1-finalized-source-proof": "./src/semanticArtifactV1/FinalizedSourceProof.ts",
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/task-compute-delivery": "./src/taskComputeDelivery/index.ts",
@@ -85,6 +86,7 @@
   "dependencies": {
     "@flarex/analysis": "workspace:*",
     "@flarex/durable-task": "workspace:*",
+    "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/function-runtime": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
@@ -109,7 +111,6 @@
   "devDependencies": {
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
-    "@flarex/executor": "workspace:*",
     "miniflare": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

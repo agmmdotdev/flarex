@@ -88,6 +88,7 @@ import {
 import {
   MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
   PointMutationTargetSelectionV1Error,
+  canonicalizePointMutationRequestV1,
   decodeActivePointMutationTargetMetadataV1,
   preparePointMutationStartEvidenceV1,
 } from "flarex-protocol/point-mutation-start";
@@ -104,6 +105,7 @@ import {
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAttemptFenceSchema,
+  TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
@@ -203,6 +205,13 @@ import {
   type StoredAttemptEvidencePortV1,
   type StoredCommitAuthorityEvidencePortV1,
 } from "../src/storedAttemptAuthentication";
+import {
+  makeExactPointMutationExecutionOperationsV1,
+  type ExactPointMutationExecutionOperationDependenciesV1,
+} from "../src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
+import {
+  type ExecuteExactPointMutationAttemptInputV1,
+} from "../src/storedAttemptAuthentication/occRerunExecutionOperations";
 import {
   verifyCommitInputStateEffect,
   type CommitInputVerificationSourceV1,
@@ -2026,13 +2035,13 @@ describe("C04A stored-attempt authentication", () => {
       reason: "successfulResultSemanticBytesMismatch",
     });
 
-    const missingReturns = structuredClone(source.functionMetadata);
+    const missingReturns = structuredClone(source.functionValidationAuthority);
     expect(Reflect.deleteProperty(missingReturns, "returnsValidator")).toBe(
       true,
     );
     const authorityFailure = await runFailure(verifyCommitInputStateEffect({
       ...source,
-      functionMetadata: missingReturns,
+      functionValidationAuthority: missingReturns as never,
     }));
     expect(authorityFailure).toBeInstanceOf(
       CommitInputAuthorityCorruptionV1Error,
@@ -2075,7 +2084,7 @@ describe("C04A stored-attempt authentication", () => {
     });
   });
 
-  it("rejects Application authority through the legacy commit-input verifier as typed corruption", async () => {
+  it("captures Application authority pins through the shared commit-input verifier", async () => {
     const current = await commitAuthorityFixture({}, undefined, {
       fixture: await emptyFixture("application-authority"),
       returnsValidator: { type: "string" },
@@ -2097,7 +2106,7 @@ describe("C04A stored-attempt authentication", () => {
     void _artifactId;
     void _sourcePackageHash;
     void _executionModule;
-    const failure = await runFailure(verifyCommitInputStateEffect({
+    const verified = await runEffect(verifyCommitInputStateEffect({
       ...source,
       session: Object.freeze({
         ...commonSession,
@@ -2107,10 +2116,135 @@ describe("C04A stored-attempt authentication", () => {
         applicationExecutionAuthoritySha256: new Uint8Array(32),
       }),
     }));
-    expect(failure).toBeInstanceOf(CommitInputAuthorityCorruptionV1Error);
-    expect(failure).toMatchObject({
-      reason: "executionAuthorityGenerationInvalid",
+    expect(verified.authorityPins).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      functionPath: commonSession.functionPath,
+      functionKind: "mutation",
     });
+    if (verified.authorityPins.executionAuthorityGeneration !== "application_v1") {
+      throw new Error("Expected Application commit authority pins.");
+    }
+    expect(verified.authorityPins.applicationExecutionAuthoritySha256)
+      .toEqual(new Uint8Array(32));
+  });
+
+  it("carries an Application result through the shared seal and planning tail", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("sealed-application-result"),
+      returnsValidator: { type: "string" },
+    });
+    const validatedArgsSha256 = new Uint8Array(32).fill(3);
+    const requestKey = TransactionRequestKeyV1Schema.make("request:application-tail");
+    const canonicalRequest = await canonicalizePointMutationRequestV1({
+      deploymentId: DEPLOYMENT_ID,
+      functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+      validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
+        validatedArgsSha256,
+      ),
+      requestKey,
+    });
+    const applicationSession = Object.freeze({
+      executionAuthorityGeneration: "application_v1" as const,
+      functionPath: "users:create",
+      validatedArgsSha256,
+      requestKey,
+      requestSha256: canonicalRequest.sha256,
+    });
+    const selector = Object.freeze({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: SCOPE_ID,
+      sessionId: SESSION_ID,
+      attemptFence: ATTEMPT_FENCE,
+    });
+    const attemptLoading = createPointMutationSessionAttemptLoadingV1({
+      loadEffect: () => Effect.succeed({
+        status: "loaded",
+        anchor: {
+          ...selector,
+          requestKey,
+          storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+          storageGenerationFence: STORAGE_FENCE,
+          snapshotToken: SNAPSHOT,
+          hardExpiresAt: "2099-01-01T00:00:00.000Z",
+          leaseExpiresAt: "2098-12-31T23:59:00.000Z",
+          createdAt: "2026-08-13T00:00:00.000Z",
+          updatedAt: "2026-08-13T00:00:00.000Z",
+        },
+        executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
+        attemptFacet: { kind: "nonPristine" },
+      }),
+    });
+    let sealCalls = 0;
+    let planningCalls = 0;
+    const publicationResult = Object.freeze({ kind: "published" });
+    const operations = makeExactPointMutationExecutionOperationsV1({
+      functionMetadata: { load: () => Effect.die("legacy metadata must not load") },
+      contextFactory: { make: () => Effect.succeed({
+        executionId: "application-tail-execution",
+        logScopeId: "application-tail-log",
+        randomSeed: new Uint8Array(32).fill(7),
+      }) },
+      attemptLoading,
+      journal: {
+        openAttempt: () => Effect.succeed(Object.freeze({}) as never),
+        resolvePointTable: () => Effect.die("runner must not read"),
+        runPointOperation: () => Effect.die("runner must not write"),
+        resolveDeveloperIndex: () => Effect.die("runner must not query"),
+        runIndexedQuery: () => Effect.die("runner must not query"),
+        sealSuccessfulResult: (_attempt: unknown, result: unknown) => Effect.sync(() => {
+          sealCalls += 1;
+          expect(result).toBe("sealed-application-result");
+          return current.fixture.envelope;
+        }),
+      },
+      runner: { run: (input: { readonly executionAuthorityGeneration: string }) => {
+        expect(input.executionAuthorityGeneration).toBe("application_v1");
+        return Effect.succeed("sealed-application-result");
+      } },
+      terminalization: { abort: () => Effect.die("must not abort") },
+      deriveAuthority: () => Effect.succeed(Object.freeze({}) as never),
+      authenticate: () => Effect.succeed(Object.freeze({}) as never),
+      authenticateCommitAuthority: () => Effect.succeed(Object.freeze({}) as never),
+      verifyCommitInput: () => Effect.succeed(Object.freeze({}) as never),
+      planPointCommit: () => Effect.sync(() => {
+        planningCalls += 1;
+        return Object.freeze({}) as never;
+      }),
+      enterPointCommitFinishing: (plan: unknown) => Effect.succeed(plan as never),
+      publishFinishingPointCommit: () => Effect.succeed(publicationResult as never),
+    } as unknown as ExactPointMutationExecutionOperationDependenciesV1);
+    const verifiedEvidence = Object.freeze({
+      executionAuthorityGeneration: "application_v1" as const,
+      argumentsJson: Object.freeze({}),
+      argumentArraySemanticBytes: 2,
+      verifiedGrant: Object.freeze({}),
+      schemaManifest: current.commitEvidence.schema.manifest,
+      stableBindings: current.commitEvidence.schema.stableBindings,
+      application: Object.freeze({}),
+    });
+    const result = await runEffect(operations.executeExactPointMutationAttempt({
+      selector,
+      attemptFence: ATTEMPT_FENCE,
+      snapshotToken: SNAPSHOT,
+      executionScope: makeTestExecutionScope(),
+      liveness: { enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect },
+      executionEvidence: Object.freeze({
+        ...current.commitEvidence,
+        session: applicationSession,
+        creationTimeSeed: AppCreationTimeV1Schema.make(1_800_000_000_000),
+      }),
+      verificationState: Object.freeze({
+        authority: Object.freeze({ deploymentId: DEPLOYMENT_ID }),
+        session: applicationSession,
+      }),
+      verifiedEvidence,
+      currentInspectionUnavailable: () => new Error("attempt missing"),
+      validateCurrent: () => Effect.void,
+    } as unknown as ExecuteExactPointMutationAttemptInputV1<Error, never>));
+
+    expect(result).toEqual({ kind: "completed", result: publicationResult });
+    expect(sealCalls).toBe(1);
+    expect(planningCalls).toBe(1);
   });
 
   it("mints an opaque same-factory C04C1 capability with zero I/O", async () => {
@@ -5767,7 +5901,12 @@ function commitInputSourceForTest(
       sha256Hex: current.fixture.result.evidence.sha256Hex,
     }),
     schemaManifest: structuredClone(current.commitEvidence.schema.manifest),
-    functionMetadata: structuredClone(current.functionSnapshot.functionMetadata),
+    functionValidationAuthority: Object.freeze({
+      path: current.functionSnapshot.functionMetadata.path,
+      returnsValidator: structuredClone(
+        current.functionSnapshot.functionMetadata.returnsValidator,
+      ),
+    }),
   };
 }
 

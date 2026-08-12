@@ -19,6 +19,8 @@ import type {
   TransactionAttemptFence,
   TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
+import type { ApplicationManifestV1 } from
+  "@flarex/analysis/application-analysis";
 
 import type { TransactionGrantVerifierV1 } from "../transactionGrant";
 import type {
@@ -154,6 +156,9 @@ interface StoredCommitAuthorityEvidenceCommonPortV1 {
 }
 
 type StoredCommitAuthorityApplicationEvidencePortV1 = Readonly<{
+    readonly manifest: ApplicationManifestV1;
+    readonly runtimeHostIdentity: string;
+    readonly compatibilityDate: string;
     readonly executionAuthority: ApplicationMutationExecutionAuthorityV1;
     readonly runtimeTarget: ApplicationRuntimeTargetV1;
     readonly activationSequence: bigint;

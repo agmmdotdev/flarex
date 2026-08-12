@@ -58,6 +58,7 @@ import {
   getLoadedPointMutationSessionAttemptOccRerunInspectionV1,
 } from "../pointMutationSessionAttemptState";
 import type {
+  ApplicationPointMutationRunnerHostV1Error,
   CommitInputVerificationV1Error,
   PointCommitFinishingExecutionV1Error,
   PointCommitPlanningV1Error,
@@ -129,6 +130,7 @@ export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error
   | PointMutationExactRuntimeRunnerHostV1Error
+  | ApplicationPointMutationRunnerHostV1Error
   | CommitProtocolV1Error
   | PointMutationSessionAttemptLoadingExecutionV1Error
   | PointMutationSessionAttemptTerminalizationExecutionV1Error
@@ -141,10 +143,12 @@ export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointCommitOutcomeResolutionV1Error
   | PointMutationExecutionLivenessV1Error;
 
-type PointMutationOccDetachedRunnerEvidenceV1 = Omit<
-  PointMutationOccRuntimeNeutralRunnerInputV1,
-  "context" | "journal"
->;
+type PointMutationOccDetachedRunnerEvidenceV1 =
+  PointMutationOccRuntimeNeutralRunnerInputV1 extends infer Input
+    ? Input extends PointMutationOccRuntimeNeutralRunnerInputV1
+      ? Omit<Input, "context" | "journal">
+      : never
+    : never;
 
 export interface ExactPointMutationExecutionOperationDependenciesV1 {
   readonly functionMetadata:
@@ -211,13 +215,18 @@ export function makeExactPointMutationExecutionOperationsV1(
         >
       >,
     ) {
+      const generation = input.verificationState.session
+        .executionAuthorityGeneration;
       if (
         input.executionEvidence.session.executionAuthorityGeneration !==
-          "legacy_dynamic_worker_v1" ||
-        input.executionEvidence.session.artifactRuntime !== "dynamic-worker" ||
-        !isLegacyCommitAuthorityVerificationStateV1(input.verificationState) ||
-        input.verifiedEvidence.executionAuthorityGeneration !==
-          "legacy_dynamic_worker_v1"
+          generation ||
+        input.verifiedEvidence.executionAuthorityGeneration !== generation ||
+        (generation === "legacy_dynamic_worker_v1" &&
+          (input.executionEvidence.session.artifactRuntime !==
+            "dynamic-worker" ||
+            !isLegacyCommitAuthorityVerificationStateV1(
+              input.verificationState,
+            )))
       ) {
         return yield* Effect.fail(
           new PointMutationOccExecutionAuthorityCorruptionV1Error({
@@ -253,17 +262,37 @@ export function makeExactPointMutationExecutionOperationsV1(
           }),
         );
       }
-      const metadataUnknown = yield* functionMetadata.load(
-        capturePinnedFunctionSelector(input.verificationState),
-      );
-      const pinnedFunctionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+      let runnerEvidence: PointMutationOccDetachedRunnerEvidenceV1;
+      if (isLegacyCommitAuthorityVerificationStateV1(
         input.verificationState,
-        metadataUnknown,
-      );
-      const runnerEvidence = capturePointMutationOccRunnerEvidence(
-        input.verifiedEvidence,
-        pinnedFunctionMetadata,
-      );
+      ) && input.verifiedEvidence.executionAuthorityGeneration ===
+        "legacy_dynamic_worker_v1") {
+        const metadataUnknown = yield* functionMetadata.load(
+          capturePinnedFunctionSelector(input.verificationState),
+        );
+        const pinnedFunctionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+          input.verificationState,
+          metadataUnknown,
+        );
+        runnerEvidence = captureLegacyPointMutationOccRunnerEvidence(
+          input.verifiedEvidence,
+          pinnedFunctionMetadata,
+        );
+      } else if (
+        input.verificationState.session.executionAuthorityGeneration ===
+          "application_v1" &&
+        input.verifiedEvidence.executionAuthorityGeneration === "application_v1"
+      ) {
+        runnerEvidence = captureApplicationPointMutationOccRunnerEvidence(
+          input.verifiedEvidence,
+        );
+      } else {
+        return yield* Effect.fail(
+          new PointMutationOccExecutionAuthorityCorruptionV1Error({
+            reason: "runtimePinInvalid",
+          }),
+        );
+      }
       // Runtime-local entropy may be fresh. Persisted creation time remains the
       // exact attempt seed authenticated above.
       const entropy = yield* contextFactory.make();
@@ -423,19 +452,36 @@ function bindPointMutationOccJournal(
   });
 }
 
-function capturePointMutationOccRunnerEvidence(
+function captureLegacyPointMutationOccRunnerEvidence(
   evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
     readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
   }>,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): PointMutationOccDetachedRunnerEvidenceV1 {
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
     argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
     verifiedGrant: detachVerifiedGrant(evidence.verifiedGrant),
     schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
     stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
     functionMetadata: Object.freeze(structuredClone(functionMetadata)),
+  });
+}
+
+function captureApplicationPointMutationOccRunnerEvidence(
+  evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
+    readonly executionAuthorityGeneration: "application_v1";
+  }>,
+): PointMutationOccDetachedRunnerEvidenceV1 {
+  return Object.freeze({
+    executionAuthorityGeneration: "application_v1",
+    argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
+    argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
+    verifiedGrant: evidence.verifiedGrant,
+    schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
+    stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
+    application: Object.freeze(structuredClone(evidence.application)),
   });
 }
 

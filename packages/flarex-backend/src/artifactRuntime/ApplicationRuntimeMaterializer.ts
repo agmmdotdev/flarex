@@ -38,6 +38,9 @@ import {
   APPLICATION_RUNTIME_WORKER_CORE_SOURCE,
 } from "./ApplicationRuntimeWorkerCore.generated";
 import {
+  APPLICATION_WORKER_CORE_SHA256,
+} from "./ApplicationWorkerCore.generated";
+import {
   makeLiveDeclarativeV2RuntimeArtifactSha256V1,
 } from "./DeclarativeV2RuntimeArtifactSha256";
 import { makeApplicationRuntimeModuleGraph } from
@@ -50,7 +53,7 @@ export const APPLICATION_RUNTIME_COLD_ENTRYPOINT =
 export const APPLICATION_RUNTIME_COMPATIBILITY_DATE = "2026-06-14" as const;
 export const APPLICATION_RUNTIME_COLD_CPU_MILLISECONDS = 10_000;
 export const APPLICATION_RUNTIME_HOST_IDENTITY =
-  `flarex.application-runtime-host/v1;core=${APPLICATION_RUNTIME_WORKER_CORE_SHA256};import=${APPLICATION_IMPORT_POLICY_IDENTITY_V1};cpu=10000;subrequests=0;outbound=null;mode=registration-resolution-only` as const;
+  `flarex.application-runtime-host/v1;registration-core=${APPLICATION_RUNTIME_WORKER_CORE_SHA256};execution-core=${APPLICATION_WORKER_CORE_SHA256};import=${APPLICATION_IMPORT_POLICY_IDENTITY_V1};cpu=10000;subrequests=0;outbound=null;transaction=exact-application-worker` as const;
 
 export interface ApplicationRuntimeMaterializationInput {
   readonly target: unknown;

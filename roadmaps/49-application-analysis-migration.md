@@ -2362,6 +2362,46 @@ requires executor-to-backend imports, a second journal or commit path, mutable
 selection reads, fabricated legacy artifact fields, unsequenced concurrent
 journal calls, a source/manifest fallback, or Standard wiring.
 
+Implementation checkpoint receipt — 2026-08-12: the private runner is now
+implemented but remains unwired from Standard. Executor's authenticated runner
+input and commit-input pins are exact legacy/Application unions; Application
+evidence retains the already-verified manifest plus readiness-pinned runtime-host
+identity and compatibility date. The backend runner reads only the pinned Source
+Artifact root, rebuilds the Worker definition from that manifest/target, snapshots
+and hashes its injected host policy, projects authenticated anonymous/user
+identity into the Application Worker request, and calls the existing
+`ApplicationExecutionHost` once per execution.
+
+The flat capability adapter is a single translation layer over the existing
+bound journal. A real workerd proof admits concurrent read, index-range, insert,
+patch, replace, and delete calls, serializes them to the existing syscall
+sequence `1..6`, and rejects post-close use. It owns no storage, retry, seal, OCC,
+or commit behavior. Focused receipts are green: executor typecheck and 76/76
+stored-authentication, grant-kernel, legacy-runner, and flat-capability tests;
+backend typecheck and 36/36 Worker-definition, execution-host, and runner tests;
+persistence typecheck and the focused Application-authority loader proof; plus
+the workspace Effect-boundary check. The next checkpoint is the separately
+preflighted Standard/PGlite mutation consumer cut; this checkpoint does not
+authorize it.
+
+Final correction receipt — 2026-08-12: the readiness-pinned runtime-host
+identity now commits both the registration core and the exact Application
+execution Worker core, and the runner rejects a mismatched identity before
+source reading or Worker loading. The Application Worker result contract now
+has an exact structured `applicationError` member; public `FlarexError`
+code/message/data crosses the Worker RPC and host without being collapsed into
+generic user-code failure, while ordinary exceptions retain the existing
+user-code family. Protocol, host, real Miniflare Worker, and runner regressions
+pin the owned/detached envelope and both failure projections.
+
+The final journal correction preserves the pre-existing C03-V exception:
+the exact schema-document-validation failure remains application-catchable,
+does not poison the attempt, and does not consume the next syscall sequence.
+Every other journal failure remains terminal. A real Worker proof catches an
+invalid write and completes a valid write, while the flat-adapter proof pins
+sequence reuse. The shared executor-tail regression also carries one successful
+Application result through sealing and planning exactly once.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration

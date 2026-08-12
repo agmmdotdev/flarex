@@ -4,9 +4,10 @@ import {
   decodeApplicationTransactionWorkerRequestV1Effect,
   decodeApplicationWorkerResultV1Effect,
   type ApplicationActionWorkerRequestV1,
+  type ApplicationWorkerApplicationErrorV1,
   type ApplicationTransactionWorkerRequestV1,
-  type ApplicationWorkerResultV1,
 } from "flarex-protocol/internal/application-worker-v1";
+import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
@@ -24,6 +25,7 @@ export type ApplicationExecutionHostFailureReason =
   | "readBoundaryFailed"
   | "journalBoundaryFailed"
   | "callbackFailed"
+  | "applicationError"
   | "userCodeFailed"
   | "terminalFailed"
   | "invalidResult"
@@ -35,6 +37,7 @@ export class ApplicationExecutionHostError extends Data.TaggedError(
   readonly operation: "transaction" | "action";
   readonly reason: ApplicationExecutionHostFailureReason;
   readonly cause?: unknown;
+  readonly applicationError?: ApplicationWorkerApplicationErrorV1;
 }> {}
 
 export interface ApplicationTransactionExecutionHostInput {
@@ -54,13 +57,13 @@ export interface ApplicationExecutionHost {
   readonly runTransaction: (
     input: ApplicationTransactionExecutionHostInput,
   ) => Effect.Effect<
-    ApplicationWorkerResultV1["value"],
+    CanonicalFlarexRuntimeValueV1,
     ApplicationExecutionHostError
   >;
   readonly runAction: (
     input: ApplicationActionExecutionHostInput,
   ) => Effect.Effect<
-    ApplicationWorkerResultV1["value"],
+    CanonicalFlarexRuntimeValueV1,
     ApplicationExecutionHostError
   >;
 }
@@ -173,7 +176,7 @@ function runWorker(
   wallMilliseconds: number,
   invoke: (entrypoint: Rpc.WorkerEntrypointBranded) => PromiseLike<unknown>,
 ): Effect.Effect<
-  ApplicationWorkerResultV1["value"],
+  CanonicalFlarexRuntimeValueV1,
   ApplicationExecutionHostError
 > {
   return Effect.try({
@@ -195,7 +198,7 @@ function callWorker(
   wallMilliseconds: number,
   invoke: (entrypoint: Rpc.WorkerEntrypointBranded) => PromiseLike<unknown>,
 ): Effect.Effect<
-  ApplicationWorkerResultV1["value"],
+  CanonicalFlarexRuntimeValueV1,
   ApplicationExecutionHostError
 > {
   return Effect.acquireUseRelease(
@@ -228,7 +231,13 @@ function callWorker(
         Effect.mapError(cause => cause instanceof ApplicationExecutionHostError
           ? cause
           : hostError(operation, "invalidResult", cause)),
-        Effect.map(result => result.value),
+        Effect.flatMap(result => "kind" in result
+          ? Effect.fail(new ApplicationExecutionHostError({
+              operation,
+              reason: "applicationError",
+              applicationError: result.error,
+            }))
+          : Effect.succeed(result.value)),
       )),
     ),
     lease => Effect.sync(() => lease.dispose()),

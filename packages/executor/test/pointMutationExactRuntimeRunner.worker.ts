@@ -437,6 +437,7 @@ async function makeInput(
   });
   const normalizedArguments = normalizeFlarexValueV1(ARGUMENTS);
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     argumentsJson: prepared.validatedArguments.valueJson,
     argumentArraySemanticBytes:
       requirePointMutationArgumentSemanticSizeV1(

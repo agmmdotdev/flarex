@@ -366,6 +366,7 @@ describe("Application worker V1 protocol", () => {
     const decoded = await Effect.runPromise(
       decodeApplicationWorkerResultV1Effect(input),
     );
+    if (!("value" in decoded)) throw new Error("Expected a success result.");
     input.value.ok = false;
 
     expect(decoded.value).toEqual({ ok: true, count: 1n });
@@ -373,6 +374,36 @@ describe("Application worker V1 protocol", () => {
     await expect(Effect.runPromise(
       decodeApplicationWorkerResultV1Effect({ ...input, extra: true }),
     )).rejects.toMatchObject({ boundary: "result", reason: "invalidShape" });
+  });
+
+  it("normalizes a structured public Application error result", async () => {
+    const input = {
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: { code: "CLOSED", message: "closed", data: { orderId: "1" } },
+    };
+    const decoded = await Effect.runPromise(
+      decodeApplicationWorkerResultV1Effect(input),
+    );
+    if (!("kind" in decoded)) {
+      throw new Error("Expected an Application error result.");
+    }
+    input.error.data.orderId = "mutated";
+
+    expect(decoded).toEqual({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: { code: "CLOSED", message: "closed", data: { orderId: "1" } },
+    });
+    expect(Object.isFrozen(decoded.error)).toBe(true);
+    await expect(Effect.runPromise(
+      decodeApplicationWorkerResultV1Effect({
+        ...input,
+        error: { code: "", message: "closed" },
+      }),
+    )).rejects.toMatchObject({ reason: "invalidResult", path: "error" });
   });
 
   it("maps hostile nested result reflection to a typed failure", async () => {
@@ -419,6 +450,7 @@ describe("Application worker V1 protocol", () => {
         ),
       }),
     );
+    if (!("value" in exact)) throw new Error("Expected a success result.");
     expect(exact.value).toBeInstanceOf(ArrayBuffer);
     if (!(exact.value instanceof ArrayBuffer)) {
       throw new Error("Expected an owned ArrayBuffer result.");

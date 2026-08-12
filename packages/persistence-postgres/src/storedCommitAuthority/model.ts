@@ -1,4 +1,6 @@
 import { Data, Effect } from "effect";
+import type { ApplicationManifestV1 } from
+  "@flarex/analysis/application-analysis";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
@@ -133,6 +135,9 @@ export type StoredCommitAuthorityEvidenceV1 =
     }>);
 
 export interface StoredCommitAuthorityApplicationEvidenceV1 {
+  readonly manifest: ApplicationManifestV1;
+  readonly runtimeHostIdentity: string;
+  readonly compatibilityDate: string;
   readonly executionAuthority: ApplicationMutationExecutionAuthorityV1;
   readonly runtimeTarget: ApplicationRuntimeTargetV1;
   readonly activationSequence: bigint;

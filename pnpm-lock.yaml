@@ -372,6 +372,9 @@ importers:
 
   packages/executor:
     dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@flarex/freshness':
         specifier: workspace:*
         version: link:../freshness
@@ -493,6 +496,9 @@ importers:
       '@flarex/durable-task':
         specifier: workspace:*
         version: link:../durable-task
+      '@flarex/executor':
+        specifier: workspace:*
+        version: link:../executor
       '@flarex/executor-http':
         specifier: workspace:*
         version: link:../executor-http
@@ -524,9 +530,6 @@ importers:
       '@flarex/declarative-program':
         specifier: workspace:*
         version: link:../declarative-program
-      '@flarex/executor':
-        specifier: workspace:*
-        version: link:../executor
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0

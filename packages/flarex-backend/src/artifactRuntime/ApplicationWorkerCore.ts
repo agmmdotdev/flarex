@@ -32,6 +32,7 @@ import {
   type ApplicationActionWorkerRequestV1,
   type ApplicationTransactionWorkerRequestV1,
   type ApplicationWorkerResultV1,
+  type ApplicationWorkerSuccessResultV1,
 } from "flarex-protocol/internal/application-worker-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
@@ -114,6 +115,14 @@ const NATIVE_SCHEDULER = globalThis.scheduler;
 const NATIVE_WEB_ASSEMBLY = globalThis.WebAssembly;
 const NAMED_ERRORS = new WeakSet<object>();
 const MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES = 8 * 1_048_576;
+const APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME:
+  typeof import("flarex-protocol/internal/application-revision-syscall-validation-v1")
+    .APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1 =
+      "ApplicationRevisionSyscallDocumentValidationV1Error";
+const APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE:
+  typeof import("flarex-protocol/internal/application-revision-syscall-validation-v1")
+    .APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1 =
+      "The resulting document failed the active schema validator.";
 
 const INTERNAL_CALL_BUDGET = OBJECT_FREEZE({
   maximumCalls: 64,
@@ -222,7 +231,7 @@ export async function executeApplicationTransactionWorkerV1(
       state,
       boundaryKind,
     );
-    let value: ApplicationWorkerResultV1["value"];
+    let value: ApplicationWorkerSuccessResultV1["value"];
     try {
       value = await executeApplicationFunctionTransactionRuntimeV1(
         OBJECT_FREEZE({
@@ -237,6 +246,8 @@ export async function executeApplicationTransactionWorkerV1(
         invocations,
       );
     } catch (cause) {
+      const applicationError = projectApplicationError(cause);
+      if (applicationError !== undefined) return applicationError;
       throw translateRuntimeFailure(cause);
     }
     return result(value);
@@ -281,7 +292,7 @@ export async function executeApplicationActionWorkerV1(
         input.definition.hostPolicy.maximumArgumentBytes
     ) throw namedError("ApplicationWorkerInvalidRequestV1Error", request);
     const registry = await loadRegistry(input.loadExecution);
-    let value: ApplicationWorkerResultV1["value"];
+    let value: ApplicationWorkerSuccessResultV1["value"];
     try {
       value = await executeApplicationFunctionActionRuntimeV1(
         OBJECT_FREEZE({
@@ -315,6 +326,8 @@ export async function executeApplicationActionWorkerV1(
         }),
       );
     } catch (cause) {
+      const applicationError = projectApplicationError(cause);
+      if (applicationError !== undefined) return applicationError;
       throw translateRuntimeFailure(cause);
     }
     return result(value);
@@ -453,6 +466,9 @@ function trackBoundaryOperation<Value>(
     return rejected;
   }
   const pending = PROMISE.resolve().then(operation).catch(cause => {
+    if (kind === "journal" && isApplicationDocumentValidationFailure(cause)) {
+      throw cause;
+    }
     const failure = boundaryError(kind, cause);
     state.failure ??= failure;
     throw failure;
@@ -461,6 +477,16 @@ function trackBoundaryOperation<Value>(
   const cleanup = () => state.pending.delete(pending);
   void pending.then(cleanup, cleanup);
   return pending;
+}
+
+function isApplicationDocumentValidationFailure(cause: unknown): boolean {
+  try {
+    return cause instanceof ERROR &&
+      cause.name === APPLICATION_DOCUMENT_VALIDATION_ERROR_NAME &&
+      cause.message === APPLICATION_DOCUMENT_VALIDATION_ERROR_MESSAGE;
+  } catch {
+    return false;
+  }
 }
 
 async function decodeTransactionRequest(
@@ -767,12 +793,46 @@ function translateRuntimeFailure(cause: unknown): Error {
   }
 }
 
+function projectApplicationError(
+  cause: unknown,
+): ApplicationWorkerResultV1 | undefined {
+  const failure = inspectApplicationFunctionRuntimeFailureV1(cause);
+  if (failure?.kind !== "applicationError" ||
+    failure.reason !== "applicationError" ||
+    !isCoreApplicationError(failure.cause)) return undefined;
+  const applicationError = failure.cause as FlarexError;
+  const normalizedData = applicationError.data === undefined
+    ? undefined
+    : normalizeFlarexValueV1(applicationError.data);
+  if (normalizedData !== undefined &&
+    normalizedData.semanticSizeBytes >
+      MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1) {
+    throw namedError("ApplicationWorkerUserCodeV1Error", cause);
+  }
+  const data = normalizedData?.value;
+  return OBJECT_FREEZE({
+    format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+    version: APPLICATION_WORKER_RESULT_VERSION_V1,
+    kind: "applicationError",
+    error: OBJECT_FREEZE(data === undefined
+      ? {
+          code: applicationError.code,
+          message: applicationError.message,
+        }
+      : {
+          code: applicationError.code,
+          message: applicationError.message,
+          data,
+        }),
+  });
+}
+
 function isCoreApplicationError(cause: unknown): boolean {
   return cause instanceof FlarexError;
 }
 
 function result(
-  value: ApplicationWorkerResultV1["value"],
+  value: ApplicationWorkerSuccessResultV1["value"],
 ): ApplicationWorkerResultV1 {
   return OBJECT_FREEZE({
     format: APPLICATION_WORKER_RESULT_FORMAT_V1,

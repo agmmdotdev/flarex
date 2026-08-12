@@ -1,6 +1,9 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
+import type {
+  VerifiedApplicationMutationGrantInspectionV1,
+} from "./applicationMutationGrantVerificationKernel";
 import type {
   PointCommitFinishingTransitionPortV1,
   PointCommitFinishingTransitionV1Error,
@@ -128,6 +131,7 @@ import {
   StoredCommitAuthorityNotPlannableV1Error,
   StoredCommitAuthorityPersistenceV1Error,
   type StoredCommitAuthorityAuthenticationConfigV1,
+  type StoredCommitAuthorityEvidencePortV1,
   type StoredCommitAuthoritySchemaEvidencePortV1,
 } from "./storedAttemptAuthentication/commitAuthorityModel";
 import {
@@ -421,16 +425,28 @@ export interface PointMutationOccBoundJournalV1 {
   ) => ReturnType<PointMutationJournalV1["runIndexedQuery"]>;
 }
 
-export interface PointMutationOccRuntimeNeutralRunnerInputV1 {
+interface PointMutationOccRuntimeNeutralRunnerInputCommonV1 {
   readonly argumentsJson: JsonObject;
   readonly argumentArraySemanticBytes: number;
-  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
   readonly stableBindings: StoredCommitAuthoritySchemaEvidencePortV1["stableBindings"];
-  readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
   readonly context: PointMutationOccExecutionContextV1;
   readonly journal: PointMutationOccBoundJournalV1;
 }
+
+export type PointMutationOccRuntimeNeutralRunnerInputV1 =
+  | (PointMutationOccRuntimeNeutralRunnerInputCommonV1 & Readonly<{
+      readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+      readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+      readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
+    }>)
+  | (PointMutationOccRuntimeNeutralRunnerInputCommonV1 & Readonly<{
+      readonly executionAuthorityGeneration: "application_v1";
+      readonly verifiedGrant: VerifiedApplicationMutationGrantInspectionV1;
+      readonly application: NonNullable<
+        StoredCommitAuthorityEvidencePortV1["application"]
+      >;
+    }>);
 
 export interface PointMutationOccExecutionContextFactoryV1 {
   readonly make: () => Effect.Effect<
@@ -449,7 +465,27 @@ export type PointMutationOccRuntimeNeutralRunnerV1Error =
   | PointMutationOccUserCodeV1Error
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error
-  | PointMutationExactRuntimeRunnerHostV1Error;
+  | PointMutationExactRuntimeRunnerHostV1Error
+  | ApplicationPointMutationRunnerHostV1Error;
+
+export type ApplicationPointMutationRunnerHostV1ErrorReason =
+  | "sourceReadFailed"
+  | "workerDefinitionFailed"
+  | "runtimeHostMismatch"
+  | "requestProjectionInvalid"
+  | "workerLoadFailed"
+  | "readBoundaryFailed"
+  | "journalBoundaryFailed"
+  | "terminalFailed"
+  | "invalidResult"
+  | "timedOut";
+
+export class ApplicationPointMutationRunnerHostV1Error extends Data.TaggedError(
+  "ApplicationPointMutationRunnerHostV1Error",
+)<{
+  readonly reason: ApplicationPointMutationRunnerHostV1ErrorReason;
+  readonly cause?: unknown;
+}> {}
 
 export interface PointMutationOccRuntimeNeutralRunnerV1 {
   readonly run: (
@@ -783,18 +819,35 @@ export interface AuthenticatedSuccessfulResultV1 {
   readonly sha256Hex: CanonicalSuccessfulResultV1["evidence"]["sha256Hex"];
 }
 
-export interface AuthenticatedCommitAuthorityStateV1 {
+interface AuthenticatedCommitAuthorityStateCommonV1 {
   readonly storedAttempt: AuthenticatedStoredAttemptStateV1;
   readonly databaseNowMilliseconds: number;
   readonly argumentsJson: JsonObject;
   readonly argumentArraySemanticBytes: number;
-  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
   readonly stableBindings: StoredCommitAuthoritySchemaEvidencePortV1[
     "stableBindings"
   ];
-  readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
+  readonly functionValidationAuthority: Readonly<{
+    readonly path: string;
+    readonly returnsValidator:
+      PointMutationTargetFunctionMetadataV1["returnsValidator"];
+  }>;
 }
+
+export type AuthenticatedCommitAuthorityStateV1 =
+  | (AuthenticatedCommitAuthorityStateCommonV1 & Readonly<{
+      readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+      readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+      readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
+    }>)
+  | (AuthenticatedCommitAuthorityStateCommonV1 & Readonly<{
+      readonly executionAuthorityGeneration: "application_v1";
+      readonly verifiedGrant: VerifiedApplicationMutationGrantInspectionV1;
+      readonly application: NonNullable<
+        StoredCommitAuthorityEvidencePortV1["application"]
+      >;
+    }>);
 
 export interface StoredCommitInputVerificationV1
   extends StoredCommitAuthorityAuthenticationV1 {

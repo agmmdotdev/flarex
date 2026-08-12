@@ -23,8 +23,9 @@ import {
   type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
 import type { SchemaManifestAppSchemaV1 } from "flarex-protocol/schema-manifest";
-import type { PointMutationTargetFunctionMetadataV1 } from "flarex-protocol/point-mutation-start";
 import type { SnapshotToken } from "flarex-protocol/storage-authority";
+import type { PointMutationTargetFunctionMetadataV1 } from
+  "flarex-protocol/point-mutation-start";
 import type {
   TransactionAttemptFence,
   TransactionSessionIdV1,
@@ -227,7 +228,11 @@ export interface CommitInputVerificationSourceV1 {
   readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
   readonly successfulResult: AuthenticatedSuccessfulResultV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
-  readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
+  readonly functionValidationAuthority: Readonly<{
+    readonly path: string;
+    readonly returnsValidator:
+      PointMutationTargetFunctionMetadataV1["returnsValidator"];
+  }>;
 }
 
 export const verifyCommitInputStateEffect = Effect.fn(
@@ -241,11 +246,6 @@ export const verifyCommitInputStateEffect = Effect.fn(
     InvalidAuthenticatedCommitAuthorityV1Error
   >
 > {
-  if (source.session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
-    return yield* authorityCorruptionEffect(
-      "executionAuthorityGenerationInvalid",
-    );
-  }
   const tablesById = new Map<
     CatalogTableId,
     SchemaManifestAppSchemaV1["tableDefinitions"]["tables"][number]
@@ -355,7 +355,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
     compareUtf16Strings(left.documentId, right.documentId)
   );
 
-  if (!Object.hasOwn(source.functionMetadata, "returnsValidator")) {
+  if (!Object.hasOwn(source.functionValidationAuthority, "returnsValidator")) {
     return yield* authorityCorruptionEffect("returnsValidatorMissing");
   }
   const canonicalResult = yield* canonicalizeSuccessfulResultV1Effect(
@@ -371,7 +371,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
     canonicalResult,
   );
 
-  const returnsValidator = source.functionMetadata.returnsValidator;
+  const returnsValidator = source.functionValidationAuthority.returnsValidator;
   if (returnsValidator !== null) {
     yield* Effect.fromResult(validateValidatorValueV1(
       returnsValidator,
@@ -380,7 +380,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
     )).pipe(
       Effect.mapError((error) =>
         new CommitSuccessfulResultValidationV1Error({
-          functionPath: source.functionMetadata.path,
+          functionPath: source.functionValidationAuthority.path,
           issue: error.issue,
         })
       ),
@@ -546,12 +546,9 @@ function detachSealIdentity(
 
 function captureAuthorityPins(
   authority: StoredAttemptAuthorityStateV1,
-  session: Extract<StoredAttemptSessionScalarsPortV1, {
-    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
-  }>,
+  session: StoredAttemptSessionScalarsPortV1,
 ): Readonly<CommitInputAuthorityPinsV1> {
-  return Object.freeze({
-    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+  const common = {
     deploymentId: authority.deploymentId,
     scopeId: authority.scopeId,
     sessionId: authority.sessionId,
@@ -560,17 +557,29 @@ function captureAuthorityPins(
     storageGenerationFence: authority.storageGenerationFence,
     snapshotToken: Object.freeze({ ...authority.snapshotToken }),
     schemaVersionId: authority.schemaVersionId,
-    packageId: session.packageId,
-    artifactRuntime: session.artifactRuntime,
-    artifactId: session.artifactId,
-    sourcePackageHash: session.sourcePackageHash,
-    executionModule: session.executionModule,
     functionPath: session.functionPath,
-    functionKind: "mutation",
+    functionKind: "mutation" as const,
     policyVersion: session.policyVersion,
     authorizationRevocationEpoch: session.authorizationRevocationEpoch,
     requestKey: session.requestKey,
-  } satisfies CommitInputAuthorityPinsV1);
+  };
+  return session.executionAuthorityGeneration === "legacy_dynamic_worker_v1"
+    ? Object.freeze({
+      ...common,
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+      packageId: session.packageId,
+      artifactRuntime: session.artifactRuntime,
+      artifactId: session.artifactId,
+      sourcePackageHash: session.sourcePackageHash,
+      executionModule: session.executionModule,
+    } satisfies CommitInputAuthorityPinsV1)
+    : Object.freeze({
+      ...common,
+      executionAuthorityGeneration: "application_v1",
+      applicationExecutionAuthoritySha256: copyBytes(
+        session.applicationExecutionAuthoritySha256,
+      ),
+    } satisfies CommitInputAuthorityPinsV1);
 }
 
 function lowercaseHexOrUndefined(bytes: Uint8Array): string | undefined {

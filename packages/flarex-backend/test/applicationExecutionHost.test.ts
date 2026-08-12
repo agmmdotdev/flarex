@@ -213,6 +213,32 @@ describe("Application execution host", () => {
     expect(loader.resultDisposals).toBe(1);
   });
 
+  it("projects a structured public Application error from the Worker", async () => {
+    const target = runtimeTarget("mutation");
+    const loader = new FakeWorkerLoader(async () => rpcValue({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: { code: "CLOSED", message: "closed", data: { orderId: "1" } },
+    }));
+    const host = makeApplicationExecutionHost(loader);
+    const error = await Effect.runPromise(host.runTransaction({
+      definition: definition(target),
+      request: transactionRequest(target),
+      capability: {},
+    }).pipe(Effect.flip));
+
+    expect(error).toMatchObject({
+      reason: "applicationError",
+      applicationError: {
+        code: "CLOSED",
+        message: "closed",
+        data: { orderId: "1" },
+      },
+    });
+    expect(loader.resultDisposals).toBe(1);
+  });
+
   it("classifies Worker Loader failure without invoking a capability", async () => {
     const target = runtimeTarget("query");
     const loader = {

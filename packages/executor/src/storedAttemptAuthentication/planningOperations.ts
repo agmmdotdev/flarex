@@ -185,24 +185,22 @@ export function makeStoredPointCommitPlanningOperationsV1(
       grantKernel,
       applicationGrantKernel,
     );
-    if (verifiedEvidence.executionAuthorityGeneration !==
+    let functionMetadata: PointMutationTargetFunctionMetadataV1 | undefined;
+    if (verifiedEvidence.executionAuthorityGeneration ===
       "legacy_dynamic_worker_v1") {
-      return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
-        reason: "sessionEvidenceInvalid",
-      }));
+      if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+        return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
+          reason: "sessionEvidenceInvalid",
+        }));
+      }
+      const metadataUnknown = yield* configuration.functionMetadata.load(
+        capturePinnedFunctionSelector(storedAttempt),
+      );
+      functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+        storedAttempt,
+        metadataUnknown,
+      );
     }
-    if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
-      return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
-        reason: "sessionEvidenceInvalid",
-      }));
-    }
-    const metadataUnknown = yield* configuration.functionMetadata.load(
-      capturePinnedFunctionSelector(storedAttempt),
-    );
-    const functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
-      storedAttempt,
-      metadataUnknown,
-    );
     const state = deepDetachCommitAuthorityState(
       storedAttempt,
       verifiedEvidence,
@@ -237,7 +235,7 @@ export function makeStoredPointCommitPlanningOperationsV1(
           points: state.storedAttempt.points,
           successfulResult: state.storedAttempt.successfulResult,
           schemaManifest: state.schemaManifest,
-          functionMetadata: state.functionMetadata,
+          functionValidationAuthority: state.functionValidationAuthority,
         });
         const handle: VerifiedCommitInputV1 = Object.freeze({
           [verifiedCommitInputBrand]: PROCESS_LOCAL_CAPABILITY,
@@ -506,22 +504,51 @@ function captureCommitAuthorityPort(
 function deepDetachCommitAuthorityState(
   storedAttempt: AuthenticatedStoredAttemptStateV1,
   evidence: VerifiedCommitAuthorityEvidenceV1,
-  functionMetadata: PointMutationTargetFunctionMetadataV1,
+  functionMetadata: PointMutationTargetFunctionMetadataV1 | undefined,
 ): AuthenticatedCommitAuthorityStateV1 {
-  if (evidence.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+  if (evidence.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (functionMetadata === undefined) {
+      throw new StoredCommitAuthorityCorruptionV1Error({
+        reason: "sessionEvidenceInvalid",
+      });
+    }
+    return Object.freeze({
+      storedAttempt,
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+      databaseNowMilliseconds: evidence.databaseNowMilliseconds,
+      argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
+      argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
+      verifiedGrant: detachVerifiedGrant(evidence.verifiedGrant),
+      schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
+      stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
+      functionMetadata: Object.freeze(structuredClone(functionMetadata)),
+      functionValidationAuthority: Object.freeze({
+        path: functionMetadata.path,
+        returnsValidator: structuredClone(functionMetadata.returnsValidator),
+      }),
+    });
+  }
+  if (functionMetadata !== undefined) {
     throw new StoredCommitAuthorityCorruptionV1Error({
       reason: "sessionEvidenceInvalid",
     });
   }
   return Object.freeze({
     storedAttempt,
+    executionAuthorityGeneration: "application_v1",
     databaseNowMilliseconds: evidence.databaseNowMilliseconds,
     argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
     argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,
-    verifiedGrant: detachVerifiedGrant(evidence.verifiedGrant),
+    verifiedGrant: evidence.verifiedGrant,
     schemaManifest: Object.freeze(structuredClone(evidence.schemaManifest)),
     stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
-    functionMetadata: Object.freeze(structuredClone(functionMetadata)),
+    application: Object.freeze(structuredClone(evidence.application)),
+    functionValidationAuthority: Object.freeze({
+      path: evidence.application.runtimeTarget.function.path,
+      returnsValidator: structuredClone(
+        evidence.application.runtimeTarget.function.returns,
+      ),
+    }),
   });
 }
 

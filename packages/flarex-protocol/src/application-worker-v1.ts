@@ -132,11 +132,28 @@ export interface ApplicationActionWorkerRequestV1 {
   readonly context: ApplicationActionWorkerContextV1;
 }
 
-export interface ApplicationWorkerResultV1 {
+export interface ApplicationWorkerSuccessResultV1 {
   readonly format: typeof APPLICATION_WORKER_RESULT_FORMAT_V1;
   readonly version: typeof APPLICATION_WORKER_RESULT_VERSION_V1;
   readonly value: CanonicalFlarexRuntimeValueV1;
 }
+
+export interface ApplicationWorkerApplicationErrorV1 {
+  readonly code: string;
+  readonly message: string;
+  readonly data?: CanonicalFlarexRuntimeValueV1;
+}
+
+export interface ApplicationWorkerApplicationErrorResultV1 {
+  readonly format: typeof APPLICATION_WORKER_RESULT_FORMAT_V1;
+  readonly version: typeof APPLICATION_WORKER_RESULT_VERSION_V1;
+  readonly kind: "applicationError";
+  readonly error: ApplicationWorkerApplicationErrorV1;
+}
+
+export type ApplicationWorkerResultV1 =
+  | ApplicationWorkerSuccessResultV1
+  | ApplicationWorkerApplicationErrorResultV1;
 
 export interface NormalizedApplicationWorkerArgumentsV1 {
   readonly value: CanonicalFlarexRuntimeObjectV1;
@@ -306,15 +323,55 @@ export const decodeApplicationWorkerResultV1Effect = Effect.fn(
   ApplicationWorkerProtocolV1Error
 > {
   const boundary = "result" as const;
-  const result = yield* decodeRecord(input, [
-    "format",
-    "version",
-    "value",
+  const result = yield* decodeRecordUnion(input, [
+    ["format", "version", "value"],
+    ["format", "version", "kind", "error"],
   ], boundary, "$result");
   if (
     result.format !== APPLICATION_WORKER_RESULT_FORMAT_V1 ||
     result.version !== APPLICATION_WORKER_RESULT_VERSION_V1
   ) return yield* fail(boundary, "invalidShape", "$result");
+  if (result.kind === "applicationError") {
+    const error = yield* decodeRecordUnion(result.error, [
+      ["code", "message"],
+      ["code", "message", "data"],
+    ], boundary, "error", "invalidResult");
+    if (!isBoundedApplicationErrorText(error.code) ||
+      !isBoundedApplicationErrorText(error.message)) {
+      return yield* fail(boundary, "invalidResult", "error");
+    }
+    if (!Object.hasOwn(error, "data")) {
+      return Object.freeze({
+        format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+        version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "applicationError",
+        error: Object.freeze({ code: error.code, message: error.message }),
+      });
+    }
+    const capturedData = yield* captureValueWithinBudgetEffect(
+      error.data,
+      MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
+      boundary,
+      "invalidResult",
+      "error.data",
+    );
+    const normalizedData = yield* normalizeOwnedValueEffect(
+      capturedData,
+      boundary,
+      "invalidResult",
+      "error.data",
+    );
+    return Object.freeze({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: Object.freeze({
+        code: error.code,
+        message: error.message,
+        data: normalizedData.value,
+      }),
+    });
+  }
   const capturedValue = yield* captureValueWithinBudgetEffect(
     result.value,
     MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
@@ -334,6 +391,12 @@ export const decodeApplicationWorkerResultV1Effect = Effect.fn(
     value: normalized.value,
   });
 });
+
+function isBoundedApplicationErrorText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 &&
+    value.length <= MAX_APPLICATION_WORKER_CONTEXT_TEXT_BYTES_V1 &&
+    TEXT_ENCODER.encode(value).byteLength <= 1_024;
+}
 
 function decodeTarget(
   value: unknown,
