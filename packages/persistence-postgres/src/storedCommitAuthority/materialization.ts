@@ -1,6 +1,7 @@
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
+  encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
@@ -9,10 +10,28 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { Effect, Result, Schema } from "effect";
+import {
+  applicationFunctionCatalogPublicationFrameV1,
+  applicationFunctionEntryPublicationFrameV1,
+  applicationPublicationCommitmentFrameV1,
+  applicationSchemaPublicationFrameV1,
+} from "@flarex/analysis/internal/application-publication-v1";
+import {
+  canonicalizeApplicationManifestV1,
+  type ApplicationManifestV1,
+} from "@flarex/analysis/application-analysis";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
+  canonicalizeApplicationRuntimeTargetV1,
+} from "flarex-protocol/internal/application-runtime-target-v1";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
+  encodeCanonicalJson,
   JsonValue,
   isJsonObject,
+  type Json,
   type JsonObject,
 } from "flarex-protocol/json";
 import {
@@ -59,6 +78,18 @@ import {
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
 import {
+  applicationActivationFrameBytes,
+  applicationActiveHeadFrameBytes,
+  applicationColdReceiptSetFrameBytes,
+  applicationSchemaBindingFrameBytes,
+  decodeApplicationReadinessFrame,
+  sha256 as sha256ApplicationFrame,
+  validateCanonicalFrame,
+} from "../applicationAuthorityFrames";
+import { databaseTimestampFromUnknown } from "../databaseTimestamp";
+import { snapshotApplicationExecutionAuthorityJson } from
+  "../applicationExecutionAuthoritySnapshot";
+import {
   decodeScopeClockRecordResult,
   type ScopeClockRecord,
 } from "../scopeClock";
@@ -82,6 +113,7 @@ import {
   corrupt,
   type StoredCommitAuthorityCaptureAuthorityV1,
   type StoredCommitAuthorityCorruptionReasonV1,
+  type StoredCommitAuthorityEvidenceV1,
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceLoadResultV1,
   StoredCommitAuthorityEvidencePersistenceV1Error,
@@ -99,6 +131,22 @@ type ExecutionClaimRow =
   typeof import("../schema").fxSystemTransactionExecutionClaims.$inferSelect;
 type SchemaRow =
   typeof import("../schema").fxControlSchemaVersions.$inferSelect;
+type ApplicationActivationRow =
+  typeof import("../schema").fxSystemApplicationActivationsV1.$inferSelect;
+type ApplicationReadinessRow =
+  typeof import("../schema").fxSystemApplicationReadinessV1.$inferSelect;
+type ApplicationRevisionRow =
+  typeof import("../schema").fxSystemApplicationRevisionsV2.$inferSelect;
+type ApplicationAnalysisRow =
+  typeof import("../schema").fxSystemApplicationAnalysesV1.$inferSelect;
+type ApplicationPublicationRow =
+  typeof import("../schema").fxSystemApplicationPublicationsV1.$inferSelect;
+type ApplicationFunctionRow =
+  typeof import("../schema").fxSystemApplicationFunctionsV1.$inferSelect;
+type ApplicationRevisionSchemaRow =
+  typeof import("../schema").fxSystemApplicationRevisionSchemasV1.$inferSelect;
+type ApplicationSchemaAuthorityRow =
+  typeof import("../schema").fxControlApplicationSchemaAuthoritiesV1.$inferSelect;
 export type ClockRow =
   typeof import("../schema").fxSystemScopeClocks.$inferSelect;
 
@@ -108,11 +156,21 @@ export interface SessionSizeRow extends Omit<
   | "validatedArgsCanonicalBytes"
   | "authorizationGrantJson"
   | "authorizationGrantCanonicalBytes"
+  | "applicationExecutionAuthorityJson"
+  | "applicationExecutionAuthorityCanonicalBytes"
 > {
   readonly validatedArgsJsonByteLengthText: string;
   readonly validatedArgsCanonicalByteLengthText: string;
   readonly authorizationGrantJsonByteLengthText: string;
   readonly authorizationGrantCanonicalByteLengthText: string;
+  readonly applicationExecutionAuthorityFormat: string | null;
+  readonly applicationExecutionAuthorityVersionText: string | null;
+  readonly applicationExecutionAuthorityActivationSequence: string | null;
+  readonly applicationExecutionAuthorityRevisionId: string | null;
+  readonly applicationExecutionAuthorityFunctionPath: string | null;
+  readonly applicationExecutionAuthoritySchemaSha256: string | null;
+  readonly applicationExecutionAuthorityJsonByteLengthText: string | null;
+  readonly applicationExecutionAuthorityCanonicalByteLengthText: string | null;
 }
 
 export interface SessionPayloadRow {
@@ -123,6 +181,8 @@ export interface SessionPayloadRow {
   readonly validatedArgsCanonicalBytes: Uint8Array;
   readonly authorizationGrantJsonText: string;
   readonly authorizationGrantCanonicalBytes: Uint8Array;
+  readonly applicationExecutionAuthorityJsonText: string | null;
+  readonly applicationExecutionAuthorityCanonicalBytes: Uint8Array | null;
 }
 
 export interface SchemaPayloadRow extends Omit<
@@ -149,6 +209,27 @@ export interface AttemptChildExistenceRow {
   readonly eventExists: boolean;
 }
 
+export interface ApplicationGraphSizeRow {
+  readonly activationByteLengthText: string;
+  readonly readinessByteLengthText: string;
+  readonly manifestByteLengthText: string;
+  readonly schemaByteLengthText: string;
+  readonly functionCatalogByteLengthText: string;
+  readonly functionEntryByteLengthText: string;
+  readonly schemaBindingByteLengthText: string;
+}
+
+export interface ApplicationGraphPayloadRow {
+  readonly activation: ApplicationActivationRow;
+  readonly readiness: ApplicationReadinessRow;
+  readonly revision: ApplicationRevisionRow;
+  readonly analysis: ApplicationAnalysisRow;
+  readonly publication: ApplicationPublicationRow;
+  readonly selectedFunction: ApplicationFunctionRow;
+  readonly revisionSchema: ApplicationRevisionSchemaRow;
+  readonly schemaAuthority: ApplicationSchemaAuthorityRow;
+}
+
 interface BindingRow {
   readonly ordinalText: string;
   readonly declaredTableIdText: string | null;
@@ -164,9 +245,12 @@ export interface CapturedRowsV1 {
   readonly executionClaimRows: ReadonlyArray<ExecutionClaimRow>;
   readonly attemptChildRows: ReadonlyArray<AttemptChildExistenceRow>;
   readonly schemaSizeRows: ReadonlyArray<SchemaSizeRow>;
+  readonly applicationGraphSizeRows: ReadonlyArray<ApplicationGraphSizeRow>;
   readonly skipReason?: StoredCommitAuthorityCorruptionReasonV1;
   readonly sessionPayloadRows: ReadonlyArray<SessionPayloadRow>;
   readonly schemaPayloadRows: ReadonlyArray<SchemaPayloadRow>;
+  readonly applicationGraphPayloadRows:
+    ReadonlyArray<ApplicationGraphPayloadRow>;
   readonly bindingRows: ReadonlyArray<unknown>;
 }
 
@@ -184,6 +268,7 @@ export interface RootScalarRow extends Omit<
 }
 
 const UTF8_ENCODER = new TextEncoder();
+const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
 const decodeCanonicalSchemaManifestBytesResult = Schema.decodeUnknownResult(
   Schema.toType(CanonicalSchemaManifestBytesSchema),
 );
@@ -430,42 +515,19 @@ function materializeStoredAuthorityEffect(
     if (!validSessionScalars(session)) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
-    const sessionScalars = captureSessionScalars(session);
+    const sessionTiming = captureSessionTiming(session);
+    if (sessionTiming === undefined) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    const sessionScalars = captureSessionScalars(
+      session,
+      captured.sessionPayloadRows.length === 1
+        ? captured.sessionPayloadRows[0]
+        : undefined,
+    );
     if (sessionScalars === undefined) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
-    if (
-      mode.kind === "openOccExecution" &&
-      mode.expected.kind === "occRerun"
-    ) {
-      const previous = mode.expected.previousSession;
-      if (
-        previous.lifecycle !== "finishing" ||
-        !storedTransactionSessionScalarsEqualV1(
-          sessionScalars,
-          Object.freeze({
-            ...previous,
-            lifecycle: "running",
-            updatedAtMilliseconds: sessionScalars.updatedAtMilliseconds,
-          }),
-        )
-      ) {
-        return occExecutionAuthorityMismatch("sessionChanged");
-      }
-      if (sessionScalars.updatedAtMilliseconds > databaseNowMilliseconds) {
-        return occExecutionCorrupt("sessionEvidenceInvalid");
-      }
-    }
-    if (
-      sessionScalars.authorizationGrantExpiresAtMilliseconds <=
-        databaseNowMilliseconds ||
-      sessionScalars.hardExpiresAtMilliseconds <= databaseNowMilliseconds
-    ) {
-      return mode.kind === "sealed"
-        ? Object.freeze({ kind: "notPlannable", reason: "expired" })
-        : Object.freeze({ kind: "notExecutable", reason: "expired" });
-    }
-
     if (captured.leaseRows.length !== 1) {
       return materializationCorrupt(mode, "snapshotLeaseMissingOrDuplicate");
     }
@@ -486,7 +548,7 @@ function materializeStoredAuthorityEffect(
       lease.sessionId !== expected.sessionId ||
       lease.attemptFence !== expected.attemptFence ||
       leaseExpiresAtMilliseconds === undefined ||
-      leaseExpiresAtMilliseconds > sessionScalars.hardExpiresAtMilliseconds ||
+      leaseExpiresAtMilliseconds > sessionTiming.hardExpiresAtMilliseconds ||
       decodedLeaseSnapshot.commitSeq > clock.lastCommitSeq
     ) {
       return materializationCorrupt(mode, "snapshotLeaseInvalid");
@@ -583,7 +645,7 @@ function materializeStoredAuthorityEffect(
         return authorityMismatch("sealChanged");
       }
     } else {
-      if (leaseExpiresAtMilliseconds <= sessionScalars.updatedAtMilliseconds) {
+      if (leaseExpiresAtMilliseconds <= sessionTiming.updatedAtMilliseconds) {
         return occExecutionCorrupt("snapshotLeaseInvalid");
       }
       const expectedFacet = buildFreshTransactionAttemptFacetV1({
@@ -592,12 +654,12 @@ function materializeStoredAuthorityEffect(
         attemptFence: mode.expected.attemptFence,
         snapshotEpochUuid: epochUuid,
         snapshotCommitSeq: decodedLeaseSnapshot.commitSeq,
-        databaseNowMilliseconds: sessionScalars.updatedAtMilliseconds,
+        databaseNowMilliseconds: sessionTiming.updatedAtMilliseconds,
         authorizationGrantExpiresAtMilliseconds:
-          sessionScalars.authorizationGrantExpiresAtMilliseconds,
-        hardExpiresAtMilliseconds: sessionScalars.hardExpiresAtMilliseconds,
+          sessionTiming.authorizationGrantExpiresAtMilliseconds,
+        hardExpiresAtMilliseconds: sessionTiming.hardExpiresAtMilliseconds,
         leaseDurationMilliseconds:
-          leaseExpiresAtMilliseconds - sessionScalars.updatedAtMilliseconds,
+          leaseExpiresAtMilliseconds - sessionTiming.updatedAtMilliseconds,
       });
       if (Result.isFailure(expectedFacet)) {
         return occExecutionCorrupt("journalRootNotPristine");
@@ -697,6 +759,49 @@ function materializeStoredAuthorityEffect(
     }
     const { validatedArgsJson, authorizationGrantJson } =
       sessionPayloadJson.success;
+    const authorityJsonLength = session.executionAuthorityGeneration ===
+        "application_v1"
+      ? parseLength(session.applicationExecutionAuthorityJsonByteLengthText)
+      : undefined;
+    const authorityBytesLength = session.executionAuthorityGeneration ===
+        "application_v1"
+      ? parseLength(
+          session.applicationExecutionAuthorityCanonicalByteLengthText,
+        )
+      : undefined;
+    if (session.executionAuthorityGeneration === "application_v1" &&
+      (payload.applicationExecutionAuthorityJsonText === null ||
+        payload.applicationExecutionAuthorityCanonicalBytes === null ||
+        authorityJsonLength === undefined || authorityBytesLength === undefined ||
+        utf8ByteLength(payload.applicationExecutionAuthorityJsonText) !==
+          authorityJsonLength ||
+        payload.applicationExecutionAuthorityCanonicalBytes.byteLength !==
+          authorityBytesLength)) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    if (mode.kind === "openOccExecution" &&
+      mode.expected.kind === "occRerun") {
+      const previous = mode.expected.previousSession;
+      if (previous.lifecycle !== "finishing" ||
+        !storedTransactionSessionScalarsEqualV1(
+          sessionScalars,
+          Object.freeze({
+            ...previous,
+            lifecycle: "running",
+            updatedAtMilliseconds: sessionScalars.updatedAtMilliseconds,
+          }),
+        )) return occExecutionAuthorityMismatch("sessionChanged");
+    }
+    if (sessionScalars.updatedAtMilliseconds > databaseNowMilliseconds) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    if (sessionScalars.authorizationGrantExpiresAtMilliseconds <=
+        databaseNowMilliseconds ||
+      sessionScalars.hardExpiresAtMilliseconds <= databaseNowMilliseconds) {
+      return mode.kind === "sealed"
+        ? Object.freeze({ kind: "notPlannable", reason: "expired" })
+        : Object.freeze({ kind: "notExecutable", reason: "expired" });
+    }
 
     if (captured.schemaSizeRows.length !== 1) {
       return materializationCorrupt(mode, "schemaArtifactMissingOrDuplicate");
@@ -739,12 +844,27 @@ function materializeStoredAuthorityEffect(
     if (stableBindings === "mismatch") {
       return materializationCorrupt(mode, "stableBindingMismatch");
     }
+    const application = sessionScalars.executionAuthorityGeneration ===
+        "application_v1"
+      ? yield* materializeApplicationGraphEffect(
+          sessionScalars,
+          captured,
+          expected,
+          decodedManifest,
+        )
+      : undefined;
 
-    const evidence = Object.freeze({
+    const commonEvidence = Object.freeze({
       databaseNowMilliseconds,
       currentAuthorizationRevocationEpoch: revocationEpoch,
-      session: Object.freeze({
-        ...sessionScalars,
+      schema: Object.freeze({
+        deploymentId: expected.deploymentId,
+        schemaVersionId: expected.schemaVersionId,
+        manifest: snapshotSchemaManifestValue(decodedManifest),
+        stableBindings,
+      }),
+    });
+    const payloadEvidence = Object.freeze({
         validatedArgsJson: Object.freeze(structuredClone(validatedArgsJson)),
         validatedArgsCanonicalBytes: copyBytes(
           payload.validatedArgsCanonicalBytes,
@@ -755,14 +875,20 @@ function materializeStoredAuthorityEffect(
         authorizationGrantCanonicalBytes: copyBytes(
           payload.authorizationGrantCanonicalBytes,
         ),
-      }),
-      schema: Object.freeze({
-        deploymentId: expected.deploymentId,
-        schemaVersionId: expected.schemaVersionId,
-        manifest: snapshotSchemaManifestValue(decodedManifest),
-        stableBindings,
-      }),
     });
+    const evidence: StoredCommitAuthorityEvidenceV1 =
+      sessionScalars.executionAuthorityGeneration ===
+          "legacy_dynamic_worker_v1"
+        ? Object.freeze({
+            ...commonEvidence,
+            session: Object.freeze({ ...sessionScalars, ...payloadEvidence }),
+          })
+        : Object.freeze({
+            ...commonEvidence,
+            session: Object.freeze({ ...sessionScalars, ...payloadEvidence }),
+            application: application ??
+              (yield* Effect.die("Application graph invariant.")),
+          });
     return mode.kind === "sealed"
       ? Object.freeze({ kind: "loaded", evidence })
       : Object.freeze({
@@ -772,7 +898,9 @@ function materializeStoredAuthorityEffect(
             creationTimeSeed,
           }),
         });
-  });
+  }).pipe(Effect.catch(error => typeof error === "string"
+    ? Effect.succeed(materializationCorrupt(mode, error))
+    : Effect.fail(error)));
 }
 
 function materializationAuthorityMismatch(
@@ -790,6 +918,449 @@ function materializationAuthorityMismatch(
   return mode.kind === "sealed"
     ? authorityMismatch(reason)
     : occExecutionAuthorityMismatch(reason);
+}
+
+const materializeApplicationGraphEffect = Effect.fn(
+  "StoredCommitAuthority.materializeApplicationGraph",
+)(function* (
+  session: Extract<StoredCommitAuthoritySessionScalarsV1, {
+    readonly executionAuthorityGeneration: "application_v1";
+  }>,
+  captured: CapturedRowsV1,
+  expected: StoredCommitAuthorityCaptureAuthorityV1,
+  schemaManifest: SchemaManifestAppSchemaV1,
+) {
+  if (
+    captured.applicationGraphSizeRows.length !== 1 ||
+    captured.applicationGraphPayloadRows.length !== 1
+  ) {
+    return yield* Effect.fail(
+      "applicationGraphMissingOrDuplicate" as const,
+    );
+  }
+  const sizes = captured.applicationGraphSizeRows[0];
+  const graph = captured.applicationGraphPayloadRows[0];
+  if (sizes === undefined || graph === undefined) {
+    return yield* Effect.fail("applicationGraphMissingOrDuplicate" as const);
+  }
+  const canonicalAuthority = yield*
+    canonicalizeApplicationMutationExecutionAuthorityV1(
+      session.applicationExecutionAuthorityJson,
+    ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  if (
+    !bytesEqual(
+      canonicalAuthority.canonicalBytes,
+      session.applicationExecutionAuthorityCanonicalBytes,
+    ) ||
+    !bytesEqual(
+      canonicalAuthority.sha256,
+      session.applicationExecutionAuthoritySha256,
+    )
+  ) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const authority = canonicalAuthority.authority;
+  const target = authority.runtimeTarget;
+  const activation = graph.activation;
+  const readiness = graph.readiness;
+  const revision = graph.revision;
+  const analysis = graph.analysis;
+  const publication = graph.publication;
+  const fn = graph.selectedFunction;
+  const revisionSchema = graph.revisionSchema;
+  const schemaAuthority = graph.schemaAuthority;
+  const expectedLengths = [
+    [sizes.activationByteLengthText, activation.activationBytes],
+    [sizes.readinessByteLengthText, readiness.readinessBytes],
+    [sizes.manifestByteLengthText, analysis.manifestBytes],
+    [sizes.schemaByteLengthText, publication.schemaBytes],
+    [sizes.functionCatalogByteLengthText, publication.functionCatalogBytes],
+    [sizes.functionEntryByteLengthText, fn.entryBytes],
+    [sizes.schemaBindingByteLengthText, schemaAuthority.bindingBytes],
+  ] as const;
+  if (expectedLengths.some(([text, bytes]) =>
+    bytes === null || parseLength(text) !== bytes.byteLength
+  )) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const activatedAt = databaseTimestampFromUnknown(activation.activatedAt);
+  const readyAt = databaseTimestampFromUnknown(readiness.readyAt);
+  if (activatedAt === null || readyAt === null) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  yield* validateCanonicalFrame(
+    activation.activationBytes,
+    activation.activationSha256,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  yield* validateCanonicalFrame(
+    readiness.readinessBytes,
+    readiness.readinessSha256,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  const readinessFrame = yield* Effect.fromResult(
+    decodeApplicationReadinessFrame(readiness.readinessBytes).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const activationBytes = yield* Effect.fromResult(
+    applicationActivationFrameBytes({
+      scopeId: activation.scopeId,
+      activationSequence: activation.activationSequence,
+      previousActivationSequence: activation.previousActivationSequence,
+      revisionId: activation.revisionId,
+      readinessSha256: activation.readinessSha256,
+      activationRequestSha256: activation.activationRequestSha256,
+      activatedAtIso: activatedAt.toISOString(),
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const headBytes = yield* Effect.fromResult(
+    applicationActiveHeadFrameBytes({
+      scopeId: activation.scopeId,
+      activationSequence: activation.activationSequence,
+      revisionId: activation.revisionId,
+      readinessSha256: activation.readinessSha256,
+      activationSha256: activation.activationSha256,
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const headSha256 = yield* sha256ApplicationFrame(headBytes).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  if (
+    !bytesEqual(activationBytes, activation.activationBytes) ||
+    activation.activationSequence.toString() !== authority.activationSequence ||
+    activation.revisionId !== target.revisionId ||
+    !bytesEqual(
+      headSha256,
+      hexToBytes(authority.activeHeadSha256),
+    ) ||
+    !bytesEqual(activation.readinessSha256, readiness.readinessSha256)
+  ) return yield* Effect.fail("applicationGraphInvalid" as const);
+
+  if (
+    revision.scopeId !== target.scopeId ||
+    revision.revisionId !== target.revisionId ||
+    revision.candidateId !== target.candidateId ||
+    revision.analysisId !== target.analysisId ||
+    revision.analysisStatus !== "analyzed" || revision.status !== "inactive" ||
+    analysis.scopeId !== target.scopeId ||
+    analysis.analysisId !== target.analysisId ||
+    analysis.status !== "analyzed" ||
+    analysis.candidateId !== target.candidateId ||
+    !bytesEqual(analysis.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(revision.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(revision.manifestSha256, hexToBytes(target.manifestSha256)) ||
+    analysis.manifestBytes === null || analysis.manifestSha256 === null
+  ) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const manifestBytes = analysis.manifestBytes;
+  const manifestSha256 = analysis.manifestSha256;
+  const manifestDigest = yield* sha256ApplicationFrame(
+    manifestBytes,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  if (!bytesEqual(manifestDigest, manifestSha256)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const manifestValue = yield* Effect.try({
+    try: () => JSON.parse(UTF8_FATAL.decode(manifestBytes)) as unknown,
+    catch: () => "applicationGraphInvalid" as const,
+  });
+  const manifest = yield* Effect.fromResult(
+    canonicalizeApplicationManifestV1(manifestValue).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  if (!bytesEqual(manifest.canonicalBytes, manifestBytes)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const selected = manifest.manifest.functions.find(
+    candidate => candidate.path === target.function.path,
+  );
+  if (selected === undefined) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const schemaFrame = yield* Effect.fromResult(
+    applicationSchemaPublicationFrameV1(manifest.manifest).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const catalogFrame = yield* Effect.fromResult(
+    applicationFunctionCatalogPublicationFrameV1(manifest.manifest).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const entryFrame = yield* Effect.fromResult(
+    applicationFunctionEntryPublicationFrameV1(selected).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const schemaSha = yield* sha256ApplicationFrame(schemaFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const catalogSha = yield* sha256ApplicationFrame(catalogFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const entrySha = yield* sha256ApplicationFrame(entryFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const publicationFrame = yield* Effect.fromResult(
+    applicationPublicationCommitmentFrameV1({
+      scopeId: target.scopeId,
+      revisionId: target.revisionId,
+      candidateId: target.candidateId,
+      analysisId: target.analysisId,
+      sourceArtifactRootSha256: target.sourceArtifactRootSha256,
+      manifestSha256: target.manifestSha256,
+      schemaSha256: encodeBytesToLowercaseHex(schemaSha),
+      functionCatalogSha256: encodeBytesToLowercaseHex(catalogSha),
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const publicationSha = yield* sha256ApplicationFrame(publicationFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const reconstructedTarget = yield* Effect.fromResult(
+    canonicalizeApplicationRuntimeTargetV1({
+      ...target,
+      executionModulePath: manifest.manifest.sourceArtifact.executionModulePath,
+      function: { ...selected, entrySha256: encodeBytesToLowercaseHex(entrySha) },
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  if (
+    publication.scopeId !== target.scopeId ||
+    publication.revisionId !== target.revisionId ||
+    publication.candidateId !== target.candidateId ||
+    publication.analysisId !== target.analysisId ||
+    publication.revisionStatus !== "inactive" ||
+    !bytesEqual(publication.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(publication.manifestSha256,
+      hexToBytes(target.manifestSha256)) ||
+    fn.scopeId !== target.scopeId ||
+    fn.revisionId !== target.revisionId ||
+    fn.functionPath !== selected.path ||
+    fn.moduleName !== selected.moduleName ||
+    fn.exportName !== selected.exportName ||
+    fn.functionKind !== selected.kind ||
+    fn.visibility !== selected.visibility ||
+    !bytesEqual(fn.functionCatalogSha256, catalogSha) ||
+    !bytesEqual(schemaFrame, publication.schemaBytes) ||
+    !bytesEqual(catalogFrame, publication.functionCatalogBytes) ||
+    !bytesEqual(entryFrame, fn.entryBytes) ||
+    !bytesEqual(schemaSha, publication.schemaSha256) ||
+    !bytesEqual(catalogSha, publication.functionCatalogSha256) ||
+    !bytesEqual(entrySha, fn.entrySha256) ||
+    !bytesEqual(publicationSha, publication.publicationSha256) ||
+    encodeBytesToLowercaseHex(publicationSha) !== target.publicationSha256 ||
+    !bytesEqual(reconstructedTarget.canonicalBytes,
+      (yield* Effect.fromResult(canonicalizeApplicationRuntimeTargetV1(target)
+        .pipe(Result.mapError(() => "applicationGraphInvalid" as const))))
+        .canonicalBytes)
+  ) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const coldReceiptSetFrame = yield* Effect.fromResult(
+    applicationColdReceiptSetFrameBytes({
+      runtimeHostIdentity: readinessFrame.runtimeHostIdentity,
+      compatibilityDate: readinessFrame.compatibilityDate,
+      entries: readinessFrame.coldReceipts,
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const coldReceiptSetSha256 = yield* sha256ApplicationFrame(
+    coldReceiptSetFrame,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  if (
+    readiness.scopeId !== target.scopeId ||
+    readiness.revisionId !== target.revisionId ||
+    readiness.deploymentId !== expected.deploymentId ||
+    readiness.candidateId !== target.candidateId ||
+    readiness.analysisId !== target.analysisId ||
+    readiness.storageGeneration !== expected.storageGeneration ||
+    readiness.storageGenerationFence !== expected.storageGenerationFence ||
+    readiness.epoch !== expected.snapshotToken.epoch ||
+    readiness.schemaVersionId !== authority.schemaVersionId ||
+    !bytesEqual(readiness.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(readiness.manifestSha256,
+      hexToBytes(target.manifestSha256)) ||
+    !bytesEqual(readiness.publicationSha256, publicationSha) ||
+    !bytesEqual(readiness.applicationSchemaSha256, schemaSha) ||
+    !bytesEqual(readiness.functionCatalogSha256, catalogSha) ||
+    !bytesEqual(readiness.coldReceiptSetSha256, coldReceiptSetSha256) ||
+    !readinessFrameMatchesRow(readinessFrame, readiness, readyAt) ||
+    revisionSchema.scopeId !== target.scopeId ||
+    revisionSchema.revisionId !== target.revisionId ||
+    revisionSchema.schemaVersionId !== authority.schemaVersionId ||
+    revisionSchema.deploymentId !== expected.deploymentId ||
+    !bytesEqual(revisionSchema.applicationSchemaSha256, schemaSha) ||
+    schemaAuthority.deploymentId !== expected.deploymentId ||
+    !bytesEqual(schemaAuthority.applicationSchemaSha256, schemaSha) ||
+    schemaAuthority.status !== "published" ||
+    schemaAuthority.schemaVersionId !== authority.schemaVersionId ||
+    schemaAuthority.schemaVersion !== revisionSchema.schemaVersion ||
+    schemaAuthority.schemaManifestSha256 === null ||
+    schemaAuthority.bindingSha256 === null ||
+    schemaAuthority.bindingBytes === null ||
+    !bytesEqual(revisionSchema.schemaManifestSha256,
+      schemaAuthority.schemaManifestSha256) ||
+    !bytesEqual(readiness.schemaManifestSha256,
+      schemaAuthority.schemaManifestSha256) ||
+    !bytesEqual(readiness.schemaBindingSha256,
+      schemaAuthority.bindingSha256) ||
+    !bytesEqual(revisionSchema.schemaBindingSha256,
+      schemaAuthority.bindingSha256)
+  ) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const bindingProjection = yield* Effect.fromResult(
+    projectApplicationSchemaBindingResult(manifest.manifest, schemaManifest),
+  );
+  const bindingFrame = yield* Effect.fromResult(
+    applicationSchemaBindingFrameBytes({
+      deploymentId: expected.deploymentId,
+      applicationSchemaSha256: encodeBytesToLowercaseHex(schemaSha),
+      schemaVersionId: authority.schemaVersionId,
+      schemaVersion: schemaAuthority.schemaVersion,
+      schemaManifestSha256: encodeBytesToLowercaseHex(
+        schemaAuthority.schemaManifestSha256,
+      ),
+      tables: bindingProjection.tables,
+      indexes: bindingProjection.indexes,
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const bindingSha = yield* sha256ApplicationFrame(bindingFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  if (!bytesEqual(bindingFrame, schemaAuthority.bindingBytes) ||
+    !bytesEqual(bindingSha, schemaAuthority.bindingSha256)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+
+  return Object.freeze({
+    executionAuthority: canonicalAuthority.authority,
+    runtimeTarget: canonicalAuthority.authority.runtimeTarget,
+    activationSequence: activation.activationSequence,
+    readinessSha256: copyBytes(readiness.readinessSha256),
+    activationSha256: copyBytes(activation.activationSha256),
+    activeHeadSha256: copyBytes(headSha256),
+    publicationSha256: copyBytes(publicationSha),
+    functionEntrySha256: copyBytes(entrySha),
+    schemaBindingSha256: copyBytes(schemaAuthority.bindingSha256),
+  });
+});
+
+function hexToBytes(value: string): Uint8Array {
+  if (!/^[0-9a-f]{64}$/.test(value)) return new Uint8Array(0);
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function readinessFrameMatchesRow(
+  frame: import("../applicationAuthorityFrames").ApplicationReadinessFrameProjection,
+  row: ApplicationReadinessRow,
+  readyAt: Date,
+): boolean {
+  return frame.scopeId === row.scopeId &&
+    frame.deploymentId === row.deploymentId &&
+    frame.revisionId === row.revisionId &&
+    frame.candidateId === row.candidateId &&
+    frame.analysisId === row.analysisId &&
+    frame.storageGeneration === row.storageGeneration &&
+    frame.storageGenerationFence === row.storageGenerationFence.toString() &&
+    frame.epoch === row.epoch &&
+    frame.sourceArtifactRootSha256 ===
+      encodeBytesToLowercaseHex(row.sourceArtifactRootSha256) &&
+    frame.manifestSha256 === encodeBytesToLowercaseHex(row.manifestSha256) &&
+    frame.publicationSha256 ===
+      encodeBytesToLowercaseHex(row.publicationSha256) &&
+    frame.applicationSchemaSha256 ===
+      encodeBytesToLowercaseHex(row.applicationSchemaSha256) &&
+    frame.functionCatalogSha256 ===
+      encodeBytesToLowercaseHex(row.functionCatalogSha256) &&
+    frame.schemaVersionId === row.schemaVersionId &&
+    frame.schemaManifestSha256 ===
+      encodeBytesToLowercaseHex(row.schemaManifestSha256) &&
+    frame.schemaBindingSha256 ===
+      encodeBytesToLowercaseHex(row.schemaBindingSha256) &&
+    frame.taskCatalogBindingSha256 ===
+      encodeBytesToLowercaseHex(row.taskCatalogBindingSha256) &&
+    frame.runtimeHostIdentity === row.runtimeHostIdentity &&
+    frame.compatibilityDate === row.compatibilityDate &&
+    frame.coldReceiptSetSha256 ===
+      encodeBytesToLowercaseHex(row.coldReceiptSetSha256) &&
+    frame.candidateValidationReceiptSha256 ===
+      encodeBytesToLowercaseHex(row.candidateValidationReceiptSha256) &&
+    frame.uniqueConstraintStatus === row.uniqueConstraintStatus &&
+    frame.uniqueConstraintEligibilitySha256 ===
+      encodeBytesToLowercaseHex(row.uniqueConstraintEligibilitySha256) &&
+    frame.physicalReadinessSha256 ===
+      encodeBytesToLowercaseHex(row.physicalReadinessSha256) &&
+    frame.readyAt === readyAt.toISOString();
+}
+
+function projectApplicationSchemaBindingResult(
+  manifest: ApplicationManifestV1,
+  schemaManifest: SchemaManifestAppSchemaV1,
+): Result.Result<Readonly<{
+  readonly tables: ReadonlyArray<Json>;
+  readonly indexes: ReadonlyArray<Json>;
+}>, "applicationGraphInvalid"> {
+  const boundTablesByName = new Map(
+    schemaManifest.tableDefinitions.tables.map(table => [
+      table.logicalName,
+      table,
+    ] as const),
+  );
+  if (boundTablesByName.size !== manifest.schema.tables.length) {
+    return Result.fail("applicationGraphInvalid");
+  }
+  const tableIds = new Map<number, CatalogTableId>();
+  const tables: Json[] = [];
+  for (const table of manifest.schema.tables) {
+    const bound = schemaManifest.tableDefinitions.tables.find(candidate =>
+      candidate.logicalName === table.name
+    );
+    if (bound === undefined || !canonicalJsonEqual(
+      bound.definition.documentType,
+      table.validator,
+    )) return Result.fail("applicationGraphInvalid");
+    tableIds.set(table.tableId, bound.tableId);
+    tables.push({
+      applicationTableId: table.tableId,
+      logicalName: table.name,
+      tableId: bound.tableId,
+    });
+  }
+  const unmatched = new Set(schemaManifest.indexBindings.indexes);
+  const indexes: Json[] = [];
+  for (const index of manifest.schema.indexes) {
+    const tableId = tableIds.get(index.tableId);
+    const bound = tableId === undefined ? undefined :
+      schemaManifest.indexBindings.indexes.find(candidate =>
+        candidate.tableId === tableId && candidate.descriptor === index.name
+      );
+    if (bound === undefined || bound.spec.fields.length !== index.fields.length ||
+      !bound.spec.fields.every((field, position) =>
+        field === index.fields[position])) {
+      return Result.fail("applicationGraphInvalid");
+    }
+    if (tableId === undefined) return Result.fail("applicationGraphInvalid");
+    unmatched.delete(bound);
+    indexes.push({
+      applicationIndexId: index.indexId,
+      applicationTableId: index.tableId,
+      descriptor: index.name,
+      logicalIndexId: bound.logicalIndexId,
+      tableId,
+    });
+  }
+  return unmatched.size === 0
+    ? Result.succeed(Object.freeze({
+        tables: Object.freeze(tables),
+        indexes: Object.freeze(indexes),
+      }))
+    : Result.fail("applicationGraphInvalid");
+}
+
+function canonicalJsonEqual(left: Json, right: Json): boolean {
+  const invariant = (issue: { readonly reason: string }): never => {
+    throw new Error(`Application schema invariant: ${issue.reason}`);
+  };
+  return encodeCanonicalJson(left, invariant) ===
+    encodeCanonicalJson(right, invariant);
 }
 
 function materializationCorrupt(
@@ -936,20 +1507,36 @@ function validSessionScalars(session: SessionSizeRow): boolean {
     );
 }
 
+function captureSessionTiming(session: SessionSizeRow): Readonly<{
+  readonly authorizationGrantExpiresAtMilliseconds: number;
+  readonly hardExpiresAtMilliseconds: number;
+  readonly updatedAtMilliseconds: number;
+}> | undefined {
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const updatedAtMilliseconds = finiteDateMilliseconds(session.updatedAt);
+  return authorizationGrantExpiresAtMilliseconds === undefined ||
+      hardExpiresAtMilliseconds === undefined ||
+      updatedAtMilliseconds === undefined
+    ? undefined
+    : Object.freeze({
+        authorizationGrantExpiresAtMilliseconds,
+        hardExpiresAtMilliseconds,
+        updatedAtMilliseconds,
+      });
+}
+
 function captureSessionScalars(
   session: SessionSizeRow,
+  payload?: SessionPayloadRow,
 ): StoredCommitAuthoritySessionScalarsV1 | undefined {
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     return undefined;
   }
-  if (
-    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
-    session.packageId === null ||
-    session.artifactRuntime === null ||
-    session.artifactId === null ||
-    session.sourcePackageHash === null ||
-    session.executionModule === null
-  ) return undefined;
   const argsLength = parseLength(
     session.validatedArgsCanonicalByteLengthText,
   );
@@ -974,16 +1561,10 @@ function captureSessionScalars(
   ) {
     return undefined;
   }
-  return Object.freeze({
-    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+  const common = {
     lifecycle: session.lifecycle,
     storageGeneration: session.storageGeneration,
     storageGenerationFence: session.storageGenerationFence,
-    packageId: session.packageId,
-    artifactRuntime: session.artifactRuntime,
-    artifactId: session.artifactId,
-    sourcePackageHash: session.sourcePackageHash,
-    executionModule: session.executionModule,
     functionPath: session.functionPath,
     functionKind: session.functionKind,
     schemaVersionId: session.schemaVersionId,
@@ -1008,6 +1589,55 @@ function captureSessionScalars(
     hardExpiresAtMilliseconds,
     createdAtMilliseconds,
     updatedAtMilliseconds,
+  } as const;
+  if (session.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (
+      session.packageId === null ||
+      session.artifactRuntime === null ||
+      session.artifactId === null ||
+      session.sourcePackageHash === null ||
+      session.executionModule === null ||
+      session.applicationExecutionAuthorityJsonByteLengthText !== null ||
+      session.applicationExecutionAuthorityCanonicalByteLengthText !== null ||
+      session.applicationExecutionAuthoritySha256 !== null
+    ) return undefined;
+    return Object.freeze({
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+      packageId: session.packageId,
+      artifactRuntime: session.artifactRuntime,
+      artifactId: session.artifactId,
+      sourcePackageHash: session.sourcePackageHash,
+      executionModule: session.executionModule,
+      ...common,
+    });
+  }
+  if (
+    session.executionAuthorityGeneration !== "application_v1" ||
+    session.packageId !== null || session.artifactRuntime !== null ||
+    session.artifactId !== null || session.sourcePackageHash !== null ||
+    session.executionModule !== null ||
+    payload?.applicationExecutionAuthorityJsonText === null ||
+    payload?.applicationExecutionAuthorityJsonText === undefined ||
+    payload.applicationExecutionAuthorityCanonicalBytes === null ||
+    session.applicationExecutionAuthoritySha256 === null
+  ) return undefined;
+  const authorityJson = decodeJsonObjectTextResult(
+    payload.applicationExecutionAuthorityJsonText,
+  );
+  if (Result.isFailure(authorityJson)) return undefined;
+  return Object.freeze({
+    executionAuthorityGeneration: "application_v1",
+    applicationExecutionAuthorityJson:
+      snapshotApplicationExecutionAuthorityJson(
+        authorityJson.success,
+      ),
+    applicationExecutionAuthorityCanonicalBytes: copyBytes(
+      payload.applicationExecutionAuthorityCanonicalBytes,
+    ),
+    applicationExecutionAuthoritySha256: copyBytes(
+      session.applicationExecutionAuthoritySha256,
+    ),
+    ...common,
   });
 }
 

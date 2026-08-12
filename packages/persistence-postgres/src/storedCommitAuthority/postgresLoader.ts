@@ -5,7 +5,10 @@ import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
-import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
+import type {
+  ReplacementScopeIdV1,
+  ScopeUuidV1,
+} from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import type {
   TransactionAttemptFence,
@@ -13,6 +16,7 @@ import type {
 } from "flarex-protocol/transaction-session";
 
 import type { AppRowTransaction } from "../appRows";
+import type { FlarexMetadataDatabase } from "../deployments";
 import {
   detachDriverRows,
   detachUnknownDriverRows,
@@ -24,6 +28,14 @@ import {
 } from "../scopeAuthorityResolution";
 import {
   fxControlSchemaVersions,
+  fxControlApplicationSchemaAuthoritiesV1,
+  fxSystemApplicationActivationsV1,
+  fxSystemApplicationAnalysesV1,
+  fxSystemApplicationFunctionsV1,
+  fxSystemApplicationPublicationsV1,
+  fxSystemApplicationReadinessV1,
+  fxSystemApplicationRevisionSchemasV1,
+  fxSystemApplicationRevisionsV2,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,
@@ -44,6 +56,8 @@ import {
   materializeEffect,
   parseLength,
   type AttemptChildExistenceRow,
+  type ApplicationGraphPayloadRow,
+  type ApplicationGraphSizeRow,
   type CapturedRowsV1,
   type ClockRow,
   type SchemaPayloadRow,
@@ -70,8 +84,12 @@ export interface StoredCommitAuthorityEvidenceQueryV1 {
     | "executionClaim"
     | "attemptChildren"
     | "schemaSizes"
+    | "applicationGraphSizes"
+    | "applicationSchemaAuthoritySizes"
     | "authorityPayload"
     | "schemaPayload"
+    | "applicationGraphPayload"
+    | "applicationSchemaAuthorityPayload"
     | "stableBindings";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
@@ -89,8 +107,14 @@ export interface StoredCommitAuthorityEvidenceLoaderOptionsV1 {
   ) => void;
 }
 
+export interface StoredCommitAuthorityEvidenceLoaderPortsV1
+  extends PointMutationSessionAuthorityResolutionPortsV1 {
+  /** Immutable control-plane schema evidence required by Application authority. */
+  readonly applicationControlDb?: FlarexMetadataDatabase;
+}
+
 export function createStoredCommitAuthorityEvidenceLoaderV1(
-  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1 = {},
 ): StoredCommitAuthorityEvidenceLoaderV1 {
   const loadEffect = Effect.fn("StoredCommitAuthority.load")(function* (
@@ -118,6 +142,53 @@ export function createStoredCommitAuthorityEvidenceLoaderV1(
   return Object.freeze({
     loadEffect,
   });
+}
+
+interface ApplicationGraphSelector {
+  readonly activationSequence: bigint;
+  readonly revisionId: string;
+  readonly functionPath: string;
+  readonly applicationSchemaSha256: Uint8Array;
+}
+
+const DECIMAL_SEQUENCE = /^[1-9][0-9]*$/;
+const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
+const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
+
+function captureApplicationGraphSelector(
+  session: SessionSizeRow | undefined,
+): ApplicationGraphSelector | undefined {
+  if (session?.executionAuthorityGeneration !== "application_v1" ||
+    session.applicationExecutionAuthorityFormat !==
+      "flarex.application-mutation-execution-authority" ||
+    session.applicationExecutionAuthorityVersionText !== "1") return undefined;
+  const sequence = session.applicationExecutionAuthorityActivationSequence;
+  if (typeof sequence !== "string" || !DECIMAL_SEQUENCE.test(sequence)) {
+    return undefined;
+  }
+  const activationSequence = BigInt(sequence);
+  const revisionId = session.applicationExecutionAuthorityRevisionId;
+  const functionPath = session.applicationExecutionAuthorityFunctionPath;
+  const schemaSha256 = session.applicationExecutionAuthoritySchemaSha256;
+  if (activationSequence > MAX_POSTGRES_BIGINT ||
+    typeof revisionId !== "string" ||
+    typeof functionPath !== "string" ||
+    typeof schemaSha256 !== "string" ||
+    !LOWERCASE_SHA256.test(schemaSha256)) return undefined;
+  return Object.freeze({
+    activationSequence,
+    revisionId,
+    functionPath,
+    applicationSchemaSha256: decodeSha256Hex(schemaSha256),
+  });
+}
+
+function decodeSha256Hex(value: string): Uint8Array {
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
 }
 
 export type StoredCommitAuthorityRowsCaptureResultV1 =
@@ -198,7 +269,7 @@ export const captureStoredCommitAuthorityRowsEffect = Effect.fn(
     Effect.tryPromise({
       try: () =>
         repeatableReadTarget[RUN_LOCATED_REPEATABLE_READ_V1]((tx) =>
-          captureRows(tx, authority, options, includeAttemptChildren),
+          captureRows(tx, authority, ports, options, includeAttemptChildren),
         ),
       catch: (cause) =>
         new StoredCommitAuthorityEvidencePersistenceV1Error({
@@ -264,6 +335,7 @@ function captureAuthority(
 async function captureRows(
   tx: AppRowTransaction,
   authority: StoredCommitAuthorityCaptureAuthorityV1,
+  ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
   includeAttemptChildren: boolean,
 ): Promise<CapturedRowsV1> {
@@ -336,18 +408,58 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
-  const schemaSizeQuery = selectSchemaSizeRows(
-    tx,
+  const applicationSelector = captureApplicationGraphSelector(
+    sessionSizeRows[0],
+  );
+  const schemaDb = applicationSelector === undefined
+    ? tx
+    : ports.applicationControlDb;
+  const schemaSizeQuery = schemaDb === undefined ? null : selectSchemaSizeRows(
+    schemaDb,
     authority.deploymentId,
     authority.schemaVersionId,
   );
-  observeDrizzleQuery("schemaSizes", schemaSizeQuery, options.observeQuery);
-  const schemaSizeRows = await schemaSizeQuery;
+  if (schemaSizeQuery !== null) {
+    observeDrizzleQuery("schemaSizes", schemaSizeQuery, options.observeQuery);
+  }
+  const schemaSizeRows = schemaSizeQuery === null
+    ? Object.freeze([])
+    : await schemaSizeQuery;
+  const scopeApplicationGraphSizeRows = applicationSelector !== undefined
+    ? await selectApplicationGraphSizeRows(
+        tx,
+        authority.deploymentId,
+        authority.scopeId,
+        applicationSelector.activationSequence,
+        applicationSelector.revisionId,
+        applicationSelector.functionPath,
+        applicationSelector.applicationSchemaSha256,
+        options,
+      )
+    : Object.freeze([]);
+  const schemaAuthoritySizeRows = applicationSelector !== undefined &&
+      ports.applicationControlDb !== undefined
+    ? await selectApplicationSchemaAuthoritySizeRows(
+        ports.applicationControlDb,
+        authority.deploymentId,
+        applicationSelector.applicationSchemaSha256,
+        options,
+      )
+    : Object.freeze([]);
+  const applicationGraphSizeRows = scopeApplicationGraphSizeRows.length === 1 &&
+      schemaAuthoritySizeRows.length === 1
+    ? Object.freeze([Object.freeze({
+        ...scopeApplicationGraphSizeRows[0],
+        schemaBindingByteLengthText:
+          schemaAuthoritySizeRows[0]?.schemaBindingByteLengthText ?? "",
+      })])
+    : Object.freeze([]);
   await options.afterSizeProjection?.();
 
   const skipReason = sizeProjectionFailure(
     sessionSizeRows,
     schemaSizeRows,
+    applicationGraphSizeRows,
   );
   if (skipReason !== undefined) {
     return Object.freeze({
@@ -359,9 +471,11 @@ async function captureRows(
       executionClaimRows: detachDriverRows(executionClaimRows),
       attemptChildRows: detachDriverRows(attemptChildRows),
       schemaSizeRows: detachDriverRows(schemaSizeRows),
+      applicationGraphSizeRows: detachDriverRows(applicationGraphSizeRows),
       skipReason,
       sessionPayloadRows: Object.freeze([]),
       schemaPayloadRows: Object.freeze([]),
+      applicationGraphPayloadRows: Object.freeze([]),
       bindingRows: Object.freeze([]),
     });
   }
@@ -381,6 +495,13 @@ async function captureRows(
       `,
       authorizationGrantCanonicalBytes:
         fxSystemTransactionSessions.authorizationGrantCanonicalBytes,
+      applicationExecutionAuthorityJsonText: sql<string | null>`case
+        when ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+          is null then null
+        else ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}::text
+      end`,
+      applicationExecutionAuthorityCanonicalBytes:
+        fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
     })
     .from(fxSystemTransactionSessions)
     .where(and(
@@ -394,7 +515,7 @@ async function captureRows(
     options.observeQuery,
   );
   const sessionPayloadRows = await sessionPayloadQuery;
-  const schemaPayloadQuery = tx
+  const schemaPayloadQuery = schemaDb === undefined ? null : schemaDb
     .select({
       deploymentId: fxControlSchemaVersions.deploymentId,
       schemaVersionId: fxControlSchemaVersions.schemaVersionId,
@@ -416,12 +537,46 @@ async function captureRows(
       ),
     ))
     .limit(2);
-  observeDrizzleQuery(
-    "schemaPayload",
-    schemaPayloadQuery,
-    options.observeQuery,
-  );
-  const schemaPayloadRows = await schemaPayloadQuery;
+  if (schemaPayloadQuery !== null) {
+    observeDrizzleQuery(
+      "schemaPayload",
+      schemaPayloadQuery,
+      options.observeQuery,
+    );
+  }
+  const schemaPayloadRows = schemaPayloadQuery === null
+    ? Object.freeze([])
+    : await schemaPayloadQuery;
+  const scopeApplicationGraphPayloadRows = applicationGraphSizeRows.length === 1 &&
+      applicationSelector !== undefined
+    ? await selectApplicationGraphPayloadRows(
+        tx,
+        authority.deploymentId,
+        authority.scopeId,
+        applicationSelector.activationSequence,
+        applicationSelector.revisionId,
+        applicationSelector.functionPath,
+        applicationSelector.applicationSchemaSha256,
+        options,
+      )
+    : Object.freeze([]);
+  const schemaAuthorityPayloadRows = applicationGraphSizeRows.length === 1 &&
+      applicationSelector !== undefined && ports.applicationControlDb !== undefined
+    ? await selectApplicationSchemaAuthorityPayloadRows(
+        ports.applicationControlDb,
+        authority.deploymentId,
+        applicationSelector.applicationSchemaSha256,
+        options,
+      )
+    : Object.freeze([]);
+  const applicationGraphPayloadRows =
+      scopeApplicationGraphPayloadRows.length === 1 &&
+      schemaAuthorityPayloadRows.length === 1
+    ? Object.freeze([Object.freeze({
+        ...scopeApplicationGraphPayloadRows[0],
+        schemaAuthority: schemaAuthorityPayloadRows[0],
+      }) as ApplicationGraphPayloadRow])
+    : Object.freeze([]);
   const bindingStatement = sql`
     select
       declared.ordinality::bigint::text as "ordinalText",
@@ -463,7 +618,9 @@ async function captureRows(
       MAX_SCHEMA_MANIFEST_APP_TABLES + 1,
     ]),
   }));
-  const bindingResult: unknown = await tx.execute(bindingStatement);
+  const bindingResult: unknown = schemaDb === undefined
+    ? Object.freeze({ rows: Object.freeze([]) })
+    : await schemaDb.execute(bindingStatement);
 
   return Object.freeze({
     clockRows: detachDriverRows(clockRows),
@@ -474,8 +631,11 @@ async function captureRows(
     executionClaimRows: detachDriverRows(executionClaimRows),
     attemptChildRows: detachDriverRows(attemptChildRows),
     schemaSizeRows: detachDriverRows(schemaSizeRows),
+    applicationGraphSizeRows: detachDriverRows(applicationGraphSizeRows),
     sessionPayloadRows: detachSessionPayloadRows(sessionPayloadRows),
     schemaPayloadRows: detachSchemaPayloadRows(schemaPayloadRows),
+    applicationGraphPayloadRows:
+      detachApplicationGraphPayloadRows(applicationGraphPayloadRows),
     bindingRows: detachUnknownDriverRows(
       rowsFromDriverExecuteResult(
         bindingResult,
@@ -566,12 +726,43 @@ function selectSessionSizeRows(
       fxSystemTransactionSessions.storageGenerationFence,
     executionAuthorityGeneration:
       fxSystemTransactionSessions.executionAuthorityGeneration,
-    applicationExecutionAuthorityJson:
-      fxSystemTransactionSessions.applicationExecutionAuthorityJson,
-    applicationExecutionAuthorityCanonicalBytes:
-      fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
     applicationExecutionAuthoritySha256:
       fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
+    applicationExecutionAuthorityFormat: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        ->> 'format'
+    `,
+    applicationExecutionAuthorityVersionText: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        ->> 'version'
+    `,
+    applicationExecutionAuthorityActivationSequence: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        ->> 'activationSequence'
+    `,
+    applicationExecutionAuthorityRevisionId: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{runtimeTarget,revisionId}'
+    `,
+    applicationExecutionAuthorityFunctionPath: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{runtimeTarget,function,path}'
+    `,
+    applicationExecutionAuthoritySchemaSha256: sql<string | null>`
+      ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        #>> '{runtimeTarget,schemaSha256}'
+    `,
+    applicationExecutionAuthorityJsonByteLengthText: sql<string | null>`case
+      when ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}
+        is null then null else octet_length(
+          ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}::text
+        )::bigint::text end`,
+    applicationExecutionAuthorityCanonicalByteLengthText:
+      sql<string | null>`case
+        when ${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}
+          is null then null else octet_length(
+            ${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}
+          )::bigint::text end`,
     packageId: fxSystemTransactionSessions.packageId,
     artifactRuntime: fxSystemTransactionSessions.artifactRuntime,
     artifactId: fxSystemTransactionSessions.artifactId,
@@ -679,11 +870,11 @@ function selectRootScalarRows(
 }
 
 function selectSchemaSizeRows(
-  tx: AppRowTransaction,
+  db: Pick<AppRowTransaction, "select">,
   deploymentId: TransactionGrantDeploymentIdV1,
   schemaVersionId: CatalogSchemaVersionId,
 ) {
-  return tx.select({
+  return db.select({
     deploymentId: fxControlSchemaVersions.deploymentId,
     schemaVersionId: fxControlSchemaVersions.schemaVersionId,
     version: fxControlSchemaVersions.version,
@@ -702,9 +893,222 @@ function selectSchemaSizeRows(
   )).limit(2);
 }
 
+async function selectApplicationGraphSizeRows(
+  tx: AppRowTransaction,
+  deploymentId: TransactionGrantDeploymentIdV1,
+  scopeId: ReplacementScopeIdV1,
+  activationSequence: bigint,
+  revisionId: string,
+  functionPath: string,
+  applicationSchemaSha256: Uint8Array,
+  options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
+): Promise<ReadonlyArray<ApplicationGraphSizeRow>> {
+  const query = tx.select({
+      activationByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationActivationsV1.activationBytes}
+      )::bigint::text`,
+      readinessByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationReadinessV1.readinessBytes}
+      )::bigint::text`,
+      manifestByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationAnalysesV1.manifestBytes}
+      )::bigint::text`,
+      schemaByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationPublicationsV1.schemaBytes}
+      )::bigint::text`,
+      functionCatalogByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationPublicationsV1.functionCatalogBytes}
+      )::bigint::text`,
+      functionEntryByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationFunctionsV1.entryBytes}
+      )::bigint::text`,
+      schemaBindingByteLengthText: sql<string>`'0'`,
+    })
+    .from(fxSystemApplicationActivationsV1)
+    .innerJoin(fxSystemApplicationReadinessV1, and(
+      eq(fxSystemApplicationReadinessV1.scopeId,
+        fxSystemApplicationActivationsV1.scopeId),
+      eq(fxSystemApplicationReadinessV1.revisionId,
+        fxSystemApplicationActivationsV1.revisionId),
+      eq(fxSystemApplicationReadinessV1.readinessSha256,
+        fxSystemApplicationActivationsV1.readinessSha256),
+    ))
+    .innerJoin(fxSystemApplicationRevisionsV2, and(
+      eq(fxSystemApplicationRevisionsV2.scopeId,
+        fxSystemApplicationActivationsV1.scopeId),
+      eq(fxSystemApplicationRevisionsV2.revisionId,
+        fxSystemApplicationActivationsV1.revisionId),
+    ))
+    .innerJoin(fxSystemApplicationAnalysesV1, and(
+      eq(fxSystemApplicationAnalysesV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationAnalysesV1.analysisId,
+        fxSystemApplicationRevisionsV2.analysisId),
+    ))
+    .innerJoin(fxSystemApplicationPublicationsV1, and(
+      eq(fxSystemApplicationPublicationsV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationPublicationsV1.revisionId,
+        fxSystemApplicationRevisionsV2.revisionId),
+    ))
+    .innerJoin(fxSystemApplicationFunctionsV1, and(
+      eq(fxSystemApplicationFunctionsV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationFunctionsV1.revisionId,
+        fxSystemApplicationRevisionsV2.revisionId),
+      eq(fxSystemApplicationFunctionsV1.functionPath, functionPath),
+    ))
+    .innerJoin(fxSystemApplicationRevisionSchemasV1, and(
+      eq(fxSystemApplicationRevisionSchemasV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationRevisionSchemasV1.revisionId,
+        fxSystemApplicationRevisionsV2.revisionId),
+    ))
+    .where(and(
+      eq(fxSystemApplicationActivationsV1.scopeId, scopeId),
+      eq(fxSystemApplicationActivationsV1.activationSequence,
+        activationSequence),
+      eq(fxSystemApplicationActivationsV1.revisionId, revisionId),
+    )).limit(2);
+  observeDrizzleQuery("applicationGraphSizes", query, options.observeQuery);
+  return await query;
+}
+
+async function selectApplicationGraphPayloadRows(
+  tx: AppRowTransaction,
+  deploymentId: TransactionGrantDeploymentIdV1,
+  scopeId: ReplacementScopeIdV1,
+  activationSequence: bigint,
+  revisionId: string,
+  functionPath: string,
+  applicationSchemaSha256: Uint8Array,
+  options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
+): Promise<ReadonlyArray<Omit<ApplicationGraphPayloadRow, "schemaAuthority">>> {
+  const query = tx.select({
+      activation: fxSystemApplicationActivationsV1,
+      readiness: fxSystemApplicationReadinessV1,
+      revision: fxSystemApplicationRevisionsV2,
+      analysis: {
+        scopeId: fxSystemApplicationAnalysesV1.scopeId,
+        analysisId: fxSystemApplicationAnalysesV1.analysisId,
+        candidateId: fxSystemApplicationAnalysesV1.candidateId,
+        sourceArtifactRootSha256:
+          fxSystemApplicationAnalysesV1.sourceArtifactRootSha256,
+        analyzerIdentity: fxSystemApplicationAnalysesV1.analyzerIdentity,
+        analyzerPolicyIdentity:
+          fxSystemApplicationAnalysesV1.analyzerPolicyIdentity,
+        status: fxSystemApplicationAnalysesV1.status,
+        manifestSha256: fxSystemApplicationAnalysesV1.manifestSha256,
+        manifestBytes: fxSystemApplicationAnalysesV1.manifestBytes,
+        receiptSha256: sql<Uint8Array | null>`null`,
+        receiptBytes: sql<Uint8Array | null>`null`,
+        failureCode: fxSystemApplicationAnalysesV1.failureCode,
+        failureDetail: fxSystemApplicationAnalysesV1.failureDetail,
+        completedAt: fxSystemApplicationAnalysesV1.completedAt,
+        createdAt: fxSystemApplicationAnalysesV1.createdAt,
+        updatedAt: fxSystemApplicationAnalysesV1.updatedAt,
+      },
+      publication: fxSystemApplicationPublicationsV1,
+      selectedFunction: fxSystemApplicationFunctionsV1,
+      revisionSchema: fxSystemApplicationRevisionSchemasV1,
+    })
+    .from(fxSystemApplicationActivationsV1)
+    .innerJoin(fxSystemApplicationReadinessV1, and(
+      eq(fxSystemApplicationReadinessV1.scopeId,
+        fxSystemApplicationActivationsV1.scopeId),
+      eq(fxSystemApplicationReadinessV1.revisionId,
+        fxSystemApplicationActivationsV1.revisionId),
+      eq(fxSystemApplicationReadinessV1.readinessSha256,
+        fxSystemApplicationActivationsV1.readinessSha256),
+    ))
+    .innerJoin(fxSystemApplicationRevisionsV2, and(
+      eq(fxSystemApplicationRevisionsV2.scopeId,
+        fxSystemApplicationActivationsV1.scopeId),
+      eq(fxSystemApplicationRevisionsV2.revisionId,
+        fxSystemApplicationActivationsV1.revisionId),
+    ))
+    .innerJoin(fxSystemApplicationAnalysesV1, and(
+      eq(fxSystemApplicationAnalysesV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationAnalysesV1.analysisId,
+        fxSystemApplicationRevisionsV2.analysisId),
+    ))
+    .innerJoin(fxSystemApplicationPublicationsV1, and(
+      eq(fxSystemApplicationPublicationsV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationPublicationsV1.revisionId,
+        fxSystemApplicationRevisionsV2.revisionId),
+    ))
+    .innerJoin(fxSystemApplicationFunctionsV1, and(
+      eq(fxSystemApplicationFunctionsV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationFunctionsV1.revisionId,
+        fxSystemApplicationRevisionsV2.revisionId),
+      eq(fxSystemApplicationFunctionsV1.functionPath, functionPath),
+    ))
+    .innerJoin(fxSystemApplicationRevisionSchemasV1, and(
+      eq(fxSystemApplicationRevisionSchemasV1.scopeId,
+        fxSystemApplicationRevisionsV2.scopeId),
+      eq(fxSystemApplicationRevisionSchemasV1.revisionId,
+        fxSystemApplicationRevisionsV2.revisionId),
+    ))
+    .where(and(
+      eq(fxSystemApplicationActivationsV1.scopeId, scopeId),
+      eq(fxSystemApplicationActivationsV1.activationSequence,
+        activationSequence),
+      eq(fxSystemApplicationActivationsV1.revisionId, revisionId),
+    )).limit(2);
+  observeDrizzleQuery("applicationGraphPayload", query, options.observeQuery);
+  return await query;
+}
+
+async function selectApplicationSchemaAuthoritySizeRows(
+  db: FlarexMetadataDatabase,
+  deploymentId: TransactionGrantDeploymentIdV1,
+  applicationSchemaSha256: Uint8Array,
+  options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
+) {
+  const query = db.select({
+    schemaBindingByteLengthText: sql<string>`octet_length(
+      ${fxControlApplicationSchemaAuthoritiesV1.bindingBytes}
+    )::bigint::text`,
+  }).from(fxControlApplicationSchemaAuthoritiesV1).where(and(
+    eq(fxControlApplicationSchemaAuthoritiesV1.deploymentId, deploymentId),
+    eq(fxControlApplicationSchemaAuthoritiesV1.applicationSchemaSha256,
+      applicationSchemaSha256),
+  )).limit(2);
+  observeDrizzleQuery(
+    "applicationSchemaAuthoritySizes",
+    query,
+    options.observeQuery,
+  );
+  return await query;
+}
+
+async function selectApplicationSchemaAuthorityPayloadRows(
+  db: FlarexMetadataDatabase,
+  deploymentId: TransactionGrantDeploymentIdV1,
+  applicationSchemaSha256: Uint8Array,
+  options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
+) {
+  const query = db.select().from(fxControlApplicationSchemaAuthoritiesV1)
+    .where(and(
+      eq(fxControlApplicationSchemaAuthoritiesV1.deploymentId, deploymentId),
+      eq(fxControlApplicationSchemaAuthoritiesV1.applicationSchemaSha256,
+        applicationSchemaSha256),
+    )).limit(2);
+  observeDrizzleQuery(
+    "applicationSchemaAuthorityPayload",
+    query,
+    options.observeQuery,
+  );
+  return await query;
+}
+
 function sizeProjectionFailure(
   sessionRows: ReadonlyArray<SessionSizeRow>,
   schemaRows: ReadonlyArray<SchemaSizeRow>,
+  applicationGraphRows: ReadonlyArray<ApplicationGraphSizeRow>,
 ): StoredCommitAuthorityCorruptionReasonV1 | undefined {
   if (sessionRows.length !== 1 || schemaRows.length !== 1) {
     return sessionRows.length !== 1
@@ -716,6 +1120,15 @@ function sizeProjectionFailure(
   if (session === undefined || schema === undefined) {
     return "sizeProjectionInvalid";
   }
+  const applicationExpected = session.executionAuthorityGeneration ===
+    "application_v1";
+  if (applicationExpected && applicationGraphRows.length !== 1) {
+    return "applicationGraphMissingOrDuplicate";
+  }
+  if (!applicationExpected && applicationGraphRows.length !== 0) {
+    return "applicationGraphInvalid";
+  }
+  const graph = applicationGraphRows[0];
   const lengths = [
     session.validatedArgsJsonByteLengthText,
     session.validatedArgsCanonicalByteLengthText,
@@ -723,6 +1136,21 @@ function sizeProjectionFailure(
     session.authorizationGrantCanonicalByteLengthText,
     schema.manifestJsonByteLengthText,
     schema.manifestCanonicalByteLengthText,
+    ...(session.executionAuthorityGeneration === "application_v1"
+      ? [
+          session.applicationExecutionAuthorityJsonByteLengthText,
+          session.applicationExecutionAuthorityCanonicalByteLengthText,
+        ]
+      : []),
+    ...(graph === undefined ? [] : [
+      graph.activationByteLengthText,
+      graph.readinessByteLengthText,
+      graph.manifestByteLengthText,
+      graph.schemaByteLengthText,
+      graph.functionCatalogByteLengthText,
+      graph.functionEntryByteLengthText,
+      graph.schemaBindingByteLengthText,
+    ]),
   ].map(parseLength);
   if (lengths.some((length) => length === undefined)) {
     return "sizeProjectionInvalid";
@@ -752,10 +1180,27 @@ function emptyCapture(
     executionClaimRows: Object.freeze([]),
     attemptChildRows: Object.freeze([]),
     schemaSizeRows: Object.freeze([]),
+    applicationGraphSizeRows: Object.freeze([]),
     sessionPayloadRows: Object.freeze([]),
     schemaPayloadRows: Object.freeze([]),
+    applicationGraphPayloadRows: Object.freeze([]),
     bindingRows: Object.freeze([]),
   });
+}
+
+function detachApplicationGraphPayloadRows(
+  rows: ReadonlyArray<ApplicationGraphPayloadRow>,
+): ReadonlyArray<ApplicationGraphPayloadRow> {
+  return Object.freeze(rows.map(row => Object.freeze({
+    activation: Object.freeze(structuredClone(row.activation)),
+    readiness: Object.freeze(structuredClone(row.readiness)),
+    revision: Object.freeze(structuredClone(row.revision)),
+    analysis: Object.freeze(structuredClone(row.analysis)),
+    publication: Object.freeze(structuredClone(row.publication)),
+    selectedFunction: Object.freeze(structuredClone(row.selectedFunction)),
+    revisionSchema: Object.freeze(structuredClone(row.revisionSchema)),
+    schemaAuthority: Object.freeze(structuredClone(row.schemaAuthority)),
+  })));
 }
 
 function detachSessionPayloadRows(
@@ -767,6 +1212,10 @@ function detachSessionPayloadRows(
       new Uint8Array(row.validatedArgsCanonicalBytes),
     authorizationGrantCanonicalBytes:
       new Uint8Array(row.authorizationGrantCanonicalBytes),
+    applicationExecutionAuthorityCanonicalBytes:
+      row.applicationExecutionAuthorityCanonicalBytes === null
+        ? null
+        : new Uint8Array(row.applicationExecutionAuthorityCanonicalBytes),
   })));
 }
 

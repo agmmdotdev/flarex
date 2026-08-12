@@ -25,6 +25,10 @@ import type {
   TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
 import type { FlarexValueCodecVersion } from "flarex-protocol/value";
+import type { ApplicationMutationExecutionAuthorityV1 } from
+  "flarex-protocol/internal/application-mutation-authority-v1";
+import type { ApplicationRuntimeTargetV1 } from
+  "flarex-protocol/internal/application-runtime-target-v1";
 
 import {
   storedAuthorityCorruptionResult,
@@ -88,18 +92,23 @@ export interface StoredCommitAuthorityEvidenceAuthorityV1
   readonly sealIdentity: StoredCommitAuthoritySealIdentityV1;
 }
 
-export type StoredCommitAuthoritySessionEvidenceV1 =
-  StoredCommitAuthoritySessionScalarsV1 & Readonly<{
+type StoredCommitAuthoritySessionEvidenceFieldsV1 = Readonly<{
   readonly validatedArgsJson: JsonObject;
   readonly validatedArgsCanonicalBytes: Uint8Array;
   readonly authorizationGrantJson: JsonObject;
   readonly authorizationGrantCanonicalBytes: Uint8Array;
 }>;
 
-export interface StoredCommitAuthorityEvidenceV1 {
+export type StoredCommitAuthoritySessionEvidenceV1<Generation extends
+  StoredCommitAuthoritySessionScalarsV1["executionAuthorityGeneration"] =
+    StoredCommitAuthoritySessionScalarsV1["executionAuthorityGeneration"]> =
+  Extract<StoredCommitAuthoritySessionScalarsV1, {
+    readonly executionAuthorityGeneration: Generation;
+  }> & StoredCommitAuthoritySessionEvidenceFieldsV1;
+
+interface StoredCommitAuthorityEvidenceCommonV1 {
   readonly databaseNowMilliseconds: number;
   readonly currentAuthorizationRevocationEpoch: bigint;
-  readonly session: StoredCommitAuthoritySessionEvidenceV1;
   readonly schema: Readonly<{
     readonly deploymentId: TransactionGrantDeploymentIdV1;
     readonly schemaVersionId: CatalogSchemaVersionId;
@@ -109,6 +118,30 @@ export interface StoredCommitAuthorityEvidenceV1 {
       readonly tableId: CatalogTableId;
     }>>;
   }>;
+}
+
+export type StoredCommitAuthorityEvidenceV1 =
+  | (StoredCommitAuthorityEvidenceCommonV1 & Readonly<{
+      readonly session: StoredCommitAuthoritySessionEvidenceV1<
+        "legacy_dynamic_worker_v1"
+      >;
+      readonly application?: never;
+    }>)
+  | (StoredCommitAuthorityEvidenceCommonV1 & Readonly<{
+      readonly session: StoredCommitAuthoritySessionEvidenceV1<"application_v1">;
+      readonly application: StoredCommitAuthorityApplicationEvidenceV1;
+    }>);
+
+export interface StoredCommitAuthorityApplicationEvidenceV1 {
+  readonly executionAuthority: ApplicationMutationExecutionAuthorityV1;
+  readonly runtimeTarget: ApplicationRuntimeTargetV1;
+  readonly activationSequence: bigint;
+  readonly readinessSha256: Uint8Array;
+  readonly activationSha256: Uint8Array;
+  readonly activeHeadSha256: Uint8Array;
+  readonly publicationSha256: Uint8Array;
+  readonly functionEntrySha256: Uint8Array;
+  readonly schemaBindingSha256: Uint8Array;
 }
 
 export type StoredCommitAuthorityCorruptionReasonV1 =
@@ -127,7 +160,9 @@ export type StoredCommitAuthorityCorruptionReasonV1 =
   | "schemaArtifactInvalid"
   | "stableBindingOverflow"
   | "stableBindingMissing"
-  | "stableBindingMismatch";
+  | "stableBindingMismatch"
+  | "applicationGraphMissingOrDuplicate"
+  | "applicationGraphInvalid";
 
 export type StoredCommitAuthorityEvidenceLoadResultV1 =
   | Readonly<{ readonly kind: "loaded"; readonly evidence: StoredCommitAuthorityEvidenceV1 }>

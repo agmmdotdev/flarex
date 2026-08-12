@@ -215,7 +215,9 @@ export function makeExactPointMutationExecutionOperationsV1(
         input.executionEvidence.session.executionAuthorityGeneration !==
           "legacy_dynamic_worker_v1" ||
         input.executionEvidence.session.artifactRuntime !== "dynamic-worker" ||
-        !isLegacyCommitAuthorityVerificationStateV1(input.verificationState)
+        !isLegacyCommitAuthorityVerificationStateV1(input.verificationState) ||
+        input.verifiedEvidence.executionAuthorityGeneration !==
+          "legacy_dynamic_worker_v1"
       ) {
         return yield* Effect.fail(
           new PointMutationOccExecutionAuthorityCorruptionV1Error({
@@ -422,7 +424,9 @@ function bindPointMutationOccJournal(
 }
 
 function capturePointMutationOccRunnerEvidence(
-  evidence: VerifiedCommitAuthorityEvidenceV1,
+  evidence: Extract<VerifiedCommitAuthorityEvidenceV1, {
+    readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+  }>,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): PointMutationOccDetachedRunnerEvidenceV1 {
   return Object.freeze({

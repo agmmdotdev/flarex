@@ -21,5 +21,6 @@ export {
 
 export type {
   StoredCommitAuthorityEvidenceLoaderOptionsV1,
+  StoredCommitAuthorityEvidenceLoaderPortsV1,
   StoredCommitAuthorityEvidenceQueryV1,
 } from "./storedCommitAuthority/postgresLoader";

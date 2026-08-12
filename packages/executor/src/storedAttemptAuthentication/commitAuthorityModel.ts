@@ -22,6 +22,13 @@ import type {
 
 import type { TransactionGrantVerifierV1 } from "../transactionGrant";
 import type {
+  ApplicationMutationGrantVerificationKernelV1,
+} from "../applicationMutationGrantVerificationKernel";
+import type { ApplicationMutationExecutionAuthorityV1 } from
+  "flarex-protocol/internal/application-mutation-authority-v1";
+import type { ApplicationRuntimeTargetV1 } from
+  "flarex-protocol/internal/application-runtime-target-v1";
+import type {
   StoredAttemptSealIdentityPortV1,
   StoredAttemptSessionScalarsPortV1,
 } from "../storedAttemptAuthentication";
@@ -83,6 +90,8 @@ export type StoredCommitAuthorityCorruptionReasonV1 =
   | "stableBindingOverflow"
   | "stableBindingMissing"
   | "stableBindingMismatch"
+  | "applicationGraphMissingOrDuplicate"
+  | "applicationGraphInvalid"
   | "validatedArgumentsInvalid"
   | "authorizationGrantInvalid"
   | "functionMetadataMissing"
@@ -101,13 +110,19 @@ export class PinnedFunctionMetadataSourceV1Error extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export type StoredCommitAuthoritySessionEvidencePortV1 =
-  StoredAttemptSessionScalarsPortV1 & Readonly<{
+type StoredCommitAuthoritySessionEvidenceFieldsPortV1 = Readonly<{
   readonly validatedArgsJson: JsonObject;
   readonly validatedArgsCanonicalBytes: Uint8Array;
   readonly authorizationGrantJson: JsonObject;
   readonly authorizationGrantCanonicalBytes: Uint8Array;
 }>;
+
+export type StoredCommitAuthoritySessionEvidencePortV1<Generation extends
+  StoredAttemptSessionScalarsPortV1["executionAuthorityGeneration"] =
+    StoredAttemptSessionScalarsPortV1["executionAuthorityGeneration"]> =
+  Extract<StoredAttemptSessionScalarsPortV1, {
+    readonly executionAuthorityGeneration: Generation;
+  }> & StoredCommitAuthoritySessionEvidenceFieldsPortV1;
 
 export interface StoredCommitAuthorityEvidenceAuthorityPortV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
@@ -132,12 +147,37 @@ export interface StoredCommitAuthoritySchemaEvidencePortV1 {
   }>>;
 }
 
-export interface StoredCommitAuthorityEvidencePortV1 {
+interface StoredCommitAuthorityEvidenceCommonPortV1 {
   readonly databaseNowMilliseconds: number;
   readonly currentAuthorizationRevocationEpoch: bigint;
-  readonly session: StoredCommitAuthoritySessionEvidencePortV1;
   readonly schema: StoredCommitAuthoritySchemaEvidencePortV1;
 }
+
+type StoredCommitAuthorityApplicationEvidencePortV1 = Readonly<{
+    readonly executionAuthority: ApplicationMutationExecutionAuthorityV1;
+    readonly runtimeTarget: ApplicationRuntimeTargetV1;
+    readonly activationSequence: bigint;
+    readonly readinessSha256: Uint8Array;
+    readonly activationSha256: Uint8Array;
+    readonly activeHeadSha256: Uint8Array;
+    readonly publicationSha256: Uint8Array;
+    readonly functionEntrySha256: Uint8Array;
+    readonly schemaBindingSha256: Uint8Array;
+  }>;
+
+export type StoredCommitAuthorityEvidencePortV1 =
+  | (StoredCommitAuthorityEvidenceCommonPortV1 & Readonly<{
+      readonly session: StoredCommitAuthoritySessionEvidencePortV1<
+        "legacy_dynamic_worker_v1"
+      >;
+      readonly application?: never;
+    }>)
+  | (StoredCommitAuthorityEvidenceCommonPortV1 & Readonly<{
+      readonly session: StoredCommitAuthoritySessionEvidencePortV1<
+        "application_v1"
+      >;
+      readonly application: StoredCommitAuthorityApplicationEvidencePortV1;
+    }>);
 
 export type StoredCommitAuthorityEvidenceLoadResultPortV1 =
   | Readonly<{
@@ -199,6 +239,8 @@ export interface PinnedPointMutationFunctionMetadataReaderPortV1 {
 export interface StoredCommitAuthorityAuthenticationConfigV1 {
   readonly evidenceLoader: StoredCommitAuthorityEvidenceLoaderPortV1;
   readonly transactionGrantVerifier: TransactionGrantVerifierV1;
+  readonly applicationMutationGrantVerifier?:
+    ApplicationMutationGrantVerificationKernelV1;
   readonly functionMetadata:
     PinnedPointMutationFunctionMetadataReaderPortV1;
 }

@@ -56,11 +56,10 @@ export type StoredOccExecutionEvidenceAuthorityV1 =
       readonly kind: "claimedAttempt";
     }>;
 
-export interface StoredOccExecutionEvidenceV1
-  extends StoredCommitAuthorityEvidenceV1 {
+export type StoredOccExecutionEvidenceV1 = StoredCommitAuthorityEvidenceV1 & Readonly<{
   /** Trusted fresh-root seed; databaseNow is liveness evidence only. */
   readonly creationTimeSeed: AppCreationTimeV1;
-}
+}>;
 
 export type StoredOccExecutionCorruptionReasonV1 =
   | StoredCommitAuthorityCorruptionReasonV1

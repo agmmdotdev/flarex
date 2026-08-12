@@ -2168,11 +2168,23 @@ for commit authentication. This next medium checkpoint closes only those two
 gaps. It remains persistence-and-authentication-only: it does not load Source
 Artifact bodies, construct a Worker, run application code, or wire Standard.
 
-All Application evidence is captured inside the existing located
+The preflight initially assumed all Application evidence shared the located
+scope database. Implementation challenged that assumption: readiness publishes
+the deployment-stable schema version and Application schema authority in the
+control database, while the session, activation, readiness, revision, analysis,
+publication, and selected function live in the located scope database. A single
+PostgreSQL repeatable-read cannot span those owners without introducing a new
+distributed transaction, which this migration forbids.
+
+The scope-owned Application evidence is captured inside the existing located
 repeatable-read used by `StoredCommitAuthorityEvidenceLoader`. The loader must
-not call a repository that opens a second transaction and must never consult
-the mutable active-head row after session admission. Instead it proves the
-historical head witness from immutable rows selected by the stored authority:
+never consult the mutable active-head row after session admission. The control
+owner is read separately through a narrow content-addressed schema-authority
+snapshot keyed by deployment, schema version, and Application schema digest.
+Those control rows are immutable once published, so their correctness comes
+from exact canonical bytes/digests and cross-owner pins rather than false
+transactional atomicity. Neither side may call a repository that reselects a
+mutable current head. The combined proof establishes:
 
 1. the exact activation at the stored activation sequence and its canonical
    bytes/digest;
@@ -2182,8 +2194,9 @@ historical head witness from immutable rows selected by the stored authority:
 3. the exact revision, analyzed analysis manifest, publication frames,
    selected public mutation entry, and canonical runtime target named by the
    stored execution authority; and
-4. the revision-schema publication, control schema version, stable bindings,
-   and canonical Application schema-binding frame.
+4. the revision-schema publication plus the separately captured immutable
+   control schema version, stable bindings, and canonical Application
+   schema-binding frame.
 
 The readiness receipt is an immutable commitment used as evidence; this
 checkpoint does not re-run cold eligibility, enumerate task definitions, or
@@ -2204,8 +2217,8 @@ mismatch result. Legacy query order, evidence, and behavior remain unchanged.
 
 Application Mutation Grant verification cannot use one long-lived protocol
 namespace whose trusted clock was fixed during host construction. Commit
-authentication owns the database timestamp captured in the same
-repeatable-read as the evidence. The executor therefore adds a private
+authentication owns the database timestamp captured with the located scope
+evidence. The executor therefore adds a private
 Application grant verification kernel parallel to the existing Transaction
 Grant kernel: immutable deployment/key/retention configuration is captured
 once, while each verification call supplies the captured database time and the
@@ -2235,12 +2248,49 @@ and cross-family rejection; and unchanged legacy authentication. Focused
 PGlite and unit receipts are sufficient here; genuine PostgreSQL and the full
 Application vertical remain AA-R7 gates.
 
-Self-review accepts this preflight because it authenticates the already-stored
-authority at the existing evidence seam without creating a second transaction,
-consulting mutable selection, or changing journal/OCC/commit behavior. Stop and
+Self-review accepts this amended preflight because it authenticates the
+already-stored authority at the existing evidence seam without pretending two
+databases share a transaction, consulting mutable selection, or changing
+journal/OCC/commit behavior. Stop and
 amend if implementation requires current-head revalidation, ambient verifier
 time, a legacy/Application fallback, eager unbounded joins, Source Artifact
 execution, or any change below the authenticated-authority boundary.
+
+The checkpoint implementation now satisfies that amended boundary. The scope
+capture reconstructs activation and historical-head commitments, correlates
+readiness/revision/analysis/publication/selected-function evidence, and never
+reads the mutable active-head row. The control capture proves the exact schema
+artifact, stable table bindings, and canonical Application schema-binding
+frame from its content-addressed published authority. Both owners perform
+size projections before payload reads and their lengths share the existing
+64 MiB materialization budget. The size phase projects only scalar selectors
+and byte lengths: Application execution-authority JSON/canonical bytes are
+charged before being fetched, and the graph payload omits unused analysis
+receipt bytes. Missing control composition fails closed.
+
+Focused receipts are green: persistence and executor typechecks; 66/66
+Application-grant-kernel plus legacy stored-authentication tests; and the real
+PGlite Application graph case proving exact load, both size-before-payload
+orders, a 64 MiB+1 aggregate rejection before every payload query,
+mutable-head independence, missing-control rejection, and tampered function
+rejection. Constraint-valid malformed authority selectors remain typed
+corruption rather than SQL failures, and the Application grant kernel snapshots
+its deployment, retention, and key-window configuration before use. Malformed
+Application grant-pin scalars and mixed legacy/Application runner evidence also
+remain in the typed corruption channel; graph verification failures are folded
+once at the materialization boundary rather than manually reboxed.
+
+The verifier currently owns package-local copies of activation, historical-head,
+cold-receipt-set, and schema-binding frame construction that the existing
+persistence producers still construct privately. Before AA-R7, factor the
+producers onto this single pure frame owner with byte-identity regressions; do
+not change either wire spelling while doing so. This is drift-prevention debt,
+not authority to widen the present authentication checkpoint.
+
+The broader
+stored-attempt suite remains 90/92 because of
+the already-recorded shared journal string-versus-bigint defect; this slice
+does not alter or weaken that owner.
 
 First migrate executable authority and publication:
 

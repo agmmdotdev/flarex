@@ -46,6 +46,7 @@ import {
 import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
   TransactionGrantDeploymentIdV1Schema,
@@ -131,6 +132,8 @@ import {
 import {
   createApplicationMutationSessionActivationPersistenceV1,
 } from "../src/transactionSessionActivation";
+import { createStoredOccExecutionEvidenceLoaderV1 } from
+  "../src/storedOccExecution";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -686,6 +689,51 @@ describe("Application activation", { timeout: 30_000 }, () => {
       package_id: null,
       authority_format: "flarex.application-mutation-execution-authority",
     }]);
+    if (created.status !== "created") throw new Error("Expected creation.");
+    const graphQueries: string[] = [];
+    const executionAuthority = {
+      kind: "claimedAttempt" as const,
+      deploymentId: created.anchor.deploymentId,
+      scopeId: created.anchor.scopeId,
+      scopeUuid: projectScopeIdUuidV1(created.anchor.scopeId).scopeUuid,
+      sessionId: created.anchor.sessionId,
+      attemptFence: created.anchor.attemptFence,
+      storageGeneration: created.anchor.storageGeneration,
+      storageGenerationFence: created.anchor.storageGenerationFence,
+      snapshotToken: created.anchor.snapshotToken,
+      schemaVersionId: active.basis.schemaVersionId,
+      executionClaim: Object.freeze({
+        claimOwner: created.executionClaim.claimOwner,
+        claimFence: created.executionClaim.claimFence,
+      }),
+    };
+    const graphLoader = createStoredOccExecutionEvidenceLoaderV1({
+      scopeMetadata: fixture.control,
+      applicationControlDb: fixture.control.drizzle,
+      provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+      scopeSessionTargets: {
+        resolve: async locator =>
+          createPGliteLocatedPointMutationSessionActivationTargetV1(
+            fixture.target,
+            locator,
+          ),
+      },
+    }, { observeQuery: query => graphQueries.push(query.name) });
+    const immutableGraph = await runEffect(
+      graphLoader.loadEffect(executionAuthority),
+    );
+    if (immutableGraph.kind !== "loaded") {
+      throw new Error(`Expected immutable graph: ${JSON.stringify(immutableGraph)}`);
+    }
+    expect(immutableGraph.evidence.application).toMatchObject({
+      activationSequence: active.basis.activationSequence,
+    });
+    expect(graphQueries.indexOf("applicationGraphSizes")).toBeLessThan(
+      graphQueries.indexOf("applicationGraphPayload"),
+    );
+    expect(graphQueries.indexOf("applicationSchemaAuthoritySizes")).toBeLessThan(
+      graphQueries.indexOf("applicationSchemaAuthorityPayload"),
+    );
 
     const foreignGrant = await runEffect(Effect.result(
       sessionActivation.activateEffect(Object.freeze({
@@ -707,6 +755,83 @@ describe("Application activation", { timeout: 30_000 }, () => {
       fxSystemApplicationActiveHeadsV1.scopeId,
       active.basis.authority.scopeId,
     ));
+    await expect(runEffect(graphLoader.loadEffect(executionAuthority))).resolves
+      .toMatchObject({ kind: "loaded" });
+    const missingControlGraph = await runEffect(
+      createStoredOccExecutionEvidenceLoaderV1({
+        scopeMetadata: fixture.control,
+        provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+        scopeSessionTargets: {
+          resolve: async locator =>
+            createPGliteLocatedPointMutationSessionActivationTargetV1(
+              fixture.target,
+              locator,
+            ),
+        },
+      }).loadEffect(executionAuthority),
+    );
+    expect(missingControlGraph).toMatchObject({
+      kind: "corrupt",
+      reason: "schemaArtifactMissingOrDuplicate",
+    });
+    await fixture.target.query(
+      `update fx_system_tx_session
+          set application_execution_authority_json = jsonb_set(
+            application_execution_authority_json,
+            '{version}',
+            '1e100'::jsonb
+          )
+        where session_id = $1`,
+      [created.anchor.sessionId],
+    );
+    await expect(runEffect(graphLoader.loadEffect(executionAuthority))).resolves
+      .toMatchObject({ kind: "corrupt" });
+    await fixture.target.query(
+      `update fx_system_tx_session
+          set application_execution_authority_json = jsonb_set(
+            application_execution_authority_json,
+            '{version}',
+            '1'::jsonb
+          )
+        where session_id = $1`,
+      [created.anchor.sessionId],
+    );
+    await fixture.target.query(
+      `update fx_system_tx_session
+          set validated_args_canonical_bytes =
+            convert_to(repeat('x', 67108865), 'UTF8')
+        where session_id = $1`,
+      [created.anchor.sessionId],
+    );
+    const overflowQueries: string[] = [];
+    const overflowGraph = await runEffect(
+      createStoredOccExecutionEvidenceLoaderV1({
+        scopeMetadata: fixture.control,
+        applicationControlDb: fixture.control.drizzle,
+        provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+        scopeSessionTargets: {
+          resolve: async locator =>
+            createPGliteLocatedPointMutationSessionActivationTargetV1(
+              fixture.target,
+              locator,
+            ),
+        },
+      }, { observeQuery: query => overflowQueries.push(query.name) })
+        .loadEffect(executionAuthority),
+    );
+    expect(overflowGraph).toMatchObject({
+      kind: "corrupt",
+      reason: "evidenceLimitExceeded",
+    });
+    expect(overflowQueries).not.toContain("authorityPayload");
+    expect(overflowQueries).not.toContain("applicationGraphPayload");
+    expect(overflowQueries).not.toContain("applicationSchemaAuthorityPayload");
+    await fixture.target.query(
+      `update fx_system_tx_session
+          set validated_args_canonical_bytes = $2
+        where session_id = $1`,
+      [created.anchor.sessionId, input.evidence.validatedArgsCanonicalBytes],
+    );
     const afterHeadMovement = await runEffect(
       sessionActivation.activateEffect(input),
     );
@@ -740,6 +865,14 @@ describe("Application activation", { timeout: 30_000 }, () => {
       });
     }
     expect(await scalarCount(fixture.target, "fx_system_tx_session")).toBe(1);
+    await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({
+      entryBytes: new Uint8Array([1]),
+    }).where(eq(
+      fxSystemApplicationFunctionsV1.functionPath,
+      input.evidence.functionPath,
+    ));
+    await expect(runEffect(graphLoader.loadEffect(executionAuthority))).resolves
+      .toMatchObject({ kind: "corrupt", reason: "applicationGraphInvalid" });
   });
 
   it("rolls back history and head together after a late injected failure", async () => {

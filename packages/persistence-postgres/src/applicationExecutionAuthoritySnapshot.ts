@@ -1,3 +1,5 @@
+import type { ApplicationMutationExecutionAuthorityV1 } from
+  "flarex-protocol/internal/application-mutation-authority-v1";
 import type { Json, JsonObject } from "flarex-protocol/json";
 
 /**
@@ -5,9 +7,9 @@ import type { Json, JsonObject } from "flarex-protocol/json";
  * authority before persistence retains it across an asynchronous boundary.
  */
 export function snapshotApplicationExecutionAuthorityJson(
-  value: JsonObject,
+  value: JsonObject | ApplicationMutationExecutionAuthorityV1,
 ): JsonObject {
-  const snapshot = structuredClone(value);
+  const snapshot = structuredClone(value) as unknown as JsonObject;
   freezeOwnedJson(snapshot);
   return snapshot;
 }

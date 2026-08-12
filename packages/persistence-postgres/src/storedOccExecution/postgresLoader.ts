@@ -1,11 +1,11 @@
 import { copyBytes } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
 import { materializeOpenOccExecutionEffect } from "../storedCommitAuthority/materialization";
 import {
   captureStoredCommitAuthorityRowsEffect,
   type StoredCommitAuthorityEvidenceLoaderOptionsV1,
+  type StoredCommitAuthorityEvidenceLoaderPortsV1,
 } from "../storedCommitAuthority/postgresLoader";
 import {
   occExecutionAuthorityMismatch,
@@ -19,7 +19,7 @@ export type StoredOccExecutionEvidenceLoaderOptionsV1 =
   StoredCommitAuthorityEvidenceLoaderOptionsV1;
 
 export function createStoredOccExecutionEvidenceLoaderV1(
-  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  ports: StoredCommitAuthorityEvidenceLoaderPortsV1,
   options: StoredOccExecutionEvidenceLoaderOptionsV1 = {},
 ): StoredOccExecutionEvidenceLoaderV1 {
   const loadEffect = Effect.fn("StoredOccExecution.load")((

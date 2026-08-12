@@ -4882,6 +4882,10 @@ async function commitAuthorityFixture(
     ),
   });
   const sessionEvidence = fixture.evidence.session;
+  if (sessionEvidence.executionAuthorityGeneration !==
+    "legacy_dynamic_worker_v1") {
+    throw new Error("Expected legacy fixture authority.");
+  }
   const commitEvidence: StoredCommitAuthorityEvidencePortV1 = {
     databaseNowMilliseconds: fixture.evidence.databaseNowMilliseconds,
     currentAuthorizationRevocationEpoch: revocationEpoch,

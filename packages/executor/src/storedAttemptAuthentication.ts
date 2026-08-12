@@ -1451,6 +1451,8 @@ function createStoredPointMutationCapabilityRuntimeV1(
     base,
     configuration: commitAuthority,
     grantKernel,
+    applicationGrantKernel:
+      commitAuthority.applicationMutationGrantVerifier,
     developerIndexMaintenance:
       supportsPointCommitDeveloperIndexMaintenanceV1(
         planningPointCommitCandidate,
@@ -1831,7 +1833,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     executionEvidence: pointMutationOccExecutionEvidencePort,
     resolvePointMutationOccOutcome,
     verifyCommitAuthorityEvidence: (state, evidence) =>
-      verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+      verifyCommitAuthorityEvidenceEffect(
+        state,
+        evidence,
+        grantKernel,
+        commitAuthority.applicationMutationGrantVerifier,
+      ),
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
     publicationResultFromCommittedOutcome,
   });
@@ -1844,7 +1851,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
       executionLiveness: pointMutationExecutionLiveness,
       executionEvidence: pointMutationOccExecutionEvidencePort,
       verifyCommitAuthorityEvidence: (state, evidence) =>
-        verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+        verifyCommitAuthorityEvidenceEffect(
+          state,
+          evidence,
+          grantKernel,
+          commitAuthority.applicationMutationGrantVerifier,
+        ),
       executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
       publicationResultFromCommittedOutcome,
     }),
@@ -1909,7 +1921,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     publishFinishingPointCommit,
     resumePointCommit,
     verifyCommitAuthorityEvidence: (state, evidence) =>
-      verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+      verifyCommitAuthorityEvidenceEffect(
+        state,
+        evidence,
+        grantKernel,
+        commitAuthority.applicationMutationGrantVerifier,
+      ),
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
     resolvePointCommitOutcomeFromStoredSession,
     publicationResultFromCommittedOutcome,

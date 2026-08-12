@@ -21,6 +21,8 @@ import type {
 } from "../storedAttemptAuthentication";
 import type { TransactionGrantVerificationKernelV1 } from
   "../transactionGrantVerificationKernel";
+import type { ApplicationMutationGrantVerificationKernelV1 } from
+  "../applicationMutationGrantVerificationKernel";
 import {
   InvalidAuthenticatedStoredAttemptV1Error,
   StoredCommitAuthorityCorruptionV1Error,
@@ -117,6 +119,8 @@ export interface StoredPointCommitPlanningOperationDependenciesV1 {
   readonly base: StoredAttemptAuthenticationV1;
   readonly configuration: StoredCommitAuthorityAuthenticationConfigV1;
   readonly grantKernel: TransactionGrantVerificationKernelV1;
+  readonly applicationGrantKernel?:
+    ApplicationMutationGrantVerificationKernelV1 | undefined;
   readonly developerIndexMaintenance: boolean;
   readonly uniqueConstraintMaintenance: boolean;
   readonly uniqueConstraintEligibility: boolean;
@@ -142,6 +146,7 @@ export function makeStoredPointCommitPlanningOperationsV1(
     base,
     configuration,
     grantKernel,
+    applicationGrantKernel,
     developerIndexMaintenance,
     uniqueConstraintMaintenance,
     uniqueConstraintEligibility,
@@ -178,7 +183,14 @@ export function makeStoredPointCommitPlanningOperationsV1(
       storedAttempt,
       evidence,
       grantKernel,
+      applicationGrantKernel,
     );
+    if (verifiedEvidence.executionAuthorityGeneration !==
+      "legacy_dynamic_worker_v1") {
+      return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
+        reason: "sessionEvidenceInvalid",
+      }));
+    }
     if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
       return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
         reason: "sessionEvidenceInvalid",
@@ -496,6 +508,11 @@ function deepDetachCommitAuthorityState(
   evidence: VerifiedCommitAuthorityEvidenceV1,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): AuthenticatedCommitAuthorityStateV1 {
+  if (evidence.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+    throw new StoredCommitAuthorityCorruptionV1Error({
+      reason: "sessionEvidenceInvalid",
+    });
+  }
   return Object.freeze({
     storedAttempt,
     databaseNowMilliseconds: evidence.databaseNowMilliseconds,
