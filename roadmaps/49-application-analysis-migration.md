@@ -2078,6 +2078,67 @@ execution-claim owners. Stored-attempt and commit-authority
 materialization still reject the Application branch until checkpoint 2; no
 Standard mutation consumer or user-code runner is wired by this checkpoint.
 
+#### AA-R6 mutation checkpoint 2 commit-owner correction preflight and accepted amendment — 2026-08-12
+
+The checkpoint-2 connected-owner audit rejects one sentence in the preceding
+preflight as too broad. The journal representation, OCC decision algorithm,
+row-intent compilation, write application, idempotency outcome, change feed,
+and outbox can remain unchanged. The authority shape entering that tail cannot.
+`CommitInputAuthorityPinsV1`, `PointCommitAuthorityPinsV1`, the point-commit
+commands, and the point-commit transaction currently require and compare the
+legacy `packageId`, `artifactRuntime`, `artifactId`, `sourcePackageHash`, and
+`executionModule` fields. An Application session deliberately forbids those
+columns. A runner-only bridge could therefore execute and seal Application
+user code but could never authenticate or publish its commit without
+fabricating legacy artifact evidence.
+
+This is a shared commit-owner boundary, so checkpoint 2 receives a separate,
+bounded correction preflight rather than treating the change as incidental
+runtime wiring. The accepted correction changes only the execution-authority
+identity carried through commit authentication:
+
+1. Stored session scalars and commit authority pins become exact discriminated
+   unions. The legacy branch retains the five current artifact fields
+   byte-for-byte. The Application branch carries the already-persisted
+   execution-authority generation and canonical authority digest and forbids
+   the legacy fields. Common deployment, scope, session, attempt, storage,
+   snapshot, schema, function, policy, revocation, request, grant, argument,
+   seal, journal, and result evidence stays in its current owner.
+2. Stored-attempt and stored-commit-authority loaders decode, recanonicalize,
+   and rehash the Application authority envelope, then authenticate its
+   immutable activation, readiness, revision, analysis, publication,
+   function, manifest, and schema graph inside the same repeatable-read
+   capture. They do not consult the mutable active head after admission.
+3. Executor commit authentication dispatches exactly once on the stored
+   generation. Legacy evidence continues through the Transaction Grant and
+   pinned-metadata verifier. Application evidence continues through the
+   Application Mutation Grant verifier and the immutable Application graph
+   verifier. There is no cross-generation fallback.
+4. Point-commit command validation and the locked-session comparison match the
+   command's discriminated authority branch against the same stored branch.
+   No OCC comparison, row intent, commit sequence, transaction ordering,
+   publication, outcome, change-feed, or outbox behavior changes.
+5. Only after that authority correction is proven may the Application Worker
+   runner bind the existing journal capability and reach the shared tail. The
+   runner remains private and Standard-unwired in checkpoint 2.
+
+Required owner-specific proof is: legacy and Application command/session
+agreement; mixed generation, absent authority, wrong authority digest, and
+legacy-field substitution rejection; exact replay through conflict replacement
+and one commit; unchanged committed outcome, change-feed, and outbox receipts;
+and a query-observation receipt showing no new transaction or lock phase was
+introduced. Existing point-commit tests remain the behavioral baseline and
+must pass unchanged apart from fixtures extended to express the authority
+union.
+
+Self-review accepts this bounded amendment because it is the minimum shape
+change that lets the existing commit owner authenticate the authority that
+actually executed. It does not authorize a second commit path or any semantic
+change to journal, OCC, compilation, transaction, result, feed, or outbox
+ownership. Stop and amend again if implementation needs a new commit table,
+dual writes, placeholder legacy evidence, current-active-head revalidation,
+or a branch inside row-intent compilation or write application.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
