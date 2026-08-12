@@ -2292,6 +2292,76 @@ stored-attempt suite remains 90/92 because of
 the already-recorded shared journal string-versus-bigint defect; this slice
 does not alter or weaken that owner.
 
+#### AA-R6 mutation checkpoint 2 Application-runner preflight and accepted amendment — 2026-08-12
+
+The immutable-authority checkpoint is committed at `b524d8ff`. The next medium
+slice is only the private Application mutation runner and its authenticated
+input. It remains unwired from Standard admission and does not authorize the
+consumer cut.
+
+The package trace rejects placing the runner in executor. Source Artifact V2
+reading, Application Worker definition construction, and `WorkerLoader`
+execution are owned by `flarex-backend`; making executor import that package
+would reverse the existing dependency direction. The accepted composition is
+therefore a backend-owned runner implementing executor's narrow runtime-neutral
+runner port. Executor continues to own attempt liveness, journal opening and
+sealing, OCC replacement, commit planning, publication, and durable replay.
+
+The authenticated runner input becomes an exact generation union:
+
+1. the legacy member retains its verified Transaction Grant and pinned
+   `PointMutationTargetFunctionMetadataV1` unchanged; and
+2. the Application member carries the verified Application grant, canonical
+   runtime target, already-authenticated canonical Application manifest, and
+   immutable publication/schema witness. The persistence materializer already
+   decodes and verifies that manifest; retaining an owned frozen snapshot avoids
+   rereading or treating the physical schema manifest as application source
+   authority.
+
+The backend runner receives injected Source Artifact reader, Application
+execution host, and trusted host-policy frame/digest. It reads only the pinned
+Source Artifact root, builds `ApplicationWorkerDefinition` from the authenticated
+manifest and target, projects the write request from authenticated arguments,
+auth, stable table bindings, execution time, random seed, and creation-time
+cursor, then calls `ApplicationExecutionHost.runTransaction`. Each call reaches
+the host separately, so initial execution and every OCC rerun perform a fresh
+Worker Loader load. No mutable active head is consulted.
+
+Application Worker transaction capabilities are flat while the existing journal
+port is table/index scoped. A private executor adapter may expose exactly
+`revalidate`, point read, index range, insert, patch, replace, and delete over
+that existing port. It serializes every admitted operation and assigns the
+existing next syscall sequence in call order because the Worker does not supply
+journal sequence evidence. It translates only between the two exact operation
+and result shapes, closes admission after host settlement, drains all admitted
+operations, and preserves first journal failure as terminal authority. It must
+not cache reads, invent retry, bypass validation, or own sealing/commit.
+
+Failure mapping remains single and predictable. Worker application/user errors
+map to the existing mutation application/user-code families. Definition,
+source, request, transport, timeout, and invalid-result failures map to the
+existing runtime-host family with an Application-specific reason/cause.
+Journal failures retain journal authority and win during close/drain exactly as
+the legacy runner does. Only a successful host result returned after adapter
+drain can be sealed by the unchanged executor operation.
+
+Required proof for this slice is: exact Application request projection; source,
+manifest, target, and definition correlation; anonymous/user auth projection;
+flat point read/write and index-range translation; serialized syscall ordering;
+internal query/mutation calls sharing the same capability; journal-first close
+and drain; dropped/late capability failure; terminal host failure without seal;
+fresh Worker loads across two executions; legacy request bytes unchanged; and
+the shared tail receiving a successful Application result through its existing
+seal/planning seam. Focused executor and backend/Miniflare tests are sufficient;
+PGlite conflict replacement and Standard admission remain the next consumer
+checkpoint, while genuine PostgreSQL remains AA-R7.
+
+Self-review accepts this preflight because it moves only authenticated runtime
+projection across an existing package boundary. Stop and amend if implementation
+requires executor-to-backend imports, a second journal or commit path, mutable
+selection reads, fabricated legacy artifact fields, unsequenced concurrent
+journal calls, a source/manifest fallback, or Standard wiring.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
