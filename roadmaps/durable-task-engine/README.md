@@ -116,6 +116,15 @@ the real located reader, Worker Loader, and activation behind ordered gates.
 It does not absorb the distinct per-run task-input object store; that writer,
 reader, and `run_lifetime` retention authority need a separate Task-owned
 preflight before D1 is production-complete.
+The next Standard Application checkpoint is the proposed SAP-TRP4 persistence
+contract in
+[`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
+It adds only an immutable publication header and ordered object membership
+under the existing Application task-catalog chain, requires a Standard
+Application-owned canonical receipt before persistence, and fixes exact
+replay, conflict, corruption, rollback, and genuine-PostgreSQL uncertainty
+proofs. It remains documentation-only until explicit implementation approval
+and creates no second revision, readiness, activation, or active-head system.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime

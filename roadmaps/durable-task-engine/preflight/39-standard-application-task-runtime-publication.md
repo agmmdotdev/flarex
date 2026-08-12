@@ -4,8 +4,11 @@
 
 **Decision:** Approved. SAP-TRP1 and SAP-TRP2 are complete as
 production-inert pure checkpoints. SAP-TRP3 is complete as a private,
-production-inert immutable object-store checkpoint. SAP-TRP4 through
-SAP-TRP6 remain pending and require the ordered approvals below.
+production-inert immutable object-store checkpoint. SAP-TRP4 now has the
+repository-grounded schema/transaction proposal in
+[`40-standard-application-task-runtime-persistence.md`](./40-standard-application-task-runtime-persistence.md),
+but implementation remains pending explicit approval. SAP-TRP5 and SAP-TRP6
+remain pending and require the ordered approvals below.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -358,7 +361,10 @@ or active revision and does not wire a route, Worker, Queue, Cron, or host.
 
 ### SAP-TRP4: Persistence publication
 
-- separately preflight the minimum schema/migration/repository;
+- use the separately proposed minimum schema/migration/repository contract in
+  [Preflight 40](./40-standard-application-task-runtime-persistence.md);
+- add the Standard Application-owned canonical receipt codec/digest before
+  persisting its normalized evidence;
 - serialize competing publication, converge replay, and reject corruption;
 - prove rollback and genuine-PostgreSQL concurrency/uncertainty; and
 - remain inactive and unwired.
@@ -411,8 +417,9 @@ checkpoints. DTE06-D2 may proceed
 under its already approved Preflight 38 because the private
 ABI/materialization identities are fixed;
 that does not authorize DTE06-D3 or any production composition. SAP-TRP4 is
-the next Standard Application checkpoint and requires a fresh
-schema/migration preflight. DTE06-D1 remains a
+the next Standard Application checkpoint. Its fresh schema/migration preflight
+is now recorded in Preflight 40 and awaits explicit implementation approval.
+DTE06-D1 remains a
 committed contract/verification foundation but production-incomplete until
 SAP-TRP6 and the separate run-input object-store gate both close. DTE06-D2 does
 not begin merely because this preflight document exists.
