@@ -18,8 +18,11 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import type { CatalogSchemaVersionId } from
-  "flarex-protocol/schema-manifest";
+import {
+  CatalogSchemaVersionIdSchema,
+  CatalogSchemaVersionSchema,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -50,10 +53,14 @@ import {
   makeApplicationReadinessRepository,
   type ApplicationReadinessResult,
 } from "../src/applicationReadiness";
+import { makeApplicationActivationRepository } from
+  "../src/applicationActivation";
 import { makeApplicationSchemaAuthorityPublisher } from
   "../src/applicationSchemaAuthority";
-import { makeApplicationTaskBindingRepository } from
-  "../src/applicationTaskBindings";
+import {
+  createApplicationTaskCatalogSnapshotPort,
+  makeApplicationTaskBindingRepository,
+} from "../src/applicationTaskBindings";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
@@ -103,6 +110,62 @@ beforeAll(() => {
 });
 
 describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
+  it("retries when the retained publisher claims the tentative version", async () => {
+    await withTemporaryPostgresPersistencePair(async (control) => {
+      const deploymentId = "deployment_application_schema_interleaving";
+      await control.insertDeploymentMetadata({
+        deploymentId,
+        projectId: "project_application_schema_interleaving",
+      });
+      let markFirstTransactionEntered: (() => void) | undefined;
+      const firstTransactionEntered = new Promise<void>(resolve => {
+        markFirstTransactionEntered = resolve;
+      });
+      let releaseFirstTransaction: (() => void) | undefined;
+      const firstTransactionRelease = new Promise<void>(resolve => {
+        releaseFirstTransaction = resolve;
+      });
+      let first = true;
+      const publisher = makeApplicationSchemaAuthorityPublisher({
+        db: control.drizzle,
+        runTransaction: async run => {
+          if (first) {
+            first = false;
+            markFirstTransactionEntered?.();
+            await firstTransactionRelease;
+          }
+          return control.drizzle.transaction(run);
+        },
+      });
+      const application = runEffect(publisher.publish({
+        deploymentId,
+        manifest: applicationManifest().manifest,
+      }));
+      await firstTransactionEntered;
+      await control.publishAppSchemaV1({
+        deploymentId,
+        schemaVersionId: CatalogSchemaVersionIdSchema.make("retained_race"),
+        version: CatalogSchemaVersionSchema.make(1),
+        tables: [],
+        indexes: [],
+      });
+      releaseFirstTransaction?.();
+
+      const authority = await application;
+      const reservations = await control.query<{
+        schema_version: number;
+      }>(
+        `select schema_version
+           from fx_control_application_schema_authority_v1
+          where deployment_id = $1`,
+        [deploymentId],
+      );
+
+      expect(authority.schemaVersion).toBe(2);
+      expect(reservations.rows).toEqual([{ schema_version: 2 }]);
+    });
+  }, 240_000);
+
   it("settles one table-bearing split-store revision under real locks", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const fixture = await readinessFixture(control, target);
@@ -182,6 +245,98 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
         target,
         "fx_system_declarative_v2_activation_head",
       )).toBe(0);
+    });
+  }, 240_000);
+
+  it("serializes concurrent Application activation behind the target scope clock", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target);
+      const schemaVersionId = await prepareReadinessAuthorities(fixture);
+      await enablePhysicalBuilds(fixture, schemaVersionId);
+      const activation = makeApplicationActivationRepository({
+        deploymentId: fixture.input.deploymentId,
+        readiness: fixture.repository,
+        authority: fixture.authorityPorts,
+      });
+      const blocker = await target.pool.connect();
+      let released = false;
+      try {
+        await blocker.query("begin");
+        const pid = await blocker.query<{ pid: number }>(
+          "select pg_backend_pid()::int as pid",
+        );
+        const blockerPid = pid.rows[0]?.pid;
+        if (blockerPid === undefined) throw new Error("Missing blocker PID.");
+        await blocker.query(
+          `select 1 from fx_system_scope_clock
+            where scope_id = $1
+            for update`,
+          [fixture.authority.scopeId],
+        );
+        const first = runEffect(activation.activate({
+          revisionId: fixture.input.revisionId,
+          expectedActiveHead: null,
+        }));
+        const second = runEffect(activation.activate({
+          revisionId: fixture.input.revisionId,
+          expectedActiveHead: null,
+        }));
+        await waitForBlockedBy(target, blockerPid, 2);
+        await blocker.query("commit");
+        released = true;
+        const settled = await Promise.all([first, second]);
+        expect(settled.map(result => result.disposition).sort()).toEqual([
+          "inserted",
+          "replayed",
+        ]);
+        const active = await runEffect(activation.readActive());
+        expect(active.basis).toMatchObject({
+          revisionId: fixture.input.revisionId,
+          activationSequence: 1n,
+          runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+          compatibilityDate: COMPATIBILITY_DATE,
+        });
+        expect(await scalarCount(
+          target,
+          "fx_system_application_activation_v1",
+        )).toBe(1);
+        expect(await scalarCount(
+          target,
+          "fx_system_application_active_head_v1",
+        )).toBe(1);
+        expect(await scalarCount(
+          target,
+          "fx_system_declarative_v2_activation_head",
+        )).toBe(0);
+
+        await blocker.query("begin");
+        await blocker.query(
+          `select 1 from fx_system_scope_clock
+            where scope_id = $1
+            for share`,
+          [fixture.authority.scopeId],
+        );
+        const shareCompatibleRead = runEffect(activation.readActive());
+        const readOutcome = await Promise.race([
+          shareCompatibleRead.then(value => ({ kind: "read" as const, value })),
+          new Promise<{ readonly kind: "timeout" }>(resolve => {
+            setTimeout(() => resolve({ kind: "timeout" }), 10_000);
+          }),
+        ]);
+        await blocker.query("rollback");
+        if (readOutcome.kind === "timeout") {
+          await shareCompatibleRead;
+          throw new Error(
+            "Active Application read tried to upgrade the shared scope-clock lane.",
+          );
+        }
+        expect(readOutcome.value.basis.revisionId).toBe(
+          fixture.input.revisionId,
+        );
+      } finally {
+        if (!released) await blocker.query("rollback").catch(() => undefined);
+        blocker.release();
+      }
     });
   }, 240_000);
 });
@@ -300,6 +455,7 @@ async function readinessFixture(
       db: control.drizzle,
       runTransaction: run => control.drizzle.transaction(run),
     }),
+    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
     candidateValidation: createAppSchemaCandidateReadinessPort(
       candidateValidation,
     ),

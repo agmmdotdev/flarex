@@ -414,6 +414,13 @@
       "when": 1786513768068,
       "tag": "0058_demonic_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1786519477822,
+      "tag": "0059_pretty_toad_men",
+      "breakpoints": true
     }
   ]
 }

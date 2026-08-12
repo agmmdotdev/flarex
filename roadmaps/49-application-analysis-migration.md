@@ -1625,10 +1625,11 @@ The publisher is an opaque process-local composition over the exact control
 database repository; a structural or foreign-control publisher is rejected.
 Returned artifact deployment, schema-version identity, numeric version,
 canonical manifest bytes, and digest are verified before projection. The
-control artifact and physical requirements are reloaded from that same database
-before the reserved Application authority may transition to `published`, so a
-failed or incomplete publication leaves repairable reserved state rather than a
-false durable authority.
+control artifact and physical requirements are reloaded from that same database.
+Numeric-version reservation and prepared schema publication share the existing
+deployment-locked transaction, so a failed publication leaves neither a
+reservation nor false durable authority, and a competing retained publisher
+cannot strand an Application version between those two steps.
 The located target stores only the immutable revision/schema binding, readiness
 receipt, and per-function cold evidence; it stores no user-code or module body.
 
@@ -1640,6 +1641,11 @@ and runtime materialization policy. The candidate and unique evidence are
 loaded before the target transaction and revalidated while holding the scope
 clock. The task catalog's runtime-host identity and compatibility date must
 equal the cold materializer policy even when the function set is empty.
+The task-binding owner now issues the only accepted task-catalog snapshot port.
+It reconstructs and canonicalizes the parent binding, every non-empty child
+binding and manifest, all parent/child digests, the catalog root, and the exact
+child count. Readiness reuses that owner under the scope-clock transaction, so
+an orphaned, incomplete, or altered task catalog cannot become ready.
 
 Focused PGlite proof covers the legitimate two-phase lifecycle: the first call
 publishes schema authority and reports missing candidate validation, the
@@ -1662,10 +1668,99 @@ PGlite's plain `Uint8Array` passed. The readiness hash boundary now uses the
 shared exact detached-byte conversion; the genuine-PostgreSQL lifecycle and
 migration suites pass after that correction. The package-wide migration
 inventory includes the new tables and migration receipt. This checkpoint does
-not authorize activation, active selection, private consumer migration, routes,
-or any change to OCC, commit, action,
-task-run, or scheduler ownership. The next authorized checkpoint is Application
-activation and issuer-backed selection.
+not change OCC, commit, action, task-run, or scheduler ownership.
+
+#### AA-R6 Application activation and active-selection checkpoint — 2026-08-12
+
+The second final-authority checkpoint now adds a distinct Application
+activation generation without mutating inactive Application Revision V2 rows
+or writing the displaced Declarative V2 activation/verdict owner. Migration
+`0059_pretty_toad_men` adds one immutable activation-history table and one
+scope-local active-head table. The history binds the exact AA-R6 readiness
+receipt and canonical activation request; the head references that immutable
+history and changes only through an explicit `(activationSequence, headSha256)`
+compare-and-swap token.
+
+Activation resolves the same located target as readiness, locks the scope clock
+before the Application head, and asks the readiness issuer to replay and
+revalidate its complete candidate-validation, unique-constraint, physical
+index, schema, task-catalog, publication, manifest, and cold-materialization
+evidence inside that transaction. Exact command replay returns its immutable
+historical outcome. The CAS token is an explicit detached value token, not an
+issuer capability: a different revision requires its exact current
+`(activationSequence, headSha256)` value, while malformed or stale values fail
+closed. History and head updates roll back atomically after a late failure.
+
+Active reads use the schema/readiness owners' read-only projections, take only
+shared scope-clock, readiness, history, and head locks on the located target,
+verify the canonical head and activation evidence, revalidate the exact
+readiness receipt without replaying publication writes, and issue an opaque
+process-local selection. Its hidden basis contains only current scope
+authority, Application manifest/publication identities, bound schema identity,
+explicit task-catalog/runtime-host authority, readiness identity, and the
+active history/head identities. Structural copies are unauthenticated, and an
+issued selection is rejected after the head or scope authority moves.
+
+The proof covers migration rollback/replay/non-public-schema behavior,
+activation replay, stale CAS, multi-revision head movement, late rollback,
+decision uncertainty followed by exact cold replay, stored-head corruption,
+selection authenticity and invalidation, plus genuine
+PostgreSQL split-store migration, deterministic scope-clock contention, and a
+held-share-lock proof that rejects any hidden active-read lock upgrade. The
+new task-catalog snapshot proof also exposed a precise stored-codec defect: it
+hex-encoded a 32-byte task-catalog digest before calling the existing decoder
+whose contract requires bytes. The snapshot owner now preserves the stored
+byte contract without a compatibility branch.
+
+This checkpoint remains private and production-inert. It adds no consumer,
+route, runtime dispatch, task-run selection, OCC/commit behavior, fallback, or
+dual active source. The next authorized checkpoint is capability composition
+and private consumer migration only.
+
+#### AA-R6 consumer-authority audit and accepted decomposition — 2026-08-12
+
+The post-activation source audit rejects the earlier implication that query,
+mutation, action, and Task System migration are one adapter checkpoint. Only
+the query path has all required underlying capabilities without inventing
+legacy evidence. The remaining cut is therefore four medium checkpoints, each
+with its own preflight and commit:
+
+1. **Query-first active Application composition.** Add an active Application
+   execution projection, a query snapshot that validates the issued selection
+   in its transaction, point-read and index-range capabilities over the bound
+   schema, authenticated Source Artifact loading, exact Application Worker
+   definition construction, and `ApplicationExecutionHost` invocation. Replace
+   only the private Standard point-query consumer. No old selection, candidate
+   runtime target, fallback, route, OCC, or commit change is allowed.
+2. **Mutation authority bridge.** The retained transaction-grant and
+   point-mutation-start contracts require `packageId`, `artifactId`, and
+   `sourcePackageHash`, which Application Analysis does not own. Preflight an
+   honest Application transaction-start/grant/stored-authority generation,
+   then reuse the existing session journal, OCC rerun, terminalization,
+   point-commit, retry, and outcome owners unchanged. Never manufacture the
+   missing artifact identities or reinterpret their old rows.
+3. **Action lifecycle generation.** The retained action authority persists
+   candidate and action-binding identities absent from the new Application
+   basis. Add a distinct Application action request/history authority, then
+   reuse the generic callback bridge, outbound gateway, external-effect
+   sequencing, close/drain protocol, and `ApplicationExecutionHost`. Do not
+   relabel old action evidence or derive compatibility digests.
+4. **Task System generation.** The current definition and run foreign keys,
+   runtime binding, creation authority, and compute preparation all name
+   Application Revision V1 and candidate/package/semantic-root evidence. Add an
+   issuer-backed active per-task selection, a full Application task runtime
+   binding and run-creation authority, and an honest definition/run reference
+   generation; migrate run creation, compute preparation, and launch together.
+   Historical Task Definition V1 evidence remains historical and is never a
+   fallback.
+
+Self-review accepts this decomposition because it exposes the actual authority
+gaps instead of hiding them behind structural adapters. The query-first slice
+is the next authorized work. Stop and record an owner issue if it requires a
+new query authority beyond selection validation and the existing row/index
+read primitives. The later mutation, action, and Task slices must not begin
+until their separate preflights show how their new evidence reaches the
+unchanged OCC/commit, callback/outbound, and run-lifecycle owners.
 
 First migrate executable authority and publication:
 
@@ -1750,13 +1845,13 @@ not.
 
 ## Current Execution Constraints
 
-The worktree currently contains unrelated persistence, durable-task,
-system-test, foundation-roadmap, and script changes. They are not part of this
-goal and must not be reverted or absorbed. The schema-authority/readiness
-checkpoint remains bounded to its Application owners and migration closure.
-Before activation/selection or any later simulation slice, the main thread must
-re-read the current schema/migration head and protect or coordinate overlapping
-files.
+Application schema authority, readiness, activation history, the active head,
+and issuer-backed selection are now the accepted private authority chain.
+Capability composition and consumer migration remain explicitly unwired. Any
+unrelated durable-task, system-test, foundation-roadmap, or script work in the
+worktree must still be protected rather than absorbed. Before the consumer cut
+or any later simulation slice, the main thread must re-read the current
+schema/migration head and preserve the production-inert boundary.
 
 ## Preflight Review Decision
 

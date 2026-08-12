@@ -3,6 +3,8 @@ import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
+import { applicationSchemaPublicationFrameV1 } from
+  "@flarex/analysis/internal/application-publication-v1";
 import { Effect, Result } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
@@ -58,12 +60,10 @@ describe("Application schema authority", () => {
     const first = await runEffect(publisher.publish({
       deploymentId,
       manifest,
-      schemaVersion: CatalogSchemaVersionSchema.make(2),
     }));
     const replay = await runEffect(publisher.publish({
       deploymentId,
       manifest,
-      schemaVersion: CatalogSchemaVersionSchema.make(2),
     }));
 
     expect(replay).toEqual(first);
@@ -103,7 +103,6 @@ describe("Application schema authority", () => {
       publisher.publish({
         deploymentId,
         manifest: invalid,
-        schemaVersion: CatalogSchemaVersionSchema.make(1),
       }),
     ));
 
@@ -141,7 +140,6 @@ describe("Application schema authority", () => {
     const result = await runEffect(Effect.result(publisher.publish({
       deploymentId,
       manifest: applicationManifest(),
-      schemaVersion: CatalogSchemaVersionSchema.make(1),
     })));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -175,13 +173,163 @@ describe("Application schema authority", () => {
     const result = await runEffect(Effect.result(publisher.publish({
       deploymentId,
       manifest: applicationManifest(),
-      schemaVersion: CatalogSchemaVersionSchema.make(1),
     })));
 
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.failure).toMatchObject({ reason: "projectionMismatch" });
     }
+  });
+
+  it("keeps a rejected reservation-selection query in the typed error channel", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_application_schema_selection_failure";
+    await insertDeployment(persistence, deploymentId);
+    const cause = Object.assign(new Error("selection query failed"), {
+      code: "42501",
+    });
+    const publisher = makeApplicationSchemaAuthorityPublisher({
+      db: new Proxy(persistence.drizzle, {
+        get(target, property, receiver) {
+          if (property === "select") return () => { throw cause; };
+          return Reflect.get(target, property, receiver);
+        },
+      }),
+      runTransaction: run => persistence.drizzle.transaction(run),
+    });
+
+    const result = await runEffect(Effect.result(publisher.publish({
+      deploymentId,
+      manifest: applicationManifest(),
+    })));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationSchemaAuthorityError",
+        operation: "publish",
+        reason: "resourceFailure",
+        cause,
+      });
+    }
+  });
+
+  it("keeps a rejected in-gate query in the typed error channel", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_application_schema_gate_failure";
+    await insertDeployment(persistence, deploymentId);
+    const cause = Object.assign(new Error("gate query failed"), {
+      code: "42501",
+    });
+    const repository: AppSchemaPublicationV1Repository = {
+      db: persistence.drizzle,
+      runTransaction: run => persistence.drizzle.transaction(tx => run(
+        new Proxy(tx, {
+          get(target, property, receiver) {
+            if (property === "select") return () => { throw cause; };
+            return Reflect.get(target, property, receiver);
+          },
+        }),
+      )),
+    };
+    const publisher = makeApplicationSchemaAuthorityPublisher(repository);
+
+    const result = await runEffect(Effect.result(publisher.publish({
+      deploymentId,
+      manifest: applicationManifest(),
+    })));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationSchemaAuthorityError",
+        operation: "publish",
+        reason: "resourceFailure",
+        cause,
+      });
+    }
+  });
+
+  it("identifies read-only authority failures separately from publication", async () => {
+    const persistence = await migratedPersistence();
+    const publisher = makeApplicationSchemaAuthorityPublisher({
+      db: persistence.drizzle,
+      runTransaction: run => persistence.drizzle.transaction(run),
+    });
+
+    const result = await runEffect(Effect.result(publisher.readPublished({
+      deploymentId: "",
+      manifest: applicationManifest(),
+    })));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationSchemaAuthorityError",
+        operation: "readPublished",
+        reason: "invalidDeployment",
+      });
+    }
+  });
+
+  it("repairs a reserved version occupied by the retained publisher", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_application_schema_stranded";
+    await insertDeployment(persistence, deploymentId);
+    await persistence.publishAppSchemaV1({
+      deploymentId,
+      schemaVersionId: CatalogSchemaVersionIdSchema.make("retained_schema"),
+      version: CatalogSchemaVersionSchema.make(1),
+      tables: [tableDeclaration("retained")],
+      indexes: [],
+    });
+    const manifest = applicationManifest();
+    const frame = Result.getOrThrow(applicationSchemaPublicationFrameV1(
+      manifest,
+    ));
+    const digest = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256",
+      frame.slice().buffer,
+    ));
+    const digestHex = Array.from(
+      digest,
+      byte => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const schemaVersionId = `application_${digestHex}`;
+    await persistence.query(
+      `insert into fx_control_application_schema_authority_v1 (
+         deployment_id,
+         application_schema_sha256,
+         schema_version_id,
+         schema_version,
+         status
+       ) values ($1, $2, $3, 1, 'reserved')`,
+      [deploymentId, digest, schemaVersionId],
+    );
+    const publisher = makeApplicationSchemaAuthorityPublisher({
+      db: persistence.drizzle,
+      runTransaction: run => persistence.drizzle.transaction(run),
+    });
+
+    const published = await runEffect(publisher.publish({
+      deploymentId,
+      manifest,
+    }));
+    const authority = await persistence.query<{
+      schema_version: number;
+      status: string;
+    }>(
+      `select schema_version, status
+         from fx_control_application_schema_authority_v1
+        where deployment_id = $1`,
+      [deploymentId],
+    );
+
+    expect(published.schemaVersion).toBe(2);
+    expect(authority.rows).toEqual([{
+      schema_version: 2,
+      status: "reserved",
+    }]);
   });
 });
 

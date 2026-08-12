@@ -70,6 +70,13 @@ export type PublishAppSchemaV1Error =
   | AppSchemaPublicationV1TransactionError
   | AppSchemaPublicationV1RetryExhaustedError;
 
+export interface AppSchemaPublicationV1TransactionGate<Failure> {
+  readonly beforePublish: (
+    tx: StableTableCatalogTransaction,
+    publication: PreparedAppSchemaPublicationV1,
+  ) => Effect.Effect<void, Failure>;
+}
+
 /**
  * Publish or replay one full app-schema envelope through a bounded coordinator.
  *
@@ -97,26 +104,64 @@ export const publishAppSchemaV1WithRepositoryEffect = Effect.fn(
         Effect.die,
       ),
       Effect.flatMap((publication) =>
-        runPreparedAppSchemaPublicationTransactionEffect(
+        runPreparedAppSchemaPublicationTransactionEffect<never>(
           repository,
           publication,
+          undefined,
         )
       ),
     ),
   );
 });
 
-function runPreparedAppSchemaPublicationTransactionEffect(
+/** Package-internal publication variant with one atomic pre-publication gate. */
+export const publishAppSchemaV1WithRepositoryGateEffect = Effect.fn(
+  "AppSchemaPublication.publishWithRepositoryGate",
+)(function* <GateFailure>(
+  repository: AppSchemaPublicationV1Repository,
+  input: PublishAppSchemaV1Input,
+  gate: AppSchemaPublicationV1TransactionGate<GateFailure>,
+): Effect.fn.Return<
+  PublishAppSchemaV1Result,
+  PublishAppSchemaV1Error | GateFailure
+> {
+  const source = yield* Effect.fromResult(
+    snapshotAppSchemaPublicationV1InputResult(input),
+  );
+  return yield* runAppSchemaPublicationV1AttemptsEffect(
+    source.deploymentId,
+    () => prepareAppSchemaPublicationV1FromSourceEffect(
+      repository.db,
+      source,
+    ).pipe(
+      Effect.catchTag(
+        "InvalidAppSchemaPublicationV1SourceError",
+        Effect.die,
+      ),
+      Effect.flatMap((publication) =>
+        runPreparedAppSchemaPublicationTransactionEffect(
+          repository,
+          publication,
+          gate,
+        )
+      ),
+    ),
+  );
+});
+
+function runPreparedAppSchemaPublicationTransactionEffect<GateFailure>(
   repository: AppSchemaPublicationV1Repository,
   publication: PreparedAppSchemaPublicationV1,
+  gate: AppSchemaPublicationV1TransactionGate<GateFailure> | undefined,
 ): Effect.Effect<
   AppSchemaPublicationV1Result,
   | PublishPreparedAppSchemaV1InTransactionError
   | AppSchemaPublicationV1TransactionError
+  | GateFailure
 > {
   return Effect.suspend(() => {
     let callbackCause:
-      | Cause.Cause<PublishPreparedAppSchemaV1InTransactionError>
+      | Cause.Cause<PublishPreparedAppSchemaV1InTransactionError | GateFailure>
       | undefined;
     const rollbackSignal = new Error(
       "App-schema publication Effect work failed; roll back the transaction.",
@@ -128,7 +173,13 @@ function runPreparedAppSchemaPublicationTransactionEffect(
         try: () => repository.runTransaction(
           async (tx): Promise<AppSchemaPublicationV1Result> => {
             const exit = await Effect.runPromise(Effect.exit(
-              publishPreparedAppSchemaV1InTransactionEffect(tx, publication),
+              (gate === undefined
+                ? Effect.void
+                : gate.beforePublish(tx, publication)).pipe(
+                Effect.flatMap(() =>
+                  publishPreparedAppSchemaV1InTransactionEffect(tx, publication)
+                ),
+              ),
             ));
             if (Exit.isFailure(exit)) {
               callbackCause = exit.cause;

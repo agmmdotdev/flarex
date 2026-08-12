@@ -19,6 +19,7 @@ import {
 } from "flarex-protocol/internal/application-runtime-cold-receipt-v1";
 import {
   canonicalizeApplicationRuntimeTargetV1,
+  type CanonicalApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
@@ -54,15 +55,28 @@ import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
 import { makeApplicationReadinessRepository } from
   "../src/applicationReadiness";
+import {
+  claimApplicationActiveSelection,
+  makeApplicationActivationRepository,
+  validateApplicationActiveSelectionInTransaction,
+} from "../src/applicationActivation";
 import { makeApplicationSchemaAuthorityPublisher } from
   "../src/applicationSchemaAuthority";
-import { makeApplicationTaskBindingRepository } from
-  "../src/applicationTaskBindings";
+import {
+  createApplicationTaskCatalogSnapshotPort,
+  makeApplicationTaskBindingRepository,
+} from "../src/applicationTaskBindings";
 import {
   createPGliteLocatedSplitScopeClockTarget,
   createPGlitePersistence,
   createPGliteSplitScopeAuthorityProvisioner,
 } from "../src/pglite";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type RunLocatedReadCommittedTransactionV1,
+} from "../src/transactionSessionAttemptKernel";
+import type { AppRowTransaction } from "../src/appRows";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
@@ -77,6 +91,8 @@ import { getScopeAuthorityProvisioningReceipt } from
 import { runEffect } from "./effectTestRuntime";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
+import { lockScopeClockForShareInTransactionEffect } from
+  "../src/scopeClock";
 
 const ROOT = "a".repeat(64);
 const EXECUTION_SOURCE = "b".repeat(64);
@@ -102,6 +118,24 @@ beforeAll(() => {
 });
 
 describe("Application readiness", { timeout: 30_000 }, () => {
+  it("labels read-only readiness input failures with the read operation", async () => {
+    const fixture = await readinessFixture();
+
+    const result = await runEffect(Effect.result(fixture.repository.readReady({
+      deploymentId: "",
+      revisionId: fixture.input.revisionId,
+    })));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationReadinessError",
+        operation: "readReady",
+        reason: "invalidInput",
+      });
+    }
+  });
+
   it("fails before schema publication when the explicit task catalog is absent", async () => {
     const fixture = await readinessFixture({ registerTaskCatalog: false });
 
@@ -143,7 +177,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     )).toBe(0);
   });
 
-  it("keeps a reserved schema authority repairable when publication fails", async () => {
+  it("rolls back schema authority when atomic publication fails", async () => {
     const fixture = await readinessFixture({ failSchemaPublication: true });
 
     const result = await runEffect(Effect.result(
@@ -154,7 +188,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     expect(Result.isFailure(result)).toBe(true);
-    expect(authorities.rows).toEqual([{ status: "reserved" }]);
+    expect(authorities.rows).toEqual([]);
     expect(await scalarCount(
       fixture.target,
       "fx_system_application_readiness_v1",
@@ -273,6 +307,51 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     expect(fixture.materializationCount()).toBe(1);
   });
 
+  it("rejects a non-empty task catalog with a missing stored definition", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await fixture.target.query(
+      `delete from fx_system_application_task_definition_v1
+        where scope_id = $1 and revision_id = $2`,
+      [fixture.authority.scopeId, fixture.input.revisionId],
+    );
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationTaskCatalogSnapshotError",
+        reason: "storedState",
+      });
+    }
+    expect(fixture.materializationCount()).toBe(0);
+  });
+
+  it("rejects corrupted task-catalog binding evidence", async () => {
+    const fixture = await readinessFixture();
+    await fixture.target.query(
+      `update fx_system_application_task_catalog_v1
+          set binding_bytes = $1
+        where scope_id = $2 and revision_id = $3`,
+      [new Uint8Array([1]), fixture.authority.scopeId, fixture.input.revisionId],
+    );
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationTaskCatalogSnapshotError",
+        reason: "storedState",
+      });
+    }
+    expect(fixture.materializationCount()).toBe(0);
+  });
+
   it("commits runtime policy for an explicit zero-function revision", async () => {
     const fixture = await readinessFixture({ includeFunction: false });
     await prepareReadinessAuthorities(fixture);
@@ -384,12 +463,295 @@ describe("Application readiness", { timeout: 30_000 }, () => {
   });
 });
 
+describe("Application activation", { timeout: 30_000 }, () => {
+  it("activates by explicit CAS, exactly replays, and issues one authentic selection", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+
+    const staleInitial = await runEffect(Effect.result(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: Object.freeze({
+        activationSequence: 1n,
+        headSha256: "0".repeat(64),
+      }),
+    })));
+    expect(Result.isFailure(staleInitial)).toBe(true);
+    if (Result.isFailure(staleInitial)) {
+      expect(staleInitial.failure).toMatchObject({ reason: "expectedHead" });
+    }
+
+    const first = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const replay = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    expect(first).toMatchObject({
+      status: "activated",
+      disposition: "inserted",
+      activationSequence: 1n,
+      previousActivationSequence: null,
+    });
+    expect(replay).toMatchObject({
+      ...first,
+      disposition: "replayed",
+    });
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_activation_v1",
+    )).toBe(1);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_active_head_v1",
+    )).toBe(1);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_declarative_v2_activation_head",
+    )).toBe(0);
+
+    const active = await runEffect(activation.readActive());
+    expect(active.expectedActiveHead).toEqual(first.expectedActiveHead);
+    expect(active.basis).toMatchObject({
+      revisionId: fixture.input.revisionId,
+      candidateId: expect.any(String),
+      analysisId: expect.any(String),
+      schemaVersionId: expect.stringMatching(/^application_/),
+      runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+      activationSequence: 1n,
+    });
+    expect(Result.isSuccess(claimApplicationActiveSelection(
+      active.selection,
+    ))).toBe(true);
+    expect(Result.isFailure(claimApplicationActiveSelection(
+      Object.freeze({ ...active.selection }),
+    ))).toBe(true);
+
+    const validated = await fixture.target.drizzle.transaction(tx => runEffect(
+      Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(
+          tx,
+          fixture.authority.scopeId,
+        );
+        return yield* validateApplicationActiveSelectionInTransaction(
+          active.selection,
+          tx,
+          clock,
+        );
+      }),
+    ));
+    expect(validated.revisionId).toBe(fixture.input.revisionId);
+  });
+
+  it("rolls back history and head together after a late injected failure", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+      faultAfter: point => {
+        if (point === "headWritten") throw new Error("injected late failure");
+      },
+    });
+
+    const result = await runEffect(Effect.result(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    })));
+
+    expect(Result.isFailure(result)).toBe(true);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_activation_v1",
+    )).toBe(0);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_active_head_v1",
+    )).toBe(0);
+  });
+
+  it("surfaces a committed uncertain activation and cold-replays its exact history", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const resolved = await fixture.authorityPorts.scopeClockTargets.resolve();
+    const runner = Reflect.get(
+      resolved,
+      RUN_LOCATED_READ_COMMITTED_V1,
+    );
+    if (typeof runner !== "function") {
+      throw new Error("Expected the located read-committed runner.");
+    }
+    const runReadCommitted = runner as RunLocatedReadCommittedTransactionV1;
+    let uncertain = true;
+    const uncertainTarget = Object.freeze({
+      ...resolved,
+      [RUN_LOCATED_READ_COMMITTED_V1]: async <Value>(
+        work: (tx: AppRowTransaction) => Promise<Value>,
+      ): Promise<Value> => {
+        const result = await runReadCommitted(work);
+        if (uncertain && typeof result === "object" && result !== null &&
+          Reflect.get(result, "status") === "activated") {
+          uncertain = false;
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("lost Application activation response"),
+          }));
+        }
+        return result;
+      },
+    });
+    const originalResolve = fixture.authorityPorts.scopeClockTargets.resolve;
+    fixture.authorityPorts.scopeClockTargets.resolve = async () =>
+      uncertainTarget;
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+
+    const first = await runEffect(Effect.result(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    })));
+    expect(Result.isFailure(first)).toBe(true);
+    if (Result.isFailure(first)) {
+      expect(first.failure).toMatchObject({ reason: "decisionUncertain" });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_activation_v1",
+    )).toBe(1);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_active_head_v1",
+    )).toBe(1);
+
+    const replay = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    expect(replay).toMatchObject({
+      disposition: "replayed",
+      activationSequence: 1n,
+    });
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_activation_v1",
+    )).toBe(1);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_active_head_v1",
+    )).toBe(1);
+  });
+
+  it("fails closed when the active-head canonical evidence is corrupted", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    await fixture.target.query(
+      `update fx_system_application_active_head_v1
+          set head_bytes = $1
+        where scope_id = $2`,
+      [new Uint8Array([1]), fixture.authority.scopeId],
+    );
+
+    const result = await runEffect(Effect.result(activation.readActive()));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ reason: "storedState" });
+    }
+  });
+
+  it("moves the head with the prior CAS token and invalidates the issued selection", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    const first = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const firstSelection = await runEffect(activation.readActive());
+    const nextRevisionId = await createAdditionalApplicationRevision(fixture);
+    const nextReadiness = await runEffect(fixture.repository.settle({
+      deploymentId: fixture.input.deploymentId,
+      revisionId: nextRevisionId,
+    }));
+    expect(nextReadiness).toMatchObject({ status: "ready" });
+
+    const stale = await runEffect(Effect.result(activation.activate({
+      revisionId: nextRevisionId,
+      expectedActiveHead: Object.freeze({
+        activationSequence: first.expectedActiveHead.activationSequence,
+        headSha256: "0".repeat(64),
+      }),
+    })));
+    expect(Result.isFailure(stale)).toBe(true);
+    if (Result.isFailure(stale)) {
+      expect(stale.failure).toMatchObject({ reason: "expectedHead" });
+    }
+    const second = await runEffect(activation.activate({
+      revisionId: nextRevisionId,
+      expectedActiveHead: first.expectedActiveHead,
+    }));
+    expect(second).toMatchObject({
+      activationSequence: 2n,
+      previousActivationSequence: 1n,
+    });
+    const staleSelection = await fixture.target.drizzle.transaction(tx =>
+      runEffect(Effect.result(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(
+          tx,
+          fixture.authority.scopeId,
+        );
+        return yield* validateApplicationActiveSelectionInTransaction(
+          firstSelection.selection,
+          tx,
+          clock,
+        );
+      })))
+    );
+    expect(Result.isFailure(staleSelection)).toBe(true);
+    if (Result.isFailure(staleSelection)) {
+      expect(staleSelection.failure).toMatchObject({ reason: "concurrentHead" });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_activation_v1",
+    )).toBe(2);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_active_head_v1",
+    )).toBe(1);
+  });
+});
+
 type TestPersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 
 interface ReadinessFixtureOptions {
   readonly registerTaskCatalog?: boolean;
   readonly includeFunction?: boolean;
   readonly includeTable?: boolean;
+  readonly includeTask?: boolean;
   readonly coldMode?: "normal" | "wrongTarget" | "advanceAuthority";
   readonly foreignSchemaControl?: boolean;
   readonly failSchemaPublication?: boolean;
@@ -455,7 +817,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
   if (options.registerTaskCatalog !== false) {
     const catalog = await runEffect(hashCanonicalTaskCatalogV1({
       version: 1,
-      tasks: [],
+      tasks: options.includeTask === true ? [taskManifest()] : [],
     }, taskSha256));
     const bindings = await runEffect(produceApplicationTaskBindingsV1({
       definition: preparedDefinition(),
@@ -514,7 +876,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     },
   }, { uniqueConstraints, uniqueConstraintEligibility });
   let materializations = 0;
-  const repository = makeApplicationReadinessRepository({
+  const readinessContext = Object.freeze({
     controlDb: control.drizzle,
     authority: authorityPorts,
     schema: makeApplicationSchemaAuthorityPublisher({
@@ -525,6 +887,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         }
         : run => schemaControl.drizzle.transaction(run),
     }),
+    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
     candidateValidation: createAppSchemaCandidateReadinessPort(
       candidateValidation,
     ),
@@ -532,7 +895,10 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     cold: {
       runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
       compatibilityDate: COMPATIBILITY_DATE,
-      materialize: input => Effect.promise(async () => {
+      materialize: (input: {
+        readonly target: CanonicalApplicationRuntimeTargetV1["target"];
+        readonly manifest: ApplicationManifestV1;
+      }) => Effect.promise(async () => {
         materializations += 1;
         const canonicalTarget = Result.getOrThrow(
           canonicalizeApplicationRuntimeTargetV1(input.target),
@@ -565,6 +931,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
       }),
     },
   });
+  const repository = makeApplicationReadinessRepository(readinessContext);
   return Object.freeze({
     control,
     target,
@@ -646,13 +1013,18 @@ async function createApplicationRevision(
     readonly manifest: ApplicationManifestV1;
     readonly canonicalText: string;
   }>,
+  options: Readonly<{
+    requestKey?: string;
+    uuidSequences?: ReadonlyArray<number>;
+  }> = {},
 ) {
+  const sequences = options.uuidSequences ?? [11, 12, 13];
   const analyses = makeApplicationAnalysisRepository(target.drizzle, {
-    randomUuid: uuidSequence(11, 12, 13),
+    randomUuid: uuidSequence(...sequences),
   });
   const pending = await runEffect(analyses.begin({
     authority,
-    requestKey: "request:application-readiness:1",
+    requestKey: options.requestKey ?? "request:application-readiness:1",
     sourceArtifactRootSha256: ROOT,
     analyzerIdentity: "application-analyzer",
     analyzerPolicyIdentity: "application-analyzer-policy",
@@ -669,6 +1041,58 @@ async function createApplicationRevision(
     throw new Error("Expected analyzed Application readiness fixture.");
   }
   return analyzed;
+}
+
+async function createAdditionalApplicationRevision(
+  fixture: Awaited<ReturnType<typeof readinessFixture>>,
+): Promise<string> {
+  const manifest = applicationManifest(true, false);
+  const analysis = await createApplicationRevision(
+    fixture.target,
+    fixture.authority,
+    manifest,
+    {
+      requestKey: "request:application-readiness:2",
+      uuidSequences: [21, 22, 23],
+    },
+  );
+  const publication = await runEffect(
+    makeApplicationPublicationRepository(fixture.target.drizzle).publish({
+      authority: fixture.authority,
+      revisionId: analysis.revision.revisionId,
+      candidateId: analysis.candidateId,
+      analysisId: analysis.analysisId,
+      manifestSha256: analysis.manifestSha256,
+      manifest: analysis.manifest,
+    }),
+  );
+  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [],
+  }, taskSha256));
+  const bindings = await runEffect(produceApplicationTaskBindingsV1({
+    definition: preparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+    },
+  }, taskSha256));
+  await runEffect(
+    makeApplicationTaskBindingRepository(fixture.target.drizzle).register({
+      authority: fixture.authority,
+      bindings,
+    }),
+  );
+  return publication.revisionId;
 }
 
 async function closeEmptyUniqueConstraintSet(
@@ -840,6 +1264,34 @@ function preparedDefinition() {
       authPath: null,
     },
   }));
+}
+
+function taskManifest() {
+  return {
+    version: 1,
+    taskId: "tasks.users.get",
+    handler: {
+      logicalModulePath: "users",
+      artifactModulePath: "users.js",
+      exportName: "get",
+    },
+    payloadValidator: { type: "any" },
+    outputValidator: null,
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 3,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 300,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  } as const;
 }
 
 function uuidSequence(...sequences: ReadonlyArray<number>): () => string {

@@ -13,6 +13,8 @@ import {
   encodeHashedCanonicalTaskCatalogPreimageV1,
   MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import type { TaskDefinitionSha256V1 } from
+  "@flarex/standard-application-definition/internal/task-definition-v1";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -82,6 +84,241 @@ export interface ApplicationTaskBindingRepository {
     ApplicationTaskBindingRegistration,
     ApplicationTaskBindingPersistenceError
   >;
+}
+
+export interface ApplicationTaskCatalogSnapshot {
+  readonly scopeId: ApplicationAnalysisAuthority["scopeId"];
+  readonly revisionId: string;
+  readonly candidateId: string;
+  readonly analysisId: string;
+  readonly sourceArtifactRootSha256: Uint8Array;
+  readonly publicationSha256: Uint8Array;
+  readonly taskCatalogSha256: Uint8Array;
+  readonly taskCatalogBindingSha256: Uint8Array;
+  readonly taskCount: number;
+  readonly runtimeHostIdentity: string;
+  readonly compatibilityDate: string;
+}
+
+export interface ApplicationTaskCatalogSnapshotPort {
+  readonly loadInTransaction: (
+    tx: AppRowTransaction,
+    authority: ApplicationAnalysisAuthority,
+    revisionId: string,
+  ) => Effect.Effect<
+    ApplicationTaskCatalogSnapshot | null,
+    ApplicationTaskCatalogSnapshotError
+  >;
+}
+
+export class ApplicationTaskCatalogSnapshotError extends Data.TaggedError(
+  "ApplicationTaskCatalogSnapshotError",
+)<{
+  readonly reason:
+    | "invalidInput"
+    | "authorityChanged"
+    | "storedState"
+    | "resourceFailure";
+  readonly retryable: boolean;
+  readonly cause?: unknown;
+}> {}
+
+const taskCatalogSnapshotPorts = new WeakSet<ApplicationTaskCatalogSnapshotPort>();
+
+export function createApplicationTaskCatalogSnapshotPort():
+ApplicationTaskCatalogSnapshotPort {
+  const loadInTransaction = Effect.fn(
+    "ApplicationTaskCatalogSnapshot.loadInTransaction",
+  )(function* (
+    tx: AppRowTransaction,
+    authority: ApplicationAnalysisAuthority,
+    revisionId: string,
+  ): Effect.fn.Return<
+    ApplicationTaskCatalogSnapshot | null,
+    ApplicationTaskCatalogSnapshotError
+  > {
+    if (revisionId.trim().length === 0 || revisionId.includes("\0")) {
+      return yield* taskSnapshotFailure("invalidInput", false);
+    }
+    const clockRows = yield* taskSnapshotQuery(
+      tx.select().from(fxSystemScopeClocks).where(eq(
+        fxSystemScopeClocks.scopeId,
+        authority.scopeId,
+      )).limit(1),
+    );
+    const clock = clockRows[0];
+    if (clock === undefined ||
+      clock.storageGeneration !== authority.storageGeneration ||
+      clock.storageGenerationFence !== authority.storageGenerationFence ||
+      clock.epoch !== authority.epoch) {
+      return yield* taskSnapshotFailure("authorityChanged", false);
+    }
+    const catalogRows = yield* taskSnapshotQuery(
+      tx.select().from(fxSystemApplicationTaskCatalogsV1).where(and(
+        eq(fxSystemApplicationTaskCatalogsV1.scopeId, authority.scopeId),
+        eq(fxSystemApplicationTaskCatalogsV1.revisionId, revisionId),
+      )).limit(1).for("share"),
+    );
+    const catalog = catalogRows[0];
+    if (catalog === undefined) return null;
+    const definitions = yield* taskSnapshotQuery(
+      tx.select().from(fxSystemApplicationTaskDefinitionsV1).where(and(
+        eq(fxSystemApplicationTaskDefinitionsV1.scopeId, authority.scopeId),
+        eq(fxSystemApplicationTaskDefinitionsV1.revisionId, revisionId),
+      )).for("share"),
+    );
+    if (definitions.length !== catalog.taskCount) {
+      return yield* taskSnapshotFailure("storedState", false);
+    }
+    const catalogBinding = yield* Effect.fromResult(
+      decodeApplicationTaskCatalogBindingV1({
+        version: 1,
+        scopeId: catalog.scopeId,
+        revisionId: catalog.revisionId,
+        candidateId: catalog.candidateId,
+        analysisId: catalog.analysisId,
+        sourceArtifactRootSha256: encodeBytesToLowercaseHex(
+          catalog.sourceArtifactRootSha256,
+        ),
+        publicationSha256: encodeBytesToLowercaseHex(catalog.publicationSha256),
+        taskCatalogSha256: copyBytes(catalog.taskCatalogSha256),
+        taskCount: catalog.taskCount,
+        runtimeHostIdentity: catalog.runtimeHostIdentity,
+        compatibilityDate: catalog.compatibilityDate,
+      }).pipe(Result.mapError(cause => taskSnapshotFailureValue(
+        "storedState",
+        false,
+        cause,
+      ))),
+    );
+    const catalogBindingBytes = yield* Effect.fromResult(
+      encodeApplicationTaskCatalogBindingPreimageV1(catalogBinding).pipe(
+        Result.mapError(cause => taskSnapshotFailureValue(
+          "storedState",
+          false,
+          cause,
+        )),
+      ),
+    );
+    const catalogBindingSha256 = yield* taskSnapshotSha256(catalogBindingBytes);
+    if (!bytesEqualFullScan(catalogBindingBytes, catalog.bindingBytes) ||
+      !bytesEqualFullScan(
+        catalogBindingSha256,
+        catalog.taskCatalogBindingSha256,
+      )) return yield* taskSnapshotFailure("storedState", false);
+    const entries: Array<Readonly<{
+      readonly taskId: PreparedApplicationTaskBindingsV1["definitions"][number]["binding"]["taskId"];
+      readonly manifest: PreparedApplicationTaskBindingsV1["definitions"][number]["manifest"];
+      readonly canonicalTaskManifestSha256: TaskDefinitionSha256V1;
+    }>> = [];
+    for (const row of definitions) {
+      const manifest = yield* Effect.fromResult(
+        decodeCanonicalTaskManifestV1(row.manifestBytes).pipe(
+          Result.mapError(cause => taskSnapshotFailureValue(
+            "storedState",
+            false,
+            cause,
+          )),
+        ),
+      );
+      const manifestBytes = yield* Effect.fromResult(
+        encodeCanonicalTaskManifestPreimageV1(manifest).pipe(
+          Result.mapError(cause => taskSnapshotFailureValue(
+            "storedState",
+            false,
+            cause,
+          )),
+        ),
+      );
+      const manifestSha256 = yield* taskSnapshotSha256(manifestBytes);
+      const binding = yield* Effect.fromResult(
+        decodeApplicationTaskDefinitionBindingV1({
+          version: 1,
+          applicationTaskCatalogBindingSha256:
+            encodeBytesToLowercaseHex(row.taskCatalogBindingSha256),
+          canonicalTaskManifestSha256:
+            encodeBytesToLowercaseHex(row.canonicalTaskManifestSha256),
+          taskId: row.taskId,
+          handler: {
+            logicalModulePath: row.logicalModulePath,
+            sourceModulePath: row.sourceModulePath,
+            exportName: row.exportName,
+          },
+        }).pipe(Result.mapError(cause => taskSnapshotFailureValue(
+          "storedState",
+          false,
+          cause,
+        ))),
+      );
+      const bindingBytes = yield* Effect.fromResult(
+        encodeApplicationTaskDefinitionBindingPreimageV1(binding).pipe(
+          Result.mapError(cause => taskSnapshotFailureValue(
+            "storedState",
+            false,
+            cause,
+          )),
+        ),
+      );
+      if (manifest.taskId !== row.taskId ||
+        manifest.handler.logicalModulePath !== row.logicalModulePath ||
+        manifest.handler.artifactModulePath !== row.sourceModulePath ||
+        manifest.handler.exportName !== row.exportName ||
+        !bytesEqualFullScan(manifestBytes, row.manifestBytes) ||
+        !bytesEqualFullScan(manifestSha256, row.canonicalTaskManifestSha256) ||
+        !bytesEqualFullScan(bindingBytes, row.bindingBytes) ||
+        !bytesEqualFullScan(
+          yield* taskSnapshotSha256(bindingBytes),
+          row.taskDefinitionBindingSha256,
+        ) || !bytesEqualFullScan(
+          row.taskCatalogBindingSha256,
+          catalogBindingSha256,
+        )) return yield* taskSnapshotFailure("storedState", false);
+      entries.push(Object.freeze({
+        taskId: manifest.taskId,
+        manifest,
+        canonicalTaskManifestSha256:
+          binding.canonicalTaskManifestSha256,
+      }));
+    }
+    entries.sort((left, right) => compareTaskIds(left.taskId, right.taskId));
+    const catalogBytes = yield* Effect.fromResult(
+      encodeHashedCanonicalTaskCatalogPreimageV1({
+        version: 1,
+        entries,
+      }).pipe(Result.mapError(cause => taskSnapshotFailureValue(
+        "storedState",
+        false,
+        cause,
+      ))),
+    );
+    if (!bytesEqualFullScan(
+      yield* taskSnapshotSha256(catalogBytes),
+      catalog.taskCatalogSha256,
+    )) return yield* taskSnapshotFailure("storedState", false);
+    return Object.freeze({
+      scopeId: catalog.scopeId,
+      revisionId: catalog.revisionId,
+      candidateId: catalog.candidateId,
+      analysisId: catalog.analysisId,
+      sourceArtifactRootSha256: copyBytes(catalog.sourceArtifactRootSha256),
+      publicationSha256: copyBytes(catalog.publicationSha256),
+      taskCatalogSha256: copyBytes(catalog.taskCatalogSha256),
+      taskCatalogBindingSha256: copyBytes(catalogBindingSha256),
+      taskCount: catalog.taskCount,
+      runtimeHostIdentity: catalog.runtimeHostIdentity,
+      compatibilityDate: catalog.compatibilityDate,
+    });
+  });
+  const port = Object.freeze({ loadInTransaction });
+  taskCatalogSnapshotPorts.add(port);
+  return port;
+}
+
+export function isApplicationTaskCatalogSnapshotPort(
+  value: unknown,
+): value is ApplicationTaskCatalogSnapshotPort {
+  return typeof value === "object" && value !== null &&
+    taskCatalogSnapshotPorts.has(value as ApplicationTaskCatalogSnapshotPort);
 }
 
 export function makeApplicationTaskBindingRepository(
@@ -526,6 +763,62 @@ function projection(
     runtimeHostIdentity: prepared.binding.runtimeHostIdentity,
     compatibilityDate: prepared.binding.compatibilityDate,
     registeredAt: new Date(registeredAt.getTime()),
+  });
+}
+
+function compareTaskIds(left: string, right: string): number {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  const length = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return leftBytes.length - rightBytes.length;
+}
+
+function taskSnapshotSha256(
+  bytes: Uint8Array,
+): Effect.Effect<Uint8Array> {
+  return Effect.tryPromise(() => crypto.subtle.digest(
+    "SHA-256",
+    copyBytesToArrayBuffer(bytes),
+  )).pipe(
+    Effect.map(buffer => new Uint8Array(buffer)),
+    Effect.orDie,
+  );
+}
+
+function taskSnapshotQuery<Row>(
+  statement: PromiseLike<ReadonlyArray<Row>>,
+): Effect.Effect<ReadonlyArray<Row>, ApplicationTaskCatalogSnapshotError> {
+  return Effect.tryPromise({
+    try: () => statement,
+    catch: cause => taskSnapshotFailureValue(
+      "resourceFailure",
+      isRetryableTransactionCause(cause),
+      cause,
+    ),
+  });
+}
+
+function taskSnapshotFailure(
+  reason: ApplicationTaskCatalogSnapshotError["reason"],
+  retryable: boolean,
+  cause?: unknown,
+): Effect.Effect<never, ApplicationTaskCatalogSnapshotError> {
+  return Effect.fail(taskSnapshotFailureValue(reason, retryable, cause));
+}
+
+function taskSnapshotFailureValue(
+  reason: ApplicationTaskCatalogSnapshotError["reason"],
+  retryable: boolean,
+  cause?: unknown,
+): ApplicationTaskCatalogSnapshotError {
+  return new ApplicationTaskCatalogSnapshotError({
+    reason,
+    retryable,
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
