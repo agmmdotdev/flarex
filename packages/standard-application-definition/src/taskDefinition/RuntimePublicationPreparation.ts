@@ -141,6 +141,7 @@ export interface TaskRuntimePublicationReceiptPreimageV1 {
   readonly candidateId: string;
   readonly applicationRevisionId: string;
   readonly candidateSha256: TaskDefinitionSha256V1;
+  readonly taskCatalogBindingSha256: TaskDefinitionSha256V1;
   readonly applicationRevisionTaskBindingSha256: TaskDefinitionSha256V1;
   readonly taskCatalogSha256: TaskDefinitionSha256V1;
   readonly taskEntryRootSha256: TaskDefinitionSha256V1;
@@ -176,6 +177,47 @@ export interface PreparedPopulatedTaskRuntimePublicationV1
 export type PreparedTaskRuntimePublicationV1 =
   | PreparedEmptyTaskRuntimePublicationV1
   | PreparedPopulatedTaskRuntimePublicationV1;
+
+export interface CapturedPreparedTaskRuntimeObjectV1 {
+  readonly role: TaskRuntimeObjectRoleV1;
+  readonly codecIdentity: string;
+  readonly ordinal: bigint;
+  readonly canonicalBytes: Uint8Array;
+  readonly reference: TaskRuntimeObjectReferenceV1;
+}
+
+export interface CapturedPreparedTaskRuntimePublicationV1 {
+  readonly receipt: TaskRuntimePublicationReceiptPreimageV1;
+  readonly objects: ReadonlyArray<PreparedTaskRuntimeObjectV1>;
+}
+
+const preparedObjectStates = new WeakMap<object, CapturedPreparedTaskRuntimeObjectV1>();
+const preparedPublicationStates = new WeakMap<object, CapturedPreparedTaskRuntimePublicationV1>();
+
+export function capturePreparedTaskRuntimeObjectV1(
+  input: unknown,
+): CapturedPreparedTaskRuntimeObjectV1 | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const state = preparedObjectStates.get(input);
+  return state === undefined ? undefined : Object.freeze({
+    role: state.role,
+    codecIdentity: state.codecIdentity,
+    ordinal: state.ordinal,
+    canonicalBytes: copyBytes(state.canonicalBytes),
+    reference: copyReference(state.reference),
+  });
+}
+
+export function capturePreparedTaskRuntimePublicationV1(
+  input: unknown,
+): CapturedPreparedTaskRuntimePublicationV1 | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const state = preparedPublicationStates.get(input);
+  return state === undefined ? undefined : Object.freeze({
+    receipt: copyReceiptPreimage(state.receipt),
+    objects: state.objects,
+  });
+}
 
 export type PrepareTaskRuntimePublicationV1Error =
   | InvalidTaskRuntimePublicationV1Error<"prepare_publication">
@@ -252,7 +294,7 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
       applicationRevisionTaskBinding,
       sha256,
     );
-    return Object.freeze({
+    const publication = Object.freeze({
       kind: "empty_catalog" as const,
       version: 1 as const,
       readApplicationRevisionTaskBindingSha256: () =>
@@ -268,6 +310,11 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
       objects: Object.freeze([]) as readonly [],
       canonicalByteLength: 0 as const,
     });
+    preparedPublicationStates.set(publication, {
+      receipt: publication.readReceiptPreimage(),
+      objects: publication.objects,
+    });
+    return publication;
   }
 
   const materialization = yield* Effect.fromResult(
@@ -459,7 +506,7 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
     applicationRevisionTaskBinding,
     sha256,
   );
-  return Object.freeze({
+  const publication = Object.freeze({
     kind: "populated_catalog" as const,
     version: 1 as const,
     readApplicationRevisionTaskBindingSha256: () =>
@@ -475,6 +522,11 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
     objects: Object.freeze(objects),
     canonicalByteLength,
   });
+  preparedPublicationStates.set(publication, {
+    receipt: publication.readReceiptPreimage(),
+    objects: publication.objects,
+  });
+  return publication;
 });
 
 function captureInput(
@@ -789,12 +841,56 @@ function object(
     byteLength: BigInt(canonicalBytes.byteLength),
     sha256: digest,
   });
-  return Object.freeze({
+  const prepared = Object.freeze({
     role,
     codecIdentity: codecIdentityForRole(role),
     ordinal,
     readCanonicalBytes: () => copyBytes(ownedCanonicalBytes),
     readReference: () => copyReference(reference),
+  });
+  preparedObjectStates.set(prepared, {
+    role,
+    codecIdentity: prepared.codecIdentity,
+    ordinal,
+    canonicalBytes: ownedCanonicalBytes,
+    reference,
+  });
+  return prepared;
+}
+
+function copyReceiptPreimage(
+  receipt: TaskRuntimePublicationReceiptPreimageV1,
+): TaskRuntimePublicationReceiptPreimageV1 {
+  return Object.freeze({
+    ...receipt,
+    candidateSha256: copyDigest(receipt.candidateSha256),
+    taskCatalogBindingSha256: copyDigest(receipt.taskCatalogBindingSha256),
+    applicationRevisionTaskBindingSha256:
+      copyDigest(receipt.applicationRevisionTaskBindingSha256),
+    taskCatalogSha256: copyDigest(receipt.taskCatalogSha256),
+    taskEntryRootSha256: copyDigest(receipt.taskEntryRootSha256),
+    taskRuntimeProjectionSha256: receipt.taskRuntimeProjectionSha256 === null
+      ? null
+      : copyDigest(receipt.taskRuntimeProjectionSha256),
+    taskRuntimeGroupManifestSha256:
+      receipt.taskRuntimeGroupManifestSha256 === null
+        ? null
+        : copyDigest(receipt.taskRuntimeGroupManifestSha256),
+    taskRuntimeMaterializationSpecSha256:
+      receipt.taskRuntimeMaterializationSpecSha256 === null
+        ? null
+        : copyDigest(receipt.taskRuntimeMaterializationSpecSha256),
+    packageSha256: copyDigest(receipt.packageSha256),
+    artifactSha256: copyDigest(receipt.artifactSha256),
+    sourceRootSha256: copyDigest(receipt.sourceRootSha256),
+    semanticRootSha256: copyDigest(receipt.semanticRootSha256),
+    runtimeObjects: Object.freeze(receipt.runtimeObjects.map(item =>
+      Object.freeze({
+        ordinal: item.ordinal,
+        codecIdentity: item.codecIdentity,
+        reference: copyReference(item.reference),
+      })
+    )),
   });
 }
 
@@ -889,6 +985,7 @@ function makeReceiptPreimage(
     candidateId: input.authority.candidateId,
     applicationRevisionId: input.authority.applicationRevisionId,
     candidateSha256: copyDigest(input.authority.candidateSha256),
+    taskCatalogBindingSha256: copyDigest(input.taskBindings.catalog.sha256),
     applicationRevisionTaskBindingSha256:
       copyDigest(applicationRevisionTaskBindingSha256),
     taskCatalogSha256: copyDigest(binding.taskCatalogSha256),

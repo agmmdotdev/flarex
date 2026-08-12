@@ -26,7 +26,10 @@ export type TaskRuntimePublicationOperationV1 =
   | "encode_entry_root"
   | "decode_entry_root"
   | "decode_entry_root_preimage"
-  | "hash_entry_root";
+  | "hash_entry_root"
+  | "encode_publication_receipt"
+  | "decode_publication_receipt"
+  | "prepare_publication_receipt";
 
 export type TaskRuntimePublicationReasonV1 =
   | "invalid_preparation_input"
@@ -56,7 +59,12 @@ export type TaskRuntimePublicationReasonV1 =
   | "unordered_compute_profiles"
   | "invalid_root"
   | "canonical_bytes_exceeded"
-  | "noncanonical_preimage";
+  | "noncanonical_preimage"
+  | "invalid_receipt"
+  | "invalid_runtime_object"
+  | "duplicate_runtime_object"
+  | "missing_runtime_object"
+  | "receipt_digest_mismatch";
 
 export class InvalidTaskRuntimePublicationV1Error<
   Operation extends TaskRuntimePublicationOperationV1 =

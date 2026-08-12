@@ -23,6 +23,56 @@ import {
 } from "./sessionAuthorityTestSupport";
 
 describe("createPGlitePersistence", () => {
+  it("upgrades the immediately prior 0060 journal with task-runtime publication", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-sap-trp4-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const journalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const currentJournalText = await readFile(
+      resolve(currentMigrationsFolder, "meta/_journal.json"),
+      "utf8",
+    );
+    const parsed: unknown = JSON.parse(currentJournalText);
+    if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+      throw new Error("Expected a Drizzle migration journal.");
+    }
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await writeFile(journalPath, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter(entry =>
+          isNonArrayRecord(entry) && typeof entry.idx === "number" &&
+          entry.idx < 61
+        ),
+      }, null, 2)}\n`, "utf8");
+      await (await createPGlitePersistence({ db, migrationsFolder })).migrate();
+      const before = await db.query<{ count: string }>(`
+        select count(*)::text as count from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_application_task_runtime_%'
+      `);
+      expect(before.rows).toEqual([{ count: "0" }]);
+
+      await writeFile(journalPath, currentJournalText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      const after = await current.query<{ count: string }>(`
+        select count(*)::text as count from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_application_task_runtime_%'
+      `);
+      expect(after.rows).toEqual([{ count: "2" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
   it("checks connectivity", async () => {
     const persistence = await createPGlitePersistence();
 
@@ -84,6 +134,8 @@ describe("createPGlitePersistence", () => {
       "fx_system_application_revision_v2",
       "fx_system_application_task_catalog_v1",
       "fx_system_application_task_definition_v1",
+      "fx_system_application_task_runtime_object_v1",
+      "fx_system_application_task_runtime_publication_v1",
       "fx_system_commit",
       "fx_system_commit_app_row_change",
       "fx_system_declarative_v2_activation_head",

@@ -116,15 +116,15 @@ the real located reader, Worker Loader, and activation behind ordered gates.
 It does not absorb the distinct per-run task-input object store; that writer,
 reader, and `run_lifetime` retention authority need a separate Task-owned
 preflight before D1 is production-complete.
-The next Standard Application checkpoint is the proposed SAP-TRP4 persistence
-contract in
+The SAP-TRP4 persistence checkpoint is complete under
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 It adds only an immutable publication header and ordered object membership
 under the existing Application task-catalog chain, requires a Standard
 Application-owned canonical receipt before persistence, and fixes exact
 replay, conflict, corruption, rollback, and genuine-PostgreSQL uncertainty
-proofs. It remains documentation-only until explicit implementation approval
-and creates no second revision, readiness, activation, or active-head system.
+proofs. It remains private, production-inert, and unwired and creates no second
+revision, readiness, activation, or active-head system. SAP-TRP5 readiness and
+active-selection agreement is the next separately approved checkpoint.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime
@@ -529,9 +529,11 @@ files remain candidates:
      checkpoint reuses the existing Declarative V2 conditional R2 mechanics
      through one backend-local immutable-byte core, adds an exact task-specific
      reference adapter, and proves replay/collision/uncertainty/ownership in
-     memory and Miniflare while remaining production-inert. Database receipt,
-     hosted R2, readiness, activation, and Worker Loader composition remain
-     absent. DTE06-D2's
+     memory and Miniflare while remaining production-inert. SAP-TRP4 now adds
+     the canonical database receipt, additive persistence schema, exact
+     transactional replay/conflict/corruption handling, and PGlite plus
+     ordinary-role PostgreSQL 18 proof. Hosted R2, readiness, activation, and
+     Worker Loader composition remain absent. DTE06-D2's
      private ABI/runtime core may proceed independently; the real read adapter,
      existing-runtime composition,
      fenced settlement, supervision, end-to-end proof, and host remain

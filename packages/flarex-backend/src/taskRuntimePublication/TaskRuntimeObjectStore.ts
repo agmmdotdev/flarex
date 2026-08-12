@@ -9,9 +9,11 @@ import {
   TASK_RUNTIME_PROJECTION_CODEC_V1,
   TASK_RUNTIME_PROJECTION_MODULE_CODEC_V1,
   type PreparedTaskRuntimeObjectV1,
+  type PublishedTaskRuntimeObjectV1,
   type StandardApplicationTaskSha256InputV1Error,
   type StandardApplicationTaskSha256ResourceV1Error,
   type StandardApplicationTaskSha256V1,
+  type TaskRuntimePublicationReceiptAuthorityV1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
@@ -88,6 +90,9 @@ export interface TaskRuntimeObjectStore {
   readonly publish: (
     object: PreparedTaskRuntimeObjectV1,
   ) => Effect.Effect<TaskRuntimeObjectReferenceV1, TaskRuntimeObjectStoreError>;
+  readonly publishConfirmed: (
+    object: PreparedTaskRuntimeObjectV1,
+  ) => Effect.Effect<PublishedTaskRuntimeObjectV1, TaskRuntimeObjectStoreError>;
   readonly read: (
     reference: unknown,
   ) => Effect.Effect<TaskRuntimeObjectStoreObject, TaskRuntimeObjectStoreError>;
@@ -115,6 +120,10 @@ export function makeTaskRuntimeObjectStore(
   bucket: TaskRuntimeObjectStoreBucket,
   sha256: StandardApplicationTaskSha256V1 =
     makeLiveStandardApplicationTaskSha256V1(),
+  receiptAuthority?: Pick<
+    TaskRuntimePublicationReceiptAuthorityV1,
+    "confirmPublishedObject"
+  >,
 ): TaskRuntimeObjectStore {
   const core = makeImmutableR2ByteStore(
     bucket,
@@ -141,6 +150,21 @@ export function makeTaskRuntimeObjectStore(
     return copyReference(captured.reference);
   });
 
+  const publishConfirmed: TaskRuntimeObjectStore["publishConfirmed"] = Effect.fn(
+    "TaskRuntimeObjectStore.publishConfirmed",
+  )(function* (object) {
+    if (receiptAuthority === undefined) {
+      return yield* inputError("publish", "object", "invalidInput");
+    }
+    const reference = yield* publish(object);
+    return yield* Effect.fromResult(
+      receiptAuthority.confirmPublishedObject(object, reference),
+    ).pipe(Effect.mapError(() => new TaskRuntimeObjectStoreCorruptionError({
+      reference,
+      reason: "digestMismatch",
+    })));
+  });
+
   const read: TaskRuntimeObjectStore["read"] = Effect.fn(
     "TaskRuntimeObjectStore.read",
   )(function* (referenceInput) {
@@ -159,7 +183,7 @@ export function makeTaskRuntimeObjectStore(
     });
   });
 
-  return Object.freeze({ publish, read });
+  return Object.freeze({ publish, publishConfirmed, read });
 }
 
 function capturePreparedObject(

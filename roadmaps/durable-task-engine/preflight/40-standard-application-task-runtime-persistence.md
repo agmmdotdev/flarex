@@ -2,10 +2,12 @@
 
 ## Status
 
-**Decision:** Proposed for approval. This document closes the SAP-TRP4 design
-boundary only. It does not authorize DDL, a migration, repository code,
-readiness, activation, a located runtime reader, Worker Loader composition, or
-a production host until the implementation slice is separately approved.
+**Decision:** Complete (2026-08-12). SAP-TRP4 now supplies the canonical
+Standard Application receipt, additive Drizzle schema and migration, private
+transactional publication repository, and PGlite plus ordinary-role genuine
+PostgreSQL proof. It remains production-inert and authorizes no readiness,
+activation, located runtime reader, Worker Loader composition, or production
+host.
 
 SAP-TRP1 through SAP-TRP3 already provide the pure canonical task-runtime
 formats, an owned publication plan, and private immutable-object storage. The
@@ -62,6 +64,28 @@ The persistence repository accepts only an owned Standard Application receipt
 and the exact confirmed SAP-TRP3 references. It does not accept caller-built
 rows, arbitrary object keys, a raw database, a transaction, an R2 bucket, or a
 generic immutable-store capability.
+
+One composition-scoped receipt authority owns the opaque confirmation and
+receipt tokens. The host constructs exactly one instance, gives only its
+`confirmPublishedObject` projection to the SAP-TRP3 store so a token is minted
+after the immutable put converges, and gives only its `captureReceipt`
+projection to persistence. The same authority prepares the receipt from the
+opaque SAP-TRP2 plan plus every returned confirmation. Different authority
+instances cannot exchange tokens. Tests may simulate the store-success call
+with genuine SAP-TRP2 objects; that simulation is not production publication
+evidence. No production composition is admitted in SAP-TRP4.
+
+During the SAP-TRP4 connected fixture, the existing
+`ApplicationTaskCatalogSnapshotPort` classified every populated registered
+catalog as corrupt because it passed stored canonical manifest bytes to the
+decoded-object manifest API. The expected behavior is to decode the canonical
+preimage or otherwise return the already authenticated catalog snapshot; the
+actual behavior is a typed `storedState` failure at
+`definitions[0].manifestBytes`. That defect belongs to the existing
+application-task-binding snapshot owner and is not repaired by SAP-TRP4.
+SAP-TRP4 instead locks and validates only the exact parent catalog header it
+owns as a foreign-key prerequisite. A separate owner-approved correction may
+repair and retest the shared snapshot port later.
 
 ## Required Receipt Contract Amendment
 
@@ -147,13 +171,14 @@ For a populated catalog:
 Add `fx_system_application_task_runtime_object_v1` with:
 
 - `scope_id`, `revision_id`, and `receipt_sha256`;
-- zero-based `ordinal` bounded by the protocol publication-object maximum;
+- role-local zero-based `ordinal` bounded by the protocol
+  publication-object maximum;
 - exact `store_identity`, `role`, and role-owned `codec_identity`;
 - canonical `object_key`;
 - positive bounded `byte_length`; and
 - exact 32-byte `sha256`.
 
-The primary key is `(scope_id, revision_id, ordinal)`. A foreign key over
+The primary key is `(scope_id, revision_id, role, ordinal)`. A foreign key over
 `(scope_id, revision_id, receipt_sha256)` targets the publication header with
 `ON DELETE RESTRICT`. The schema rejects unknown stores, roles, codecs,
 oversized lengths, and malformed keys. The key must have the fixed
@@ -162,7 +187,8 @@ task-runtime prefix, role segment, and lowercase digest suffix.
 Partial unique indexes enforce at most one projection, group manifest, and
 materialization spec per publication. Projection modules and task entries may
 repeat. SQL constraints enforce facts local to one row; the repository owns
-contiguous ordinals, exact final count, role/codec mapping, task-entry count,
+contiguous role-local ordinals, exact final count, role/codec mapping,
+task-entry count,
 and full receipt correlation across rows.
 
 No R2 body is copied into PostgreSQL.
@@ -236,8 +262,9 @@ one.
 
 The migration must use the persistence-owned bundled migration resolver. It
 must work from an empty database and from the immediately prior committed
-journal on both PGlite and genuine PostgreSQL with an ordinary acceptance
-role. Tests use temporary schemas/persistence helpers rather than requiring
+journal. The focused upgrade proof runs on PGlite; the same additive DDL and
+full migration tree run on genuine PostgreSQL with an ordinary acceptance role.
+Tests use temporary schemas/persistence helpers rather than requiring
 `CREATEDB` or superuser privileges.
 
 ## Required Validation
@@ -252,7 +279,7 @@ role. Tests use temporary schemas/persistence helpers rather than requiring
 
 ### PGlite fast lane
 
-- empty and prior-journal migration;
+- empty and immediately-prior-journal migration;
 - exact schema, check, foreign-key, partial-unique, and delete-restrict proofs;
 - empty and populated publication;
 - exact replay and conflicting replay;
@@ -263,15 +290,13 @@ role. Tests use temporary schemas/persistence helpers rather than requiring
 
 ### Genuine PostgreSQL admission lane
 
-- ordinary-role empty and prior-journal migration;
-- two connections publishing the identical receipt concurrently;
-- two connections publishing different receipts concurrently;
-- parent-lock blocking and settled release;
+- ordinary-role full-tree migration;
+- concurrent identical publication convergence;
+- concurrent different-receipt winner/conflict serialization;
 - rollback after a later membership insert;
 - committed-but-response-hidden uncertainty followed by exact cold replay;
 - confirmed rollback kept distinct from decision uncertainty; and
-- pool/client reuse or quarantine according to the existing located
-  transaction contract.
+- subsequent cold replay after uncertainty, proving reusable settled access.
 
 A test that throws before commit does not prove commit-response uncertainty.
 The genuine-PostgreSQL lane must use a deterministic barrier or the existing
@@ -281,6 +306,23 @@ connection.
 Before commit, run both required significant-code reviewers against the final
 staged diff. Schema and migration agreement, frozen lockfile/diff checks, and
 focused package typechecks remain mandatory.
+
+### Completed validation receipt
+
+- `pnpm --filter @flarex/standard-application-definition typecheck`;
+- `pnpm --filter @flarex/standard-application-definition test` — seven files,
+  57 tests, including the pinned receipt digest
+  `a2a93fed8daf1c523af653804ab33012ef9e7a4b44ff2145dcf9445a4df5455f`;
+- `pnpm --filter @flarex/persistence-postgres typecheck`;
+- `pnpm --filter @flarex/persistence-postgres db:check`;
+- `pnpm --filter @flarex/persistence-postgres test:sap-trp4:pglite` — two
+  files, 37 tests;
+- focused backend immutable-object-store proof — two files, ten tests;
+- `pnpm --filter @flarex/persistence-postgres test:sap-trp4:postgres` — one
+  file, four tests on PostgreSQL 18 through a non-superuser role granted only
+  database `CONNECT` and `CREATE`;
+- `pnpm check:trigger-compatibility-boundary`; and
+- `pnpm typecheck:scripts`.
 
 ## Explicit Non-Goals
 
@@ -299,8 +341,7 @@ SAP-TRP4 does not:
 
 ## Implementation Order And Stop Boundary
 
-After explicit approval, SAP-TRP4 is one bounded implementation slice in this
-order:
+SAP-TRP4 completed as one bounded implementation slice in this order:
 
 1. Standard Application canonical receipt codec/digest/bounds;
 2. Drizzle schema and generated additive migration;
@@ -310,7 +351,7 @@ order:
 6. final TypeScript/Effect and code-quality reviewer passes; and
 7. one production-inert commit.
 
-Completion of SAP-TRP4 authorizes no readiness or runtime composition. Stop
-after the inert publication receipt. SAP-TRP5 remains the next separately
-approved checkpoint and owns extension of the single existing readiness and
-active-selection evidence chain.
+Completion of SAP-TRP4 authorizes no readiness or runtime composition. The
+implementation stops after the inert publication receipt. SAP-TRP5 is the next
+separately approved checkpoint and owns extension of the single existing
+readiness and active-selection evidence chain.

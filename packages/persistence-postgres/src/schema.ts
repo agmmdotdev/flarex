@@ -44,6 +44,10 @@ import {
 import {
   MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
   MAX_TASK_ID_UTF8_BYTES_V1,
+  MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1,
+  MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1,
+  MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1,
+  type TaskRuntimeObjectRoleV1,
   type TaskDefinitionSha256V1,
   type TaskIdV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -4966,6 +4970,13 @@ export const fxSystemApplicationTaskCatalogsV1 = pgTable(
       table.revisionId,
       table.taskCatalogBindingSha256,
     ),
+    unique("fx_application_task_catalog_v1_runtime_fk_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.candidateId,
+      table.taskCatalogSha256,
+      table.taskCatalogBindingSha256,
+    ),
     foreignKey({
       name: "fx_application_task_catalog_v1_publication_fk",
       columns: [
@@ -5054,6 +5065,167 @@ export const fxSystemApplicationTaskDefinitionsV1 = pgTable(
         and octet_length(${table.canonicalTaskManifestSha256}) = 32
         and octet_length(${table.manifestBytes}) between 1 and 16777216
         and octet_length(${table.bindingBytes}) between 1 and 16777216`,
+    ),
+  ],
+);
+
+/** Immutable task-runtime publication receipt under one Application catalog. */
+export const fxSystemApplicationTaskRuntimePublicationsV1 = pgTable(
+  "fx_system_application_task_runtime_publication_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    candidateId: text("candidate_id").notNull(),
+    taskCatalogSha256: bytea("task_catalog_sha256").notNull(),
+    taskCatalogBindingSha256: bytea("task_catalog_binding_sha256").notNull(),
+    candidateSha256: bytea("candidate_sha256").notNull(),
+    applicationRevisionTaskBindingSha256:
+      bytea("application_revision_task_binding_sha256").notNull(),
+    taskEntryRootSha256: bytea("task_entry_root_sha256").notNull(),
+    taskRuntimeProjectionSha256: bytea("task_runtime_projection_sha256"),
+    taskRuntimeGroupManifestSha256:
+      bytea("task_runtime_group_manifest_sha256"),
+    taskRuntimeMaterializationSpecSha256:
+      bytea("task_runtime_materialization_spec_sha256"),
+    packageSha256: bytea("package_sha256").notNull(),
+    artifactSha256: bytea("artifact_sha256").notNull(),
+    sourceRootSha256: bytea("source_root_sha256").notNull(),
+    semanticRootSha256: bytea("semantic_root_sha256").notNull(),
+    objectCount: integer("object_count").notNull(),
+    receiptSha256: bytea("receipt_sha256").notNull(),
+    receiptBytes: bytea("receipt_bytes").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeId, table.revisionId] }),
+    unique("fx_application_task_runtime_pub_v1_receipt_unique").on(
+      table.scopeId,
+      table.receiptSha256,
+    ),
+    unique("fx_application_task_runtime_pub_v1_child_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.receiptSha256,
+    ),
+    foreignKey({
+      name: "fx_application_task_runtime_pub_v1_catalog_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.candidateId,
+        table.taskCatalogSha256,
+        table.taskCatalogBindingSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationTaskCatalogsV1.scopeId,
+        fxSystemApplicationTaskCatalogsV1.revisionId,
+        fxSystemApplicationTaskCatalogsV1.candidateId,
+        fxSystemApplicationTaskCatalogsV1.taskCatalogSha256,
+        fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_application_task_runtime_pub_v1_identity_check",
+      sql`octet_length(convert_to(${table.revisionId}, 'UTF8')) between 1 and 256
+        and octet_length(convert_to(${table.candidateId}, 'UTF8')) between 1 and 256
+        and octet_length(${table.taskCatalogSha256}) = 32
+        and octet_length(${table.taskCatalogBindingSha256}) = 32
+        and octet_length(${table.candidateSha256}) = 32
+        and octet_length(${table.applicationRevisionTaskBindingSha256}) = 32
+        and octet_length(${table.taskEntryRootSha256}) = 32
+        and octet_length(${table.packageSha256}) = 32
+        and octet_length(${table.artifactSha256}) = 32
+        and octet_length(${table.sourceRootSha256}) = 32
+        and octet_length(${table.semanticRootSha256}) = 32
+        and octet_length(${table.receiptSha256}) = 32
+        and octet_length(${table.receiptBytes}) between 1 and ${sql.raw(String(MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1))}`,
+    ),
+    check(
+      "fx_application_task_runtime_pub_v1_shape_check",
+      sql`(
+          ${table.objectCount} = 0
+          and ${table.taskRuntimeProjectionSha256} is null
+          and ${table.taskRuntimeGroupManifestSha256} is null
+          and ${table.taskRuntimeMaterializationSpecSha256} is null
+        ) or (
+          ${table.objectCount} between 1 and ${sql.raw(String(MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1))}
+          and octet_length(${table.taskRuntimeProjectionSha256}) = 32
+          and octet_length(${table.taskRuntimeGroupManifestSha256}) = 32
+          and octet_length(${table.taskRuntimeMaterializationSpecSha256}) = 32
+        )`,
+    ),
+    check(
+      "fx_application_task_runtime_pub_v1_time_check",
+      sql`isfinite(${table.publishedAt})`,
+    ),
+  ],
+);
+
+/** Ordered immutable object references belonging to one task-runtime receipt. */
+export const fxSystemApplicationTaskRuntimeObjectsV1 = pgTable(
+  "fx_system_application_task_runtime_object_v1",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    revisionId: text("revision_id").notNull(),
+    receiptSha256: bytea("receipt_sha256").notNull(),
+    role: text("role").$type<TaskRuntimeObjectRoleV1>().notNull(),
+    ordinal: bigint("ordinal", { mode: "bigint" }).notNull(),
+    storeIdentity: text("store_identity").notNull(),
+    codecIdentity: text("codec_identity").notNull(),
+    objectKey: text("object_key").notNull(),
+    byteLength: bigint("byte_length", { mode: "bigint" }).notNull(),
+    sha256: bytea("sha256").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeId, table.revisionId, table.role, table.ordinal],
+    }),
+    unique("fx_application_task_runtime_obj_v1_key_unique").on(
+      table.scopeId,
+      table.revisionId,
+      table.objectKey,
+    ),
+    foreignKey({
+      name: "fx_application_task_runtime_obj_v1_publication_fk",
+      columns: [table.scopeId, table.revisionId, table.receiptSha256],
+      foreignColumns: [
+        fxSystemApplicationTaskRuntimePublicationsV1.scopeId,
+        fxSystemApplicationTaskRuntimePublicationsV1.revisionId,
+        fxSystemApplicationTaskRuntimePublicationsV1.receiptSha256,
+      ],
+    }).onDelete("restrict"),
+    uniqueIndex("fx_application_task_runtime_obj_v1_projection_unique")
+      .on(table.scopeId, table.revisionId, table.role)
+      .where(sql`${table.role} = 'task_runtime_projection'`),
+    uniqueIndex("fx_application_task_runtime_obj_v1_manifest_unique")
+      .on(table.scopeId, table.revisionId, table.role)
+      .where(sql`${table.role} = 'task_runtime_group_manifest'`),
+    uniqueIndex("fx_application_task_runtime_obj_v1_spec_unique")
+      .on(table.scopeId, table.revisionId, table.role)
+      .where(sql`${table.role} = 'task_runtime_materialization_spec'`),
+    check(
+      "fx_application_task_runtime_obj_v1_shape_check",
+      sql`${table.role} in (
+          'runtime_projection_module', 'task_runtime_projection',
+          'task_runtime_entry', 'task_runtime_group_manifest',
+          'task_runtime_materialization_spec'
+        )
+        and ${table.ordinal} between 0 and ${sql.raw(String(MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1 - 1))}
+        and ${table.storeIdentity} = 'flarex.r2/standard-application-task-runtime/v1'
+        and ${table.byteLength} between 1 and ${sql.raw(String(MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1))}
+        and octet_length(${table.sha256}) = 32
+        and octet_length(convert_to(${table.codecIdentity}, 'UTF8')) between 1 and 256
+        and octet_length(convert_to(${table.objectKey}, 'UTF8')) between 1 and 512
+        and ${table.objectKey} = 'standard-application-task-runtime/v1/' || ${table.role} || '/' || encode(${table.sha256}, 'hex')
+        and (
+          (${table.role} = 'runtime_projection_module' and ${table.codecIdentity} = 'flarex.standard-application/task-runtime-projection-module/v1')
+          or (${table.role} = 'task_runtime_projection' and ${table.codecIdentity} = 'flarex.standard-application/task-runtime-projection/v1')
+          or (${table.role} = 'task_runtime_entry' and ${table.codecIdentity} = 'flarex.standard-application/task-runtime-entry/v1')
+          or (${table.role} = 'task_runtime_group_manifest' and ${table.codecIdentity} = 'flarex.standard-application/task-runtime-group-manifest/v1')
+          or (${table.role} = 'task_runtime_materialization_spec' and ${table.codecIdentity} = 'flarex.standard-application/task-runtime-materialization-spec/v1')
+        )`,
     ),
   ],
 );

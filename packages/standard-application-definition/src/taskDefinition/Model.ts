@@ -45,6 +45,8 @@ export const TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1 =
   "flarex.standard-application/task-run-creation-authority/v1" as const;
 export const TASK_RUNTIME_OBJECT_STORE_V1 =
   "flarex.r2/standard-application-task-runtime/v1" as const;
+export const TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC_V1 =
+  "flarex.standard-application/task-runtime-publication-receipt/v1" as const;
 
 export const MAX_TASK_ID_UTF8_BYTES_V1 = 255;
 export const MAX_TASK_CATALOG_ENTRIES_V1 = 4_096;
@@ -65,6 +67,8 @@ export const MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1 =
   MAX_TASK_RUNTIME_PUBLICATION_MODULES_V1 + MAX_TASK_CATALOG_ENTRIES_V1 + 3;
 export const MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1 =
   128 * 1_024 * 1_024;
+export const MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1 =
+  8 * 1_024 * 1_024;
 export const TASK_RUNTIME_CONTRACT_IDENTITY_V1 =
   "flarex.task-runtime/durable-task/v1" as const;
 export const TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1 =

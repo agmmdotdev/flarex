@@ -1,5 +1,12 @@
 import {
+  hashCanonicalTaskCatalogV1,
   makeLiveStandardApplicationTaskSha256V1,
+  makeTaskRuntimePublicationReceiptAuthorityV1,
+  prepareTaskRuntimePublicationV1,
+  TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+  TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+  TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  TASK_RUNTIME_PROFILE_IDENTITY_V1,
   MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1,
   taskRuntimeObjectKeyV1,
   TASK_RUNTIME_OBJECT_STORE_V1,
@@ -10,8 +17,22 @@ import {
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
+  produceApplicationTaskBindingsV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import {
+  prepareStandardApplicationDefinitionV1,
+} from "@flarex/standard-application-definition/v1";
+import { produceStandardApplicationSource } from
+  "@flarex/standard-application-definition/application-source";
+import type { TaskComputeProfileRefV1 } from
+  "@flarex/durable-task/internal/run-attempt-v1";
 import { copyBytes } from "@flarex/utils/bytes";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Brand, Cause, Effect, Exit, Option, Result } from "effect";
+import {
+  encodeDeclarativeV2PhysicalFrameV1,
+  type DeclarativeV2CandidateFrameV1,
+} from "flarex-protocol/internal/declarative-v2-physical-v1";
 import { describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
 
@@ -62,6 +83,31 @@ describe("TaskRuntimeObjectStore", () => {
     await expect(Effect.runPromise(store.publish(fixture.object)))
       .resolves.toEqual(fixture.reference);
     expect(bucket.putCalls).toBe(1);
+  });
+
+  it("mints confirmation only after genuine plan storage converges", async () => {
+    const bucket = new MemoryBucket();
+    const sha256 = makeLiveStandardApplicationTaskSha256V1();
+    const authority = makeTaskRuntimePublicationReceiptAuthorityV1(sha256);
+    const object = await makeGenuinePreparedObject(sha256);
+    const store = makeTaskRuntimeObjectStore(bucket, sha256, authority);
+
+    const first = await Effect.runPromise(store.publishConfirmed(object));
+    const replay = await Effect.runPromise(store.publishConfirmed(object));
+    expect(replay.readReference()).toEqual(first.readReference());
+
+    const failingBucket = new MemoryBucket();
+    failingBucket.rejectBeforeWrite = true;
+    failingBucket.rejectGets = true;
+    const failure = await Effect.runPromiseExit(
+      makeTaskRuntimeObjectStore(
+        failingBucket,
+        sha256,
+        authority,
+      ).publishConfirmed(object),
+    );
+    expect(Exit.isFailure(failure)).toBe(true);
+    expect(failingBucket.putCalls).toBe(1);
   });
 
   it("rejects conflicting bytes at the same content-addressed key", async () => {
@@ -278,6 +324,210 @@ async function expectFailureTag(
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function makeGenuinePreparedObject(
+  sha256: StandardApplicationTaskSha256V1,
+): Promise<PreparedTaskRuntimeObjectV1> {
+  const definition = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 1_024,
+      maximumValidatorNodes: 32,
+      maximumValidatorDepth: 8,
+      maximumValidatorStringUtf8Bytes: 1_024,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: { tables: [], indexes: [] },
+      modules: [{
+        modulePath: "tasks/orders",
+        functions: [{
+          exportName: "lookup",
+          kind: "query",
+          visibility: "internal",
+          argsValidator: { type: "any" },
+          returnsValidator: null,
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 1,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 4_096,
+      maximumSourceMapBytes: 0,
+      maximumBytesMaterialized: 16_384,
+      maximumSemanticRecords: 16,
+      maximumSemanticRecordBytes: 4_096,
+      maximumSemanticStreamBytes: 16_384,
+    },
+    graphInput: {
+      modules: [{
+        path: "tasks/orders.js",
+        roles: ["function", "execution"],
+        sourceBytes: new TextEncoder().encode(
+          "export const lookup = () => null; export const run = () => null;\n",
+        ),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "tasks/orders",
+        artifactModulePath: "tasks/orders.js",
+      }],
+      executionPath: "tasks/orders.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  }));
+  const source = Result.getOrThrow(produceStandardApplicationSource(definition));
+  const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("standard-1x");
+  const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [{
+      version: 1,
+      taskId: "tasks.orders.process",
+      handler: {
+        logicalModulePath: "tasks/orders",
+        artifactModulePath: "tasks/orders.js",
+        exportName: "run",
+      },
+      payloadValidator: { type: "any" },
+      outputValidator: null,
+      runAttemptPolicy: {
+        version: 1,
+        retry: {
+          maxAttempts: 3,
+          factor: 2,
+          minTimeoutInMs: 1_000,
+          maxTimeoutInMs: 60_000,
+          randomize: true,
+        },
+        outOfMemory: { kind: "disabled" },
+      },
+      maximumDurationInSeconds: 300,
+      computeProfile,
+      queue: { kind: "default" },
+    }],
+  }, sha256));
+  const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
+    definition,
+    catalog,
+    authority: {
+      scopeId: "scope-store-test",
+      revisionId: "revision-store-test",
+      candidateId: "candidate-store-test",
+      analysisId: "analysis-store-test",
+      publicationSha256: "11".repeat(32),
+      sourceArtifactRootSha256: "22".repeat(32),
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: "application-runtime-host",
+      compatibilityDate: "2026-08-12",
+    },
+  }, sha256));
+  const authenticatedModules = await Promise.all(source.modules.map(
+    async (module, ordinal) => ({
+      ordinal,
+      artifactModulePath: module.path,
+      roles: module.roles,
+      sourceByteLength: module.sourceBytes.byteLength,
+      sourceSha256: await Effect.runPromise(sha256(module.sourceBytes, {
+        maximumInputBytes: module.sourceBytes.byteLength,
+      })) as TaskDefinitionSha256V1,
+    }),
+  ));
+  const materialization = Object.freeze({
+    kind: "task_runtime_materialization_spec" as const,
+    runtimeContractIdentity: TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+    bridgeAbiIdentity: TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+    compatibilityDate: "2026-08-12",
+    compatibilityFlags: Object.freeze(["nodejs_compat"]),
+    runtimeProfileIdentity: TASK_RUNTIME_PROFILE_IDENTITY_V1,
+    runtimeImplementationVersion: "worker-loader-2026.08.12",
+    supportedComputeProfiles: Object.freeze([computeProfile]),
+    moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  });
+  const candidate = makeStoreCandidate();
+  const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
+    candidate,
+    { maximumFrameBytes: 1_024 * 1_024, maximumCanonicalBytes: 1_024 * 1_024 },
+  ));
+  const candidateSha256 = await Effect.runPromise(sha256(
+    encoded.canonicalBytes,
+    { maximumInputBytes: encoded.canonicalBytes.byteLength },
+  )) as TaskDefinitionSha256V1;
+  const publication = await Effect.runPromise(prepareTaskRuntimePublicationV1({
+    source,
+    catalog,
+    taskBindings: bindings,
+    authority: {
+      candidateId: "candidate-store-test",
+      candidate,
+      candidateSha256,
+      applicationRevisionId: "revision-store-test",
+      authenticatedModules,
+    },
+    policy: {
+      materialization,
+      admittedCompatibilityDate: materialization.compatibilityDate,
+      admittedCompatibilityFlags: materialization.compatibilityFlags,
+      admittedRuntimeImplementationVersion:
+        materialization.runtimeImplementationVersion,
+      admittedComputeProfiles: materialization.supportedComputeProfiles,
+    },
+  }, sha256));
+  const object = publication.objects[0];
+  if (object === undefined) throw new Error("Expected a prepared runtime object.");
+  return object;
+}
+
+function makeStoreCandidate(): DeclarativeV2CandidateFrameV1 {
+  const digest = (byte: number) =>
+    new Uint8Array(32).fill(byte) as TaskDefinitionSha256V1;
+  return {
+    kind: "candidate",
+    projectId: "project-store-test",
+    deploymentId: "candidate-store-test",
+    deploymentCreatedAt: "2026-08-12T00:00:00.000Z",
+    scopeId: "scope-store-test",
+    storageGeneration: "flarexdb_v1",
+    storageGenerationFence: 1n,
+    scopeEpoch: "scope-epoch-store-test",
+    sourceRootSha256: digest(0x22),
+    sourceSelectorSha256: digest(2),
+    sourceCodecIdentity: "source-v2",
+    semanticRootSha256: digest(3),
+    semanticSelectorSha256: digest(4),
+    semanticModelIdentity: "declarative-v2",
+    semanticCodecIdentity: "ndjson-v1",
+    semanticPolicyIdentity: "semantic-policy-v1",
+    packageSha256: digest(5),
+    artifactSha256: digest(6),
+    artifactRuntimeIdentity: "runtime-v1",
+    schemaArtifactSha256: digest(7),
+    schemaBindingSha256: digest(8),
+    validatorRootSha256: digest(9),
+    coreLanguageIdentity: "core-v1",
+    abiIdentity: "abi-v1",
+    grammarIdentity: "grammar-v1",
+    unicodeIdentity: "unicode-14",
+    parserTableIdentity: "parser-v1",
+    analyzerIdentity: "analyzer-v2",
+    verifierIdentity: "verifier-v1",
+    declaredHandlerSetSha256: digest(10),
+    deploymentAnalysisCodecIdentity: "analysis-v1",
+    deploymentAnalysisByteLength: 20n,
+    deploymentAnalysisSha256: digest(11),
+    deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
+    deploymentCodegenAnalysisByteLength: 21n,
+    deploymentCodegenAnalysisSha256: digest(12),
+    runtimeProjectionSetSha256: digest(13),
+    functionGroupManifestSha256: digest(14),
+    readinessPolicyIdentity:
+      "flarex.readiness/runtime-projection-cold-materialization/v1",
+  };
 }
 
 class MemoryBucket implements TaskRuntimeObjectStoreBucket {
