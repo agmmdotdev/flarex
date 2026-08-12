@@ -216,6 +216,21 @@ export type SettleApplicationReadinessError<SchemaFailure, ColdFailure> =
   | LockScopeClockForShareError
   | LockScopeClockForUpdateError;
 
+export type ReadApplicationReadinessError =
+  | ApplicationReadinessError
+  | ApplicationSchemaAuthorityError
+  | ApplicationTaskCatalogSnapshotError
+  | ReadSchemaVersionArtifactError
+  | ReadAppIndexDefinitionError
+  | ReadAppSchemaVersionIndexBindingError
+  | IndexBuildReconciliationCatalogV1Error
+  | TrustedScopeAuthorityError
+  | LoadAppSchemaCandidateReadinessError
+  | ValidateAppSchemaCandidateReadinessError
+  | LoadPointCommitUniqueConstraintEligibilityV1Error
+  | ValidatePointCommitUniqueConstraintEligibilityV1Error
+  | LockScopeClockForShareError;
+
 export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
   readonly settle: (input: {
     readonly deploymentId: string;
@@ -229,7 +244,7 @@ export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
     readonly revisionId: string;
   }) => Effect.Effect<
     ApplicationReadinessResult,
-    SettleApplicationReadinessError<SchemaFailure, ColdFailure>
+    ReadApplicationReadinessError
   >;
 }
 
@@ -523,7 +538,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       readonly revisionId: string;
     }): Effect.fn.Return<
       ApplicationReadinessResult,
-      SettleApplicationReadinessError<SchemaFailure, ColdFailure>
+      ReadApplicationReadinessError
     > {
       if (!validIdentity(input.deploymentId) || !validIdentity(input.revisionId)) {
         return yield* readinessFailure("invalidInput");

@@ -16,6 +16,7 @@ import {
   type ApplicationReadinessActivationBasis,
   type ApplicationReadinessRepository,
   type ApplicationReadinessResult,
+  type ReadApplicationReadinessError,
   type SettleApplicationReadinessError,
 } from "./applicationReadiness";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
@@ -132,10 +133,9 @@ export interface ApplicationActivationRepository<SchemaFailure, ColdFailure> {
   readonly readActive: () => Effect.Effect<
     CoherentActiveApplication,
     | ApplicationActivationError
-    | SettleApplicationReadinessError<SchemaFailure, ColdFailure>
+    | ReadApplicationReadinessError
     | TrustedScopeAuthorityError
     | LockScopeClockForShareError
-    | LockScopeClockForUpdateError
   >;
 }
 
