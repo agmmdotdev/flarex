@@ -1692,6 +1692,42 @@ describe("C04A stored-attempt authentication", () => {
       )).rejects.toBeDefined();
     }
 
+    const ordered = await commitAuthorityFixture();
+    const invalidGrantAndSchema = structuredClone(ordered.commitEvidence);
+    invalidGrantAndSchema.session.authorizationGrantCanonicalBytes.fill(0);
+    Object.assign(invalidGrantAndSchema.schema, {
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+        "deployment-schema-mismatch",
+      ),
+    });
+    const orderedAuthentication = createStoredPointCommitPlanningV1(
+      { loadEffect: () => Effect.succeed(loaded(ordered.fixture.evidence)) },
+      {
+        evidenceLoader: {
+          loadEffect: () => Effect.succeed({
+            kind: "loaded" as const,
+            evidence: invalidGrantAndSchema,
+          }),
+        },
+        transactionGrantVerifier: ordered.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(ordered.functionSnapshot),
+        },
+      },
+      TEST_EXECUTION_CLAIMS,
+    );
+    const orderedAuthority = await deriveAuthority(orderedAuthentication);
+    const orderedStored = await runEffect(orderedAuthentication.authenticate(
+      orderedAuthority,
+      encodeEnvelope(ordered.fixture.envelope),
+    ));
+    await expect(runFailure(
+      orderedAuthentication.authenticateCommitAuthority(orderedStored),
+    )).resolves.toMatchObject({
+      _tag: "StoredCommitAuthorityCorruptionV1Error",
+      reason: "authorizationGrantInvalid",
+    });
+
     const current = await commitAuthorityFixture();
     for (const metadata of [
       null,

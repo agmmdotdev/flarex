@@ -178,8 +178,13 @@ export function makeStoredPointCommitPlanningOperationsV1(
       storedAttempt,
       evidence,
       grantKernel,
+      configuration.applicationMutationGrantVerifier,
     );
-    if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+    if (
+      !isLegacyCommitAuthorityVerificationStateV1(storedAttempt) ||
+      verifiedEvidence.executionAuthorityGeneration !==
+        "legacy_dynamic_worker_v1"
+    ) {
       return yield* Effect.fail(new StoredCommitAuthorityCorruptionV1Error({
         reason: "sessionEvidenceInvalid",
       }));
@@ -496,6 +501,11 @@ function deepDetachCommitAuthorityState(
   evidence: VerifiedCommitAuthorityEvidenceV1,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): AuthenticatedCommitAuthorityStateV1 {
+  if (evidence.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+    throw new StoredCommitAuthorityCorruptionV1Error({
+      reason: "sessionEvidenceInvalid",
+    });
+  }
   return Object.freeze({
     storedAttempt,
     databaseNowMilliseconds: evidence.databaseNowMilliseconds,

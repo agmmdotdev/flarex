@@ -19,6 +19,9 @@ import type {
   TransactionAttemptFence,
   TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
+import type {
+  ApplicationMutationGrantVerifierNamespaceV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
 
 import type { TransactionGrantVerifierV1 } from "../transactionGrant";
 import type {
@@ -199,6 +202,9 @@ export interface PinnedPointMutationFunctionMetadataReaderPortV1 {
 export interface StoredCommitAuthorityAuthenticationConfigV1 {
   readonly evidenceLoader: StoredCommitAuthorityEvidenceLoaderPortV1;
   readonly transactionGrantVerifier: TransactionGrantVerifierV1;
+  /** Required only while authenticating an Application-generation session. */
+  readonly applicationMutationGrantVerifier?:
+    ApplicationMutationGrantVerifierNamespaceV1;
   readonly functionMetadata:
     PinnedPointMutationFunctionMetadataReaderPortV1;
 }

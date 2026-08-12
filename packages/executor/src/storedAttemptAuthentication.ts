@@ -1831,7 +1831,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     executionEvidence: pointMutationOccExecutionEvidencePort,
     resolvePointMutationOccOutcome,
     verifyCommitAuthorityEvidence: (state, evidence) =>
-      verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+      verifyCommitAuthorityEvidenceEffect(
+        state,
+        evidence,
+        grantKernel,
+        commitAuthority.applicationMutationGrantVerifier,
+      ),
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
     publicationResultFromCommittedOutcome,
   });
@@ -1844,7 +1849,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
       executionLiveness: pointMutationExecutionLiveness,
       executionEvidence: pointMutationOccExecutionEvidencePort,
       verifyCommitAuthorityEvidence: (state, evidence) =>
-        verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+        verifyCommitAuthorityEvidenceEffect(
+          state,
+          evidence,
+          grantKernel,
+          commitAuthority.applicationMutationGrantVerifier,
+        ),
       executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
       publicationResultFromCommittedOutcome,
     }),
@@ -1909,7 +1919,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     publishFinishingPointCommit,
     resumePointCommit,
     verifyCommitAuthorityEvidence: (state, evidence) =>
-      verifyCommitAuthorityEvidenceEffect(state, evidence, grantKernel),
+      verifyCommitAuthorityEvidenceEffect(
+        state,
+        evidence,
+        grantKernel,
+        commitAuthority.applicationMutationGrantVerifier,
+      ),
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
     resolvePointCommitOutcomeFromStoredSession,
     publicationResultFromCommittedOutcome,

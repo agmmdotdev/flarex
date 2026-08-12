@@ -425,6 +425,11 @@ function capturePointMutationOccRunnerEvidence(
   evidence: VerifiedCommitAuthorityEvidenceV1,
   functionMetadata: PointMutationTargetFunctionMetadataV1,
 ): PointMutationOccDetachedRunnerEvidenceV1 {
+  if (evidence.executionAuthorityGeneration !== "legacy_dynamic_worker_v1") {
+    throw new PointMutationOccExecutionAuthorityCorruptionV1Error({
+      reason: "runtimePinInvalid",
+    });
+  }
   return Object.freeze({
     argumentsJson: Object.freeze(structuredClone(evidence.argumentsJson)),
     argumentArraySemanticBytes: evidence.argumentArraySemanticBytes,

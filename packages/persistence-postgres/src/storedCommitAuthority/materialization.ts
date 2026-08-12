@@ -16,6 +16,9 @@ import {
   type JsonObject,
 } from "flarex-protocol/json";
 import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
   CanonicalSchemaManifestBytesSchema,
   CatalogSchemaVersionIdSchema,
   MAX_SCHEMA_MANIFEST_APP_TABLES,
@@ -57,6 +60,8 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import { snapshotApplicationExecutionAuthorityJson } from
+  "../applicationExecutionAuthoritySnapshot";
 import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
 import {
   decodeScopeClockRecordResult,
@@ -108,11 +113,15 @@ export interface SessionSizeRow extends Omit<
   | "validatedArgsCanonicalBytes"
   | "authorizationGrantJson"
   | "authorizationGrantCanonicalBytes"
+  | "applicationExecutionAuthorityJson"
+  | "applicationExecutionAuthorityCanonicalBytes"
 > {
   readonly validatedArgsJsonByteLengthText: string;
   readonly validatedArgsCanonicalByteLengthText: string;
   readonly authorizationGrantJsonByteLengthText: string;
   readonly authorizationGrantCanonicalByteLengthText: string;
+  readonly applicationExecutionAuthorityJsonByteLengthText: string;
+  readonly applicationExecutionAuthorityCanonicalByteLengthText: string;
 }
 
 export interface SessionPayloadRow {
@@ -123,6 +132,9 @@ export interface SessionPayloadRow {
   readonly validatedArgsCanonicalBytes: Uint8Array;
   readonly authorizationGrantJsonText: string;
   readonly authorizationGrantCanonicalBytes: Uint8Array;
+  readonly applicationExecutionAuthorityJsonText: string | null;
+  readonly applicationExecutionAuthorityCanonicalBytes: Uint8Array | null;
+  readonly applicationExecutionAuthoritySha256: Uint8Array | null;
 }
 
 export interface SchemaPayloadRow extends Omit<
@@ -430,7 +442,10 @@ function materializeStoredAuthorityEffect(
     if (!validSessionScalars(session)) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
-    const sessionScalars = captureSessionScalars(session);
+    const sessionPayload = captured.sessionPayloadRows[0];
+    const sessionScalars = sessionPayload === undefined
+      ? undefined
+      : yield* captureSessionScalarsEffect(session, sessionPayload);
     if (sessionScalars === undefined) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
@@ -936,20 +951,20 @@ function validSessionScalars(session: SessionSizeRow): boolean {
     );
 }
 
-function captureSessionScalars(
+const captureSessionScalarsEffect = Effect.fn(
+  "StoredCommitAuthority.captureSessionScalars",
+)(function* (
   session: SessionSizeRow,
-): StoredCommitAuthoritySessionScalarsV1 | undefined {
+  payload: SessionPayloadRow,
+): Effect.fn.Return<StoredCommitAuthoritySessionScalarsV1 | undefined> {
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     return undefined;
   }
-  if (
-    session.executionAuthorityGeneration !== "legacy_dynamic_worker_v1" ||
-    session.packageId === null ||
-    session.artifactRuntime === null ||
-    session.artifactId === null ||
-    session.sourcePackageHash === null ||
-    session.executionModule === null
-  ) return undefined;
+  const executionAuthority = yield* captureExecutionAuthorityEffect(
+    session,
+    payload,
+  );
+  if (executionAuthority === undefined) return undefined;
   const argsLength = parseLength(
     session.validatedArgsCanonicalByteLengthText,
   );
@@ -975,15 +990,10 @@ function captureSessionScalars(
     return undefined;
   }
   return Object.freeze({
-    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+    ...executionAuthority,
     lifecycle: session.lifecycle,
     storageGeneration: session.storageGeneration,
     storageGenerationFence: session.storageGenerationFence,
-    packageId: session.packageId,
-    artifactRuntime: session.artifactRuntime,
-    artifactId: session.artifactId,
-    sourcePackageHash: session.sourcePackageHash,
-    executionModule: session.executionModule,
     functionPath: session.functionPath,
     functionKind: session.functionKind,
     schemaVersionId: session.schemaVersionId,
@@ -1009,7 +1019,95 @@ function captureSessionScalars(
     createdAtMilliseconds,
     updatedAtMilliseconds,
   });
-}
+});
+
+const captureExecutionAuthorityEffect = Effect.fn(
+  "StoredCommitAuthority.captureExecutionAuthority",
+)(function* (
+  session: SessionSizeRow,
+  payload: SessionPayloadRow,
+): Effect.fn.Return<
+  | Pick<
+      Extract<StoredCommitAuthoritySessionScalarsV1, {
+        readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+      }>,
+      | "executionAuthorityGeneration"
+      | "packageId"
+      | "artifactRuntime"
+      | "artifactId"
+      | "sourcePackageHash"
+      | "executionModule"
+    >
+  | Pick<
+      Extract<StoredCommitAuthoritySessionScalarsV1, {
+        readonly executionAuthorityGeneration: "application_v1";
+      }>,
+      | "executionAuthorityGeneration"
+      | "applicationExecutionAuthorityJson"
+      | "applicationExecutionAuthorityCanonicalBytes"
+      | "applicationExecutionAuthoritySha256"
+    >
+  | undefined
+> {
+  if (session.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (
+      session.packageId === null || session.artifactRuntime === null ||
+      session.artifactId === null || session.sourcePackageHash === null ||
+      session.executionModule === null ||
+      payload.applicationExecutionAuthorityJsonText !== null ||
+      payload.applicationExecutionAuthorityCanonicalBytes !== null ||
+      payload.applicationExecutionAuthoritySha256 !== null
+    ) return undefined;
+    return Object.freeze({
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+      packageId: session.packageId,
+      artifactRuntime: session.artifactRuntime,
+      artifactId: session.artifactId,
+      sourcePackageHash: session.sourcePackageHash,
+      executionModule: session.executionModule,
+    });
+  }
+  if (
+    session.executionAuthorityGeneration !== "application_v1" ||
+    session.packageId !== null || session.artifactRuntime !== null ||
+    session.artifactId !== null || session.sourcePackageHash !== null ||
+    session.executionModule !== null ||
+    payload.applicationExecutionAuthorityJsonText === null ||
+    payload.applicationExecutionAuthorityCanonicalBytes === null ||
+    payload.applicationExecutionAuthoritySha256 === null ||
+    !isUint8ArrayWithByteLength(
+      payload.applicationExecutionAuthoritySha256,
+      32,
+    )
+  ) return undefined;
+  const authorityJson = decodeJsonObjectTextResult(
+    payload.applicationExecutionAuthorityJsonText,
+  );
+  if (Result.isFailure(authorityJson)) return undefined;
+  const canonical = yield*
+    canonicalizeApplicationMutationExecutionAuthorityV1(
+      authorityJson.success,
+    ).pipe(Effect.option);
+  if (
+    canonical._tag === "None" ||
+    !bytesEqual(
+      canonical.value.canonicalBytes,
+      payload.applicationExecutionAuthorityCanonicalBytes,
+    ) ||
+    !bytesEqual(
+      canonical.value.sha256,
+      payload.applicationExecutionAuthoritySha256,
+    )
+  ) return undefined;
+  return Object.freeze({
+    executionAuthorityGeneration: "application_v1" as const,
+    applicationExecutionAuthorityJson:
+      snapshotApplicationExecutionAuthorityJson(canonical.value.authorityJson),
+    applicationExecutionAuthorityCanonicalBytes:
+      copyBytes(canonical.value.canonicalBytes),
+    applicationExecutionAuthoritySha256: copyBytes(canonical.value.sha256),
+  });
+});
 
 function validRootScalars(root: RootScalarRow): boolean {
   const createdAtMilliseconds = finiteDateMilliseconds(root.createdAt);

@@ -2145,18 +2145,21 @@ the stored-attempt loader recanonicalizes and rehashes Application authority
 JSON/bytes/digest; commit input and point-commit authority pins carry a matching
 generation; and the locked-session transaction compares the legacy fields or
 Application authority digest without changing its lock order or downstream
-write behavior. Legacy executor authentication remains intentionally fail-
-closed for the Application branch until the immutable Application graph and
-runner portion of checkpoint 2 is implemented.
+write behavior. The stored-commit-authority materializer now preserves that
+exact generation split as well. It size-projects Application JSON and canonical
+bytes before loading them, then decodes, recanonicalizes, and verifies their
+byte and digest commitments. Executor authentication verifies the distinct
+Application Mutation Grant, its stored grant evidence, and all immutable
+authority/session pins without a legacy fallback. The resulting grant and
+authority projections retain their protocol-owned recursive immutability.
 
-Focused receipts are green: protocol typecheck and 9/9 transaction-session
-tests, persistence and executor typechecks, 61/61 stored-attempt authentication
-tests, 4/4 point-commit finishing tests, and the exact canonical Application
-stored-attempt regression. The broader stored-attempt suite still has the same
-two connected execution failures observed before this correction: a test
-runtime emits string syscall sequence `"1"` where the journal owner requires a
-bigint. That shared journal-sequence defect is recorded as diagnostic evidence
-and is not repaired or weakened in this authority-only slice.
+This checkpoint remains deliberately fail-closed before planning and execution
+for Application sessions. The next bounded implementation slice must add the
+immutable Application publication/function/schema graph verifier and use that
+authenticated evidence to construct the existing Application Worker runner.
+It must not wire the Standard mutation consumer or reach the shared commit tail
+until those identities are verified. Exact validation receipts belong in the
+owning commit report rather than this living roadmap.
 
 First migrate executable authority and publication:
 

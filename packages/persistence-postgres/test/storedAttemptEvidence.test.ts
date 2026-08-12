@@ -520,6 +520,46 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(Object.isFrozen(
       loaded.evidence.session.applicationExecutionAuthorityJson.runtimeTarget,
     )).toBe(true);
+
+    const commitAuthority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      loaded.evidence,
+    );
+    const commitLoader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+    );
+    const commitEvidence = await runEffect(
+      commitLoader.loadEffect(commitAuthority),
+    );
+    expect(commitEvidence.kind).toBe("loaded");
+    if (commitEvidence.kind !== "loaded") {
+      throw new Error("Expected Application commit authority evidence.");
+    }
+    expect(commitEvidence.evidence.session.executionAuthorityGeneration).toBe(
+      "application_v1",
+    );
+    if (
+      commitEvidence.evidence.session.executionAuthorityGeneration !==
+        "application_v1"
+    ) throw new Error("Expected Application commit authority.");
+    expect(bytesToHex(
+      commitEvidence.evidence.session.applicationExecutionAuthoritySha256,
+    )).toBe(bytesToHex(authority.sha256));
+    expect(Object.isFrozen(
+      commitEvidence.evidence.session.applicationExecutionAuthorityJson,
+    )).toBe(true);
+
+    await persistence.query(
+      `update fx_system_tx_session
+          set application_execution_authority_canonical_bytes = $1
+        where session_id = $2`,
+      [new Uint8Array([0xff]), current.anchor.sessionId],
+    );
+    await expect(runEffect(commitLoader.loadEffect(commitAuthority))).resolves
+      .toMatchObject({
+        kind: "corrupt",
+        reason: "sessionEvidenceInvalid",
+      });
   });
 
   it("enters finishing only for the exact stored Application authority", async () => {

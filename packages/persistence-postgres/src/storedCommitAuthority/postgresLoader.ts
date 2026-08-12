@@ -381,6 +381,13 @@ async function captureRows(
       `,
       authorizationGrantCanonicalBytes:
         fxSystemTransactionSessions.authorizationGrantCanonicalBytes,
+      applicationExecutionAuthorityJsonText: sql<string | null>`
+        ${fxSystemTransactionSessions.applicationExecutionAuthorityJson}::text
+      `,
+      applicationExecutionAuthorityCanonicalBytes:
+        fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
+      applicationExecutionAuthoritySha256:
+        fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
     })
     .from(fxSystemTransactionSessions)
     .where(and(
@@ -566,10 +573,6 @@ function selectSessionSizeRows(
       fxSystemTransactionSessions.storageGenerationFence,
     executionAuthorityGeneration:
       fxSystemTransactionSessions.executionAuthorityGeneration,
-    applicationExecutionAuthorityJson:
-      fxSystemTransactionSessions.applicationExecutionAuthorityJson,
-    applicationExecutionAuthorityCanonicalBytes:
-      fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes,
     applicationExecutionAuthoritySha256:
       fxSystemTransactionSessions.applicationExecutionAuthoritySha256,
     packageId: fxSystemTransactionSessions.packageId,
@@ -614,6 +617,18 @@ function selectSessionSizeRows(
     `,
     authorizationGrantCanonicalByteLengthText: sql<string>`
       octet_length(${fxSystemTransactionSessions.authorizationGrantCanonicalBytes})::bigint::text
+    `,
+    applicationExecutionAuthorityJsonByteLengthText: sql<string>`
+      coalesce(
+        octet_length(${fxSystemTransactionSessions.applicationExecutionAuthorityJson}::text),
+        0
+      )::bigint::text
+    `,
+    applicationExecutionAuthorityCanonicalByteLengthText: sql<string>`
+      coalesce(
+        octet_length(${fxSystemTransactionSessions.applicationExecutionAuthorityCanonicalBytes}),
+        0
+      )::bigint::text
     `,
   }).from(fxSystemTransactionSessions).where(and(
     eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
@@ -721,6 +736,8 @@ function sizeProjectionFailure(
     session.validatedArgsCanonicalByteLengthText,
     session.authorizationGrantJsonByteLengthText,
     session.authorizationGrantCanonicalByteLengthText,
+    session.applicationExecutionAuthorityJsonByteLengthText,
+    session.applicationExecutionAuthorityCanonicalByteLengthText,
     schema.manifestJsonByteLengthText,
     schema.manifestCanonicalByteLengthText,
   ].map(parseLength);
@@ -767,6 +784,14 @@ function detachSessionPayloadRows(
       new Uint8Array(row.validatedArgsCanonicalBytes),
     authorizationGrantCanonicalBytes:
       new Uint8Array(row.authorizationGrantCanonicalBytes),
+    applicationExecutionAuthorityCanonicalBytes:
+      row.applicationExecutionAuthorityCanonicalBytes === null
+        ? null
+        : new Uint8Array(row.applicationExecutionAuthorityCanonicalBytes),
+    applicationExecutionAuthoritySha256:
+      row.applicationExecutionAuthoritySha256 === null
+        ? null
+        : new Uint8Array(row.applicationExecutionAuthoritySha256),
   })));
 }
 

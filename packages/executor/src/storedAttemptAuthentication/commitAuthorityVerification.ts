@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { Effect, Schema } from "effect";
 
 import {
@@ -47,6 +50,16 @@ import {
   decodeFlarexValueCodecVersion,
   normalizeFlarexValueJsonV1,
 } from "flarex-protocol/value";
+import {
+  inspectVerifiedApplicationMutationGrantV1,
+  verifyApplicationMutationGrantV1,
+  type ApplicationMutationGrantVerifierNamespaceV1,
+  type InertApplicationMutationGrantEvidenceV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+  type ApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
 
 import type {
   StoredAttemptAuthorityStateV1,
@@ -95,16 +108,30 @@ const decodePinnedPointMutationFunctionMetadataSnapshotV1 =
     onExcessProperty: "error",
   });
 
-export interface VerifiedCommitAuthorityEvidenceV1 {
+interface VerifiedCommitAuthorityCommonEvidenceV1 {
   readonly databaseNowMilliseconds: number;
   readonly argumentsJson: JsonObject;
   readonly argumentArraySemanticBytes: number;
-  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
   readonly schemaManifest: SchemaManifestAppSchemaV1;
   readonly stableBindings: StoredCommitAuthoritySchemaEvidencePortV1[
     "stableBindings"
   ];
 }
+
+type VerifiedCommitAuthorityGenerationEvidenceV1 =
+  | Readonly<{
+      readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1";
+      readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+    }>
+  | Readonly<{
+      readonly executionAuthorityGeneration: "application_v1";
+      readonly verifiedGrant: InertApplicationMutationGrantEvidenceV1;
+      readonly applicationAuthority: ApplicationMutationExecutionAuthorityV1;
+    }>;
+
+export type VerifiedCommitAuthorityEvidenceV1 =
+  VerifiedCommitAuthorityCommonEvidenceV1 &
+  VerifiedCommitAuthorityGenerationEvidenceV1;
 
 /** Narrow verification input shared by sealed C04B1 and open O08-B2a. */
 export interface CommitAuthorityVerificationStateV1 {
@@ -156,14 +183,8 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
   storedAttempt: CommitAuthorityVerificationStateV1,
   evidence: StoredCommitAuthorityEvidencePortV1,
   grantKernel: TransactionGrantVerificationKernelV1,
+  applicationGrantVerifier?: ApplicationMutationGrantVerifierNamespaceV1,
 ) {
-  if (!isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
-    return yield* commitAuthorityCorruptionEffect("sessionEvidenceInvalid");
-  }
-  const legacyStoredAttempt = Object.freeze({
-    authority: storedAttempt.authority,
-    session: storedAttempt.session,
-  }) satisfies LegacyCommitAuthorityVerificationStateV1;
   if (
     evidence.currentAuthorizationRevocationEpoch !==
       storedAttempt.session.authorizationRevocationEpoch
@@ -228,24 +249,85 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
     );
   }
 
-  const expectedLogicalPins = yield* Effect.try({
-    try: () => buildExpectedTransactionGrantPins(legacyStoredAttempt),
-    catch: (cause) => commitAuthorityCorruption(
-      "sessionEvidenceInvalid",
-      cause,
-    ),
-  });
-  const verifiedGrant = yield* grantKernel.verify({
-    jws: evidence.session.authorizationGrantJson,
-    expectedLogicalPins,
-    trustedNowEpochMilliseconds: Effect.succeed(
-      evidence.databaseNowMilliseconds,
-    ),
-  });
-  if (!sameStoredGrantEvidence(evidence.session, verifiedGrant)) {
-    return yield* commitAuthorityCorruptionEffect(
+  let generationEvidence: VerifiedCommitAuthorityGenerationEvidenceV1;
+  if (isLegacyCommitAuthorityVerificationStateV1(storedAttempt)) {
+    const expectedLogicalPins = yield* Effect.try({
+      try: () => buildExpectedTransactionGrantPins(storedAttempt),
+      catch: (cause) => commitAuthorityCorruption(
+        "sessionEvidenceInvalid",
+        cause,
+      ),
+    });
+    const verifiedGrant = yield* grantKernel.verify({
+      jws: evidence.session.authorizationGrantJson,
+      expectedLogicalPins,
+      trustedNowEpochMilliseconds: Effect.succeed(
+        evidence.databaseNowMilliseconds,
+      ),
+    });
+    if (!sameStoredGrantEvidence(evidence.session, verifiedGrant)) {
+      return yield* commitAuthorityCorruptionEffect(
+        "authorizationGrantInvalid",
+      );
+    }
+    generationEvidence = Object.freeze({
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+      verifiedGrant: detachVerifiedGrant(verifiedGrant),
+    });
+  } else {
+    if (applicationGrantVerifier === undefined) {
+      return yield* commitAuthorityCorruptionEffect(
+        "authorizationGrantInvalid",
+      );
+    }
+    if (storedAttempt.session.executionAuthorityGeneration !== "application_v1") {
+      return yield* commitAuthorityCorruptionEffect("sessionEvidenceInvalid");
+    }
+    const applicationSession = storedAttempt.session;
+    const canonicalAuthority = yield*
+      canonicalizeApplicationMutationExecutionAuthorityV1(
+        applicationSession.applicationExecutionAuthorityJson,
+      ).pipe(Effect.mapError(cause => commitAuthorityCorruption(
+        "sessionEvidenceInvalid",
+        cause,
+      )));
+    if (
+      !bytesEqual(
+        canonicalAuthority.canonicalBytes,
+        applicationSession.applicationExecutionAuthorityCanonicalBytes,
+      ) ||
+      !bytesEqual(
+        canonicalAuthority.sha256,
+        applicationSession.applicationExecutionAuthoritySha256,
+      )
+    ) return yield* commitAuthorityCorruptionEffect("sessionEvidenceInvalid");
+    const verifiedGrantHandle = yield* verifyApplicationMutationGrantV1(
+      evidence.session.authorizationGrantJson,
+      applicationGrantVerifier,
+    ).pipe(Effect.mapError(cause => commitAuthorityCorruption(
       "authorizationGrantInvalid",
-    );
+      cause,
+    )));
+    const verifiedGrant = yield* Effect.try({
+      try: () => inspectVerifiedApplicationMutationGrantV1(verifiedGrantHandle),
+      catch: cause => commitAuthorityCorruption(
+        "authorizationGrantInvalid",
+        cause,
+      ),
+    });
+    if (
+      !sameStoredApplicationGrantEvidence(evidence.session, verifiedGrant) ||
+      !applicationGrantPinsMatch(
+        storedAttempt,
+        canonicalAuthority.authority,
+        verifiedGrant,
+      )
+    ) return yield* commitAuthorityCorruptionEffect("authorizationGrantInvalid");
+    generationEvidence = Object.freeze({
+      executionAuthorityGeneration: "application_v1" as const,
+      verifiedGrant,
+      applicationAuthority: canonicalAuthority.authority,
+    });
   }
 
   if (
@@ -265,19 +347,21 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
   if (!bindingsMatchManifest(schemaManifest, evidence.schema.stableBindings)) {
     return yield* commitAuthorityCorruptionEffect("stableBindingMismatch");
   }
-
-  return Object.freeze({
+  const common = Object.freeze({
     databaseNowMilliseconds: evidence.databaseNowMilliseconds,
     argumentsJson: Object.freeze(
       structuredClone(normalizedArguments.valueJson),
     ),
     argumentArraySemanticBytes,
-    verifiedGrant: detachVerifiedGrant(verifiedGrant),
     schemaManifest: Object.freeze(structuredClone(schemaManifest)),
     stableBindings: Object.freeze(
       structuredClone(evidence.schema.stableBindings),
     ),
-  } satisfies VerifiedCommitAuthorityEvidenceV1);
+  }) satisfies VerifiedCommitAuthorityCommonEvidenceV1;
+  return Object.freeze({
+    ...common,
+    ...generationEvidence,
+  }) satisfies VerifiedCommitAuthorityEvidenceV1;
 });
 
 export const verifyPinnedFunctionMetadataEffect = Effect.fn(
@@ -420,6 +504,69 @@ function sameStoredGrantEvidence(
         TransactionIdentityAccessPolicySha256V1Schema,
       )(session.identityAccessPolicySha256),
     ) === grant.payload.identityAccessPolicySha256;
+}
+
+function sameStoredApplicationGrantEvidence(
+  session: StoredCommitAuthoritySessionEvidencePortV1,
+  grant: InertApplicationMutationGrantEvidenceV1,
+): boolean {
+  return session.authorizationGrantId === grant.authorizationGrantId &&
+    session.authorizationGrantValueCodecVersion ===
+      grant.authorizationGrantValueCodecVersion &&
+    session.authorizationGrantCanonicalByteLength ===
+      grant.authorizationGrantCanonicalBytes.byteLength &&
+    canonicalCommitAuthorityJson(session.authorizationGrantJson) ===
+      canonicalCommitAuthorityJson(grant.authorizationGrantJson) &&
+    bytesEqual(
+      session.authorizationGrantCanonicalBytes,
+      grant.authorizationGrantCanonicalBytes,
+    ) &&
+    bytesEqual(session.authorizationGrantSha256, grant.authorizationGrantSha256) &&
+    session.authorizationGrantExpiresAtMilliseconds ===
+      Date.parse(grant.authorizationGrantExpiresAt) &&
+    session.policyVersion === grant.payload.policyVersion &&
+    transactionGrantIdentityAccessPolicySha256HexV1FromBytes(
+      Schema.decodeUnknownSync(TransactionIdentityAccessPolicySha256V1Schema)(
+        session.identityAccessPolicySha256,
+      ),
+    ) === grant.payload.identityAccessPolicySha256;
+}
+
+function applicationGrantPinsMatch(
+  storedAttempt: CommitAuthorityVerificationStateV1,
+  authority: ApplicationMutationExecutionAuthorityV1,
+  grant: InertApplicationMutationGrantEvidenceV1,
+): boolean {
+  if (storedAttempt.session.executionAuthorityGeneration !== "application_v1") {
+    return false;
+  }
+  const session = storedAttempt.session;
+  const payload = grant.payload;
+  return payload.deploymentId === storedAttempt.authority.deploymentId &&
+    payload.scopeId === storedAttempt.authority.scopeId &&
+    payload.executionAuthoritySha256 === encodeBytesToLowercaseHex(
+      session.applicationExecutionAuthoritySha256,
+    ) &&
+    payload.activationSequence === authority.activationSequence &&
+    payload.activeHeadSha256 === authority.activeHeadSha256 &&
+    payload.schemaVersionId === session.schemaVersionId &&
+    authority.schemaVersionId === session.schemaVersionId &&
+    authority.runtimeTarget.scopeId === storedAttempt.authority.scopeId &&
+    authority.runtimeTarget.function.path === session.functionPath &&
+    authority.runtimeTarget.function.kind === "mutation" &&
+    authority.runtimeTarget.function.visibility === "public" &&
+    payload.functionPath === session.functionPath &&
+    payload.functionKind === "mutation" &&
+    payload.policyVersion === session.policyVersion &&
+    payload.validatedArgsValueCodecVersion ===
+      session.validatedArgsValueCodecVersion &&
+    payload.validatedArgsSha256 === encodeBytesToLowercaseHex(
+      session.validatedArgsSha256,
+    ) &&
+    payload.requestKey === session.requestKey &&
+    payload.requestSha256 === encodeBytesToLowercaseHex(session.requestSha256) &&
+    payload.authorizationRevocationEpoch ===
+      session.authorizationRevocationEpoch;
 }
 
 function bindingsMatchManifest(
