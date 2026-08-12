@@ -1924,6 +1924,144 @@ proof, or AA-R8 removal gates. The next authorized work is the mutation-authorit
 preflight; no mutation implementation begins until that preflight shows an
 honest ingress to the unchanged journal, OCC, terminalization, and commit owners.
 
+#### AA-R6 mutation-authority bridge preflight and accepted amendment — 2026-08-12
+
+The connected mutation trace rejects a runtime-only adapter. The displaced
+Transaction Grant, point-mutation start, stored session, pinned-function
+metadata, OCC execution, and commit-authority checks all require one coherent
+`packageId` / `dynamic-worker` / `artifactId` / `sourcePackageHash` generation.
+Those fields are persisted in `fx_system_tx_session`, reconstructed when a
+sealed attempt is authenticated, checked again before every OCC execution, and
+compared by the point-commit owner. Application Analysis owns none of that
+evidence. Deriving the fields from an Application digest, using placeholders,
+or teaching only the final runner to ignore them would create a session whose
+stored authority says something different from the runtime that executed it.
+
+The opposite shortcut is also rejected. Application mutation does not receive
+a new journal, OCC validator, retry loop, commit compiler, point-commit
+transaction, idempotency table, committed-outcome projection, change feed, or
+outbox. Those existing owners are runtime-neutral after they receive an
+authenticated attempt. The bridge changes the evidence that authenticates the
+attempt and the runner selected by that evidence; it does not create a second
+write system.
+
+The accepted durable authority is an exact discriminated union:
+
+1. **Legacy dynamic-worker authority** retains the current package, artifact,
+   source-package, execution-module, pinned function-metadata, and Transaction
+   Grant contracts byte-for-byte. Existing sessions continue to authenticate,
+   rerun, finish, and replay through that branch until the `AA-R8` drain and
+   retirement gate passes.
+2. **Application authority** stores one owned canonical Application Runtime
+   Target V1 plus its digest, and the activation-head witness under which the
+   mutation was admitted. The target already binds scope, revision,
+   candidate, analysis, Source Artifact root, manifest, schema frame, function
+   catalog, publication, execution module, exact public mutation entry,
+   validators, partition, and entry digest. The session continues to store the
+   existing schema-version, canonical arguments, identity-policy digest,
+   request key/hash, revocation epoch, expiry, and lifecycle evidence in their
+   current owner columns. It must not duplicate every Application digest into
+   an independently mutable set of scalar columns.
+
+Persistence adds an execution-authority-generation discriminator and a
+canonical execution-authority envelope with digest. The old artifact columns
+become a nullable all-or-none group required only by the legacy branch; they
+remain unchanged for every existing row. The Application envelope is required
+only by the Application branch. Database checks must make mixed, partial, or
+unknown generations impossible. The stored-session decoder exposes the same
+discriminated union rather than widening legacy strings to optional fields.
+The transaction journal/envelope protocol remains version 1 because its read,
+write, result, and sealing semantics do not change; the new versioned contract
+is the stored execution-authority envelope, not a false chronology suffix on
+the whole mutation product.
+
+The Application branch uses a distinct Application Mutation Grant V1. Its
+signed logical pins are the deployment and scope authority, canonical runtime-
+target digest, activation sequence and head digest, schema version, canonical
+argument digest, request key/hash, identity-policy digest, revocation epoch,
+policy version, issuance, and expiry. It may reuse the existing signing-key,
+canonical-JWS, clock, expiry, and revocation mechanics through a shared private
+signing kernel, but it must not reinterpret the old Transaction Grant payload
+or accept one grant family where the other is expected. The generic physical
+grant JSON/bytes/digest columns may store either exact envelope under the
+execution-authority discriminator.
+
+Admission reads the current unversioned Application active selection, verifies
+that the selected entry is an exact public mutation, constructs the canonical
+runtime target from authenticated publication/function evidence, canonicalizes
+the request and arguments, and issues and verifies the Application grant. The
+session-creation transaction then validates the opaque active selection and
+head witness under the existing shared scope-clock ordering before it inserts
+the Application authority. A head movement before insertion rejects admission.
+After insertion, the immutable stored target and grant—not the mutable active
+head—authorize initial execution and OCC reruns. This deliberately preserves
+the current mutation rule: an activation change does not reinterpret or kill
+an already admitted session, while a retry can never switch revisions.
+
+Executor authentication becomes generation-aware at one seam. Legacy evidence
+continues through the existing Transaction Grant verifier and pinned metadata
+reader. Application evidence decodes and rehashes the stored runtime target,
+verifies the Application grant and its exact logical pins, reloads the selected
+immutable publication/function/schema evidence, and proves exact agreement.
+The resulting authenticated runner input is a discriminated legacy-or-
+Application authority value; it must not expose a `verifiedGrant` plus legacy
+`PointMutationTargetFunctionMetadataV1` as though those types described both
+generations. Everything after authenticated arguments, schema bindings,
+function authority, and journal capability are produced continues through the
+existing attempt liveness, journal seal, commit-input validation, point-commit
+planning/publication, OCC replacement, retry, and durable outcome paths.
+
+The Application runtime runner builds the exact Application Worker definition
+from authenticated Source Artifact bytes and the stored target, constructs the
+write transaction request with the attempt's persisted execution time and
+snapshot token, binds the existing journal capability, and calls
+`ApplicationExecutionHost.runTransaction`. Every attempt performs a fresh
+Worker Loader load. Worker/runtime failure is translated once into the current
+mutation execution error families; only a sealed successful result can reach
+commit planning. The runner owns no active selection, session transition, OCC
+decision, commit, or outcome authority.
+
+Implementation is split into three medium checkpoints, each committed and
+reviewed before the next begins:
+
+1. **Contract and persistence generation.** Add the Application grant and
+   stored execution-authority contracts, the guarded additive session
+   migration, exact row decoding, Application session admission, and legacy
+   replay compatibility. This checkpoint is inert and does not run user code.
+2. **Stored-attempt authentication and runner.** Make authentication and the
+   runtime-neutral runner input generation-aware, add the Application
+   publication/function/schema verifier and Application Worker runner, and
+   prove that both generations reach the unchanged journal/OCC/commit tail.
+   It remains unwired from the Standard consumer.
+3. **Standard mutation composition and exclusive cut.** Add the unversioned
+   `ApplicationMutationSystem`, compose active selection, source loading,
+   definition construction, grant issuance, session admission, and execution,
+   then replace only the private Standard point-mutation consumer. Rename
+   touched displaced exports `Legacy...` where bounded and retain no fallback
+   or comparison execution.
+
+Required proof includes legacy-row decode and completion; Application exact
+grant/session replay; same-key same-request idempotency; same-key conflicting-
+request rejection; stale active head before admission; active-head movement
+after admission without target drift; wrong, mixed, corrupted, or cross-
+generation authority rejection; exact function, publication, Source Artifact,
+and schema agreement; fresh Worker load on initial execution and OCC rerun;
+journal read/write and internal-call behavior; conflict replacement followed
+by one successful commit; losing-attempt rollback; terminal worker or journal
+failure without commit; durable result replay; and unchanged commit/change-
+feed/outbox effects. Focused PGlite proof is required in these checkpoints;
+genuine PostgreSQL and the complete Application vertical remain mandatory in
+`AA-R7`.
+
+Self-review accepts this amendment because it introduces one honest authority
+branch at the narrow point where runtime identity is authenticated and leaves
+the write lifecycle single and predictable. Stop and amend this preflight if
+implementation requires fabricated artifact evidence, a legacy/Application
+fallback, dual execution, a second journal or commit path, mutable-head
+revalidation after session admission, a schema or function selected from the
+request, or any change to commit compilation, commit publication,
+idempotency outcomes, change feeds, or outbox semantics.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration
