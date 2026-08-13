@@ -84,6 +84,8 @@ export interface StoredCommitAuthorityEvidenceQueryV1 {
     | "applicationGraphPublication"
     | "applicationGraphFunction"
     | "applicationGraphSchema"
+    | "applicationGraphTaskCatalog"
+    | "applicationGraphTaskRuntimePublication"
     | "applicationGraphReadiness"
     | "applicationGraphReadinessFunctions"
     | "applicationGraphActivation"
@@ -783,11 +785,13 @@ function sizeProjectionFailure(
   schemaRows: ReadonlyArray<SchemaSizeRow>,
   applicationGraph: Readonly<{
     readonly parentSizeRows: ReadonlyArray<{
+      readonly readinessVersion: number;
       readonly manifestByteLengthText: string | null;
       readonly schemaByteLengthText: string;
       readonly functionCatalogByteLengthText: string;
       readonly functionEntryByteLengthText: string;
       readonly readinessByteLengthText: string;
+      readonly taskRuntimeReadinessBasisByteLengthText: string;
       readonly activationByteLengthText: string;
     }>;
     readonly readinessFunctionSizeRows: ReadonlyArray<{
@@ -835,6 +839,7 @@ function sizeProjectionFailure(
       parent.functionCatalogByteLengthText,
       parent.functionEntryByteLengthText,
       parent.readinessByteLengthText,
+      parent.taskRuntimeReadinessBasisByteLengthText,
       parent.activationByteLengthText,
       children.functionPathByteLengthText,
       String(childCount * 96),

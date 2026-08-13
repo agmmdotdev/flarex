@@ -2335,6 +2335,72 @@ restart from bytes, manifest/receipt corruption, stale scope/candidate evidence,
 wrong runtime group, and runtime capability rejection. No suite may pass by
 falling back to old evidence or weakening an assertion.
 
+#### AA-R7 PostgreSQL mutation-system parity preflight — 2026-08-13
+
+The complete AA-R7 vertical is too broad to certify through one new test. Its
+first implementation checkpoint therefore proves only database and executor
+parity for the exclusive Application mutation system committed by AA-R6. One
+shared harness must run the same authority, readiness, activation, stale-head
+admission fence, post-admission pinning, journal, OCC, commit, replay, and
+conflicting-request assertions against PGlite and genuine PostgreSQL. The
+PostgreSQL lane must use the real located transaction and scope-authority
+adapters, an isolated migrated schema, zero skipped cases when its explicit
+command is run, and a server-version receipt.
+
+This checkpoint may factor test-only lane construction around the existing
+portable proof. It must not duplicate persistence or transaction logic, add a
+second Application system, change schema or migration history, weaken the
+PGlite proof, or touch routes, activation policy, runtime semantics, commit
+publication, feeds, outbox, task execution, or production behavior. Passing
+it does not complete AA-R7: the exact Source Artifact V2 cold-analysis entry,
+point-query/internal-call/edge-action/task-binding composition, restart and
+interruption corpus, corruption and wrong-runtime negatives, and one complete
+cross-capability vertical remain separate proof checkpoints.
+
+#### AA-R7 blocker: task-aware readiness is not authenticated by the mutation graph
+
+The PostgreSQL parity checkpoint exposed a shared authority-graph defect before
+any genuine-PostgreSQL result could be accepted. The current activation owner
+requires task-aware Application readiness and persists the task-runtime receipt
+and readiness-basis commitments. The Application mutation stored-attempt graph
+verifier still reconstructs only the earlier readiness payload without those
+task-runtime fields. A revision that passes task-runtime publication,
+verification, readiness, and activation is therefore rejected during stored
+OCC evidence loading as `applicationGraphInvalid`.
+
+The reproducible scenario is the existing Application mutation system harness
+with an empty, authenticated task catalog: publish the exact empty-catalog task
+runtime receipt, verify its readiness basis, settle task-aware readiness,
+activate the revision, and begin the mutation stored-attempt flow. Expected:
+the graph verifier authenticates the exact task-aware readiness generation and
+the unchanged OCC/commit tail proceeds. Actual: the verifier rebuilds the old
+readiness shape and rejects the graph before runtime execution. This affects
+the persistence-owned Application mutation commit-authority graph trust
+boundary; it is not a system-test codec or lane defect.
+
+Disposition: corrected in the AA-R7 mutation parity checkpoint. The graph now
+loads the exact task-catalog and task-runtime-publication parents, decodes and
+hashes the canonical readiness basis, checks every parent/digest/count linkage,
+and reconstructs both supported readiness generations without fallback. Direct
+corruption coverage and the connected PGlite mutation vertical pass.
+
+The graph correction now passes its direct task-aware corruption coverage and
+the connected PGlite mutation vertical. The first genuine-PostgreSQL run then
+failed earlier, while applying migration `0062_new_maestro.sql`: its new
+task-runtime readiness foreign key qualifies the parent as
+`public.fx_system_application_task_runtime_publication_v1`. An isolated Flarex
+installation creates both tables in its active `search_path` schema, so that
+hard-coded parent does not exist. Expected: the FK binds the co-located
+task-runtime publication table in the installation schema. Actual: PostgreSQL
+raises `42P01` and rolls back the migration. This was a migration-portability
+defect in the separately owned task-runtime readiness checkpoint, not an AA-R7
+harness failure. The approved correction removes only the hard-coded `public`
+parent qualifier from the unshipped migration, preserving the FK identity,
+columns, actions, order, default-public behavior, and isolated-schema behavior.
+The same task-aware mutation proof now passes on PGlite and genuine PostgreSQL.
+This completes only the mutation-system parity checkpoint described above; the
+remaining AA-R7 capabilities and negative corpus are still open.
+
 ### `AA-R8` — displaced-system removal and migration stop
 
 After all new consumers and proofs are green:

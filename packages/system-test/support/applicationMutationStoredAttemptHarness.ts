@@ -2,7 +2,7 @@
 
 import { webcrypto } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { Effect, Encoding, Result } from "effect";
 
 import {
   canonicalizeApplicationManifestV1,
@@ -29,25 +29,36 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "@flarex/persistence-postgres/internal/system-test/applicationAnalysisRegistration";
+import type { FlarexMetadataDatabase } from
+  "@flarex/persistence-postgres/internal/system-test/deployments";
 import {
   makeApplicationPublicationRepository,
+  type ApplicationPublication,
 } from "@flarex/persistence-postgres/internal/system-test/applicationPublication";
 import {
   makeApplicationReadinessRepository,
+  type ApplicationReadinessTaskRuntimeContext,
 } from "@flarex/persistence-postgres/internal/application-readiness";
 import {
   makeApplicationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
 import {
   makeApplicationSchemaAuthorityPublisher,
+  hasApplicationSchemaAuthorityComposition,
 } from "@flarex/persistence-postgres/internal/application-schema-authority";
 import {
   createApplicationTaskCatalogSnapshotPort,
+  isApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
 } from "@flarex/persistence-postgres/internal/application-task-bindings";
 import {
+  createApplicationTaskRuntimeReadinessSnapshotPort,
+  makeApplicationTaskRuntimePublicationRepository,
+} from "@flarex/persistence-postgres/internal/application-task-runtime-publication";
+import {
   createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
+  hasAppSchemaCandidateReadinessComposition,
   installAppSchemaCandidateValidationEffect,
   advanceAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
@@ -115,13 +126,37 @@ import {
   type PGliteFlarexPersistence,
 } from "@flarex/persistence-postgres/pglite";
 import {
+  createPostgresLocatedApplicationRevisionActivationTargetV1,
+  createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresSharedScopeAuthorityProvisioner,
+  type PostgresFlarexPersistence,
+} from "@flarex/persistence-postgres/postgres";
+import type { FlarexPersistence } from "@flarex/persistence-postgres";
+import {
   produceApplicationTaskBindingsV1,
+  type PreparedApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import {
+  decodeTaskRuntimeMaterializationSpecV1,
   hashCanonicalTaskCatalogV1,
+  makeTaskRuntimePublicationReceiptAuthority,
   makeStandardApplicationTaskSha256V1,
+  prepareTaskRuntimePublication,
+  TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+  TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+  TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  TASK_RUNTIME_PROFILE_IDENTITY_V1,
+  verifyTaskRuntimeReadiness,
+  type HashedCanonicalTaskCatalogV1,
+  type PreparedTaskRuntimeReadinessBasisV1,
+  type TaskDefinitionSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { prepareStandardApplicationDefinitionV1 } from
+import { produceStandardApplicationSource } from
+  "@flarex/standard-application-definition/application-source";
+import {
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+} from
   "@flarex/standard-application-definition/v1";
 import {
   makeApplicationMutationRuntimeNeutralRunner,
@@ -134,7 +169,10 @@ import {
 import {
   invokeStandardApplicationPointMutationV1,
 } from "@flarex/standard-application-invocation/v1";
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import {
+  copyBytesToArrayBuffer,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
@@ -180,6 +218,7 @@ import {
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantDeploymentIdV1Schema,
+  type TransactionGrantDeploymentIdV1,
   TransactionGrantKeyIdV1Schema,
   TransactionGrantTimestampV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1,
@@ -264,6 +303,78 @@ export interface StandardApplicationMutationProof {
   readonly finalName: "standard-application";
 }
 
+export interface StandardApplicationMutationPostgresProof
+  extends StandardApplicationMutationProof {
+  readonly postgresVersion: string;
+}
+
+interface ApplicationMutationStoredAttemptLane {
+  readonly persistence: FlarexPersistence;
+  readonly controlDb: FlarexMetadataDatabase;
+  readonly ensureScope: (
+    deploymentId: TransactionGrantDeploymentIdV1,
+    projectId: string,
+    randomUuid: () => string,
+  ) => Promise<Readonly<{ readonly scope: Readonly<{ readonly scopeId: string }> }>>;
+  readonly makeActivationTarget: () => ReturnType<
+    typeof createPGliteLocatedApplicationRevisionActivationTargetV1
+  >;
+  readonly makeSessionTarget: () => ReturnType<
+    typeof createPGliteLocatedPointMutationSessionActivationTargetV1
+  >;
+}
+
+type EnsureApplicationMutationScope =
+  ApplicationMutationStoredAttemptLane["ensureScope"];
+
+function pgliteApplicationMutationLane(
+  persistence: PGliteFlarexPersistence,
+): ApplicationMutationStoredAttemptLane {
+  return Object.freeze({
+    persistence,
+    controlDb: persistence.drizzle,
+    ensureScope: ((deploymentId, projectId, randomUuid) =>
+      createPGliteSharedScopeAuthorityProvisioner(persistence, {
+        physicalLocator: LOCATOR,
+        randomUuid,
+      }).ensure({ deploymentId, projectId })) satisfies EnsureApplicationMutationScope,
+    makeActivationTarget: () =>
+      createPGliteLocatedApplicationRevisionActivationTargetV1(
+        persistence,
+        LOCATOR,
+      ),
+    makeSessionTarget: () =>
+      createPGliteLocatedPointMutationSessionActivationTargetV1(
+        persistence,
+        LOCATOR,
+      ),
+  });
+}
+
+function postgresApplicationMutationLane(
+  persistence: PostgresFlarexPersistence,
+): ApplicationMutationStoredAttemptLane {
+  return Object.freeze({
+    persistence,
+    controlDb: persistence.drizzle,
+    ensureScope: ((deploymentId, projectId, randomUuid) =>
+      createPostgresSharedScopeAuthorityProvisioner(persistence, {
+        physicalLocator: LOCATOR,
+        randomUuid,
+      }).ensure({ deploymentId, projectId })) satisfies EnsureApplicationMutationScope,
+    makeActivationTarget: () =>
+      createPostgresLocatedApplicationRevisionActivationTargetV1(
+        persistence,
+        LOCATOR,
+      ),
+    makeSessionTarget: () =>
+      createPostgresLocatedPointMutationSessionActivationTargetV1(
+        persistence,
+        LOCATOR,
+      ),
+  });
+}
+
 export async function proveApplicationMutationStoredAttemptPGlite(
   persistence: PGliteFlarexPersistence,
 ): Promise<ApplicationMutationStoredAttemptProof> {
@@ -273,8 +384,9 @@ export async function proveApplicationMutationStoredAttemptPGlite(
       value: webcrypto,
     });
   }
-  const fixture = await prepareApplicationFixture(persistence);
-  const ports = resolutionPorts(persistence);
+  const lane = pgliteApplicationMutationLane(persistence);
+  const fixture = await prepareApplicationFixture(lane);
+  const ports = resolutionPorts(lane);
   const applicationVerifier = fixture.applicationVerifier;
   const activate = async (role: "primary" | "competing") => {
     const input = await applicationActivationInput(
@@ -441,18 +553,43 @@ export async function proveApplicationMutationStoredAttemptPGlite(
 export async function proveStandardApplicationMutationPGlite(
   persistence: PGliteFlarexPersistence,
 ): Promise<StandardApplicationMutationProof> {
+  return proveStandardApplicationMutation(
+    pgliteApplicationMutationLane(persistence),
+  );
+}
+
+export async function proveStandardApplicationMutationPostgres(
+  persistence: PostgresFlarexPersistence,
+): Promise<StandardApplicationMutationPostgresProof> {
+  const proof = await proveStandardApplicationMutation(
+    postgresApplicationMutationLane(persistence),
+  );
+  const version = await persistence.query<{ version: string }>(
+    "select version() as version",
+  );
+  const postgresVersion = version.rows[0]?.version;
+  if (postgresVersion === undefined) {
+    throw new Error("Application mutation PostgreSQL version is missing.");
+  }
+  return Object.freeze({ ...proof, postgresVersion });
+}
+
+async function proveStandardApplicationMutation(
+  lane: ApplicationMutationStoredAttemptLane,
+): Promise<StandardApplicationMutationProof> {
   if (globalThis.crypto === undefined) {
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto,
     });
   }
-  const fixture = await prepareApplicationFixture(persistence);
+  const { persistence, controlDb } = lane;
+  const fixture = await prepareApplicationFixture(lane);
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
-    persistence.drizzle,
+    controlDb,
   );
   const indexedQueries = createAppDeveloperIndexQueryPortV1(
-    persistence.drizzle,
+    controlDb,
     fixture.authorityPorts,
     developerIndexes,
   );
@@ -766,16 +903,169 @@ export async function proveStandardApplicationMutationPGlite(
   });
 }
 
+async function prepareTaskRuntimeReadinessContext(input: {
+  readonly db: FlarexMetadataDatabase;
+  readonly authority: ApplicationAnalysisAuthority;
+  readonly definition: PreparedStandardApplicationDefinitionV1;
+  readonly catalog: HashedCanonicalTaskCatalogV1;
+  readonly bindings: PreparedApplicationTaskBindingsV1;
+  readonly publication: ApplicationPublication;
+  readonly taskCatalog: ReturnType<
+    typeof createApplicationTaskCatalogSnapshotPort
+  >;
+}): Promise<ApplicationReadinessTaskRuntimeContext<never>> {
+  const source = Result.getOrThrow(
+    produceStandardApplicationSource(input.definition),
+  );
+  const authenticatedModules = await Promise.all(source.modules.map(
+    async (module, ordinal) => Object.freeze({
+      ordinal,
+      artifactModulePath: module.path,
+      roles: module.roles,
+      sourceByteLength: module.sourceBytes.byteLength,
+      sourceSha256: brandTaskDefinitionSha256(
+        await runSystemTestEffectV1(taskSha256(
+          module.sourceBytes,
+          { maximumInputBytes: module.sourceBytes.byteLength },
+        )),
+      ),
+    }),
+  ));
+  const materialization = Result.getOrThrow(
+    decodeTaskRuntimeMaterializationSpecV1({
+      kind: "task_runtime_materialization_spec",
+      runtimeContractIdentity: TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+      bridgeAbiIdentity: TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+      compatibilityDate: COMPATIBILITY_DATE,
+      compatibilityFlags: ["nodejs_compat"],
+      runtimeProfileIdentity: TASK_RUNTIME_PROFILE_IDENTITY_V1,
+      runtimeImplementationVersion: "worker-loader-2026.08.13-aa-r7",
+      supportedComputeProfiles: ["standard-1x"],
+      moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+    }),
+  );
+  const publicationSha256 = decodeTaskDefinitionSha256(
+    input.publication.publicationSha256,
+  );
+  const sourceArtifactRootSha256 = decodeTaskDefinitionSha256(
+    input.publication.sourceArtifactRootSha256,
+  );
+  const binding = input.bindings.catalog.binding;
+  const plan = await runSystemTestEffectV1(prepareTaskRuntimePublication({
+    source,
+    catalog: input.catalog,
+    taskBindings: input.bindings,
+    authority: {
+      scopeId: binding.scopeId,
+      candidateId: binding.candidateId,
+      analysisId: binding.analysisId,
+      applicationRevisionId: binding.revisionId,
+      applicationPublicationSha256: publicationSha256,
+      sourceArtifactRootSha256,
+      applicationTaskCatalogBindingSha256: input.bindings.catalog.sha256,
+      authenticatedModules,
+    },
+    policy: {
+      materialization,
+      admittedCompatibilityDate: materialization.compatibilityDate,
+      admittedCompatibilityFlags: materialization.compatibilityFlags,
+      admittedRuntimeImplementationVersion:
+        materialization.runtimeImplementationVersion,
+      admittedComputeProfiles: materialization.supportedComputeProfiles,
+    },
+  }, taskSha256));
+  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(
+    taskSha256,
+  );
+  const receipt = await runSystemTestEffectV1(receiptAuthority.prepareReceipt(
+    plan,
+    plan.objects.map(object => Result.getOrThrow(
+      receiptAuthority.confirmPublishedObject(object, object.readReference()),
+    )),
+  ));
+  await runSystemTestEffectV1(makeApplicationTaskRuntimePublicationRepository(
+    input.db,
+    receiptAuthority,
+  ).publish({
+    authority: input.authority,
+    publication: receipt,
+  }));
+  const verified = await runSystemTestEffectV1(verifyTaskRuntimeReadiness({
+    receiptCanonicalBytes: receipt.readCanonicalBytes(),
+    receiptSha256: receipt.readSha256(),
+    expected: {
+      scopeId: binding.scopeId,
+      candidateId: binding.candidateId,
+      analysisId: binding.analysisId,
+      applicationRevisionId: binding.revisionId,
+      applicationPublicationSha256: publicationSha256,
+      sourceArtifactRootSha256,
+      applicationTaskCatalogBindingSha256: input.bindings.catalog.sha256,
+      taskCatalog: input.catalog,
+      materializationPolicy: materialization,
+    },
+    runtimeObjects: plan.objects.map(object => Object.freeze({
+      reference: object.readReference(),
+      canonicalBytes: object.readCanonicalBytes(),
+    })),
+  }, taskSha256));
+  const proofs = new WeakMap<object, PreparedTaskRuntimeReadinessBasisV1>();
+  const proof = Object.freeze({});
+  proofs.set(proof, verified);
+  return Object.freeze({
+    connected: Object.freeze({
+      verify: () => Effect.succeed(Object.freeze({
+        status: "verified" as const,
+        revisionId: input.publication.revisionId,
+        proof,
+      })),
+      capture: (received: unknown) => {
+        if (typeof received !== "object" || received === null) {
+          return Result.fail(new Error("Missing task-runtime proof."));
+        }
+        const basis = proofs.get(received);
+        return basis === undefined
+          ? Result.fail(new Error("Foreign task-runtime proof."))
+          : Result.succeed(Object.freeze({
+              revisionId: input.publication.revisionId,
+              readReceiptSha256: () => receipt.readSha256(),
+              readCanonicalBytes: () => basis.readCanonicalBytes(),
+              readSha256: () => basis.readSha256(),
+            }));
+      },
+    }),
+    snapshot: createApplicationTaskRuntimeReadinessSnapshotPort(
+      input.taskCatalog,
+    ),
+  });
+}
+
+function decodeTaskDefinitionSha256(value: string): TaskDefinitionSha256V1 {
+  return brandTaskDefinitionSha256(Result.getOrThrow(
+    Encoding.decodeHex(value),
+  ));
+}
+
+function brandTaskDefinitionSha256(value: Uint8Array): TaskDefinitionSha256V1 {
+  if (!isUint8ArrayWithByteLength(value, 32)) {
+    throw new Error("Expected a 32-byte task-runtime authority digest.");
+  }
+  // The protocol-owned brand is established by the exact byte-length check.
+  return value as TaskDefinitionSha256V1;
+}
+
 async function prepareApplicationFixture(
-  persistence: PGliteFlarexPersistence,
+  lane: ApplicationMutationStoredAttemptLane,
 ) {
+  const { persistence, controlDb } = lane;
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     "deployment_application_mutation_stored_attempt",
   );
-  const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
-    persistence,
-    { physicalLocator: LOCATOR, randomUuid: uuidSequence(1, 2, 3, 4, 5) },
-  ).ensure({ deploymentId, projectId: "project_application_mutation" });
+  const provisioned = await lane.ensureScope(
+    deploymentId,
+    "project_application_mutation",
+    uuidSequence(1, 2, 3, 4, 5),
+  );
   const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
   await persistence.query(
     `update fx_system_scope_clock
@@ -798,7 +1088,7 @@ async function prepareApplicationFixture(
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const analyses = makeApplicationAnalysisRepository(persistence.drizzle, {
+  const analyses = makeApplicationAnalysisRepository(controlDb, {
     randomUuid: uuidSequence(10, 11, 12),
   });
   const pending = await runSystemTestEffectV1(analyses.begin({
@@ -820,7 +1110,7 @@ async function prepareApplicationFixture(
     throw new Error("Application analysis did not settle.");
   }
   const publication = await runSystemTestEffectV1(
-    makeApplicationPublicationRepository(persistence.drizzle).publish({
+    makeApplicationPublicationRepository(controlDb).publish({
       authority,
       revisionId: analyzed.revision.revisionId,
       candidateId: analyzed.candidateId,
@@ -854,15 +1144,22 @@ async function prepareApplicationFixture(
     }, taskSha256),
   );
   await runSystemTestEffectV1(
-    makeApplicationTaskBindingRepository(persistence.drizzle).register({
+    makeApplicationTaskBindingRepository(controlDb).register({
       authority,
       bindings,
     }),
   );
-  const located = createPGliteLocatedApplicationRevisionActivationTargetV1(
-    persistence,
-    LOCATOR,
-  );
+  const taskCatalog = createApplicationTaskCatalogSnapshotPort();
+  const taskRuntime = await prepareTaskRuntimeReadinessContext({
+    db: controlDb,
+    authority,
+    definition,
+    catalog,
+    bindings,
+    publication,
+    taskCatalog,
+  });
+  const located = lane.makeActivationTarget();
   const authorityPorts = Object.freeze({
     scopeMetadata: persistence,
     provisioningReceipts: {
@@ -871,42 +1168,52 @@ async function prepareApplicationFixture(
     scopeClockTargets: { resolve: async () => located },
     scopeSessionTargets: {
       resolve: async () =>
-        createPGliteLocatedPointMutationSessionActivationTargetV1(
-          persistence,
-          LOCATOR,
-        ),
+        lane.makeSessionTarget(),
     },
   });
   const candidate = createAppSchemaCandidateValidationPort({
-    controlDb: persistence.drizzle,
+    controlDb,
     authority: authorityPorts,
   });
   const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
-    persistence.drizzle,
+    controlDb,
   );
   const uniqueConstraintEligibility =
     createAppUniqueConstraintSetEligibilityPortV1({
-      controlDb: persistence.drizzle,
+      controlDb,
       authority: authorityPorts,
     }, uniqueConstraints);
   const pointCommit = createPointCommitPublisherPortV1(authorityPorts, {
     intrinsicCreationTimeIndexes:
-      createIntrinsicCreationTimeIndexDefinitionPortV1(persistence.drizzle),
+      createIntrinsicCreationTimeIndexDefinitionPortV1(controlDb),
     developerIndexes:
-      createAppDeveloperIndexDefinitionPortV1(persistence.drizzle),
+      createAppDeveloperIndexDefinitionPortV1(controlDb),
     uniqueConstraints,
     uniqueConstraintEligibility,
   });
   const schema = makeApplicationSchemaAuthorityPublisher({
-    db: persistence.drizzle,
-    runTransaction: run => persistence.drizzle.transaction(run),
+    db: controlDb,
+    runTransaction: run => controlDb.transaction(run),
   });
+  const candidateReadiness = createAppSchemaCandidateReadinessPort(candidate);
+  if (
+    !hasApplicationSchemaAuthorityComposition(schema, controlDb) ||
+    !isApplicationTaskCatalogSnapshotPort(taskCatalog) ||
+    !hasAppSchemaCandidateReadinessComposition(
+      candidateReadiness,
+      controlDb,
+      authorityPorts,
+    )
+  ) {
+    throw new Error("Application readiness composition is not exact.");
+  }
   const readiness = makeApplicationReadinessRepository({
-    controlDb: persistence.drizzle,
+    controlDb,
     authority: authorityPorts,
     schema,
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
-    candidateValidation: createAppSchemaCandidateReadinessPort(candidate),
+    taskCatalog,
+    taskRuntime,
+    candidateValidation: candidateReadiness,
     pointCommit,
     cold: {
       runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
@@ -934,7 +1241,7 @@ async function prepareApplicationFixture(
       }),
     },
   });
-  const beforeValidation = await runSystemTestEffectV1(readiness.settleLegacy({
+  const beforeValidation = await runSystemTestEffectV1(readiness.settle({
     deploymentId,
     revisionId: publication.revisionId,
   }));
@@ -954,24 +1261,24 @@ async function prepareApplicationFixture(
   if (schemaVersionId === undefined) {
     throw new Error("Application schema authority is missing.");
   }
-  await seedBaselineRow(persistence, scopeId, schemaVersionId);
+  await seedBaselineRow(persistence, controlDb, scopeId, schemaVersionId);
   await settleCandidate(candidate, deploymentId, schemaVersionId);
   const closure = await runSystemTestEffectV1(
-    prepareAppUniqueConstraintSetClosureV1Effect(persistence.drizzle, {
+    prepareAppUniqueConstraintSetClosureV1Effect(controlDb, {
       deploymentId,
       schemaVersionId,
     }),
   );
-  await persistence.drizzle.transaction(tx => runSystemTestEffectV1(
+  await controlDb.transaction(tx => runSystemTestEffectV1(
     closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure),
   ));
   await enableBuilds(
-    persistence,
+    controlDb,
     authorityPorts,
     deploymentId,
     schemaVersionId,
   );
-  const ready = await runSystemTestEffectV1(readiness.settleLegacy({
+  const ready = await runSystemTestEffectV1(readiness.settle({
     deploymentId,
     revisionId: publication.revisionId,
   }));
@@ -1013,6 +1320,7 @@ async function prepareApplicationFixture(
   const rowId = decodeAppRowIdHexV1("11".repeat(16));
   return Object.freeze({
     persistence,
+    controlDb,
     deploymentId,
     scopeId,
     schemaVersionId,
@@ -1233,7 +1541,7 @@ function createExecution(
     }),
     runner,
     createIntrinsicCreationTimeIndexDefinitionPortV1(
-      fixture.persistence.drizzle,
+      fixture.controlDb,
     ),
     applicationVerifier,
     fixture.pointCommit,
@@ -1300,25 +1608,23 @@ function applicationCapability(
 }
 
 function resolutionPorts(
-  persistence: PGliteFlarexPersistence,
+  lane: ApplicationMutationStoredAttemptLane,
 ): PointMutationSessionAuthorityResolutionPortsV1 {
+  const { persistence } = lane;
   return Object.freeze({
     scopeMetadata: persistence,
     provisioningReceipts: {
       getScopeAuthorityProvisioningReceipt: async () => null,
     },
     scopeSessionTargets: {
-      resolve: async () =>
-        createPGliteLocatedPointMutationSessionActivationTargetV1(
-          persistence,
-          LOCATOR,
-        ),
+      resolve: async () => lane.makeSessionTarget(),
     },
   });
 }
 
 async function seedBaselineRow(
-  persistence: PGliteFlarexPersistence,
+  persistence: FlarexPersistence,
+  controlDb: FlarexMetadataDatabase,
   scopeId: ReturnType<typeof decodeReplacementScopeIdV1>,
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
@@ -1334,7 +1640,7 @@ async function seedBaselineRow(
   const clock = await persistence.getScopeClock(scopeId);
   if (clock === null) throw new Error("Seed scope clock is missing.");
   const commitSeq = CommitSeqSchema.make(1n);
-  await persistence.drizzle.transaction(async tx => {
+  await controlDb.transaction(async tx => {
     await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
       kind: "live",
       scopeId,
@@ -1381,7 +1687,7 @@ async function settleCandidate(
 }
 
 async function enableBuilds(
-  persistence: PGliteFlarexPersistence,
+  controlDb: FlarexMetadataDatabase,
   authority: Parameters<
     typeof reconcilePublishedIndexBuildsV1Effect
   >[0]["authority"] & Parameters<
@@ -1392,10 +1698,10 @@ async function enableBuilds(
 ): Promise<void> {
   const reconciliationPorts: Parameters<
     typeof reconcilePublishedIndexBuildsV1Effect
-  >[0] = { controlDb: persistence.drizzle, authority };
+  >[0] = { controlDb, authority };
   const buildPorts: Parameters<
     typeof buildIntrinsicCreationTimeIndexV1Effect
-  >[0] = { controlDb: persistence.drizzle, authority };
+  >[0] = { controlDb, authority };
   const reconciliation = await runSystemTestEffectV1(
     reconcilePublishedIndexBuildsV1Effect(reconciliationPorts, {
       deploymentId,
@@ -1408,7 +1714,7 @@ async function enableBuilds(
   for (const definitionId of reconciliation.definitionIds) {
     const definition = await runSystemTestEffectV1(
       locateAppIndexDefinitionByIdEffect(
-        persistence.drizzle,
+        controlDb,
         reconciliation.scopeId,
         definitionId,
       ),
@@ -1519,16 +1825,16 @@ function definitionInput() {
     },
     graphInput: {
       modules: [{
-        path: "_flarex/application.js",
+        path: "recipes.js",
         roles: ["function", "execution"],
         sourceBytes: new TextEncoder().encode(SOURCE),
         sourceMapBytes: null,
       }],
       functionEntries: [{
         logicalModulePath: "recipes",
-        artifactModulePath: "_flarex/application.js",
+        artifactModulePath: "recipes.js",
       }],
-      executionPath: "_flarex/application.js",
+      executionPath: "recipes.js",
       schemaPath: null,
       authPath: null,
     },

@@ -14,6 +14,8 @@ import {
   fxSystemApplicationReadinessV1,
   fxSystemApplicationRevisionSchemasV1,
   fxSystemApplicationRevisionsV2,
+  fxSystemApplicationTaskCatalogsV1,
+  fxSystemApplicationTaskRuntimePublicationsV1,
 } from "../schema";
 import type {
   StoredCommitAuthorityEvidenceLoaderOptionsV1,
@@ -36,6 +38,38 @@ type RevisionRow = typeof fxSystemApplicationRevisionsV2.$inferSelect;
 type PublicationRow = typeof fxSystemApplicationPublicationsV1.$inferSelect;
 type FunctionRow = typeof fxSystemApplicationFunctionsV1.$inferSelect;
 type SchemaRow = typeof fxSystemApplicationRevisionSchemasV1.$inferSelect;
+type TaskCatalogRow = Pick<
+  typeof fxSystemApplicationTaskCatalogsV1.$inferSelect,
+  | "scopeId"
+  | "revisionId"
+  | "candidateId"
+  | "analysisId"
+  | "sourceArtifactRootSha256"
+  | "publicationSha256"
+  | "taskCatalogSha256"
+  | "taskCatalogBindingSha256"
+  | "taskCount"
+  | "runtimeHostIdentity"
+  | "compatibilityDate"
+>;
+type TaskRuntimePublicationRow = Pick<
+  typeof fxSystemApplicationTaskRuntimePublicationsV1.$inferSelect,
+  | "scopeId"
+  | "revisionId"
+  | "candidateId"
+  | "analysisId"
+  | "applicationPublicationSha256"
+  | "sourceArtifactRootSha256"
+  | "taskCatalogSha256"
+  | "applicationTaskCatalogBindingSha256"
+  | "applicationRevisionTaskBindingSha256"
+  | "taskEntryRootSha256"
+  | "taskRuntimeProjectionSha256"
+  | "taskRuntimeGroupManifestSha256"
+  | "taskRuntimeMaterializationSpecSha256"
+  | "objectCount"
+  | "receiptSha256"
+>;
 type ReadinessRow = typeof fxSystemApplicationReadinessV1.$inferSelect;
 type ReadinessFunctionRow = Pick<
   typeof fxSystemApplicationReadinessFunctionsV1.$inferSelect,
@@ -58,11 +92,13 @@ export interface ApplicationGraphSelectorV1 {
 }
 
 export interface ApplicationGraphParentSizeRowV1 {
+  readonly readinessVersion: number;
   readonly manifestByteLengthText: string | null;
   readonly schemaByteLengthText: string;
   readonly functionCatalogByteLengthText: string;
   readonly functionEntryByteLengthText: string;
   readonly readinessByteLengthText: string;
+  readonly taskRuntimeReadinessBasisByteLengthText: string;
   readonly activationByteLengthText: string;
   readonly readinessSha256: Uint8Array;
 }
@@ -82,6 +118,9 @@ export interface CapturedApplicationGraphRowsV1 {
   readonly publicationRows: ReadonlyArray<PublicationRow>;
   readonly functionRows: ReadonlyArray<FunctionRow>;
   readonly schemaRows: ReadonlyArray<SchemaRow>;
+  readonly taskCatalogRows: ReadonlyArray<TaskCatalogRow>;
+  readonly taskRuntimePublicationRows:
+    ReadonlyArray<TaskRuntimePublicationRow>;
   readonly readinessRows: ReadonlyArray<ReadinessRow>;
   readonly readinessFunctionRows: ReadonlyArray<ReadinessFunctionRow>;
   readonly activationRows: ReadonlyArray<ActivationRow>;
@@ -103,6 +142,8 @@ export const EMPTY_APPLICATION_GRAPH_ROWS_V1: CapturedApplicationGraphRowsV1 =
     publicationRows: Object.freeze([]),
     functionRows: Object.freeze([]),
     schemaRows: Object.freeze([]),
+    taskCatalogRows: Object.freeze([]),
+    taskRuntimePublicationRows: Object.freeze([]),
     readinessRows: Object.freeze([]),
     readinessFunctionRows: Object.freeze([]),
     activationRows: Object.freeze([]),
@@ -114,6 +155,7 @@ export async function captureApplicationGraphSizeRowsV1(
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
 ): Promise<CapturedApplicationGraphSizeRowsV1> {
   const parentQuery = tx.select({
+    readinessVersion: fxSystemApplicationReadinessV1.readinessVersion,
     manifestByteLengthText: sql<string | null>`
       octet_length(${fxSystemApplicationAnalysesV1.manifestBytes})::bigint::text
     `,
@@ -128,6 +170,14 @@ export async function captureApplicationGraphSizeRowsV1(
     `,
     readinessByteLengthText: sql<string>`
       octet_length(${fxSystemApplicationReadinessV1.readinessBytes})::bigint::text
+    `,
+    taskRuntimeReadinessBasisByteLengthText: sql<string>`
+      coalesce(
+        octet_length(
+          ${fxSystemApplicationReadinessV1.taskRuntimeReadinessBasisBytes}
+        ),
+        0
+      )::bigint::text
     `,
     activationByteLengthText: sql<string>`
       octet_length(${fxSystemApplicationActivationsV1.activationBytes})::bigint::text
@@ -250,6 +300,67 @@ export async function captureApplicationGraphPayloadRowsV1(
       eq(fxSystemApplicationRevisionSchemasV1.scopeId, selector.scopeId),
       eq(fxSystemApplicationRevisionSchemasV1.revisionId, selector.revisionId),
     )).limit(2),
+    taskCatalog: tx.select({
+      scopeId: fxSystemApplicationTaskCatalogsV1.scopeId,
+      revisionId: fxSystemApplicationTaskCatalogsV1.revisionId,
+      candidateId: fxSystemApplicationTaskCatalogsV1.candidateId,
+      analysisId: fxSystemApplicationTaskCatalogsV1.analysisId,
+      sourceArtifactRootSha256:
+        fxSystemApplicationTaskCatalogsV1.sourceArtifactRootSha256,
+      publicationSha256: fxSystemApplicationTaskCatalogsV1.publicationSha256,
+      taskCatalogSha256: fxSystemApplicationTaskCatalogsV1.taskCatalogSha256,
+      taskCatalogBindingSha256:
+        fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
+      taskCount: fxSystemApplicationTaskCatalogsV1.taskCount,
+      runtimeHostIdentity:
+        fxSystemApplicationTaskCatalogsV1.runtimeHostIdentity,
+      compatibilityDate: fxSystemApplicationTaskCatalogsV1.compatibilityDate,
+    }).from(fxSystemApplicationTaskCatalogsV1).where(and(
+      eq(fxSystemApplicationTaskCatalogsV1.scopeId, selector.scopeId),
+      eq(fxSystemApplicationTaskCatalogsV1.revisionId, selector.revisionId),
+    )).limit(2),
+    taskRuntimePublication: tx.select({
+      scopeId: fxSystemApplicationTaskRuntimePublicationsV1.scopeId,
+      revisionId: fxSystemApplicationTaskRuntimePublicationsV1.revisionId,
+      candidateId: fxSystemApplicationTaskRuntimePublicationsV1.candidateId,
+      analysisId: fxSystemApplicationTaskRuntimePublicationsV1.analysisId,
+      applicationPublicationSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1
+          .applicationPublicationSha256,
+      sourceArtifactRootSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1.sourceArtifactRootSha256,
+      taskCatalogSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1.taskCatalogSha256,
+      applicationTaskCatalogBindingSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1
+          .applicationTaskCatalogBindingSha256,
+      applicationRevisionTaskBindingSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1
+          .applicationRevisionTaskBindingSha256,
+      taskEntryRootSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1.taskEntryRootSha256,
+      taskRuntimeProjectionSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1
+          .taskRuntimeProjectionSha256,
+      taskRuntimeGroupManifestSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1
+          .taskRuntimeGroupManifestSha256,
+      taskRuntimeMaterializationSpecSha256:
+        fxSystemApplicationTaskRuntimePublicationsV1
+          .taskRuntimeMaterializationSpecSha256,
+      objectCount: fxSystemApplicationTaskRuntimePublicationsV1.objectCount,
+      receiptSha256: fxSystemApplicationTaskRuntimePublicationsV1.receiptSha256,
+    })
+      .from(fxSystemApplicationTaskRuntimePublicationsV1).where(and(
+        eq(
+          fxSystemApplicationTaskRuntimePublicationsV1.scopeId,
+          selector.scopeId,
+        ),
+        eq(
+          fxSystemApplicationTaskRuntimePublicationsV1.revisionId,
+          selector.revisionId,
+        ),
+      )).limit(2),
     readiness: tx.select().from(fxSystemApplicationReadinessV1).where(and(
       eq(fxSystemApplicationReadinessV1.scopeId, selector.scopeId),
       eq(fxSystemApplicationReadinessV1.revisionId, selector.revisionId),
@@ -287,6 +398,18 @@ export async function captureApplicationGraphPayloadRowsV1(
   observeDrizzleQuery("applicationGraphPublication", queries.publication, options.observeQuery);
   observeDrizzleQuery("applicationGraphFunction", queries.selectedFunction, options.observeQuery);
   observeDrizzleQuery("applicationGraphSchema", queries.schema, options.observeQuery);
+  observeDrizzleQuery("applicationGraphTaskCatalog", queries.taskCatalog, options.observeQuery);
+  const taskRuntimePublicationQuery =
+    sizes.parentSizeRows[0]?.readinessVersion === 2
+      ? queries.taskRuntimePublication
+      : undefined;
+  if (taskRuntimePublicationQuery !== undefined) {
+    observeDrizzleQuery(
+      "applicationGraphTaskRuntimePublication",
+      taskRuntimePublicationQuery,
+      options.observeQuery,
+    );
+  }
   observeDrizzleQuery("applicationGraphReadiness", queries.readiness, options.observeQuery);
   observeDrizzleQuery("applicationGraphReadinessFunctions", queries.readinessFunctions, options.observeQuery);
   observeDrizzleQuery("applicationGraphActivation", queries.activation, options.observeQuery);
@@ -296,6 +419,10 @@ export async function captureApplicationGraphPayloadRowsV1(
   const publicationRows = await queries.publication;
   const functionRows = await queries.selectedFunction;
   const schemaRows = await queries.schema;
+  const taskCatalogRows = await queries.taskCatalog;
+  const taskRuntimePublicationRows = taskRuntimePublicationQuery === undefined
+    ? Object.freeze([])
+    : await taskRuntimePublicationQuery;
   const readinessRows = await queries.readiness;
   const readinessFunctionRows = await queries.readinessFunctions;
   const activationRows = await queries.activation;
@@ -307,6 +434,8 @@ export async function captureApplicationGraphPayloadRowsV1(
     publicationRows: detachDriverRows(publicationRows),
     functionRows: detachDriverRows(functionRows),
     schemaRows: detachDriverRows(schemaRows),
+    taskCatalogRows: detachDriverRows(taskCatalogRows),
+    taskRuntimePublicationRows: detachDriverRows(taskRuntimePublicationRows),
     readinessRows: detachDriverRows(readinessRows),
     readinessFunctionRows: detachDriverRows(readinessFunctionRows),
     activationRows: detachDriverRows(activationRows),

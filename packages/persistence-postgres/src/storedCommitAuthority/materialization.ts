@@ -861,6 +861,7 @@ function applicationGraphSnapshot(
     captured.publicationRows.length !== 1 ||
     captured.functionRows.length !== 1 ||
     captured.schemaRows.length !== 1 ||
+    captured.taskCatalogRows.length !== 1 ||
     captured.readinessRows.length !== 1 ||
     captured.activationRows.length !== 1 ||
     captured.readinessFunctionRows.length > 1_024
@@ -871,6 +872,11 @@ function applicationGraphSnapshot(
   const publication = captured.publicationRows[0];
   const selectedFunction = captured.functionRows[0];
   const schema = captured.schemaRows[0];
+  const taskCatalog = captured.taskCatalogRows[0];
+  const taskRuntimePublication =
+    captured.taskRuntimePublicationRows.length === 1
+      ? captured.taskRuntimePublicationRows[0]
+      : null;
   const readiness = captured.readinessRows[0];
   const activation = captured.activationRows[0];
   const readyAt = readiness === undefined
@@ -883,7 +889,10 @@ function applicationGraphSnapshot(
     candidate === undefined || analysis === undefined ||
     revision === undefined || publication === undefined ||
     selectedFunction === undefined || schema === undefined ||
+    taskCatalog === undefined ||
     readiness === undefined || activation === undefined ||
+    (readiness.readinessVersion === 2 && taskRuntimePublication === null) ||
+    captured.taskRuntimePublicationRows.length > 1 ||
     clock.storageGeneration !== "flarexdb_v1" ||
     analysis.status !== "analyzed" || analysis.manifestSha256 === null ||
     analysis.manifestBytes === null || revision.status !== "inactive" ||
@@ -912,6 +921,8 @@ function applicationGraphSnapshot(
     publication,
     selectedFunction,
     schema,
+    taskCatalog,
+    taskRuntimePublication,
     readiness: Object.freeze({
       ...readiness,
       readyAt,

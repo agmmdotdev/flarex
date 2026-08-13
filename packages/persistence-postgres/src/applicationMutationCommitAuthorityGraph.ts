@@ -9,12 +9,22 @@ import {
   applicationSchemaPublicationFrameV1,
 } from "@flarex/analysis/internal/application-publication-v1";
 import {
+  decodeTaskRuntimeReadinessBasisPreimageV1,
+  MAX_TASK_CATALOG_ENTRIES_V1,
+  MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1,
+  MAX_TASK_RUNTIME_READINESS_BASIS_CANONICAL_BYTES_V1,
+  type TaskRuntimeReadinessBasisV1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
   bytesEqualFullScan,
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
   uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
+import {
+  isNonNegativeSafeInteger,
+} from "@flarex/utils/numbers";
 import { Data, Effect, Result } from "effect";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
@@ -22,7 +32,11 @@ import {
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import type { ApplicationRuntimeTargetV1 } from
   "flarex-protocol/internal/application-runtime-target-v1";
-import { encodeCanonicalJson, isJson, type Json } from "flarex-protocol/json";
+import {
+  encodeCanonicalJson,
+  isJson,
+  type Json,
+} from "flarex-protocol/json";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import {
@@ -104,6 +118,36 @@ export interface ApplicationMutationCommitAuthorityGraphSnapshot {
     readonly schemaManifestSha256: Uint8Array;
     readonly schemaBindingSha256: Uint8Array;
   }>;
+  readonly taskCatalog: Readonly<{
+    readonly scopeId: ScopeId;
+    readonly revisionId: string;
+    readonly candidateId: string;
+    readonly analysisId: string;
+    readonly sourceArtifactRootSha256: Uint8Array;
+    readonly publicationSha256: Uint8Array;
+    readonly taskCatalogSha256: Uint8Array;
+    readonly taskCatalogBindingSha256: Uint8Array;
+    readonly taskCount: number;
+    readonly runtimeHostIdentity: string;
+    readonly compatibilityDate: string;
+  }>;
+  readonly taskRuntimePublication: Readonly<{
+    readonly scopeId: ScopeId;
+    readonly revisionId: string;
+    readonly candidateId: string;
+    readonly analysisId: string;
+    readonly applicationPublicationSha256: Uint8Array;
+    readonly sourceArtifactRootSha256: Uint8Array;
+    readonly taskCatalogSha256: Uint8Array;
+    readonly applicationTaskCatalogBindingSha256: Uint8Array;
+    readonly applicationRevisionTaskBindingSha256: Uint8Array;
+    readonly taskEntryRootSha256: Uint8Array;
+    readonly taskRuntimeProjectionSha256: Uint8Array | null;
+    readonly taskRuntimeGroupManifestSha256: Uint8Array | null;
+    readonly taskRuntimeMaterializationSpecSha256: Uint8Array | null;
+    readonly objectCount: number;
+    readonly receiptSha256: Uint8Array;
+  }> | null;
   readonly readiness: Readonly<{
     readonly scopeId: ScopeId;
     readonly revisionId: string;
@@ -129,6 +173,11 @@ export interface ApplicationMutationCommitAuthorityGraphSnapshot {
     readonly uniqueConstraintStatus: "not_required" | "eligible";
     readonly uniqueConstraintEligibilitySha256: Uint8Array;
     readonly physicalReadinessSha256: Uint8Array;
+    readonly readinessVersion: number;
+    readonly taskRuntimeKind: "empty" | "populated" | null;
+    readonly taskRuntimeReceiptSha256: Uint8Array | null;
+    readonly taskRuntimeReadinessBasisSha256: Uint8Array | null;
+    readonly taskRuntimeReadinessBasisBytes: Uint8Array | null;
     readonly readinessSha256: Uint8Array;
     readonly readinessBytes: Uint8Array;
     readonly readyAt: string;
@@ -568,13 +617,15 @@ function requireExactSchema(
   ) ? Result.fail(failure("schemaMismatch")) : Result.succeed(undefined);
 }
 
-function verifyReadiness(
+const verifyReadiness = Effect.fn(
+  "ApplicationMutationCommitAuthorityGraph.verifyReadiness",
+)(function* (
   snapshot: ApplicationMutationCommitAuthorityGraphSnapshot,
   manifest: ApplicationManifestV1,
   runtimeTargetBytes: Uint8Array,
-): Effect.Effect<void, ApplicationMutationCommitAuthorityGraphError> {
-  return Effect.gen(function* () {
+): Effect.fn.Return<void, ApplicationMutationCommitAuthorityGraphError> {
     const row = snapshot.readiness;
+    const taskRuntime = yield* verifyTaskRuntimeReadiness(snapshot);
     if (
       row.functions.length > MAX_READINESS_FUNCTIONS ||
       row.readinessBytes.byteLength < 1 ||
@@ -605,7 +656,7 @@ function verifyReadiness(
     ) return yield* fail("readinessMismatch", "functions");
     const expected: Json = {
       format: "flarex.application-readiness",
-      version: 1,
+      version: taskRuntime === null ? 1 : 2,
       status: "ready",
       scopeId: snapshot.scope.scopeId,
       deploymentId: row.deploymentId,
@@ -641,6 +692,15 @@ function verifyReadiness(
           coldReceiptSha256: hex(child.coldReceiptSha256),
         };
       }),
+      ...(taskRuntime === null ? {} : {
+        taskRuntime: {
+          kind: taskRuntime.basis.kind,
+          publicationReceiptSha256:
+            hex(taskRuntime.basis.publicationReceiptSha256),
+          readinessBasisSha256: hex(taskRuntime.basisSha256),
+          readinessBasis: taskRuntime.basisJson,
+        },
+      }),
       readyAt: row.readyAt,
     };
     const bytes = canonicalBytes(expected);
@@ -668,11 +728,159 @@ function verifyReadiness(
       !bytesEqualFullScan(row.schemaManifestSha256,
         snapshot.schema.schemaManifestSha256) ||
       !bytesEqualFullScan(row.schemaBindingSha256,
-        snapshot.schema.schemaBindingSha256) ||
-      !bytesEqualFullScan(row.readinessBytes, bytes) ||
-      !bytesEqualFullScan(row.readinessSha256, digest)
+        snapshot.schema.schemaBindingSha256)
     ) return yield* fail("readinessMismatch");
-  });
+    if (!bytesEqualFullScan(row.readinessBytes, bytes)) {
+      return yield* fail("readinessMismatch", "readinessBytes");
+    }
+    if (!bytesEqualFullScan(row.readinessSha256, digest)) {
+      return yield* fail("readinessMismatch", "readinessSha256");
+    }
+});
+
+interface VerifiedTaskRuntimeReadiness {
+  readonly basis: TaskRuntimeReadinessBasisV1;
+  readonly basisSha256: Uint8Array;
+  readonly basisJson: Json;
+}
+
+const verifyTaskRuntimeReadiness = Effect.fn(
+  "ApplicationMutationCommitAuthorityGraph.verifyTaskRuntimeReadiness",
+)(function* (
+  snapshot: ApplicationMutationCommitAuthorityGraphSnapshot,
+): Effect.fn.Return<
+  VerifiedTaskRuntimeReadiness | null,
+  ApplicationMutationCommitAuthorityGraphError
+> {
+  const row = snapshot.readiness;
+  if (!taskCatalogMatchesSnapshot(snapshot)) {
+    return yield* fail("readinessMismatch", "taskCatalog");
+  }
+  if (row.readinessVersion === 1) {
+    if (row.taskRuntimeKind === null &&
+        row.taskRuntimeReceiptSha256 === null &&
+        row.taskRuntimeReadinessBasisSha256 === null &&
+        row.taskRuntimeReadinessBasisBytes === null) return null;
+    return yield* fail("readinessMismatch", "taskRuntime");
+  }
+  const publication = snapshot.taskRuntimePublication;
+  if (
+    row.readinessVersion !== 2 ||
+    row.taskRuntimeKind === null ||
+    row.taskRuntimeReceiptSha256 === null ||
+    row.taskRuntimeReadinessBasisSha256 === null ||
+    row.taskRuntimeReadinessBasisBytes === null ||
+    publication === null
+  ) return yield* fail("readinessMismatch", "taskRuntime");
+  const receiptSha256 = row.taskRuntimeReceiptSha256;
+  const expectedBasisSha256 = row.taskRuntimeReadinessBasisSha256;
+  const basisBytes = row.taskRuntimeReadinessBasisBytes;
+  const basis = yield* Effect.fromResult(
+    decodeTaskRuntimeReadinessBasisPreimageV1(basisBytes).pipe(
+      Result.mapError(cause => failure(
+        "readinessMismatch",
+        "taskRuntimeReadinessBasisBytes",
+        cause,
+      )),
+    ),
+  );
+  const basisSha256 = yield* sha256(basisBytes);
+  const basisJson = yield* decodeCanonicalJson(
+    basisBytes,
+    MAX_TASK_RUNTIME_READINESS_BASIS_CANONICAL_BYTES_V1,
+    "readinessMismatch",
+    "taskRuntimeReadinessBasisBytes",
+  );
+  if (
+      row.taskRuntimeKind !== basis.kind ||
+      !bytesEqualFullScan(receiptSha256,
+        basis.publicationReceiptSha256) ||
+      !bytesEqualFullScan(expectedBasisSha256, basisSha256) ||
+      publication.scopeId !== snapshot.scope.scopeId ||
+      publication.revisionId !== snapshot.revision.revisionId ||
+      publication.candidateId !== snapshot.revision.candidateId ||
+      publication.analysisId !== snapshot.revision.analysisId ||
+      snapshot.taskCatalog.scopeId !== snapshot.scope.scopeId ||
+      snapshot.taskCatalog.revisionId !== snapshot.revision.revisionId ||
+      snapshot.taskCatalog.candidateId !== snapshot.revision.candidateId ||
+      snapshot.taskCatalog.analysisId !== snapshot.revision.analysisId ||
+      snapshot.taskCatalog.runtimeHostIdentity !== row.runtimeHostIdentity ||
+      snapshot.taskCatalog.compatibilityDate !== row.compatibilityDate ||
+      !bytesEqualFullScan(snapshot.taskCatalog.sourceArtifactRootSha256,
+        snapshot.revision.sourceArtifactRootSha256) ||
+      !bytesEqualFullScan(snapshot.taskCatalog.publicationSha256,
+        snapshot.publication.publicationSha256) ||
+      !bytesEqualFullScan(snapshot.taskCatalog.taskCatalogBindingSha256,
+        row.taskCatalogBindingSha256) ||
+      basis.scopeId !== snapshot.scope.scopeId ||
+      basis.candidateId !== snapshot.revision.candidateId ||
+      basis.analysisId !== snapshot.revision.analysisId ||
+      basis.applicationRevisionId !== snapshot.revision.revisionId ||
+      basis.compatibilityDate !== row.compatibilityDate ||
+      basis.taskCount !== BigInt(snapshot.taskCatalog.taskCount) ||
+      basis.objectCount !== BigInt(publication.objectCount) ||
+      !bytesEqualFullScan(publication.receiptSha256,
+        basis.publicationReceiptSha256) ||
+      !bytesEqualFullScan(publication.applicationPublicationSha256,
+        snapshot.publication.publicationSha256) ||
+      !bytesEqualFullScan(publication.sourceArtifactRootSha256,
+        snapshot.revision.sourceArtifactRootSha256) ||
+      !bytesEqualFullScan(publication.taskCatalogSha256,
+        snapshot.taskCatalog.taskCatalogSha256) ||
+      !bytesEqualFullScan(publication.applicationTaskCatalogBindingSha256,
+        snapshot.taskCatalog.taskCatalogBindingSha256) ||
+      !bytesEqualFullScan(basis.applicationPublicationSha256,
+        publication.applicationPublicationSha256) ||
+      !bytesEqualFullScan(basis.sourceArtifactRootSha256,
+        publication.sourceArtifactRootSha256) ||
+      !bytesEqualFullScan(basis.taskCatalogSha256,
+        publication.taskCatalogSha256) ||
+      !bytesEqualFullScan(basis.applicationTaskCatalogBindingSha256,
+        publication.applicationTaskCatalogBindingSha256) ||
+      !bytesEqualFullScan(basis.applicationRevisionTaskBindingSha256,
+        publication.applicationRevisionTaskBindingSha256) ||
+      !bytesEqualFullScan(basis.taskEntryRootSha256,
+        publication.taskEntryRootSha256) ||
+      !nullableBytesEqual(basis.taskRuntimeProjectionSha256,
+        publication.taskRuntimeProjectionSha256) ||
+      !nullableBytesEqual(basis.taskRuntimeGroupManifestSha256,
+        publication.taskRuntimeGroupManifestSha256) ||
+      !nullableBytesEqual(basis.taskRuntimeMaterializationSpecSha256,
+        publication.taskRuntimeMaterializationSpecSha256)
+  ) return yield* fail("readinessMismatch", "taskRuntime");
+  return Object.freeze({ basis, basisSha256, basisJson });
+});
+
+function taskCatalogMatchesSnapshot(
+  snapshot: ApplicationMutationCommitAuthorityGraphSnapshot,
+): boolean {
+  const catalog = snapshot.taskCatalog;
+  const row = snapshot.readiness;
+  return catalog.scopeId === snapshot.scope.scopeId &&
+    catalog.revisionId === snapshot.revision.revisionId &&
+    catalog.candidateId === snapshot.revision.candidateId &&
+    catalog.analysisId === snapshot.revision.analysisId &&
+    catalog.runtimeHostIdentity === row.runtimeHostIdentity &&
+    catalog.compatibilityDate === row.compatibilityDate &&
+    bytesEqualFullScan(
+      catalog.sourceArtifactRootSha256,
+      snapshot.revision.sourceArtifactRootSha256,
+    ) && bytesEqualFullScan(
+      catalog.publicationSha256,
+      snapshot.publication.publicationSha256,
+    ) && bytesEqualFullScan(
+      catalog.taskCatalogBindingSha256,
+      row.taskCatalogBindingSha256,
+    );
+}
+
+function nullableBytesEqual(
+  left: Uint8Array | null,
+  right: Uint8Array | null,
+): boolean {
+  return left === null || right === null
+    ? left === right
+    : bytesEqualFullScan(left, right);
 }
 
 function verifyActivation(
@@ -843,6 +1051,29 @@ function copySnapshot(
       "applicationSchemaSha256", "schemaManifestSha256",
       "schemaBindingSha256",
     ]),
+    taskCatalog: copyByteRecord(input.taskCatalog, [
+      "sourceArtifactRootSha256", "publicationSha256", "taskCatalogSha256",
+      "taskCatalogBindingSha256",
+    ]),
+    taskRuntimePublication: input.taskRuntimePublication === null
+      ? null
+      : Object.freeze({
+        ...copyByteRecord(input.taskRuntimePublication, [
+          "applicationPublicationSha256", "sourceArtifactRootSha256",
+          "taskCatalogSha256", "applicationTaskCatalogBindingSha256",
+          "applicationRevisionTaskBindingSha256", "taskEntryRootSha256",
+          "receiptSha256",
+        ]),
+        taskRuntimeProjectionSha256: copyNullableBytes(
+          input.taskRuntimePublication.taskRuntimeProjectionSha256,
+        ),
+        taskRuntimeGroupManifestSha256: copyNullableBytes(
+          input.taskRuntimePublication.taskRuntimeGroupManifestSha256,
+        ),
+        taskRuntimeMaterializationSpecSha256: copyNullableBytes(
+          input.taskRuntimePublication.taskRuntimeMaterializationSpecSha256,
+        ),
+      }),
     readiness: Object.freeze({
       ...copyByteRecord(input.readiness, [
         "sourceArtifactRootSha256", "manifestSha256", "publicationSha256",
@@ -852,6 +1083,12 @@ function copySnapshot(
         "candidateValidationReceiptSha256", "uniqueConstraintEligibilitySha256",
         "physicalReadinessSha256", "readinessSha256", "readinessBytes",
       ]),
+      taskRuntimeReceiptSha256:
+        copyNullableBytes(input.readiness.taskRuntimeReceiptSha256),
+      taskRuntimeReadinessBasisSha256:
+        copyNullableBytes(input.readiness.taskRuntimeReadinessBasisSha256),
+      taskRuntimeReadinessBasisBytes:
+        copyNullableBytes(input.readiness.taskRuntimeReadinessBasisBytes),
       functions: Object.freeze(input.readiness.functions.map(child =>
         copyByteRecord(child, [
           "readinessSha256", "runtimeTargetSha256", "coldReceiptSha256",
@@ -904,6 +1141,12 @@ function preflightSnapshot(
     input.schema.revisionId,
     input.schema.deploymentId,
     input.schema.schemaVersionId,
+    input.taskCatalog.scopeId,
+    input.taskCatalog.revisionId,
+    input.taskCatalog.candidateId,
+    input.taskCatalog.analysisId,
+    input.taskCatalog.runtimeHostIdentity,
+    input.taskCatalog.compatibilityDate,
     input.readiness.scopeId,
     input.readiness.revisionId,
     input.readiness.deploymentId,
@@ -934,6 +1177,10 @@ function preflightSnapshot(
     input.schema.applicationSchemaSha256,
     input.schema.schemaManifestSha256,
     input.schema.schemaBindingSha256,
+    input.taskCatalog.sourceArtifactRootSha256,
+    input.taskCatalog.publicationSha256,
+    input.taskCatalog.taskCatalogSha256,
+    input.taskCatalog.taskCatalogBindingSha256,
     input.readiness.sourceArtifactRootSha256,
     input.readiness.manifestSha256,
     input.readiness.publicationSha256,
@@ -964,6 +1211,9 @@ function preflightSnapshot(
     !bytes(input.readiness.readinessBytes, MAX_READINESS_BYTES) ||
     !bytes(input.activation.activationBytes, MAX_ACTIVATION_BYTES) ||
     fixedDigests.some(value => !digest(value)) ||
+    !isNonNegativeSafeInteger(input.taskCatalog.taskCount) ||
+    input.taskCatalog.taskCount > MAX_TASK_CATALOG_ENTRIES_V1 ||
+    !validTaskRuntimeSnapshot(input, digest, bytes) ||
     input.readiness.functions.length > MAX_READINESS_FUNCTIONS ||
     input.readiness.functions.some(child =>
       !bounded(child.scopeId) ||
@@ -985,6 +1235,76 @@ function copyByteRecord<T extends object, K extends keyof T>(
     output[key] = copyBytes(input[key] as Uint8Array) as T[K];
   }
   return Object.freeze(output);
+}
+
+function copyNullableBytes(value: Uint8Array | null): Uint8Array | null {
+  return value === null ? null : copyBytes(value);
+}
+
+function validTaskRuntimeSnapshot(
+  input: ApplicationMutationCommitAuthorityGraphSnapshot,
+  digest: (value: Uint8Array) => boolean,
+  bytes: (value: Uint8Array, maximum: number, minimum?: number) => boolean,
+): boolean {
+  const row = input.readiness;
+  const publication = input.taskRuntimePublication;
+  if (
+    publication !== null &&
+    !validTaskRuntimePublication(publication, digest)
+  ) return false;
+  if (row.readinessVersion === 1) {
+    return row.taskRuntimeKind === null &&
+      row.taskRuntimeReceiptSha256 === null &&
+      row.taskRuntimeReadinessBasisSha256 === null &&
+      row.taskRuntimeReadinessBasisBytes === null;
+  }
+  if (
+    row.readinessVersion !== 2 || row.taskRuntimeKind === null ||
+    row.taskRuntimeReceiptSha256 === null ||
+    row.taskRuntimeReadinessBasisSha256 === null ||
+    row.taskRuntimeReadinessBasisBytes === null || publication === null ||
+    !digest(row.taskRuntimeReceiptSha256) ||
+    !digest(row.taskRuntimeReadinessBasisSha256) ||
+    !bytes(
+      row.taskRuntimeReadinessBasisBytes,
+      MAX_TASK_RUNTIME_READINESS_BASIS_CANONICAL_BYTES_V1,
+    )
+  ) return false;
+  return true;
+}
+
+function validTaskRuntimePublication(
+  publication: NonNullable<
+    ApplicationMutationCommitAuthorityGraphSnapshot["taskRuntimePublication"]
+  >,
+  digest: (value: Uint8Array) => boolean,
+): boolean {
+  if (
+    !isNonNegativeSafeInteger(publication.objectCount) ||
+    publication.objectCount > MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1
+  ) return false;
+  const identities = [
+    publication.scopeId,
+    publication.revisionId,
+    publication.candidateId,
+    publication.analysisId,
+  ];
+  const digests = [
+    publication.applicationPublicationSha256,
+    publication.sourceArtifactRootSha256,
+    publication.taskCatalogSha256,
+    publication.applicationTaskCatalogBindingSha256,
+    publication.applicationRevisionTaskBindingSha256,
+    publication.taskEntryRootSha256,
+    publication.receiptSha256,
+  ];
+  return identities.every(value => value.length > 0 && value.length <= 4_096) &&
+    digests.every(digest) &&
+    [
+      publication.taskRuntimeProjectionSha256,
+      publication.taskRuntimeGroupManifestSha256,
+      publication.taskRuntimeMaterializationSpecSha256,
+    ].every(value => value === null || digest(value));
 }
 
 function copyEvidence(

@@ -13,11 +13,26 @@ import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
-import { Effect, Result } from "effect";
+import {
+  encodeTaskRuntimeReadinessBasisPreimageV1,
+  TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+  TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+  TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  TASK_RUNTIME_PROFILE_IDENTITY_V1,
+  type TaskDefinitionSha256V1,
+  type TaskRuntimeReadinessBasisV1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import type { TaskComputeProfileRefV1 } from
+  "@flarex/durable-task/internal/run-attempt-v1";
+import { Brand, Effect, Result } from "effect";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
-import { encodeCanonicalJson, type Json } from "flarex-protocol/json";
+import {
+  encodeCanonicalJson,
+  isJsonObjectFromUnknown,
+  type Json,
+} from "flarex-protocol/json";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
@@ -49,6 +64,9 @@ const SCHEMA_VERSION_ID = "schema-version";
 const FUNCTION_PATH = "recipes:alpha";
 const READY_AT = "2026-08-12T00:00:00.000Z";
 const ACTIVATED_AT = "2026-08-12T00:00:01.000Z";
+const TASK_COMPUTE_PROFILE = Brand.nominal<TaskComputeProfileRefV1>()(
+  "standard-1x",
+);
 
 beforeAll(() => {
   if (globalThis.crypto === undefined) {
@@ -94,6 +112,38 @@ describe("Application mutation commit-authority graph", () => {
       .runtimeTarget.function.path).toBe(FUNCTION_PATH);
   });
 
+  it("authenticates task-aware readiness and its exact runtime basis", async () => {
+    const snapshot = await graphSnapshot(
+      "_flarex/application.js",
+      false,
+      true,
+    );
+    const capability = await runEffect(
+      verifyApplicationMutationCommitAuthorityGraph(snapshot),
+    );
+
+    expect(inspectApplicationMutationCommitAuthorityGraph(capability)
+      .runtimeTarget.function.path).toBe(FUNCTION_PATH);
+  });
+
+  it("retains exact legacy readiness after a runtime publication appears", async () => {
+    const snapshot = await graphSnapshot();
+    const runtime = await taskRuntimeFixture(
+      snapshot.publication.publicationSha256,
+      snapshot.taskCatalog.taskCatalogSha256,
+      snapshot.taskCatalog.taskCatalogBindingSha256,
+    );
+    const capability = await runEffect(
+      verifyApplicationMutationCommitAuthorityGraph({
+        ...snapshot,
+        taskRuntimePublication: runtime.publication,
+      }),
+    );
+
+    expect(inspectApplicationMutationCommitAuthorityGraph(capability)
+      .runtimeTarget.function.path).toBe(FUNCTION_PATH);
+  });
+
   it.each([
     ["publication", "publicationMismatch", (snapshot: MutableSnapshot) => {
       snapshot.publication.publicationSha256[0] ^= 0xff;
@@ -123,6 +173,27 @@ describe("Application mutation commit-authority graph", () => {
 
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) expect(result.failure.reason).toBe(reason);
+  });
+
+  it("rejects a task-runtime readiness-basis digest mismatch", async () => {
+    const snapshot = await graphSnapshot(
+      "_flarex/application.js",
+      false,
+      true,
+    );
+    const mutable = snapshot as MutableSnapshot;
+    mutable.readiness.taskRuntimeReadinessBasisSha256 = bytes(0xfe);
+    const result = await runEffect(Effect.result(
+      verifyApplicationMutationCommitAuthorityGraph(snapshot),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        reason: "readinessMismatch",
+        field: "taskRuntime",
+      });
+    }
   });
 
   it("captures caller-owned bytes before Effect execution", async () => {
@@ -239,6 +310,7 @@ type MutableSnapshot = ApplicationMutationCommitAuthorityGraphSnapshot & {
   schema: { schemaBindingSha256: Uint8Array };
   readiness: {
     readinessBytes: Uint8Array;
+    taskRuntimeReadinessBasisSha256: Uint8Array | null;
     functions: Array<{ readinessSha256: Uint8Array }>;
   };
   activation: { activationBytes: Uint8Array };
@@ -247,6 +319,7 @@ type MutableSnapshot = ApplicationMutationCommitAuthorityGraphSnapshot & {
 async function graphSnapshot(
   runtimeExecutionModulePath = "_flarex/application.js",
   includeDefaultFunction = false,
+  taskAware = false,
 ): Promise<
   ApplicationMutationCommitAuthorityGraphSnapshot
 > {
@@ -357,6 +430,8 @@ async function graphSnapshot(
   const runtimeTargetSha256 = await sha256(runtimeTarget.canonicalBytes);
   const schemaManifestSha256 = bytes(0x44);
   const schemaBindingSha256 = bytes(0x55);
+  const taskCatalogSha256 = bytes(0x76);
+  const taskCatalogBindingSha256 = bytes(0x77);
   const coldReceiptSha256 = bytes(0x66);
   const coldReceipts = await Promise.all(
     canonicalManifest.manifest.functions.map(async manifestFunction => {
@@ -375,9 +450,16 @@ async function graphSnapshot(
       };
     }),
   );
+  const taskRuntime = taskAware
+    ? await taskRuntimeFixture(
+      publicationSha256,
+      taskCatalogSha256,
+      taskCatalogBindingSha256,
+    )
+    : null;
   const readinessValue: Json = {
     format: "flarex.application-readiness",
-    version: 1,
+    version: taskRuntime === null ? 1 : 2,
     status: "ready",
     scopeId: SCOPE_ID,
     deploymentId: "deployment",
@@ -395,7 +477,7 @@ async function graphSnapshot(
     schemaVersionId: SCHEMA_VERSION_ID,
     schemaManifestSha256: hex(schemaManifestSha256),
     schemaBindingSha256: hex(schemaBindingSha256),
-    taskCatalogBindingSha256: "77".repeat(32),
+    taskCatalogBindingSha256: hex(taskCatalogBindingSha256),
     runtimeHostIdentity: "workerd",
     compatibilityDate: "2026-08-12",
     coldReceiptSetSha256: "88".repeat(32),
@@ -404,6 +486,15 @@ async function graphSnapshot(
     uniqueConstraintEligibilitySha256: "aa".repeat(32),
     physicalReadinessSha256: "bb".repeat(32),
     coldReceipts,
+    ...(taskRuntime === null ? {} : {
+      taskRuntime: {
+        kind: taskRuntime.basis.kind,
+        publicationReceiptSha256:
+          hex(taskRuntime.basis.publicationReceiptSha256),
+        readinessBasisSha256: hex(taskRuntime.basisSha256),
+        readinessBasis: taskRuntime.basisJson,
+      },
+    }),
     readyAt: READY_AT,
   };
   const readinessBytes = canonicalBytes(readinessValue);
@@ -509,6 +600,20 @@ async function graphSnapshot(
       schemaManifestSha256,
       schemaBindingSha256,
     },
+    taskCatalog: {
+      scopeId: SCOPE_ID,
+      revisionId: REVISION_ID,
+      candidateId: CANDIDATE_ID,
+      analysisId: ANALYSIS_ID,
+      sourceArtifactRootSha256: hexBytes(ROOT),
+      publicationSha256,
+      taskCatalogSha256,
+      taskCatalogBindingSha256,
+      taskCount: 0,
+      runtimeHostIdentity: "workerd",
+      compatibilityDate: "2026-08-12",
+    },
+    taskRuntimePublication: taskRuntime?.publication ?? null,
     readiness: {
       scopeId: SCOPE_ID,
       revisionId: REVISION_ID,
@@ -526,7 +631,7 @@ async function graphSnapshot(
       schemaVersionId: SCHEMA_VERSION_ID,
       schemaManifestSha256,
       schemaBindingSha256,
-      taskCatalogBindingSha256: bytes(0x77),
+      taskCatalogBindingSha256,
       runtimeHostIdentity: "workerd",
       compatibilityDate: "2026-08-12",
       coldReceiptSetSha256: bytes(0x88),
@@ -534,6 +639,12 @@ async function graphSnapshot(
       uniqueConstraintStatus: "not_required",
       uniqueConstraintEligibilitySha256: bytes(0xaa),
       physicalReadinessSha256: bytes(0xbb),
+      readinessVersion: taskRuntime === null ? 1 : 2,
+      taskRuntimeKind: taskRuntime?.basis.kind ?? null,
+      taskRuntimeReceiptSha256:
+        taskRuntime?.basis.publicationReceiptSha256 ?? null,
+      taskRuntimeReadinessBasisSha256: taskRuntime?.basisSha256 ?? null,
+      taskRuntimeReadinessBasisBytes: taskRuntime?.basisBytes ?? null,
       readinessSha256,
       readinessBytes,
       readyAt: READY_AT,
@@ -558,6 +669,88 @@ async function graphSnapshot(
       activatedAt: ACTIVATED_AT,
     },
   };
+}
+
+async function taskRuntimeFixture(
+  publicationSha256: Uint8Array,
+  taskCatalogSha256: Uint8Array,
+  taskCatalogBindingSha256: Uint8Array,
+) {
+  const receiptSha256 = taskDigest(0xe1);
+  const applicationRevisionTaskBindingSha256 = taskDigest(0xe2);
+  const taskEntryRootSha256 = taskDigest(0xe3);
+  const basis: TaskRuntimeReadinessBasisV1 = Object.freeze({
+    version: 1,
+    kind: "empty",
+    scopeId: SCOPE_ID,
+    candidateId: CANDIDATE_ID,
+    analysisId: ANALYSIS_ID,
+    applicationRevisionId: REVISION_ID,
+    publicationReceiptSha256: receiptSha256,
+    applicationPublicationSha256: taskDigestFromBytes(publicationSha256),
+    sourceArtifactRootSha256: taskDigestFromBytes(hexBytes(ROOT)),
+    applicationTaskCatalogBindingSha256:
+      taskDigestFromBytes(taskCatalogBindingSha256),
+    applicationRevisionTaskBindingSha256,
+    taskCatalogSha256: taskDigestFromBytes(taskCatalogSha256),
+    taskCount: 0n,
+    taskEntryRootSha256,
+    taskRuntimeProjectionSha256: null,
+    taskRuntimeGroupManifestSha256: null,
+    taskRuntimeMaterializationSpecSha256: null,
+    runtimeContractIdentity: TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+    bridgeAbiIdentity: TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+    compatibilityDate: "2026-08-12",
+    compatibilityFlags: Object.freeze(["nodejs_compat"]),
+    runtimeProfileIdentity: TASK_RUNTIME_PROFILE_IDENTITY_V1,
+    runtimeImplementationVersion: "worker-loader-2026.08.13-test",
+    supportedComputeProfiles: Object.freeze([TASK_COMPUTE_PROFILE]),
+    moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+    objectCount: 0n,
+    canonicalObjectByteLength: 0n,
+  });
+  const basisBytes = Result.getOrThrow(
+    encodeTaskRuntimeReadinessBasisPreimageV1(basis),
+  );
+  const basisSha256 = await sha256(basisBytes);
+  const parsed: unknown = JSON.parse(new TextDecoder().decode(basisBytes));
+  if (!isJsonObjectFromUnknown(parsed) || parsed.basis === undefined) {
+    throw new Error("Expected task-runtime readiness-basis JSON.");
+  }
+  return Object.freeze({
+    basis,
+    basisBytes,
+    basisSha256,
+    basisJson: parsed,
+    publication: Object.freeze({
+      scopeId: SCOPE_ID,
+      revisionId: REVISION_ID,
+      candidateId: CANDIDATE_ID,
+      analysisId: ANALYSIS_ID,
+      applicationPublicationSha256: copyBytes(publicationSha256),
+      sourceArtifactRootSha256: hexBytes(ROOT),
+      taskCatalogSha256: copyBytes(taskCatalogSha256),
+      applicationTaskCatalogBindingSha256:
+        copyBytes(taskCatalogBindingSha256),
+      applicationRevisionTaskBindingSha256:
+        copyBytes(applicationRevisionTaskBindingSha256),
+      taskEntryRootSha256: copyBytes(taskEntryRootSha256),
+      taskRuntimeProjectionSha256: null,
+      taskRuntimeGroupManifestSha256: null,
+      taskRuntimeMaterializationSpecSha256: null,
+      objectCount: 0,
+      receiptSha256: copyBytes(receiptSha256),
+    }),
+  });
+}
+
+function taskDigest(value: number): TaskDefinitionSha256V1 {
+  return taskDigestFromBytes(bytes(value));
+}
+
+function taskDigestFromBytes(value: Uint8Array): TaskDefinitionSha256V1 {
+  // Test data is constructed as an exact 32-byte protocol digest.
+  return copyBytes(value) as TaskDefinitionSha256V1;
 }
 
 function canonicalBytes(value: Json): Uint8Array {
