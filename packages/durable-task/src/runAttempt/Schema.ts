@@ -1,6 +1,16 @@
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { Result, Schema, SchemaTransformation } from "effect";
+import { ApplicationTaskRuntimeTargetSha256V1Schema } from
+  "../runCreation/ApplicationTaskRuntimeTarget.js";
+import {
+  fromCurrentRunAttemptState,
+  fromCurrentTaskAttemptGrant,
+  fromCurrentTaskRequestedEffect,
+  toCurrentRunAttemptState,
+  toCurrentTaskAttemptGrant,
+  toCurrentTaskRequestedEffect,
+} from "./DefinitionReference.js";
 import { InvalidRunAttemptCommandError } from "./Errors.js";
 import { decideFailurePolicyV1 } from "./Policy.js";
 import type {
@@ -11,10 +21,14 @@ import type {
   RequestCancellationCommandV1,
   RunAttemptCommandV1,
   RunAttemptInspectionV1,
+  ApplicationRunAttemptStateV1,
+  ApplicationTaskAttemptGrantV1,
+  ApplicationTaskRequestedEffectV1,
   RunAttemptOperationV1,
   RunAttemptStateV1,
   StartAttemptCommandV1,
   TaskAttemptCompletionV1,
+  TaskAttemptGrantV1,
   TaskAttemptIdV1,
   TaskAttemptNumberV1,
   TaskCancellationGenerationV1,
@@ -30,6 +44,7 @@ import type {
   TaskHeartbeatSequenceV1,
   TaskLeaseVersionV1,
   TaskRequestedEffectSequenceV1,
+  TaskRequestedEffectV1,
   TaskResultCommitmentV1,
   TaskRetryDirectiveV1,
   TaskRetryJitterV1,
@@ -577,34 +592,62 @@ export const TaskRunTerminalOutcomeV1Schema = Schema.Union([
   TaskRunFailedTerminalV1Schema,
 ]);
 
-const RunAttemptStateBaseFieldsV1 = {
-  version: Schema.Literal("flarex.run-attempt-state.v1"),
-  runId: TaskRunIdV1Schema,
-  taskDefinitionRevisionId: TaskDefinitionRevisionIdV1Schema,
-  runVersion: TaskRunVersionV1Schema,
+function makeDefinitionIdentityFields(
+  generation: "legacy_definition_v1",
+): { readonly taskDefinitionRevisionId: typeof TaskDefinitionRevisionIdV1Schema };
+function makeDefinitionIdentityFields(
+  generation: "application_v1",
+): {
+  readonly applicationTaskRuntimeTargetSha256:
+    typeof ApplicationTaskRuntimeTargetSha256V1Schema;
 };
+function makeDefinitionIdentityFields(
+  generation: "legacy_definition_v1" | "application_v1",
+) {
+  return generation === "legacy_definition_v1"
+    ? { taskDefinitionRevisionId: TaskDefinitionRevisionIdV1Schema }
+    : {
+        applicationTaskRuntimeTargetSha256:
+          ApplicationTaskRuntimeTargetSha256V1Schema,
+      };
+}
+const LegacyDefinitionIdentityFieldsV1 = makeDefinitionIdentityFields(
+  "legacy_definition_v1",
+);
+const ApplicationDefinitionIdentityFieldsV1 = makeDefinitionIdentityFields(
+  "application_v1",
+);
 const TaskActiveAttemptProjectionV1Schema = Schema.Struct({
   attempt: TaskTerminalAttemptRefV1Schema,
   computeProfile: TaskComputeProfileRefV1Schema,
   grantedAtMs: TaskDatabaseTimeMsV1Schema,
   lease: TaskAttemptLeaseV1Schema,
 }).annotate(STRICT_STRUCT_OPTIONS);
-export const RunAttemptStateV1Schema = Schema.Union([
+function makeRunAttemptStateSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  const RunAttemptStateBaseFields = {
+    version: Schema.Literal("flarex.run-attempt-state.v1"),
+    runId: TaskRunIdV1Schema,
+    ...identityFields,
+    runVersion: TaskRunVersionV1Schema,
+  };
+  const states = Schema.Union([
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("ready"),
     ready: TaskRunReadyStateV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("attempt_granted"),
     currentAttempt: TaskActiveAttemptProjectionV1Schema,
     heartbeat: Schema.Struct({ kind: Schema.Literal("none_accepted") }).annotate(STRICT_STRUCT_OPTIONS),
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("executing"),
     currentAttempt: TaskActiveAttemptProjectionV1Schema,
     heartbeat: Schema.Struct({
@@ -614,13 +657,13 @@ export const RunAttemptStateV1Schema = Schema.Union([
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("retry_waiting"),
     retry: TaskAcceptedRetryV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: Schema.Union([TaskRunSucceededTerminalV1Schema, TaskRunFailedTerminalV1Schema]),
     cancellation: Schema.Union([
@@ -629,25 +672,30 @@ export const RunAttemptStateV1Schema = Schema.Union([
     ]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunCancelledWithoutAttemptTerminalV1Schema,
     cancellation: TaskCancellationResolvedWithoutAttemptV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunAcknowledgedCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedAcknowledgedV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...RunAttemptStateBaseFieldsV1,
+    ...RunAttemptStateBaseFields,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunLeaseExpiredCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedLeaseExpiredV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
-]).check(
-  Schema.makeFilter((state) => {
+  ]);
+  return states;
+}
+
+function terminalStateProjectionFailure(
+  state: RunAttemptStateV1 | ApplicationRunAttemptStateV1,
+): string | undefined {
     if (state.phase !== "terminal") return undefined;
     const { terminal, cancellation } = state;
     if (terminal.kind === "succeeded" || terminal.kind === "failed") {
@@ -663,23 +711,47 @@ export const RunAttemptStateV1Schema = Schema.Union([
       cancellation.resolvedAtMs === terminal.completedAtMs
       ? undefined
       : "Expected terminal cancellation projection fields to agree";
-  }),
+}
+const LegacyRunAttemptStateV1Schema = makeRunAttemptStateSchema(
+  LegacyDefinitionIdentityFieldsV1,
 );
+const ApplicationRunAttemptStateSchemaV1 = makeRunAttemptStateSchema(
+  ApplicationDefinitionIdentityFieldsV1,
+);
+export const RunAttemptStateV1Schema = LegacyRunAttemptStateV1Schema.check(
+  Schema.makeFilter((state: typeof LegacyRunAttemptStateV1Schema.Type) =>
+    terminalStateProjectionFailure(state)),
+);
+export const ApplicationRunAttemptStateV1Schema =
+  ApplicationRunAttemptStateSchemaV1.check(
+    Schema.makeFilter((state: typeof ApplicationRunAttemptStateSchemaV1.Type) =>
+      terminalStateProjectionFailure(state)),
+  );
 export const RunAttemptInspectionV1Schema = Schema.Struct({
   version: Schema.Literal("flarex.run-attempt-inspection.v1"),
   observedAtMs: TaskDatabaseTimeMsV1Schema,
   state: RunAttemptStateV1Schema,
 }).annotate(STRICT_STRUCT_OPTIONS);
 
-export const TaskAttemptGrantV1Schema = Schema.Struct({
-  runId: TaskRunIdV1Schema,
-  taskDefinitionRevisionId: TaskDefinitionRevisionIdV1Schema,
-  acceptedRunVersion: TaskRunVersionV1Schema,
-  attempt: TaskTerminalAttemptRefV1Schema,
-  computeProfile: TaskComputeProfileRefV1Schema,
-  grantedAtMs: TaskDatabaseTimeMsV1Schema,
-  lease: TaskAttemptLeaseV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+function makeTaskAttemptGrantSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return Schema.Struct({
+    runId: TaskRunIdV1Schema,
+    ...identityFields,
+    acceptedRunVersion: TaskRunVersionV1Schema,
+    attempt: TaskTerminalAttemptRefV1Schema,
+    computeProfile: TaskComputeProfileRefV1Schema,
+    grantedAtMs: TaskDatabaseTimeMsV1Schema,
+    lease: TaskAttemptLeaseV1Schema,
+  }).annotate(STRICT_STRUCT_OPTIONS);
+}
+export const TaskAttemptGrantV1Schema = makeTaskAttemptGrantSchema(
+  LegacyDefinitionIdentityFieldsV1,
+);
+export const ApplicationTaskAttemptGrantV1Schema = makeTaskAttemptGrantSchema(
+  ApplicationDefinitionIdentityFieldsV1,
+);
 
 const StartAttemptAcceptedOutcomeV1Schema = Schema.Struct({
   kind: Schema.Literal("attempt_granted"),
@@ -877,28 +949,31 @@ export const TaskLifecycleEventProjectionV1Schema = Schema.Union([
   }).annotate(STRICT_STRUCT_OPTIONS),
 ]);
 
-const TaskRequestedEffectBaseFieldsV1 = {
-  version: Schema.Literal("flarex.task-requested-effect.v1"),
-  runId: TaskRunIdV1Schema,
-  acceptedRunVersion: TaskRunVersionV1Schema,
-};
-export const TaskRequestedEffectV1Schema = Schema.Union([
+function makeTaskRequestedEffectSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  const TaskRequestedEffectBaseFields = {
+    version: Schema.Literal("flarex.task-requested-effect.v1"),
+    runId: TaskRunIdV1Schema,
+    acceptedRunVersion: TaskRunVersionV1Schema,
+  };
+  return Schema.Union([
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("dispatch_attempt"),
-    taskDefinitionRevisionId: TaskDefinitionRevisionIdV1Schema,
+    ...identityFields,
     attempt: TaskTerminalAttemptRefV1Schema,
     leaseVersion: TaskLeaseVersionV1Schema,
     computeProfile: TaskComputeProfileRefV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literals(["continue_retry", "wake_retry"]),
     expectedRunVersion: TaskRunVersionV1Schema,
     notBeforeMs: TaskDatabaseTimeMsV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("wake_lease_expiry"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
@@ -906,14 +981,14 @@ export const TaskRequestedEffectV1Schema = Schema.Union([
     notBeforeMs: TaskDatabaseTimeMsV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("request_execution_cancellation"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
     cancellationGeneration: TaskCancellationGenerationV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("release_queue_ownership"),
     cause: Schema.Literals([
       "succeeded_completion", "failed_completion", "cancellation_acknowledged",
@@ -921,20 +996,27 @@ export const TaskRequestedEffectV1Schema = Schema.Union([
     ]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("publish_lifecycle_event"),
     observedAtMs: TaskDatabaseTimeMsV1Schema,
     event: TaskLifecycleEventProjectionV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
-  Schema.Struct({ ...TaskRequestedEffectBaseFieldsV1, kind: Schema.Literal("notify_current_state") }).annotate(STRICT_STRUCT_OPTIONS),
+  Schema.Struct({ ...TaskRequestedEffectBaseFields, kind: Schema.Literal("notify_current_state") }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRequestedEffectBaseFieldsV1,
+    ...TaskRequestedEffectBaseFields,
     kind: Schema.Literal("cancel_obsolete_lease_wake"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
     obsoleteLeaseVersion: TaskLeaseVersionV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
-]);
+  ]);
+}
+export const TaskRequestedEffectV1Schema = makeTaskRequestedEffectSchema(
+  LegacyDefinitionIdentityFieldsV1,
+);
+export const ApplicationTaskRequestedEffectV1Schema = makeTaskRequestedEffectSchema(
+  ApplicationDefinitionIdentityFieldsV1,
+);
 export const PersistedTaskRequestedEffectV1Schema = Schema.Struct({
   sequence: TaskRequestedEffectSequenceV1Schema,
   effect: TaskRequestedEffectV1Schema,
@@ -1824,6 +1906,61 @@ export const decodeRunAttemptStateV1: (
   RunAttemptStateV1Schema,
   STRICT_PARSE_OPTIONS,
 );
+const decodeApplicationRunAttemptStateSchemaV1 = Schema.decodeUnknownResult(
+  ApplicationRunAttemptStateV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const decodeApplicationTaskAttemptGrantSchemaV1 = Schema.decodeUnknownResult(
+  ApplicationTaskAttemptGrantV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const decodeApplicationTaskRequestedEffectSchemaV1 = Schema.decodeUnknownResult(
+  ApplicationTaskRequestedEffectV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+export const decodeApplicationRunAttemptStateV1 = (
+  input: unknown,
+): Result.Result<ApplicationRunAttemptStateV1, Schema.SchemaError> =>
+  decodeApplicationRunAttemptStateSchemaV1(input).pipe(Result.map(state => {
+    const persisted = fromCurrentRunAttemptState(toCurrentRunAttemptState({
+      generation: "application_v1",
+      state,
+    }));
+    if (persisted.generation !== "application_v1") {
+      throw new Error("Application state adapter changed definition generation.");
+    }
+    return persisted.state;
+  }));
+export const decodeApplicationTaskAttemptGrantV1 = (
+  input: unknown,
+): Result.Result<ApplicationTaskAttemptGrantV1, Schema.SchemaError> =>
+  decodeApplicationTaskAttemptGrantSchemaV1(input).pipe(Result.map(grant => {
+    const persisted = fromCurrentTaskAttemptGrant(toCurrentTaskAttemptGrant({
+      generation: "application_v1",
+      grant,
+    }));
+    if (persisted.generation !== "application_v1") {
+      throw new Error("Application grant adapter changed definition generation.");
+    }
+    return persisted.grant;
+  }));
+export const decodeApplicationTaskRequestedEffectV1 = (
+  input: unknown,
+): Result.Result<ApplicationTaskRequestedEffectV1, Schema.SchemaError> =>
+  decodeApplicationTaskRequestedEffectSchemaV1(input).pipe(Result.map(effect => {
+    const current = toCurrentTaskRequestedEffect({
+      generation: "application_v1",
+      effect,
+    });
+    const persisted = Result.getOrThrow(fromCurrentTaskRequestedEffect(
+      current,
+      "application_v1",
+    ));
+    if (persisted.generation !== "application_v1") {
+      throw new Error("Application effect adapter changed definition generation.");
+    }
+    return persisted.effect;
+  }));
 export const decodeRunAttemptInspectionV1: (
   input: unknown,
 ) => Result.Result<RunAttemptInspectionV1, Schema.SchemaError> = Schema.decodeUnknownResult(

@@ -1,4 +1,5 @@
 export * from "./Errors.js";
+export * from "./DefinitionReference.js";
 export * from "./Layers/RunAttemptLifecycleLive.js";
 export * from "./Model.js";
 export * from "./PersistenceCodec.js";

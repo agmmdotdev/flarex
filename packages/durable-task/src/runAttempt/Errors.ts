@@ -1,6 +1,7 @@
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // multiple mapped upstream paths. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { Data } from "effect";
+import type { TaskDefinitionReference } from "../runCreation/Model.js";
 import type {
   RunAttemptMutationOperationV1,
   RunAttemptOperationV1,
@@ -22,6 +23,13 @@ export class InvalidRunAttemptCommandError extends Data.TaggedError(
     | "invalid_completion"
     | "invalid_cancellation_reason";
 }> {}
+
+export class TaskDefinitionReferenceGenerationMismatchError extends
+  Data.TaggedError("TaskDefinitionReferenceGenerationMismatchError")<{
+    readonly operation: "persist_requested_effect";
+    readonly expectedGeneration: TaskDefinitionReference["generation"];
+    readonly receivedGeneration: TaskDefinitionReference["generation"];
+  }> {}
 
 export class InvalidRunAttemptTransitionError extends Data.TaggedError(
   "InvalidRunAttemptTransitionError",

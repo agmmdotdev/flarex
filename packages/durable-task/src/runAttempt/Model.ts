@@ -1,6 +1,10 @@
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/internal-packages/run-engine/src/engine/eventBus.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import type { Brand } from "effect";
+import type {
+  ApplicationTaskRuntimeTargetSha256V1,
+  TaskDefinitionReference,
+} from "../runCreation/Model.js";
 
 export type TaskDefinitionRevisionIdV1 = Brand.Branded<
   string,
@@ -430,6 +434,30 @@ export type RunAttemptStateV1 =
         }
     ));
 
+type ReplaceLegacyDefinitionIdentity<
+  Value,
+  Identity extends Readonly<Record<string, unknown>>,
+> = Value extends { readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1 }
+  ? Omit<Value, "taskDefinitionRevisionId"> & Identity
+  : Value;
+
+type ApplicationDefinitionIdentityV1 = Readonly<{
+  readonly applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1;
+}>;
+type CurrentDefinitionIdentity = Readonly<{
+  readonly definitionReference: TaskDefinitionReference;
+}>;
+
+export type ApplicationRunAttemptStateV1 = ReplaceLegacyDefinitionIdentity<
+  RunAttemptStateV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentRunAttemptState = ReplaceLegacyDefinitionIdentity<
+  RunAttemptStateV1,
+  CurrentDefinitionIdentity
+>;
+
 export interface RunAttemptInspectionV1 {
   readonly version: "flarex.run-attempt-inspection.v1";
   readonly observedAtMs: TaskDatabaseTimeMsV1;
@@ -445,6 +473,15 @@ export interface TaskAttemptGrantV1 {
   readonly grantedAtMs: TaskDatabaseTimeMsV1;
   readonly lease: TaskAttemptLeaseProjectionV1;
 }
+
+export type ApplicationTaskAttemptGrantV1 = ReplaceLegacyDefinitionIdentity<
+  TaskAttemptGrantV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentTaskAttemptGrant = ReplaceLegacyDefinitionIdentity<
+  TaskAttemptGrantV1,
+  CurrentDefinitionIdentity
+>;
 
 export type StartAttemptCurrentReasonV1 =
   | "stale_run_version"
@@ -744,6 +781,16 @@ export type TaskRequestedEffectV1 = TaskRequestedEffectBaseV1 &
         readonly obsoleteLeaseVersion: TaskLeaseVersionV1;
       }
   );
+
+export type ApplicationTaskRequestedEffectV1 =
+  ReplaceLegacyDefinitionIdentity<
+    TaskRequestedEffectV1,
+    ApplicationDefinitionIdentityV1
+  >;
+export type CurrentTaskRequestedEffect = ReplaceLegacyDefinitionIdentity<
+  TaskRequestedEffectV1,
+  CurrentDefinitionIdentity
+>;
 
 export interface PersistedTaskRequestedEffectV1 {
   readonly sequence: TaskRequestedEffectSequenceV1;

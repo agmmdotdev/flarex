@@ -32,6 +32,8 @@ import {
   type ApplicationTaskRuntimeTargetSha256V1,
   type TaskDefinitionReference,
 } from "./Model.js";
+import { ApplicationTaskRuntimeTargetSha256V1Schema } from
+  "./ApplicationTaskRuntimeTarget.js";
 
 const STRICT_STRUCT_OPTIONS = {
   parseOptions: { onExcessProperty: "error" },
@@ -87,10 +89,6 @@ const TaskRunCreationRequestSha256V1Schema = Sha256BytesSchema.pipe(
 const TaskRunCreationAuthoritySha256V1Schema = Sha256BytesSchema.pipe(
   Schema.brand("FlarexDurableTask/TaskRunCreationAuthoritySha256V1"),
 );
-const ApplicationTaskRuntimeTargetSha256V1Schema = Sha256BytesSchema.pipe(
-  Schema.brand("FlarexDurableTask/ApplicationTaskRuntimeTargetSha256V1"),
-);
-
 const TaskInputReferenceShapeV1Schema = Schema.Struct({
   codec: Schema.Literal(TASK_INPUT_REFERENCE_CODEC_V1),
   store: Schema.Literal(TASK_INPUT_OBJECT_STORE_V1),
