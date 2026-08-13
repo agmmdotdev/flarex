@@ -2719,6 +2719,45 @@ Application Worker, route, trigger, production activation, mutation OCC/commit,
 or Task System owner changed. Genuine PostgreSQL remains an `AA-R7` gate as
 accepted above.
 
+Checkpoint 4b preflight (2026-08-13): accepted after inspecting the committed
+Application Worker host, Source Artifact reader, action evidence owner, and
+legacy callback/outbound bundle. The smallest owner-correct composition is two
+connected private modules rather than one cross-package object:
+
+1. `flarex-backend` owns an Application action runner that accepts only the
+   canonical action authority, authenticated manifest, admitted runtime-host
+   identity and compatibility date, decoded Application Worker request, and a
+   request-scoped callback/outbound capability session. It verifies the pinned
+   host policy, reads only the authority runtime target's Source Artifact root,
+   constructs `ApplicationWorkerDefinition`, and calls
+   `ApplicationExecutionHost.runAction`, which performs a fresh Worker load.
+2. `standard-application-invocation` owns the scoped opaque dispatch bundle. It
+   claims only the `application_v1` direct-action subject, decodes the admitted
+   canonical argument body, constructs the Application action request, and
+   reuses the existing host syscall sequencer, callback bridge, outbound
+   gateway, body store, and external-effect table. Its callback selection is
+   the authenticated Application active selection; no legacy revision or
+   candidate runtime-artifact authority enters the bundle.
+3. Host completion is not settlement authority. The capability session first
+   closes both callback and outbound admission gates, then drains both. An
+   outbound or callback failure discovered during drain remains authoritative;
+   possible outbound dispatch maps to uncertainty. Only the separate opaque
+   settlement capability may publish a result or terminal lifecycle after the
+   host and drains resolve.
+4. The runner rejects runtime-host, compatibility-date, host-policy, request,
+   manifest, source-root, and runtime-target disagreement before returning a
+   value. Argument and result ceilings remain the Application Worker protocol's
+   existing bounded decoders; this checkpoint does not add a wider codec.
+
+Self-review accepts this preflight because the split follows existing package
+authority and keeps the lifecycle/effect owner single. It introduces no
+service, route, active-head reread, legacy fallback, comparison execution, or
+terminal settlement path. Stop and amend before implementation if the backend
+must import Standard invocation, the bundle needs candidate-bound evidence, a
+result can escape before close-and-drain, or any query, mutation OCC/commit,
+Task System, route, schedule, or production owner must change. Checkpoint 4c
+remains the exclusive Standard service cut and private connected proof.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
