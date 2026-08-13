@@ -2929,21 +2929,27 @@ checkpoints:
    run-creation request, receipt and creation-authority contracts carrying only
    the Application runtime-target identity plus the admitted active-head and
    readiness pins. This checkpoint changes no lifecycle decision, SQL or run.
-3. **5b1b.i — reference-aware lifecycle contracts and exact adapters.** Build
-   the identity-bearing aggregate, state, grant and requested-effect schema
-   nodes from one definition-reference factory. Keep the shipped Legacy V1
-   codecs exact and add distinct exact Application projections plus explicit
-   adapters to and from the current in-memory definition-reference union.
-   Unknown, mixed or structurally substituted identity is rejected; there is
-   no lifecycle decision, SQL or run in this checkpoint.
-4. **5b1b.ii — one reference-aware lifecycle core.** Move identity transport
+3. **5b1b.i.a — reference-aware state, grant and effect contracts.** Build the
+   identity-bearing state, attempt-grant and dispatch-effect schema nodes from
+   one definition-reference factory. Keep the shipped Legacy V1 codecs exact
+   and add distinct exact Application projections plus explicit adapters to and
+   from the current in-memory definition-reference union. Unknown, mixed or
+   structurally substituted identity is rejected; there is no aggregate,
+   lifecycle decision, SQL or run in this checkpoint.
+4. **5b1b.i.b — reference-aware aggregate and receipt contracts.** Apply the
+   same identity-schema factory to aggregate, accepted-receipt, evidence and
+   completion-replay projections. Keep the Legacy aggregate codec exact and
+   add the distinct Application aggregate adapter with full nested identity
+   correlation. This checkpoint still changes no lifecycle decision, SQL or
+   run.
+5. **5b1b.ii — one reference-aware lifecycle core.** Move identity transport
    in the pure transition implementation to the current definition-reference
    union and make the Legacy and Application adapters invoke that one core.
    Both generations execute the same retry, cancellation, requested-effect
    ordering, fence and receipt decisions; no structural fallback or synthetic
    Legacy definition ID is allowed. This checkpoint changes no SQL and creates
    no run.
-5. **5b2 — durable-run persistence and Application creation generation.**
+6. **5b2 — durable-run persistence and Application creation generation.**
    Evolve the shared run/dispatch rows with an exact discriminator and mutually
    exclusive Legacy-definition/Application-runtime-target columns; existing rows
    migrate to the Legacy branch. Add a distinct Application run-creation
@@ -2953,7 +2959,7 @@ checkpoints:
    head validation. Queue ownership and wake scheduling remain shared. Until 5d,
    due-run and compute discovery must explicitly exclude Application rows even
    though focused private tests may create and directly read them.
-6. **5c — generation-aware immutable compute preparation.** Make the existing
+7. **5c — generation-aware immutable compute preparation.** Make the existing
    compute repository decode the run reference exhaustively. The Legacy branch
    keeps its current definition lookup and commitment. The Application branch
    loads and recanonicalizes only the stored Application execution binding and
@@ -2965,7 +2971,7 @@ checkpoints:
    never fallback. Application compute evidence remains directly testable, but
    ordinary discovery continues to exclude it until the 5d launch and consumer
    cut is committed.
-7. **5d — Application task Worker, launch cut, and private Task System service.**
+8. **5d — Application task Worker, launch cut, and private Task System service.**
    Add one bounded Application task Worker request/result contract and host
    definition that loads the authority-pinned Source Artifact V2 bundle, resolves
    the exact task handler, validates payload/output with the canonical task
@@ -3001,9 +3007,11 @@ reader.
 
 Checkpoint 5b1a must prove exact Legacy codec preservation, unknown/mixed
 reference rejection and Application request/receipt/creation-authority round
-trips. Checkpoint 5b1b.i must prove Application aggregate/state/grant/effect
-round trips, exact Legacy codec preservation, one shared identity-schema
-factory, explicit adapter round trips and unknown/mixed identity rejection.
+trips. Checkpoint 5b1b.i.a must prove Application state/grant/effect round
+trips, exact Legacy codec preservation, one shared identity-schema factory,
+explicit adapter round trips and unknown/mixed identity rejection. Checkpoint
+5b1b.i.b must prove Application aggregate/receipt/evidence/replay round trips,
+full nested identity correlation and exact Legacy aggregate preservation.
 Checkpoint 5b1b.ii must prove both identity branches traversing the same
 decisions, unchanged retry, cancellation and lifecycle receipts, and no
 synthetic Legacy identity.
@@ -3024,7 +3032,8 @@ explicit compatibility boundary while the durable lifecycle remains single.
 It is larger than the earlier sentence but materially simpler than hiding four
 persisted contracts behind a structural adapter. Stop and amend before
 implementation if 5a needs the candidate-bound runtime-object store, 5b1a
-widens a shipped V1 codec, 5b1b.i cannot preserve the Legacy codecs exactly,
+widens a shipped V1 codec, 5b1b.i.a or 5b1b.i.b cannot preserve the Legacy
+codecs exactly,
 5b1b.ii needs a second lifecycle state machine, 5b2
 requires a second run table, 5c changes dispatch fencing or
 uncertainty semantics, 5d cannot execute from Source Artifact V2 without
