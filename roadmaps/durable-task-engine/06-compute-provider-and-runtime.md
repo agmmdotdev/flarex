@@ -554,10 +554,14 @@ a direct extension of the current invocation host:
    module-graph, Worker Loader, cache, and isolation seams; and
 5. evolve the launch authority exhaustively for retained Legacy and Application
    prepared evidence without invoking Worker Loader;
-6. add a true private start-session acknowledgement and interruption surface,
-   because the first Application task host awaits terminal execution and cannot
-   serve as provider acceptance; and
-7. compose a real Cloudflare provider only in a private Miniflare/system-test
+6. first add the missing retained Legacy terminal Worker definition/host from
+   the verified Legacy launch subject; the existing task host consumes only
+   Application Source Artifact V2 and cannot execute retained runtime objects;
+7. add a true shared private start-session acknowledgement and interruption
+   surface, because the first Application task host awaits terminal execution
+   and cannot serve as provider acceptance; and
+8. compose one exhaustive real Cloudflare provider only in a private
+   Miniflare/system-test
    owner, proving cold/warm identity, egress denial, cancellation generations,
    cleanup, bundle safety, and no `/invoke` or action/query/mutation fallback.
 

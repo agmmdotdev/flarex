@@ -409,13 +409,29 @@ No real provider composition is admitted in D2.
   provider call; and
 - prove no cross-generation evidence lookup or Legacy fallback.
 
-### DTE06-D3b: Start Session And Worker Loader Provider Adapter
+### DTE06-D3b.i: Retained Legacy Terminal Worker Proof
+
+- build the missing Legacy task Worker definition/host from the verified D3a
+  binding and runtime objects;
+- execute only the declared durable-task entry with the exact input capability;
+- preserve outbound denial, compute policy, runtime isolation and terminal local
+  evidence without a provider call; and
+- prove no conversion to Application source/target authority.
+
+### DTE06-D3b.ii: Shared Start Session
+
+- evolve both genuine task Worker definitions from terminal `run` into one exact
+  start acknowledgement and cancellable process-local session;
+- preserve dispatch/execution identity, monotonic cancellation generation,
+  terminal-result separation and honest lost-session behavior; and
+- add no provider, discovery or Task lifecycle write.
+
+### DTE06-D3b.iii: Worker Loader Provider Adapter
 
 - compose launch authority, existing materializer/module graph, Worker Loader,
   and the private task RPC;
-- replace the D2 terminal execution proof at this boundary with a distinct
-  start acknowledgement and cancellable execution session; the current
-  terminal `run` result is not provider acceptance;
+- consume the shared D3b.ii start-session host; terminal `run` results are not
+  provider acceptance;
 - implement the real Cloudflare `TaskComputeProvider` adapter without changing
   the provider-neutral interface;
 - preserve exact dispatch acceptance and generation-correlated cancellation;
@@ -434,6 +450,15 @@ therefore owns a separate private start-session ABI before it owns the provider.
 The session may be process-local while DTE06-D remains inert, but it must report
 lost execution honestly and cannot become lifecycle, heartbeat, completion or
 result authority.
+
+The D3b implementation challenge also found that the retained Legacy branch has
+no committed Worker definition/host. D3a proves and owns the Legacy runtime
+objects, but the existing task Worker consumes only Application Source Artifact
+V2. D3b.i must establish the genuine Legacy terminal execution boundary first;
+D3b.ii may then add one shared session contract to both real generations; and
+D3b.iii may finally compose the single provider. Manufacturing an Application
+source bundle from Legacy objects, dropping Legacy dispatches, or maintaining a
+generation-specific fallback provider is forbidden.
 
 #### DTE06-D3a implementation receipt
 

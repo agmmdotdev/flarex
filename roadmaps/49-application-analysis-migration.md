@@ -2987,16 +2987,25 @@ checkpoints:
    manufacturing a Legacy definition, package, artifact or semantic-root
    identity. The result is one owned discriminated launch subject and no Worker
    or provider call.
-10. **5d2b — start-session ABI and real provider adapter.** Evolve the private
-   task Worker boundary from 5d1's terminal `run` proof into a distinct accepted
-   start session with an exact execution identity and generation-correlated
-   interruption method. Compose the 5d2a launch authority, 5d1 definition/host
-   mechanics and the unchanged provider-neutral request/acceptance contracts in
-   one private real `TaskComputeProvider` adapter. The provider returns only
-   after start acceptance, never after task completion. No lifecycle completion,
+10. **5d2b.i — retained Legacy terminal Worker proof.** Build the missing
+   Legacy task Worker definition/host from the verified 5d2a runtime objects and
+   immutable binding. It must execute only the declared durable-task entry with
+   the exact input capability and preserve the same restricted runtime policy as
+   the Application Worker. It returns only terminal local evidence and does not
+   call a provider.
+11. **5d2b.ii — shared start-session ABI and host.** Evolve both private task
+   Worker boundaries from terminal `run` proofs into one exact accepted start
+   session with an execution identity and generation-correlated interruption
+   method. The host keeps terminal result/failure as process-local evidence and
+   reports a lost session honestly. It adds no provider or lifecycle write.
+12. **5d2b.iii — real provider adapter.** Compose the exhaustive 5d2a launch
+   authority, both generation-specific Worker definitions, the shared session
+   host and the unchanged provider-neutral request/acceptance contracts in one
+   private real `TaskComputeProvider` adapter. The provider returns only after
+   start acceptance, never after task completion. No lifecycle completion,
    heartbeat, result publication or Task System cancellation acknowledgement is
    added.
-11. **5d3 — private Application Task System and exclusive consumer cut.** Add
+13. **5d3 — private Application Task System and exclusive consumer cut.** Add
    the unversioned private `ApplicationTaskSystem` composition for active task
    selection and Application run creation. Enable Application rows in ordinary
    compute discovery only when the 5d2b adapter is the connected provider, and cut
@@ -3361,6 +3370,20 @@ durable attempt truth and an unknown/lost execution cannot be reported as
 cancelled. Heartbeat, completion, result publication, retry, lease renewal and
 Task System cancellation acknowledgement remain DTE06-E ownership.
 
+The subsequent executable-owner check found a second missing prerequisite.
+`TaskRuntimeLaunchAuthority` retains and verifies Legacy binding/runtime-object
+evidence, but no committed backend owner turns those objects into a Worker
+definition or terminal task execution. The only existing task definition/host
+consumes Application Source Artifact V2. A single real provider cannot therefore
+be implemented by composing "existing" mechanics without either silently
+dropping retained Legacy runs or manufacturing an Application source bundle.
+Checkpoint 5d2b is consequently split into three medium changes: 5d2b.i adds the
+retained Legacy terminal Worker proof; 5d2b.ii introduces the shared exact start
+session across both genuine Worker definitions; 5d2b.iii alone installs the
+unchanged `TaskComputeProvider` adapter. No checkpoint may translate Legacy
+runtime objects into Application authority or route Application through the
+Legacy definition.
+
 The accepted 5d3 composition owns `select` and `createRun` through the existing
 issuer-backed Application selection and Application run-creation store. It does
 not expose Drizzle, physical locators, activation mutation or a Legacy selector.
@@ -3373,11 +3396,12 @@ one accepted fresh Worker launch. AA-R7 remains the genuine PostgreSQL and
 combined private vertical gate.
 
 Self-review accepts the corrected split because 5d1 terminates at a strict
-terminal Worker proof, 5d2a at the exhaustive launch subject, 5d2b at the true
-start-session-backed unchanged provider contract, and 5d3 at the private Task
-System and discovery composition. Each is a medium independently reviewable
-change, while the final behavior remains one linear path. It rejects wrapping
-the terminal 5d1 call in an eagerly forked Effect and immediately returning an
+Application terminal Worker proof, 5d2a at the exhaustive launch subject,
+5d2b.i at the retained Legacy terminal Worker proof, 5d2b.ii at the shared true
+start session, 5d2b.iii at the unchanged provider contract, and 5d3 at the
+private Task System and discovery composition. Each is a medium independently
+reviewable change, while the final behavior remains one linear path. It rejects
+wrapping the terminal 5d1 call in an eagerly forked Effect and immediately returning an
 acceptance: that would not prove Worker start, would not expose correlated
 interruption, and would leak terminal failure outside provider uncertainty
 ownership. Stop and amend if 5d1 requires an action/query/mutation host or a new
