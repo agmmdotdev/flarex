@@ -37,6 +37,8 @@ const persistencePostgresTaskLifecycleLedgerCorrelationPath =
   "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts";
 const persistencePostgresTaskRunCreationPath =
   "packages/persistence-postgres/src/taskSystemRunCreationV1.ts";
+const persistencePostgresApplicationTaskRunCreationPath =
+  "packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts";
 const persistencePostgresTaskSystemRunRowPath =
   "packages/persistence-postgres/src/taskSystemRunRowV1.ts";
 const persistencePostgresTaskSystemRequestedEffectRowPath =
@@ -108,10 +110,12 @@ const admittedPersistenceDurableTaskSymbolsBySpecifier = new Map([
     "TaskRunAttemptPersistenceProjectionV1",
     "TaskRunIdV1",
     "TaskRunVersionV1",
+    "ApplicationTaskRunAttemptPersistenceProjectionV1",
   ])],
   ["@flarex/durable-task/internal/run-creation-v1", new Set([
     "MAX_TASK_INPUT_CANONICAL_BYTES_V1",
     "TaskInputSha256V1",
+    "ApplicationTaskRuntimeTargetSha256V1",
     "TaskRunCreationAuthoritySha256V1",
     "TaskRunCreationRequestKeySha256V1",
     "TaskRunCreationRequestSha256V1",
@@ -188,6 +192,7 @@ const admittedPersistenceTaskComputeDeliveryDiscoverySymbols = new Set([
   "TaskRunIdV1Schema",
   "TaskRequestedEffectSequenceV1",
   "TaskRunIdV1",
+  "TaskRunVersionV1",
   "decodeTaskRequestedEffectSequenceV1",
 ]);
 const admittedFlarexBackendTaskComputeDeliveryCandidateRunnerSymbols =
@@ -212,10 +217,22 @@ const admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier = new Map([
   ])],
 ]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
+  "ApplicationPersistedTaskRequestedEffectV1",
+  "ApplicationTaskRunAttemptAggregateV1",
+  "ApplicationTaskRunAttemptDecisionV1",
+  "ApplicationTaskSystemRunAttemptDecisionInputV1",
+  "ApplicationTaskSystemRunAttemptInspectionSnapshotV1",
+  "ApplicationTaskSystemRunAttemptStoreShape",
+  "ApplicationTaskSystemRunAttemptTransactionReceiptV1",
+  "ApplicationTaskSystemRunAttemptTransactionV1",
+  "CurrentTaskRunAttemptAggregate",
+  "CurrentTaskRunAttemptDecision",
   "InvalidRunAttemptTransitionError",
   "PersistedTaskRequestedEffectV1",
   "RunAttemptDecisionErrorV1",
+  "RunAttemptDecisionFor",
   "RunAttemptOperationV1",
+  "RunAttemptServiceReceiptFor",
   "StaleTaskRunVersionError",
   "TaskAttemptGrantCandidateV1",
   "TaskAttemptIdV1",
@@ -227,6 +244,7 @@ const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "TaskRunAttemptCounterExhaustedError",
   "TaskRunAttemptDecisionV1",
   "TaskRunIdV1",
+  "TaskRunVersionV1",
   "TaskSystemRunAttemptCorruptionError",
   "TaskSystemRunAttemptInspectionSnapshotV1",
   "TaskSystemRunAttemptStaleScopeAuthorityError",
@@ -239,22 +257,36 @@ const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "TaskSystemRunAttemptTransientStoreError",
   "TaskSystemRunAttemptUnavailableError",
   "decodePersistedTaskRequestedEffectJsonV1",
+  "decodeApplicationTaskRunAttemptAggregateJsonV1",
   "decodePersistedTaskRunAttemptAggregateJsonV1",
   "decodeTaskAttemptIdV1",
   "decodeTaskAttemptNumberV1",
   "decodeTaskDatabaseTimeMsV1",
   "decodeTaskExecutionFenceV1",
   "encodePersistedTaskRequestedEffectJsonV1",
+  "encodeApplicationPersistedTaskRequestedEffectJsonV1",
+  "encodeApplicationTaskRunAttemptAggregateJsonV1",
   "encodePersistedTaskRunAttemptAggregateJsonV1",
   "projectTaskRunAttemptPersistenceV1",
+  "fromCurrentTaskRunAttemptAggregate",
+  "projectApplicationTaskRunAttemptPersistenceV1",
+  "toCurrentApplicationTaskRunAttemptDecision",
+  "toCurrentLegacyTaskRunAttemptDecision",
+  "toCurrentTaskRunAttemptAggregate",
 ]);
 const admittedPersistenceTaskLifecycleLedgerCorrelationSymbols = new Set([
+  "ApplicationTaskRunAttemptAggregateV1",
+  "CurrentPersistedTaskRequestedEffect",
+  "CurrentTaskRunAttemptAggregate",
+  "PersistedTaskRunAttemptAggregate",
   "PersistedTaskRequestedEffectV1",
   "TaskAttemptIdV1",
   "TaskAttemptNumberV1",
   "TaskExecutionFenceV1",
   "TaskRunAttemptAggregateV1",
   "TaskRunIdV1",
+  "toCurrentTaskRequestedEffect",
+  "toCurrentTaskRunAttemptAggregate",
 ]);
 const admittedPersistenceTaskRunCreationSymbolsBySpecifier = new Map([
   ["@flarex/durable-task/internal/run-creation-v1", new Set([
@@ -285,18 +317,54 @@ const admittedPersistenceTaskRunCreationSymbolsBySpecifier = new Map([
   ])],
 ]);
 const admittedPersistenceTaskSystemRunRowSymbols = new Set([
+  "ApplicationTaskRunAttemptAggregateV1",
   "TaskPersistenceCodecErrorV1",
   "TaskRunAttemptAggregateV1",
   "TaskSystemRunAttemptCorruptionError",
   "decodePersistedTaskRunAttemptAggregateJsonV1",
+  "decodeApplicationTaskRunAttemptAggregateJsonV1",
   "encodePersistedTaskRunAttemptAggregateJsonV1",
+  "encodeApplicationTaskRunAttemptAggregateJsonV1",
+  "projectApplicationTaskRunAttemptPersistenceV1",
   "projectTaskRunAttemptPersistenceV1",
 ]);
 const admittedPersistenceTaskSystemRequestedEffectRowSymbols = new Set([
+  "ApplicationPersistedTaskRequestedEffectV1",
   "PersistedTaskRequestedEffectV1",
   "decodePersistedTaskRequestedEffectJsonV1",
+  "decodeApplicationPersistedTaskRequestedEffectJsonV1",
   "encodePersistedTaskRequestedEffectJsonV1",
+  "encodeApplicationPersistedTaskRequestedEffectJsonV1",
 ]);
+const admittedPersistenceApplicationTaskRunCreationSymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/run-creation-v1", new Set([
+      "InvalidTaskRunInitialAggregateError",
+      "ApplicationTaskRunCreationReceiptV1",
+      "ApplicationTaskRunCreationRequestV1",
+      "ApplicationTaskRuntimeTargetSha256V1",
+      "TaskInputSha256V1",
+      "TaskRunCreationAuthoritySha256V1",
+      "TaskRunCreationIdempotencyConflictError",
+      "TaskRunCreationRequestKeySha256V1",
+      "TaskRunCreationRequestSha256V1",
+      "decodeApplicationTaskRunCreationReceiptV1",
+      "decodeApplicationTaskRunCreationRequestV1",
+      "encodeApplicationTaskRunCreationRequestPreimageV1",
+      "encodeTaskRunCreationRequestKeyPreimageV1",
+      "makeApplicationTaskRunCreationInitialAggregateV1",
+    ])],
+    ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+      "TaskDatabaseTimeMsV1",
+      "TaskDurationMsV1",
+      "TaskRunIdV1",
+      "decodeTaskDatabaseTimeMsV1",
+      "decodeTaskDurationMsV1",
+      "decodeTaskRunIdV1",
+      "encodeApplicationTaskRunAttemptAggregateJsonV1",
+      "projectApplicationTaskRunAttemptPersistenceV1",
+    ])],
+  ]);
 const admittedPersistenceTaskSystemRunReadSymbolsBySpecifier = new Map([
   ["@flarex/durable-task/internal/run-read-v1", new Set([
     "InvalidTaskSystemRunReadRequestError",
@@ -1386,6 +1454,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskLifecycleLedgerCorrelationSymbols
     : relativePath === persistencePostgresTaskRunCreationPath
       ? admittedPersistenceTaskRunCreationSymbolsBySpecifier.get(specifier)
+    : relativePath === persistencePostgresApplicationTaskRunCreationPath
+      ? admittedPersistenceApplicationTaskRunCreationSymbolsBySpecifier.get(
+        specifier,
+      )
     : relativePath === persistencePostgresTaskSystemRunRowPath
       && specifier === "@flarex/durable-task/internal/run-attempt-v1"
     ? admittedPersistenceTaskSystemRunRowSymbols

@@ -1081,7 +1081,7 @@ function makePersistedTaskRequestedEffectSchema<
     effect: makeTaskRequestedEffectSchema(identityFields),
   }).annotate(STRICT_STRUCT_OPTIONS);
 }
-const ApplicationPersistedTaskRequestedEffectV1Schema =
+export const ApplicationPersistedTaskRequestedEffectV1Schema =
   makePersistedTaskRequestedEffectSchema(ApplicationDefinitionIdentityFieldsV1);
 
 const TaskRunAttemptEvidenceBaseFieldsV1 = {

@@ -265,6 +265,7 @@ async function discoverDueRunsOnce(
       );
   const query = tx.select().from(fxSystemDurableTaskRunsV1).where(and(
     eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
+    eq(fxSystemDurableTaskRunsV1.definitionGeneration, "legacy_definition_v1"),
     eq(fxSystemDurableTaskRunsV1.dueKind, request.dueKind),
     lte(fxSystemDurableTaskRunsV1.dueAtMs, BigInt(throughMs)),
     cursorPredicate,
@@ -274,14 +275,24 @@ async function discoverDueRunsOnce(
   ).limit(request.pageSize + 1);
   observeDrizzleQuery("discoverDueRuns", query, observer);
   const rows = await query;
-  const decoded = rows.map(row => Result.getOrThrowWith(
-    decodeAndCorrelateTaskSystemRunRowV1(row),
-    () => readRollback(corruption(
+  const decoded = rows.map(row => {
+    const decodedRow = Result.getOrThrowWith(
+      decodeAndCorrelateTaskSystemRunRowV1(row),
+      () => readRollback(corruption(
       "discover_due_runs",
       row.runId,
       "run_row_invalid",
-    )),
-  ));
+      )),
+    );
+    if (decodedRow.generation !== "legacy_definition_v1") {
+      throw readRollback(corruption(
+        "discover_due_runs",
+        row.runId,
+        "run_row_invalid",
+      ));
+    }
+    return decodedRow.aggregate;
+  });
   const pageRows = rows.slice(0, request.pageSize);
   const candidates = decoded.slice(0, request.pageSize).map(
     aggregate => dueCandidate(request.dueKind, aggregate),
@@ -337,7 +348,7 @@ async function readRequestedEffectsOnce(
       reason: "unavailable",
     }));
   }
-  Result.getOrThrowWith(
+  const decodedRun = Result.getOrThrowWith(
     decodeAndCorrelateTaskSystemRunRowV1(runRow),
     () => readRollback(corruption(
       "read_requested_effects",
@@ -345,6 +356,13 @@ async function readRequestedEffectsOnce(
       "run_row_invalid",
     )),
   );
+  if (decodedRun.generation !== "legacy_definition_v1") {
+    throw readRollback(corruption(
+      "read_requested_effects",
+      request.runId,
+      "run_row_invalid",
+    ));
+  }
   const throughSequence = request.cursor?.throughSequence
     ?? runRow.requestedEffectSequence;
   const afterSequence = request.cursor?.afterSequence ?? 0n;

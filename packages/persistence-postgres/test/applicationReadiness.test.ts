@@ -2,6 +2,16 @@ import { webcrypto } from "node:crypto";
 import { eq } from "drizzle-orm";
 
 import {
+  decodeApplicationTaskRunCreationRequestV1,
+  makeTaskInputReferenceV1,
+} from "@flarex/durable-task/internal/run-creation-v1";
+import {
+  decideApplicationStartAttemptV1,
+  decodeTaskDurationMsV1,
+  decodeTaskRetryJitterV1,
+  decodeTaskRunVersionV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
@@ -154,6 +164,13 @@ import {
   selectApplicationTask,
   validateApplicationTaskSelection,
 } from "../src/applicationTaskSelection";
+import { makeApplicationTaskSystemRunCreationStore } from
+  "../src/applicationTaskSystemRunCreation";
+import {
+  createLocatedTaskSystemRunAttemptTargetV1,
+  makeApplicationTaskSystemRunAttemptStoreV1,
+} from
+  "../src/taskSystemRunAttemptStoreV1";
 import {
   createPGliteLocatedSplitScopeClockTarget,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
@@ -191,7 +208,7 @@ import { createAppDeveloperIndexDefinitionPortV1 } from
   "../src/appDeveloperIndexCommitV1";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import { lockScopeClockForShareInTransactionEffect } from
@@ -757,6 +774,242 @@ describe("Application activation", { timeout: 30_000 }, () => {
     if (Result.isFailure(stale)) {
       expect(stale.failure).toMatchObject({ reason: "concurrentHead" });
     }
+  });
+
+  it("creates and replays one Application task run from the authentic selection", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const selected = await runEffect(selectApplicationTask(
+      active.selection,
+      "tasks.users.get",
+      {
+        deploymentId: fixture.input.deploymentId,
+        runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+        compatibilityDate: COMPATIBILITY_DATE,
+        authority: fixture.authorityPorts,
+      },
+    ));
+    const located = Object.freeze({
+      authority: active.basis.authority,
+      target: createLocatedTaskSystemRunAttemptTargetV1(
+        fixture.target.drizzle,
+        active.basis.authority.physicalLocator,
+      ),
+    });
+    const mutableCreationOptions = {
+      sha256: taskSha256,
+      leaseDurationMs: Result.getOrThrow(decodeTaskDurationMsV1(30_000)),
+      immediateRetryThresholdMs: Result.getOrThrow(decodeTaskDurationMsV1(5_000)),
+      randomUuid: uuidSequence(90),
+    };
+    const store = makeApplicationTaskSystemRunCreationStore(
+      located,
+      mutableCreationOptions,
+    );
+    const request = Result.getOrThrow(decodeApplicationTaskRunCreationRequestV1({
+      version: 1,
+      requestKey: "application-task-run-1",
+      applicationTaskRuntimeTargetSha256: selected.metadata.runtimeTargetSha256,
+      input: Result.getOrThrow(makeTaskInputReferenceV1(
+        new Uint8Array(32).fill(0x71),
+        19,
+      )),
+    }));
+    const foreignLocator = Object.freeze({
+      ...active.basis.authority.physicalLocator,
+      databaseKey: `${active.basis.authority.physicalLocator.databaseKey}:foreign`,
+    });
+    const foreignStore = makeApplicationTaskSystemRunCreationStore({
+      authority: Object.freeze({
+        ...active.basis.authority,
+        physicalLocator: foreignLocator,
+      }),
+      target: createLocatedTaskSystemRunAttemptTargetV1(
+        fixture.target.drizzle,
+        foreignLocator,
+      ),
+    }, {
+      sha256: taskSha256,
+      leaseDurationMs: Result.getOrThrow(decodeTaskDurationMsV1(30_000)),
+      immediateRetryThresholdMs: Result.getOrThrow(
+        decodeTaskDurationMsV1(5_000),
+      ),
+      randomUuid: uuidSequence(89),
+    });
+    const foreignResult = await runEffect(Effect.result(
+      foreignStore.createRun(selected.selection, request),
+    ));
+    expect(Result.isFailure(foreignResult)).toBe(true);
+    if (Result.isFailure(foreignResult)) {
+      expect(foreignResult.failure).toMatchObject({
+        operation: "create_run",
+        reason: "request_authority_mismatch",
+      });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_durable_task_run_v1",
+    )).toBe(0);
+    const created = await runEffect(store.createRun(selected.selection, request));
+    mutableCreationOptions.sha256 = () => Effect.succeed(
+      new Uint8Array(32).fill(0xdd),
+    );
+    expect(await runEffect(store.createRun(selected.selection, request)))
+      .toEqual(created);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_durable_task_run_v1",
+    )).toBe(1);
+    const foreignReplay = await runEffect(Effect.result(
+      foreignStore.createRun(selected.selection, request),
+    ));
+    expect(Result.isFailure(foreignReplay)).toBe(true);
+    if (Result.isFailure(foreignReplay)) {
+      expect(foreignReplay.failure).toMatchObject({
+        operation: "create_run",
+        reason: "request_authority_mismatch",
+      });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_durable_task_run_v1",
+    )).toBe(1);
+    const nextRevisionId = await createAdditionalApplicationRevision(fixture, true);
+    expect(await runEffect(fixture.repository.settle({
+      deploymentId: fixture.input.deploymentId,
+      revisionId: nextRevisionId,
+    }))).toMatchObject({ status: "ready" });
+    await runEffect(activation.activate({
+      revisionId: nextRevisionId,
+      expectedActiveHead: active.expectedActiveHead,
+    }));
+    const replayed = await runEffect(store.createRun(selected.selection, request));
+    expect(replayed).toEqual(created);
+    const staleNewRequest = Result.getOrThrow(
+      decodeApplicationTaskRunCreationRequestV1({
+        ...request,
+        requestKey: "application-task-run-stale-new",
+      }),
+    );
+    const staleResult = await runEffect(Effect.result(
+      store.createRun(selected.selection, staleNewRequest),
+    ));
+    expect(Result.isFailure(staleResult)).toBe(true);
+    if (Result.isFailure(staleResult)) {
+      expect(staleResult.failure).toMatchObject({
+        operation: "validateSelection",
+        reason: "concurrentHead",
+      });
+    }
+    const conflictingRequest = Result.getOrThrow(
+      decodeApplicationTaskRunCreationRequestV1({
+        ...request,
+        input: Result.getOrThrow(makeTaskInputReferenceV1(
+          new Uint8Array(32).fill(0x72),
+          19,
+        )),
+      }),
+    );
+    const conflict = await runEffect(Effect.result(
+      store.createRun(selected.selection, conflictingRequest),
+    ));
+    expect(Result.isFailure(conflict)).toBe(true);
+    if (Result.isFailure(conflict)) {
+      expect(conflict.failure).toMatchObject({
+        _tag: "TaskRunCreationIdempotencyConflictError",
+        reason: "request_digest_mismatch",
+      });
+    }
+    const lifecycleStore = makeApplicationTaskSystemRunAttemptStoreV1(located, {
+      randomUuid: uuidSequence(91),
+    });
+    const startCommand = Object.freeze({
+      type: "start_attempt" as const,
+      runId: created.runId,
+      expectedRunVersion: Result.getOrThrow(decodeTaskRunVersionV1("1")),
+      retryJitter: Result.getOrThrow(decodeTaskRetryJitterV1(0.5)),
+    });
+    const started = await runEffect(lifecycleStore.transactRunAttempt({
+      operation: "start_attempt",
+      runId: created.runId,
+      decide: input => decideApplicationStartAttemptV1(startCommand, input),
+    }));
+    const startReplay = await runEffect(lifecycleStore.transactRunAttempt({
+      operation: "start_attempt",
+      runId: created.runId,
+      decide: input => decideApplicationStartAttemptV1(startCommand, input),
+    }));
+    expect(started).toMatchObject({
+      disposition: "accepted",
+      runVersion: 2n,
+      outcome: { kind: "attempt_granted" },
+    });
+    expect(startReplay).toEqual({ ...started, disposition: "idempotent" });
+    expect((await runEffect(lifecycleStore.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: created.runId,
+    }))).current).toMatchObject({
+      runVersion: 2n,
+      phase: "attempt_granted",
+      applicationTaskRuntimeTargetSha256:
+        selected.metadata.runtimeTargetSha256,
+    });
+    const rows = await fixture.target.query<{
+      definition_generation: string;
+      task_definition_revision_id: string | null;
+      application_task_runtime_target_sha256: Uint8Array;
+    }>(`select definition_generation, task_definition_revision_id,
+              application_task_runtime_target_sha256
+         from fx_system_durable_task_run_v1
+        where run_id = $1`, [created.runId]);
+    expect(rows.rows[0]).toMatchObject({
+      definition_generation: "application_v1",
+      task_definition_revision_id: null,
+    });
+    expect(Array.from(rows.rows[0]!.application_task_runtime_target_sha256))
+      .toEqual(Array.from(selected.metadata.runtimeTargetSha256));
+    const storedAggregate = await fixture.target.query<{
+      aggregate_json: unknown;
+      aggregate_byte_length: string;
+    }>(`select aggregate_json, aggregate_byte_length::text
+          from fx_system_durable_task_run_v1 where run_id = $1`, [created.runId]);
+    await fixture.target.query(`
+      update fx_system_durable_task_run_v1
+      set aggregate_json = '{}'::jsonb, aggregate_byte_length = 2
+      where run_id = $1
+    `, [created.runId]);
+    await expect(runEffectFailure(lifecycleStore.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: created.runId,
+    }))).resolves.toMatchObject({ reason: "aggregate_invalid" });
+    await fixture.target.query(`
+      update fx_system_durable_task_run_v1
+      set aggregate_json = $2::jsonb, aggregate_byte_length = $3
+      where run_id = $1
+    `, [
+      created.runId,
+      JSON.stringify(storedAggregate.rows[0]!.aggregate_json),
+      storedAggregate.rows[0]!.aggregate_byte_length,
+    ]);
+    await fixture.target.query(`
+      update fx_system_durable_task_requested_effect_v1
+      set payload_json = '{}'::jsonb, payload_byte_length = 2
+      where run_id = $1 and sequence = 1
+    `, [created.runId]);
+    await expect(runEffectFailure(lifecycleStore.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: created.runId,
+    }))).resolves.toMatchObject({ reason: "effect_sequence_invalid" });
   });
 
   it("rejects a missing or corrupted stored Application task", async () => {
@@ -3143,6 +3396,7 @@ async function createApplicationRevision(
 
 async function createAdditionalApplicationRevision(
   fixture: Awaited<ReturnType<typeof readinessFixture>>,
+  includeTask = false,
 ): Promise<string> {
   const manifest = applicationManifest(true, false);
   const analysis = await createApplicationRevision(
@@ -3166,7 +3420,7 @@ async function createAdditionalApplicationRevision(
   );
   const catalog = await runEffect(hashCanonicalTaskCatalogV1({
     version: 1,
-    tasks: [],
+    tasks: includeTask ? [taskManifest()] : [],
   }, taskSha256));
   const bindings = await runEffect(produceApplicationTaskBindingsV1({
     definition: preparedDefinition(),

@@ -128,3 +128,15 @@ export interface TaskRunCreationInitialAggregateInputV1 {
   readonly leaseDurationMs: TaskDurationMsV1;
   readonly immediateRetryThresholdMs: TaskDurationMsV1;
 }
+
+export interface ApplicationTaskRunCreationInitialAggregateInputV1 {
+  readonly runId: TaskRunIdV1;
+  readonly applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1;
+  readonly createdAtMs: TaskDatabaseTimeMsV1;
+  readonly runAttemptPolicy: RunAttemptPolicyV1;
+  readonly maximumDurationMs: TaskDurationMsV1;
+  readonly initialComputeProfile: TaskComputeProfileRefV1;
+  readonly leaseDurationMs: TaskDurationMsV1;
+  readonly immediateRetryThresholdMs: TaskDurationMsV1;
+}

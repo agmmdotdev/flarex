@@ -804,8 +804,12 @@ function pendingDiscoveryBranch(
         pending.run_id,
         pending.requested_effect_sequence
       from fx_system_durable_task_compute_pending_v1 as pending
+      join fx_system_durable_task_run_v1 as run
+        on run.scope_id = pending.scope_id
+        and run.run_id = pending.run_id
       ${pageHighWaterJoin(input.last)}
       where pending.scope_id = ${input.scopeId}
+        and run.definition_generation = 'legacy_definition_v1'
         and pending.kind = ${input.requestedKind}
         and ${eligibleAt} <= ${input.timeBound}
         and ${branchPositionPredicate(identity, input.highWater, input.last)}
@@ -834,8 +838,12 @@ function checkpointInitialDiscoveryBranch(
         checkpoint.run_id,
         checkpoint.requested_effect_sequence
       from ${input.checkpointTable} as checkpoint
+      join fx_system_durable_task_run_v1 as run
+        on run.scope_id = checkpoint.scope_id
+        and run.run_id = checkpoint.run_id
       ${pageHighWaterJoin(input.last)}
       where checkpoint.scope_id = ${input.scopeId}
+        and run.definition_generation = 'legacy_definition_v1'
         and checkpoint.delivery_state = ${input.state}
         and checkpoint.claim_owner is null
         and checkpoint.next_attempt_at is null
@@ -863,8 +871,12 @@ function checkpointRetryDiscoveryBranch(input: DiscoveryBranchInput): SQL {
         checkpoint.run_id,
         checkpoint.requested_effect_sequence
       from ${input.checkpointTable} as checkpoint
+      join fx_system_durable_task_run_v1 as run
+        on run.scope_id = checkpoint.scope_id
+        and run.run_id = checkpoint.run_id
       ${pageHighWaterJoin(input.last)}
       where checkpoint.scope_id = ${input.scopeId}
+        and run.definition_generation = 'legacy_definition_v1'
         and checkpoint.delivery_state = 'retry_wait'
         and checkpoint.claim_owner is null
         and checkpoint.next_attempt_at <= ${input.timeBound}
@@ -892,8 +904,12 @@ function checkpointClaimDiscoveryBranch(input: DiscoveryBranchInput): SQL {
         checkpoint.run_id,
         checkpoint.requested_effect_sequence
       from ${input.checkpointTable} as checkpoint
+      join fx_system_durable_task_run_v1 as run
+        on run.scope_id = checkpoint.scope_id
+        and run.run_id = checkpoint.run_id
       ${pageHighWaterJoin(input.last)}
       where checkpoint.scope_id = ${input.scopeId}
+        and run.definition_generation = 'legacy_definition_v1'
         and checkpoint.claim_owner is not null
         and checkpoint.claim_expires_at <= ${input.timeBound}
         and ${branchPositionPredicate(identity, input.highWater, input.last)}

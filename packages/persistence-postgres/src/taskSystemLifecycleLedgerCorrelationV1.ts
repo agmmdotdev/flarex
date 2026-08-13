@@ -1,5 +1,10 @@
 import {
-  type PersistedTaskRequestedEffectV1,
+  type ApplicationTaskRunAttemptAggregateV1,
+  toCurrentTaskRequestedEffect,
+  toCurrentTaskRunAttemptAggregate,
+  type CurrentPersistedTaskRequestedEffect,
+  type CurrentTaskRunAttemptAggregate,
+  type PersistedTaskRunAttemptAggregate,
   type TaskAttemptIdV1,
   type TaskAttemptNumberV1,
   type TaskExecutionFenceV1,
@@ -17,6 +22,8 @@ import {
   fxSystemDurableTaskRequestedEffectsV1,
 } from "./schema";
 import { decodeAndCorrelateTaskSystemRequestedEffectRowV1 } from
+  "./taskSystemRequestedEffectRowV1";
+import { decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1 } from
   "./taskSystemRequestedEffectRowV1";
 
 type TaskAttemptIdentityRow =
@@ -45,22 +52,56 @@ export async function correlateTaskSystemLifecycleLedgerV1(
     reason: "effect_sequence_invalid" | "acceptance_invalid",
   ) => unknown,
 ): Promise<void> {
-  await correlateRequestedEffects(tx, scopeId, runId, aggregate, onCorruption);
-  await correlateAttemptIdentities(tx, scopeId, runId, aggregate, onCorruption);
+  await correlateLifecycleLedgerCurrent(
+    tx, scopeId, runId,
+    Object.freeze({ generation: "legacy_definition_v1", aggregate }),
+    onCorruption,
+  );
+}
+
+export async function correlateApplicationTaskSystemLifecycleLedgerV1(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  runId: TaskRunIdV1,
+  aggregate: ApplicationTaskRunAttemptAggregateV1,
+  onCorruption: (reason: "effect_sequence_invalid" | "acceptance_invalid") => unknown,
+): Promise<void> {
+  await correlateLifecycleLedgerCurrent(
+    tx, scopeId, runId,
+    Object.freeze({ generation: "application_v1", aggregate }),
+    onCorruption,
+  );
+}
+
+async function correlateLifecycleLedgerCurrent(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  runId: TaskRunIdV1,
+  persisted: PersistedTaskRunAttemptAggregate,
+  onCorruption: (reason: "effect_sequence_invalid" | "acceptance_invalid") => unknown,
+): Promise<void> {
+  const aggregate = toCurrentTaskRunAttemptAggregate(persisted);
+  await correlateRequestedEffects(
+    tx, scopeId, runId, aggregate, persisted.generation, onCorruption,
+  );
+  await correlateAttemptIdentities(
+    tx, scopeId, runId, aggregate, persisted.generation, onCorruption,
+  );
 }
 
 async function correlateRequestedEffects(
   tx: AppRowTransaction,
   scopeId: ScopeId,
   runId: TaskRunIdV1,
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: CurrentTaskRunAttemptAggregate,
+  generation: PersistedTaskRunAttemptAggregate["generation"],
   onCorruption: (
     reason: "effect_sequence_invalid" | "acceptance_invalid",
   ) => unknown,
 ): Promise<void> {
   const expected = new Map<
     TaskRequestedEffectRow["sequence"],
-    PersistedTaskRequestedEffectV1
+    CurrentPersistedTaskRequestedEffect
   >();
   const acceptances = aggregate.lastLifecycleAcceptance === null
     ? aggregate.completionReplays.map((replay) => replay.accepted)
@@ -96,7 +137,7 @@ async function correlateRequestedEffects(
   }
   for (const row of rows) {
     const effect = expected.get(row.sequence);
-    if (effect === undefined || !requestedEffectRowMatches(row, effect)) {
+    if (effect === undefined || !requestedEffectRowMatches(row, effect, generation)) {
       throw onCorruption("effect_sequence_invalid");
     }
   }
@@ -104,10 +145,21 @@ async function correlateRequestedEffects(
 
 function requestedEffectRowMatches(
   row: TaskRequestedEffectRow,
-  expected: PersistedTaskRequestedEffectV1,
+  expected: CurrentPersistedTaskRequestedEffect,
+  generation: PersistedTaskRunAttemptAggregate["generation"],
 ): boolean {
-  return decodeAndCorrelateTaskSystemRequestedEffectRowV1(row).pipe(
-    Result.map((decoded) => taskSystemPersistedValueEqualV1(decoded, expected)),
+  const decoded = generation === "legacy_definition_v1"
+    ? decodeAndCorrelateTaskSystemRequestedEffectRowV1(row).pipe(
+        Result.map(effect => toCurrentTaskRequestedEffect({ generation, effect: effect.effect })),
+      )
+    : decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1(row).pipe(
+        Result.map(effect => toCurrentTaskRequestedEffect({ generation, effect: effect.effect })),
+      );
+  return decoded.pipe(
+    Result.map((effect) => taskSystemPersistedValueEqualV1(
+      Object.freeze({ sequence: row.sequence, effect }),
+      expected,
+    )),
     Result.getOrElse(() => false),
   );
 }
@@ -116,7 +168,8 @@ async function correlateAttemptIdentities(
   tx: AppRowTransaction,
   scopeId: ScopeId,
   runId: TaskRunIdV1,
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: CurrentTaskRunAttemptAggregate,
+  generation: PersistedTaskRunAttemptAggregate["generation"],
   onCorruption: (
     reason: "effect_sequence_invalid" | "acceptance_invalid",
   ) => unknown,
@@ -184,16 +237,23 @@ async function correlateAttemptIdentities(
       || dispatchRow.sequence > effectCursor
     ) throw onCorruption("acceptance_invalid");
     const decoded = Result.getOrThrowWith(
-      decodeAndCorrelateTaskSystemRequestedEffectRowV1(dispatchRow),
+      generation === "legacy_definition_v1"
+        ? decodeAndCorrelateTaskSystemRequestedEffectRowV1(dispatchRow).pipe(
+            Result.map(effect => toCurrentTaskRequestedEffect({ generation, effect: effect.effect })),
+          )
+        : decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1(dispatchRow).pipe(
+            Result.map(effect => toCurrentTaskRequestedEffect({ generation, effect: effect.effect })),
+          ),
       () => onCorruption("acceptance_invalid"),
     );
     if (
-      decoded.effect.kind !== "dispatch_attempt"
-      || !requestedEffectRowMatches(dispatchRow, decoded)
-      || decoded.effect.taskDefinitionRevisionId
-        !== aggregate.taskDefinitionRevisionId
+      decoded.kind !== "dispatch_attempt"
+      || !taskSystemPersistedValueEqualV1(
+        decoded.definitionReference,
+        aggregate.definitionReference,
+      )
     ) throw onCorruption("acceptance_invalid");
-    const attempt = decoded.effect.attempt;
+    const attempt = decoded.attempt;
     const identity = identitiesById.get(attempt.attemptId);
     if (
       identity === undefined
@@ -201,7 +261,7 @@ async function correlateAttemptIdentities(
       || dispatchedAttemptIds.has(attempt.attemptId)
       || identity.attemptNumber !== attempt.attemptNumber
       || identity.executionFence !== attempt.executionFence
-      || identity.acceptedRunVersion !== decoded.effect.acceptedRunVersion
+      || identity.acceptedRunVersion !== decoded.acceptedRunVersion
     ) throw onCorruption("acceptance_invalid");
     dispatchedAttemptIds.add(attempt.attemptId);
     previousDispatchSequence = dispatchRow.sequence;
@@ -209,7 +269,7 @@ async function correlateAttemptIdentities(
 }
 
 function collectExpectedAttemptIdentities(
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: CurrentTaskRunAttemptAggregate,
   onCorruption: (
     reason: "effect_sequence_invalid" | "acceptance_invalid",
   ) => unknown,

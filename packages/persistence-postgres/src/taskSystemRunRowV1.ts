@@ -1,11 +1,16 @@
 import {
+  decodeApplicationTaskRunAttemptAggregateJsonV1,
   decodePersistedTaskRunAttemptAggregateJsonV1,
+  encodeApplicationTaskRunAttemptAggregateJsonV1,
   encodePersistedTaskRunAttemptAggregateJsonV1,
+  projectApplicationTaskRunAttemptPersistenceV1,
   projectTaskRunAttemptPersistenceV1,
+  type ApplicationTaskRunAttemptAggregateV1,
   type TaskPersistenceCodecErrorV1,
   type TaskRunAttemptAggregateV1,
   type TaskSystemRunAttemptCorruptionError,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { Result, SchemaIssue } from "effect";
 
 import { fxSystemDurableTaskRunsV1 } from "./schema";
@@ -17,14 +22,34 @@ export type TaskSystemDurableTaskRunRowV1 =
 export type TaskSystemRunRowCorruptionReasonV1 =
   TaskSystemRunAttemptCorruptionError["reason"];
 
+export type DecodedTaskSystemRunRowV1 =
+  | Readonly<{
+      readonly generation: "legacy_definition_v1";
+      readonly aggregate: TaskRunAttemptAggregateV1;
+    }>
+  | Readonly<{
+      readonly generation: "application_v1";
+      readonly aggregate: ApplicationTaskRunAttemptAggregateV1;
+    }>;
+
 export function decodeAndCorrelateTaskSystemRunRowV1(
   row: TaskSystemDurableTaskRunRowV1,
 ): Result.Result<
-  TaskRunAttemptAggregateV1,
+  DecodedTaskSystemRunRowV1,
   TaskSystemRunRowCorruptionReasonV1
 > {
   if (row.aggregateCodecVersion !== 1) return Result.fail("aggregate_invalid");
+  if (row.definitionGeneration === "application_v1") {
+    return decodeAndCorrelateApplicationRunRow(row);
+  }
+  if (row.definitionGeneration !== "legacy_definition_v1") {
+    return Result.fail("binding_reference_invalid");
+  }
   return Result.gen(function* () {
+    if (
+      row.taskDefinitionRevisionId === null
+      || row.applicationTaskRuntimeTargetSha256 !== null
+    ) return yield* Result.fail("binding_reference_invalid" as const);
     const aggregate = yield* decodePersistedTaskRunAttemptAggregateJsonV1(
       row.aggregateJson,
     ).pipe(Result.mapError(classifyAggregateDecodeCorruption));
@@ -51,7 +76,50 @@ export function decodeAndCorrelateTaskSystemRunRowV1(
     ) {
       return yield* Result.fail("binding_reference_invalid" as const);
     }
-    return aggregate;
+    return Object.freeze({
+      generation: "legacy_definition_v1" as const,
+      aggregate,
+    });
+  });
+}
+
+function decodeAndCorrelateApplicationRunRow(
+  row: TaskSystemDurableTaskRunRowV1,
+): Result.Result<DecodedTaskSystemRunRowV1, TaskSystemRunRowCorruptionReasonV1> {
+  return Result.gen(function* () {
+    const aggregate = yield* decodeApplicationTaskRunAttemptAggregateJsonV1(
+      row.aggregateJson,
+    ).pipe(Result.mapError(classifyAggregateDecodeCorruption));
+    const encoded = yield* encodeApplicationTaskRunAttemptAggregateJsonV1(
+      aggregate,
+    ).pipe(Result.mapError(classifyAggregateDecodeCorruption));
+    const projection = projectApplicationTaskRunAttemptPersistenceV1(aggregate);
+    if (
+      row.taskDefinitionRevisionId !== null
+      || row.applicationTaskRuntimeTargetSha256 === null
+      || row.aggregateByteLength !== encodedJsonByteLength(encoded)
+      || aggregate.runId !== row.runId
+      || !bytesEqualFullScan(
+        aggregate.applicationTaskRuntimeTargetSha256,
+        row.applicationTaskRuntimeTargetSha256,
+      )
+      || BigInt(aggregate.createdAtMs) !== row.createdAtMs
+      || projection.runVersion !== row.runVersion
+      || projection.phase !== row.phase
+      || projection.dueKind !== row.dueKind
+      || nullableNumberAsBigInt(projection.dueAtMs) !== row.dueAtMs
+      || projection.currentAttemptId !== row.currentAttemptId
+      || projection.executionFenceBasis !== row.executionFenceBasis
+      || projection.currentLeaseVersion !== row.currentLeaseVersion
+      || nullableNumberAsBigInt(projection.currentLeaseExpiresAtMs)
+        !== row.currentLeaseExpiresAtMs
+      || projection.cancellationGeneration !== row.cancellationGeneration
+      || projection.requestedEffectSequence !== row.requestedEffectSequence
+    ) return yield* Result.fail("binding_reference_invalid" as const);
+    return Object.freeze({
+      generation: "application_v1" as const,
+      aggregate,
+    });
   });
 }
 

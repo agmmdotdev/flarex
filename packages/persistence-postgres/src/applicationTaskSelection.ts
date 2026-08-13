@@ -140,7 +140,7 @@ export const selectApplicationTask = Effect.fn(
     context.deploymentId,
     context.authority,
   );
-  yield* requireSameAuthority(basis.authority, located.authority);
+  yield* requireSameAuthority("select", basis.authority, located.authority);
   const metadata = yield* runLocatedRead(
     "select",
     located.target,
@@ -202,6 +202,37 @@ export const validateApplicationTaskSelection = Effect.fn(
       state.metadata.runtimeTargetSha256,
     )
   ) return yield* failure("validate", "storedTask");
+  return copyMetadata(state.metadata);
+});
+
+/** Revalidates an authentic selection inside the caller-owned transaction. */
+export const validateApplicationTaskSelectionInTransaction = Effect.fn(
+  "ApplicationTaskSelection.validateInTransaction",
+)(function* (
+  selection: ApplicationTaskSelection,
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+): Effect.fn.Return<ApplicationTaskSelectionMetadata, SelectApplicationTaskError> {
+  const state = states.get(selection);
+  if (state === undefined) {
+    return yield* failure("validate", "invalidComposition");
+  }
+  yield* requireSameAuthority(
+    "validate",
+    state.metadata.basis.authority,
+    authority,
+  );
+  const metadata = yield* selectInTransaction(
+    "validate",
+    tx,
+    state.applicationSelection,
+    state.metadata.basis,
+    state.metadata.target.taskId,
+  );
+  if (!bytesEqualFullScan(
+    metadata.runtimeTargetSha256,
+    state.metadata.runtimeTargetSha256,
+  )) return yield* failure("validate", "storedTask");
   return copyMetadata(state.metadata);
 });
 
@@ -419,6 +450,7 @@ function selectInTransaction(
 }
 
 function requireSameAuthority(
+  operation: "select" | "validate",
   expected: TrustedScopeAuthority,
   actual: TrustedScopeAuthority,
 ) {
@@ -433,7 +465,7 @@ function requireSameAuthority(
       && left.databaseKey === right.databaseKey
       && left.schemaName === right.schemaName
     ? Effect.void
-    : failure("select", "authorityMismatch");
+    : failure(operation, "authorityMismatch");
 }
 
 function runLocatedRead<Value, Failure>(

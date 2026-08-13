@@ -943,14 +943,30 @@ export type CurrentTaskRunAttemptEvidence = ReplaceLegacyDefinitionIdentity<
   CurrentDefinitionIdentity
 >;
 
-export interface TaskRunAttemptAcceptedReceiptV1<Outcome> {
+export interface RunAttemptAcceptedReceiptFor<
+  Outcome,
+  Evidence,
+  RequestedEffect,
+> {
   readonly observedAtMs: TaskDatabaseTimeMsV1;
   readonly acceptedRunVersion: TaskRunVersionV1;
   readonly resultingPhase: RunAttemptPhaseV1;
   readonly outcome: Outcome;
-  readonly evidence: readonly TaskRunAttemptEvidenceV1[];
-  readonly requestedEffects: readonly PersistedTaskRequestedEffectV1[];
+  readonly evidence: readonly Evidence[];
+  readonly requestedEffects: readonly RequestedEffect[];
 }
+export type TaskRunAttemptAcceptedReceiptV1<Outcome> =
+  RunAttemptAcceptedReceiptFor<
+    Outcome,
+    TaskRunAttemptEvidenceV1,
+    PersistedTaskRequestedEffectV1
+  >;
+export type ApplicationTaskRunAttemptAcceptedReceiptV1<Outcome> =
+  RunAttemptAcceptedReceiptFor<
+    Outcome,
+    ApplicationTaskRunAttemptEvidenceV1,
+    ApplicationPersistedTaskRequestedEffectV1
+  >;
 export interface CurrentTaskRunAttemptAcceptedReceipt<Outcome> {
   readonly observedAtMs: TaskDatabaseTimeMsV1;
   readonly acceptedRunVersion: TaskRunVersionV1;
@@ -1215,14 +1231,19 @@ export type RunAttemptCommandV1 =
   | HandleLeaseExpiryCommandV1
   | InspectCurrentAttemptCommandV1;
 
-export interface RunAttemptServiceReceiptV1<Outcome> {
+export interface RunAttemptServiceReceiptFor<Outcome, Evidence, RequestedEffect> {
   readonly disposition: "accepted" | "idempotent" | "current";
   readonly observedAtMs: TaskDatabaseTimeMsV1;
   readonly runVersion: TaskRunVersionV1;
   readonly outcome: Outcome;
-  readonly evidence: readonly TaskRunAttemptEvidenceV1[];
-  readonly requestedEffects: readonly PersistedTaskRequestedEffectV1[];
+  readonly evidence: readonly Evidence[];
+  readonly requestedEffects: readonly RequestedEffect[];
 }
+export type RunAttemptServiceReceiptV1<Outcome> = RunAttemptServiceReceiptFor<
+  Outcome,
+  TaskRunAttemptEvidenceV1,
+  PersistedTaskRequestedEffectV1
+>;
 
 export interface TaskAttemptGrantCandidateV1 {
   readonly attemptId: TaskAttemptIdV1;
@@ -1247,11 +1268,20 @@ export interface ApplicationTaskSystemRunAttemptDecisionInputV1 {
   readonly attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null;
 }
 
-export type TaskRunAttemptDecisionV1<Outcome> =
+export type RunAttemptDecisionFor<
+  Outcome,
+  Aggregate,
+  Evidence,
+  RequestedEffect,
+> =
   | {
       readonly kind: "no_change";
       readonly disposition: "idempotent";
-      readonly replay: TaskRunAttemptAcceptedReceiptV1<Outcome>;
+      readonly replay: RunAttemptAcceptedReceiptFor<
+        Outcome,
+        Evidence,
+        RequestedEffect
+      >;
     }
   | {
       readonly kind: "no_change";
@@ -1261,11 +1291,17 @@ export type TaskRunAttemptDecisionV1<Outcome> =
   | {
       readonly kind: "commit";
       readonly expectedRunVersion: TaskRunVersionV1;
-      readonly next: TaskRunAttemptAggregateV1;
-      readonly evidence: readonly TaskRunAttemptEvidenceV1[];
-      readonly requestedEffects: readonly PersistedTaskRequestedEffectV1[];
+      readonly next: Aggregate;
+      readonly evidence: readonly Evidence[];
+      readonly requestedEffects: readonly RequestedEffect[];
       readonly outcome: Outcome;
     };
+export type TaskRunAttemptDecisionV1<Outcome> = RunAttemptDecisionFor<
+  Outcome,
+  TaskRunAttemptAggregateV1,
+  TaskRunAttemptEvidenceV1,
+  PersistedTaskRequestedEffectV1
+>;
 
 export type CurrentTaskRunAttemptDecision<Outcome> =
   | {
@@ -1287,9 +1323,11 @@ export type CurrentTaskRunAttemptDecision<Outcome> =
       readonly outcome: Outcome;
     };
 export type ApplicationTaskRunAttemptDecisionV1<Outcome> =
-  ReplaceLegacyDefinitionIdentity<
-    TaskRunAttemptDecisionV1<Outcome>,
-    ApplicationDefinitionIdentityV1
+  RunAttemptDecisionFor<
+    Outcome,
+    ApplicationTaskRunAttemptAggregateV1,
+    ApplicationTaskRunAttemptEvidenceV1,
+    ApplicationPersistedTaskRequestedEffectV1
   >;
 
 export type RunAttemptOperationV1 =
@@ -1314,8 +1352,20 @@ export interface TaskSystemRunAttemptInspectionSnapshotV1 {
   readonly current: TaskRunAttemptAggregateV1;
 }
 
+export interface ApplicationTaskSystemRunAttemptInspectionSnapshotV1 {
+  readonly observedAtMs: TaskDatabaseTimeMsV1;
+  readonly current: ApplicationTaskRunAttemptAggregateV1;
+}
+
 export type TaskSystemRunAttemptTransactionReceiptV1<Outcome> =
   RunAttemptServiceReceiptV1<Outcome>;
+
+export type ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome> =
+  RunAttemptServiceReceiptFor<
+    Outcome,
+    ApplicationTaskRunAttemptEvidenceV1,
+    ApplicationPersistedTaskRequestedEffectV1
+  >;
 
 export interface RunAttemptLifecycleConfigurationV1 {
   readonly version: 1;

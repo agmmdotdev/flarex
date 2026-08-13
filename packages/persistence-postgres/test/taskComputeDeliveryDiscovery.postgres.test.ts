@@ -281,7 +281,7 @@ async function seedLargeComputeDeliveryHistory(
       from generate_series(1, 2000) as value
     )
     insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, task_definition_revision_id, created_at_ms,
+      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,
@@ -292,7 +292,7 @@ async function seedLargeComputeDeliveryHistory(
       current_lease_expires_at_ms, cancellation_generation,
       requested_effect_sequence
     )
-    select source.scope_id, generated.run_id,
+    select source.scope_id, generated.run_id, source.definition_generation,
            source.task_definition_revision_id, source.created_at_ms,
            source.input_codec, source.input_store, source.input_value_codec,
            source.input_object_key, source.input_byte_length,

@@ -214,6 +214,14 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       expect(candidateKeys(waitingCancellation)).toEqual([
         `cancellation:${seeded.runId}:2`,
       ]);
+      await setRunDefinitionGeneration(persistence, "application_v1");
+      expect((await runEffect(
+        discovery.discoverDispatchCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
+      expect((await runEffect(
+        discovery.discoverCancellationCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
+      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
       await persistence.query(
         "delete from fx_system_durable_task_compute_cancellation_v1",
@@ -228,8 +236,21 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       expect(candidateKeys(await runEffect(
         discovery.discoverCancellationCandidates({ limit: 10 }),
       ))).toEqual([`cancellation:${seeded.runId}:2`]);
+      await setRunDefinitionGeneration(persistence, "application_v1");
+      expect((await runEffect(
+        discovery.discoverDispatchCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
+      expect((await runEffect(
+        discovery.discoverCancellationCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
+      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
       await seedDispatchCheckpointFromEvidence(persistence, seeded);
+      await setRunDefinitionGeneration(persistence, "application_v1");
+      expect((await runEffect(
+        discovery.discoverDispatchCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
+      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
       await persistence.query(`
         update fx_system_durable_task_compute_dispatch_v1
         set delivery_state = 'retry_wait',
@@ -250,6 +271,11 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
+      await setRunDefinitionGeneration(persistence, "application_v1");
+      expect((await runEffect(
+        discovery.discoverDispatchCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
+      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
       await persistence.query(`
         update fx_system_durable_task_compute_dispatch_v1
@@ -287,6 +313,10 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
+      await setRunDefinitionGeneration(persistence, "application_v1");
+      expect((await runEffect(
+        discovery.discoverDispatchCandidates({ limit: 10 }),
+      )).candidates).toEqual([]);
     });
   });
 
@@ -504,6 +534,7 @@ async function seedDispatchCheckpointFromEvidence(
   await persistence.query(`
     insert into fx_system_durable_task_compute_dispatch_v1 (
       scope_id, run_id, requested_effect_sequence, accepted_run_version,
+      definition_generation,
       task_definition_revision_id, attempt_id, attempt_number,
       execution_fence, lease_version, compute_profile_codec_version,
       compute_profile_byte_length, compute_profile_bytes, cancellation_kind,
@@ -511,7 +542,7 @@ async function seedDispatchCheckpointFromEvidence(
       request_codec_version, request_byte_length, request_sha256,
       request_bytes, delivery_state, claim_fence, delivery_attempt_count
     ) values (
-      $1, $2, 1, 1,
+      $1, $2, 1, 1, 'legacy_definition_v1',
       'taskdef_72000000-0000-4000-8000-000000000002',
       'attempt_72000000-0000-4000-8000-000000000005', 1,
       1, 1, 1, $3, $4, 'not_requested', 0, 300000,
@@ -559,6 +590,23 @@ async function seedPendingComputeEffects(
   `, [scopeId]);
 }
 
+async function setRunDefinitionGeneration(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  generation: "legacy_definition_v1" | "application_v1",
+): Promise<void> {
+  await persistence.query(`
+    update fx_system_durable_task_run_v1
+    set definition_generation = $1,
+        task_definition_revision_id = case when $1 = 'legacy_definition_v1'
+          then 'taskdef_72000000-0000-4000-8000-000000000002'
+          else null end,
+        application_task_runtime_target_sha256 =
+          case when $1 = 'application_v1'
+            then decode(repeat('ab', 32), 'hex') else null end
+    where run_id = $2
+  `, [generation, TASK_RUN_ID]);
+}
+
 async function cloneRunAndDispatchEffect(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
   sourceRunId: string,
@@ -566,7 +614,7 @@ async function cloneRunAndDispatchEffect(
 ): Promise<void> {
   await persistence.query(`
     insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, task_definition_revision_id, created_at_ms,
+      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,
@@ -578,7 +626,7 @@ async function cloneRunAndDispatchEffect(
       requested_effect_sequence
     )
     select
-      scope_id, $2, task_definition_revision_id, created_at_ms,
+      scope_id, $2, definition_generation, task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,

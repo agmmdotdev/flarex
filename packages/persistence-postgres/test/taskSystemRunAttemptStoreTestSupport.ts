@@ -106,6 +106,7 @@ export async function seedTaskSystemRunAttemptStoreV1(
   options: Readonly<{
     readonly aggregate?: TaskRunAttemptAggregateV1;
     readonly parent?: TaskSystemRunAttemptParentV1;
+    readonly legacySchema?: boolean;
   }> = {},
 ): Promise<Readonly<{ readonly scopeId: string; readonly deploymentId: string }>> {
   const aggregate = options.aggregate ?? readyTaskRunAggregateV1();
@@ -193,7 +194,9 @@ export async function seedTaskSystemRunAttemptStoreV1(
   const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
   await persistence.query(`
     insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, task_definition_revision_id, created_at_ms,
+      scope_id, run_id,
+      ${options.legacySchema === true ? "" : "definition_generation,"}
+      task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,
@@ -204,7 +207,9 @@ export async function seedTaskSystemRunAttemptStoreV1(
       current_lease_expires_at_ms, cancellation_generation,
       requested_effect_sequence
     ) values (
-      '${parent.scopeId}', '${TASK_RUN_ID}', '${TASK_DEFINITION_ID}',
+      '${parent.scopeId}', '${TASK_RUN_ID}',
+      ${options.legacySchema === true ? "" : "'legacy_definition_v1',"}
+      '${TASK_DEFINITION_ID}',
       ${aggregate.createdAtMs}, 'flarex.task-input-reference.v1',
       'flarex.task-input-object-store.v1', 'flarex-value/v1',
       'durable-task-input/v1/sha256/' || repeat('51', 32),
@@ -242,7 +247,7 @@ export async function seedAdditionalTaskSystemRunV1(
   const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
   await persistence.query(`
     insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, task_definition_revision_id, created_at_ms,
+      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,
@@ -253,7 +258,7 @@ export async function seedAdditionalTaskSystemRunV1(
       current_lease_expires_at_ms, cancellation_generation,
       requested_effect_sequence
     )
-    select scope_id, '${additionalRunId}', task_definition_revision_id,
+    select scope_id, '${additionalRunId}', definition_generation, task_definition_revision_id,
       created_at_ms, input_codec, input_store, input_value_codec,
       input_object_key, input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,

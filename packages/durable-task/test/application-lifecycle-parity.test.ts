@@ -42,6 +42,7 @@ import type {
   HeartbeatAttemptOutcomeV1,
   RequestCancellationOutcomeV1,
   StartAttemptOutcomeV1,
+  TaskDefinitionRevisionIdV1,
   TaskRunAttemptAggregateV1,
   TaskRunAttemptDecisionV1,
 } from "../src/runAttempt/Model.js";
@@ -358,6 +359,18 @@ function assertStaticDecisionAdapterContracts(
 }
 
 void assertStaticDecisionAdapterContracts;
+
+type CallerOwnedOutcome = Readonly<{
+  readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1;
+}>;
+function assertCallerOwnedOutcomeRemainsOpaque(
+  decision: ApplicationTaskRunAttemptDecisionV1<CallerOwnedOutcome>,
+): void {
+  if (decision.kind === "no_change" && decision.disposition === "current") {
+    expectTypeOf(decision.outcome).toEqualTypeOf<CallerOwnedOutcome>();
+  }
+}
+void assertCallerOwnedOutcomeRemainsOpaque;
 
 function applicationAggregate(
   legacy: TaskRunAttemptAggregateV1,

@@ -3,6 +3,10 @@
 import { Context, type Effect, type Result } from "effect";
 import type { RunAttemptDecisionErrorV1, TaskSystemRunAttemptStoreErrorV1 } from "../Errors.js";
 import type {
+  ApplicationTaskRunAttemptDecisionV1,
+  ApplicationTaskSystemRunAttemptDecisionInputV1,
+  ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+  ApplicationTaskSystemRunAttemptTransactionReceiptV1,
   TaskSystemRunAttemptInspectionRequestV1,
   TaskSystemRunAttemptInspectionSnapshotV1,
   TaskSystemRunAttemptDecisionInputV1,
@@ -11,6 +15,32 @@ import type {
   TaskRunIdV1,
   TaskSystemRunAttemptTransactionReceiptV1,
 } from "../Model.js";
+
+export interface ApplicationTaskSystemRunAttemptTransactionV1<Outcome> {
+  readonly operation: RunAttemptMutationOperationV1;
+  readonly runId: TaskRunIdV1;
+  readonly decide: (
+    input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+  ) => Result.Result<
+    ApplicationTaskRunAttemptDecisionV1<Outcome>,
+    RunAttemptDecisionErrorV1
+  >;
+}
+
+export interface ApplicationTaskSystemRunAttemptStoreShape {
+  readonly transactRunAttempt: <Outcome>(
+    request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  ) => Effect.Effect<
+    ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+    RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+  >;
+  readonly inspectRunAttempt: (
+    request: TaskSystemRunAttemptInspectionRequestV1,
+  ) => Effect.Effect<
+    ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+    TaskSystemRunAttemptStoreErrorV1
+  >;
+}
 
 export interface TaskSystemRunAttemptTransactionV1<Outcome> {
   readonly operation: RunAttemptMutationOperationV1;

@@ -19,6 +19,8 @@
     "./internal/application-mutation-admission": "./src/applicationMutationAdmission.ts",
     "./internal/application-action-admission": "./src/applicationActionAdmission.ts",
     "./internal/application-task-selection": "./src/applicationTaskSelection.ts",
+    "./internal/application-task-system-run-creation": "./src/applicationTaskSystemRunCreation.ts",
+    "./internal/task-system-run-attempt-store-v1": "./src/taskSystemRunAttemptStoreV1.ts",
     "./internal/task-wake-scheduler-partition-v1": "./src/taskSystemWakeSchedulerPartitionV1.ts",
     "./internal/task-wake-scheduler-directory-v1": "./src/taskSystemWakeSchedulerDirectoryV1.ts",
     "./internal/task-wake-scheduler-repair-directory-v1": "./src/taskSystemWakeSchedulerRepairDirectoryV1.ts",

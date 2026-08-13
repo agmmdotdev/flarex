@@ -8,6 +8,9 @@ import {
   TaskSystemRunAttemptTerminalStoreError,
   TaskSystemRunAttemptTransientStoreError,
   TaskSystemRunAttemptUnavailableError,
+  decodeApplicationTaskRunAttemptAggregateJsonV1,
+  encodeApplicationPersistedTaskRequestedEffectJsonV1,
+  encodeApplicationTaskRunAttemptAggregateJsonV1,
   decodePersistedTaskRunAttemptAggregateJsonV1,
   decodeTaskAttemptIdV1,
   decodeTaskAttemptNumberV1,
@@ -15,14 +18,27 @@ import {
   decodeTaskExecutionFenceV1,
   encodePersistedTaskRequestedEffectJsonV1,
   encodePersistedTaskRunAttemptAggregateJsonV1,
+  projectApplicationTaskRunAttemptPersistenceV1,
   projectTaskRunAttemptPersistenceV1,
+  toCurrentTaskRunAttemptAggregate,
+  type ApplicationTaskRunAttemptAggregateV1,
+  type ApplicationTaskRunAttemptDecisionV1,
+  type ApplicationTaskSystemRunAttemptDecisionInputV1,
+  type ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
+  type ApplicationTaskSystemRunAttemptStoreShape,
+  type ApplicationTaskSystemRunAttemptTransactionReceiptV1,
+  type ApplicationTaskSystemRunAttemptTransactionV1,
+  type CurrentTaskRunAttemptAggregate,
+  type RunAttemptDecisionFor,
   type RunAttemptDecisionErrorV1,
   type RunAttemptOperationV1,
+  type RunAttemptServiceReceiptFor,
   type TaskAttemptGrantCandidateV1,
   type TaskDatabaseTimeMsV1,
   type TaskRunAttemptAggregateV1,
   type TaskRunAttemptDecisionV1,
   type TaskRunIdV1,
+  type TaskRunVersionV1,
   type TaskSystemRunAttemptInspectionSnapshotV1,
   type TaskSystemRunAttemptStoreErrorV1,
   type TaskSystemRunAttemptStoreShape,
@@ -57,6 +73,7 @@ import {
 } from "./taskSystemScopeAuthorityV1";
 import { decodeAndCorrelateTaskSystemRunRowV1 } from "./taskSystemRunRowV1";
 import {
+  correlateApplicationTaskSystemLifecycleLedgerV1,
   correlateTaskSystemLifecycleLedgerV1,
   taskSystemPersistedValueEqualV1 as persistedValueEqual,
 } from "./taskSystemLifecycleLedgerCorrelationV1";
@@ -142,6 +159,29 @@ export function makeTaskSystemRunAttemptStoreV1(
   });
 }
 
+export function makeApplicationTaskSystemRunAttemptStoreV1(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemRunAttemptStoreOptionsV1 = {},
+): ApplicationTaskSystemRunAttemptStoreShape {
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
+  const target = located.target;
+  const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  return Object.freeze({
+    transactRunAttempt: <Outcome>(
+      request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+    ) => transactApplicationRunAttempt(authority, target, randomUuid, request),
+    inspectRunAttempt: (request: Readonly<{
+      readonly operation: "inspect_current_attempt";
+      readonly runId: TaskRunIdV1;
+    }>) => inspectApplicationRunAttempt(
+      authority,
+      target,
+      request.operation,
+      request.runId,
+    ),
+  });
+}
+
 const transactRunAttempt = Effect.fn(
   "TaskSystemRunAttemptStore.transactRunAttempt",
 )(function* <Outcome>(
@@ -153,20 +193,119 @@ const transactRunAttempt = Effect.fn(
   TaskSystemRunAttemptTransactionReceiptV1<Outcome>,
   RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
 > {
+  return yield* transactGeneration(
+    authority,
+    target,
+    request,
+    tx => transactOnce(tx, authority, target, randomUuid, request),
+    snapshotReceipt,
+  );
+});
+
+const inspectRunAttempt = Effect.fn(
+  "TaskSystemRunAttemptStore.inspectRunAttempt",
+)(function* (
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Effect.fn.Return<
+  TaskSystemRunAttemptInspectionSnapshotV1,
+  TaskSystemRunAttemptStoreErrorV1
+> {
+  const settled = yield* Effect.exit(awaitLocatedTransaction(
+    target[RUN_LOCATED_READ_COMMITTED_V1](tx => inspectOnce(
+      tx,
+      authority,
+      target,
+      operation,
+      runId,
+    )),
+  ));
+  if (Exit.isSuccess(settled)) {
+    return yield* Effect.fromResult(
+      snapshotInspection(settled.value, operation, runId),
+    );
+  }
+  const failure = yield* Result.match(Cause.findError(settled.cause), {
+    onFailure: Effect.failCause,
+    onSuccess: Effect.succeed,
+  });
+  const classified = classifyTransactionFailure(
+    operation,
+    runId,
+    failure,
+    MAX_TRANSACTION_EXECUTIONS,
+  );
+  if (classified.kind === "fail") {
+    return isStoreError(classified.error)
+      ? yield* classified.error
+      : yield* Effect.die(classified.error);
+  }
+  if (classified.kind === "retry") {
+    return yield* new TaskSystemRunAttemptTransientStoreError({
+      operation,
+      runId,
+      reason: "transaction_conflict",
+      cause: failure,
+    });
+  }
+  if (classified.kind === "cleanup") {
+    return isStoreError(classified.callback)
+      ? yield* Effect.failCause(Cause.combine(
+          Cause.fail(classified.callback),
+          Cause.die(classified.cause),
+        ))
+      : yield* Effect.die(classified.cause);
+  }
+  return yield* Effect.die(classified.cause);
+});
+
+const transactApplicationRunAttempt = Effect.fn(
+  "ApplicationTaskSystemRunAttemptStore.transactRunAttempt",
+)(function* <Outcome>(
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+): Effect.fn.Return<
+  ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+> {
+  return yield* transactGeneration(
+    authority,
+    target,
+    request,
+    tx => transactApplicationOnce(tx, authority, target, randomUuid, request),
+    snapshotApplicationReceipt,
+  );
+});
+
+const transactGeneration = Effect.fn(
+  "TaskSystemRunAttemptStore.transactGeneration",
+)(function* <Outcome, Request extends Readonly<{
+  readonly operation: RunAttemptOperationV1;
+  readonly runId: TaskRunIdV1;
+}>, Receipt>(
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  request: Request,
+  transaction: (tx: AppRowTransaction) => Promise<Receipt>,
+  snapshot: (
+    receipt: Receipt,
+    request: Request,
+  ) => Result.Result<Receipt, TaskSystemRunAttemptTerminalStoreError>,
+): Effect.fn.Return<
+  Receipt,
+  RunAttemptDecisionErrorV1 | TaskSystemRunAttemptStoreErrorV1
+> {
   for (let execution = 1; execution <= MAX_TRANSACTION_EXECUTIONS; execution += 1) {
     const settled = yield* Effect.exit(awaitLocatedTransaction(
-      target[RUN_LOCATED_READ_COMMITTED_V1](tx => transactOnce(
-        tx,
-        authority,
-        target,
-        randomUuid,
-        request,
-      )),
+      target[RUN_LOCATED_READ_COMMITTED_V1](transaction),
     ));
     if (Exit.isSuccess(settled)) {
-      return yield* Effect.fromResult(snapshotReceipt(settled.value, request));
+      return yield* Effect.fromResult(snapshot(settled.value, request));
     }
-
     const transactionFailure = yield* Result.match(
       Cause.findError(settled.cause),
       {
@@ -198,40 +337,29 @@ const transactRunAttempt = Effect.fn(
   });
 });
 
-const inspectRunAttempt = Effect.fn(
-  "TaskSystemRunAttemptStore.inspectRunAttempt",
+const inspectApplicationRunAttempt = Effect.fn(
+  "ApplicationTaskSystemRunAttemptStore.inspectRunAttempt",
 )(function* (
   authority: TrustedScopeAuthority,
   target: LocatedTaskSystemRunAttemptTargetV1,
   operation: "inspect_current_attempt",
   runId: TaskRunIdV1,
 ): Effect.fn.Return<
-  TaskSystemRunAttemptInspectionSnapshotV1,
+  ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
   TaskSystemRunAttemptStoreErrorV1
 > {
   const settled = yield* Effect.exit(awaitLocatedTransaction(
-    target[RUN_LOCATED_READ_COMMITTED_V1](tx => inspectOnce(
-      tx,
-      authority,
-      target,
-      operation,
-      runId,
+    target[RUN_LOCATED_READ_COMMITTED_V1](tx => inspectApplicationOnce(
+      tx, authority, target, operation, runId,
     )),
   ));
-  if (Exit.isSuccess(settled)) {
-    return yield* Effect.fromResult(
-      snapshotInspection(settled.value, operation, runId),
-    );
-  }
-  const failure = Cause.findError(settled.cause);
-  if (Result.isFailure(failure)) {
-    return yield* Effect.failCause(failure.failure);
-  }
+  if (Exit.isSuccess(settled)) return settled.value;
+  const failure = yield* Result.match(Cause.findError(settled.cause), {
+    onFailure: Effect.failCause,
+    onSuccess: Effect.succeed,
+  });
   const classified = classifyTransactionFailure(
-    operation,
-    runId,
-    failure.success,
-    MAX_TRANSACTION_EXECUTIONS,
+    operation, runId, failure, MAX_TRANSACTION_EXECUTIONS,
   );
   if (classified.kind === "fail") {
     return isStoreError(classified.error)
@@ -240,17 +368,13 @@ const inspectRunAttempt = Effect.fn(
   }
   if (classified.kind === "retry") {
     return yield* new TaskSystemRunAttemptTransientStoreError({
-      operation,
-      runId,
-      reason: "transaction_conflict",
-      cause: failure.success,
+      operation, runId, reason: "transaction_conflict", cause: failure,
     });
   }
   if (classified.kind === "cleanup") {
     return isStoreError(classified.callback)
       ? yield* Effect.failCause(Cause.combine(
-          Cause.fail(classified.callback),
-          Cause.die(classified.cause),
+          Cause.fail(classified.callback), Cause.die(classified.cause),
         ))
       : yield* Effect.die(classified.cause);
   }
@@ -264,21 +388,139 @@ async function transactOnce<Outcome>(
   randomUuid: () => string,
   request: TaskSystemRunAttemptTransactionV1<Outcome>,
 ): Promise<TaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
-  await requireLockedScopeAuthority(tx, authority, target, request.operation, request.runId);
-  const row = await loadRun(tx, authority.scopeId, request.runId, true);
-  if (row === null) throw rollbackStoreError(new TaskSystemRunAttemptUnavailableError({
-    operation: request.operation,
-    runId: request.runId,
-    reason: "unavailable",
-  }));
-  const databaseNowMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
+  return transactOnceCore(
     tx,
-    authority.scopeId,
-    request.operation,
-    request.runId,
+    authority,
+    target,
+    randomUuid,
+    request,
+    {
+      decode: decodeAndCorrelateRunRow,
+      correlate: (innerTx, scopeId, operation, runId, current) =>
+        correlateLifecycleLedger(innerTx, scopeId, operation, runId, current),
+      makeDecisionInput: (databaseNowMs, current, candidate) => Object.freeze({
+        databaseNowMs,
+        current,
+        get attemptGrantCandidate() { return candidate(); },
+      }),
+      decide: (innerRequest, input) => innerRequest.decide(input),
+      apply: applyDecision,
+    },
   );
-  const current = decodeAndCorrelateRunRow(row, request.operation, request.runId);
-  await correlateLifecycleLedger(
+}
+
+async function transactApplicationOnce<Outcome>(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+): Promise<ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
+  return transactOnceCore(
+    tx,
+    authority,
+    target,
+    randomUuid,
+    request,
+    {
+      decode: decodeAndCorrelateApplicationRunRow,
+      correlate: (innerTx, scopeId, operation, runId, current) =>
+        correlateApplicationTaskSystemLifecycleLedgerV1(
+          innerTx,
+          scopeId,
+          runId,
+          current,
+          reason => rollbackStoreError(corruption(operation, runId, reason)),
+        ),
+      makeDecisionInput: (databaseNowMs, current, candidate) => Object.freeze({
+        databaseNowMs,
+        current,
+        get attemptGrantCandidate() { return candidate(); },
+      }),
+      decide: (innerRequest, input) => innerRequest.decide(input),
+      apply: applyApplicationDecision,
+    },
+  );
+}
+
+interface TransactionGenerationAdapter<
+  Current,
+  DecisionInput,
+  Decision,
+  Receipt,
+  Request,
+> {
+  readonly decode: (
+    row: TaskRunRow,
+    operation: RunAttemptOperationV1,
+    runId: TaskRunIdV1,
+  ) => Current;
+  readonly correlate: (
+    tx: AppRowTransaction,
+    scopeId: ScopeId,
+    operation: RunAttemptOperationV1,
+    runId: TaskRunIdV1,
+    current: Current,
+  ) => Promise<void>;
+  readonly makeDecisionInput: (
+    databaseNowMs: TaskDatabaseTimeMsV1,
+    current: Current,
+    candidate: () => TaskAttemptGrantCandidateV1 | null,
+  ) => DecisionInput;
+  readonly decide: (
+    request: Request,
+    input: DecisionInput,
+  ) => Result.Result<Decision, RunAttemptDecisionErrorV1>;
+  readonly apply: (
+    tx: AppRowTransaction,
+    scopeId: ScopeId,
+    request: Request,
+    current: Current,
+    databaseNowMs: TaskDatabaseTimeMsV1,
+    candidate: TaskAttemptGrantCandidateV1 | null,
+    decision: Decision,
+  ) => Promise<Receipt>;
+}
+
+async function transactOnceCore<
+  Current extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  DecisionInput,
+  Decision,
+  Receipt,
+  Request extends Readonly<{
+    readonly operation: RunAttemptOperationV1;
+    readonly runId: TaskRunIdV1;
+  }>,
+>(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  randomUuid: () => string,
+  request: Request,
+  adapter: TransactionGenerationAdapter<
+    Current,
+    DecisionInput,
+    Decision,
+    Receipt,
+    Request
+  >,
+): Promise<Receipt> {
+  await requireLockedScopeAuthority(
+    tx, authority, target, request.operation, request.runId,
+  );
+  const row = await loadRun(tx, authority.scopeId, request.runId, true);
+  if (row === null) throw rollbackStoreError(
+    new TaskSystemRunAttemptUnavailableError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "unavailable",
+    }),
+  );
+  const databaseNowMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
+    tx, authority.scopeId, request.operation, request.runId,
+  );
+  const current = adapter.decode(row, request.operation, request.runId);
+  await adapter.correlate(
     tx,
     authority.scopeId,
     request.operation,
@@ -286,27 +528,26 @@ async function transactOnce<Outcome>(
     current,
   );
   let allocatedCandidate: TaskAttemptGrantCandidateV1 | null | undefined;
-  const decisionInput = {
-    databaseNowMs,
-    current,
-    get attemptGrantCandidate(): TaskAttemptGrantCandidateV1 | null {
-      if (request.operation !== "start_attempt") return null;
-      if (allocatedCandidate === undefined) {
-        allocatedCandidate = allocateAttemptCandidate(
-          current,
-          randomUuid,
-          request.operation,
-          request.runId,
-        );
-      }
-      return allocatedCandidate;
-    },
+  const candidate = (): TaskAttemptGrantCandidateV1 | null => {
+    if (request.operation !== "start_attempt") return null;
+    if (allocatedCandidate === undefined) {
+      allocatedCandidate = allocateAttemptCandidate(
+        current,
+        randomUuid,
+        request.operation,
+        request.runId,
+      );
+    }
+    return allocatedCandidate;
   };
   const decision = Result.getOrThrowWith(
-    request.decide(Object.freeze(decisionInput)),
+    adapter.decide(
+      request,
+      adapter.makeDecisionInput(databaseNowMs, current, candidate),
+    ),
     rollbackDecisionError,
   );
-  return applyDecision(
+  return adapter.apply(
     tx,
     authority.scopeId,
     request,
@@ -346,6 +587,29 @@ async function inspectOnce(
     current,
   );
   return Object.freeze({ observedAtMs, current });
+}
+
+async function inspectApplicationOnce(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedTaskSystemRunAttemptTargetV1,
+  operation: "inspect_current_attempt",
+  runId: TaskRunIdV1,
+): Promise<ApplicationTaskSystemRunAttemptInspectionSnapshotV1> {
+  await requireLockedScopeAuthority(tx, authority, target, operation, runId);
+  const observedAtMs = await target[READ_TASK_SYSTEM_DATABASE_NOW_V1](
+    tx, authority.scopeId, operation, runId,
+  );
+  const row = await loadRun(tx, authority.scopeId, runId, true);
+  if (row === null) throw rollbackStoreError(
+    new TaskSystemRunAttemptUnavailableError({ operation, runId, reason: "unavailable" }),
+  );
+  const current = decodeAndCorrelateApplicationRunRow(row, operation, runId);
+  await correlateApplicationTaskSystemLifecycleLedgerV1(
+    tx, authority.scopeId, runId, current,
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
+  );
+  return snapshotOwned(Object.freeze({ observedAtMs, current }));
 }
 
 async function requireLockedScopeAuthority(
@@ -408,10 +672,38 @@ function decodeAndCorrelateRunRow(
   if (row.runId !== runId) {
     throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
   }
-  return Result.getOrThrowWith(
+  const decoded = Result.getOrThrowWith(
     decodeAndCorrelateTaskSystemRunRowV1(row),
     reason => rollbackStoreError(corruption(operation, runId, reason)),
   );
+  if (decoded.generation !== "legacy_definition_v1") {
+    throw rollbackStoreError(corruption(
+      operation,
+      runId,
+      "binding_reference_invalid",
+    ));
+  }
+  return decoded.aggregate;
+}
+
+function decodeAndCorrelateApplicationRunRow(
+  row: TaskRunRow,
+  operation: RunAttemptOperationV1,
+  runId: TaskRunIdV1,
+): ApplicationTaskRunAttemptAggregateV1 {
+  if (row.runId !== runId) {
+    throw rollbackStoreError(corruption(operation, runId, "aggregate_invalid"));
+  }
+  const decoded = Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRunRowV1(row),
+    reason => rollbackStoreError(corruption(operation, runId, reason)),
+  );
+  if (decoded.generation !== "application_v1") {
+    throw rollbackStoreError(corruption(
+      operation, runId, "binding_reference_invalid",
+    ));
+  }
+  return decoded.aggregate;
 }
 
 async function correlateLifecycleLedger(
@@ -431,7 +723,7 @@ async function correlateLifecycleLedger(
 }
 
 function allocateAttemptCandidate(
-  current: TaskRunAttemptAggregateV1,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
   randomUuid: () => string,
   operation: "start_attempt",
   runId: TaskRunIdV1,
@@ -509,37 +801,150 @@ async function applyDecision<Outcome>(
   attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null,
   decision: TaskRunAttemptDecisionV1<Outcome>,
 ): Promise<TaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
-  if (decision.kind === "no_change") {
-    if (decision.disposition === "idempotent") {
-      if (!isStoredAcceptanceReplay(current, decision.replay)) {
-        throw rollbackDecisionError(invalidDecision(request, current, "acceptance_invalid"));
-      }
-      return Object.freeze({
-        disposition: "idempotent",
-        observedAtMs: decision.replay.observedAtMs,
-        runVersion: decision.replay.acceptedRunVersion,
-        outcome: decision.replay.outcome,
-        evidence: decision.replay.evidence,
-        requestedEffects: decision.replay.requestedEffects,
-      } as const);
-    }
-    return Object.freeze({
-      disposition: "current",
-      observedAtMs: databaseNowMs,
-      runVersion: current.runVersion,
-      outcome: decision.outcome,
-      evidence: Object.freeze([]),
-      requestedEffects: Object.freeze([]),
-    } as const);
-  }
-
-  const prepared = prepareCommit(
+  return applyDecisionCore(
     request,
     current,
     databaseNowMs,
     attemptGrantCandidate,
     decision,
+    (candidate, commit) => prepareCommit(
+      request,
+      current,
+      databaseNowMs,
+      candidate,
+      commit,
+    ),
+    prepared => persistPreparedCommit(tx, scopeId, current.runVersion, databaseNowMs, {
+      generation: "legacy_definition_v1",
+      request,
+      prepared,
+    }),
   );
+}
+
+async function applyApplicationDecision<Outcome>(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  current: ApplicationTaskRunAttemptAggregateV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null,
+  decision: ApplicationTaskRunAttemptDecisionV1<Outcome>,
+): Promise<ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>> {
+  return applyDecisionCore(
+    request,
+    current,
+    databaseNowMs,
+    attemptGrantCandidate,
+    decision,
+    (candidate, commit) => prepareApplicationCommit(
+      request,
+      current,
+      databaseNowMs,
+      candidate,
+      commit,
+    ),
+    prepared => persistPreparedCommit(tx, scopeId, current.runVersion, databaseNowMs, {
+      generation: "application_v1",
+      request,
+      prepared,
+    }),
+  );
+}
+
+async function applyDecisionCore<
+  Outcome,
+  Aggregate extends TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  Evidence,
+  RequestedEffect,
+  Prepared extends PreparedPersistenceCommit,
+  Request extends TaskSystemRunAttemptTransactionV1<Outcome>
+    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+>(
+  request: Request,
+  current: Aggregate,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null,
+  decision: RunAttemptDecisionFor<
+    Outcome,
+    Aggregate,
+    Evidence,
+    RequestedEffect
+  >,
+  prepare: (
+    candidate: TaskAttemptGrantCandidateV1 | null,
+    decision: Extract<
+      RunAttemptDecisionFor<Outcome, Aggregate, Evidence, RequestedEffect>,
+      { readonly kind: "commit" }
+    >,
+  ) => Prepared,
+  persist: (prepared: Prepared) => Promise<void>,
+): Promise<RunAttemptServiceReceiptFor<Outcome, Evidence, RequestedEffect>> {
+  if (decision.kind === "no_change") {
+    if (decision.disposition === "idempotent") {
+      if (!isStoredAcceptanceReplay(current, decision.replay)) {
+        throw rollbackDecisionError(invalidDecision(
+          request,
+          current,
+          "acceptance_invalid",
+        ));
+      }
+      return Object.freeze({
+        disposition: "idempotent" as const,
+        observedAtMs: decision.replay.observedAtMs,
+        runVersion: decision.replay.acceptedRunVersion,
+        outcome: decision.replay.outcome,
+        evidence: decision.replay.evidence,
+        requestedEffects: decision.replay.requestedEffects,
+      });
+    }
+    return Object.freeze({
+      disposition: "current" as const,
+      observedAtMs: databaseNowMs,
+      runVersion: current.runVersion,
+      outcome: decision.outcome,
+      evidence: Object.freeze([]),
+      requestedEffects: Object.freeze([]),
+    });
+  }
+  const prepared = prepare(attemptGrantCandidate, decision);
+  await persist(prepared);
+  return Object.freeze({
+    disposition: "accepted" as const,
+    observedAtMs: databaseNowMs,
+    runVersion: prepared.next.runVersion,
+    outcome: decision.outcome,
+    evidence: decision.evidence,
+    requestedEffects: decision.requestedEffects,
+  });
+}
+
+type LegacyPreparedPersistenceCommit = ReturnType<typeof prepareCommit>;
+type ApplicationPreparedPersistenceCommit =
+  ReturnType<typeof prepareApplicationCommit>;
+type PreparedPersistenceCommit =
+  | LegacyPreparedPersistenceCommit
+  | ApplicationPreparedPersistenceCommit;
+type PreparedPersistenceInput<Outcome> =
+  | Readonly<{
+      readonly generation: "legacy_definition_v1";
+      readonly request: TaskSystemRunAttemptTransactionV1<Outcome>;
+      readonly prepared: LegacyPreparedPersistenceCommit;
+    }>
+  | Readonly<{
+      readonly generation: "application_v1";
+      readonly request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>;
+      readonly prepared: ApplicationPreparedPersistenceCommit;
+    }>;
+
+async function persistPreparedCommit<Outcome>(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  expectedRunVersion: TaskRunVersionV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  input: PreparedPersistenceInput<Outcome>,
+): Promise<void> {
+  const { generation, request, prepared } = input;
   const updated = await tx.update(fxSystemDurableTaskRunsV1).set({
     aggregateCodecVersion: 1,
     aggregateByteLength: prepared.aggregateByteLength,
@@ -559,9 +964,13 @@ async function applyDecision<Outcome>(
   }).where(and(
     eq(fxSystemDurableTaskRunsV1.scopeId, scopeId),
     eq(fxSystemDurableTaskRunsV1.runId, request.runId),
-    eq(fxSystemDurableTaskRunsV1.runVersion, current.runVersion),
+    eq(fxSystemDurableTaskRunsV1.definitionGeneration, generation),
+    eq(fxSystemDurableTaskRunsV1.runVersion, expectedRunVersion),
   )).returning({ runVersion: fxSystemDurableTaskRunsV1.runVersion });
-  if (updated.length !== 1 || updated[0]?.runVersion !== prepared.next.runVersion) {
+  if (
+    updated.length !== 1
+    || updated[0]?.runVersion !== prepared.next.runVersion
+  ) {
     throw rollbackStoreError(new TaskSystemRunAttemptTransientStoreError({
       operation: request.operation,
       runId: request.runId,
@@ -580,51 +989,43 @@ async function applyDecision<Outcome>(
       acceptedRunVersion: prepared.next.runVersion,
     });
   }
-  if (prepared.effects.length > 0) {
-    await tx.insert(fxSystemDurableTaskRequestedEffectsV1).values(
-      prepared.effects.map(({ persisted, payloadJson, payloadByteLength }) => ({
+  if (prepared.effects.length === 0) return;
+
+  await tx.insert(fxSystemDurableTaskRequestedEffectsV1).values(
+    prepared.effects.map(({ persisted, payloadJson, payloadByteLength }) => ({
+      scopeId,
+      runId: request.runId,
+      sequence: persisted.sequence,
+      acceptedRunVersion: persisted.effect.acceptedRunVersion,
+      kind: persisted.effect.kind,
+      payloadCodecVersion: 1,
+      payloadByteLength,
+      payloadJson,
+      notBeforeMs: taskSystemRequestedEffectNotBeforeMsV1(persisted),
+    })),
+  );
+  const pendingComputeEffects: Array<
+    typeof fxSystemDurableTaskComputePendingV1.$inferInsert
+  > = [];
+  for (const { persisted } of prepared.effects) {
+    if (
+      persisted.effect.kind === "dispatch_attempt"
+      || persisted.effect.kind === "request_execution_cancellation"
+    ) {
+      pendingComputeEffects.push({
         scopeId,
         runId: request.runId,
-        sequence: persisted.sequence,
-        acceptedRunVersion: persisted.effect.acceptedRunVersion,
+        requestedEffectSequence: persisted.sequence,
         kind: persisted.effect.kind,
-        payloadCodecVersion: 1,
-        payloadByteLength,
-        payloadJson,
-        notBeforeMs: taskSystemRequestedEffectNotBeforeMsV1(persisted),
-      })),
-    );
-    const pendingComputeEffects: Array<
-      typeof fxSystemDurableTaskComputePendingV1.$inferInsert
-    > = [];
-    for (const { persisted } of prepared.effects) {
-      if (
-        persisted.effect.kind === "dispatch_attempt" ||
-        persisted.effect.kind === "request_execution_cancellation"
-      ) {
-        pendingComputeEffects.push({
-          scopeId,
-          runId: request.runId,
-          requestedEffectSequence: persisted.sequence,
-          kind: persisted.effect.kind,
-          eligibleAt: new Date(databaseNowMs),
-        });
-      }
-    }
-    if (pendingComputeEffects.length > 0) {
-      await tx.insert(fxSystemDurableTaskComputePendingV1).values(
-        pendingComputeEffects,
-      );
+        eligibleAt: new Date(databaseNowMs),
+      });
     }
   }
-  return Object.freeze({
-    disposition: "accepted",
-    observedAtMs: databaseNowMs,
-    runVersion: prepared.next.runVersion,
-    outcome: decision.outcome,
-    evidence: decision.evidence,
-    requestedEffects: decision.requestedEffects,
-  } as const);
+  if (pendingComputeEffects.length > 0) {
+    await tx.insert(fxSystemDurableTaskComputePendingV1).values(
+      pendingComputeEffects,
+    );
+  }
 }
 
 function prepareCommit<Outcome>(
@@ -734,10 +1135,131 @@ function prepareCommit<Outcome>(
   });
 }
 
+function prepareApplicationCommit<Outcome>(
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  current: ApplicationTaskRunAttemptAggregateV1,
+  databaseNowMs: TaskDatabaseTimeMsV1,
+  candidate: TaskAttemptGrantCandidateV1 | null,
+  decision: Extract<ApplicationTaskRunAttemptDecisionV1<Outcome>, {
+    readonly kind: "commit";
+  }>,
+) {
+  if (decision.expectedRunVersion !== current.runVersion) {
+    throw rollbackDecisionError(new StaleTaskRunVersionError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "commit_basis_disagrees_with_decoded_state",
+    }));
+  }
+  if (current.runVersion >= POSTGRES_SIGNED_BIGINT_MAX) {
+    throw rollbackStoreError(new TaskSystemRunAttemptTerminalStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "version_storage_exhausted",
+      cause: null,
+    }));
+  }
+  const currentModel = toCurrentTaskRunAttemptAggregate({
+    generation: "application_v1",
+    aggregate: current,
+  });
+  const nextModel = toCurrentTaskRunAttemptAggregate({
+    generation: "application_v1",
+    aggregate: decision.next,
+  });
+  if (
+    decision.next.runVersion !== current.runVersion + 1n
+    || decision.next.runId !== current.runId
+    || !persistedValueEqual(
+      nextModel.definitionReference,
+      currentModel.definitionReference,
+    )
+    || decision.next.createdAtMs !== current.createdAtMs
+    || !persistedValueEqual(decision.next.boundPolicy, current.boundPolicy)
+  ) throw rollbackDecisionError(invalidDecision(
+    request, current, "next_state_invalid",
+  ));
+  const preparedAggregate = Result.getOrThrowWith(Result.gen(function* () {
+    const aggregateJson = yield* encodeApplicationTaskRunAttemptAggregateJsonV1(
+      decision.next,
+    );
+    const next = yield* decodeApplicationTaskRunAttemptAggregateJsonV1(
+      aggregateJson,
+    );
+    return { aggregateJson, next };
+  }), () => rollbackDecisionError(
+    invalidDecision(request, current, "next_state_invalid"),
+  ));
+  const { aggregateJson, next } = preparedAggregate;
+  const acceptance = next.lastLifecycleAcceptance;
+  if (
+    acceptance === null
+    || acceptance.kind !== request.operation
+    || acceptance.accepted.observedAtMs !== databaseNowMs
+    || !persistedValueEqual(acceptance.accepted.outcome, decision.outcome)
+    || !persistedValueEqual(acceptance.accepted.evidence, decision.evidence)
+    || !persistedValueEqual(
+      acceptance.accepted.requestedEffects,
+      decision.requestedEffects,
+    )
+  ) throw rollbackDecisionError(invalidDecision(
+    request, current, "acceptance_invalid",
+  ));
+  const firstSequence = current.requestedEffectCursor.kind === "none"
+    ? 1n
+    : current.requestedEffectCursor.lastSequence + 1n;
+  if (decision.requestedEffects.length === 0
+    || decision.requestedEffects[0]?.sequence !== firstSequence) {
+    throw rollbackDecisionError(invalidDecision(
+      request, current, "effect_order_invalid",
+    ));
+  }
+  const effects = decision.requestedEffects.map((persisted, index) => {
+    if (
+      persisted.sequence !== firstSequence + BigInt(index)
+      || persisted.effect.runId !== current.runId
+      || persisted.effect.acceptedRunVersion !== next.runVersion
+    ) throw rollbackDecisionError(invalidDecision(
+      request, current, "effect_order_invalid",
+    ));
+    const payloadJson = Result.getOrThrowWith(
+      encodeApplicationPersistedTaskRequestedEffectJsonV1(persisted),
+      () => rollbackDecisionError(invalidDecision(
+        request, current, "effect_order_invalid",
+      )),
+    );
+    return Object.freeze({
+      persisted,
+      payloadJson,
+      payloadByteLength: encodedJsonByteLength(payloadJson),
+    });
+  });
+  const projection = projectApplicationTaskRunAttemptPersistenceV1(next);
+  const lastSequence = effects.at(-1)?.persisted.sequence;
+  if (lastSequence === undefined
+    || BigInt(projection.requestedEffectSequence) !== BigInt(lastSequence)) {
+    throw rollbackDecisionError(invalidDecision(
+      request, current, "effect_order_invalid",
+    ));
+  }
+  const attemptIdentity = request.operation === "start_attempt"
+    ? requireAcceptedAttemptIdentity(request, current, next, candidate)
+    : null;
+  return Object.freeze({
+    next,
+    projection,
+    aggregateJson,
+    aggregateByteLength: encodedJsonByteLength(aggregateJson),
+    attemptIdentity,
+    effects: Object.freeze(effects),
+  });
+}
+
 function requireAcceptedAttemptIdentity<Outcome>(
-  request: TaskSystemRunAttemptTransactionV1<Outcome>,
-  current: TaskRunAttemptAggregateV1,
-  next: TaskRunAttemptAggregateV1,
+  request: TaskSystemRunAttemptTransactionV1<Outcome>
+    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
+  next: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
   candidate: TaskAttemptGrantCandidateV1 | null,
 ): TaskAttemptGrantCandidateV1 {
   if (
@@ -753,7 +1275,7 @@ function requireAcceptedAttemptIdentity<Outcome>(
 }
 
 function isStoredAcceptanceReplay<Outcome>(
-  current: TaskRunAttemptAggregateV1,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
   replay: unknown,
 ): boolean {
   if (
@@ -766,8 +1288,9 @@ function isStoredAcceptanceReplay<Outcome>(
 }
 
 function invalidDecision<Outcome>(
-  request: TaskSystemRunAttemptTransactionV1<Outcome>,
-  current: TaskRunAttemptAggregateV1,
+  request: TaskSystemRunAttemptTransactionV1<Outcome>
+    | ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+  current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
   reason: InvalidRunAttemptTransitionError["reason"],
 ): InvalidRunAttemptTransitionError {
   return new InvalidRunAttemptTransitionError({
@@ -791,6 +1314,25 @@ function snapshotReceipt<Outcome>(
   request: TaskSystemRunAttemptTransactionV1<Outcome>,
 ): Result.Result<
   TaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  TaskSystemRunAttemptTerminalStoreError
+> {
+  try {
+    return Result.succeed(snapshotOwned(receipt));
+  } catch (cause) {
+    return Result.fail(new TaskSystemRunAttemptTerminalStoreError({
+      operation: request.operation,
+      runId: request.runId,
+      reason: "serialization_unsupported",
+      cause,
+    }));
+  }
+}
+
+function snapshotApplicationReceipt<Outcome>(
+  receipt: ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
+  request: ApplicationTaskSystemRunAttemptTransactionV1<Outcome>,
+): Result.Result<
+  ApplicationTaskSystemRunAttemptTransactionReceiptV1<Outcome>,
   TaskSystemRunAttemptTerminalStoreError
 > {
   try {

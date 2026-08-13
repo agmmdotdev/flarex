@@ -176,7 +176,7 @@
                                                  "stored policy corruption"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "56c42237ed7bdd89b9992ec06ec7b9c344a3799fe23feb6fe12ed7e8d70539bf",
+                        "targetSha256":  "190cca6c94798143b697b33163afe979e6e9cc3ac4afffecab68a0f72818fdca",
                         "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
                         "changeReceipt":  "AA-R6 Task 5b1b.i.b exact recursive Legacy and Application aggregate, receipt, evidence, effect, and replay schemas"
                     },
@@ -296,7 +296,7 @@
                                                  "stale expected fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
+                        "targetSha256":  "938edeac3adb2f11ce29e7bc3f86c87d8d16fa15b4e4fb5a0284668d363ca88e",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -328,7 +328,7 @@
                                                  "terminal outbox recovery"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
+                        "targetSha256":  "938edeac3adb2f11ce29e7bc3f86c87d8d16fa15b4e4fb5a0284668d363ca88e",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -363,7 +363,7 @@
                                                  "lease expiry racing completion"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
+                        "targetSha256":  "938edeac3adb2f11ce29e7bc3f86c87d8d16fa15b4e4fb5a0284668d363ca88e",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -396,7 +396,7 @@
                                                  "terminal failure effect recovery"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
+                        "targetSha256":  "938edeac3adb2f11ce29e7bc3f86c87d8d16fa15b4e4fb5a0284668d363ca88e",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -483,7 +483,7 @@
                                                  "evidence rollback with transition"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "5265cba98935c667e0c113533955d496fef93a3bf8514528b7002d44d2961051",
+                        "targetSha256":  "4bb9d1f57afbf136501d65ba5c25ea9855ce1ded55d76c41eb36789a1ba0d61c",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -575,7 +575,7 @@
                                                  "worker loss retry exhaustion"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
+                        "targetSha256":  "938edeac3adb2f11ce29e7bc3f86c87d8d16fa15b4e4fb5a0284668d363ca88e",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -618,7 +618,7 @@
                                                  "effect intent atomicity"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "5265cba98935c667e0c113533955d496fef93a3bf8514528b7002d44d2961051",
+                        "targetSha256":  "4bb9d1f57afbf136501d65ba5c25ea9855ce1ded55d76c41eb36789a1ba0d61c",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -649,7 +649,7 @@
                                                  "consumer fetches accepted fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "3fd677b1ea32ed2fddbe549e8c924801564c4baee824618fbf5e8a3e68a39ac5",
+                        "targetSha256":  "4ebe82f3291f1c950cd5228cb2e51f749ed308b721538d661befa12c4dc28817",
                         "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
                         "changeReceipt":  "AA-R6 Task 5b1b.i.b recursive aggregate, receipt, evidence, effect, and replay identity projections"
                     },

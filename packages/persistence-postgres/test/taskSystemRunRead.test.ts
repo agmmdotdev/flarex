@@ -96,14 +96,15 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
       }))).toEqual([
         {
           name: "discoverDueRuns",
-          tail: ` from "fx_system_durable_task_run_v1" where ("fx_system_durable_task_run_v1"."scope_id" = $1 and "fx_system_durable_task_run_v1"."due_kind" = $2 and "fx_system_durable_task_run_v1"."due_at_ms" <= $3) order by "fx_system_durable_task_run_v1"."due_at_ms" asc, "fx_system_durable_task_run_v1"."run_id" asc limit $4`,
-          params: [TASK_SCOPE_ID, "start_attempt", BigInt(first.throughMs), 2],
+          tail: ` from "fx_system_durable_task_run_v1" where ("fx_system_durable_task_run_v1"."scope_id" = $1 and "fx_system_durable_task_run_v1"."definition_generation" = $2 and "fx_system_durable_task_run_v1"."due_kind" = $3 and "fx_system_durable_task_run_v1"."due_at_ms" <= $4) order by "fx_system_durable_task_run_v1"."due_at_ms" asc, "fx_system_durable_task_run_v1"."run_id" asc limit $5`,
+          params: [TASK_SCOPE_ID, "legacy_definition_v1", "start_attempt", BigInt(first.throughMs), 2],
         },
         {
           name: "discoverDueRuns",
-          tail: ` from "fx_system_durable_task_run_v1" where ("fx_system_durable_task_run_v1"."scope_id" = $1 and "fx_system_durable_task_run_v1"."due_kind" = $2 and "fx_system_durable_task_run_v1"."due_at_ms" <= $3 and ("fx_system_durable_task_run_v1"."due_at_ms" > $4 or ("fx_system_durable_task_run_v1"."due_at_ms" = $5 and "fx_system_durable_task_run_v1"."run_id" > $6))) order by "fx_system_durable_task_run_v1"."due_at_ms" asc, "fx_system_durable_task_run_v1"."run_id" asc limit $7`,
+          tail: ` from "fx_system_durable_task_run_v1" where ("fx_system_durable_task_run_v1"."scope_id" = $1 and "fx_system_durable_task_run_v1"."definition_generation" = $2 and "fx_system_durable_task_run_v1"."due_kind" = $3 and "fx_system_durable_task_run_v1"."due_at_ms" <= $4 and ("fx_system_durable_task_run_v1"."due_at_ms" > $5 or ("fx_system_durable_task_run_v1"."due_at_ms" = $6 and "fx_system_durable_task_run_v1"."run_id" > $7))) order by "fx_system_durable_task_run_v1"."due_at_ms" asc, "fx_system_durable_task_run_v1"."run_id" asc limit $8`,
           params: [
             TASK_SCOPE_ID,
+            "legacy_definition_v1",
             "start_attempt",
             BigInt(first.throughMs),
             0n,
@@ -114,9 +115,10 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
         },
         {
           name: "discoverDueRuns",
-          tail: ` from "fx_system_durable_task_run_v1" where ("fx_system_durable_task_run_v1"."scope_id" = $1 and "fx_system_durable_task_run_v1"."due_kind" = $2 and "fx_system_durable_task_run_v1"."due_at_ms" <= $3 and ("fx_system_durable_task_run_v1"."due_at_ms" > $4 or ("fx_system_durable_task_run_v1"."due_at_ms" = $5 and "fx_system_durable_task_run_v1"."run_id" > $6))) order by "fx_system_durable_task_run_v1"."due_at_ms" asc, "fx_system_durable_task_run_v1"."run_id" asc limit $7`,
+          tail: ` from "fx_system_durable_task_run_v1" where ("fx_system_durable_task_run_v1"."scope_id" = $1 and "fx_system_durable_task_run_v1"."definition_generation" = $2 and "fx_system_durable_task_run_v1"."due_kind" = $3 and "fx_system_durable_task_run_v1"."due_at_ms" <= $4 and ("fx_system_durable_task_run_v1"."due_at_ms" > $5 or ("fx_system_durable_task_run_v1"."due_at_ms" = $6 and "fx_system_durable_task_run_v1"."run_id" > $7))) order by "fx_system_durable_task_run_v1"."due_at_ms" asc, "fx_system_durable_task_run_v1"."run_id" asc limit $8`,
           params: [
             TASK_SCOPE_ID,
+            "legacy_definition_v1",
             "start_attempt",
             BigInt(first.throughMs),
             0n,

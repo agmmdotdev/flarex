@@ -185,7 +185,7 @@ export async function assertTaskSystemSchemaContractV1(
 
   await persistence.query(`
     insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, task_definition_revision_id, created_at_ms,
+      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
       creation_authority_codec_version, creation_authority_byte_length,
@@ -196,7 +196,7 @@ export async function assertTaskSystemSchemaContractV1(
       current_lease_expires_at_ms, cancellation_generation,
       requested_effect_sequence
     ) values (
-      '${SCOPE_A}', '${RUN_ID}', '${TASK_DEFINITION_ID}', 1000,
+      '${SCOPE_A}', '${RUN_ID}', 'legacy_definition_v1', '${TASK_DEFINITION_ID}', 1000,
       'flarex.task-input-reference.v1',
       'flarex.task-input-object-store.v1', 'flarex-value/v1',
       'durable-task-input/v1/sha256/' || repeat('44', 32),
@@ -303,7 +303,9 @@ export async function assertTaskSystemSchemaContractV1(
     `insert into fx_system_durable_task_run_v1
        select '${SCOPE_B}',
          'run_70000000-0000-4000-8000-000000000006',
-         task_definition_revision_id, created_at_ms, input_codec, input_store,
+         definition_generation, task_definition_revision_id,
+         application_task_runtime_target_sha256,
+         created_at_ms, input_codec, input_store,
          input_value_codec, input_object_key, input_byte_length, input_sha256,
          input_retention, creation_authority_codec_version,
          creation_authority_byte_length, creation_authority_sha256,

@@ -20,6 +20,7 @@ import {
 import {
   MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1,
   MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
+  type ApplicationTaskRunAttemptPersistenceProjectionV1,
   type TaskAttemptIdV1,
   type TaskAttemptNumberV1,
   type TaskCancellationGenerationV1,
@@ -38,6 +39,7 @@ import {
   MAX_TASK_INPUT_CANONICAL_BYTES_V1,
   type TaskInputSha256V1,
   type TaskRunCreationAuthoritySha256V1,
+  type ApplicationTaskRuntimeTargetSha256V1,
   type TaskRunCreationRequestKeySha256V1,
   type TaskRunCreationRequestSha256V1,
 } from "@flarex/durable-task/internal/run-creation-v1";
@@ -6927,9 +6929,14 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
   {
     scopeId: text("scope_id").$type<ScopeId>().notNull(),
     runId: text("run_id").$type<TaskRunIdV1>().notNull(),
-    taskDefinitionRevisionId: text("task_definition_revision_id")
-      .$type<TaskDefinitionRevisionIdV1>()
+    definitionGeneration: text("definition_generation")
+      .$type<"legacy_definition_v1" | "application_v1">()
       .notNull(),
+    taskDefinitionRevisionId: text("task_definition_revision_id")
+      .$type<TaskDefinitionRevisionIdV1>(),
+    applicationTaskRuntimeTargetSha256: bytea(
+      "application_task_runtime_target_sha256",
+    ).$type<ApplicationTaskRuntimeTargetSha256V1>(),
     createdAtMs: bigint("created_at_ms", { mode: "bigint" }).notNull(),
     inputCodec: text("input_codec").notNull(),
     inputStore: text("input_store").notNull(),
@@ -7002,7 +7009,14 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
     check(
       "fx_task_run_v1_identity_check",
       sql`${table.runId} ~ '^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-        and ${table.taskDefinitionRevisionId} ~ '^taskdef_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        and ((${table.definitionGeneration} = 'legacy_definition_v1'
+              and ${table.taskDefinitionRevisionId} is not null
+              and ${table.taskDefinitionRevisionId} ~ '^taskdef_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+              and ${table.applicationTaskRuntimeTargetSha256} is null)
+          or (${table.definitionGeneration} = 'application_v1'
+              and ${table.taskDefinitionRevisionId} is null
+              and ${table.applicationTaskRuntimeTargetSha256} is not null
+              and octet_length(${table.applicationTaskRuntimeTargetSha256}) = 32))
         and ${table.createdAtMs} between 0 and 9007199254740991`,
     ),
     check(
@@ -7330,9 +7344,14 @@ export const fxSystemDurableTaskComputeDispatchesV1 = pgTable(
     acceptedRunVersion: bigint("accepted_run_version", { mode: "bigint" })
       .$type<TaskRunVersionV1>()
       .notNull(),
-    taskDefinitionRevisionId: text("task_definition_revision_id")
-      .$type<TaskDefinitionRevisionIdV1>()
+    definitionGeneration: text("definition_generation")
+      .$type<"legacy_definition_v1" | "application_v1">()
       .notNull(),
+    taskDefinitionRevisionId: text("task_definition_revision_id")
+      .$type<TaskDefinitionRevisionIdV1>(),
+    applicationTaskRuntimeTargetSha256: bytea(
+      "application_task_runtime_target_sha256",
+    ).$type<ApplicationTaskRuntimeTargetSha256V1>(),
     attemptId: text("attempt_id").$type<TaskAttemptIdV1>().notNull(),
     attemptNumber: integer("attempt_number")
       .$type<TaskAttemptNumberV1>()
@@ -7453,7 +7472,14 @@ export const fxSystemDurableTaskComputeDispatchesV1 = pgTable(
       sql`${table.runId} ~ '^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
         and ${table.requestedEffectSequence} >= 1
         and ${table.acceptedRunVersion} >= 1
-        and ${table.taskDefinitionRevisionId} ~ '^taskdef_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        and ((${table.definitionGeneration} = 'legacy_definition_v1'
+              and ${table.taskDefinitionRevisionId} is not null
+              and ${table.taskDefinitionRevisionId} ~ '^taskdef_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+              and ${table.applicationTaskRuntimeTargetSha256} is null)
+          or (${table.definitionGeneration} = 'application_v1'
+              and ${table.taskDefinitionRevisionId} is null
+              and ${table.applicationTaskRuntimeTargetSha256} is not null
+              and octet_length(${table.applicationTaskRuntimeTargetSha256}) = 32))
         and ${table.attemptId} ~ '^attempt_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
         and ${table.attemptNumber} between 1 and 250
         and ${table.executionFence} >= 1

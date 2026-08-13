@@ -1,6 +1,9 @@
 import {
+  decodeApplicationPersistedTaskRequestedEffectJsonV1,
   decodePersistedTaskRequestedEffectJsonV1,
   encodePersistedTaskRequestedEffectJsonV1,
+  encodeApplicationPersistedTaskRequestedEffectJsonV1,
+  type ApplicationPersistedTaskRequestedEffectV1,
   type PersistedTaskRequestedEffectV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import { Result } from "effect";
@@ -39,8 +42,36 @@ export function decodeAndCorrelateTaskSystemRequestedEffectRowV1(
   });
 }
 
+export function decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1(
+  row: TaskSystemRequestedEffectRowV1,
+): Result.Result<
+  ApplicationPersistedTaskRequestedEffectV1,
+  "effect_sequence_invalid"
+> {
+  if (row.payloadCodecVersion !== 1) {
+    return Result.fail("effect_sequence_invalid");
+  }
+  return Result.gen(function* () {
+    const effect = yield* decodeApplicationPersistedTaskRequestedEffectJsonV1(
+      row.payloadJson,
+    ).pipe(Result.mapError(() => "effect_sequence_invalid" as const));
+    const canonical = yield* encodeApplicationPersistedTaskRequestedEffectJsonV1(
+      effect,
+    ).pipe(Result.mapError(() => "effect_sequence_invalid" as const));
+    if (
+      row.sequence !== effect.sequence
+      || row.runId !== effect.effect.runId
+      || row.acceptedRunVersion !== effect.effect.acceptedRunVersion
+      || row.kind !== effect.effect.kind
+      || row.notBeforeMs !== taskSystemRequestedEffectNotBeforeMsV1(effect)
+      || row.payloadByteLength !== encodedJsonByteLength(canonical)
+    ) return yield* Result.fail("effect_sequence_invalid" as const);
+    return effect;
+  });
+}
+
 export function taskSystemRequestedEffectNotBeforeMsV1(
-  effect: PersistedTaskRequestedEffectV1,
+  effect: PersistedTaskRequestedEffectV1 | ApplicationPersistedTaskRequestedEffectV1,
 ): bigint | null {
   switch (effect.effect.kind) {
     case "continue_retry":

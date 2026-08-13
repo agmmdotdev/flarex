@@ -503,7 +503,9 @@ async function transactCreationOnce(
   await tx.insert(fxSystemDurableTaskRunsV1).values({
     scopeId: authority.scopeId,
     runId,
+    definitionGeneration: "legacy_definition_v1",
     taskDefinitionRevisionId: prepared.request.taskDefinitionRevisionId,
+    applicationTaskRuntimeTargetSha256: null,
     createdAtMs: BigInt(createdAtMs),
     inputCodec: prepared.request.input.codec,
     inputStore: prepared.request.input.store,
@@ -595,13 +597,19 @@ async function replayExistingCreation(
       reason: "run_row_invalid",
     }));
   }
-  Result.getOrThrowWith(
+  const decodedRun = Result.getOrThrowWith(
     decodeAndCorrelateTaskSystemRunRowV1(run),
     () => creationRollback(new TaskSystemRunCreationCorruptionError({
       operation: "create_run",
       reason: "run_row_invalid",
     })),
   );
+  if (decodedRun.generation !== "legacy_definition_v1") {
+    throw creationRollback(new TaskSystemRunCreationCorruptionError({
+      operation: "create_run",
+      reason: "run_row_invalid",
+    }));
+  }
   const storedAuthority = Result.getOrThrowWith(
     decodeTaskRunCreationAuthorityReceiptPreimageV1(
       run.creationAuthorityBytes,

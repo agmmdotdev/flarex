@@ -34,10 +34,14 @@ import {
 export async function seedTaskComputeDeliverySchemaV1(
   persistence: Pick<FlarexSqlClient, "query">,
   parent?: TaskSystemRunAttemptParentV1,
+  options: Readonly<{ readonly legacySchema?: boolean }> = {},
 ) {
   const seeded = await seedTaskSystemRunAttemptStoreV1(
     persistence,
-    parent === undefined ? {} : { parent },
+    {
+      ...(parent === undefined ? {} : { parent }),
+      ...(options.legacySchema === true ? { legacySchema: true } : {}),
+    },
   );
   const evidence = await makeCanonicalTaskComputeDeliveryEvidenceV1(
     seeded.scopeId,
@@ -58,6 +62,7 @@ export async function seedTaskComputeDeliverySchemaV1(
   await persistence.query(`
     insert into fx_system_durable_task_compute_dispatch_v1 (
       scope_id, run_id, requested_effect_sequence, accepted_run_version,
+      ${options.legacySchema === true ? "" : "definition_generation,"}
       task_definition_revision_id, attempt_id, attempt_number,
       execution_fence, lease_version, compute_profile_codec_version,
       compute_profile_byte_length, compute_profile_bytes, cancellation_kind,
@@ -66,6 +71,7 @@ export async function seedTaskComputeDeliverySchemaV1(
       request_bytes, delivery_state, claim_fence, delivery_attempt_count
     ) values (
       $1, $2, 1, 1,
+      ${options.legacySchema === true ? "" : "'legacy_definition_v1',"}
       'taskdef_72000000-0000-4000-8000-000000000002',
       'attempt_72000000-0000-4000-8000-000000000005', 1,
       1, 1, $3, $4, $5, 'not_requested', 0, 300000,

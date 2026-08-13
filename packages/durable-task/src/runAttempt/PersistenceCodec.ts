@@ -2,11 +2,16 @@ import type { Json, JsonObject } from "flarex-protocol/json";
 import { measureCanonicalJsonUtf8Bytes } from "flarex-protocol/json";
 import { Data, Encoding, Result, Schema } from "effect";
 import type {
+  ApplicationPersistedTaskRequestedEffectV1,
+  ApplicationTaskRunAttemptAggregateV1,
   PersistedTaskRequestedEffectV1,
   TaskRunAttemptAggregateV1,
 } from "./Model.js";
 import {
+  ApplicationPersistedTaskRequestedEffectV1Schema,
+  decodeApplicationTaskRunAttemptAggregateV1,
   decodeTaskRunAttemptAggregateV1,
+  encodeApplicationTaskRunAttemptAggregateV1,
   encodeTaskRunAttemptAggregateV1,
   PersistedTaskRequestedEffectV1Schema,
 } from "./Schema.js";
@@ -75,6 +80,16 @@ const decodePersistedRequestedEffectSchemaV1 = Schema.decodeUnknownResult(
   PersistedTaskRequestedEffectV1Schema,
   STRICT_PARSE_OPTIONS,
 );
+const encodeApplicationPersistedRequestedEffectSchemaV1 =
+  Schema.encodeUnknownResult(
+    ApplicationPersistedTaskRequestedEffectV1Schema,
+    STRICT_PARSE_OPTIONS,
+  );
+const decodeApplicationPersistedRequestedEffectSchemaV1 =
+  Schema.decodeUnknownResult(
+    ApplicationPersistedTaskRequestedEffectV1Schema,
+    STRICT_PARSE_OPTIONS,
+  );
 
 type JsonConversionIssueV1 =
   | { readonly kind: "invalid_extended_json_tag" }
@@ -518,7 +533,8 @@ function encodeOwnedPersistenceJsonValueV1(
       }
       entries.push([key, yield* encodeOwnedPersistenceJsonValueV1(
         descriptor.value,
-        commitment && key === "sha256",
+        (commitment && key === "sha256")
+          || key === "applicationTaskRuntimeTargetSha256",
       )]);
     }
     return freezeOwnedJsonObject(entries);
@@ -608,7 +624,8 @@ function decodeOwnedPersistenceJsonValueV1(
           kind: "domain_encoding_not_json" as const,
         });
       }
-      owned[key] = commitment && key === "sha256"
+      owned[key] = (commitment && key === "sha256")
+        || key === "applicationTaskRuntimeTargetSha256"
         ? yield* decodeTaskResultSha256WrapperV1(descriptor.value)
         : yield* decodeOwnedPersistenceJsonValueV1(descriptor.value as Json);
     }
@@ -750,6 +767,49 @@ export function decodePersistedTaskRunAttemptAggregateJsonV1(
   });
 }
 
+export function encodeApplicationTaskRunAttemptAggregateJsonV1(
+  aggregate: ApplicationTaskRunAttemptAggregateV1,
+): Result.Result<PersistedTaskRunAttemptAggregateJsonV1, TaskPersistenceCodecErrorV1> {
+  const operation = "encode_aggregate" as const;
+  return Result.gen(function* () {
+    const payload = yield* encodeDomainPayloadV1(
+      encodeApplicationTaskRunAttemptAggregateV1(aggregate),
+      operation,
+    );
+    const envelope = Object.freeze({
+      codec: TASK_RUN_ATTEMPT_PERSISTED_JSON_CODEC_V1,
+      aggregate: payload,
+    });
+    yield* measureEnvelopeV1(
+      envelope,
+      MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
+      operation,
+    );
+    return envelope;
+  });
+}
+
+export function decodeApplicationTaskRunAttemptAggregateJsonV1(
+  input: unknown,
+): Result.Result<ApplicationTaskRunAttemptAggregateV1, TaskPersistenceCodecErrorV1> {
+  const operation = "decode_aggregate" as const;
+  return Result.gen(function* () {
+    const payload = yield* decodeEnvelopePayloadV1(
+      input,
+      operation,
+      TASK_RUN_ATTEMPT_PERSISTED_JSON_CODEC_V1,
+      "aggregate",
+      MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
+    );
+    return yield* decodeApplicationTaskRunAttemptAggregateV1(payload).pipe(
+      Result.mapError((cause) => persistenceCodecError(operation, {
+        kind: "domain_value_invalid",
+        cause,
+      })),
+    );
+  });
+}
+
 export function encodePersistedTaskRequestedEffectJsonV1(
   effect: PersistedTaskRequestedEffectV1,
 ): Result.Result<
@@ -788,6 +848,49 @@ export function decodePersistedTaskRequestedEffectJsonV1(
       MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1,
     );
     return yield* decodePersistedRequestedEffectSchemaV1(payload).pipe(
+      Result.mapError((cause) => persistenceCodecError(operation, {
+        kind: "domain_value_invalid",
+        cause,
+      })),
+    );
+  });
+}
+
+export function encodeApplicationPersistedTaskRequestedEffectJsonV1(
+  effect: ApplicationPersistedTaskRequestedEffectV1,
+): Result.Result<PersistedTaskRequestedEffectJsonV1, TaskPersistenceCodecErrorV1> {
+  const operation = "encode_requested_effect" as const;
+  return Result.gen(function* () {
+    const payload = yield* encodeDomainPayloadV1(
+      encodeApplicationPersistedRequestedEffectSchemaV1(effect),
+      operation,
+    );
+    const envelope = Object.freeze({
+      codec: TASK_REQUESTED_EFFECT_PERSISTED_JSON_CODEC_V1,
+      effect: payload,
+    });
+    yield* measureEnvelopeV1(
+      envelope,
+      MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1,
+      operation,
+    );
+    return envelope;
+  });
+}
+
+export function decodeApplicationPersistedTaskRequestedEffectJsonV1(
+  input: unknown,
+): Result.Result<ApplicationPersistedTaskRequestedEffectV1, TaskPersistenceCodecErrorV1> {
+  const operation = "decode_requested_effect" as const;
+  return Result.gen(function* () {
+    const payload = yield* decodeEnvelopePayloadV1(
+      input,
+      operation,
+      TASK_REQUESTED_EFFECT_PERSISTED_JSON_CODEC_V1,
+      "effect",
+      MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1,
+    );
+    return yield* decodeApplicationPersistedRequestedEffectSchemaV1(payload).pipe(
       Result.mapError((cause) => persistenceCodecError(operation, {
         kind: "domain_value_invalid",
         cause,

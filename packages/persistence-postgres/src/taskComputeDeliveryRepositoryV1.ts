@@ -1640,7 +1640,9 @@ async function acquireDispatchTransaction(
       runId: request.runId,
       requestedEffectSequence: request.requestedEffectSequence,
       acceptedRunVersion: persistedEffect.effect.acceptedRunVersion,
+      definitionGeneration: "legacy_definition_v1",
       taskDefinitionRevisionId: currentRequest.taskDefinitionRevisionId,
+      applicationTaskRuntimeTargetSha256: null,
       attemptId: currentRequest.identity.attemptId,
       attemptNumber: currentRequest.attemptNumber,
       executionFence: currentRequest.identity.executionFence,
@@ -3719,10 +3721,14 @@ function decodeRun(
     runId,
     "aggregate_invalid",
   ));
-  return Result.getOrThrowWith(
+  const decoded = Result.getOrThrowWith(
     decodeAndCorrelateTaskSystemRunRowV1(row),
     () => rollback(corruption(operation, runId, "aggregate_invalid")),
   );
+  if (decoded.generation !== "legacy_definition_v1") {
+    throw rollback(corruption(operation, runId, "aggregate_invalid"));
+  }
+  return decoded.aggregate;
 }
 
 async function loadRequestedEffect(
@@ -3895,7 +3901,9 @@ async function loadImmutablePreparation(
   readonly inputReference: TaskInputReferenceV1;
 }>> {
   if (
-    run.taskDefinitionRevisionId
+    run.definitionGeneration !== "legacy_definition_v1"
+    || run.taskDefinitionRevisionId === null
+    || run.taskDefinitionRevisionId
       !== persistedEffect.effect.taskDefinitionRevisionId
   ) {
     throw rollback(corruption(
@@ -3904,13 +3912,14 @@ async function loadImmutablePreparation(
       "definition_invalid",
     ));
   }
+  const taskDefinitionRevisionId = run.taskDefinitionRevisionId;
   const definitionRows = await statement(operation, () => tx.select().from(
     fxSystemDurableTaskDefinitionRevisionsV1,
   ).where(and(
     eq(fxSystemDurableTaskDefinitionRevisionsV1.scopeId, scopeId),
     eq(
       fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
-      run.taskDefinitionRevisionId,
+      taskDefinitionRevisionId,
     ),
   )).limit(1));
   const definition = definitionRows[0];
@@ -4249,7 +4258,10 @@ async function decodeAndCorrelateDispatchCheckpoint(
   runId: TaskRunIdV1,
 ): Promise<TaskComputeDispatchRequestV1> {
   if (
-    row.requestCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
+    row.definitionGeneration !== "legacy_definition_v1"
+    || row.taskDefinitionRevisionId === null
+    || row.applicationTaskRuntimeTargetSha256 !== null
+    || row.requestCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
     || row.requestByteLength !== BigInt(row.requestBytes.byteLength)
     || row.requestSha256.byteLength !== 32
     || row.computeProfileCodecVersion !== TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1

@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 import { createPGlitePersistence } from "../src/pglite";
+import { seedTaskComputeDeliverySchemaV1 } from
+  "./taskComputeDeliverySchemaV1TestSupport";
 import {
   insertSessionTestScope,
   insertTransactionSessionFixture,
@@ -156,6 +158,101 @@ describe("createPGlitePersistence", () => {
       },
     ]);
   });
+
+  it("upgrades existing Task rows to the explicit Legacy definition generation", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-task-generation-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const journalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journal = JSON.parse(await readFile(journalPath, "utf8")) as {
+        entries?: Array<{ idx?: number }>;
+      };
+      if (!Array.isArray(journal.entries)) {
+        throw new Error("Current Drizzle journal is missing its entries array.");
+      }
+      journal.entries = journal.entries.filter(entry =>
+        entry.idx !== undefined && entry.idx < 63
+      );
+      await writeFile(journalPath, `${JSON.stringify(journal, null, 2)}\n`, "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await seedTaskComputeDeliverySchemaV1(previous, undefined, {
+        legacySchema: true,
+      });
+      await copyFile(
+        resolve(currentMigrationsFolder, "meta/_journal.json"),
+        journalPath,
+      );
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      await current.migrate();
+      const upgraded = await current.query<{
+        run_generation: string;
+        run_application_digest: Uint8Array | null;
+        dispatch_generation: string;
+        dispatch_application_digest: Uint8Array | null;
+      }>(`
+        select
+          run.definition_generation as run_generation,
+          run.application_task_runtime_target_sha256 as run_application_digest,
+          dispatch.definition_generation as dispatch_generation,
+          dispatch.application_task_runtime_target_sha256 as dispatch_application_digest
+        from fx_system_durable_task_run_v1 as run
+        join fx_system_durable_task_compute_dispatch_v1 as dispatch
+          on dispatch.scope_id = run.scope_id and dispatch.run_id = run.run_id
+      `);
+      expect(upgraded.rows).toEqual([{
+        run_generation: "legacy_definition_v1",
+        run_application_digest: null,
+        dispatch_generation: "legacy_definition_v1",
+        dispatch_application_digest: null,
+      }]);
+      await expect(current.query(`
+        update fx_system_durable_task_run_v1
+        set definition_generation = 'unknown'
+      `)).rejects.toThrow(/fx_task_run_v1_identity_check/);
+      await expect(current.query(`
+        update fx_system_durable_task_run_v1
+        set task_definition_revision_id = null
+      `)).rejects.toThrow(/fx_task_run_v1_identity_check/);
+      await expect(current.query(`
+        update fx_system_durable_task_run_v1
+        set definition_generation = 'application_v1',
+            task_definition_revision_id = null,
+            application_task_runtime_target_sha256 = null
+      `)).rejects.toThrow(/fx_task_run_v1_identity_check/);
+      await expect(current.query(`
+        update fx_system_durable_task_run_v1
+        set definition_generation = 'application_v1',
+            application_task_runtime_target_sha256 = decode(repeat('ab', 32), 'hex')
+      `)).rejects.toThrow(/fx_task_run_v1_identity_check/);
+      await expect(current.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set task_definition_revision_id = null
+      `)).rejects.toThrow(/fx_task_compute_dispatch_v1_identity_check/);
+      await expect(current.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set definition_generation = 'application_v1',
+            task_definition_revision_id = null,
+            application_task_runtime_target_sha256 = null
+      `)).rejects.toThrow(/fx_task_compute_dispatch_v1_identity_check/);
+      await expect(current.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set definition_generation = 'application_v1',
+            application_task_runtime_target_sha256 = decode(repeat('ab', 32), 'hex')
+      `)).rejects.toThrow(/fx_task_compute_dispatch_v1_identity_check/);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
 
   it("upgrades a pre-0060 legacy transaction session without changing its authority", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-aa-r6-upgrade-"));

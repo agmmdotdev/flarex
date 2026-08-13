@@ -990,7 +990,9 @@ function legacyDecisionInput(
 ): CurrentDecisionInput {
   return {
     databaseNowMs: input.databaseNowMs,
-    attemptGrantCandidate: input.attemptGrantCandidate,
+    get attemptGrantCandidate() {
+      return input.attemptGrantCandidate;
+    },
     current: toCurrentTaskRunAttemptAggregate({
       generation: "legacy_definition_v1",
       aggregate: input.current,
@@ -1038,7 +1040,9 @@ function applicationDecisionInput(
     })),
     Result.map((ownedCurrent) => ({
       databaseNowMs: input.databaseNowMs,
-      attemptGrantCandidate: input.attemptGrantCandidate,
+      get attemptGrantCandidate() {
+        return input.attemptGrantCandidate;
+      },
       current: ownedCurrent,
       validateCandidate,
     })),
