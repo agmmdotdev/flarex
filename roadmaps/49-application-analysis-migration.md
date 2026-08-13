@@ -2604,6 +2604,100 @@ Then migrate readiness and activation:
 This gate may adapt the narrow inputs supplied to existing runtime and
 transaction owners. It must not modify their authority or execution semantics.
 
+#### AA-R6 action checkpoint 4 authority-generation preflight and accepted amendment
+
+The completed query and mutation cuts leave the private Standard action on the
+displaced path. `invokeStandardApplicationActionV1` still reads
+`ApplicationRevisionV1`, `ApplicationActionSystemV1` still claims a
+candidate-bound action target, and admission still materializes Declarative V2
+runtime artifacts. Its durable invocation row requires
+`applicationRevisionId`, `candidateSha256`, and `actionBindingSha256` and has a
+foreign key to Application Revision V1. None of those values exists in the new
+Application active basis, so mapping the new runtime-target digest into an old
+column would manufacture compatibility evidence and is rejected.
+
+The source audit also corrects the earlier implication that a distinct
+Application action lifecycle needs a second invocation table. The current
+invocation row owns generic request-key, execution-fence, cancellation,
+external-effect ordinal, result, and terminal state. The shared external-effect
+owner has no foreign key to that row, but its operations deliberately lock and
+advance the current invocation parent before inserting or transitioning effect
+evidence. A second parent table would therefore duplicate lifecycle logic or
+add a table-selection branch to every effect operation without introducing a
+new semantic lifecycle.
+
+The accepted simpler design keeps one action invocation lifecycle table and
+makes only its execution-authority evidence an exact generation union:
+
+1. `legacy_candidate_bound_v1` retains the existing Application Revision V1,
+   candidate, action-binding, request-frame V1, foreign-key, replay, and host
+   behavior unchanged.
+2. `application_v1` stores one canonical Application action execution authority
+   as owned JSON, canonical bytes, and SHA-256. Its protocol format binds the
+   canonical public-action runtime target, runtime-target digest, activation
+   sequence, active-head digest, and schema version. A distinct action request
+   frame V2 binds that authority digest, execution identity, host policy,
+   canonical argument reference, scope, and request key. It does not reuse or
+   reinterpret the legacy candidate or binding fields.
+3. A database check enforces structural exclusivity. Legacy rows keep the
+   existing foreign key; Application rows have all legacy authority columns
+   null and exact bounded canonical Application evidence present. Unknown,
+   incomplete, mixed, noncanonical, or digest-mismatched branches fail closed.
+4. Claim, cancellation, expiry recovery, request replay, execution fencing,
+   effect ordinals, external-effect uncertainty, result publication, and
+   settlement continue through one lifecycle owner. The process-local direct
+   action subject remains opaque and binds the request identity plus execution
+   generation, so the existing outbound and child-mutation evidence table does
+   not gain a generation branch or a fallback.
+
+This action migration is split into three medium checkpoints:
+
+- **4a — inert authority generation.** Add the action authority and request V2
+  protocol contracts, the additive invocation-row union migration, exact
+  generation-aware persistence materialization, and an active Application
+  action selector that validates the issued selection and stored public-action
+  function under the scope-clock transaction. Exercise admission, replay,
+  conflict, claim, effect, settlement, cancellation, recovery, corruption, and
+  migration behavior for both branches. Do not wire Standard or load a Worker.
+- **4b — Application action host composition.** Read only the authority-pinned
+  Source Artifact root, build the Application Worker definition from its
+  authenticated manifest and runtime target, construct the Application action
+  request, and call `ApplicationExecutionHost.runAction`. Adapt the existing
+  opaque callback bundle, outbound gateway, effect sequencer, and close/drain
+  settlement to the generation-aware subject. Do not retain the
+  candidate-bound R2 runtime artifact path as a fallback or comparison run.
+- **4c — exclusive Standard cut and private proof.** Add the unversioned
+  `ApplicationActionSystem`, make it read the new active Application selection,
+  and change only the compatibility-named Standard action entrypoint to require
+  that service. Rename the displaced service and active-revision reader as
+  explicit Legacy owners for retained tests until `AA-R8`. A reusable PGlite
+  proof covers success, exact replay without another Worker, conflicting key
+  reuse, head movement before admission, head movement after admission retaining
+  the pinned target, external-effect confirmation and uncertainty, child
+  mutation callback evidence, cancellation/expiry recovery, structured
+  Application errors, terminal failure, fresh Worker loads, and no legacy
+  selection or candidate-runtime-artifact access.
+
+Checkpoint 4a must prove fresh and upgrade migration, injected rollback, exact
+legacy-row preservation, exact Application insert/replay, unknown and mixed
+generation rejection, canonical JSON/bytes/SHA correlation, caller-byte
+detachment before asynchronous work, stale active selection rejection, and the
+same external-effect sequencing and fencing on both branches. Checkpoint 4b
+must prove pinned source/manifest/target correlation, runtime-host and
+compatibility-date agreement, bounded argument and result projection,
+callback/outbound close-and-drain order, uncertain-dispatch preservation, and
+fresh Worker loading. Genuine PostgreSQL and the combined cross-consumer
+vertical remain `AA-R7` gates.
+
+Self-review accepts this amendment because it introduces one new authority
+contract but no new lifecycle. The discriminated row makes version skew
+visible, keeps the shipped branch exact, and lets the already accepted effect
+owner remain single and deterministic. Stop and amend before implementation if
+4a requires a derived legacy digest, a second action/effect journal, a mutable
+head read after admission, an Application Worker load, a Standard dependency,
+or any query, mutation OCC/commit, Task System, route, schedule, or production
+change.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
