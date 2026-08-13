@@ -63,10 +63,10 @@ under
 [`preflight/43-task-run-input-object-store.md`](./preflight/43-task-run-input-object-store.md).
 Its TRI1 checkpoint reuses the canonical Flarex Value codec, the existing
 `TaskInputReferenceV1`, and the backend immutable-R2 core behind a private
-publish/read adapter. It does not change this roadmap's run tables or creation
-transaction, and no run creation calls it yet. TRI2 must separately compose
-publish-before-create and prove conservative replay across the R2/PostgreSQL
-boundary.
+publish/read adapter. TRI2 now composes publication before the existing
+run-creation capability and preserves this roadmap's request-key transaction as
+the only database idempotency authority. It changes neither the run tables nor
+the transaction and remains absent from every located or deployable host.
 
 ## Outcome
 

@@ -817,6 +817,40 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the private TRI2 task run-creation coordinator", () => {
+    const coordinator =
+      "packages/flarex-backend/src/taskRunInput/TaskRunCreationCoordinator.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: coordinator,
+      text: `
+        import {
+          InvalidTaskRunCreationRequestError,
+          TaskRunCreationReceiptV1,
+          TaskRunCreationRequestKeyV1,
+          TaskRunCreationRequestV1,
+          decodeTaskRunCreationRequestKeyV1,
+          decodeTaskRunCreationRequestV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import {
+          TaskDefinitionRevisionIdV1,
+          decodeTaskDefinitionRevisionIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import { TaskRunInputStore } from "./TaskRunInputStore.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskRunCreationCoordinator } from "flarex-backend/internal/task-run-creation";
+        import { coordinator } from "./taskRunInput/TaskRunCreationCoordinator.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate Task run creation before located host admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate Task run creation before located host admission.",
+    ]);
+  });
+
   it("keeps the task runtime readiness authority production-inert", () => {
     const authority =
       "packages/flarex-backend/src/taskRuntimeReadiness/Authority.ts";

@@ -31,6 +31,8 @@ const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
 const flarexBackendTaskRunInputStorePath =
   "packages/flarex-backend/src/taskRunInput/TaskRunInputStore.ts";
+const flarexBackendTaskRunCreationCoordinatorPath =
+  "packages/flarex-backend/src/taskRunInput/TaskRunCreationCoordinator.ts";
 const flarexBackendTaskRuntimeReadinessAuthorityPath =
   "packages/flarex-backend/src/taskRuntimeReadiness/Authority.ts";
 const flarexBackendTaskRuntimeReadinessSourcePrefix =
@@ -165,6 +167,21 @@ const admittedFlarexBackendTaskRunInputStoreSymbolsBySpecifier = new Map([
     "makeTaskInputReferenceV1",
   ])],
 ]);
+const admittedFlarexBackendTaskRunCreationCoordinatorSymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/run-creation-v1", new Set([
+      "InvalidTaskRunCreationRequestError",
+      "TaskRunCreationReceiptV1",
+      "TaskRunCreationRequestKeyV1",
+      "TaskRunCreationRequestV1",
+      "decodeTaskRunCreationRequestKeyV1",
+      "decodeTaskRunCreationRequestV1",
+    ])],
+    ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+      "TaskDefinitionRevisionIdV1",
+      "decodeTaskDefinitionRevisionIdV1",
+    ])],
+  ]);
 const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
   new Map([
     ["@flarex/durable-task/internal/compute-provider-v1", new Set([
@@ -704,8 +721,23 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       if (
         specifier !== undefined
         && isProductionSource(relativePath)
+        && isFlarexBackendTaskRunCreationCoordinatorSpecifier(
+          specifier,
+          relativePath,
+        )
+        && relativePath !== flarexBackendTaskRunCreationCoordinatorPath
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate Task run creation before located host admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
         && isFlarexBackendTaskRunInputStoreSpecifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRunInputStorePath
+        && relativePath !== flarexBackendTaskRunCreationCoordinatorPath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1254,6 +1286,20 @@ function isFlarexBackendTaskRunInputStoreSpecifier(specifier, relativePath) {
 }
 
 /** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskRunCreationCoordinatorSpecifier(
+  specifier,
+  relativePath,
+) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-run-creation"
+    || matchesRepositoryModule(
+      resolved,
+      flarexBackendTaskRunCreationCoordinatorPath,
+    );
+}
+
+/** @param {string} specifier @param {string} relativePath */
 function isFlarexBackendTaskRuntimeReadinessSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
@@ -1369,6 +1415,11 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
     specifier,
     node,
   ) || isAdmittedPersistenceTaskImport(relativePath, specifier, node)
+    || isAdmittedFlarexBackendTaskRunCreationCoordinatorImport(
+      relativePath,
+      specifier,
+      node,
+    )
     || isAdmittedFlarexBackendTaskRunInputStoreImport(
       relativePath,
       specifier,
@@ -1379,6 +1430,41 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
       specifier,
       node,
     );
+}
+
+/**
+ * TRI2 admits only its private coordinator as a consumer of the exact request
+ * and definition-revision contracts.
+ *
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedFlarexBackendTaskRunCreationCoordinatorImport(
+  relativePath,
+  specifier,
+  node,
+) {
+  if (
+    relativePath !== flarexBackendTaskRunCreationCoordinatorPath
+    || !ts.isImportDeclaration(node)
+  ) return false;
+  const admittedSymbols =
+    admittedFlarexBackendTaskRunCreationCoordinatorSymbolsBySpecifier.get(
+      specifier,
+    );
+  if (admittedSymbols === undefined) return false;
+  const clause = node.importClause;
+  if (
+    clause === undefined || clause.name !== undefined
+    || clause.namedBindings === undefined
+    || !ts.isNamedImports(clause.namedBindings)
+    || clause.namedBindings.elements.length === 0
+  ) return false;
+  return clause.namedBindings.elements.every((element) => {
+    const importedName = element.propertyName?.text ?? element.name.text;
+    return admittedSymbols.has(importedName);
+  });
 }
 
 /**

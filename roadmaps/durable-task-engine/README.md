@@ -124,10 +124,12 @@ It does not absorb the distinct per-run task-input object store. That owner is
 now fixed by
 [`preflight/43-task-run-input-object-store.md`](./preflight/43-task-run-input-object-store.md):
 TRI1 is a private immutable publish/read adapter over the existing canonical
-Flarex Value codec, `TaskInputReferenceV1`, and immutable-R2 mechanics. It adds
-no new schema or input contract and remains unwired to run creation. TRI2 must
-prove publish-before-create ordering and exact database replay; TRI3 must
-provide the located launch reader before D1 or DTE06-D3 can be complete.
+Flarex Value codec, `TaskInputReferenceV1`, and immutable-R2 mechanics. TRI2 is
+a private coordinator that publishes before the existing run-creation port and
+preserves exact request-key replay across the immutable-object/PostgreSQL
+boundary. Both add no new schema or input contract and remain absent from a
+located host. TRI3 must provide the located launch reader before D1 or DTE06-D3
+can be complete.
 The SAP-TRP4 persistence checkpoint is complete under
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 It adds only an immutable publication header and ordered object membership

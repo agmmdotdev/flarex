@@ -3,13 +3,15 @@
 ## Status
 
 **Decision:** One private, production-inert Task-owned input-store sequence is
-accepted. TRI1 is implemented as a narrow immutable publish/read adapter with
-memory and Miniflare coverage. It reuses the existing immutable R2 byte-store core and the existing
-`TaskInputReferenceV1`; do not add another input format, table, reference,
-tenant router, bucket API, or deletion path.
+accepted. TRI1 is implemented as a narrow immutable publish/read adapter over
+the existing immutable R2 byte-store core and `TaskInputReferenceV1`. TRI2 is
+implemented as a narrow coordinator that publishes through TRI1 before calling
+the existing run-creation capability. Neither checkpoint adds another input
+format, table, reference, tenant router, bucket API, or deletion path.
 
-The adapter is still absent from run creation and launch. A later connected
-checkpoint must compose publication before the existing scope-bound run-creation transaction.
+The coordinator preserves the existing request key and creation receipt as the
+only database idempotency authority. It remains a private generic capability;
+no located host supplies it and launch still has no input reader.
 No Task provider, Worker Loader, route, Queue, Cron Trigger, binding,
 deployment, or production activation is admitted here.
 
@@ -135,7 +137,7 @@ deleting a referenced or uncertain body is not.
 - export only an internal production-inert subpath guarded by the Trigger
   compatibility checker.
 
-### TRI2: Run-Creation Composition
+### TRI2: Run-Creation Composition — Complete
 
 - compose TRI1 publication before the existing located `createRun` capability;
 - preserve the existing creation request key and receipt as the only database
@@ -182,8 +184,9 @@ This preflight does not authorize:
 
 ## Stop Boundary
 
-TRI1 stops at a private immutable Task input adapter. It proves that the exact
-reference can be published and read, but not that any run creation uses it.
-TRI2 must separately prove publish-before-transaction ordering and exact replay.
-TRI3 must then connect only the exact reader to SAP-TRP6. DTE06-D3 remains
-blocked until those connected gates close.
+TRI1 stops at a private immutable Task input adapter. TRI2 composes that adapter
+before the existing run-creation port and proves conservative replay across the
+immutable-object and database boundary without adding compensation or a second
+idempotency owner. The composition is still production-inert and unlocated.
+TRI3 must connect only the exact reader to SAP-TRP6. DTE06-D3 remains blocked
+until that connected gate closes.

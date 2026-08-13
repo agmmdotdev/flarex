@@ -548,8 +548,9 @@ Preflight 38. That sequence covers application-owned runtime objects only. The
 per-run `TaskInputReferenceV1` store is now governed by
 [`preflight/43-task-run-input-object-store.md`](./preflight/43-task-run-input-object-store.md).
 TRI1 reuses the existing value/reference/immutable-R2 owners behind a private
-production-inert adapter; it does not yet connect run creation or launch.
-TRI2 publish-before-create composition and TRI3 located-reader proof remain
+production-inert adapter. TRI2 now composes that adapter before the existing
+run-creation port and preserves exact database replay, but neither checkpoint
+supplies a located host or launch reader. TRI3 located-reader proof remains
 required before the complete D1 adapter or real DTE06-D3 provider composition
 can proceed.
 
@@ -670,10 +671,11 @@ now complete. Worker Loader composition follows only after the remaining
 publication/read gate; fenced settlement composition follows DTE06-D, and host
 activation does not.
 Preflight 39 now records that upstream sequence; its pure canonical
-role-contract checkpoint and D2 private ABI/runtime core are complete. The next
-connected runtime action is the separately gated SAP-TRP6 located adapter and
-TRI2/TRI3 run-input composition required before DTE06-D3; no real provider or host
-is admitted by this status update.
+role-contract checkpoint and D2 private ABI/runtime core are complete. TRI2
+publish-before-create composition is also complete. The next connected runtime
+action is the separately gated SAP-TRP6 located adapter with TRI3 exact-input
+reading required before DTE06-D3; no real provider or host is admitted by this
+status update.
 This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,
 routes, bindings, deployment, or production
