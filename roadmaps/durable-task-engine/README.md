@@ -137,6 +137,15 @@ proof. The private subpath remains blocked from production consumers. The pure
 Standard Application result alone still carries no R2-read authority. Hosted R2 deadline/
 settlement and measured Worker-heap proof, task-aware readiness persistence/
 issuance, activation changes, and production wiring remain behind later gates.
+The final SAP-TRP5 persistence review found that the existing V1 task-runtime
+receipt's Declarative candidate/package/artifact/semantic commitments have no
+independent parent in the current Application Analysis authority chain. The
+approved prerequisite design is recorded in
+[`preflight/42-application-task-runtime-authority.md`](./preflight/42-application-task-runtime-authority.md).
+It replaces that circular authority with a new Application-owned V2
+task-runtime binding/receipt rooted in the existing Application publication and
+task-catalog binding. It forbids a foreign key or fallback to the displaced
+Declarative candidate table. Implementation remains separately gated.
 The approved DTE06-D adapter boundary and implementation order are recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
 It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime

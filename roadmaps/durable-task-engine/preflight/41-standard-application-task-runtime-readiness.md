@@ -346,6 +346,44 @@ claim a timed-out read has settled, and exposes no deadline configuration it
 cannot enforce. The official API surface is recorded at
 <https://developers.cloudflare.com/r2/api/workers/workers-api-reference/>.
 
+### Step 3B platform disposition
+
+The 2026-08-13 step-3B evidence review leaves this gate blocked for the direct
+R2 binding. Cloudflare's current Worker limits also state that HTTP-triggered
+Workers have no hard wall-duration limit. The 128 MB memory limit is per V8
+isolate, and one isolate may serve concurrent requests. The dashboard memory
+metric is sampled isolate usage rather than an exact per-verification heap
+receipt. Sources:
+
+- <https://developers.cloudflare.com/workers/platform/limits/>; and
+- <https://developers.cloudflare.com/workers/observability/metrics-and-analytics/>.
+
+Those contracts cannot prove either required property: that an interrupted
+`bucket.get` has settled by a configured deadline, or that one verification's
+peak heap remains below a safe share of the isolate while other requests are
+present. Local Miniflare timing and heap observations remain useful regression
+evidence but cannot upgrade either claim.
+
+Step 3B therefore adds no timeout wrapper, deadline field, default host byte
+policy, service-binding indirection, or deployment resource. It can close only
+after one of these separately reviewed facts exists:
+
+1. Cloudflare documents and the hosted probe proves a cancellable/settled R2
+   read boundary;
+2. an alternative abortable object-read adapter proves transport settlement,
+   credential isolation, bounded body streaming, and equal immutable-object
+   semantics; or
+3. a dedicated host/disposition design durably hands off work and proves that
+   platform termination cannot leak success, exhaust isolate resources, or
+   replay outside the exact SAP-TRP4 membership.
+
+Heap admission additionally requires a dedicated hosted probe, production-like
+objects at every proposed threshold, controlled concurrency, local DevTools
+heap profiles, hosted isolate-memory/error telemetry, and explicit headroom for
+the rest of the Worker. Until those measurements exist, every byte ceiling is
+configuration supplied to the inert authority, not a generally safe Flarex
+default.
+
 ## Completed Pure Verification Contract
 
 The Standard Application owner now exports the current unversioned
@@ -460,6 +498,45 @@ fails during preparation; a forged structural handle is rejected; returned
 membership is copy-on-read; and mutation of a `SharedArrayBuffer`-backed digest
 after asynchronous hashing starts cannot change the captured decision. Backend
 step 3A uses this handle directly and does not duplicate those checks.
+
+### Shared-owner candidate-authority prerequisite discovered by step 4
+
+Reproducible scenario: persist a canonical SAP-TRP4 receipt and matching object
+membership whose scope, candidate ID, revision, task catalog, and source root
+match the Application revision, but whose Declarative candidate digest,
+package digest, artifact digest, or semantic root belongs to a different
+physical candidate. The attempted step-4 snapshot rechecked the current
+Application candidate clock/source root and Application publication/catalog,
+then supplied `candidateSha256`, `packageSha256`, `artifactSha256`, and
+`semanticRootSha256` to the Standard verifier by copying those values from the
+same SAP-TRP4 receipt. The verifier's receipt-versus-expected comparisons were
+therefore circular for those commitments.
+
+Expected behavior: the readiness snapshot derives the candidate digest and its
+package/artifact/source/semantic commitments from an independently
+authenticated candidate/Application-publication authority, then compares the
+SAP-TRP4 receipt to that owned snapshot before any R2 read. Actual behavior:
+the current Application Analysis revision/publication/catalog generation stores
+candidate ID and source-root lineage but no persisted link to the exact
+Declarative candidate digest or its package/artifact/semantic commitments. The
+older Declarative candidate table is explicitly inert and keyed by candidate
+digest, so selecting a row using the receipt's own digest would remain circular
+and would not create the missing Application authority link.
+
+Affected owner: the Application Analysis candidate/revision/publication
+authority and its authenticated bridge to the Declarative physical candidate.
+Evidence: the final step-4 code-quality review plus the same-identity/source,
+different-candidate commitment scenario above.
+
+Disposition: blocking and not repaired by SAP-TRP5. The accepted prerequisite
+design is
+[`42-application-task-runtime-authority.md`](./42-application-task-runtime-authority.md).
+Do not add a second ad-hoc
+candidate reader, trust the SAP-TRP4 receipt as its own independent authority,
+or widen the inert Declarative table into production authority. A separate
+approved implementation checkpoint must add its Application-owned V2 binding,
+receipt, persistence, and negative proof. The attempted step-4 code remains
+uncommitted and step 4 is not implemented.
 
 ## Failure And Retry Policy
 
@@ -599,7 +676,11 @@ After explicit approval of each remaining checkpoint:
    uses only the existing task-runtime store `read`, exact admission, the
    prepared handle, and an opaque backend proof. Hosted deadline/settlement and
    measured heap proof remain step 3B;
-4. add the persistence snapshot and version-2 readiness schema/migration;
+4. **Blocked on the candidate-authority prerequisite above:** add the
+   persistence snapshot and version-2 readiness schema/migration only after the
+   Application owner persists and authenticates the exact Declarative candidate
+   digest and package/artifact/source/semantic commitments independently of the
+   SAP-TRP4 receipt;
 5. integrate version-2 issuance and legacy version-1 read compatibility into
    the existing readiness repository;
 6. extend the existing activation-basis projection and transactional
@@ -639,12 +720,24 @@ authority then applies conservative count/per-object/retained-byte admission,
 reads sequentially through the existing store, completes the exact prepared
 handle, and exposes only its own opaque proof and capture projection.
 
-The next backend decision is step 3B: obtain an enforceable hosted R2
-deadline/settlement contract and measured Worker-heap admission. Until that
-exists, no timeout wrapper, host Layer, deployment binding, or
-production-capable claim is authorized. Persistence step 4 may be designed in
-parallel only if its receipt transaction remains incapable of accepting a
-step-2 basis or an unrecognized/foreign step-3 proof.
+Step 3B is blocked by the documented direct-R2 and per-isolate measurement
+limits above. Until an approved closure path supplies the missing hosted
+evidence, no timeout wrapper, host Layer, deployment binding, default host byte
+policy, or production-capable claim is authorized. Persistence step 4 is also
+blocked by the candidate-authority prerequisite recorded above. Its future
+receipt transaction must accept only evidence captured from the same backend
+authority instance, must remain incapable of accepting a step-2 basis or an
+unrecognized/foreign step-3 proof, and must derive candidate commitments from
+the independent Application-owned lineage rather than the receipt itself.
+
+The discarded step-4 prototype passed the persistence typecheck, connected
+Application readiness/publication/snapshot tests, focused PGlite migration
+tests, the full PGlite migration suite, Drizzle migration check, and Trigger
+compatibility boundary before the final trust-boundary review exposed the
+circular candidate authority. Those green tests are diagnostic evidence only;
+they do not make step 4 complete. Focused genuine-PostgreSQL tests also could
+not run because this environment has no PostgreSQL URL, Docker runtime, local
+PostgreSQL binaries, or WSL distribution.
 
 If implemented, SAP-TRP5 ends when the existing Application readiness and
 active-selection chain can prove an explicit empty or fully cold-verified
