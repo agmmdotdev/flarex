@@ -39,6 +39,8 @@ import {
 import {
   makeApplicationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
+import type { ApplicationQueryPointReadResult } from
+  "@flarex/persistence-postgres/internal/application-query-snapshot";
 import {
   makeApplicationSchemaAuthorityPublisher,
   hasApplicationSchemaAuthorityComposition,
@@ -55,6 +57,9 @@ import {
 import {
   createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
+  createAppSchemaCandidateValidationPortForPointCommitAuthority,
+  createAppSchemaCandidateWriteGuardPort,
+  hasAppSchemaCandidateWriteGuardComposition,
   hasAppSchemaCandidateReadinessComposition,
   installAppSchemaCandidateValidationEffect,
   advanceAppSchemaCandidateValidationEffect,
@@ -156,6 +161,9 @@ import {
 } from
   "@flarex/standard-application-definition/v1";
 import {
+  makeApplicationQuerySystemLayer,
+} from "@flarex/standard-application-invocation/internal/application-query-system";
+import {
   makeApplicationMutationRuntimeNeutralRunner,
 } from "@flarex/standard-application-invocation/internal/application-mutation-runner";
 import {
@@ -164,6 +172,7 @@ import {
   type ApplicationMutationGrantIssueInput,
 } from "@flarex/standard-application-invocation/internal/application-mutation-system";
 import {
+  invokeStandardApplicationPointQueryV1,
   invokeStandardApplicationPointMutationV1,
 } from "@flarex/standard-application-invocation/v1";
 import {
@@ -234,8 +243,12 @@ import { canonicalizePointMutationRequestV1 } from
 import {
   canonicalizeFlarexValueJsonV1,
   FLAREX_VALUE_CODEC_VERSION_V1,
+  isCanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
-import type { ApplicationExecutionHost } from
+import {
+  ApplicationExecutionHostError,
+  type ApplicationExecutionHost,
+} from
   "flarex-backend/internal/application-execution-host";
 
 import {
@@ -252,7 +265,11 @@ import {
 } from "./setupSeededSyscallValidatorProofV1";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
-const SOURCE = "export async function save() { return { ok: true }; }\n";
+const SOURCE = [
+  "export async function save() { return { ok: true }; }",
+  "export async function get() { return { ok: true }; }",
+  "",
+].join("\n");
 const LOCATOR = Object.freeze({
   kind: "shared_database",
   databaseKey: "application-mutation-stored-attempt",
@@ -285,9 +302,12 @@ export interface StandardApplicationMutationProof {
   readonly firstDisposition: "published";
   readonly replayDisposition: "replayed";
   readonly runtimeExecutions: 1;
-  readonly sourceLoads: 1;
+  readonly queryExecutions: 1;
+  readonly sourceLoads: 2;
   readonly grantIssuances: 1;
   readonly exactCompositionGuards: true;
+  readonly candidateWriteGuardComposed: true;
+  readonly queryObservedCommittedRow: true;
   readonly conflictingRequestRejected: true;
   readonly admittedSessionSurvivedHeadRemoval: true;
   readonly staleHeadBeforeAdmissionRejected: true;
@@ -579,12 +599,10 @@ async function proveStandardApplicationMutation(
   }
   const { persistence, controlDb } = lane;
   const fixture = await prepareApplicationFixture(lane);
-  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
-    controlDb,
-  );
+  const developerIndexes = fixture.developerIndexes;
   const indexedQueries = createAppDeveloperIndexQueryPortV1(
     controlDb,
-    fixture.authorityPorts,
+    fixture.pointCommitAuthority,
     developerIndexes,
   );
   const copiedPointCommit = Object.freeze({ ...fixture.pointCommit });
@@ -592,19 +610,23 @@ async function proveStandardApplicationMutation(
   if (
     !hasPointCommitAuthorityBindingV1(
       fixture.pointCommit,
-      fixture.authorityPorts,
+      fixture.pointCommitAuthority,
     ) ||
     hasPointCommitAuthorityBindingV1(
       copiedPointCommit,
-      fixture.authorityPorts,
+      fixture.pointCommitAuthority,
+    ) ||
+    !hasAppSchemaCandidateWriteGuardComposition(
+      fixture.candidateWriteGuard,
+      fixture.pointCommitAuthority,
     ) ||
     !hasAppDeveloperIndexQueryAuthorityV1(
       indexedQueries,
-      fixture.authorityPorts,
+      fixture.pointCommitAuthority,
     ) ||
     hasAppDeveloperIndexQueryAuthorityV1(
       copiedIndexedQueries,
-      fixture.authorityPorts,
+      fixture.pointCommitAuthority,
     ) ||
     !hasAppDeveloperIndexQuerySchemaAuthorityCompositionV1(
       indexedQueries,
@@ -616,11 +638,17 @@ async function proveStandardApplicationMutation(
     )
   ) throw new Error("Application mutation composition guard was not exact.");
   let runtimeExecutions = 0;
+  let queryExecutions = 0;
   let sourceLoads = 0;
   let grantIssuances = 0;
   let executionSequence = 0;
   let headRemovedAfterAdmission = false;
   let removeHeadAfterSelection = false;
+  const source = Object.freeze({
+    read: (rootSha256: string) => Effect.sync(() => {
+      sourceLoads += 1;
+    }).pipe(Effect.andThen(fixture.source.read(rootSha256))),
+  });
   const scopeUuid = projectScopeIdUuidV1(fixture.scopeId).scopeUuid;
   const activeHeads = await persistence.query<{
     scope_id: string;
@@ -734,11 +762,7 @@ async function proveStandardApplicationMutation(
     }),
     applicationGrantVerifier: fixture.applicationVerifier,
     legacyGrantVerifier: makeLegacyGrantVerifier(fixture),
-    source: Object.freeze({
-      read: (rootSha256: string) => Effect.sync(() => {
-        sourceLoads += 1;
-      }).pipe(Effect.andThen(fixture.source.read(rootSha256))),
-    }),
+    source,
     host: Object.freeze({
       runTransaction: input => Effect.promise(async () => {
         runtimeExecutions += 1;
@@ -754,7 +778,7 @@ async function proveStandardApplicationMutation(
         return { ok: true };
       }),
     }),
-    sessionAuthority: fixture.authorityPorts,
+    sessionAuthority: fixture.pointCommitAuthority,
     pointCommit: fixture.pointCommit,
     indexedQueries,
     grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
@@ -828,6 +852,67 @@ async function proveStandardApplicationMutation(
     throw new Error("Application mutation did not exercise post-admission head removal.");
   }
   await restoreActiveHead();
+  const queryLayer = makeApplicationQuerySystemLayer({
+    activation: fixture.activation,
+    snapshot: {
+      deploymentId: fixture.deploymentId,
+      controlDb,
+      authority: fixture.authorityPorts,
+      schema: fixture.schema,
+      developerIndexes: fixture.developerIndexes,
+    },
+    snapshotBudget: {
+      maximumPointReads: 4,
+      maximumIndexReads: 4,
+      maximumDocuments: 16,
+      maximumSemanticBytes: 1_048_576,
+    },
+    source,
+    host: Object.freeze({
+      runTransaction: (
+        input: Parameters<ApplicationExecutionHost["runTransaction"]>[0],
+      ) => Effect.tryPromise({
+        try: async () => {
+          queryExecutions += 1;
+          const capability = applicationQueryCapability(input);
+          const result = await capability.readPointDocument(
+            "recipes",
+            fixture.documentId,
+          );
+          if (result.kind !== "present") {
+            throw new Error("Application query did not observe the recipe.");
+          }
+          await capability.revalidate();
+          return result.document;
+        },
+        catch: cause => new ApplicationExecutionHostError({
+          operation: "transaction",
+          reason: "readBoundaryFailed",
+          cause,
+        }),
+      }),
+      runAction: () => Effect.die(
+        new Error("Application query entered the action host."),
+      ),
+    }),
+    executionContextFactory: () => ({
+      executionId: "application-standard-query-1",
+      randomSeed: new Uint8Array(32).fill(7),
+      executionTime: fixture.now,
+    }),
+  });
+  const queryResult = await runSystemTestEffectV1(Effect.scoped(
+    invokeStandardApplicationPointQueryV1(
+      TransactionFunctionPathV1Schema.make("recipes:get"),
+      {},
+    ).pipe(Effect.provide(queryLayer)),
+  ));
+  const queryObservedCommittedRow = isCanonicalFlarexRuntimeObjectV1(
+      queryResult,
+    ) && queryResult.name === "standard-application";
+  if (!queryObservedCommittedRow) {
+    throw new Error("Application query did not return the committed recipe.");
+  }
   const replay = await invoke();
   let conflictingRequestRejected = false;
   try {
@@ -882,9 +967,12 @@ async function proveStandardApplicationMutation(
     firstDisposition: requireStringLiteral(first.disposition, "published"),
     replayDisposition: requireStringLiteral(replay.disposition, "replayed"),
     runtimeExecutions: requireLiteral(runtimeExecutions, 1),
-    sourceLoads: requireLiteral(sourceLoads, 1),
+    queryExecutions: requireLiteral(queryExecutions, 1),
+    sourceLoads: requireLiteral(sourceLoads, 2),
     grantIssuances: requireLiteral(grantIssuances, 1),
     exactCompositionGuards: true as const,
+    candidateWriteGuardComposed: true as const,
+    queryObservedCommittedRow: true as const,
     conflictingRequestRejected: true as const,
     admittedSessionSurvivedHeadRemoval: true as const,
     staleHeadBeforeAdmissionRejected: true as const,
@@ -1141,20 +1229,36 @@ async function prepareApplicationFixture(
     taskCatalog,
   });
   const located = lane.makeActivationTarget();
+  const provisioningReceipts = Object.freeze({
+    getScopeAuthorityProvisioningReceipt: async () => null,
+  });
+  const scopeSessionTargets = Object.freeze({
+    resolve: async () => lane.makeSessionTarget(),
+  });
   const authorityPorts = Object.freeze({
     scopeMetadata: persistence,
-    provisioningReceipts: {
-      getScopeAuthorityProvisioningReceipt: async () => null,
-    },
-    scopeClockTargets: { resolve: async () => located },
-    scopeSessionTargets: {
-      resolve: async () =>
-        lane.makeSessionTarget(),
-    },
+    provisioningReceipts,
+    scopeClockTargets: Object.freeze({ resolve: async () => located }),
+  });
+  const pointCommitAuthority = Object.freeze({
+    scopeMetadata: persistence,
+    provisioningReceipts,
+    scopeSessionTargets,
   });
   const candidate = createAppSchemaCandidateValidationPort({
     controlDb,
     authority: authorityPorts,
+  });
+  // Readiness and point commit require different opaque authority facets, but
+  // both address the same durable candidate-validation head and control DB.
+  const candidateWriteGuardValidation =
+    createAppSchemaCandidateValidationPortForPointCommitAuthority(
+      controlDb,
+      pointCommitAuthority,
+    );
+  const candidateWriteGuard = createAppSchemaCandidateWriteGuardPort({
+    candidateValidation: candidateWriteGuardValidation,
+    pointCommitAuthority,
   });
   const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
     controlDb,
@@ -1164,13 +1268,14 @@ async function prepareApplicationFixture(
       controlDb,
       authority: authorityPorts,
     }, uniqueConstraints);
-  const pointCommit = createPointCommitPublisherPortV1(authorityPorts, {
+  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(controlDb);
+  const pointCommit = createPointCommitPublisherPortV1(pointCommitAuthority, {
     intrinsicCreationTimeIndexes:
       createIntrinsicCreationTimeIndexDefinitionPortV1(controlDb),
-    developerIndexes:
-      createAppDeveloperIndexDefinitionPortV1(controlDb),
+    developerIndexes,
     uniqueConstraints,
     uniqueConstraintEligibility,
+    candidateSchemaWriteGuard: candidateWriteGuard,
   });
   const schema = makeApplicationSchemaAuthorityPublisher({
     db: controlDb,
@@ -1184,6 +1289,10 @@ async function prepareApplicationFixture(
       candidateReadiness,
       controlDb,
       authorityPorts,
+    ) ||
+    !hasAppSchemaCandidateWriteGuardComposition(
+      candidateWriteGuard,
+      pointCommitAuthority,
     )
   ) {
     throw new Error("Application readiness composition is not exact.");
@@ -1309,9 +1418,12 @@ async function prepareApplicationFixture(
     activation,
     schema,
     authorityPorts,
+    pointCommitAuthority,
     keyPair,
     applicationVerifier,
     pointCommit,
+    candidateWriteGuard,
+    developerIndexes,
     documentId: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
     source: analyzedFixture.source,
     now,
@@ -1322,7 +1434,9 @@ async function applicationActivationInput(
   fixture: Awaited<ReturnType<typeof prepareApplicationFixture>>,
   role: "primary" | "competing",
 ) {
-  const fn = fixture.active.basis.manifest.functions[0];
+  const fn = fixture.active.basis.manifest.functions.find(
+    candidate => candidate.path === "recipes:save",
+  );
   if (fn === undefined || fn.kind !== "mutation") {
     throw new Error("Application mutation function is missing.");
   }
@@ -1568,6 +1682,20 @@ function applicationCapability(
   };
 }
 
+function applicationQueryCapability(
+  input: Parameters<ApplicationExecutionHost["runTransaction"]>[0],
+) {
+  // This test-owned host receives the private RPC capability constructed by
+  // ApplicationQuerySystem; production code never structurally claims it.
+  return input.capability as {
+    readonly revalidate: () => Promise<void>;
+    readonly readPointDocument: (
+      tableName: string,
+      documentId: string,
+    ) => Promise<ApplicationQueryPointReadResult>;
+  };
+}
+
 function resolutionPorts(
   lane: ApplicationMutationStoredAttemptLane,
 ): PointMutationSessionAuthorityResolutionPortsV1 {
@@ -1699,7 +1827,7 @@ function definitionInput() {
   return {
     programBudgetInput: {
       maximumModules: 1,
-      maximumFunctions: 1,
+      maximumFunctions: 2,
       maximumIdentifierUtf8Bytes: 1_024,
       maximumValidatorNodes: 64,
       maximumValidatorDepth: 8,
@@ -1732,6 +1860,12 @@ function definitionInput() {
         functions: [{
           exportName: "save",
           kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: { type: "any" },
+        }, {
+          exportName: "get",
+          kind: "query",
           visibility: "public",
           argsValidator: { type: "any" },
           returnsValidator: { type: "any" },

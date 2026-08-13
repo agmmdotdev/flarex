@@ -103,18 +103,20 @@ source, uploads immutable Source Artifact V2 objects to its R2 owner, performs
 two real Worker Loader evaluations, and reloads the durable analyzed
 projection. The focused Application mutation harness consumes that exact
 fixture and later reloads the same R2 root, so its former hand-built manifest
-and module-bundle shortcut is gone. It still proves only one revision through
-a host callback, however; it is not the M03-D runner and must not be widened
-into a second composition root.
+and module-bundle shortcut is gone. The harness now also installs the exact
+candidate-schema write guard on its point-commit publisher and invokes the
+current Application query consumer after the real mutation commit. Readiness
+and point commit receive their distinct opaque facets over the same durable
+candidate-validation head rather than a structurally shared or test-owned
+replacement. It still proves only one revision through host callbacks,
+however; it is not the M03-D runner and must not be widened into a second
+composition root.
 
-The focused mutation harness also constructs its point-commit publisher without
-the optional candidate-schema write guard, because that proof owns Application
-mutation parity rather than managed-schema evolution. M03-D0 must derive the
-already-accepted guard from the same control catalog and exact scope-authority
-object and install it on the one point-commit publisher used by
-`ApplicationMutationSystem`. The new Application query service likewise has no
-connected system-test composition beside that mutation service. These are
-test-composition gaps, not authority to change either shared owner.
+The remaining M03-D0 gap is a separate multi-revision composition root that
+uses the real Workerd Application execution host for both consumers and exposes
+authoritative schema, candidate, activation, row, index, journal, and commit
+inspection. The focused harness remains regression evidence for the accepted
+owners; it is not the future cooking environment.
 
 `M03-D` therefore adds a separate private system-test composition root that
 orchestrates only the accepted owners. It must start every candidate from the
@@ -681,11 +683,12 @@ changes during current codec/catalog slices.
 
 `M01-A`, `M01-B`, `M02`, and production-inert `M03-A` through `M03-C` are
 complete. Roadmap 49's required `AA-R6` query/mutation replacement-consumer cut
-is complete. The first `M03-D0` checkpoint removed the focused mutation
-harness's synthetic analysis/source shortcut; the separate current-generation
-multi-revision composition root, exact candidate write guard, connected query
-consumer, and Workerd execution proof remain. `M03-D0` is the current
-managed-schema implementation slice.
+is complete. The first two `M03-D0` checkpoints removed the focused mutation
+harness's synthetic analysis/source shortcut, installed the exact candidate
+write guard, and connected the current query consumer to the committed row.
+The separate current-generation multi-revision composition root, Workerd
+execution, complete authoritative inspection, and genuine-PostgreSQL receipt
+remain. `M03-D0` is the current managed-schema implementation slice.
 No additional managed-schema protocol, schema, migration, transaction, or
 activation owner is authorized here. The scenario may not revive the displaced
 runner, add dual selection or fallback, or create another active-schema
