@@ -91,12 +91,13 @@ shared snapshot port without changing SAP-TRP4 authority or receipt semantics.
 The current disposition and validation boundary are recorded in
 [`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md).
 
-The final SAP-TRP5 persistence review proved that this V1 receipt generation
-cannot authorize the current Application Analysis revision: its Declarative
+The final SAP-TRP5 persistence review proved that the current private receipt
+cannot authorize the Application Analysis revision: its Declarative
 candidate/package/artifact/semantic commitments have no independent parent in
-the Application candidate/publication chain. V1 remains an exact compatibility
-contract and is not reinterpreted. The accepted Application-owned replacement
-authority and V2 receipt/persistence cut are recorded in
+the Application candidate/publication chain. Repository inspection found no
+non-test production composition consumer, so the accepted correction changes
+the current runtime contract in place rather than creating V2 beside V1. The
+Application-owned authority and required environment inventory are recorded in
 [`42-application-task-runtime-authority.md`](./42-application-task-runtime-authority.md).
 
 ## Required Receipt Contract Amendment

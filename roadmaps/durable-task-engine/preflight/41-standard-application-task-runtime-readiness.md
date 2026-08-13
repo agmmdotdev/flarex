@@ -534,9 +534,10 @@ design is
 Do not add a second ad-hoc
 candidate reader, trust the SAP-TRP4 receipt as its own independent authority,
 or widen the inert Declarative table into production authority. A separate
-approved implementation checkpoint must add its Application-owned V2 binding,
-receipt, persistence, and negative proof. The attempted step-4 code remains
-uncommitted and step 4 is not implemented.
+approved implementation checkpoint must correct the current private binding,
+receipt, persistence, and negative proof in place. It must not create a
+parallel V2 runtime path. The attempted step-4 code remains uncommitted and
+step 4 is not implemented.
 
 ## Failure And Retry Policy
 
@@ -677,12 +678,12 @@ After explicit approval of each remaining checkpoint:
    prepared handle, and an opaque backend proof. Hosted deadline/settlement and
    measured heap proof remain step 3B;
 4. **Blocked on the candidate-authority prerequisite above:** add the
-   persistence snapshot and version-2 readiness schema/migration only after the
-   Application owner persists and authenticates the exact Declarative candidate
-   digest and package/artifact/source/semantic commitments independently of the
-   SAP-TRP4 receipt;
-5. integrate version-2 issuance and legacy version-1 read compatibility into
-   the existing readiness repository;
+   persistence snapshot and task-aware readiness schema/migration only after
+   the current task-runtime publication is rooted in the independent
+   Application task-catalog authority rather than Declarative candidate fields;
+5. integrate task-aware readiness issuance with any separately proven existing
+   Application-readiness compatibility obligation, without creating a parallel
+   task-runtime read or write path;
 6. extend the existing activation-basis projection and transactional
    revalidation without changing active-head authority;
 7. prove PGlite, Miniflare, and ordinary-role genuine-PostgreSQL behavior; and
