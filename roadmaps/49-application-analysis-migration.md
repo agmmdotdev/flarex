@@ -1750,9 +1750,10 @@ with its own preflight and commit:
    Application Revision V1 and candidate/package/semantic-root evidence. Add an
    issuer-backed active per-task selection, a full Application task runtime
    binding and run-creation authority, and an honest definition/run reference
-   generation; migrate run creation, compute preparation, and launch together.
-   Historical Task Definition V1 evidence remains historical and is never a
-   fallback.
+   generation. The later Task preflight must decompose the shared run-reference,
+   compute-preparation, and launch contracts without exposing an Application run
+   to a Legacy-only downstream stage. Historical Task Definition V1 evidence
+   remains historical and is never a fallback.
 
 Self-review accepts this decomposition because it exposes the actual authority
 gaps instead of hiding them behind structural adapters. The query-first slice
@@ -2879,13 +2880,124 @@ observable Legacy active-revision reader mock and proves zero calls. Genuine
 PostgreSQL and the combined cross-consumer vertical remain the accepted `AA-R7`
 gates.
 
+#### AA-R6 Task System generation preflight and accepted decomposition — 2026-08-13
+
+The post-action source audit rejects the earlier single-checkpoint Task wording.
+The already-committed Application task catalog and child definitions are honest
+registration evidence, but they are not a runtime binding or a durable-run
+reference. The displaced `TaskDefinitionRuntimeBindingV1` commits Application
+Revision V1, candidate, package, artifact, semantic-root and copied runtime-
+object evidence. `TaskRunCreationRequestV1`, the run aggregate, attempt grants,
+dispatch requested effects, compute-provider requests, SQL run/dispatch rows,
+compute-prepared evidence, and launch authority all carry
+`taskDefinitionRevisionId`. The current run table has a non-null foreign key to
+`fx_system_durable_task_definition_revision_v1`. Removing one field, deriving a
+synthetic definition ID from an Application digest, or pointing that foreign key
+at the Application task-definition table would reinterpret shipped evidence.
+
+The audit also rejects treating the old task-runtime object publication as the
+new executable source. Its projection and R2 object graph commit the same
+candidate/package/artifact/semantic identities that Application Analysis has
+deliberately removed. Source Artifact V2 is already the sole authenticated
+whole-bundle byte authority. Finally, `ApplicationExecutionHost` exposes only
+transaction and action requests; there is no Application task invocation wire
+contract or Worker entrypoint. A generation switch at run creation alone would
+therefore create Application runs that every downstream compute and launch
+stage must reject.
+
+The Task migration is accepted as four medium, individually committed
+checkpoints:
+
+1. **5a — Application task execution authority.** Add a versioned Application
+   task runtime target and execution-binding contract beside the Legacy runtime
+   binding. The immutable target commits the exact catalog and child-definition
+   binding, canonical task manifest and handler mapping, Source Artifact V2
+   root, publication identity, and admitted runtime-host policy. Activation,
+   readiness and head identity belong to selection/run authority rather than the
+   immutable target. Add an issuer-backed active per-task selector that validates
+   the opaque Application selection and exact stored task definition under the
+   scope-clock transaction, then retains the authenticated active basis with the
+   target in a process-local capability. Reuse the existing immutable catalog
+   and child rows; do not add a redundant execution-binding table, allocate or
+   manufacture a Legacy `taskDefinitionRevisionId`, copy module bytes, or create
+   a run. This checkpoint remains inert.
+2. **5b — shared durable-run reference and creation generation.** Give the
+   durable-task owner one current in-memory task-definition reference union, but
+   do not widen or reinterpret any persisted V1 codec. Legacy run-creation,
+   aggregate/state, grant, requested-effect and compute-request V1 values retain
+   `taskDefinitionRevisionId` byte-for-byte. Add distinct Application persisted
+   contract generations carrying only the Application runtime-target identity,
+   and factor their execution through the same pure lifecycle transition core.
+   Evolve the persistence projection and shared run/dispatch rows with an exact
+   discriminator and mutually exclusive foreign-key columns; existing rows
+   migrate to the Legacy branch. Add a distinct Application run-creation
+   authority whose canonical evidence binds the active head, readiness and
+   runtime target. Exact replay resolves the stored branch before current-head
+   validation. Retry/cancellation policy, requested-effect ordering, fences,
+   queue ownership, and wake scheduling remain one state machine. Until 5d,
+   compute discovery must explicitly exclude Application rows even though
+   focused private tests may create them.
+3. **5c — generation-aware immutable compute preparation.** Make the existing
+   compute repository decode the run reference exhaustively. The Legacy branch
+   keeps its current definition lookup and commitment. The Application branch
+   loads and recanonicalizes only the stored Application execution binding and
+   run-creation authority, correlates them with the immutable run and dispatch
+   effect, and emits a distinct prepared-execution member. Discovery,
+   claim/start markers, uncertain replay, provider dispatch acceptance,
+   cancellation delivery, and settlement stay generation-neutral and retain
+   their current ordering. Unknown or mixed generations are stored corruption,
+   never fallback. Application compute evidence remains directly testable, but
+   ordinary discovery continues to exclude it until the 5d launch and consumer
+   cut is committed.
+4. **5d — Application task Worker, launch cut, and private Task System service.**
+   Add one bounded Application task Worker request/result contract and host
+   definition that loads the authority-pinned Source Artifact V2 bundle, resolves
+   the exact task handler, validates payload/output with the canonical task
+   manifest, and exposes only the task runtime capabilities separately accepted
+   by this checkpoint. Evolve `TaskRuntimeLaunchAuthority` into an exhaustive
+   generation owner: Legacy keeps its runtime-object reconstruction; Application
+   consumes the Application prepared evidence and fresh Worker load without R2
+   task-runtime objects. Add the unversioned private `ApplicationTaskSystem`
+   composition for active task selection and run creation, then cut the current
+   private Task consumer exclusively to it. Retained Legacy launch remains only
+   for historical Legacy runs; it is neither a selection source nor a fallback.
+
+Checkpoint 5a proof must cover exact task selection, empty/missing task,
+selection invalidation, stored binding corruption, canonical bytes/digest
+correlation, runtime-host mismatch, and zero new tables or run writes.
+Checkpoint 5b must prove fresh and upgrade migration, exact Legacy preservation,
+unknown/mixed reference rejection, Application creation/replay/conflict, head
+movement before creation, pinned replay after later head movement,
+aggregate/effect codec round trips, and unchanged retry/cancellation/lifecycle
+receipts plus exclusion from compute discovery. Checkpoint 5c must prove both
+prepared-evidence branches, wrong binding/reference rejection, size-before-
+payload admission, dispatch/cancellation recovery, and no cross-generation
+lookup. Checkpoint 5d must prove fresh Worker loading, exact handler and source
+authority, bounded input/output, interruption and cleanup, terminal failure,
+connected PGlite creation-through-launch, and zero production access to the
+Legacy definition selector. Genuine PostgreSQL and the combined cross-consumer
+vertical remain `AA-R7` gates.
+
+Self-review accepts this decomposition because every checkpoint ends at an
+explicit compatibility boundary while the durable lifecycle remains single.
+It is larger than the earlier sentence but materially simpler than hiding four
+persisted contracts behind a structural adapter. Stop and amend before
+implementation if 5a needs the candidate-bound runtime-object store, 5b requires
+a second run table or lifecycle state machine, 5c changes dispatch fencing or
+uncertainty semantics, 5d cannot execute from Source Artifact V2 without
+manufactured artifact evidence, or any checkpoint adds dual selection,
+comparison execution, route, trigger, schedule, production deployment, or
+fallback authority.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
 PostgreSQL from finalized Source Artifact V2 bytes through cold analysis,
 inactive registration, whole-bundle publication, readiness, activation, point
 mutation, point query, internal calls, edge action, and task binding when the
-current test vertical includes it.
+current test vertical includes it. After AA-R6 Task checkpoint 5d, task proof is
+required and must include active task selection, run creation, compute
+preparation, and launch from authenticated Source Artifact V2 bytes.
 
 Required negative proof includes invalid metadata, missing runtime entry,
 forbidden import-time effects, nondeterminism, timeout, interruption, cold
@@ -2927,11 +3039,14 @@ or `AA-R9` cutover.
    checkpoint of the final slice of `AA-R6`.
 8. **Query-first active composition and private query cut:** third checkpoint
    of the final slice of `AA-R6`.
-9. **Mutation authority bridge, action lifecycle generation, and Task System
-   generation:** three separately preflighted medium checkpoints that complete
-   the final slice of `AA-R6`.
-10. **Private system proof:** `AA-R7`.
-11. **Removal and guarded retirement migration:** `AA-R8`, then stop.
+9. **Mutation authority bridge and action lifecycle generation:** separately
+   preflighted medium checkpoints of the final slice of `AA-R6`.
+10. **Task System generation:** four owner-sized checkpoints for Application
+    task execution authority, shared run-reference/creation generation,
+    generation-aware compute preparation, and the Application task Worker plus
+    exclusive private consumer cut.
+11. **Private system proof:** `AA-R7`.
+12. **Removal and guarded retirement migration:** `AA-R8`, then stop.
 
 Each slice is reviewed against this plan before implementation and again
 against its final diff. Significant code checkpoints require both repository
@@ -2941,11 +3056,14 @@ not.
 ## Current Execution Constraints
 
 Application schema authority, readiness, activation history, the active head,
-and issuer-backed selection are now the accepted private authority chain.
-Capability composition and consumer migration remain explicitly unwired. Any
+and issuer-backed selection are now the accepted private authority chain. The
+private Standard query, mutation, and action consumers now select only that
+Application authority. Task registration exists, but Task run creation,
+compute preparation, and launch still consume only the displaced definition
+generation and remain explicitly unwired from Application authority. Any
 unrelated durable-task, system-test, foundation-roadmap, or script work in the
-worktree must still be protected rather than absorbed. Before the consumer cut
-or any later simulation slice, the main thread must re-read the current
+worktree must still be protected rather than absorbed. Before each Task
+checkpoint or later simulation slice, the main thread must re-read the current
 schema/migration head and preserve the production-inert boundary.
 
 ## Preflight Review Decision
