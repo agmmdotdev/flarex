@@ -17,6 +17,19 @@ import {
   createFunctionRuntimeRunQueryContextV1,
   createMutationFunctionRuntimeContextV1,
 } from "@flarex/function-runtime/internal/function-api-core-v1";
+import {
+  APPLICATION_TASK_WORKER_RESULT_FORMAT_V1,
+  APPLICATION_TASK_WORKER_RESULT_VERSION_V1,
+  ApplicationTaskWorkerContractV1Error,
+  decodeApplicationTaskWorkerRequestV1Effect,
+  normalizeApplicationTaskWorkerValueV1,
+  type ApplicationTaskWorkerResultV1,
+} from "flarex-protocol/internal/application-task-worker-v1";
+import type {
+  ApplicationTaskRuntimeTargetV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import type { CanonicalTaskManifestV1 } from
+  "@flarex/standard-application-definition/internal/task-definition-v1";
 import { Effect, Result } from "effect";
 import { decodeAppDocumentIdentityV1Result } from
   "flarex-protocol/app-document-id";
@@ -42,6 +55,8 @@ import {
   type CanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
 import { FlarexError } from "flarex/values";
+import { validateValidatorValueIssueV1 } from
+  "flarex-protocol/internal/validator-engine-core";
 
 export * from "flarex/server";
 export * from "flarex/values";
@@ -155,6 +170,19 @@ export interface ApplicationWorkerExecutionInputV1 {
   readonly loadExecution: () => Promise<unknown>;
 }
 
+export interface ApplicationTaskWorkerDefinitionV1 {
+  readonly handlerExportName: ApplicationTaskRuntimeTargetV1["handler"]["exportName"];
+  readonly manifest: CanonicalTaskManifestV1;
+  readonly runtimeTargetSha256Hex: string;
+}
+
+export interface ApplicationTaskWorkerExecutionInputV1 {
+  readonly request: unknown;
+  readonly capability: unknown;
+  readonly definition: ApplicationTaskWorkerDefinitionV1;
+  readonly loadExecution: () => Promise<unknown>;
+}
+
 interface TransactionCapability {
   readonly receiver: object;
   readonly revalidate: () => unknown | PromiseLike<unknown>;
@@ -188,6 +216,11 @@ interface TransactionCapability {
 interface CallbackCapability {
   readonly receiver: object;
   readonly invoke: (request: unknown) => unknown | PromiseLike<unknown>;
+}
+
+interface TaskInputCapability {
+  readonly receiver: object;
+  readonly read: () => unknown | PromiseLike<unknown>;
 }
 
 type BoundaryKind = "read" | "journal";
@@ -343,6 +376,115 @@ export async function executeApplicationActionWorkerV1(
     } catch (cause) {
       if (settledFailure === undefined) {
         throw namedError("ApplicationWorkerCallbackBoundaryV1Error", cause);
+      }
+    }
+  }
+}
+
+export async function executeApplicationTaskWorkerV1(
+  input: ApplicationTaskWorkerExecutionInputV1,
+): Promise<ApplicationTaskWorkerResultV1> {
+  let settledFailure: Error | undefined;
+  try {
+    admitSingleRun("ApplicationTaskWorkerInvalidRequestV1Error");
+    const request = await decodeTaskRequest(input.request);
+    if (
+      hex(request.dispatch.applicationTaskRuntimeTargetSha256) !==
+        input.definition.runtimeTargetSha256Hex ||
+      request.dispatch.computeProfile !== input.definition.manifest.computeProfile
+    ) throw namedError("ApplicationTaskWorkerInvalidRequestV1Error", request);
+    installRuntimeGlobals(0, new UINT8_ARRAY(32), false);
+    const capability = taskInputCapability(input.capability);
+    let rawPayload: unknown;
+    try {
+      rawPayload = await invokeCapability(
+        capability.read,
+        capability.receiver,
+        [],
+      );
+    } catch (cause) {
+      throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", cause);
+    }
+    let payload: ReturnType<typeof normalizeTaskValue>;
+    let payloadFailure: Error | undefined;
+    try {
+      payload = normalizeTaskValue(
+        detachCapabilityValue(rawPayload),
+        "request",
+        "ApplicationTaskWorkerInputBoundaryV1Error",
+      );
+    } catch (cause) {
+      payloadFailure = namedUnlessNamed(
+        "ApplicationTaskWorkerInputBoundaryV1Error",
+        cause,
+      );
+      throw payloadFailure;
+    } finally {
+      try {
+        disposeReceivedCapability(rawPayload);
+      } catch (cause) {
+        if (payloadFailure === undefined) {
+          throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", cause);
+        }
+      }
+    }
+    const payloadIssue = validateValidatorValueIssueV1(
+      input.definition.manifest.payloadValidator,
+      payload.value,
+      { idPolicy: { mode: "shapeOnly" }, path: "$payload" },
+    );
+    if (payloadIssue !== undefined) {
+      throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", payloadIssue);
+    }
+    const handler = await loadTaskHandler(
+      input.loadExecution,
+      input.definition.handlerExportName,
+    );
+    let rawResult: unknown;
+    try {
+      rawResult = await PROMISE.resolve(REFLECT_APPLY(
+        handler,
+        undefined,
+        [payload.value],
+      ));
+    } catch (cause) {
+      throw namedError("ApplicationTaskWorkerUserCodeV1Error", cause);
+    }
+    const output = normalizeTaskValue(
+      rawResult,
+      "result",
+      "ApplicationTaskWorkerUserCodeV1Error",
+    );
+    const outputIssue = input.definition.manifest.outputValidator === null
+      ? undefined
+      : validateValidatorValueIssueV1(
+        input.definition.manifest.outputValidator,
+        output.value,
+        { idPolicy: { mode: "shapeOnly" }, path: "$output" },
+      );
+    if (outputIssue !== undefined) {
+      throw namedError("ApplicationTaskWorkerUserCodeV1Error", outputIssue);
+    }
+    return OBJECT_FREEZE({
+      format: APPLICATION_TASK_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_TASK_WORKER_RESULT_VERSION_V1,
+      kind: "completed",
+      identity: request.dispatch.identity,
+      value: output.value,
+      valueSemanticBytes: output.semanticSizeBytes,
+    });
+  } catch (cause) {
+    settledFailure = namedUnlessNamed(
+      "ApplicationTaskWorkerInvalidRequestV1Error",
+      cause,
+    );
+    throw settledFailure;
+  } finally {
+    try {
+      disposeReceivedCapability(input.capability);
+    } catch (cause) {
+      if (settledFailure === undefined) {
+        throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", cause);
       }
     }
   }
@@ -517,6 +659,18 @@ async function decodeActionRequest(
   }
 }
 
+async function decodeTaskRequest(input: unknown) {
+  try {
+    return await runWorkerProtocolDecoder(
+      decodeApplicationTaskWorkerRequestV1Effect(input),
+    );
+  } catch (cause) {
+    throw cause instanceof ApplicationTaskWorkerContractV1Error
+      ? namedError("ApplicationTaskWorkerInvalidRequestV1Error", cause)
+      : namedError("ApplicationTaskWorkerDefectV1Error", cause);
+  }
+}
+
 function runWorkerProtocolDecoder<Value, Failure>(
   decoder: Effect.Effect<Value, Failure>,
 ): Promise<Value> {
@@ -568,6 +722,39 @@ async function loadRegistry(
     },
   });
   return registryOutput;
+}
+
+async function loadTaskHandler(
+  loadExecution: () => Promise<unknown>,
+  exportName: string,
+): Promise<(...argumentsValue: ReadonlyArray<unknown>) => unknown> {
+  importGuardActive = true;
+  importForbiddenAttempted = false;
+  let loaded: unknown;
+  try {
+    loaded = await loadExecution();
+    if (importForbiddenAttempted) {
+      throw new ERROR("Application import attempted a forbidden capability.");
+    }
+  } catch (cause) {
+    throw namedError("ApplicationTaskWorkerDefinitionV1Error", cause);
+  } finally {
+    importGuardActive = false;
+  }
+  if (!runtimeIntrinsicsIntact()) {
+    throw namedError(
+      "ApplicationTaskWorkerDefinitionV1Error",
+      new ERROR("Application module modified runtime intrinsics."),
+    );
+  }
+  const moduleRecord = asRecord(loaded);
+  const member = moduleRecord === undefined
+    ? { kind: "missing" } as const
+    : ownDataValue(moduleRecord, exportName);
+  if (member.kind !== "value" || typeof member.value !== "function") {
+    throw namedError("ApplicationTaskWorkerDefinitionV1Error", loaded);
+  }
+  return member.value as (...argumentsValue: ReadonlyArray<unknown>) => unknown;
 }
 
 function runtimeIntrinsicsIntact(): boolean {
@@ -648,6 +835,63 @@ function callbackCapability(input: unknown): CallbackCapability {
   } catch (cause) {
     throw namedUnlessNamed("ApplicationWorkerCallbackBoundaryV1Error", cause);
   }
+}
+
+function taskInputCapability(input: unknown): TaskInputCapability {
+  try {
+    const record = asObject(input);
+    const read = record === undefined ? undefined : method(record, "read");
+    if (record === undefined || read === undefined) {
+      throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", input);
+    }
+    return OBJECT_FREEZE({ receiver: record, read });
+  } catch (cause) {
+    throw namedUnlessNamed("ApplicationTaskWorkerInputBoundaryV1Error", cause);
+  }
+}
+
+function normalizeTaskValue(
+  value: unknown,
+  boundary: "request" | "result",
+  failureName: string,
+) {
+  return normalizeApplicationTaskWorkerValueV1(value, boundary).pipe(
+    Result.mapError(cause => namedError(failureName, cause)),
+    Result.getOrThrow,
+  );
+}
+
+function detachCapabilityValue(value: unknown): unknown {
+  if (value === null ||
+    (typeof value !== "object" && typeof value !== "function")) return value;
+  if (value instanceof ARRAY_BUFFER) return value.slice(0);
+  if (ARRAY_IS_ARRAY(value)) {
+    const detached: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, STRING(index));
+      if (descriptor === undefined || !("value" in descriptor)) {
+        throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", value);
+      }
+      detached.push(descriptor.value);
+    }
+    return detached;
+  }
+  const detached = OBJECT_CREATE(null) as Record<PropertyKey, unknown>;
+  for (const key of REFLECT_OWN_KEYS(value)) {
+    if (key === SYMBOL_DISPOSE) continue;
+    if (typeof key !== "string") {
+      throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", value);
+    }
+    const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", value);
+    }
+    OBJECT_DEFINE_PROPERTY(detached, key, {
+      enumerable: true,
+      value: descriptor.value,
+    });
+  }
+  return detached;
 }
 
 function method(
@@ -841,10 +1085,12 @@ function result(
   });
 }
 
-function admitSingleRun(): void {
+function admitSingleRun(
+  errorName = "ApplicationWorkerInvalidRequestV1Error",
+): void {
   if (runAdmitted) {
     throw namedError(
-      "ApplicationWorkerInvalidRequestV1Error",
+      errorName,
       new ERROR("Application worker admits one invocation."),
     );
   }

@@ -271,6 +271,24 @@ This does not make the authority receipt itself a capability,
 implement active selection, or open registration, host, route, or activation
 work.
 
+## Open Validator Snapshot Defect
+
+The AA-R6 5d1 Worker review found a pre-existing task-definition decoder defect
+at `taskDefinition/Schema.ts` `freezeValidator`. `ValidatorJsonV1` admission
+accepts an own object-validator field named `__proto__`, but the snapshot loop
+assigns fields into an ordinary `{}` record. That assignment invokes prototype
+setter semantics, so the admitted field disappears from the returned canonical
+manifest. Reproduction: decode a valid object validator containing one required
+own `__proto__` field; decoding succeeds, while `Object.hasOwn` on the decoded
+validator value is false and `Object.keys` is empty. Expected behavior is an
+owned, frozen data record retaining the exact field.
+
+This is shared Standard task-definition authority, not a 5d1 Worker-host defect.
+The Worker builder therefore keeps its separate safe `JSON.parse` embedding
+correction, but 5d1 does not repair the decoder owner. The decoder must later
+use a null-prototype record or descriptor-based data definition and add a
+focused regression before claiming full validator-key preservation.
+
 ## References
 
 - [`../02-task-definition-identity-and-scope.md`](../02-task-definition-identity-and-scope.md)

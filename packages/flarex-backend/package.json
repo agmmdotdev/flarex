@@ -23,6 +23,8 @@
     "./internal/application-analysis-source-reader": "./src/sourceArtifactV2/ApplicationAnalysisReader.ts",
     "./internal/application-execution-host": "./src/artifactRuntime/ApplicationExecutionHost.ts",
     "./internal/application-worker-definition": "./src/artifactRuntime/ApplicationWorkerDefinition.ts",
+    "./internal/application-task-execution-host": "./src/artifactRuntime/ApplicationTaskExecutionHost.ts",
+    "./internal/application-task-worker-definition": "./src/artifactRuntime/ApplicationTaskWorkerDefinition.ts",
     "./internal/application-point-mutation-runner": "./src/artifactRuntime/ApplicationPointMutationRunner.ts",
     "./internal/application-action-runner": "./src/artifactRuntime/ApplicationActionRunner.ts",
     "./internal/application-mutation-grant-issuer": "./src/applicationMutationGrantIssuer.ts",

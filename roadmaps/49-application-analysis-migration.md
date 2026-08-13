@@ -3316,6 +3316,16 @@ result, and exposes no query, mutation, action, database, R2 or lifecycle port.
 The current task manifest intentionally names a plain function export; a new
 public task SDK wrapper or context is not part of this migration.
 
+The 5d1 builder must not treat the supplied target or manifest digests as
+assertions. It recomputes the canonical manifest and runtime-target digests
+through the Standard Application task SHA capability before source loading.
+Its trusted host policy also owns the supported compute-profile map, Worker CPU
+limit and maximum duration for each profile. Unsupported profiles and manifest
+durations fail before Worker loading; the admitted Worker wall limit is the
+manifest duration under that profile ceiling, and the launch request may only
+narrow it. This keeps resource policy out of the caller-owned manifest while
+avoiding one hard-coded limit for every profile.
+
 The accepted 5d2 launch boundary keeps `CurrentTaskComputeDispatchRequestV1`
 unchanged. A trusted directory resolves the request to the existing 5c prepared
 union. The Legacy branch continues through the exact runtime-object and input

@@ -125,7 +125,10 @@ export class FlarexValueRuntimeCoreV1Error extends Error {
 
   constructor(issue: FlarexValueCodecV1Issue) {
     super("Flarex Value Codec V1 rejected a runtime value.");
-    this.name = "FlarexValueRuntimeCoreV1Error";
+    Object.defineProperty(this, "name", {
+      configurable: true,
+      value: "FlarexValueRuntimeCoreV1Error",
+    });
     this.issue = issue;
   }
 }
@@ -146,14 +149,25 @@ export function normalizeFlarexRuntimeValueV1(
   profile: FlarexValueProfileV1 = "generalValue",
   rootPath = "$",
 ): NormalizedFlarexRuntimeValueV1 {
-  const limits = limitsForProfile(profile);
+  return normalizeFlarexRuntimeValueWithLimitsV1(
+    value,
+    limitsForProfile(profile),
+    rootPath,
+  );
+}
+
+export function normalizeFlarexRuntimeValueWithLimitsV1(
+  value: unknown,
+  limits: FlarexValueLimitsV1,
+  rootPath = "$",
+): NormalizedFlarexRuntimeValueV1 {
   const node = normalizeRuntimeNode(value, rootPath, 0, {
     limits,
     ancestors: new WeakSet(),
   });
   assertProfileRoot(node.value, limits, rootPath);
   return Object.freeze({
-    profile,
+    profile: limits.profile,
     value: node.value,
     semanticSizeBytes: node.semanticSizeBytes,
     nestingDepth: node.nestingDepth,

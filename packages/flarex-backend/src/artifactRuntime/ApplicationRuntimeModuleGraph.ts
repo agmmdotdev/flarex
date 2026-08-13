@@ -19,6 +19,7 @@ export interface ApplicationRuntimeModuleGraph {
 export function makeApplicationRuntimeModuleGraph(input: {
   readonly source: ApplicationAnalysisSourceBundle;
   readonly coreSource: string;
+  readonly executionModulePath?: string;
   readonly serverExports: ReadonlyArray<string>;
   readonly valuesExports: ReadonlyArray<string>;
   readonly entrypointSource: (imports: Readonly<{
@@ -34,22 +35,22 @@ export function makeApplicationRuntimeModuleGraph(input: {
   }
   const trusted = trustedModuleNames(input.source.sourceArtifact.rootSha256);
   const executionModule = applicationModuleName(
-    input.source.sourceArtifact.executionModulePath,
+    input.executionModulePath ?? input.source.sourceArtifact.executionModulePath,
   );
   const modules: Record<string, WorkerLoaderModule | string> = Object.create(null);
-  modules[trusted.entrypoint] = {
+  modules[trusted.entrypoint] = Object.freeze({
     js: input.entrypointSource(Object.freeze({
       core: relativeImport(trusted.core),
       execution: relativeImport(executionModule),
     })),
-  };
-  modules[trusted.core] = { js: input.coreSource };
+  });
+  modules[trusted.core] = Object.freeze({ js: input.coreSource });
   for (const module of input.source.modules) {
     const name = applicationModuleName(module.path);
     if (Object.hasOwn(modules, name)) {
       throw new Error(`Duplicate application runtime module ${module.path}.`);
     }
-    modules[name] = { js: module.source };
+    modules[name] = Object.freeze({ js: module.source });
   }
   const supportedFrameworkModules = Object.freeze({
     [APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS[0]]: input.serverExports,
@@ -70,7 +71,7 @@ export function makeApplicationRuntimeModuleGraph(input: {
         shimName,
         trusted.core,
       ));
-      modules[shimName] = {
+      modules[shimName] = Object.freeze({
         js: [
           `import * as applicationRuntimeCore from ${coreImport};`,
           ...exportNames.map(name =>
@@ -78,7 +79,7 @@ export function makeApplicationRuntimeModuleGraph(input: {
           ),
           "",
         ].join("\n"),
-      };
+      });
     }
   }
   return Object.freeze({

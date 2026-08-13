@@ -561,6 +561,16 @@ identity and execution ID. It is not heartbeat, completion, cancellation
 acknowledgement, result durability, or proof that a bounded Worker execution
 context is durable supervision. Those remain DTE06-E work.
 
+The Application Analysis migration's private 5d1 Worker checkpoint closes only
+the host-policy seam of the previously deferred compute-profile mapping. Its
+definition builder receives a trusted, injected map from compute-profile
+references to Worker CPU and maximum-duration limits, rejects missing or
+invalid entries, and lets the manifest duration narrow the admitted ceiling.
+It does not publish a global preset catalog or choose deployment values. The
+real provider composition remains responsible for supplying that trusted map;
+changing the provider-neutral dispatch contract or durable lifecycle remains
+outside 5d1.
+
 ### DTE06-E: Attempt Supervision And Settlement — Pending
 
 - connect accepted compute to fenced heartbeat, completion, result publication,

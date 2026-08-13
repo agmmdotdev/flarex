@@ -106,6 +106,7 @@ async function buildOnce(): Promise<CoreBuildReceipt> {
   for (const name of [
     "executeApplicationTransactionWorkerV1",
     "executeApplicationActionWorkerV1",
+    "executeApplicationTaskWorkerV1",
   ]) {
     if (!chunk.exports.includes(name)) {
       throw new Error(`Application Worker core omitted ${name}.`);

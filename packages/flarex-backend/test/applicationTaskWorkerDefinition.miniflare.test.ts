@@ -1,0 +1,628 @@
+import { Miniflare } from "miniflare";
+import { createHash } from "node:crypto";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+} from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
+import {
+  APPLICATION_TASK_WORKER_REQUEST_FORMAT_V1,
+  APPLICATION_TASK_WORKER_REQUEST_VERSION_V1,
+} from "flarex-protocol/internal/application-task-worker-v1";
+import { Effect, Result } from "effect";
+import {
+  decodeApplicationTaskRuntimeTargetV1,
+  encodeApplicationTaskRuntimeTargetPreimageV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import {
+  decodeCanonicalTaskManifestV1,
+  encodeCanonicalTaskManifestPreimageV1,
+  makeLiveStandardApplicationTaskSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+
+import { APPLICATION_RUNTIME_HOST_IDENTITY } from
+  "../src/artifactRuntime/ApplicationRuntimeMaterializer";
+import {
+  makeApplicationTaskWorkerDefinition,
+  type ApplicationTaskWorkerDefinition,
+  type ApplicationTaskWorkerHostPolicy,
+} from "../src/artifactRuntime/ApplicationTaskWorkerDefinition";
+import { APPLICATION_WORKER_CORE_SOURCE } from
+  "../src/artifactRuntime/ApplicationWorkerCore.generated";
+import type { ApplicationAnalysisSourceBundle } from
+  "../src/sourceArtifactV2/ApplicationAnalysisReader";
+
+const instances: Miniflare[] = [];
+const sha256 = makeLiveStandardApplicationTaskSha256V1();
+
+afterEach(async () => {
+  await Promise.all(instances.splice(0).map(instance => instance.dispose()));
+});
+
+describe("Application task Worker definition", () => {
+  it("executes only the selected plain export with deterministic globals", async () => {
+    const fixture = taskFixture([
+      "const importedNow = Date.now();",
+      "const importedRandom = Math.random();",
+      "export function run(payload) {",
+      "  return { payload, importedNow, importedRandom, now: Date.now(), random: Math.random(), performance: performance.now() };",
+      "}",
+      "export function ignored() { throw new Error('wrong export'); }",
+    ].join("\n"));
+    const definition = await buildDefinition(fixture);
+
+    const first = await executeDefinition(definition, requestFor(definition), { name: "Ada" });
+    const second = await executeDefinition(definition, requestFor(definition), { name: "Ada" });
+
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      format: "flarex.application-task-worker-result",
+      version: 1,
+      kind: "completed",
+      value: {
+        payload: { name: "Ada" },
+        importedNow: 0,
+        now: 0,
+        performance: 0,
+      },
+    });
+    expect(first).toHaveProperty("disposals", 1);
+  }, 20_000);
+
+  it("rejects payload and output validator violations", async () => {
+    const fixture = taskFixture(
+      "export function run(payload) { return payload.name.length; }",
+      { type: "object", value: {
+        name: { fieldType: { type: "string" }, optional: false },
+      } },
+      { type: "string" },
+    );
+    const definition = await buildDefinition(fixture);
+
+    const inputFailure = await executeDefinition(
+      definition,
+      requestFor(definition),
+      { wrong: "secret-input-must-not-cross" },
+    ).then(() => "must-not-succeed", error => String(error));
+    expect(inputFailure).toContain("ApplicationTaskWorkerInputBoundaryV1Error");
+    expect(inputFailure).toContain("missingRequiredField");
+    expect(inputFailure).not.toContain("secret-input-must-not-cross");
+
+    const outputFailure = await executeDefinition(
+      definition,
+      requestFor(definition),
+      { name: "Ada" },
+    ).then(() => "must-not-succeed", error => String(error));
+    expect(outputFailure).toContain("ApplicationTaskWorkerUserCodeV1Error");
+    expect(outputFailure).toContain("typeMismatch");
+    expect(outputFailure).not.toContain("Ada");
+  }, 20_000);
+
+  it("classifies returned payload disposal failure at the input boundary", async () => {
+    const fixture = taskFixture(
+      "export function run(payload) { return payload; }",
+    );
+    const definition = await buildDefinition(fixture);
+    for (const invalidPayload of [false, true]) {
+      const response = await executeDisposalFailure(
+        definition,
+        fixture.manifest,
+        requestFor(definition),
+        invalidPayload,
+      );
+      expect(response).toMatchObject({
+        name: "ApplicationTaskWorkerInputBoundaryV1Error",
+        ...(invalidPayload
+          ? { causeName: "ApplicationTaskWorkerContractV1Error", causeReason: "invalid_value" }
+          : { causeMessage: "payload dispose failed" }),
+      });
+    }
+  }, 20_000);
+
+  it("embeds canonical definition JSON through JSON.parse", async () => {
+    const definition = await buildDefinition(taskFixture(
+      "export function run() { return null; }",
+    ));
+    const entrypoint = definition.modules[definition.mainModule];
+    expect(entrypoint).toBeTypeOf("object");
+    expect((entrypoint as { readonly js: string }).js)
+      .toContain("const definition = Object.freeze(JSON.parse(");
+  });
+
+  it("fails closed on forbidden import-time capability use", async () => {
+    const fixture = taskFixture([
+      "try { crypto.randomUUID(); } catch {}",
+      "export function run() { return 'must-not-run'; }",
+    ].join("\n"));
+    const definition = await buildDefinition(fixture);
+
+    await expect(executeDefinition(definition, requestFor(definition), null))
+      .rejects.toThrow("ApplicationTaskWorkerDefinitionV1Error");
+  }, 20_000);
+
+  it("rejects an oversized output under the task result ceiling", async () => {
+    const fixture = taskFixture(
+      "export function run(payload) { return 'x'.repeat(payload.size); }",
+    );
+    const definition = await buildDefinition(fixture);
+    await expect(executeDefinition(
+      definition,
+      requestFor(definition),
+      { size: 8 * 1_048_576 },
+    )).rejects.toThrow("ApplicationTaskWorkerUserCodeV1Error");
+  }, 20_000);
+
+  it("rejects mismatched source and runtime-host authority before loading", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const hostFailure = await Effect.runPromise(buildDefinitionEffect({
+      ...fixture,
+      hostPolicy: {
+        ...fixture.hostPolicy,
+        runtimeHostIdentity: "wrong-host",
+      } as ApplicationTaskWorkerHostPolicy,
+    }).pipe(Effect.flip));
+    expect(hostFailure.reason).toBe("hostPolicyMismatch");
+    const sourceFailure = await Effect.runPromise(buildDefinitionEffect({
+      ...fixture,
+      source: {
+        ...fixture.source,
+        modules: fixture.source.modules.filter(
+          module => module.path !== fixture.target.handler.sourceModulePath,
+        ),
+      },
+    }).pipe(Effect.flip));
+    expect(sourceFailure.reason).toBe("authorityMismatch");
+  });
+
+  it("recomputes manifest and runtime-target digests before definition", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const targetFailure = await Effect.runPromise(buildDefinitionEffect({
+      ...fixture,
+      runtimeTargetSha256: new Uint8Array(32).fill(9),
+    }).pipe(Effect.flip));
+    expect(targetFailure.reason).toBe("authorityMismatch");
+
+    const manifestFailure = await Effect.runPromise(buildDefinitionEffect({
+      ...fixture,
+      manifest: { ...fixture.manifest, computeProfile: "standard-2x" } as unknown,
+    }).pipe(Effect.flip));
+    expect(manifestFailure.reason).toBe("authorityMismatch");
+  });
+
+  it("captures definition inputs before asynchronous hashing", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const mutableDigest = new Uint8Array(fixture.runtimeTargetSha256);
+    const mutableProfiles: Array<{
+      computeProfile: string;
+      cpuMilliseconds: number;
+      maximumDurationMs: number;
+    }> = fixture.hostPolicy.computeProfiles.map(profile => ({ ...profile }));
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    const gatedSha256 = (...args: Parameters<typeof sha256>) => {
+      calls += 1;
+      return Effect.promise(async () => {
+        if (calls === 1) await gate;
+        return await Effect.runPromise(sha256(...args));
+      });
+    };
+    const pending = Effect.runPromise(makeApplicationTaskWorkerDefinition({
+      ...fixture,
+      runtimeTargetSha256: mutableDigest,
+      hostPolicy: { ...fixture.hostPolicy, computeProfiles: mutableProfiles },
+      sha256: gatedSha256,
+    }));
+    await Promise.resolve();
+    mutableDigest.fill(9);
+    mutableProfiles[0]!.cpuMilliseconds = 1;
+    release();
+    const definition = await pending;
+    expect(definition.runtimeTargetSha256Hex)
+      .toBe(Buffer.from(fixture.runtimeTargetSha256).toString("hex"));
+    expect(definition.limits.cpuMs).toBe(10_000);
+  });
+
+  it("freezes every authenticated module descriptor", async () => {
+    const definition = await buildDefinition(taskFixture(
+      "export function run() { return 'original'; }",
+    ));
+    const selected = Object.values(definition.modules).find(module =>
+      typeof module === "object" && module !== null &&
+      "js" in module && module.js.includes("return 'original'")
+    );
+    expect(selected).toBeDefined();
+    expect(Object.isFrozen(selected)).toBe(true);
+    expect(() => {
+      (selected as { js: string }).js =
+        "export function run() { return 'replaced'; }";
+    }).toThrow();
+    await expect(executeDefinition(
+      definition,
+      requestFor(definition),
+      null,
+    )).resolves.toMatchObject({ value: "original" });
+  }, 20_000);
+
+  it("derives limits from the admitted profile and duration policy", async () => {
+    const fixture = taskFixture(
+      "export function run() { return null; }",
+      { type: "any" },
+      null,
+      { computeProfile: "standard-2x", maximumDurationInSeconds: 45 },
+    );
+    const definition = await buildDefinition({
+      ...fixture,
+      hostPolicy: {
+        ...fixture.hostPolicy,
+        computeProfiles: [{
+          computeProfile: "standard-2x",
+          cpuMilliseconds: 20_000,
+          maximumDurationMs: 60_000,
+        }],
+      } satisfies ApplicationTaskWorkerHostPolicy,
+    });
+    expect(definition.computeProfile).toBe("standard-2x");
+    expect(definition.limits).toEqual({ cpuMs: 20_000, subRequests: 0 });
+    expect(definition.wallMilliseconds).toBe(45_000);
+
+    for (const hostPolicy of [
+      { ...fixture.hostPolicy, computeProfiles: [] },
+      {
+        ...fixture.hostPolicy,
+        computeProfiles: [{
+          computeProfile: "standard-2x",
+          cpuMilliseconds: 20_000,
+          maximumDurationMs: 30_000,
+        }],
+      },
+    ] satisfies ReadonlyArray<ApplicationTaskWorkerHostPolicy>) {
+      const failure = await Effect.runPromise(buildDefinitionEffect({
+        ...fixture,
+        hostPolicy,
+      }).pipe(Effect.flip));
+      expect(["unsupportedComputeProfile", "unsupportedDuration"])
+        .toContain(failure.reason);
+    }
+  });
+
+  it("rejects malformed runtime host policy through the typed channel", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const throwingProfiles = new Proxy([], {
+      ownKeys() { throw new Error("ownKeys trap"); },
+      get(_target, key) {
+        if (key === Symbol.iterator) throw new Error("iterator trap");
+        return Reflect.get(_target, key);
+      },
+    });
+    const throwingIndex = [fixture.hostPolicy.computeProfiles[0]];
+    Object.defineProperty(throwingIndex, "0", {
+      enumerable: true,
+      get() { throw new Error("index getter"); },
+    });
+    for (const hostPolicy of [
+      {
+        ...fixture.hostPolicy,
+        computeProfiles: [{
+          computeProfile: null,
+          cpuMilliseconds: 10_000,
+          maximumDurationMs: 30_000,
+        }],
+      },
+      {
+        ...fixture.hostPolicy,
+        computeProfiles: [null],
+      },
+      { ...fixture.hostPolicy, computeProfiles: throwingProfiles },
+      { ...fixture.hostPolicy, computeProfiles: throwingIndex },
+    ]) {
+      const failure = await Effect.runPromise(
+        makeApplicationTaskWorkerDefinition({
+          ...fixture,
+          hostPolicy: hostPolicy as unknown as ApplicationTaskWorkerHostPolicy,
+          sha256,
+        }).pipe(Effect.flip),
+      );
+      expect(failure).toMatchObject({
+        _tag: "ApplicationTaskWorkerDefinitionError",
+      });
+      expect(["hostPolicyMismatch", "unsupportedComputeProfile"])
+        .toContain(failure.reason);
+    }
+  });
+});
+
+function taskFixture(
+  handlerSource: string,
+  payloadValidator: unknown = { type: "any" },
+  outputValidator: unknown = null,
+  policy: Readonly<{
+    readonly computeProfile: string;
+    readonly maximumDurationInSeconds: number;
+  }> = Object.freeze({
+    computeProfile: "standard-1x",
+    maximumDurationInSeconds: 30,
+  }),
+) {
+  const execution = "export {};\n";
+  const modules = Object.freeze([
+    Object.freeze({
+      path: "_flarex/application.js",
+      roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+      sourceSha256: "b".repeat(64),
+      sourceByteLength: new TextEncoder().encode(execution).byteLength,
+      source: execution,
+    }),
+    Object.freeze({
+      path: "tasks/orders.js",
+      roles: SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+      sourceSha256: "c".repeat(64),
+      sourceByteLength: new TextEncoder().encode(handlerSource).byteLength,
+      source: handlerSource,
+    }),
+  ]);
+  const sourceArtifact = Object.freeze({
+    rootSha256: "a".repeat(64),
+    executionModulePath: "_flarex/application.js",
+    schemaModulePath: null,
+    modules: Object.freeze(modules.map(module => Object.freeze({
+      path: module.path,
+      roles: module.roles,
+      sourceSha256: module.sourceSha256,
+      sourceByteLength: module.sourceByteLength,
+    }))),
+  });
+  const source: ApplicationAnalysisSourceBundle = Object.freeze({
+    sourceArtifact,
+    modules,
+  });
+  const manifest = Result.getOrThrow(decodeCanonicalTaskManifestV1({
+    version: 1,
+    taskId: "tasks.orders.process",
+    handler: {
+      logicalModulePath: "tasks/orders",
+      artifactModulePath: "tasks/orders.js",
+      exportName: "run",
+    },
+    payloadValidator,
+    outputValidator,
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 3,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: policy.maximumDurationInSeconds,
+    computeProfile: policy.computeProfile,
+    queue: { kind: "default" },
+  }));
+  const canonicalTaskManifestSha256 = digest(Result.getOrThrow(
+    encodeCanonicalTaskManifestPreimageV1(manifest),
+  ));
+  const target = Result.getOrThrow(decodeApplicationTaskRuntimeTargetV1({
+    version: 1,
+    scopeId: "scope_00000000-0000-4000-8000-000000000001",
+    revisionId: "revision",
+    candidateId: "candidate",
+    analysisId: "analysis",
+    sourceArtifactRootSha256: sourceArtifact.rootSha256,
+    publicationSha256: "d".repeat(64),
+    applicationTaskCatalogBindingSha256: new Uint8Array(32).fill(1),
+    applicationTaskDefinitionBindingSha256: new Uint8Array(32).fill(2),
+    taskCatalogSha256: new Uint8Array(32).fill(3),
+    taskId: manifest.taskId,
+    canonicalTaskManifestSha256,
+    handler: {
+      logicalModulePath: manifest.handler.logicalModulePath,
+      sourceModulePath: manifest.handler.artifactModulePath,
+      exportName: manifest.handler.exportName,
+    },
+    runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+    compatibilityDate: "2026-06-14",
+  }));
+  const runtimeTargetSha256 = digest(Result.getOrThrow(
+    encodeApplicationTaskRuntimeTargetPreimageV1(target),
+  ));
+  return Object.freeze({
+    source,
+    target,
+    runtimeTargetSha256,
+    manifest,
+    hostPolicy: Object.freeze({
+      runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+      compatibilityDate: "2026-06-14",
+      computeProfiles: Object.freeze([Object.freeze({
+        computeProfile: "standard-1x",
+        cpuMilliseconds: 10_000,
+        maximumDurationMs: 120_000,
+      })]),
+    }),
+  });
+}
+
+function requestFor(definition: ApplicationTaskWorkerDefinition) {
+  return {
+    format: APPLICATION_TASK_WORKER_REQUEST_FORMAT_V1,
+    version: APPLICATION_TASK_WORKER_REQUEST_VERSION_V1,
+    dispatch: {
+      version: "flarex.task-compute-dispatch-request.v1",
+      identity: {
+        version: "flarex.task-compute-dispatch-identity.v1",
+        scopeId: "scope_00000000-0000-4000-8000-000000000001",
+        runId: "run_00000000-0000-4000-8000-000000000002",
+        requestedEffectSequence: 1n,
+        attemptId: "attempt_00000000-0000-4000-8000-000000000003",
+        executionFence: 1n,
+      },
+      applicationTaskRuntimeTargetSha256: fromHex(
+        definition.runtimeTargetSha256Hex,
+      ),
+      attemptNumber: 1,
+      leaseVersion: 1n,
+      computeProfile: "standard-1x",
+      cancellation: { kind: "not_requested", generation: 0n },
+      maximumDurationMs: 30_000,
+    },
+  };
+}
+
+function buildDefinitionEffect(
+  fixture: Omit<Parameters<typeof makeApplicationTaskWorkerDefinition>[0], "sha256">,
+) {
+  return makeApplicationTaskWorkerDefinition({ ...fixture, sha256 });
+}
+
+function buildDefinition(
+  fixture: Omit<Parameters<typeof makeApplicationTaskWorkerDefinition>[0], "sha256">,
+): Promise<ApplicationTaskWorkerDefinition> {
+  return Effect.runPromise(buildDefinitionEffect(fixture));
+}
+
+function digest(bytes: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha256").update(bytes).digest());
+}
+
+function fromHex(value: string): Uint8Array {
+  return new Uint8Array(Buffer.from(value, "hex"));
+}
+
+async function executeDefinition(
+  definition: ApplicationTaskWorkerDefinition,
+  requestValue: unknown,
+  payload: unknown,
+): Promise<unknown> {
+  const encoded = JSON.stringify({ request: requestValue, payload },
+    (_key, value: unknown) => {
+      if (typeof value === "bigint") return { __bigint: String(value) };
+      if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+      return value;
+    });
+  const workerCode = {
+    compatibilityDate: definition.compatibilityDate,
+    limits: definition.limits,
+    mainModule: definition.mainModule,
+    modules: definition.modules,
+    env: definition.env,
+    globalOutbound: null,
+  };
+  const outerSource = `
+import { RpcTarget } from "cloudflare:workers";
+const workerCode = ${JSON.stringify(workerCode)};
+const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint)
+    : value
+);
+class InputCapability extends RpcTarget {
+  read() { return JSON.parse(JSON.stringify(input.payload)); }
+  [Symbol.dispose]() { globalThis.capabilityDisposals += 1; }
+}
+globalThis.capabilityDisposals = 0;
+export default {
+  async fetch(_request, env) {
+    try {
+      const worker = env.LOADER.load(workerCode);
+      const stub = worker.getEntrypoint(${JSON.stringify(definition.entrypoint)});
+      const result = await stub.run(input.request, new InputCapability());
+      try {
+        const projection = { ...structuredClone(result), disposals: globalThis.capabilityDisposals };
+        return new Response(JSON.stringify(projection, (_key, value) =>
+          typeof value === "bigint" ? { __bigint: String(value) } : value
+        ), { headers: { "content-type": "application/json" } });
+      }
+      finally { result[Symbol.dispose]?.(); }
+    } catch (error) {
+      return Response.json({
+        name: error?.name,
+        message: error?.message,
+        causeName: error?.cause?.name,
+        causeMessage: error?.cause?.message,
+        causeReason: error?.cause?.reason,
+        causeBoundary: error?.cause?.boundary,
+        causeIssue: error?.cause?.cause?.issue,
+      }, { status: 500 });
+    }
+  },
+};`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: true,
+    script: outerSource,
+    workerLoaders: { LOADER: {} },
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://application-task.test/");
+  const body = await response.json() as { readonly name?: string };
+  if (!response.ok) throw new Error(`Worker failure ${JSON.stringify(body)}`);
+  return body;
+}
+
+async function executeDisposalFailure(
+  definition: ApplicationTaskWorkerDefinition,
+  manifest: unknown,
+  requestValue: unknown,
+  invalidPayload: boolean,
+): Promise<unknown> {
+  const encoded = JSON.stringify(requestValue, (_key, value: unknown) => {
+    if (typeof value === "bigint") return { __bigint: String(value) };
+    if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+    return value;
+  });
+  const outerSource = `
+import { executeApplicationTaskWorkerV1 } from "./core.js";
+const request = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint)
+    : value
+);
+const definition = {
+  handlerExportName: "run",
+  manifest: JSON.parse(${JSON.stringify(JSON.stringify(manifest))}),
+  runtimeTargetSha256Hex: ${JSON.stringify(definition.runtimeTargetSha256Hex)},
+};
+export default {
+  async fetch() {
+    try {
+      await executeApplicationTaskWorkerV1({
+        request,
+        capability: {
+          read() {
+            return {
+              value: ${invalidPayload ? "() => {}" : "'ok'"},
+              [Symbol.dispose]() { throw new Error("payload dispose failed"); },
+            };
+          },
+        },
+        definition,
+        loadExecution: async () => ({ run(payload) { return payload; } }),
+      });
+      return Response.json({ name: "must-not-succeed" });
+    } catch (error) {
+      return Response.json({
+        name: error?.name,
+        causeName: error?.cause?.name,
+        causeMessage: error?.cause?.message,
+        causeReason: error?.cause?.reason,
+      });
+    }
+  },
+};`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: [{ type: "ESModule", path: "test.js", contents: outerSource }, {
+      type: "ESModule", path: "core.js", contents: APPLICATION_WORKER_CORE_SOURCE,
+    }],
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://dispose-task.test/");
+  return await response.json();
+}
