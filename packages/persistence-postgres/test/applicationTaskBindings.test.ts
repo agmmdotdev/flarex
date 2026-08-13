@@ -96,9 +96,16 @@ describe("Application task-binding persistence", () => {
     const first = await load();
     if (first === null) throw new Error("Expected task-catalog snapshot.");
     const expectedTaskCatalogSha256 = first.taskCatalogSha256.slice();
+    const firstCatalog = first.readTaskCatalog();
+    const expectedManifestSha256 =
+      firstCatalog.entries[0]?.canonicalTaskManifestSha256.slice();
 
     expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(firstCatalog)).toBe(true);
+    expect(Object.isFrozen(firstCatalog.entries)).toBe(true);
     first.taskCatalogSha256.fill(0);
+    firstCatalog.taskCatalogSha256.fill(0);
+    firstCatalog.entries[0]?.canonicalTaskManifestSha256.fill(0);
 
     const second = await load();
     if (second === null) {
@@ -106,6 +113,11 @@ describe("Application task-binding persistence", () => {
     }
     expect(second.taskCatalogSha256).toEqual(expectedTaskCatalogSha256);
     expect(second.taskCatalogSha256).not.toBe(first.taskCatalogSha256);
+    const secondCatalog = second.readTaskCatalog();
+    expect(secondCatalog.taskCatalogSha256).toEqual(expectedTaskCatalogSha256);
+    expect(secondCatalog.entries[0]?.canonicalTaskManifestSha256)
+      .toEqual(expectedManifestSha256);
+    expect(secondCatalog).not.toBe(firstCatalog);
   });
 
   it("converges concurrent exact registration", async () => {

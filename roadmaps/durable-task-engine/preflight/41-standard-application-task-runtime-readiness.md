@@ -10,9 +10,14 @@ completed on 2026-08-12. The rebuilt backend authority consumes that
 Standard-owned prepared handle, admits the exact membership before I/O,
 cold-reads only through the existing immutable task-runtime store in canonical
 order, and mints a process-local opaque proof only after completion.
-Hosted R2 hard-deadline/settlement and measured Worker-heap proof, persistence/
-schema, readiness issuance, activation, and production wiring remain blocked
-and unapproved.
+Hosted R2 hard-deadline/settlement and measured Worker-heap proof, task-aware
+readiness schema/persistence, readiness issuance, activation, and production
+wiring remain blocked and unapproved. The separately approved `SAP-CAA1-C`
+checkpoint now provides
+the production-inert transaction-only task-runtime snapshot: it reuses the
+existing task-catalog snapshot owner and independently correlates Application
+parent/catalog evidence with the canonical runtime receipt and membership
+before returning. It does not read R2 or write readiness.
 
 SAP-TRP1 through SAP-TRP4 are complete and production-inert. They provide the
 canonical task-runtime object formats, an authenticated publication plan, an
@@ -166,8 +171,8 @@ reference in canonical order and:
 6. recomputes module, projection, entry, group-manifest, and materialization
    relationships through the Standard Application owner;
 7. recomputes every receipt root and compares it to the exact SAP-TRP4 receipt;
-8. correlates catalog, candidate, source, semantic, package, artifact, and
-   Application revision task-binding evidence; and
+8. correlates the Application candidate/revision/publication, Source Artifact
+   root, task catalog, and Application revision task-binding evidence; and
 9. applies the trusted admitted ABI, runtime-profile, implementation-version,
    compatibility-date/flags, and compute-profile policy.
 
@@ -599,8 +604,9 @@ object existence as a readiness receipt.
   wrong-codec, length, digest, and noncanonical object negatives;
 - **complete:** recomputed module/projection/entry/group/materialization and
   Application revision binding roots;
-- **complete:** catalog/candidate/source/semantic/package/artifact/revision
-  correlation and implementation/date/flag/compute-profile admission cases;
+- **complete:** Application candidate/revision/publication, Source Artifact
+  root, task-catalog, revision-binding, and
+  implementation/date/flag/compute-profile admission cases;
 - **complete:** canonical-basis round trip, exact error-channel typing,
   ownership, hostile accessor/detached-byte rejection, and mutation across an
   asynchronous hash boundary;

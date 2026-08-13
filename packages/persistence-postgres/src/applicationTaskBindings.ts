@@ -13,6 +13,7 @@ import {
   encodeCanonicalTaskManifestPreimageV1,
   encodeHashedCanonicalTaskCatalogPreimageV1,
   MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
+  type HashedCanonicalTaskCatalogV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import type { TaskDefinitionSha256V1 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -99,6 +100,7 @@ export interface ApplicationTaskCatalogSnapshot {
   readonly taskCount: number;
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
+  readonly readTaskCatalog: () => HashedCanonicalTaskCatalogV1;
 }
 
 export interface ApplicationTaskCatalogSnapshotPort {
@@ -296,6 +298,12 @@ ApplicationTaskCatalogSnapshotPort {
       yield* taskSnapshotSha256(catalogBytes),
       catalog.taskCatalogSha256,
     )) return yield* taskSnapshotFailure("storedState", false);
+    const ownedTaskCatalog = Object.freeze({
+      version: 1 as const,
+      entries: Object.freeze(entries),
+      taskCatalogSha256: copyBytes(catalog.taskCatalogSha256) as
+        TaskDefinitionSha256V1,
+    });
     return Object.freeze({
       scopeId: catalog.scopeId,
       revisionId: catalog.revisionId,
@@ -308,11 +316,28 @@ ApplicationTaskCatalogSnapshotPort {
       taskCount: catalog.taskCount,
       runtimeHostIdentity: catalog.runtimeHostIdentity,
       compatibilityDate: catalog.compatibilityDate,
+      readTaskCatalog: () => copyTaskCatalog(ownedTaskCatalog),
     });
   });
   const port = Object.freeze({ loadInTransaction });
   taskCatalogSnapshotPorts.add(port);
   return port;
+}
+
+function copyTaskCatalog(
+  catalog: HashedCanonicalTaskCatalogV1,
+): HashedCanonicalTaskCatalogV1 {
+  return Object.freeze({
+    version: 1 as const,
+    entries: Object.freeze(catalog.entries.map(entry => Object.freeze({
+      taskId: entry.taskId,
+      manifest: entry.manifest,
+      canonicalTaskManifestSha256:
+        copyBytes(entry.canonicalTaskManifestSha256) as TaskDefinitionSha256V1,
+    }))),
+    taskCatalogSha256:
+      copyBytes(catalog.taskCatalogSha256) as TaskDefinitionSha256V1,
+  });
 }
 
 export function isApplicationTaskCatalogSnapshotPort(

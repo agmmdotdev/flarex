@@ -2,11 +2,14 @@
 
 ## Status And Scope
 
-**Status:** `SAP-CAA1-A/B` implemented locally as one private correction in
-place. No parallel V2 runtime, legacy reader, dual write, fallback, activation,
-or production composition was added. External deployment inventory remains a
-hard gate before applying this corrected migration to any persistent owned
-environment.
+**Status:** `SAP-CAA1-A/B/C` implemented locally as one private correction and
+reconnection in place. The current runtime publication now has a private
+transaction-only readiness snapshot that independently compares Application
+parent/catalog evidence with canonical receipt/membership evidence before any
+object-store work. No parallel V2 runtime, legacy reader, dual write, fallback,
+readiness issuance, activation, or production composition was added. External
+deployment inventory remains a hard gate before applying this corrected
+migration to any persistent owned environment.
 
 This preflight resolves the candidate-authority blocker discovered by
 SAP-TRP5. It defines how Standard Application task-runtime publication and
@@ -308,8 +311,10 @@ The approved correction implemented steps 1 and 2 together because the private
 persistence repository directly compiles against the corrected Standard
 Application receipt. Keeping only step 1 would have required a temporary alias
 or compatibility reader for an implementation with no retained consumer,
-which would contradict this preflight's no-parallel-path decision. Step 3 and
-all readiness/activation work remain unimplemented.
+which would contradict this preflight's no-parallel-path decision. Step 3 is
+now complete as a separate production-inert checkpoint. Task-aware readiness
+issuance, final revalidation/commit, activation, and launch remain
+unimplemented.
 
 ## Local Implementation Receipt
 
@@ -328,6 +333,21 @@ Completed on 2026-08-13:
   publication repository, and test fixtures in place; and
 - added exact negative coverage for every Application parent facet and for a
   changed independently stored Application publication digest.
+
+Completed for `SAP-CAA1-C` on 2026-08-13:
+
+- extended the existing `ApplicationTaskCatalogSnapshotPort` to expose its
+  already authenticated canonical catalog through a copy-on-read operation;
+- added one private transaction-only runtime-readiness snapshot port that
+  locks and correlates the current scope clock, inactive revision, Application
+  candidate/publication, authenticated task catalog, canonical runtime receipt,
+  and normalized object membership;
+- derives readiness parent evidence only from the independently authenticated
+  Application parent/catalog side and never from the receipt field it checks;
+- returns `null` when the current runtime publication is absent, with no R2
+  call or readiness write; and
+- proves a structurally self-consistent receipt with a different Application
+  publication parent fails before object-store work.
 
 Inventory evidence for this checkout:
 
@@ -349,6 +369,11 @@ Validation receipt:
 - genuine PostgreSQL 18 publication tests passed against a disposable local
   instance; and
 - Trigger compatibility boundary check passed.
+
+`SAP-CAA1-C` validation adds focused PGlite coverage for missing, empty,
+populated, ownership, stored-membership drift, and self-consistent
+parent-inconsistent receipt cases, plus a genuine PostgreSQL 18 transaction
+and reusable-connection proof. This checkpoint changes no schema or migration.
 
 ## Explicit Non-Goals
 
