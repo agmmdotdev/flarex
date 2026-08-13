@@ -2921,20 +2921,19 @@ checkpoints:
    and child rows; do not add a redundant execution-binding table, allocate or
    manufacture a Legacy `taskDefinitionRevisionId`, copy module bytes, or create
    a run. This checkpoint remains inert.
-2. **5b1a — shared durable-run reference and Application contracts.** Give the
+2. **5b1a — shared durable-run reference and Application creation contracts.** Give the
    durable-task owner one current in-memory task-definition reference union, but
    do not widen or reinterpret any persisted V1 codec. Legacy run-creation,
    aggregate/state, grant, requested-effect and compute-request V1 values retain
    `taskDefinitionRevisionId` byte-for-byte. Add distinct Application persisted
-   request, receipt, aggregate/state, grant and requested-effect contract
-   generations carrying only the Application runtime-target identity. Factor the
-   common schemas through one identity-field factory so the two persisted
-   generations cannot drift in lifecycle shape. This checkpoint changes no
-   lifecycle decision, SQL or run.
+   run-creation request, receipt and creation-authority contracts carrying only
+   the Application runtime-target identity plus the admitted active-head and
+   readiness pins. This checkpoint changes no lifecycle decision, SQL or run.
 3. **5b1b — one reference-aware lifecycle core.** Move identity transport in
    the pure transition implementation to the current definition-reference union.
    Exact Legacy and Application adapters own their persisted aggregate, state,
-   grant and requested-effect projections. Both generations execute the same
+   grant and requested-effect projections; their identity-bearing schema nodes
+   come from one factory so lifecycle shape cannot drift. Both generations execute the same
    retry, cancellation, requested-effect ordering, fence and receipt decisions;
    no structural fallback or synthetic Legacy definition ID is allowed. This
    checkpoint changes no SQL and creates no run.
@@ -2995,10 +2994,10 @@ non-empty catalog regression must fail on the old reader and pass on the fixed
 reader.
 
 Checkpoint 5b1a must prove exact Legacy codec preservation, unknown/mixed
-reference rejection and Application request/receipt/aggregate/state/grant/effect
-round trips. Checkpoint 5b1b must prove both identity branches traverse the same
-decisions with unchanged retry/cancellation/lifecycle receipts and no synthetic
-Legacy identity.
+reference rejection and Application request/receipt/creation-authority round
+trips. Checkpoint 5b1b must prove Application aggregate/state/grant/effect round
+trips, both identity branches traversing the same decisions, unchanged retry,
+cancellation and lifecycle receipts, and no synthetic Legacy identity.
 Checkpoint 5b2 must prove fresh and upgrade migration, Application creation,
 replay/conflict, head movement before creation, pinned replay after later head
 movement, row XOR constraints, direct read correlation, and exclusion from due
