@@ -83,6 +83,15 @@ not run staged-snapshot mode because that mode materializes temporary files; the
 main thread alone runs it. Reviewers remain read-only. `tools/oxlint/README.md`
 owns the command and rollout details.
 
+Semantic Effect lint diagnostics are reviewer evidence, not automatic rewrite
+authority. The TypeScript reviewer must inspect the connected operation and
+classify each in-diff finding as a required bounded fix, a legitimate boundary
+exception, or a rule false positive. Only the main thread may write the result.
+A legitimate exception must be line-scoped and carry the reviewer's concrete
+`REVIEW:` reason; broad disables, generic rationales, baselines, and severity
+downgrades are forbidden. A false positive is fixed in the rule with a
+regression test rather than suppressed in product source.
+
 Any agent implementing or refactoring Effect code, and the TypeScript reviewer
 when a changed TypeScript flow uses or may semantically require Effect, must
 read and apply the repo-local

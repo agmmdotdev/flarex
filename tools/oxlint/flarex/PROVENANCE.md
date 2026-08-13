@@ -32,11 +32,22 @@ The Flarex implementations are intentionally narrower:
 
 - `no-banned-type-assertions` rejects only assertions directly targeting
   `any`, `never`, or `unknown`.
-- `no-silent-effect-error-swallow` recognizes imported Effect namespaces and
-  rejects recovery handlers that return only `Effect.void` or `Effect.unit`.
-- `prefer-option-null-constructors` recognizes imported Option namespaces and
-  distinguishes strict-null `Option.fromNullOr` conversions from loose-null
-  `Option.fromNullishOr` conversions using the installed Effect v4 API.
+- `no-silent-effect-error-swallow` recognizes imported Effect recovery
+  handlers that return only `Effect.void` or `Effect.unit` for reviewer
+  adjudication.
+- `prefer-option-constructors` recognizes imported Option namespaces and
+  distinguishes exact `fromNullOr`, `fromUndefinedOr`, and `fromNullishOr`
+  conversions using the installed Effect v4 API.
+- `no-v3-effect-apis` rejects a narrow catalog of removed or renamed v3 imports
+  and members that are unambiguous under Flarex's installed v4 API.
+- `no-runtime-runner-inside-effect`, `no-platform-time-inside-effect`,
+  `no-result-channel-reboxing`, `no-result-get-or-throw-without-boundary`,
+  `no-silent-effect-error-swallow`, `prefer-result-gen-for-dependent-sequence`, and
+  `prefer-effect-fn-for-reusable-operation` emit semantic review evidence.
+  The TypeScript reviewer, not the AST heuristic, owns the final connected-flow
+  decision.
+- `require-effect-review-justification` rejects broad semantic-rule disables
+  and requires a specific reviewer rationale on a line-scoped exception.
 
 Any future upstream refresh must be reviewed as a normal tooling change. Do
 not overwrite Flarex-owned adaptations mechanically.

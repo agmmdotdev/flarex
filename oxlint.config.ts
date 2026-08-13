@@ -30,11 +30,22 @@ export default defineConfig({
     "flarex/no-known-value-widening": "warn",
     "flarex/no-module-mocking": "warn",
     "flarex/no-object-parameters": "warn",
+    // Semantic Effect diagnostics are reviewer evidence. The TypeScript
+    // reviewer adjudicates the connected flow before the main thread fixes or
+    // records one narrow, reviewed exception.
+    "flarex/no-platform-time-inside-effect": "warn",
+    "flarex/no-result-channel-reboxing": "warn",
+    "flarex/no-result-get-or-throw-without-boundary": "warn",
+    "flarex/no-runtime-runner-inside-effect": "warn",
+    "flarex/no-silent-effect-error-swallow": "warn",
+    "flarex/prefer-effect-fn-for-reusable-operation": "warn",
+    "flarex/prefer-result-gen-for-dependent-sequence": "warn",
     // These rules were zero-debt when this scoped profile was introduced.
-    "flarex/no-silent-effect-error-swallow": "error",
     "flarex/no-unknown-type-aliases": "error",
+    "flarex/no-v3-effect-apis": "error",
     "flarex/no-widen-then-assert": "error",
-    "flarex/prefer-option-null-constructors": "error",
+    "flarex/prefer-option-constructors": "error",
+    "flarex/require-effect-review-justification": "error",
     "flarex/require-safety-comment-for-type-assertion": "warn",
   },
 });

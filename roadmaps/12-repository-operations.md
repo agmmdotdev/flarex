@@ -42,6 +42,12 @@ correctness and the quality of TypeScript/Effect implementation.
   main thread owns staged-snapshot verification and fixes, and must not use
   baselines, blanket suppressions, severity
   downgrades, or assertion laundering to pass the gate.
+- Effect lint is split between deterministic installed-API checks and semantic
+  reviewer-decision diagnostics. The diff ratchet blocks new semantic findings,
+  but the TypeScript reviewer owns connected-flow adjudication: bounded fix,
+  concrete line-scoped boundary exception, or rule false positive. The main
+  thread performs all edits; false positives are corrected in the rule and
+  regression suite rather than hidden in source.
 - [`effect-native-guidance/`](./effect-native-guidance/README.md) records the
   current repository-wide pattern evidence and target direction for boundaries,
   failures, persistence, services/Layers, data types, tests, and incremental

@@ -23,10 +23,50 @@ have not entered the rollout.
 
 ## Current blocking rules
 
-- `flarex/no-silent-effect-error-swallow`
+- `flarex/no-v3-effect-apis`
+- `flarex/prefer-option-constructors`
+- `flarex/require-effect-review-justification`
 - `flarex/no-unknown-type-aliases`
 - `flarex/no-widen-then-assert`
-- `flarex/prefer-option-null-constructors`
+
+The first two Effect rules are deterministic syntax/import checks against the
+installed Effect v4 API. `prefer-option-constructors` covers exact null-only,
+undefined-only, and nullish conversions; it does not replace public or
+protocol-owned absence shapes merely because they contain `undefined` or
+`null`.
+
+## Reviewer-decision Effect rules
+
+These rules are warning-level evidence and are still blocking on added or
+modified lines through `lint:diff`:
+
+- `flarex/no-platform-time-inside-effect`
+- `flarex/no-result-channel-reboxing`
+- `flarex/no-result-get-or-throw-without-boundary`
+- `flarex/no-runtime-runner-inside-effect`
+- `flarex/no-silent-effect-error-swallow`
+- `flarex/prefer-effect-fn-for-reusable-operation`
+- `flarex/prefer-result-gen-for-dependent-sequence`
+
+The TypeScript reviewer must inspect the smallest connected operation and
+classify each in-diff diagnostic as a required bounded fix, a legitimate
+boundary exception, or a rule false positive. A diagnostic is evidence, not
+automatic authority to rewrite a public representation, validation order,
+transaction boundary, lifecycle owner, or compatibility adapter.
+
+For a legitimate exception, the reviewer states the concrete boundary reason
+and the main thread may add only an adjacent line-scoped directive:
+
+```ts
+// oxlint-disable-next-line flarex/no-result-channel-reboxing -- REVIEW: compatibility - preserves the public result allocation
+```
+
+The required category is one of `public`, `protocol`, `host`, `compatibility`,
+`transaction`, `lifecycle`, or `evaluation-order`, followed by a concrete
+explanation.
+
+File and region disables are rejected. If the diagnostic is a real false
+positive, fix the rule and add a regression case instead of suppressing source.
 
 All other configured custom rules and built-in categories are audit-only. A
 rule may move to blocking only after its scoped findings reach zero through an

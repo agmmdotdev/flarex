@@ -41,6 +41,22 @@ If remediation would change a public contract, trust or transaction boundary,
 data model, lifecycle owner, or another package owner's behavior, stop at that
 boundary and report the finding. Lint policy does not authorize the expansion.
 
+For reviewer-decision Effect rules, treat the AST diagnostic as evidence rather
+than a mechanical rewrite instruction. The TypeScript reviewer inspects the
+smallest connected operation and chooses exactly one disposition:
+
+1. valid diagnostic: require the smallest behavior-preserving correction;
+2. legitimate host, protocol, lifecycle, transaction, or compatibility
+   boundary: state the concrete reason and recommend one adjacent
+   `oxlint-disable-line` or `oxlint-disable-next-line` directive with
+   `-- REVIEW: <boundary-category> - <specific reason>`; or
+3. real false positive: report the rule defect and add a regression test when
+   the main thread corrects the rule; do not suppress source.
+
+The reviewer stays read-only. The main thread owns any fix or reviewed
+exception. Never use a file/region disable, baseline, severity downgrade, or a
+generic justification such as `legacy` or `reviewed`.
+
 ## Change Rules Or Scope
 
 Keep a Flarex-owned rule focused on a stable repository invariant and add

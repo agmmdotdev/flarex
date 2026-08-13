@@ -121,6 +121,22 @@ Effect applicability pass for changed TypeScript:
   Promise/throw adapters. Do not demand a package-wide migration.
 
 Effect-specific checks when Effect is used or should be used:
+- Adjudicate every in-diff diagnostic from the reviewer-decision Effect rules
+  listed in `tools/oxlint/README.md`; do not assume the AST heuristic's
+  suggested transformation is correct. Inspect the smallest connected
+  operation and classify it as a required bounded fix, a legitimate boundary
+  exception, or a rule false positive.
+- For a legitimate exception, state the exact public/protocol, host,
+  compatibility, transaction, lifecycle, or evaluation-order reason and
+  recommend one adjacent `oxlint-disable-line` or
+  `oxlint-disable-next-line` directive with
+  `-- REVIEW: <boundary-category> - <specific reason>`.
+  The main thread owns the edit. Never accept a broad disable, generic reason,
+  baseline, severity downgrade, or assertion laundering.
+- For a false positive, report the rule defect and expected regression case;
+  do not recommend suppressing product source. In the final response, report
+  semantic lint counts by disposition: required fix, boundary exception, and
+  false positive.
 - Apply the repo-local skill's construct and representation decisions actively;
   neighboring code is not a valid exception. Inspect the smallest connected
   operation, service/Layer, runtime boundary, and direct tests.

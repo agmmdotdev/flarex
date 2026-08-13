@@ -1,5 +1,12 @@
 import { defineRule } from "@oxlint/plugins";
-import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
+import type { ESTree } from "@oxlint/plugins";
+
+import {
+  isEffectCall,
+  isImportedEffectFunction,
+  isNamespaceMember,
+  resolveLocalFunction,
+} from "./effect-imports.ts";
 
 const recoveryMethods = new Set([
   "catch",
@@ -11,65 +18,6 @@ const recoveryMethods = new Set([
 const discardedEffectNames = new Set(["unit", "void"]);
 
 type Callback = ESTree.ArrowFunctionExpression | ESTree.Function;
-
-function importedName(
-  specifier: ESTree.ImportDeclaration["specifiers"][number],
-): string | null {
-  if (specifier.type !== "ImportSpecifier") return null;
-  return specifier.imported.type === "Identifier"
-    ? specifier.imported.name
-    : specifier.imported.value;
-}
-
-function resolveVariable(
-  sourceCode: SourceCode,
-  identifier: ESTree.IdentifierReference,
-): Variable | null {
-  let scope: Scope | null = sourceCode.getScope(identifier);
-  while (scope !== null) {
-    const variable = scope.set.get(identifier.name);
-    if (variable !== undefined) return variable;
-    scope = scope.upper;
-  }
-  return null;
-}
-
-function isImportedEffectNamespace(
-  sourceCode: SourceCode,
-  identifier: ESTree.IdentifierReference,
-): boolean {
-  const variable = resolveVariable(sourceCode, identifier);
-  return (
-    variable !== null &&
-    variable.defs.some((definition) => {
-      if (
-        definition.type !== "ImportBinding" ||
-        definition.parent?.type !== "ImportDeclaration"
-      ) {
-        return false;
-      }
-      if (definition.parent.source.value === "effect/Effect") {
-        return definition.node.type === "ImportNamespaceSpecifier";
-      }
-      return (
-        definition.parent.source.value === "effect" &&
-        definition.node.type === "ImportSpecifier" &&
-        importedName(definition.node) === "Effect"
-      );
-    })
-  );
-}
-
-function memberName(member: ESTree.MemberExpression): string | null {
-  if (!member.computed && member.property.type === "Identifier") {
-    return member.property.name;
-  }
-  return member.computed &&
-    member.property.type === "Literal" &&
-    typeof member.property.value === "string"
-    ? member.property.value
-    : null;
-}
 
 function returnedExpression(callback: Callback): ESTree.Expression | null {
   if (callback.body === null) return null;
@@ -95,18 +43,26 @@ export const noSilentEffectErrorSwallowRule = defineRule({
     },
   },
   create(context) {
-    const isEffectMember = (
+    const isDiscardedEffect = (
       expression: ESTree.Expression,
-      names: ReadonlySet<string>,
-    ): expression is ESTree.MemberExpression =>
-      expression.type === "MemberExpression" &&
-      expression.object.type === "Identifier" &&
-      isImportedEffectNamespace(context.sourceCode, expression.object) &&
-      names.has(memberName(expression) ?? "");
+    ): boolean =>
+      isNamespaceMember(
+        context.sourceCode,
+        expression,
+        "Effect",
+        discardedEffectNames,
+      ) ||
+      (expression.type === "Identifier" &&
+        isImportedEffectFunction(
+          context.sourceCode,
+          expression,
+          "Effect",
+          discardedEffectNames,
+        ));
 
     const silentlyDiscards = (callback: Callback): boolean => {
       const expression = returnedExpression(callback);
-      return expression !== null && isEffectMember(expression, discardedEffectNames);
+      return expression !== null && isDiscardedEffect(expression);
     };
 
     const inspectRecoveryArgument = (argument: ESTree.CallExpression["arguments"][number]) => {
@@ -116,22 +72,31 @@ export const noSilentEffectErrorSwallowRule = defineRule({
       ) {
         return silentlyDiscards(argument);
       }
+      if (argument.type === "Identifier") {
+        const callback = resolveLocalFunction(context.sourceCode, argument);
+        return callback !== null && silentlyDiscards(callback);
+      }
       if (argument.type !== "ObjectExpression") return false;
       return argument.properties.some(
-        (property) =>
-          property.type === "Property" &&
-          (property.value.type === "ArrowFunctionExpression" ||
-            property.value.type === "FunctionExpression") &&
-          silentlyDiscards(property.value),
+        (property) => {
+          if (property.type !== "Property") return false;
+          if (
+            property.value.type === "ArrowFunctionExpression" ||
+            property.value.type === "FunctionExpression"
+          ) {
+            return silentlyDiscards(property.value);
+          }
+          if (property.value.type !== "Identifier") return false;
+          const callback = resolveLocalFunction(context.sourceCode, property.value);
+          return callback !== null && silentlyDiscards(callback);
+        },
       );
     };
 
     return {
       CallExpression(node) {
         if (
-          node.callee.type === "Super" ||
-          node.callee.type === "V8IntrinsicExpression" ||
-          !isEffectMember(node.callee, recoveryMethods)
+          !isEffectCall(context.sourceCode, node, "Effect", recoveryMethods)
         ) {
           return;
         }

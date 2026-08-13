@@ -79,8 +79,10 @@ when the dependency changes.
   `FiniteFromString`, `BigIntFromString`, and `Uint8ArrayFrom*`.
 - `Schema.NumberFromString` uses JavaScript number coercion. It is not a
   substitute for explicit lexical, integer, safe-range, or domain checks.
-- `Option.fromNullishOr` converts nullable boundary values while preserving all
-  non-nullish values.
+- `Option.fromNullOr`, `Option.fromUndefinedOr`, and `Option.fromNullishOr`
+  preserve the exact null-only, undefined-only, or nullish absence contract.
+  Do not widen a public or protocol-owned absence representation merely to use
+  one constructor.
 - Named `Effect.fn("Domain.operation")` creates an observable operation span;
   unnamed `Effect.fn` provides a reusable stack boundary without that implicit
   span. `Effect.fnUntraced` drops both and requires a concrete reason.
@@ -244,6 +246,28 @@ lifecycle; state and collection ownership; mutation isolation; compile-time
 versus runtime immutability; domain/module and composition-root responsibility;
 Effect test style; unsafe widening and assertions; package dependency direction;
 and reuse of stable repo types.
+
+### Effect lint adjudication
+
+For diagnostics from the reviewer-decision Effect rules listed in
+`tools/oxlint/README.md`, inspect the smallest connected operation rather than
+assuming the suggested transformation is correct. Report one disposition:
+
+1. **Required fix:** the diagnostic identifies a real violation and the
+   smallest behavior-preserving correction is inside the approved slice.
+2. **Boundary exception:** a specific public/protocol representation, host
+   adapter, compatibility contract, transaction/lifecycle owner, or evaluated
+   ordering rule requires the existing form. State that reason and recommend
+   one adjacent line-scoped directive using
+   `-- REVIEW: <boundary-category> - <specific reason>`.
+3. **Rule false positive:** the AST heuristic misclassified the code. Report
+   the rule defect so the main thread can correct it and add a regression test;
+   never recommend a product-source suppression.
+
+The reviewer remains read-only and cannot grant a broad migration or
+architecture exception. Do not accept file/region disables, generic
+justifications, baselines, or severity downgrades. Include the semantic lint
+diagnostic and disposition counts in the final review.
 
 The code-quality reviewer does not apply this overlay as an Effect style or API
 checklist. It retains independent ownership of behavioral and data correctness,
