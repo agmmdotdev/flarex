@@ -3055,6 +3055,25 @@ creation, compute discovery, launch, route, trigger, schedule, fallback or
 Legacy selector. Checkpoints 5b through 5d remain the sole owners of those later
 durable-run, compute, Worker-launch and consumer-cut capabilities.
 
+Checkpoint 5b1b.i.b preflight receipt (2026-08-13): accepted. The persisted
+definition identity is recursive, not merely an aggregate-root field. A start
+acceptance contains the attempt grant twice (outcome and evidence), every
+accepted receipt contains requested effects, and both latest acceptance and
+completion replay retain those nested values. The implementation therefore
+must parameterize one exact schema graph from aggregate root through grant,
+evidence, accepted receipt, requested effect and completion replay. Correlation
+uses an exact Legacy-or-Application definition-identity comparison at the two
+start/dispatch seams; it must not read `taskDefinitionRevisionId` through a
+structural fallback, manufacture a Legacy identifier, or validate only the
+aggregate root. The existing aggregate policy check remains one pure validation
+algorithm instantiated for each concrete persisted generation. Explicit
+adapters establish owned current-reference and persisted projections, including
+all nested byte identities. The shipped Legacy aggregate encoded and decoded
+types, bytes and validation order remain exact. This checkpoint adds no
+lifecycle transition, SQL, run, compute discovery, launch, route or fallback.
+Self-review accepts this as the smallest honest recursive contract boundary and
+rejects a shallow mapped type or parallel Application validator.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
