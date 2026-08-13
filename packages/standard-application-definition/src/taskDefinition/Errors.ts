@@ -6,6 +6,7 @@ import { Data } from "effect";
 export type StandardApplicationTaskDefinitionOperationV1 =
   | "decode_task_id"
   | "decode_manifest"
+  | "decode_manifest_preimage"
   | "decode_catalog"
   | "encode_manifest"
   | "encode_catalog"

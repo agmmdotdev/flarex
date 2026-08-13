@@ -6,6 +6,9 @@ export type ApplicationTaskBindingOperationV1 =
   | "decode_definition_binding"
   | "encode_catalog_binding"
   | "encode_definition_binding"
+  | "decode_runtime_target"
+  | "encode_runtime_target"
+  | "hash_runtime_target"
   | "hash_catalog_binding"
   | "hash_definition_binding"
   | "produce";

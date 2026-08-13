@@ -2965,6 +2965,24 @@ checkpoints:
 Checkpoint 5a proof must cover exact task selection, empty/missing task,
 selection invalidation, stored binding corruption, canonical bytes/digest
 correlation, runtime-host mismatch, and zero new tables or run writes.
+
+The first 5a focused proof exposed one bounded prerequisite defect in the
+existing Application task-binding persistence owner. Registration stores each
+canonical task manifest as the task-definition owner's UTF-8 canonical
+`{ codec, task }` envelope, but the non-empty snapshot reader passed those bytes
+directly to the object decoder and converted byte digests to hex for a decoder
+that accepts bytes. Empty catalogs hid both mismatches, so readiness failed
+before selection for every real task. The accepted correction adds one exact
+canonical-envelope byte decoder to the task-definition owner and keeps digest
+values as owned bytes in `applicationTaskBindings`; the reader then retains its
+existing re-encoding, digest and equality checks. Malformed UTF-8, invalid JSON,
+wrong envelopes, non-canonical bytes and digest mismatch remain typed
+stored-state corruption. This correction changes no schema,
+registration, readiness authority or task lifecycle. Self-review accepts it as
+the smallest prerequisite for the already-authorized 5a proof; the focused
+non-empty catalog regression must fail on the old reader and pass on the fixed
+reader.
+
 Checkpoint 5b must prove fresh and upgrade migration, exact Legacy preservation,
 unknown/mixed reference rejection, Application creation/replay/conflict, head
 movement before creation, pinned replay after later head movement,
@@ -2988,6 +3006,20 @@ uncertainty semantics, 5d cannot execute from Source Artifact V2 without
 manufactured artifact evidence, or any checkpoint adds dual selection,
 comparison execution, route, trigger, schedule, production deployment, or
 fallback authority.
+
+The current 5a boundary is the private Application task runtime target, which
+commits the exact Application authority, catalog and child
+binding digests, canonical manifest digest, handler mapping and admitted runtime
+policy without any Legacy revision, package, artifact or semantic-root field.
+The issuer-backed selector consumes an authentic active Application selection,
+pins the located authority, locks the scope clock, revalidates the active head,
+recanonicalizes the existing catalog and selected definition, and retains the
+active basis plus immutable target in a process-local capability. Validation
+repeats the same locked proof and rejects head movement or changed target
+evidence. The boundary has no migration, new table, durable task-run write, run
+creation, compute discovery, launch, route, trigger, schedule, fallback or
+Legacy selector. Checkpoints 5b through 5d remain the sole owners of those later
+durable-run, compute, Worker-launch and consumer-cut capabilities.
 
 ### `AA-R7` — private proof
 

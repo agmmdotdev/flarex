@@ -4,6 +4,7 @@ import { Effect, Result } from "effect";
 import {
   encodeApplicationTaskCatalogBindingPreimageV1,
   encodeApplicationTaskDefinitionBindingPreimageV1,
+  encodeApplicationTaskRuntimeTargetPreimageV1,
 } from "./Canonical.js";
 import {
   ApplicationTaskBindingSha256InvariantV1Defect,
@@ -55,6 +56,23 @@ export const hashApplicationTaskDefinitionBindingV1 = Effect.fn(
     ),
   );
   return yield* digest(bytes, sha256, "hash_definition_binding");
+});
+
+export const hashApplicationTaskRuntimeTargetV1 = Effect.fn(
+  "ApplicationTaskBinding.hashRuntimeTargetV1",
+)(function* (
+  input: unknown,
+  sha256: StandardApplicationTaskSha256V1,
+): Effect.fn.Return<
+  TaskDefinitionSha256V1,
+  ApplicationTaskBindingDigestV1Error
+> {
+  const bytes = yield* Effect.fromResult(
+    encodeApplicationTaskRuntimeTargetPreimageV1(input).pipe(
+      Result.mapError(error => reoperation(error, "hash_runtime_target")),
+    ),
+  );
+  return yield* digest(bytes, sha256, "hash_runtime_target");
 });
 
 function digest(

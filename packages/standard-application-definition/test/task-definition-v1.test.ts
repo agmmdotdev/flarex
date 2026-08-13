@@ -13,6 +13,7 @@ import {
   InvalidStandardApplicationTaskDefinitionV1Error,
   decodeApplicationRevisionTaskBindingFrameV1,
   decodeCanonicalTaskCatalogV1,
+  decodeCanonicalTaskManifestPreimageV1,
   decodeCanonicalTaskManifestV1,
   decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
@@ -87,6 +88,27 @@ describe("Standard Application task definition V1", () => {
     expect(success(decodeTaskIdV1("\ud83d\ude80".repeat(63))).length).toBe(126);
     expect(failure(decodeTaskIdV1("\ud83d\ude80".repeat(64)))).toMatchObject({
       reason: "invalid_task_id",
+    });
+  });
+
+  it("decodes only the exact canonical task-manifest envelope", () => {
+    const manifest = makeManifest("orders.process");
+    const bytes = success(encodeCanonicalTaskManifestPreimageV1(manifest));
+
+    expect(success(decodeCanonicalTaskManifestPreimageV1(bytes))).toEqual(
+      success(decodeCanonicalTaskManifestV1(manifest)),
+    );
+    expect(failure(decodeCanonicalTaskManifestPreimageV1(
+      new TextEncoder().encode(JSON.stringify(manifest)),
+    ))).toMatchObject({
+      operation: "decode_manifest_preimage",
+      reason: "invalid_shape",
+    });
+    expect(failure(decodeCanonicalTaskManifestPreimageV1(
+      new Uint8Array([0xff]),
+    ))).toMatchObject({
+      operation: "decode_manifest_preimage",
+      reason: "invalid_shape",
     });
   });
 

@@ -150,6 +150,11 @@ import {
   makeApplicationTaskBindingRepository,
 } from "../src/applicationTaskBindings";
 import {
+  claimApplicationTaskSelection,
+  selectApplicationTask,
+  validateApplicationTaskSelection,
+} from "../src/applicationTaskSelection";
+import {
   createPGliteLocatedSplitScopeClockTarget,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
@@ -660,6 +665,185 @@ describe("Application activation", { timeout: 30_000 }, () => {
       }),
     ));
     expect(validated.revisionId).toBe(fixture.input.revisionId);
+  });
+
+  it("selects one immutable Application task without creating a run and invalidates it on head movement", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    const first = await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const runCountBefore = await scalarCount(
+      fixture.target,
+      "fx_system_durable_task_run_v1",
+    );
+    const selected = await runEffect(selectApplicationTask(
+      active.selection,
+      "tasks.users.get",
+      {
+        deploymentId: fixture.input.deploymentId,
+        runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+        compatibilityDate: COMPATIBILITY_DATE,
+        authority: fixture.authorityPorts,
+      },
+    ));
+
+    expect(selected.metadata.target).toMatchObject({
+      version: 1,
+      revisionId: fixture.input.revisionId,
+      taskId: "tasks.users.get",
+      runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+      handler: {
+        logicalModulePath: "users",
+        sourceModulePath: "users.js",
+        exportName: "get",
+      },
+    });
+    expect(Result.isSuccess(claimApplicationTaskSelection(
+      selected.selection,
+    ))).toBe(true);
+    expect(Result.isFailure(claimApplicationTaskSelection(
+      Object.freeze({ ...selected.selection }),
+    ))).toBe(true);
+    expect((await runEffect(validateApplicationTaskSelection(
+      selected.selection,
+    ))).target.taskId).toBe("tasks.users.get");
+    selected.metadata.basis.taskCatalogBindingSha256.fill(0);
+    selected.metadata.runtimeTargetSha256.fill(0);
+    expect((await runEffect(validateApplicationTaskSelection(
+      selected.selection,
+    ))).target.taskId).toBe("tasks.users.get");
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_durable_task_run_v1",
+    )).toBe(runCountBefore);
+
+    const wrongHost = await runEffect(Effect.result(selectApplicationTask(
+      active.selection,
+      "tasks.users.get",
+      {
+        deploymentId: fixture.input.deploymentId,
+        runtimeHostIdentity: `${RUNTIME_HOST_IDENTITY}:wrong`,
+        compatibilityDate: COMPATIBILITY_DATE,
+        authority: fixture.authorityPorts,
+      },
+    )));
+    expect(Result.isFailure(wrongHost)).toBe(true);
+    if (Result.isFailure(wrongHost)) {
+      expect(wrongHost.failure).toMatchObject({ reason: "runtimeHostMismatch" });
+    }
+
+    const nextRevisionId = await createAdditionalApplicationRevision(fixture);
+    expect(await runEffect(fixture.repository.settle({
+      deploymentId: fixture.input.deploymentId,
+      revisionId: nextRevisionId,
+    }))).toMatchObject({ status: "ready" });
+    await runEffect(activation.activate({
+      revisionId: nextRevisionId,
+      expectedActiveHead: first.expectedActiveHead,
+    }));
+    const stale = await runEffect(Effect.result(
+      validateApplicationTaskSelection(selected.selection),
+    ));
+    expect(Result.isFailure(stale)).toBe(true);
+    if (Result.isFailure(stale)) {
+      expect(stale.failure).toMatchObject({ reason: "concurrentHead" });
+    }
+  });
+
+  it("rejects a missing or corrupted stored Application task", async () => {
+    const empty = await readinessFixture();
+    await prepareReadinessAuthorities(empty);
+    const emptyActivation = makeApplicationActivationRepository({
+      deploymentId: empty.input.deploymentId,
+      readiness: empty.repository,
+      authority: empty.authorityPorts,
+    });
+    await runEffect(emptyActivation.activate({
+      revisionId: empty.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const emptyActive = await runEffect(emptyActivation.readActive());
+    const missing = await runEffect(Effect.result(selectApplicationTask(
+      emptyActive.selection,
+      "tasks.users.get",
+      {
+        deploymentId: empty.input.deploymentId,
+        runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+        compatibilityDate: COMPATIBILITY_DATE,
+        authority: empty.authorityPorts,
+      },
+    )));
+    expect(Result.isFailure(missing)).toBe(true);
+    if (Result.isFailure(missing)) {
+      expect(missing.failure).toMatchObject({ reason: "taskMissing" });
+    }
+
+    const corrupt = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(corrupt);
+    const corruptActivation = makeApplicationActivationRepository({
+      deploymentId: corrupt.input.deploymentId,
+      readiness: corrupt.repository,
+      authority: corrupt.authorityPorts,
+    });
+    await runEffect(corruptActivation.activate({
+      revisionId: corrupt.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const corruptActive = await runEffect(corruptActivation.readActive());
+    const selectedBeforeCorruption = await runEffect(selectApplicationTask(
+      corruptActive.selection,
+      "tasks.users.get",
+      {
+        deploymentId: corrupt.input.deploymentId,
+        runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+        compatibilityDate: COMPATIBILITY_DATE,
+        authority: corrupt.authorityPorts,
+      },
+    ));
+    await corrupt.target.query(
+      `update fx_system_application_task_definition_v1
+          set binding_bytes = $1
+        where scope_id = $2 and revision_id = $3 and task_id = $4`,
+      [
+        new Uint8Array([1]),
+        corrupt.authority.scopeId,
+        corrupt.input.revisionId,
+        "tasks.users.get",
+      ],
+    );
+    const invalidated = await runEffect(Effect.result(
+      validateApplicationTaskSelection(selectedBeforeCorruption.selection),
+    ));
+    expect(Result.isFailure(invalidated)).toBe(true);
+    if (Result.isFailure(invalidated)) {
+      expect(invalidated.failure).toMatchObject({
+        operation: "validate",
+        reason: "storedTask",
+      });
+    }
+    const corrupted = await runEffect(Effect.result(selectApplicationTask(
+      corruptActive.selection,
+      "tasks.users.get",
+      {
+        deploymentId: corrupt.input.deploymentId,
+        runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+        compatibilityDate: COMPATIBILITY_DATE,
+        authority: corrupt.authorityPorts,
+      },
+    )));
+    expect(Result.isFailure(corrupted)).toBe(true);
+    if (Result.isFailure(corrupted)) {
+      expect(corrupted.failure).toMatchObject({ reason: "storedTask" });
+    }
   });
 
   it("admits and replays exact Application mutation authority and rejects stale or foreign authority", async () => {

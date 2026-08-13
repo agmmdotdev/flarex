@@ -16,12 +16,14 @@ import {
 import {
   APPLICATION_TASK_CATALOG_BINDING_CODEC_V1,
   APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
+  APPLICATION_TASK_RUNTIME_TARGET_CODEC_V1,
   MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1,
   type ApplicationTaskBindingAuthorityV1,
   type ApplicationTaskCatalogBindingV1,
   type ApplicationTaskDefinitionBindingV1,
   type ApplicationTaskHandlerBindingV1,
   type ApplicationTaskRuntimeHostPolicyV1,
+  type ApplicationTaskRuntimeTargetV1,
 } from "./Model.js";
 import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
   "flarex-protocol/internal/application-runtime-cold-receipt-v1";
@@ -173,6 +175,109 @@ export function encodeApplicationTaskDefinitionBindingPreimageV1(
         version: 1,
       },
       codec: APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
+    }, operation)),
+  );
+}
+
+export function decodeApplicationTaskRuntimeTargetV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskRuntimeTargetV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  const operation = "decode_runtime_target" as const;
+  return Result.gen(function* () {
+    const value = yield* exactRecord(input, [
+      ...AUTHORITY_KEYS,
+      ...POLICY_KEYS,
+      "applicationTaskCatalogBindingSha256",
+      "applicationTaskDefinitionBindingSha256",
+      "canonicalTaskManifestSha256",
+      "handler",
+      "taskCatalogSha256",
+      "taskId",
+      "version",
+    ], operation);
+    if (value.version !== 1) {
+      return yield* failure(operation, "invalidShape", "version");
+    }
+    const authority = yield* decodeAuthority(value, operation);
+    const policy = yield* decodePolicy(value, operation);
+    const applicationTaskCatalogBindingSha256 = yield* digest(
+      value.applicationTaskCatalogBindingSha256,
+      operation,
+      "applicationTaskCatalogBindingSha256",
+    );
+    const applicationTaskDefinitionBindingSha256 = yield* digest(
+      value.applicationTaskDefinitionBindingSha256,
+      operation,
+      "applicationTaskDefinitionBindingSha256",
+    );
+    const taskCatalogSha256 = yield* digest(
+      value.taskCatalogSha256,
+      operation,
+      "taskCatalogSha256",
+    );
+    const canonicalTaskManifestSha256 = yield* digest(
+      value.canonicalTaskManifestSha256,
+      operation,
+      "canonicalTaskManifestSha256",
+    );
+    const taskId = yield* decodeTaskIdV1(value.taskId).pipe(
+      Result.mapError(() => invalid(operation, "invalidShape", "taskId")),
+    );
+    const handler = yield* decodeHandler(value.handler, operation);
+    return Object.freeze({
+      version: 1,
+      ...authority,
+      ...policy,
+      applicationTaskCatalogBindingSha256,
+      applicationTaskDefinitionBindingSha256,
+      taskCatalogSha256,
+      taskId,
+      canonicalTaskManifestSha256,
+      handler,
+    });
+  });
+}
+
+export function encodeApplicationTaskRuntimeTargetPreimageV1(
+  input: unknown,
+): Result.Result<Uint8Array, InvalidApplicationTaskBindingV1Error> {
+  const operation = "encode_runtime_target" as const;
+  return decodeApplicationTaskRuntimeTargetV1(input).pipe(
+    Result.mapError(error => reoperation(error, operation)),
+    Result.flatMap(target => canonicalBytes({
+      codec: APPLICATION_TASK_RUNTIME_TARGET_CODEC_V1,
+      target: {
+        analysisId: target.analysisId,
+        applicationTaskCatalogBindingSha256: encodeBytesToLowercaseHex(
+          target.applicationTaskCatalogBindingSha256,
+        ),
+        applicationTaskDefinitionBindingSha256: encodeBytesToLowercaseHex(
+          target.applicationTaskDefinitionBindingSha256,
+        ),
+        candidateId: target.candidateId,
+        canonicalTaskManifestSha256: encodeBytesToLowercaseHex(
+          target.canonicalTaskManifestSha256,
+        ),
+        compatibilityDate: target.compatibilityDate,
+        handler: {
+          exportName: target.handler.exportName,
+          logicalModulePath: target.handler.logicalModulePath,
+          sourceModulePath: target.handler.sourceModulePath,
+        },
+        publicationSha256: target.publicationSha256,
+        revisionId: target.revisionId,
+        runtimeHostIdentity: target.runtimeHostIdentity,
+        scopeId: target.scopeId,
+        sourceArtifactRootSha256: target.sourceArtifactRootSha256,
+        taskCatalogSha256: encodeBytesToLowercaseHex(
+          target.taskCatalogSha256,
+        ),
+        taskId: target.taskId,
+        version: 1,
+      },
     }, operation)),
   );
 }

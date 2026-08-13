@@ -8,6 +8,7 @@ import {
   type PreparedApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import {
+  decodeCanonicalTaskManifestPreimageV1,
   decodeCanonicalTaskManifestV1,
   encodeCanonicalTaskManifestPreimageV1,
   encodeHashedCanonicalTaskCatalogPreimageV1,
@@ -213,7 +214,7 @@ ApplicationTaskCatalogSnapshotPort {
     }>> = [];
     for (const row of definitions) {
       const manifest = yield* Effect.fromResult(
-        decodeCanonicalTaskManifestV1(row.manifestBytes).pipe(
+        decodeCanonicalTaskManifestPreimageV1(row.manifestBytes).pipe(
           Result.mapError(cause => taskSnapshotFailureValue(
             "storedState",
             false,
@@ -235,9 +236,9 @@ ApplicationTaskCatalogSnapshotPort {
         decodeApplicationTaskDefinitionBindingV1({
           version: 1,
           applicationTaskCatalogBindingSha256:
-            encodeBytesToLowercaseHex(row.taskCatalogBindingSha256),
+            copyBytes(row.taskCatalogBindingSha256),
           canonicalTaskManifestSha256:
-            encodeBytesToLowercaseHex(row.canonicalTaskManifestSha256),
+            copyBytes(row.canonicalTaskManifestSha256),
           taskId: row.taskId,
           handler: {
             logicalModulePath: row.logicalModulePath,

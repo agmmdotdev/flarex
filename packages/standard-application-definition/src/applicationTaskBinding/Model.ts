@@ -11,6 +11,8 @@ export const APPLICATION_TASK_CATALOG_BINDING_CODEC_V1 =
   "flarex.standard-application/application-task-catalog-binding/v1" as const;
 export const APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1 =
   "flarex.standard-application/application-task-definition-binding/v1" as const;
+export const APPLICATION_TASK_RUNTIME_TARGET_CODEC_V1 =
+  "flarex.standard-application/application-task-runtime-target/v1" as const;
 export const MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1 = 16 * 1_024 * 1_024;
 /** Bounds one catalog header plus all retained definition and manifest frames. */
 export const MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1 =
@@ -50,6 +52,28 @@ export interface ApplicationTaskDefinitionBindingV1 {
   readonly taskId: TaskIdV1;
   readonly canonicalTaskManifestSha256: TaskDefinitionSha256V1;
   readonly handler: ApplicationTaskHandlerBindingV1;
+}
+
+/**
+ * Immutable executable identity for one Application task. Active readiness and
+ * head authority intentionally remain in the issuer-backed selection.
+ */
+export interface ApplicationTaskRuntimeTargetV1 {
+  readonly version: 1;
+  readonly scopeId: string;
+  readonly revisionId: string;
+  readonly candidateId: string;
+  readonly analysisId: string;
+  readonly sourceArtifactRootSha256: string;
+  readonly publicationSha256: string;
+  readonly applicationTaskCatalogBindingSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskDefinitionBindingSha256: TaskDefinitionSha256V1;
+  readonly taskCatalogSha256: TaskDefinitionSha256V1;
+  readonly taskId: TaskIdV1;
+  readonly canonicalTaskManifestSha256: TaskDefinitionSha256V1;
+  readonly handler: ApplicationTaskHandlerBindingV1;
+  readonly runtimeHostIdentity: string;
+  readonly compatibilityDate: string;
 }
 
 export interface PreparedApplicationTaskCatalogBindingV1 {

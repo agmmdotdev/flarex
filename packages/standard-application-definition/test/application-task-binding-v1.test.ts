@@ -2,6 +2,9 @@ import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  decodeApplicationTaskRuntimeTargetV1,
+  encodeApplicationTaskRuntimeTargetPreimageV1,
+  hashApplicationTaskRuntimeTargetV1,
   APPLICATION_TASK_CATALOG_BINDING_CODEC_V1,
   APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
   decodeApplicationTaskCatalogBindingV1,
@@ -90,6 +93,54 @@ describe("Application task binding V1", () => {
 
     expect(produced.catalog.binding.taskCount).toBe(0);
     expect(produced.definitions).toEqual([]);
+  });
+
+  it("canonicalizes one Application task runtime target without Legacy evidence", async () => {
+    const produced = await Effect.runPromise(produceApplicationTaskBindingsV1({
+      definition: makeDefinition(),
+      catalog: await makeCatalog(),
+      authority,
+      runtimePolicy,
+    }, sha256));
+    const definition = produced.definitions[0]!;
+    const targetInput = {
+      version: 1,
+      ...authority,
+      ...runtimePolicy,
+      applicationTaskCatalogBindingSha256: produced.catalog.sha256,
+      applicationTaskDefinitionBindingSha256: definition.sha256,
+      taskCatalogSha256: produced.catalog.binding.taskCatalogSha256,
+      taskId: definition.binding.taskId,
+      canonicalTaskManifestSha256:
+        definition.binding.canonicalTaskManifestSha256,
+      handler: definition.binding.handler,
+    };
+    const target = Result.getOrThrow(
+      decodeApplicationTaskRuntimeTargetV1(targetInput),
+    );
+    const bytes = Result.getOrThrow(
+      encodeApplicationTaskRuntimeTargetPreimageV1(target),
+    );
+    const digest = await Effect.runPromise(
+      hashApplicationTaskRuntimeTargetV1(target, sha256),
+    );
+    const text = UTF8.decode(bytes);
+
+    expect(target.handler).toEqual(definition.binding.handler);
+    expect(digest).toHaveLength(32);
+    expect(text).toContain("application-task-runtime-target/v1");
+    for (const displaced of [
+      "applicationRevisionId",
+      "artifactSha256",
+      "packageSha256",
+      "semanticRootSha256",
+      "taskDefinitionRevisionId",
+    ]) expect(text).not.toContain(displaced);
+
+    expect(Result.isFailure(decodeApplicationTaskRuntimeTargetV1({
+      ...targetInput,
+      extra: true,
+    }))).toBe(true);
   });
 
   it("rejects a forged catalog digest before producing bindings", async () => {
