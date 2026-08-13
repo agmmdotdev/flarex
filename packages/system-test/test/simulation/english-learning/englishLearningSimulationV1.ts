@@ -10,11 +10,9 @@ import { standardV1 } from
   "@flarex/standard-application-definition/v1";
 
 import type {
-  InvokeStandardApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/v1";
-import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
+  StandardApplicationLegacySimulationMutationErrorV1 as InvokeStandardApplicationPointMutationV1Error,
   StandardApplicationLegacySimulationQueryErrorV1,
   StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";

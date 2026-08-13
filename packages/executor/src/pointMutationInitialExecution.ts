@@ -5,3 +5,7 @@ export {
   type PointMutationInitialExecutionV1Error,
   type StoredPointMutationOccRerunExecutionConfigV1,
 } from "./storedAttemptAuthentication";
+
+export {
+  validatePointMutationExecutionLivenessConfigurationV1Result,
+} from "./pointMutationExecutionClaimLiveness";

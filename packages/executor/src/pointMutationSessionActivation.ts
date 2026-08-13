@@ -2,6 +2,7 @@ import type {
   PointMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationEffectErrorV1,
   PointMutationSessionActivationResultV1,
+  ApplicationMutationSessionActivationPersistenceV1,
   PointMutationSessionAttemptLoadEffectErrorV1,
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
@@ -10,7 +11,15 @@ import type {
   PointMutationSessionAttemptTerminalizationPersistenceV1,
   PointMutationSessionAttemptTerminalizationResultV1,
   PreparedPointMutationSessionActivationV1,
+  PreparedApplicationMutationSessionActivationV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
+  inspectVerifiedApplicationMutationGrantV1,
+  InvalidVerifiedApplicationMutationGrantV1Error,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
 import {
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
 } from "flarex-protocol/transaction-grant";
@@ -59,6 +68,8 @@ import {
 import {
   getActivatedPointMutationSessionStateV1,
   registerActivatedPointMutationSessionStateV1,
+  type ActivatedApplicationMutationSessionPreparationV1,
+  type ActivatedPointMutationSessionPreparationV1,
 } from "./pointMutationSessionActivationState";
 import {
   capturePointMutationSessionAttemptTerminalizationResultV1,
@@ -159,6 +170,32 @@ export interface PointMutationSessionActivationV1 {
   >;
 }
 
+export interface ApplicationPointMutationSessionActivationV1 {
+  readonly activate: (
+    prepared: PreparedApplicationMutationSessionActivationV1,
+  ) => Effect.Effect<
+    ActivatedPointMutationSessionV1,
+    ApplicationPointMutationSessionActivationExecutionV1Error
+  >;
+}
+
+export class ApplicationPointMutationSessionActivationContractV1Error
+  extends Error {
+  readonly _tag = "ApplicationPointMutationSessionActivationContractV1Error" as const;
+  readonly name = "ApplicationPointMutationSessionActivationContractV1Error";
+
+  constructor() {
+    super("Application point-mutation activation input is not retainable.");
+  }
+}
+
+export type ApplicationPointMutationSessionActivationExecutionV1Error =
+  | Effect.Error<
+      ReturnType<ApplicationMutationSessionActivationPersistenceV1["activateEffect"]>
+    >
+  | InvalidVerifiedApplicationMutationGrantV1Error
+  | ApplicationPointMutationSessionActivationContractV1Error;
+
 export type PointMutationSessionActivationExecutionV1Error =
   | InvalidAdmittedPointMutationStartV1Error
   | PointMutationSessionActivationEffectErrorV1;
@@ -238,6 +275,42 @@ export function createPointMutationSessionActivationV1(
     }));
     return handle;
   });
+
+  return Object.freeze({ activate });
+}
+
+export function createApplicationPointMutationSessionActivationV1(
+  persistence: ApplicationMutationSessionActivationPersistenceV1,
+  executionClaims: PointMutationExecutionClaimIssuerV1,
+): ApplicationPointMutationSessionActivationV1 {
+  const activate: ApplicationPointMutationSessionActivationV1["activate"] =
+    Effect.fn("ExecutorApplicationPointMutationSessionActivation.activate")(
+      function* (input) {
+        const captured = yield* capturePreparedApplicationActivation(input);
+        const result = yield* persistence.activateEffect(captured.activation);
+        const handle = Object.freeze({
+          [activatedPointMutationSessionBrand]: true as const,
+        });
+        const executionClaim = result.status === "created"
+          ? executionClaims.mint({
+              selector: Object.freeze({
+                deploymentId: result.anchor.deploymentId,
+                scopeId: result.anchor.scopeId,
+                sessionId: result.anchor.sessionId,
+                attemptFence: result.anchor.attemptFence,
+              }),
+              observation: result.executionClaim,
+              mode: "execute",
+            })
+          : undefined;
+        registerActivatedPointMutationSessionStateV1(handle, Object.freeze({
+          inspection: result,
+          prepared: captured.retained,
+          ...(executionClaim === undefined ? {} : { executionClaim }),
+        }));
+        return handle;
+      },
+    );
 
   return Object.freeze({ activate });
 }
@@ -526,11 +599,92 @@ function preparePersistenceActivation(
 
 function snapshotPreparedActivation(
   value: PreparedPointMutationSessionActivationV1,
-): PreparedPointMutationSessionActivationV1 {
+): ActivatedPointMutationSessionPreparationV1 {
   const snapshot = structuredClone(value);
   return Object.freeze({
+    executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
     deploymentId: snapshot.deploymentId,
     scopeId: snapshot.scopeId,
     evidence: Object.freeze({ ...snapshot.evidence }),
   });
 }
+
+const capturePreparedApplicationActivation = Effect.fn(
+  "ExecutorApplicationPointMutationSessionActivation.capture",
+)(function* (input: PreparedApplicationMutationSessionActivationV1) {
+  const executionAuthority = yield*
+    canonicalizeApplicationMutationExecutionAuthorityV1(
+      input.evidence.executionAuthority,
+    );
+  const grant = yield* Effect.try({
+    try: () => inspectVerifiedApplicationMutationGrantV1(
+      input.evidence.verifiedGrant,
+    ),
+    catch: cause => cause instanceof InvalidVerifiedApplicationMutationGrantV1Error
+      ? cause
+      : new ApplicationPointMutationSessionActivationContractV1Error(),
+  });
+  const captured = yield* Effect.try({
+    try: () => structuredClone({
+      deploymentId: input.deploymentId,
+      scopeId: input.scopeId,
+      evidence: {
+        functionPath: input.evidence.functionPath,
+        functionKind: input.evidence.functionKind,
+        schemaVersionId: input.evidence.schemaVersionId,
+        policyVersion: input.evidence.policyVersion,
+        identityAccessPolicySha256:
+          input.evidence.identityAccessPolicySha256,
+        validatedArgsJson: input.evidence.validatedArgsJson,
+        validatedArgsValueCodecVersion:
+          input.evidence.validatedArgsValueCodecVersion,
+        validatedArgsCanonicalBytes:
+          input.evidence.validatedArgsCanonicalBytes,
+        validatedArgsSha256: input.evidence.validatedArgsSha256,
+        requestKey: input.evidence.requestKey,
+        requestSha256: input.evidence.requestSha256,
+      },
+    }),
+    catch: () => new ApplicationPointMutationSessionActivationContractV1Error(),
+  });
+  const activation = Object.freeze({
+    deploymentId: captured.deploymentId,
+    scopeId: captured.scopeId,
+    activeSelection: input.activeSelection,
+    evidence: Object.freeze({
+      ...captured.evidence,
+      executionAuthority: executionAuthority.authority,
+      verifiedGrant: input.evidence.verifiedGrant,
+    }),
+  }) satisfies PreparedApplicationMutationSessionActivationV1;
+  const retained: ActivatedApplicationMutationSessionPreparationV1 = Object.freeze({
+    executionAuthorityGeneration: "application_v1" as const,
+    deploymentId: activation.deploymentId,
+    scopeId: activation.scopeId,
+    evidence: Object.freeze({
+      functionPath: activation.evidence.functionPath,
+      functionKind: activation.evidence.functionKind,
+      schemaVersionId: activation.evidence.schemaVersionId,
+      policyVersion: activation.evidence.policyVersion,
+      identityAccessPolicySha256: structuredClone(
+        activation.evidence.identityAccessPolicySha256,
+      ),
+      validatedArgsJson: structuredClone(
+        activation.evidence.validatedArgsJson,
+      ),
+      validatedArgsValueCodecVersion:
+        activation.evidence.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalBytes: structuredClone(
+        activation.evidence.validatedArgsCanonicalBytes,
+      ),
+      validatedArgsSha256: structuredClone(
+        activation.evidence.validatedArgsSha256,
+      ),
+      requestKey: activation.evidence.requestKey,
+      requestSha256: structuredClone(activation.evidence.requestSha256),
+      executionAuthority,
+      grant,
+    }),
+  });
+  return Object.freeze({ activation, retained });
+});

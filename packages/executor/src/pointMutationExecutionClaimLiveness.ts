@@ -89,7 +89,11 @@ export function createPointMutationExecutionLivenessCoordinatorV1(
   liveness: PointMutationExecutionClaimLivenessV1,
   options: PointMutationExecutionLivenessCoordinatorOptionsV1,
 ): PointMutationExecutionLivenessCoordinatorV1 {
-  const configuration = captureConfiguration(liveness, options);
+  const configuration =
+    validatePointMutationExecutionLivenessConfigurationV1Result(
+      liveness,
+      options,
+    );
 
   const run: PointMutationExecutionLivenessCoordinatorV1["run"] = Effect.fn(
     "PointMutationExecutionLiveness.run",
@@ -161,7 +165,7 @@ export function createPointMutationExecutionLivenessCoordinatorV1(
   return Object.freeze({ run });
 }
 
-function captureConfiguration(
+export function validatePointMutationExecutionLivenessConfigurationV1Result(
   liveness: PointMutationExecutionClaimLivenessV1,
   options: PointMutationExecutionLivenessCoordinatorOptionsV1,
 ): Result.Result<

@@ -4,6 +4,7 @@ import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
   CatalogSchemaVersionId,
+  SchemaManifestAppSchemaV1,
 } from "flarex-protocol/schema-manifest";
 import { decodeCatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
@@ -40,6 +41,7 @@ import {
   issueApplicationRevisionSyscallValidatorStateV1,
   readApplicationRevisionSyscallValidatorStateV1,
   revokeApplicationRevisionSyscallValidatorStateV1,
+  setupSeededSyscallValidatorStateV1,
   type ApplicationRevisionSyscallValidatorV1,
 } from "./applicationRevisionSyscallValidatorStateV1";
 export type { ApplicationRevisionSyscallValidatorV1 } from
@@ -134,6 +136,31 @@ export const deriveApplicationRevisionSyscallValidatorV1 = Effect.fn(
     ),
     schemaManifest: basis.schemaManifest,
   });
+  return yield* Effect.acquireRelease(
+    Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(state)),
+    capability => Effect.sync(() => {
+      revokeApplicationRevisionSyscallValidatorStateV1(capability);
+    }),
+  );
+});
+
+/**
+ * Application-generation adapter over the retained journal validator
+ * capability. Its authority is the immutable session-pinned schema, not the
+ * mutable active head after admission.
+ */
+export const deriveApplicationSyscallValidator = Effect.fn(
+  "ApplicationSyscallValidator.derive",
+)(function* (input: Readonly<{
+  readonly scopeId: ScopeId;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly schemaManifest: SchemaManifestAppSchemaV1;
+}>): Effect.fn.Return<
+  ApplicationRevisionSyscallValidatorV1,
+  never,
+  Scope.Scope
+> {
+  const state = setupSeededSyscallValidatorStateV1(input);
   return yield* Effect.acquireRelease(
     Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(state)),
     capability => Effect.sync(() => {

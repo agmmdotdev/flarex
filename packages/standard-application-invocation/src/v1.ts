@@ -13,11 +13,11 @@ import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 
 import {
-  ApplicationPointMutationSystemV1,
-  invokeApplicationPointMutationV1,
-  type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-  type InvokeApplicationPointMutationV1Error,
-} from "./systemV1";
+  ApplicationMutationSystem,
+  invokeApplicationMutation,
+  type AuthoritativeCommittedApplicationMutationOutcome,
+  type InvokeApplicationMutationError,
+} from "./ApplicationMutationSystem";
 import {
   ApplicationQuerySystem,
   invokeApplicationQuery,
@@ -42,8 +42,7 @@ export class StandardApplicationActiveRevisionReaderV1 extends Context.Service<
 ) {}
 
 export type InvokeStandardApplicationPointMutationV1Error =
-  | ReadActiveApplicationRevisionV1Error
-  | InvokeApplicationPointMutationV1Error;
+  InvokeApplicationMutationError;
 
 export type InvokeStandardApplicationPointQueryV1Error =
   InvokeApplicationQueryError;
@@ -53,9 +52,8 @@ export type InvokeStandardApplicationActionV1Error =
   | InvokeApplicationActionV1Error;
 
 /**
- * SAP04 thin consumer. It reads one coherent active revision and delegates to
- * the private System operation without translating its authoritative outcome
- * or typed owner failures.
+ * Compatibility-named thin consumer for the unversioned Application mutation
+ * System. Selection and authority admission are owned by that System.
  */
 export const invokeStandardApplicationPointMutationV1 = Effect.fn(
   "StandardApplication.invokePointMutationV1",
@@ -64,20 +62,12 @@ export const invokeStandardApplicationPointMutationV1 = Effect.fn(
   args: unknown,
   requestKey: TransactionRequestKeyV1,
 ): Effect.fn.Return<
-  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  AuthoritativeCommittedApplicationMutationOutcome,
   InvokeStandardApplicationPointMutationV1Error,
-  | StandardApplicationActiveRevisionReaderV1
-  | ApplicationPointMutationSystemV1
+  | ApplicationMutationSystem
   | Scope.Scope
 > {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
-  const active = yield* reader.read;
-  return yield* invokeApplicationPointMutationV1(
-    active.selection,
-    functionRef,
-    args,
-    requestKey,
-  );
+  return yield* invokeApplicationMutation(functionRef, args, requestKey);
 });
 
 /**
@@ -143,8 +133,9 @@ function makeRead(context: ApplicationRevisionActivationContextV1) {
 }
 
 export {
-  type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-} from "./systemV1";
+  type AuthoritativeCommittedApplicationMutationOutcome as
+    AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+} from "./ApplicationMutationSystem";
 export type {
   CompletedApplicationActionV1,
   InvokeApplicationActionV1Result,

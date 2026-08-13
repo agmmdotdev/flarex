@@ -2463,18 +2463,35 @@ explicit legacy tests and drain support until `AA-R8`; no production Standard
 entrypoint, Layer, or export may provide a legacy fallback, comparison run, or
 dual execution. Query and action routing are unchanged by this checkpoint.
 
-The medium checkpoint includes one focused PGlite composition proof, not only
-mocked ports. It must cover exact public-mutation selection and a successful
-write; same request key plus same request returning the durable result; the
-same key plus different request rejecting; head movement before insertion
-rejecting; head movement after admission not changing the pinned target; fresh
-Worker loads for initial execution and an OCC rerun; conflict replacement then
-one commit; terminal Worker and journal failures without commit; exact result
-replay; and unchanged commit, change-feed, and outbox receipts. Focused unit
-proof also pins the opaque Application activation handle, signed grant pins,
-unknown/mixed generation rejection, non-public/non-mutation selection, and the
-absence of a legacy System requirement from the Standard entrypoint. Genuine
-PostgreSQL and the complete cross-product vertical remain `AA-R7` gates.
+This accepted work is split into two medium checkpoints without shrinking the
+migration gate:
+
+- checkpoint 3a establishes the executable authority owners and the exclusive
+  Standard route: exact public-mutation admission, private grant issuance,
+  opaque Application session activation, the unversioned service/Layer, and
+  explicit legacy-only test helpers. Its focused PGlite proof covers exact
+  selection and stale-head rejection; focused unit proof covers signed grant
+  pins and proves the Standard entrypoint has no legacy System requirement.
+  Checkpoint 3a is not the full composition proof and does not authorize the
+  next consumer migration by itself.
+- checkpoint 3b adds one reusable Application-native PGlite fixture and drives
+  the complete Standard composition through it. It must cover a successful
+  write; same request key plus same request returning the durable result after
+  the first invocation has settled; a concurrent duplicate returning the exact
+  typed `inProgress` failure and succeeding as a durable replay when retried;
+  the same key plus different request rejecting; head movement before
+  insertion rejecting; head movement after admission not changing the pinned
+  target; fresh Worker loads for initial execution and an OCC rerun; conflict
+  replacement then one commit; terminal Worker and journal failures without
+  commit; exact result replay; and unchanged commit, change-feed, and outbox
+  receipts. It also pins the opaque Application activation handle,
+  unknown/mixed generation rejection, non-public/non-mutation selection, and
+  all real live-layer requirements.
+
+Genuine PostgreSQL and the complete cross-product vertical remain `AA-R7`
+gates. Checkpoint 3b is the next required slice after 3a; the split exists so
+the Application-native fixture is a reusable authority owner rather than a
+copy of readiness internals inside a single Standard test.
 
 Self-review accepts this amendment because every new step terminates at an
 existing authority owner and the orchestration has one deterministic route.
@@ -2486,6 +2503,18 @@ caller-selected schema/function/publication evidence, mutable-head validation
 after admission, a legacy fallback, a second outcome/idempotency path, or any
 change to journal, OCC, commit compilation, commit publication, change-feed,
 or outbox semantics.
+
+Implementation self-review corrected one overly broad concurrency claim before
+the checkpoint was frozen. Session activation intentionally returns `busy`
+without minting an execution claim, and the existing crash-redispatch owner also
+projects `busy`; there is no owner-level wait-for-outcome contract. The System
+must therefore return a typed `inProgress` failure immediately when activation
+is busy and the durable outcome is still absent. It must not pass the
+non-authorizing handle into initial execution, poll the outcome table, or invent
+a Standard-owned wait loop. The caller may retry the same canonical request;
+once the first execution settles, the normal pre-admission outcome lookup
+returns the exact durable replay. This is the smaller deterministic contract and
+preserves the existing execution-claim and redelivery owners.
 
 First migrate executable authority and publication:
 

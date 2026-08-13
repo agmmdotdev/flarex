@@ -24,6 +24,7 @@
     "./internal/application-execution-host": "./src/artifactRuntime/ApplicationExecutionHost.ts",
     "./internal/application-worker-definition": "./src/artifactRuntime/ApplicationWorkerDefinition.ts",
     "./internal/application-point-mutation-runner": "./src/artifactRuntime/ApplicationPointMutationRunner.ts",
+    "./internal/application-mutation-grant-issuer": "./src/applicationMutationGrantIssuer.ts",
     "./internal/semantic-artifact-v1-finalized-source-proof": "./src/semanticArtifactV1/FinalizedSourceProof.ts",
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/task-compute-delivery": "./src/taskComputeDelivery/index.ts",

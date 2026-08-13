@@ -12,10 +12,8 @@ import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq } from "drizzle-orm";
 import {
-  Cause,
   Data,
   Effect,
-  Exit,
   Ref,
   Result,
   Schema,
@@ -113,9 +111,10 @@ import {
 } from "./schema";
 import {
   LocatedReadCommittedTransactionFailureV1,
-  RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "./transactionSessionAttemptKernel";
+import { runLocatedReadCommittedEffect } from
+  "./locatedReadCommittedEffect";
 
 const decodeIndexDescriptorResult = Schema.decodeUnknownResult(
   Schema.toType(SchemaManifestAppIndexDescriptorSchema),
@@ -909,12 +908,6 @@ function failureValue(
   });
 }
 
-interface StartedRead<Value, Failure> {
-  readonly promise: Promise<Value>;
-  readonly rollbackSignal: Error;
-  readonly callbackCause: () => Cause.Cause<Failure> | undefined;
-}
-
 const runLocatedRead = Effect.fn(
   "ApplicationQuerySnapshot.runLocatedRead",
 )(function <Value, Failure>(
@@ -926,76 +919,12 @@ const runLocatedRead = Effect.fn(
   Failure | ApplicationQuerySnapshotError |
     LocatedReadCommittedTransactionFailureV1
 > {
-  return Effect.suspend((): Effect.Effect<
-    Value,
-    Failure | ApplicationQuerySnapshotError |
-      LocatedReadCommittedTransactionFailureV1
-  > => {
-    const started = startLocatedRead(target, body);
-    const settled = Effect.uninterruptible(Effect.exit(Effect.tryPromise({
-      try: () => started.promise,
-      catch: (cause): unknown => cause,
-    })));
-    return settled.pipe(Effect.flatMap((exit): Effect.Effect<
-      Value,
-      Failure | ApplicationQuerySnapshotError |
-        LocatedReadCommittedTransactionFailureV1
-    > => {
-      if (Exit.isSuccess(exit)) return Effect.succeed(exit.value);
-      const error = Cause.findErrorOption(exit.cause);
-      if (error._tag === "None") return Effect.failCause(
-        exit.cause as Cause.Cause<
-          Failure | ApplicationQuerySnapshotError |
-            LocatedReadCommittedTransactionFailureV1
-        >,
-      );
-      const cause = error.value;
-      if (
-        cause instanceof LocatedReadCommittedTransactionFailureV1 &&
-        cause.issue.kind === "callbackRolledBack" &&
-        cause.issue.callbackCause === started.rollbackSignal
-      ) {
-        const callbackCause = started.callbackCause();
-        return callbackCause === undefined ? Effect.die(cause) : Effect.failCause(callbackCause);
-      }
-      if (
-        cause instanceof LocatedReadCommittedTransactionFailureV1 &&
-        cause.issue.kind === "callbackCleanupFailed" &&
-        cause.issue.callbackCause === started.rollbackSignal
-      ) {
-        const callbackCause = started.callbackCause();
-        return callbackCause === undefined
-          ? Effect.die(cause)
-          : Effect.failCause(Cause.combine(
-              callbackCause,
-              Cause.die(failureValue(operation, "resourceFailure", false, cause)),
-            ));
-      }
-      return cause instanceof LocatedReadCommittedTransactionFailureV1
-        ? Effect.fail(cause)
-        : Effect.die(cause);
-    }));
-  });
+  return runLocatedReadCommittedEffect(target, {
+    rollbackMessage: "Application query transaction rolled back.",
+    cleanupDefect: cause =>
+      failureValue(operation, "resourceFailure", false, cause),
+  }, body);
 });
-
-function startLocatedRead<Value, Failure>(
-  target: LocatedReadCommittedAttemptTargetV1,
-  body: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
-): StartedRead<Value, Failure> {
-  const rollbackSignal = new Error("Application query transaction rolled back.");
-  let callbackCause: Cause.Cause<Failure> | undefined;
-  const promise = target[RUN_LOCATED_READ_COMMITTED_V1](async tx => {
-    const exit = await Effect.runPromiseExit(body(tx));
-    if (Exit.isSuccess(exit)) return exit.value;
-    callbackCause = exit.cause;
-    throw rollbackSignal;
-  });
-  return Object.freeze({
-    promise,
-    rollbackSignal,
-    callbackCause: () => callbackCause,
-  });
-}
 
 function isRetryableTransactionCause(cause: unknown): boolean {
   if (typeof cause !== "object" || cause === null) return false;

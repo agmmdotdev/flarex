@@ -34,7 +34,9 @@ import {
 } from "flarex-protocol/transaction-grant";
 import {
   TransactionAuthorizationGrantIdV1Schema,
+  type TransactionFunctionPathV1,
   TransactionFunctionPathV1Schema,
+  type TransactionRequestKeyV1,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 import {
@@ -63,13 +65,12 @@ import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
 import {
   ApplicationPointMutationRouteIndependentDispatcherV1Error,
-  invokeApplicationPointMutationV1,
-  makeApplicationPointMutationSystemV1Layer,
-  ApplicationPointMutationSystemV1,
-  type ApplicationPointMutationSystemLiveV1,
+  invokeLegacyApplicationPointMutationV1,
+  makeLegacyApplicationPointMutationSystemV1Layer,
+  LegacyApplicationPointMutationSystemV1,
+  type LegacyApplicationPointMutationSystemLiveV1,
 } from "@flarex/standard-application-invocation/internal/system-v1";
 import {
-  invokeStandardApplicationPointMutationV1,
   makeStandardApplicationActiveRevisionReaderV1Layer,
   StandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
@@ -109,6 +110,24 @@ const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
   maximumFutureIssuedAtSkewMilliseconds: 0,
   maximumLiveSnapshotRetentionMilliseconds: 600_000,
 }));
+
+/** Retained Revision V1 proof only; production Standard has no legacy route. */
+const invokeStandardApplicationPointMutationV1 = Effect.fn(
+  "Fsv06.invokeLegacyPointMutationV1",
+)(function* (
+  functionPath: TransactionFunctionPathV1,
+  args: unknown,
+  requestKey: TransactionRequestKeyV1,
+) {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeLegacyApplicationPointMutationV1(
+    active.selection,
+    functionPath,
+    args,
+    requestKey,
+  );
+});
 
 export interface Fsv06StandardPointMutationLaneV1
   extends Fsv05ApplicationRevisionActivationLaneV1 {
@@ -188,20 +207,20 @@ export async function proveFsv06StandardPointMutationV1(
     runtimeExecutions += 1;
   });
   const applicationLayer = Layer.merge(
-    makeApplicationPointMutationSystemV1Layer(system),
+    makeLegacyApplicationPointMutationSystemV1Layer(system),
     makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
   );
   const provideApplication = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => effect.pipe(Effect.provide(applicationLayer));
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(provideApplication(effect)));
@@ -260,7 +279,7 @@ export async function proveFsv06StandardPointMutationV1(
   try {
     await Effect.runPromise(Effect.scoped(
       readActiveApplicationRevisionV1(insertReady.context).pipe(
-        Effect.flatMap(active => invokeApplicationPointMutationV1(
+        Effect.flatMap(active => invokeLegacyApplicationPointMutationV1(
           active.selection,
           create,
           { status: "wrong-deployment" },
@@ -268,7 +287,7 @@ export async function proveFsv06StandardPointMutationV1(
             `fsv06:${lane.name}:wrong-deployment`,
           ),
         )),
-        Effect.provide(makeApplicationPointMutationSystemV1Layer(
+        Effect.provide(makeLegacyApplicationPointMutationSystemV1Layer(
           wrongDeploymentLive,
         )),
       ),
@@ -546,7 +565,7 @@ export async function proveSap06A2MutationInternalQueryV1(
     insertReady.deploymentId,
   );
   const applicationLayer = Layer.merge(
-    makeApplicationPointMutationSystemV1Layer(systemLive(
+    makeLegacyApplicationPointMutationSystemV1Layer(systemLive(
       lane,
       deploymentId,
       artifacts,
@@ -558,7 +577,7 @@ export async function proveSap06A2MutationInternalQueryV1(
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(
@@ -689,7 +708,7 @@ export async function proveSap06A3MutationInternalCallV1(
     insertReady.deploymentId,
   );
   const applicationLayer = Layer.merge(
-    makeApplicationPointMutationSystemV1Layer(systemLive(
+    makeLegacyApplicationPointMutationSystemV1Layer(systemLive(
       lane,
       deploymentId,
       artifacts,
@@ -701,7 +720,7 @@ export async function proveSap06A3MutationInternalCallV1(
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(
@@ -962,7 +981,7 @@ export async function proveSap06A3MutationInternalCallV1(
 }
 
 export interface Fsv06StandardPointMutationSystemTestCompositionV1 {
-  readonly system: ApplicationPointMutationSystemLiveV1;
+  readonly system: LegacyApplicationPointMutationSystemLiveV1;
   readonly armAfterNextRuntime: (operation: Effect.Effect<void, never>) => void;
   readonly requireNoPendingInterleaving: () => void;
   readonly clearPendingInterleaving: () => void;
@@ -1011,11 +1030,11 @@ export function makeFsv06StandardPointMutationSystemTestCompositionV1(
 
 function systemLive(
   lane: Fsv06StandardPointMutationLaneV1,
-  deploymentId: ApplicationPointMutationSystemLiveV1["deploymentId"],
+  deploymentId: LegacyApplicationPointMutationSystemLiveV1["deploymentId"],
   artifacts: ReturnType<typeof makeMemoryRuntimeArtifactStoreV1>,
   proofController: Fsv06CompositionProofControllerV1,
   onRuntimeExecution: () => void,
-): ApplicationPointMutationSystemLiveV1 {
+): LegacyApplicationPointMutationSystemLiveV1 {
   const sessionAuthority: PointMutationSessionAuthorityResolutionPortsV1 = {
     scopeMetadata: lane.persistence,
     provisioningReceipts: unavailableSplitReceipt(),

@@ -330,7 +330,11 @@ function captureInitialSessionScalars(
   PointMutationInitialExecutionAuthorityV1Error
 > {
   const authorizationGrantExpiresAtMilliseconds =
-    finiteDateMilliseconds(evidence.authorizationGrantExpiresAt);
+    "grant" in evidence
+      ? canonicalTimestampMilliseconds(
+          evidence.grant.authorizationGrantExpiresAt,
+        )
+      : finiteDateMilliseconds(evidence.authorizationGrantExpiresAt);
   const hardExpiresAtMilliseconds = canonicalTimestampMilliseconds(
     anchor.hardExpiresAt,
   );
@@ -352,16 +356,10 @@ function captureInitialSessionScalars(
       }),
     );
   }
-  return Result.succeed(Object.freeze({
-    executionAuthorityGeneration: "legacy_dynamic_worker_v1",
+  const common = Object.freeze({
     lifecycle: "running",
     storageGeneration: anchor.storageGeneration,
     storageGenerationFence: anchor.storageGenerationFence,
-    packageId: evidence.packageId,
-    artifactRuntime: evidence.artifactRuntime,
-    artifactId: evidence.artifactId,
-    sourcePackageHash: evidence.sourcePackageHash,
-    executionModule: evidence.executionModule,
     functionPath: evidence.functionPath,
     functionKind: evidence.functionKind,
     schemaVersionId: evidence.schemaVersionId,
@@ -374,13 +372,23 @@ function captureInitialSessionScalars(
     validatedArgsCanonicalByteLength:
       evidence.validatedArgsCanonicalBytes.byteLength,
     validatedArgsSha256: copyBytes(evidence.validatedArgsSha256),
-    authorizationGrantId: evidence.authorizationGrantId,
-    authorizationGrantValueCodecVersion:
-      evidence.authorizationGrantValueCodecVersion,
-    authorizationGrantCanonicalByteLength:
-      evidence.authorizationGrantCanonicalBytes.byteLength,
-    authorizationGrantSha256: copyBytes(evidence.authorizationGrantSha256),
-    authorizationRevocationEpoch: evidence.authorizationRevocationEpoch,
+    authorizationGrantId: "grant" in evidence
+      ? evidence.grant.authorizationGrantId
+      : evidence.authorizationGrantId,
+    authorizationGrantValueCodecVersion: "grant" in evidence
+      ? evidence.grant.authorizationGrantValueCodecVersion
+      : evidence.authorizationGrantValueCodecVersion,
+    authorizationGrantCanonicalByteLength: "grant" in evidence
+      ? evidence.grant.authorizationGrantCanonicalBytes.byteLength
+      : evidence.authorizationGrantCanonicalBytes.byteLength,
+    authorizationGrantSha256: copyBytes(
+      "grant" in evidence
+        ? evidence.grant.authorizationGrantSha256
+        : evidence.authorizationGrantSha256,
+    ),
+    authorizationRevocationEpoch: "grant" in evidence
+      ? evidence.grant.authorizationRevocationEpoch
+      : evidence.authorizationRevocationEpoch,
     authorizationGrantExpiresAtMilliseconds,
     requestKey: evidence.requestKey,
     requestSha256: copyBytes(evidence.requestSha256),
@@ -388,7 +396,29 @@ function captureInitialSessionScalars(
     hardExpiresAtMilliseconds,
     createdAtMilliseconds,
     updatedAtMilliseconds,
-  } satisfies StoredTransactionSessionScalarsV1));
+  });
+  return "executionAuthority" in evidence
+    ? Result.succeed(Object.freeze({
+        ...common,
+        executionAuthorityGeneration: "application_v1" as const,
+        applicationExecutionAuthorityJson:
+          evidence.executionAuthority.authorityJson,
+        applicationExecutionAuthorityCanonicalBytes: copyBytes(
+          evidence.executionAuthority.canonicalBytes,
+        ),
+        applicationExecutionAuthoritySha256: copyBytes(
+          evidence.executionAuthority.sha256,
+        ),
+      } satisfies StoredTransactionSessionScalarsV1))
+    : Result.succeed(Object.freeze({
+        ...common,
+        executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+        packageId: evidence.packageId,
+        artifactRuntime: evidence.artifactRuntime,
+        artifactId: evidence.artifactId,
+        sourcePackageHash: evidence.sourcePackageHash,
+        executionModule: evidence.executionModule,
+      } satisfies StoredTransactionSessionScalarsV1));
 }
 
 function canonicalTimestampMilliseconds(value: string): number | undefined {

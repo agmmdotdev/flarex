@@ -10,9 +10,6 @@ import { describe, expect, it } from "vitest";
 import { standardV1 } from
   "@flarex/standard-application-definition/v1";
 
-import type {
-  InvokeStandardApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/v1";
 import {
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   type PGliteFlarexPersistence,
@@ -24,6 +21,7 @@ import { FSV05_SUPPORTED_LOCATOR } from
 import {
   type StandardApplicationSystemTestClientV1,
   type StandardApplicationSystemTestSetupClientV1,
+  type StandardApplicationLegacySimulationMutationErrorV1 as InvokeStandardApplicationPointMutationV1Error,
   runStandardApplicationSimulationV1,
   StandardApplicationSimulationIntegrationV1Error,
   StandardApplicationTypedReferenceV1Error,

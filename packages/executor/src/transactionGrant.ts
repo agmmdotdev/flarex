@@ -22,6 +22,7 @@ import {
 } from "./pointMutationStartPreparation";
 import {
   createTransactionGrantVerificationKernelV1,
+  findTransactionGrantVerificationKernelV1,
   registerTransactionGrantVerificationKernelV1,
   verificationFailure,
   type TransactionGrantVerificationV1Error,
@@ -471,6 +472,13 @@ export interface TransactionGrantVerifierV1 {
   readonly verify: (
     input: VerifyTransactionGrantV1Input,
   ) => Promise<VerifiedTransactionGrantV1>;
+}
+
+/** Construction-time check for compositions that retain legacy grant rows. */
+export function isRegisteredTransactionGrantVerifierV1(
+  verifier: TransactionGrantVerifierV1,
+): boolean {
+  return findTransactionGrantVerificationKernelV1(verifier) !== undefined;
 }
 
 export function createTransactionGrantVerificationKeyNamespaceV1(

@@ -27,6 +27,7 @@ import {
   createPointMutationExecutionLivenessCoordinatorV1,
   PointMutationExecutionLivenessClosedV1Error,
   PointMutationExecutionLivenessConfigurationV1Error,
+  validatePointMutationExecutionLivenessConfigurationV1Result,
 } from "../src/pointMutationExecutionClaimLiveness";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
@@ -237,6 +238,23 @@ describe("O08-B2b2b2b1b1 structured execution-claim liveness", () => {
     expect(renewalCalls).toBe(0);
   });
 
+  it("exposes the same heartbeat validation for composition preflight", () => {
+    const fixture = makeCoordinator(() => Effect.succeed(RENEWED_OPEN));
+
+    const result =
+      validatePointMutationExecutionLivenessConfigurationV1Result(
+        fixture.liveness,
+        { heartbeatIntervalMilliseconds: 31 },
+      );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        reason: "heartbeatIntervalExceedsClaimHeadroom",
+      });
+    }
+  });
+
   it("rejects cross-factory scopes and mode mismatches", async () => {
     const fixture = makeCoordinator(() => Effect.succeed(RENEWED_OPEN));
     const other = makeScope("execute");
@@ -274,6 +292,7 @@ function makeCoordinator(
   });
   return Object.freeze({
     scope,
+    liveness,
     coordinator: createPointMutationExecutionLivenessCoordinatorV1(
       vault.admission,
       liveness,

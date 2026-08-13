@@ -101,6 +101,10 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
+import {
+  isRetryableApplicationMutationAdmissionCause,
+  selectApplicationMutationAdmission,
+} from "../src/applicationMutationAdmission";
 import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
 import { makeApplicationReadinessRepository } from
@@ -196,6 +200,13 @@ beforeAll(() => {
 });
 
 describe("Application readiness", { timeout: 30_000 }, () => {
+  it("classifies only transient PostgreSQL admission failures as retryable", () => {
+    expect(isRetryableApplicationMutationAdmissionCause({ code: "40001" }))
+      .toBe(true);
+    expect(isRetryableApplicationMutationAdmissionCause({ code: "42P01" }))
+      .toBe(false);
+  });
+
   it("labels read-only readiness input failures with the read operation", async () => {
     const fixture = await readinessFixture();
 
@@ -873,6 +884,70 @@ describe("Application activation", { timeout: 30_000 }, () => {
     ));
     await expect(runEffect(graphLoader.loadEffect(executionAuthority))).resolves
       .toMatchObject({ kind: "corrupt", reason: "applicationGraphInvalid" });
+  });
+
+  it("selects an exact public Application mutation and rejects a stale admitted head", async () => {
+    const fixture = await readinessFixture({ functionKind: "mutation" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const context = Object.freeze({
+      deploymentId: fixture.input.deploymentId,
+      controlDb: fixture.control.drizzle,
+      schema: fixture.schema,
+      authority: fixture.authorityPorts,
+    });
+
+    const admitted = await runEffect(selectApplicationMutationAdmission(
+      active.selection,
+      "users:get",
+      context,
+    ));
+    expect(admitted.basis.revisionId).toBe(fixture.input.revisionId);
+    expect(admitted.executionAuthority.authority).toMatchObject({
+      format: "flarex.application-mutation-execution-authority",
+      version: 1,
+      activationSequence: active.basis.activationSequence.toString(),
+      activeHeadSha256: hex(active.basis.headSha256),
+      schemaVersionId: active.basis.schemaVersionId,
+      runtimeTarget: {
+        revisionId: fixture.input.revisionId,
+        function: {
+          path: "users:get",
+          kind: "mutation",
+          visibility: "public",
+        },
+      },
+    });
+
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+      headSha256: new Uint8Array(32).fill(0xee),
+    }).where(eq(
+      fxSystemApplicationActiveHeadsV1.scopeId,
+      active.basis.authority.scopeId,
+    ));
+    const stale = await runEffect(Effect.result(
+      selectApplicationMutationAdmission(
+        active.selection,
+        "users:get",
+        context,
+      ),
+    ));
+    expect(Result.isFailure(stale)).toBe(true);
+    if (Result.isFailure(stale)) {
+      expect(stale.failure).toMatchObject({
+        operation: "validateSelection",
+        reason: "storedState",
+      });
+    }
   });
 
   it("rolls back history and head together after a late injected failure", async () => {

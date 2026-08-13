@@ -31,16 +31,18 @@ import {
   type InvokeApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/internal/system-query-v1";
 import {
-  ApplicationPointMutationSystemV1,
-  makeApplicationPointMutationSystemV1Layer,
+  LegacyApplicationPointMutationSystemV1,
+  invokeLegacyApplicationPointMutationV1,
+  makeLegacyApplicationPointMutationSystemV1Layer,
 } from "@flarex/standard-application-invocation/internal/system-v1";
 import {
-  invokeStandardApplicationPointMutationV1,
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-  type InvokeStandardApplicationPointMutationV1Error,
   makeStandardApplicationActiveRevisionReaderV1Layer,
   StandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
+import type {
+  InvokeLegacyApplicationPointMutationV1Error,
+} from "@flarex/standard-application-invocation/internal/system-v1";
 import {
   activateApplicationRevisionV1,
   type ActivateApplicationRevisionV1Error,
@@ -66,7 +68,7 @@ import type {
 } from "../simulation/standardApplicationSimulationV1";
 
 type ApplicationTestRequirementsV1 =
-  | ApplicationPointMutationSystemV1
+  | LegacyApplicationPointMutationSystemV1
   | ApplicationPointQuerySystemV1
   | StandardApplicationActiveRevisionReaderV1
   | Scope.Scope;
@@ -74,6 +76,11 @@ type ApplicationTestRequirementsV1 =
 export type StandardApplicationLegacySimulationQueryErrorV1 =
   | ReadActiveApplicationRevisionV1Error
   | InvokeApplicationPointQueryV1Error;
+export type StandardApplicationLegacySimulationMutationErrorV1 =
+  | ReadActiveApplicationRevisionV1Error
+  | InvokeLegacyApplicationPointMutationV1Error;
+type InvokeStandardApplicationPointMutationV1Error =
+  StandardApplicationLegacySimulationMutationErrorV1;
 
 /**
  * This Application Revision V1 simulation remains legacy coverage until the
@@ -89,6 +96,23 @@ const invokeLegacySimulationPointQueryV1 = Effect.fn(
     active.selection,
     functionPath,
     args,
+  );
+});
+
+const invokeLegacySimulationPointMutationV1 = Effect.fn(
+  "StandardApplicationSimulation.invokeLegacyPointMutationV1",
+)(function* (
+  functionPath: TransactionFunctionPathV1,
+  args: unknown,
+  requestKey: TransactionRequestKeyV1,
+) {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeLegacyApplicationPointMutationV1(
+    active.selection,
+    functionPath,
+    args,
+    requestKey,
   );
 });
 
@@ -290,7 +314,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
     },
   );
   const applicationLayer = Layer.mergeAll(
-    makeApplicationPointMutationSystemV1Layer(mutationSystem),
+    makeLegacyApplicationPointMutationSystemV1Layer(mutationSystem),
     makeApplicationPointQuerySystemV1Layer(querySystem),
     makeStandardApplicationActiveRevisionReaderV1Layer(ready.context),
   );
@@ -356,7 +380,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             reference,
           ).pipe(Effect.flatMap(() => invokeApplication(
               invocationScope,
-              invokeStandardApplicationPointMutationV1(
+              invokeLegacySimulationPointMutationV1(
                 TransactionFunctionPathV1Schema.make(reference.path),
                 args,
                 requestKey,
@@ -372,7 +396,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         )((functionPath, args, requestKey) => invokeWhileSetupActive(() =>
           invokeApplication(
             invocationScope,
-            invokeStandardApplicationPointMutationV1(
+            invokeLegacySimulationPointMutationV1(
               functionPath,
               args,
               requestKey,
@@ -421,7 +445,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             reference,
           ).pipe(Effect.flatMap(() => invokeApplication(
               invocationScope,
-              invokeStandardApplicationPointMutationV1(
+              invokeLegacySimulationPointMutationV1(
                 TransactionFunctionPathV1Schema.make(reference.path),
                 args,
                 requestKey,
@@ -465,7 +489,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         )((functionPath, args, requestKey) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
-            invokeStandardApplicationPointMutationV1(
+            invokeLegacySimulationPointMutationV1(
               functionPath,
               args,
               requestKey,

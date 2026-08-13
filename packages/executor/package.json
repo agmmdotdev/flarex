@@ -15,6 +15,7 @@
     "./point-mutation-journal-rpc": "./src/pointMutationJournalRpc.ts",
     "./internal/application-point-mutation-journal-capability": "./src/applicationPointMutationJournalCapability.ts",
     "./internal/application-point-mutation-runner": "./src/storedAttemptAuthentication.ts",
+    "./internal/application-mutation-grant-verification-kernel": "./src/applicationMutationGrantVerificationKernel.ts",
     "./point-mutation-redelivery-scheduler-host-contract": "./src/pointMutationRedeliverySchedulerHostContract.ts",
     "./point-mutation-start": "./src/pointMutationStartPreparation.ts",
     "./point-mutation-session": "./src/pointMutationSessionActivation.ts",
