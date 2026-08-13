@@ -23,7 +23,7 @@ import {
 } from "./sessionAuthorityTestSupport";
 
 describe("createPGlitePersistence", () => {
-  it("upgrades the immediately prior 0060 journal with task-runtime publication", async () => {
+  it("upgrades through task-runtime publication and then task-aware readiness", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-sap-trp4-upgrade-"));
     const migrationsFolder = resolve(testRoot, "drizzle");
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,15 +55,58 @@ describe("createPGlitePersistence", () => {
       `);
       expect(before.rows).toEqual([{ count: "0" }]);
 
+      await writeFile(journalPath, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter(entry =>
+          isNonArrayRecord(entry) && typeof entry.idx === "number" &&
+          entry.idx < 62
+        ),
+      }, null, 2)}\n`, "utf8");
+      const publication = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await publication.migrate();
+      const immediatelyPrior = await db.query<{
+        runtime_tables: string;
+        task_readiness_columns: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name like
+                'fx_system_application_task_runtime_%') as runtime_tables,
+          (select count(*)::text from information_schema.columns
+            where table_schema = current_schema()
+              and table_name = 'fx_system_application_readiness_v1'
+              and column_name like 'task_runtime_%') as task_readiness_columns
+      `);
+      expect(immediatelyPrior.rows).toEqual([{
+        runtime_tables: "2",
+        task_readiness_columns: "0",
+      }]);
+
       await writeFile(journalPath, currentJournalText, "utf8");
       const current = await createPGlitePersistence({ db, migrationsFolder });
       await current.migrate();
-      const after = await current.query<{ count: string }>(`
-        select count(*)::text as count from information_schema.tables
-        where table_schema = current_schema()
-          and table_name like 'fx_system_application_task_runtime_%'
+      const after = await current.query<{
+        runtime_tables: string;
+        task_readiness_columns: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name like
+                'fx_system_application_task_runtime_%') as runtime_tables,
+          (select count(*)::text from information_schema.columns
+            where table_schema = current_schema()
+              and table_name = 'fx_system_application_readiness_v1'
+              and column_name like 'task_runtime_%') as task_readiness_columns
       `);
-      expect(after.rows).toEqual([{ count: "2" }]);
+      expect(after.rows).toEqual([{
+        runtime_tables: "2",
+        task_readiness_columns: "4",
+      }]);
     } finally {
       try {
         await db.close();

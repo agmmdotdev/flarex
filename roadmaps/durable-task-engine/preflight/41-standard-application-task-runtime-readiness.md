@@ -10,28 +10,34 @@ completed on 2026-08-12. The rebuilt backend authority consumes that
 Standard-owned prepared handle, admits the exact membership before I/O,
 cold-reads only through the existing immutable task-runtime store in canonical
 order, and mints a process-local opaque proof only after completion.
-Hosted R2 hard-deadline/settlement and measured Worker-heap proof, task-aware
-readiness schema/persistence, readiness issuance, activation, and production
-wiring remain blocked and unapproved. The separately approved `SAP-CAA1-C`
-checkpoint now provides
+Hosted R2 hard-deadline/settlement and measured Worker-heap proof, activation,
+and production wiring remain blocked and unapproved. The separately completed
+`SAP-CAA1-C` checkpoint provides
 the production-inert transaction-only task-runtime snapshot: it reuses the
 existing task-catalog snapshot owner and independently correlates Application
 parent/catalog evidence with the canonical runtime receipt and membership
 before returning. It does not read R2 or write readiness.
 
-The locally completed `SAP-CAA1-D` checkpoint wraps that transaction-only port
+The committed `SAP-CAA1-D` checkpoint wraps that transaction-only port
 in a settled reservation operation and composes it with the existing backend
 cold-verification authority. The composition must close PostgreSQL before the
 first object read, capture the runtime materialization policy from trusted host
 configuration rather than from the receipt, and return only a process-local
-proof. The later task-aware readiness schema/write, final transaction
-revalidation, activation, and production host remain separate and unapproved.
+proof. The locally implemented `SAP-CAA1-E` checkpoint adds only the task-aware
+readiness schema/write and final transaction revalidation. Its plain `settle`
+operation is the accepted current path; `settleLegacy` retains exact historical
+version-1 issuance for the unwired compatibility path. Activation and the
+production host remain separate and unapproved.
 
-Focused local evidence is 10 backend SAP-TRP5 tests, 34 persistence
+Earlier focused evidence remains 10 backend SAP-TRP5 tests, 34 persistence
 catalog/publication/reservation PGlite tests, and 5 genuine PostgreSQL 18
-publication/reservation tests. Both affected packages typecheck, and the
-Effect plus Trigger compatibility boundaries remain green. This evidence does
-not upgrade the hosted R2 settlement/heap gate or authorize a readiness write.
+publication/reservation tests. Local `SAP-CAA1-E` adds 39 passing Application
+readiness/activation/query tests and the 29-test PGlite migration chain. The
+new genuine-PostgreSQL schema/constraint and task-aware settlement lane is
+present but skipped in this
+shell because `FLAREX_POSTGRES_DATABASE_URL` is unset. Affected package
+typechecks, Effect boundaries, and Trigger boundaries are green. This evidence
+does not upgrade the hosted R2 settlement/heap gate or authorize activation.
 
 SAP-TRP1 through SAP-TRP4 are complete and production-inert. They provide the
 canonical task-runtime object formats, an authenticated publication plan, an
@@ -276,9 +282,10 @@ digest; no task-specific head is needed.
 - A stored version-1 readiness may continue through the existing activation
   compatibility path, but its active selection is explicitly
   `taskRuntime: legacy_absent` and can never authorize a task launch.
-- A revision with no readiness row cannot mint a new version-1 receipt after
-  SAP-TRP5. It must have an explicit SAP-TRP4 receipt, including for an empty
-  task catalog, and receives version 2.
+- The plain current `settle` operation cannot mint a version-1 receipt. The
+  explicitly retained `settleLegacy` operation may still issue or replay
+  version 1 for the private function-only compatibility and activation path
+  until its separately approved removal gate; it is not task-launch authority.
 - A revision already holding version-1 readiness cannot be upgraded in place;
   publishing task runtime later requires a new immutable Application revision.
 - SAP-TRP5 performs no backfill, implicit empty receipt, in-place receipt
@@ -697,13 +704,12 @@ After explicit approval of each remaining checkpoint:
    uses only the existing task-runtime store `read`, exact admission, the
    prepared handle, and an opaque backend proof. Hosted deadline/settlement and
    measured heap proof remain step 3B;
-4. **Blocked on the candidate-authority prerequisite above:** add the
-   persistence snapshot and task-aware readiness schema/migration only after
-   the current task-runtime publication is rooted in the independent
-   Application task-catalog authority rather than Declarative candidate fields;
-5. integrate task-aware readiness issuance with any separately proven existing
-   Application-readiness compatibility obligation, without creating a parallel
-   task-runtime read or write path;
+4. **Complete:** the persistence snapshot and task-aware readiness
+   schema/migration are rooted in the independent Application task-catalog
+   authority rather than Declarative candidate fields;
+5. **Implemented locally as SAP-CAA1-E:** task-aware readiness issuance reuses
+   the existing readiness owner, retains exact legacy replay under
+   `settleLegacy`, and adds no parallel task-runtime read or write path;
 6. extend the existing activation-basis projection and transactional
    revalidation without changing active-head authority;
 7. prove PGlite, Miniflare, and ordinary-role genuine-PostgreSQL behavior; and
@@ -734,8 +740,9 @@ SAP-TRP5 does not authorize:
 
 ## Stop Boundary
 
-SAP-TRP5 runtime integration is complete through production-inert backend step
-3A. The Standard Application prerequisite prepares, correlates, and
+SAP-TRP5 runtime integration is locally complete through production-inert
+task-aware readiness persistence. The Standard Application prerequisite
+prepares, correlates, and
 synchronously copies authoritative expected evidence before R2. The backend
 authority then applies conservative count/per-object/retained-byte admission,
 reads sequentially through the existing store, completes the exact prepared

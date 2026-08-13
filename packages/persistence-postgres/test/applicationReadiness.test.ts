@@ -14,17 +14,34 @@ import {
 } from "@flarex/analysis/application-analysis";
 import {
   hashCanonicalTaskCatalogV1,
+  makeTaskRuntimePublicationReceiptAuthority,
   makeStandardApplicationTaskSha256V1,
+  prepareTaskRuntimePublication,
+  TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+  TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+  TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  TASK_RUNTIME_PROFILE_IDENTITY_V1,
+  verifyTaskRuntimeReadiness,
+  type HashedCanonicalTaskCatalogV1,
+  type PreparedTaskRuntimeReadinessBasisV1,
+  type TaskDefinitionSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { produceStandardApplicationSource } from
+  "@flarex/standard-application-definition/application-source";
+import type { TaskComputeProfileRefV1 } from
+  "@flarex/durable-task/internal/run-attempt-v1";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { makeGrantRetentionPolicyV1Result } from
   "flarex-protocol/grant-retention-policy";
 import {
   produceApplicationTaskBindingsV1,
+  type PreparedApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
-import { Effect, Exit, Result, Scope } from "effect";
+import type { PreparedStandardApplicationDefinitionV1 } from
+  "@flarex/standard-application-definition/v1";
+import { Brand, Effect, Encoding, Exit, Result, Scope } from "effect";
 import {
   APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
   assembleApplicationMutationGrantJwsV1,
@@ -107,9 +124,14 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
-import { makeApplicationPublicationRepository } from
+import {
+  makeApplicationPublicationRepository,
+  type ApplicationPublication,
+} from
   "../src/applicationPublication";
 import { makeApplicationReadinessRepository } from
+  "../src/applicationReadiness";
+import type { ApplicationReadinessTaskRuntimeContext } from
   "../src/applicationReadiness";
 import {
   claimApplicationActiveSelection,
@@ -129,6 +151,13 @@ import {
   createApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
 } from "../src/applicationTaskBindings";
+import { makeApplicationTaskRuntimePublicationRepository } from
+  "../src/applicationTaskRuntimePublication";
+import { createApplicationTaskRuntimeReadinessSnapshotPort } from
+  "../src/applicationTaskRuntimeReadinessSnapshot";
+import type { ApplicationTaskRuntimeReadinessSnapshotPort } from
+  "../src/applicationTaskRuntimeReadinessSnapshot";
+import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
   createPGliteLocatedSplitScopeClockTarget,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
@@ -210,6 +239,9 @@ const LOCATOR = Object.freeze({
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
+const taskComputeProfile = Brand.nominal<TaskComputeProfileRefV1>()(
+  "standard-1x",
+);
 
 beforeAll(() => {
   if (globalThis.crypto === undefined) {
@@ -242,7 +274,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
   it("fails before schema publication when the explicit task catalog is absent", async () => {
     const fixture = await readinessFixture({ registerTaskCatalog: false });
 
-    const result = await runEffect(fixture.repository.settle(fixture.input));
+    const result = await runEffect(fixture.repository.settleLegacy(fixture.input));
 
     expect(result).toMatchObject({
       status: "not_ready",
@@ -259,11 +291,35 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     )).toBe(0);
   });
 
+  it("fails current settlement closed without the task-runtime composition", async () => {
+    const fixture = await readinessFixture({ registerTaskCatalog: false });
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationReadinessError",
+        reason: "invalidComposition",
+      });
+    }
+    expect(await scalarCount(
+      fixture.control,
+      "fx_control_application_schema_authority_v1",
+    )).toBe(0);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_readiness_v1",
+    )).toBe(0);
+  });
+
   it("rejects a schema publisher bound to another control database", async () => {
     const fixture = await readinessFixture({ foreignSchemaControl: true });
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -284,7 +340,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ failSchemaPublication: true });
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
     const authorities = await fixture.control.query<{ status: string }>(
       `select status from fx_control_application_schema_authority_v1`,
@@ -302,8 +358,8 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture();
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
 
-    const first = await runEffect(fixture.repository.settle(fixture.input));
-    const replay = await runEffect(fixture.repository.settle(fixture.input));
+    const first = await runEffect(fixture.repository.settleLegacy(fixture.input));
+    const replay = await runEffect(fixture.repository.settleLegacy(fixture.input));
 
     expect(first).toMatchObject({
       status: "ready",
@@ -315,6 +371,9 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     expect(replay).toMatchObject({
       ...first,
       disposition: "replayed",
+    });
+    expect(first).toMatchObject({
+      taskRuntime: { kind: "legacy_absent" },
     });
     expect(fixture.materializationCount()).toBe(1);
     expect(await scalarCount(
@@ -337,6 +396,242 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       fixture.target,
       "fx_system_declarative_v2_activation_head",
     )).toBe(0);
+    const stored = await fixture.target.query<{
+      readiness_version: number;
+      task_runtime_kind: string | null;
+      task_runtime_receipt_sha256: Uint8Array | null;
+      task_runtime_readiness_basis_sha256: Uint8Array | null;
+      task_runtime_readiness_basis_bytes: Uint8Array | null;
+    }>(`select readiness_version, task_runtime_kind,
+              task_runtime_receipt_sha256,
+              task_runtime_readiness_basis_sha256,
+              task_runtime_readiness_basis_bytes
+           from fx_system_application_readiness_v1`);
+    expect(stored.rows).toEqual([{
+      readiness_version: 1,
+      task_runtime_kind: null,
+      task_runtime_receipt_sha256: null,
+      task_runtime_readiness_basis_sha256: null,
+      task_runtime_readiness_basis_bytes: null,
+    }]);
+  });
+
+  it.each([
+    { includeTask: false, expectedKind: "empty" as const },
+    { includeTask: true, expectedKind: "populated" as const },
+  ])(
+    "settles and exactly replays task-aware $expectedKind readiness",
+    async ({ includeTask, expectedKind }) => {
+      const fixture = await readinessFixture({ includeTask });
+      const schemaVersionId = await prepareReadinessAuthorities(fixture);
+
+      const first = await runEffect(
+        fixture.repository.settle(fixture.input),
+      );
+      const replay = await runEffect(
+        fixture.repository.settle(fixture.input),
+      );
+      const read = await runEffect(fixture.repository.readReady(fixture.input));
+
+      expect(first).toMatchObject({
+        status: "ready",
+        disposition: "inserted",
+        schemaVersionId,
+        taskRuntime: { kind: expectedKind },
+      });
+      expect(replay).toMatchObject({
+        ...first,
+        disposition: "replayed",
+      });
+      expect(read).toMatchObject({
+        ...first,
+        disposition: "replayed",
+      });
+      const stored = await fixture.target.query<{
+        readiness_version: number;
+        task_runtime_kind: string | null;
+        receipt_length: number | null;
+        basis_digest_length: number | null;
+        basis_length: number | null;
+      }>(`select readiness_version, task_runtime_kind,
+                octet_length(task_runtime_receipt_sha256) as receipt_length,
+                octet_length(task_runtime_readiness_basis_sha256)
+                  as basis_digest_length,
+                octet_length(task_runtime_readiness_basis_bytes)
+                  as basis_length
+             from fx_system_application_readiness_v1`);
+      expect(stored.rows).toEqual([{
+        readiness_version: 2,
+        task_runtime_kind: expectedKind,
+        receipt_length: 32,
+        basis_digest_length: 32,
+        basis_length: expect.any(Number),
+      }]);
+      expect(stored.rows[0]?.basis_length).toBeGreaterThan(0);
+      expect(fixture.taskRuntimeBoundaryCheckCount()).toBe(2);
+    },
+  );
+
+  it("rejects every partially-null task-aware readiness shape", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(fixture);
+    await runEffect(fixture.repository.settle(fixture.input));
+
+    const requiredTaskRuntimeColumns = [
+      "task_runtime_kind",
+      "task_runtime_receipt_sha256",
+      "task_runtime_readiness_basis_sha256",
+      "task_runtime_readiness_basis_bytes",
+    ] as const;
+    for (const column of requiredTaskRuntimeColumns) {
+      await expect(fixture.target.query(
+        `update fx_system_application_readiness_v1 set ${column} = null`,
+      )).rejects.toBeDefined();
+    }
+
+    const stored = await fixture.target.query<{
+      task_runtime_kind: string | null;
+      task_runtime_receipt_sha256: Uint8Array | null;
+      task_runtime_readiness_basis_sha256: Uint8Array | null;
+      task_runtime_readiness_basis_bytes: Uint8Array | null;
+    }>(`select task_runtime_kind, task_runtime_receipt_sha256,
+              task_runtime_readiness_basis_sha256,
+              task_runtime_readiness_basis_bytes
+           from fx_system_application_readiness_v1`);
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0]?.task_runtime_kind).toBe("populated");
+    expect(stored.rows[0]?.task_runtime_receipt_sha256).not.toBeNull();
+    expect(stored.rows[0]?.task_runtime_readiness_basis_sha256).not.toBeNull();
+    expect(stored.rows[0]?.task_runtime_readiness_basis_bytes).not.toBeNull();
+  });
+
+  it("revalidates task-runtime publication evidence in the final transaction", async () => {
+    const fixture = await readinessFixture({
+      includeTask: true,
+      taskRuntimeMode: "corruptMembershipAfterVerify",
+    });
+    await prepareReadinessAuthorities(fixture);
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationTaskRuntimeReadinessSnapshotError",
+        reason: "storedState",
+      });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_readiness_v1",
+    )).toBe(0);
+  });
+
+  it("never converts between committed legacy and task-aware readiness", async () => {
+    const legacyFirst = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(legacyFirst);
+    await runEffect(legacyFirst.repository.settleLegacy(legacyFirst.input));
+
+    const taskOverLegacy = await runEffect(Effect.result(
+      legacyFirst.repository.settle(legacyFirst.input),
+    ));
+    expect(Result.isFailure(taskOverLegacy)).toBe(true);
+    if (Result.isFailure(taskOverLegacy)) {
+      expect(taskOverLegacy.failure).toMatchObject({
+        _tag: "ApplicationReadinessError",
+        reason: "conflictingReplay",
+      });
+    }
+
+    const taskFirst = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(taskFirst);
+    await runEffect(
+      taskFirst.repository.settle(taskFirst.input),
+    );
+
+    const legacyOverTask = await runEffect(Effect.result(
+      taskFirst.repository.settleLegacy(taskFirst.input),
+    ));
+    expect(Result.isFailure(legacyOverTask)).toBe(true);
+    if (Result.isFailure(legacyOverTask)) {
+      expect(legacyOverTask.failure).toMatchObject({
+        _tag: "ApplicationReadinessError",
+        reason: "conflictingReplay",
+      });
+    }
+    const versions = await Promise.all([
+      legacyFirst.target.query<{ readiness_version: number }>(
+        "select readiness_version from fx_system_application_readiness_v1",
+      ),
+      taskFirst.target.query<{ readiness_version: number }>(
+        "select readiness_version from fx_system_application_readiness_v1",
+      ),
+    ]);
+    expect(versions.map(result => result.rows[0]?.readiness_version))
+      .toEqual([1, 2]);
+  });
+
+  it("cold-replays task-aware readiness after a hidden commit response", async () => {
+    const fixture = await readinessFixture({ includeTask: true });
+    await prepareReadinessAuthorities(fixture);
+    const resolved = await fixture.authorityPorts.scopeClockTargets.resolve();
+    const runner = Reflect.get(resolved, RUN_LOCATED_READ_COMMITTED_V1);
+    if (typeof runner !== "function") {
+      throw new Error("Expected the located readiness transaction runner.");
+    }
+    let hideOneCommit = true;
+    const uncertainTarget = Object.create(resolved) as typeof resolved;
+    Object.defineProperty(uncertainTarget, RUN_LOCATED_READ_COMMITTED_V1, {
+      configurable: true,
+      value: async <Value>(
+        work: (tx: AppRowTransaction) => Promise<Value>,
+      ): Promise<Value> => {
+        const value = await runner.call(resolved, work) as Value;
+        const taskRuntime = typeof value === "object" && value !== null
+          ? Reflect.get(value, "taskRuntime")
+          : undefined;
+        if (hideOneCommit && typeof value === "object" && value !== null &&
+          Reflect.get(value, "status") === "ready" &&
+          typeof taskRuntime === "object" && taskRuntime !== null &&
+          Reflect.get(taskRuntime, "kind") ===
+            "populated") {
+          hideOneCommit = false;
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("lost task-aware readiness response"),
+          }));
+        }
+        return value;
+      },
+    });
+    fixture.authorityPorts.scopeClockTargets.resolve = async () =>
+      uncertainTarget;
+
+    const first = await runEffect(Effect.result(
+      fixture.repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(first)).toBe(true);
+    if (Result.isFailure(first)) {
+      expect(first.failure).toMatchObject({ reason: "decisionUncertain" });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_readiness_v1",
+    )).toBe(1);
+
+    const replay = await runEffect(fixture.repository.settle(fixture.input));
+    expect(replay).toMatchObject({
+      status: "ready",
+      disposition: "replayed",
+      taskRuntime: { kind: "populated" },
+    });
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_readiness_v1",
+    )).toBe(1);
   });
 
   it("converges concurrent identical settlement on one readiness receipt", async () => {
@@ -344,8 +639,8 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
 
     const results = await Promise.all([
-      runEffect(fixture.repository.settle(fixture.input)),
-      runEffect(fixture.repository.settle(fixture.input)),
+      runEffect(fixture.repository.settleLegacy(fixture.input)),
+      runEffect(fixture.repository.settleLegacy(fixture.input)),
     ]);
 
     expect(results.map(result =>
@@ -370,7 +665,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -391,7 +686,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
   it("fails closed on stored cold-receipt corruption without rematerializing", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
-    await runEffect(fixture.repository.settle(fixture.input));
+    await runEffect(fixture.repository.settleLegacy(fixture.input));
     await fixture.target.query(
       `update fx_system_application_readiness_function_v1
           set cold_receipt_bytes = $1
@@ -400,7 +695,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const replay = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(replay)).toBe(true);
@@ -419,7 +714,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -436,7 +731,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ includeTask: true });
     await prepareReadinessAuthorities(fixture);
 
-    const first = await runEffect(fixture.repository.settle(fixture.input));
+    const first = await runEffect(fixture.repository.settleLegacy(fixture.input));
     const replay = await runEffect(fixture.repository.readReady(fixture.input));
 
     expect(first).toMatchObject({ status: "ready", disposition: "inserted" });
@@ -471,7 +766,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -498,7 +793,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -521,7 +816,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -544,7 +839,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -561,7 +856,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ includeFunction: false });
     await prepareReadinessAuthorities(fixture);
 
-    const result = await runEffect(fixture.repository.settle(fixture.input));
+    const result = await runEffect(fixture.repository.settleLegacy(fixture.input));
     const stored = await fixture.target.query<{
       runtime_host_identity: string;
       compatibility_date: string;
@@ -586,7 +881,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const fixture = await readinessFixture({ includeTable: true });
     await prepareReadinessAuthorities(fixture);
 
-    const result = await runEffect(fixture.repository.settle(fixture.input));
+    const result = await runEffect(fixture.repository.settleLegacy(fixture.input));
 
     expect(result).toMatchObject({
       status: "not_ready",
@@ -604,8 +899,8 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     await enablePhysicalBuilds(fixture, schemaVersionId);
 
-    const first = await runEffect(fixture.repository.settle(fixture.input));
-    const replay = await runEffect(fixture.repository.settle(fixture.input));
+    const first = await runEffect(fixture.repository.settleLegacy(fixture.input));
+    const replay = await runEffect(fixture.repository.settleLegacy(fixture.input));
 
     expect(first).toMatchObject({
       status: "ready",
@@ -634,7 +929,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     );
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -653,7 +948,7 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     await prepareReadinessAuthorities(fixture);
 
     const result = await runEffect(Effect.result(
-      fixture.repository.settle(fixture.input),
+      fixture.repository.settleLegacy(fixture.input),
     ));
 
     expect(Result.isFailure(result)).toBe(true);
@@ -1181,7 +1476,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }));
     const firstSelection = await runEffect(activation.readActive());
     const nextRevisionId = await createAdditionalApplicationRevision(fixture);
-    const nextReadiness = await runEffect(fixture.repository.settle({
+    const nextReadiness = await runEffect(fixture.repository.settleLegacy({
       deploymentId: fixture.input.deploymentId,
       revisionId: nextRevisionId,
     }));
@@ -1477,7 +1772,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       const nextRevisionId = yield* Effect.promise(() =>
         createAdditionalApplicationRevision(fixture)
       );
-      yield* fixture.repository.settle({
+      yield* fixture.repository.settleLegacy({
         deploymentId: fixture.input.deploymentId,
         revisionId: nextRevisionId,
       });
@@ -1573,7 +1868,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     const expected = await insertApplicationQueryRow(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);
-    await runEffect(fixture.repository.settle(fixture.input));
+    await runEffect(fixture.repository.settleLegacy(fixture.input));
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
       readiness: fixture.repository,
@@ -1781,6 +2076,141 @@ interface ReadinessFixtureOptions {
   readonly foreignSchemaControl?: boolean;
   readonly failSchemaPublication?: boolean;
   readonly functionKind?: "query" | "mutation";
+  readonly taskRuntimeMode?: "normal" | "corruptMembershipAfterVerify";
+}
+
+async function prepareTaskRuntimeReadinessContext(input: {
+  readonly db: FlarexMetadataDatabase;
+  readonly authority: ApplicationAnalysisAuthority;
+  readonly definition: PreparedStandardApplicationDefinitionV1;
+  readonly catalog: HashedCanonicalTaskCatalogV1;
+  readonly bindings: PreparedApplicationTaskBindingsV1;
+  readonly publication: ApplicationPublication;
+  readonly snapshot: ApplicationTaskRuntimeReadinessSnapshotPort;
+  readonly beforeProofReturn?: () => Promise<void>;
+}): Promise<ApplicationReadinessTaskRuntimeContext<never>> {
+  const source = Result.getOrThrow(
+    produceStandardApplicationSource(input.definition),
+  );
+  const authenticatedModules = await Promise.all(source.modules.map(
+    async (module, ordinal) => Object.freeze({
+      ordinal,
+      artifactModulePath: module.path,
+      roles: module.roles,
+      sourceByteLength: module.sourceBytes.byteLength,
+      sourceSha256: await runEffect(taskSha256(module.sourceBytes, {
+        maximumInputBytes: module.sourceBytes.byteLength,
+      })) as TaskDefinitionSha256V1,
+    }),
+  ));
+  const materialization = Object.freeze({
+    kind: "task_runtime_materialization_spec" as const,
+    runtimeContractIdentity: TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+    bridgeAbiIdentity: TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+    compatibilityDate: COMPATIBILITY_DATE,
+    compatibilityFlags: Object.freeze(["nodejs_compat"]),
+    runtimeProfileIdentity: TASK_RUNTIME_PROFILE_IDENTITY_V1,
+    runtimeImplementationVersion: "worker-loader-2026.08.13-readiness",
+    supportedComputeProfiles: Object.freeze([taskComputeProfile]),
+    moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  });
+  const catalogBinding = input.bindings.catalog.binding;
+  const plan = await runEffect(prepareTaskRuntimePublication({
+    source,
+    catalog: input.catalog,
+    taskBindings: input.bindings,
+    authority: {
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.publicationSha256),
+      ) as TaskDefinitionSha256V1,
+      sourceArtifactRootSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.sourceArtifactRootSha256),
+      ) as TaskDefinitionSha256V1,
+      applicationTaskCatalogBindingSha256: input.bindings.catalog.sha256,
+      authenticatedModules,
+    },
+    policy: {
+      materialization,
+      admittedCompatibilityDate: materialization.compatibilityDate,
+      admittedCompatibilityFlags: materialization.compatibilityFlags,
+      admittedRuntimeImplementationVersion:
+        materialization.runtimeImplementationVersion,
+      admittedComputeProfiles: materialization.supportedComputeProfiles,
+    },
+  }, taskSha256));
+  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(
+    taskSha256,
+  );
+  // The fixture simulates the already-proven SAP-TRP3 object-store success
+  // boundary before asking the receipt authority to commit its exact receipt.
+  const receipt = await runEffect(receiptAuthority.prepareReceipt(
+    plan,
+    plan.objects.map(object => Result.getOrThrow(
+      receiptAuthority.confirmPublishedObject(object, object.readReference()),
+    )),
+  ));
+  await runEffect(makeApplicationTaskRuntimePublicationRepository(
+    input.db,
+    receiptAuthority,
+  ).publish({
+    authority: input.authority,
+    publication: receipt,
+  }));
+  const verified = await runEffect(verifyTaskRuntimeReadiness({
+    receiptCanonicalBytes: receipt.readCanonicalBytes(),
+    receiptSha256: receipt.readSha256(),
+    expected: {
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.publicationSha256),
+      ) as TaskDefinitionSha256V1,
+      sourceArtifactRootSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.sourceArtifactRootSha256),
+      ) as TaskDefinitionSha256V1,
+      applicationTaskCatalogBindingSha256: input.bindings.catalog.sha256,
+      taskCatalog: input.catalog,
+      materializationPolicy: materialization,
+    },
+    runtimeObjects: plan.objects.map(object => Object.freeze({
+      reference: object.readReference(),
+      canonicalBytes: object.readCanonicalBytes(),
+    })),
+  }, taskSha256));
+  const proofs = new WeakMap<object, PreparedTaskRuntimeReadinessBasisV1>();
+  const proof = Object.freeze({});
+  proofs.set(proof, verified);
+  const connected = Object.freeze({
+    verify: () => Effect.promise(async () => {
+      await input.beforeProofReturn?.();
+      return Object.freeze({
+        status: "verified" as const,
+        revisionId: input.publication.revisionId,
+        proof,
+      });
+    }),
+    capture: (received: unknown) => {
+      if (typeof received !== "object" || received === null) {
+        return Result.fail(new Error("Missing readiness proof."));
+      }
+      const basis = proofs.get(received);
+      return basis === undefined
+        ? Result.fail(new Error("Foreign readiness proof."))
+        : Result.succeed(Object.freeze({
+            revisionId: input.publication.revisionId,
+            readReceiptSha256: () => receipt.readSha256(),
+            readCanonicalBytes: () => basis.readCanonicalBytes(),
+            readSha256: () => basis.readSha256(),
+          }));
+    },
+  });
+  return Object.freeze({ connected, snapshot: input.snapshot });
 }
 
 async function mirrorCommitSchemaEvidenceToTarget(
@@ -1910,6 +2340,10 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
       manifest: analysis.manifest,
     }),
   );
+  const taskCatalogPort = createApplicationTaskCatalogSnapshotPort();
+  let locatedTransactionsOpen = 0;
+  let taskRuntimeBoundaryChecks = 0;
+  let taskRuntime: ApplicationReadinessTaskRuntimeContext<never> | undefined;
   if (options.registerTaskCatalog !== false) {
     const catalog = await runEffect(hashCanonicalTaskCatalogV1({
       version: 1,
@@ -1937,18 +2371,66 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         bindings,
       }),
     );
+    taskRuntime = await prepareTaskRuntimeReadinessContext({
+      db: target.drizzle,
+      authority,
+      definition: preparedDefinition(),
+      catalog,
+      bindings,
+      publication,
+      snapshot: createApplicationTaskRuntimeReadinessSnapshotPort(
+        taskCatalogPort,
+      ),
+      beforeProofReturn: async () => {
+        taskRuntimeBoundaryChecks += 1;
+        if (locatedTransactionsOpen !== 0) {
+          throw new Error(
+            "Task-runtime verification ran inside a located transaction.",
+          );
+        }
+        if (options.taskRuntimeMode === "corruptMembershipAfterVerify") {
+              await target.query(
+                `update fx_system_application_task_runtime_object_v1
+                    set byte_length = byte_length + 1
+                  where scope_id = $1 and revision_id = $2`,
+                [authority.scopeId, publication.revisionId],
+              );
+        }
+      },
+    });
   }
   const locatedTarget = createLocatedAppSchemaCandidateValidationTarget(
     target.drizzle,
     LOCATOR,
   );
+  const locatedRunner = Reflect.get(
+    locatedTarget,
+    RUN_LOCATED_READ_COMMITTED_V1,
+  );
+  if (typeof locatedRunner !== "function") {
+    throw new Error("Expected the located readiness transaction runner.");
+  }
+  const observedLocatedTarget = Object.freeze({
+    physicalLocator: locatedTarget.physicalLocator,
+    getCurrentClock: locatedTarget.getCurrentClock,
+    [RUN_LOCATED_READ_COMMITTED_V1]: async <Value>(
+      work: (tx: AppRowTransaction) => Promise<Value>,
+    ): Promise<Value> => {
+      locatedTransactionsOpen += 1;
+      try {
+        return await locatedRunner.call(locatedTarget, work) as Value;
+      } finally {
+        locatedTransactionsOpen -= 1;
+      }
+    },
+  });
   const authorityPorts = Object.freeze({
     scopeMetadata: control,
     provisioningReceipts: {
       getScopeAuthorityProvisioningReceipt: (scopeId: typeof authority.scopeId) =>
         getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
     },
-    scopeClockTargets: { resolve: async () => locatedTarget },
+    scopeClockTargets: { resolve: async () => observedLocatedTarget },
   });
   const candidateValidation = createAppSchemaCandidateValidationPort({
     controlDb: control.drizzle,
@@ -1983,7 +2465,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         }
         : run => schemaControl.drizzle.transaction(run),
     }),
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
+    taskCatalog: taskCatalogPort,
     candidateValidation: createAppSchemaCandidateReadinessPort(
       candidateValidation,
     ),
@@ -2026,6 +2508,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         }));
       }),
     },
+    ...(taskRuntime === undefined ? {} : { taskRuntime }),
   });
   const repository = makeApplicationReadinessRepository(readinessContext);
   return Object.freeze({
@@ -2042,6 +2525,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
       revisionId: publication.revisionId,
     }),
     materializationCount: () => materializations,
+    taskRuntimeBoundaryCheckCount: () => taskRuntimeBoundaryChecks,
   });
 }
 
@@ -2064,7 +2548,7 @@ async function prepareReadinessAuthorities(
   fixture: Awaited<ReturnType<typeof readinessFixture>>,
 ): Promise<CatalogSchemaVersionId> {
   const beforeValidation = await runEffect(
-    fixture.repository.settle(fixture.input),
+    fixture.repository.settleLegacy(fixture.input),
   );
   expect(beforeValidation).toMatchObject({
     status: "not_ready",

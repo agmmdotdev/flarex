@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-**Status:** `SAP-CAA1-A/B/C` is committed; `SAP-CAA1-D` is implemented locally
-as the next production-inert checkpoint. The current runtime publication now
+**Status:** `SAP-CAA1-A/B/C/D` is committed. `SAP-CAA1-E` is implemented
+locally as the next production-inert checkpoint. The current runtime publication now
 has a private
 transaction-only readiness snapshot that independently compares Application
 parent/catalog evidence with canonical receipt/membership evidence before any
@@ -20,7 +20,8 @@ candidate table or a task-runtime receipt as its own authority.
 
 This is a prerequisite to persistence step 4 in
 [`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md).
-It does not authorize task-aware readiness issuance, activation, Task System
+It authorizes only task-aware Application-readiness persistence and its final
+transactional revalidation. It does not authorize activation, Task System
 launch, Worker Loader composition, hosted R2 operation, or production wiring.
 
 ## Why There Is No Second Runtime Version
@@ -306,8 +307,9 @@ The original implementation order was:
 4. `SAP-CAA1-D`: settle the snapshot transaction, then compose the existing
    backend cold verifier against that owned snapshot with a trusted runtime
    policy and process-local proof;
-5. resume task-aware readiness issuance/final revalidation only after the
-   connected proof exists; and
+5. `SAP-CAA1-E`: extend the existing Application readiness owner with explicit
+   task-aware issuance and final revalidation after the connected proof exists;
+   and
 6. create a legacy-retention checkpoint only if concrete inventory evidence
    requires one.
 
@@ -315,12 +317,10 @@ The approved correction implemented steps 1 and 2 together because the private
 persistence repository directly compiles against the corrected Standard
 Application receipt. Keeping only step 1 would have required a temporary alias
 or compatibility reader for an implementation with no retained consumer,
-which would contradict this preflight's no-parallel-path decision. Step 3 is
-now complete as a separate production-inert checkpoint. Task-aware readiness
-issuance, final revalidation/commit, activation, and launch remain
-unimplemented. Step 4 is separately approved because it changes orchestration
-and failure composition but does not change schema, readiness authority, or
-deployment wiring.
+which would contradict this preflight's no-parallel-path decision. Steps 3 and
+4 are now complete as separate production-inert checkpoints. `SAP-CAA1-E` owns
+the schema extension, exact legacy replay, task-aware issuance, and final
+no-network revalidation/commit. Activation and launch remain unimplemented.
 
 ### SAP-CAA1-D connected-verification boundary
 
@@ -355,6 +355,56 @@ Local `SAP-CAA1-D` evidence:
   receipt/readiness evidence; and
 - focused backend tests, PGlite tests, genuine PostgreSQL 18 lock/settlement
   tests, package typechecks, Effect boundaries, and Trigger boundaries pass.
+
+### SAP-CAA1-E task-aware readiness boundary
+
+The existing Application readiness repository remains the only readiness
+owner. Its plain current `settle` operation becomes task-aware, while the
+retained displaced function-only operation is named `settleLegacy`. The current
+operation:
+
+1. completes its existing schema, physical, unique-constraint, and ordinary
+   function cold-read prerequisites;
+2. invokes the configured connected task-runtime authority outside the final
+   transaction;
+3. captures only a proof issued by that exact connected-authority instance;
+4. decodes, hashes, owns, and correlates the canonical runtime-readiness basis;
+5. relocks and reloads the exact runtime publication and membership through
+   the existing transaction-only snapshot owner; and
+6. inserts or exactly replays the same Application readiness row with an
+   explicit task-aware canonical envelope.
+
+The existing persisted legacy readiness envelope remains an exact compatibility
+contract. New task-aware settlement cannot synthesize it, update it in place,
+or treat it as task-launch authority. The schema extension therefore admits
+only two exact shapes: legacy readiness with null task columns, or task-aware
+readiness with a restrictive runtime-publication foreign key plus canonical
+basis bytes and digest. This is compatibility-contract versioning, not a
+parallel product/runtime implementation.
+
+No R2 or other network call may occur while the final transaction is open.
+`SAP-CAA1-E` does not change activation or expose the task basis through an
+active selection; that remains the next separately approved checkpoint.
+
+Locally implemented `SAP-CAA1-E` evidence:
+
+- additive migration `0062_new_maestro.sql` admits only exact legacy
+  version-1 or task-aware version-2 readiness shapes and restrictively binds
+  version 2 to the immutable runtime-publication receipt;
+- empty and populated task-aware settlement insert and replay the current
+  version-2 envelope, while `settleLegacy` preserves exact version-1 bytes;
+- neither compatibility shape can overwrite or convert the other;
+- a runtime-membership change after connected verification is rejected by the
+  final transaction with no readiness row; and
+- activation remains explicitly on `settleLegacy`, so this checkpoint cannot
+  expose incomplete task readiness through the active-selection basis.
+
+Local validation passes persistence, backend, and system-test typechecks; 39
+Application readiness/activation/query tests; the 29-test PGlite migration
+chain; Drizzle generation agreement; scoped Oxlint; Effect boundaries; and the
+Trigger boundary. The added ordinary-role genuine-PostgreSQL schema/constraint
+and task-aware settlement lane is skipped locally because
+`FLAREX_POSTGRES_DATABASE_URL` is unset.
 
 ## Local Implementation Receipt
 
@@ -426,7 +476,7 @@ This preflight does not authorize:
 - changing unrelated concrete wire, RPC, Source Artifact, or Application
   readiness compatibility contracts;
 - a generic candidate API or universal database abstraction;
-- task-aware readiness issuance or activation;
+- task-aware activation or active-selection projection;
 - Task System definition/run creation, compute delivery, Worker Loader, or
   production routing;
 - R2 credentials, object reads, repair, deletion, or garbage collection;

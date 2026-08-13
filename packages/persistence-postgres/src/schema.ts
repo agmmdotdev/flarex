@@ -47,6 +47,7 @@ import {
   MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1,
   MAX_TASK_RUNTIME_PUBLICATION_CANONICAL_BYTES_V1,
   MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1,
+  MAX_TASK_RUNTIME_READINESS_BASIS_CANONICAL_BYTES_V1,
   type TaskRuntimeObjectRoleV1,
   type TaskDefinitionSha256V1,
   type TaskIdV1,
@@ -5410,6 +5411,14 @@ export const fxSystemApplicationReadinessV1 = pgTable(
     uniqueConstraintEligibilitySha256:
       bytea("unique_constraint_eligibility_sha256").notNull(),
     physicalReadinessSha256: bytea("physical_readiness_sha256").notNull(),
+    readinessVersion: integer("readiness_version").notNull().default(1),
+    taskRuntimeKind: text("task_runtime_kind")
+      .$type<"empty" | "populated">(),
+    taskRuntimeReceiptSha256: bytea("task_runtime_receipt_sha256"),
+    taskRuntimeReadinessBasisSha256:
+      bytea("task_runtime_readiness_basis_sha256"),
+    taskRuntimeReadinessBasisBytes:
+      bytea("task_runtime_readiness_basis_bytes"),
     readinessSha256: bytea("readiness_sha256").notNull(),
     readinessBytes: bytea("readiness_bytes").notNull(),
     readyAt: timestamp("ready_at", { withTimezone: true })
@@ -5467,6 +5476,19 @@ export const fxSystemApplicationReadinessV1 = pgTable(
         fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
       ],
     }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_application_readiness_v1_task_runtime_fk",
+      columns: [
+        table.scopeId,
+        table.revisionId,
+        table.taskRuntimeReceiptSha256,
+      ],
+      foreignColumns: [
+        fxSystemApplicationTaskRuntimePublicationsV1.scopeId,
+        fxSystemApplicationTaskRuntimePublicationsV1.revisionId,
+        fxSystemApplicationTaskRuntimePublicationsV1.receiptSha256,
+      ],
+    }).onDelete("restrict"),
     check(
       "fx_application_readiness_v1_identity_check",
       sql`${nonBlankText(table.revisionId)}
@@ -5492,6 +5514,27 @@ export const fxSystemApplicationReadinessV1 = pgTable(
         and ${table.uniqueConstraintStatus} in ('not_required', 'eligible')
         and octet_length(${table.uniqueConstraintEligibilitySha256}) = 32
         and octet_length(${table.physicalReadinessSha256}) = 32
+        and (
+          (${table.readinessVersion} = 1
+            and ${table.taskRuntimeKind} is null
+            and ${table.taskRuntimeReceiptSha256} is null
+            and ${table.taskRuntimeReadinessBasisSha256} is null
+            and ${table.taskRuntimeReadinessBasisBytes} is null)
+          or
+          (${table.readinessVersion} = 2
+            and ${table.taskRuntimeKind} is not null
+            and ${table.taskRuntimeKind} in ('empty', 'populated')
+            and ${table.taskRuntimeReceiptSha256} is not null
+            and octet_length(${table.taskRuntimeReceiptSha256}) = 32
+            and ${table.taskRuntimeReadinessBasisSha256} is not null
+            and octet_length(${table.taskRuntimeReadinessBasisSha256}) = 32
+            and ${table.taskRuntimeReadinessBasisBytes} is not null
+            and octet_length(${table.taskRuntimeReadinessBasisBytes})
+              between 1 and ${sql.raw(String(
+                MAX_TASK_RUNTIME_READINESS_BASIS_CANONICAL_BYTES_V1,
+              ))}
+          )
+        )
         and octet_length(${table.readinessSha256}) = 32
         and octet_length(${table.readinessBytes}) between 1 and 16777216`,
     ),

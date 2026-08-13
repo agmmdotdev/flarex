@@ -17,7 +17,7 @@ import {
   type ApplicationReadinessRepository,
   type ApplicationReadinessResult,
   type ReadApplicationReadinessError,
-  type SettleApplicationReadinessError,
+  type SettleLegacyApplicationReadinessError,
 } from "./applicationReadiness";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import {
@@ -108,9 +108,17 @@ export class ApplicationActivationError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+type ApplicationActivationReadinessPort<SchemaFailure, ColdFailure> = Pick<
+  ApplicationReadinessRepository<SchemaFailure, ColdFailure, unknown>,
+  "settleLegacy" | "readReady"
+>;
+
 export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
   readonly deploymentId: string;
-  readonly readiness: ApplicationReadinessRepository<SchemaFailure, ColdFailure>;
+  readonly readiness: ApplicationActivationReadinessPort<
+    SchemaFailure,
+    ColdFailure
+  >;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
@@ -126,7 +134,7 @@ export interface ApplicationActivationRepository<SchemaFailure, ColdFailure> {
   }) => Effect.Effect<
     ApplicationActivationReceipt,
     | ApplicationActivationError
-    | SettleApplicationReadinessError<SchemaFailure, ColdFailure>
+    | SettleLegacyApplicationReadinessError<SchemaFailure, ColdFailure>
     | TrustedScopeAuthorityError
     | LockScopeClockForUpdateError
   >;
@@ -188,7 +196,7 @@ export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
           input.revisionId,
         );
       }
-      const readiness = yield* captured.readiness.settle(Object.freeze({
+      const readiness = yield* captured.readiness.settleLegacy(Object.freeze({
         deploymentId: captured.deploymentId,
         revisionId: input.revisionId,
       }));
@@ -266,7 +274,10 @@ export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
 const loadReadyForActiveRead = Effect.fn(
   "ApplicationActivation.loadReadyForActiveRead",
 )(function* <SchemaFailure, ColdFailure>(
-  readinessRepository: ApplicationReadinessRepository<SchemaFailure, ColdFailure>,
+  readinessRepository: ApplicationActivationReadinessPort<
+    SchemaFailure,
+    ColdFailure
+  >,
   deploymentId: string,
   revisionId: string,
 ) {

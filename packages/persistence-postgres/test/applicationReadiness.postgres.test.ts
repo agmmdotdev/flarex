@@ -6,14 +6,31 @@ import {
 } from "@flarex/analysis/application-analysis";
 import {
   hashCanonicalTaskCatalogV1,
+  makeTaskRuntimePublicationReceiptAuthority,
   makeStandardApplicationTaskSha256V1,
+  prepareTaskRuntimePublication,
+  TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+  TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+  TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  TASK_RUNTIME_PROFILE_IDENTITY_V1,
+  verifyTaskRuntimeReadiness,
+  type HashedCanonicalTaskCatalogV1,
+  type PreparedTaskRuntimeReadinessBasisV1,
+  type TaskDefinitionSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import {
   produceApplicationTaskBindingsV1,
+  type PreparedApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import { produceStandardApplicationSource } from
+  "@flarex/standard-application-definition/application-source";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
-import { Effect, Result } from "effect";
+import type { PreparedStandardApplicationDefinitionV1 } from
+  "@flarex/standard-application-definition/v1";
+import type { TaskComputeProfileRefV1 } from
+  "@flarex/durable-task/internal/run-attempt-v1";
+import { Brand, Effect, Encoding, Result } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -47,10 +64,14 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
-import { makeApplicationPublicationRepository } from
+import {
+  makeApplicationPublicationRepository,
+  type ApplicationPublication,
+} from
   "../src/applicationPublication";
 import {
   makeApplicationReadinessRepository,
+  type ApplicationReadinessTaskRuntimeContext,
   type ApplicationReadinessResult,
 } from "../src/applicationReadiness";
 import { makeApplicationActivationRepository } from
@@ -61,6 +82,13 @@ import {
   createApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
 } from "../src/applicationTaskBindings";
+import { makeApplicationTaskRuntimePublicationRepository } from
+  "../src/applicationTaskRuntimePublication";
+import {
+  createApplicationTaskRuntimeReadinessSnapshotPort,
+  type ApplicationTaskRuntimeReadinessSnapshotPort,
+} from "../src/applicationTaskRuntimeReadinessSnapshot";
+import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
@@ -99,6 +127,9 @@ const LOCATOR = Object.freeze({
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
+const taskComputeProfile = Brand.nominal<TaskComputeProfileRefV1>()(
+  "standard-1x",
+);
 
 beforeAll(() => {
   if (globalThis.crypto === undefined) {
@@ -110,6 +141,117 @@ beforeAll(() => {
 });
 
 describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
+  it("installs the exact legacy and task-aware readiness compatibility shapes", async () => {
+    await withTemporaryPostgresPersistencePair(async (_control, target) => {
+      const columns = await target.query<{
+        column_name: string;
+        is_nullable: "YES" | "NO";
+        column_default: string | null;
+      }>(
+        `select column_name, is_nullable, column_default
+           from information_schema.columns
+          where table_schema = current_schema()
+            and table_name = 'fx_system_application_readiness_v1'
+            and column_name in (
+              'readiness_version', 'task_runtime_kind',
+              'task_runtime_receipt_sha256',
+              'task_runtime_readiness_basis_sha256',
+              'task_runtime_readiness_basis_bytes'
+            )
+          order by column_name`,
+      );
+      expect(columns.rows).toEqual([
+        {
+          column_name: "readiness_version",
+          is_nullable: "NO",
+          column_default: "1",
+        },
+        {
+          column_name: "task_runtime_kind",
+          is_nullable: "YES",
+          column_default: null,
+        },
+        {
+          column_name: "task_runtime_readiness_basis_bytes",
+          is_nullable: "YES",
+          column_default: null,
+        },
+        {
+          column_name: "task_runtime_readiness_basis_sha256",
+          is_nullable: "YES",
+          column_default: null,
+        },
+        {
+          column_name: "task_runtime_receipt_sha256",
+          is_nullable: "YES",
+          column_default: null,
+        },
+      ]);
+      const constraints = await target.query<{
+        conname: string;
+        definition: string;
+      }>(
+        `select conname, pg_get_constraintdef(oid) as definition
+           from pg_constraint
+          where conrelid = 'fx_system_application_readiness_v1'::regclass
+            and conname in (
+              'fx_application_readiness_v1_identity_check',
+              'fx_application_readiness_v1_task_runtime_fk'
+            )
+          order by conname`,
+      );
+      expect(constraints.rows).toHaveLength(2);
+      expect(constraints.rows[0]).toMatchObject({
+        conname: "fx_application_readiness_v1_identity_check",
+      });
+      expect(constraints.rows[0]?.definition).toContain(
+        "readiness_version = 1",
+      );
+      expect(constraints.rows[0]?.definition).toContain(
+        "readiness_version = 2",
+      );
+      expect(constraints.rows[0]?.definition).toContain(
+        "task_runtime_kind",
+      );
+      expect(constraints.rows[1]).toMatchObject({
+        conname: "fx_application_readiness_v1_task_runtime_fk",
+      });
+      expect(constraints.rows[1]?.definition).toContain(
+        "fx_system_application_task_runtime_publication_v1",
+      );
+      expect(constraints.rows[1]?.definition).toContain("ON DELETE RESTRICT");
+    });
+  }, 240_000);
+
+  it("settles and exactly replays task-aware readiness", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await readinessFixture(control, target, true);
+      await prepareReadinessAuthorities(fixture);
+
+      const first = await runEffect(fixture.repository.settle(fixture.input));
+      const replay = await runEffect(fixture.repository.settle(fixture.input));
+
+      expect(first).toMatchObject({
+        status: "ready",
+        disposition: "inserted",
+        taskRuntime: { kind: "empty" },
+      });
+      expect(replay).toMatchObject({
+        ...first,
+        disposition: "replayed",
+      });
+      const stored = await target.query<{
+        readiness_version: number;
+        task_runtime_kind: string | null;
+      }>(`select readiness_version, task_runtime_kind
+             from fx_system_application_readiness_v1`);
+      expect(stored.rows).toEqual([{
+        readiness_version: 2,
+        task_runtime_kind: "empty",
+      }]);
+    });
+  }, 240_000);
+
   it("retries when the retained publisher claims the tentative version", async () => {
     await withTemporaryPostgresPersistencePair(async (control) => {
       const deploymentId = "deployment_application_schema_interleaving";
@@ -181,7 +323,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       );
 
       const future = await runEffect(Effect.result(
-        fixture.repository.settle(fixture.input),
+        fixture.repository.settleLegacy(fixture.input),
       ));
       expect(Result.isFailure(future)).toBe(true);
       if (Result.isFailure(future)) {
@@ -214,8 +356,8 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
             for update`,
           [fixture.authority.scopeId],
         );
-        const first = runEffect(fixture.repository.settle(fixture.input));
-        const second = runEffect(fixture.repository.settle(fixture.input));
+        const first = runEffect(fixture.repository.settleLegacy(fixture.input));
+        const second = runEffect(fixture.repository.settleLegacy(fixture.input));
         await waitForBlockedBy(target, blockerPid, 2);
         await blocker.query("commit");
         released = true;
@@ -231,7 +373,7 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
       expect(concurrent.map(result =>
         result.status === "ready" ? result.disposition : "not_ready"
       ).sort()).toEqual(["inserted", "replayed"]);
-      const replay = await runEffect(fixture.repository.settle(fixture.input));
+      const replay = await runEffect(fixture.repository.settleLegacy(fixture.input));
       expect(replay).toMatchObject({
         status: "ready",
         disposition: "replayed",
@@ -341,9 +483,138 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
   }, 240_000);
 });
 
+async function prepareTaskRuntimeReadinessContext(input: {
+  readonly db: FlarexMetadataDatabase;
+  readonly authority: ApplicationAnalysisAuthority;
+  readonly definition: PreparedStandardApplicationDefinitionV1;
+  readonly catalog: HashedCanonicalTaskCatalogV1;
+  readonly bindings: PreparedApplicationTaskBindingsV1;
+  readonly publication: ApplicationPublication;
+  readonly snapshot: ApplicationTaskRuntimeReadinessSnapshotPort;
+}): Promise<ApplicationReadinessTaskRuntimeContext<never>> {
+  const source = Result.getOrThrow(
+    produceStandardApplicationSource(input.definition),
+  );
+  const authenticatedModules = await Promise.all(source.modules.map(
+    async (module, ordinal) => Object.freeze({
+      ordinal,
+      artifactModulePath: module.path,
+      roles: module.roles,
+      sourceByteLength: module.sourceBytes.byteLength,
+      sourceSha256: await runEffect(taskSha256(module.sourceBytes, {
+        maximumInputBytes: module.sourceBytes.byteLength,
+      })) as TaskDefinitionSha256V1,
+    }),
+  ));
+  const materialization = Object.freeze({
+    kind: "task_runtime_materialization_spec" as const,
+    runtimeContractIdentity: TASK_RUNTIME_CONTRACT_IDENTITY_V1,
+    bridgeAbiIdentity: TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
+    compatibilityDate: COMPATIBILITY_DATE,
+    compatibilityFlags: Object.freeze(["nodejs_compat"]),
+    runtimeProfileIdentity: TASK_RUNTIME_PROFILE_IDENTITY_V1,
+    runtimeImplementationVersion: "worker-loader-2026.08.13-postgres-readiness",
+    supportedComputeProfiles: Object.freeze([taskComputeProfile]),
+    moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
+  });
+  const catalogBinding = input.bindings.catalog.binding;
+  const plan = await runEffect(prepareTaskRuntimePublication({
+    source,
+    catalog: input.catalog,
+    taskBindings: input.bindings,
+    authority: {
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.publicationSha256),
+      ) as TaskDefinitionSha256V1,
+      sourceArtifactRootSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.sourceArtifactRootSha256),
+      ) as TaskDefinitionSha256V1,
+      applicationTaskCatalogBindingSha256: input.bindings.catalog.sha256,
+      authenticatedModules,
+    },
+    policy: {
+      materialization,
+      admittedCompatibilityDate: materialization.compatibilityDate,
+      admittedCompatibilityFlags: materialization.compatibilityFlags,
+      admittedRuntimeImplementationVersion:
+        materialization.runtimeImplementationVersion,
+      admittedComputeProfiles: materialization.supportedComputeProfiles,
+    },
+  }, taskSha256));
+  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(
+    taskSha256,
+  );
+  const receipt = await runEffect(receiptAuthority.prepareReceipt(
+    plan,
+    plan.objects.map(object => Result.getOrThrow(
+      receiptAuthority.confirmPublishedObject(object, object.readReference()),
+    )),
+  ));
+  await runEffect(makeApplicationTaskRuntimePublicationRepository(
+    input.db,
+    receiptAuthority,
+  ).publish({
+    authority: input.authority,
+    publication: receipt,
+  }));
+  const verified = await runEffect(verifyTaskRuntimeReadiness({
+    receiptCanonicalBytes: receipt.readCanonicalBytes(),
+    receiptSha256: receipt.readSha256(),
+    expected: {
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.publicationSha256),
+      ) as TaskDefinitionSha256V1,
+      sourceArtifactRootSha256: Result.getOrThrow(
+        Encoding.decodeHex(input.publication.sourceArtifactRootSha256),
+      ) as TaskDefinitionSha256V1,
+      applicationTaskCatalogBindingSha256: input.bindings.catalog.sha256,
+      taskCatalog: input.catalog,
+      materializationPolicy: materialization,
+    },
+    runtimeObjects: plan.objects.map(object => Object.freeze({
+      reference: object.readReference(),
+      canonicalBytes: object.readCanonicalBytes(),
+    })),
+  }, taskSha256));
+  const proofs = new WeakMap<object, PreparedTaskRuntimeReadinessBasisV1>();
+  const proof = Object.freeze({});
+  proofs.set(proof, verified);
+  const connected = Object.freeze({
+    verify: () => Effect.succeed(Object.freeze({
+      status: "verified" as const,
+      revisionId: input.publication.revisionId,
+      proof,
+    })),
+    capture: (received: unknown) => {
+      if (typeof received !== "object" || received === null) {
+        return Result.fail(new Error("Missing readiness proof."));
+      }
+      const basis = proofs.get(received);
+      return basis === undefined
+        ? Result.fail(new Error("Foreign readiness proof."))
+        : Result.succeed(Object.freeze({
+            revisionId: input.publication.revisionId,
+            readReceiptSha256: () => receipt.readSha256(),
+            readCanonicalBytes: () => basis.readCanonicalBytes(),
+            readSha256: () => basis.readSha256(),
+          }));
+    },
+  });
+  return Object.freeze({ connected, snapshot: input.snapshot });
+}
+
 async function readinessFixture(
   control: PostgresFlarexPersistence,
   target: PostgresFlarexPersistence,
+  taskAware = false,
 ) {
   const deploymentId = "deployment_application_readiness_postgres";
   const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
@@ -415,6 +686,20 @@ async function readinessFixture(
     authority,
     bindings,
   }));
+  const taskCatalog = createApplicationTaskCatalogSnapshotPort();
+  const taskRuntime = taskAware
+    ? await prepareTaskRuntimeReadinessContext({
+        db: target.drizzle,
+        authority,
+        definition: preparedDefinition(),
+        catalog,
+        bindings,
+        publication,
+        snapshot: createApplicationTaskRuntimeReadinessSnapshotPort(
+          taskCatalog,
+        ),
+      })
+    : undefined;
   const locatedTarget = createLocatedAppSchemaCandidateValidationTarget(
     target.drizzle,
     LOCATOR,
@@ -455,7 +740,7 @@ async function readinessFixture(
       db: control.drizzle,
       runTransaction: run => control.drizzle.transaction(run),
     }),
-    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
+    taskCatalog,
     candidateValidation: createAppSchemaCandidateReadinessPort(
       candidateValidation,
     ),
@@ -467,6 +752,7 @@ async function readinessFixture(
         new Error("Zero-function PostgreSQL readiness must not materialize."),
       ),
     },
+    ...(taskRuntime === undefined ? {} : { taskRuntime }),
   });
   return Object.freeze({
     control,
@@ -486,7 +772,7 @@ async function prepareReadinessAuthorities(
   fixture: Awaited<ReturnType<typeof readinessFixture>>,
 ): Promise<CatalogSchemaVersionId> {
   const beforeValidation = await runEffect(
-    fixture.repository.settle(fixture.input),
+    fixture.repository.settleLegacy(fixture.input),
   );
   expect(beforeValidation).toMatchObject({
     status: "not_ready",
