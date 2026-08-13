@@ -6,14 +6,21 @@
 accepted. TRI1 is implemented as a narrow immutable publish/read adapter over
 the existing immutable R2 byte-store core and `TaskInputReferenceV1`. TRI2 is
 implemented as a narrow coordinator that publishes through TRI1 before calling
-the existing run-creation capability. Neither checkpoint adds another input
-format, table, reference, tenant router, bucket API, or deletion path.
+the existing run-creation capability. The first TRI3 slice now supplies a
+private same-scope launch-source composer: it connects the future SAP-TRP6
+evidence reader to the existing runtime-object and exact task-input readers,
+preserves distinct missing/corrupt/resource failures, and reuses the Standard
+Application role codecs. None of these checkpoints adds another input format,
+table, reference, tenant router, bucket API, or deletion path.
 
 The coordinator preserves the existing request key and creation receipt as the
-only database idempotency authority. It remains a private generic capability;
-no located host supplies it and launch still has no input reader.
-No Task provider, Worker Loader, route, Queue, Cron Trigger, binding,
-deployment, or production activation is admitted here.
+only database idempotency authority. The launch adapter is also private and
+production-inert. It accepts only already-located capabilities, rejects a
+scope mismatch between the evidence source and object stores, and exposes no
+bucket or key selection. SAP-TRP6 still lacks its real restart-safe PostgreSQL
+evidence reader and no located host supplies either capability. No Task
+provider, Worker Loader, route, Queue, Cron Trigger, binding, deployment, or
+production activation is admitted here.
 
 ## Why This Owner Is Required
 
@@ -148,14 +155,27 @@ deleting a referenced or uncertain body is not.
   and
 - keep all deployable host composition absent.
 
-### TRI3: Located Launch Reader
+### TRI3: Located Launch Reader - In Progress
 
-- expose only the exact-reference reader to the SAP-TRP6 located launch source;
-- correlate the same trusted scope used for runtime publication/readiness and
-  run persistence;
-- prove wrong-scope/bucket configuration, missing/corrupt input, deadlines,
-  ownership, and connection/resource settlement; and
-- unblock DTE06-D3 only when SAP-TRP6 and TRI2/3 both close.
+Implemented foundation:
+
+- expose only the exact-reference reader to a SAP-TRP6 located evidence source;
+- require the evidence source and immutable stores to carry the same decoded
+  trusted scope identity;
+- reuse the existing Task runtime-object and run-input stores rather than
+  introducing another reader or bucket interface;
+- preserve missing, corrupt, and resource failures at the DTE06-D1 port; and
+- reuse all five Standard Application runtime-object role decoders.
+
+Still required before TRI3 closes:
+
+- implement SAP-TRP6's restart-safe PostgreSQL evidence reader over the exact
+  run, definition, activation, readiness, and runtime-publication chain;
+- compose the database target and both already-located object stores in the
+  private host/system-test owner;
+- prove stale/wrong database authority, wrong bucket configuration, hosted R2
+  deadlines, ownership, and connection/resource settlement; and
+- unblock DTE06-D3 only when SAP-TRP6 and the remaining TRI3 proofs close.
 
 ## Validation Gates
 
@@ -188,5 +208,7 @@ TRI1 stops at a private immutable Task input adapter. TRI2 composes that adapter
 before the existing run-creation port and proves conservative replay across the
 immutable-object and database boundary without adding compensation or a second
 idempotency owner. The composition is still production-inert and unlocated.
-TRI3 must connect only the exact reader to SAP-TRP6. DTE06-D3 remains blocked
-until that connected gate closes.
+The TRI3 foundation connects only the exact input and runtime-object readers to
+an already-located SAP-TRP6 evidence source. It does not create that evidence
+source or a host. DTE06-D3 remains blocked until the restart-safe persistence
+reader, located composition, and hosted resource proofs close.

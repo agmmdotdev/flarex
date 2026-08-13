@@ -128,8 +128,10 @@ Flarex Value codec, `TaskInputReferenceV1`, and immutable-R2 mechanics. TRI2 is
 a private coordinator that publishes before the existing run-creation port and
 preserves exact request-key replay across the immutable-object/PostgreSQL
 boundary. Both add no new schema or input contract and remain absent from a
-located host. TRI3 must provide the located launch reader before D1 or DTE06-D3
-can be complete.
+located host. TRI3 now has a private same-scope composer that reuses the exact
+runtime-object and task-input stores plus the Standard Application role codecs.
+The restart-safe SAP-TRP6 PostgreSQL evidence reader, private located host, and
+hosted resource proof are still absent, so neither D1 nor DTE06-D3 is complete.
 The SAP-TRP4 persistence checkpoint is complete under
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 It adds only an immutable publication header and ordered object membership

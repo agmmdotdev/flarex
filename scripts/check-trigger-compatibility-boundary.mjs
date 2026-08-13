@@ -21,6 +21,8 @@ const flarexBackendTaskComputeDeliverySourcePrefix =
   "packages/flarex-backend/src/taskComputeDelivery/";
 const flarexBackendTaskRuntimeLaunchModelPath =
   "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
+const flarexBackendTaskRuntimeLaunchLocatedSourcePath =
+  "packages/flarex-backend/src/taskRuntimeLaunch/LocatedSource.ts";
 const flarexBackendTaskRuntimeLaunchSourcePrefix =
   "packages/flarex-backend/src/taskRuntimeLaunch/";
 const flarexBackendTaskRuntimeAbiPath =
@@ -738,6 +740,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isFlarexBackendTaskRunInputStoreSpecifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRunInputStorePath
         && relativePath !== flarexBackendTaskRunCreationCoordinatorPath
+        && relativePath !== flarexBackendTaskRuntimeLaunchLocatedSourcePath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -750,6 +753,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRuntimeObjectStorePath
         && relativePath !== flarexBackendTaskRuntimeReadinessAuthorityPath
+        && relativePath !== flarexBackendTaskRuntimeLaunchLocatedSourcePath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),

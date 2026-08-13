@@ -420,6 +420,33 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the private TRI3 located launch-source composition", () => {
+    const locatedSource =
+      "packages/flarex-backend/src/taskRuntimeLaunch/LocatedSource.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: locatedSource,
+      text: `
+        import type { TaskRunInputStore } from "../taskRunInput/TaskRunInputStore.js";
+        import type { TaskRuntimeObjectStore } from "../taskRuntimePublication/TaskRuntimeObjectStore.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskRuntimeLaunchLocatedSource } from "flarex-backend/internal/task-runtime-launch";
+        import { source } from "./taskRuntimeLaunch/LocatedSource.js";
+        import { store } from "./taskRunInput/TaskRunInputStore.js";
+        import { runtimeStore } from "./taskRuntimePublication/TaskRuntimeObjectStore.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task runtime launch authority before Worker Loader admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the Task runtime launch authority before Worker Loader admission.",
+      "packages/flarex-backend/src/worker.ts:4 production source must not activate the Task run-input store before run-creation composition admission.",
+      "packages/flarex-backend/src/worker.ts:5 production source must not activate the Task runtime object store before publication-host admission.",
+    ]);
+  });
+
   it("keeps the DTE06-D2 runtime private and production-inert", () => {
     const abiPath = "packages/flarex-backend/src/taskRuntime/Abi.ts";
     expect(analyzeTriggerCompatibilityBoundary([], [{

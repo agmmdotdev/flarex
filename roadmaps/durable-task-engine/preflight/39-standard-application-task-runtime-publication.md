@@ -14,7 +14,11 @@ complete as production-inert checkpoints under
 [`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md)
 and
 [`42-application-task-runtime-authority.md`](./42-application-task-runtime-authority.md).
-SAP-TRP6 remains pending.
+SAP-TRP6 remains pending. The first TRI3 slice now provides its private
+same-scope launch-source composition seam and real Standard Application role
+validator, so SAP-TRP6 can reuse the existing runtime-object and task-input
+stores. It does not yet provide the restart-safe PostgreSQL evidence reader or
+located host.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -402,8 +406,17 @@ or active revision and does not wire a route, Worker, Queue, Cron, or host.
   ownership, deadline/settlement, and retention; and
 - keep Worker Loader, provider composition, and host absent.
 
-The separate run-input object-store checkpoint must later compose the exact
-input reader before the full D1 production adapter is complete.
+The reusable object-read half is now present: one private adapter combines an
+already-located evidence source with the existing exact runtime-object and
+task-input readers, rejects cross-scope composition, and delegates body
+validation to the Standard Application codecs. The remaining SAP-TRP6 owner is
+the restart-safe PostgreSQL evidence reader and its exact historical
+activation/readiness/publication correlation. Until that reader and the hosted
+resource proofs exist, this checkpoint remains pending.
+
+The separate run-input object-store checkpoint now supplies the exact input
+composition seam, but the full D1 adapter remains incomplete until SAP-TRP6's
+persistence reader and the hosted resource proofs close.
 
 ## Required Validation
 

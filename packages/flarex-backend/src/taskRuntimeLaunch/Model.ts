@@ -27,7 +27,7 @@ export type TaskRuntimeLaunchPortFailureReason<
   ? "authority_unavailable" | "resource_failure"
   : Operation extends "read_evidence"
     ? "not_found" | "corrupt" | "resource_failure"
-    : "not_found" | "resource_failure";
+    : "not_found" | "corrupt" | "resource_failure";
 
 export class TaskRuntimeLaunchPortError<
   Operation extends TaskRuntimeLaunchPortOperation =

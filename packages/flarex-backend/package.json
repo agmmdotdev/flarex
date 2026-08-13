@@ -89,7 +89,8 @@
     "test:dte06-d1": "vitest run test/taskRuntimeLaunchAuthority.test.ts --no-file-parallelism",
     "test:dte06-d2": "vitest run test/taskRuntimeAbi.test.ts test/taskRuntimeCore.test.ts --no-file-parallelism",
     "test:dte04-tri1": "vitest run test/taskRunInputStore.test.ts test/taskRunInputStore.miniflare.test.ts --no-file-parallelism",
-    "test:dte04-tri2": "vitest run test/taskRunCreationCoordinator.test.ts --no-file-parallelism"
+    "test:dte04-tri2": "vitest run test/taskRunCreationCoordinator.test.ts --no-file-parallelism",
+    "test:dte04-tri3": "vitest run test/taskRuntimeLaunchLocatedSource.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

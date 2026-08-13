@@ -550,7 +550,9 @@ per-run `TaskInputReferenceV1` store is now governed by
 TRI1 reuses the existing value/reference/immutable-R2 owners behind a private
 production-inert adapter. TRI2 now composes that adapter before the existing
 run-creation port and preserves exact database replay, but neither checkpoint
-supplies a located host or launch reader. TRI3 located-reader proof remains
+supplies a located host or persistence evidence reader. TRI3 now supplies the
+private same-scope object-reader composition seam, but its restart-safe
+SAP-TRP6 PostgreSQL reader and hosted-resource proof remain
 required before the complete D1 adapter or real DTE06-D3 provider composition
 can proceed.
 
