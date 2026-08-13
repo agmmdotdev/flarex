@@ -788,6 +788,35 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("keeps the task run-input store production-inert", () => {
+    const taskInputStore =
+      "packages/flarex-backend/src/taskRunInput/TaskRunInputStore.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: taskInputStore,
+      text: `
+        import {
+          MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+          TaskInputReferenceV1,
+          TaskInputSha256V1,
+          decodeTaskInputReferenceV1,
+          makeTaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import { makeImmutableR2ByteStore } from "../immutableR2/ImmutableR2ByteStore.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskRunInputStore } from "flarex-backend/internal/task-run-input-store";
+        import { store } from "./taskRunInput/TaskRunInputStore.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task run-input store before run-creation composition admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the Task run-input store before run-creation composition admission.",
+    ]);
+  });
+
   it("keeps the task runtime readiness authority production-inert", () => {
     const authority =
       "packages/flarex-backend/src/taskRuntimeReadiness/Authority.ts";

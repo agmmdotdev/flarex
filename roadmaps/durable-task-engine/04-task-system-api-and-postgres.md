@@ -58,6 +58,16 @@ DTE04-B added the private lifecycle adapter, and DTE04-C added the separate
 private creation capability. DTE04-D added the two private read capabilities.
 No backend or production runtime path is enabled.
 
+The distinct immutable body owner for the stored input reference is admitted
+under
+[`preflight/43-task-run-input-object-store.md`](./preflight/43-task-run-input-object-store.md).
+Its TRI1 checkpoint reuses the canonical Flarex Value codec, the existing
+`TaskInputReferenceV1`, and the backend immutable-R2 core behind a private
+publish/read adapter. It does not change this roadmap's run tables or creation
+transaction, and no run creation calls it yet. TRI2 must separately compose
+publish-before-create and prove conservative replay across the R2/PostgreSQL
+boundary.
+
 ## Outcome
 
 Deliver a private, production-inert persistence slice that can:

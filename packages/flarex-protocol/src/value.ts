@@ -153,6 +153,10 @@ export class FlarexValueEvidenceV1Error extends Data.TaggedError(
   readonly issue: FlarexValueEvidenceV1Issue;
 }> {}
 
+class FlarexValueEvidenceForeignError extends Data.TaggedError(
+  "FlarexValueEvidenceForeignError",
+)<{ readonly cause: unknown }> {}
+
 export interface VerifyFlarexValueEvidenceV1Input {
   readonly codecVersion: unknown;
   readonly valueJson: unknown;
@@ -390,6 +394,29 @@ export async function decodeCanonicalFlarexValueEvidenceV1(
   }
   return canonical;
 }
+
+/**
+ * Effect boundary for stored canonical Value Codec V1 evidence. Expected
+ * codec/evidence failures remain typed; foreign hashing/runtime failures stay
+ * defects.
+ */
+export const decodeCanonicalFlarexValueEvidenceV1Effect = Effect.fn(
+  "FlarexValue.decodeCanonicalEvidenceV1",
+)((
+  input: DecodeCanonicalFlarexValueEvidenceV1Input,
+): Effect.Effect<
+  CanonicalFlarexValueV1,
+  FlarexValueEvidenceV1Error | FlarexValueCodecV1Error
+> =>
+  Effect.tryPromise({
+    try: () => decodeCanonicalFlarexValueEvidenceV1(input),
+    catch: cause => new FlarexValueEvidenceForeignError({ cause }),
+  }).pipe(Effect.catchTag("FlarexValueEvidenceForeignError", failure =>
+    failure.cause instanceof FlarexValueEvidenceV1Error
+      || failure.cause instanceof FlarexValueCodecV1Error
+      ? Effect.fail(failure.cause)
+      : Effect.die(failure.cause)
+  )));
 
 export function isFlarexValueEnvelopeV1(
   value: unknown,

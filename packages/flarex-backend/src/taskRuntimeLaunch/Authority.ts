@@ -27,9 +27,7 @@ import {
   ReplacementScopeIdV1Schema,
 } from "flarex-protocol/storage-authority";
 import {
-  decodeCanonicalFlarexValueEvidenceV1,
-  FlarexValueCodecV1Error,
-  FlarexValueEvidenceV1Error,
+  decodeCanonicalFlarexValueEvidenceV1Effect,
 } from "flarex-protocol/value";
 
 import {
@@ -99,10 +97,6 @@ type CapturedConfigurationInput = Readonly<{
   suppliedSha256: unknown;
   validateRuntimeObject: unknown;
 }>;
-
-class TaskRuntimeInputCodecForeignError extends Data.TaggedError(
-  "TaskRuntimeInputCodecForeignError",
-)<{ readonly cause: unknown }> {}
 
 export function makeTaskRuntimeLaunchAuthorityLayer(
   directory: TaskRuntimeLaunchDirectory,
@@ -300,27 +294,17 @@ function makeTaskRuntimeInputSource(
       );
     }
     const bytes = copyBytes(suppliedBytes as Uint8Array);
-    const canonical = yield* Effect.tryPromise({
-      try: () => decodeCanonicalFlarexValueEvidenceV1({
+    const canonical = yield* decodeCanonicalFlarexValueEvidenceV1Effect({
         canonicalBytes: bytes,
         sha256: reference.sha256,
-      }),
-      catch: (cause) => new TaskRuntimeInputCodecForeignError({ cause }),
-    }).pipe(
-      Effect.catchTag("TaskRuntimeInputCodecForeignError", (failure) =>
-        failure.cause instanceof FlarexValueEvidenceV1Error
-          || failure.cause instanceof FlarexValueCodecV1Error
-          ? Effect.fail(
-            new TaskRuntimeLaunchValidationError<"read_input">({
-              operation: "read_input",
-              reason: "input_invalid",
-              path: "input.canonicalBytes",
-              cause: failure.cause,
-            }),
-          )
-          : Effect.die(failure.cause)
-      ),
-    );
+      }).pipe(Effect.mapError(cause =>
+        new TaskRuntimeLaunchValidationError<"read_input">({
+          operation: "read_input",
+          reason: "input_invalid",
+          path: "input.canonicalBytes",
+          cause,
+        })
+      ));
     return copyBytes(canonical.canonicalBytes);
   });
   return Object.freeze({ reference, read });

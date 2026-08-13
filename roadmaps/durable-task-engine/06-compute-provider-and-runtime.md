@@ -545,10 +545,13 @@ SAP-TRP1 is now closed: the task-owned module, projection, entry, group
 manifest, materialization-spec, and root contracts are strict and canonical,
 and the private ABI/profile identities are fixed. DTE06-D2 is now complete under
 Preflight 38. That sequence covers application-owned runtime objects only. The
-per-run
-`TaskInputReferenceV1` store still requires a separate Task run-input
-publication/read/retention preflight before the complete production D1 adapter
-or the real DTE06-D3 provider composition can proceed.
+per-run `TaskInputReferenceV1` store is now governed by
+[`preflight/43-task-run-input-object-store.md`](./preflight/43-task-run-input-object-store.md).
+TRI1 reuses the existing value/reference/immutable-R2 owners behind a private
+production-inert adapter; it does not yet connect run creation or launch.
+TRI2 publish-before-create composition and TRI3 located-reader proof remain
+required before the complete D1 adapter or real DTE06-D3 provider composition
+can proceed.
 
 Preflight 38 approves an ordered, production-inert implementation rather than
 a direct extension of the current invocation host:
@@ -669,7 +672,7 @@ activation does not.
 Preflight 39 now records that upstream sequence; its pure canonical
 role-contract checkpoint and D2 private ABI/runtime core are complete. The next
 connected runtime action is the separately gated SAP-TRP6 located adapter and
-run-input object-store work required before DTE06-D3; no real provider or host
+TRI2/TRI3 run-input composition required before DTE06-D3; no real provider or host
 is admitted by this status update.
 This does not authorize additional
 database/application semantics, a real provider, Worker/runtime wiring,

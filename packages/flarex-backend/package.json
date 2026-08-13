@@ -30,6 +30,7 @@
     "./internal/task-runtime-launch": "./src/taskRuntimeLaunch/index.ts",
     "./internal/task-runtime": "./src/taskRuntime/index.ts",
     "./internal/task-runtime-object-store": "./src/taskRuntimePublication/TaskRuntimeObjectStore.ts",
+    "./internal/task-run-input-store": "./src/taskRunInput/TaskRunInputStore.ts",
     "./internal/task-runtime-readiness": "./src/taskRuntimeReadiness/index.ts",
     "./internal/candidate-bound-point-mutation-runtime-target-v1": "./src/artifactRuntime/CandidateBoundPointMutationRuntimeTargetV1.ts",
     "./internal/candidate-bound-edge-action-runtime-target-v1": "./src/artifactRuntime/CandidateBoundEdgeActionRuntimeTargetV1.ts",
@@ -85,7 +86,8 @@
     "test": "vitest run",
     "test:dte06-c3": "vitest run test/taskComputeDispatchRecoveryDecision.test.ts test/taskComputeDeliveryTrustedDirectory.test.ts test/taskComputeDeliveryCandidateRunner.test.ts test/taskComputeDeliveryConnectedContinuation.test.ts test/taskComputeDeliveryConnectedRunner.test.ts --no-file-parallelism",
     "test:dte06-d1": "vitest run test/taskRuntimeLaunchAuthority.test.ts --no-file-parallelism",
-    "test:dte06-d2": "vitest run test/taskRuntimeAbi.test.ts test/taskRuntimeCore.test.ts --no-file-parallelism"
+    "test:dte06-d2": "vitest run test/taskRuntimeAbi.test.ts test/taskRuntimeCore.test.ts --no-file-parallelism",
+    "test:dte04-tri1": "vitest run test/taskRunInputStore.test.ts test/taskRunInputStore.miniflare.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

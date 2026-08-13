@@ -1,10 +1,11 @@
-import { Schema } from "effect";
+import { Cause, Effect, Exit, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
   FlarexValueEnvelopeV1Schema,
   canonicalizeFlarexValueV1,
   decodeCanonicalFlarexValueEvidenceV1,
+  decodeCanonicalFlarexValueEvidenceV1Effect,
   isFlarexValueEnvelopeV1,
 } from "../src/value";
 
@@ -118,5 +119,21 @@ describe("canonical Flarex value evidence", () => {
     })).rejects.toMatchObject({
       issue: { reason: "sha256Mismatch" },
     });
+  });
+
+  it("preserves expected stored-evidence failures in the Effect channel", async () => {
+    const exit = await Effect.runPromiseExit(
+      decodeCanonicalFlarexValueEvidenceV1Effect({
+        canonicalBytes: TEXT_ENCODER.encode("{not-json"),
+        sha256: new Uint8Array(32),
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+        _tag: "FlarexValueEvidenceV1Error",
+        issue: { reason: "invalidCanonicalBytes" },
+      });
+    }
   });
 });

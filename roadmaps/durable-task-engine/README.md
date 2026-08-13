@@ -120,9 +120,14 @@ Its pure canonical role-contract checkpoint is now complete, including all
 five role decode/re-encode paths, task-owned roots, and fixed private
 ABI/profile identities. It keeps persistence, readiness,
 the real located reader, Worker Loader, and activation behind ordered gates.
-It does not absorb the distinct per-run task-input object store; that writer,
-reader, and `run_lifetime` retention authority need a separate Task-owned
-preflight before D1 is production-complete.
+It does not absorb the distinct per-run task-input object store. That owner is
+now fixed by
+[`preflight/43-task-run-input-object-store.md`](./preflight/43-task-run-input-object-store.md):
+TRI1 is a private immutable publish/read adapter over the existing canonical
+Flarex Value codec, `TaskInputReferenceV1`, and immutable-R2 mechanics. It adds
+no new schema or input contract and remains unwired to run creation. TRI2 must
+prove publish-before-create ordering and exact database replay; TRI3 must
+provide the located launch reader before D1 or DTE06-D3 can be complete.
 The SAP-TRP4 persistence checkpoint is complete under
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 It adds only an immutable publication header and ordered object membership
