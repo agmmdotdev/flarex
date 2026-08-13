@@ -2969,20 +2969,32 @@ checkpoints:
    cancellation delivery, and settlement stay generation-neutral and retain
    their current ordering. Unknown or mixed generations are stored corruption,
    never fallback. Application compute evidence remains directly testable, but
-   ordinary discovery continues to exclude it until the 5d launch and consumer
+   ordinary discovery continues to exclude it until the 5d3 launch and consumer
    cut is committed.
-8. **5d — Application task Worker, launch cut, and private Task System service.**
-   Add one bounded Application task Worker request/result contract and host
-   definition that loads the authority-pinned Source Artifact V2 bundle, resolves
-   the exact task handler, validates payload/output with the canonical task
-   manifest, and exposes only the task runtime capabilities separately accepted
-   by this checkpoint. Evolve `TaskRuntimeLaunchAuthority` into an exhaustive
-   generation owner: Legacy keeps its runtime-object reconstruction; Application
-   consumes the Application prepared evidence and fresh Worker load without R2
-   task-runtime objects. Add the unversioned private `ApplicationTaskSystem`
-   composition for active task selection and run creation, then cut the current
-   private Task consumer exclusively to it. Retained Legacy launch remains only
-   for historical Legacy runs; it is neither a selection source nor a fallback.
+8. **5d1 — bounded Application task Worker contract and host.** Add one strict
+   private Application task Worker start/result contract, task-specific runtime
+   core, definition builder and fresh-load host. The definition consumes only an
+   authority-pinned Source Artifact V2 bundle plus the canonical Application task
+   runtime target and manifest, resolves the exact module/export, validates the
+   input and result with the task validators, denies ambient outbound authority,
+   and exposes only the explicitly admitted task bootstrap capability. Its result
+   is local execution evidence, not durable Task System completion authority.
+9. **5d2 — exhaustive launch authority and real provider adapter.** Evolve
+   `TaskRuntimeLaunchAuthority` into the generation owner. Legacy keeps exact
+   runtime-object reconstruction for retained historical runs. Application
+   consumes the 5c prepared member, reads the exact input and Source Artifact V2
+   root, and launches through the 5d1 host without manufacturing a Legacy
+   definition, package, artifact or semantic-root identity. Add the private real
+   `TaskComputeProvider` adapter and generation-correlated cancellation/start
+   handshake while preserving the provider-neutral request and acceptance
+   contracts. No lifecycle completion, heartbeat or result publication is added.
+10. **5d3 — private Application Task System and exclusive consumer cut.** Add
+   the unversioned private `ApplicationTaskSystem` composition for active task
+   selection and Application run creation. Enable Application rows in ordinary
+   compute discovery only when the 5d2 adapter is the connected provider, and cut
+   the current private Application Task consumer exclusively to this service.
+   Retained Legacy launch remains available only for already-stored Legacy runs;
+   it is neither an active selection source nor an Application fallback.
 
 Checkpoint 5a proof must cover exact task selection, empty/missing task,
 selection invalidation, stored binding corruption, canonical bytes/digest
@@ -3021,11 +3033,17 @@ movement, row XOR constraints, direct read correlation, and exclusion from due
 and compute discovery. Checkpoint 5c must prove both
 prepared-evidence branches, wrong binding/reference rejection, size-before-
 payload admission, dispatch/cancellation recovery, and no cross-generation
-lookup. Checkpoint 5d must prove fresh Worker loading, exact handler and source
-authority, bounded input/output, interruption and cleanup, terminal failure,
-connected PGlite creation-through-launch, and zero production access to the
-Legacy definition selector. Genuine PostgreSQL and the combined cross-consumer
-vertical remain `AA-R7` gates.
+lookup. Checkpoint 5d1 must prove fresh Worker loading, exact handler and source
+authority, bounded input/output, deterministic runtime policy, interruption,
+cleanup and task-local terminal failure without claiming durable completion.
+Checkpoint 5d2 must prove both launch generations, no cross-generation evidence
+lookup, exact Application input/source correlation, start/cancellation identity,
+unknown-result and cleanup behavior, and no action/query/mutation or Legacy
+fallback. Checkpoint 5d3 must prove connected PGlite selection-through-creation-
+discovery-and-launch, pinned replay, later-head independence for an existing run,
+and zero production access to the Legacy definition selector for new Application
+work. Genuine PostgreSQL and the combined cross-consumer vertical remain
+`AA-R7` gates.
 
 Self-review accepts this decomposition because every checkpoint ends at an
 explicit compatibility boundary while the durable lifecycle remains single.
@@ -3036,8 +3054,10 @@ widens a shipped V1 codec, 5b1b.i.a or 5b1b.i.b cannot preserve the Legacy
 codecs exactly,
 5b1b.ii needs a second lifecycle state machine, 5b2
 requires a second run table, 5c changes dispatch fencing or
-uncertainty semantics, 5d cannot execute from Source Artifact V2 without
-manufactured artifact evidence, or any checkpoint adds dual selection,
+uncertainty semantics, 5d1 cannot execute from Source Artifact V2 without
+manufactured artifact evidence, 5d2 needs a changed provider-neutral request or
+durable completion authority, 5d3 cannot make discovery exclusive without a
+dual selection period, or any checkpoint adds dual selection,
 comparison execution, route, trigger, schedule, production deployment, or
 fallback authority.
 
@@ -3221,7 +3241,7 @@ provider boundary. Dispatch identity, attempt, lease, compute profile,
 cancellation and duration fields are identical across the two members;
 acceptance and cancellation contracts remain generation-neutral because their
 authority is the existing dispatch identity and provider execution reference.
-Ordinary provider dispatch still receives only Legacy requests until 5d makes
+Ordinary provider dispatch still receives only Legacy requests until 5d3 makes
 Application discovery reachable.
 
 Prepared execution becomes an exact discriminated union. The Legacy member
@@ -3267,7 +3287,65 @@ accepts this as one medium checkpoint because request identity, immutable
 preparation and checkpoint replay form one persisted boundary. Stop and amend
 if the implementation needs a new lookup index, scans unrelated revisions,
 changes provider receipt identity, consults the mutable active head, fetches
-Source Artifact V2, or enables Application discovery before 5d.
+Source Artifact V2, or enables Application discovery before 5d3.
+
+Checkpoint 5d preflight receipt: accepted as three medium checkpoints after
+challenging the executable repository seams. The earlier single checkpoint
+silently combined the still-unimplemented private task Worker ABI from DTE06-D2,
+the real Worker Loader provider adapter from DTE06-D3, and the Application
+selection/creation plus discovery cut. These are separate compatibility and
+authority boundaries. Implementing them in one diff would make it impossible to
+prove which layer owns malformed Worker input, launch authority, provider
+acceptance or active task selection, and would encourage the provider-neutral
+request to absorb trusted preparation evidence.
+
+The accepted 5d1 contract is a private `ApplicationTaskWorkerRequestV1` and
+`ApplicationTaskWorkerResultV1`. The request carries the exact Application
+dispatch identity, runtime-target digest, compute profile, bounded maximum
+duration, current cancellation projection, and an opaque exact-input bootstrap
+capability; it does not carry persistence rows, active-selection authority or a
+raw store. The result is either exact start/terminal runtime evidence correlated
+to the request or a typed contract/runtime failure. It cannot mean that the Task
+System accepted completion. The task-specific definition builder receives the
+already-correlated runtime target and canonical task manifest plus the Source
+Artifact V2 bundle, checks the root and exact source module/export, and emits a
+fresh Worker Loader definition with `globalOutbound: null`. The Worker runtime
+normalizes the input as a Flarex value, applies `payloadValidator`, invokes only
+the selected function export, applies `outputValidator` when present, bounds the
+result, and exposes no query, mutation, action, database, R2 or lifecycle port.
+The current task manifest intentionally names a plain function export; a new
+public task SDK wrapper or context is not part of this migration.
+
+The accepted 5d2 launch boundary keeps `CurrentTaskComputeDispatchRequestV1`
+unchanged. A trusted directory resolves the request to the existing 5c prepared
+union. The Legacy branch continues through the exact runtime-object and input
+path. The Application branch revalidates request, runtime target, manifest,
+creation authority and input reference, reads Source Artifact V2 from the
+authority-pinned root, and hands one owned launch subject to the 5d1 host. A
+private provider adapter may re-read preparation behind this trusted directory;
+the candidate runner still sends only the provider request. Provider acceptance
+means only that the exact Worker start was accepted. Heartbeat, completion,
+result publication, retry, lease renewal and Task System cancellation
+acknowledgement remain DTE06-E ownership.
+
+The accepted 5d3 composition owns `select` and `createRun` through the existing
+issuer-backed Application selection and Application run-creation store. It does
+not expose Drizzle, physical locators, activation mutation or a Legacy selector.
+Only after the real 5d2 adapter is connected may the four ordinary compute
+discovery branches remove their temporary `legacy_definition_v1` filter. The
+same generation-neutral candidate runner then discovers both stored generations;
+there is no comparison run, fallback provider or second scheduler. The connected
+PGlite proof must start from authentic active Application selection and end at
+one accepted fresh Worker launch. AA-R7 remains the genuine PostgreSQL and
+combined private vertical gate.
+
+Self-review accepts the split because 5d1 terminates at a strict Worker RPC,
+5d2 at the unchanged provider contract, and 5d3 at the private Task System and
+discovery composition. Each is a medium independently reviewable change, while
+the final behavior remains one linear path. Stop and amend if 5d1 requires an
+action/query/mutation host or a new public task SDK, 5d2 needs raw preparation in
+the provider request or durable lifecycle authority, or 5d3 requires a period of
+dual selection, fallback delivery, a second scheduler or a production route.
 
 ### `AA-R7` — private proof
 
