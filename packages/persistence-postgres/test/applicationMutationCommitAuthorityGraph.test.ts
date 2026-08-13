@@ -73,6 +73,7 @@ describe("Application mutation commit-authority graph", () => {
       visibility: "public",
     });
     expect(evidence.authority.schemaVersionId).toBe(SCHEMA_VERSION_ID);
+    expect(evidence.compatibilityDate).toBe("2026-08-12");
     expect(evidence.manifest.functions).toHaveLength(1);
     const second = inspectApplicationMutationCommitAuthorityGraph(capability);
     expect(second).not.toBe(evidence);

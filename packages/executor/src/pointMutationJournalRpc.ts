@@ -177,6 +177,47 @@ export interface ApplicationPointMutationJournalRpcSessionV1 {
   >;
 }
 
+/**
+ * Settles one runtime call and its attempt-scoped journal as a single
+ * uninterruptible boundary. Journal failure retains precedence because it can
+ * carry an earlier poisoned RPC operation that user code swallowed before the
+ * runtime returned.
+ */
+export function runPointMutationRuntimeWithJournalSettlementV1<
+  Success,
+  HostError,
+  JournalError,
+>(
+  host: Effect.Effect<Success, HostError>,
+  closeAndDrain: Effect.Effect<void, JournalError>,
+): Effect.Effect<Success, HostError | JournalError> {
+  return Effect.uninterruptible(
+    host.pipe(
+      Effect.exit,
+      Effect.flatMap(hostExit =>
+        closeAndDrain.pipe(
+          Effect.exit,
+          Effect.flatMap(journalExit =>
+            resolveRuntimeJournalExits(hostExit, journalExit)
+          ),
+        )
+      ),
+    ),
+  );
+}
+
+function resolveRuntimeJournalExits<Success, HostError, JournalError>(
+  hostExit: Exit.Exit<Success, HostError>,
+  journalExit: Exit.Exit<void, JournalError>,
+): Effect.Effect<Success, HostError | JournalError> {
+  if (Exit.isFailure(journalExit)) {
+    return Effect.failCause(journalExit.cause);
+  }
+  return Exit.isSuccess(hostExit)
+    ? Effect.succeed(hostExit.value)
+    : Effect.failCause(hostExit.cause);
+}
+
 const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogTableIdSchema),
 );

@@ -2,15 +2,6 @@ import {
   decodeAppDocumentIdentityV1Result,
 } from "flarex-protocol/app-document-id";
 import {
-  encodeEdgeActionHostPolicyV1,
-  EDGE_ACTION_CALLBACK_BRIDGE_IDENTITY_V1,
-  EDGE_ACTION_EXACT_RUNTIME_PROFILE_V1,
-  EDGE_ACTION_EXACT_RUNTIME_SYSCALL_ABI_V1,
-  EDGE_ACTION_HOST_POLICY_IDENTITY_V1,
-  EDGE_ACTION_OUTBOUND_GATEWAY_IDENTITY_V1,
-  type EdgeActionHostPolicyFrameV1,
-} from "flarex-protocol/internal/edge-action-host-policy-v1";
-import {
   APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
   APPLICATION_TRANSACTION_WORKER_REQUEST_VERSION_V1,
   normalizeApplicationQueryArgumentsV1Effect,
@@ -63,49 +54,10 @@ import {
 } from "effect";
 import { RpcTarget } from "cloudflare:workers";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-
-const QUERY_POLICY_ENCODING_BUDGET = Object.freeze({
-  maximumOrigins: 1,
-  maximumOriginBytes: 1,
-  maximumCanonicalBytes: 16_384,
-});
-
-const QUERY_WORKER_POLICY = Object.freeze({
-  identity: EDGE_ACTION_HOST_POLICY_IDENTITY_V1,
-  exactRuntimeProfile: EDGE_ACTION_EXACT_RUNTIME_PROFILE_V1,
-  syscallAbiIdentity: EDGE_ACTION_EXACT_RUNTIME_SYSCALL_ABI_V1,
-  outboundGatewayIdentity: EDGE_ACTION_OUTBOUND_GATEWAY_IDENTITY_V1,
-  callbackBridgeIdentity: EDGE_ACTION_CALLBACK_BRIDGE_IDENTITY_V1,
-  allowedOrigins: Object.freeze([]),
-  cpuMilliseconds: 1,
-  wallMilliseconds: 1,
-  maximumSyscalls: 1,
-  maximumOutboundRequests: 1,
-  maximumConcurrentOutboundRequests: 1,
-  maximumWorkerSubrequests: 1,
-  maximumArgumentBytes: 1,
-  maximumResultBytes: 1,
-  maximumCallbackArgumentBytes: 1,
-  maximumCallbackResultBytes: 1,
-  maximumUrlBytes: 1,
-  maximumMethodBytes: 1,
-  maximumHeaderCount: 1,
-  maximumHeaderBytes: 1,
-  maximumStatusTextBytes: 1,
-  maximumOutboundRequestBodyBytes: 1,
-  maximumOutboundResponseBodyBytes: 1,
-  maximumCumulativeOutboundBodyBytes: 1,
-  cleanupDrainMilliseconds: 1,
-  allowRunQuery: true,
-  allowRunMutation: true,
-  allowRunAction: false,
-  allowRedirects: false,
-  allowStreaming: false,
-  allowAmbientCredentials: false,
-  fixedInvocationTime: true,
-  deterministicRandom: true,
-  allowNondeterministicCrypto: false,
-} as const satisfies EdgeActionHostPolicyFrameV1);
+import {
+  applicationTransactionWorkerDefinitionPolicy,
+  type ApplicationTransactionWorkerDefinitionPolicy,
+} from "./ApplicationTransactionWorkerDefinitionPolicy";
 
 export interface ApplicationQueryExecutionContext {
   readonly executionId: string;
@@ -188,7 +140,7 @@ export function makeApplicationQuerySystemLayer(
   const captured = captureLive(live);
   return Layer.effect(
     ApplicationQuerySystem,
-    queryWorkerPolicy.pipe(Effect.map(policy =>
+    applicationTransactionWorkerDefinitionPolicy.pipe(Effect.map(policy =>
       ApplicationQuerySystem.of({ invoke: makeInvoke(captured, policy) })
     )),
   );
@@ -210,7 +162,7 @@ function captureLive(live: ApplicationQuerySystemLive): ApplicationQuerySystemLi
 
 function makeInvoke(
   live: ApplicationQuerySystemLive,
-  policy: QueryWorkerPolicy,
+  policy: ApplicationTransactionWorkerDefinitionPolicy,
 ): ApplicationQuerySystemApi["invoke"] {
   return Effect.fn("ApplicationQuerySystem.invoke")(function* (
     functionRef,
@@ -359,21 +311,5 @@ class ApplicationQueryRpcCapability extends RpcTarget {
     ));
   }
 }
-
-const queryWorkerPolicy = Effect.suspend(() => {
-  const encoded = encodeEdgeActionHostPolicyV1(
-    QUERY_WORKER_POLICY,
-    QUERY_POLICY_ENCODING_BUDGET,
-  ).pipe(Result.getOrThrow);
-  return Effect.promise(() => crypto.subtle.digest(
-    "SHA-256",
-    encoded.canonicalBytes.slice().buffer,
-  )).pipe(Effect.map(buffer => Object.freeze({
-    frame: encoded.frame,
-    sha256: new Uint8Array(buffer),
-  })));
-});
-
-type QueryWorkerPolicy = Effect.Success<typeof queryWorkerPolicy>;
 
 const ANONYMOUS_IDENTITY = Object.freeze({ kind: "anonymous" as const });

@@ -2220,6 +2220,33 @@ Standard-unwired, retain one journal/commit owner, and add no fallback or
 parallel execution path. Exact validation receipts belong in the owning commit
 report rather than this living roadmap.
 
+That private runner slice is now implemented without wiring a Standard
+mutation consumer. One generation-aware runner delegates the legacy branch to
+the unchanged dynamic-worker runner and admits the Application branch only
+through the opaque authenticated graph. The Application branch reloads the
+exact Source Artifact bundle on every initial or OCC execution, builds the
+existing Application Worker definition with the authenticated readiness
+compatibility date, converts the legacy argument-array accounting to the
+Application object accounting through the protocol-owned wrapper overhead,
+decodes the authenticated persisted Flarex Value JSON into its exact runtime
+object, and rejects any observed semantic-size disagreement before source I/O,
+binds the existing attempt journal through the flat Application adapter, and
+calls `ApplicationExecutionHost.runTransaction`. Query and mutation definition
+construction share one inert transaction-Worker policy owner. Both runtime
+branches now share one uninterruptible host/journal settlement helper, with an
+earlier poisoned journal failure retaining precedence over a later Worker
+result. Structured Application errors and user-code/infrastructure failures
+project once into the existing mutation execution families. The runner still
+owns no admission, active-head selection, session transition, seal, OCC,
+commit, outcome, feed, or outbox decision.
+
+The remaining checkpoint-2 proof is the connected private execution fixture:
+run this real Application runner through the existing stored-attempt kernel,
+show successful seal and the unchanged planning/finishing/publication tail,
+then show conflict replacement performs another fresh source/Worker load and
+commits exactly once. That proof must stay private and must not register
+`ApplicationMutationSystem`; Standard composition remains checkpoint 3.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration

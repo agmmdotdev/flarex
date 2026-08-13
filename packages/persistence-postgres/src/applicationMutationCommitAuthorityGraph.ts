@@ -163,6 +163,7 @@ export interface ApplicationMutationCommitAuthorityGraphEvidence {
       readonly visibility: "public";
     }>;
   }>;
+  readonly compatibilityDate: string;
   readonly readinessSha256: string;
   readonly activationSha256: string;
 }
@@ -171,6 +172,7 @@ interface StoredApplicationMutationCommitAuthorityGraphEvidence {
   readonly authority: ApplicationMutationExecutionAuthorityV1;
   readonly manifest: ApplicationManifestV1;
   readonly runtimeTarget: ApplicationMutationCommitAuthorityGraphEvidence["runtimeTarget"];
+  readonly compatibilityDate: string;
   readonly readinessSha256: string;
   readonly activationSha256: string;
 }
@@ -328,6 +330,7 @@ const verifyCapturedGraph = Effect.fn(
       authority,
       manifest: canonicalManifest.manifest,
       runtimeTarget: canonicalTarget.target,
+      compatibilityDate: snapshot.readiness.compatibilityDate,
       readinessSha256: encodeBytesToLowercaseHex(
         snapshot.readiness.readinessSha256,
       ),
@@ -991,6 +994,7 @@ function copyEvidence(
     authority: evidence.authority,
     manifest: evidence.manifest,
     runtimeTarget: evidence.runtimeTarget,
+    compatibilityDate: evidence.compatibilityDate,
     readinessSha256: evidence.readinessSha256,
     activationSha256: evidence.activationSha256,
   });

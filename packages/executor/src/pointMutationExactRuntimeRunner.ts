@@ -1,5 +1,5 @@
 import { copyBytes } from "@flarex/utils/bytes";
-import { Data, Effect, Exit } from "effect";
+import { Data, Effect } from "effect";
 
 import {
   POINT_MUTATION_EXACT_RUNTIME_FORMAT_V1,
@@ -19,9 +19,8 @@ import type {
 
 import {
   makePointMutationJournalRpcSessionV1,
-  type PointMutationJournalRpcBoundaryV1Error,
+  runPointMutationRuntimeWithJournalSettlementV1,
   type PointMutationJournalRpcParentTargetV1,
-  type PointMutationJournalRpcSessionV1,
 } from "./pointMutationJournalRpc";
 import type {
   PointMutationOccRuntimeNeutralRunnerInputV1,
@@ -36,6 +35,11 @@ export type PointMutationExactRuntimeRunnerHostV1ErrorReason =
   | "requestProjectionInvalid"
   | "transportFailed"
   | "invalidHostResponse"
+  | "sourceArtifactLoadFailed"
+  | "readBoundaryFailed"
+  | "callbackFailed"
+  | "terminalFailed"
+  | "timedOut"
   | Exclude<
     PointMutationExactRuntimeHostFailureReasonV2,
     "userCodeFailed"
@@ -46,15 +50,6 @@ export class PointMutationExactRuntimeRunnerHostV1Error
     readonly reason: PointMutationExactRuntimeRunnerHostV1ErrorReason;
     readonly cause?: unknown;
   }> {}
-
-type PointMutationExactRuntimeCallV1Error =
-  | PointMutationExactRuntimeRunnerHostV1Error
-  | PointMutationOccApplicationErrorV1
-  | PointMutationOccUserCodeV1Error;
-
-type PointMutationExactRuntimeRunnerV1Error =
-  | PointMutationExactRuntimeCallV1Error
-  | PointMutationJournalRpcBoundaryV1Error;
 
 /**
  * The private named artifact-runtime entrypoint as observed by the executor.
@@ -95,10 +90,9 @@ export function makePointMutationExactRuntimeRunnerV1(
       const session = yield* Effect.sync(() =>
         makePointMutationJournalRpcSessionV1(input.journal)
       );
-      return yield* runWithJournalSettlementV1(
-        config,
-        request,
-        session,
+      return yield* runPointMutationRuntimeWithJournalSettlementV1(
+        callArtifactHostV1(config, request, session.target),
+        session.closeAndDrain,
       );
     },
   );
@@ -181,43 +175,6 @@ function projectExactRuntimeAuthV1(
       // if upstream authority verification ever regresses.
       return { ...auth };
   }
-}
-
-const runWithJournalSettlementV1 = Effect.fn(
-  "PointMutationExactRuntimeRunner.runWithJournalSettlement",
-)(function* (
-  config: PointMutationExactRuntimeRunnerV1Config,
-  request: PointMutationExactRuntimeRequestV1,
-  session: PointMutationJournalRpcSessionV1,
-): Effect.fn.Return<
-  unknown,
-  PointMutationExactRuntimeRunnerV1Error
-> {
-  return yield* Effect.uninterruptible(
-    callArtifactHostV1(config, request, session.target).pipe(
-      Effect.exit,
-      Effect.flatMap((hostExit) =>
-        session.closeAndDrain.pipe(
-          Effect.exit,
-          Effect.flatMap((journalExit) =>
-            resolveRunnerExitsV1(hostExit, journalExit)
-          ),
-        )
-      ),
-    ),
-  );
-});
-
-function resolveRunnerExitsV1(
-  hostExit: Exit.Exit<unknown, PointMutationExactRuntimeCallV1Error>,
-  journalExit: Exit.Exit<void, PointMutationJournalRpcBoundaryV1Error>,
-): Effect.Effect<unknown, PointMutationExactRuntimeRunnerV1Error> {
-  if (Exit.isFailure(journalExit)) {
-    return Effect.failCause(journalExit.cause);
-  }
-  return Exit.isSuccess(hostExit)
-    ? Effect.succeed(hostExit.value)
-    : Effect.failCause(hostExit.cause);
 }
 
 const callArtifactHostV1 = Effect.fn(
