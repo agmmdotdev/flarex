@@ -16,6 +16,10 @@ import { makeApplicationTaskRuntimePublicationRepository } from
 import {
   createApplicationTaskRuntimeReadinessSnapshotPort,
 } from "../src/applicationTaskRuntimeReadinessSnapshot";
+import {
+  createApplicationTaskRuntimeReadinessReservationPort,
+} from "../src/applicationTaskRuntimeReadinessReservation";
+import type { FlarexMetadataDatabase } from "../src/deployments";
 import { runEffect } from "./effectTestRuntime";
 import {
   makeTaskRuntimePublicationFixture,
@@ -35,6 +39,101 @@ describe("Application task-runtime readiness snapshot", () => {
   it("returns null before the current runtime publication exists", async () => {
     const fixture = await makeTaskRuntimePublicationFixture();
     expect(await loadSnapshot(fixture)).toBeNull();
+  });
+
+  it("settles the reservation transaction before returning its snapshot", async () => {
+    const fixture = await makeTaskRuntimePublicationFixture();
+    await publish(fixture);
+    const captured = Result.getOrThrow(
+      fixture.receiptAuthority.captureReceipt(fixture.publication),
+    );
+    const transactionBodySucceeded = deferredValue<void>();
+    const releaseSettlement = deferredValue<void>();
+    const transaction = fixture.db.transaction.bind(fixture.db);
+    const settlementGatedDb: FlarexMetadataDatabase = Object.create(fixture.db);
+    Object.defineProperty(settlementGatedDb, "transaction", {
+      configurable: true,
+      value: (
+        callback: Parameters<typeof transaction>[0],
+        config?: Parameters<typeof transaction>[1],
+      ) => transaction(async tx => {
+        const result = await callback(tx);
+        transactionBodySucceeded.resolve(undefined);
+        await releaseSettlement.promise;
+        return result;
+      }, config),
+    });
+    const reservation = createApplicationTaskRuntimeReadinessReservationPort(
+      settlementGatedDb,
+      createApplicationTaskRuntimeReadinessSnapshotPort(
+        createApplicationTaskCatalogSnapshotPort(),
+      ),
+    );
+    const reserved = runEffect(reservation.reserve({
+      authority: fixture.authority,
+      revisionId: captured.receipt.applicationRevisionId,
+    }));
+    await transactionBodySucceeded.promise;
+    let reservationSettled = false;
+    void reserved.then(
+      () => {
+        reservationSettled = true;
+      },
+      () => {
+        reservationSettled = true;
+      },
+    );
+    try {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(reservationSettled).toBe(false);
+    } finally {
+      releaseSettlement.resolve(undefined);
+    }
+    const snapshot = await reserved;
+    if (snapshot === null) throw new Error("Expected reserved snapshot.");
+    expect(snapshot.readReceiptSha256()).toEqual(captured.sha256);
+    await expect(fixture.persistence.query(`
+      update fx_system_application_task_runtime_publication_v1
+      set published_at = published_at
+      where scope_id = '${fixture.authority.scopeId}'
+    `)).resolves.toBeDefined();
+  });
+
+  it("fails without a success claim when transaction settlement is hidden", async () => {
+    const fixture = await makeTaskRuntimePublicationFixture();
+    await publish(fixture);
+    const captured = Result.getOrThrow(
+      fixture.receiptAuthority.captureReceipt(fixture.publication),
+    );
+    const transaction = fixture.db.transaction.bind(fixture.db);
+    const uncertainDb: FlarexMetadataDatabase = Object.create(fixture.db);
+    Object.defineProperty(uncertainDb, "transaction", {
+      configurable: true,
+      value: async (callback: Parameters<typeof transaction>[0]) => {
+        await transaction(callback);
+        throw Object.assign(new Error("hidden reservation response"), {
+          code: "08007",
+        });
+      },
+    });
+    const reservation = createApplicationTaskRuntimeReadinessReservationPort(
+      uncertainDb,
+      createApplicationTaskRuntimeReadinessSnapshotPort(
+        createApplicationTaskCatalogSnapshotPort(),
+      ),
+    );
+    const outcome = await runEffect(Effect.result(reservation.reserve({
+      authority: fixture.authority,
+      revisionId: captured.receipt.applicationRevisionId,
+    })));
+    expect(Result.isFailure(outcome)).toBe(true);
+    if (Result.isFailure(outcome)) {
+      expect(outcome.failure).toMatchObject({
+        _tag: "ApplicationTaskRuntimeReadinessReservationError",
+        reason: "settlementUncertain",
+        retryable: true,
+      });
+    }
   });
 
   it("independently correlates populated parent and receipt evidence", async () => {
@@ -238,4 +337,17 @@ async function loadSnapshotResult(fixture: TaskRuntimePublicationFixture) {
       captured.receipt.applicationRevisionId,
     )),
   ));
+}
+
+interface DeferredValue<Value> {
+  readonly promise: Promise<Value>;
+  readonly resolve: (value: Value) => void;
+}
+
+function deferredValue<Value>(): DeferredValue<Value> {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>(resolvePromise => {
+    resolve = resolvePromise;
+  });
+  return Object.freeze({ promise, resolve });
 }

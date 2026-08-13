@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-**Status:** `SAP-CAA1-A/B/C` implemented locally as one private correction and
-reconnection in place. The current runtime publication now has a private
+**Status:** `SAP-CAA1-A/B/C` is committed; `SAP-CAA1-D` is implemented locally
+as the next production-inert checkpoint. The current runtime publication now
+has a private
 transaction-only readiness snapshot that independently compares Application
 parent/catalog evidence with canonical receipt/membership evidence before any
 object-store work. No parallel V2 runtime, legacy reader, dual write, fallback,
@@ -302,9 +303,12 @@ The original implementation order was:
    schema/repository and prove PGlite plus genuine PostgreSQL behavior;
 3. `SAP-CAA1-C`: replace the discarded SAP-TRP5 snapshot prototype with the
    parent-versus-receipt correlation;
-4. resume task-aware readiness issuance only after both parent and receipt
-   evidence are independently authenticated; and
-5. create a legacy-retention checkpoint only if concrete inventory evidence
+4. `SAP-CAA1-D`: settle the snapshot transaction, then compose the existing
+   backend cold verifier against that owned snapshot with a trusted runtime
+   policy and process-local proof;
+5. resume task-aware readiness issuance/final revalidation only after the
+   connected proof exists; and
+6. create a legacy-retention checkpoint only if concrete inventory evidence
    requires one.
 
 The approved correction implemented steps 1 and 2 together because the private
@@ -314,7 +318,43 @@ or compatibility reader for an implementation with no retained consumer,
 which would contradict this preflight's no-parallel-path decision. Step 3 is
 now complete as a separate production-inert checkpoint. Task-aware readiness
 issuance, final revalidation/commit, activation, and launch remain
-unimplemented.
+unimplemented. Step 4 is separately approved because it changes orchestration
+and failure composition but does not change schema, readiness authority, or
+deployment wiring.
+
+### SAP-CAA1-D connected-verification boundary
+
+The persistence owner supplies one read-only reservation operation. It cannot
+succeed until the snapshot transaction settles. The backend owner then:
+
+1. receives the owned snapshot or the explicit missing result;
+2. combines parent evidence with one trusted, constructor-captured runtime
+   materialization policy;
+3. invokes only the existing cold-verification authority after reservation
+   settlement;
+4. preserves persistence and object-store failures in their original typed
+   channels; and
+5. mints an instance-local connected proof containing copy-on-read receipt and
+   readiness-basis evidence.
+
+This checkpoint must prove the cold verifier is never called for a missing
+snapshot and cannot run while the reservation transaction is open. It writes
+no readiness row and is not currently imported or wired by a production Worker
+or route. Production import prevention remains an activation-boundary gate, not
+an authority inferred from the current dependency graph.
+
+Local `SAP-CAA1-D` evidence:
+
+- the persistence reservation cannot succeed until transaction settlement and
+  classifies a hidden successful response as typed settlement uncertainty;
+- the backend connected authority captures the canonical receipt, digest, and
+  parent evidence once, applies the constructor-captured runtime policy, then
+  reuses the existing cold verifier;
+- missing snapshots produce zero object-store reads and no proof;
+- connected proofs are authority-instance-local and expose only copy-on-read
+  receipt/readiness evidence; and
+- focused backend tests, PGlite tests, genuine PostgreSQL 18 lock/settlement
+  tests, package typechecks, Effect boundaries, and Trigger boundaries pass.
 
 ## Local Implementation Receipt
 

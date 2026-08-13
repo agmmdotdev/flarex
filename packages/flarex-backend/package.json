@@ -77,7 +77,7 @@
     "check:point-mutation-internal-call-runtime-kernel": "tsx scripts/buildPointMutationInternalCallRuntimeKernel.ts check",
     "point-mutation-internal-call-runtime-kernel:update": "tsx scripts/buildPointMutationInternalCallRuntimeKernel.ts update",
     "check:point-mutation-internal-call-exact-runtime-core": "tsx scripts/buildPointMutationInternalCallExactRuntimeCore.ts check",
-    "test:sap-trp5": "vitest run test/taskRuntimeReadinessColdVerificationAuthority.test.ts test/taskRuntimeReadinessColdVerificationAuthority.miniflare.test.ts --no-file-parallelism",
+    "test:sap-trp5": "vitest run test/taskRuntimeReadinessColdVerificationAuthority.test.ts test/taskRuntimeReadinessColdVerificationAuthority.miniflare.test.ts test/taskRuntimeReadinessConnectedVerificationAuthority.test.ts --no-file-parallelism",
     "point-mutation-internal-call-exact-runtime-core:update": "tsx scripts/buildPointMutationInternalCallExactRuntimeCore.ts update",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",

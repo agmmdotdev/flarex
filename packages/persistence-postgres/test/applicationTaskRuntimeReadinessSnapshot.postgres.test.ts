@@ -8,6 +8,8 @@ import { makeApplicationTaskRuntimePublicationRepository } from
   "../src/applicationTaskRuntimePublication";
 import { createApplicationTaskRuntimeReadinessSnapshotPort } from
   "../src/applicationTaskRuntimeReadinessSnapshot";
+import { createApplicationTaskRuntimeReadinessReservationPort } from
+  "../src/applicationTaskRuntimeReadinessReservation";
 import { runEffect } from "./effectTestRuntime";
 import {
   makeTaskRuntimePublicationFixtureOnDatabase,
@@ -44,6 +46,11 @@ describePostgres(
         const port = createApplicationTaskRuntimeReadinessSnapshotPort(
           createApplicationTaskCatalogSnapshotPort(),
         );
+        const reservation =
+          createApplicationTaskRuntimeReadinessReservationPort(
+            persistence.drizzle,
+            port,
+          );
         const load = () => persistence.drizzle.transaction(tx => runEffect(
           port.loadInTransaction(
             tx,
@@ -113,6 +120,15 @@ describePostgres(
           analysisId: receipt.analysisId,
           applicationRevisionId: receipt.applicationRevisionId,
         });
+        const replay = await runEffect(reservation.reserve({
+          authority: fixture.authority,
+          revisionId: receipt.applicationRevisionId,
+        }));
+        expect(replay?.readReceiptSha256()).toEqual(
+          Result.getOrThrow(
+            fixture.receiptAuthority.captureReceipt(fixture.publication),
+          ).sha256,
+        );
         expect((await persistence.query("select 1 as value")).rows)
           .toEqual([{ value: 1 }]);
       });

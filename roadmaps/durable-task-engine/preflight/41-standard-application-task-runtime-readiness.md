@@ -19,6 +19,20 @@ existing task-catalog snapshot owner and independently correlates Application
 parent/catalog evidence with the canonical runtime receipt and membership
 before returning. It does not read R2 or write readiness.
 
+The locally completed `SAP-CAA1-D` checkpoint wraps that transaction-only port
+in a settled reservation operation and composes it with the existing backend
+cold-verification authority. The composition must close PostgreSQL before the
+first object read, capture the runtime materialization policy from trusted host
+configuration rather than from the receipt, and return only a process-local
+proof. The later task-aware readiness schema/write, final transaction
+revalidation, activation, and production host remain separate and unapproved.
+
+Focused local evidence is 10 backend SAP-TRP5 tests, 34 persistence
+catalog/publication/reservation PGlite tests, and 5 genuine PostgreSQL 18
+publication/reservation tests. Both affected packages typecheck, and the
+Effect plus Trigger compatibility boundaries remain green. This evidence does
+not upgrade the hosted R2 settlement/heap gate or authorize a readiness write.
+
 SAP-TRP1 through SAP-TRP4 are complete and production-inert. They provide the
 canonical task-runtime object formats, an authenticated publication plan, an
 immutable task-specific R2 store, and an immutable PostgreSQL publication
