@@ -5,9 +5,6 @@ import { eq } from "drizzle-orm";
 import { Effect, Encoding, Result } from "effect";
 
 import {
-  canonicalizeApplicationManifestV1,
-} from "@flarex/analysis/application-analysis";
-import {
   createApplicationMutationSessionActivationV1,
   createPointMutationSessionAttemptLoadingV1,
   createPointMutationSessionAttemptTerminalizationV1,
@@ -190,10 +187,6 @@ import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
-  SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
-  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
-} from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
@@ -246,6 +239,9 @@ import type { ApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 
 import {
+  analyzePreparedStandardApplicationFixture,
+} from "./applicationAnalysisColdHarness";
+import {
   C07_TEST_GRANT_RETENTION_POLICY_V1,
 } from "./c07PointMutationFixtureV1";
 import {
@@ -256,8 +252,7 @@ import {
 } from "./setupSeededSyscallValidatorProofV1";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
-const SOURCE = "export const save = mutation(() => ({ ok: true }));\n";
-const SCHEMA_SOURCE = "export default defineSchema({});\n";
+const SOURCE = "export async function save() { return { ok: true }; }\n";
 const LOCATOR = Object.freeze({
   kind: "shared_database",
   databaseKey: "application-mutation-stored-attempt",
@@ -421,10 +416,9 @@ export async function proveApplicationMutationStoredAttemptPGlite(
   let competingRuntimeExecutions = 0;
   let competingCommitSeq: string | undefined;
   const source = Object.freeze({
-    read: () => Effect.sync(() => {
+    read: (rootSha256: string) => Effect.sync(() => {
       sourceLoads += 1;
-      return fixture.source;
-    }),
+    }).pipe(Effect.andThen(fixture.source.read(rootSha256))),
   });
   let competingExecution: ReturnType<
     typeof createPrivatePointMutationInitialExecutionV1
@@ -741,10 +735,9 @@ async function proveStandardApplicationMutation(
     applicationGrantVerifier: fixture.applicationVerifier,
     legacyGrantVerifier: makeLegacyGrantVerifier(fixture),
     source: Object.freeze({
-      read: () => Effect.sync(() => {
+      read: (rootSha256: string) => Effect.sync(() => {
         sourceLoads += 1;
-        return fixture.source;
-      }),
+      }).pipe(Effect.andThen(fixture.source.read(rootSha256))),
     }),
     host: Object.freeze({
       runTransaction: input => Effect.promise(async () => {
@@ -1077,11 +1070,6 @@ async function prepareApplicationFixture(
   if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
     throw new Error("Application mutation scope clock is unavailable.");
   }
-  const sourceSha256 = await sha256Hex(new TextEncoder().encode(SOURCE));
-  const schemaSourceSha256 = await sha256Hex(
-    new TextEncoder().encode(SCHEMA_SOURCE),
-  );
-  const manifest = applicationManifest(sourceSha256, schemaSourceSha256);
   const authority: ApplicationAnalysisAuthority = Object.freeze({
     scopeId,
     storageGeneration: clock.storageGeneration,
@@ -1091,24 +1079,20 @@ async function prepareApplicationFixture(
   const analyses = makeApplicationAnalysisRepository(controlDb, {
     randomUuid: uuidSequence(10, 11, 12),
   });
-  const pending = await runSystemTestEffectV1(analyses.begin({
-    authority,
-    requestKey: "request:application-analysis",
-    sourceArtifactRootSha256: manifest.manifest.sourceArtifact.rootSha256,
-    analyzerIdentity: "application-analyzer",
-    analyzerPolicyIdentity: "application-analyzer-policy",
-  }));
-  const analyzed = await runSystemTestEffectV1(analyses.settle(authority, {
-    kind: "analyzed",
-    candidateId: pending.candidateId,
-    sourceArtifactRootSha256: manifest.manifest.sourceArtifact.rootSha256,
-    analyzerIdentity: "application-analyzer",
-    analyzerPolicyIdentity: "application-analyzer-policy",
-    canonicalManifest: manifest.canonicalText,
-  }));
-  if (analyzed.status !== "analyzed") {
-    throw new Error("Application analysis did not settle.");
-  }
+  const definition = Result.getOrThrow(
+    prepareStandardApplicationDefinitionV1(definitionInput()),
+  );
+  const analyzedFixture = await runSystemTestEffectV1(
+    analyzePreparedStandardApplicationFixture({
+      deploymentId,
+      authority,
+      repository: analyses,
+      definition,
+      requestKey: "request:application-analysis",
+      uploadId: "30000000-0000-4000-8000-000000000013",
+    }),
+  );
+  const analyzed = analyzedFixture.projection;
   const publication = await runSystemTestEffectV1(
     makeApplicationPublicationRepository(controlDb).publish({
       authority,
@@ -1118,9 +1102,6 @@ async function prepareApplicationFixture(
       manifestSha256: analyzed.manifestSha256,
       manifest: analyzed.manifest,
     }),
-  );
-  const definition = Result.getOrThrow(
-    prepareStandardApplicationDefinitionV1(definitionInput()),
   );
   const catalog = await runSystemTestEffectV1(
     hashCanonicalTaskCatalogV1({ version: 1, tasks: [] }, taskSha256),
@@ -1332,25 +1313,7 @@ async function prepareApplicationFixture(
     applicationVerifier,
     pointCommit,
     documentId: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
-    source: Object.freeze({
-      sourceArtifact: manifest.manifest.sourceArtifact,
-      modules: Object.freeze([
-        Object.freeze({
-          path: "_flarex/application.js",
-          roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
-          sourceSha256,
-          sourceByteLength: new TextEncoder().encode(SOURCE).byteLength,
-          source: SOURCE,
-        }),
-        Object.freeze({
-          path: "_flarex/schema.js",
-          roles: SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
-          sourceSha256: schemaSourceSha256,
-          sourceByteLength: new TextEncoder().encode(SCHEMA_SOURCE).byteLength,
-          source: SCHEMA_SOURCE,
-        }),
-      ]),
-    }),
+    source: analyzedFixture.source,
     now,
   });
 }
@@ -1576,9 +1539,7 @@ function isTaggedError(value: unknown, tag: string): boolean {
 }
 
 async function makeRunner(
-  source: Readonly<{ readonly read: () => Effect.Effect<
-    Awaited<ReturnType<typeof prepareApplicationFixture>>["source"]
-  > }>,
+  source: Awaited<ReturnType<typeof prepareApplicationFixture>>["source"],
   runTransaction: ApplicationExecutionHost["runTransaction"],
 ): Promise<PointMutationOccRuntimeNeutralRunnerV1> {
   return runSystemTestEffectV1(
@@ -1734,60 +1695,6 @@ async function enableBuilds(
   }
 }
 
-function applicationManifest(
-  sourceSha256: string,
-  schemaSourceSha256: string,
-) {
-  return Result.getOrThrow(canonicalizeApplicationManifestV1({
-    format: "flarex.application-manifest",
-    version: 1,
-    sourceArtifact: {
-      rootSha256: "a".repeat(64),
-      executionModulePath: "_flarex/application.js",
-      schemaModulePath: "_flarex/schema.js",
-      modules: [{
-        path: "_flarex/application.js",
-        roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
-        sourceSha256,
-        sourceByteLength: new TextEncoder().encode(SOURCE).byteLength,
-      }, {
-        path: "_flarex/schema.js",
-        roles: SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
-        sourceSha256: schemaSourceSha256,
-        sourceByteLength: new TextEncoder().encode(SCHEMA_SOURCE).byteLength,
-      }],
-    },
-    schema: {
-      version: 1,
-      tables: [{
-        tableId: 1,
-        name: "recipes",
-        validator: {
-          type: "object",
-          value: {
-            name: {
-              fieldType: { type: "string" },
-              optional: false,
-            },
-          },
-        },
-        placement: { kind: "global" },
-      }],
-      indexes: [],
-    },
-    functions: [{
-      path: "recipes:save",
-      moduleName: "recipes",
-      exportName: "save",
-      kind: "mutation",
-      visibility: "public",
-      args: { type: "any" },
-      returns: { type: "any" },
-      partition: null,
-    }],
-  }));
-}
-
 function definitionInput() {
   return {
     programBudgetInput: {
@@ -1801,7 +1708,25 @@ function definitionInput() {
     programInput: {
       format: "flarex.declarative-program/v1",
       version: 1,
-      schema: { tables: [], indexes: [] },
+      schema: {
+        tables: [{
+          logicalName: "recipes",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                name: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        }],
+        indexes: [],
+      },
       modules: [{
         modulePath: "recipes",
         functions: [{

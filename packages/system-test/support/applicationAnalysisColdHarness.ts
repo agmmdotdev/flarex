@@ -18,6 +18,7 @@ import {
 import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
+  type ApplicationAnalysisProjection,
   type ApplicationAnalysisRepository,
 } from "@flarex/persistence-postgres/internal/application-analysis-registration";
 import type { FlarexMetadataDatabase } from
@@ -42,9 +43,12 @@ import type { StandardApplicationSourceModule } from
   "@flarex/standard-application-definition/application-source";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
+import type { PreparedStandardApplicationDefinitionV1 } from
+  "@flarex/standard-application-definition/v1";
 import { copyBytes } from "@flarex/utils/bytes";
 import {
   makeApplicationAnalysisR2SourceReader,
+  type ApplicationAnalysisSourceReader,
 } from "flarex-backend/internal/application-analysis-source-reader";
 import {
   makeLiveSourceArtifactV2Sha256,
@@ -61,7 +65,10 @@ import {
 import {
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
-import { TransactionGrantDeploymentIdV1Schema } from
+import {
+  TransactionGrantDeploymentIdV1Schema,
+  type TransactionGrantDeploymentIdV1,
+} from
   "flarex-protocol/transaction-grant";
 
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
@@ -173,6 +180,19 @@ export interface ApplicationAnalysisNegativeProof {
   readonly durableAnalysisCount: 2;
   readonly durableRevisionCount: 0;
   readonly postgresVersion?: string;
+}
+
+export interface AnalyzedStandardApplicationFixture {
+  readonly analysis: Extract<
+    StandardApplicationAnalysis,
+    { readonly kind: "analyzed" }
+  >;
+  readonly projection: Extract<
+    ApplicationAnalysisProjection,
+    { readonly status: "analyzed" }
+  >;
+  readonly source: ApplicationAnalysisSourceReader;
+  readonly coldLoads: 2;
 }
 
 export async function proveApplicationAnalysisColdPGlite(
@@ -502,6 +522,92 @@ const runAnalysisPhase = Effect.fn("AAR7.runAnalysisPhase")(function* (
     }))),
     loader => proofPromise("disposeAnalyzerLoader", () => loader.dispose()),
   );
+});
+
+export const analyzePreparedStandardApplicationFixture = Effect.fn(
+  "AAR7.analyzePreparedStandardApplicationFixture",
+)(function* (input: {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly authority: ApplicationAnalysisAuthority;
+  readonly repository: ApplicationAnalysisRepository;
+  readonly definition: PreparedStandardApplicationDefinitionV1;
+  readonly requestKey: StandardApplicationAnalysisInput["requestKey"];
+  readonly uploadId: string;
+}): Effect.fn.Return<
+  AnalyzedStandardApplicationFixture,
+  ApplicationAnalysisColdProofError
+> {
+  const source = yield* Effect.fromResult(
+    produceStandardApplicationSource(input.definition),
+  ).pipe(Effect.mapError(cause => proofFailure(
+    "produceStandardApplicationSource",
+    "The Standard Application source could not be produced.",
+    cause,
+  )));
+  const bucket = new MemorySourceArtifactBucket();
+  const sha256 = makeLiveSourceArtifactV2Sha256();
+  const upload = makeSourceArtifactV2UploadCore({
+    deploymentId: input.deploymentId,
+    attempts: memoryAttemptStore(),
+    objects: makeSourceArtifactV2R2Store(bucket, sha256),
+    sha256,
+  });
+  const finalized = yield* uploadSource(
+    upload,
+    source.modules,
+    input.uploadId,
+  ).pipe(Effect.mapError(cause => proofFailure(
+    "uploadSource",
+    "The Standard Application source could not be uploaded.",
+    cause,
+  )));
+  const rootSha256 = finalized.completedRootDigest;
+  if (rootSha256 === null) {
+    return yield* proofFailure(
+      "uploadSource",
+      "The Standard Application source upload omitted its root.",
+    );
+  }
+  const phase = yield* runAnalysisPhase(
+    bucket,
+    input.authority,
+    input.repository,
+    {
+      requestKey: input.requestKey,
+      sourceArtifactRootSha256: rootSha256,
+    },
+  ).pipe(Effect.mapError(cause => proofFailure(
+    "analyzeStandardApplication",
+    "The Standard Application source could not be analyzed.",
+    cause,
+  )));
+  if (phase.analysis.kind !== "analyzed") {
+    return yield* proofFailure(
+      "analyzeStandardApplication",
+      "The Standard Application source was rejected.",
+    );
+  }
+  const projection = yield* input.repository.inspect(
+    input.authority,
+    phase.analysis.receipt.candidateId,
+  ).pipe(Effect.mapError(cause => proofFailure(
+    "inspectApplicationAnalysis",
+    "The analyzed Standard Application could not be reloaded.",
+    cause,
+  )));
+  if (projection.status !== "analyzed") {
+    return yield* proofFailure(
+      "inspectApplicationAnalysis",
+      "The analyzed Standard Application did not reload as analyzed.",
+    );
+  }
+  const coldLoads = yield* Effect.fromResult(requireLiteral(phase.loads, 2));
+  return Object.freeze({
+    analysis: phase.analysis,
+    projection,
+    source: makeApplicationAnalysisR2SourceReader(bucket),
+    coldLoads,
+  });
 });
 
 const proveApplicationAnalysisNegative = Effect.fn(

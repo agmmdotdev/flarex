@@ -97,14 +97,15 @@ selection, query consumer, mutation consumer, and task-aware authority graph.
 Those owners satisfy the prerequisite for a new test-only composition root, but
 they are not yet composed into one multi-revision environment.
 
-The current AA-R7 cold-analysis harness starts from generated Standard
-Application source, immutable Source Artifact V2 objects, and two real Worker
-Loader evaluations, but intentionally stops at analyzed or rejected durable
-state. The current Application mutation harness proves the new active selection
-and unchanged journal/OCC/commit tail, but constructs and settles a canonical
-manifest directly for its focused authority proof. Neither harness alone is an
-acceptable M03-D runner, and copying either shortcut into the cooking scenario
-would weaken the accepted real-analysis requirement.
+The AA-R7 cold-analysis harness now exposes one test-only analyzed-source
+fixture that starts from a prepared Standard definition, generates executable
+source, uploads immutable Source Artifact V2 objects to its R2 owner, performs
+two real Worker Loader evaluations, and reloads the durable analyzed
+projection. The focused Application mutation harness consumes that exact
+fixture and later reloads the same R2 root, so its former hand-built manifest
+and module-bundle shortcut is gone. It still proves only one revision through
+a host callback, however; it is not the M03-D runner and must not be widened
+into a second composition root.
 
 The focused mutation harness also constructs its point-commit publisher without
 the optional candidate-schema write guard, because that proof owns Application
@@ -680,7 +681,11 @@ changes during current codec/catalog slices.
 
 `M01-A`, `M01-B`, `M02`, and production-inert `M03-A` through `M03-C` are
 complete. Roadmap 49's required `AA-R6` query/mutation replacement-consumer cut
-is complete, and `M03-D0` is the current managed-schema implementation slice.
+is complete. The first `M03-D0` checkpoint removed the focused mutation
+harness's synthetic analysis/source shortcut; the separate current-generation
+multi-revision composition root, exact candidate write guard, connected query
+consumer, and Workerd execution proof remain. `M03-D0` is the current
+managed-schema implementation slice.
 No additional managed-schema protocol, schema, migration, transaction, or
 activation owner is authorized here. The scenario may not revive the displaced
 runner, add dual selection or fallback, or create another active-schema
