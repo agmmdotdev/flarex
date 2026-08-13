@@ -1,13 +1,18 @@
 import { defineRule } from "@oxlint/plugins";
 
 const reviewerDecisionRules = new Set([
+  "flarex/no-effect-option-error-erasure",
+  "flarex/no-manual-result-unwrapping",
   "flarex/no-platform-time-inside-effect",
   "flarex/no-result-channel-reboxing",
   "flarex/no-result-get-or-throw-without-boundary",
   "flarex/no-runtime-runner-inside-effect",
   "flarex/no-silent-effect-error-swallow",
+  "flarex/no-throw-inside-effect-operation",
+  "flarex/no-unreviewed-effect-promise",
   "flarex/prefer-effect-fn-for-reusable-operation",
   "flarex/prefer-result-gen-for-dependent-sequence",
+  "flarex/prefer-tagged-effect-recovery",
 ]);
 
 /** Require durable reviewer rationale for a narrow semantic Effect-rule exception. */
@@ -43,12 +48,16 @@ export const requireEffectReviewJustificationRule = defineRule({
             .map((value) => value.trim())
             .filter((value) => reviewerDecisionRules.has(value));
           if (disabledRules.length === 0) continue;
-          if (directive.type === "disable" || directive.type === "enable") {
+          if (
+            directive.type === "disable" ||
+            directive.type === "disable-line" ||
+            directive.type === "enable"
+          ) {
             context.report({ node: directive.node, messageId: "broad" });
             continue;
           }
           if (
-            !/^REVIEW:\s+(?:public|protocol|host|compatibility|transaction|lifecycle|evaluation-order)\s+-\s+\S.{9,}$/u.test(
+            !/^REVIEW:\s+(?:public|protocol|host|compatibility|transaction|lifecycle|evaluation-order|invariant)\s+-\s+\S.{9,}$/u.test(
               directive.justification.trim(),
             )
           ) {

@@ -8,21 +8,28 @@ import { noUnknownTypeAliasesRule } from "./anti-slop/rules/no-unknown-type-alia
 import { noWidenThenAssertRule } from "./anti-slop/rules/no-widen-then-assert.ts";
 import { requireSafetyCommentForTypeAssertionRule } from "./anti-slop/rules/require-safety-comment-for-type-assertion.ts";
 import { noBannedTypeAssertionsRule } from "./rules/no-banned-type-assertions.ts";
+import { noEffectOptionErrorErasureRule } from "./rules/no-effect-option-error-erasure.ts";
+import { noManualResultUnwrappingRule } from "./rules/no-manual-result-unwrapping.ts";
 import { noPlatformTimeInsideEffectRule } from "./rules/no-platform-time-inside-effect.ts";
 import { noResultChannelReboxingRule } from "./rules/no-result-channel-reboxing.ts";
 import { noResultGetOrThrowWithoutBoundaryRule } from "./rules/no-result-get-or-throw-without-boundary.ts";
 import { noRuntimeRunnerInsideEffectRule } from "./rules/no-runtime-runner-inside-effect.ts";
 import { noSilentEffectErrorSwallowRule } from "./rules/no-silent-effect-error-swallow.ts";
+import { noThrowInsideEffectOperationRule } from "./rules/no-throw-inside-effect-operation.ts";
+import { noUnreviewedEffectPromiseRule } from "./rules/no-unreviewed-effect-promise.ts";
 import { noV3EffectApisRule } from "./rules/no-v3-effect-apis.ts";
 import { preferEffectFnForReusableOperationRule } from "./rules/prefer-effect-fn-for-reusable-operation.ts";
 import { preferOptionConstructorsRule } from "./rules/prefer-option-constructors.ts";
 import { preferResultGenForDependentSequenceRule } from "./rules/prefer-result-gen-for-dependent-sequence.ts";
+import { preferTaggedEffectRecoveryRule } from "./rules/prefer-tagged-effect-recovery.ts";
 import { requireEffectReviewJustificationRule } from "./rules/require-effect-review-justification.ts";
 
 export {
   noBannedTypeAssertionsRule,
   noChainedTypeAssertionsRule,
+  noEffectOptionErrorErasureRule,
   noKnownValueWideningRule,
+  noManualResultUnwrappingRule,
   noModuleMockingRule,
   noObjectParametersRule,
   noPlatformTimeInsideEffectRule,
@@ -30,12 +37,15 @@ export {
   noResultGetOrThrowWithoutBoundaryRule,
   noRuntimeRunnerInsideEffectRule,
   noSilentEffectErrorSwallowRule,
+  noThrowInsideEffectOperationRule,
   noUnknownTypeAliasesRule,
+  noUnreviewedEffectPromiseRule,
   noV3EffectApisRule,
   noWidenThenAssertRule,
   preferEffectFnForReusableOperationRule,
   preferOptionConstructorsRule,
   preferResultGenForDependentSequenceRule,
+  preferTaggedEffectRecoveryRule,
   requireEffectReviewJustificationRule,
   requireSafetyCommentForTypeAssertionRule,
 };
@@ -46,7 +56,9 @@ const flarexPlugin = definePlugin({
   rules: {
     "no-banned-type-assertions": noBannedTypeAssertionsRule,
     "no-chained-type-assertions": noChainedTypeAssertionsRule,
+    "no-effect-option-error-erasure": noEffectOptionErrorErasureRule,
     "no-known-value-widening": noKnownValueWideningRule,
+    "no-manual-result-unwrapping": noManualResultUnwrappingRule,
     "no-module-mocking": noModuleMockingRule,
     "no-object-parameters": noObjectParametersRule,
     "no-platform-time-inside-effect": noPlatformTimeInsideEffectRule,
@@ -55,7 +67,9 @@ const flarexPlugin = definePlugin({
       noResultGetOrThrowWithoutBoundaryRule,
     "no-runtime-runner-inside-effect": noRuntimeRunnerInsideEffectRule,
     "no-silent-effect-error-swallow": noSilentEffectErrorSwallowRule,
+    "no-throw-inside-effect-operation": noThrowInsideEffectOperationRule,
     "no-unknown-type-aliases": noUnknownTypeAliasesRule,
+    "no-unreviewed-effect-promise": noUnreviewedEffectPromiseRule,
     "no-v3-effect-apis": noV3EffectApisRule,
     "no-widen-then-assert": noWidenThenAssertRule,
     "prefer-effect-fn-for-reusable-operation":
@@ -63,6 +77,7 @@ const flarexPlugin = definePlugin({
     "prefer-option-constructors": preferOptionConstructorsRule,
     "prefer-result-gen-for-dependent-sequence":
       preferResultGenForDependentSequenceRule,
+    "prefer-tagged-effect-recovery": preferTaggedEffectRecoveryRule,
     "require-effect-review-justification": requireEffectReviewJustificationRule,
     "require-safety-comment-for-type-assertion":
       requireSafetyCommentForTypeAssertionRule,

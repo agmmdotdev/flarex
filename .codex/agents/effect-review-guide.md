@@ -71,6 +71,9 @@ when the dependency changes.
   v3 `catchAll*` names here.
 - `Effect.option` discards every typed failure reason. Prefer
   `Effect.catchNoSuchElement` when only missing-value failure means absence.
+- `Effect.promise` requires a contractually non-rejecting Promise. A rejection
+  becomes a defect; use `Effect.tryPromise` with typed foreign-failure mapping
+  when rejection is expected or possible.
 - `Effect.exit` captures the full Cause and belongs at runtime, lifecycle,
   supervision, diagnostics, or test boundaries.
 - Effect `Encoding` decoders such as hex and base64 return `Result`; use
@@ -177,6 +180,14 @@ when the dependency changes.
   several named or dependent successes whose order matters.
 - Map foreign throws and rejected promises once at their narrow source. Emit
   tagged errors there and do not repeatedly rewrap them downstream.
+- A throw inside `Effect.gen`, `Effect.fn`, or an Effect constructor callback
+  needs explicit classification. Retain it only for a real invariant defect or
+  required foreign-boundary behavior; use the typed error channel for expected
+  domain and integration failures.
+- Treat broad `Effect.catch` as a complete-channel boundary. Prefer
+  `catchTag`, `catchTags`, or `catchFilter` when only selected failures are
+  recoverable, and preserve propagation when the current owner does not own
+  every error variant.
 - For Drizzle work, read
   `roadmaps/effect-native-guidance/09-drizzle-effect-postgres.md`. Do not demand
   removal of the one necessary Promise adapter while Flarex remains on Drizzle
@@ -257,7 +268,8 @@ assuming the suggested transformation is correct. Report one disposition:
    smallest behavior-preserving correction is inside the approved slice.
 2. **Boundary exception:** a specific public/protocol representation, host
    adapter, compatibility contract, transaction/lifecycle owner, or evaluated
-   ordering rule requires the existing form. State that reason and recommend
+   ordering rule requires the existing form, or a throw deliberately represents
+   an invariant defect. State that reason and recommend
    one adjacent line-scoped directive using
    `-- REVIEW: <boundary-category> - <specific reason>`.
 3. **Rule false positive:** the AST heuristic misclassified the code. Report

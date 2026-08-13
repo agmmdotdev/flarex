@@ -2,8 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 
 import { isUnshadowedGlobal, memberName } from "./effect-imports.ts";
 import {
-  collectReferencedEffectBodies,
-  startsEffectBody,
+  createEffectBodyTracker,
 } from "./effect-body.ts";
 
 /** Ask the reviewer to verify direct platform-clock reads inside Effect operations. */
@@ -11,59 +10,55 @@ export const noPlatformTimeInsideEffectRule = defineRule({
   meta: {
     type: "suggestion",
     docs: {
-      description: "Review Date.now calls inside Effect.fn or Effect.gen bodies.",
+      description:
+        "Review direct platform-clock reads inside Effect operations and Effect-owned constructor callbacks.",
     },
     messages: {
       clock:
-        "Direct Date.now inside Effect-native code bypasses Effect time and TestClock. The TypeScript reviewer must decide whether this is a deliberate host adapter or should use the Effect Clock boundary.",
+        "A direct platform-clock read inside Effect-native code bypasses Effect time and TestClock. The TypeScript reviewer must decide whether this is a deliberate host adapter or should use the Effect Clock boundary.",
     },
   },
   create(context) {
-    let effectBodyDepth = 0;
-    const effectBodyCalls = new Set<object>();
-    let referencedBodies = new Set<object>();
-
-    const enterReferencedBody = (node: object) => {
-      if (referencedBodies.has(node)) effectBodyDepth += 1;
-    };
-    const exitReferencedBody = (node: object) => {
-      if (referencedBodies.has(node)) effectBodyDepth -= 1;
-    };
+    const tracker = createEffectBodyTracker(context.sourceCode);
 
     return {
-      Program(node) {
-        referencedBodies = new Set(
-          collectReferencedEffectBodies(context.sourceCode, node),
-        );
-      },
-      ArrowFunctionExpression: enterReferencedBody,
-      "ArrowFunctionExpression:exit": exitReferencedBody,
-      FunctionDeclaration: enterReferencedBody,
-      "FunctionDeclaration:exit": exitReferencedBody,
-      FunctionExpression: enterReferencedBody,
-      "FunctionExpression:exit": exitReferencedBody,
+      Program: tracker.program,
+      ArrowFunctionExpression: tracker.enter,
+      "ArrowFunctionExpression:exit": tracker.exit,
+      FunctionDeclaration: tracker.enter,
+      "FunctionDeclaration:exit": tracker.exit,
+      FunctionExpression: tracker.enter,
+      "FunctionExpression:exit": tracker.exit,
       CallExpression(node) {
-        if (startsEffectBody(context.sourceCode, node)) {
-          effectBodyCalls.add(node);
-          effectBodyDepth += 1;
-        }
         const callee = node.callee.type === "TSInstantiationExpression"
           ? node.callee.expression
           : node.callee;
-        if (
-          effectBodyDepth > 0 &&
+        const isDateCall =
+          tracker.inside(node) &&
+          callee.type === "Identifier" &&
+          callee.name === "Date" &&
+          isUnshadowedGlobal(context.sourceCode, callee);
+        const isPlatformNow =
+          tracker.inside(node) &&
           callee.type === "MemberExpression" &&
           callee.object.type === "Identifier" &&
-          callee.object.name === "Date" &&
+          (callee.object.name === "Date" || callee.object.name === "performance") &&
           isUnshadowedGlobal(context.sourceCode, callee.object) &&
-          memberName(callee) === "now"
-        ) {
+          memberName(callee) === "now";
+        if (isDateCall || isPlatformNow) {
           context.report({ node, messageId: "clock" });
         }
       },
-      "CallExpression:exit"(node) {
-        if (!effectBodyCalls.delete(node)) return;
-        effectBodyDepth -= 1;
+      NewExpression(node) {
+        if (
+          tracker.inside(node) &&
+          node.arguments.length === 0 &&
+          node.callee.type === "Identifier" &&
+          node.callee.name === "Date" &&
+          isUnshadowedGlobal(context.sourceCode, node.callee)
+        ) {
+          context.report({ node, messageId: "clock" });
+        }
       },
     };
   },

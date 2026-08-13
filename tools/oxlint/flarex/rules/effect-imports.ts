@@ -28,6 +28,50 @@ export type LocalFunction =
   | ESTree.ArrowFunctionExpression
   | ESTree.Function;
 
+export type LocalClass = Extract<
+  ESTree.Node,
+  { readonly type: "ClassDeclaration" | "ClassExpression" }
+>;
+
+export function resolveLocalClass(
+  sourceCode: SourceCode,
+  identifier: ESTree.IdentifierReference,
+  seen: Set<Variable> = new Set(),
+): LocalClass | null {
+  const variable = resolveVariable(sourceCode, identifier);
+  if (
+    variable === null ||
+    seen.has(variable) ||
+    variable.defs.length !== 1 ||
+    variable.references.some((reference) => reference.isWrite() && !reference.init)
+  ) {
+    return null;
+  }
+  seen.add(variable);
+  const [definition] = variable.defs;
+  if (
+    definition?.type === "ClassName" &&
+    definition.node.type === "ClassDeclaration"
+  ) {
+    return definition.node;
+  }
+  if (
+    definition?.type !== "Variable" ||
+    definition.node.type !== "VariableDeclarator" ||
+    definition.parent?.type !== "VariableDeclaration" ||
+    definition.parent.kind !== "const" ||
+    definition.node.init === null
+  ) {
+    return null;
+  }
+  if (definition.node.init.type === "ClassExpression") {
+    return definition.node.init;
+  }
+  return definition.node.init.type === "Identifier"
+    ? resolveLocalClass(sourceCode, definition.node.init, seen)
+    : null;
+}
+
 export function resolveLocalFunction(
   sourceCode: SourceCode,
   identifier: ESTree.IdentifierReference,
@@ -72,9 +116,10 @@ export function resolveLocalFunction(
 export function importedEffectNamespace(
   sourceCode: SourceCode,
   identifier: ESTree.IdentifierReference,
+  seen: Set<Variable> = new Set(),
 ): EffectNamespace | null {
   const variable = resolveVariable(sourceCode, identifier);
-  if (variable === null) return null;
+  if (variable === null || seen.has(variable)) return null;
 
   for (const definition of variable.defs) {
     if (
@@ -100,7 +145,25 @@ export function importedEffectNamespace(
       return source.slice("effect/".length) as EffectNamespace;
     }
   }
-  return null;
+
+  if (
+    variable.defs.length !== 1 ||
+    variable.references.some((reference) => reference.isWrite() && !reference.init)
+  ) {
+    return null;
+  }
+  const [definition] = variable.defs;
+  if (
+    definition?.type !== "Variable" ||
+    definition.node.type !== "VariableDeclarator" ||
+    definition.parent?.type !== "VariableDeclaration" ||
+    definition.parent.kind !== "const" ||
+    definition.node.init?.type !== "Identifier"
+  ) {
+    return null;
+  }
+  seen.add(variable);
+  return importedEffectNamespace(sourceCode, definition.node.init, seen);
 }
 
 export function isImportedEffectFunction(
@@ -108,10 +171,11 @@ export function isImportedEffectFunction(
   identifier: ESTree.IdentifierReference,
   namespace: EffectNamespace,
   names: ReadonlySet<string>,
+  seen: Set<Variable> = new Set(),
 ): boolean {
   const variable = resolveVariable(sourceCode, identifier);
-  return (
-    variable !== null &&
+  if (variable === null || seen.has(variable)) return false;
+  if (
     variable.defs.some((definition) => {
       if (
         definition.type !== "ImportBinding" ||
@@ -125,7 +189,107 @@ export function isImportedEffectFunction(
         names.has(importedName(definition.node) ?? "")
       );
     })
+  ) {
+    return true;
+  }
+  if (
+    variable.defs.length !== 1 ||
+    variable.references.some((reference) => reference.isWrite() && !reference.init)
+  ) {
+    return false;
+  }
+  const [definition] = variable.defs;
+  if (
+    definition?.type !== "Variable" ||
+    definition.node.type !== "VariableDeclarator" ||
+    definition.parent?.type !== "VariableDeclaration" ||
+    definition.parent.kind !== "const" ||
+    definition.node.init === null
+  ) {
+    return false;
+  }
+  seen.add(variable);
+  const initializer = definition.node.init;
+  if (
+    definition.node.id.type === "ObjectPattern" &&
+    initializer.type === "Identifier" &&
+    importedEffectNamespace(sourceCode, initializer) === namespace
+  ) {
+    for (const property of definition.node.id.properties) {
+      if (property.type !== "Property") continue;
+      const binding = property.value.type === "AssignmentPattern"
+        ? property.value.left
+        : property.value;
+      if (
+        binding.type !== "Identifier" ||
+        binding.name !== identifier.name
+      ) {
+        continue;
+      }
+      const key = property.key.type === "Identifier"
+        ? property.computed ? null : property.key.name
+        : property.key.type === "Literal" &&
+            typeof property.key.value === "string"
+          ? property.key.value
+          : null;
+      return key !== null && names.has(key);
+    }
+    return false;
+  }
+  if (initializer.type === "Identifier") {
+    return isImportedEffectFunction(
+      sourceCode,
+      initializer,
+      namespace,
+      names,
+      seen,
+    );
+  }
+  return (
+    initializer.type === "MemberExpression" &&
+    initializer.object.type === "Identifier" &&
+    importedEffectNamespace(sourceCode, initializer.object) === namespace &&
+    names.has(memberName(initializer) ?? "")
   );
+}
+
+export function isImportedEffectPipe(
+  sourceCode: SourceCode,
+  identifier: ESTree.IdentifierReference,
+  seen: Set<Variable> = new Set(),
+): boolean {
+  const variable = resolveVariable(sourceCode, identifier);
+  if (variable === null || seen.has(variable)) return false;
+  if (
+    variable.defs.some((definition) =>
+      definition.type === "ImportBinding" &&
+      definition.parent?.type === "ImportDeclaration" &&
+      definition.node.type === "ImportSpecifier" &&
+      (definition.parent.source.value === "effect" ||
+        definition.parent.source.value === "effect/Function") &&
+      importedName(definition.node) === "pipe"
+    )
+  ) {
+    return true;
+  }
+  if (
+    variable.defs.length !== 1 ||
+    variable.references.some((reference) => reference.isWrite() && !reference.init)
+  ) {
+    return false;
+  }
+  const [definition] = variable.defs;
+  if (
+    definition?.type !== "Variable" ||
+    definition.node.type !== "VariableDeclarator" ||
+    definition.parent?.type !== "VariableDeclaration" ||
+    definition.parent.kind !== "const" ||
+    definition.node.init?.type !== "Identifier"
+  ) {
+    return false;
+  }
+  seen.add(variable);
+  return isImportedEffectPipe(sourceCode, definition.node.init, seen);
 }
 
 export function memberName(member: ESTree.MemberExpression): string | null {

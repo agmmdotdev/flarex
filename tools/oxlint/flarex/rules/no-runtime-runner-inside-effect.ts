@@ -2,8 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 
 import { isEffectCall } from "./effect-imports.ts";
 import {
-  collectReferencedEffectBodies,
-  startsEffectBody,
+  createEffectBodyTracker,
 } from "./effect-body.ts";
 
 const runtimeRunners = new Set([
@@ -27,36 +26,19 @@ export const noRuntimeRunnerInsideEffectRule = defineRule({
     },
   },
   create(context) {
-    let effectBodyDepth = 0;
-    const effectBodyCalls = new Set<object>();
-    let referencedBodies = new Set<object>();
-
-    const enterReferencedBody = (node: object) => {
-      if (referencedBodies.has(node)) effectBodyDepth += 1;
-    };
-    const exitReferencedBody = (node: object) => {
-      if (referencedBodies.has(node)) effectBodyDepth -= 1;
-    };
+    const tracker = createEffectBodyTracker(context.sourceCode);
 
     return {
-      Program(node) {
-        referencedBodies = new Set(
-          collectReferencedEffectBodies(context.sourceCode, node),
-        );
-      },
-      ArrowFunctionExpression: enterReferencedBody,
-      "ArrowFunctionExpression:exit": exitReferencedBody,
-      FunctionDeclaration: enterReferencedBody,
-      "FunctionDeclaration:exit": exitReferencedBody,
-      FunctionExpression: enterReferencedBody,
-      "FunctionExpression:exit": exitReferencedBody,
+      Program: tracker.program,
+      ArrowFunctionExpression: tracker.enter,
+      "ArrowFunctionExpression:exit": tracker.exit,
+      FunctionDeclaration: tracker.enter,
+      "FunctionDeclaration:exit": tracker.exit,
+      FunctionExpression: tracker.enter,
+      "FunctionExpression:exit": tracker.exit,
       CallExpression(node) {
-        if (startsEffectBody(context.sourceCode, node)) {
-          effectBodyCalls.add(node);
-          effectBodyDepth += 1;
-        }
         if (
-          effectBodyDepth > 0 &&
+          tracker.inside(node) &&
           isEffectCall(
             context.sourceCode,
             node,
@@ -66,10 +48,6 @@ export const noRuntimeRunnerInsideEffectRule = defineRule({
         ) {
           context.report({ node, messageId: "nested" });
         }
-      },
-      "CallExpression:exit"(node) {
-        if (!effectBodyCalls.delete(node)) return;
-        effectBodyDepth -= 1;
       },
     };
   },

@@ -127,9 +127,8 @@ Effect-specific checks when Effect is used or should be used:
   operation and classify it as a required bounded fix, a legitimate boundary
   exception, or a rule false positive.
 - For a legitimate exception, state the exact public/protocol, host,
-  compatibility, transaction, lifecycle, or evaluation-order reason and
-  recommend one adjacent `oxlint-disable-line` or
-  `oxlint-disable-next-line` directive with
+  compatibility, transaction, lifecycle, evaluation-order, or invariant reason and
+  recommend one adjacent `oxlint-disable-next-line` directive with
   `-- REVIEW: <boundary-category> - <specific reason>`.
   The main thread owns the edit. Never accept a broad disable, generic reason,
   baseline, severity downgrade, or assertion laundering.
@@ -157,6 +156,12 @@ Effect-specific checks when Effect is used or should be used:
 - Verify that `Option`, v4 `Result`, and `Exit` are used only for their intended
   semantics and that public `null`, omitted-field, `{ ok }`, wire, and
   persistence shapes remain owned by their protocols.
+- For `Effect.promise`, identify the concrete non-rejection guarantee; for
+  `Effect.option`, prove every typed failure means absence. Classify throws in
+  Effect-owned callbacks as invariant defects, foreign-boundary behavior, or
+  expected typed failures. Treat `Effect.catch` as broad ownership of the
+  complete error channel and prefer tagged or filtered recovery when the owner
+  handles only selected variants.
 - Flag `Result.isFailure` / `isSuccess` used to manually propagate, translate,
   or rebox channels. Require `map`, `mapError`, `flatMap`, `filterOrFail`, or
   `gen` while preserving order and first-failure behavior. Direct

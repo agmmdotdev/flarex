@@ -40,13 +40,18 @@ protocol-owned absence shapes merely because they contain `undefined` or
 These rules are warning-level evidence and are still blocking on added or
 modified lines through `lint:diff`:
 
+- `flarex/no-effect-option-error-erasure`
+- `flarex/no-manual-result-unwrapping`
 - `flarex/no-platform-time-inside-effect`
 - `flarex/no-result-channel-reboxing`
 - `flarex/no-result-get-or-throw-without-boundary`
 - `flarex/no-runtime-runner-inside-effect`
 - `flarex/no-silent-effect-error-swallow`
+- `flarex/no-throw-inside-effect-operation`
+- `flarex/no-unreviewed-effect-promise`
 - `flarex/prefer-effect-fn-for-reusable-operation`
 - `flarex/prefer-result-gen-for-dependent-sequence`
+- `flarex/prefer-tagged-effect-recovery`
 
 The TypeScript reviewer must inspect the smallest connected operation and
 classify each in-diff diagnostic as a required bounded fix, a legitimate
@@ -62,11 +67,18 @@ and the main thread may add only an adjacent line-scoped directive:
 ```
 
 The required category is one of `public`, `protocol`, `host`, `compatibility`,
-`transaction`, `lifecycle`, or `evaluation-order`, followed by a concrete
+`transaction`, `lifecycle`, `evaluation-order`, or `invariant`, followed by a concrete
 explanation.
 
 File and region disables are rejected. If the diagnostic is a real false
 positive, fix the rule and add a regression case instead of suppressing source.
+
+These rules deliberately review semantics rather than ban syntax:
+`Effect.promise` remains correct for a contractually non-rejecting Promise;
+`Effect.option` remains correct when every typed failure means absence; a throw
+may deliberately represent an invariant defect; and broad `Effect.catch` may
+belong at a boundary that owns the complete failure channel. The reviewer must
+name that contract instead of inferring it from neighboring code.
 
 All other configured custom rules and built-in categories are audit-only. A
 rule may move to blocking only after its scoped findings reach zero through an

@@ -48,6 +48,12 @@ correctness and the quality of TypeScript/Effect implementation.
   concrete line-scoped boundary exception, or rule false positive. The main
   thread performs all edits; false positives are corrected in the rule and
   regression suite rather than hidden in source.
+- Semantic Effect evidence now covers manual Result projection, Promise defect
+  boundaries, whole-channel Option erasure, throws in Effect-owned callbacks,
+  broad recovery, and platform-clock reads across reusable operations and
+  Effect constructors. These remain reviewer decisions because host,
+  compatibility, transaction, lifecycle, and invariant boundaries can make the
+  syntax legitimate.
 - [`effect-native-guidance/`](./effect-native-guidance/README.md) records the
   current repository-wide pattern evidence and target direction for boundaries,
   failures, persistence, services/Layers, data types, tests, and incremental

@@ -4,7 +4,9 @@ import { describe, it } from "vitest";
 import {
   noBannedTypeAssertionsRule,
   noChainedTypeAssertionsRule,
+  noEffectOptionErrorErasureRule,
   noKnownValueWideningRule,
+  noManualResultUnwrappingRule,
   noModuleMockingRule,
   noObjectParametersRule,
   noPlatformTimeInsideEffectRule,
@@ -12,12 +14,15 @@ import {
   noResultGetOrThrowWithoutBoundaryRule,
   noRuntimeRunnerInsideEffectRule,
   noSilentEffectErrorSwallowRule,
+  noThrowInsideEffectOperationRule,
   noUnknownTypeAliasesRule,
+  noUnreviewedEffectPromiseRule,
   noV3EffectApisRule,
   noWidenThenAssertRule,
   preferEffectFnForReusableOperationRule,
   preferOptionConstructorsRule,
   preferResultGenForDependentSequenceRule,
+  preferTaggedEffectRecoveryRule,
   requireEffectReviewJustificationRule,
   requireSafetyCommentForTypeAssertionRule,
 } from "./index.ts";
@@ -258,6 +263,178 @@ tester.run("flarex/no-result-channel-reboxing", noResultChannelReboxingRule, {
   ],
 });
 
+tester.run("flarex/no-manual-result-unwrapping", noManualResultUnwrappingRule, {
+  valid: [
+    'import { Result } from "effect"; function decode() { if (Result.isFailure(value)) return value; return value; }',
+    'import { Result } from "effect"; function decode() { if (Result.isFailure(value)) return value; return other.success; }',
+    'import { Result } from "effect"; function decode() { if (Result.isFailure(value)) return value; return () => value.success; }',
+    'import { Result } from "effect"; function decode() { if (Result.isFailure(value)) return value; class Deferred { read() { return value.success; } } return Deferred; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; value = next; return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; return (value = next, value.success); }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; [value] = next; return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; ({ current: value } = next); return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; if (replace) value = next; else value = other; return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; replace ? value = next : value = other; return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; if (replace) { value = next; return value.success; } return value; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; [value, projected = value.success] = input; return projected; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; try { work(); } finally { value = next; } return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { case "next": value = next; break; default: value = other; } return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { case "next": value = next; default: value = other; } return value.success; }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { default: return value.success; case (value = next, "next"): return value; } }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { case "first": value = next; break; default: return value.success; case (value = other, "last"): return value; } }',
+    'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { case (value = next, "next"): break; } return value.success; }',
+    'const Result = local; function decode() { if (Result.isFailure(value)) return value; return value.success; }',
+  ],
+  invalid: [
+    {
+      code: 'import { Result } from "effect"; function decode() { if (Result.isFailure(value)) return value; return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import * as Result from "effect/Result"; function decode() { if (Result.isSuccess(value)) throw problem; return value.failure; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { isFailure } from "effect/Result"; function decode() { if (isFailure(value)) { return value; } const decoded = value.success; return decoded; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { value = input; if (Result.isFailure(value)) return value; return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; const decoded = value.success; value = input; return decoded; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; return (value.success, value = next); }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; if (replace) value = next; return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; while (replace) value = next; return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; for (const item of items) value = item; return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; try { work(); } catch { value = next; } return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; ({ [value.success]: other } = input); }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; ({ [value.success]: value } = input); }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { case "replace": value = next; break; } return value.success; }',
+      errors: [{ messageId: "manual" }],
+    },
+    {
+      code: 'import { Result } from "effect"; function decode(value) { if (Result.isFailure(value)) return value; switch (kind) { case "read": consume(value.success); value = next; break; default: value = other; } return value; }',
+      errors: [{ messageId: "manual" }],
+    },
+  ],
+});
+
+tester.run(
+  "flarex/no-unreviewed-effect-promise",
+  noUnreviewedEffectPromiseRule,
+  {
+    valid: [
+      'import { Effect } from "effect"; Effect.tryPromise({ try: load, catch: mapError });',
+      'const Effect = local; Effect.promise(load);',
+      'import { Effect } from "effect"; let fromPromise = Effect.promise; fromPromise = local; fromPromise(load);',
+      'import { Effect } from "effect"; let Fx = Effect; Fx = local; Fx.promise(load);',
+      'import { Effect } from "effect"; let { promise: fromPromise } = Effect; fromPromise = local; fromPromise(load);',
+      'import { Effect } from "effect"; function boundary(fromPromise: (value: unknown) => unknown) { fromPromise(load); }',
+      'import { Effect } from "effect"; const first = second; const second = first; first(load);',
+    ],
+    invalid: [
+      {
+        code: 'import { Effect } from "effect"; Effect.promise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+      {
+        code: 'import { promise as fromPromise } from "effect/Effect"; fromPromise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const fromPromise = Effect.promise; fromPromise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const Fx = Effect; const fromPromise = Fx.promise; fromPromise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const { promise: fromPromise } = Effect; fromPromise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const { promise: fromPromise = fallback } = Effect; fromPromise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const { ["promise"]: fromPromise } = Effect; fromPromise(load);',
+        errors: [{ messageId: "promise" }],
+      },
+    ],
+  },
+);
+
+tester.run(
+  "flarex/no-effect-option-error-erasure",
+  noEffectOptionErrorErasureRule,
+  {
+    valid: [
+      'import { Effect } from "effect"; Effect.catchTag(program, "Missing", () => Effect.succeed(undefined));',
+      'const Effect = local; Effect.option(program);',
+      'import { Effect } from "effect"; const constructor = Effect.option;',
+      'import { option } from "effect/Effect"; export { option };',
+      'import { Effect, pipe } from "effect"; pipe(Effect.option, identity);',
+    ],
+    invalid: [
+      {
+        code: 'import { Effect } from "effect"; Effect.option(program);',
+        errors: [{ messageId: "erased" }],
+      },
+      {
+        code: 'import { option as discardErrors } from "effect/Effect"; discardErrors(program);',
+        errors: [{ messageId: "erased" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; program.pipe(Effect.option);',
+        errors: [{ messageId: "erased" }],
+      },
+      {
+        code: 'import { option as discardErrors } from "effect/Effect"; program.pipe(discardErrors);',
+        errors: [{ messageId: "erased" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const discardErrors = Effect.option; discardErrors(program);',
+        errors: [{ messageId: "erased" }],
+      },
+      {
+        code: 'import { Effect, pipe } from "effect"; pipe(program, Effect.option);',
+        errors: [{ messageId: "erased" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; import { pipe as compose } from "effect/Function"; compose(program, Effect.option);',
+        errors: [{ messageId: "erased" }],
+      },
+    ],
+  },
+);
+
 tester.run(
   "flarex/no-result-get-or-throw-without-boundary",
   noResultGetOrThrowWithoutBoundaryRule,
@@ -335,6 +512,12 @@ tester.run("flarex/no-runtime-runner-inside-effect", noRuntimeRunnerInsideEffect
     'import { Effect } from "effect"; Effect.runPromise(program);',
     'const Effect = local; Effect.gen(function* () { return Effect.runPromise(program); });',
     'import { Effect } from "effect"; Effect.gen(function* () { return yield* program; });',
+    'import { Effect } from "effect"; Effect.acquireRelease(Effect.succeed(Effect.runPromise(program)), () => Effect.void);',
+    'import { Effect } from "effect"; Effect.sync(() => () => Effect.runPromise(program));',
+      'import { Effect } from "effect"; Effect.sync(() => class Deferred { run() { return Effect.runPromise(program); } });',
+    'import { Effect } from "effect"; Effect.sync(() => class Deferred { value = Effect.runPromise(program); });',
+    'import { Effect } from "effect"; Effect.sync(() => { let Immediate = class { value = Effect.runPromise(program); }; Immediate = local; return new Immediate(); });',
+    'import { Effect } from "effect"; function boundary(pipe: (...values: unknown[]) => unknown) { pipe(program, Effect.option); }',
   ],
   invalid: [
     {
@@ -353,14 +536,135 @@ tester.run("flarex/no-runtime-runner-inside-effect", noRuntimeRunnerInsideEffect
       code: 'import { Effect } from "effect"; function* body() { return Effect.runPromise(program); } Effect.gen(body);',
       errors: [{ messageId: "nested" }],
     },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => (() => Effect.runPromise(program))());',
+      errors: [{ messageId: "nested" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => { function run() { return Effect.runPromise(program); } return run(); });',
+      errors: [{ messageId: "nested" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => new class { value = Effect.runPromise(program); });',
+      errors: [{ messageId: "nested" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => { class Immediate { value = Effect.runPromise(program); } return new Immediate(); });',
+      errors: [{ messageId: "nested" }],
+    },
   ],
 });
+
+tester.run(
+  "flarex/no-throw-inside-effect-operation",
+  noThrowInsideEffectOperationRule,
+  {
+    valid: [
+      'import { Effect } from "effect"; function boundary() { throw problem; } Effect.succeed(1);',
+      'const Effect = local; Effect.gen(function* () { throw problem; });',
+      'import { Effect } from "effect"; const callback = () => { throw problem; }; callback = () => 1; Effect.sync(callback);',
+      'import { Effect } from "effect"; let callback = () => { throw problem; }; callback = () => 1; Effect.callback(callback);',
+      'import { Effect } from "effect"; Effect.sync(() => () => { throw problem; });',
+      'import { Effect } from "effect"; Effect.sync(() => class Deferred { run() { throw problem; } });',
+      'import { Effect } from "effect"; Effect.sync(() => class Deferred { value = (() => { throw problem; })(); });',
+    ],
+    invalid: [
+      {
+        code: 'import { Effect } from "effect"; Effect.gen(function* () { throw problem; });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { sync } from "effect/Effect"; sync(() => { throw problem; });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.try({ try: () => { throw problem; }, catch: cause => cause });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; function load() { throw problem; } Effect.promise(load);',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const nested = () => { throw problem; }; Effect.sync(() => Effect.sync(nested));',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.sync(() => (() => { throw problem; })());',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.sync(() => { function fail() { throw problem; } return fail(); });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.sync(() => class Immediate { static value = (() => { throw problem; })(); });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.sync(() => new class { constructor() { throw problem; } });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.sync(() => { const Immediate = class { constructor() { throw problem; } }; return new Immediate(); });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; Effect.callback(() => { throw problem; });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { acquireUseRelease } from "effect/Effect"; acquireUseRelease(acquire, use, () => { throw problem; });',
+        errors: [{ messageId: "thrown" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const make = Effect.sync; make(() => { throw problem; });',
+        errors: [{ messageId: "thrown" }],
+      },
+    ],
+  },
+);
+
+tester.run(
+  "flarex/prefer-tagged-effect-recovery",
+  preferTaggedEffectRecoveryRule,
+  {
+    valid: [
+      'import { Effect } from "effect"; program.pipe(Effect.catchTag("Missing", recover));',
+      'const Effect = local; program.pipe(Effect.catch(recover));',
+      'import { Effect } from "effect"; let recoverAll = Effect.catch; recoverAll = local; program.pipe(recoverAll(recover));',
+    ],
+    invalid: [
+      {
+        code: 'import { Effect } from "effect"; program.pipe(Effect.catch(recover));',
+        errors: [{ messageId: "broad" }],
+      },
+      {
+        code: 'import { catch as recoverAll } from "effect/Effect"; program.pipe(recoverAll(recover));',
+        errors: [{ messageId: "broad" }],
+      },
+      {
+        code: 'import { Effect } from "effect"; const recoverAll = Effect.catch; program.pipe(recoverAll(recover));',
+        errors: [{ messageId: "broad" }],
+      },
+    ],
+  },
+);
 
 tester.run("flarex/no-platform-time-inside-effect", noPlatformTimeInsideEffectRule, {
     valid: [
       'import { Effect } from "effect"; const now = Date.now(); Effect.gen(function* () { return now; });',
       'import { Effect } from "effect"; function boundary(Date: { now(): number }) { return Effect.gen(function* () { return Date.now(); }); }',
       'import { Effect } from "effect"; function* body() { return Date.now(); } body = function* () { return 1; }; Effect.gen(body);',
+      'import { Effect } from "effect"; Effect.sync(() => new Date(0));',
+      'import { Effect } from "effect"; function boundary(performance: { now(): number }) { return Effect.sync(() => performance.now()); }',
+      'import { Effect } from "effect"; Effect.acquireRelease(Effect.succeed(Date.now()), () => Effect.void);',
+      'import { Effect } from "effect"; function boundary(Date: () => string) { return Effect.sync(() => Date()); }',
+      'import { Effect } from "effect"; let callback = () => Date.now(); callback = () => 1; Effect.callback(callback);',
+      'import { Effect } from "effect"; Effect.sync(() => () => Date.now());',
+      'import { Effect } from "effect"; Effect.sync(() => class Deferred { now() { return Date.now(); } });',
+      'import { Effect } from "effect"; Effect.sync(() => class Deferred { value = Date.now(); });',
+      'import { Effect } from "effect"; Effect.sync(() => { let Immediate = class { value = Date.now(); }; Immediate = local; return new Immediate(); });',
   ],
   invalid: [
     {
@@ -383,6 +687,62 @@ tester.run("flarex/no-platform-time-inside-effect", noPlatformTimeInsideEffectRu
       code: 'import { Effect } from "effect"; const body = function* () { return Date.now(); }; const alias = body; Effect.gen(alias);',
       errors: [{ messageId: "clock" }],
     },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => Date.now());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { tryPromise } from "effect/Effect"; const load = () => Promise.resolve(Date.now()); tryPromise({ try: load, catch: cause => cause });',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.try({ try: () => Date.now(), catch: cause => cause });',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => new Date());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => performance.now());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => Date());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.callback(() => Date.now());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { acquireUseRelease } from "effect/Effect"; const use = () => Date.now(); acquireUseRelease(acquire, use, release);',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; const Fx = Effect; const make = Fx.sync; make(() => Date.now());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => (() => Date.now())());',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => { function now() { return Date.now(); } return now(); });',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => class Immediate { static value = Date.now(); });',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => new class { value = Date.now(); });',
+      errors: [{ messageId: "clock" }],
+    },
+    {
+      code: 'import { Effect } from "effect"; Effect.sync(() => { class Immediate { value = Date.now(); } return new Immediate(); });',
+      errors: [{ messageId: "clock" }],
+    },
   ],
 });
 
@@ -392,10 +752,24 @@ tester.run(
   {
     valid: [
       '// oxlint-disable-next-line flarex/no-result-channel-reboxing -- REVIEW: compatibility - preserves the public result allocation\nrun();',
+      '// oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: host - callback contract cannot reject\nrun();',
+      '// oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - impossible state remains a defect\nrun();',
     ],
     invalid: [
       {
         code: '// oxlint-disable-next-line flarex/no-result-channel-reboxing\nrun();',
+        errors: [{ messageId: "missing" }],
+      },
+      {
+        code: 'run(); // oxlint-disable-line flarex/no-throw-inside-effect-operation -- REVIEW: invariant - impossible state remains a defect',
+        errors: [{ messageId: "broad" }],
+      },
+      {
+        code: '// oxlint-disable-next-line flarex/prefer-tagged-effect-recovery\nrun();',
+        errors: [{ messageId: "missing" }],
+      },
+      {
+        code: '// oxlint-disable-next-line flarex/no-throw-inside-effect-operation -- REVIEW: invariants - impossible state remains a defect\nrun();',
         errors: [{ messageId: "missing" }],
       },
       {

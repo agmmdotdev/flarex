@@ -46,9 +46,10 @@ than a mechanical rewrite instruction. The TypeScript reviewer inspects the
 smallest connected operation and chooses exactly one disposition:
 
 1. valid diagnostic: require the smallest behavior-preserving correction;
-2. legitimate host, protocol, lifecycle, transaction, or compatibility
+2. legitimate host, protocol, lifecycle, transaction, compatibility, invariant,
+   or evaluation-order
    boundary: state the concrete reason and recommend one adjacent
-   `oxlint-disable-line` or `oxlint-disable-next-line` directive with
+   `oxlint-disable-next-line` directive with
    `-- REVIEW: <boundary-category> - <specific reason>`; or
 3. real false positive: report the rule defect and add a regression test when
    the main thread corrects the rule; do not suppress source.
