@@ -37,12 +37,11 @@ import type {
 } from "../pointMutationExecutionClaimLiveness";
 import type {
   PointMutationJournalAttemptV1,
-  PointMutationJournalBoundaryV1Error,
   PointMutationJournalTableV1,
   PointMutationJournalV1,
 } from "../pointMutationJournal";
 import type {
-  PointMutationJournalResultRejectedV1Error,
+  ApplicationPointMutationJournalRpcBoundaryV1Error,
 } from "../pointMutationJournalRpc";
 import type {
   PointMutationExactRuntimeRunnerHostV1Error,
@@ -126,8 +125,7 @@ export type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationOccExecutionContextV1Error
   | PointMutationOccApplicationErrorV1
   | PointMutationOccUserCodeV1Error
-  | PointMutationJournalBoundaryV1Error
-  | PointMutationJournalResultRejectedV1Error
+  | ApplicationPointMutationJournalRpcBoundaryV1Error
   | PointMutationExactRuntimeRunnerHostV1Error
   | CommitProtocolV1Error
   | PointMutationSessionAttemptLoadingExecutionV1Error

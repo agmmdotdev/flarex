@@ -2181,12 +2181,30 @@ dynamic-worker runner refuses an Application input before contacting its host.
 The liveness reload, journal admission, sealing, OCC planning, finishing,
 publication, outcome, feed, and outbox tail are still one unchanged owner.
 
-The next bounded slice may construct the private Application Worker runner
-adapter from this authenticated input. It must read the exact Source Artifact
-objects, build the exact Application Worker definition, translate the existing
-bound journal into the Application transaction capability without reproducing
-journal or syscall authority, and remain Standard-unwired. Exact validation
-receipts belong in the owning commit report rather than this living roadmap.
+The runner checkpoint now includes its first private adapter. The existing
+bound point-mutation journal can issue one flat Application transaction
+capability that resolves the authenticated table/index directory, assigns one
+monotonic syscall sequence across point and indexed operations, projects exact
+read/write outcomes, preserves catchable document-validation failures, and
+closes and drains through the existing RPC session owner. It does not store a
+second journal, reinterpret replay, or own durable liveness, validation, OCC,
+commit, result, feed, or outbox decisions. The Application runner and Standard
+composition remain unwired.
+
+The connected Worker-host preflight found two directly owning gaps that must be
+corrected before the real runner can claim legacy-parity error behavior. The
+Application Worker currently maps both structured core application errors and
+ordinary user-code failures to the same `ApplicationWorkerUserCodeV1Error`, so
+`ApplicationExecutionHost` cannot reconstruct `PointMutationOccApplicationErrorV1`.
+It also converts every capability rejection into a terminal journal boundary;
+unlike the existing exact mutation runtime, it does not preserve the exact
+authenticated document-validation failure as application-catchable. The next
+bounded slice must repair those two Application Worker/host contracts, refresh
+their generated identity, and prove exact error/cleanup behavior before the
+private runner reads Source Artifact objects and invokes the host. It must not
+weaken journal failures, create a fallback, or change journal/commit ownership.
+Exact validation receipts belong in the owning commit report rather than this
+living roadmap.
 
 First migrate executable authority and publication:
 

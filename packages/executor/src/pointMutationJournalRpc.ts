@@ -3,10 +3,32 @@ import type {
   RunSessionJournalPointOperationV1Result,
 } from "@flarex/persistence-postgres/session-journal-store";
 import { RpcTarget, type RpcStub } from "cloudflare:workers";
-import { Cause, Data, Effect, Exit } from "effect";
+import { Cause, Data, Effect, Exit, Result, Schema, Semaphore } from "effect";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
 } from "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";
+import {
+  decodeAppDocumentIdentityV1Result,
+  type AppDocumentIdV1,
+  type AppDocumentIdentityV1,
+} from "flarex-protocol/app-document-id";
+import {
+  CatalogTableIdSchema,
+  type CatalogTableId,
+} from "flarex-protocol/catalog";
+import {
+  SchemaManifestAppIndexDescriptorSchema,
+  SchemaManifestAppTableNameSchema,
+  type SchemaManifestAppTableName,
+} from "flarex-protocol/schema-manifest";
+import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
+import {
+  MAX_APPLICATION_WORKER_TABLES_V1,
+} from "flarex-protocol/internal/application-worker-v1";
+import {
+  CommitSyscallSequenceV1Schema,
+  type CommitSyscallSequenceV1,
+} from "flarex-protocol/commit-protocol";
 
 import type {
   PointMutationJournalBoundaryV1Error,
@@ -31,9 +53,25 @@ export class PointMutationJournalResultRejectedV1Error
     >;
   }> {}
 
+export class ApplicationPointMutationJournalProjectionV1Error
+  extends Data.TaggedError("ApplicationPointMutationJournalProjectionV1Error")<{
+    readonly reason:
+      | "invalidConfiguration"
+      | "unknownTable"
+      | "invalidIndexDescriptor"
+      | "invalidDocumentId"
+      | "documentTableMismatch"
+      | "unexpectedOutcome";
+    readonly cause?: unknown;
+  }> {}
+
 export type PointMutationJournalRpcBoundaryV1Error =
   | PointMutationJournalBoundaryV1Error
   | PointMutationJournalResultRejectedV1Error;
+
+export type ApplicationPointMutationJournalRpcBoundaryV1Error =
+  | PointMutationJournalRpcBoundaryV1Error
+  | ApplicationPointMutationJournalProjectionV1Error;
 
 export interface PointMutationJournalRpcTableMethodsV1 {
   readonly runPointOperation: (
@@ -89,32 +127,129 @@ export interface PointMutationJournalRpcSessionV1 {
   >;
 }
 
+export interface ApplicationPointMutationJournalTableBindingV1 {
+  readonly tableId: CatalogTableId;
+  readonly logicalName: SchemaManifestAppTableName;
+}
+
+export interface ApplicationPointMutationJournalRpcMethodsV1 {
+  readonly revalidate: () => Promise<void>;
+  readonly readPointDocument: (
+    tableName: unknown,
+    documentId: unknown,
+  ) => Promise<CanonicalFlarexRuntimeValueV1 | null>;
+  readonly queryIndexRange: (
+    tableName: unknown,
+    indexDescriptor: unknown,
+    bounds: unknown,
+    limit: unknown,
+  ) => Promise<Readonly<{
+    readonly documents: ReadonlyArray<CanonicalFlarexRuntimeValueV1>;
+    readonly isDone: boolean;
+  }>>;
+  readonly insertPointDocument: (
+    tableName: unknown,
+    value: unknown,
+  ) => Promise<AppDocumentIdV1>;
+  readonly patchPointDocument: (
+    documentId: unknown,
+    value: unknown,
+  ) => Promise<void>;
+  readonly replacePointDocument: (
+    documentId: unknown,
+    value: unknown,
+  ) => Promise<void>;
+  readonly deletePointDocument: (
+    documentId: unknown,
+  ) => Promise<void>;
+}
+
+export type ApplicationPointMutationJournalRpcTargetV1 =
+  & RpcTarget
+  & ApplicationPointMutationJournalRpcMethodsV1;
+
+export interface ApplicationPointMutationJournalRpcSessionV1 {
+  readonly target: ApplicationPointMutationJournalRpcTargetV1;
+  readonly closeAndDrain: Effect.Effect<
+    void,
+    ApplicationPointMutationJournalRpcBoundaryV1Error,
+    never
+  >;
+}
+
+const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogTableIdSchema),
+);
+const decodeTableNameResult = Schema.decodeUnknownResult(
+  SchemaManifestAppTableNameSchema,
+);
+const decodeIndexDescriptorResult = Schema.decodeUnknownResult(
+  SchemaManifestAppIndexDescriptorSchema,
+);
+
 export function makePointMutationJournalRpcSessionV1(
   journal: PointMutationOccBoundJournalV1,
 ): PointMutationJournalRpcSessionV1 {
-  const state = new PointMutationJournalRpcSessionStateV1(journal);
+  const state = new PointMutationJournalRpcSessionStateV1<
+    PointMutationJournalRpcBoundaryV1Error
+  >(journal);
   return Object.freeze({
     target: new PointMutationJournalRpcParentTarget(state),
-    closeAndDrain: Effect.uninterruptible(
-      Effect.promise(() => state.closeAndDrain()).pipe(
-        Effect.flatMap(() => {
-          const cause = state.firstCause();
-          return cause === undefined
-            ? Effect.void
-            : Effect.failCause(cause);
-        }),
-      ),
-    ),
+    closeAndDrain: closeAndDrainEffect(state),
   });
+}
+
+/**
+ * Adapts one already-authenticated point-mutation journal attempt to the flat
+ * capability consumed by the Application Worker. This adapter owns only
+ * in-process sequencing and projection. Every durable read/write, replay,
+ * attempt fence, validation, and OCC decision remains with the bound journal.
+ */
+export function makeApplicationPointMutationJournalRpcSessionV1(
+  journal: PointMutationOccBoundJournalV1,
+  tables: ReadonlyArray<ApplicationPointMutationJournalTableBindingV1>,
+): ApplicationPointMutationJournalRpcSessionV1 {
+  const state = new PointMutationJournalRpcSessionStateV1<
+    ApplicationPointMutationJournalRpcBoundaryV1Error
+  >(journal);
+  const applicationState = new ApplicationPointMutationJournalRpcStateV1(
+    state,
+    captureApplicationTableBindings(tables),
+  );
+  return Object.freeze({
+    target: new ApplicationPointMutationJournalRpcTarget(applicationState),
+    closeAndDrain: closeAndDrainEffect(state),
+  });
+}
+
+function closeAndDrainEffect<
+  Error extends ApplicationPointMutationJournalRpcBoundaryV1Error,
+>(
+  state: PointMutationJournalRpcSessionStateV1<Error>,
+): Effect.Effect<void, Error> {
+  return Effect.uninterruptible(
+    Effect.promise(() => state.closeAndDrain()).pipe(
+      Effect.flatMap(() => {
+        const cause = state.firstCause();
+        return cause === undefined ? Effect.void : Effect.failCause(cause);
+      }),
+    ),
+  );
 }
 
 class PointMutationJournalRpcParentTarget
   extends RpcTarget
   implements PointMutationJournalRpcParentMethodsV1
 {
-  readonly #state: PointMutationJournalRpcSessionStateV1;
+  readonly #state: PointMutationJournalRpcSessionStateV1<
+    PointMutationJournalRpcBoundaryV1Error
+  >;
 
-  constructor(state: PointMutationJournalRpcSessionStateV1) {
+  constructor(
+    state: PointMutationJournalRpcSessionStateV1<
+      PointMutationJournalRpcBoundaryV1Error
+    >,
+  ) {
     super();
     this.#state = state;
   }
@@ -134,11 +269,15 @@ class PointMutationJournalRpcTableTarget
   extends RpcTarget
   implements PointMutationJournalRpcTableMethodsV1
 {
-  readonly #state: PointMutationJournalRpcSessionStateV1;
+  readonly #state: PointMutationJournalRpcSessionStateV1<
+    PointMutationJournalRpcBoundaryV1Error
+  >;
   readonly #table: PointMutationJournalTableV1;
 
   constructor(
-    state: PointMutationJournalRpcSessionStateV1,
+    state: PointMutationJournalRpcSessionStateV1<
+      PointMutationJournalRpcBoundaryV1Error
+    >,
     table: PointMutationJournalTableV1,
   ) {
     super();
@@ -172,11 +311,15 @@ class PointMutationJournalRpcIndexTarget
   extends RpcTarget
   implements PointMutationJournalRpcIndexMethodsV1
 {
-  readonly #state: PointMutationJournalRpcSessionStateV1;
+  readonly #state: PointMutationJournalRpcSessionStateV1<
+    PointMutationJournalRpcBoundaryV1Error
+  >;
   readonly #index: PointMutationJournalIndexV1;
 
   constructor(
-    state: PointMutationJournalRpcSessionStateV1,
+    state: PointMutationJournalRpcSessionStateV1<
+      PointMutationJournalRpcBoundaryV1Error
+    >,
     index: PointMutationJournalIndexV1,
   ) {
     super();
@@ -193,6 +336,465 @@ class PointMutationJournalRpcIndexTarget
       )
     );
   }
+}
+
+interface CapturedApplicationPointMutationJournalBindingsV1 {
+  readonly byId: ReadonlyMap<CatalogTableId, SchemaManifestAppTableName>;
+  readonly byName: ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>;
+}
+
+function captureApplicationTableBindings(
+  input: ReadonlyArray<ApplicationPointMutationJournalTableBindingV1>,
+): CapturedApplicationPointMutationJournalBindingsV1 {
+  if (
+    !Array.isArray(input) ||
+    input.length > MAX_APPLICATION_WORKER_TABLES_V1
+  ) {
+    throw new ApplicationPointMutationJournalProjectionV1Error({
+      reason: "invalidConfiguration",
+    });
+  }
+  const byId = new Map<CatalogTableId, SchemaManifestAppTableName>();
+  const byName = new Map<SchemaManifestAppTableName, CatalogTableId>();
+  for (const binding of input) {
+    const decoded = Result.gen(function* () {
+      const tableId = yield* decodeCatalogTableIdResult(binding.tableId);
+      const logicalName = yield* decodeTableNameResult(binding.logicalName);
+      return { tableId, logicalName } as const;
+    });
+    const captured = Result.match(decoded, {
+      onFailure: cause => {
+        throw new ApplicationPointMutationJournalProjectionV1Error({
+          reason: "invalidConfiguration",
+          cause,
+        });
+      },
+      onSuccess: value => value,
+    });
+    if (
+      byId.has(captured.tableId) ||
+      byName.has(captured.logicalName)
+    ) {
+      throw new ApplicationPointMutationJournalProjectionV1Error({
+        reason: "invalidConfiguration",
+      });
+    }
+    byId.set(captured.tableId, captured.logicalName);
+    byName.set(captured.logicalName, captured.tableId);
+  }
+  return Object.freeze({ byId, byName });
+}
+
+class ApplicationPointMutationJournalRpcTarget
+  extends RpcTarget
+  implements ApplicationPointMutationJournalRpcMethodsV1
+{
+  constructor(
+    private readonly state: ApplicationPointMutationJournalRpcStateV1,
+  ) {
+    super();
+  }
+
+  revalidate(): Promise<void> {
+    return this.state.revalidate();
+  }
+
+  readPointDocument(
+    tableName: unknown,
+    documentId: unknown,
+  ): Promise<CanonicalFlarexRuntimeValueV1 | null> {
+    return this.state.readPointDocument(tableName, documentId);
+  }
+
+  queryIndexRange(
+    tableName: unknown,
+    indexDescriptor: unknown,
+    bounds: unknown,
+    limit: unknown,
+  ): Promise<Readonly<{
+    readonly documents: ReadonlyArray<CanonicalFlarexRuntimeValueV1>;
+    readonly isDone: boolean;
+  }>> {
+    return this.state.queryIndexRange(
+      tableName,
+      indexDescriptor,
+      bounds,
+      limit,
+    );
+  }
+
+  insertPointDocument(
+    tableName: unknown,
+    value: unknown,
+  ): Promise<AppDocumentIdV1> {
+    return this.state.insertPointDocument(tableName, value);
+  }
+
+  patchPointDocument(
+    documentId: unknown,
+    value: unknown,
+  ): Promise<void> {
+    return this.state.patchPointDocument(documentId, value);
+  }
+
+  replacePointDocument(
+    documentId: unknown,
+    value: unknown,
+  ): Promise<void> {
+    return this.state.replacePointDocument(documentId, value);
+  }
+
+  deletePointDocument(documentId: unknown): Promise<void> {
+    return this.state.deletePointDocument(documentId);
+  }
+}
+
+class ApplicationPointMutationJournalRpcStateV1 {
+  readonly #operationGate = Semaphore.makeUnsafe(1);
+  readonly #tableCapabilities = new Map<
+    SchemaManifestAppTableName,
+    PointMutationJournalTableV1
+  >();
+  readonly #indexCapabilities = new Map<string, PointMutationJournalIndexV1>();
+  #nextSequence = 0n;
+  #terminalCause:
+    | Cause.Cause<ApplicationPointMutationJournalRpcBoundaryV1Error>
+    | undefined;
+
+  constructor(
+    private readonly session: PointMutationJournalRpcSessionStateV1<
+      ApplicationPointMutationJournalRpcBoundaryV1Error
+    >,
+    private readonly bindings:
+      CapturedApplicationPointMutationJournalBindingsV1,
+  ) {}
+
+  revalidate(): Promise<void> {
+    // The exact attempt was reloaded immediately before the bound journal was
+    // opened. This handshake proves that this process-local RPC session still
+    // admits calls; every actual journal operation performs durable liveness
+    // and claim-fence revalidation in its existing owner.
+    return this.session.run(() => Effect.void);
+  }
+
+  readPointDocument(
+    tableName: unknown,
+    documentId: unknown,
+  ): Promise<CanonicalFlarexRuntimeValueV1 | null> {
+    return this.session.runPointOperation(() =>
+      this.runOperation((sequence, self) =>
+        Effect.gen(function* () {
+          const identity = yield* self.documentIdentity(documentId, tableName);
+          const table = yield* self.table(tableName);
+          const outcome = yield* self.session.journal.runPointOperation(
+            table,
+            Object.freeze({
+              kind: "get" as const,
+              syscallSequence: sequence,
+              documentId: identity.id,
+            }),
+          ).pipe(Effect.flatMap(projectPointMutationJournalRpcOutcomeV1));
+          switch (outcome.kind) {
+            case "missing":
+              return null;
+            case "present":
+              return outcome.document;
+            case "inserted":
+            case "unit":
+              return yield* self.unexpectedOutcome();
+          }
+        })
+      )
+    );
+  }
+
+  queryIndexRange(
+    tableName: unknown,
+    indexDescriptor: unknown,
+    bounds: unknown,
+    limit: unknown,
+  ): Promise<Readonly<{
+    readonly documents: ReadonlyArray<CanonicalFlarexRuntimeValueV1>;
+    readonly isDone: boolean;
+  }>> {
+    return this.session.run(() =>
+      this.runOperation((sequence, self) =>
+        Effect.gen(function* () {
+          const index = yield* self.index(tableName, indexDescriptor);
+          const outcome = yield* self.session.journal.runIndexedQuery(
+            index,
+            Object.freeze({
+              kind: "indexRange" as const,
+              syscallSequence: sequence,
+              bounds,
+              limit,
+            }),
+          ).pipe(Effect.flatMap(
+            projectPointMutationJournalIndexedQueryRpcOutcomeV1,
+          ));
+          return Object.freeze({
+            documents: outcome.documents,
+            isDone: outcome.isDone,
+          });
+        })
+      )
+    );
+  }
+
+  insertPointDocument(
+    tableName: unknown,
+    value: unknown,
+  ): Promise<AppDocumentIdV1> {
+    return this.session.runPointOperation(() =>
+      this.runOperation((sequence, self) =>
+        Effect.gen(function* () {
+          const table = yield* self.table(tableName);
+          const outcome = yield* self.session.journal.runPointOperation(
+            table,
+            Object.freeze({
+              kind: "insert" as const,
+              syscallSequence: sequence,
+              fields: value,
+            }),
+          ).pipe(Effect.flatMap(projectPointMutationJournalRpcOutcomeV1));
+          switch (outcome.kind) {
+            case "inserted": {
+              const identity = yield* self.documentIdentity(
+                outcome.documentId,
+                tableName,
+              );
+              return identity.id;
+            }
+            case "missing":
+            case "present":
+            case "unit":
+              return yield* self.unexpectedOutcome();
+          }
+        })
+      )
+    );
+  }
+
+  patchPointDocument(
+    documentId: unknown,
+    value: unknown,
+  ): Promise<void> {
+    return this.writeExistingDocument("patch", documentId, value);
+  }
+
+  replacePointDocument(
+    documentId: unknown,
+    value: unknown,
+  ): Promise<void> {
+    return this.writeExistingDocument("replace", documentId, value);
+  }
+
+  deletePointDocument(documentId: unknown): Promise<void> {
+    return this.writeExistingDocument("delete", documentId, undefined);
+  }
+
+  private writeExistingDocument(
+    kind: "patch" | "replace" | "delete",
+    documentId: unknown,
+    value: unknown,
+  ): Promise<void> {
+    return this.session.runPointOperation(() =>
+      this.runOperation((sequence, self) =>
+        Effect.gen(function* () {
+          const identity = yield* self.documentIdentity(documentId);
+          const tableName = self.bindings.byId.get(identity.tableId);
+          if (tableName === undefined) {
+            return yield* Effect.fail(
+              new ApplicationPointMutationJournalProjectionV1Error({
+                reason: "unknownTable",
+              }),
+            );
+          }
+          const table = yield* self.table(tableName);
+          const operation = kind === "delete"
+            ? Object.freeze({
+                kind,
+                syscallSequence: sequence,
+                documentId: identity.id,
+              })
+            : kind === "patch"
+            ? Object.freeze({
+                kind,
+                syscallSequence: sequence,
+                documentId: identity.id,
+                patch: value,
+              })
+            : Object.freeze({
+                kind,
+                syscallSequence: sequence,
+                documentId: identity.id,
+                fields: value,
+              });
+          const outcome = yield* self.session.journal.runPointOperation(
+            table,
+            operation,
+          ).pipe(Effect.flatMap(projectPointMutationJournalRpcOutcomeV1));
+          return outcome.kind === "unit" && outcome.operation === kind
+            ? undefined
+            : yield* self.unexpectedOutcome();
+        })
+      )
+    );
+  }
+
+  private readonly runOperation = Effect.fn(
+    "ApplicationPointMutationJournalRpc.runOperation",
+  )(<A>(
+    operation: (
+      sequence: CommitSyscallSequenceV1,
+      self: ApplicationPointMutationJournalRpcStateV1,
+    ) => Effect.Effect<A, ApplicationPointMutationJournalRpcBoundaryV1Error>,
+  ): Effect.Effect<A, ApplicationPointMutationJournalRpcBoundaryV1Error> => {
+    const self = this;
+    return this.#operationGate.withPermit(Effect.gen(function* () {
+      if (self.#terminalCause !== undefined) {
+        return yield* Effect.failCause(self.#terminalCause);
+      }
+      const sequence = CommitSyscallSequenceV1Schema.make(
+        self.#nextSequence + 1n,
+      );
+      const exit = yield* operation(sequence, self).pipe(Effect.exit);
+      if (Exit.isSuccess(exit)) {
+        self.#nextSequence = sequence;
+        return exit.value;
+      }
+      if (!isOnlyDocumentValidationFailure(exit.cause)) {
+        self.#terminalCause = exit.cause;
+      }
+      return yield* Effect.failCause(exit.cause);
+    }));
+  });
+
+  private readonly table = Effect.fn(
+    "ApplicationPointMutationJournalRpc.resolveTable",
+  )((input: unknown): Effect.Effect<
+    PointMutationJournalTableV1,
+    ApplicationPointMutationJournalRpcBoundaryV1Error
+  > => {
+    const self = this;
+    return Effect.gen(function* () {
+      const tableName = yield* Effect.fromResult(
+        decodeTableNameResult(input),
+      ).pipe(Effect.mapError(cause =>
+        new ApplicationPointMutationJournalProjectionV1Error({
+          reason: "unknownTable",
+          cause,
+        })
+      ));
+      if (!self.bindings.byName.has(tableName)) {
+        return yield* Effect.fail(
+          new ApplicationPointMutationJournalProjectionV1Error({
+            reason: "unknownTable",
+          }),
+        );
+      }
+      const existing = self.#tableCapabilities.get(tableName);
+      if (existing !== undefined) return existing;
+      const table = yield* self.session.journal.resolvePointTable(tableName);
+      self.#tableCapabilities.set(tableName, table);
+      return table;
+    });
+  });
+
+  private readonly index = Effect.fn(
+    "ApplicationPointMutationJournalRpc.resolveIndex",
+  )((
+    tableInput: unknown,
+    indexDescriptor: unknown,
+  ): Effect.Effect<
+    PointMutationJournalIndexV1,
+    ApplicationPointMutationJournalRpcBoundaryV1Error
+  > => {
+    const self = this;
+    return Effect.gen(function* () {
+      const table = yield* self.table(tableInput);
+      const tableName = yield* Effect.fromResult(decodeTableNameResult(
+        tableInput,
+      )).pipe(Effect.mapError(cause =>
+        new ApplicationPointMutationJournalProjectionV1Error({
+          reason: "unknownTable",
+          cause,
+        })
+      ));
+      const descriptor = yield* Effect.fromResult(
+        decodeIndexDescriptorResult(indexDescriptor),
+      ).pipe(Effect.mapError(cause =>
+        new ApplicationPointMutationJournalProjectionV1Error({
+          reason: "invalidIndexDescriptor",
+          cause,
+        })
+      ));
+      const key = `${tableName}\u0000${descriptor}`;
+      const existing = self.#indexCapabilities.get(key);
+      if (existing !== undefined) return existing;
+      const index = yield* self.session.journal.resolveDeveloperIndex(
+        table,
+        descriptor,
+      );
+      self.#indexCapabilities.set(key, index);
+      return index;
+    });
+  });
+
+  private documentIdentity(
+    input: unknown,
+    expectedTableInput?: unknown,
+  ): Effect.Effect<
+    AppDocumentIdentityV1,
+    ApplicationPointMutationJournalProjectionV1Error
+  > {
+    return Effect.fromResult(decodeAppDocumentIdentityV1Result(input)).pipe(
+      Effect.mapError(cause =>
+        new ApplicationPointMutationJournalProjectionV1Error({
+          reason: "invalidDocumentId",
+          cause,
+        })
+      ),
+      Effect.flatMap(identity => {
+        if (expectedTableInput === undefined) return Effect.succeed(identity);
+        return Effect.fromResult(decodeTableNameResult(expectedTableInput)).pipe(
+          Effect.mapError(cause =>
+            new ApplicationPointMutationJournalProjectionV1Error({
+              reason: "unknownTable",
+              cause,
+            })
+          ),
+          Effect.flatMap(tableName =>
+            this.bindings.byName.get(tableName) === identity.tableId
+              ? Effect.succeed(identity)
+              : Effect.fail(
+                new ApplicationPointMutationJournalProjectionV1Error({
+                  reason: "documentTableMismatch",
+                }),
+              )
+          ),
+        );
+      }),
+    );
+  }
+
+  private unexpectedOutcome(): Effect.Effect<
+    never,
+    ApplicationPointMutationJournalProjectionV1Error
+  > {
+    return Effect.fail(new ApplicationPointMutationJournalProjectionV1Error({
+      reason: "unexpectedOutcome",
+    }));
+  }
+}
+
+function isOnlyDocumentValidationFailure(
+  cause: Cause.Cause<ApplicationPointMutationJournalRpcBoundaryV1Error>,
+): boolean {
+  return cause.reasons.length === 1 &&
+    Cause.isFailReason(cause.reasons[0]) &&
+    cause.reasons[0].error instanceof
+      ApplicationRevisionSyscallDocumentValidationV1Error;
 }
 
 const projectPointMutationJournalRpcOutcomeV1 = Effect.fn(
@@ -235,12 +837,14 @@ const projectPointMutationJournalIndexedQueryRpcOutcomeV1 = Effect.fn(
   }
 });
 
-class PointMutationJournalRpcSessionStateV1 {
+class PointMutationJournalRpcSessionStateV1<
+  Error extends ApplicationPointMutationJournalRpcBoundaryV1Error,
+> {
   readonly journal: PointMutationOccBoundJournalV1;
   readonly #admitted = new Set<Promise<void>>();
   readonly #failureCauses = new Map<
     number,
-    Cause.Cause<PointMutationJournalRpcBoundaryV1Error>
+    Cause.Cause<Error>
   >();
   #accepting = true;
   #nextAdmission = 0;
@@ -253,7 +857,7 @@ class PointMutationJournalRpcSessionStateV1 {
   run<A>(
     makeEffect: () => Effect.Effect<
       A,
-      PointMutationJournalRpcBoundaryV1Error,
+      Error,
       never
     >,
   ): Promise<A> {
@@ -263,7 +867,7 @@ class PointMutationJournalRpcSessionStateV1 {
   runPointOperation<A>(
     makeEffect: () => Effect.Effect<
       A,
-      PointMutationJournalRpcBoundaryV1Error,
+      Error,
       never
     >,
   ): Promise<A> {
@@ -273,7 +877,7 @@ class PointMutationJournalRpcSessionStateV1 {
   #run<A>(
     makeEffect: () => Effect.Effect<
       A,
-      PointMutationJournalRpcBoundaryV1Error,
+      Error,
       never
     >,
     recoverDocumentValidation: boolean,
@@ -332,11 +936,11 @@ class PointMutationJournalRpcSessionStateV1 {
   }
 
   firstCause():
-    | Cause.Cause<PointMutationJournalRpcBoundaryV1Error>
+    | Cause.Cause<Error>
     | undefined {
     let earliestAdmission: number | undefined;
     let earliestCause:
-      | Cause.Cause<PointMutationJournalRpcBoundaryV1Error>
+      | Cause.Cause<Error>
       | undefined;
     for (const [admission, cause] of this.#failureCauses) {
       if (
@@ -352,7 +956,7 @@ class PointMutationJournalRpcSessionStateV1 {
 
   #retainCause(
     admission: number,
-    cause: Cause.Cause<PointMutationJournalRpcBoundaryV1Error>,
+    cause: Cause.Cause<Error>,
   ): void {
     this.#failureCauses.set(admission, cause);
   }

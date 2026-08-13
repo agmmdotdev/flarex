@@ -96,12 +96,11 @@ import type {
   PointMutationSessionAttemptDispositionV1,
 } from "./pointMutationSessionAttemptDisposition";
 import type {
-  PointMutationJournalBoundaryV1Error,
   PointMutationJournalTableV1,
   PointMutationJournalV1,
 } from "./pointMutationJournal";
 import type {
-  PointMutationJournalResultRejectedV1Error,
+  ApplicationPointMutationJournalRpcBoundaryV1Error,
 } from "./pointMutationJournalRpc";
 import type {
   PointMutationExactRuntimeRunnerHostV1Error,
@@ -468,8 +467,7 @@ export interface PointMutationOccExecutionContextFactoryV1 {
 export type PointMutationOccRuntimeNeutralRunnerV1Error =
   | PointMutationOccApplicationErrorV1
   | PointMutationOccUserCodeV1Error
-  | PointMutationJournalBoundaryV1Error
-  | PointMutationJournalResultRejectedV1Error
+  | ApplicationPointMutationJournalRpcBoundaryV1Error
   | PointMutationExactRuntimeRunnerHostV1Error;
 
 export interface PointMutationOccRuntimeNeutralRunnerV1 {
