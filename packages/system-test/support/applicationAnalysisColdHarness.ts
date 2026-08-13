@@ -78,6 +78,10 @@ const PROJECT_ID = "project_aa_r7_cold_analysis";
 const UPLOAD_ID = "aa070000-0000-4000-8000-000000000001";
 const REQUEST_KEY = "request:aa-r7:cold-analysis";
 const SOURCE = "export async function save() { return { ok: true }; }\n";
+const FORBIDDEN_SOURCE = [
+  'await fetch("https://example.com/");',
+  SOURCE,
+].join("\n");
 const CEILINGS = Object.freeze({
   calls: 256,
   blockBytes: 134_217_728,
@@ -134,6 +138,9 @@ function proofPromise<A>(
 }
 
 type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
+type EnsureScope = (
+  randomUuid: () => string,
+) => Promise<Readonly<{ readonly scope: Readonly<{ readonly scopeId: string }> }>>;
 
 export interface ApplicationAnalysisColdProof {
   readonly lane: "pglite" | "postgres";
@@ -150,6 +157,21 @@ export interface ApplicationAnalysisColdProof {
   readonly missingObjectRejected: true;
   readonly digestCorruptionRejected: true;
   readonly lengthCorruptionRejected: true;
+  readonly postgresVersion?: string;
+}
+
+export interface ApplicationAnalysisNegativeProof {
+  readonly lane: "pglite" | "postgres";
+  readonly forbiddenImportRejected: true;
+  readonly forbiddenColdLoads: 2;
+  readonly forbiddenReplayColdLoads: 0;
+  readonly forbiddenReplayR2Reads: 0;
+  readonly nondeterminismRejected: true;
+  readonly nondeterminismColdLoads: 2;
+  readonly nondeterminismReplayColdLoads: 0;
+  readonly nondeterminismReplayR2Reads: 0;
+  readonly durableAnalysisCount: 2;
+  readonly durableRevisionCount: 0;
   readonly postgresVersion?: string;
 }
 
@@ -188,72 +210,51 @@ export async function proveApplicationAnalysisColdPostgres(
   }));
 }
 
+export async function proveApplicationAnalysisNegativePGlite(
+  persistence: PGliteFlarexPersistence,
+): Promise<ApplicationAnalysisNegativeProof> {
+  return runSystemTestEffectV1(proveApplicationAnalysisNegative(
+    "pglite",
+    persistence,
+    async randomUuid => createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      { physicalLocator: LOCATOR, randomUuid },
+    ).ensure({ deploymentId: DEPLOYMENT_ID, projectId: PROJECT_ID }),
+  ));
+}
+
+export async function proveApplicationAnalysisNegativePostgres(
+  persistence: PostgresFlarexPersistence,
+): Promise<ApplicationAnalysisNegativeProof> {
+  return runSystemTestEffectV1(Effect.gen(function* () {
+    const proof = yield* proveApplicationAnalysisNegative(
+      "postgres",
+      persistence,
+      async randomUuid => createPostgresSharedScopeAuthorityProvisioner(
+        persistence,
+        { physicalLocator: LOCATOR, randomUuid },
+      ).ensure({ deploymentId: DEPLOYMENT_ID, projectId: PROJECT_ID }),
+    );
+    const version = yield* proofPromise("loadPostgresVersion", () =>
+      persistence.query<{ version: string }>("select version() as version"),
+    );
+    return Object.freeze({
+      ...proof,
+      postgresVersion: version.rows[0]?.version ?? "missing",
+    });
+  }));
+}
+
 const proveApplicationAnalysisCold = Effect.fn("AAR7.proveColdAnalysis")(
   function* (
   lane: "pglite" | "postgres",
   persistence: Persistence,
-  ensureScope: (
-    randomUuid: () => string,
-  ) => Promise<Readonly<{ readonly scope: Readonly<{ readonly scopeId: string }> }>>,
+  ensureScope: EnsureScope,
   ) {
-  if (globalThis.crypto === undefined) {
-    Object.defineProperty(globalThis, "crypto", {
-      configurable: true,
-      value: webcrypto,
-    });
-  }
-  const provisioned = yield* proofPromise(
-    "ensureScope",
-    () => ensureScope(uuidSequence(1, 2)),
-  );
-  const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
-  yield* proofPromise("selectStorageGeneration", () => persistence.query(
-    `update fx_system_scope_clock
-        set storage_generation = 'flarexdb_v1'
-      where scope_id = $1`,
-    [scopeId],
-  ));
-  const clock = yield* proofPromise(
-    "loadScopeClock",
-    () => persistence.getScopeClock(scopeId),
-  );
-  if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
-    return yield* proofFailure(
-      "loadScopeClock",
-      "AA-R7 cold-analysis scope is missing.",
-    );
-  }
-  const authority: ApplicationAnalysisAuthority = Object.freeze({
-    scopeId,
-    storageGeneration: clock.storageGeneration,
-    storageGenerationFence: clock.storageGenerationFence,
-    epoch: clock.epoch,
-  });
-  const definition = yield* Effect.fromResult(
-    prepareStandardApplicationDefinitionV1(definitionInput()),
-  );
-  const source = yield* Effect.fromResult(
-    produceStandardApplicationSource(definition),
-  );
-  const bucket = new MemorySourceArtifactBucket();
-  const attempts = memoryAttemptStore();
-  const sha256 = makeLiveSourceArtifactV2Sha256();
-  const upload = makeSourceArtifactV2UploadCore({
-    deploymentId: DEPLOYMENT_ID,
-    attempts,
-    objects: makeSourceArtifactV2R2Store(bucket, sha256),
-    sha256,
-  });
-  const finalized = yield* uploadSource(upload, source.modules);
-  const root = finalized.completedRootDigest;
-  if (root === null) {
-    return yield* proofFailure(
-      "uploadSource",
-      "AA-R7 source upload omitted its root.",
-    );
-  }
-
-  const controlDb: FlarexMetadataDatabase = persistence.drizzle;
+  const laneState = yield* prepareAnalysisLane(persistence, ensureScope);
+  const { authority, controlDb } = laneState;
+  const uploaded = yield* uploadApplicationSource(SOURCE, UPLOAD_ID);
+  const { bucket, root } = uploaded;
   const repository = makeApplicationAnalysisRepository(
     controlDb,
     { randomUuid: uuidCounter(10) },
@@ -409,14 +410,85 @@ const proveApplicationAnalysisCold = Effect.fn("AAR7.proveColdAnalysis")(
   },
 );
 
+const prepareAnalysisLane = Effect.fn("AAR7.prepareAnalysisLane")(function* (
+  persistence: Persistence,
+  ensureScope: EnsureScope,
+) {
+  if (globalThis.crypto === undefined) {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: webcrypto,
+    });
+  }
+  const provisioned = yield* proofPromise(
+    "ensureScope",
+    () => ensureScope(uuidSequence(1, 2)),
+  );
+  const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
+  yield* proofPromise("selectStorageGeneration", () => persistence.query(
+    `update fx_system_scope_clock
+        set storage_generation = 'flarexdb_v1'
+      where scope_id = $1`,
+    [scopeId],
+  ));
+  const clock = yield* proofPromise(
+    "loadScopeClock",
+    () => persistence.getScopeClock(scopeId),
+  );
+  if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
+    return yield* proofFailure(
+      "loadScopeClock",
+      "AA-R7 cold-analysis scope is missing.",
+    );
+  }
+  const authority: ApplicationAnalysisAuthority = Object.freeze({
+    scopeId,
+    storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence,
+    epoch: clock.epoch,
+  });
+  const controlDb: FlarexMetadataDatabase = persistence.drizzle;
+  return Object.freeze({ authority, controlDb });
+});
+
+const uploadApplicationSource = Effect.fn("AAR7.uploadApplicationSource")(
+  function* (sourceText: string, uploadId: string) {
+    const definition = yield* Effect.fromResult(
+      prepareStandardApplicationDefinitionV1(definitionInput(sourceText)),
+    );
+    const source = yield* Effect.fromResult(
+      produceStandardApplicationSource(definition),
+    );
+    const bucket = new MemorySourceArtifactBucket();
+    const sha256 = makeLiveSourceArtifactV2Sha256();
+    const upload = makeSourceArtifactV2UploadCore({
+      deploymentId: DEPLOYMENT_ID,
+      attempts: memoryAttemptStore(),
+      objects: makeSourceArtifactV2R2Store(bucket, sha256),
+      sha256,
+    });
+    const finalized = yield* uploadSource(upload, source.modules, uploadId);
+    const root = finalized.completedRootDigest;
+    if (root === null) {
+      return yield* proofFailure(
+        "uploadSource",
+        "AA-R7 source upload omitted its root.",
+      );
+    }
+    return Object.freeze({ bucket, root });
+  },
+);
+
 const runAnalysisPhase = Effect.fn("AAR7.runAnalysisPhase")(function* (
   bucket: MemorySourceArtifactBucket,
   authority: ApplicationAnalysisAuthority,
   repository: ApplicationAnalysisRepository,
   input: StandardApplicationAnalysisInput,
+  loaderFactory: () => MiniflareApplicationAnalysisLoader = () =>
+    new MiniflareApplicationAnalysisLoader(),
 ) {
   return yield* Effect.acquireUseRelease(
-    Effect.sync(() => new MiniflareApplicationAnalysisLoader()),
+    Effect.sync(loaderFactory),
     loader => analyzeStandardApplication(
       input,
       makeApplicationAnalysisSystem({
@@ -430,6 +502,136 @@ const runAnalysisPhase = Effect.fn("AAR7.runAnalysisPhase")(function* (
     }))),
     loader => proofPromise("disposeAnalyzerLoader", () => loader.dispose()),
   );
+});
+
+const proveApplicationAnalysisNegative = Effect.fn(
+  "AAR7.proveNegativeAnalysis",
+)(function* (
+  lane: "pglite" | "postgres",
+  persistence: Persistence,
+  ensureScope: EnsureScope,
+) {
+  const { authority, controlDb } = yield* prepareAnalysisLane(
+    persistence,
+    ensureScope,
+  );
+  const repository = makeApplicationAnalysisRepository(
+    controlDb,
+    { randomUuid: uuidCounter(200) },
+  );
+
+  const forbiddenUpload = yield* uploadApplicationSource(
+    FORBIDDEN_SOURCE,
+    "aa070000-0000-4000-8000-000000000002",
+  );
+  const forbidden = yield* runAnalysisPhase(
+    forbiddenUpload.bucket,
+    authority,
+    repository,
+    {
+      requestKey: `${REQUEST_KEY}:forbidden-import`,
+      sourceArtifactRootSha256: forbiddenUpload.root,
+    },
+  );
+  const forbiddenReplayReadCount = forbiddenUpload.bucket.readCount;
+  const forbiddenReplay = yield* runAnalysisPhase(
+    forbiddenUpload.bucket,
+    authority,
+    makeApplicationAnalysisRepository(
+      controlDb,
+      { randomUuid: uuidCounter(300) },
+    ),
+    {
+      requestKey: `${REQUEST_KEY}:forbidden-import`,
+      sourceArtifactRootSha256: forbiddenUpload.root,
+    },
+  );
+  const forbiddenReplayR2Reads =
+    forbiddenUpload.bucket.readCount - forbiddenReplayReadCount;
+  yield* requireExactRejectedReplay(
+    forbidden.analysis,
+    forbiddenReplay.analysis,
+  );
+
+  const nondeterminismUpload = yield* uploadApplicationSource(
+    SOURCE,
+    "aa070000-0000-4000-8000-000000000003",
+  );
+  const nondeterminism = yield* runAnalysisPhase(
+    nondeterminismUpload.bucket,
+    authority,
+    repository,
+    {
+      requestKey: `${REQUEST_KEY}:nondeterminism`,
+      sourceArtifactRootSha256: nondeterminismUpload.root,
+    },
+    () => new MiniflareApplicationAnalysisLoader((loadOrdinal, value) =>
+      loadOrdinal === 2
+        ? Object.freeze({
+            kind: "rejected",
+            failureCode: "invalid_schema",
+            detail: "Injected cold-load outcome mismatch.",
+            diagnostics: Object.freeze([]),
+          })
+        : value
+    ),
+  );
+  const nondeterminismReplayReadCount = nondeterminismUpload.bucket.readCount;
+  const nondeterminismReplay = yield* runAnalysisPhase(
+    nondeterminismUpload.bucket,
+    authority,
+    makeApplicationAnalysisRepository(
+      controlDb,
+      { randomUuid: uuidCounter(400) },
+    ),
+    {
+      requestKey: `${REQUEST_KEY}:nondeterminism`,
+      sourceArtifactRootSha256: nondeterminismUpload.root,
+    },
+  );
+  const nondeterminismReplayR2Reads =
+    nondeterminismUpload.bucket.readCount - nondeterminismReplayReadCount;
+  yield* requireExactRejectedReplay(
+    nondeterminism.analysis,
+    nondeterminismReplay.analysis,
+  );
+
+  const counts = yield* loadDurableCounts(persistence);
+  return Object.freeze({
+    lane,
+    forbiddenImportRejected: yield* Effect.fromResult(requireRejection(
+      forbidden.analysis,
+      "forbidden_import_effect",
+    )),
+    forbiddenColdLoads: yield* Effect.fromResult(
+      requireLiteral(forbidden.loads, 2),
+    ),
+    forbiddenReplayColdLoads: yield* Effect.fromResult(
+      requireLiteral(forbiddenReplay.loads, 0),
+    ),
+    forbiddenReplayR2Reads: yield* Effect.fromResult(
+      requireLiteral(forbiddenReplayR2Reads, 0),
+    ),
+    nondeterminismRejected: yield* Effect.fromResult(requireRejection(
+      nondeterminism.analysis,
+      "nondeterministic_registration",
+    )),
+    nondeterminismColdLoads: yield* Effect.fromResult(
+      requireLiteral(nondeterminism.loads, 2),
+    ),
+    nondeterminismReplayColdLoads: yield* Effect.fromResult(
+      requireLiteral(nondeterminismReplay.loads, 0),
+    ),
+    nondeterminismReplayR2Reads: yield* Effect.fromResult(
+      requireLiteral(nondeterminismReplayR2Reads, 0),
+    ),
+    durableAnalysisCount: yield* Effect.fromResult(
+      requireLiteral(Number(counts.analysis_count), 2),
+    ),
+    durableRevisionCount: yield* Effect.fromResult(
+      requireLiteral(Number(counts.revision_count), 0),
+    ),
+  });
 });
 
 const requireExactAnalyzedReplay = Effect.fn("AAR7.requireExactReplay")(
@@ -490,6 +692,53 @@ const requireDistinctRestart = Effect.fn("AAR7.requireDistinctRestart")(
   },
 );
 
+const requireExactRejectedReplay = Effect.fn("AAR7.requireExactRejectedReplay")(
+  function* (
+    first: StandardApplicationAnalysis,
+    replay: StandardApplicationAnalysis,
+  ) {
+    if (first.kind !== "rejected" || replay.kind !== "rejected") {
+      return yield* proofFailure(
+        "verifyRejectedReplay",
+        "AA-R7 rejected replay changed terminal status.",
+      );
+    }
+    const firstReceipt = yield* Effect.fromResult(
+      canonicalizeApplicationAnalysisReceiptV1(first.receipt),
+    );
+    const replayReceipt = yield* Effect.fromResult(
+      canonicalizeApplicationAnalysisReceiptV1(replay.receipt),
+    );
+    if (firstReceipt.canonicalText !== replayReceipt.canonicalText) {
+      return yield* proofFailure(
+        "verifyRejectedReplay",
+        "AA-R7 rejected replay changed terminal receipt identity.",
+      );
+    }
+  },
+);
+
+const loadDurableCounts = Effect.fn("AAR7.loadDurableCounts")(function* (
+  persistence: Persistence,
+) {
+  const counts = yield* proofPromise("loadDurableCounts", () =>
+    persistence.query<{
+      analysis_count: string;
+      revision_count: string;
+    }>(`select
+      (select count(*)::text from fx_system_application_analysis_v1) as analysis_count,
+      (select count(*)::text from fx_system_application_revision_v2) as revision_count`)
+  );
+  const count = counts.rows[0];
+  if (count === undefined) {
+    return yield* proofFailure(
+      "loadDurableCounts",
+      "AA-R7 durable counts are missing.",
+    );
+  }
+  return count;
+});
+
 function mutateSourcePayload(
   frame: Uint8Array,
 ): Result.Result<Uint8Array, ApplicationAnalysisColdProofError> {
@@ -508,7 +757,7 @@ function mutateSourcePayload(
 
 function hostCapabilities(
   bucket: MemorySourceArtifactBucket,
-  loader: MiniflareApplicationAnalysisLoader,
+  loader: WorkerLoader,
 ): ApplicationAnalysisHostCapabilities {
   return Object.freeze({
     source: makeApplicationAnalysisR2SourceReader(bucket),
@@ -519,16 +768,17 @@ function hostCapabilities(
 const uploadSource = Effect.fn("AAR7.uploadSource")(function* (
   core: SourceArtifactV2UploadCore,
   modules: ReadonlyArray<StandardApplicationSourceModule>,
+  uploadId: string,
 ) {
   let receipt = yield* core.beginUpload({
-    uploadId: UPLOAD_ID,
+    uploadId,
     commandId: "begin",
     ceilings: CEILINGS,
     admission: ADMISSION,
   });
   for (const [ordinal, module] of modules.entries()) {
     receipt = yield* core.beginModule({
-      uploadId: UPLOAD_ID,
+      uploadId,
       generation: receipt.generation,
       expectedFence: receipt.mutationFence,
       commandId: `module-${ordinal}-begin`,
@@ -538,7 +788,7 @@ const uploadSource = Effect.fn("AAR7.uploadSource")(function* (
       environment: "isolate",
     });
     receipt = yield* core.appendBlock({
-      uploadId: UPLOAD_ID,
+      uploadId,
       generation: receipt.generation,
       expectedFence: receipt.mutationFence,
       commandId: `module-${ordinal}-source`,
@@ -548,7 +798,7 @@ const uploadSource = Effect.fn("AAR7.uploadSource")(function* (
       bytes: module.sourceBytes,
     });
     receipt = yield* core.closeModule({
-      uploadId: UPLOAD_ID,
+      uploadId,
       generation: receipt.generation,
       expectedFence: receipt.mutationFence,
       commandId: `module-${ordinal}-close`,
@@ -556,7 +806,7 @@ const uploadSource = Effect.fn("AAR7.uploadSource")(function* (
     });
   }
   return yield* core.finalize({
-    uploadId: UPLOAD_ID,
+    uploadId,
     generation: receipt.generation,
     expectedFence: receipt.mutationFence,
     commandId: "finalize",
@@ -609,6 +859,11 @@ function memoryAttemptStore(): SourceArtifactV2AttemptStore {
 class MemorySourceArtifactBucket implements SourceArtifactV2R2Bucket {
   readonly #objects = new Map<string, Uint8Array>();
   readonly #reportedSizes = new Map<string, number>();
+  #readCount = 0;
+
+  get readCount(): number {
+    return this.#readCount;
+  }
 
   put(
     key: string,
@@ -621,6 +876,7 @@ class MemorySourceArtifactBucket implements SourceArtifactV2R2Bucket {
   }
 
   get(key: string): PromiseLike<Readonly<Record<string, unknown>> | null> {
+    this.#readCount += 1;
     const bytes = this.#objects.get(key);
     return Promise.resolve(bytes === undefined
       ? null
@@ -669,10 +925,20 @@ function storedObject(
   });
 }
 
+type ColdLoadResultTransform = (
+  loadOrdinal: number,
+  value: unknown,
+) => unknown;
+
 class MiniflareApplicationAnalysisLoader implements WorkerLoader {
   loads = 0;
   readonly #runtimes = new Set<Miniflare>();
   readonly #disposals: Array<Promise<void>> = [];
+
+  constructor(
+    private readonly transform: ColdLoadResultTransform = (_ordinal, value) =>
+      value,
+  ) {}
 
   get(): WorkerStub {
     throw new Error("AA-R7 cold analysis forbids cached Worker Loader state.");
@@ -680,6 +946,7 @@ class MiniflareApplicationAnalysisLoader implements WorkerLoader {
 
   load(code: WorkerLoaderWorkerCode): WorkerStub {
     this.loads += 1;
+    const loadOrdinal = this.loads;
     const runtime = new Miniflare({
       compatibilityDate: "2026-06-14",
       modules: true,
@@ -687,7 +954,12 @@ class MiniflareApplicationAnalysisLoader implements WorkerLoader {
       workerLoaders: { LOADER: {} },
     });
     this.#runtimes.add(runtime);
-    return new MiniflareWorkerStub(runtime, () => this.#release(runtime));
+    return new MiniflareWorkerStub(
+      runtime,
+      loadOrdinal,
+      this.transform,
+      () => this.#release(runtime),
+    );
   }
 
   async dispose(): Promise<void> {
@@ -708,6 +980,8 @@ class MiniflareApplicationAnalysisLoader implements WorkerLoader {
 class MiniflareWorkerStub implements WorkerStub {
   constructor(
     private readonly runtime: Miniflare,
+    private readonly loadOrdinal: number,
+    private readonly transform: ColdLoadResultTransform,
     private readonly released: () => void,
   ) {}
 
@@ -718,15 +992,21 @@ class MiniflareWorkerStub implements WorkerStub {
       throw new Error("AA-R7 requested an unexpected analyzer entrypoint.");
     }
     const runtime = this.runtime;
+    const loadOrdinal = this.loadOrdinal;
+    const transform = this.transform;
     const released = this.released;
     const entrypoint = {
       analyze: async () => {
         const response = await runtime.dispatchFetch("https://aa-r7.invalid/");
-        const value = await response.json();
+        const value = transform(loadOrdinal, await response.json());
         if (typeof value !== "object" || value === null) {
           throw new Error("AA-R7 analyzer returned a non-object RPC value.");
         }
-        return Object.defineProperty(value, Symbol.dispose, {
+        const result = Object.create(
+          null,
+          Object.getOwnPropertyDescriptors(value),
+        );
+        return Object.defineProperty(result, Symbol.dispose, {
           configurable: true,
           value: () => {
             released();
@@ -765,7 +1045,7 @@ function loaderBridgeSource(definition: WorkerLoaderWorkerCode): string {
 };`;
 }
 
-function definitionInput() {
+function definitionInput(sourceText = SOURCE) {
   return {
     programBudgetInput: {
       maximumModules: 1,
@@ -804,7 +1084,7 @@ function definitionInput() {
       modules: [{
         path: "recipes.js",
         roles: ["function", "execution"],
-        sourceBytes: new TextEncoder().encode(SOURCE),
+        sourceBytes: new TextEncoder().encode(sourceText),
         sourceMapBytes: null,
       }],
       functionEntries: [{
@@ -869,5 +1149,19 @@ function requireSourceRejection(
       result.receipt.status === "rejected" &&
       result.receipt.failureCode === "invalid_source_artifact" &&
       loaderCalls === 0,
+  );
+}
+
+function requireRejection(
+  result: StandardApplicationAnalysis,
+  failureCode: Extract<
+    StandardApplicationAnalysis,
+    { readonly kind: "rejected" }
+  >["receipt"]["failureCode"],
+): Result.Result<true, ApplicationAnalysisColdProofError> {
+  return requireTrue(
+    result.kind === "rejected" &&
+      result.receipt.status === "rejected" &&
+      result.receipt.failureCode === failureCode,
   );
 }

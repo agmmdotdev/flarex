@@ -2433,6 +2433,31 @@ rejection, point-query/internal-call/edge-action/task-binding composition, and
 the complete cross-capability vertical remain open. No production route or
 binding is enabled.
 
+#### AA-R7 durable analyzer negative checkpoint — 2026-08-13
+
+The next private system-test checkpoint runs two previously core/host-local
+negative classes through the finalized Source Artifact V2, immutable-R2,
+Worker Loader, Application Analysis system, and durable repository composition.
+Both PGlite and genuine PostgreSQL now prove that a real application module
+attempting import-time outbound fetch settles `forbidden_import_effect` after
+two fresh cold loads, and that two different cold-load outcomes settle
+`nondeterministic_registration`. Reconstructed repositories replay both exact
+terminal rejection receipts with zero further R2 or Worker work, and neither
+rejection creates an inactive Application revision.
+
+The preflight also found that the private Application Analysis system currently
+composes the inner typed host Effect directly, while the accepted 30-second
+deadline and timeout-to-terminal-rejection adapter remains only on the outer
+host Promise entrypoint. Therefore timeout/interruption cannot yet be claimed
+through this durable system without choosing one exact deadline owner and
+preserving settlement after cancellation. This checkpoint records that owner
+gap and deliberately leaves timeout/interruption open; it does not duplicate
+the timeout wrapper in the system test or silently change the host contract.
+Manifest/receipt corruption, stale authority, wrong-runtime/capability
+rejection, the deadline-owner correction, point-query/internal-call/
+edge-action/task-binding composition, and the complete cross-capability
+vertical remain open. No production route or binding is enabled.
+
 ### `AA-R8` — displaced-system removal and migration stop
 
 After all new consumers and proofs are green:

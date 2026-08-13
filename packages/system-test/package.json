@@ -46,6 +46,8 @@
     "test:aa-r7-mutation:postgres": "vitest run test/integration/applicationMutationStoredAttempt.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:aa-r7-analysis:pglite": "vitest run test/integration/applicationAnalysisCold.test.ts --no-file-parallelism --testTimeout=480000",
     "test:aa-r7-analysis:postgres": "vitest run test/integration/applicationAnalysisCold.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:aa-r7-analysis-negative:pglite": "vitest run test/integration/applicationAnalysisNegative.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:aa-r7-analysis-negative:postgres": "vitest run test/integration/applicationAnalysisNegative.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:dte06-c3:pglite": "vitest run test/integration/dte06C3ConnectedDelivery.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte06-c3:postgres": "vitest run test/integration/dte06C3ConnectedDelivery.postgres.test.ts --no-file-parallelism --testTimeout=120000"
   },
