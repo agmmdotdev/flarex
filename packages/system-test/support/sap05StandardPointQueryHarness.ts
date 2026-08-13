@@ -31,8 +31,8 @@ import {
   type ApplicationPointQuerySystemLiveV1,
 } from "@flarex/standard-application-invocation/internal/system-query-v1";
 import {
-  makeStandardApplicationActiveRevisionReaderV1Layer,
-  StandardApplicationActiveRevisionReaderV1,
+  makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
+  LegacyStandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
 import {
   FSV05_SUPPORTED_LOCATOR,
@@ -97,7 +97,7 @@ const TARGET_BUDGET = Object.freeze({
 const invokeLegacySap05PointQueryV1 = Effect.fn(
   "Sap05LegacyPointQuery.invokeV1",
 )(function* (functionPath: string, args: unknown) {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const reader = yield* LegacyStandardApplicationActiveRevisionReaderV1;
   const active = yield* reader.read;
   return yield* invokeApplicationPointQueryV1(
     active.selection,
@@ -171,13 +171,13 @@ export async function proveSap05StandardPointQueryV1(
   );
   const layer = Layer.merge(
     makeApplicationPointQuerySystemV1Layer(system),
-    makeStandardApplicationActiveRevisionReaderV1Layer(ready.context),
+    makeLegacyStandardApplicationActiveRevisionReaderV1Layer(ready.context),
   );
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
     | ApplicationPointQuerySystemV1
-    | StandardApplicationActiveRevisionReaderV1
+    | LegacyStandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(layer))));
 

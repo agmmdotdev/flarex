@@ -1,6 +1,9 @@
+import { applicationFunctionEntryPublicationFrameV1 } from
+  "@flarex/analysis/internal/application-publication-v1";
 import {
   bytesEqualFullScan,
   copyBytes,
+  encodeBytesToLowercaseHex,
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
@@ -25,9 +28,20 @@ import {
 } from "flarex-protocol/internal/application-action-authority-v1";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
+import {
+  ApplicationActivationError,
+  claimApplicationActiveSelection,
+  validateApplicationActiveSelectionInTransaction,
+  type ApplicationActiveSelection,
+  type ApplicationActiveSelectionBasis,
+} from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
-import { getScopeClock } from "./scopeClock";
+import {
+  getScopeClock,
+  lockScopeClockForUpdateInTransactionEffect,
+  type ScopeClockRecord,
+} from "./scopeClock";
 import {
   fxSystemApplicationActionInvocationsV1,
   fxSystemExternalEffectAttemptsV1,
@@ -111,6 +125,7 @@ export interface AdmitApplicationAuthorityActionInvocationInput {
     ApplicationActionInvocationRequestFrameV2
   >;
   readonly executionAuthority: CanonicalApplicationActionExecutionAuthorityV1;
+  readonly selection: ApplicationActiveSelection;
   readonly invocationId: string;
 }
 
@@ -417,6 +432,14 @@ export const admitApplicationAuthorityActionInvocation = Effect.fn(
         field: "executionAuthority",
       })
     ));
+  const selection = yield* Effect.fromResult(
+    claimApplicationActiveSelection(input.selection).pipe(
+      Result.mapError(() => new ApplicationActionAuthorityInputV1Error({
+        operation: "admitApplication",
+        field: "selection",
+      })),
+    ),
+  );
   const request = decodedRequest.frame;
   if (
     request.scopeId !== context.authority.scopeId ||
@@ -443,7 +466,37 @@ export const admitApplicationAuthorityActionInvocation = Effect.fn(
     context.target,
     "admitApplication",
     tx => Effect.gen(function* () {
-      yield* requireCurrentAuthority(tx, context);
+      const clock = yield* requireCurrentAuthorityAndReadClock(tx, context);
+      const existing = yield* loadInvocationIfPresentForUpdate(
+        tx,
+        context.authority.scopeId,
+        request.requestKey,
+      );
+      if (existing !== undefined) {
+        if (
+          !bytesEqualFullScan(
+            existing.requestIdentitySha256,
+            requestIdentitySha256,
+          )
+        ) {
+          return yield* new ApplicationActionRequestKeyConflictV1Error({
+            requestKey: request.requestKey,
+          });
+        }
+        return Object.freeze({
+          disposition: "replayed" as const,
+          invocation: yield* decodeApplicationInvocationRow(existing),
+        });
+      }
+      yield* requireApplicationSelectionCurrent(
+        tx,
+        input.selection,
+        selection,
+        executionAuthority,
+        clock,
+        context.authority,
+        context.sha256,
+      );
       const inserted = yield* query(
         tx.insert(fxSystemApplicationActionInvocationsV1).values({
           scopeId: context.authority.scopeId,
@@ -477,14 +530,14 @@ export const admitApplicationAuthorityActionInvocation = Effect.fn(
           invocation: yield* decodeApplicationInvocationRow(inserted[0]),
         });
       }
-      const existing = yield* loadInvocationForUpdate(
+      const concurrent = yield* loadInvocationForUpdate(
         tx,
         context.authority.scopeId,
         request.requestKey,
       );
       if (
         !bytesEqualFullScan(
-          existing.requestIdentitySha256,
+          concurrent.requestIdentitySha256,
           requestIdentitySha256,
         )
       ) {
@@ -494,11 +547,113 @@ export const admitApplicationAuthorityActionInvocation = Effect.fn(
       }
       return Object.freeze({
         disposition: "replayed" as const,
-        invocation: yield* decodeApplicationInvocationRow(existing),
+        invocation: yield* decodeApplicationInvocationRow(concurrent),
       });
     }),
   );
 });
+
+const requireApplicationSelectionCurrent = Effect.fn(
+  "ApplicationActionAuthority.requireApplicationSelectionCurrent",
+)(function* <HashError>(
+  tx: AppRowTransaction,
+  selectionCapability: ApplicationActiveSelection,
+  selection: ApplicationActiveSelectionBasis,
+  executionAuthority: CanonicalApplicationActionExecutionAuthorityV1,
+  clock: ScopeClockRecord,
+  currentAuthority: TrustedScopeAuthority,
+  sha256: ApplicationActionAuthorityContextV1<HashError>["sha256"],
+) {
+  const authority = executionAuthority.authority;
+  const target = authority.runtimeTarget;
+  const fn = selection.manifest.functions.find(candidate =>
+    candidate.path === target.function.path
+  );
+  if (fn === undefined || fn.kind !== "action" || fn.visibility !== "public") {
+    return yield* new ApplicationActionAuthorityStaleV1Error({ reason: "scope" });
+  }
+  const entryBytes = yield* Effect.fromResult(
+    applicationFunctionEntryPublicationFrameV1(fn).pipe(Result.mapError(() =>
+      new ApplicationActionAuthorityInputV1Error({
+        operation: "admitApplication",
+        field: "executionAuthority",
+      })
+    )),
+  );
+  const targetEntryBytes = yield* Effect.fromResult(
+    applicationFunctionEntryPublicationFrameV1(Object.freeze({
+      path: target.function.path,
+      moduleName: target.function.moduleName,
+      exportName: target.function.exportName,
+      kind: target.function.kind,
+      visibility: target.function.visibility,
+      args: target.function.args,
+      returns: target.function.returns,
+      partition: target.function.partition,
+    })).pipe(Result.mapError(() =>
+      new ApplicationActionAuthorityInputV1Error({
+        operation: "admitApplication",
+        field: "executionAuthority",
+      })
+    )),
+  );
+  const entrySha256 = yield* sha256.hash(entryBytes);
+  if (
+    selection.authority.scopeId !== currentAuthority.scopeId ||
+    selection.authority.storageGeneration !==
+      currentAuthority.storageGeneration ||
+    selection.authority.storageGenerationFence !==
+      currentAuthority.storageGenerationFence ||
+    selection.authority.epoch !== currentAuthority.epoch ||
+    !scopePhysicalLocatorsEqual(
+      selection.authority.physicalLocator,
+      currentAuthority.physicalLocator,
+    ) ||
+    selection.authority.scopeId !== target.scopeId ||
+    selection.revisionId !== target.revisionId ||
+    selection.candidateId !== target.candidateId ||
+    selection.analysisId !== target.analysisId ||
+    encodeBytesToLowercaseHex(selection.sourceArtifactRootSha256) !==
+      target.sourceArtifactRootSha256 ||
+    encodeBytesToLowercaseHex(selection.manifestSha256) !== target.manifestSha256 ||
+    encodeBytesToLowercaseHex(selection.applicationSchemaSha256) !==
+      target.schemaSha256 ||
+    encodeBytesToLowercaseHex(selection.functionCatalogSha256) !==
+      target.functionCatalogSha256 ||
+    encodeBytesToLowercaseHex(selection.publicationSha256) !==
+      target.publicationSha256 ||
+    selection.manifest.sourceArtifact.executionModulePath !==
+      target.executionModulePath ||
+    fn.moduleName !== target.function.moduleName ||
+    fn.exportName !== target.function.exportName ||
+    fn.kind !== target.function.kind || fn.visibility !== target.function.visibility ||
+    !bytesEqualFullScan(entryBytes, targetEntryBytes) ||
+    encodeBytesToLowercaseHex(entrySha256) !== target.function.entrySha256 ||
+    selection.activationSequence.toString() !== authority.activationSequence ||
+    encodeBytesToLowercaseHex(selection.headSha256) !== authority.activeHeadSha256 ||
+    selection.schemaVersionId !== authority.schemaVersionId
+  ) return yield* new ApplicationActionAuthorityStaleV1Error({ reason: "scope" });
+  yield* validateApplicationActiveSelectionInTransaction(
+    selectionCapability,
+    tx,
+    clock,
+  ).pipe(Effect.mapError(mapSelectionValidationError));
+});
+
+function mapSelectionValidationError(error: ApplicationActivationError) {
+  if (error.reason === "scopeAuthority" || error.reason === "concurrentHead") {
+    return new ApplicationActionAuthorityStaleV1Error({ reason: "scope" });
+  }
+  if (error.reason === "resourceFailure") {
+    return new ApplicationActionAuthorityIntegrationV1Error({
+      operation: "validateApplicationSelection",
+      cause: error,
+    });
+  }
+  return new ApplicationActionAuthorityCorruptionV1Error({
+    detail: `Application selection validation failed: ${error.reason}`,
+  });
+}
 
 export const claimDirectActionExecutionV1 = Effect.fn(
   "ApplicationActionAuthority.claimDirectActionExecutionV1",
@@ -1545,6 +1700,32 @@ export const inspectDirectActionInvocationV1 = Effect.fn(
   }));
 });
 
+export const inspectApplicationAuthorityActionInvocation = Effect.fn(
+  "ApplicationActionAuthority.inspectApplicationAuthorityActionInvocation",
+)(function* <HashError>(
+  requestKey: string,
+  context: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ApplicationAuthorityActionInvocationProjection,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  yield* requireText(requestKey, "inspectApplication", "requestKey");
+  return yield* runTransaction(
+    context.target,
+    "inspectApplication",
+    tx => Effect.gen(function* () {
+      yield* requireCurrentAuthority(tx, context);
+      return yield* decodeApplicationInvocationRow(
+        yield* loadInvocationForUpdate(
+          tx,
+          context.authority.scopeId,
+          requestKey,
+        ),
+      );
+    }),
+  );
+});
+
 function transitionEffect(
   operation: string,
   expected: ExternalEffectAttemptStateV1,
@@ -1606,6 +1787,22 @@ function loadInvocationForUpdate(
   ));
 }
 
+function loadInvocationIfPresentForUpdate(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  requestKey: string,
+): Effect.Effect<
+  InvocationRow | undefined,
+  ApplicationActionAuthorityIntegrationV1Error
+> {
+  return query(tx.select().from(fxSystemApplicationActionInvocationsV1).where(
+    and(
+      eq(fxSystemApplicationActionInvocationsV1.scopeId, scopeId),
+      eq(fxSystemApplicationActionInvocationsV1.requestKey, requestKey),
+    ),
+  ).for("update").limit(1)).pipe(Effect.map(rows => rows[0]));
+}
+
 function loadEffectForUpdate(
   tx: AppRowTransaction,
   subject: DirectActionSubjectStateV1,
@@ -1665,6 +1862,48 @@ function requireCurrentAuthority(
     }),
   );
 }
+
+const requireCurrentAuthorityAndReadClock = Effect.fn(
+  "ApplicationActionAuthority.requireCurrentAuthorityAndReadClock",
+)(function* (
+  tx: AppRowTransaction,
+  context: ApplicationActionAuthorityContextV1<unknown>,
+) {
+  const authority = context.authority;
+  if (!scopePhysicalLocatorsEqual(
+    context.target.physicalLocator,
+    authority.physicalLocator,
+  )) {
+    return yield* new ApplicationActionAuthorityStaleV1Error({
+      reason: "physicalLocator",
+    });
+  }
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  ).pipe(Effect.mapError(cause =>
+    new ApplicationActionAuthorityIntegrationV1Error({
+      operation: "lockScopeClock",
+      cause,
+    })
+  ));
+  if (clock.storageGeneration !== "flarexdb_v1") {
+    return yield* new ApplicationActionAuthorityStaleV1Error({
+      reason: "scope",
+    });
+  }
+  if (clock.epoch !== authority.epoch) {
+    return yield* new ApplicationActionAuthorityStaleV1Error({
+      reason: "epoch",
+    });
+  }
+  if (clock.storageGenerationFence !== authority.storageGenerationFence) {
+    return yield* new ApplicationActionAuthorityStaleV1Error({
+      reason: "storageGenerationFence",
+    });
+  }
+  return clock;
+});
 
 function claimSubject(
   value: unknown,

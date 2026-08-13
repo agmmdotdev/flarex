@@ -55,9 +55,9 @@ vi.mock("../src/edgeActionDispatchCapabilityBundleV1", async importOriginal => (
 }));
 
 import {
-  invokeApplicationActionV1,
-  makeApplicationActionSystemV1Layer,
-  type ApplicationActionSystemLiveV1,
+  invokeLegacyApplicationActionV1,
+  makeLegacyApplicationActionSystemV1Layer,
+  type LegacyApplicationActionSystemLiveV1,
 } from "../src/actionSystemV1";
 
 describe("SAP07 action System composition", () => {
@@ -308,13 +308,13 @@ describe("SAP07 action System composition", () => {
     fixture.coordinator.dispatch.mockReturnValueOnce(Effect.die(defect));
 
     const exit = await Effect.runPromiseExit(Effect.scoped(
-      invokeApplicationActionV1(
+      invokeLegacyApplicationActionV1(
         fixture.selection as unknown as
           AuthenticatedActiveApplicationRevisionSelectionV1,
         TransactionFunctionPathV1Schema.make("actions:send"),
         { message: "hello" },
         TransactionRequestKeyV1Schema.make("sap07:test:request"),
-      ).pipe(Effect.provide(makeApplicationActionSystemV1Layer(fixture.live))),
+      ).pipe(Effect.provide(makeLegacyApplicationActionSystemV1Layer(fixture.live))),
     ));
 
     if (!Exit.isFailure(exit)) {
@@ -327,13 +327,13 @@ describe("SAP07 action System composition", () => {
 
 async function runStandard(fixture: ReturnType<typeof makeFixture>) {
   return await Effect.runPromise(Effect.scoped(
-    invokeApplicationActionV1(
+    invokeLegacyApplicationActionV1(
       fixture.selection as unknown as
         AuthenticatedActiveApplicationRevisionSelectionV1,
       TransactionFunctionPathV1Schema.make("actions:send"),
       { message: "hello" },
       TransactionRequestKeyV1Schema.make("sap07:test:request"),
-    ).pipe(Effect.provide(makeApplicationActionSystemV1Layer(fixture.live))),
+    ).pipe(Effect.provide(makeLegacyApplicationActionSystemV1Layer(fixture.live))),
   ));
 }
 
@@ -440,7 +440,7 @@ function makeFixture(options: Readonly<{
       randomSeed: new Uint8Array(32).fill(7),
       auth: Object.freeze({ kind: "anonymous" as const }),
     }),
-  }) as unknown as ApplicationActionSystemLiveV1;
+  }) as unknown as LegacyApplicationActionSystemLiveV1;
   return {
     admitted,
     bodyStore,

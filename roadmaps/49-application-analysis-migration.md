@@ -2846,6 +2846,39 @@ the compatibility entrypoint retains the Legacy reader, host completion can
 settle before capability drain, or any route, trigger, mutation OCC/commit,
 Task System or production deployment owner must change.
 
+Checkpoint 4c is complete and remains private. The unversioned
+`ApplicationActionSystem` now owns active Application selection, exact
+request-key replay, Application-generation admission, the scoped 4b runner and
+durable settlement. Admission revalidates the issued selection inside the same
+scope-clock transaction that inserts the invocation, and binds the complete
+runtime target, source root, manifest, schema, publication, catalog and exact
+public action entry to that issuer selection. Existing exact rows are resolved
+after the authority lock but before current-head validation, so an in-flight
+duplicate remains a replay even when the head moved after the first admission.
+Terminal replay inspects the Application row before any active-head read or
+Worker load. An admitted row keeps its target for the originating scoped
+dispatch; a later process resumes it only when the current issuer selection
+reproduces the exact stored authority, and otherwise returns its durable
+non-completed state without execution.
+
+The compatibility-named Standard action entrypoint is now a thin consumer of
+that service. The displaced candidate-bound service and active-revision reader
+are explicitly `Legacy...V1` owners used only by retained migration tests; the
+production consumer contains no generation switch, candidate-runtime-artifact
+read, comparison execution or fallback. The connected PGlite proof starts from
+Application analysis, publication, readiness and activation, then exercises
+the real 4b runner and execution host through the Standard entrypoint. It proves
+fresh Worker loads, exact replay without another Worker, conflicting reuse,
+a select-to-admit head-movement race rejecting before Worker load, exact replay
+after later head movement, in-flight target pinning across head movement,
+fail-closed stale admitted resume, cancelled replay, expired-execution recovery,
+callback child-mutation evidence, confirmed and uncertain outbound effects,
+structured Application error preservation, durable terminal failure, and
+interruption waiting for callback cleanup. The connected test installs an
+observable Legacy active-revision reader mock and proves zero calls. Genuine
+PostgreSQL and the combined cross-consumer vertical remain the accepted `AA-R7`
+gates.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine

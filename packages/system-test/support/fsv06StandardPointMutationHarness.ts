@@ -71,8 +71,8 @@ import {
   type LegacyApplicationPointMutationSystemLiveV1,
 } from "@flarex/standard-application-invocation/internal/system-v1";
 import {
-  makeStandardApplicationActiveRevisionReaderV1Layer,
-  StandardApplicationActiveRevisionReaderV1,
+  makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
+  LegacyStandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
 import {
   FSV05_SUPPORTED_LOCATOR,
@@ -119,7 +119,7 @@ const invokeStandardApplicationPointMutationV1 = Effect.fn(
   args: unknown,
   requestKey: TransactionRequestKeyV1,
 ) {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const reader = yield* LegacyStandardApplicationActiveRevisionReaderV1;
   const active = yield* reader.read;
   return yield* invokeLegacyApplicationPointMutationV1(
     active.selection,
@@ -208,20 +208,20 @@ export async function proveFsv06StandardPointMutationV1(
   });
   const applicationLayer = Layer.merge(
     makeLegacyApplicationPointMutationSystemV1Layer(system),
-    makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
+    makeLegacyStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
   );
   const provideApplication = <A, E>(effect: Effect.Effect<
     A,
     E,
     | LegacyApplicationPointMutationSystemV1
-    | StandardApplicationActiveRevisionReaderV1
+    | LegacyStandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => effect.pipe(Effect.provide(applicationLayer));
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
     | LegacyApplicationPointMutationSystemV1
-    | StandardApplicationActiveRevisionReaderV1
+    | LegacyStandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(provideApplication(effect)));
 
@@ -572,13 +572,13 @@ export async function proveSap06A2MutationInternalQueryV1(
       proofController,
       () => { runtimeExecutions += 1; },
     )),
-    makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
+    makeLegacyStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
   );
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
     | LegacyApplicationPointMutationSystemV1
-    | StandardApplicationActiveRevisionReaderV1
+    | LegacyStandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(
     Effect.provide(applicationLayer),
@@ -715,13 +715,13 @@ export async function proveSap06A3MutationInternalCallV1(
       proofController,
       () => { runtimeExecutions += 1; },
     )),
-    makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
+    makeLegacyStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
   );
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
     | LegacyApplicationPointMutationSystemV1
-    | StandardApplicationActiveRevisionReaderV1
+    | LegacyStandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(
     Effect.provide(applicationLayer),

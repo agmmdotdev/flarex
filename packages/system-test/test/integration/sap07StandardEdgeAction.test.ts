@@ -47,16 +47,16 @@ import {
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
 } from "@flarex/persistence-postgres/pglite";
 import {
-  makeApplicationActionSystemV1Layer,
-  type ApplicationActionSystemLiveV1,
+  makeLegacyApplicationActionSystemV1Layer,
+  invokeLegacyApplicationActionV1,
+  type LegacyApplicationActionSystemLiveV1,
 } from "@flarex/standard-application-invocation/internal/system-action-v1";
 import {
   claimActiveApplicationEdgeActionArtifactHostDispatchV1,
 } from
   "@flarex/standard-application-invocation/internal/edge-action-dispatch-capability-bundle-v1";
 import {
-  invokeStandardApplicationActionV1,
-  makeStandardApplicationActiveRevisionReaderV1Layer,
+  makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
 } from "@flarex/standard-application-invocation/v1";
 import { AAV_A1_LOCATOR } from "../../support/applicationActionAuthorityV1Harness";
 import {
@@ -91,7 +91,7 @@ const HOST_POLICY_ENCODING_BUDGET = Object.freeze({
   maximumCanonicalBytes: 16_384,
 });
 
-describe("SAP07 Standard public edge action", () => {
+describe("Legacy SAP07 Standard public edge action", () => {
   it("selects the active revision, claims its exact candidate, and durably replays the R2 result", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const activationTarget =
@@ -254,12 +254,13 @@ describe("SAP07 Standard public edge action", () => {
           randomSeed: new Uint8Array(32).fill(7),
           auth: Object.freeze({ kind: "anonymous" as const }),
         }),
-      }) satisfies ApplicationActionSystemLiveV1;
+      }) satisfies LegacyApplicationActionSystemLiveV1;
       const layer = Layer.merge(
-        makeApplicationActionSystemV1Layer(live),
-        makeStandardApplicationActiveRevisionReaderV1Layer(ready.context),
+        makeLegacyApplicationActionSystemV1Layer(live),
+        makeLegacyStandardApplicationActiveRevisionReaderV1Layer(ready.context),
       );
-      const invoke = (key = REQUEST_KEY) => invokeStandardApplicationActionV1(
+      const invoke = (key = REQUEST_KEY) => invokeLegacyApplicationActionV1(
+        active.selection,
         ACTION_PATH,
         { message: "hello" },
         key,

@@ -37,8 +37,8 @@ import {
 } from "@flarex/standard-application-invocation/internal/system-v1";
 import {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-  makeStandardApplicationActiveRevisionReaderV1Layer,
-  StandardApplicationActiveRevisionReaderV1,
+  makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
+  LegacyStandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
 import type {
   InvokeLegacyApplicationPointMutationV1Error,
@@ -70,7 +70,7 @@ import type {
 type ApplicationTestRequirementsV1 =
   | LegacyApplicationPointMutationSystemV1
   | ApplicationPointQuerySystemV1
-  | StandardApplicationActiveRevisionReaderV1
+  | LegacyStandardApplicationActiveRevisionReaderV1
   | Scope.Scope;
 
 export type StandardApplicationLegacySimulationQueryErrorV1 =
@@ -90,7 +90,7 @@ type InvokeStandardApplicationPointMutationV1Error =
 const invokeLegacySimulationPointQueryV1 = Effect.fn(
   "StandardApplicationSimulation.invokeLegacyPointQueryV1",
 )(function* (functionPath: TransactionFunctionPathV1, args: unknown) {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const reader = yield* LegacyStandardApplicationActiveRevisionReaderV1;
   const active = yield* reader.read;
   return yield* invokeApplicationPointQueryV1(
     active.selection,
@@ -106,7 +106,7 @@ const invokeLegacySimulationPointMutationV1 = Effect.fn(
   args: unknown,
   requestKey: TransactionRequestKeyV1,
 ) {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const reader = yield* LegacyStandardApplicationActiveRevisionReaderV1;
   const active = yield* reader.read;
   return yield* invokeLegacyApplicationPointMutationV1(
     active.selection,
@@ -316,7 +316,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
   const applicationLayer = Layer.mergeAll(
     makeLegacyApplicationPointMutationSystemV1Layer(mutationSystem),
     makeApplicationPointQuerySystemV1Layer(querySystem),
-    makeStandardApplicationActiveRevisionReaderV1Layer(ready.context),
+    makeLegacyStandardApplicationActiveRevisionReaderV1Layer(ready.context),
   );
   const inspector = yield* makeStandardApplicationSystemTestInspectorV1({
     applicationId: simulation.application.applicationId,

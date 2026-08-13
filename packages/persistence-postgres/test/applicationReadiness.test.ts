@@ -29,6 +29,9 @@ import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
 import {
+  canonicalizeApplicationActionExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-action-authority-v1";
+import {
   canonicalizeApplicationRuntimeColdReceiptV1,
 } from "flarex-protocol/internal/application-runtime-cold-receipt-v1";
 import {
@@ -118,6 +121,7 @@ import {
   confirmExternalEffectAttemptV1,
   createLocatedApplicationActionAuthorityTargetV1,
   declareExternalEffectDispatchV1,
+  inspectApplicationAuthorityActionInvocation,
   prepareExternalEffectAttemptV1,
   recoverExpiredApplicationAuthorityActionExecution,
   requestApplicationAuthorityActionCancellation,
@@ -1061,6 +1065,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     });
     const inserted = await runEffect(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request,
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000401",
@@ -1068,6 +1073,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     );
     const replayed = await runEffect(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request,
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000402",
@@ -1075,8 +1081,19 @@ describe("Application activation", { timeout: 30_000 }, () => {
     );
     expect(inserted.disposition).toBe("inserted");
     expect(replayed.disposition).toBe("replayed");
+    const inspected = await runEffect(
+      inspectApplicationAuthorityActionInvocation(
+        "application-action-request-1",
+        actionContext,
+      ),
+    );
+    expect(inspected.executionAuthorityGeneration).toBe("application_v1");
+    expect(inspected.executionAuthority.sha256).toEqual(
+      admitted.executionAuthority.sha256,
+    );
     const conflicting = await runEffect(Effect.result(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request: makeRequest("application-action-request-1", 0x4c),
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000406",
@@ -1087,6 +1104,112 @@ describe("Application activation", { timeout: 30_000 }, () => {
       expect(conflicting.failure).toMatchObject({
         _tag: "ApplicationActionRequestKeyConflictV1Error",
       });
+    }
+    const staleAuthority = await runEffect(
+      canonicalizeApplicationActionExecutionAuthorityV1({
+        ...admitted.executionAuthority.authority,
+        activeHeadSha256: "f".repeat(64),
+      }),
+    );
+    const staleSelectionAdmission = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
+        request: Result.getOrThrow(encodeApplicationActionInvocationRequestV2({
+          ...makeRequest("application-action-stale-selection-1", 0x4d).frame,
+          executionAuthoritySha256: staleAuthority.sha256,
+        })),
+        executionAuthority: staleAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000414",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(staleSelectionAdmission)).toBe(true);
+    if (Result.isFailure(staleSelectionAdmission)) {
+      expect(staleSelectionAdmission.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityStaleV1Error",
+      });
+    }
+    const foreignRuntimeTarget = Result.getOrThrow(
+      canonicalizeApplicationRuntimeTargetV1({
+        ...admitted.executionAuthority.authority.runtimeTarget,
+        sourceArtifactRootSha256: "e".repeat(64),
+      }),
+    );
+    const foreignArtifactAuthority = await runEffect(
+      canonicalizeApplicationActionExecutionAuthorityV1({
+        ...admitted.executionAuthority.authority,
+        runtimeTarget: foreignRuntimeTarget.target,
+        runtimeTargetSha256: await sha256Hex(
+          foreignRuntimeTarget.canonicalBytes,
+        ),
+      }),
+    );
+    const foreignArtifactAdmission = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
+        request: Result.getOrThrow(encodeApplicationActionInvocationRequestV2({
+          ...makeRequest("application-action-foreign-artifact-1", 0x4d).frame,
+          executionAuthoritySha256: foreignArtifactAuthority.sha256,
+        })),
+        executionAuthority: foreignArtifactAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000415",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(foreignArtifactAdmission)).toBe(true);
+    if (Result.isFailure(foreignArtifactAdmission)) {
+      expect(foreignArtifactAdmission.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityStaleV1Error",
+      });
+    }
+    for (const [index, functionPatch] of [
+      { args: { type: "null" as const } },
+      { returns: { type: "null" as const } },
+      {
+        partition: {
+          type: "partitionCreateRoot" as const,
+          table: "users",
+          partitionField: "_id" as const,
+        },
+      },
+    ].entries()) {
+      const foreignFunctionTarget = Result.getOrThrow(
+        canonicalizeApplicationRuntimeTargetV1({
+          ...admitted.executionAuthority.authority.runtimeTarget,
+          function: {
+            ...admitted.executionAuthority.authority.runtimeTarget.function,
+            ...functionPatch,
+          },
+        }),
+      );
+      const foreignFunctionAuthority = await runEffect(
+        canonicalizeApplicationActionExecutionAuthorityV1({
+          ...admitted.executionAuthority.authority,
+          runtimeTarget: foreignFunctionTarget.target,
+          runtimeTargetSha256: await sha256Hex(
+            foreignFunctionTarget.canonicalBytes,
+          ),
+        }),
+      );
+      const foreignFunctionAdmission = await runEffect(Effect.result(
+        admitApplicationAuthorityActionInvocation({
+          selection: active.selection,
+          request: Result.getOrThrow(encodeApplicationActionInvocationRequestV2({
+            ...makeRequest(
+              `application-action-foreign-function-${index}`,
+              0x50 + index,
+            ).frame,
+            executionAuthoritySha256: foreignFunctionAuthority.sha256,
+          })),
+          executionAuthority: foreignFunctionAuthority,
+          invocationId:
+            `00000000-0000-4000-8000-${(416 + index).toString().padStart(12, "0")}`,
+        }, actionContext),
+      ));
+      expect(Result.isFailure(foreignFunctionAdmission)).toBe(true);
+      if (Result.isFailure(foreignFunctionAdmission)) {
+        expect(foreignFunctionAdmission.failure).toMatchObject({
+          _tag: "ApplicationActionAuthorityStaleV1Error",
+        });
+      }
     }
     expect(inserted.invocation).toMatchObject({
       executionAuthorityGeneration: "application_v1",
@@ -1192,6 +1315,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       0x49,
     );
     await runEffect(admitApplicationAuthorityActionInvocation({
+      selection: active.selection,
       request: cancellationRequest,
       executionAuthority: admitted.executionAuthority,
       invocationId: "00000000-0000-4000-8000-000000000404",
@@ -1213,6 +1337,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       0x4a,
     );
     await runEffect(admitApplicationAuthorityActionInvocation({
+      selection: active.selection,
       request: recoveryRequest,
       executionAuthority: admitted.executionAuthority,
       invocationId: "00000000-0000-4000-8000-000000000405",
@@ -1285,6 +1410,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       0x4e,
     );
     await runEffect(admitApplicationAuthorityActionInvocation({
+      selection: active.selection,
       request: uncertainRequest,
       executionAuthority: admitted.executionAuthority,
       invocationId: "00000000-0000-4000-8000-000000000409",
@@ -1346,6 +1472,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     );
     const detached = await runEffect(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request: detachedRequest,
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000407",
@@ -1377,6 +1504,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       0x4e,
     );
     await expect(runEffect(admitApplicationAuthorityActionInvocation({
+      selection: active.selection,
       request: rollbackRequest,
       executionAuthority: admitted.executionAuthority,
       invocationId: "00000000-0000-4000-8000-000000000408",
@@ -1400,6 +1528,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       0x51,
     );
     await runEffect(admitApplicationAuthorityActionInvocation({
+      selection: active.selection,
       request: jsonCorruptRequest,
       executionAuthority: admitted.executionAuthority,
       invocationId: "00000000-0000-4000-8000-000000000410",
@@ -1411,6 +1540,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     );
     const jsonCorrupt = await runEffect(Effect.result(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request: jsonCorruptRequest,
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000411",
@@ -1428,6 +1558,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       0x52,
     );
     await runEffect(admitApplicationAuthorityActionInvocation({
+      selection: active.selection,
       request: bytesCorruptRequest,
       executionAuthority: admitted.executionAuthority,
       invocationId: "00000000-0000-4000-8000-000000000412",
@@ -1442,6 +1573,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     ));
     const bytesCorrupt = await runEffect(Effect.result(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request: bytesCorruptRequest,
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000413",
@@ -1472,6 +1604,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     ));
     const corrupt = await runEffect(Effect.result(
       admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
         request,
         executionAuthority: admitted.executionAuthority,
         invocationId: "00000000-0000-4000-8000-000000000403",
@@ -1490,6 +1623,20 @@ describe("Application activation", { timeout: 30_000 }, () => {
       fxSystemApplicationActiveHeadsV1.scopeId,
       active.basis.authority.scopeId,
     ));
+    const corruptHeadAdmission = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
+        request: makeRequest("application-action-corrupt-head-1", 0x60),
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000420",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(corruptHeadAdmission)).toBe(true);
+    if (Result.isFailure(corruptHeadAdmission)) {
+      expect(corruptHeadAdmission.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityCorruptionV1Error",
+      });
+    }
     const staleSelection = await runEffect(Effect.result(
       selectApplicationActionAdmission(
         active.selection,
@@ -1507,6 +1654,25 @@ describe("Application activation", { timeout: 30_000 }, () => {
       expect(staleSelection.failure).toMatchObject({
         operation: "validateSelection",
         reason: "storedState",
+      });
+    }
+    await fixture.target.drizzle.execute(
+      `drop table fx_system_application_active_head_v1 cascade`,
+    );
+    const unavailableHeadAdmission = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        selection: active.selection,
+        request: makeRequest("application-action-unavailable-head-1", 0x61),
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000421",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(unavailableHeadAdmission)).toBe(true);
+    if (Result.isFailure(unavailableHeadAdmission)) {
+      expect(unavailableHeadAdmission.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityIntegrationV1Error",
+        operation: "validateApplicationSelection",
+        cause: { reason: "resourceFailure" },
       });
     }
   });

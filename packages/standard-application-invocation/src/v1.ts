@@ -1,7 +1,6 @@
 import {
   readActiveApplicationRevisionV1,
   type ApplicationRevisionActivationContextV1,
-  type ReadActiveApplicationRevisionV1Error,
 } from
   "@flarex/persistence-postgres/internal/application-revision-activation-v1";
 import { Context, Effect, Layer, Scope } from "effect";
@@ -24,21 +23,21 @@ import {
   type InvokeApplicationQueryError,
 } from "./ApplicationQuerySystem";
 import {
-  ApplicationActionSystemV1,
-  invokeApplicationActionV1,
-  type InvokeApplicationActionV1Error,
-  type InvokeApplicationActionV1Result,
-} from "./actionSystemV1";
+  ApplicationActionSystem,
+  invokeApplicationAction,
+  type InvokeApplicationActionError,
+  type InvokeApplicationActionResult,
+} from "./ApplicationActionSystem";
 
-export interface StandardApplicationActiveRevisionReaderV1Api {
+export interface LegacyStandardApplicationActiveRevisionReaderV1Api {
   readonly read: ReturnType<typeof makeRead>;
 }
 
-export class StandardApplicationActiveRevisionReaderV1 extends Context.Service<
-  StandardApplicationActiveRevisionReaderV1,
-  StandardApplicationActiveRevisionReaderV1Api
+export class LegacyStandardApplicationActiveRevisionReaderV1 extends Context.Service<
+  LegacyStandardApplicationActiveRevisionReaderV1,
+  LegacyStandardApplicationActiveRevisionReaderV1Api
 >()(
-  "flarex/standard-application-invocation/StandardApplicationActiveRevisionReaderV1",
+  "flarex/standard-application-invocation/LegacyStandardApplicationActiveRevisionReaderV1",
 ) {}
 
 export type InvokeStandardApplicationPointMutationV1Error =
@@ -47,9 +46,7 @@ export type InvokeStandardApplicationPointMutationV1Error =
 export type InvokeStandardApplicationPointQueryV1Error =
   InvokeApplicationQueryError;
 
-export type InvokeStandardApplicationActionV1Error =
-  | ReadActiveApplicationRevisionV1Error
-  | InvokeApplicationActionV1Error;
+export type InvokeStandardApplicationActionV1Error = InvokeApplicationActionError;
 
 /**
  * Compatibility-named thin consumer for the unversioned Application mutation
@@ -71,9 +68,8 @@ export const invokeStandardApplicationPointMutationV1 = Effect.fn(
 });
 
 /**
- * SAP05 thin consumer. It reads one coherent active revision and delegates to
- * the private System query operation without translating its validated value
- * or typed owner failures.
+ * Compatibility-named thin consumer for the unversioned Application query
+ * System. Selection and execution remain owned by that System.
  */
 export const invokeStandardApplicationPointQueryV1 = Effect.fn(
   "StandardApplication.invokePointQueryV1",
@@ -91,8 +87,8 @@ export const invokeStandardApplicationPointQueryV1 = Effect.fn(
 });
 
 /**
- * SAP07 thin consumer. It selects one coherent active revision and delegates
- * to the private route-independent action System operation.
+ * Compatibility-named thin consumer for the unversioned Application action
+ * System. Selection, admission, execution and settlement are owned there.
  */
 export const invokeStandardApplicationActionV1 = Effect.fn(
   "StandardApplication.invokeActionV1",
@@ -101,28 +97,22 @@ export const invokeStandardApplicationActionV1 = Effect.fn(
   args: unknown,
   requestKey: TransactionRequestKeyV1,
 ): Effect.fn.Return<
-  InvokeApplicationActionV1Result,
+  InvokeApplicationActionResult,
   InvokeStandardApplicationActionV1Error,
-  | StandardApplicationActiveRevisionReaderV1
-  | ApplicationActionSystemV1
+  | ApplicationActionSystem
   | Scope.Scope
 > {
-  const reader = yield* StandardApplicationActiveRevisionReaderV1;
-  const active = yield* reader.read;
-  return yield* invokeApplicationActionV1(
-    active.selection,
-    functionRef,
-    args,
-    requestKey,
-  );
+  return yield* invokeApplicationAction(functionRef, args, requestKey);
 });
 
-export function makeStandardApplicationActiveRevisionReaderV1Layer(
+export function makeLegacyStandardApplicationActiveRevisionReaderV1Layer(
   context: ApplicationRevisionActivationContextV1,
-): Layer.Layer<StandardApplicationActiveRevisionReaderV1> {
+): Layer.Layer<LegacyStandardApplicationActiveRevisionReaderV1> {
   return Layer.succeed(
-    StandardApplicationActiveRevisionReaderV1,
-    StandardApplicationActiveRevisionReaderV1.of({ read: makeRead(context) }),
+    LegacyStandardApplicationActiveRevisionReaderV1,
+    LegacyStandardApplicationActiveRevisionReaderV1.of({
+      read: makeRead(context),
+    }),
   );
 }
 
@@ -137,7 +127,7 @@ export {
     AuthoritativeCommittedApplicationPointMutationOutcomeV1,
 } from "./ApplicationMutationSystem";
 export type {
-  CompletedApplicationActionV1,
-  InvokeApplicationActionV1Result,
-  NonCompletedApplicationActionV1,
-} from "./actionSystemV1";
+  CompletedApplicationAction as CompletedApplicationActionV1,
+  InvokeApplicationActionResult as InvokeApplicationActionV1Result,
+  NonCompletedApplicationAction as NonCompletedApplicationActionV1,
+} from "./ApplicationActionSystem";

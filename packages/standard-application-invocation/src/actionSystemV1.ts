@@ -74,7 +74,7 @@ export interface ApplicationActionExecutionContextV1 {
   readonly auth: EdgeActionExactRuntimeAuthV1;
 }
 
-export interface ApplicationActionSystemLiveV1 {
+export interface LegacyApplicationActionSystemLiveV1 {
   readonly admission: ActiveApplicationActionAdmissionLiveV1<
     never,
     CanonicalBodyErrorV1
@@ -143,7 +143,7 @@ export type InvokeApplicationActionV1Error =
   | InvalidActiveApplicationEdgeActionCapabilityBundleV1Error
   | SettleActiveApplicationEdgeActionV1Error<never, CanonicalBodyErrorV1>;
 
-export interface ApplicationActionSystemV1Api {
+export interface LegacyApplicationActionSystemV1Api {
   readonly invoke: (
     activeRevision: AuthenticatedActiveApplicationRevisionSelectionV1,
     functionRef: TransactionFunctionPathV1,
@@ -156,14 +156,14 @@ export interface ApplicationActionSystemV1Api {
   >;
 }
 
-export class ApplicationActionSystemV1 extends Context.Service<
-  ApplicationActionSystemV1,
-  ApplicationActionSystemV1Api
->()("flarex/standard-application-invocation/ApplicationActionSystemV1") {}
+export class LegacyApplicationActionSystemV1 extends Context.Service<
+  LegacyApplicationActionSystemV1,
+  LegacyApplicationActionSystemV1Api
+>()("flarex/standard-application-invocation/LegacyApplicationActionSystemV1") {}
 
 /** Private, route-independent SAP07 System operation. */
-export const invokeApplicationActionV1 = Effect.fn(
-  "ApplicationAction.invokeV1",
+export const invokeLegacyApplicationActionV1 = Effect.fn(
+  "LegacyApplicationAction.invokeV1",
 )(function* (
   activeRevision: AuthenticatedActiveApplicationRevisionSelectionV1,
   functionRef: TransactionFunctionPathV1,
@@ -172,25 +172,25 @@ export const invokeApplicationActionV1 = Effect.fn(
 ): Effect.fn.Return<
   InvokeApplicationActionV1Result,
   InvokeApplicationActionV1Error,
-  ApplicationActionSystemV1 | Scope.Scope
+  LegacyApplicationActionSystemV1 | Scope.Scope
 > {
-  const system = yield* ApplicationActionSystemV1;
+  const system = yield* LegacyApplicationActionSystemV1;
   return yield* system.invoke(activeRevision, functionRef, args, requestKey);
 });
 
-export function makeApplicationActionSystemV1Layer(
-  live: ApplicationActionSystemLiveV1,
-): Layer.Layer<ApplicationActionSystemV1> {
+export function makeLegacyApplicationActionSystemV1Layer(
+  live: LegacyApplicationActionSystemLiveV1,
+): Layer.Layer<LegacyApplicationActionSystemV1> {
   return Layer.succeed(
-    ApplicationActionSystemV1,
-    ApplicationActionSystemV1.of({ invoke: makeInvoke(live) }),
+    LegacyApplicationActionSystemV1,
+    LegacyApplicationActionSystemV1.of({ invoke: makeInvoke(live) }),
   );
 }
 
 function makeInvoke(
-  live: ApplicationActionSystemLiveV1,
-): ApplicationActionSystemV1Api["invoke"] {
-  return Effect.fn("ApplicationActionSystem.invoke")(function* (
+  live: LegacyApplicationActionSystemLiveV1,
+): LegacyApplicationActionSystemV1Api["invoke"] {
+  return Effect.fn("LegacyApplicationActionSystem.invoke")(function* (
     activeRevision,
     functionRefInput,
     argsInput,
@@ -376,7 +376,7 @@ function isNotExpiredRecoveryConflict(
 const projectReplay = Effect.fn("ApplicationActionSystem.projectReplay")(
   function* (
     invocation: ApplicationActionInvocationProjectionV1,
-    live: ApplicationActionSystemLiveV1,
+    live: LegacyApplicationActionSystemLiveV1,
   ): Effect.fn.Return<
     InvokeApplicationActionV1Result,
     InvokeApplicationActionV1Error
@@ -417,7 +417,7 @@ const settleHostFailure = Effect.fn(
 )(function* (
   settlement: ActiveApplicationEdgeActionSettlementV1,
   reason: EdgeActionExactRuntimeArtifactHostFailureReasonV1,
-  live: ApplicationActionSystemLiveV1,
+  live: LegacyApplicationActionSystemLiveV1,
 ): Effect.fn.Return<
   ApplicationActionInvocationProjectionV1,
   InvokeApplicationActionV1Error

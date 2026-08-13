@@ -249,6 +249,15 @@ export async function createApplicationNativeMutationPGliteFixture(
         args: { type: "any" },
         returns: null,
         partition: null,
+      }, {
+        path: "users:notify",
+        moduleName: "users",
+        exportName: "notify",
+        kind: "action",
+        visibility: "public",
+        args: { type: "any" },
+        returns: { type: "any" },
+        partition: null,
       }],
     }),
   );
@@ -421,16 +430,21 @@ export async function createApplicationNativeMutationPGliteFixture(
     throw new Error("Application-native mutation did not activate.");
   }
   const active = await Effect.runPromise(activation.readActive());
-  let headMoved = false;
+  let headMoveSequence = 0;
+  let currentActive = active;
   const moveHead = async (): Promise<CoherentActiveApplication> => {
-    if (headMoved) throw new Error("Application-native head already moved.");
-    headMoved = true;
+    headMoveSequence += 1;
+    const sequence = headMoveSequence;
     const nextAnalyses = makeApplicationAnalysisRepository(target.drizzle, {
-      randomUuid: uuidSequence(31, 32, 33),
+      randomUuid: uuidSequence(
+        30 + sequence * 3 + 1,
+        30 + sequence * 3 + 2,
+        30 + sequence * 3 + 3,
+      ),
     });
     const nextPending = await Effect.runPromise(nextAnalyses.begin({
       authority,
-      requestKey: "request:application-native-mutation:analysis:next",
+      requestKey: `request:application-native-mutation:analysis:next:${sequence}`,
       sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
       analyzerIdentity: "application-analyzer",
       analyzerPolicyIdentity: "application-analyzer-policy",
@@ -488,9 +502,10 @@ export async function createApplicationNativeMutationPGliteFixture(
     }
     await Effect.runPromise(activation.activate({
       revisionId: nextPublication.revisionId,
-      expectedActiveHead: active.expectedActiveHead,
+      expectedActiveHead: currentActive.expectedActiveHead,
     }));
-    return Effect.runPromise(activation.readActive());
+    currentActive = await Effect.runPromise(activation.readActive());
+    return currentActive;
   };
   const provisioningReceipts = fixtureProvisioningReceipts(control);
   const sessionAuthority = Object.freeze({
@@ -670,13 +685,20 @@ async function requireSchemaVersionId(
 async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
     'import { mutation } from "flarex/server";',
+    'import { action } from "flarex/server";',
     'import * as users from "../functions/users.js";',
-    "export default { users: { create: mutation({ handler: users.create }) } };",
+    "export default { users: {",
+    "  create: mutation({ handler: users.create }),",
+    "  notify: action({ handler: users.notify }),",
+    "} };",
     "",
   ].join("\n");
   const handler = [
     "export async function create(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
+    "}",
+    "export async function notify(_ctx, args) {",
+    "  return { delivered: args.message };",
     "}",
     "",
   ].join("\n");
