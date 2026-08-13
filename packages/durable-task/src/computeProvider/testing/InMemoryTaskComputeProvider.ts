@@ -17,7 +17,7 @@ import {
   type TaskComputeCancellationReceiptV1,
   type TaskComputeCancellationRequestV1,
   type TaskComputeDispatchAcceptanceV1,
-  type TaskComputeDispatchRequestV1,
+  type CurrentTaskComputeDispatchRequestV1,
   type TaskComputeExecutionRefV1,
   type TaskComputeProviderDescriptorV1,
 } from "../Model.js";
@@ -27,7 +27,7 @@ import {
   snapshotTaskComputeCancellationReceiptV1,
   snapshotTaskComputeDispatchAcceptanceV1,
   validateTaskComputeCancellationRequestV1,
-  validateTaskComputeDispatchRequestV1,
+  validateCurrentTaskComputeDispatchRequestV1,
 } from "../Schema.js";
 import {
   TaskComputeProvider,
@@ -37,7 +37,7 @@ import { makeTaskComputeProviderV1 } from "../TaskComputeProviderContract.js";
 
 export interface InMemoryTaskComputeProviderHooksV1 {
   readonly beforeDispatch?: (
-    request: TaskComputeDispatchRequestV1,
+    request: CurrentTaskComputeDispatchRequestV1,
   ) => Effect.Effect<
     void,
     TaskComputeDispatchRejectedError | TaskComputeDispatchTransportError
@@ -57,14 +57,14 @@ export interface InMemoryTaskComputeProviderHooksV1 {
 }
 
 export interface InMemoryTaskComputeProviderV1 extends TaskComputeProviderShape {
-  readonly dispatchRequests: () => ReadonlyArray<TaskComputeDispatchRequestV1>;
+  readonly dispatchRequests: () => ReadonlyArray<CurrentTaskComputeDispatchRequestV1>;
   readonly acceptedDispatches: () => ReadonlyArray<TaskComputeDispatchAcceptanceV1>;
   readonly cancellationRequests: () => ReadonlyArray<TaskComputeCancellationRequestV1>;
   readonly acceptedCancellations: () => ReadonlyArray<TaskComputeCancellationReceiptV1>;
 }
 
 interface AcceptedDispatchStateV1 {
-  readonly request: TaskComputeDispatchRequestV1;
+  readonly request: CurrentTaskComputeDispatchRequestV1;
   readonly acceptance: TaskComputeDispatchAcceptanceV1;
 }
 
@@ -93,7 +93,7 @@ export function makeInMemoryTaskComputeProviderV1(
       const afterCancellationAccepted = hooks.afterCancellationAccepted;
       const dispatches = new Map<string, AcceptedDispatchStateV1>();
       const cancellations = new Map<string, AcceptedCancellationStateV1>();
-      const dispatchRequests: TaskComputeDispatchRequestV1[] = [];
+      const dispatchRequests: CurrentTaskComputeDispatchRequestV1[] = [];
       const cancellationRequests: TaskComputeCancellationRequestV1[] = [];
       let nextExecutionSequence = 1;
 
@@ -101,7 +101,7 @@ export function makeInMemoryTaskComputeProviderV1(
         dispatch: Effect.fn("InMemoryTaskComputeProvider.dispatch")(
           function* (suppliedRequest) {
             const request = yield* Effect.fromResult(
-              validateTaskComputeDispatchRequestV1(suppliedRequest),
+              validateCurrentTaskComputeDispatchRequestV1(suppliedRequest),
             );
             yield* Effect.sync(() => {
               dispatchRequests.push(request);
@@ -179,7 +179,7 @@ export function makeInMemoryTaskComputeProviderLayerV1(
 }
 
 function acceptDispatch(
-  request: TaskComputeDispatchRequestV1,
+  request: CurrentTaskComputeDispatchRequestV1,
   descriptor: TaskComputeProviderDescriptorV1,
   dispatches: Map<string, AcceptedDispatchStateV1>,
   allocateSequence: () => number,
@@ -269,7 +269,7 @@ function acceptCancellation(
 }
 
 function dispatchIdentityKey(
-  value: Pick<TaskComputeDispatchRequestV1 | TaskComputeCancellationRequestV1, "identity">,
+  value: Pick<CurrentTaskComputeDispatchRequestV1 | TaskComputeCancellationRequestV1, "identity">,
 ): string {
   const identity = value.identity;
   return [
@@ -282,12 +282,20 @@ function dispatchIdentityKey(
 }
 
 function dispatchRequestsEqual(
-  left: TaskComputeDispatchRequestV1,
-  right: TaskComputeDispatchRequestV1,
+  left: CurrentTaskComputeDispatchRequestV1,
+  right: CurrentTaskComputeDispatchRequestV1,
 ): boolean {
   return left.version === right.version &&
     dispatchIdentityKey(left) === dispatchIdentityKey(right) &&
-    left.taskDefinitionRevisionId === right.taskDefinitionRevisionId &&
+    ((left.taskDefinitionRevisionId !== undefined &&
+      right.taskDefinitionRevisionId !== undefined &&
+      left.taskDefinitionRevisionId === right.taskDefinitionRevisionId) ||
+      (left.applicationTaskRuntimeTargetSha256 !== undefined &&
+        right.applicationTaskRuntimeTargetSha256 !== undefined &&
+        left.applicationTaskRuntimeTargetSha256.every(
+          (byte, index) =>
+            byte === right.applicationTaskRuntimeTargetSha256[index],
+        ))) &&
     left.attemptNumber === right.attemptNumber &&
     left.leaseVersion === right.leaseVersion &&
     left.computeProfile === right.computeProfile &&

@@ -23,6 +23,7 @@ import {
   TaskComputeDeliveryEvidenceV1Error,
   TaskComputeProfileStorageV1Error,
   type TaskComputeDeliveryEvidenceV1,
+  type CurrentTaskComputePreparedExecutionV1,
   decodeTaskComputeCancellationReceiptEvidenceV1,
   decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
   decodeTaskComputeCancellationRequestEvidenceV1,
@@ -32,6 +33,7 @@ import {
   decodeTaskComputeDispatchRequestEvidenceV1,
   decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   decodeTaskComputePreparedExecutionV1,
+  decodeCurrentTaskComputePreparedExecutionV1,
   decodeTaskComputeProfileStorageBytesV1,
   encodeTaskComputeCancellationReceiptEvidenceV1,
   encodeTaskComputeCancellationReceiptCanonicalBytesV1,
@@ -367,6 +369,18 @@ describe("DTE06-C1 compute delivery evidence", () => {
       ...prepared,
       unexpected: true,
     }))).toBe(true);
+    expect(Result.isFailure(decodeCurrentTaskComputePreparedExecutionV1({
+      ...prepared,
+      generation: "future_generation_v2",
+    }))).toBe(true);
+
+    const mixedCandidate = {
+      ...prepared,
+      generation: "application_v1" as const,
+    };
+    // @ts-expect-error Current prepared evidence is an exact static XOR.
+    const mixed: CurrentTaskComputePreparedExecutionV1 = mixedCandidate;
+    void mixed;
   });
 });
 

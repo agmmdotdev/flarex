@@ -1,5 +1,8 @@
+import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
 import { Result, Schema } from "effect";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
+import type { ApplicationTaskRuntimeTargetSha256V1 } from
+  "../runCreation/Model.js";
 
 import {
   TaskAttemptIdV1Schema,
@@ -24,6 +27,8 @@ import {
   TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
   TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
   type TaskComputeCancellationProjectionV1,
+  type ApplicationTaskComputeDispatchRequestV1,
+  type CurrentTaskComputeDispatchRequestV1,
   type TaskComputeCancellationReceiptV1,
   type TaskComputeCancellationRequestV1,
   type TaskComputeDispatchAcceptanceV1,
@@ -112,6 +117,32 @@ export const TaskComputeDispatchRequestV1Schema = Schema.Struct({
   maximumDurationMs: PositiveTaskDurationMsV1Schema,
 }).annotate(STRICT_STRUCT_OPTIONS);
 
+const ApplicationTaskRuntimeTargetSha256HexV1Schema =
+  Schema.Uint8ArrayFromHex.check(
+    Schema.makeFilter((value) => isUint8ArrayWithByteLength(value, 32)
+      ? undefined
+      : "Expected a 32-byte Application task runtime-target SHA-256 digest"),
+  ).pipe(
+    Schema.brand("FlarexDurableTask/ApplicationTaskRuntimeTargetSha256V1"),
+  );
+
+export const ApplicationTaskComputeDispatchRequestV1Schema = Schema.Struct({
+  version: Schema.Literal(TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1),
+  identity: TaskComputeDispatchIdentityV1Schema,
+  applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256HexV1Schema,
+  attemptNumber: TaskAttemptNumberV1Schema,
+  leaseVersion: TaskLeaseVersionV1Schema,
+  computeProfile: TaskComputeProfileRefV1Schema,
+  cancellation: TaskComputeCancellationProjectionV1Schema,
+  maximumDurationMs: PositiveTaskDurationMsV1Schema,
+}).annotate(STRICT_STRUCT_OPTIONS);
+
+export const CurrentTaskComputeDispatchRequestV1Schema = Schema.Union([
+  TaskComputeDispatchRequestV1Schema,
+  ApplicationTaskComputeDispatchRequestV1Schema,
+]);
+
 export const TaskComputeExecutionRefV1Schema = Schema.Struct({
   provider: TaskComputeProviderNameV1Schema,
   providerVersion: TaskComputeProviderVersionV1Schema,
@@ -152,6 +183,22 @@ const validateDispatchRequest = Schema.decodeUnknownResult(
   Schema.toType(TaskComputeDispatchRequestV1Schema),
   STRICT_PARSE_OPTIONS,
 );
+const decodeApplicationDispatchRequest = Schema.decodeUnknownResult(
+  ApplicationTaskComputeDispatchRequestV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const validateApplicationDispatchRequest = Schema.decodeUnknownResult(
+  Schema.toType(ApplicationTaskComputeDispatchRequestV1Schema),
+  STRICT_PARSE_OPTIONS,
+);
+const decodeCurrentDispatchRequest = Schema.decodeUnknownResult(
+  CurrentTaskComputeDispatchRequestV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const validateCurrentDispatchRequest = Schema.decodeUnknownResult(
+  Schema.toType(CurrentTaskComputeDispatchRequestV1Schema),
+  STRICT_PARSE_OPTIONS,
+);
 const decodeDispatchAcceptance = Schema.decodeUnknownResult(
   TaskComputeDispatchAcceptanceV1Schema,
   STRICT_PARSE_OPTIONS,
@@ -178,6 +225,12 @@ const validateCancellationReceipt = Schema.decodeUnknownResult(
 );
 
 const encodeDispatchRequest = Schema.encodeResult(TaskComputeDispatchRequestV1Schema);
+const encodeApplicationDispatchRequest = Schema.encodeResult(
+  ApplicationTaskComputeDispatchRequestV1Schema,
+);
+const encodeCurrentDispatchRequest = Schema.encodeResult(
+  CurrentTaskComputeDispatchRequestV1Schema,
+);
 const encodeDispatchAcceptance = Schema.encodeResult(TaskComputeDispatchAcceptanceV1Schema);
 const encodeCancellationRequest = Schema.encodeResult(TaskComputeCancellationRequestV1Schema);
 const encodeCancellationReceipt = Schema.encodeResult(TaskComputeCancellationReceiptV1Schema);
@@ -222,6 +275,62 @@ export function validateTaskComputeDispatchRequestV1(
     validateDispatchRequest,
     "decode_dispatch_request",
     snapshotTaskComputeDispatchRequestV1,
+  );
+}
+
+export function decodeApplicationTaskComputeDispatchRequestV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskComputeDispatchRequestV1,
+  InvalidTaskComputeProviderValueError<"decode_dispatch_request">
+> {
+  return decodeCaptured(
+    captureApplicationDispatchRequest(input),
+    decodeApplicationDispatchRequest,
+    "decode_dispatch_request",
+    snapshotApplicationTaskComputeDispatchRequestV1,
+  );
+}
+
+export function validateApplicationTaskComputeDispatchRequestV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskComputeDispatchRequestV1,
+  InvalidTaskComputeProviderValueError<"decode_dispatch_request">
+> {
+  return decodeCaptured(
+    captureApplicationDispatchRequest(input),
+    validateApplicationDispatchRequest,
+    "decode_dispatch_request",
+    snapshotApplicationTaskComputeDispatchRequestV1,
+  );
+}
+
+export function decodeCurrentTaskComputeDispatchRequestV1(
+  input: unknown,
+): Result.Result<
+  CurrentTaskComputeDispatchRequestV1,
+  InvalidTaskComputeProviderValueError<"decode_dispatch_request">
+> {
+  return decodeCaptured(
+    captureCurrentDispatchRequest(input),
+    decodeCurrentDispatchRequest,
+    "decode_dispatch_request",
+    snapshotCurrentTaskComputeDispatchRequestV1,
+  );
+}
+
+export function validateCurrentTaskComputeDispatchRequestV1(
+  input: unknown,
+): Result.Result<
+  CurrentTaskComputeDispatchRequestV1,
+  InvalidTaskComputeProviderValueError<"decode_dispatch_request">
+> {
+  return decodeCaptured(
+    captureCurrentDispatchRequest(input),
+    validateCurrentDispatchRequest,
+    "decode_dispatch_request",
+    snapshotCurrentTaskComputeDispatchRequestV1,
   );
 }
 
@@ -323,6 +432,34 @@ export function encodeTaskComputeDispatchRequestV1(
   );
 }
 
+export function encodeApplicationTaskComputeDispatchRequestV1(
+  input: ApplicationTaskComputeDispatchRequestV1,
+): Result.Result<
+  unknown,
+  InvalidTaskComputeProviderValueError<"encode_dispatch_request">
+> {
+  return validateApplicationTaskComputeDispatchRequestV1(input).pipe(
+    Result.mapError(() => invalid("encode_dispatch_request")),
+    Result.flatMap(value => encodeApplicationDispatchRequest(value).pipe(
+      Result.mapError(() => invalid("encode_dispatch_request")),
+    )),
+  );
+}
+
+export function encodeCurrentTaskComputeDispatchRequestV1(
+  input: CurrentTaskComputeDispatchRequestV1,
+): Result.Result<
+  unknown,
+  InvalidTaskComputeProviderValueError<"encode_dispatch_request">
+> {
+  return validateCurrentTaskComputeDispatchRequestV1(input).pipe(
+    Result.mapError(() => invalid("encode_dispatch_request")),
+    Result.flatMap(value => encodeCurrentDispatchRequest(value).pipe(
+      Result.mapError(() => invalid("encode_dispatch_request")),
+    )),
+  );
+}
+
 export function encodeTaskComputeDispatchAcceptanceV1(
   input: TaskComputeDispatchAcceptanceV1,
 ): Result.Result<
@@ -391,6 +528,27 @@ export function snapshotTaskComputeDispatchRequestV1(
     identity: snapshotTaskComputeDispatchIdentityV1(value.identity),
     cancellation: Object.freeze({ ...value.cancellation }),
   });
+}
+
+export function snapshotApplicationTaskComputeDispatchRequestV1(
+  value: ApplicationTaskComputeDispatchRequestV1,
+): ApplicationTaskComputeDispatchRequestV1 {
+  return Object.freeze({
+    ...value,
+    identity: snapshotTaskComputeDispatchIdentityV1(value.identity),
+    applicationTaskRuntimeTargetSha256: new Uint8Array(
+      value.applicationTaskRuntimeTargetSha256,
+    ) as ApplicationTaskRuntimeTargetSha256V1,
+    cancellation: Object.freeze({ ...value.cancellation }),
+  });
+}
+
+export function snapshotCurrentTaskComputeDispatchRequestV1(
+  value: CurrentTaskComputeDispatchRequestV1,
+): CurrentTaskComputeDispatchRequestV1 {
+  return value.taskDefinitionRevisionId !== undefined
+    ? snapshotTaskComputeDispatchRequestV1(value)
+    : snapshotApplicationTaskComputeDispatchRequestV1(value);
 }
 
 export function snapshotTaskComputeDispatchAcceptanceV1(
@@ -494,6 +652,32 @@ function captureDispatchRequest(input: unknown): unknown | undefined {
   return identity === undefined || cancellation === undefined
     ? undefined
     : { ...outer, identity, cancellation };
+}
+
+function captureApplicationDispatchRequest(
+  input: unknown,
+): unknown | undefined {
+  const outer = captureExactDataRecord(input, [
+    "version",
+    "identity",
+    "applicationTaskRuntimeTargetSha256",
+    "attemptNumber",
+    "leaseVersion",
+    "computeProfile",
+    "cancellation",
+    "maximumDurationMs",
+  ]);
+  if (outer === undefined) return undefined;
+  const identity = captureIdentity(outer.identity);
+  const cancellation = captureCancellationProjection(outer.cancellation);
+  return identity === undefined || cancellation === undefined
+    ? undefined
+    : { ...outer, identity, cancellation };
+}
+
+function captureCurrentDispatchRequest(input: unknown): unknown | undefined {
+  return captureDispatchRequest(input)
+    ?? captureApplicationDispatchRequest(input);
 }
 
 function captureDispatchAcceptance(input: unknown): unknown | undefined {

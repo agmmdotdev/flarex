@@ -1,4 +1,7 @@
 import {
+  decodeApplicationTaskComputeDispatchRequestV1,
+  encodeApplicationTaskComputeDispatchRequestV1,
+  validateApplicationTaskComputeDispatchRequestV1,
   decodeTaskComputeCancellationReceiptV1,
   decodeTaskComputeCancellationRequestV1,
   decodeTaskComputeDispatchAcceptanceV1,
@@ -11,11 +14,19 @@ import {
   type TaskComputeCancellationRequestV1,
   type TaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchRequestV1,
+  type ApplicationTaskComputeDispatchRequestV1,
+  type CurrentTaskComputeDispatchRequestV1,
   validateTaskComputeCancellationReceiptV1,
   validateTaskComputeCancellationRequestV1,
   validateTaskComputeDispatchAcceptanceV1,
   validateTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
+import {
+  decodeApplicationTaskRunCreationAuthorityV1,
+  decodeApplicationTaskRuntimeTargetV1,
+  type ApplicationTaskRunCreationAuthorityV1,
+  type ApplicationTaskRuntimeTargetV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import {
   decodeTaskInputReferenceV1,
   type TaskInputReferenceV1,
@@ -25,7 +36,9 @@ import {
   type TaskComputeProfileRefV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
+  decodeCanonicalTaskManifestV1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
+  type CanonicalTaskManifestV1,
   type TaskDefinitionRuntimeBindingCommitmentV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
@@ -103,6 +116,9 @@ export class InvalidTaskComputePreparedExecutionV1Error extends Data.TaggedError
     | "invalid_shape"
     | "invalid_dispatch_request"
     | "invalid_runtime_binding_commitment"
+    | "invalid_runtime_target"
+    | "invalid_manifest"
+    | "invalid_creation_authority"
     | "invalid_input_reference";
 }> {}
 
@@ -134,6 +150,33 @@ export interface TaskComputePreparedExecutionV1 {
   readonly inputReference: TaskInputReferenceV1;
 }
 
+export interface ApplicationTaskComputePreparedExecutionV1 {
+  readonly generation: "application_v1";
+  readonly version: typeof TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1;
+  readonly dispatchRequest: ApplicationTaskComputeDispatchRequestV1;
+  readonly runtimeTarget: ApplicationTaskRuntimeTargetV1;
+  readonly manifest: CanonicalTaskManifestV1;
+  readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
+  readonly inputReference: TaskInputReferenceV1;
+}
+
+type CurrentLegacyTaskComputePreparedExecutionV1 =
+  TaskComputePreparedExecutionV1 & {
+    readonly generation?: never;
+    readonly runtimeTarget?: never;
+    readonly manifest?: never;
+    readonly creationAuthority?: never;
+  };
+
+type CurrentApplicationTaskComputePreparedExecutionV1 =
+  ApplicationTaskComputePreparedExecutionV1 & {
+    readonly runtimeBindingCommitment?: never;
+  };
+
+export type CurrentTaskComputePreparedExecutionV1 =
+  | CurrentLegacyTaskComputePreparedExecutionV1
+  | CurrentApplicationTaskComputePreparedExecutionV1;
+
 type DomainDecoder<Value> = (
   input: unknown,
 ) => Result.Result<Value, unknown>;
@@ -163,6 +206,13 @@ const dispatchRequestCodecOptions = Object.freeze({
 const dispatchRequestCodec = makeDeliveryEvidenceCodec(
   dispatchRequestCodecOptions,
 );
+const applicationDispatchRequestCodecOptions = Object.freeze({
+  encodeOperation: "encode_dispatch_request" as const,
+  decodeOperation: "decode_dispatch_request" as const,
+  validateValue: validateApplicationTaskComputeDispatchRequestV1,
+  decodeValue: decodeApplicationTaskComputeDispatchRequestV1,
+  encodeValue: encodeApplicationTaskComputeDispatchRequestV1,
+});
 
 const dispatchAcceptanceCodecOptions = Object.freeze({
   encodeOperation: "encode_dispatch_acceptance",
@@ -233,6 +283,34 @@ export function encodeTaskComputeDispatchRequestCanonicalBytesV1(
     Result.flatMap((value) => encodeCanonicalDomainBytesResult(
       value,
       dispatchRequestCodecOptions,
+      "encode_dispatch_request",
+    )),
+  );
+}
+
+export function encodeCurrentTaskComputeDispatchRequestCanonicalBytesV1(
+  input: CurrentTaskComputeDispatchRequestV1,
+): Result.Result<
+  Uint8Array,
+  TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_request">
+> {
+  return "taskDefinitionRevisionId" in input
+    ? encodeTaskComputeDispatchRequestCanonicalBytesV1(input)
+    : encodeApplicationDispatchRequestCanonicalBytes(input);
+}
+
+function encodeApplicationDispatchRequestCanonicalBytes(
+  input: ApplicationTaskComputeDispatchRequestV1,
+) {
+  return validateApplicationTaskComputeDispatchRequestV1(input).pipe(
+    Result.mapError(cause => evidenceFailure(
+      "encode_dispatch_request",
+      "invalid_input",
+      { cause },
+    )),
+    Result.flatMap(value => encodeCanonicalDomainBytesResult(
+      value,
+      applicationDispatchRequestCodecOptions,
       "encode_dispatch_request",
     )),
   );
@@ -323,6 +401,22 @@ export function encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
       "encode_dispatch_request",
     )),
     Result.flatMap((canonicalBytes) => captureObservedEvidenceResult(
+      canonicalBytes,
+      observedSha256,
+      "encode_dispatch_request",
+    )),
+  );
+}
+
+export function encodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+  input: CurrentTaskComputeDispatchRequestV1,
+  observedSha256: unknown,
+): Result.Result<
+  TaskComputeDeliveryEvidenceV1,
+  TaskComputeDeliveryEvidenceV1Error<"encode_dispatch_request">
+> {
+  return encodeCurrentTaskComputeDispatchRequestCanonicalBytesV1(input).pipe(
+    Result.flatMap(canonicalBytes => captureObservedEvidenceResult(
       canonicalBytes,
       observedSha256,
       "encode_dispatch_request",
@@ -425,6 +519,29 @@ export function decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
   );
 }
 
+export function decodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+  input: unknown,
+  observedSha256: unknown,
+  generation: "legacy_definition_v1" | "application_v1",
+): Result.Result<
+  CurrentTaskComputeDispatchRequestV1,
+  TaskComputeDeliveryEvidenceV1Error<"decode_dispatch_request">
+> {
+  return generation === "legacy_definition_v1"
+    ? decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+      input,
+      observedSha256,
+    )
+    : captureEvidenceResult(input, "decode_dispatch_request").pipe(
+      Result.flatMap(evidence => decodeCanonicalDomainEvidenceResult(
+        evidence,
+        observedSha256,
+        applicationDispatchRequestCodecOptions,
+        "decode_dispatch_request",
+      )),
+    );
+}
+
 export function decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1(
   input: unknown,
   observedSha256: unknown,
@@ -520,6 +637,77 @@ export function decodeTaskComputePreparedExecutionV1(
       inputReference,
     });
   });
+}
+
+export function decodeApplicationTaskComputePreparedExecutionV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskComputePreparedExecutionV1,
+  InvalidTaskComputePreparedExecutionV1Error
+> {
+  const outer = captureExactDataRecord(input, [
+    "version",
+    "generation",
+    "dispatchRequest",
+    "runtimeTarget",
+    "manifest",
+    "creationAuthority",
+    "inputReference",
+  ]);
+  if (outer === undefined || outer.generation !== "application_v1" ||
+    outer.version !== TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1) {
+    return Result.fail(preparedFailure("invalid_shape"));
+  }
+  return Result.gen(function* () {
+    const dispatchRequest = yield*
+      validateApplicationTaskComputeDispatchRequestV1(
+        outer.dispatchRequest,
+      ).pipe(Result.mapError(() => preparedFailure(
+        "invalid_dispatch_request",
+      )));
+    const runtimeTarget = yield* decodeApplicationTaskRuntimeTargetV1(
+      outer.runtimeTarget,
+    ).pipe(Result.mapError(() => preparedFailure("invalid_runtime_target")));
+    const manifest = yield* decodeCanonicalTaskManifestV1(
+      outer.manifest,
+    ).pipe(Result.mapError(() => preparedFailure("invalid_manifest")));
+    const creationAuthority = yield*
+      decodeApplicationTaskRunCreationAuthorityV1(
+        outer.creationAuthority,
+      ).pipe(Result.mapError(() => preparedFailure(
+        "invalid_creation_authority",
+      )));
+    const inputReference = yield* decodeTaskInputReferenceV1(
+      outer.inputReference,
+    ).pipe(Result.mapError(() => preparedFailure("invalid_input_reference")));
+    return Object.freeze({
+      version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+      generation: "application_v1" as const,
+      dispatchRequest,
+      runtimeTarget,
+      manifest,
+      creationAuthority,
+      inputReference,
+    });
+  });
+}
+
+export function decodeCurrentTaskComputePreparedExecutionV1(
+  input: unknown,
+): Result.Result<
+  CurrentTaskComputePreparedExecutionV1,
+  InvalidTaskComputePreparedExecutionV1Error
+> {
+  const generation = captureOptionalDataProperty(input, "generation");
+  if (generation === INVALID_DATA_PROPERTY) {
+    return Result.fail(preparedFailure("invalid_shape"));
+  }
+  if (generation === undefined) {
+    return decodeTaskComputePreparedExecutionV1(input);
+  }
+  return generation === "application_v1"
+    ? decodeApplicationTaskComputePreparedExecutionV1(input)
+    : Result.fail(preparedFailure("invalid_shape"));
 }
 
 /** Lossless, platform-independent big-endian JavaScript UTF-16 code units. */
@@ -891,6 +1079,28 @@ function captureExactDataRecord(
     return captured;
   } catch {
     return undefined;
+  }
+}
+
+const INVALID_DATA_PROPERTY: unique symbol = Symbol(
+  "FlarexDB/invalidTaskComputePreparedExecutionDataPropertyV1",
+);
+
+function captureOptionalDataProperty(
+  input: unknown,
+  key: string,
+): unknown | typeof INVALID_DATA_PROPERTY {
+  try {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      return INVALID_DATA_PROPERTY;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (descriptor === undefined) return undefined;
+    return descriptor.enumerable === true && "value" in descriptor
+      ? descriptor.value
+      : INVALID_DATA_PROPERTY;
+  } catch {
+    return INVALID_DATA_PROPERTY;
   }
 }
 

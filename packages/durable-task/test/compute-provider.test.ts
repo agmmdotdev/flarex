@@ -12,6 +12,8 @@ import {
   TaskComputeDispatchUncertainError,
   TaskComputeProvider,
   TaskComputeExecutionIdV1Schema,
+  decodeApplicationTaskComputeDispatchRequestV1,
+  decodeCurrentTaskComputeDispatchRequestV1,
   decodeTaskComputeCancellationReceiptV1,
   decodeTaskComputeCancellationRequestV1,
   decodeTaskComputeDispatchAcceptanceV1,
@@ -21,10 +23,12 @@ import {
   encodeTaskComputeCancellationRequestV1,
   encodeTaskComputeDispatchAcceptanceV1,
   encodeTaskComputeDispatchRequestV1,
+  encodeApplicationTaskComputeDispatchRequestV1,
   makeTaskComputeProviderV1,
   validateTaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchAcceptanceV1,
   type TaskComputeCancellationRequestV1,
+  type CurrentTaskComputeDispatchRequestV1,
   type TaskComputeDispatchRequestV1,
   type TaskComputeProviderShape,
 } from "../src/computeProvider/v1.js";
@@ -67,6 +71,55 @@ describe("TaskComputeProvider V1", () => {
     const encoded = success(encodeTaskComputeDispatchRequestV1(request));
     expect(encoded).toEqual(dispatchWire());
     expect(success(decodeTaskComputeDispatchRequestV1(encoded))).toEqual(request);
+  });
+
+  it("round-trips Application dispatch digests as canonical lowercase hex", () => {
+    const wire = {
+      ...dispatchWire(),
+      applicationTaskRuntimeTargetSha256: "ab".repeat(32),
+    };
+    delete (wire as Partial<typeof wire> & {
+      taskDefinitionRevisionId?: string;
+    }).taskDefinitionRevisionId;
+    const request = success(
+      decodeApplicationTaskComputeDispatchRequestV1(wire),
+    );
+
+    expect(request.applicationTaskRuntimeTargetSha256).toEqual(
+      new Uint8Array(32).fill(0xab),
+    );
+    expect(success(encodeApplicationTaskComputeDispatchRequestV1(request)))
+      .toEqual(wire);
+    expect(success(decodeCurrentTaskComputeDispatchRequestV1(wire)))
+      .toEqual(request);
+    expect(Result.isFailure(decodeCurrentTaskComputeDispatchRequestV1({
+      ...wire,
+      taskDefinitionRevisionId:
+        "taskdef_00000000-0000-4000-8000-000000000001",
+    }))).toBe(true);
+
+    // @ts-expect-error Current dispatch identities are an exact static XOR.
+    const mixed: CurrentTaskComputeDispatchRequestV1 = {
+      ...success(decodeTaskComputeDispatchRequestV1(dispatchWire())),
+      applicationTaskRuntimeTargetSha256:
+        request.applicationTaskRuntimeTargetSha256,
+    };
+    void mixed;
+
+    let getterReads = 0;
+    const accessorIdentity = dispatchWire().identity;
+    Object.defineProperty(accessorIdentity, "runId", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return "run_00000000-0000-4000-8000-000000000001";
+      },
+    });
+    expect(Result.isFailure(decodeCurrentTaskComputeDispatchRequestV1({
+      ...dispatchWire(),
+      identity: accessorIdentity,
+    }))).toBe(true);
+    expect(getterReads).toBe(0);
   });
 
   it("rejects excess keys, accessors, symbols, invalid cancellation, and zero duration", () => {

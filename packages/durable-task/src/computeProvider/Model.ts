@@ -1,5 +1,7 @@
 import type { Brand } from "effect";
 import type { ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
+import type { ApplicationTaskRuntimeTargetSha256V1 } from
+  "../runCreation/Model.js";
 
 import type {
   TaskAttemptIdV1,
@@ -72,6 +74,32 @@ export interface TaskComputeDispatchRequestV1 {
   readonly cancellation: TaskComputeCancellationProjectionV1;
   readonly maximumDurationMs: TaskDurationMsV1;
 }
+
+export interface ApplicationTaskComputeDispatchRequestV1 {
+  readonly version: typeof TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1;
+  readonly identity: TaskComputeDispatchIdentityV1;
+  readonly applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1;
+  readonly attemptNumber: TaskAttemptNumberV1;
+  readonly leaseVersion: TaskLeaseVersionV1;
+  readonly computeProfile: TaskComputeProfileRefV1;
+  readonly cancellation: TaskComputeCancellationProjectionV1;
+  readonly maximumDurationMs: TaskDurationMsV1;
+}
+
+type CurrentLegacyTaskComputeDispatchRequestV1 =
+  TaskComputeDispatchRequestV1 & {
+    readonly applicationTaskRuntimeTargetSha256?: never;
+  };
+
+type CurrentApplicationTaskComputeDispatchRequestV1 =
+  ApplicationTaskComputeDispatchRequestV1 & {
+    readonly taskDefinitionRevisionId?: never;
+  };
+
+export type CurrentTaskComputeDispatchRequestV1 =
+  | CurrentLegacyTaskComputeDispatchRequestV1
+  | CurrentApplicationTaskComputeDispatchRequestV1;
 
 export interface TaskComputeExecutionRefV1
   extends TaskComputeProviderDescriptorV1 {

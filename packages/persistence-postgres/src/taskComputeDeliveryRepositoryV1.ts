@@ -12,6 +12,9 @@ import {
   type TaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchIdentityV1,
   type TaskComputeDispatchRequestV1,
+  type ApplicationTaskComputeDispatchRequestV1,
+  type CurrentTaskComputeDispatchRequestV1,
+  validateApplicationTaskComputeDispatchRequestV1,
   validateTaskComputeCancellationReceiptV1,
   validateTaskComputeCancellationRequestV1,
   validateTaskComputeDispatchAcceptanceV1,
@@ -31,14 +34,43 @@ import {
   type PersistedTaskRequestedEffectV1,
   type TaskRequestedEffectSequenceV1,
   type TaskRunAttemptAggregateV1,
+  type ApplicationTaskRunAttemptAggregateV1,
+  type ApplicationPersistedTaskRequestedEffectV1,
+  type CurrentTaskRunAttemptAggregate,
+  type CurrentPersistedTaskRequestedEffect,
   type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
+  decodeApplicationTaskCatalogBindingV1,
+  decodeApplicationTaskDefinitionBindingV1,
+  decodeApplicationTaskRunCreationAuthorityPreimageV1,
+  decodeApplicationTaskRuntimeTargetV1,
+  encodeApplicationTaskCatalogBindingPreimageV1,
+  encodeApplicationTaskDefinitionBindingPreimageV1,
+  encodeApplicationTaskRuntimeTargetPreimageV1,
+  MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1,
+  MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1,
+  type ApplicationTaskCatalogBindingV1,
+  type ApplicationTaskDefinitionBindingV1,
+  type ApplicationTaskRunCreationAuthorityV1,
+  type ApplicationTaskRuntimeTargetV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import {
+  decodeCanonicalTaskManifestPreimageV1,
+  encodeCanonicalTaskManifestPreimageV1,
+  MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
+  type CanonicalTaskManifestV1,
   decodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
   decodeTaskRunCreationAuthorityReceiptPreimageV1,
   type TaskDefinitionRuntimeBindingCommitmentV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqual,
+  bytesEqualFullScan,
+  copyBytes,
+  encodeBytesToLowercaseHex,
+  uint8ArrayByteLength,
+} from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isLowercaseUuidText } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
@@ -57,6 +89,8 @@ import {
   fxSystemDurableTaskComputeCancellationsV1,
   fxSystemDurableTaskComputePendingV1,
   fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemApplicationTaskCatalogsV1,
+  fxSystemApplicationTaskDefinitionsV1,
   fxSystemDurableTaskRequestedEffectsV1,
   fxSystemDurableTaskRunsV1,
   fxSystemScopeClocks,
@@ -70,6 +104,7 @@ import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
   decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
   decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
+  decodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
   decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
   decodeTaskComputeProfileStorageBytesV1,
@@ -80,7 +115,9 @@ import {
   encodeTaskComputeCancellationRequestCanonicalBytesV1,
   encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeDispatchRequestCanonicalBytesV1,
+  encodeCurrentTaskComputeDispatchRequestCanonicalBytesV1,
   encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
+  encodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeProfileStorageBytesV1,
   TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1,
   TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
@@ -88,12 +125,18 @@ import {
   TaskComputeDeliveryEvidenceV1Error,
   type TaskComputeDeliveryEvidenceV1,
   type TaskComputePreparedExecutionV1,
+  type ApplicationTaskComputePreparedExecutionV1,
+  type CurrentTaskComputePreparedExecutionV1,
 } from "./taskComputeDeliveryEvidenceV1";
 import {
+  correlateApplicationTaskSystemLifecycleLedgerV1,
   correlateTaskSystemLifecycleLedgerV1,
   taskSystemPersistedValueEqualV1,
 } from "./taskSystemLifecycleLedgerCorrelationV1";
-import { decodeAndCorrelateTaskSystemRequestedEffectRowV1 } from
+import {
+  decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1,
+  decodeAndCorrelateTaskSystemRequestedEffectRowV1,
+} from
   "./taskSystemRequestedEffectRowV1";
 import { decodeAndCorrelateTaskSystemRunRowV1 } from
   "./taskSystemRunRowV1";
@@ -129,9 +172,42 @@ type CancellationRow =
   typeof fxSystemDurableTaskComputeCancellationsV1.$inferSelect;
 type DefinitionRow =
   typeof fxSystemDurableTaskDefinitionRevisionsV1.$inferSelect;
+type ApplicationCatalogRow =
+  typeof fxSystemApplicationTaskCatalogsV1.$inferSelect;
+type ApplicationDefinitionRow =
+  typeof fxSystemApplicationTaskDefinitionsV1.$inferSelect;
 type RequestedEffectRow =
   typeof fxSystemDurableTaskRequestedEffectsV1.$inferSelect;
 type RunRow = typeof fxSystemDurableTaskRunsV1.$inferSelect;
+type AggregateForDelivery =
+  | TaskRunAttemptAggregateV1
+  | ApplicationTaskRunAttemptAggregateV1;
+type DispatchEffectForDelivery =
+  | (PersistedTaskRequestedEffectV1 & Readonly<{
+      readonly effect: Extract<
+        PersistedTaskRequestedEffectV1["effect"],
+        { readonly kind: "dispatch_attempt" }
+      >;
+    }>)
+  | (ApplicationPersistedTaskRequestedEffectV1 & Readonly<{
+      readonly effect: Extract<
+        ApplicationPersistedTaskRequestedEffectV1["effect"],
+        { readonly kind: "dispatch_attempt" }
+      >;
+    }>);
+type CancellationEffectForDelivery =
+  | (PersistedTaskRequestedEffectV1 & Readonly<{
+      readonly effect: Extract<
+        PersistedTaskRequestedEffectV1["effect"],
+        { readonly kind: "request_execution_cancellation" }
+      >;
+    }>)
+  | (ApplicationPersistedTaskRequestedEffectV1 & Readonly<{
+      readonly effect: Extract<
+        ApplicationPersistedTaskRequestedEffectV1["effect"],
+        { readonly kind: "request_execution_cancellation" }
+      >;
+    }>);
 
 export type TaskComputeDeliveryModeV1 =
   | "initial"
@@ -539,7 +615,7 @@ export interface TaskComputeDispatchAcquireRequestV1 {
 export type TaskComputeDispatchAcquireResultV1 =
   | Readonly<{
       readonly kind: "claimed";
-      readonly prepared: TaskComputePreparedExecutionV1;
+      readonly prepared: CurrentTaskComputePreparedExecutionV1;
       readonly handle: TaskComputeDispatchClaimHandleV1;
       readonly deliveryMode: TaskComputeDeliveryModeV1;
       readonly claimExpiresAt: Date;
@@ -879,7 +955,7 @@ interface MutableHandleStateV1 {
 
 interface TransactionClaimedV1 {
   readonly kind: "claimed";
-  readonly prepared: TaskComputePreparedExecutionV1;
+  readonly prepared: CurrentTaskComputePreparedExecutionV1;
   readonly deliveryMode: TaskComputeDeliveryModeV1;
   readonly claimOwner: string;
   readonly claimFence: bigint;
@@ -1552,24 +1628,34 @@ async function acquireDispatchTransaction(
     }));
   }
   const aggregate = decodeRun(storedRun, operation, request.runId);
-  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
-    tx,
-    authority.scopeId,
-    request.runId,
-    aggregate,
-    (reason) => rollback(new TaskComputeDeliveryRepositoryCorruptionV1Error({
-      operation,
-      runId: request.runId,
-      reason,
-    })),
-  ));
-  const effectRow = await loadRequestedEffect(
+  const effectRow = await findRequestedEffect(
     tx,
     authority.scopeId,
     request,
     operation,
   );
-  const persistedEffect = decodeDispatchEffect(effectRow, request, operation);
+  if (effectRow === undefined) {
+    await correlateRunLedger(tx, authority.scopeId, request.runId, aggregate,
+      operation);
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: request.runId,
+      reason: "effect_unavailable",
+    }));
+  }
+  const persistedEffect = decodeDispatchEffect(
+    effectRow,
+    aggregate.generation,
+    request,
+    operation,
+  );
+  requireSelectedDispatchDefinitionIdentity(
+    storedRun,
+    persistedEffect,
+    operation,
+  );
+  await correlateRunLedger(tx, authority.scopeId, request.runId, aggregate,
+    operation);
   await consumePendingComputeDelivery(
     tx,
     authority.scopeId,
@@ -1586,15 +1672,11 @@ async function acquireDispatchTransaction(
   );
   const currentRequest = buildDispatchRequest(
     replacementScopeId,
-    aggregate,
+    aggregate.aggregate,
     persistedEffect,
     operation,
   );
-  const currentPrepared = capturePreparedExecution(
-    currentRequest,
-    immutable.runtimeBindingCommitment,
-    immutable.inputReference,
-  );
+  const currentPrepared = capturePreparedExecution(currentRequest, immutable);
   const databaseTime = await readDatabaseTime(
     tx,
     authority.scopeId,
@@ -1609,12 +1691,12 @@ async function acquireDispatchTransaction(
     operation,
   );
   const lifecycleCurrent = dispatchLifecycleIsCurrent(
-    aggregate,
+    aggregate.aggregate,
     persistedEffect,
   );
   if (checkpoint === null) {
     const canonicalBytes = Result.getOrThrowWith(
-      encodeTaskComputeDispatchRequestCanonicalBytesV1(currentRequest),
+      encodeCurrentTaskComputeDispatchRequestCanonicalBytesV1(currentRequest),
       (error) => rollback(error),
     );
     const observedSha256 = await sha256(
@@ -1623,7 +1705,7 @@ async function acquireDispatchTransaction(
       request.runId,
     );
     const evidence = Result.getOrThrowWith(
-      encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
+      encodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1(
         currentRequest,
         observedSha256,
       ),
@@ -1640,9 +1722,14 @@ async function acquireDispatchTransaction(
       runId: request.runId,
       requestedEffectSequence: request.requestedEffectSequence,
       acceptedRunVersion: persistedEffect.effect.acceptedRunVersion,
-      definitionGeneration: "legacy_definition_v1",
-      taskDefinitionRevisionId: currentRequest.taskDefinitionRevisionId,
-      applicationTaskRuntimeTargetSha256: null,
+      definitionGeneration: aggregate.generation,
+      taskDefinitionRevisionId: "taskDefinitionRevisionId" in currentRequest
+        ? currentRequest.taskDefinitionRevisionId
+        : null,
+      applicationTaskRuntimeTargetSha256:
+        "applicationTaskRuntimeTargetSha256" in currentRequest
+          ? currentRequest.applicationTaskRuntimeTargetSha256
+          : null,
       attemptId: currentRequest.identity.attemptId,
       attemptNumber: currentRequest.attemptNumber,
       executionFence: currentRequest.identity.executionFence,
@@ -1793,11 +1880,7 @@ async function acquireDispatchTransaction(
   }
   return claimedTransactionResult(
     claimed,
-    capturePreparedExecution(
-      stored,
-      immutable.runtimeBindingCommitment,
-      immutable.inputReference,
-    ),
+    capturePreparedExecution(stored, immutable),
     deliveryMode,
     claimOwner,
     databaseTime.claimExpiresAt,
@@ -1805,9 +1888,32 @@ async function acquireDispatchTransaction(
   );
 }
 
+function requireSelectedDispatchDefinitionIdentity(
+  run: RunRow,
+  persistedEffect: ReturnType<typeof decodeDispatchEffect>,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): void {
+  if (run.definitionGeneration === "application_v1") {
+    if (run.applicationTaskRuntimeTargetSha256 === null
+      || !("applicationTaskRuntimeTargetSha256" in persistedEffect.effect)
+      || !bytesEqualFullScan(
+        run.applicationTaskRuntimeTargetSha256,
+        persistedEffect.effect.applicationTaskRuntimeTargetSha256,
+      )) throw rollback(corruption(operation, run.runId, "definition_invalid"));
+    return;
+  }
+  if (run.definitionGeneration !== "legacy_definition_v1"
+    || run.taskDefinitionRevisionId === null
+    || !("taskDefinitionRevisionId" in persistedEffect.effect)
+    || run.taskDefinitionRevisionId
+      !== persistedEffect.effect.taskDefinitionRevisionId) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+}
+
 interface CorrelatedHandleContextV1 {
   readonly checkpoint: DispatchRow;
-  readonly storedRequest: TaskComputeDispatchRequestV1;
+  readonly storedRequest: CurrentTaskComputeDispatchRequestV1;
   readonly databaseTime: Readonly<{
     readonly now: Date;
     readonly claimExpiresAt: Date;
@@ -2280,13 +2386,8 @@ async function acquireCancellationTransaction(
     }));
   }
   const aggregate = decodeRun(runRow, operation, request.runId);
-  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
-    tx,
-    authority.scopeId,
-    request.runId,
-    aggregate,
-    (reason) => rollback(corruption(operation, request.runId, reason)),
-  ));
+  await correlateRunLedger(tx, authority.scopeId, request.runId, aggregate,
+    operation);
   const cancellationEffect = decodeCancellationEffect(
     await loadRequestedEffect(
       tx,
@@ -2294,12 +2395,14 @@ async function acquireCancellationTransaction(
       request,
       operation,
     ),
+    aggregate.generation,
     request,
     operation,
   );
   const dispatchEffect = await loadLinkedDispatchEffect(
     tx,
     authority.scopeId,
+    aggregate.generation,
     cancellationEffect,
     operation,
   );
@@ -2312,12 +2415,12 @@ async function acquireCancellationTransaction(
   );
   const expectedDispatchRequest = buildDispatchRequest(
     replacementScopeId,
-    aggregate,
+    aggregate.aggregate,
     dispatchEffect,
     operation,
   );
   const lifecycleCurrent = cancellationLifecycleIsCurrent(
-    aggregate,
+    aggregate.aggregate,
     cancellationEffect,
   );
   const dispatchCheckpoint = await loadDispatchCheckpoint(
@@ -3043,13 +3146,8 @@ async function loadCorrelatedCancellationHandleContext(
     }));
   }
   const aggregate = decodeRun(runRow, operation, state.runId);
-  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
-    tx,
-    authority.scopeId,
-    state.runId,
-    aggregate,
-    (reason) => rollback(corruption(operation, state.runId, reason)),
-  ));
+  await correlateRunLedger(tx, authority.scopeId, state.runId, aggregate,
+    operation);
   const acquisition = Object.freeze({
     runId: state.runId,
     requestedEffectSequence: state.requestedEffectSequence,
@@ -3061,12 +3159,14 @@ async function loadCorrelatedCancellationHandleContext(
       acquisition,
       operation,
     ),
+    aggregate.generation,
     acquisition,
     operation,
   );
   const dispatchEffect = await loadLinkedDispatchEffect(
     tx,
     authority.scopeId,
+    aggregate.generation,
     cancellationEffect,
     operation,
   );
@@ -3079,7 +3179,7 @@ async function loadCorrelatedCancellationHandleContext(
   );
   const expectedDispatchRequest = buildDispatchRequest(
     replacementScopeId,
-    aggregate,
+    aggregate.aggregate,
     dispatchEffect,
     operation,
   );
@@ -3148,7 +3248,7 @@ async function loadCorrelatedCancellationHandleContext(
     request: storedRequest,
     databaseTime,
     lifecycleCurrent: cancellationLifecycleIsCurrent(
-      aggregate,
+      aggregate.aggregate,
       cancellationEffect,
     ),
   });
@@ -3212,17 +3312,8 @@ async function loadCorrelatedHandleContext(
     }));
   }
   const aggregate = decodeRun(runRow, operation, state.runId);
-  await statement(operation, () => correlateTaskSystemLifecycleLedgerV1(
-    tx,
-    authority.scopeId,
-    state.runId,
-    aggregate,
-    (reason) => rollback(new TaskComputeDeliveryRepositoryCorruptionV1Error({
-      operation,
-      runId: state.runId,
-      reason,
-    })),
-  ));
+  await correlateRunLedger(tx, authority.scopeId, state.runId, aggregate,
+    operation);
   const request = Object.freeze({
     runId: state.runId,
     requestedEffectSequence: state.requestedEffectSequence,
@@ -3233,7 +3324,12 @@ async function loadCorrelatedHandleContext(
     request,
     operation,
   );
-  const persistedEffect = decodeDispatchEffect(effectRow, request, operation);
+  const persistedEffect = decodeDispatchEffect(
+    effectRow,
+    aggregate.generation,
+    request,
+    operation,
+  );
   await loadImmutablePreparation(
     tx,
     authority.scopeId,
@@ -3243,7 +3339,7 @@ async function loadCorrelatedHandleContext(
   );
   const expectedRequest = buildDispatchRequest(
     replacementScopeId,
-    aggregate,
+    aggregate.aggregate,
     persistedEffect,
     operation,
   );
@@ -3274,7 +3370,10 @@ async function loadCorrelatedHandleContext(
     checkpoint,
     storedRequest,
     databaseTime,
-    lifecycleCurrent: dispatchLifecycleIsCurrent(aggregate, persistedEffect),
+    lifecycleCurrent: dispatchLifecycleIsCurrent(
+      aggregate.aggregate,
+      persistedEffect,
+    ),
   });
 }
 
@@ -3715,7 +3814,13 @@ function decodeRun(
   row: RunRow,
   operation: TaskComputeDeliveryRepositoryOperationV1,
   runId: TaskRunIdV1,
-): TaskRunAttemptAggregateV1 {
+): Readonly<{
+  readonly generation: "legacy_definition_v1";
+  readonly aggregate: TaskRunAttemptAggregateV1;
+}> | Readonly<{
+  readonly generation: "application_v1";
+  readonly aggregate: ApplicationTaskRunAttemptAggregateV1;
+}> {
   if (row.runId !== runId) throw rollback(corruption(
     operation,
     runId,
@@ -3725,10 +3830,33 @@ function decodeRun(
     decodeAndCorrelateTaskSystemRunRowV1(row),
     () => rollback(corruption(operation, runId, "aggregate_invalid")),
   );
-  if (decoded.generation !== "legacy_definition_v1") {
-    throw rollback(corruption(operation, runId, "aggregate_invalid"));
-  }
-  return decoded.aggregate;
+  return decoded;
+}
+
+async function correlateRunLedger(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  runId: TaskRunIdV1,
+  decoded: ReturnType<typeof decodeRun>,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<void> {
+  const onCorruption = (reason: "effect_sequence_invalid" | "acceptance_invalid") =>
+    rollback(corruption(operation, runId, reason));
+  await statement(operation, () => decoded.generation === "legacy_definition_v1"
+    ? correlateTaskSystemLifecycleLedgerV1(
+      tx,
+      scopeId,
+      runId,
+      decoded.aggregate,
+      onCorruption,
+    )
+    : correlateApplicationTaskSystemLifecycleLedgerV1(
+      tx,
+      scopeId,
+      runId,
+      decoded.aggregate,
+      onCorruption,
+    ));
 }
 
 async function loadRequestedEffect(
@@ -3756,6 +3884,25 @@ async function loadRequestedEffect(
     }));
   }
   return row;
+}
+
+async function findRequestedEffect(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  request: CapturedAcquireRequestV1,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<RequestedEffectRow | undefined> {
+  const rows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, scopeId),
+    eq(fxSystemDurableTaskRequestedEffectsV1.runId, request.runId),
+    eq(
+      fxSystemDurableTaskRequestedEffectsV1.sequence,
+      request.requestedEffectSequence,
+    ),
+  )).limit(1));
+  return rows[0];
 }
 
 async function consumePendingComputeDelivery(
@@ -3789,21 +3936,24 @@ async function consumePendingComputeDelivery(
 
 function decodeDispatchEffect(
   row: RequestedEffectRow,
+  generation: "legacy_definition_v1" | "application_v1",
   request: CapturedAcquireRequestV1,
   operation: TaskComputeDeliveryRepositoryOperationV1,
-): PersistedTaskRequestedEffectV1 & Readonly<{
-  readonly effect: Extract<
-    PersistedTaskRequestedEffectV1["effect"],
-    { readonly kind: "dispatch_attempt" }
-  >;
-}> {
+): DispatchEffectForDelivery {
+  if (generation === "legacy_definition_v1") {
+    const decoded = Result.getOrThrowWith(
+      decodeAndCorrelateTaskSystemRequestedEffectRowV1(row),
+      () => rollback(corruption(operation, request.runId, "effect_invalid")),
+    );
+    if (decoded.sequence !== request.requestedEffectSequence
+      || decoded.effect.kind !== "dispatch_attempt") {
+      throw rollback(corruption(operation, request.runId, "effect_invalid"));
+    }
+    return Object.freeze({ sequence: decoded.sequence, effect: decoded.effect });
+  }
   const decoded = Result.getOrThrowWith(
-    decodeAndCorrelateTaskSystemRequestedEffectRowV1(row),
-    () => rollback(corruption(
-      operation,
-      request.runId,
-      "effect_invalid",
-    )),
+    decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1(row),
+    () => rollback(corruption(operation, request.runId, "effect_invalid")),
   );
   if (
     decoded.sequence !== request.requestedEffectSequence
@@ -3823,16 +3973,23 @@ function decodeDispatchEffect(
 
 function decodeCancellationEffect(
   row: RequestedEffectRow,
+  generation: "legacy_definition_v1" | "application_v1",
   request: CapturedAcquireRequestV1,
   operation: TaskComputeDeliveryRepositoryOperationV1,
-): PersistedTaskRequestedEffectV1 & Readonly<{
-  readonly effect: Extract<
-    PersistedTaskRequestedEffectV1["effect"],
-    { readonly kind: "request_execution_cancellation" }
-  >;
-}> {
+): CancellationEffectForDelivery {
+  if (generation === "legacy_definition_v1") {
+    const decoded = Result.getOrThrowWith(
+      decodeAndCorrelateTaskSystemRequestedEffectRowV1(row),
+      () => rollback(corruption(operation, request.runId, "effect_invalid")),
+    );
+    if (decoded.sequence !== request.requestedEffectSequence
+      || decoded.effect.kind !== "request_execution_cancellation") {
+      throw rollback(corruption(operation, request.runId, "effect_invalid"));
+    }
+    return Object.freeze({ sequence: decoded.sequence, effect: decoded.effect });
+  }
   const decoded = Result.getOrThrowWith(
-    decodeAndCorrelateTaskSystemRequestedEffectRowV1(row),
+    decodeAndCorrelateApplicationTaskSystemRequestedEffectRowV1(row),
     () => rollback(corruption(operation, request.runId, "effect_invalid")),
   );
   if (
@@ -3848,6 +4005,7 @@ function decodeCancellationEffect(
 async function loadLinkedDispatchEffect(
   tx: AppRowTransaction,
   scopeId: ScopeId,
+  generation: "legacy_definition_v1" | "application_v1",
   cancellation: ReturnType<typeof decodeCancellationEffect>,
   operation: TaskComputeDeliveryRepositoryOperationV1,
 ): Promise<ReturnType<typeof decodeDispatchEffect>> {
@@ -3864,7 +4022,12 @@ async function loadLinkedDispatchEffect(
       runId: cancellation.effect.runId,
       requestedEffectSequence: row.sequence,
     });
-    const decoded = decodeDispatchEffect(row, request, operation);
+    const decoded = decodeDispatchEffect(
+      row,
+      generation,
+      request,
+      operation,
+    );
     if (
       decoded.effect.attempt.attemptId === cancellation.effect.attemptId
       && decoded.effect.attempt.executionFence
@@ -3896,13 +4059,20 @@ async function loadImmutablePreparation(
   run: RunRow,
   persistedEffect: ReturnType<typeof decodeDispatchEffect>,
   operation: TaskComputeDeliveryRepositoryOperationV1,
-): Promise<Readonly<{
-  readonly runtimeBindingCommitment: TaskDefinitionRuntimeBindingCommitmentV1;
-  readonly inputReference: TaskInputReferenceV1;
-}>> {
+): Promise<ImmutablePreparation> {
+  if (run.definitionGeneration === "application_v1") {
+    return loadApplicationImmutablePreparation(
+      tx,
+      scopeId,
+      run,
+      persistedEffect,
+      operation,
+    );
+  }
   if (
     run.definitionGeneration !== "legacy_definition_v1"
     || run.taskDefinitionRevisionId === null
+    || !("taskDefinitionRevisionId" in persistedEffect.effect)
     || run.taskDefinitionRevisionId
       !== persistedEffect.effect.taskDefinitionRevisionId
   ) {
@@ -3998,9 +4168,342 @@ async function loadImmutablePreparation(
     () => rollback(corruption(operation, run.runId, "input_invalid")),
   );
   return Object.freeze({
+    generation: "legacy_definition_v1" as const,
     runtimeBindingCommitment: commitment,
     inputReference,
   });
+}
+
+type ImmutablePreparation =
+  | Readonly<{
+      readonly generation: "legacy_definition_v1";
+      readonly runtimeBindingCommitment:
+        TaskDefinitionRuntimeBindingCommitmentV1;
+      readonly inputReference: TaskInputReferenceV1;
+    }>
+  | Readonly<{
+      readonly generation: "application_v1";
+      readonly runtimeTarget: ApplicationTaskRuntimeTargetV1;
+      readonly manifest: CanonicalTaskManifestV1;
+      readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
+      readonly inputReference: TaskInputReferenceV1;
+    }>;
+
+async function loadApplicationImmutablePreparation(
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  run: RunRow,
+  persistedEffect: ReturnType<typeof decodeDispatchEffect>,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): Promise<Extract<ImmutablePreparation, { readonly generation: "application_v1" }>> {
+  if (run.taskDefinitionRevisionId !== null
+    || run.applicationTaskRuntimeTargetSha256 === null
+    || !("applicationTaskRuntimeTargetSha256" in persistedEffect.effect)
+    || !bytesEqualFullScan(
+      run.applicationTaskRuntimeTargetSha256,
+      persistedEffect.effect.applicationTaskRuntimeTargetSha256,
+    )) throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  const authorityObservedSha256 = await sha256(
+    run.creationAuthorityBytes,
+    operation,
+    run.runId,
+  );
+  const creationAuthority = Result.getOrThrowWith(
+    decodeApplicationTaskRunCreationAuthorityPreimageV1(
+      run.creationAuthorityBytes,
+    ),
+    () => rollback(corruption(
+      operation,
+      run.runId,
+      "creation_authority_invalid",
+    )),
+  );
+  const targetBytes = Result.getOrThrowWith(
+    encodeApplicationTaskRuntimeTargetPreimageV1(
+      creationAuthority.runtimeTarget,
+    ),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const targetObservedSha256 = await sha256(targetBytes, operation, run.runId);
+  if (run.creationAuthorityCodecVersion !== 1
+    || run.creationAuthorityByteLength
+      !== BigInt(run.creationAuthorityBytes.byteLength)
+    || !bytesEqualFullScan(run.creationAuthoritySha256, authorityObservedSha256)
+    || creationAuthority.scopeId !== scopeId
+    || creationAuthority.runtimeTarget.scopeId !== scopeId
+    || !bytesEqualFullScan(
+      creationAuthority.applicationTaskRuntimeTargetSha256,
+      targetObservedSha256,
+    )
+    || !bytesEqualFullScan(
+      run.applicationTaskRuntimeTargetSha256,
+      targetObservedSha256,
+    )) throw rollback(corruption(
+      operation,
+      run.runId,
+      "creation_authority_invalid",
+    ));
+  const target = creationAuthority.runtimeTarget;
+  const sizes = await statement(operation, () => tx.select({
+    catalogBindingByteLength: sql<string>`octet_length(${fxSystemApplicationTaskCatalogsV1.bindingBytes})::bigint::text`,
+    manifestByteLength: sql<string>`octet_length(${fxSystemApplicationTaskDefinitionsV1.manifestBytes})::bigint::text`,
+    definitionBindingByteLength: sql<string>`octet_length(${fxSystemApplicationTaskDefinitionsV1.bindingBytes})::bigint::text`,
+  }).from(fxSystemApplicationTaskDefinitionsV1).innerJoin(
+    fxSystemApplicationTaskCatalogsV1,
+    and(
+      eq(
+        fxSystemApplicationTaskCatalogsV1.scopeId,
+        fxSystemApplicationTaskDefinitionsV1.scopeId,
+      ),
+      eq(
+        fxSystemApplicationTaskCatalogsV1.revisionId,
+        fxSystemApplicationTaskDefinitionsV1.revisionId,
+      ),
+      eq(
+        fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
+        fxSystemApplicationTaskDefinitionsV1.taskCatalogBindingSha256,
+      ),
+    ),
+  ).where(and(
+    eq(fxSystemApplicationTaskDefinitionsV1.scopeId, scopeId),
+    eq(fxSystemApplicationTaskDefinitionsV1.revisionId, target.revisionId),
+    eq(fxSystemApplicationTaskDefinitionsV1.taskId, target.taskId),
+  )).limit(2));
+  const size = sizes[0];
+  if (sizes.length !== 1 || size === undefined
+    || !isAdmittedApplicationPayloadSizes(size)) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+  const rows = await statement(operation, () => tx.select({
+    catalog: fxSystemApplicationTaskCatalogsV1,
+    definition: fxSystemApplicationTaskDefinitionsV1,
+  }).from(fxSystemApplicationTaskDefinitionsV1).innerJoin(
+    fxSystemApplicationTaskCatalogsV1,
+    and(
+      eq(
+        fxSystemApplicationTaskCatalogsV1.scopeId,
+        fxSystemApplicationTaskDefinitionsV1.scopeId,
+      ),
+      eq(
+        fxSystemApplicationTaskCatalogsV1.revisionId,
+        fxSystemApplicationTaskDefinitionsV1.revisionId,
+      ),
+      eq(
+        fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
+        fxSystemApplicationTaskDefinitionsV1.taskCatalogBindingSha256,
+      ),
+    ),
+  ).where(and(
+    eq(fxSystemApplicationTaskDefinitionsV1.scopeId, scopeId),
+    eq(fxSystemApplicationTaskDefinitionsV1.revisionId, target.revisionId),
+    eq(fxSystemApplicationTaskDefinitionsV1.taskId, target.taskId),
+  )).limit(2));
+  const row = rows[0];
+  if (rows.length !== 1 || row === undefined) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+  if (!applicationPayloadMatchesAdmittedSizes(size, row)) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+  const catalogBinding = Result.getOrThrowWith(
+    decodeApplicationTaskCatalogBindingV1({
+      version: 1,
+      scopeId: row.catalog.scopeId,
+      revisionId: row.catalog.revisionId,
+      candidateId: row.catalog.candidateId,
+      analysisId: row.catalog.analysisId,
+      sourceArtifactRootSha256: encodeBytesToLowercaseHex(
+        row.catalog.sourceArtifactRootSha256,
+      ),
+      publicationSha256: encodeBytesToLowercaseHex(
+        row.catalog.publicationSha256,
+      ),
+      taskCatalogSha256: copyBytes(row.catalog.taskCatalogSha256),
+      taskCount: row.catalog.taskCount,
+      runtimeHostIdentity: row.catalog.runtimeHostIdentity,
+      compatibilityDate: row.catalog.compatibilityDate,
+    }),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const catalogBindingBytes = Result.getOrThrowWith(
+    encodeApplicationTaskCatalogBindingPreimageV1(catalogBinding),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const catalogBindingSha256 = await sha256(
+    catalogBindingBytes,
+    operation,
+    run.runId,
+  );
+  const binding = Result.getOrThrowWith(
+    decodeApplicationTaskDefinitionBindingV1({
+      version: 1,
+      applicationTaskCatalogBindingSha256:
+        copyBytes(row.definition.taskCatalogBindingSha256),
+      taskId: row.definition.taskId,
+      canonicalTaskManifestSha256:
+        copyBytes(row.definition.canonicalTaskManifestSha256),
+      handler: {
+        logicalModulePath: row.definition.logicalModulePath,
+        sourceModulePath: row.definition.sourceModulePath,
+        exportName: row.definition.exportName,
+      },
+    }),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const bindingBytes = Result.getOrThrowWith(
+    encodeApplicationTaskDefinitionBindingPreimageV1(binding),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const bindingSha256 = await sha256(bindingBytes, operation, run.runId);
+  const manifest = Result.getOrThrowWith(
+    decodeCanonicalTaskManifestPreimageV1(row.definition.manifestBytes),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const manifestBytes = Result.getOrThrowWith(
+    encodeCanonicalTaskManifestPreimageV1(manifest),
+    () => rollback(corruption(operation, run.runId, "definition_invalid")),
+  );
+  const manifestSha256 = await sha256(manifestBytes, operation, run.runId);
+  if (!applicationRowsMatchTarget(
+    row.catalog,
+    row.definition,
+    target,
+    catalogBinding,
+    binding,
+  )
+    || !bytesEqualFullScan(catalogBindingBytes, row.catalog.bindingBytes)
+    || !bytesEqualFullScan(
+      catalogBindingSha256,
+      row.catalog.taskCatalogBindingSha256,
+    )
+    || !bytesEqualFullScan(bindingBytes, row.definition.bindingBytes)
+    || !bytesEqualFullScan(bindingSha256, row.definition.taskDefinitionBindingSha256)
+    || !bytesEqualFullScan(manifestBytes, row.definition.manifestBytes)
+    || !bytesEqualFullScan(manifestSha256, row.definition.canonicalTaskManifestSha256)
+    || manifest.taskId !== target.taskId) {
+    throw rollback(corruption(operation, run.runId, "definition_invalid"));
+  }
+  return Object.freeze({
+    generation: "application_v1" as const,
+    runtimeTarget: target,
+    manifest,
+    creationAuthority,
+    inputReference: decodeInputReference(run, operation),
+  });
+}
+
+function isAdmittedApplicationPayloadSizes(input: Readonly<{
+  readonly catalogBindingByteLength: string;
+  readonly definitionBindingByteLength: string;
+  readonly manifestByteLength: string;
+}>): boolean {
+  const catalog = admittedApplicationPayloadSize(
+    input.catalogBindingByteLength,
+    MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1,
+  );
+  const definition = admittedApplicationPayloadSize(
+    input.definitionBindingByteLength,
+    MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1,
+  );
+  const manifest = admittedApplicationPayloadSize(
+    input.manifestByteLength,
+    MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
+  );
+  return catalog !== undefined
+    && definition !== undefined
+    && manifest !== undefined
+    && catalog <= MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1 - definition
+    && catalog + definition
+      <= MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1 - manifest;
+}
+
+function admittedApplicationPayloadSize(
+  input: string,
+  maximum: number,
+): number | undefined {
+  if (!/^[1-9][0-9]*$/.test(input)) return undefined;
+  const size = Number(input);
+  return Number.isSafeInteger(size) && size <= maximum ? size : undefined;
+}
+
+function applicationPayloadMatchesAdmittedSizes(
+  admitted: Readonly<{
+    readonly catalogBindingByteLength: string;
+    readonly definitionBindingByteLength: string;
+    readonly manifestByteLength: string;
+  }>,
+  row: Readonly<{
+    readonly catalog: ApplicationCatalogRow;
+    readonly definition: ApplicationDefinitionRow;
+  }>,
+): boolean {
+  const catalog = uint8ArrayByteLength(row.catalog.bindingBytes);
+  const definition = uint8ArrayByteLength(row.definition.bindingBytes);
+  const manifest = uint8ArrayByteLength(row.definition.manifestBytes);
+  return catalog !== undefined
+    && definition !== undefined
+    && manifest !== undefined
+    && BigInt(catalog) === BigInt(admitted.catalogBindingByteLength)
+    && BigInt(definition) === BigInt(admitted.definitionBindingByteLength)
+    && BigInt(manifest) === BigInt(admitted.manifestByteLength);
+}
+
+function applicationRowsMatchTarget(
+  catalog: ApplicationCatalogRow,
+  definition: ApplicationDefinitionRow,
+  target: ApplicationTaskRuntimeTargetV1,
+  catalogBinding: ApplicationTaskCatalogBindingV1,
+  binding: ApplicationTaskDefinitionBindingV1,
+): boolean {
+  return catalog.scopeId === target.scopeId
+    && catalog.revisionId === target.revisionId
+    && catalog.candidateId === target.candidateId
+    && catalog.analysisId === target.analysisId
+    && encodeBytesToLowercaseHex(catalog.sourceArtifactRootSha256)
+      === target.sourceArtifactRootSha256
+    && encodeBytesToLowercaseHex(catalog.publicationSha256)
+      === target.publicationSha256
+    && bytesEqualFullScan(catalog.taskCatalogSha256, target.taskCatalogSha256)
+    && bytesEqualFullScan(
+      catalog.taskCatalogBindingSha256,
+      target.applicationTaskCatalogBindingSha256,
+    )
+    && catalog.runtimeHostIdentity === target.runtimeHostIdentity
+    && catalog.compatibilityDate === target.compatibilityDate
+    && catalogBinding.scopeId === target.scopeId
+    && catalogBinding.revisionId === target.revisionId
+    && catalogBinding.taskCount === catalog.taskCount
+    && definition.taskId === target.taskId
+    && bytesEqualFullScan(
+      definition.taskDefinitionBindingSha256,
+      target.applicationTaskDefinitionBindingSha256,
+    )
+    && bytesEqualFullScan(
+      definition.canonicalTaskManifestSha256,
+      target.canonicalTaskManifestSha256,
+    )
+    && binding.handler.logicalModulePath === target.handler.logicalModulePath
+    && binding.handler.sourceModulePath === target.handler.sourceModulePath
+    && binding.handler.exportName === target.handler.exportName;
+}
+
+function decodeInputReference(
+  run: RunRow,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): TaskInputReferenceV1 {
+  const inputByteLength = Number(run.inputByteLength);
+  if (!Number.isSafeInteger(inputByteLength)) {
+    throw rollback(corruption(operation, run.runId, "input_invalid"));
+  }
+  return Result.getOrThrowWith(decodeTaskInputReferenceV1({
+    codec: run.inputCodec,
+    store: run.inputStore,
+    valueCodec: run.inputValueCodec,
+    objectKey: run.inputObjectKey,
+    byteLength: inputByteLength,
+    sha256: new Uint8Array(run.inputSha256),
+    retention: { kind: run.inputRetention },
+  }), () => rollback(corruption(operation, run.runId, "input_invalid")));
 }
 
 function definitionMatchesCommitment(
@@ -4044,43 +4547,47 @@ function definitionMatchesCommitment(
 
 function buildDispatchRequest(
   scopeId: ReplacementScopeIdV1,
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: AggregateForDelivery,
   persistedEffect: ReturnType<typeof decodeDispatchEffect>,
   operation: TaskComputeDeliveryRepositoryOperationV1,
-): TaskComputeDispatchRequestV1 {
+): CurrentTaskComputeDispatchRequestV1 {
   const effect = persistedEffect.effect;
-  return Result.getOrThrowWith(
-    validateTaskComputeDispatchRequestV1({
-      version: TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
-      identity: {
-        version: TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
-        scopeId,
-        runId: effect.runId,
-        requestedEffectSequence: persistedEffect.sequence,
-        attemptId: effect.attempt.attemptId,
-        executionFence: effect.attempt.executionFence,
-      },
-      taskDefinitionRevisionId: effect.taskDefinitionRevisionId,
-      attemptNumber: effect.attempt.attemptNumber,
-      leaseVersion: effect.leaseVersion,
-      computeProfile: effect.computeProfile,
-      cancellation: aggregate.cancellation.kind === "not_requested"
-        ? {
-            kind: "not_requested" as const,
-            generation: aggregate.cancellation.generation,
-          }
-        : {
-            kind: "requested" as const,
-            generation: aggregate.cancellation.generation,
-          },
-      maximumDurationMs: aggregate.boundPolicy.maximumDurationMs,
-    }),
-    () => rollback(corruption(
-      operation,
-      aggregate.runId,
-      "effect_invalid",
-    )),
-  );
+  const common = {
+    version: TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
+    identity: {
+      version: TASK_COMPUTE_DISPATCH_IDENTITY_VERSION_V1,
+      scopeId,
+      runId: effect.runId,
+      requestedEffectSequence: persistedEffect.sequence,
+      attemptId: effect.attempt.attemptId,
+      executionFence: effect.attempt.executionFence,
+    },
+    attemptNumber: effect.attempt.attemptNumber,
+    leaseVersion: effect.leaseVersion,
+    computeProfile: effect.computeProfile,
+    cancellation: aggregate.cancellation.kind === "not_requested"
+      ? { kind: "not_requested" as const, generation: aggregate.cancellation.generation }
+      : { kind: "requested" as const, generation: aggregate.cancellation.generation },
+    maximumDurationMs: aggregate.boundPolicy.maximumDurationMs,
+  };
+  return "taskDefinitionRevisionId" in effect
+    ? Result.getOrThrowWith(validateTaskComputeDispatchRequestV1({
+        ...common,
+        taskDefinitionRevisionId: effect.taskDefinitionRevisionId,
+      }), () => rollback(corruption(
+        operation,
+        aggregate.runId,
+        "effect_invalid",
+      )))
+    : Result.getOrThrowWith(validateApplicationTaskComputeDispatchRequestV1({
+        ...common,
+        applicationTaskRuntimeTargetSha256:
+          effect.applicationTaskRuntimeTargetSha256,
+      }), () => rollback(corruption(
+        operation,
+        aggregate.runId,
+        "effect_invalid",
+      )));
 }
 
 function buildCancellationRequest(
@@ -4104,20 +4611,35 @@ function buildCancellationRequest(
 }
 
 function capturePreparedExecution(
-  dispatchRequest: TaskComputeDispatchRequestV1,
-  runtimeBindingCommitment: TaskDefinitionRuntimeBindingCommitmentV1,
-  inputReference: TaskInputReferenceV1,
-): TaskComputePreparedExecutionV1 {
-  return Object.freeze({
-    version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
-    dispatchRequest,
-    runtimeBindingCommitment,
-    inputReference,
-  });
+  dispatchRequest: CurrentTaskComputeDispatchRequestV1,
+  immutable: ImmutablePreparation,
+): CurrentTaskComputePreparedExecutionV1 {
+  if (immutable.generation === "legacy_definition_v1"
+    && dispatchRequest.taskDefinitionRevisionId !== undefined) {
+    return Object.freeze({
+      version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+      dispatchRequest,
+      runtimeBindingCommitment: immutable.runtimeBindingCommitment,
+      inputReference: immutable.inputReference,
+    });
+  }
+  if (immutable.generation === "application_v1"
+    && dispatchRequest.applicationTaskRuntimeTargetSha256 !== undefined) {
+    return Object.freeze({
+      version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+      generation: "application_v1" as const,
+      dispatchRequest,
+      runtimeTarget: immutable.runtimeTarget,
+      manifest: immutable.manifest,
+      creationAuthority: immutable.creationAuthority,
+      inputReference: immutable.inputReference,
+    });
+  }
+  throw new TypeError("Task compute preparation generation mismatch.");
 }
 
 function dispatchLifecycleIsCurrent(
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: AggregateForDelivery,
   persistedEffect: ReturnType<typeof decodeDispatchEffect>,
 ): boolean {
   if (
@@ -4132,7 +4654,7 @@ function dispatchLifecycleIsCurrent(
 }
 
 function cancellationLifecycleIsCurrent(
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: AggregateForDelivery,
   cancellation: ReturnType<typeof decodeCancellationEffect>,
 ): boolean {
   if (
@@ -4252,15 +4774,22 @@ function validateCancellationCheckpointState(
 
 async function decodeAndCorrelateDispatchCheckpoint(
   row: DispatchRow,
-  expected: TaskComputeDispatchRequestV1,
+  expected: CurrentTaskComputeDispatchRequestV1,
   expectedAcceptedRunVersion: bigint,
   operation: TaskComputeDeliveryRepositoryOperationV1,
   runId: TaskRunIdV1,
-): Promise<TaskComputeDispatchRequestV1> {
+): Promise<CurrentTaskComputeDispatchRequestV1> {
   if (
-    row.definitionGeneration !== "legacy_definition_v1"
-    || row.taskDefinitionRevisionId === null
-    || row.applicationTaskRuntimeTargetSha256 !== null
+    !(
+      (row.definitionGeneration === "legacy_definition_v1"
+        && row.taskDefinitionRevisionId !== null
+        && row.applicationTaskRuntimeTargetSha256 === null
+        && "taskDefinitionRevisionId" in expected)
+      || (row.definitionGeneration === "application_v1"
+        && row.taskDefinitionRevisionId === null
+        && row.applicationTaskRuntimeTargetSha256 !== null
+        && "applicationTaskRuntimeTargetSha256" in expected)
+    )
     || row.requestCodecVersion !== TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1
     || row.requestByteLength !== BigInt(row.requestBytes.byteLength)
     || row.requestSha256.byteLength !== 32
@@ -4271,12 +4800,12 @@ async function decodeAndCorrelateDispatchCheckpoint(
   }
   const observedSha256 = await sha256(row.requestBytes, operation, runId);
   const decoded = Result.getOrThrowWith(
-    decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1({
+    decodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1({
       codecVersion: row.requestCodecVersion,
       byteLength: Number(row.requestByteLength),
       canonicalBytes: row.requestBytes,
       sha256: row.requestSha256,
-    }, observedSha256),
+    }, observedSha256, row.definitionGeneration),
     (error) => rollback(error),
   );
   const computeProfile = Result.getOrThrowWith(
@@ -4289,7 +4818,13 @@ async function decodeAndCorrelateDispatchCheckpoint(
     || row.requestedEffectSequence
       !== decoded.identity.requestedEffectSequence
     || row.acceptedRunVersion !== expectedAcceptedRunVersion
-    || row.taskDefinitionRevisionId !== decoded.taskDefinitionRevisionId
+    || !("taskDefinitionRevisionId" in decoded
+      ? row.taskDefinitionRevisionId === decoded.taskDefinitionRevisionId
+      : row.applicationTaskRuntimeTargetSha256 !== null
+        && bytesEqualFullScan(
+          row.applicationTaskRuntimeTargetSha256,
+          decoded.applicationTaskRuntimeTargetSha256,
+        ))
     || row.attemptId !== decoded.identity.attemptId
     || row.attemptNumber !== decoded.attemptNumber
     || row.executionFence !== decoded.identity.executionFence
@@ -4304,7 +4839,15 @@ async function decodeAndCorrelateDispatchCheckpoint(
       !== expected.identity.requestedEffectSequence
     || decoded.identity.attemptId !== expected.identity.attemptId
     || decoded.identity.executionFence !== expected.identity.executionFence
-    || decoded.taskDefinitionRevisionId !== expected.taskDefinitionRevisionId
+    || !("taskDefinitionRevisionId" in decoded
+      && "taskDefinitionRevisionId" in expected
+      ? decoded.taskDefinitionRevisionId === expected.taskDefinitionRevisionId
+      : "applicationTaskRuntimeTargetSha256" in decoded
+        && "applicationTaskRuntimeTargetSha256" in expected
+        && bytesEqualFullScan(
+          decoded.applicationTaskRuntimeTargetSha256,
+          expected.applicationTaskRuntimeTargetSha256,
+        ))
     || decoded.attemptNumber !== expected.attemptNumber
     || decoded.leaseVersion !== expected.leaseVersion
     || decoded.computeProfile !== expected.computeProfile
@@ -4485,7 +5028,7 @@ async function readDatabaseTime(
 
 function claimedTransactionResult(
   row: DispatchRow,
-  prepared: TaskComputePreparedExecutionV1,
+  prepared: CurrentTaskComputePreparedExecutionV1,
   deliveryMode: TaskComputeDeliveryModeV1,
   claimOwner: string,
   claimExpiresAt: Date,

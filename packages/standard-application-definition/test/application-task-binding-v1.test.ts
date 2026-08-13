@@ -148,6 +148,27 @@ describe("Application task binding V1", () => {
   });
 
   it("binds run creation to the selected active Application task authority", async () => {
+    const produced = await Effect.runPromise(produceApplicationTaskBindingsV1({
+      definition: makeDefinition(),
+      catalog: await makeCatalog(),
+      authority,
+      runtimePolicy,
+    }, sha256));
+    const definition = produced.definitions[0]!;
+    const runtimeTarget = Result.getOrThrow(
+      decodeApplicationTaskRuntimeTargetV1({
+        version: 1,
+        ...authority,
+        ...runtimePolicy,
+        applicationTaskCatalogBindingSha256: produced.catalog.sha256,
+        applicationTaskDefinitionBindingSha256: definition.sha256,
+        taskCatalogSha256: produced.catalog.binding.taskCatalogSha256,
+        taskId: definition.binding.taskId,
+        canonicalTaskManifestSha256:
+          definition.binding.canonicalTaskManifestSha256,
+        handler: definition.binding.handler,
+      }),
+    );
     const callerHead = new Uint8Array(32).fill(0x61);
     const callerReadiness = new Uint8Array(32).fill(0x62);
     const callerTarget = new Uint8Array(32).fill(0x63);
@@ -158,6 +179,7 @@ describe("Application task binding V1", () => {
         activationSequence: 7n,
         activeHeadSha256: callerHead,
         readinessSha256: callerReadiness,
+        runtimeTarget,
         applicationTaskRuntimeTargetSha256: callerTarget,
       }),
     );

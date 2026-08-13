@@ -300,6 +300,7 @@ export function decodeApplicationTaskRunCreationAuthorityV1(
       "activeHeadSha256",
       "applicationTaskRuntimeTargetSha256",
       "readinessSha256",
+      "runtimeTarget",
       "scopeId",
       "version",
     ], operation);
@@ -312,6 +313,18 @@ export function decodeApplicationTaskRunCreationAuthorityV1(
       value.scopeId,
       operation,
       "scopeId",
+    );
+    const runtimeTarget = yield* decodeApplicationTaskRuntimeTargetV1(
+      value.runtimeTarget,
+    ).pipe(Result.mapError(() => invalid(
+      operation,
+      "invalidShape",
+      "runtimeTarget",
+    )));
+    const runtimeTargetSha256 = yield* digest(
+      value.applicationTaskRuntimeTargetSha256,
+      operation,
+      "applicationTaskRuntimeTargetSha256",
     );
     return Object.freeze({
       version: 1,
@@ -327,11 +340,8 @@ export function decodeApplicationTaskRunCreationAuthorityV1(
         operation,
         "readinessSha256",
       ),
-      applicationTaskRuntimeTargetSha256: yield* digest(
-        value.applicationTaskRuntimeTargetSha256,
-        operation,
-        "applicationTaskRuntimeTargetSha256",
-      ),
+      runtimeTarget,
+      applicationTaskRuntimeTargetSha256: runtimeTargetSha256,
     });
   });
 }
@@ -350,6 +360,7 @@ export function encodeApplicationTaskRunCreationAuthorityPreimageV1(
           authority.applicationTaskRuntimeTargetSha256,
         ),
         readinessSha256: encodeBytesToLowercaseHex(authority.readinessSha256),
+        runtimeTarget: runtimeTargetJson(authority.runtimeTarget),
         scopeId: authority.scopeId,
         version: 1,
       },
@@ -391,7 +402,7 @@ export function decodeApplicationTaskRunCreationAuthorityPreimageV1(
   const authority = outer !== undefined && outer.codec ===
       APPLICATION_TASK_RUN_CREATION_AUTHORITY_CODEC_V1
     && isNonArrayRecord(outer.authority)
-    && Reflect.ownKeys(outer.authority).length === 6
+    && Reflect.ownKeys(outer.authority).length === 7
     ? outer.authority
     : undefined;
   if (outer === undefined || authority === undefined
@@ -406,15 +417,21 @@ export function decodeApplicationTaskRunCreationAuthorityPreimageV1(
   } catch {
     return Result.fail(invalid(operation, "invalidShape"));
   }
-  const decoded = decodeApplicationTaskRunCreationAuthorityV1({
-    ...authority,
-    activationSequence,
-    activeHeadSha256: decodeCanonicalDigest(authority.activeHeadSha256),
-    readinessSha256: decodeCanonicalDigest(authority.readinessSha256),
-    applicationTaskRuntimeTargetSha256: decodeCanonicalDigest(
-      authority.applicationTaskRuntimeTargetSha256,
-    ),
-  }).pipe(Result.mapError(error => reoperation(error, operation)));
+  const decoded = decodeCanonicalRuntimeTargetJson(
+    authority.runtimeTarget,
+    operation,
+  ).pipe(Result.flatMap(runtimeTarget =>
+    decodeApplicationTaskRunCreationAuthorityV1({
+      ...authority,
+      activationSequence,
+      activeHeadSha256: decodeCanonicalDigest(authority.activeHeadSha256),
+      readinessSha256: decodeCanonicalDigest(authority.readinessSha256),
+      runtimeTarget,
+      applicationTaskRuntimeTargetSha256: decodeCanonicalDigest(
+        authority.applicationTaskRuntimeTargetSha256,
+      ),
+    }).pipe(Result.mapError(error => reoperation(error, operation)))
+  ));
   return decoded.pipe(Result.flatMap(value =>
     encodeApplicationTaskRunCreationAuthorityPreimageV1(value).pipe(
       Result.mapError(error => reoperation(error, operation)),
@@ -423,6 +440,71 @@ export function decodeApplicationTaskRunCreationAuthorityPreimageV1(
         : Result.fail(invalid(operation, "invalidShape"))),
     )
   ));
+}
+
+function runtimeTargetJson(target: ApplicationTaskRuntimeTargetV1) {
+  return {
+    analysisId: target.analysisId,
+    applicationTaskCatalogBindingSha256: encodeBytesToLowercaseHex(
+      target.applicationTaskCatalogBindingSha256,
+    ),
+    applicationTaskDefinitionBindingSha256: encodeBytesToLowercaseHex(
+      target.applicationTaskDefinitionBindingSha256,
+    ),
+    candidateId: target.candidateId,
+    canonicalTaskManifestSha256: encodeBytesToLowercaseHex(
+      target.canonicalTaskManifestSha256,
+    ),
+    compatibilityDate: target.compatibilityDate,
+    handler: {
+      exportName: target.handler.exportName,
+      logicalModulePath: target.handler.logicalModulePath,
+      sourceModulePath: target.handler.sourceModulePath,
+    },
+    publicationSha256: target.publicationSha256,
+    revisionId: target.revisionId,
+    runtimeHostIdentity: target.runtimeHostIdentity,
+    scopeId: target.scopeId,
+    sourceArtifactRootSha256: target.sourceArtifactRootSha256,
+    taskCatalogSha256: encodeBytesToLowercaseHex(target.taskCatalogSha256),
+    taskId: target.taskId,
+    version: 1,
+  };
+}
+
+function decodeCanonicalRuntimeTargetJson(
+  input: unknown,
+  operation: ApplicationTaskBindingOperationV1,
+): Result.Result<
+  ApplicationTaskRuntimeTargetV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  return exactRecord(input, [
+    ...AUTHORITY_KEYS,
+    ...POLICY_KEYS,
+    "applicationTaskCatalogBindingSha256",
+    "applicationTaskDefinitionBindingSha256",
+    "canonicalTaskManifestSha256",
+    "handler",
+    "taskCatalogSha256",
+    "taskId",
+    "version",
+  ], operation, "runtimeTarget").pipe(
+    Result.flatMap(target => decodeApplicationTaskRuntimeTargetV1({
+      ...target,
+      applicationTaskCatalogBindingSha256: decodeCanonicalDigest(
+        target.applicationTaskCatalogBindingSha256,
+      ),
+      applicationTaskDefinitionBindingSha256: decodeCanonicalDigest(
+        target.applicationTaskDefinitionBindingSha256,
+      ),
+      canonicalTaskManifestSha256: decodeCanonicalDigest(
+        target.canonicalTaskManifestSha256,
+      ),
+      taskCatalogSha256: decodeCanonicalDigest(target.taskCatalogSha256),
+    })),
+    Result.mapError(error => reoperation(error, operation)),
+  );
 }
 
 function decodeAuthority(

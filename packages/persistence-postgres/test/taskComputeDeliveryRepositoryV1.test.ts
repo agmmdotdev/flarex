@@ -313,6 +313,10 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         },
         inputReference: { byteLength: 19 },
       });
+      expect("generation" in first.prepared).toBe(false);
+      if (!("runtimeBindingCommitment" in first.prepared)) {
+        throw new Error("Legacy dispatch changed evidence member.");
+      }
       expect("manifest" in first.prepared.runtimeBindingCommitment).toBe(false);
       expect(Object.isFrozen(first.handle)).toBe(true);
       expect(await pendingDeliveryCount(
@@ -395,6 +399,46 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       expect(pending.rows).toEqual([{
         kind: "request_execution_cancellation",
       }]);
+    });
+  });
+
+  it("distinguishes a missing authoritative effect from an unknown sequence", async () => {
+    await withFixture(async ({
+      persistence,
+      deliveryLocated,
+      runId,
+      dispatchSequence,
+    }) => {
+      const unknownSequence = Result.getOrThrow(
+        decodeTaskRequestedEffectSequenceV1("999"),
+      );
+      await expect(runEffectFailure(
+        repository(deliveryLocated, CLAIM_OWNER_A).acquireDispatch({
+          runId,
+          requestedEffectSequence: unknownSequence,
+        }),
+      )).resolves.toMatchObject({
+        _tag: "TaskComputeDeliveryRepositoryUnavailableV1Error",
+        reason: "effect_unavailable",
+      });
+
+      await persistence.query(`
+        alter table fx_system_durable_task_compute_pending_v1
+        drop constraint fx_task_compute_pending_v1_effect_fk
+      `);
+      await persistence.query(`
+        delete from fx_system_durable_task_requested_effect_v1
+        where scope_id = $1 and run_id = $2 and sequence = $3
+      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await expect(runEffectFailure(
+        repository(deliveryLocated, CLAIM_OWNER_A).acquireDispatch({
+          runId,
+          requestedEffectSequence: dispatchSequence,
+        }),
+      )).resolves.toMatchObject({
+        _tag: "TaskComputeDeliveryRepositoryCorruptionV1Error",
+        reason: "effect_sequence_invalid",
+      });
     });
   });
 

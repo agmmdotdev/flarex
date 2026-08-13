@@ -8,12 +8,12 @@ import type {
   TaskComputeCancellationReceiptV1,
   TaskComputeCancellationRequestV1,
   TaskComputeDispatchAcceptanceV1,
-  TaskComputeDispatchRequestV1,
+  CurrentTaskComputeDispatchRequestV1,
 } from "../Model.js";
 
 export interface TaskComputeProviderShape {
   readonly dispatch: (
-    request: TaskComputeDispatchRequestV1,
+    request: CurrentTaskComputeDispatchRequestV1,
   ) => Effect.Effect<TaskComputeDispatchAcceptanceV1, TaskComputeDispatchErrorV1>;
   readonly requestCancellation: (
     request: TaskComputeCancellationRequestV1,

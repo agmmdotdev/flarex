@@ -84,6 +84,7 @@ export interface ApplicationTaskRunCreationAuthorityV1 {
   readonly activationSequence: bigint;
   readonly activeHeadSha256: TaskDefinitionSha256V1;
   readonly readinessSha256: TaskDefinitionSha256V1;
+  readonly runtimeTarget: ApplicationTaskRuntimeTargetV1;
   readonly applicationTaskRuntimeTargetSha256: TaskDefinitionSha256V1;
 }
 

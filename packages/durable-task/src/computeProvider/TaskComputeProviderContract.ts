@@ -12,7 +12,7 @@ import {
   validateTaskComputeCancellationReceiptV1,
   validateTaskComputeCancellationRequestV1,
   validateTaskComputeDispatchAcceptanceV1,
-  validateTaskComputeDispatchRequestV1,
+  validateCurrentTaskComputeDispatchRequestV1,
 } from "./Schema.js";
 import type { TaskComputeProviderShape } from "./Services/TaskComputeProvider.js";
 
@@ -26,7 +26,7 @@ export function makeTaskComputeProviderV1(
   return Object.freeze({
     dispatch: Effect.fn("TaskComputeProvider.dispatch")(function* (suppliedRequest) {
       const request = yield* Effect.fromResult(
-        validateTaskComputeDispatchRequestV1(suppliedRequest),
+        validateCurrentTaskComputeDispatchRequestV1(suppliedRequest),
       );
       const suppliedAcceptance = yield* dispatchMethod.call(owner, request);
       const acceptance = yield* Effect.fromResult(

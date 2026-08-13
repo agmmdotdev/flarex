@@ -7,10 +7,18 @@ import {
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
   decideApplicationStartAttemptV1,
+  decideApplicationRequestCancellationV1,
+  decodeApplicationPersistedTaskRequestedEffectJsonV1,
   decodeTaskDurationMsV1,
+  decodeTaskRequestedEffectSequenceV1,
   decodeTaskRetryJitterV1,
   decodeTaskRunVersionV1,
+  encodeApplicationPersistedTaskRequestedEffectJsonV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import {
+  TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+  validateTaskComputeDispatchAcceptanceV1,
+} from "@flarex/durable-task/internal/compute-provider-v1";
 import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
@@ -23,11 +31,13 @@ import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { makeGrantRetentionPolicyV1Result } from
   "flarex-protocol/grant-retention-policy";
 import {
+  decodeApplicationTaskRunCreationAuthorityPreimageV1,
+  encodeApplicationTaskRunCreationAuthorityPreimageV1,
   produceApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
-import { Effect, Exit, Result, Scope } from "effect";
+import { Effect, Encoding, Exit, Result, Scope } from "effect";
 import {
   APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
   assembleApplicationMutationGrantJwsV1,
@@ -166,6 +176,12 @@ import {
 } from "../src/applicationTaskSelection";
 import { makeApplicationTaskSystemRunCreationStore } from
   "../src/applicationTaskSystemRunCreation";
+import {
+  createLocatedTaskComputeDeliveryTargetV1,
+  makeTaskComputeDeliveryRepositoryV1,
+} from "../src/taskComputeDeliveryRepositoryV1";
+import { decodeCurrentTaskComputePreparedExecutionV1 } from
+  "../src/taskComputeDeliveryEvidenceV1";
 import {
   createLocatedTaskSystemRunAttemptTargetV1,
   makeApplicationTaskSystemRunAttemptStoreV1,
@@ -955,11 +971,396 @@ describe("Application activation", { timeout: 30_000 }, () => {
       outcome: { kind: "attempt_granted" },
     });
     expect(startReplay).toEqual({ ...started, disposition: "idempotent" });
+    const computeRepository = Result.getOrThrow(
+      makeTaskComputeDeliveryRepositoryV1(
+        Object.freeze({
+          authority: active.basis.authority,
+          target: createLocatedTaskComputeDeliveryTargetV1(
+            fixture.target.drizzle,
+            active.basis.authority.physicalLocator,
+          ),
+        }),
+        {
+          claimDurationMilliseconds: 30_000,
+          retryDelayMilliseconds: [1_000, 2_000],
+          maximumDeliveryAttempts: 3,
+          randomUuid: uuidSequence(92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
+            102, 103, 104, 105, 106, 107),
+        },
+      ),
+    );
+    const acquireRequest = {
+      runId: created.runId,
+      requestedEffectSequence: Result.getOrThrow(
+        decodeTaskRequestedEffectSequenceV1("1"),
+      ),
+    } as const;
+    const storedRunAuthority = await fixture.target.query<{
+      creation_authority_byte_length: bigint;
+      creation_authority_sha256: Uint8Array;
+      creation_authority_bytes: Uint8Array;
+    }>(`select creation_authority_byte_length, creation_authority_sha256,
+               creation_authority_bytes
+          from fx_system_durable_task_run_v1
+         where scope_id = $1 and run_id = $2`, [
+      fixture.authority.scopeId,
+      created.runId,
+    ]);
+    await fixture.target.query(`
+      update fx_system_durable_task_run_v1
+      set creation_authority_bytes = set_byte(creation_authority_bytes, 0,
+        (get_byte(creation_authority_bytes, 0) + 1) % 256)
+      where scope_id = $1 and run_id = $2
+    `, [fixture.authority.scopeId, created.runId]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "creation_authority_invalid" });
+    await fixture.target.query(`
+      update fx_system_durable_task_run_v1
+      set creation_authority_bytes = $3
+      where scope_id = $1 and run_id = $2
+    `, [
+      fixture.authority.scopeId,
+      created.runId,
+      storedRunAuthority.rows[0]!.creation_authority_bytes,
+    ]);
+    const storedCreationAuthority = Result.getOrThrow(
+      decodeApplicationTaskRunCreationAuthorityPreimageV1(
+        storedRunAuthority.rows[0]!.creation_authority_bytes,
+      ),
+    );
+    const mismatchedCreationAuthorityBytes = Result.getOrThrow(
+      encodeApplicationTaskRunCreationAuthorityPreimageV1({
+        ...storedCreationAuthority,
+        runtimeTarget: {
+          ...storedCreationAuthority.runtimeTarget,
+          runtimeHostIdentity:
+            `${storedCreationAuthority.runtimeTarget.runtimeHostIdentity}-mismatch`,
+        },
+      }),
+    );
+    const mismatchedCreationAuthoritySha256 = await sha256Bytes(
+      mismatchedCreationAuthorityBytes,
+    );
+    await fixture.target.query(`
+      update fx_system_durable_task_run_v1
+      set creation_authority_byte_length = $3,
+          creation_authority_sha256 = $4,
+          creation_authority_bytes = $5
+      where scope_id = $1 and run_id = $2
+    `, [
+      fixture.authority.scopeId,
+      created.runId,
+      BigInt(mismatchedCreationAuthorityBytes.byteLength),
+      mismatchedCreationAuthoritySha256,
+      mismatchedCreationAuthorityBytes,
+    ]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "creation_authority_invalid" });
+    await fixture.target.query(`
+      update fx_system_durable_task_run_v1
+      set creation_authority_byte_length = $3,
+          creation_authority_sha256 = $4,
+          creation_authority_bytes = $5
+      where scope_id = $1 and run_id = $2
+    `, [
+      fixture.authority.scopeId,
+      created.runId,
+      storedRunAuthority.rows[0]!.creation_authority_byte_length,
+      storedRunAuthority.rows[0]!.creation_authority_sha256,
+      storedRunAuthority.rows[0]!.creation_authority_bytes,
+    ]);
+    const storedCatalogBinding = await fixture.target.query<{
+      binding_bytes: Uint8Array;
+    }>(`select binding_bytes from fx_system_application_task_catalog_v1
+        where scope_id = $1 and revision_id = $2`, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+    ]);
+    await fixture.target.query(`
+      alter table fx_system_application_task_catalog_v1
+      drop constraint fx_application_task_catalog_v1_identity_check
+    `);
+    await fixture.target.query(`
+      update fx_system_application_task_catalog_v1
+      set binding_bytes = decode(repeat('00', 16777217), 'hex')
+      where scope_id = $1 and revision_id = $2
+    `, [fixture.authority.scopeId, fixture.input.revisionId]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "definition_invalid" });
+    await fixture.target.query(`
+      update fx_system_application_task_catalog_v1
+      set binding_bytes = $3
+      where scope_id = $1 and revision_id = $2
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      storedCatalogBinding.rows[0]!.binding_bytes,
+    ]);
+    await fixture.target.query(`
+      update fx_system_application_task_catalog_v1
+      set binding_bytes = set_byte(binding_bytes, 0,
+        (get_byte(binding_bytes, 0) + 1) % 256)
+      where scope_id = $1 and revision_id = $2
+    `, [fixture.authority.scopeId, fixture.input.revisionId]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "definition_invalid" });
+    await fixture.target.query(`
+      update fx_system_application_task_catalog_v1
+      set binding_bytes = $3
+      where scope_id = $1 and revision_id = $2
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      storedCatalogBinding.rows[0]!.binding_bytes,
+    ]);
+    const storedDefinition = await fixture.target.query<{
+      canonical_task_manifest_sha256: Uint8Array;
+      binding_bytes: Uint8Array;
+      manifest_bytes: Uint8Array;
+    }>(`select canonical_task_manifest_sha256, binding_bytes, manifest_bytes
+          from fx_system_application_task_definition_v1
+         where scope_id = $1 and revision_id = $2 and task_id = $3`, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+    ]);
+    await fixture.target.query(`
+      update fx_system_application_task_definition_v1
+      set binding_bytes = set_byte(binding_bytes, 0,
+        (get_byte(binding_bytes, 0) + 1) % 256)
+      where scope_id = $1 and revision_id = $2 and task_id = $3
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+    ]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "definition_invalid" });
+    await fixture.target.query(`
+      update fx_system_application_task_definition_v1
+      set binding_bytes = $4
+      where scope_id = $1 and revision_id = $2 and task_id = $3
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+      storedDefinition.rows[0]!.binding_bytes,
+    ]);
+    await fixture.target.query(`
+      update fx_system_application_task_definition_v1
+      set manifest_bytes = set_byte(manifest_bytes, 0,
+        (get_byte(manifest_bytes, 0) + 1) % 256)
+      where scope_id = $1 and revision_id = $2 and task_id = $3
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+    ]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "definition_invalid" });
+    await fixture.target.query(`
+      update fx_system_application_task_definition_v1
+      set manifest_bytes = $4
+      where scope_id = $1 and revision_id = $2 and task_id = $3
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+      storedDefinition.rows[0]!.manifest_bytes,
+    ]);
+    await fixture.target.query(`
+      update fx_system_application_task_definition_v1
+      set canonical_task_manifest_sha256 = decode(repeat('ee', 32), 'hex')
+      where scope_id = $1 and revision_id = $2 and task_id = $3
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+    ]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "definition_invalid" });
+    await fixture.target.query(`
+      update fx_system_application_task_definition_v1
+      set canonical_task_manifest_sha256 = $4
+      where scope_id = $1 and revision_id = $2 and task_id = $3
+    `, [
+      fixture.authority.scopeId,
+      fixture.input.revisionId,
+      selected.metadata.target.taskId,
+      storedDefinition.rows[0]!.canonical_task_manifest_sha256,
+    ]);
+    const storedEffect = await fixture.target.query<{
+      payload_byte_length: bigint;
+      payload_json: unknown;
+    }>(`select payload_byte_length, payload_json
+          from fx_system_durable_task_requested_effect_v1
+         where scope_id = $1 and run_id = $2 and sequence = 1`, [
+      fixture.authority.scopeId,
+      created.runId,
+    ]);
+    await fixture.target.query(`
+      update fx_system_durable_task_requested_effect_v1
+      set payload_json = jsonb_set(payload_json, '{kind}', '"continue_retry"')
+      where scope_id = $1 and run_id = $2 and sequence = 1
+    `, [fixture.authority.scopeId, created.runId]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "effect_invalid" });
+    await fixture.target.query(`
+      update fx_system_durable_task_requested_effect_v1
+      set payload_json = $3::jsonb
+      where scope_id = $1 and run_id = $2 and sequence = 1
+    `, [
+      fixture.authority.scopeId,
+      created.runId,
+      JSON.stringify(storedEffect.rows[0]!.payload_json),
+    ]);
+    const mismatchedEffectDigest = new Uint8Array(32).fill(0xcd);
+    const mismatchedEffectPayload = replaceApplicationDispatchDigestInJson(
+      storedEffect.rows[0]!.payload_json,
+      mismatchedEffectDigest,
+    );
+    const canonicalMismatchedEffect = Result.getOrThrow(
+      encodeApplicationPersistedTaskRequestedEffectJsonV1(Result.getOrThrow(
+        decodeApplicationPersistedTaskRequestedEffectJsonV1(
+          mismatchedEffectPayload,
+        ),
+      )),
+    );
+    await fixture.target.query(`
+      update fx_system_durable_task_requested_effect_v1
+      set payload_json = $3::jsonb, payload_byte_length = $4
+      where scope_id = $1 and run_id = $2 and sequence = 1
+    `, [
+      fixture.authority.scopeId,
+      created.runId,
+      JSON.stringify(mismatchedEffectPayload),
+      canonicalJsonByteLength(canonicalMismatchedEffect),
+    ]);
+    await expect(runEffectFailure(computeRepository.acquireDispatch(
+      acquireRequest,
+    ))).resolves.toMatchObject({ reason: "definition_invalid" });
+    await fixture.target.query(`
+      update fx_system_durable_task_requested_effect_v1
+      set payload_json = $3::jsonb, payload_byte_length = $4
+      where scope_id = $1 and run_id = $2 and sequence = 1
+    `, [
+      fixture.authority.scopeId,
+      created.runId,
+      JSON.stringify(storedEffect.rows[0]!.payload_json),
+      storedEffect.rows[0]!.payload_byte_length,
+    ]);
+    const prepared = await runEffect(computeRepository.acquireDispatch(
+      acquireRequest,
+    ));
+    expect(prepared.kind).toBe("claimed");
+    if (prepared.kind !== "claimed") {
+      throw new Error("Application dispatch was not prepared.");
+    }
+    expect(prepared.prepared).toMatchObject({
+      generation: "application_v1",
+      runtimeTarget: selected.metadata.target,
+      manifest: selected.metadata.manifest,
+      creationAuthority: {
+        applicationTaskRuntimeTargetSha256:
+          selected.metadata.runtimeTargetSha256,
+      },
+      dispatchRequest: {
+        applicationTaskRuntimeTargetSha256:
+          selected.metadata.runtimeTargetSha256,
+      },
+    });
+    expect(Result.getOrThrow(
+      decodeCurrentTaskComputePreparedExecutionV1(prepared.prepared),
+    )).toEqual(prepared.prepared);
+    await runEffect(
+      computeRepository.markDispatchDeliveryStarted(prepared.handle),
+    );
+    await fixture.target.query(`
+      update fx_system_durable_task_compute_dispatch_v1
+      set claimed_at = clock_timestamp() - interval '2 minutes',
+          claim_expires_at = clock_timestamp() - interval '1 minute'
+      where scope_id = $1 and run_id = $2
+        and requested_effect_sequence = 1
+    `, [fixture.authority.scopeId, created.runId]);
+    const recovered = await runEffect(
+      computeRepository.acquireDispatch(acquireRequest),
+    );
+    expect(recovered.kind).toBe("claimed");
+    if (recovered.kind !== "claimed") {
+      throw new Error("Application uncertain dispatch was not reclaimed.");
+    }
+    expect(recovered.deliveryMode).toBe("uncertain_replay");
+    expect(await runEffect(
+      computeRepository.verifyDispatchRecovery(recovered.handle),
+    )).toEqual({ kind: "state_unchanged" });
+    await runEffect(
+      computeRepository.markDispatchDeliveryStarted(recovered.handle),
+    );
+    const acceptance = Result.getOrThrow(
+      validateTaskComputeDispatchAcceptanceV1({
+        version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+        kind: "accepted",
+        identity: recovered.prepared.dispatchRequest.identity,
+        execution: {
+          provider: "application-test-provider",
+          providerVersion: "v1",
+          executionId: "application-execution-1",
+        },
+      }),
+    );
+    expect(await runEffect(computeRepository.recordDispatchAcceptance(
+      recovered.handle,
+      acceptance,
+    ))).toEqual({
+      kind: "dispatch_accepted",
+      acceptance,
+      disposition: "current",
+    });
+    expect(await runEffect(computeRepository.acquireDispatch(acquireRequest)))
+      .toEqual({
+      kind: "accepted",
+      acceptance,
+      disposition: "current",
+    });
+    const cancellationDecision = await runEffect(
+      lifecycleStore.transactRunAttempt({
+        operation: "request_cancellation",
+        runId: created.runId,
+        decide: input => decideApplicationRequestCancellationV1({
+          type: "request_cancellation",
+          runId: created.runId,
+          reason: { code: "requested", message: null },
+        }, input),
+      }),
+    );
+    const cancellationEffect = cancellationDecision.requestedEffects.find(
+      item => item.effect.kind === "request_execution_cancellation",
+    );
+    if (cancellationEffect === undefined) {
+      throw new Error("Application cancellation effect was not emitted.");
+    }
+    const cancellation = await runEffect(computeRepository.acquireCancellation({
+      runId: created.runId,
+      requestedEffectSequence: cancellationEffect.sequence,
+    }));
+    expect(cancellation.kind).toBe("claimed");
+    if (cancellation.kind !== "claimed") {
+      throw new Error("Application cancellation was not prepared.");
+    }
+    expect(cancellation.request.identity).toEqual(acceptance.identity);
     expect((await runEffect(lifecycleStore.inspectRunAttempt({
       operation: "inspect_current_attempt",
       runId: created.runId,
     }))).current).toMatchObject({
-      runVersion: 2n,
+      runVersion: 3n,
       phase: "attempt_granted",
       applicationTaskRuntimeTargetSha256:
         selected.metadata.runtimeTargetSha256,
@@ -978,7 +1379,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     });
     expect(Array.from(rows.rows[0]!.application_task_runtime_target_sha256))
       .toEqual(Array.from(selected.metadata.runtimeTargetSha256));
-    const storedAggregate = await fixture.target.query<{
+    const postDispatchAggregate = await fixture.target.query<{
       aggregate_json: unknown;
       aggregate_byte_length: string;
     }>(`select aggregate_json, aggregate_byte_length::text
@@ -998,8 +1399,8 @@ describe("Application activation", { timeout: 30_000 }, () => {
       where run_id = $1
     `, [
       created.runId,
-      JSON.stringify(storedAggregate.rows[0]!.aggregate_json),
-      storedAggregate.rows[0]!.aggregate_byte_length,
+      JSON.stringify(postDispatchAggregate.rows[0]!.aggregate_json),
+      postDispatchAggregate.rows[0]!.aggregate_byte_length,
     ]);
     await fixture.target.query(`
       update fx_system_durable_task_requested_effect_v1
@@ -1009,7 +1410,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     await expect(runEffectFailure(lifecycleStore.inspectRunAttempt({
       operation: "inspect_current_attempt",
       runId: created.runId,
-    }))).resolves.toMatchObject({ reason: "effect_sequence_invalid" });
+    }))).resolves.toMatchObject({ reason: "acceptance_invalid" });
   });
 
   it("rejects a missing or corrupted stored Application task", async () => {
@@ -3677,9 +4078,42 @@ function uuidSequence(...sequences: ReadonlyArray<number>): () => string {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = new Uint8Array(await globalThis.crypto.subtle.digest(
+  const digest = await sha256Bytes(bytes);
+  return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Bytes(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await globalThis.crypto.subtle.digest(
     "SHA-256",
     bytes.slice().buffer,
   ));
-  return Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function replaceApplicationDispatchDigestInJson(
+  value: unknown,
+  digest: Uint8Array,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map(member => replaceApplicationDispatchDigestInJson(
+      member,
+      digest,
+    ));
+  }
+  if (value === null || typeof value !== "object") return value;
+  const record = Object.fromEntries(Object.entries(value).map(([key, member]) => [
+    key,
+    replaceApplicationDispatchDigestInJson(member, digest),
+  ]));
+  return record.kind === "dispatch_attempt"
+    ? {
+        ...record,
+        applicationTaskRuntimeTargetSha256: {
+          "$flarex.uint8array.v1": Encoding.encodeBase64Url(digest),
+        },
+      }
+    : record;
+}
+
+function canonicalJsonByteLength(value: unknown): bigint {
+  return BigInt(new TextEncoder().encode(JSON.stringify(value)).byteLength);
 }

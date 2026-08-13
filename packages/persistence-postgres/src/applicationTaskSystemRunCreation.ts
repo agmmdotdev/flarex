@@ -31,6 +31,7 @@ import {
 import {
   decodeApplicationTaskRunCreationAuthorityPreimageV1,
   encodeApplicationTaskRunCreationAuthorityPreimageV1,
+  encodeApplicationTaskRuntimeTargetPreimageV1,
   type ApplicationTaskRunCreationAuthorityV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { bytesEqual, copyBytes } from "@flarex/utils/bytes";
@@ -289,6 +290,7 @@ async function transactApplicationCreation(
     activationSequence: metadata.basis.activationSequence,
     activeHeadSha256: copyBytes(metadata.basis.headSha256) as TaskDefinitionSha256V1,
     readinessSha256: copyBytes(metadata.basis.readinessSha256) as TaskDefinitionSha256V1,
+    runtimeTarget: metadata.target,
     applicationTaskRuntimeTargetSha256: copyBytes(
       metadata.runtimeTargetSha256,
     ) as TaskDefinitionSha256V1,
@@ -436,10 +438,29 @@ async function replayCreation(
   const observedSha256 = authorityDigest(await runEffectInTransaction(
     hashBytes(run.creationAuthorityBytes, sha256),
   ));
+  const runtimeTargetBytes = Result.getOrThrowWith(
+    encodeApplicationTaskRuntimeTargetPreimageV1(authority.runtimeTarget),
+    () => rollback(new TaskSystemRunCreationCorruptionError({
+      operation: "create_run", reason: "creation_authority_invalid",
+    })),
+  );
+  const runtimeTargetSha256 = await runEffectInTransaction(
+    hashBytes(runtimeTargetBytes, sha256),
+  );
   if (authority.scopeId !== scopeId
+    || authority.runtimeTarget.scopeId !== scopeId
     || !bytesEqual(
       authority.applicationTaskRuntimeTargetSha256,
       prepared.request.applicationTaskRuntimeTargetSha256,
+    )
+    || !bytesEqual(
+      authority.applicationTaskRuntimeTargetSha256,
+      runtimeTargetSha256,
+    )
+    || run.applicationTaskRuntimeTargetSha256 === null
+    || !bytesEqual(
+      run.applicationTaskRuntimeTargetSha256,
+      runtimeTargetSha256,
     )
     || !bytesEqual(observedSha256, run.creationAuthoritySha256)) {
     throw rollback(new TaskSystemRunCreationCorruptionError({
