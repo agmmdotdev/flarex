@@ -3199,6 +3199,76 @@ current-head validation before exact replay, Application compute preparation,
 or any change to queue ownership, wake authority, dispatch fencing, settlement
 or uncertainty semantics.
 
+Checkpoint 5c preflight receipt (2026-08-14): accepted with one correction to
+the private pre-production Application run-creation evidence and one explicit
+provider-contract boundary. The current run row stores only the Application
+runtime-target digest, while the immutable Application task rows are keyed by
+revision and task ID. A digest alone therefore cannot select the intended row
+without an unbounded cross-revision scan or a new digest index. Neither is an
+acceptable hidden lookup policy. Before enabling Application compute
+preparation, the canonical Application run-creation authority must retain an
+owned copy of the exact canonical runtime target as well as its digest. Creation
+must hash and correlate that target before insertion. This corrects the still-
+private authority contract in place; no production selector, scheduler or
+consumer can have emitted an Application run under the earlier incomplete
+shape, so no dual decoder or compatibility fallback is authorized.
+
+The compute-provider dispatch request keeps the shipped Legacy V1 member exact
+and adds a structurally exclusive Application V1 member carrying the 32-byte
+Application runtime-target digest instead of a manufactured task-definition
+revision ID. A current request union and exhaustive decoder own the shared
+provider boundary. Dispatch identity, attempt, lease, compute profile,
+cancellation and duration fields are identical across the two members;
+acceptance and cancellation contracts remain generation-neutral because their
+authority is the existing dispatch identity and provider execution reference.
+Ordinary provider dispatch still receives only Legacy requests until 5d makes
+Application discovery reachable.
+
+Prepared execution becomes an exact discriminated union. The Legacy member
+retains the existing definition commitment and input reference. The
+Application member contains the correlated Application dispatch request,
+canonical runtime target, canonical task manifest, canonical run-creation
+authority and input reference. It does not contain a Legacy definition ID,
+runtime-object commitment, package hash, artifact ID or semantic root. The 5d
+launch owner may consume that Application member directly; it must not infer
+Application authority from a Legacy-shaped provider request.
+
+Inside the existing located read-committed transaction, preparation first
+decodes the run and requested effect with the same exhaustive generation. The
+Application branch recanonicalizes and hashes the stored creation authority and
+embedded runtime target; requires the run, effect, authority and target digests
+to agree; then uses the target's exact `(scopeId, revisionId, taskId)` locator
+to read the immutable Application catalog/definition rows. A scalar size query
+must admit the manifest and binding byte lengths before either payload is read.
+The payload query then decodes, recanonicalizes and rehashes the definition
+binding and canonical manifest, reconstructs the runtime target from the
+stored rows, and requires exact equality with the authority-pinned target. A
+missing, duplicate, oversized, noncanonical, cross-revision or cross-generation
+row is stored corruption. The Legacy branch and its query/order remain
+behaviorally unchanged.
+
+Dispatch checkpoint insertion and replay use the request union plus the row's
+already-added generation/XOR columns. The checkpoint decoder must select the
+matching request decoder from the stored generation, recanonicalize its bytes,
+and correlate the exclusive identity column before comparing lifecycle fields.
+Claim acquisition, uncertain replay, delivery-attempt fencing, acceptance,
+cancellation, retry, obsolescence and settlement remain one algorithm. No new
+table, lifecycle state machine, provider receipt, current-head read, active
+selection, source fetch or Worker load belongs to 5c.
+
+The focused proof must cover exact Legacy request/prepared-evidence preservation;
+Application request and prepared-evidence round trips; Application preparation
+from an authentic created run; size-before-payload rejection; wrong authority,
+runtime-target, catalog, definition, manifest and effect digest rejection;
+unknown/mixed generation rejection; checkpoint replay and uncertain recovery;
+generation-neutral acceptance and cancellation; and continued exclusion of
+Application rows from every ordinary compute-discovery query. Self-review
+accepts this as one medium checkpoint because request identity, immutable
+preparation and checkpoint replay form one persisted boundary. Stop and amend
+if the implementation needs a new lookup index, scans unrelated revisions,
+changes provider receipt identity, consults the mutable active head, fetches
+Source Artifact V2, or enables Application discovery before 5d.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
