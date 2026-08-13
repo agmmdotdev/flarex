@@ -13,7 +13,7 @@ import type {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import type { StandardApplicationSource } from "../applicationSource.js";
 import {
-  hashApplicationRevisionTaskBindingFrameV1,
+  hashApplicationRevisionTaskBinding,
   hashCanonicalTaskCatalogV1,
 } from "./Digest.js";
 import type {
@@ -27,10 +27,6 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { Data, Effect, Result } from "effect";
-import {
-  encodeDeclarativeV2PhysicalFrameV1,
-  type DeclarativeV2CandidateFrameV1,
-} from "flarex-protocol/internal/declarative-v2-physical-v1";
 import { encodeTaskRuntimeEntryPreimageV1 } from "./Canonical.js";
 import {
   MAX_TASK_CATALOG_ENTRIES_V1,
@@ -49,7 +45,7 @@ import {
   TASK_RUNTIME_PROJECTION_CODEC_V1,
   TASK_RUNTIME_PROJECTION_MODULE_CODEC_V1,
   taskRuntimeObjectKeyV1,
-  type ApplicationRevisionTaskBindingFrameV1,
+  type ApplicationRevisionTaskBinding,
   type HashedCanonicalTaskCatalogV1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeEntryFrameV1,
@@ -77,7 +73,7 @@ import {
   hashTaskRuntimeProjectionFrameV1,
 } from "./RuntimePublicationDigest.js";
 import {
-  InvalidTaskRuntimePublicationV1Error,
+  InvalidTaskRuntimePublicationError,
 } from "./RuntimePublicationErrors.js";
 import {
   compareTaskRuntimeUtf8V1,
@@ -85,7 +81,7 @@ import {
 } from "./RuntimePublicationSchema.js";
 import type { StandardApplicationTaskSha256V1 } from "./Sha256.js";
 
-export interface AuthenticatedTaskRuntimeSourceModuleV1 {
+export interface AuthenticatedTaskRuntimeSourceModule {
   readonly ordinal: number;
   readonly artifactModulePath: string;
   readonly roles: SourceArtifactV2ModuleRolesV1;
@@ -93,16 +89,19 @@ export interface AuthenticatedTaskRuntimeSourceModuleV1 {
   readonly sourceSha256: TaskDefinitionSha256V1;
 }
 
-export interface TaskRuntimePublicationAuthorityV1 {
+export interface TaskRuntimePublicationAuthority {
+  readonly scopeId: string;
   readonly candidateId: string;
-  readonly candidate: DeclarativeV2CandidateFrameV1;
-  readonly candidateSha256: TaskDefinitionSha256V1;
+  readonly analysisId: string;
   readonly applicationRevisionId: string;
+  readonly applicationPublicationSha256: TaskDefinitionSha256V1;
+  readonly sourceArtifactRootSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskCatalogBindingSha256: TaskDefinitionSha256V1;
   readonly authenticatedModules:
-    ReadonlyArray<AuthenticatedTaskRuntimeSourceModuleV1>;
+    ReadonlyArray<AuthenticatedTaskRuntimeSourceModule>;
 }
 
-export interface TaskRuntimePublicationPolicyV1 {
+export interface TaskRuntimePublicationPolicy {
   readonly materialization: TaskRuntimeMaterializationSpecV1;
   readonly admittedCompatibilityDate: string;
   readonly admittedCompatibilityFlags: ReadonlyArray<string>;
@@ -110,15 +109,15 @@ export interface TaskRuntimePublicationPolicyV1 {
   readonly admittedComputeProfiles: ReadonlyArray<TaskComputeProfileRefV1>;
 }
 
-export interface TaskRuntimePublicationPreparationInputV1 {
+export interface TaskRuntimePublicationPreparationInput {
   readonly source: StandardApplicationSource;
   readonly catalog: HashedCanonicalTaskCatalogV1;
   readonly taskBindings: PreparedApplicationTaskBindingsV1;
-  readonly authority: TaskRuntimePublicationAuthorityV1;
-  readonly policy: TaskRuntimePublicationPolicyV1;
+  readonly authority: TaskRuntimePublicationAuthority;
+  readonly policy: TaskRuntimePublicationPolicy;
 }
 
-export interface PreparedTaskRuntimeObjectV1 {
+export interface PreparedTaskRuntimeObject {
   readonly role: TaskRuntimeObjectRoleV1;
   readonly codecIdentity: string;
   readonly ordinal: bigint;
@@ -126,59 +125,55 @@ export interface PreparedTaskRuntimeObjectV1 {
   readonly readReference: () => TaskRuntimeObjectReferenceV1;
 }
 
-interface PreparedTaskRuntimePublicationBaseV1 {
-  readonly version: 1;
+interface PreparedTaskRuntimePublicationBase {
   readonly readApplicationRevisionTaskBindingSha256: () => TaskDefinitionSha256V1;
-  readonly readApplicationRevisionTaskBinding: () => ApplicationRevisionTaskBindingFrameV1;
-  readonly readReceiptPreimage: () => TaskRuntimePublicationReceiptPreimageV1;
-  readonly objects: ReadonlyArray<PreparedTaskRuntimeObjectV1>;
+  readonly readApplicationRevisionTaskBinding: () => ApplicationRevisionTaskBinding;
+  readonly readReceipt: () => TaskRuntimePublicationReceipt;
+  readonly objects: ReadonlyArray<PreparedTaskRuntimeObject>;
   readonly canonicalByteLength: number;
 }
 
-export interface TaskRuntimePublicationReceiptPreimageV1 {
-  readonly version: 1;
+export interface TaskRuntimePublicationReceipt {
   readonly scopeId: string;
   readonly candidateId: string;
+  readonly analysisId: string;
   readonly applicationRevisionId: string;
-  readonly candidateSha256: TaskDefinitionSha256V1;
-  readonly taskCatalogBindingSha256: TaskDefinitionSha256V1;
+  readonly applicationPublicationSha256: TaskDefinitionSha256V1;
+  readonly sourceArtifactRootSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskCatalogBindingSha256: TaskDefinitionSha256V1;
   readonly applicationRevisionTaskBindingSha256: TaskDefinitionSha256V1;
   readonly taskCatalogSha256: TaskDefinitionSha256V1;
   readonly taskEntryRootSha256: TaskDefinitionSha256V1;
   readonly taskRuntimeProjectionSha256: TaskDefinitionSha256V1 | null;
   readonly taskRuntimeGroupManifestSha256: TaskDefinitionSha256V1 | null;
   readonly taskRuntimeMaterializationSpecSha256: TaskDefinitionSha256V1 | null;
-  readonly packageSha256: TaskDefinitionSha256V1;
-  readonly artifactSha256: TaskDefinitionSha256V1;
-  readonly sourceRootSha256: TaskDefinitionSha256V1;
-  readonly semanticRootSha256: TaskDefinitionSha256V1;
   readonly runtimeObjects:
-    ReadonlyArray<TaskRuntimePublicationReceiptObjectPreimageV1>;
+    ReadonlyArray<TaskRuntimePublicationReceiptObject>;
 }
 
-export interface TaskRuntimePublicationReceiptObjectPreimageV1 {
+export interface TaskRuntimePublicationReceiptObject {
   readonly ordinal: bigint;
   readonly codecIdentity: string;
   readonly reference: TaskRuntimeObjectReferenceV1;
 }
 
-export interface PreparedEmptyTaskRuntimePublicationV1
-  extends PreparedTaskRuntimePublicationBaseV1 {
+export interface PreparedEmptyTaskRuntimePublication
+  extends PreparedTaskRuntimePublicationBase {
   readonly kind: "empty_catalog";
   readonly objects: readonly [];
   readonly canonicalByteLength: 0;
 }
 
-export interface PreparedPopulatedTaskRuntimePublicationV1
-  extends PreparedTaskRuntimePublicationBaseV1 {
+export interface PreparedPopulatedTaskRuntimePublication
+  extends PreparedTaskRuntimePublicationBase {
   readonly kind: "populated_catalog";
 }
 
-export type PreparedTaskRuntimePublicationV1 =
-  | PreparedEmptyTaskRuntimePublicationV1
-  | PreparedPopulatedTaskRuntimePublicationV1;
+export type PreparedTaskRuntimePublication =
+  | PreparedEmptyTaskRuntimePublication
+  | PreparedPopulatedTaskRuntimePublication;
 
-export interface CapturedPreparedTaskRuntimeObjectV1 {
+export interface CapturedPreparedTaskRuntimeObject {
   readonly role: TaskRuntimeObjectRoleV1;
   readonly codecIdentity: string;
   readonly ordinal: bigint;
@@ -186,17 +181,17 @@ export interface CapturedPreparedTaskRuntimeObjectV1 {
   readonly reference: TaskRuntimeObjectReferenceV1;
 }
 
-export interface CapturedPreparedTaskRuntimePublicationV1 {
-  readonly receipt: TaskRuntimePublicationReceiptPreimageV1;
-  readonly objects: ReadonlyArray<PreparedTaskRuntimeObjectV1>;
+export interface CapturedPreparedTaskRuntimePublication {
+  readonly receipt: TaskRuntimePublicationReceipt;
+  readonly objects: ReadonlyArray<PreparedTaskRuntimeObject>;
 }
 
-const preparedObjectStates = new WeakMap<object, CapturedPreparedTaskRuntimeObjectV1>();
-const preparedPublicationStates = new WeakMap<object, CapturedPreparedTaskRuntimePublicationV1>();
+const preparedObjectStates = new WeakMap<object, CapturedPreparedTaskRuntimeObject>();
+const preparedPublicationStates = new WeakMap<object, CapturedPreparedTaskRuntimePublication>();
 
-export function capturePreparedTaskRuntimeObjectV1(
+export function capturePreparedTaskRuntimeObject(
   input: unknown,
-): CapturedPreparedTaskRuntimeObjectV1 | undefined {
+): CapturedPreparedTaskRuntimeObject | undefined {
   if (typeof input !== "object" || input === null) return undefined;
   const state = preparedObjectStates.get(input);
   return state === undefined ? undefined : Object.freeze({
@@ -208,9 +203,9 @@ export function capturePreparedTaskRuntimeObjectV1(
   });
 }
 
-export function capturePreparedTaskRuntimePublicationV1(
+export function capturePreparedTaskRuntimePublication(
   input: unknown,
-): CapturedPreparedTaskRuntimePublicationV1 | undefined {
+): CapturedPreparedTaskRuntimePublication | undefined {
   if (typeof input !== "object" || input === null) return undefined;
   const state = preparedPublicationStates.get(input);
   return state === undefined ? undefined : Object.freeze({
@@ -219,12 +214,12 @@ export function capturePreparedTaskRuntimePublicationV1(
   });
 }
 
-export type PrepareTaskRuntimePublicationV1Error =
-  | InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+export type PrepareTaskRuntimePublicationError =
+  | InvalidTaskRuntimePublicationError<"prepare_publication">
   | StandardApplicationTaskSha256ResourceV1Error;
 
-export class TaskRuntimePublicationPreparationInvariantV1Defect
-  extends Data.TaggedError("TaskRuntimePublicationPreparationInvariantV1Defect")<{
+export class TaskRuntimePublicationPreparationInvariantDefect
+  extends Data.TaggedError("TaskRuntimePublicationPreparationInvariantDefect")<{
     readonly reason: "invalid_hash_input";
   }> {}
 
@@ -232,39 +227,22 @@ export class TaskRuntimePublicationPreparationInvariantV1Defect
  * Builds a completely owned, immutable publication plan from already
  * authenticated Standard Application evidence. It performs no I/O.
  */
-export const prepareTaskRuntimePublicationV1 = Effect.fn(
-  "StandardApplicationTask.prepareRuntimePublicationV1",
+export const prepareTaskRuntimePublication = Effect.fn(
+  "StandardApplicationTask.prepareRuntimePublication",
 )(function* (
-  input: TaskRuntimePublicationPreparationInputV1,
+  input: TaskRuntimePublicationPreparationInput,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
-  PreparedTaskRuntimePublicationV1,
-  PrepareTaskRuntimePublicationV1Error
+  PreparedTaskRuntimePublication,
+  PrepareTaskRuntimePublicationError
 > {
   const captured = yield* Effect.fromResult(captureInput(input));
-  const encodedCandidate = yield* Effect.fromResult(
-    encodeDeclarativeV2PhysicalFrameV1(captured.authority.candidate, {
-      maximumFrameBytes: 1_024 * 1_024,
-      maximumCanonicalBytes: 1_024 * 1_024,
-    }).pipe(Result.mapError(() => new InvalidTaskRuntimePublicationV1Error({
-      operation: "prepare_publication",
-      reason: "authenticated_evidence_mismatch",
-      path: "authority.candidate",
-    }))),
-  );
-  const candidateSha256 = yield* digestBytes(encodedCandidate.canonicalBytes, sha256);
-  if (!bytesEqualFullScan(candidateSha256, captured.authority.candidateSha256)) {
-    return yield* invalid(
-      "authenticated_evidence_mismatch",
-      "authority.candidateSha256",
-    );
-  }
   const rehashedCatalog = yield* hashCanonicalTaskCatalogV1({
     version: 1,
     tasks: captured.catalog.entries.map(entry => entry.manifest),
   }, sha256).pipe(
     Effect.catchTag("StandardApplicationTaskSha256InputV1Error", error =>
-      Effect.die(new TaskRuntimePublicationPreparationInvariantV1Defect({
+      Effect.die(new TaskRuntimePublicationPreparationInvariantDefect({
         reason: error.reason === "invalidBudget"
           ? "invalid_hash_input"
           : "invalid_hash_input",
@@ -296,12 +274,11 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
     );
     const publication = Object.freeze({
       kind: "empty_catalog" as const,
-      version: 1 as const,
       readApplicationRevisionTaskBindingSha256: () =>
         copyDigest(applicationRevisionTaskBindingSha256),
       readApplicationRevisionTaskBinding: () =>
         copyApplicationRevisionTaskBinding(applicationRevisionTaskBinding),
-      readReceiptPreimage: () => makeReceiptPreimage(
+      readReceipt: () => makeReceiptPreimage(
         captured,
         applicationRevisionTaskBinding,
         applicationRevisionTaskBindingSha256,
@@ -311,7 +288,7 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
       canonicalByteLength: 0 as const,
     });
     preparedPublicationStates.set(publication, {
-      receipt: publication.readReceiptPreimage(),
+      receipt: publication.readReceipt(),
       objects: publication.objects,
     });
     return publication;
@@ -420,7 +397,7 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
     hashTaskRuntimeGroupManifestFrameV1(groupManifest, sha256),
   );
 
-  const objects: PreparedTaskRuntimeObjectV1[] = [];
+  const objects: PreparedTaskRuntimeObject[] = [];
   for (let index = 0; index < modules.length; index += 1) {
     const frame = modules[index]!;
     const canonicalBytes = yield* Effect.fromResult(
@@ -446,7 +423,7 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
     const entry = entries[index]!;
     const canonicalBytes = yield* Effect.fromResult(
       encodeTaskRuntimeEntryPreimageV1(entry).pipe(
-        Result.mapError(() => new InvalidTaskRuntimePublicationV1Error({
+        Result.mapError(() => new InvalidTaskRuntimePublicationError({
           operation: "prepare_publication",
           reason: "task_binding_mismatch",
           path: `entries[${index}]`,
@@ -508,12 +485,11 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
   );
   const publication = Object.freeze({
     kind: "populated_catalog" as const,
-    version: 1 as const,
     readApplicationRevisionTaskBindingSha256: () =>
       copyDigest(applicationRevisionTaskBindingSha256),
     readApplicationRevisionTaskBinding: () =>
       copyApplicationRevisionTaskBinding(applicationRevisionTaskBinding),
-    readReceiptPreimage: () => makeReceiptPreimage(
+    readReceipt: () => makeReceiptPreimage(
       captured,
       applicationRevisionTaskBinding,
       applicationRevisionTaskBindingSha256,
@@ -523,17 +499,17 @@ export const prepareTaskRuntimePublicationV1 = Effect.fn(
     canonicalByteLength,
   });
   preparedPublicationStates.set(publication, {
-    receipt: publication.readReceiptPreimage(),
+    receipt: publication.readReceipt(),
     objects: publication.objects,
   });
   return publication;
 });
 
 function captureInput(
-  input: TaskRuntimePublicationPreparationInputV1,
+  input: TaskRuntimePublicationPreparationInput,
 ): Result.Result<
-  TaskRuntimePublicationPreparationInputV1,
-  InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+  TaskRuntimePublicationPreparationInput,
+  InvalidTaskRuntimePublicationError<"prepare_publication">
 > {
   return Result.gen(function* () {
     yield* admitInput(input);
@@ -543,11 +519,10 @@ function captureInput(
         catalog: structuredClone(input.catalog),
         taskBindings: structuredClone(input.taskBindings),
         materialization: structuredClone(input.policy.materialization),
-        candidate: structuredClone(input.authority.candidate),
       }),
       catch: invalidPreparationInput,
     });
-    const modules: AuthenticatedTaskRuntimeSourceModuleV1[] = [];
+    const modules: AuthenticatedTaskRuntimeSourceModule[] = [];
     for (const module of input.authority.authenticatedModules) {
         if (
           !Number.isSafeInteger(module.ordinal) || module.ordinal < 0 ||
@@ -565,23 +540,41 @@ function captureInput(
           sourceSha256: copyDigest(module.sourceSha256),
         }));
     }
+    const scopeId = input.authority.scopeId;
     const candidateId = input.authority.candidateId;
+    const analysisId = input.authority.analysisId;
     const applicationRevisionId = input.authority.applicationRevisionId;
     if (
+      typeof scopeId !== "string" || scopeId.length === 0 ||
       typeof candidateId !== "string" || candidateId.length === 0 ||
+      typeof analysisId !== "string" || analysisId.length === 0 ||
       typeof applicationRevisionId !== "string" ||
       applicationRevisionId.length === 0 ||
-      !isUint8ArrayWithByteLength(input.authority.candidateSha256, 32)
+      !isUint8ArrayWithByteLength(
+        input.authority.applicationPublicationSha256,
+        32,
+      ) ||
+      !isUint8ArrayWithByteLength(input.authority.sourceArtifactRootSha256, 32) ||
+      !isUint8ArrayWithByteLength(
+        input.authority.applicationTaskCatalogBindingSha256,
+        32,
+      )
     ) return yield* Result.fail(invalidPreparationInput());
     return Object.freeze({
         source: cloned.source,
         catalog: cloned.catalog,
         taskBindings: cloned.taskBindings,
         authority: Object.freeze({
+          scopeId,
           candidateId,
-          candidate: cloned.candidate,
-          candidateSha256: copyDigest(input.authority.candidateSha256),
+          analysisId,
           applicationRevisionId,
+          applicationPublicationSha256:
+            copyDigest(input.authority.applicationPublicationSha256),
+          sourceArtifactRootSha256:
+            copyDigest(input.authority.sourceArtifactRootSha256),
+          applicationTaskCatalogBindingSha256:
+            copyDigest(input.authority.applicationTaskCatalogBindingSha256),
           authenticatedModules: Object.freeze(modules),
         }),
         policy: Object.freeze({
@@ -600,20 +593,20 @@ function captureInput(
   });
 }
 
-function invalidPreparationInput(): InvalidTaskRuntimePublicationV1Error<
+function invalidPreparationInput(): InvalidTaskRuntimePublicationError<
   "prepare_publication"
 > {
-  return new InvalidTaskRuntimePublicationV1Error({
+  return new InvalidTaskRuntimePublicationError({
     operation: "prepare_publication",
     reason: "invalid_preparation_input",
   });
 }
 
 function admitInput(
-  input: TaskRuntimePublicationPreparationInputV1,
+  input: TaskRuntimePublicationPreparationInput,
 ): Result.Result<
   void,
-  InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+  InvalidTaskRuntimePublicationError<"prepare_publication">
 > {
   return Result.gen(function* () {
     const captured = yield* Result.try({
@@ -654,10 +647,10 @@ function admitInput(
   });
 }
 
-function publicationBudgetInputFailure(): InvalidTaskRuntimePublicationV1Error<
+function publicationBudgetInputFailure(): InvalidTaskRuntimePublicationError<
   "prepare_publication"
 > {
-  return new InvalidTaskRuntimePublicationV1Error({
+  return new InvalidTaskRuntimePublicationError({
       operation: "prepare_publication",
       reason: "publication_budget_exceeded",
       path: "input",
@@ -665,25 +658,33 @@ function publicationBudgetInputFailure(): InvalidTaskRuntimePublicationV1Error<
 }
 
 const correlateCatalogAndBindings = Effect.fn(
-  "StandardApplicationTask.correlateRuntimePublicationBindingsV1",
+  "StandardApplicationTask.correlateRuntimePublicationBindings",
 )(function* (
-  input: TaskRuntimePublicationPreparationInputV1,
+  input: TaskRuntimePublicationPreparationInput,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   void,
-  | InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+  | InvalidTaskRuntimePublicationError<"prepare_publication">
   | StandardApplicationTaskSha256ResourceV1Error
 > {
   if (
     input.catalog.entries.length !== input.taskBindings.definitions.length ||
     input.taskBindings.catalog.binding.taskCount !== input.catalog.entries.length ||
-    input.taskBindings.catalog.binding.scopeId !== input.authority.candidate.scopeId ||
+    input.taskBindings.catalog.binding.scopeId !== input.authority.scopeId ||
     input.taskBindings.catalog.binding.candidateId !== input.authority.candidateId ||
+    input.taskBindings.catalog.binding.analysisId !== input.authority.analysisId ||
     input.taskBindings.catalog.binding.revisionId !==
       input.authority.applicationRevisionId ||
+    input.taskBindings.catalog.binding.publicationSha256 !==
+      encodeBytesToLowercaseHex(
+        input.authority.applicationPublicationSha256,
+      ) ||
     input.taskBindings.catalog.binding.sourceArtifactRootSha256 !==
-      encodeBytesToLowercaseHex(input.authority.candidate.sourceRootSha256) ||
-    input.authority.candidate.scopeId !== input.taskBindings.catalog.binding.scopeId ||
+      encodeBytesToLowercaseHex(input.authority.sourceArtifactRootSha256) ||
+    !bytesEqualFullScan(
+      input.taskBindings.catalog.sha256,
+      input.authority.applicationTaskCatalogBindingSha256,
+    ) ||
     !bytesEqualFullScan(
       input.taskBindings.catalog.binding.taskCatalogSha256,
       input.catalog.taskCatalogSha256,
@@ -721,18 +722,18 @@ const correlateCatalogAndBindings = Effect.fn(
 
 function bindingFailure(
   _error: InvalidApplicationTaskBindingV1Error,
-): Effect.Effect<never, InvalidTaskRuntimePublicationV1Error<"prepare_publication">> {
+): Effect.Effect<never, InvalidTaskRuntimePublicationError<"prepare_publication">> {
   return invalid("task_binding_mismatch", "taskBindings");
 }
 
 const correlateAndBuildModules = Effect.fn(
-  "StandardApplicationTask.correlateRuntimePublicationModulesV1",
+  "StandardApplicationTask.correlateRuntimePublicationModules",
 )(function* (
-  input: TaskRuntimePublicationPreparationInputV1,
+  input: TaskRuntimePublicationPreparationInput,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   ReadonlyArray<TaskRuntimeProjectionModuleFrameV1>,
-  PrepareTaskRuntimePublicationV1Error
+  PrepareTaskRuntimePublicationError
 > {
     const sourceModules = input.source.modules;
     if (
@@ -828,7 +829,7 @@ function object(
   ordinal: bigint,
   canonicalBytes: Uint8Array,
   sha256: TaskDefinitionSha256V1,
-): PreparedTaskRuntimeObjectV1 {
+): PreparedTaskRuntimeObject {
   const digest = copyDigest(sha256);
   const ownedCanonicalBytes = copyBytes(canonicalBytes);
   const reference = Object.freeze({
@@ -859,12 +860,16 @@ function object(
 }
 
 function copyReceiptPreimage(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
-): TaskRuntimePublicationReceiptPreimageV1 {
+  receipt: TaskRuntimePublicationReceipt,
+): TaskRuntimePublicationReceipt {
   return Object.freeze({
     ...receipt,
-    candidateSha256: copyDigest(receipt.candidateSha256),
-    taskCatalogBindingSha256: copyDigest(receipt.taskCatalogBindingSha256),
+    applicationPublicationSha256:
+      copyDigest(receipt.applicationPublicationSha256),
+    sourceArtifactRootSha256:
+      copyDigest(receipt.sourceArtifactRootSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(receipt.applicationTaskCatalogBindingSha256),
     applicationRevisionTaskBindingSha256:
       copyDigest(receipt.applicationRevisionTaskBindingSha256),
     taskCatalogSha256: copyDigest(receipt.taskCatalogSha256),
@@ -880,10 +885,6 @@ function copyReceiptPreimage(
       receipt.taskRuntimeMaterializationSpecSha256 === null
         ? null
         : copyDigest(receipt.taskRuntimeMaterializationSpecSha256),
-    packageSha256: copyDigest(receipt.packageSha256),
-    artifactSha256: copyDigest(receipt.artifactSha256),
-    sourceRootSha256: copyDigest(receipt.sourceRootSha256),
-    semanticRootSha256: copyDigest(receipt.semanticRootSha256),
     runtimeObjects: Object.freeze(receipt.runtimeObjects.map(item =>
       Object.freeze({
         ordinal: item.ordinal,
@@ -895,10 +896,10 @@ function copyReceiptPreimage(
 }
 
 function canonicalPublication(
-  value: Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error>,
+  value: Result.Result<Uint8Array, InvalidTaskRuntimePublicationError>,
 ): Effect.Effect<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+  InvalidTaskRuntimePublicationError<"prepare_publication">
 > {
   return Effect.fromResult(value.pipe(Result.mapError(reoperation)));
 }
@@ -928,15 +929,16 @@ function catalogsEqual(
 }
 
 function makeApplicationRevisionTaskBinding(
-  input: TaskRuntimePublicationPreparationInputV1,
+  input: TaskRuntimePublicationPreparationInput,
   taskEntryRootSha256: TaskDefinitionSha256V1,
   projectionSha256: TaskDefinitionSha256V1 | null,
   groupManifestSha256: TaskDefinitionSha256V1 | null,
   materializationSha256: TaskDefinitionSha256V1 | null,
-): ApplicationRevisionTaskBindingFrameV1 {
+): ApplicationRevisionTaskBinding {
   return Object.freeze({
     kind: "application_revision_task_binding" as const,
-    candidateSha256: copyDigest(input.authority.candidateSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(input.taskBindings.catalog.sha256),
     taskCatalogSha256: copyDigest(input.catalog.taskCatalogSha256),
     taskCount: BigInt(input.catalog.entries.length),
     taskEntryRootSha256: copyDigest(taskEntryRootSha256),
@@ -953,19 +955,19 @@ function makeApplicationRevisionTaskBinding(
 }
 
 function hashApplicationBinding(
-  binding: ApplicationRevisionTaskBindingFrameV1,
+  binding: ApplicationRevisionTaskBinding,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.Effect<
   TaskDefinitionSha256V1,
-  | InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+  | InvalidTaskRuntimePublicationError<"prepare_publication">
   | StandardApplicationTaskSha256ResourceV1Error
 > {
-  return hashApplicationRevisionTaskBindingFrameV1(binding, sha256).pipe(
+  return hashApplicationRevisionTaskBinding(binding, sha256).pipe(
     Effect.catchTag("InvalidStandardApplicationTaskDefinitionV1Error", () =>
       invalid("task_binding_mismatch", "applicationRevisionTaskBinding")
     ),
     Effect.catchTag("StandardApplicationTaskSha256InputV1Error", error =>
-      Effect.die(new TaskRuntimePublicationPreparationInvariantV1Defect({
+      Effect.die(new TaskRuntimePublicationPreparationInvariantDefect({
         reason: "invalid_hash_input",
       }))
     ),
@@ -974,18 +976,22 @@ function hashApplicationBinding(
 }
 
 function makeReceiptPreimage(
-  input: TaskRuntimePublicationPreparationInputV1,
-  binding: ApplicationRevisionTaskBindingFrameV1,
+  input: TaskRuntimePublicationPreparationInput,
+  binding: ApplicationRevisionTaskBinding,
   applicationRevisionTaskBindingSha256: TaskDefinitionSha256V1,
-  objects: ReadonlyArray<PreparedTaskRuntimeObjectV1>,
-): TaskRuntimePublicationReceiptPreimageV1 {
+  objects: ReadonlyArray<PreparedTaskRuntimeObject>,
+): TaskRuntimePublicationReceipt {
   return Object.freeze({
-    version: 1 as const,
-    scopeId: input.authority.candidate.scopeId,
+    scopeId: input.authority.scopeId,
     candidateId: input.authority.candidateId,
+    analysisId: input.authority.analysisId,
     applicationRevisionId: input.authority.applicationRevisionId,
-    candidateSha256: copyDigest(input.authority.candidateSha256),
-    taskCatalogBindingSha256: copyDigest(input.taskBindings.catalog.sha256),
+    applicationPublicationSha256:
+      copyDigest(input.authority.applicationPublicationSha256),
+    sourceArtifactRootSha256:
+      copyDigest(input.authority.sourceArtifactRootSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(input.taskBindings.catalog.sha256),
     applicationRevisionTaskBindingSha256:
       copyDigest(applicationRevisionTaskBindingSha256),
     taskCatalogSha256: copyDigest(binding.taskCatalogSha256),
@@ -1001,10 +1007,6 @@ function makeReceiptPreimage(
       binding.taskRuntimeMaterializationSpecSha256 === null
         ? null
         : copyDigest(binding.taskRuntimeMaterializationSpecSha256),
-    packageSha256: copyDigest(input.authority.candidate.packageSha256),
-    artifactSha256: copyDigest(input.authority.candidate.artifactSha256),
-    sourceRootSha256: copyDigest(input.authority.candidate.sourceRootSha256),
-    semanticRootSha256: copyDigest(input.authority.candidate.semanticRootSha256),
     runtimeObjects: Object.freeze(objects.map(item => Object.freeze({
       ordinal: item.ordinal,
       codecIdentity: item.codecIdentity,
@@ -1023,11 +1025,12 @@ function copyReference(
 }
 
 function copyApplicationRevisionTaskBinding(
-  binding: ApplicationRevisionTaskBindingFrameV1,
-): ApplicationRevisionTaskBindingFrameV1 {
+  binding: ApplicationRevisionTaskBinding,
+): ApplicationRevisionTaskBinding {
   return Object.freeze({
     ...binding,
-    candidateSha256: copyDigest(binding.candidateSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(binding.applicationTaskCatalogBindingSha256),
     taskCatalogSha256: copyDigest(binding.taskCatalogSha256),
     taskEntryRootSha256: copyDigest(binding.taskEntryRootSha256),
     taskRuntimeProjectionSha256: binding.taskRuntimeProjectionSha256 === null
@@ -1076,7 +1079,7 @@ function digestBytes(
 > {
   return sha256(bytes, { maximumInputBytes: bytes.byteLength }).pipe(
     Effect.catchTag("StandardApplicationTaskSha256InputV1Error", error =>
-      Effect.die(new TaskRuntimePublicationPreparationInvariantV1Defect({
+      Effect.die(new TaskRuntimePublicationPreparationInvariantDefect({
         reason: "invalid_hash_input",
       }))
     ),
@@ -1087,19 +1090,19 @@ function digestBytes(
 function prepareDigest<A>(
   effect: Effect.Effect<
     A,
-    InvalidTaskRuntimePublicationV1Error | StandardApplicationTaskSha256V1Error
+    InvalidTaskRuntimePublicationError | StandardApplicationTaskSha256V1Error
   >,
 ): Effect.Effect<
   A,
-  | InvalidTaskRuntimePublicationV1Error<"prepare_publication">
+  | InvalidTaskRuntimePublicationError<"prepare_publication">
   | StandardApplicationTaskSha256ResourceV1Error
 > {
   return effect.pipe(
-    Effect.catchTag("InvalidTaskRuntimePublicationV1Error", error =>
+    Effect.catchTag("InvalidTaskRuntimePublicationError", error =>
       Effect.fail(reoperation(error))
     ),
     Effect.catchTag("StandardApplicationTaskSha256InputV1Error", error =>
-      Effect.die(new TaskRuntimePublicationPreparationInvariantV1Defect({
+      Effect.die(new TaskRuntimePublicationPreparationInvariantDefect({
         reason: "invalid_hash_input",
       }))
     ),
@@ -1123,9 +1126,9 @@ function copyDigest(value: Uint8Array): TaskDefinitionSha256V1 {
 }
 
 function reoperation(
-  error: InvalidTaskRuntimePublicationV1Error,
-): InvalidTaskRuntimePublicationV1Error<"prepare_publication"> {
-  return new InvalidTaskRuntimePublicationV1Error({
+  error: InvalidTaskRuntimePublicationError,
+): InvalidTaskRuntimePublicationError<"prepare_publication"> {
+  return new InvalidTaskRuntimePublicationError({
     operation: "prepare_publication",
     reason: error.reason,
     ...(error.path === undefined ? {} : { path: error.path }),
@@ -1135,10 +1138,10 @@ function reoperation(
 }
 
 function invalid(
-  reason: InvalidTaskRuntimePublicationV1Error["reason"],
+  reason: InvalidTaskRuntimePublicationError["reason"],
   path?: string,
-): Effect.Effect<never, InvalidTaskRuntimePublicationV1Error<"prepare_publication">> {
-  return Effect.fail(new InvalidTaskRuntimePublicationV1Error({
+): Effect.Effect<never, InvalidTaskRuntimePublicationError<"prepare_publication">> {
+  return Effect.fail(new InvalidTaskRuntimePublicationError({
     operation: "prepare_publication",
     reason,
     ...(path === undefined ? {} : { path }),

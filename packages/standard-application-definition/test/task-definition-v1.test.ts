@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as DefinitionRoot from "../src/v1";
 import {
-  APPLICATION_REVISION_TASK_BINDING_CODEC_V1,
+  APPLICATION_REVISION_TASK_BINDING_CODEC,
   CANONICAL_TASK_CATALOG_CODEC_V1,
   CANONICAL_TASK_MANIFEST_CODEC_V1,
   TASK_DEFINITION_RUNTIME_BINDING_CODEC_V1,
@@ -11,7 +11,7 @@ import {
   TASK_RUNTIME_ENTRY_CODEC_V1,
   TASK_RUNTIME_OBJECT_STORE_V1,
   InvalidStandardApplicationTaskDefinitionV1Error,
-  decodeApplicationRevisionTaskBindingFrameV1,
+  decodeApplicationRevisionTaskBinding,
   decodeCanonicalTaskCatalogV1,
   decodeCanonicalTaskManifestPreimageV1,
   decodeCanonicalTaskManifestV1,
@@ -22,14 +22,14 @@ import {
   decodeTaskRunCreationAuthorityReceiptPreimageV1,
   decodeTaskRunCreationAuthorityReceiptV1,
   decodeTaskRuntimeEntryFrameV1,
-  encodeApplicationRevisionTaskBindingPreimageV1,
+  encodeApplicationRevisionTaskBinding,
   encodeCanonicalTaskManifestPreimageV1,
   encodeHashedCanonicalTaskCatalogPreimageV1,
   encodeTaskDefinitionRuntimeBindingCommitmentPreimageV1,
   encodeTaskDefinitionRuntimeBindingPreimageV1,
   encodeTaskRunCreationAuthorityReceiptPreimageV1,
   encodeTaskRuntimeEntryPreimageV1,
-  hashApplicationRevisionTaskBindingFrameV1,
+  hashApplicationRevisionTaskBinding,
   hashCanonicalTaskCatalogV1,
   hashCanonicalTaskManifestV1,
   hashTaskDefinitionRuntimeBindingV1,
@@ -293,25 +293,25 @@ describe("Standard Application task definition V1", () => {
 
   it("frames populated and explicitly empty application-revision task bindings", async () => {
     const populated = makeApplicationRevisionTaskBinding();
-    const decoded = success(decodeApplicationRevisionTaskBindingFrameV1(populated));
+    const decoded = success(decodeApplicationRevisionTaskBinding(populated));
     expect(decoded.taskCount).toBe(1n);
     expect(UTF8.decode(success(
-      encodeApplicationRevisionTaskBindingPreimageV1(decoded),
+      encodeApplicationRevisionTaskBinding(decoded),
     ))).toBe(
-      `{"binding":{"candidateSha256":"${hex(decoded.candidateSha256)}","kind":"application_revision_task_binding","taskCatalogSha256":"${hex(decoded.taskCatalogSha256)}","taskCount":"1","taskEntryRootSha256":"${hex(decoded.taskEntryRootSha256)}","taskRuntimeGroupManifestSha256":"${hex(decoded.taskRuntimeGroupManifestSha256!)}","taskRuntimeMaterializationSpecSha256":"${hex(decoded.taskRuntimeMaterializationSpecSha256!)}","taskRuntimeProjectionSha256":"${hex(decoded.taskRuntimeProjectionSha256!)}"},"codec":"${APPLICATION_REVISION_TASK_BINDING_CODEC_V1}"}`,
+      `{"binding":{"applicationTaskCatalogBindingSha256":"${hex(decoded.applicationTaskCatalogBindingSha256)}","kind":"application_revision_task_binding","taskCatalogSha256":"${hex(decoded.taskCatalogSha256)}","taskCount":"1","taskEntryRootSha256":"${hex(decoded.taskEntryRootSha256)}","taskRuntimeGroupManifestSha256":"${hex(decoded.taskRuntimeGroupManifestSha256!)}","taskRuntimeMaterializationSpecSha256":"${hex(decoded.taskRuntimeMaterializationSpecSha256!)}","taskRuntimeProjectionSha256":"${hex(decoded.taskRuntimeProjectionSha256!)}"},"codec":"${APPLICATION_REVISION_TASK_BINDING_CODEC}"}`,
     );
     expect((await Effect.runPromise(
-      hashApplicationRevisionTaskBindingFrameV1(populated, sha256),
+      hashApplicationRevisionTaskBinding(populated, sha256),
     )).byteLength).toBe(32);
 
-    expect(success(decodeApplicationRevisionTaskBindingFrameV1({
+    expect(success(decodeApplicationRevisionTaskBinding({
       ...populated,
       taskCount: 0n,
       taskRuntimeProjectionSha256: null,
       taskRuntimeGroupManifestSha256: null,
       taskRuntimeMaterializationSpecSha256: null,
     })).taskCount).toBe(0n);
-    expect(failure(decodeApplicationRevisionTaskBindingFrameV1({
+    expect(failure(decodeApplicationRevisionTaskBinding({
       ...populated,
       taskCount: 0n,
     }))).toMatchObject({ reason: "inconsistent_binding" });
@@ -564,7 +564,7 @@ function policy(change: { readonly maxAttempts?: number } = {}) {
 function makeApplicationRevisionTaskBinding() {
   return {
     kind: "application_revision_task_binding",
-    candidateSha256: digest(1),
+    applicationTaskCatalogBindingSha256: digest(1),
     taskCatalogSha256: digest(2),
     taskCount: 1n,
     taskEntryRootSha256: digest(3),

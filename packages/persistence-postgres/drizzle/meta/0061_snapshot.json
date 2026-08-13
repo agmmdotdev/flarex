@@ -5031,6 +5031,9 @@
             "scope_id",
             "revision_id",
             "candidate_id",
+            "analysis_id",
+            "publication_sha256",
+            "source_artifact_root_sha256",
             "task_catalog_sha256",
             "task_catalog_binding_sha256"
           ]
@@ -5392,20 +5395,32 @@
           "primaryKey": false,
           "notNull": true
         },
+        "analysis_id": {
+          "name": "analysis_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "application_publication_sha256": {
+          "name": "application_publication_sha256",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_artifact_root_sha256": {
+          "name": "source_artifact_root_sha256",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
         "task_catalog_sha256": {
           "name": "task_catalog_sha256",
           "type": "bytea",
           "primaryKey": false,
           "notNull": true
         },
-        "task_catalog_binding_sha256": {
-          "name": "task_catalog_binding_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "candidate_sha256": {
-          "name": "candidate_sha256",
+        "application_task_catalog_binding_sha256": {
+          "name": "application_task_catalog_binding_sha256",
           "type": "bytea",
           "primaryKey": false,
           "notNull": true
@@ -5439,30 +5454,6 @@
           "type": "bytea",
           "primaryKey": false,
           "notNull": false
-        },
-        "package_sha256": {
-          "name": "package_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artifact_sha256": {
-          "name": "artifact_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_root_sha256": {
-          "name": "source_root_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "semantic_root_sha256": {
-          "name": "semantic_root_sha256",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
         },
         "object_count": {
           "name": "object_count",
@@ -5500,13 +5491,19 @@
             "scope_id",
             "revision_id",
             "candidate_id",
+            "analysis_id",
+            "application_publication_sha256",
+            "source_artifact_root_sha256",
             "task_catalog_sha256",
-            "task_catalog_binding_sha256"
+            "application_task_catalog_binding_sha256"
           ],
           "columnsTo": [
             "scope_id",
             "revision_id",
             "candidate_id",
+            "analysis_id",
+            "publication_sha256",
+            "source_artifact_root_sha256",
             "task_catalog_sha256",
             "task_catalog_binding_sha256"
           ],
@@ -5546,7 +5543,7 @@
       "checkConstraints": {
         "fx_application_task_runtime_pub_v1_identity_check": {
           "name": "fx_application_task_runtime_pub_v1_identity_check",
-          "value": "octet_length(convert_to(\"fx_system_application_task_runtime_publication_v1\".\"revision_id\", 'UTF8')) between 1 and 256\n        and octet_length(convert_to(\"fx_system_application_task_runtime_publication_v1\".\"candidate_id\", 'UTF8')) between 1 and 256\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"task_catalog_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"task_catalog_binding_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"candidate_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"application_revision_task_binding_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"task_entry_root_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"package_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"artifact_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"source_root_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"semantic_root_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"receipt_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"receipt_bytes\") between 1 and 8388608"
+          "value": "octet_length(convert_to(\"fx_system_application_task_runtime_publication_v1\".\"revision_id\", 'UTF8')) between 1 and 256\n        and octet_length(convert_to(\"fx_system_application_task_runtime_publication_v1\".\"candidate_id\", 'UTF8')) between 1 and 256\n        and octet_length(convert_to(\"fx_system_application_task_runtime_publication_v1\".\"analysis_id\", 'UTF8')) between 1 and 256\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"application_publication_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"source_artifact_root_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"task_catalog_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"application_task_catalog_binding_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"application_revision_task_binding_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"task_entry_root_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"receipt_sha256\") = 32\n        and octet_length(\"fx_system_application_task_runtime_publication_v1\".\"receipt_bytes\") between 1 and 8388608"
         },
         "fx_application_task_runtime_pub_v1_shape_check": {
           "name": "fx_application_task_runtime_pub_v1_shape_check",

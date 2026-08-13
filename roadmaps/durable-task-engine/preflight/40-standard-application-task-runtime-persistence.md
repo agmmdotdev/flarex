@@ -100,12 +100,10 @@ the current runtime contract in place rather than creating V2 beside V1. The
 Application-owned authority and required environment inventory are recorded in
 [`42-application-task-runtime-authority.md`](./42-application-task-runtime-authority.md).
 
-## Required Receipt Contract Amendment
+## Current Receipt Contract
 
-SAP-TRP2 currently produces an owned
-`TaskRuntimePublicationReceiptPreimageV1`, not a canonical persisted receipt.
-Before DDL, the Standard Application owner must add one concrete compatibility
-contract with:
+`SAP-CAA1` now produces one owned canonical `TaskRuntimePublicationReceipt`.
+The Standard Application owner provides:
 
 - a fixed task-runtime publication-receipt codec identity;
 - strict canonical encode/decode and re-encoding agreement;
@@ -115,10 +113,12 @@ contract with:
 - exact ordinal ordering and role/codec/reference correlation; and
 - empty-versus-populated catalog correlation.
 
-The receipt frame retains the existing preimage fields: scope, candidate,
-Application revision, candidate digest, Application-revision task-binding
-digest, catalog and entry roots, nullable populated-only singleton roots,
-package/artifact/source/semantic roots, and ordered runtime-object membership.
+The receipt binds scope, Application candidate, analysis and revision,
+whole-Application publication digest, Source Artifact root, Application
+task-catalog binding and catalog digests, Application-revision task-binding
+digest, catalog and entry roots, nullable populated-only singleton roots, and
+ordered runtime-object membership. It contains no displaced Declarative
+candidate/package/artifact/semantic authority fields.
 
 Persistence must not invent a second JSON representation or hash a database
 row projection. The canonical Standard Application receipt bytes and digest

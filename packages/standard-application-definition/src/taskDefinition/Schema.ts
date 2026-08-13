@@ -31,7 +31,7 @@ import {
   MAX_TASK_RUNTIME_OBJECT_REFERENCES_V1,
   TASK_RUNTIME_OBJECT_STORE_V1,
   taskRuntimeObjectKeyV1,
-  type ApplicationRevisionTaskBindingFrameV1,
+  type ApplicationRevisionTaskBinding,
   type CanonicalTaskCatalogV1,
   type CanonicalTaskHandlerBindingV1,
   type CanonicalTaskManifestV1,
@@ -231,16 +231,16 @@ export function decodeTaskRuntimeEntryFrameV1(
   });
 }
 
-export function decodeApplicationRevisionTaskBindingFrameV1(
+export function decodeApplicationRevisionTaskBinding(
   input: unknown,
 ): Result.Result<
-  ApplicationRevisionTaskBindingFrameV1,
+  ApplicationRevisionTaskBinding,
   InvalidStandardApplicationTaskDefinitionV1Error
 > {
   const operation = "decode_application_revision_task_binding" as const;
   const outer = captureExactDataRecord(input, [
     "kind",
-    "candidateSha256",
+    "applicationTaskCatalogBindingSha256",
     "taskCatalogSha256",
     "taskCount",
     "taskEntryRootSha256",
@@ -258,10 +258,10 @@ export function decodeApplicationRevisionTaskBindingFrameV1(
     ) {
       return yield* Result.fail(invalid(operation, "invalid_ordinal", "taskCount"));
     }
-    const candidateSha256 = yield* decodeDigest(
-      outer.candidateSha256,
+    const applicationTaskCatalogBindingSha256 = yield* decodeDigest(
+      outer.applicationTaskCatalogBindingSha256,
       operation,
-      "candidateSha256",
+      "applicationTaskCatalogBindingSha256",
     );
     const taskCatalogSha256 = yield* decodeDigest(
       outer.taskCatalogSha256,
@@ -299,7 +299,7 @@ export function decodeApplicationRevisionTaskBindingFrameV1(
     }
     return Object.freeze({
       kind: "application_revision_task_binding",
-      candidateSha256,
+      applicationTaskCatalogBindingSha256,
       taskCatalogSha256,
       taskCount: outer.taskCount,
       taskEntryRootSha256,

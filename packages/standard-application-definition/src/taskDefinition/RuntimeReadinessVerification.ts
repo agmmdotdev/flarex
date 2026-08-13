@@ -9,7 +9,7 @@ import { Effect, Result } from "effect";
 
 import { decodeTaskRuntimeEntryPreimageV1 } from "./Canonical.js";
 import {
-  hashApplicationRevisionTaskBindingFrameV1,
+  hashApplicationRevisionTaskBinding,
   hashCanonicalTaskCatalogV1,
 } from "./Digest.js";
 import type {
@@ -29,7 +29,7 @@ import {
   TASK_RUNTIME_PROJECTION_CODEC_V1,
   TASK_RUNTIME_PROJECTION_MODULE_CODEC_V1,
   taskRuntimeObjectKeyV1,
-  type ApplicationRevisionTaskBindingFrameV1,
+  type ApplicationRevisionTaskBinding,
   type HashedCanonicalTaskCatalogV1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeEntryFrameV1,
@@ -76,11 +76,11 @@ import {
   hashTaskRuntimeMaterializationSpecV1,
   verifyTaskRuntimeProjectionV1,
 } from "./RuntimePublicationDigest.js";
-import type { InvalidTaskRuntimePublicationV1Error } from
+import type { InvalidTaskRuntimePublicationError } from
   "./RuntimePublicationErrors.js";
-import type { TaskRuntimePublicationReceiptPreimageV1 } from
+import type { TaskRuntimePublicationReceipt } from
   "./RuntimePublicationPreparation.js";
-import { decodeTaskRuntimePublicationReceiptPreimageV1 } from
+import { decodeTaskRuntimePublicationReceipt } from
   "./RuntimePublicationReceipt.js";
 import { decodeTaskRuntimeMaterializationSpecV1 } from
   "./RuntimePublicationSchema.js";
@@ -102,7 +102,7 @@ type CapturedVerificationInput = CapturedPreparationInput &
   CapturedRuntimeObjects;
 
 type PreparedReadinessState = Readonly<{
-  receipt: TaskRuntimePublicationReceiptPreimageV1;
+  receipt: TaskRuntimePublicationReceipt;
   receiptSha256: TaskDefinitionSha256V1;
   expected: TaskRuntimeReadinessExpectedEvidence;
   sha256: StandardApplicationTaskSha256V1;
@@ -174,7 +174,7 @@ const prepareCapturedReadiness = Effect.fn(
   PrepareTaskRuntimeReadinessVerificationError
 > {
   const receipt = yield* Effect.fromResult(
-    decodeTaskRuntimePublicationReceiptPreimageV1(
+    decodeTaskRuntimePublicationReceipt(
       captured.receiptCanonicalBytes,
     ).pipe(Result.mapError(cause => readinessInvalid(
       "verify_readiness",
@@ -232,7 +232,7 @@ const prepareCapturedReadiness = Effect.fn(
       captured.expected.materializationPolicy,
       sha256,
     ).pipe(Effect.catchTag(
-      "InvalidTaskRuntimePublicationV1Error",
+      "InvalidTaskRuntimePublicationError",
       cause => readinessFailure(
         "runtime_policy_unsupported",
         "expected.materializationPolicy",
@@ -251,7 +251,7 @@ const prepareCapturedReadiness = Effect.fn(
     );
   }
 
-  const applicationBindingSha256 = yield* hashApplicationRevisionTaskBindingFrameV1(
+  const applicationBindingSha256 = yield* hashApplicationRevisionTaskBinding(
     applicationRevisionTaskBinding(receipt),
     sha256,
   ).pipe(
@@ -357,26 +357,30 @@ const completeCapturedReadiness = Effect.fn(
 
 
 function authoritativeEvidenceMatches(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   expected: TaskRuntimeReadinessExpectedEvidence,
 ): boolean {
   return !(
     receipt.scopeId !== expected.scopeId ||
     receipt.candidateId !== expected.candidateId ||
+    receipt.analysisId !== expected.analysisId ||
     receipt.applicationRevisionId !== expected.applicationRevisionId ||
-    !bytesEqualFullScan(receipt.candidateSha256, expected.candidateSha256) ||
     !bytesEqualFullScan(
-      receipt.taskCatalogBindingSha256,
-      expected.taskCatalogBindingSha256,
+      receipt.applicationPublicationSha256,
+      expected.applicationPublicationSha256,
+    ) ||
+    !bytesEqualFullScan(
+      receipt.sourceArtifactRootSha256,
+      expected.sourceArtifactRootSha256,
+    ) ||
+    !bytesEqualFullScan(
+      receipt.applicationTaskCatalogBindingSha256,
+      expected.applicationTaskCatalogBindingSha256,
     ) ||
     !bytesEqualFullScan(
       receipt.taskCatalogSha256,
       expected.taskCatalog.taskCatalogSha256,
-    ) ||
-    !bytesEqualFullScan(receipt.packageSha256, expected.packageSha256) ||
-    !bytesEqualFullScan(receipt.artifactSha256, expected.artifactSha256) ||
-    !bytesEqualFullScan(receipt.sourceRootSha256, expected.sourceRootSha256) ||
-    !bytesEqualFullScan(receipt.semanticRootSha256, expected.semanticRootSha256)
+    )
   );
 }
 
@@ -384,7 +388,7 @@ const decodeAndVerifyObjects = Effect.fn(
   "StandardApplicationTask.decodeRuntimeReadinessObjects",
 )(function* (
   input: CapturedRuntimeObjects,
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<DecodedObjects, VerifyTaskRuntimeReadinessError> {
   if (input.runtimeObjects.length !== receipt.runtimeObjects.length) {
@@ -473,7 +477,7 @@ const verifyPopulatedGraph = Effect.fn(
   "StandardApplicationTask.verifyRuntimeReadinessGraph",
 )(function* (
   decoded: DecodedObjects,
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   expected: TaskRuntimeReadinessExpectedEvidence,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<void, VerifyTaskRuntimeReadinessError> {
@@ -482,7 +486,7 @@ const verifyPopulatedGraph = Effect.fn(
     decoded.modules,
     sha256,
   ).pipe(Effect.catchTag(
-    "InvalidTaskRuntimePublicationV1Error",
+    "InvalidTaskRuntimePublicationError",
     cause => readinessFailure(
       "runtime_root_mismatch",
       "taskRuntimeProjectionSha256",
@@ -494,7 +498,7 @@ const verifyPopulatedGraph = Effect.fn(
     decoded.groupManifest,
     sha256,
   ).pipe(Effect.catchTag(
-    "InvalidTaskRuntimePublicationV1Error",
+    "InvalidTaskRuntimePublicationError",
     cause => readinessFailure(
       "runtime_root_mismatch",
       "taskRuntimeGroupManifestSha256",
@@ -505,7 +509,7 @@ const verifyPopulatedGraph = Effect.fn(
     decoded.materialization,
     sha256,
   ).pipe(Effect.catchTag(
-    "InvalidTaskRuntimePublicationV1Error",
+    "InvalidTaskRuntimePublicationError",
     cause => readinessFailure(
       "runtime_root_mismatch",
       "taskRuntimeMaterializationSpecSha256",
@@ -753,21 +757,20 @@ function captureExpectedEvidence(
 > {
   const operation = "verify_readiness" as const;
   const outer = exactDataRecord(input, [
+    "analysisId",
+    "applicationPublicationSha256",
     "applicationRevisionId",
-    "artifactSha256",
+    "applicationTaskCatalogBindingSha256",
     "candidateId",
-    "candidateSha256",
     "materializationPolicy",
-    "packageSha256",
     "scopeId",
-    "semanticRootSha256",
-    "sourceRootSha256",
+    "sourceArtifactRootSha256",
     "taskCatalog",
-    "taskCatalogBindingSha256",
   ]);
   if (
     outer === undefined || !validIdentity(outer.scopeId) ||
     !validIdentity(outer.candidateId) ||
+    !validIdentity(outer.analysisId) ||
     !validIdentity(outer.applicationRevisionId)
   ) return Result.fail(readinessInvalid(operation, "invalid_input", "expected"));
   return Result.gen(function* () {
@@ -784,38 +787,24 @@ function captureExpectedEvidence(
     return Object.freeze({
       scopeId: outer.scopeId as string,
       candidateId: outer.candidateId as string,
+      analysisId: outer.analysisId as string,
       applicationRevisionId: outer.applicationRevisionId as string,
-      candidateSha256: yield* captureDigest(
-        outer.candidateSha256,
+      applicationPublicationSha256: yield* captureDigest(
+        outer.applicationPublicationSha256,
         operation,
-        "expected.candidateSha256",
+        "expected.applicationPublicationSha256",
       ),
-      taskCatalogBindingSha256: yield* captureDigest(
-        outer.taskCatalogBindingSha256,
+      sourceArtifactRootSha256: yield* captureDigest(
+        outer.sourceArtifactRootSha256,
         operation,
-        "expected.taskCatalogBindingSha256",
+        "expected.sourceArtifactRootSha256",
+      ),
+      applicationTaskCatalogBindingSha256: yield* captureDigest(
+        outer.applicationTaskCatalogBindingSha256,
+        operation,
+        "expected.applicationTaskCatalogBindingSha256",
       ),
       taskCatalog,
-      packageSha256: yield* captureDigest(
-        outer.packageSha256,
-        operation,
-        "expected.packageSha256",
-      ),
-      artifactSha256: yield* captureDigest(
-        outer.artifactSha256,
-        operation,
-        "expected.artifactSha256",
-      ),
-      sourceRootSha256: yield* captureDigest(
-        outer.sourceRootSha256,
-        operation,
-        "expected.sourceRootSha256",
-      ),
-      semanticRootSha256: yield* captureDigest(
-        outer.semanticRootSha256,
-        operation,
-        "expected.semanticRootSha256",
-      ),
       materializationPolicy,
     });
   });
@@ -923,7 +912,7 @@ function captureReference(
 
 
 function makeBasis(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   receiptSha256: TaskDefinitionSha256V1,
   policy: TaskRuntimeMaterializationSpecV1,
   canonicalObjectByteLength: number,
@@ -933,10 +922,13 @@ function makeBasis(
     kind: receipt.runtimeObjects.length === 0 ? "empty" : "populated",
     scopeId: receipt.scopeId,
     candidateId: receipt.candidateId,
+    analysisId: receipt.analysisId,
     applicationRevisionId: receipt.applicationRevisionId,
     publicationReceiptSha256: receiptSha256,
-    candidateSha256: receipt.candidateSha256,
-    taskCatalogBindingSha256: receipt.taskCatalogBindingSha256,
+    applicationPublicationSha256: receipt.applicationPublicationSha256,
+    sourceArtifactRootSha256: receipt.sourceArtifactRootSha256,
+    applicationTaskCatalogBindingSha256:
+      receipt.applicationTaskCatalogBindingSha256,
     applicationRevisionTaskBindingSha256:
       receipt.applicationRevisionTaskBindingSha256,
     taskCatalogSha256: receipt.taskCatalogSha256,
@@ -949,10 +941,6 @@ function makeBasis(
       receipt.taskRuntimeGroupManifestSha256,
     taskRuntimeMaterializationSpecSha256:
       receipt.taskRuntimeMaterializationSpecSha256,
-    packageSha256: receipt.packageSha256,
-    artifactSha256: receipt.artifactSha256,
-    sourceRootSha256: receipt.sourceRootSha256,
-    semanticRootSha256: receipt.semanticRootSha256,
     runtimeContractIdentity: policy.runtimeContractIdentity,
     bridgeAbiIdentity: policy.bridgeAbiIdentity,
     compatibilityDate: policy.compatibilityDate,
@@ -968,11 +956,12 @@ function makeBasis(
 
 
 function applicationRevisionTaskBinding(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
-): ApplicationRevisionTaskBindingFrameV1 {
+  receipt: TaskRuntimePublicationReceipt,
+): ApplicationRevisionTaskBinding {
   return Object.freeze({
     kind: "application_revision_task_binding" as const,
-    candidateSha256: copyDigest(receipt.candidateSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(receipt.applicationTaskCatalogBindingSha256),
     taskCatalogSha256: copyDigest(receipt.taskCatalogSha256),
     taskCount: BigInt(receipt.runtimeObjects.filter(
       item => item.reference.role === "task_runtime_entry",
@@ -993,7 +982,7 @@ function hashEntryRoot(
 ): Effect.Effect<TaskDefinitionSha256V1, VerifyTaskRuntimeReadinessError> {
   return hashTaskRuntimeEntryRootV1(entries, sha256).pipe(
     Effect.catchTag(
-      "InvalidTaskRuntimePublicationV1Error",
+      "InvalidTaskRuntimePublicationError",
       cause => readinessFailure(
         "runtime_root_mismatch",
         "taskEntryRootSha256",
@@ -1006,7 +995,7 @@ function hashEntryRoot(
 function decodeRuntimeObject<Success>(
   result: Result.Result<
     Success,
-    InvalidTaskRuntimePublicationV1Error | InvalidStandardApplicationTaskDefinitionV1Error
+    InvalidTaskRuntimePublicationError | InvalidStandardApplicationTaskDefinitionV1Error
   >,
   path: string,
 ): Effect.Effect<Success, InvalidTaskRuntimeReadinessV1Error<"verify_readiness">> {
@@ -1226,7 +1215,7 @@ function readinessFailure(
   reason: TaskRuntimeReadinessReasonV1,
   path?: string,
   cause?:
-    | InvalidTaskRuntimePublicationV1Error
+    | InvalidTaskRuntimePublicationError
     | InvalidStandardApplicationTaskDefinitionV1Error,
 ): Effect.Effect<never, InvalidTaskRuntimeReadinessV1Error<"verify_readiness">> {
   return Effect.fail(readinessInvalid(

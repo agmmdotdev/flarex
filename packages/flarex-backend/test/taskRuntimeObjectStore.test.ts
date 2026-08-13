@@ -1,8 +1,8 @@
 import {
   hashCanonicalTaskCatalogV1,
   makeLiveStandardApplicationTaskSha256V1,
-  makeTaskRuntimePublicationReceiptAuthorityV1,
-  prepareTaskRuntimePublicationV1,
+  makeTaskRuntimePublicationReceiptAuthority,
+  prepareTaskRuntimePublication,
   TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
   TASK_RUNTIME_CONTRACT_IDENTITY_V1,
   TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
@@ -11,7 +11,7 @@ import {
   taskRuntimeObjectKeyV1,
   TASK_RUNTIME_OBJECT_STORE_V1,
   TASK_RUNTIME_PROJECTION_CODEC_V1,
-  type PreparedTaskRuntimeObjectV1,
+  type PreparedTaskRuntimeObject,
   type StandardApplicationTaskSha256V1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeObjectReferenceV1,
@@ -29,10 +29,6 @@ import type { TaskComputeProfileRefV1 } from
   "@flarex/durable-task/internal/run-attempt-v1";
 import { copyBytes } from "@flarex/utils/bytes";
 import { Brand, Cause, Effect, Exit, Option, Result } from "effect";
-import {
-  encodeDeclarativeV2PhysicalFrameV1,
-  type DeclarativeV2CandidateFrameV1,
-} from "flarex-protocol/internal/declarative-v2-physical-v1";
 import { describe, expect, it } from "vitest";
 import { runInNewContext } from "node:vm";
 
@@ -88,7 +84,7 @@ describe("TaskRuntimeObjectStore", () => {
   it("mints confirmation only after genuine plan storage converges", async () => {
     const bucket = new MemoryBucket();
     const sha256 = makeLiveStandardApplicationTaskSha256V1();
-    const authority = makeTaskRuntimePublicationReceiptAuthorityV1(sha256);
+    const authority = makeTaskRuntimePublicationReceiptAuthority(sha256);
     const object = await makeGenuinePreparedObject(sha256);
     const store = makeTaskRuntimeObjectStore(bucket, sha256, authority);
 
@@ -205,7 +201,7 @@ describe("TaskRuntimeObjectStore", () => {
       sha256,
     );
     const store = makeTaskRuntimeObjectStore(bucket, sha256);
-    const forged: PreparedTaskRuntimeObjectV1 = Object.freeze({
+    const forged: PreparedTaskRuntimeObject = Object.freeze({
       ...fixture.object,
       role: "task_runtime_entry",
     });
@@ -279,7 +275,7 @@ function makeFixtureWithDigest(
     byteLength: BigInt(bytes.byteLength),
     sha256: copyBytes(digest) as TaskDefinitionSha256V1,
   });
-  const object: PreparedTaskRuntimeObjectV1 = Object.freeze({
+  const object: PreparedTaskRuntimeObject = Object.freeze({
     role,
     codecIdentity: codecIdentityForRole(role),
     ordinal: 0n,
@@ -328,7 +324,7 @@ function toHex(bytes: Uint8Array): string {
 
 async function makeGenuinePreparedObject(
   sha256: StandardApplicationTaskSha256V1,
-): Promise<PreparedTaskRuntimeObjectV1> {
+): Promise<PreparedTaskRuntimeObject> {
   const definition = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: {
       maximumModules: 1,
@@ -449,24 +445,23 @@ async function makeGenuinePreparedObject(
     supportedComputeProfiles: Object.freeze([computeProfile]),
     moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
   });
-  const candidate = makeStoreCandidate();
-  const encoded = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
-    candidate,
-    { maximumFrameBytes: 1_024 * 1_024, maximumCanonicalBytes: 1_024 * 1_024 },
-  ));
-  const candidateSha256 = await Effect.runPromise(sha256(
-    encoded.canonicalBytes,
-    { maximumInputBytes: encoded.canonicalBytes.byteLength },
-  )) as TaskDefinitionSha256V1;
-  const publication = await Effect.runPromise(prepareTaskRuntimePublicationV1({
+  const catalogBinding = bindings.catalog.binding;
+  const publication = await Effect.runPromise(prepareTaskRuntimePublication({
     source,
     catalog,
     taskBindings: bindings,
     authority: {
-      candidateId: "candidate-store-test",
-      candidate,
-      candidateSha256,
-      applicationRevisionId: "revision-store-test",
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: (
+        new Uint8Array(32).fill(0x11) as TaskDefinitionSha256V1
+      ),
+      sourceArtifactRootSha256: (
+        new Uint8Array(32).fill(0x22) as TaskDefinitionSha256V1
+      ),
+      applicationTaskCatalogBindingSha256: bindings.catalog.sha256,
       authenticatedModules,
     },
     policy: {
@@ -481,53 +476,6 @@ async function makeGenuinePreparedObject(
   const object = publication.objects[0];
   if (object === undefined) throw new Error("Expected a prepared runtime object.");
   return object;
-}
-
-function makeStoreCandidate(): DeclarativeV2CandidateFrameV1 {
-  const digest = (byte: number) =>
-    new Uint8Array(32).fill(byte) as TaskDefinitionSha256V1;
-  return {
-    kind: "candidate",
-    projectId: "project-store-test",
-    deploymentId: "candidate-store-test",
-    deploymentCreatedAt: "2026-08-12T00:00:00.000Z",
-    scopeId: "scope-store-test",
-    storageGeneration: "flarexdb_v1",
-    storageGenerationFence: 1n,
-    scopeEpoch: "scope-epoch-store-test",
-    sourceRootSha256: digest(0x22),
-    sourceSelectorSha256: digest(2),
-    sourceCodecIdentity: "source-v2",
-    semanticRootSha256: digest(3),
-    semanticSelectorSha256: digest(4),
-    semanticModelIdentity: "declarative-v2",
-    semanticCodecIdentity: "ndjson-v1",
-    semanticPolicyIdentity: "semantic-policy-v1",
-    packageSha256: digest(5),
-    artifactSha256: digest(6),
-    artifactRuntimeIdentity: "runtime-v1",
-    schemaArtifactSha256: digest(7),
-    schemaBindingSha256: digest(8),
-    validatorRootSha256: digest(9),
-    coreLanguageIdentity: "core-v1",
-    abiIdentity: "abi-v1",
-    grammarIdentity: "grammar-v1",
-    unicodeIdentity: "unicode-14",
-    parserTableIdentity: "parser-v1",
-    analyzerIdentity: "analyzer-v2",
-    verifierIdentity: "verifier-v1",
-    declaredHandlerSetSha256: digest(10),
-    deploymentAnalysisCodecIdentity: "analysis-v1",
-    deploymentAnalysisByteLength: 20n,
-    deploymentAnalysisSha256: digest(11),
-    deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
-    deploymentCodegenAnalysisByteLength: 21n,
-    deploymentCodegenAnalysisSha256: digest(12),
-    runtimeProjectionSetSha256: digest(13),
-    functionGroupManifestSha256: digest(14),
-    readinessPolicyIdentity:
-      "flarex.readiness/runtime-projection-cold-materialization/v1",
-  };
 }
 
 class MemoryBucket implements TaskRuntimeObjectStoreBucket {

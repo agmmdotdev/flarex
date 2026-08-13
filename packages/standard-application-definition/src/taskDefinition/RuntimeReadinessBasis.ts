@@ -139,14 +139,11 @@ function decodeBasisJson<Operation extends "decode_readiness_basis">(
     return Result.fail(readinessInvalid(operation, "invalid_basis"));
   }
   const digestFields = [
+    "applicationPublicationSha256",
     "applicationRevisionTaskBindingSha256",
-    "artifactSha256",
-    "candidateSha256",
-    "packageSha256",
+    "applicationTaskCatalogBindingSha256",
     "publicationReceiptSha256",
-    "semanticRootSha256",
-    "sourceRootSha256",
-    "taskCatalogBindingSha256",
+    "sourceArtifactRootSha256",
     "taskCatalogSha256",
     "taskEntryRootSha256",
   ] as const;
@@ -187,6 +184,7 @@ function decodeBasisRecord<Operation extends
     outer === undefined || outer.version !== 1 ||
     (outer.kind !== "empty" && outer.kind !== "populated") ||
     !validIdentity(outer.scopeId) || !validIdentity(outer.candidateId) ||
+    !validIdentity(outer.analysisId) ||
     !validIdentity(outer.applicationRevisionId)
   ) return Result.fail(readinessInvalid(operation, "invalid_basis"));
   return Result.gen(function* () {
@@ -256,10 +254,14 @@ function decodeBasisRecord<Operation extends
       kind: outer.kind as "empty" | "populated",
       scopeId: outer.scopeId as string,
       candidateId: outer.candidateId as string,
+      analysisId: outer.analysisId as string,
       applicationRevisionId: outer.applicationRevisionId as string,
       publicationReceiptSha256: digests.get("publicationReceiptSha256")!,
-      candidateSha256: digests.get("candidateSha256")!,
-      taskCatalogBindingSha256: digests.get("taskCatalogBindingSha256")!,
+      applicationPublicationSha256:
+        digests.get("applicationPublicationSha256")!,
+      sourceArtifactRootSha256: digests.get("sourceArtifactRootSha256")!,
+      applicationTaskCatalogBindingSha256:
+        digests.get("applicationTaskCatalogBindingSha256")!,
       applicationRevisionTaskBindingSha256:
         digests.get("applicationRevisionTaskBindingSha256")!,
       taskCatalogSha256: digests.get("taskCatalogSha256")!,
@@ -268,10 +270,6 @@ function decodeBasisRecord<Operation extends
       taskRuntimeProjectionSha256: projection,
       taskRuntimeGroupManifestSha256: group,
       taskRuntimeMaterializationSpecSha256: materializationDigest,
-      packageSha256: digests.get("packageSha256")!,
-      artifactSha256: digests.get("artifactSha256")!,
-      sourceRootSha256: digests.get("sourceRootSha256")!,
-      semanticRootSha256: digests.get("semanticRootSha256")!,
       runtimeContractIdentity: policy.runtimeContractIdentity,
       bridgeAbiIdentity: policy.bridgeAbiIdentity,
       compatibilityDate: policy.compatibilityDate,
@@ -287,41 +285,36 @@ function decodeBasisRecord<Operation extends
 }
 
 const BASIS_DIGEST_KEYS = [
+  "applicationPublicationSha256",
   "applicationRevisionTaskBindingSha256",
-  "artifactSha256",
-  "candidateSha256",
-  "packageSha256",
+  "applicationTaskCatalogBindingSha256",
   "publicationReceiptSha256",
-  "semanticRootSha256",
-  "sourceRootSha256",
-  "taskCatalogBindingSha256",
+  "sourceArtifactRootSha256",
   "taskCatalogSha256",
   "taskEntryRootSha256",
 ] as const;
 
 const BASIS_KEYS = [
+  "analysisId",
+  "applicationPublicationSha256",
   "applicationRevisionId",
   "applicationRevisionTaskBindingSha256",
-  "artifactSha256",
+  "applicationTaskCatalogBindingSha256",
   "bridgeAbiIdentity",
   "candidateId",
-  "candidateSha256",
   "canonicalObjectByteLength",
   "compatibilityDate",
   "compatibilityFlags",
   "kind",
   "moduleEntryPolicyIdentity",
   "objectCount",
-  "packageSha256",
   "publicationReceiptSha256",
   "runtimeContractIdentity",
   "runtimeImplementationVersion",
   "runtimeProfileIdentity",
   "scopeId",
-  "semanticRootSha256",
-  "sourceRootSha256",
+  "sourceArtifactRootSha256",
   "supportedComputeProfiles",
-  "taskCatalogBindingSha256",
   "taskCatalogSha256",
   "taskCount",
   "taskEntryRootSha256",
@@ -362,29 +355,28 @@ function canonicalBasisBytes<Operation extends
 
 function basisJson(basis: TaskRuntimeReadinessBasisV1): Json {
   return {
+    analysisId: basis.analysisId,
+    applicationPublicationSha256: hex(basis.applicationPublicationSha256),
     applicationRevisionId: basis.applicationRevisionId,
     applicationRevisionTaskBindingSha256:
       hex(basis.applicationRevisionTaskBindingSha256),
-    artifactSha256: hex(basis.artifactSha256),
+    applicationTaskCatalogBindingSha256:
+      hex(basis.applicationTaskCatalogBindingSha256),
     bridgeAbiIdentity: basis.bridgeAbiIdentity,
     candidateId: basis.candidateId,
-    candidateSha256: hex(basis.candidateSha256),
     canonicalObjectByteLength: basis.canonicalObjectByteLength.toString(10),
     compatibilityDate: basis.compatibilityDate,
     compatibilityFlags: [...basis.compatibilityFlags],
     kind: basis.kind,
     moduleEntryPolicyIdentity: basis.moduleEntryPolicyIdentity,
     objectCount: basis.objectCount.toString(10),
-    packageSha256: hex(basis.packageSha256),
     publicationReceiptSha256: hex(basis.publicationReceiptSha256),
     runtimeContractIdentity: basis.runtimeContractIdentity,
     runtimeImplementationVersion: basis.runtimeImplementationVersion,
     runtimeProfileIdentity: basis.runtimeProfileIdentity,
     scopeId: basis.scopeId,
-    semanticRootSha256: hex(basis.semanticRootSha256),
-    sourceRootSha256: hex(basis.sourceRootSha256),
+    sourceArtifactRootSha256: hex(basis.sourceArtifactRootSha256),
     supportedComputeProfiles: [...basis.supportedComputeProfiles],
-    taskCatalogBindingSha256: hex(basis.taskCatalogBindingSha256),
     taskCatalogSha256: hex(basis.taskCatalogSha256),
     taskCount: basis.taskCount.toString(10),
     taskEntryRootSha256: hex(basis.taskEntryRootSha256),
@@ -403,8 +395,12 @@ export function copyTaskRuntimeReadinessBasisV1(basis: TaskRuntimeReadinessBasis
   return Object.freeze({
     ...basis,
     publicationReceiptSha256: copyDigest(basis.publicationReceiptSha256),
-    candidateSha256: copyDigest(basis.candidateSha256),
-    taskCatalogBindingSha256: copyDigest(basis.taskCatalogBindingSha256),
+    applicationPublicationSha256:
+      copyDigest(basis.applicationPublicationSha256),
+    sourceArtifactRootSha256:
+      copyDigest(basis.sourceArtifactRootSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(basis.applicationTaskCatalogBindingSha256),
     applicationRevisionTaskBindingSha256:
       copyDigest(basis.applicationRevisionTaskBindingSha256),
     taskCatalogSha256: copyDigest(basis.taskCatalogSha256),
@@ -415,10 +411,6 @@ export function copyTaskRuntimeReadinessBasisV1(basis: TaskRuntimeReadinessBasis
       copyNullableDigest(basis.taskRuntimeGroupManifestSha256),
     taskRuntimeMaterializationSpecSha256:
       copyNullableDigest(basis.taskRuntimeMaterializationSpecSha256),
-    packageSha256: copyDigest(basis.packageSha256),
-    artifactSha256: copyDigest(basis.artifactSha256),
-    sourceRootSha256: copyDigest(basis.sourceRootSha256),
-    semanticRootSha256: copyDigest(basis.semanticRootSha256),
     compatibilityFlags: Object.freeze([...basis.compatibilityFlags]),
     supportedComputeProfiles: Object.freeze([...basis.supportedComputeProfiles]),
   });

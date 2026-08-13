@@ -3,9 +3,9 @@ import type { TaskComputeProfileRefV1 } from
 import {
   hashCanonicalTaskCatalogV1,
   makeLiveStandardApplicationTaskSha256V1,
-  makeTaskRuntimePublicationReceiptAuthorityV1,
-  prepareTaskRuntimePublicationV1,
-  type PreparedTaskRuntimeObjectV1,
+  makeTaskRuntimePublicationReceiptAuthority,
+  prepareTaskRuntimePublication,
+  type PreparedTaskRuntimeObject,
   type StandardApplicationTaskSha256V1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeReadinessPreparationInput,
@@ -17,10 +17,6 @@ import { produceApplicationTaskBindingsV1 } from
 import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
 import { Brand, Effect, Result } from "effect";
-import {
-  encodeDeclarativeV2PhysicalFrameV1,
-  type DeclarativeV2CandidateFrameV1,
-} from "flarex-protocol/internal/declarative-v2-physical-v1";
 
 const UTF8 = new TextEncoder();
 const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("standard-1x");
@@ -30,7 +26,7 @@ const digest = (byte: number) =>
 export interface TaskRuntimeReadinessFixture {
   readonly sha256: StandardApplicationTaskSha256V1;
   readonly preparationInput: TaskRuntimeReadinessPreparationInput;
-  readonly objects: ReadonlyArray<PreparedTaskRuntimeObjectV1>;
+  readonly objects: ReadonlyArray<PreparedTaskRuntimeObject>;
 }
 
 export async function makeTaskRuntimeReadinessFixture(
@@ -133,24 +129,19 @@ export async function makeTaskRuntimeReadinessFixture(
     moduleEntryPolicyIdentity:
       "flarex.task-runtime/module-entry/exact-artifact-path/v1" as const,
   });
-  const candidate = makeCandidate();
-  const encodedCandidate = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
-    candidate,
-    { maximumFrameBytes: 1_024 * 1_024, maximumCanonicalBytes: 1_024 * 1_024 },
-  ));
-  const candidateSha256 = await Effect.runPromise(sha256(
-    encodedCandidate.canonicalBytes,
-    { maximumInputBytes: encodedCandidate.canonicalBytes.byteLength },
-  )) as TaskDefinitionSha256V1;
-  const publication = await Effect.runPromise(prepareTaskRuntimePublicationV1({
+  const catalogBinding = taskBindings.catalog.binding;
+  const publication = await Effect.runPromise(prepareTaskRuntimePublication({
     source,
     catalog,
     taskBindings,
     authority: {
-      candidateId: "candidate-orders",
-      candidate,
-      candidateSha256,
-      applicationRevisionId: "revision-orders-v2",
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: digest(0x11),
+      sourceArtifactRootSha256: digest(0x22),
+      applicationTaskCatalogBindingSha256: taskBindings.catalog.sha256,
       authenticatedModules,
     },
     policy: {
@@ -162,7 +153,7 @@ export async function makeTaskRuntimeReadinessFixture(
       admittedComputeProfiles: materialization.supportedComputeProfiles,
     },
   }, sha256));
-  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthorityV1(sha256);
+  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(sha256);
   const receipt = await Effect.runPromise(receiptAuthority.prepareReceipt(
     publication,
     publication.objects.map(object => Result.getOrThrow(
@@ -177,65 +168,18 @@ export async function makeTaskRuntimeReadinessFixture(
       receiptCanonicalBytes: receipt.readCanonicalBytes(),
       receiptSha256: receipt.readSha256(),
       expected: Object.freeze({
-        scopeId: candidate.scopeId,
-        candidateId: "candidate-orders",
-        applicationRevisionId: "revision-orders-v2",
-        candidateSha256,
-        taskCatalogBindingSha256: taskBindings.catalog.sha256,
+        scopeId: catalogBinding.scopeId,
+        candidateId: catalogBinding.candidateId,
+        analysisId: catalogBinding.analysisId,
+        applicationRevisionId: catalogBinding.revisionId,
+        applicationPublicationSha256: digest(0x11),
+        sourceArtifactRootSha256: digest(0x22),
+        applicationTaskCatalogBindingSha256: taskBindings.catalog.sha256,
         taskCatalog: catalog,
-        packageSha256: candidate.packageSha256,
-        artifactSha256: candidate.artifactSha256,
-        sourceRootSha256: candidate.sourceRootSha256,
-        semanticRootSha256: candidate.semanticRootSha256,
         materializationPolicy: materialization,
       }),
     }),
   });
-}
-
-function makeCandidate(): DeclarativeV2CandidateFrameV1 {
-  return {
-    kind: "candidate",
-    projectId: "project-orders",
-    deploymentId: "candidate-orders",
-    deploymentCreatedAt: "2026-08-12T00:00:00.000Z",
-    scopeId: "scope-orders",
-    storageGeneration: "flarexdb_v1",
-    storageGenerationFence: 1n,
-    scopeEpoch: "scope-epoch-orders",
-    sourceRootSha256: digest(0x22),
-    sourceSelectorSha256: digest(2),
-    sourceCodecIdentity: "source-v2",
-    semanticRootSha256: digest(3),
-    semanticSelectorSha256: digest(4),
-    semanticModelIdentity: "declarative-v2",
-    semanticCodecIdentity: "ndjson-v1",
-    semanticPolicyIdentity: "semantic-policy-v1",
-    packageSha256: digest(5),
-    artifactSha256: digest(6),
-    artifactRuntimeIdentity: "runtime-v1",
-    schemaArtifactSha256: digest(7),
-    schemaBindingSha256: digest(8),
-    validatorRootSha256: digest(9),
-    coreLanguageIdentity: "core-v1",
-    abiIdentity: "abi-v1",
-    grammarIdentity: "grammar-v1",
-    unicodeIdentity: "unicode-14",
-    parserTableIdentity: "parser-v1",
-    analyzerIdentity: "analyzer-v2",
-    verifierIdentity: "verifier-v1",
-    declaredHandlerSetSha256: digest(10),
-    deploymentAnalysisCodecIdentity: "analysis-v1",
-    deploymentAnalysisByteLength: 20n,
-    deploymentAnalysisSha256: digest(11),
-    deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
-    deploymentCodegenAnalysisByteLength: 21n,
-    deploymentCodegenAnalysisSha256: digest(12),
-    runtimeProjectionSetSha256: digest(13),
-    functionGroupManifestSha256: digest(14),
-    readinessPolicyIdentity:
-      "flarex.readiness/runtime-projection-cold-materialization/v1",
-  };
 }
 
 function taskManifest() {

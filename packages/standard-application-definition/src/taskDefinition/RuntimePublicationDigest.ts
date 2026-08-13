@@ -22,9 +22,9 @@ import {
   encodeTaskRuntimeProjectionPreimageV1,
 } from "./RuntimePublicationCanonical.js";
 import {
-  InvalidTaskRuntimePublicationV1Error,
-  type TaskRuntimePublicationOperationV1,
-  type TaskRuntimePublicationReasonV1,
+  InvalidTaskRuntimePublicationError,
+  type TaskRuntimePublicationOperation,
+  type TaskRuntimePublicationReason,
 } from "./RuntimePublicationErrors.js";
 import {
   decodeTaskRuntimeEntryFramesForRootV1,
@@ -36,11 +36,11 @@ import {
 import type { StandardApplicationTaskSha256V1 } from "./Sha256.js";
 import type { StandardApplicationTaskSha256V1Error } from "./Errors.js";
 
-export type TaskRuntimePublicationDigestV1Error<
-  Operation extends TaskRuntimePublicationOperationV1 =
-    TaskRuntimePublicationOperationV1,
+export type TaskRuntimePublicationDigestError<
+  Operation extends TaskRuntimePublicationOperation =
+    TaskRuntimePublicationOperation,
 > =
-  | InvalidTaskRuntimePublicationV1Error<Operation>
+  | InvalidTaskRuntimePublicationError<Operation>
   | StandardApplicationTaskSha256V1Error;
 
 export interface HashedTaskRuntimeProjectionModulesV1 {
@@ -63,7 +63,7 @@ export const hashTaskRuntimeProjectionModuleFrameV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   TaskDefinitionSha256V1,
-  TaskRuntimePublicationDigestV1Error<"hash_projection_module">
+  TaskRuntimePublicationDigestError<"hash_projection_module">
 > {
   const bytes = yield* Effect.fromResult(
     encodeTaskRuntimeProjectionModulePreimageV1(input).pipe(
@@ -83,7 +83,7 @@ export const hashTaskRuntimeProjectionFrameV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   TaskDefinitionSha256V1,
-  TaskRuntimePublicationDigestV1Error<"hash_projection">
+  TaskRuntimePublicationDigestError<"hash_projection">
 > {
   const bytes = yield* Effect.fromResult(
     encodeTaskRuntimeProjectionPreimageV1(input).pipe(
@@ -100,7 +100,7 @@ export const hashTaskRuntimeGroupManifestFrameV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   TaskDefinitionSha256V1,
-  TaskRuntimePublicationDigestV1Error<"hash_group_manifest">
+  TaskRuntimePublicationDigestError<"hash_group_manifest">
 > {
   const frame = yield* Effect.fromResult(
     decodeTaskRuntimeGroupManifestFrameV1(input).pipe(
@@ -122,7 +122,7 @@ export const hashTaskRuntimeMaterializationSpecV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   TaskDefinitionSha256V1,
-  TaskRuntimePublicationDigestV1Error<"hash_materialization_spec">
+  TaskRuntimePublicationDigestError<"hash_materialization_spec">
 > {
   const spec = yield* Effect.fromResult(
     decodeTaskRuntimeMaterializationSpecV1(input).pipe(
@@ -150,7 +150,7 @@ export const hashTaskRuntimeProjectionModuleRootV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   HashedTaskRuntimeProjectionModulesV1,
-  TaskRuntimePublicationDigestV1Error<
+  TaskRuntimePublicationDigestError<
     "hash_module_root" | "hash_projection_module"
   >
 > {
@@ -208,7 +208,7 @@ export const verifyTaskRuntimeProjectionV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   VerifiedTaskRuntimeProjectionV1,
-  TaskRuntimePublicationDigestV1Error<
+  TaskRuntimePublicationDigestError<
     "hash_projection" | "hash_module_root" | "hash_projection_module"
   >
 > {
@@ -255,7 +255,7 @@ export const hashTaskRuntimeEntryRootV1 = Effect.fn(
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   TaskDefinitionSha256V1,
-  TaskRuntimePublicationDigestV1Error<"hash_entry_root">
+  TaskRuntimePublicationDigestError<"hash_entry_root">
 > {
   const entries = yield* Effect.fromResult(
     decodeTaskRuntimeEntryFramesForRootV1(input).pipe(
@@ -295,11 +295,11 @@ function digest(
   }).pipe(Effect.map((value) => copyBytes(value) as TaskDefinitionSha256V1));
 }
 
-function reoperation<Operation extends TaskRuntimePublicationOperationV1>(
-  failure: InvalidTaskRuntimePublicationV1Error,
+function reoperation<Operation extends TaskRuntimePublicationOperation>(
+  failure: InvalidTaskRuntimePublicationError,
   operation: Operation,
-): InvalidTaskRuntimePublicationV1Error<Operation> {
-  return new InvalidTaskRuntimePublicationV1Error({
+): InvalidTaskRuntimePublicationError<Operation> {
+  return new InvalidTaskRuntimePublicationError({
     operation,
     reason: failure.reason,
     ...(failure.path === undefined ? {} : { path: failure.path }),
@@ -308,14 +308,14 @@ function reoperation<Operation extends TaskRuntimePublicationOperationV1>(
   });
 }
 
-function invalid<Operation extends TaskRuntimePublicationOperationV1>(
+function invalid<Operation extends TaskRuntimePublicationOperation>(
   operation: Operation,
-  reason: TaskRuntimePublicationReasonV1,
+  reason: TaskRuntimePublicationReason,
   path?: string,
   observed?: number,
   maximum?: number,
-): InvalidTaskRuntimePublicationV1Error<Operation> {
-  return new InvalidTaskRuntimePublicationV1Error({
+): InvalidTaskRuntimePublicationError<Operation> {
+  return new InvalidTaskRuntimePublicationError({
     operation,
     reason,
     ...(path === undefined ? {} : { path }),

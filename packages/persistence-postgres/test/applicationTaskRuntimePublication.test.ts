@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { StorageGenerationFenceSchema } from "flarex-protocol/storage-authority";
 import {
   makeLiveStandardApplicationTaskSha256V1,
-  makeTaskRuntimePublicationReceiptAuthorityV1,
+  makeTaskRuntimePublicationReceiptAuthority,
 } from
   "@flarex/standard-application-definition/internal/task-definition-v1";
 
@@ -172,9 +172,36 @@ describe("Application task-runtime publication", () => {
     expect(await counts(fixture.persistence)).toEqual({ headers: "0", objects: "0" });
   });
 
+  it("rejects a receipt when the authenticated Application publication changed", async () => {
+    const fixture = await makeTaskRuntimePublicationFixture();
+    await fixture.persistence.query(`
+      alter table fx_system_application_task_catalog_v1
+      drop constraint fx_application_task_catalog_v1_publication_fk
+    `);
+    await fixture.persistence.query(`
+      update fx_system_application_task_catalog_v1
+      set publication_sha256 = decode(repeat('ee', 32), 'hex')
+      where scope_id = '${fixture.authority.scopeId}'
+    `);
+    const outcome = await runEffect(Effect.result(
+      makeApplicationTaskRuntimePublicationRepository(
+        fixture.db,
+        fixture.receiptAuthority,
+      ).publish({
+        authority: fixture.authority,
+        publication: fixture.publication,
+      }),
+    ));
+    expect(Result.isFailure(outcome)).toBe(true);
+    if (Result.isFailure(outcome)) {
+      expect(outcome.failure.reason).toBe("taskCatalogMismatch");
+    }
+    expect(await counts(fixture.persistence)).toEqual({ headers: "0", objects: "0" });
+  });
+
   it("rejects a receipt prepared by a different composition authority", async () => {
     const fixture = await makeTaskRuntimePublicationFixture();
-    const foreign = makeTaskRuntimePublicationReceiptAuthorityV1(
+    const foreign = makeTaskRuntimePublicationReceiptAuthority(
       makeLiveStandardApplicationTaskSha256V1(),
     );
     const outcome = await runEffect(Effect.result(

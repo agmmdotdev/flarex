@@ -3,16 +3,16 @@ import { canonicalizeApplicationManifestV1 } from
 import {
   hashCanonicalTaskCatalogV1,
   makeStandardApplicationTaskSha256V1,
-  makeTaskRuntimePublicationReceiptAuthorityV1,
-  prepareTaskRuntimePublicationV1,
+  makeTaskRuntimePublicationReceiptAuthority,
+  prepareTaskRuntimePublication,
   TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1,
   TASK_RUNTIME_CONTRACT_IDENTITY_V1,
   TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
   TASK_RUNTIME_PROFILE_IDENTITY_V1,
   type TaskDefinitionSha256V1,
   type HashedCanonicalTaskCatalogV1,
-  type PreparedTaskRuntimePublicationReceiptV1,
-  type TaskRuntimePublicationReceiptAuthorityV1,
+  type PreparedTaskRuntimePublicationReceipt,
+  type TaskRuntimePublicationReceiptAuthority,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import {
   produceApplicationTaskBindingsV1,
@@ -26,11 +26,7 @@ import { produceStandardApplicationSource } from
   "@flarex/standard-application-definition/application-source";
 import type { TaskComputeProfileRefV1 } from
   "@flarex/durable-task/internal/run-attempt-v1";
-import { Brand, Effect, Result } from "effect";
-import {
-  encodeDeclarativeV2PhysicalFrameV1,
-  type DeclarativeV2CandidateFrameV1,
-} from "flarex-protocol/internal/declarative-v2-physical-v1";
+import { Brand, Effect, Encoding, Result } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
@@ -73,21 +69,21 @@ const sha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
 const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("standard-1x");
-const competingPublications = new WeakMap<object, PreparedTaskRuntimePublicationReceiptV1>();
+const competingPublications = new WeakMap<object, PreparedTaskRuntimePublicationReceipt>();
 
 export interface TaskRuntimePublicationFixture {
   readonly db: FlarexMetadataDatabase;
   readonly persistence: Awaited<ReturnType<typeof createPGlitePersistence>>;
   readonly authority: ApplicationAnalysisAuthority;
-  readonly publication: PreparedTaskRuntimePublicationReceiptV1;
-  readonly receiptAuthority: TaskRuntimePublicationReceiptAuthorityV1;
+  readonly publication: PreparedTaskRuntimePublicationReceipt;
+  readonly receiptAuthority: TaskRuntimePublicationReceiptAuthority;
 }
 
 export interface TaskRuntimePublicationDatabaseFixture {
   readonly db: FlarexMetadataDatabase;
   readonly authority: ApplicationAnalysisAuthority;
-  readonly publication: PreparedTaskRuntimePublicationReceiptV1;
-  readonly receiptAuthority: TaskRuntimePublicationReceiptAuthorityV1;
+  readonly publication: PreparedTaskRuntimePublicationReceipt;
+  readonly receiptAuthority: TaskRuntimePublicationReceiptAuthority;
 }
 
 export async function makeTaskRuntimePublicationFixture(empty = false): Promise<TaskRuntimePublicationFixture> {
@@ -169,7 +165,7 @@ export async function makeTaskRuntimePublicationFixtureOnDatabase(
     authority: TASK_RUNTIME_PUBLICATION_AUTHORITY,
     bindings,
   }));
-  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthorityV1(sha256);
+  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(sha256);
   const publication = await prepareConfirmedPublication(
     definition,
     catalog,
@@ -200,8 +196,8 @@ export async function makeTaskRuntimePublicationFixtureOnDatabase(
 }
 
 export function makeCompetingTaskRuntimePublication(
-  publication: PreparedTaskRuntimePublicationReceiptV1,
-): Promise<PreparedTaskRuntimePublicationReceiptV1> {
+  publication: PreparedTaskRuntimePublicationReceipt,
+): Promise<PreparedTaskRuntimePublicationReceipt> {
   const competing = competingPublications.get(publication);
   return competing === undefined
     ? Promise.reject(new Error("Missing competing publication fixture."))
@@ -220,8 +216,8 @@ async function prepareConfirmedPublication(
   revisionId: string,
   empty: boolean,
   semanticByte: number,
-  receiptAuthority: TaskRuntimePublicationReceiptAuthorityV1,
-): Promise<PreparedTaskRuntimePublicationReceiptV1> {
+  receiptAuthority: TaskRuntimePublicationReceiptAuthority,
+): Promise<PreparedTaskRuntimePublicationReceipt> {
   const source = Result.getOrThrow(produceStandardApplicationSource(definition));
   const authenticatedModules = await Promise.all(source.modules.map(
     async (module, ordinal) => ({
@@ -241,28 +237,29 @@ async function prepareConfirmedPublication(
     compatibilityDate: "2026-08-12",
     compatibilityFlags: Object.freeze(["nodejs_compat"]),
     runtimeProfileIdentity: TASK_RUNTIME_PROFILE_IDENTITY_V1,
-    runtimeImplementationVersion: "worker-loader-2026.08.12",
+    runtimeImplementationVersion: `worker-loader-2026.08.12-${semanticByte}`,
     supportedComputeProfiles: Object.freeze([computeProfile]),
     moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
   });
-  const candidate = makeCandidate(candidateId, semanticByte);
-  const encodedCandidate = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
-    candidate,
-    { maximumFrameBytes: 1_024 * 1_024, maximumCanonicalBytes: 1_024 * 1_024 },
-  ));
-  const candidateSha256 = await runEffect(sha256(
-    encodedCandidate.canonicalBytes,
-    { maximumInputBytes: encodedCandidate.canonicalBytes.byteLength },
-  )) as TaskDefinitionSha256V1;
-  const plan = await runEffect(prepareTaskRuntimePublicationV1({
+  const catalogBinding = bindings.catalog.binding;
+  const plan = await runEffect(prepareTaskRuntimePublication({
     source,
     catalog,
     taskBindings: bindings,
     authority: {
+      scopeId: catalogBinding.scopeId,
       candidateId,
-      candidate,
-      candidateSha256,
+      analysisId: catalogBinding.analysisId,
       applicationRevisionId: revisionId,
+      applicationPublicationSha256: Result.getOrThrow(
+        Encoding.decodeHex(catalogBinding.publicationSha256),
+      ) as TaskDefinitionSha256V1,
+      sourceArtifactRootSha256: (
+        Result.getOrThrow(
+          Encoding.decodeHex(catalogBinding.sourceArtifactRootSha256),
+        ) as TaskDefinitionSha256V1
+      ),
+      applicationTaskCatalogBindingSha256: bindings.catalog.sha256,
       authenticatedModules,
     },
     policy: {
@@ -284,55 +281,6 @@ async function prepareConfirmedPublication(
     plan,
     confirmations,
   ));
-}
-
-function makeCandidate(
-  candidateId: string,
-  semanticByte: number,
-): DeclarativeV2CandidateFrameV1 {
-  return {
-    kind: "candidate",
-    projectId: "project-task-runtime-publication",
-    deploymentId: candidateId,
-    deploymentCreatedAt: "2026-08-12T00:00:00.000Z",
-    scopeId: TASK_RUNTIME_PUBLICATION_AUTHORITY.scopeId,
-    storageGeneration: TASK_RUNTIME_PUBLICATION_AUTHORITY.storageGeneration,
-    storageGenerationFence:
-      TASK_RUNTIME_PUBLICATION_AUTHORITY.storageGenerationFence,
-    scopeEpoch: TASK_RUNTIME_PUBLICATION_AUTHORITY.epoch,
-    sourceRootSha256: digest(0xaa),
-    sourceSelectorSha256: digest(2),
-    sourceCodecIdentity: "source-v2",
-    semanticRootSha256: digest(semanticByte),
-    semanticSelectorSha256: digest(4),
-    semanticModelIdentity: "declarative-v2",
-    semanticCodecIdentity: "ndjson-v1",
-    semanticPolicyIdentity: "semantic-policy-v1",
-    packageSha256: digest(5),
-    artifactSha256: digest(6),
-    artifactRuntimeIdentity: "runtime-v1",
-    schemaArtifactSha256: digest(7),
-    schemaBindingSha256: digest(8),
-    validatorRootSha256: digest(9),
-    coreLanguageIdentity: "core-v1",
-    abiIdentity: "abi-v1",
-    grammarIdentity: "grammar-v1",
-    unicodeIdentity: "unicode-14",
-    parserTableIdentity: "parser-v1",
-    analyzerIdentity: "analyzer-v2",
-    verifierIdentity: "verifier-v1",
-    declaredHandlerSetSha256: digest(10),
-    deploymentAnalysisCodecIdentity: "analysis-v1",
-    deploymentAnalysisByteLength: 20n,
-    deploymentAnalysisSha256: digest(11),
-    deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
-    deploymentCodegenAnalysisByteLength: 21n,
-    deploymentCodegenAnalysisSha256: digest(12),
-    runtimeProjectionSetSha256: digest(13),
-    functionGroupManifestSha256: digest(14),
-    readinessPolicyIdentity:
-      "flarex.readiness/runtime-projection-cold-materialization/v1",
-  };
 }
 
 function taskManifest() {

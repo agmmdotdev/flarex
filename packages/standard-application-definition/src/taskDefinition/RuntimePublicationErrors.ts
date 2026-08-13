@@ -1,7 +1,7 @@
 import { Data } from "effect";
 import type { CanonicalJsonEncodingInvariantIssue } from "flarex-protocol/json";
 
-export type TaskRuntimePublicationOperationV1 =
+export type TaskRuntimePublicationOperation =
   | "prepare_publication"
   | "decode_projection_module"
   | "decode_projection_modules"
@@ -31,7 +31,7 @@ export type TaskRuntimePublicationOperationV1 =
   | "decode_publication_receipt"
   | "prepare_publication_receipt";
 
-export type TaskRuntimePublicationReasonV1 =
+export type TaskRuntimePublicationReason =
   | "invalid_preparation_input"
   | "authenticated_evidence_mismatch"
   | "task_binding_mismatch"
@@ -66,19 +66,19 @@ export type TaskRuntimePublicationReasonV1 =
   | "missing_runtime_object"
   | "receipt_digest_mismatch";
 
-export class InvalidTaskRuntimePublicationV1Error<
-  Operation extends TaskRuntimePublicationOperationV1 =
-    TaskRuntimePublicationOperationV1,
-> extends Data.TaggedError("InvalidTaskRuntimePublicationV1Error")<{
+export class InvalidTaskRuntimePublicationError<
+  Operation extends TaskRuntimePublicationOperation =
+    TaskRuntimePublicationOperation,
+> extends Data.TaggedError("InvalidTaskRuntimePublicationError")<{
   readonly operation: Operation;
-  readonly reason: TaskRuntimePublicationReasonV1;
+  readonly reason: TaskRuntimePublicationReason;
   readonly path?: string;
   readonly observed?: number;
   readonly maximum?: number;
 }> {}
 
-export class TaskRuntimePublicationCanonicalEncodingV1Defect
-  extends Data.TaggedError("TaskRuntimePublicationCanonicalEncodingV1Defect")<{
-    readonly operation: TaskRuntimePublicationOperationV1;
+export class TaskRuntimePublicationCanonicalEncodingDefect
+  extends Data.TaggedError("TaskRuntimePublicationCanonicalEncodingDefect")<{
+    readonly operation: TaskRuntimePublicationOperation;
     readonly issue: CanonicalJsonEncodingInvariantIssue;
   }> {}

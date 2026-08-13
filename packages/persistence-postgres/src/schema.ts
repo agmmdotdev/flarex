@@ -4974,6 +4974,9 @@ export const fxSystemApplicationTaskCatalogsV1 = pgTable(
       table.scopeId,
       table.revisionId,
       table.candidateId,
+      table.analysisId,
+      table.publicationSha256,
+      table.sourceArtifactRootSha256,
       table.taskCatalogSha256,
       table.taskCatalogBindingSha256,
     ),
@@ -5076,9 +5079,13 @@ export const fxSystemApplicationTaskRuntimePublicationsV1 = pgTable(
     scopeId: text("scope_id").$type<ScopeId>().notNull(),
     revisionId: text("revision_id").notNull(),
     candidateId: text("candidate_id").notNull(),
+    analysisId: text("analysis_id").notNull(),
+    applicationPublicationSha256:
+      bytea("application_publication_sha256").notNull(),
+    sourceArtifactRootSha256: bytea("source_artifact_root_sha256").notNull(),
     taskCatalogSha256: bytea("task_catalog_sha256").notNull(),
-    taskCatalogBindingSha256: bytea("task_catalog_binding_sha256").notNull(),
-    candidateSha256: bytea("candidate_sha256").notNull(),
+    applicationTaskCatalogBindingSha256:
+      bytea("application_task_catalog_binding_sha256").notNull(),
     applicationRevisionTaskBindingSha256:
       bytea("application_revision_task_binding_sha256").notNull(),
     taskEntryRootSha256: bytea("task_entry_root_sha256").notNull(),
@@ -5087,10 +5094,6 @@ export const fxSystemApplicationTaskRuntimePublicationsV1 = pgTable(
       bytea("task_runtime_group_manifest_sha256"),
     taskRuntimeMaterializationSpecSha256:
       bytea("task_runtime_materialization_spec_sha256"),
-    packageSha256: bytea("package_sha256").notNull(),
-    artifactSha256: bytea("artifact_sha256").notNull(),
-    sourceRootSha256: bytea("source_root_sha256").notNull(),
-    semanticRootSha256: bytea("semantic_root_sha256").notNull(),
     objectCount: integer("object_count").notNull(),
     receiptSha256: bytea("receipt_sha256").notNull(),
     receiptBytes: bytea("receipt_bytes").notNull(),
@@ -5115,13 +5118,19 @@ export const fxSystemApplicationTaskRuntimePublicationsV1 = pgTable(
         table.scopeId,
         table.revisionId,
         table.candidateId,
+        table.analysisId,
+        table.applicationPublicationSha256,
+        table.sourceArtifactRootSha256,
         table.taskCatalogSha256,
-        table.taskCatalogBindingSha256,
+        table.applicationTaskCatalogBindingSha256,
       ],
       foreignColumns: [
         fxSystemApplicationTaskCatalogsV1.scopeId,
         fxSystemApplicationTaskCatalogsV1.revisionId,
         fxSystemApplicationTaskCatalogsV1.candidateId,
+        fxSystemApplicationTaskCatalogsV1.analysisId,
+        fxSystemApplicationTaskCatalogsV1.publicationSha256,
+        fxSystemApplicationTaskCatalogsV1.sourceArtifactRootSha256,
         fxSystemApplicationTaskCatalogsV1.taskCatalogSha256,
         fxSystemApplicationTaskCatalogsV1.taskCatalogBindingSha256,
       ],
@@ -5130,15 +5139,13 @@ export const fxSystemApplicationTaskRuntimePublicationsV1 = pgTable(
       "fx_application_task_runtime_pub_v1_identity_check",
       sql`octet_length(convert_to(${table.revisionId}, 'UTF8')) between 1 and 256
         and octet_length(convert_to(${table.candidateId}, 'UTF8')) between 1 and 256
+        and octet_length(convert_to(${table.analysisId}, 'UTF8')) between 1 and 256
+        and octet_length(${table.applicationPublicationSha256}) = 32
+        and octet_length(${table.sourceArtifactRootSha256}) = 32
         and octet_length(${table.taskCatalogSha256}) = 32
-        and octet_length(${table.taskCatalogBindingSha256}) = 32
-        and octet_length(${table.candidateSha256}) = 32
+        and octet_length(${table.applicationTaskCatalogBindingSha256}) = 32
         and octet_length(${table.applicationRevisionTaskBindingSha256}) = 32
         and octet_length(${table.taskEntryRootSha256}) = 32
-        and octet_length(${table.packageSha256}) = 32
-        and octet_length(${table.artifactSha256}) = 32
-        and octet_length(${table.sourceRootSha256}) = 32
-        and octet_length(${table.semanticRootSha256}) = 32
         and octet_length(${table.receiptSha256}) = 32
         and octet_length(${table.receiptBytes}) between 1 and ${sql.raw(String(MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1))}`,
     ),

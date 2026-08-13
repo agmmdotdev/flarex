@@ -2,7 +2,7 @@ import {
   makeLiveStandardApplicationTaskSha256V1,
   taskRuntimeObjectKeyV1,
   TASK_RUNTIME_OBJECT_STORE_V1,
-  type PreparedTaskRuntimeObjectV1,
+  type PreparedTaskRuntimeObject,
   type TaskDefinitionSha256V1,
   type TaskRuntimeObjectReferenceV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -46,7 +46,7 @@ describe("TaskRuntimeObjectStore with Miniflare R2", () => {
       byteLength: BigInt(bytes.byteLength),
       sha256: copyBytes(digest) as TaskDefinitionSha256V1,
     });
-    const object: PreparedTaskRuntimeObjectV1 = Object.freeze({
+    const object: PreparedTaskRuntimeObject = Object.freeze({
       role: reference.role,
       codecIdentity: "flarex.standard-application/task-runtime-projection/v1",
       ordinal: 0n,

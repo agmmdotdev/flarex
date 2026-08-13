@@ -13,9 +13,9 @@ import {
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 
 import {
-  InvalidTaskRuntimePublicationV1Error,
-  type TaskRuntimePublicationOperationV1,
-  type TaskRuntimePublicationReasonV1,
+  InvalidTaskRuntimePublicationError,
+  type TaskRuntimePublicationOperation,
+  type TaskRuntimePublicationReason,
 } from "./RuntimePublicationErrors.js";
 import {
   MAX_TASK_CATALOG_ENTRIES_V1,
@@ -55,7 +55,7 @@ export function decodeTaskRuntimeProjectionModuleFrameV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeProjectionModuleFrameV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_projection_module">
+  InvalidTaskRuntimePublicationError<"decode_projection_module">
 > {
   return decodeProjectionModule(input, "decode_projection_module");
 }
@@ -64,7 +64,7 @@ export function decodeTaskRuntimeProjectionModuleFramesV1(
   input: unknown,
 ): Result.Result<
   ReadonlyArray<TaskRuntimeProjectionModuleFrameV1>,
-  InvalidTaskRuntimePublicationV1Error<"decode_projection_modules">
+  InvalidTaskRuntimePublicationError<"decode_projection_modules">
 > {
   const operation = "decode_projection_modules" as const;
   const values = captureDenseArray(input, MAX_TASK_RUNTIME_MODULES_V1);
@@ -115,7 +115,7 @@ export function decodeTaskRuntimeEntryFramesForRootV1(
   input: unknown,
 ): Result.Result<
   ReadonlyArray<TaskRuntimeEntryFrameV1>,
-  InvalidTaskRuntimePublicationV1Error<"decode_entry_root">
+  InvalidTaskRuntimePublicationError<"decode_entry_root">
 > {
   const operation = "decode_entry_root" as const;
   const values = captureDenseArray(input, MAX_TASK_CATALOG_ENTRIES_V1);
@@ -161,7 +161,7 @@ export function decodeTaskRuntimeProjectionFrameV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeProjectionFrameV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_projection">
+  InvalidTaskRuntimePublicationError<"decode_projection">
 > {
   const operation = "decode_projection" as const;
   const outer = captureExactDataRecord(input, [
@@ -221,7 +221,7 @@ export function decodeTaskRuntimeGroupManifestFrameV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeGroupManifestFrameV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_group_manifest">
+  InvalidTaskRuntimePublicationError<"decode_group_manifest">
 > {
   const operation = "decode_group_manifest" as const;
   const outer = captureExactDataRecord(input, [
@@ -279,7 +279,7 @@ export function decodeTaskRuntimeMaterializationSpecV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeMaterializationSpecV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_materialization_spec">
+  InvalidTaskRuntimePublicationError<"decode_materialization_spec">
 > {
   const operation = "decode_materialization_spec" as const;
   const outer = captureExactDataRecord(input, [
@@ -353,7 +353,7 @@ function decodeProjectionModule<
   prefix = "",
 ): Result.Result<
   TaskRuntimeProjectionModuleFrameV1,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   const outer = captureExactDataRecord(input, [
     "kind",
@@ -437,13 +437,13 @@ function decodeProjectionModule<
   });
 }
 
-function captureSourceBytes<Operation extends TaskRuntimePublicationOperationV1>(
+function captureSourceBytes<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   operation: Operation,
   path: string,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   const byteLength = uint8ArrayByteLength(input);
   if (
@@ -475,7 +475,7 @@ function decodeComputeProfiles(
   operation: "decode_materialization_spec",
 ): Result.Result<
   ReadonlyArray<TaskComputeProfileRefV1>,
-  InvalidTaskRuntimePublicationV1Error<"decode_materialization_spec">
+  InvalidTaskRuntimePublicationError<"decode_materialization_spec">
 > {
   const values = captureDenseArray(input, MAX_TASK_RUNTIME_COMPUTE_PROFILES_V1);
   if (values === undefined || values.length === 0) {
@@ -528,16 +528,16 @@ function decodeComputeProfiles(
   });
 }
 
-function decodeOrderedTextSet<Operation extends TaskRuntimePublicationOperationV1>(
+function decodeOrderedTextSet<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   maximum: number,
   operation: Operation,
-  reason: TaskRuntimePublicationReasonV1,
+  reason: TaskRuntimePublicationReason,
   path: string,
   rejectControls: boolean,
 ): Result.Result<
   ReadonlyArray<string>,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   const values = captureDenseArray(input, maximum);
   if (values === undefined) {
@@ -565,12 +565,12 @@ function decodeOrderedTextSet<Operation extends TaskRuntimePublicationOperationV
   });
 }
 
-function decodeModulePath<Operation extends TaskRuntimePublicationOperationV1>(
+function decodeModulePath<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   operation: Operation,
   path: string,
   rejectReserved: boolean,
-): Result.Result<string, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<string, InvalidTaskRuntimePublicationError<Operation>> {
   return decodeBoundedText(
     input,
     operation,
@@ -594,14 +594,14 @@ function decodeModulePath<Operation extends TaskRuntimePublicationOperationV1>(
   }));
 }
 
-function decodeBoundedText<Operation extends TaskRuntimePublicationOperationV1>(
+function decodeBoundedText<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   operation: Operation,
-  reason: TaskRuntimePublicationReasonV1,
+  reason: TaskRuntimePublicationReason,
   path: string,
   maximumBytes: number,
   rejectControls: boolean,
-): Result.Result<string, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<string, InvalidTaskRuntimePublicationError<Operation>> {
   return typeof input === "string" && input.length > 0 &&
       validScalarText(input) && UTF8.encode(input).byteLength <= maximumBytes &&
       input.trimStart() === input && input.trimEnd() === input &&
@@ -610,27 +610,27 @@ function decodeBoundedText<Operation extends TaskRuntimePublicationOperationV1>(
     : Result.fail(invalid(operation, reason, path));
 }
 
-function decodeBoundedBigInt<Operation extends TaskRuntimePublicationOperationV1>(
+function decodeBoundedBigInt<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   minimum: bigint,
   maximum: bigint,
   operation: Operation,
-  reason: TaskRuntimePublicationReasonV1,
+  reason: TaskRuntimePublicationReason,
   path: string,
-): Result.Result<bigint, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<bigint, InvalidTaskRuntimePublicationError<Operation>> {
   return typeof input === "bigint" && input >= minimum && input <= maximum &&
       input <= POSTGRES_SIGNED_BIGINT_MAX
     ? Result.succeed(input)
     : Result.fail(invalid(operation, reason, path));
 }
 
-function decodeDigest<Operation extends TaskRuntimePublicationOperationV1>(
+function decodeDigest<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   operation: Operation,
   path: string,
 ): Result.Result<
   TaskDefinitionSha256V1,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   if (!isUint8ArrayWithByteLength(input, 32)) {
     return Result.fail(invalid(operation, "invalid_digest", path));
@@ -740,14 +740,14 @@ function captureDenseArray(
   }
 }
 
-function invalid<Operation extends TaskRuntimePublicationOperationV1>(
+function invalid<Operation extends TaskRuntimePublicationOperation>(
   operation: Operation,
-  reason: TaskRuntimePublicationReasonV1,
+  reason: TaskRuntimePublicationReason,
   path?: string,
   observed?: number,
   maximum?: number,
-): InvalidTaskRuntimePublicationV1Error<Operation> {
-  return new InvalidTaskRuntimePublicationV1Error({
+): InvalidTaskRuntimePublicationError<Operation> {
+  return new InvalidTaskRuntimePublicationError({
     operation,
     reason,
     ...(path === undefined ? {} : { path }),

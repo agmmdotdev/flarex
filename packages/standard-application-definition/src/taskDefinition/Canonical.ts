@@ -21,7 +21,7 @@ import {
   type StandardApplicationTaskDefinitionOperationV1,
 } from "./Errors.js";
 import {
-  APPLICATION_REVISION_TASK_BINDING_CODEC_V1,
+  APPLICATION_REVISION_TASK_BINDING_CODEC,
   CANONICAL_TASK_CATALOG_CODEC_V1,
   CANONICAL_TASK_MANIFEST_CODEC_V1,
   MAX_TASK_CATALOG_ENTRIES_V1,
@@ -38,7 +38,7 @@ import {
   type TaskRuntimeObjectReferenceV1,
 } from "./Model.js";
 import {
-  decodeApplicationRevisionTaskBindingFrameV1,
+  decodeApplicationRevisionTaskBinding,
   decodeCanonicalTaskManifestV1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
   decodeTaskDefinitionRuntimeBindingV1,
@@ -214,17 +214,18 @@ export function decodeTaskRuntimeEntryPreimageV1(
   });
 }
 
-export function encodeApplicationRevisionTaskBindingPreimageV1(
+export function encodeApplicationRevisionTaskBinding(
   input: unknown,
 ): Result.Result<Uint8Array, InvalidStandardApplicationTaskDefinitionV1Error> {
-  return decodeApplicationRevisionTaskBindingFrameV1(input).pipe(
+  return decodeApplicationRevisionTaskBinding(input).pipe(
     Result.mapError((failure) => reoperation(
       failure,
       "encode_application_revision_task_binding",
     )),
     Result.flatMap((binding) => canonicalBytes({
       binding: {
-        candidateSha256: hex(binding.candidateSha256),
+        applicationTaskCatalogBindingSha256:
+          hex(binding.applicationTaskCatalogBindingSha256),
         kind: binding.kind,
         taskCatalogSha256: hex(binding.taskCatalogSha256),
         taskCount: binding.taskCount.toString(10),
@@ -236,7 +237,7 @@ export function encodeApplicationRevisionTaskBindingPreimageV1(
         taskRuntimeProjectionSha256:
           nullableHex(binding.taskRuntimeProjectionSha256),
       },
-      codec: APPLICATION_REVISION_TASK_BINDING_CODEC_V1,
+      codec: APPLICATION_REVISION_TASK_BINDING_CODEC,
     }, "encode_application_revision_task_binding")),
   );
 }

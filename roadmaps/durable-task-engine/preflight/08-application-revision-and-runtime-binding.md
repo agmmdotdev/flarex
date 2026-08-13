@@ -352,21 +352,20 @@ is a production-inert domain package.
 
 ### Binding Frame
 
-The existing function candidate remains valid evidence for the application
-source, semantic analysis, package, artifact, schema, and function catalog.
-Task evidence is attached to the same application revision through one
-canonical child binding, not through a second deployment head.
+Task evidence is attached to the authenticated Application task-catalog
+binding through one canonical child binding, not through a second deployment
+head or a displaced Declarative candidate digest.
 
 The binding frame is named:
 
-`ApplicationRevisionTaskBindingFrameV1`
+`ApplicationRevisionTaskBinding`
 
 Its semantic fields are:
 
 ```ts
-interface ApplicationRevisionTaskBindingFrameV1 {
+interface ApplicationRevisionTaskBinding {
   readonly kind: "application_revision_task_binding";
-  readonly candidateSha256: Uint8Array;
+  readonly applicationTaskCatalogBindingSha256: Uint8Array;
   readonly taskCatalogSha256: Uint8Array;
   readonly taskCount: bigint;
   readonly taskEntryRootSha256: Uint8Array;
@@ -383,9 +382,9 @@ The digest is:
 For a populated task catalog, all three nullable runtime fields must be
 present. For an explicitly empty task catalog, `taskCount` is zero, the entry
 root is the canonical empty root, and all three runtime fields are `null`.
-Mixed forms are invalid. A current application revision with no task-binding
-frame is legacy/non-task-capable, not equivalent to an empty task-capable
-revision.
+Mixed forms are invalid. A current Application revision with no task binding
+is non-task-capable, not equivalent to an explicitly empty task-capable
+revision. This absence state is not a second numbered runtime implementation.
 
 The binding digest must enter the application revision's canonical
 registration claim/root, readiness evidence, activation revision/head, and

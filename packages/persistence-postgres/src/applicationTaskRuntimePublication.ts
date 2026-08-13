@@ -1,10 +1,10 @@
 import {
-  decodeTaskRuntimePublicationReceiptPreimageV1,
-  hashTaskRuntimePublicationReceiptPreimageV1,
+  decodeTaskRuntimePublicationReceipt,
+  hashTaskRuntimePublicationReceipt,
   makeLiveStandardApplicationTaskSha256V1,
-  type PreparedTaskRuntimePublicationReceiptV1,
-  type TaskRuntimePublicationReceiptAuthorityV1,
-  type TaskRuntimePublicationReceiptPreimageV1,
+  type PreparedTaskRuntimePublicationReceipt,
+  type TaskRuntimePublicationReceiptAuthority,
+  type TaskRuntimePublicationReceipt,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import {
   bytesEqualFullScan,
@@ -30,7 +30,7 @@ import {
 
 export interface PublishApplicationTaskRuntimeInput {
   readonly authority: ApplicationAnalysisAuthority;
-  readonly publication: PreparedTaskRuntimePublicationReceiptV1;
+  readonly publication: PreparedTaskRuntimePublicationReceipt;
 }
 
 export interface ApplicationTaskRuntimePublicationResult {
@@ -41,7 +41,7 @@ export interface ApplicationTaskRuntimePublicationResult {
   readonly receiptSha256: string;
   readonly objectCount: number;
   readonly publishedAt: Date;
-  readonly readReceipt: () => TaskRuntimePublicationReceiptPreimageV1;
+  readonly readReceipt: () => TaskRuntimePublicationReceipt;
   readonly readCanonicalBytes: () => Uint8Array;
 }
 
@@ -73,7 +73,7 @@ export interface ApplicationTaskRuntimePublicationRepository {
 
 interface PreparedPublication {
   readonly authority: ApplicationAnalysisAuthority;
-  readonly receipt: TaskRuntimePublicationReceiptPreimageV1;
+  readonly receipt: TaskRuntimePublicationReceipt;
   readonly receiptBytes: Uint8Array;
   readonly receiptSha256: Uint8Array;
 }
@@ -83,7 +83,7 @@ const receiptSha256 = makeLiveStandardApplicationTaskSha256V1();
 export function makeApplicationTaskRuntimePublicationRepository(
   db: FlarexMetadataDatabase,
   receiptAuthority: Pick<
-    TaskRuntimePublicationReceiptAuthorityV1,
+    TaskRuntimePublicationReceiptAuthority,
     "captureReceipt"
   >,
 ): ApplicationTaskRuntimePublicationRepository {
@@ -104,7 +104,7 @@ const prepare = Effect.fn("ApplicationTaskRuntimePublication.prepare")(
   function* (
     input: PublishApplicationTaskRuntimeInput,
     receiptAuthority: Pick<
-      TaskRuntimePublicationReceiptAuthorityV1,
+      TaskRuntimePublicationReceiptAuthority,
       "captureReceipt"
     >,
   ): Effect.fn.Return<PreparedPublication, ApplicationTaskRuntimePublicationError> {
@@ -179,7 +179,7 @@ const publishInTransaction = Effect.fn(
       candidate.epoch !== prepared.authority.epoch ||
       !bytesEqualFullScan(
         candidate.sourceArtifactRootSha256,
-        prepared.receipt.sourceRootSha256,
+        prepared.receipt.sourceArtifactRootSha256,
       )) {
       return yield* failure("authorityChanged");
     }
@@ -212,10 +212,14 @@ const publishInTransaction = Effect.fn(
         scopeId: prepared.authority.scopeId,
         revisionId: prepared.receipt.applicationRevisionId,
         candidateId: prepared.receipt.candidateId,
+        analysisId: prepared.receipt.analysisId,
+        applicationPublicationSha256:
+          prepared.receipt.applicationPublicationSha256,
+        sourceArtifactRootSha256:
+          prepared.receipt.sourceArtifactRootSha256,
         taskCatalogSha256: prepared.receipt.taskCatalogSha256,
-        taskCatalogBindingSha256:
-          prepared.receipt.taskCatalogBindingSha256,
-        candidateSha256: prepared.receipt.candidateSha256,
+        applicationTaskCatalogBindingSha256:
+          prepared.receipt.applicationTaskCatalogBindingSha256,
         applicationRevisionTaskBindingSha256:
           prepared.receipt.applicationRevisionTaskBindingSha256,
         taskEntryRootSha256: prepared.receipt.taskEntryRootSha256,
@@ -225,10 +229,6 @@ const publishInTransaction = Effect.fn(
           prepared.receipt.taskRuntimeGroupManifestSha256,
         taskRuntimeMaterializationSpecSha256:
           prepared.receipt.taskRuntimeMaterializationSpecSha256,
-        packageSha256: prepared.receipt.packageSha256,
-        artifactSha256: prepared.receipt.artifactSha256,
-        sourceRootSha256: prepared.receipt.sourceRootSha256,
-        semanticRootSha256: prepared.receipt.semanticRootSha256,
         objectCount: prepared.receipt.runtimeObjects.length,
         receiptSha256: prepared.receiptSha256,
         receiptBytes: prepared.receiptBytes,
@@ -283,15 +283,15 @@ const loadExisting = Effect.fn(
   ApplicationTaskRuntimePublicationError
 > {
     const decoded = yield* Effect.fromResult(
-      decodeTaskRuntimePublicationReceiptPreimageV1(row.receiptBytes).pipe(
+      decodeTaskRuntimePublicationReceipt(row.receiptBytes).pipe(
         Result.mapError(cause => failureValue("storedState", false, cause)),
       ),
     );
-    const verifiedSha256 = yield* hashTaskRuntimePublicationReceiptPreimageV1(
+    const verifiedSha256 = yield* hashTaskRuntimePublicationReceipt(
       decoded,
       receiptSha256,
     ).pipe(
-      Effect.catchTag("InvalidTaskRuntimePublicationV1Error", cause =>
+      Effect.catchTag("InvalidTaskRuntimePublicationError", cause =>
         Effect.fail(failureValue("storedState", false, cause))
       ),
       Effect.catchTag("StandardApplicationTaskSha256InputV1Error", cause =>
@@ -326,12 +326,13 @@ const loadExisting = Effect.fn(
 function storedPublicationMatches(
   row: typeof fxSystemApplicationTaskRuntimePublicationsV1.$inferSelect,
   rows: ReadonlyArray<typeof fxSystemApplicationTaskRuntimeObjectsV1.$inferSelect>,
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
 ): boolean {
   if (
     row.scopeId !== receipt.scopeId ||
     row.revisionId !== receipt.applicationRevisionId ||
     row.candidateId !== receipt.candidateId ||
+    row.analysisId !== receipt.analysisId ||
     row.objectCount !== receipt.runtimeObjects.length ||
     !digestFieldsMatch(row, receipt) || rows.length !== receipt.runtimeObjects.length
   ) return false;
@@ -355,12 +356,15 @@ function storedPublicationMatches(
 
 function digestFieldsMatch(
   row: typeof fxSystemApplicationTaskRuntimePublicationsV1.$inferSelect,
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
 ): boolean {
   const pairs: ReadonlyArray<readonly [Uint8Array | null, Uint8Array | null]> = [
     [row.taskCatalogSha256, receipt.taskCatalogSha256],
-    [row.taskCatalogBindingSha256, receipt.taskCatalogBindingSha256],
-    [row.candidateSha256, receipt.candidateSha256],
+    [row.applicationTaskCatalogBindingSha256,
+      receipt.applicationTaskCatalogBindingSha256],
+    [row.applicationPublicationSha256,
+      receipt.applicationPublicationSha256],
+    [row.sourceArtifactRootSha256, receipt.sourceArtifactRootSha256],
     [row.applicationRevisionTaskBindingSha256,
       receipt.applicationRevisionTaskBindingSha256],
     [row.taskEntryRootSha256, receipt.taskEntryRootSha256],
@@ -369,10 +373,6 @@ function digestFieldsMatch(
       receipt.taskRuntimeGroupManifestSha256],
     [row.taskRuntimeMaterializationSpecSha256,
       receipt.taskRuntimeMaterializationSpecSha256],
-    [row.packageSha256, receipt.packageSha256],
-    [row.artifactSha256, receipt.artifactSha256],
-    [row.sourceRootSha256, receipt.sourceRootSha256],
-    [row.semanticRootSha256, receipt.semanticRootSha256],
   ];
   return pairs.every(([left, right]) => left === null || right === null
     ? left === right
@@ -381,18 +381,26 @@ function digestFieldsMatch(
 
 function catalogMatches(
   catalog: typeof fxSystemApplicationTaskCatalogsV1.$inferSelect,
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
 ): boolean {
   return catalog.revisionId === receipt.applicationRevisionId &&
     catalog.candidateId === receipt.candidateId &&
+    catalog.analysisId === receipt.analysisId &&
     catalog.taskCount === receipt.runtimeObjects.filter(
       item => item.reference.role === "task_runtime_entry",
     ).length &&
-    bytesEqualFullScan(catalog.sourceArtifactRootSha256, receipt.sourceRootSha256) &&
+    bytesEqualFullScan(
+      catalog.publicationSha256,
+      receipt.applicationPublicationSha256,
+    ) &&
+    bytesEqualFullScan(
+      catalog.sourceArtifactRootSha256,
+      receipt.sourceArtifactRootSha256,
+    ) &&
     bytesEqualFullScan(catalog.taskCatalogSha256, receipt.taskCatalogSha256) &&
     bytesEqualFullScan(
       catalog.taskCatalogBindingSha256,
-      receipt.taskCatalogBindingSha256,
+      receipt.applicationTaskCatalogBindingSha256,
     );
 }
 
@@ -414,8 +422,8 @@ function result(
   });
 }
 
-function decodeOwnedReceipt(bytes: Uint8Array): TaskRuntimePublicationReceiptPreimageV1 {
-  return Result.getOrThrow(decodeTaskRuntimePublicationReceiptPreimageV1(bytes));
+function decodeOwnedReceipt(bytes: Uint8Array): TaskRuntimePublicationReceipt {
+  return Result.getOrThrow(decodeTaskRuntimePublicationReceipt(bytes));
 }
 
 function captureAuthority(

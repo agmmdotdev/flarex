@@ -36,18 +36,16 @@ CREATE TABLE "fx_system_application_task_runtime_publication_v1" (
 	"scope_id" text NOT NULL,
 	"revision_id" text NOT NULL,
 	"candidate_id" text NOT NULL,
+	"analysis_id" text NOT NULL,
+	"application_publication_sha256" "bytea" NOT NULL,
+	"source_artifact_root_sha256" "bytea" NOT NULL,
 	"task_catalog_sha256" "bytea" NOT NULL,
-	"task_catalog_binding_sha256" "bytea" NOT NULL,
-	"candidate_sha256" "bytea" NOT NULL,
+	"application_task_catalog_binding_sha256" "bytea" NOT NULL,
 	"application_revision_task_binding_sha256" "bytea" NOT NULL,
 	"task_entry_root_sha256" "bytea" NOT NULL,
 	"task_runtime_projection_sha256" "bytea",
 	"task_runtime_group_manifest_sha256" "bytea",
 	"task_runtime_materialization_spec_sha256" "bytea",
-	"package_sha256" "bytea" NOT NULL,
-	"artifact_sha256" "bytea" NOT NULL,
-	"source_root_sha256" "bytea" NOT NULL,
-	"semantic_root_sha256" "bytea" NOT NULL,
 	"object_count" integer NOT NULL,
 	"receipt_sha256" "bytea" NOT NULL,
 	"receipt_bytes" "bytea" NOT NULL,
@@ -57,15 +55,13 @@ CREATE TABLE "fx_system_application_task_runtime_publication_v1" (
 	CONSTRAINT "fx_application_task_runtime_pub_v1_child_unique" UNIQUE("scope_id","revision_id","receipt_sha256"),
 	CONSTRAINT "fx_application_task_runtime_pub_v1_identity_check" CHECK (octet_length(convert_to("fx_system_application_task_runtime_publication_v1"."revision_id", 'UTF8')) between 1 and 256
         and octet_length(convert_to("fx_system_application_task_runtime_publication_v1"."candidate_id", 'UTF8')) between 1 and 256
+        and octet_length(convert_to("fx_system_application_task_runtime_publication_v1"."analysis_id", 'UTF8')) between 1 and 256
+        and octet_length("fx_system_application_task_runtime_publication_v1"."application_publication_sha256") = 32
+        and octet_length("fx_system_application_task_runtime_publication_v1"."source_artifact_root_sha256") = 32
         and octet_length("fx_system_application_task_runtime_publication_v1"."task_catalog_sha256") = 32
-        and octet_length("fx_system_application_task_runtime_publication_v1"."task_catalog_binding_sha256") = 32
-        and octet_length("fx_system_application_task_runtime_publication_v1"."candidate_sha256") = 32
+        and octet_length("fx_system_application_task_runtime_publication_v1"."application_task_catalog_binding_sha256") = 32
         and octet_length("fx_system_application_task_runtime_publication_v1"."application_revision_task_binding_sha256") = 32
         and octet_length("fx_system_application_task_runtime_publication_v1"."task_entry_root_sha256") = 32
-        and octet_length("fx_system_application_task_runtime_publication_v1"."package_sha256") = 32
-        and octet_length("fx_system_application_task_runtime_publication_v1"."artifact_sha256") = 32
-        and octet_length("fx_system_application_task_runtime_publication_v1"."source_root_sha256") = 32
-        and octet_length("fx_system_application_task_runtime_publication_v1"."semantic_root_sha256") = 32
         and octet_length("fx_system_application_task_runtime_publication_v1"."receipt_sha256") = 32
         and octet_length("fx_system_application_task_runtime_publication_v1"."receipt_bytes") between 1 and 8388608),
 	CONSTRAINT "fx_application_task_runtime_pub_v1_shape_check" CHECK ((
@@ -82,9 +78,9 @@ CREATE TABLE "fx_system_application_task_runtime_publication_v1" (
 	CONSTRAINT "fx_application_task_runtime_pub_v1_time_check" CHECK (isfinite("fx_system_application_task_runtime_publication_v1"."published_at"))
 );
 --> statement-breakpoint
-ALTER TABLE "fx_system_application_task_catalog_v1" ADD CONSTRAINT "fx_application_task_catalog_v1_runtime_fk_unique" UNIQUE("scope_id","revision_id","candidate_id","task_catalog_sha256","task_catalog_binding_sha256");--> statement-breakpoint
+ALTER TABLE "fx_system_application_task_catalog_v1" ADD CONSTRAINT "fx_application_task_catalog_v1_runtime_fk_unique" UNIQUE("scope_id","revision_id","candidate_id","analysis_id","publication_sha256","source_artifact_root_sha256","task_catalog_sha256","task_catalog_binding_sha256");--> statement-breakpoint
 ALTER TABLE "fx_system_application_task_runtime_object_v1" ADD CONSTRAINT "fx_application_task_runtime_obj_v1_publication_fk" FOREIGN KEY ("scope_id","revision_id","receipt_sha256") REFERENCES "fx_system_application_task_runtime_publication_v1"("scope_id","revision_id","receipt_sha256") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "fx_system_application_task_runtime_publication_v1" ADD CONSTRAINT "fx_application_task_runtime_pub_v1_catalog_fk" FOREIGN KEY ("scope_id","revision_id","candidate_id","task_catalog_sha256","task_catalog_binding_sha256") REFERENCES "fx_system_application_task_catalog_v1"("scope_id","revision_id","candidate_id","task_catalog_sha256","task_catalog_binding_sha256") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "fx_system_application_task_runtime_publication_v1" ADD CONSTRAINT "fx_application_task_runtime_pub_v1_catalog_fk" FOREIGN KEY ("scope_id","revision_id","candidate_id","analysis_id","application_publication_sha256","source_artifact_root_sha256","task_catalog_sha256","application_task_catalog_binding_sha256") REFERENCES "fx_system_application_task_catalog_v1"("scope_id","revision_id","candidate_id","analysis_id","publication_sha256","source_artifact_root_sha256","task_catalog_sha256","task_catalog_binding_sha256") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "fx_application_task_runtime_obj_v1_projection_unique" ON "fx_system_application_task_runtime_object_v1" USING btree ("scope_id","revision_id","role") WHERE "fx_system_application_task_runtime_object_v1"."role" = 'task_runtime_projection';--> statement-breakpoint
 CREATE UNIQUE INDEX "fx_application_task_runtime_obj_v1_manifest_unique" ON "fx_system_application_task_runtime_object_v1" USING btree ("scope_id","revision_id","role") WHERE "fx_system_application_task_runtime_object_v1"."role" = 'task_runtime_group_manifest';--> statement-breakpoint
 CREATE UNIQUE INDEX "fx_application_task_runtime_obj_v1_spec_unique" ON "fx_system_application_task_runtime_object_v1" USING btree ("scope_id","revision_id","role") WHERE "fx_system_application_task_runtime_object_v1"."role" = 'task_runtime_materialization_spec';

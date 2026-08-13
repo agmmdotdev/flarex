@@ -37,16 +37,16 @@ export const TASK_RUNTIME_MODULE_ROOT_CODEC_V1 =
   "flarex.standard-application/task-runtime-module-root/v1" as const;
 export const TASK_RUNTIME_ENTRY_ROOT_CODEC_V1 =
   "flarex.standard-application/task-runtime-entry-root/v1" as const;
-export const APPLICATION_REVISION_TASK_BINDING_CODEC_V1 =
-  "flarex.standard-application/application-revision-task-binding/v1" as const;
+export const APPLICATION_REVISION_TASK_BINDING_CODEC =
+  "flarex.standard-application/application-revision-task-binding" as const;
 export const TASK_DEFINITION_RUNTIME_BINDING_CODEC_V1 =
   "flarex.standard-application/task-definition-runtime-binding/v1" as const;
 export const TASK_RUN_CREATION_AUTHORITY_RECEIPT_CODEC_V1 =
   "flarex.standard-application/task-run-creation-authority/v1" as const;
 export const TASK_RUNTIME_OBJECT_STORE_V1 =
   "flarex.r2/standard-application-task-runtime/v1" as const;
-export const TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC_V1 =
-  "flarex.standard-application/task-runtime-publication-receipt/v1" as const;
+export const TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC =
+  "flarex.standard-application/task-runtime-publication-receipt" as const;
 
 export const MAX_TASK_ID_UTF8_BYTES_V1 = 255;
 export const MAX_TASK_CATALOG_ENTRIES_V1 = 4_096;
@@ -183,9 +183,9 @@ export interface TaskRuntimeMaterializationSpecV1 {
     typeof TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1;
 }
 
-export interface ApplicationRevisionTaskBindingFrameV1 {
+export interface ApplicationRevisionTaskBinding {
   readonly kind: "application_revision_task_binding";
-  readonly candidateSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskCatalogBindingSha256: TaskDefinitionSha256V1;
   readonly taskCatalogSha256: TaskDefinitionSha256V1;
   readonly taskCount: bigint;
   readonly taskEntryRootSha256: TaskDefinitionSha256V1;

@@ -2,9 +2,11 @@
 
 ## Status And Scope
 
-**Status:** Approved docs-first correction (`SAP-CAA1`). Correct the current
-private task-runtime semantics in place. Do not introduce a parallel V2 runtime
-contract. Implementation remains separately gated by the checkpoints below.
+**Status:** `SAP-CAA1-A/B` implemented locally as one private correction in
+place. No parallel V2 runtime, legacy reader, dual write, fallback, activation,
+or production composition was added. External deployment inventory remains a
+hard gate before applying this corrected migration to any persistent owned
+environment.
 
 This preflight resolves the candidate-authority blocker discovered by
 SAP-TRP5. It defines how Standard Application task-runtime publication and
@@ -57,8 +59,8 @@ markers when exact coexistence or decoding requires them.
 
 ## The Authority Defect Being Corrected
 
-The current `TaskRuntimePublicationReceiptV1` and
-`ApplicationRevisionTaskBindingFrameV1` bind a
+The displaced `TaskRuntimePublicationReceiptV1` and
+`ApplicationRevisionTaskBindingFrameV1` shapes bound a
 `DeclarativeV2CandidateFrameV1` digest plus package, artifact, source, and
 semantic digests.
 
@@ -207,11 +209,12 @@ The publication transaction:
 1. locks the current scope clock;
 2. locks and verifies the Application candidate's stored generation, fence,
    epoch, and Source Artifact root;
-3. locks the inactive Application revision and whole-Application publication;
-4. locks and canonically verifies the Application task catalog and binding;
-5. captures only a receipt issued by the configured Standard authority;
-6. compares every receipt parent field to the independently loaded rows; and
-7. inserts or exactly replays the header and ordered membership atomically.
+3. locks and canonically verifies the Application task catalog and binding,
+   whose existing restrictive foreign keys retain the inactive Application
+   revision and whole-Application publication parents;
+4. captures only a receipt issued by the configured Standard authority;
+5. compares every receipt parent field to the independently loaded rows; and
+6. inserts or exactly replays the header and ordered membership atomically.
 
 No R2 operation or readiness write occurs in this transaction.
 
@@ -287,7 +290,7 @@ row, trusting receipt self-consistency, or trying a parallel runtime version.
 
 ## Implementation Order
 
-Each checkpoint requires separate approval:
+The original implementation order was:
 
 1. `SAP-CAA1-A`: record the external consumer/deployment inventory, then correct
    the pure Standard Application binding, receipt, preparation, names, and
@@ -300,6 +303,52 @@ Each checkpoint requires separate approval:
    evidence are independently authenticated; and
 5. create a legacy-retention checkpoint only if concrete inventory evidence
    requires one.
+
+The approved correction implemented steps 1 and 2 together because the private
+persistence repository directly compiles against the corrected Standard
+Application receipt. Keeping only step 1 would have required a temporary alias
+or compatibility reader for an implementation with no retained consumer,
+which would contradict this preflight's no-parallel-path decision. Step 3 and
+all readiness/activation work remain unimplemented.
+
+## Local Implementation Receipt
+
+Completed on 2026-08-13:
+
+- replaced the current task-runtime publication and revision-binding names with
+  plain semantic names while retaining version markers on concrete object,
+  Task Definition, RPC, and persisted SQL compatibility contracts;
+- removed the Declarative candidate frame/digest plus package, artifact, and
+  semantic roots from publication preparation, binding, receipt, and readiness
+  evidence;
+- made the Application task-catalog binding, Application publication digest,
+  Source Artifact root, and scope/candidate/analysis/revision tuple the exact
+  parent authority;
+- corrected migration `0061_modern_avengers.sql`, its Drizzle snapshot, schema,
+  publication repository, and test fixtures in place; and
+- added exact negative coverage for every Application parent facet and for a
+  changed independently stored Application publication digest.
+
+Inventory evidence for this checkout:
+
+- no non-test production composition consumer was found;
+- no configured development, staging, production, or shared PostgreSQL URL was
+  present in the working shell;
+- local PGlite and a disposable PostgreSQL 18 instance prove the corrected
+  migration/repository, but do not claim that an unknown external environment
+  is empty; and
+- therefore deployment remains blocked until an owner supplies and audits each
+  actual persistent environment named by the deployment process.
+
+Validation receipt:
+
+- Standard Application typecheck and 69 tests passed;
+- backend typecheck and 17 focused object-store/readiness tests passed;
+- persistence typecheck passed;
+- PGlite publication plus full migration-chain tests passed;
+- genuine PostgreSQL 18 publication tests passed against a disposable local
+  instance; and
+- Trigger compatibility boundary check passed.
 
 ## Explicit Non-Goals
 

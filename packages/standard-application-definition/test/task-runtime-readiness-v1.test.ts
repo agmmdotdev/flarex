@@ -2,10 +2,6 @@ import type { TaskComputeProfileRefV1 } from
   "@flarex/durable-task/internal/run-attempt-v1";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Brand, Effect, Result } from "effect";
-import {
-  encodeDeclarativeV2PhysicalFrameV1,
-  type DeclarativeV2CandidateFrameV1,
-} from "flarex-protocol/internal/declarative-v2-physical-v1";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { produceStandardApplicationSource } from "../src/applicationSource";
@@ -14,15 +10,15 @@ import { produceApplicationTaskBindingsV1 } from
 import {
   completeTaskRuntimeReadinessVerification,
   decodeTaskRuntimeReadinessBasisPreimageV1,
-  decodeTaskRuntimePublicationReceiptPreimageV1,
+  decodeTaskRuntimePublicationReceipt,
   encodeTaskRuntimeReadinessBasisPreimageV1,
-  encodeTaskRuntimePublicationReceiptPreimageV1,
+  encodeTaskRuntimePublicationReceipt,
   hashCanonicalTaskCatalogV1,
   hashTaskRuntimeReadinessBasisV1,
   makeStandardApplicationTaskSha256V1,
-  makeTaskRuntimePublicationReceiptAuthorityV1,
+  makeTaskRuntimePublicationReceiptAuthority,
   prepareTaskRuntimeReadinessVerification,
-  prepareTaskRuntimePublicationV1,
+  prepareTaskRuntimePublication,
   taskRuntimeObjectKeyV1,
   verifyTaskRuntimeReadiness,
   type CompleteTaskRuntimeReadinessVerificationError,
@@ -31,7 +27,7 @@ import {
   type PrepareTaskRuntimeReadinessVerificationError,
   type TaskDefinitionSha256V1,
   type TaskRuntimeReadinessVerificationInput,
-  type TaskRuntimePublicationPreparationInputV1,
+  type TaskRuntimePublicationPreparationInput,
   type VerifyTaskRuntimeReadinessError,
 } from "../src/taskDefinition/v1";
 import { prepareStandardApplicationDefinitionV1 } from "../src/v1";
@@ -45,7 +41,7 @@ const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("standard-1x");
 const digest = (byte: number) =>
   new Uint8Array(32).fill(byte) as TaskDefinitionSha256V1;
 
-describe("task runtime readiness V1", () => {
+describe("task runtime readiness", () => {
   it("prepares owned receipt membership before bodies and completes the exact handle", async () => {
     const fixture = await readinessFixture();
     const preparationInput = {
@@ -117,7 +113,7 @@ describe("task runtime readiness V1", () => {
       {
         expected: {
           ...fixture.verificationInput.expected,
-          candidateSha256: digest(0xee),
+          applicationPublicationSha256: digest(0xee),
         },
         reason: "authoritative_evidence_mismatch",
       },
@@ -145,7 +141,7 @@ describe("task runtime readiness V1", () => {
     }
 
     const receipt = Result.getOrThrow(
-      decodeTaskRuntimePublicationReceiptPreimageV1(
+      decodeTaskRuntimePublicationReceipt(
         fixture.verificationInput.receiptCanonicalBytes,
       ),
     );
@@ -155,7 +151,7 @@ describe("task runtime readiness V1", () => {
     const taskEntry = receipt.runtimeObjects[taskEntryIndex]!;
     const additionalTaskEntrySha256 = digest(0xac);
     const cardinalityDriftBytes = Result.getOrThrow(
-      encodeTaskRuntimePublicationReceiptPreimageV1({
+      encodeTaskRuntimePublicationReceipt({
         ...receipt,
         runtimeObjects: [
           ...receipt.runtimeObjects.slice(0, taskEntryIndex + 1),
@@ -192,8 +188,11 @@ describe("task runtime readiness V1", () => {
 
   it("copies shared-backed expected digests before asynchronous preparation", async () => {
     const fixture = await readinessFixture();
-    const sharedCandidateSha256 = new Uint8Array(new SharedArrayBuffer(32));
-    sharedCandidateSha256.set(fixture.verificationInput.expected.candidateSha256);
+    const sharedApplicationPublicationSha256 =
+      new Uint8Array(new SharedArrayBuffer(32));
+    sharedApplicationPublicationSha256.set(
+      fixture.verificationInput.expected.applicationPublicationSha256,
+    );
     let started!: () => void;
     const startedPromise = new Promise<void>(resolve => { started = resolve; });
     let release!: () => void;
@@ -212,11 +211,12 @@ describe("task runtime readiness V1", () => {
       receiptSha256: fixture.verificationInput.receiptSha256,
       expected: {
         ...fixture.verificationInput.expected,
-        candidateSha256: sharedCandidateSha256 as TaskDefinitionSha256V1,
+        applicationPublicationSha256:
+          sharedApplicationPublicationSha256 as TaskDefinitionSha256V1,
       },
     }, gatedSha256));
     await startedPromise;
-    sharedCandidateSha256.fill(0);
+    sharedApplicationPublicationSha256.fill(0);
     release();
 
     const prepared = await pending;
@@ -259,11 +259,11 @@ describe("task runtime readiness V1", () => {
     expect(Object.isFrozen(basis)).toBe(true);
     expect(Object.isFrozen(basis.compatibilityFlags)).toBe(true);
 
-    basis.candidateSha256.fill(0);
+    basis.applicationPublicationSha256.fill(0);
     canonicalBytes.fill(0);
     const replayed = verified.readBasis();
-    expect(replayed.candidateSha256).toEqual(
-      fixture.verificationInput.expected.candidateSha256,
+    expect(replayed.applicationPublicationSha256).toEqual(
+      fixture.verificationInput.expected.applicationPublicationSha256,
     );
     expect(verified.readCanonicalBytes()[0]).not.toBe(0);
   });
@@ -400,7 +400,7 @@ describe("task runtime readiness V1", () => {
         ...fixture.verificationInput,
         expected: {
           ...fixture.verificationInput.expected,
-          candidateSha256: digest(0xdd),
+          applicationPublicationSha256: digest(0xdd),
         },
       }, "authoritative_evidence_mismatch"],
       [{
@@ -560,16 +560,16 @@ describe("task runtime readiness V1", () => {
 });
 
 interface ReadinessFixture {
-  readonly publicationInput: TaskRuntimePublicationPreparationInputV1;
+  readonly publicationInput: TaskRuntimePublicationPreparationInput;
   readonly verificationInput: TaskRuntimeReadinessVerificationInput;
 }
 
 async function readinessFixture(empty = false): Promise<ReadinessFixture> {
   const publicationInput = await makeInput(empty);
   const publication = await Effect.runPromise(
-    prepareTaskRuntimePublicationV1(publicationInput, sha256),
+    prepareTaskRuntimePublication(publicationInput, sha256),
   );
-  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthorityV1(sha256);
+  const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(sha256);
   const receipt = await Effect.runPromise(receiptAuthority.prepareReceipt(
     publication,
     publication.objects.map(object => Result.getOrThrow(
@@ -582,16 +582,17 @@ async function readinessFixture(empty = false): Promise<ReadinessFixture> {
       receiptCanonicalBytes: receipt.readCanonicalBytes(),
       receiptSha256: receipt.readSha256(),
       expected: {
-        scopeId: publicationInput.authority.candidate.scopeId,
+        scopeId: publicationInput.authority.scopeId,
         candidateId: publicationInput.authority.candidateId,
+        analysisId: publicationInput.authority.analysisId,
         applicationRevisionId: publicationInput.authority.applicationRevisionId,
-        candidateSha256: publicationInput.authority.candidateSha256,
-        taskCatalogBindingSha256: publicationInput.taskBindings.catalog.sha256,
+        applicationPublicationSha256:
+          publicationInput.authority.applicationPublicationSha256,
+        sourceArtifactRootSha256:
+          publicationInput.authority.sourceArtifactRootSha256,
+        applicationTaskCatalogBindingSha256:
+          publicationInput.authority.applicationTaskCatalogBindingSha256,
         taskCatalog: publicationInput.catalog,
-        packageSha256: publicationInput.authority.candidate.packageSha256,
-        artifactSha256: publicationInput.authority.candidate.artifactSha256,
-        sourceRootSha256: publicationInput.authority.candidate.sourceRootSha256,
-        semanticRootSha256: publicationInput.authority.candidate.semanticRootSha256,
         materializationPolicy: publicationInput.policy.materialization,
       },
       runtimeObjects: publication.objects.map(object => ({
@@ -622,7 +623,7 @@ async function replaceRuntimeObjectBody(
     byteLength: BigInt(canonicalBytes.byteLength),
     sha256: bodySha256,
   };
-  const receiptResult = decodeTaskRuntimePublicationReceiptPreimageV1(
+  const receiptResult = decodeTaskRuntimePublicationReceipt(
     fixture.verificationInput.receiptCanonicalBytes,
   );
   const receipt = Result.getOrThrow(receiptResult);
@@ -637,7 +638,7 @@ async function replaceRuntimeObjectBody(
       : {}),
   };
   const receiptCanonicalBytes = Result.getOrThrow(
-    encodeTaskRuntimePublicationReceiptPreimageV1(updatedReceipt),
+    encodeTaskRuntimePublicationReceipt(updatedReceipt),
   );
   const receiptSha256 = await Effect.runPromise(sha256(receiptCanonicalBytes, {
     maximumInputBytes: receiptCanonicalBytes.byteLength,
@@ -656,7 +657,7 @@ async function replaceRuntimeObjectBody(
 
 async function makeInput(
   empty = false,
-): Promise<TaskRuntimePublicationPreparationInputV1> {
+): Promise<TaskRuntimePublicationPreparationInput> {
   const definition = makeDefinition();
   const source = Result.getOrThrow(produceStandardApplicationSource(definition));
   const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
@@ -702,24 +703,19 @@ async function makeInput(
     moduleEntryPolicyIdentity:
       "flarex.task-runtime/module-entry/exact-artifact-path/v1" as const,
   });
-  const candidate = makeCandidate();
-  const encodedCandidate = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
-    candidate,
-    { maximumFrameBytes: 1_024 * 1_024, maximumCanonicalBytes: 1_024 * 1_024 },
-  ));
-  const candidateSha256 = await Effect.runPromise(sha256(
-    encodedCandidate.canonicalBytes,
-    { maximumInputBytes: encodedCandidate.canonicalBytes.byteLength },
-  )) as TaskDefinitionSha256V1;
+  const catalogBinding = taskBindings.catalog.binding;
   return {
     source,
     catalog,
     taskBindings,
     authority: {
-      candidateId: "candidate-orders",
-      candidate,
-      candidateSha256,
-      applicationRevisionId: "revision-orders-v2",
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: digest(0x11),
+      sourceArtifactRootSha256: digest(0x22),
+      applicationTaskCatalogBindingSha256: taskBindings.catalog.sha256,
       authenticatedModules,
     },
     policy: {
@@ -730,51 +726,6 @@ async function makeInput(
         materialization.runtimeImplementationVersion,
       admittedComputeProfiles: materialization.supportedComputeProfiles,
     },
-  };
-}
-
-function makeCandidate(): DeclarativeV2CandidateFrameV1 {
-  return {
-    kind: "candidate",
-    projectId: "project-orders",
-    deploymentId: "candidate-orders",
-    deploymentCreatedAt: "2026-08-12T00:00:00.000Z",
-    scopeId: "scope-orders",
-    storageGeneration: "flarexdb_v1",
-    storageGenerationFence: 1n,
-    scopeEpoch: "scope-epoch-orders",
-    sourceRootSha256: digest(0x22),
-    sourceSelectorSha256: digest(2),
-    sourceCodecIdentity: "source-v2",
-    semanticRootSha256: digest(3),
-    semanticSelectorSha256: digest(4),
-    semanticModelIdentity: "declarative-v2",
-    semanticCodecIdentity: "ndjson-v1",
-    semanticPolicyIdentity: "semantic-policy-v1",
-    packageSha256: digest(5),
-    artifactSha256: digest(6),
-    artifactRuntimeIdentity: "runtime-v1",
-    schemaArtifactSha256: digest(7),
-    schemaBindingSha256: digest(8),
-    validatorRootSha256: digest(9),
-    coreLanguageIdentity: "core-v1",
-    abiIdentity: "abi-v1",
-    grammarIdentity: "grammar-v1",
-    unicodeIdentity: "unicode-14",
-    parserTableIdentity: "parser-v1",
-    analyzerIdentity: "analyzer-v2",
-    verifierIdentity: "verifier-v1",
-    declaredHandlerSetSha256: digest(10),
-    deploymentAnalysisCodecIdentity: "analysis-v1",
-    deploymentAnalysisByteLength: 20n,
-    deploymentAnalysisSha256: digest(11),
-    deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
-    deploymentCodegenAnalysisByteLength: 21n,
-    deploymentCodegenAnalysisSha256: digest(12),
-    runtimeProjectionSetSha256: digest(13),
-    functionGroupManifestSha256: digest(14),
-    readinessPolicyIdentity:
-      "flarex.readiness/runtime-projection-cold-materialization/v1",
   };
 }
 

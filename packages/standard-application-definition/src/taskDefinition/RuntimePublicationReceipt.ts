@@ -25,28 +25,28 @@ import {
   TASK_RUNTIME_OBJECT_STORE_V1,
   TASK_RUNTIME_PROJECTION_CODEC_V1,
   TASK_RUNTIME_PROJECTION_MODULE_CODEC_V1,
-  TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC_V1,
+  TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC,
   taskRuntimeObjectKeyV1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
 } from "./Model.js";
 import {
-  InvalidTaskRuntimePublicationV1Error,
-  TaskRuntimePublicationCanonicalEncodingV1Defect,
+  InvalidTaskRuntimePublicationError,
+  TaskRuntimePublicationCanonicalEncodingDefect,
 } from "./RuntimePublicationErrors.js";
 import type {
   StandardApplicationTaskSha256V1,
 } from "./Sha256.js";
 import type {
-  TaskRuntimePublicationReceiptObjectPreimageV1,
-  TaskRuntimePublicationReceiptPreimageV1,
+  TaskRuntimePublicationReceiptObject,
+  TaskRuntimePublicationReceipt,
 } from "./RuntimePublicationPreparation.js";
 import {
-  capturePreparedTaskRuntimeObjectV1,
-  capturePreparedTaskRuntimePublicationV1,
-  type PreparedTaskRuntimeObjectV1,
-  type PreparedTaskRuntimePublicationV1,
+  capturePreparedTaskRuntimeObject,
+  capturePreparedTaskRuntimePublication,
+  type PreparedTaskRuntimeObject,
+  type PreparedTaskRuntimePublication,
 } from "./RuntimePublicationPreparation.js";
 
 const UTF8 = new TextEncoder();
@@ -61,63 +61,61 @@ const ROLE_ORDER = [
   "task_runtime_materialization_spec",
 ] as const satisfies ReadonlyArray<TaskRuntimeObjectRoleV1>;
 
-export interface PreparedTaskRuntimePublicationReceiptV1 {
-  readonly version: 1;
+export interface PreparedTaskRuntimePublicationReceipt {
   readonly canonicalByteLength: number;
-  readonly readReceipt: () => TaskRuntimePublicationReceiptPreimageV1;
+  readonly readReceipt: () => TaskRuntimePublicationReceipt;
   readonly readCanonicalBytes: () => Uint8Array;
   readonly readSha256: () => TaskDefinitionSha256V1;
 }
 
-export interface CapturedTaskRuntimePublicationReceiptV1 {
-  readonly receipt: TaskRuntimePublicationReceiptPreimageV1;
+export interface CapturedTaskRuntimePublicationReceipt {
+  readonly receipt: TaskRuntimePublicationReceipt;
   readonly canonicalBytes: Uint8Array;
   readonly sha256: TaskDefinitionSha256V1;
 }
 
-export interface PublishedTaskRuntimeObjectV1 {
-  readonly version: 1;
+export interface PublishedTaskRuntimeObject {
   readonly readReference: () => TaskRuntimeObjectReferenceV1;
 }
 
 interface PreparedReceiptState {
-  readonly receipt: TaskRuntimePublicationReceiptPreimageV1;
+  readonly receipt: TaskRuntimePublicationReceipt;
   readonly canonicalBytes: Uint8Array;
   readonly sha256: TaskDefinitionSha256V1;
 }
 
-export interface TaskRuntimePublicationReceiptAuthorityV1 {
+export interface TaskRuntimePublicationReceiptAuthority {
   readonly confirmPublishedObject: (
-    object: PreparedTaskRuntimeObjectV1,
+    object: PreparedTaskRuntimeObject,
     reference: unknown,
   ) => Result.Result<
-    PublishedTaskRuntimeObjectV1,
-    InvalidTaskRuntimePublicationV1Error<"prepare_publication_receipt">
+    PublishedTaskRuntimeObject,
+    InvalidTaskRuntimePublicationError<"prepare_publication_receipt">
   >;
   readonly prepareReceipt: (
-    publication: PreparedTaskRuntimePublicationV1,
-    confirmations: ReadonlyArray<PublishedTaskRuntimeObjectV1>,
+    publication: PreparedTaskRuntimePublication,
+    confirmations: ReadonlyArray<PublishedTaskRuntimeObject>,
   ) => Effect.Effect<
-    PreparedTaskRuntimePublicationReceiptV1,
-    PrepareTaskRuntimePublicationReceiptV1Error
+    PreparedTaskRuntimePublicationReceipt,
+    PrepareTaskRuntimePublicationReceiptError
   >;
   readonly captureReceipt: (
     input: unknown,
   ) => Result.Result<
-    CapturedTaskRuntimePublicationReceiptV1,
-    InvalidTaskRuntimePublicationV1Error<"prepare_publication_receipt">
+    CapturedTaskRuntimePublicationReceipt,
+    InvalidTaskRuntimePublicationError<"prepare_publication_receipt">
   >;
 }
 
-export type PrepareTaskRuntimePublicationReceiptV1Error =
-  | InvalidTaskRuntimePublicationV1Error<"prepare_publication_receipt">
+export type PrepareTaskRuntimePublicationReceiptError =
+  | InvalidTaskRuntimePublicationError<"prepare_publication_receipt">
   | StandardApplicationTaskSha256V1Error;
 
-export function encodeTaskRuntimePublicationReceiptPreimageV1(
+export function encodeTaskRuntimePublicationReceipt(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_publication_receipt">
+  InvalidTaskRuntimePublicationError<"encode_publication_receipt">
 > {
   return decodeReceiptValue(input, "encode_publication_receipt").pipe(
     Result.flatMap(receipt => canonicalReceiptBytes(
@@ -127,11 +125,11 @@ export function encodeTaskRuntimePublicationReceiptPreimageV1(
   );
 }
 
-export function decodeTaskRuntimePublicationReceiptPreimageV1(
+export function decodeTaskRuntimePublicationReceipt(
   input: unknown,
 ): Result.Result<
-  TaskRuntimePublicationReceiptPreimageV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_publication_receipt">
+  TaskRuntimePublicationReceipt,
+  InvalidTaskRuntimePublicationError<"decode_publication_receipt">
 > {
   const operation = "decode_publication_receipt" as const;
   return Result.gen(function* () {
@@ -151,7 +149,7 @@ export function decodeTaskRuntimePublicationReceiptPreimageV1(
     if (
       !isJsonObjectFromUnknown(parsed) ||
       !hasExactKeys(parsed, ["codec", "receipt"]) ||
-      parsed.codec !== TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC_V1
+      parsed.codec !== TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC
     ) return yield* Result.fail(invalid(operation, "invalid_receipt"));
     const receipt = yield* decodeReceiptJson(parsed.receipt, operation);
     const canonical = yield* canonicalReceiptBytes(receipt, operation);
@@ -162,19 +160,19 @@ export function decodeTaskRuntimePublicationReceiptPreimageV1(
   });
 }
 
-export function makeTaskRuntimePublicationReceiptAuthorityV1(
+export function makeTaskRuntimePublicationReceiptAuthority(
   sha256: StandardApplicationTaskSha256V1,
-): TaskRuntimePublicationReceiptAuthorityV1 {
+): TaskRuntimePublicationReceiptAuthority {
   const preparedReceiptStates = new WeakMap<object, PreparedReceiptState>();
   const publishedObjectStates = new WeakMap<object, Readonly<{
-    object: PreparedTaskRuntimeObjectV1;
+    object: PreparedTaskRuntimeObject;
     reference: TaskRuntimeObjectReferenceV1;
   }>>();
 
-  const confirmPublishedObject: TaskRuntimePublicationReceiptAuthorityV1[
+  const confirmPublishedObject: TaskRuntimePublicationReceiptAuthority[
     "confirmPublishedObject"
   ] = (object, referenceInput) => {
-    const captured = capturePreparedTaskRuntimeObjectV1(object);
+    const captured = capturePreparedTaskRuntimeObject(object);
     if (captured === undefined) {
       return Result.fail(invalid(
         "prepare_publication_receipt",
@@ -196,7 +194,6 @@ export function makeTaskRuntimePublicationReceiptAuthorityV1(
         ));
       }
       const confirmation = Object.freeze({
-        version: 1 as const,
         readReference: () => copyReference(reference),
       });
       publishedObjectStates.set(confirmation, Object.freeze({
@@ -207,11 +204,11 @@ export function makeTaskRuntimePublicationReceiptAuthorityV1(
     }));
   };
 
-  const prepareReceipt: TaskRuntimePublicationReceiptAuthorityV1[
+  const prepareReceipt: TaskRuntimePublicationReceiptAuthority[
     "prepareReceipt"
-  ] = Effect.fn("StandardApplicationTask.prepareRuntimePublicationReceiptV1")(
+  ] = Effect.fn("StandardApplicationTask.prepareRuntimePublicationReceipt")(
     function* (publicationInput, confirmationsInput) {
-      const publication = capturePreparedTaskRuntimePublicationV1(
+      const publication = capturePreparedTaskRuntimePublication(
         publicationInput,
       );
       if (publication === undefined || !confirmationsMatch(
@@ -219,7 +216,7 @@ export function makeTaskRuntimePublicationReceiptAuthorityV1(
         confirmationsInput,
         publishedObjectStates,
       )) {
-        return yield* new InvalidTaskRuntimePublicationV1Error({
+        return yield* new InvalidTaskRuntimePublicationError({
           operation: "prepare_publication_receipt",
           reason: "invalid_receipt",
           path: "publication",
@@ -227,7 +224,6 @@ export function makeTaskRuntimePublicationReceiptAuthorityV1(
       }
       const state = yield* prepareCanonicalReceipt(publication.receipt, sha256);
       const prepared = Object.freeze({
-        version: 1 as const,
         canonicalByteLength: state.canonicalBytes.byteLength,
         readReceipt: () => copyReceipt(state.receipt),
         readCanonicalBytes: () => copyBytes(state.canonicalBytes),
@@ -238,7 +234,7 @@ export function makeTaskRuntimePublicationReceiptAuthorityV1(
     },
   );
 
-  const captureReceipt: TaskRuntimePublicationReceiptAuthorityV1[
+  const captureReceipt: TaskRuntimePublicationReceiptAuthority[
     "captureReceipt"
   ] = input => {
     if (typeof input !== "object" || input === null) {
@@ -264,25 +260,25 @@ export function makeTaskRuntimePublicationReceiptAuthorityV1(
   });
 }
 
-export const hashTaskRuntimePublicationReceiptPreimageV1 = Effect.fn(
-  "StandardApplicationTask.hashRuntimePublicationReceiptPreimageV1",
+export const hashTaskRuntimePublicationReceipt = Effect.fn(
+  "StandardApplicationTask.hashRuntimePublicationReceipt",
 )(function* (
   input: unknown,
   sha256: StandardApplicationTaskSha256V1,
 ): Effect.fn.Return<
   TaskDefinitionSha256V1,
-  PrepareTaskRuntimePublicationReceiptV1Error
+  PrepareTaskRuntimePublicationReceiptError
 > {
   const state = yield* prepareCanonicalReceipt(input, sha256);
   return copyBytes(state.sha256) as TaskDefinitionSha256V1;
 });
 
 const prepareCanonicalReceipt = Effect.fn(
-  "StandardApplicationTask.prepareCanonicalRuntimePublicationReceiptV1",
+  "StandardApplicationTask.prepareCanonicalRuntimePublicationReceipt",
 )(function* (
   input: unknown,
   sha256: StandardApplicationTaskSha256V1,
-): Effect.fn.Return<PreparedReceiptState, PrepareTaskRuntimePublicationReceiptV1Error> {
+): Effect.fn.Return<PreparedReceiptState, PrepareTaskRuntimePublicationReceiptError> {
   const receipt = yield* Effect.fromResult(
     decodeReceiptValue(input, "prepare_publication_receipt"),
   );
@@ -311,8 +307,8 @@ function decodeReceiptValue<Operation extends
   input: unknown,
   operation: Operation,
 ): Result.Result<
-  TaskRuntimePublicationReceiptPreimageV1,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  TaskRuntimePublicationReceipt,
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   return Result.try({
     try: () => captureReceiptValue(input),
@@ -324,16 +320,15 @@ function decodeReceiptValue<Operation extends
 
 function captureReceiptValue(
   input: unknown,
-): TaskRuntimePublicationReceiptPreimageV1 | undefined {
+): TaskRuntimePublicationReceipt | undefined {
   const outer = exactDataRecord(input, [
-    "version", "scopeId", "candidateId", "applicationRevisionId",
-    "candidateSha256", "taskCatalogBindingSha256",
+    "scopeId", "candidateId", "analysisId", "applicationRevisionId",
+    "applicationPublicationSha256", "sourceArtifactRootSha256",
+    "applicationTaskCatalogBindingSha256",
     "applicationRevisionTaskBindingSha256", "taskCatalogSha256",
     "taskEntryRootSha256", "taskRuntimeProjectionSha256",
     "taskRuntimeGroupManifestSha256",
-    "taskRuntimeMaterializationSpecSha256", "packageSha256",
-    "artifactSha256", "sourceRootSha256", "semanticRootSha256",
-    "runtimeObjects",
+    "taskRuntimeMaterializationSpecSha256", "runtimeObjects",
   ]);
   if (outer === undefined || !Array.isArray(outer.runtimeObjects)) {
     return undefined;
@@ -343,7 +338,7 @@ function captureReceiptValue(
     MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1,
   );
   if (runtimeObjects === undefined) return undefined;
-  const objects: TaskRuntimePublicationReceiptObjectPreimageV1[] = [];
+  const objects: TaskRuntimePublicationReceiptObject[] = [];
   for (const inputObject of runtimeObjects) {
     const item = exactDataRecord(inputObject, [
       "ordinal", "codecIdentity", "reference",
@@ -367,12 +362,15 @@ function captureReceiptValue(
     });
   }
   return {
-    version: outer.version as 1,
     scopeId: outer.scopeId as string,
     candidateId: outer.candidateId as string,
+    analysisId: outer.analysisId as string,
     applicationRevisionId: outer.applicationRevisionId as string,
-    candidateSha256: copyDigest(outer.candidateSha256),
-    taskCatalogBindingSha256: copyDigest(outer.taskCatalogBindingSha256),
+    applicationPublicationSha256:
+      copyDigest(outer.applicationPublicationSha256),
+    sourceArtifactRootSha256: copyDigest(outer.sourceArtifactRootSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(outer.applicationTaskCatalogBindingSha256),
     applicationRevisionTaskBindingSha256:
       copyDigest(outer.applicationRevisionTaskBindingSha256),
     taskCatalogSha256: copyDigest(outer.taskCatalogSha256),
@@ -383,10 +381,6 @@ function captureReceiptValue(
       copyNullableDigest(outer.taskRuntimeGroupManifestSha256),
     taskRuntimeMaterializationSpecSha256:
       copyNullableDigest(outer.taskRuntimeMaterializationSpecSha256),
-    packageSha256: copyDigest(outer.packageSha256),
-    artifactSha256: copyDigest(outer.artifactSha256),
-    sourceRootSha256: copyDigest(outer.sourceRootSha256),
-    semanticRootSha256: copyDigest(outer.semanticRootSha256),
     runtimeObjects: objects,
   };
 }
@@ -395,19 +389,20 @@ function validateReceipt<Operation extends
   | "encode_publication_receipt"
   | "decode_publication_receipt"
   | "prepare_publication_receipt">(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   operation: Operation,
 ): Result.Result<
-  TaskRuntimePublicationReceiptPreimageV1,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  TaskRuntimePublicationReceipt,
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   if (
-    receipt.version !== 1 || !validIdentity(receipt.scopeId) ||
+    !validIdentity(receipt.scopeId) ||
     !validIdentity(receipt.candidateId) ||
+    !validIdentity(receipt.analysisId) ||
     !validIdentity(receipt.applicationRevisionId) ||
     !allDigestsValid(receipt)
   ) return Result.fail(invalid(operation, "invalid_receipt"));
-  const objects: TaskRuntimePublicationReceiptObjectPreimageV1[] = [];
+  const objects: TaskRuntimePublicationReceiptObject[] = [];
   const objectKeys = new Set<string>();
   const singletonRoles = new Set<TaskRuntimeObjectRoleV1>();
   const roleCounts = new Map<TaskRuntimeObjectRoleV1, number>();
@@ -483,19 +478,20 @@ function validateReceipt<Operation extends
 function decodeReceiptJson<Operation extends "decode_publication_receipt">(
   input: Json | undefined,
   operation: Operation,
-): Result.Result<TaskRuntimePublicationReceiptPreimageV1, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<TaskRuntimePublicationReceipt, InvalidTaskRuntimePublicationError<Operation>> {
   if (!isJsonObjectFromUnknown(input) || !hasExactKeys(input, [
-    "applicationRevisionId", "applicationRevisionTaskBindingSha256",
-    "artifactSha256", "candidateId", "candidateSha256", "packageSha256",
-    "runtimeObjects", "scopeId", "semanticRootSha256", "sourceRootSha256",
-    "taskCatalogBindingSha256", "taskCatalogSha256", "taskEntryRootSha256",
+    "analysisId", "applicationPublicationSha256", "applicationRevisionId",
+    "applicationRevisionTaskBindingSha256",
+    "applicationTaskCatalogBindingSha256", "candidateId", "runtimeObjects",
+    "scopeId", "sourceArtifactRootSha256", "taskCatalogSha256",
+    "taskEntryRootSha256",
     "taskRuntimeGroupManifestSha256", "taskRuntimeMaterializationSpecSha256",
-    "taskRuntimeProjectionSha256", "version",
+    "taskRuntimeProjectionSha256",
   ]) || !Array.isArray(input.runtimeObjects) ||
     input.runtimeObjects.length > MAX_TASK_RUNTIME_PUBLICATION_OBJECTS_V1) {
     return Result.fail(invalid(operation, "invalid_receipt"));
   }
-  const runtimeObjects: TaskRuntimePublicationReceiptObjectPreimageV1[] = [];
+  const runtimeObjects: TaskRuntimePublicationReceiptObject[] = [];
   for (const raw of input.runtimeObjects) {
     if (!isJsonObjectFromUnknown(raw) || !hasExactKeys(raw, ["codecIdentity", "ordinal", "reference"]) ||
       !isJsonObjectFromUnknown(raw.reference) || !hasExactKeys(raw.reference, ["byteLength", "objectKey", "role", "sha256", "storeIdentity"])) {
@@ -520,10 +516,10 @@ function decodeReceiptJson<Operation extends "decode_publication_receipt">(
     });
   }
   const digestFields = [
-    "candidateSha256", "taskCatalogBindingSha256",
+    "applicationPublicationSha256", "sourceArtifactRootSha256",
+    "applicationTaskCatalogBindingSha256",
     "applicationRevisionTaskBindingSha256", "taskCatalogSha256",
-    "taskEntryRootSha256", "packageSha256", "artifactSha256",
-    "sourceRootSha256", "semanticRootSha256",
+    "taskEntryRootSha256",
   ] as const;
   const digests = new Map<string, TaskDefinitionSha256V1>();
   for (const field of digestFields) {
@@ -540,22 +536,21 @@ function decodeReceiptJson<Operation extends "decode_publication_receipt">(
     return Result.fail(invalid(operation, "invalid_digest"));
   }
   return validateReceipt({
-    version: input.version as 1,
     scopeId: input.scopeId as string,
     candidateId: input.candidateId as string,
+    analysisId: input.analysisId as string,
     applicationRevisionId: input.applicationRevisionId as string,
-    candidateSha256: digests.get("candidateSha256")!,
-    taskCatalogBindingSha256: digests.get("taskCatalogBindingSha256")!,
+    applicationPublicationSha256:
+      digests.get("applicationPublicationSha256")!,
+    sourceArtifactRootSha256: digests.get("sourceArtifactRootSha256")!,
+    applicationTaskCatalogBindingSha256:
+      digests.get("applicationTaskCatalogBindingSha256")!,
     applicationRevisionTaskBindingSha256: digests.get("applicationRevisionTaskBindingSha256")!,
     taskCatalogSha256: digests.get("taskCatalogSha256")!,
     taskEntryRootSha256: digests.get("taskEntryRootSha256")!,
     taskRuntimeProjectionSha256: projection,
     taskRuntimeGroupManifestSha256: group,
     taskRuntimeMaterializationSpecSha256: materialization,
-    packageSha256: digests.get("packageSha256")!,
-    artifactSha256: digests.get("artifactSha256")!,
-    sourceRootSha256: digests.get("sourceRootSha256")!,
-    semanticRootSha256: digests.get("semanticRootSha256")!,
     runtimeObjects,
   }, operation);
 }
@@ -564,28 +559,30 @@ function canonicalReceiptBytes<Operation extends
   | "encode_publication_receipt"
   | "decode_publication_receipt"
   | "prepare_publication_receipt">(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   operation: Operation,
-): Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<Uint8Array, InvalidTaskRuntimePublicationError<Operation>> {
   const bytes = UTF8.encode(encodeCanonicalJson({
-    codec: TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC_V1,
+    codec: TASK_RUNTIME_PUBLICATION_RECEIPT_CODEC,
     receipt: receiptJson(receipt),
   }, issue => {
-    throw new TaskRuntimePublicationCanonicalEncodingV1Defect({ operation, issue });
+    throw new TaskRuntimePublicationCanonicalEncodingDefect({ operation, issue });
   }));
   return bytes.byteLength <= MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1
     ? Result.succeed(bytes)
     : Result.fail(invalid(operation, "canonical_bytes_exceeded", undefined, bytes.byteLength, MAX_TASK_RUNTIME_PUBLICATION_RECEIPT_CANONICAL_BYTES_V1));
 }
 
-function receiptJson(receipt: TaskRuntimePublicationReceiptPreimageV1): Json {
+function receiptJson(receipt: TaskRuntimePublicationReceipt): Json {
   return {
+    analysisId: receipt.analysisId,
+    applicationPublicationSha256:
+      hex(receipt.applicationPublicationSha256),
     applicationRevisionId: receipt.applicationRevisionId,
     applicationRevisionTaskBindingSha256: hex(receipt.applicationRevisionTaskBindingSha256),
-    artifactSha256: hex(receipt.artifactSha256),
+    applicationTaskCatalogBindingSha256:
+      hex(receipt.applicationTaskCatalogBindingSha256),
     candidateId: receipt.candidateId,
-    candidateSha256: hex(receipt.candidateSha256),
-    packageSha256: hex(receipt.packageSha256),
     runtimeObjects: receipt.runtimeObjects.map(item => ({
       codecIdentity: item.codecIdentity,
       ordinal: item.ordinal.toString(10),
@@ -598,42 +595,39 @@ function receiptJson(receipt: TaskRuntimePublicationReceiptPreimageV1): Json {
       },
     })),
     scopeId: receipt.scopeId,
-    semanticRootSha256: hex(receipt.semanticRootSha256),
-    sourceRootSha256: hex(receipt.sourceRootSha256),
-    taskCatalogBindingSha256: hex(receipt.taskCatalogBindingSha256),
+    sourceArtifactRootSha256: hex(receipt.sourceArtifactRootSha256),
     taskCatalogSha256: hex(receipt.taskCatalogSha256),
     taskEntryRootSha256: hex(receipt.taskEntryRootSha256),
     taskRuntimeGroupManifestSha256: nullableHex(receipt.taskRuntimeGroupManifestSha256),
     taskRuntimeMaterializationSpecSha256: nullableHex(receipt.taskRuntimeMaterializationSpecSha256),
     taskRuntimeProjectionSha256: nullableHex(receipt.taskRuntimeProjectionSha256),
-    version: 1,
   };
 }
 
-function freezeReceipt(receipt: TaskRuntimePublicationReceiptPreimageV1, objects: ReadonlyArray<TaskRuntimePublicationReceiptObjectPreimageV1>): TaskRuntimePublicationReceiptPreimageV1 {
+function freezeReceipt(receipt: TaskRuntimePublicationReceipt, objects: ReadonlyArray<TaskRuntimePublicationReceiptObject>): TaskRuntimePublicationReceipt {
   return Object.freeze({
     ...receipt,
-    candidateSha256: copyDigest(receipt.candidateSha256),
-    taskCatalogBindingSha256: copyDigest(receipt.taskCatalogBindingSha256),
+    applicationPublicationSha256:
+      copyDigest(receipt.applicationPublicationSha256),
+    sourceArtifactRootSha256:
+      copyDigest(receipt.sourceArtifactRootSha256),
+    applicationTaskCatalogBindingSha256:
+      copyDigest(receipt.applicationTaskCatalogBindingSha256),
     applicationRevisionTaskBindingSha256: copyDigest(receipt.applicationRevisionTaskBindingSha256),
     taskCatalogSha256: copyDigest(receipt.taskCatalogSha256),
     taskEntryRootSha256: copyDigest(receipt.taskEntryRootSha256),
     taskRuntimeProjectionSha256: copyNullableDigest(receipt.taskRuntimeProjectionSha256),
     taskRuntimeGroupManifestSha256: copyNullableDigest(receipt.taskRuntimeGroupManifestSha256),
     taskRuntimeMaterializationSpecSha256: copyNullableDigest(receipt.taskRuntimeMaterializationSpecSha256),
-    packageSha256: copyDigest(receipt.packageSha256),
-    artifactSha256: copyDigest(receipt.artifactSha256),
-    sourceRootSha256: copyDigest(receipt.sourceRootSha256),
-    semanticRootSha256: copyDigest(receipt.semanticRootSha256),
     runtimeObjects: Object.freeze([...objects]),
   });
 }
 
-function copyReceipt(receipt: TaskRuntimePublicationReceiptPreimageV1): TaskRuntimePublicationReceiptPreimageV1 {
+function copyReceipt(receipt: TaskRuntimePublicationReceipt): TaskRuntimePublicationReceipt {
   return freezeReceipt(receipt, receipt.runtimeObjects.map(copyReceiptObject));
 }
 
-function copyReceiptObject(item: TaskRuntimePublicationReceiptObjectPreimageV1): TaskRuntimePublicationReceiptObjectPreimageV1 {
+function copyReceiptObject(item: TaskRuntimePublicationReceiptObject): TaskRuntimePublicationReceiptObject {
   return Object.freeze({
     ordinal: item.ordinal,
     codecIdentity: item.codecIdentity,
@@ -667,12 +661,23 @@ function denseDataArray(input: ReadonlyArray<unknown>, maximum: number): Readonl
   return Reflect.ownKeys(descriptors).every(key => key === "length" || (typeof key === "string" && /^(?:0|[1-9][0-9]*)$/u.test(key) && Number(key) < input.length)) ? output : undefined;
 }
 
-function allDigestsValid(receipt: TaskRuntimePublicationReceiptPreimageV1): boolean {
-  return [receipt.candidateSha256, receipt.taskCatalogBindingSha256, receipt.applicationRevisionTaskBindingSha256, receipt.taskCatalogSha256, receipt.taskEntryRootSha256, receipt.packageSha256, receipt.artifactSha256, receipt.sourceRootSha256, receipt.semanticRootSha256].every(value => isUint8ArrayWithByteLength(value, 32)) && [receipt.taskRuntimeProjectionSha256, receipt.taskRuntimeGroupManifestSha256, receipt.taskRuntimeMaterializationSpecSha256].every(value => value === null || isUint8ArrayWithByteLength(value, 32));
+function allDigestsValid(receipt: TaskRuntimePublicationReceipt): boolean {
+  return [
+    receipt.applicationPublicationSha256,
+    receipt.sourceArtifactRootSha256,
+    receipt.applicationTaskCatalogBindingSha256,
+    receipt.applicationRevisionTaskBindingSha256,
+    receipt.taskCatalogSha256,
+    receipt.taskEntryRootSha256,
+  ].every(value => isUint8ArrayWithByteLength(value, 32)) && [
+    receipt.taskRuntimeProjectionSha256,
+    receipt.taskRuntimeGroupManifestSha256,
+    receipt.taskRuntimeMaterializationSpecSha256,
+  ].every(value => value === null || isUint8ArrayWithByteLength(value, 32));
 }
 
 function singletonDigestMatches(
-  objects: ReadonlyArray<TaskRuntimePublicationReceiptObjectPreimageV1>,
+  objects: ReadonlyArray<TaskRuntimePublicationReceiptObject>,
   role: TaskRuntimeObjectRoleV1,
   digest: TaskDefinitionSha256V1 | null,
 ): boolean {
@@ -734,10 +739,10 @@ function boundedCanonicalBigInt(
 }
 
 function confirmationsMatch(
-  objects: ReadonlyArray<PreparedTaskRuntimeObjectV1>,
+  objects: ReadonlyArray<PreparedTaskRuntimeObject>,
   input: unknown,
   publishedObjectStates: WeakMap<object, Readonly<{
-    object: PreparedTaskRuntimeObjectV1;
+    object: PreparedTaskRuntimeObject;
     reference: TaskRuntimeObjectReferenceV1;
   }>>,
 ): boolean {
@@ -803,4 +808,4 @@ function copyNullableDigest(value: unknown): TaskDefinitionSha256V1 | null { ret
 function hex(value: TaskDefinitionSha256V1): string { return encodeBytesToLowercaseHex(value); }
 function nullableHex(value: TaskDefinitionSha256V1 | null): string | null { return value === null ? null : hex(value); }
 function hasExactKeys(value: Readonly<Record<string, Json>>, keys: ReadonlyArray<string>): boolean { const actual = Object.keys(value); return actual.length === keys.length && keys.every(key => Object.hasOwn(value, key)); }
-function invalid<Operation extends "encode_publication_receipt" | "decode_publication_receipt" | "prepare_publication_receipt">(operation: Operation, reason: ConstructorParameters<typeof InvalidTaskRuntimePublicationV1Error<Operation>>[0]["reason"], path?: string, observed?: number, maximum?: number): InvalidTaskRuntimePublicationV1Error<Operation> { return new InvalidTaskRuntimePublicationV1Error({ operation, reason, ...(path === undefined ? {} : { path }), ...(observed === undefined ? {} : { observed }), ...(maximum === undefined ? {} : { maximum }) }); }
+function invalid<Operation extends "encode_publication_receipt" | "decode_publication_receipt" | "prepare_publication_receipt">(operation: Operation, reason: ConstructorParameters<typeof InvalidTaskRuntimePublicationError<Operation>>[0]["reason"], path?: string, observed?: number, maximum?: number): InvalidTaskRuntimePublicationError<Operation> { return new InvalidTaskRuntimePublicationError({ operation, reason, ...(path === undefined ? {} : { path }), ...(observed === undefined ? {} : { observed }), ...(maximum === undefined ? {} : { maximum }) }); }

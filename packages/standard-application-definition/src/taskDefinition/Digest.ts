@@ -2,7 +2,7 @@ import { copyBytes } from "@flarex/utils/bytes";
 import { Effect, Result } from "effect";
 
 import {
-  encodeApplicationRevisionTaskBindingPreimageV1,
+  encodeApplicationRevisionTaskBinding,
   encodeCanonicalTaskManifestPreimageV1,
   encodeHashedCanonicalTaskCatalogPreimageV1,
   encodeTaskDefinitionRuntimeBindingPreimageV1,
@@ -21,7 +21,7 @@ import {
   type TaskDefinitionSha256V1,
 } from "./Model.js";
 import {
-  decodeApplicationRevisionTaskBindingFrameV1,
+  decodeApplicationRevisionTaskBinding,
   decodeCanonicalTaskCatalogV1,
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskRunCreationAuthorityReceiptV1,
@@ -113,8 +113,8 @@ export const hashTaskRuntimeEntryFrameV1 = Effect.fn(
   return yield* digest(bytes, sha256);
 });
 
-export const hashApplicationRevisionTaskBindingFrameV1 = Effect.fn(
-  "StandardApplicationTask.hashApplicationRevisionBindingV1",
+export const hashApplicationRevisionTaskBinding = Effect.fn(
+  "StandardApplicationTask.hashApplicationRevisionBinding",
 )(function* (
   input: unknown,
   sha256: StandardApplicationTaskSha256V1,
@@ -123,7 +123,7 @@ export const hashApplicationRevisionTaskBindingFrameV1 = Effect.fn(
   StandardApplicationTaskDigestV1Error
 > {
   const binding = yield* Effect.fromResult(
-    decodeApplicationRevisionTaskBindingFrameV1(input).pipe(
+    decodeApplicationRevisionTaskBinding(input).pipe(
       Result.mapError((failure) => reoperation(
         failure,
         "hash_application_revision_task_binding",
@@ -131,7 +131,7 @@ export const hashApplicationRevisionTaskBindingFrameV1 = Effect.fn(
     ),
   );
   const bytes = yield* Effect.fromResult(
-    encodeApplicationRevisionTaskBindingPreimageV1(binding).pipe(
+    encodeApplicationRevisionTaskBinding(binding).pipe(
       Result.mapError((failure) => reoperation(
         failure,
         "hash_application_revision_task_binding",

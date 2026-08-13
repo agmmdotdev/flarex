@@ -294,20 +294,25 @@ their owning slice.
   breaches; and
 - perform no DB, R2, readiness, activation, or Worker Loader operation.
 
-The package-local `prepareTaskRuntimePublicationV1` now reuses the existing
+The package-local `prepareTaskRuntimePublication` now reuses the existing
 prepared Standard Application graph, hashed task catalog, application task
 bindings, SAP-TRP1 codecs/digests, and SHA-256 capability. It rehashes the
-catalog, decodes and hashes one candidate frame that commits the
-package/artifact/source/semantic roots, correlates that frame to the exact
-scope/candidate/revision and authenticated Source Artifact root evidence,
+catalog, authenticates the exact Application task-catalog binding, and
+correlates scope/candidate/analysis/revision plus the whole-Application
+publication digest and Source Artifact root,
 verifies ordered authenticated module membership, enforces the
 trusted compatibility/implementation/compute-profile policy, and derives the
 application-task binding digests and application-revision task-binding digest
 rather than accepting unchecked digests from its caller. Populated catalogs
 retain private owned canonical bodies behind copy-on-read accessors, exact
 store/role/codec/ordinal/key/length/digest membership, binding roots, and an
-immutable publication-receipt preimage. Explicitly empty catalogs produce a
+immutable publication receipt. Explicitly empty catalogs produce a
 derived empty entry root and binding with no runtime objects.
+
+`SAP-CAA1` corrected these semantics in place on 2026-08-13. There is no
+parallel task-runtime V2 and no retained Declarative candidate compatibility
+path; see
+[`42-application-task-runtime-authority.md`](./42-application-task-runtime-authority.md).
 
 Validation receipt:
 

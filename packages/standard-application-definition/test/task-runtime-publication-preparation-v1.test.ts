@@ -10,11 +10,11 @@ import {
 } from "../src/applicationTaskBinding/v1";
 import {
   hashCanonicalTaskCatalogV1,
-  decodeTaskRuntimePublicationReceiptPreimageV1,
-  encodeTaskRuntimePublicationReceiptPreimageV1,
+  decodeTaskRuntimePublicationReceipt,
+  encodeTaskRuntimePublicationReceipt,
   makeStandardApplicationTaskSha256V1,
-  makeTaskRuntimePublicationReceiptAuthorityV1,
-  prepareTaskRuntimePublicationV1,
+  makeTaskRuntimePublicationReceiptAuthority,
+  prepareTaskRuntimePublication,
   taskRuntimeObjectKeyV1,
   MAX_TASK_CATALOG_ENTRIES_V1,
   MAX_TASK_RUNTIME_PUBLICATION_MODULES_V1,
@@ -24,13 +24,9 @@ import {
   TASK_RUNTIME_PROFILE_IDENTITY_V1,
   type HashedCanonicalTaskCatalogV1,
   type TaskDefinitionSha256V1,
-  type TaskRuntimePublicationReceiptPreimageV1,
-  type TaskRuntimePublicationPreparationInputV1,
+  type TaskRuntimePublicationReceipt,
+  type TaskRuntimePublicationPreparationInput,
 } from "../src/taskDefinition/v1";
-import {
-  encodeDeclarativeV2PhysicalFrameV1,
-  type DeclarativeV2CandidateFrameV1,
-} from "flarex-protocol/internal/declarative-v2-physical-v1";
 import { prepareStandardApplicationDefinitionV1 } from "../src/v1";
 import { produceStandardApplicationSource } from "../src/applicationSource";
 
@@ -38,16 +34,16 @@ const UTF8 = new TextEncoder();
 const sha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
-const receiptAuthority = makeTaskRuntimePublicationReceiptAuthorityV1(sha256);
+const receiptAuthority = makeTaskRuntimePublicationReceiptAuthority(sha256);
 const digest = (byte: number) =>
   new Uint8Array(32).fill(byte) as TaskDefinitionSha256V1;
 const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("standard-1x");
 
 function receiptWithRoleCounts(
-  receipt: TaskRuntimePublicationReceiptPreimageV1,
+  receipt: TaskRuntimePublicationReceipt,
   moduleCount: number,
   entryCount: number,
-): TaskRuntimePublicationReceiptPreimageV1 {
+): TaskRuntimePublicationReceipt {
   const singleton = (role: "task_runtime_projection" |
     "task_runtime_group_manifest" |
     "task_runtime_materialization_spec") => {
@@ -94,14 +90,14 @@ function receiptWithRoleCounts(
   });
 }
 
-describe("task runtime publication preparation V1", () => {
+describe("task runtime publication preparation", () => {
   it("deterministically prepares owned runtime bodies, references, binding, and receipt", async () => {
     const input = await makeInput();
     const first = await Effect.runPromise(
-      prepareTaskRuntimePublicationV1(input, sha256),
+      prepareTaskRuntimePublication(input, sha256),
     );
     const replay = await Effect.runPromise(
-      prepareTaskRuntimePublicationV1(input, sha256),
+      prepareTaskRuntimePublication(input, sha256),
     );
 
     expect(first.kind).toBe("populated_catalog");
@@ -115,8 +111,8 @@ describe("task runtime publication preparation V1", () => {
       "task_runtime_group_manifest",
       "task_runtime_materialization_spec",
     ]);
-    const firstReceipt = first.readReceiptPreimage();
-    const replayReceipt = replay.readReceiptPreimage();
+    const firstReceipt = first.readReceipt();
+    const replayReceipt = replay.readReceipt();
     expect(firstReceipt).toEqual(replayReceipt);
     expect(firstReceipt.runtimeObjects).toEqual(
       first.objects.map(item => ({
@@ -126,7 +122,7 @@ describe("task runtime publication preparation V1", () => {
       })),
     );
     expect(first.readApplicationRevisionTaskBindingSha256()).not.toEqual(
-      input.authority.candidateSha256,
+      input.authority.applicationTaskCatalogBindingSha256,
     );
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.objects)).toBe(true);
@@ -147,7 +143,7 @@ describe("task runtime publication preparation V1", () => {
     );
     const returnedReference = first.objects[0]!.readReference();
     returnedReference.sha256[0] = returnedReference.sha256[0]! ^ 0xff;
-    expect(first.readReceiptPreimage().runtimeObjects[0]!.reference.sha256).toEqual(
+    expect(first.readReceipt().runtimeObjects[0]!.reference.sha256).toEqual(
       replayReceipt.runtimeObjects[0]!.reference.sha256,
     );
   });
@@ -155,7 +151,7 @@ describe("task runtime publication preparation V1", () => {
   it("prepares an explicit empty catalog without runtime objects", async () => {
     const input = await makeInput(true);
     const prepared = await Effect.runPromise(
-      prepareTaskRuntimePublicationV1(input, sha256),
+      prepareTaskRuntimePublication(input, sha256),
     );
 
     expect(prepared).toMatchObject({
@@ -164,12 +160,12 @@ describe("task runtime publication preparation V1", () => {
       canonicalByteLength: 0,
     });
     expect(prepared.readApplicationRevisionTaskBinding().taskCount).toBe(0n);
-    expect(prepared.readReceiptPreimage().runtimeObjects).toEqual([]);
+    expect(prepared.readReceipt().runtimeObjects).toEqual([]);
   });
 
   it("canonically encodes, hashes, decodes, and owns the publication receipt", async () => {
     const publication = await Effect.runPromise(
-      prepareTaskRuntimePublicationV1(await makeInput(), sha256),
+      prepareTaskRuntimePublication(await makeInput(), sha256),
     );
     const prepared = await Effect.runPromise(
       receiptAuthority.prepareReceipt(
@@ -180,30 +176,37 @@ describe("task runtime publication preparation V1", () => {
       ),
     );
     const bytes = prepared.readCanonicalBytes();
-    const decoded = decodeTaskRuntimePublicationReceiptPreimageV1(bytes);
+    const decoded = decodeTaskRuntimePublicationReceipt(bytes);
     expect(Result.isSuccess(decoded)).toBe(true);
     if (Result.isFailure(decoded)) throw decoded.failure;
-    expect(decoded.success).toEqual(publication.readReceiptPreimage());
-    expect(encodeTaskRuntimePublicationReceiptPreimageV1(decoded.success))
+    expect(decoded.success).toEqual(publication.readReceipt());
+    expect(Object.keys(decoded.success)).not.toEqual(expect.arrayContaining([
+      "candidateSha256",
+      "packageSha256",
+      "artifactSha256",
+      "sourceRootSha256",
+      "semanticRootSha256",
+    ]));
+    expect(encodeTaskRuntimePublicationReceipt(decoded.success))
       .toEqual(Result.succeed(bytes));
     expect(Encoding.encodeHex(prepared.readSha256())).toBe(
-      "a2a93fed8daf1c523af653804ab33012ef9e7a4b44ff2145dcf9445a4df5455f",
+      "b53a63b8e214ef7d2e86b71131ba075bf201b09643f680696766122487503a75",
     );
 
-    decoded.success.candidateSha256[0] =
-      (decoded.success.candidateSha256[0] ?? 0) ^ 0xff;
+    decoded.success.applicationPublicationSha256[0] =
+      (decoded.success.applicationPublicationSha256[0] ?? 0) ^ 0xff;
     bytes[0] = (bytes[0] ?? 0) ^ 0xff;
     expect(Encoding.encodeHex(prepared.readSha256())).toBe(
-      "a2a93fed8daf1c523af653804ab33012ef9e7a4b44ff2145dcf9445a4df5455f",
+      "b53a63b8e214ef7d2e86b71131ba075bf201b09643f680696766122487503a75",
     );
     expect(prepared.readCanonicalBytes()[0]).not.toBe(bytes[0]);
   });
 
   it("rejects malformed receipt membership and hostile input without invoking accessors", async () => {
     const publication = await Effect.runPromise(
-      prepareTaskRuntimePublicationV1(await makeInput(), sha256),
+      prepareTaskRuntimePublication(await makeInput(), sha256),
     );
-    const receipt = publication.readReceiptPreimage();
+    const receipt = publication.readReceipt();
     const wrongOrdinal = {
       ...receipt,
       runtimeObjects: receipt.runtimeObjects.map((item, index) =>
@@ -211,7 +214,7 @@ describe("task runtime publication preparation V1", () => {
       ),
     };
     expect(Result.isFailure(
-      encodeTaskRuntimePublicationReceiptPreimageV1(wrongOrdinal),
+      encodeTaskRuntimePublicationReceipt(wrongOrdinal),
     )).toBe(true);
 
     let invoked = false;
@@ -222,32 +225,32 @@ describe("task runtime publication preparation V1", () => {
         : { enumerable: true, value });
     }
     expect(Result.isFailure(
-      encodeTaskRuntimePublicationReceiptPreimageV1(hostile),
+      encodeTaskRuntimePublicationReceipt(hostile),
     )).toBe(true);
     expect(invoked).toBe(false);
   });
 
   it("enforces role maxima and rejects huge decimal spellings before BigInt conversion", async () => {
     const plan = await Effect.runPromise(
-      prepareTaskRuntimePublicationV1(await makeInput(), sha256),
+      prepareTaskRuntimePublication(await makeInput(), sha256),
     );
-    const receipt = plan.readReceiptPreimage();
+    const receipt = plan.readReceipt();
     const maximum = receiptWithRoleCounts(
       receipt,
       MAX_TASK_RUNTIME_PUBLICATION_MODULES_V1,
       MAX_TASK_CATALOG_ENTRIES_V1,
     );
     expect(Result.isSuccess(
-      encodeTaskRuntimePublicationReceiptPreimageV1(maximum),
+      encodeTaskRuntimePublicationReceipt(maximum),
     )).toBe(true);
-    expect(Result.isFailure(encodeTaskRuntimePublicationReceiptPreimageV1(
+    expect(Result.isFailure(encodeTaskRuntimePublicationReceipt(
       receiptWithRoleCounts(
         receipt,
         MAX_TASK_RUNTIME_PUBLICATION_MODULES_V1 + 1,
         1,
       ),
     ))).toBe(true);
-    expect(Result.isFailure(encodeTaskRuntimePublicationReceiptPreimageV1(
+    expect(Result.isFailure(encodeTaskRuntimePublicationReceipt(
       receiptWithRoleCounts(
         receipt,
         1,
@@ -256,7 +259,7 @@ describe("task runtime publication preparation V1", () => {
     ))).toBe(true);
 
     const encoded = Result.getOrThrow(
-      encodeTaskRuntimePublicationReceiptPreimageV1(receipt),
+      encodeTaskRuntimePublicationReceipt(receipt),
     );
     const text = new TextDecoder().decode(encoded);
     const hugeOrdinal = text.replace(
@@ -267,17 +270,17 @@ describe("task runtime publication preparation V1", () => {
       /"byteLength":"[0-9]+"/u,
       `"byteLength":"134217729"`,
     );
-    expect(Result.isFailure(decodeTaskRuntimePublicationReceiptPreimageV1(
+    expect(Result.isFailure(decodeTaskRuntimePublicationReceipt(
       new TextEncoder().encode(hugeOrdinal),
     ))).toBe(true);
-    expect(Result.isFailure(decodeTaskRuntimePublicationReceiptPreimageV1(
+    expect(Result.isFailure(decodeTaskRuntimePublicationReceipt(
       new TextEncoder().encode(oversizedLength),
     ))).toBe(true);
   });
 
   it("projects authenticated source bytes when the prepared graph has a source map", async () => {
     const input = await makeInput();
-    const prepared = await Effect.runPromise(prepareTaskRuntimePublicationV1({
+    const prepared = await Effect.runPromise(prepareTaskRuntimePublication({
       ...input,
       source: {
         ...input.source,
@@ -296,7 +299,7 @@ describe("task runtime publication preparation V1", () => {
   it("rejects forged catalog, source evidence, binding, and runtime policy", async () => {
     const original = await makeInput();
     const cases: ReadonlyArray<readonly [
-      TaskRuntimePublicationPreparationInputV1,
+      TaskRuntimePublicationPreparationInput,
       string,
     ]> = [
       [{
@@ -306,6 +309,21 @@ describe("task runtime publication preparation V1", () => {
           taskCatalogSha256: digest(99),
         }) as HashedCanonicalTaskCatalogV1,
       }, "task_binding_mismatch"],
+      ...([
+        ["scopeId", "scope-other"],
+        ["candidateId", "candidate-other"],
+        ["analysisId", "analysis-other"],
+        ["applicationRevisionId", "revision-other"],
+        ["applicationPublicationSha256", digest(0x91)],
+        ["sourceArtifactRootSha256", digest(0x92)],
+        ["applicationTaskCatalogBindingSha256", digest(0x93)],
+      ] as const).map(([field, value]) => [{
+        ...original,
+        authority: {
+          ...original.authority,
+          [field]: value,
+        },
+      }, "task_binding_mismatch"] as const),
       [{
         ...original,
         authority: {
@@ -339,9 +357,9 @@ describe("task runtime publication preparation V1", () => {
 
     for (const [input, reason] of cases) {
       await expect(Effect.runPromise(
-        prepareTaskRuntimePublicationV1(input, sha256),
+        prepareTaskRuntimePublication(input, sha256),
       )).rejects.toMatchObject({
-        _tag: "InvalidTaskRuntimePublicationV1Error",
+        _tag: "InvalidTaskRuntimePublicationError",
         operation: "prepare_publication",
         reason,
       });
@@ -351,7 +369,7 @@ describe("task runtime publication preparation V1", () => {
 
 async function makeInput(
   empty = false,
-): Promise<TaskRuntimePublicationPreparationInputV1> {
+): Promise<TaskRuntimePublicationPreparationInput> {
   const definition = makeDefinition();
   const source = Result.getOrThrow(produceStandardApplicationSource(definition));
   const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
@@ -396,24 +414,19 @@ async function makeInput(
     supportedComputeProfiles: Object.freeze([computeProfile]),
     moduleEntryPolicyIdentity: TASK_RUNTIME_MODULE_ENTRY_POLICY_IDENTITY_V1,
   });
-  const candidate = makeCandidate();
-  const encodedCandidate = Result.getOrThrow(encodeDeclarativeV2PhysicalFrameV1(
-    candidate,
-    { maximumFrameBytes: 1_024 * 1_024, maximumCanonicalBytes: 1_024 * 1_024 },
-  ));
-  const candidateSha256 = await Effect.runPromise(sha256(
-    encodedCandidate.canonicalBytes,
-    { maximumInputBytes: encodedCandidate.canonicalBytes.byteLength },
-  )) as TaskDefinitionSha256V1;
+  const catalogBinding = taskBindings.catalog.binding;
   return {
     source,
     catalog,
     taskBindings,
     authority: {
-      candidateId: "candidate-orders",
-      candidate,
-      candidateSha256,
-      applicationRevisionId: "revision-orders-v2",
+      scopeId: catalogBinding.scopeId,
+      candidateId: catalogBinding.candidateId,
+      analysisId: catalogBinding.analysisId,
+      applicationRevisionId: catalogBinding.revisionId,
+      applicationPublicationSha256: digest(0x11),
+      sourceArtifactRootSha256: digest(0x22),
+      applicationTaskCatalogBindingSha256: taskBindings.catalog.sha256,
       authenticatedModules,
     },
     policy: {
@@ -424,51 +437,6 @@ async function makeInput(
         materialization.runtimeImplementationVersion,
       admittedComputeProfiles: materialization.supportedComputeProfiles,
     },
-  };
-}
-
-function makeCandidate(): DeclarativeV2CandidateFrameV1 {
-  return {
-    kind: "candidate",
-    projectId: "project-orders",
-    deploymentId: "candidate-orders",
-    deploymentCreatedAt: "2026-08-12T00:00:00.000Z",
-    scopeId: "scope-orders",
-    storageGeneration: "flarexdb_v1",
-    storageGenerationFence: 1n,
-    scopeEpoch: "scope-epoch-orders",
-    sourceRootSha256: digest(0x22),
-    sourceSelectorSha256: digest(2),
-    sourceCodecIdentity: "source-v2",
-    semanticRootSha256: digest(3),
-    semanticSelectorSha256: digest(4),
-    semanticModelIdentity: "declarative-v2",
-    semanticCodecIdentity: "ndjson-v1",
-    semanticPolicyIdentity: "semantic-policy-v1",
-    packageSha256: digest(5),
-    artifactSha256: digest(6),
-    artifactRuntimeIdentity: "runtime-v1",
-    schemaArtifactSha256: digest(7),
-    schemaBindingSha256: digest(8),
-    validatorRootSha256: digest(9),
-    coreLanguageIdentity: "core-v1",
-    abiIdentity: "abi-v1",
-    grammarIdentity: "grammar-v1",
-    unicodeIdentity: "unicode-14",
-    parserTableIdentity: "parser-v1",
-    analyzerIdentity: "analyzer-v2",
-    verifierIdentity: "verifier-v1",
-    declaredHandlerSetSha256: digest(10),
-    deploymentAnalysisCodecIdentity: "analysis-v1",
-    deploymentAnalysisByteLength: 20n,
-    deploymentAnalysisSha256: digest(11),
-    deploymentCodegenAnalysisCodecIdentity: "codegen-v1",
-    deploymentCodegenAnalysisByteLength: 21n,
-    deploymentCodegenAnalysisSha256: digest(12),
-    runtimeProjectionSetSha256: digest(13),
-    functionGroupManifestSha256: digest(14),
-    readinessPolicyIdentity:
-      "flarex.readiness/runtime-projection-cold-materialization/v1",
   };
 }
 

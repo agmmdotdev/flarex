@@ -17,7 +17,7 @@ import {
   type TaskRuntimeMaterializationSpecV1,
   type TaskRuntimeObjectReferenceV1,
 } from "./Model.js";
-import type { InvalidTaskRuntimePublicationV1Error } from
+import type { InvalidTaskRuntimePublicationError } from
   "./RuntimePublicationErrors.js";
 
 export type TaskRuntimeReadinessOperationV1 =
@@ -49,7 +49,7 @@ export class InvalidTaskRuntimeReadinessV1Error<
   readonly observed?: number;
   readonly maximum?: number;
   readonly cause?:
-    | InvalidTaskRuntimePublicationV1Error
+    | InvalidTaskRuntimePublicationError
     | InvalidStandardApplicationTaskDefinitionV1Error;
 }> {}
 
@@ -62,14 +62,12 @@ export class TaskRuntimeReadinessCanonicalEncodingV1Defect
 export interface TaskRuntimeReadinessExpectedEvidence {
   readonly scopeId: string;
   readonly candidateId: string;
+  readonly analysisId: string;
   readonly applicationRevisionId: string;
-  readonly candidateSha256: TaskDefinitionSha256V1;
-  readonly taskCatalogBindingSha256: TaskDefinitionSha256V1;
+  readonly applicationPublicationSha256: TaskDefinitionSha256V1;
+  readonly sourceArtifactRootSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskCatalogBindingSha256: TaskDefinitionSha256V1;
   readonly taskCatalog: HashedCanonicalTaskCatalogV1;
-  readonly packageSha256: Uint8Array;
-  readonly artifactSha256: Uint8Array;
-  readonly sourceRootSha256: Uint8Array;
-  readonly semanticRootSha256: Uint8Array;
   readonly materializationPolicy: TaskRuntimeMaterializationSpecV1;
 }
 
@@ -106,10 +104,12 @@ export interface TaskRuntimeReadinessBasisV1 {
   readonly kind: "empty" | "populated";
   readonly scopeId: string;
   readonly candidateId: string;
+  readonly analysisId: string;
   readonly applicationRevisionId: string;
   readonly publicationReceiptSha256: TaskDefinitionSha256V1;
-  readonly candidateSha256: TaskDefinitionSha256V1;
-  readonly taskCatalogBindingSha256: TaskDefinitionSha256V1;
+  readonly applicationPublicationSha256: TaskDefinitionSha256V1;
+  readonly sourceArtifactRootSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskCatalogBindingSha256: TaskDefinitionSha256V1;
   readonly applicationRevisionTaskBindingSha256: TaskDefinitionSha256V1;
   readonly taskCatalogSha256: TaskDefinitionSha256V1;
   readonly taskCount: bigint;
@@ -118,10 +118,6 @@ export interface TaskRuntimeReadinessBasisV1 {
   readonly taskRuntimeGroupManifestSha256: TaskDefinitionSha256V1 | null;
   readonly taskRuntimeMaterializationSpecSha256:
     TaskDefinitionSha256V1 | null;
-  readonly packageSha256: TaskDefinitionSha256V1;
-  readonly artifactSha256: TaskDefinitionSha256V1;
-  readonly sourceRootSha256: TaskDefinitionSha256V1;
-  readonly semanticRootSha256: TaskDefinitionSha256V1;
   readonly runtimeContractIdentity: typeof TASK_RUNTIME_CONTRACT_IDENTITY_V1;
   readonly bridgeAbiIdentity: typeof TASK_RUNTIME_BRIDGE_ABI_IDENTITY_V1;
   readonly compatibilityDate: string;
@@ -159,7 +155,7 @@ export function invalidTaskRuntimeReadiness<
   reason: TaskRuntimeReadinessReasonV1,
   path?: string,
   cause?:
-    | InvalidTaskRuntimePublicationV1Error
+    | InvalidTaskRuntimePublicationError
     | InvalidStandardApplicationTaskDefinitionV1Error,
   observed?: number,
   maximum?: number,

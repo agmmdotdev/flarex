@@ -38,7 +38,7 @@ import {
   hashTaskRuntimeProjectionModuleRootV1,
   makeLiveStandardApplicationTaskSha256V1,
   verifyTaskRuntimeProjectionV1,
-  type InvalidTaskRuntimePublicationV1Error,
+  type InvalidTaskRuntimePublicationError,
   type TaskDefinitionSha256V1,
   type TaskIdV1,
   type TaskRuntimeEntryFrameV1,
@@ -555,8 +555,8 @@ function succeed<A, E>(result: Result.Result<A, E>): A {
 }
 
 function expectFailure(
-  result: Result.Result<unknown, InvalidTaskRuntimePublicationV1Error>,
-  reason: InvalidTaskRuntimePublicationV1Error["reason"],
+  result: Result.Result<unknown, InvalidTaskRuntimePublicationError>,
+  reason: InvalidTaskRuntimePublicationError["reason"],
 ): void {
   expect(Result.isFailure(result)).toBe(true);
   if (Result.isFailure(result)) expect(result.failure.reason).toBe(reason);
@@ -564,7 +564,7 @@ function expectFailure(
 
 function expectFailureExit(
   exit: Exit.Exit<unknown, unknown>,
-  reason: InvalidTaskRuntimePublicationV1Error["reason"],
+  reason: InvalidTaskRuntimePublicationError["reason"],
 ): void {
   expect(Exit.isFailure(exit)).toBe(true);
   if (Exit.isFailure(exit)) {

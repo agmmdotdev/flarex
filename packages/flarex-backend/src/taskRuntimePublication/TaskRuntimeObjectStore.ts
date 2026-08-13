@@ -8,12 +8,12 @@ import {
   TASK_RUNTIME_OBJECT_STORE_V1,
   TASK_RUNTIME_PROJECTION_CODEC_V1,
   TASK_RUNTIME_PROJECTION_MODULE_CODEC_V1,
-  type PreparedTaskRuntimeObjectV1,
-  type PublishedTaskRuntimeObjectV1,
+  type PreparedTaskRuntimeObject,
+  type PublishedTaskRuntimeObject,
   type StandardApplicationTaskSha256InputV1Error,
   type StandardApplicationTaskSha256ResourceV1Error,
   type StandardApplicationTaskSha256V1,
-  type TaskRuntimePublicationReceiptAuthorityV1,
+  type TaskRuntimePublicationReceiptAuthority,
   type TaskDefinitionSha256V1,
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
@@ -88,11 +88,11 @@ export interface TaskRuntimeObjectStoreObject {
 
 export interface TaskRuntimeObjectStore {
   readonly publish: (
-    object: PreparedTaskRuntimeObjectV1,
+    object: PreparedTaskRuntimeObject,
   ) => Effect.Effect<TaskRuntimeObjectReferenceV1, TaskRuntimeObjectStoreError>;
   readonly publishConfirmed: (
-    object: PreparedTaskRuntimeObjectV1,
-  ) => Effect.Effect<PublishedTaskRuntimeObjectV1, TaskRuntimeObjectStoreError>;
+    object: PreparedTaskRuntimeObject,
+  ) => Effect.Effect<PublishedTaskRuntimeObject, TaskRuntimeObjectStoreError>;
   readonly read: (
     reference: unknown,
   ) => Effect.Effect<TaskRuntimeObjectStoreObject, TaskRuntimeObjectStoreError>;
@@ -121,7 +121,7 @@ export function makeTaskRuntimeObjectStore(
   sha256: StandardApplicationTaskSha256V1 =
     makeLiveStandardApplicationTaskSha256V1(),
   receiptAuthority?: Pick<
-    TaskRuntimePublicationReceiptAuthorityV1,
+    TaskRuntimePublicationReceiptAuthority,
     "confirmPublishedObject"
   >,
 ): TaskRuntimeObjectStore {
@@ -187,7 +187,7 @@ export function makeTaskRuntimeObjectStore(
 }
 
 function capturePreparedObject(
-  input: PreparedTaskRuntimeObjectV1,
+  input: PreparedTaskRuntimeObject,
 ): Effect.Effect<
   Readonly<{ reference: TaskRuntimeObjectReferenceV1; bytes: Uint8Array }>,
   TaskRuntimeObjectStoreInputError

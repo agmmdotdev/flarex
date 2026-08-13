@@ -14,10 +14,10 @@ import {
 } from "flarex-protocol/json";
 
 import {
-  InvalidTaskRuntimePublicationV1Error,
-  TaskRuntimePublicationCanonicalEncodingV1Defect,
-  type TaskRuntimePublicationOperationV1,
-  type TaskRuntimePublicationReasonV1,
+  InvalidTaskRuntimePublicationError,
+  TaskRuntimePublicationCanonicalEncodingDefect,
+  type TaskRuntimePublicationOperation,
+  type TaskRuntimePublicationReason,
 } from "./RuntimePublicationErrors.js";
 import {
   MAX_TASK_CATALOG_ENTRIES_V1,
@@ -50,7 +50,7 @@ export function encodeTaskRuntimeProjectionModulePreimageV1(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_projection_module">
+  InvalidTaskRuntimePublicationError<"encode_projection_module">
 > {
   return decodeTaskRuntimeProjectionModuleFrameV1(input).pipe(
     Result.mapError((failure) => reoperation(failure, "encode_projection_module")),
@@ -65,7 +65,7 @@ export function decodeTaskRuntimeProjectionModulePreimageV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeProjectionModuleFrameV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_projection_module_preimage">
+  InvalidTaskRuntimePublicationError<"decode_projection_module_preimage">
 > {
   const operation = "decode_projection_module_preimage" as const;
   return Result.gen(function* () {
@@ -126,7 +126,7 @@ export function encodeTaskRuntimeProjectionPreimageV1(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_projection">
+  InvalidTaskRuntimePublicationError<"encode_projection">
 > {
   return decodeTaskRuntimeProjectionFrameV1(input).pipe(
     Result.mapError((failure) => reoperation(failure, "encode_projection")),
@@ -141,7 +141,7 @@ export function decodeTaskRuntimeProjectionPreimageV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeProjectionFrameV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_projection_preimage">
+  InvalidTaskRuntimePublicationError<"decode_projection_preimage">
 > {
   const operation = "decode_projection_preimage" as const;
   return Result.gen(function* () {
@@ -192,7 +192,7 @@ export function encodeTaskRuntimeGroupManifestPreimageV1(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_group_manifest">
+  InvalidTaskRuntimePublicationError<"encode_group_manifest">
 > {
   return decodeTaskRuntimeGroupManifestFrameV1(input).pipe(
     Result.mapError((failure) => reoperation(failure, "encode_group_manifest")),
@@ -207,7 +207,7 @@ export function decodeTaskRuntimeGroupManifestPreimageV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeGroupManifestFrameV1,
-  InvalidTaskRuntimePublicationV1Error<"decode_group_manifest_preimage">
+  InvalidTaskRuntimePublicationError<"decode_group_manifest_preimage">
 > {
   const operation = "decode_group_manifest_preimage" as const;
   return Result.gen(function* () {
@@ -266,7 +266,7 @@ export function encodeTaskRuntimeMaterializationSpecPreimageV1(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_materialization_spec">
+  InvalidTaskRuntimePublicationError<"encode_materialization_spec">
 > {
   return decodeTaskRuntimeMaterializationSpecV1(input).pipe(
     Result.mapError((failure) => reoperation(
@@ -284,7 +284,7 @@ export function decodeTaskRuntimeMaterializationSpecPreimageV1(
   input: unknown,
 ): Result.Result<
   TaskRuntimeMaterializationSpecV1,
-  InvalidTaskRuntimePublicationV1Error<
+  InvalidTaskRuntimePublicationError<
     "decode_materialization_spec_preimage"
   >
 > {
@@ -322,7 +322,7 @@ export function encodeTaskRuntimeModuleRootPreimageV1(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_module_root">
+  InvalidTaskRuntimePublicationError<"encode_module_root">
 > {
   return decodeDigestList(
     input,
@@ -339,7 +339,7 @@ export function decodeTaskRuntimeModuleRootPreimageV1(
   input: unknown,
 ): Result.Result<
   ReadonlyArray<TaskDefinitionSha256V1>,
-  InvalidTaskRuntimePublicationV1Error<"decode_module_root_preimage">
+  InvalidTaskRuntimePublicationError<"decode_module_root_preimage">
 > {
   return decodeRootPreimage(
     input,
@@ -355,7 +355,7 @@ export function encodeTaskRuntimeEntryRootPreimageV1(
   input: unknown,
 ): Result.Result<
   Uint8Array,
-  InvalidTaskRuntimePublicationV1Error<"encode_entry_root">
+  InvalidTaskRuntimePublicationError<"encode_entry_root">
 > {
   return decodeDigestList(
     input,
@@ -372,7 +372,7 @@ export function decodeTaskRuntimeEntryRootPreimageV1(
   input: unknown,
 ): Result.Result<
   ReadonlyArray<TaskDefinitionSha256V1>,
-  InvalidTaskRuntimePublicationV1Error<"decode_entry_root_preimage">
+  InvalidTaskRuntimePublicationError<"decode_entry_root_preimage">
 > {
   return decodeRootPreimage(
     input,
@@ -436,7 +436,7 @@ function materializationSpecJson(spec: TaskRuntimeMaterializationSpecV1): Json {
   };
 }
 
-function parseCanonicalEnvelope<Operation extends TaskRuntimePublicationOperationV1>(
+function parseCanonicalEnvelope<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   operation: Operation,
   codec: string,
@@ -446,7 +446,7 @@ function parseCanonicalEnvelope<Operation extends TaskRuntimePublicationOperatio
     readonly bytes: Uint8Array;
     readonly frame: Readonly<Record<string, Json>>;
   }>,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   return parseCanonicalNamedEnvelope(
     input,
@@ -461,7 +461,7 @@ function parseCanonicalEnvelope<Operation extends TaskRuntimePublicationOperatio
 }
 
 function parseCanonicalNamedEnvelope<
-  Operation extends TaskRuntimePublicationOperationV1,
+  Operation extends TaskRuntimePublicationOperation,
 >(
   input: unknown,
   operation: Operation,
@@ -473,7 +473,7 @@ function parseCanonicalNamedEnvelope<
     readonly bytes: Uint8Array;
     readonly value: Readonly<Record<string, Json>>;
   }>,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   return Result.gen(function* () {
     const bytes = yield* captureCanonicalInput(input, operation);
@@ -503,10 +503,10 @@ function decodeRootPreimage<Operation extends
   codec: string,
   maximum: number,
   allowEmpty: boolean,
-  encode: (input: unknown) => Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error>,
+  encode: (input: unknown) => Result.Result<Uint8Array, InvalidTaskRuntimePublicationError>,
 ): Result.Result<
   ReadonlyArray<TaskDefinitionSha256V1>,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   return Result.gen(function* () {
     const bytes = yield* captureCanonicalInput(input, operation);
@@ -549,7 +549,7 @@ function decodeDigestList<Operation extends
   allowEmpty: boolean,
 ): Result.Result<
   ReadonlyArray<TaskDefinitionSha256V1>,
-  InvalidTaskRuntimePublicationV1Error<Operation>
+  InvalidTaskRuntimePublicationError<Operation>
 > {
   try {
     if (
@@ -577,10 +577,10 @@ function decodeDigestList<Operation extends
   }
 }
 
-function captureCanonicalInput<Operation extends TaskRuntimePublicationOperationV1>(
+function captureCanonicalInput<Operation extends TaskRuntimePublicationOperation>(
   input: unknown,
   operation: Operation,
-): Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<Uint8Array, InvalidTaskRuntimePublicationError<Operation>> {
   const byteLength = uint8ArrayByteLength(input);
   if (
     byteLength === undefined || byteLength > MAX_TASK_DEFINITION_CANONICAL_BYTES_V1
@@ -599,10 +599,10 @@ function captureCanonicalInput<Operation extends TaskRuntimePublicationOperation
   });
 }
 
-function decodeCanonicalSourceBytes<Operation extends TaskRuntimePublicationOperationV1>(
+function decodeCanonicalSourceBytes<Operation extends TaskRuntimePublicationOperation>(
   input: Json | undefined,
   operation: Operation,
-): Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<Uint8Array, InvalidTaskRuntimePublicationError<Operation>> {
   if (typeof input !== "string") {
     return Result.fail(invalid(operation, "invalid_source_bytes"));
   }
@@ -628,11 +628,11 @@ function decodeCanonicalSourceBytes<Operation extends TaskRuntimePublicationOper
   );
 }
 
-function requireCanonical<Operation extends TaskRuntimePublicationOperationV1>(
+function requireCanonical<Operation extends TaskRuntimePublicationOperation>(
   input: Uint8Array,
-  encoded: Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error>,
+  encoded: Result.Result<Uint8Array, InvalidTaskRuntimePublicationError>,
   operation: Operation,
-): Result.Result<void, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<void, InvalidTaskRuntimePublicationError<Operation>> {
   return encoded.pipe(
     Result.mapError((failure) => reoperation(failure, operation)),
     Result.flatMap((canonical) => bytesEqualFullScan(input, canonical)
@@ -641,12 +641,12 @@ function requireCanonical<Operation extends TaskRuntimePublicationOperationV1>(
   );
 }
 
-function canonicalBytes<Operation extends TaskRuntimePublicationOperationV1>(
+function canonicalBytes<Operation extends TaskRuntimePublicationOperation>(
   value: Json,
   operation: Operation,
-): Result.Result<Uint8Array, InvalidTaskRuntimePublicationV1Error<Operation>> {
+): Result.Result<Uint8Array, InvalidTaskRuntimePublicationError<Operation>> {
   const bytes = UTF8.encode(encodeCanonicalJson(value, (issue) => {
-    throw new TaskRuntimePublicationCanonicalEncodingV1Defect({
+    throw new TaskRuntimePublicationCanonicalEncodingDefect({
       operation,
       issue,
     });
@@ -722,11 +722,11 @@ function hex(value: TaskDefinitionSha256V1): string {
   return encodeBytesToLowercaseHex(value);
 }
 
-function reoperation<Operation extends TaskRuntimePublicationOperationV1>(
-  failure: InvalidTaskRuntimePublicationV1Error,
+function reoperation<Operation extends TaskRuntimePublicationOperation>(
+  failure: InvalidTaskRuntimePublicationError,
   operation: Operation,
-): InvalidTaskRuntimePublicationV1Error<Operation> {
-  return new InvalidTaskRuntimePublicationV1Error({
+): InvalidTaskRuntimePublicationError<Operation> {
+  return new InvalidTaskRuntimePublicationError({
     operation,
     reason: failure.reason,
     ...(failure.path === undefined ? {} : { path: failure.path }),
@@ -735,14 +735,14 @@ function reoperation<Operation extends TaskRuntimePublicationOperationV1>(
   });
 }
 
-function invalid<Operation extends TaskRuntimePublicationOperationV1>(
+function invalid<Operation extends TaskRuntimePublicationOperation>(
   operation: Operation,
-  reason: TaskRuntimePublicationReasonV1,
+  reason: TaskRuntimePublicationReason,
   path?: string,
   observed?: number,
   maximum?: number,
-): InvalidTaskRuntimePublicationV1Error<Operation> {
-  return new InvalidTaskRuntimePublicationV1Error({
+): InvalidTaskRuntimePublicationError<Operation> {
+  return new InvalidTaskRuntimePublicationError({
     operation,
     reason,
     ...(path === undefined ? {} : { path }),
