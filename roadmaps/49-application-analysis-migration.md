@@ -2783,6 +2783,63 @@ active-head reread, legacy runtime fallback, route, trigger, production
 activation, mutation OCC/commit, or Task System change. The connected consumer
 cut and its durable replay proof remain 4c.
 
+Checkpoint 4c preflight: accepted after challenging the shipped Standard action
+System, the Application-generation admission and lifecycle owner, and the
+private 4b host composition. The cut is one unversioned Standard service, not a
+third action lifecycle:
+
+1. `ApplicationActionSystem` owns the public-operation composition. It decodes
+   the function, arguments, request key, authentication and execution context;
+   reads one issuer-backed active Application selection; selects the public
+   action through `ApplicationActionAdmission`; writes the canonical argument
+   body; admits the Application-generation request; prepares and dispatches the
+   scoped 4b bundle; and settles only through its opaque settlement capability.
+   The service is constructed as a Layer from the existing activation,
+   admission, evidence, callback/outbound, runner and execution-context owners.
+2. Exact replay must be resolved before selecting a new runtime target. The
+   persistence lifecycle owner therefore adds one read-only
+   `inspectApplicationAuthorityActionInvocation` operation that loads and
+   decodes only the `application_v1` branch under the existing current scope
+   authority transaction. It reuses the existing row decoder and missing-row,
+   corruption and resource failures. It neither accepts a legacy row nor
+   changes admission, claim, recovery, effect, settlement or fencing behavior.
+   This is required so head movement after admission retains the pinned target
+   and result instead of manufacturing a request-key conflict against the new
+   head.
+3. A missing request selects the current active Application target and admits
+   exactly once. An existing request must match function path, canonical
+   argument digest and execution-identity digest; its stored authority,
+   compatibility date, host policy and body reference remain authoritative.
+   Executing rows use the existing Application recovery operation. Terminal
+   rows replay without Worker loading. Admitted rows dispatch through 4b and
+   publish one completed, failed, uncertain or cancelled lifecycle through the
+   existing Application action tables.
+4. The compatibility-named `invokeStandardApplicationActionV1` becomes a thin
+   consumer of `ApplicationActionSystem`; it no longer reads an active revision
+   or imports the candidate-bound action System. The displaced implementation,
+   active-revision reader and tests are renamed explicit `Legacy...V1` owners
+   and remain private only for retained migration proof until `AA-R8`. There is
+   no generation switch, dual dispatch, comparison run or fallback inside the
+   new service.
+
+The connected private proof must cover first success, exact terminal replay
+without another Worker, conflicting request-key reuse, head movement before
+admission, head movement after admission with the pinned target retained,
+fresh Worker loads for distinct requests, callback child mutation, confirmed
+and uncertain outbound effects, cancellation/expiry recovery, structured user
+and Application errors, interruption cleanup ordering, and zero production
+access to the Legacy active-revision reader or candidate runtime-artifact
+coordinator. PGlite is sufficient for this checkpoint; the same vertical on
+genuine PostgreSQL remains an `AA-R7` gate.
+
+Self-review accepts this boundary because inspection is a missing projection of
+the already-single durable lifecycle, while the Standard Layer is the owner
+that composes it. Stop and amend before implementation if exact replay requires
+current-head revalidation, the service must accept both authority generations,
+the compatibility entrypoint retains the Legacy reader, host completion can
+settle before capability drain, or any route, trigger, mutation OCC/commit,
+Task System or production deployment owner must change.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
