@@ -482,6 +482,25 @@ caller-ownership detachment. Its Application source port keeps terminal
 missing/corrupt evidence distinct from transient resource failure. D3b remains
 the sole owner of the true start session, interruption and provider adapter.
 
+#### DTE06-D3b.i implementation receipt
+
+D3b.i is complete. The retained Legacy branch now has its own exact private
+request/result codec, canonical runtime-object definition builder, fresh
+outbound-denied Worker Loader host, and terminal Miniflare proof. The builder
+re-decodes the immutable Legacy binding and all five runtime-object roles,
+correlates the exact referenced object sequence, byte lengths and SHA-256
+identities, recomputes projection/module/entry/group/materialization roots, and
+admits runtime implementation, compatibility flags, compute profile and wall
+policy before graph construction. Its neutral module-graph seam consumes only
+the verified projection modules; it never constructs an Application source
+artifact or Application runtime target. The host returns terminal local
+evidence only and does not call a provider or write lifecycle state. Focused
+proof covers canonical execution, deterministic globals, corruption and policy
+rejection, exact Legacy wire exclusivity, fresh Worker loads, outbound denial,
+typed remote errors and result disposal. D3b.ii remains the sole owner of the
+accepted start session and interruption surface; D3b.iii remains the sole owner
+of provider composition.
+
 ### DTE06-D4: Private System-Test Composition
 
 - compose the D3 adapter only in an explicitly private Miniflare/system-test

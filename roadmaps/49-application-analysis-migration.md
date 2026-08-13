@@ -3384,6 +3384,20 @@ unchanged `TaskComputeProvider` adapter. No checkpoint may translate Legacy
 runtime objects into Application authority or route Application through the
 Legacy definition.
 
+Checkpoint 5d2b.i is now complete. The retained Legacy path has a separate
+exact private Worker request/result wire, canonical runtime-object definition
+builder and terminal Worker Loader host. It re-verifies the immutable binding,
+object sequence, byte/digest identities and projection/entry/group/materializer
+roots, applies admitted runtime/profile/flag/duration policy, and executes only
+the declared durable-task export in a fresh outbound-denied Worker. Shared
+module-graph mechanics now accept a neutral verified module projection, so the
+Legacy path does not manufacture an Application source artifact or runtime
+target. Its result remains process-local terminal evidence and no provider,
+start-session, discovery or lifecycle owner is present. Focused protocol,
+Miniflare and host proofs are green. Checkpoint 5d2b.ii remains next and owns
+the exact accepted start session plus correlated interruption for both genuine
+generation-specific Workers.
+
 The accepted 5d3 composition owns `select` and `createRun` through the existing
 issuer-backed Application selection and Application run-creation store. It does
 not expose Drizzle, physical locators, activation mutation or a Legacy selector.

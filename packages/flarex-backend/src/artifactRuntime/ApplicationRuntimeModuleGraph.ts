@@ -8,12 +8,24 @@ import type {
 } from "../sourceArtifactV2/ApplicationAnalysisReader";
 
 const APPLICATION_MODULE_PREFIX = "__flarex_application_modules" as const;
+const LEGACY_TASK_MODULE_PREFIX = "__flarex_legacy_task_modules" as const;
 
 export interface ApplicationRuntimeModuleGraph {
   readonly mainModule: string;
   readonly coreModule: string;
   readonly executionModule: string;
   readonly modules: Readonly<Record<string, WorkerLoaderModule | string>>;
+}
+
+interface RuntimeModuleGraphSource {
+  readonly identitySha256Hex: string;
+  readonly trustedStem: string;
+  readonly executionModulePath: string;
+  readonly modulePrefix: string;
+  readonly modules: ReadonlyArray<Readonly<{
+    readonly path: string;
+    readonly source: string;
+  }>>;
 }
 
 export function makeApplicationRuntimeModuleGraph(input: {
@@ -27,15 +39,80 @@ export function makeApplicationRuntimeModuleGraph(input: {
     readonly execution: string;
   }>) => string;
 }): ApplicationRuntimeModuleGraph {
+  return makeRuntimeModuleGraph({
+    source: {
+      identitySha256Hex: input.source.sourceArtifact.rootSha256,
+      trustedStem: "__flarex_application_runtime",
+      executionModulePath:
+        input.executionModulePath ?? input.source.sourceArtifact.executionModulePath,
+      modulePrefix: APPLICATION_MODULE_PREFIX,
+      modules: input.source.modules,
+    },
+    coreSource: input.coreSource,
+    serverExports: input.serverExports,
+    valuesExports: input.valuesExports,
+    entrypointSource: input.entrypointSource,
+  });
+}
+
+/**
+ * Builds the private Legacy task graph from already authenticated canonical
+ * runtime-projection modules. This deliberately accepts no Application source
+ * artifact or Application runtime target.
+ */
+export function makeLegacyTaskRuntimeModuleGraph(input: {
+  readonly projectionSha256Hex: string;
+  readonly executionModulePath: string;
+  readonly modules: ReadonlyArray<Readonly<{
+    readonly path: string;
+    readonly source: string;
+  }>>;
+  readonly coreSource: string;
+  readonly serverExports: ReadonlyArray<string>;
+  readonly valuesExports: ReadonlyArray<string>;
+  readonly entrypointSource: (imports: Readonly<{
+    readonly core: string;
+    readonly execution: string;
+  }>) => string;
+}): ApplicationRuntimeModuleGraph {
+  return makeRuntimeModuleGraph({
+    source: {
+      identitySha256Hex: input.projectionSha256Hex,
+      trustedStem: "__flarex_legacy_task_runtime",
+      executionModulePath: input.executionModulePath,
+      modulePrefix: LEGACY_TASK_MODULE_PREFIX,
+      modules: input.modules,
+    },
+    coreSource: input.coreSource,
+    serverExports: input.serverExports,
+    valuesExports: input.valuesExports,
+    entrypointSource: input.entrypointSource,
+  });
+}
+
+function makeRuntimeModuleGraph(input: {
+  readonly source: RuntimeModuleGraphSource;
+  readonly coreSource: string;
+  readonly serverExports: ReadonlyArray<string>;
+  readonly valuesExports: ReadonlyArray<string>;
+  readonly entrypointSource: (imports: Readonly<{
+    readonly core: string;
+    readonly execution: string;
+  }>) => string;
+}): ApplicationRuntimeModuleGraph {
   const collision = findApplicationAnalysisFrameworkShimCollision(
     input.source.modules.map(module => module.path),
   );
   if (collision !== undefined) {
     throw new Error(`Application runtime source collides at ${collision}.`);
   }
-  const trusted = trustedModuleNames(input.source.sourceArtifact.rootSha256);
-  const executionModule = applicationModuleName(
-    input.executionModulePath ?? input.source.sourceArtifact.executionModulePath,
+  const trusted = trustedModuleNames(
+    input.source.trustedStem,
+    input.source.identitySha256Hex,
+  );
+  const executionModule = runtimeModuleName(
+    input.source.modulePrefix,
+    input.source.executionModulePath,
   );
   const modules: Record<string, WorkerLoaderModule | string> = Object.create(null);
   modules[trusted.entrypoint] = Object.freeze({
@@ -46,7 +123,7 @@ export function makeApplicationRuntimeModuleGraph(input: {
   });
   modules[trusted.core] = Object.freeze({ js: input.coreSource });
   for (const module of input.source.modules) {
-    const name = applicationModuleName(module.path);
+    const name = runtimeModuleName(input.source.modulePrefix, module.path);
     if (Object.hasOwn(modules, name)) {
       throw new Error(`Duplicate application runtime module ${module.path}.`);
     }
@@ -61,7 +138,11 @@ export function makeApplicationRuntimeModuleGraph(input: {
     for (const [frameworkModule, exportNames] of Object.entries(
       supportedFrameworkModules,
     )) {
-      const shimName = frameworkShimName(applicationModule.path, frameworkModule);
+      const shimName = frameworkShimName(
+        input.source.modulePrefix,
+        applicationModule.path,
+        frameworkModule,
+      );
       if (generatedShims.has(shimName)) continue;
       if (Object.hasOwn(modules, shimName)) {
         throw new Error(`Application runtime framework collision ${shimName}.`);
@@ -90,26 +171,27 @@ export function makeApplicationRuntimeModuleGraph(input: {
   });
 }
 
-function trustedModuleNames(rootSha256: string): Readonly<{
+function trustedModuleNames(stemPrefix: string, rootSha256: string): Readonly<{
   readonly entrypoint: string;
   readonly core: string;
 }> {
-  const stem = `__flarex_application_runtime_${rootSha256}`;
+  const stem = `${stemPrefix}_${rootSha256}`;
   return Object.freeze({
     entrypoint: `${stem}_entrypoint.js`,
     core: `${stem}_core.js`,
   });
 }
 
-function applicationModuleName(path: string): string {
-  return `${APPLICATION_MODULE_PREFIX}/${path}`;
+function runtimeModuleName(prefix: string, path: string): string {
+  return `${prefix}/${path}`;
 }
 
 function frameworkShimName(
+  modulePrefix: string,
   importingApplicationPath: string,
   frameworkModule: string,
 ): string {
-  const importingModule = applicationModuleName(importingApplicationPath);
+  const importingModule = runtimeModuleName(modulePrefix, importingApplicationPath);
   const lastSlash = importingModule.lastIndexOf("/");
   return `${importingModule.slice(0, lastSlash + 1)}${frameworkModule}`;
 }
