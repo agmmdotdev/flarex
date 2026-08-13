@@ -18,6 +18,7 @@
     "./internal/application-runtime-target-v1": "./src/application-runtime-target-v1.ts",
     "./internal/application-runtime-cold-receipt-v1": "./src/application-runtime-cold-receipt-v1.ts",
     "./internal/application-worker-v1": "./src/application-worker-v1.ts",
+    "./internal/application-action-authority-v1": "./src/application-action-authority-v1.ts",
     "./internal/application-mutation-authority-v1": "./src/application-mutation-authority-v1.ts",
     "./internal/application-mutation-grant-v1": "./src/application-mutation-grant-v1.ts",
     "./auth": "./src/auth.ts",

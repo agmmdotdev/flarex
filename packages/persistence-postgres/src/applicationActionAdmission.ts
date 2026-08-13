@@ -10,12 +10,11 @@ import {
 import { and, eq } from "drizzle-orm";
 import { Data, Effect, Result } from "effect";
 import {
-  canonicalizeApplicationMutationExecutionAuthorityV1,
-  type CanonicalApplicationMutationExecutionAuthorityV1,
-} from "flarex-protocol/internal/application-mutation-authority-v1";
-import {
-  canonicalizeApplicationRuntimeTargetV1,
-} from "flarex-protocol/internal/application-runtime-target-v1";
+  canonicalizeApplicationActionExecutionAuthorityV1,
+  type CanonicalApplicationActionExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-action-authority-v1";
+import { canonicalizeApplicationRuntimeTargetV1 } from
+  "flarex-protocol/internal/application-runtime-target-v1";
 
 import {
   claimApplicationActiveSelection,
@@ -32,8 +31,7 @@ import {
   type ApplicationSchemaAuthorityPublisher,
 } from "./applicationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "./deployments";
-import type { ReadSchemaVersionArtifactError } from
-  "./schemaVersionArtifacts";
+import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
 import {
   lockScopeClockForShareInTransactionEffect,
   type LockScopeClockForShareError,
@@ -49,19 +47,17 @@ import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "./transactionSessionAttemptKernel";
-import { runLocatedReadCommittedEffect } from
-  "./locatedReadCommittedEffect";
+import { runLocatedReadCommittedEffect } from "./locatedReadCommittedEffect";
 import { runApplicationAdmissionQuery } from "./applicationAdmissionQuery";
 
-export interface ApplicationMutationAdmission {
+export interface ApplicationActionAdmission {
   readonly selection: ApplicationActiveSelection;
   readonly basis: ApplicationActiveSelectionBasis;
-  readonly executionAuthority:
-    CanonicalApplicationMutationExecutionAuthorityV1;
+  readonly executionAuthority: CanonicalApplicationActionExecutionAuthorityV1;
   readonly schema: ApplicationSchemaAuthority;
 }
 
-export interface ApplicationMutationAdmissionContext {
+export interface ApplicationActionAdmissionContext {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
   readonly schema: ApplicationSchemaAuthorityPublisher<unknown>;
@@ -70,8 +66,8 @@ export interface ApplicationMutationAdmissionContext {
   >;
 }
 
-export class ApplicationMutationAdmissionError extends Data.TaggedError(
-  "ApplicationMutationAdmissionError",
+export class ApplicationActionAdmissionError extends Data.TaggedError(
+  "ApplicationActionAdmissionError",
 )<{
   readonly reason:
     | "invalidComposition"
@@ -86,8 +82,8 @@ export class ApplicationMutationAdmissionError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export type SelectApplicationMutationAdmissionError =
-  | ApplicationMutationAdmissionError
+export type SelectApplicationActionAdmissionError =
+  | ApplicationActionAdmissionError
   | ApplicationActivationError
   | ApplicationSchemaAuthorityError
   | ReadSchemaVersionArtifactError
@@ -95,36 +91,31 @@ export type SelectApplicationMutationAdmissionError =
   | LockScopeClockForShareError
   | LocatedReadCommittedTransactionFailureV1;
 
-export const selectApplicationMutationAdmission = Effect.fn(
-  "ApplicationMutationAdmission.select",
+export const selectApplicationActionAdmission = Effect.fn(
+  "ApplicationActionAdmission.select",
 )(function* (
   selection: ApplicationActiveSelection,
   functionPath: string,
-  context: ApplicationMutationAdmissionContext,
+  context: ApplicationActionAdmissionContext,
 ): Effect.fn.Return<
-  ApplicationMutationAdmission,
-  SelectApplicationMutationAdmissionError
+  ApplicationActionAdmission,
+  SelectApplicationActionAdmissionError
 > {
-  if (
-    typeof functionPath !== "string" || functionPath.trim().length === 0
-  ) return yield* failure("invalidFunction");
+  if (typeof functionPath !== "string" || functionPath.trim().length === 0) {
+    return yield* failure("invalidFunction");
+  }
   const basis = yield* Effect.fromResult(
     claimApplicationActiveSelection(selection),
   );
   if (
     basis.deploymentId !== context.deploymentId ||
-    !hasApplicationSchemaAuthorityComposition(
-      context.schema,
-      context.controlDb,
-    )
-  ) {
-    return yield* failure("invalidComposition");
-  }
+    !hasApplicationSchemaAuthorityComposition(context.schema, context.controlDb)
+  ) return yield* failure("invalidComposition");
   const fn = basis.manifest.functions.find(candidate =>
     candidate.path === functionPath
   );
   if (fn === undefined) return yield* failure("functionMissing");
-  if (fn.kind !== "mutation" || fn.visibility !== "public") {
+  if (fn.kind !== "action" || fn.visibility !== "public") {
     return yield* failure("functionUnsupported");
   }
   const schema = yield* context.schema.readPublished({
@@ -138,9 +129,9 @@ export const selectApplicationMutationAdmission = Effect.fn(
     schema.schemaManifestSha256 !==
       encodeBytesToLowercaseHex(basis.schemaManifestSha256)
   ) return yield* failure("invalidComposition");
-  const mutationFunction = Object.freeze({
+  const actionFunction = Object.freeze({
     ...fn,
-    kind: "mutation" as const,
+    kind: "action" as const,
     visibility: "public" as const,
   });
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
@@ -150,7 +141,7 @@ export const selectApplicationMutationAdmission = Effect.fn(
   yield* requireSameAuthority(basis.authority, located.authority);
   const storedFunction = yield* runLocatedRead(
     located.target,
-    tx => selectStoredFunction(tx, selection, basis, mutationFunction),
+    tx => selectStoredFunction(tx, selection, basis, actionFunction),
   );
   const runtimeTarget = yield* Effect.fromResult(
     canonicalizeApplicationRuntimeTargetV1({
@@ -173,8 +164,7 @@ export const selectApplicationMutationAdmission = Effect.fn(
       publicationSha256: encodeBytesToLowercaseHex(
         basis.publicationSha256,
       ),
-      executionModulePath:
-        basis.manifest.sourceArtifact.executionModulePath,
+      executionModulePath: basis.manifest.sourceArtifact.executionModulePath,
       function: storedFunction,
     }).pipe(Result.mapError(cause => failureValue(
       "invalidExecutionAuthority",
@@ -184,8 +174,8 @@ export const selectApplicationMutationAdmission = Effect.fn(
   );
   const runtimeTargetSha256 = yield* sha256Hex(runtimeTarget.canonicalBytes);
   const executionAuthority = yield*
-    canonicalizeApplicationMutationExecutionAuthorityV1({
-      format: "flarex.application-mutation-execution-authority",
+    canonicalizeApplicationActionExecutionAuthorityV1({
+      format: "flarex.application-action-execution-authority",
       version: 1,
       runtimeTarget: runtimeTarget.target,
       runtimeTargetSha256,
@@ -205,7 +195,7 @@ function selectStoredFunction(
   selection: ApplicationActiveSelection,
   basis: ApplicationActiveSelectionBasis,
   fn: ApplicationManifestV1["functions"][number] & {
-    readonly kind: "mutation";
+    readonly kind: "action";
     readonly visibility: "public";
   },
 ) {
@@ -230,11 +220,7 @@ function selectStoredFunction(
     const row = rows[0]!;
     const entryBytes = yield* Effect.fromResult(
       applicationFunctionEntryPublicationFrameV1(fn).pipe(
-        Result.mapError(cause => failureValue(
-          "storedFunction",
-          false,
-          cause,
-        )),
+        Result.mapError(cause => failureValue("storedFunction", false, cause)),
       ),
     );
     const entrySha256 = yield* sha256(entryBytes);
@@ -250,7 +236,7 @@ function selectStoredFunction(
     ) return yield* failure("storedFunction");
     return Object.freeze({
       ...fn,
-      kind: "mutation" as const,
+      kind: "action" as const,
       visibility: "public" as const,
       entrySha256: encodeBytesToLowercaseHex(entrySha256),
     });
@@ -268,8 +254,7 @@ function requireSameAuthority(
       expected.storageGeneration === actual.storageGeneration &&
       expected.storageGenerationFence === actual.storageGenerationFence &&
       expected.epoch === actual.epoch && left.kind === right.kind &&
-      left.databaseKey === right.databaseKey &&
-      left.schemaName === right.schemaName
+      left.databaseKey === right.databaseKey && left.schemaName === right.schemaName
     ? Effect.void
     : failure("authorityMismatch");
 }
@@ -279,11 +264,11 @@ function runLocatedRead<Value, Failure>(
   body: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
 ): Effect.Effect<
   Value,
-  Failure | ApplicationMutationAdmissionError |
+  Failure | ApplicationActionAdmissionError |
     LocatedReadCommittedTransactionFailureV1
 > {
   return runLocatedReadCommittedEffect(target, {
-    rollbackMessage: "Application mutation admission transaction rolled back.",
+    rollbackMessage: "Application action admission transaction rolled back.",
     cleanupDefect: cause => failureValue("resourceFailure", false, cause),
   }, body);
 }
@@ -291,12 +276,12 @@ function runLocatedRead<Value, Failure>(
 function query<Row>(statement: PromiseLike<ReadonlyArray<Row>>) {
   return runApplicationAdmissionQuery(statement, cause => failureValue(
       "resourceFailure",
-      isRetryableApplicationMutationAdmissionCause(cause),
+      isRetryableApplicationActionAdmissionCause(cause),
       cause,
     ));
 }
 
-export function isRetryableApplicationMutationAdmissionCause(
+export function isRetryableApplicationActionAdmissionCause(
   cause: unknown,
 ): boolean {
   if (typeof cause !== "object" || cause === null) return false;
@@ -319,7 +304,7 @@ function sha256Hex(bytes: Uint8Array) {
 }
 
 function failure(
-  reason: ApplicationMutationAdmissionError["reason"],
+  reason: ApplicationActionAdmissionError["reason"],
   retryable = false,
   cause?: unknown,
 ) {
@@ -327,11 +312,11 @@ function failure(
 }
 
 function failureValue(
-  reason: ApplicationMutationAdmissionError["reason"],
+  reason: ApplicationActionAdmissionError["reason"],
   retryable = false,
   cause?: unknown,
 ) {
-  return new ApplicationMutationAdmissionError({
+  return new ApplicationActionAdmissionError({
     reason,
     retryable,
     ...(cause === undefined ? {} : { cause }),

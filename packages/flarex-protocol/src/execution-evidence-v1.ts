@@ -10,6 +10,8 @@ import { Data, Result } from "effect";
 
 export const APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V1 =
   "flarex.system/application-action-invocation-request/v1" as const;
+export const APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2 =
+  "flarex.system/application-action-invocation-request/v2" as const;
 export const APPLICATION_ACTION_INVOCATION_OUTCOME_IDENTITY_V1 =
   "flarex.system/application-action-invocation-outcome/v1" as const;
 export const EXTERNAL_EFFECT_EXECUTION_SUBJECT_IDENTITY_V1 =
@@ -75,6 +77,17 @@ export interface ApplicationActionInvocationRequestFrameV1 {
   readonly arguments: ExecutionEvidenceBodyReferenceV1;
 }
 
+export interface ApplicationActionInvocationRequestFrameV2 {
+  readonly scopeId: string;
+  readonly requestKey: string;
+  readonly executionAuthoritySha256: Uint8Array;
+  readonly actionFunctionPath: string;
+  readonly executionIdentitySha256: Uint8Array;
+  readonly compatibilityDate: string;
+  readonly hostPolicySha256: Uint8Array;
+  readonly arguments: ExecutionEvidenceBodyReferenceV1;
+}
+
 export type ApplicationActionInvocationOutcomeFrameV1 =
   | Readonly<{
       readonly status: "completed";
@@ -112,6 +125,7 @@ export class ExecutionEvidenceProtocolV1Error extends Data.TaggedError(
 )<{
   readonly identity:
     | typeof APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V1
+    | typeof APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2
     | typeof APPLICATION_ACTION_INVOCATION_OUTCOME_IDENTITY_V1
     | typeof EXTERNAL_EFFECT_EXECUTION_SUBJECT_IDENTITY_V1
     | typeof EXTERNAL_EFFECT_ATTEMPT_IDENTITY_V1
@@ -253,6 +267,23 @@ export const decodeApplicationActionInvocationRequestV1 = (
   invocationRequestProjection,
 );
 
+export const encodeApplicationActionInvocationRequestV2 = (
+  input: unknown,
+) => encodeFrame(
+  APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2,
+  captureInvocationRequestV2(input),
+  invocationRequestProjectionV2,
+);
+
+export const decodeApplicationActionInvocationRequestV2 = (
+  input: unknown,
+) => decodeFrame(
+  APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2,
+  input,
+  invocationRequestFromProjectionV2,
+  invocationRequestProjectionV2,
+);
+
 export const encodeApplicationActionInvocationOutcomeV1 = (
   input: unknown,
 ) => encodeFrame(
@@ -300,6 +331,7 @@ export const decodeExternalEffectAttemptV1 = (input: unknown) => decodeFrame(
 
 type Identity =
   | typeof APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V1
+  | typeof APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2
   | typeof APPLICATION_ACTION_INVOCATION_OUTCOME_IDENTITY_V1
   | typeof EXTERNAL_EFFECT_EXECUTION_SUBJECT_IDENTITY_V1
   | typeof EXTERNAL_EFFECT_ATTEMPT_IDENTITY_V1;
@@ -444,6 +476,101 @@ function invocationRequestFromProjection(value: unknown) {
     actionBindingSha256: unhex(value[5]), executionIdentitySha256: unhex(value[6]),
     compatibilityDate: value[7], hostPolicySha256: unhex(value[8]),
     arguments: referenceFromProjection(value[9]),
+  });
+}
+
+function captureInvocationRequestV2(
+  input: unknown,
+): Result.Result<
+  ApplicationActionInvocationRequestFrameV2,
+  ExecutionEvidenceProtocolV1Error
+> {
+  const identity = APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2;
+  return Result.gen(function* () {
+    const value = yield* exactRecord(input, [
+      "scopeId", "requestKey", "executionAuthoritySha256",
+      "actionFunctionPath", "executionIdentitySha256", "compatibilityDate",
+      "hostPolicySha256", "arguments",
+    ], identity, "encode", "$");
+    const argumentsReference = yield* decodeExecutionEvidenceBodyReferenceV1(
+      value.arguments,
+    ).pipe(Result.mapError(() =>
+      protocolError(identity, "encode", "invalidInput", "arguments")
+    ));
+    if (argumentsReference.kind !== "action_arguments") {
+      return yield* Result.fail(protocolError(
+        identity,
+        "encode",
+        "invalidInput",
+        "arguments.kind",
+      ));
+    }
+    return Object.freeze({
+      scopeId: yield* textField(value.scopeId, identity, "scopeId"),
+      requestKey: yield* textField(value.requestKey, identity, "requestKey"),
+      executionAuthoritySha256: yield* digestField(
+        value.executionAuthoritySha256,
+        identity,
+        "executionAuthoritySha256",
+      ),
+      actionFunctionPath: yield* textField(
+        value.actionFunctionPath,
+        identity,
+        "actionFunctionPath",
+      ),
+      executionIdentitySha256: yield* digestField(
+        value.executionIdentitySha256,
+        identity,
+        "executionIdentitySha256",
+      ),
+      compatibilityDate: yield* textField(
+        value.compatibilityDate,
+        identity,
+        "compatibilityDate",
+      ),
+      hostPolicySha256: yield* digestField(
+        value.hostPolicySha256,
+        identity,
+        "hostPolicySha256",
+      ),
+      arguments: argumentsReference,
+    });
+  });
+}
+
+function invocationRequestProjectionV2(
+  value: ApplicationActionInvocationRequestFrameV2,
+): JsonProjection {
+  return [
+    value.scopeId,
+    value.requestKey,
+    hex(value.executionAuthoritySha256),
+    value.actionFunctionPath,
+    hex(value.executionIdentitySha256),
+    value.compatibilityDate,
+    hex(value.hostPolicySha256),
+    referenceProjection(value.arguments),
+  ];
+}
+
+function invocationRequestFromProjectionV2(value: unknown) {
+  if (!isTuple(value, 8)) {
+    return Result.fail(protocolError(
+      APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2,
+      "decode",
+      "malformed",
+      "$projection",
+    ));
+  }
+  return captureInvocationRequestV2({
+    scopeId: value[0],
+    requestKey: value[1],
+    executionAuthoritySha256: unhex(value[2]),
+    actionFunctionPath: value[3],
+    executionIdentitySha256: unhex(value[4]),
+    compatibilityDate: value[5],
+    hostPolicySha256: unhex(value[6]),
+    arguments: referenceFromProjection(value[7]),
   });
 }
 

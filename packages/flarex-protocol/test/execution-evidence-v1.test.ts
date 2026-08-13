@@ -3,15 +3,18 @@ import { Result } from "effect";
 import {
   APPLICATION_ACTION_INVOCATION_OUTCOME_IDENTITY_V1,
   APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V1,
+  APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2,
   EXTERNAL_EFFECT_ATTEMPT_IDENTITY_V1,
   EXTERNAL_EFFECT_EXECUTION_SUBJECT_IDENTITY_V1,
   decodeApplicationActionInvocationOutcomeV1,
   decodeApplicationActionInvocationRequestV1,
+  decodeApplicationActionInvocationRequestV2,
   decodeExecutionEvidenceBodyReferenceV1,
   decodeExternalEffectAttemptV1,
   decodeExternalEffectExecutionSubjectV1,
   encodeApplicationActionInvocationOutcomeV1,
   encodeApplicationActionInvocationRequestV1,
+  encodeApplicationActionInvocationRequestV2,
   encodeExternalEffectAttemptV1,
   encodeExternalEffectExecutionSubjectV1,
   makeExecutionEvidenceBodyReferenceV1,
@@ -93,6 +96,37 @@ describe("AAV-A1 execution evidence protocol", () => {
     expect(required(
       decodeApplicationActionInvocationOutcomeV1(outcome.canonicalBytes),
     ).canonicalBytes).toEqual(outcome.canonicalBytes);
+  });
+
+  it("round-trips the Application authority request without legacy evidence", () => {
+    const argumentsReference = required(makeExecutionEvidenceBodyReferenceV1(
+      "action_arguments",
+      digest(12),
+      29,
+    ));
+    const request = required(encodeApplicationActionInvocationRequestV2({
+      scopeId: "scope_00000000-0000-4000-8000-000000000001",
+      requestKey: "request-application-1",
+      executionAuthoritySha256: digest(13),
+      actionFunctionPath: "payments:charge",
+      executionIdentitySha256: digest(14),
+      compatibilityDate: "2026-08-04",
+      hostPolicySha256: digest(15),
+      arguments: argumentsReference,
+    }));
+    const decoded = required(
+      decodeApplicationActionInvocationRequestV2(request.canonicalBytes),
+    );
+    expect(decoded.frame.executionAuthoritySha256).toEqual(digest(13));
+    expect(decoded.frame).not.toHaveProperty("applicationRevisionId");
+    expect(decoded.frame).not.toHaveProperty("candidateSha256");
+    expect(decoded.frame).not.toHaveProperty("actionBindingSha256");
+    expect(new TextDecoder().decode(request.canonicalBytes)).toContain(
+      `${APPLICATION_ACTION_INVOCATION_REQUEST_IDENTITY_V2}\0`,
+    );
+    expect(Result.isFailure(
+      decodeApplicationActionInvocationRequestV1(request.canonicalBytes),
+    )).toBe(true);
   });
 
   it("keeps direct-action and durable-task subjects domain-distinct", () => {

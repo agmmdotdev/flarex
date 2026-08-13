@@ -720,6 +720,10 @@ export async function proveApplicationActionAuthorityV1(
         column_name like '%bytes%'
         or data_type in ('json', 'jsonb')
       )
+      and column_name not in (
+        'application_execution_authority_json',
+        'application_execution_authority_canonical_bytes'
+      )
   `);
   const counts = await lane.persistence.query<{
     invocations: string;

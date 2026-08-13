@@ -36,6 +36,10 @@ import {
   type CanonicalApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import {
+  encodeApplicationActionInvocationRequestV2,
+  makeExecutionEvidenceBodyReferenceV1,
+} from "flarex-protocol/internal/execution-evidence-v1";
+import {
   decodeAppDocumentIdV1,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
@@ -105,6 +109,20 @@ import {
   isRetryableApplicationMutationAdmissionCause,
   selectApplicationMutationAdmission,
 } from "../src/applicationMutationAdmission";
+import { selectApplicationActionAdmission } from
+  "../src/applicationActionAdmission";
+import {
+  admitApplicationAuthorityActionInvocation,
+  claimDirectActionExecutionV1,
+  claimApplicationAuthorityActionExecution,
+  confirmExternalEffectAttemptV1,
+  createLocatedApplicationActionAuthorityTargetV1,
+  declareExternalEffectDispatchV1,
+  prepareExternalEffectAttemptV1,
+  recoverExpiredApplicationAuthorityActionExecution,
+  requestApplicationAuthorityActionCancellation,
+  settleApplicationAuthorityActionInvocation,
+} from "../src/applicationActionAuthorityV1";
 import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
 import { makeApplicationReadinessRepository } from
@@ -173,6 +191,7 @@ import {
   fxSystemIndexBuildStates,
   fxSystemApplicationFunctionsV1,
   fxSystemApplicationActiveHeadsV1,
+  fxSystemApplicationActionInvocationsV1,
   fxSystemScopeClocks,
 } from "../src/schema";
 
@@ -960,6 +979,538 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }
   });
 
+  it("selects an exact public Application action without legacy revision evidence", async () => {
+    const fixture = await readinessFixture({ functionKind: "action" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const admitted = await runEffect(selectApplicationActionAdmission(
+      active.selection,
+      "users:get",
+      Object.freeze({
+        deploymentId: fixture.input.deploymentId,
+        controlDb: fixture.control.drizzle,
+        schema: fixture.schema,
+        authority: fixture.authorityPorts,
+      }),
+    ));
+
+    expect(admitted.executionAuthority.authority).toMatchObject({
+      format: "flarex.application-action-execution-authority",
+      version: 1,
+      activationSequence: active.basis.activationSequence.toString(),
+      activeHeadSha256: hex(active.basis.headSha256),
+      schemaVersionId: active.basis.schemaVersionId,
+      runtimeTarget: {
+        revisionId: fixture.input.revisionId,
+        function: {
+          path: "users:get",
+          kind: "action",
+          visibility: "public",
+        },
+      },
+    });
+    expect(admitted.executionAuthority.authority).not.toHaveProperty(
+      "applicationRevisionId",
+    );
+    expect(admitted.executionAuthority.authority).not.toHaveProperty(
+      "candidateSha256",
+    );
+
+    const argumentReference = Result.getOrThrow(
+      makeExecutionEvidenceBodyReferenceV1(
+        "action_arguments",
+        new Uint8Array(32).fill(0x41),
+        19,
+      ),
+    );
+    const makeRequest = (requestKey: string, seed: number) =>
+      Result.getOrThrow(encodeApplicationActionInvocationRequestV2({
+        scopeId: active.basis.authority.scopeId,
+        requestKey,
+        executionAuthoritySha256: admitted.executionAuthority.sha256,
+        actionFunctionPath: "users:get",
+        executionIdentitySha256: new Uint8Array(32).fill(seed),
+        compatibilityDate: COMPATIBILITY_DATE,
+        hostPolicySha256: new Uint8Array(32).fill(0x43),
+        arguments: argumentReference,
+      }));
+    const request = makeRequest("application-action-request-1", 0x42);
+    const actionContext = Object.freeze({
+      target: createLocatedApplicationActionAuthorityTargetV1(
+        fixture.target.drizzle,
+        active.basis.authority.physicalLocator,
+      ),
+      authority: active.basis.authority,
+      sha256: Object.freeze({
+        hash: (bytes: Uint8Array) => Effect.promise(async () =>
+          new Uint8Array(await globalThis.crypto.subtle.digest(
+            "SHA-256",
+            copyBytesToArrayBuffer(bytes),
+          ))
+        ),
+      }),
+    });
+    const inserted = await runEffect(
+      admitApplicationAuthorityActionInvocation({
+        request,
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000401",
+      }, actionContext),
+    );
+    const replayed = await runEffect(
+      admitApplicationAuthorityActionInvocation({
+        request,
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000402",
+      }, actionContext),
+    );
+    expect(inserted.disposition).toBe("inserted");
+    expect(replayed.disposition).toBe("replayed");
+    const conflicting = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        request: makeRequest("application-action-request-1", 0x4c),
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000406",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(conflicting)).toBe(true);
+    if (Result.isFailure(conflicting)) {
+      expect(conflicting.failure).toMatchObject({
+        _tag: "ApplicationActionRequestKeyConflictV1Error",
+      });
+    }
+    expect(inserted.invocation).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      actionFunctionPath: "users:get",
+      lifecycle: "admitted",
+    });
+    expect(inserted.invocation).not.toHaveProperty("applicationRevisionId");
+    expect(inserted.invocation).not.toHaveProperty("candidateSha256");
+    expect(inserted.invocation).not.toHaveProperty("actionBindingSha256");
+    const inertClaim = await runEffect(Effect.result(
+      claimDirectActionExecutionV1(
+        "application-action-request-1",
+        1_000,
+        new Uint8Array(32).fill(0x44),
+        actionContext,
+      ),
+    ));
+    expect(Result.isFailure(inertClaim)).toBe(true);
+    if (Result.isFailure(inertClaim)) {
+      expect(inertClaim.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityCorruptionV1Error",
+      });
+    }
+    expect((await fixture.target.drizzle.select({
+      lifecycle: fxSystemApplicationActionInvocationsV1.lifecycle,
+      executionGeneration:
+        fxSystemApplicationActionInvocationsV1.executionGeneration,
+    }).from(fxSystemApplicationActionInvocationsV1).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-request-1",
+    )))[0]).toEqual({ lifecycle: "admitted", executionGeneration: 0n });
+    const claimed = await runEffect(
+      claimApplicationAuthorityActionExecution(
+        "application-action-request-1",
+        60_000,
+        new Uint8Array(32).fill(0x44),
+        actionContext,
+      ),
+    );
+    expect(claimed.invocation).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      lifecycle: "executing",
+      executionGeneration: 1n,
+    });
+    const outboundRequest = Result.getOrThrow(
+      makeExecutionEvidenceBodyReferenceV1(
+        "outbound_http_request",
+        new Uint8Array(32).fill(0x45),
+        31,
+      ),
+    );
+    const prepared = await runEffect(prepareExternalEffectAttemptV1(
+      claimed.subject,
+      {
+        effectKind: "outbound_http",
+        stableEffectKey: "application-effect-1",
+        requestIdentitySha256: new Uint8Array(32).fill(0x46),
+        request: outboundRequest,
+      },
+      actionContext,
+    ));
+    expect(prepared).toMatchObject({ effectOrdinal: 1n, state: "prepared" });
+    await runEffect(declareExternalEffectDispatchV1(
+      claimed.subject,
+      1n,
+      actionContext,
+    ));
+    const outboundResponse = Result.getOrThrow(
+      makeExecutionEvidenceBodyReferenceV1(
+        "outbound_http_response",
+        new Uint8Array(32).fill(0x47),
+        37,
+      ),
+    );
+    await runEffect(confirmExternalEffectAttemptV1(
+      claimed.subject,
+      1n,
+      { effectKind: "outbound_http", response: outboundResponse },
+      actionContext,
+    ));
+    const resultReference = Result.getOrThrow(
+      makeExecutionEvidenceBodyReferenceV1(
+        "action_result",
+        new Uint8Array(32).fill(0x48),
+        23,
+      ),
+    );
+    const settled = await runEffect(
+      settleApplicationAuthorityActionInvocation(
+        claimed.subject,
+        { lifecycle: "completed", result: resultReference },
+        actionContext,
+      ),
+    );
+    expect(settled).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      lifecycle: "completed",
+      lastEffectOrdinal: 1n,
+    });
+
+    const cancellationRequest = makeRequest(
+      "application-action-cancellation-1",
+      0x49,
+    );
+    await runEffect(admitApplicationAuthorityActionInvocation({
+      request: cancellationRequest,
+      executionAuthority: admitted.executionAuthority,
+      invocationId: "00000000-0000-4000-8000-000000000404",
+    }, actionContext));
+    const cancelled = await runEffect(
+      requestApplicationAuthorityActionCancellation(
+        "application-action-cancellation-1",
+        actionContext,
+      ),
+    );
+    expect(cancelled).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      lifecycle: "cancelled",
+      terminalCode: "cancelled_before_execution",
+    });
+
+    const recoveryRequest = makeRequest(
+      "application-action-recovery-1",
+      0x4a,
+    );
+    await runEffect(admitApplicationAuthorityActionInvocation({
+      request: recoveryRequest,
+      executionAuthority: admitted.executionAuthority,
+      invocationId: "00000000-0000-4000-8000-000000000405",
+    }, actionContext));
+    const recoveryClaimed = await runEffect(
+      claimApplicationAuthorityActionExecution(
+      "application-action-recovery-1",
+      60_000,
+      new Uint8Array(32).fill(0x4b),
+      actionContext,
+    ));
+    await fixture.target.drizzle.update(
+      fxSystemApplicationActionInvocationsV1,
+    ).set({
+      invocationTime: new Date(0),
+      executionDeadline: new Date(1),
+    }).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-recovery-1",
+    ));
+    const recovered = await runEffect(
+      recoverExpiredApplicationAuthorityActionExecution(
+        "application-action-recovery-1",
+        actionContext,
+      ),
+    );
+    expect(recovered).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      lifecycle: "admitted",
+      executionGeneration: 1n,
+      invocationTime: null,
+      executionDeadline: null,
+      randomSeedSha256: null,
+    });
+    const recoveryReclaimed = await runEffect(
+      claimApplicationAuthorityActionExecution(
+        "application-action-recovery-1",
+        60_000,
+        new Uint8Array(32).fill(0x4c),
+        actionContext,
+      ),
+    );
+    expect(recoveryReclaimed.invocation.executionGeneration).toBe(2n);
+    const staleSubject = await runEffect(Effect.result(
+      prepareExternalEffectAttemptV1(
+        recoveryClaimed.subject,
+        {
+          effectKind: "outbound_http",
+          stableEffectKey: "stale-recovered-subject",
+          requestIdentitySha256: new Uint8Array(32).fill(0x4d),
+          request: outboundRequest,
+        },
+        actionContext,
+      ),
+    ));
+    expect(Result.isFailure(staleSubject)).toBe(true);
+    if (Result.isFailure(staleSubject)) {
+      expect(staleSubject.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityCorruptionV1Error",
+      });
+    }
+    await runEffect(settleApplicationAuthorityActionInvocation(
+      recoveryReclaimed.subject,
+      { lifecycle: "completed", result: resultReference },
+      actionContext,
+    ));
+
+    const uncertainRequest = makeRequest(
+      "application-action-uncertain-1",
+      0x4e,
+    );
+    await runEffect(admitApplicationAuthorityActionInvocation({
+      request: uncertainRequest,
+      executionAuthority: admitted.executionAuthority,
+      invocationId: "00000000-0000-4000-8000-000000000409",
+    }, actionContext));
+    const uncertainClaimed = await runEffect(
+      claimApplicationAuthorityActionExecution(
+        "application-action-uncertain-1",
+        60_000,
+        new Uint8Array(32).fill(0x4f),
+        actionContext,
+      ),
+    );
+    await runEffect(prepareExternalEffectAttemptV1(
+      uncertainClaimed.subject,
+      {
+        effectKind: "outbound_http",
+        stableEffectKey: "possibly-dispatched-effect",
+        requestIdentitySha256: new Uint8Array(32).fill(0x50),
+        request: outboundRequest,
+      },
+      actionContext,
+    ));
+    await runEffect(declareExternalEffectDispatchV1(
+      uncertainClaimed.subject,
+      1n,
+      actionContext,
+    ));
+    await fixture.target.drizzle.update(
+      fxSystemApplicationActionInvocationsV1,
+    ).set({
+      invocationTime: new Date(0),
+      executionDeadline: new Date(1),
+    }).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-uncertain-1",
+    ));
+    const uncertain = await runEffect(
+      recoverExpiredApplicationAuthorityActionExecution(
+        "application-action-uncertain-1",
+        actionContext,
+      ),
+    );
+    expect(uncertain).toMatchObject({
+      executionAuthorityGeneration: "application_v1",
+      lifecycle: "uncertain",
+      terminalCode: "execution_expired_after_possible_dispatch",
+    });
+
+    const detachedRequest = makeRequest(
+      "application-action-detachment-1",
+      0x4d,
+    );
+    const callerOwnedRequestBytes = detachedRequest.canonicalBytes;
+    const expectedRequestSha256 = new Uint8Array(
+      await globalThis.crypto.subtle.digest(
+        "SHA-256",
+        copyBytesToArrayBuffer(callerOwnedRequestBytes),
+      ),
+    );
+    const detached = await runEffect(
+      admitApplicationAuthorityActionInvocation({
+        request: detachedRequest,
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000407",
+      }, Object.freeze({
+        ...actionContext,
+        sha256: Object.freeze({
+          hash: (bytes: Uint8Array) => Effect.promise(async () => {
+            callerOwnedRequestBytes.fill(0);
+            return new Uint8Array(await globalThis.crypto.subtle.digest(
+              "SHA-256",
+              copyBytesToArrayBuffer(bytes),
+            ));
+          }),
+        }),
+      })),
+    );
+    expect(Array.from(callerOwnedRequestBytes).every(byte => byte === 0))
+      .toBe(true);
+    expect(detached.invocation.requestIdentitySha256)
+      .toEqual(expectedRequestSha256);
+    await expect(fixture.target.drizzle.execute(
+      `update fx_system_application_action_invocation_v1
+       set execution_authority_generation = 'unknown'
+       where request_key = 'application-action-detachment-1'`,
+    )).rejects.toThrow();
+
+    const rollbackRequest = makeRequest(
+      "application-action-rollback-1",
+      0x4e,
+    );
+    await expect(runEffect(admitApplicationAuthorityActionInvocation({
+      request: rollbackRequest,
+      executionAuthority: admitted.executionAuthority,
+      invocationId: "00000000-0000-4000-8000-000000000408",
+    }, Object.freeze({
+      ...actionContext,
+      proofAfterTransactionStep: (step: string) => {
+        if (step === "afterAdmissionInsert") {
+          throw new Error("injected Application action admission failure");
+        }
+      },
+    })))).rejects.toThrow("injected Application action admission failure");
+    expect(await fixture.target.drizzle.select({
+      requestKey: fxSystemApplicationActionInvocationsV1.requestKey,
+    }).from(fxSystemApplicationActionInvocationsV1).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-rollback-1",
+    ))).toHaveLength(0);
+
+    const jsonCorruptRequest = makeRequest(
+      "application-action-json-corrupt-1",
+      0x51,
+    );
+    await runEffect(admitApplicationAuthorityActionInvocation({
+      request: jsonCorruptRequest,
+      executionAuthority: admitted.executionAuthority,
+      invocationId: "00000000-0000-4000-8000-000000000410",
+    }, actionContext));
+    await fixture.target.drizzle.execute(
+      `update fx_system_application_action_invocation_v1
+       set application_execution_authority_json = '{"bad":true}'::jsonb
+       where request_key = 'application-action-json-corrupt-1'`,
+    );
+    const jsonCorrupt = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        request: jsonCorruptRequest,
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000411",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(jsonCorrupt)).toBe(true);
+    if (Result.isFailure(jsonCorrupt)) {
+      expect(jsonCorrupt.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityCorruptionV1Error",
+      });
+    }
+
+    const bytesCorruptRequest = makeRequest(
+      "application-action-bytes-corrupt-1",
+      0x52,
+    );
+    await runEffect(admitApplicationAuthorityActionInvocation({
+      request: bytesCorruptRequest,
+      executionAuthority: admitted.executionAuthority,
+      invocationId: "00000000-0000-4000-8000-000000000412",
+    }, actionContext));
+    await fixture.target.drizzle.update(
+      fxSystemApplicationActionInvocationsV1,
+    ).set({
+      applicationExecutionAuthorityCanonicalBytes: new Uint8Array([0x7b]),
+    }).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-bytes-corrupt-1",
+    ));
+    const bytesCorrupt = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        request: bytesCorruptRequest,
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000413",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(bytesCorrupt)).toBe(true);
+    if (Result.isFailure(bytesCorrupt)) {
+      expect(bytesCorrupt.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityCorruptionV1Error",
+      });
+    }
+    await expect(fixture.target.drizzle.update(
+      fxSystemApplicationActionInvocationsV1,
+    ).set({
+      applicationRevisionId: "forbidden-legacy-revision",
+    }).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-request-1",
+    ))).rejects.toThrow();
+
+    await fixture.target.drizzle.update(
+      fxSystemApplicationActionInvocationsV1,
+    ).set({
+      applicationExecutionAuthoritySha256: new Uint8Array(32).fill(0xff),
+    }).where(eq(
+      fxSystemApplicationActionInvocationsV1.requestKey,
+      "application-action-request-1",
+    ));
+    const corrupt = await runEffect(Effect.result(
+      admitApplicationAuthorityActionInvocation({
+        request,
+        executionAuthority: admitted.executionAuthority,
+        invocationId: "00000000-0000-4000-8000-000000000403",
+      }, actionContext),
+    ));
+    expect(Result.isFailure(corrupt)).toBe(true);
+    if (Result.isFailure(corrupt)) {
+      expect(corrupt.failure).toMatchObject({
+        _tag: "ApplicationActionAuthorityCorruptionV1Error",
+      });
+    }
+
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+      headSha256: new Uint8Array(32).fill(0xee),
+    }).where(eq(
+      fxSystemApplicationActiveHeadsV1.scopeId,
+      active.basis.authority.scopeId,
+    ));
+    const staleSelection = await runEffect(Effect.result(
+      selectApplicationActionAdmission(
+        active.selection,
+        "users:get",
+        Object.freeze({
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          schema: fixture.schema,
+          authority: fixture.authorityPorts,
+        }),
+      ),
+    ));
+    expect(Result.isFailure(staleSelection)).toBe(true);
+    if (Result.isFailure(staleSelection)) {
+      expect(staleSelection.failure).toMatchObject({
+        operation: "validateSelection",
+        reason: "storedState",
+      });
+    }
+  });
+
   it("rolls back history and head together after a late injected failure", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);
@@ -1701,7 +2252,7 @@ interface ReadinessFixtureOptions {
   readonly coldMode?: "normal" | "wrongTarget" | "advanceAuthority";
   readonly foreignSchemaControl?: boolean;
   readonly failSchemaPublication?: boolean;
-  readonly functionKind?: "query" | "mutation";
+  readonly functionKind?: "query" | "mutation" | "action";
 }
 
 async function readinessFixture(options: ReadinessFixtureOptions = {}) {
@@ -2373,7 +2924,7 @@ function applicationManifest(
   includeFunction: boolean,
   includeTable: boolean,
   includeIndex = false,
-  functionKind: "query" | "mutation" = "query",
+  functionKind: "query" | "mutation" | "action" = "query",
 ) {
   return Result.getOrThrow(canonicalizeApplicationManifestV1({
     format: "flarex.application-manifest",

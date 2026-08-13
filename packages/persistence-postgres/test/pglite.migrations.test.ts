@@ -219,6 +219,94 @@ describe("createPGlitePersistence", () => {
     }
   }, 30_000);
 
+  it("upgrades a pre-0062 legacy action row without changing its authority", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-action-aa-r6-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+    const scopeId = "scope_00000000-0000-4000-8000-000000000062";
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const parsed: unknown = JSON.parse(await readFile(currentJournal, "utf8"));
+      if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+        throw new Error("Current Drizzle journal is missing its entries array.");
+      }
+      await writeFile(copiedJournal, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter(entry =>
+          isNonArrayRecord(entry) && typeof entry.idx === "number" &&
+          entry.idx < 62
+        ),
+      }, null, 2)}\n`, "utf8");
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await previous.query(`alter table
+        fx_system_application_action_invocation_v1
+        drop constraint fx_action_invocation_v1_scope_fk`);
+      await previous.query(`alter table
+        fx_system_application_action_invocation_v1
+        drop constraint fx_action_invocation_v1_revision_fk`);
+      await previous.query(`
+        insert into fx_system_application_action_invocation_v1 (
+          scope_id, scope_epoch, storage_generation_fence, request_key,
+          invocation_id, request_identity_sha256, action_binding_sha256,
+          application_revision_id, candidate_sha256, action_function_path,
+          execution_identity_sha256, compatibility_date, host_policy_sha256,
+          argument_store_identity, argument_codec_identity,
+          argument_object_key, argument_byte_length, argument_sha256,
+          lifecycle
+        ) values (
+          $1, 'epoch-action-62', 1, 'legacy-action-request-62',
+          '00000000-0000-4000-8000-000000000062', decode(repeat('11', 32), 'hex'),
+          decode(repeat('22', 32), 'hex'), 'legacy-action-revision-62',
+          decode(repeat('33', 32), 'hex'), 'actions:legacy',
+          decode(repeat('44', 32), 'hex'), '2026-08-13',
+          decode(repeat('55', 32), 'hex'),
+          'flarex.r2/execution-evidence-body/v1',
+          'flarex.codec/canonical-flarex-value/v1',
+          'execution-evidence-body/v1/action_arguments/legacy-62', 1,
+          decode(repeat('66', 32), 'hex'), 'admitted'
+        )
+      `, [scopeId]);
+
+      await copyFile(currentJournal, copiedJournal);
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      const row = await current.query<{
+        generation: string;
+        revision_id: string | null;
+        candidate_sha256: string | null;
+        action_binding_sha256: string | null;
+        application_authority: string | null;
+      }>(`
+        select execution_authority_generation as generation,
+               application_revision_id as revision_id,
+               encode(candidate_sha256, 'hex') as candidate_sha256,
+               encode(action_binding_sha256, 'hex') as action_binding_sha256,
+               application_execution_authority_json::text as application_authority
+          from fx_system_application_action_invocation_v1
+         where request_key = 'legacy-action-request-62'
+      `);
+      expect(row.rows).toEqual([{
+        generation: "legacy_candidate_bound_v1",
+        revision_id: "legacy-action-revision-62",
+        candidate_sha256: "33".repeat(32),
+        action_binding_sha256: "22".repeat(32),
+        application_authority: null,
+      }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
   it("upgrades legacy deployment metadata without backfilling scopes", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-scope-upgrade-"));
     const previousMigrationsFolder = resolve(testRoot, "drizzle");

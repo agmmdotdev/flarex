@@ -2698,6 +2698,27 @@ head read after admission, an Application Worker load, a Standard dependency,
 or any query, mutation OCC/commit, Task System, route, schedule, or production
 change.
 
+Checkpoint 4a implementation receipt (2026-08-13): complete. The protocol now
+owns a canonical public-action execution authority and a distinct request V2
+identity. Migration 0062 evolves the existing action invocation row into the
+accepted exact generation union; it preserves legacy rows through the defaulted
+`legacy_candidate_bound_v1` branch and rejects unknown or mixed evidence. The
+persistence owner selects the action from the issued active Application basis,
+revalidates the selected public action under the scope-clock transaction, and
+materializes the Application authority without an Application Revision V1,
+candidate digest, or action-binding digest.
+
+The Application branch is private and product-inert but its durable lifecycle
+mechanics are proven: exact admission and replay, contradictory key rejection,
+legacy-decoder rejection, claim, external-effect ordinal/dispatch/confirmation,
+settlement, cancellation, safe expiry recovery, JSON/bytes/SHA corruption,
+caller-byte detachment, transaction rollback, unknown/mixed generation
+rejection, fresh migration, and 0061-to-0062 legacy-row preservation. The
+existing legacy action system proof remains green. No Standard consumer,
+Application Worker, route, trigger, production activation, mutation OCC/commit,
+or Task System owner changed. Genuine PostgreSQL remains an `AA-R7` gate as
+accepted above.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine

@@ -1,6 +1,7 @@
 import {
   bytesEqualFullScan,
   copyBytes,
+  isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
@@ -9,13 +10,19 @@ import { and, eq, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
   decodeApplicationActionInvocationRequestV1,
+  decodeApplicationActionInvocationRequestV2,
   decodeExecutionEvidenceBodyReferenceV1,
   encodeExternalEffectExecutionSubjectV1,
   type ApplicationActionInvocationRequestFrameV1,
+  type ApplicationActionInvocationRequestFrameV2,
   type CanonicalExecutionEvidenceFrameV1,
   type ExecutionEvidenceBodyReferenceV1,
   type ExternalEffectExecutionSubjectFrameV1,
 } from "flarex-protocol/internal/execution-evidence-v1";
+import {
+  canonicalizeApplicationActionExecutionAuthorityV1,
+  type CanonicalApplicationActionExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-action-authority-v1";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
@@ -99,6 +106,14 @@ export interface AdmitApplicationActionInvocationV1Input {
   readonly invocationId: string;
 }
 
+export interface AdmitApplicationAuthorityActionInvocationInput {
+  readonly request: CanonicalExecutionEvidenceFrameV1<
+    ApplicationActionInvocationRequestFrameV2
+  >;
+  readonly executionAuthority: CanonicalApplicationActionExecutionAuthorityV1;
+  readonly invocationId: string;
+}
+
 export type ApplicationActionInvocationLifecycleV1 =
   | "admitted"
   | "executing"
@@ -134,6 +149,15 @@ export interface ApplicationActionInvocationProjectionV1 {
   readonly terminalAt: Date | null;
 }
 
+export interface ApplicationAuthorityActionInvocationProjection
+  extends Omit<
+    ApplicationActionInvocationProjectionV1,
+    "applicationRevisionId" | "candidateSha256" | "actionBindingSha256"
+  > {
+  readonly executionAuthorityGeneration: "application_v1";
+  readonly executionAuthority: CanonicalApplicationActionExecutionAuthorityV1;
+}
+
 export interface DirectActionExecutionSubjectCapabilityV1 {
   readonly _DirectActionExecutionSubjectCapabilityV1: unique symbol;
 }
@@ -149,6 +173,11 @@ interface DirectActionSubjectStateV1 {
 
 export interface ClaimedApplicationActionExecutionV1 {
   readonly invocation: ApplicationActionInvocationProjectionV1;
+  readonly subject: DirectActionExecutionSubjectCapabilityV1;
+}
+
+export interface ClaimedApplicationAuthorityActionExecution {
+  readonly invocation: ApplicationAuthorityActionInvocationProjection;
   readonly subject: DirectActionExecutionSubjectCapabilityV1;
 }
 
@@ -285,9 +314,10 @@ export const admitDirectActionInvocationV1 = Effect.fn(
   ApplicationActionAuthorityV1Error<HashError>
 > {
   const invocationId = yield* requireUuid(input.invocationId, "admit", "invocationId");
+  const requestCanonicalBytes = copyBytes(input.request.canonicalBytes);
   const decodedRequest = yield* Effect.fromResult(
     decodeApplicationActionInvocationRequestV1(
-      copyBytes(input.request.canonicalBytes),
+      requestCanonicalBytes,
     ),
   ).pipe(
     Effect.mapError(() => new ApplicationActionAuthorityInputV1Error({
@@ -300,7 +330,7 @@ export const admitDirectActionInvocationV1 = Effect.fn(
     return yield* new ApplicationActionAuthorityStaleV1Error({ reason: "scope" });
   }
   const requestIdentitySha256 = yield* context.sha256.hash(
-    copyBytes(input.request.canonicalBytes),
+    copyBytes(requestCanonicalBytes),
   );
   const argument = request.arguments;
   return yield* runTransaction(context.target, "admit", tx => Effect.gen(function* () {
@@ -350,6 +380,124 @@ export const admitDirectActionInvocationV1 = Effect.fn(
       invocation: yield* decodeInvocationRow(existing),
     });
   }));
+});
+
+export const admitApplicationAuthorityActionInvocation = Effect.fn(
+  "ApplicationActionAuthority.admitApplicationAuthorityActionInvocation",
+)(function* <HashError>(
+  input: AdmitApplicationAuthorityActionInvocationInput,
+  context: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  Readonly<{
+    readonly disposition: "inserted" | "replayed";
+    readonly invocation: ApplicationAuthorityActionInvocationProjection;
+  }>,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  const invocationId = yield* requireUuid(
+    input.invocationId,
+    "admitApplication",
+    "invocationId",
+  );
+  const requestCanonicalBytes = copyBytes(input.request.canonicalBytes);
+  const decodedRequest = yield* Effect.fromResult(
+    decodeApplicationActionInvocationRequestV2(
+      requestCanonicalBytes,
+    ),
+  ).pipe(Effect.mapError(() => new ApplicationActionAuthorityInputV1Error({
+    operation: "admitApplication",
+    field: "request.canonicalBytes",
+  })));
+  const executionAuthority = yield*
+    canonicalizeApplicationActionExecutionAuthorityV1(
+      input.executionAuthority.authorityJson,
+    ).pipe(Effect.mapError(() =>
+      new ApplicationActionAuthorityInputV1Error({
+        operation: "admitApplication",
+        field: "executionAuthority",
+      })
+    ));
+  const request = decodedRequest.frame;
+  if (
+    request.scopeId !== context.authority.scopeId ||
+    executionAuthority.authority.runtimeTarget.scopeId !== request.scopeId
+  ) return yield* new ApplicationActionAuthorityStaleV1Error({ reason: "scope" });
+  if (
+    request.actionFunctionPath !==
+      executionAuthority.authority.runtimeTarget.function.path ||
+    !bytesEqualFullScan(
+      request.executionAuthoritySha256,
+      executionAuthority.sha256,
+    )
+  ) {
+    return yield* new ApplicationActionAuthorityInputV1Error({
+      operation: "admitApplication",
+      field: "executionAuthority",
+    });
+  }
+  const requestIdentitySha256 = yield* context.sha256.hash(
+    copyBytes(requestCanonicalBytes),
+  );
+  const argument = request.arguments;
+  return yield* runTransaction(
+    context.target,
+    "admitApplication",
+    tx => Effect.gen(function* () {
+      yield* requireCurrentAuthority(tx, context);
+      const inserted = yield* query(
+        tx.insert(fxSystemApplicationActionInvocationsV1).values({
+          scopeId: context.authority.scopeId,
+          scopeEpoch: context.authority.epoch,
+          storageGenerationFence: context.authority.storageGenerationFence,
+          requestKey: request.requestKey,
+          invocationId,
+          requestIdentitySha256,
+          executionAuthorityGeneration: "application_v1",
+          applicationExecutionAuthorityJson:
+            executionAuthority.authority,
+          applicationExecutionAuthorityCanonicalBytes:
+            executionAuthority.canonicalBytes,
+          applicationExecutionAuthoritySha256: executionAuthority.sha256,
+          actionFunctionPath: request.actionFunctionPath,
+          executionIdentitySha256: request.executionIdentitySha256,
+          compatibilityDate: request.compatibilityDate,
+          hostPolicySha256: request.hostPolicySha256,
+          argumentStoreIdentity: argument.storeIdentity,
+          argumentCodecIdentity: argument.codecIdentity,
+          argumentObjectKey: argument.objectKey,
+          argumentByteLength: argument.byteLength,
+          argumentSha256: argument.sha256,
+          lifecycle: "admitted",
+        }).onConflictDoNothing().returning(),
+      );
+      if (inserted[0] !== undefined) {
+        yield* proofStep(context, "afterAdmissionInsert");
+        return Object.freeze({
+          disposition: "inserted" as const,
+          invocation: yield* decodeApplicationInvocationRow(inserted[0]),
+        });
+      }
+      const existing = yield* loadInvocationForUpdate(
+        tx,
+        context.authority.scopeId,
+        request.requestKey,
+      );
+      if (
+        !bytesEqualFullScan(
+          existing.requestIdentitySha256,
+          requestIdentitySha256,
+        )
+      ) {
+        return yield* new ApplicationActionRequestKeyConflictV1Error({
+          requestKey: request.requestKey,
+        });
+      }
+      return Object.freeze({
+        disposition: "replayed" as const,
+        invocation: yield* decodeApplicationInvocationRow(existing),
+      });
+    }),
+  );
 });
 
 export const claimDirectActionExecutionV1 = Effect.fn(
@@ -419,6 +567,117 @@ export const claimDirectActionExecutionV1 = Effect.fn(
       requestKey: claimed.projection.requestKey,
       invocationId: claimed.projection.invocationId,
       requestIdentitySha256: copyBytes(claimed.projection.requestIdentitySha256),
+      subjectIdentitySha256: copyBytes(claimed.subjectIdentitySha256),
+      executionGeneration: claimed.projection.executionGeneration,
+    }));
+    return Object.freeze({ invocation: claimed.projection, subject });
+  }));
+});
+
+export const claimApplicationAuthorityActionExecution = Effect.fn(
+  "ApplicationActionAuthority.claimApplicationAuthorityActionExecution",
+)(function* <HashError>(
+  requestKey: string,
+  executionDurationMilliseconds: number,
+  randomSeedSha256: Uint8Array,
+  context: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ClaimedApplicationAuthorityActionExecution,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  yield* requireText(requestKey, "claimApplication", "requestKey");
+  if (
+    !Number.isSafeInteger(executionDurationMilliseconds) ||
+    executionDurationMilliseconds < 1
+  ) return yield* inputError(
+    "claimApplication",
+    "executionDurationMilliseconds",
+  );
+  const capturedRandomSeedSha256 = yield* requireDigest(
+    randomSeedSha256,
+    "claimApplication",
+    "randomSeedSha256",
+  );
+  return yield* Effect.uninterruptible(Effect.gen(function* () {
+    const claimed = yield* runTransaction(
+      context.target,
+      "claimApplication",
+      tx => Effect.gen(function* () {
+        yield* requireCurrentAuthority(tx, context);
+        const row = yield* loadInvocationForUpdate(
+          tx,
+          context.authority.scopeId,
+          requestKey,
+        );
+        if (row.lifecycle !== "admitted") {
+          return yield* lifecycleConflict(
+            "claimApplication",
+            "admitted",
+            row.lifecycle,
+          );
+        }
+        yield* decodeApplicationInvocationRow(row);
+        const frame: ExternalEffectExecutionSubjectFrameV1 = Object.freeze({
+          kind: "direct_action",
+          scopeId: row.scopeId,
+          invocationId: row.invocationId,
+          requestIdentitySha256: copyBytes(row.requestIdentitySha256),
+        });
+        const encoded = yield* Effect.fromResult(
+          encodeExternalEffectExecutionSubjectV1(frame),
+        ).pipe(Effect.mapError(() =>
+          new ApplicationActionAuthorityCorruptionV1Error({
+            detail: "Application direct action subject encoding failed",
+          })
+        ));
+        const subjectIdentitySha256 = yield* context.sha256.hash(
+          encoded.canonicalBytes,
+        );
+        const updated = yield* query(
+          tx.update(fxSystemApplicationActionInvocationsV1).set({
+            lifecycle: "executing",
+            executionGeneration:
+              sql`${fxSystemApplicationActionInvocationsV1.executionGeneration} + 1`,
+            invocationTime: sql`current_timestamp`,
+            executionDeadline:
+              sql`current_timestamp + (${executionDurationMilliseconds} * interval '1 millisecond')`,
+            randomSeedSha256: capturedRandomSeedSha256,
+            updatedAt: sql`current_timestamp`,
+          }).where(and(
+            eq(
+              fxSystemApplicationActionInvocationsV1.scopeId,
+              context.authority.scopeId,
+            ),
+            eq(fxSystemApplicationActionInvocationsV1.requestKey, requestKey),
+            eq(fxSystemApplicationActionInvocationsV1.lifecycle, "admitted"),
+            eq(
+              fxSystemApplicationActionInvocationsV1.executionAuthorityGeneration,
+              "application_v1",
+            ),
+          )).returning(),
+        );
+        if (updated[0] === undefined) {
+          return yield* lifecycleConflict(
+            "claimApplication",
+            "admitted_application_v1",
+            "concurrent_transition",
+          );
+        }
+        yield* proofStep(context, "afterClaimUpdate");
+        return Object.freeze({
+          projection: yield* decodeApplicationInvocationRow(updated[0]),
+          subjectIdentitySha256: copyBytes(subjectIdentitySha256),
+        });
+      }),
+    );
+    const subject = Object.freeze({}) as DirectActionExecutionSubjectCapabilityV1;
+    subjectStates.set(subject, Object.freeze({
+      scopeId: claimed.projection.scopeId,
+      requestKey: claimed.projection.requestKey,
+      invocationId: claimed.projection.invocationId,
+      requestIdentitySha256: copyBytes(
+        claimed.projection.requestIdentitySha256,
+      ),
       subjectIdentitySha256: copyBytes(claimed.subjectIdentitySha256),
       executionGeneration: claimed.projection.executionGeneration,
     }));
@@ -705,6 +964,142 @@ export const settleDirectActionInvocationV1 = Effect.fn(
   return projection;
 });
 
+export const settleApplicationAuthorityActionInvocation = Effect.fn(
+  "ApplicationActionAuthority.settleApplicationAuthorityActionInvocation",
+)(function* <HashError>(
+  subjectInput: DirectActionExecutionSubjectCapabilityV1,
+  outcome: SettleApplicationActionInvocationV1Outcome,
+  context: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ApplicationAuthorityActionInvocationProjection,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  const subject = yield* claimSubject(subjectInput, context.authority.scopeId);
+  const result = outcome.lifecycle === "completed"
+    ? yield* requireBodyReference(outcome.result, "action_result", "settleApplication", "result")
+    : null;
+  if (outcome.lifecycle !== "completed" && !boundedText(outcome.terminalCode)) {
+    return yield* inputError("settleApplication", "terminalCode");
+  }
+  const projection = yield* runTransaction(
+    context.target,
+    "settleApplication",
+    tx => Effect.gen(function* () {
+      yield* requireCurrentAuthority(tx, context);
+      const row = yield* loadInvocationForUpdate(
+        tx,
+        subject.scopeId,
+        subject.requestKey,
+      );
+      yield* requireSubjectMatchesRow(subject, row);
+      yield* decodeApplicationInvocationRow(row);
+      if (row.lifecycle !== "executing") {
+        return yield* lifecycleConflict(
+          "settleApplication",
+          "executing",
+          row.lifecycle,
+        );
+      }
+      const effectStates = yield* query(
+        tx.select({ state: fxSystemExternalEffectAttemptsV1.state })
+          .from(fxSystemExternalEffectAttemptsV1).where(and(
+            eq(fxSystemExternalEffectAttemptsV1.scopeId, subject.scopeId),
+            eq(fxSystemExternalEffectAttemptsV1.subjectKind, "direct_action"),
+            eq(
+              fxSystemExternalEffectAttemptsV1.subjectIdentitySha256,
+              subject.subjectIdentitySha256,
+            ),
+            eq(
+              fxSystemExternalEffectAttemptsV1.subjectFence,
+              subject.executionGeneration,
+            ),
+          )),
+      );
+      if (effectStates.some(effect => effect.state === "prepared")) {
+        return yield* lifecycleConflict(
+          "settleApplication",
+          "no_prepared_effects",
+          "prepared_effect_pending",
+        );
+      }
+      const possibleDispatch = effectStates.some(effect =>
+        effect.state === "dispatching" || effect.state === "uncertain"
+      );
+      if (possibleDispatch && outcome.lifecycle !== "uncertain") {
+        return yield* lifecycleConflict(
+          "settleApplication",
+          "uncertain_after_possible_dispatch",
+          outcome.lifecycle,
+        );
+      }
+      if (outcome.lifecycle === "uncertain") {
+        yield* query(tx.update(fxSystemExternalEffectAttemptsV1).set({
+          state: "uncertain",
+          terminalCode: outcome.terminalCode,
+          settledAt: sql`current_timestamp`,
+        }).where(and(
+          eq(fxSystemExternalEffectAttemptsV1.scopeId, subject.scopeId),
+          eq(fxSystemExternalEffectAttemptsV1.subjectKind, "direct_action"),
+          eq(
+            fxSystemExternalEffectAttemptsV1.subjectIdentitySha256,
+            subject.subjectIdentitySha256,
+          ),
+          eq(
+            fxSystemExternalEffectAttemptsV1.subjectFence,
+            subject.executionGeneration,
+          ),
+          eq(fxSystemExternalEffectAttemptsV1.state, "dispatching"),
+        )).returning({
+          effectOrdinal: fxSystemExternalEffectAttemptsV1.effectOrdinal,
+        }));
+        yield* proofStep(context, "afterSettlementEffectUpdate");
+      }
+      const rows = yield* query(
+        tx.update(fxSystemApplicationActionInvocationsV1).set({
+          lifecycle: outcome.lifecycle,
+          terminalAt: sql`current_timestamp`,
+          updatedAt: sql`current_timestamp`,
+          ...(outcome.lifecycle === "completed"
+            ? {
+                resultStoreIdentity: result!.storeIdentity,
+                resultCodecIdentity: result!.codecIdentity,
+                resultObjectKey: result!.objectKey,
+                resultByteLength: result!.byteLength,
+                resultSha256: result!.sha256,
+              }
+            : { terminalCode: outcome.terminalCode }),
+        }).where(and(
+          eq(fxSystemApplicationActionInvocationsV1.scopeId, subject.scopeId),
+          eq(
+            fxSystemApplicationActionInvocationsV1.requestKey,
+            subject.requestKey,
+          ),
+          eq(
+            fxSystemApplicationActionInvocationsV1.executionGeneration,
+            subject.executionGeneration,
+          ),
+          eq(fxSystemApplicationActionInvocationsV1.lifecycle, "executing"),
+          eq(
+            fxSystemApplicationActionInvocationsV1.executionAuthorityGeneration,
+            "application_v1",
+          ),
+        )).returning(),
+      );
+      if (rows[0] === undefined) {
+        return yield* lifecycleConflict(
+          "settleApplication",
+          "executing_current_fence",
+          "concurrent_transition",
+        );
+      }
+      yield* proofStep(context, "afterSettlementUpdate");
+      return yield* decodeApplicationInvocationRow(rows[0]);
+    }),
+  );
+  revokeDirectActionExecutionSubjectV1(subjectInput);
+  return projection;
+});
+
 export const requestDirectActionCancellationV1 = Effect.fn(
   "ApplicationActionAuthority.requestCancellationV1",
 )(function* <HashError>(
@@ -730,6 +1125,70 @@ export const requestDirectActionCancellationV1 = Effect.fn(
     yield* proofStep(context, "afterCancellationUpdate");
     return yield* decodeInvocationRow(rows[0]);
   }));
+});
+
+export const requestApplicationAuthorityActionCancellation = Effect.fn(
+  "ApplicationActionAuthority.requestApplicationAuthorityCancellation",
+)(function* <HashError>(
+  requestKey: string,
+  context: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ApplicationAuthorityActionInvocationProjection,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  yield* requireText(requestKey, "cancelApplication", "requestKey");
+  return yield* runTransaction(
+    context.target,
+    "cancelApplication",
+    tx => Effect.gen(function* () {
+      yield* requireCurrentAuthority(tx, context);
+      const row = yield* loadInvocationForUpdate(
+        tx,
+        context.authority.scopeId,
+        requestKey,
+      );
+      yield* decodeApplicationInvocationRow(row);
+      if (row.lifecycle !== "admitted" && row.lifecycle !== "executing") {
+        return yield* decodeApplicationInvocationRow(row);
+      }
+      const rows = yield* query(
+        tx.update(fxSystemApplicationActionInvocationsV1).set(
+          row.lifecycle === "admitted"
+            ? {
+                lifecycle: "cancelled",
+                cancellationRequestedAt: sql`current_timestamp`,
+                terminalCode: "cancelled_before_execution",
+                terminalAt: sql`current_timestamp`,
+                updatedAt: sql`current_timestamp`,
+              }
+            : {
+                cancellationRequestedAt: sql`current_timestamp`,
+                updatedAt: sql`current_timestamp`,
+              },
+        ).where(and(
+          eq(
+            fxSystemApplicationActionInvocationsV1.scopeId,
+            context.authority.scopeId,
+          ),
+          eq(fxSystemApplicationActionInvocationsV1.requestKey, requestKey),
+          eq(fxSystemApplicationActionInvocationsV1.lifecycle, row.lifecycle),
+          eq(
+            fxSystemApplicationActionInvocationsV1.executionAuthorityGeneration,
+            "application_v1",
+          ),
+        )).returning(),
+      );
+      if (rows[0] === undefined) {
+        return yield* lifecycleConflict(
+          "cancelApplication",
+          row.lifecycle,
+          "concurrent_transition",
+        );
+      }
+      yield* proofStep(context, "afterCancellationUpdate");
+      return yield* decodeApplicationInvocationRow(rows[0]);
+    }),
+  );
 });
 
 export const recoverExpiredDirectActionExecutionV1 = Effect.fn(
@@ -853,6 +1312,219 @@ export const recoverExpiredDirectActionExecutionV1 = Effect.fn(
     yield* proofStep(context, "afterRecoveryParentUpdate");
     return yield* decodeInvocationRow(recovered[0]);
   }));
+});
+
+export const recoverExpiredApplicationAuthorityActionExecution = Effect.fn(
+  "ApplicationActionAuthority.recoverExpiredApplicationAuthorityExecution",
+)(function* <HashError>(
+  requestKey: string,
+  context: ApplicationActionAuthorityContextV1<HashError>,
+): Effect.fn.Return<
+  ApplicationAuthorityActionInvocationProjection,
+  ApplicationActionAuthorityV1Error<HashError>
+> {
+  yield* requireText(requestKey, "recoverApplication", "requestKey");
+  return yield* runTransaction(
+    context.target,
+    "recoverApplication",
+    tx => Effect.gen(function* () {
+      yield* requireCurrentAuthority(tx, context);
+      const row = yield* loadInvocationForUpdate(
+        tx,
+        context.authority.scopeId,
+        requestKey,
+      );
+      yield* decodeApplicationInvocationRow(row);
+      if (row.lifecycle !== "executing") {
+        return yield* lifecycleConflict(
+          "recoverApplication",
+          "executing",
+          row.lifecycle,
+        );
+      }
+      const expired = yield* query(tx.select({
+        expired: sql<boolean>`${row.executionDeadline} <= current_timestamp`,
+      }).from(fxSystemScopeClocks).where(eq(
+        fxSystemScopeClocks.scopeId,
+        context.authority.scopeId,
+      )).limit(1));
+      if (expired[0]?.expired !== true) {
+        return yield* lifecycleConflict(
+          "recoverApplication",
+          "expired",
+          "not_expired",
+        );
+      }
+      const subjectFrame: ExternalEffectExecutionSubjectFrameV1 =
+        Object.freeze({
+          kind: "direct_action",
+          scopeId: row.scopeId,
+          invocationId: row.invocationId,
+          requestIdentitySha256: copyBytes(row.requestIdentitySha256),
+        });
+      const encodedSubject = yield* Effect.fromResult(
+        encodeExternalEffectExecutionSubjectV1(subjectFrame),
+      ).pipe(Effect.mapError(() =>
+        new ApplicationActionAuthorityCorruptionV1Error({
+          detail: "stored Application direct action subject could not be encoded",
+        })
+      ));
+      const subjectIdentitySha256 = yield* context.sha256.hash(
+        encodedSubject.canonicalBytes,
+      );
+      const possible = yield* query(tx.select({
+        state: fxSystemExternalEffectAttemptsV1.state,
+      }).from(fxSystemExternalEffectAttemptsV1).where(and(
+        eq(fxSystemExternalEffectAttemptsV1.scopeId, context.authority.scopeId),
+        eq(fxSystemExternalEffectAttemptsV1.subjectKind, "direct_action"),
+        eq(
+          fxSystemExternalEffectAttemptsV1.subjectIdentitySha256,
+          subjectIdentitySha256,
+        ),
+        eq(
+          fxSystemExternalEffectAttemptsV1.subjectFence,
+          row.executionGeneration,
+        ),
+        sql`${fxSystemExternalEffectAttemptsV1.state} in ('dispatching', 'confirmed', 'uncertain')`,
+      )).limit(1));
+      if (possible[0] !== undefined) {
+        yield* query(tx.update(fxSystemExternalEffectAttemptsV1).set({
+          state: "failed_before_dispatch",
+          terminalCode: "parent_execution_expired_before_dispatch",
+          settledAt: sql`current_timestamp`,
+        }).where(and(
+          eq(fxSystemExternalEffectAttemptsV1.scopeId, context.authority.scopeId),
+          eq(fxSystemExternalEffectAttemptsV1.subjectKind, "direct_action"),
+          eq(
+            fxSystemExternalEffectAttemptsV1.subjectIdentitySha256,
+            subjectIdentitySha256,
+          ),
+          eq(
+            fxSystemExternalEffectAttemptsV1.subjectFence,
+            row.executionGeneration,
+          ),
+          eq(fxSystemExternalEffectAttemptsV1.state, "prepared"),
+        )).returning({
+          effectOrdinal: fxSystemExternalEffectAttemptsV1.effectOrdinal,
+        }));
+        yield* proofStep(context, "afterRecoveryPreparedEffectUpdate");
+        yield* query(tx.update(fxSystemExternalEffectAttemptsV1).set({
+          state: "uncertain",
+          terminalCode: "parent_execution_expired_after_possible_dispatch",
+          settledAt: sql`current_timestamp`,
+        }).where(and(
+          eq(fxSystemExternalEffectAttemptsV1.scopeId, context.authority.scopeId),
+          eq(fxSystemExternalEffectAttemptsV1.subjectKind, "direct_action"),
+          eq(
+            fxSystemExternalEffectAttemptsV1.subjectIdentitySha256,
+            subjectIdentitySha256,
+          ),
+          eq(
+            fxSystemExternalEffectAttemptsV1.subjectFence,
+            row.executionGeneration,
+          ),
+          eq(fxSystemExternalEffectAttemptsV1.state, "dispatching"),
+        )).returning({
+          effectOrdinal: fxSystemExternalEffectAttemptsV1.effectOrdinal,
+        }));
+        yield* proofStep(context, "afterRecoveryDispatchingEffectUpdate");
+        const uncertain = yield* query(
+          tx.update(fxSystemApplicationActionInvocationsV1).set({
+            lifecycle: "uncertain",
+            terminalCode: "execution_expired_after_possible_dispatch",
+            terminalAt: sql`current_timestamp`,
+            updatedAt: sql`current_timestamp`,
+          }).where(and(
+            eq(
+              fxSystemApplicationActionInvocationsV1.scopeId,
+              context.authority.scopeId,
+            ),
+            eq(fxSystemApplicationActionInvocationsV1.requestKey, requestKey),
+            eq(fxSystemApplicationActionInvocationsV1.lifecycle, "executing"),
+            eq(
+              fxSystemApplicationActionInvocationsV1.executionGeneration,
+              row.executionGeneration,
+            ),
+            eq(
+              fxSystemApplicationActionInvocationsV1.executionAuthorityGeneration,
+              "application_v1",
+            ),
+          )).returning(),
+        );
+        if (uncertain[0] === undefined) {
+          return yield* lifecycleConflict(
+            "recoverApplication",
+            "executing_current_fence",
+            "concurrent_transition",
+          );
+        }
+        yield* proofStep(context, "afterRecoveryParentUpdate");
+        return yield* decodeApplicationInvocationRow(uncertain[0]);
+      }
+      yield* query(tx.update(fxSystemExternalEffectAttemptsV1).set({
+        state: "failed_before_dispatch",
+        terminalCode: "parent_execution_expired_before_dispatch",
+        settledAt: sql`current_timestamp`,
+      }).where(and(
+        eq(fxSystemExternalEffectAttemptsV1.scopeId, context.authority.scopeId),
+        eq(fxSystemExternalEffectAttemptsV1.subjectKind, "direct_action"),
+        eq(
+          fxSystemExternalEffectAttemptsV1.subjectIdentitySha256,
+          subjectIdentitySha256,
+        ),
+        eq(
+          fxSystemExternalEffectAttemptsV1.subjectFence,
+          row.executionGeneration,
+        ),
+        eq(fxSystemExternalEffectAttemptsV1.state, "prepared"),
+      )).returning({
+        effectOrdinal: fxSystemExternalEffectAttemptsV1.effectOrdinal,
+      }));
+      yield* proofStep(context, "afterRecoveryPreparedEffectUpdate");
+      const recovered = yield* query(
+        tx.update(fxSystemApplicationActionInvocationsV1).set(
+          row.cancellationRequestedAt === null
+            ? {
+                lifecycle: "admitted",
+                invocationTime: null,
+                executionDeadline: null,
+                randomSeedSha256: null,
+                updatedAt: sql`current_timestamp`,
+              }
+            : {
+                lifecycle: "cancelled",
+                terminalCode: "cancelled_before_dispatch_recovery",
+                terminalAt: sql`current_timestamp`,
+                updatedAt: sql`current_timestamp`,
+              },
+        ).where(and(
+          eq(
+            fxSystemApplicationActionInvocationsV1.scopeId,
+            context.authority.scopeId,
+          ),
+          eq(fxSystemApplicationActionInvocationsV1.requestKey, requestKey),
+          eq(fxSystemApplicationActionInvocationsV1.lifecycle, "executing"),
+          eq(
+            fxSystemApplicationActionInvocationsV1.executionGeneration,
+            row.executionGeneration,
+          ),
+          eq(
+            fxSystemApplicationActionInvocationsV1.executionAuthorityGeneration,
+            "application_v1",
+          ),
+        )).returning(),
+      );
+      if (recovered[0] === undefined) {
+        return yield* lifecycleConflict(
+          "recoverApplication",
+          "executing_current_fence",
+          "concurrent_transition",
+        );
+      }
+      yield* proofStep(context, "afterRecoveryParentUpdate");
+      return yield* decodeApplicationInvocationRow(recovered[0]);
+    }),
+  );
 });
 
 export const inspectDirectActionInvocationV1 = Effect.fn(
@@ -1023,6 +1695,81 @@ function requireSubjectMatchesRow(
 }
 
 function decodeInvocationRow(row: InvocationRow): Effect.Effect<ApplicationActionInvocationProjectionV1, ApplicationActionAuthorityCorruptionV1Error> {
+  if (
+    row.executionAuthorityGeneration !== "legacy_candidate_bound_v1" ||
+    !isNonBlankString(row.applicationRevisionId) ||
+    !isUint8ArrayWithByteLength(row.candidateSha256, 32) ||
+    !isUint8ArrayWithByteLength(row.actionBindingSha256, 32) ||
+    row.applicationExecutionAuthorityJson !== null ||
+    row.applicationExecutionAuthorityCanonicalBytes !== null ||
+    row.applicationExecutionAuthoritySha256 !== null
+  ) return corruption("invocation row contains invalid legacy authority");
+  const applicationRevisionId = row.applicationRevisionId;
+  const candidateSha256 = copyBytes(row.candidateSha256);
+  const actionBindingSha256 = copyBytes(row.actionBindingSha256);
+  return decodeCommonInvocationRow(row).pipe(Effect.map(common => Object.freeze({
+    ...common,
+    applicationRevisionId,
+    candidateSha256,
+    actionBindingSha256,
+  })));
+}
+
+function decodeApplicationInvocationRow(
+  row: InvocationRow,
+): Effect.Effect<
+  ApplicationAuthorityActionInvocationProjection,
+  ApplicationActionAuthorityCorruptionV1Error
+> {
+  if (
+    row.executionAuthorityGeneration !== "application_v1" ||
+    row.applicationRevisionId !== null || row.candidateSha256 !== null ||
+    row.actionBindingSha256 !== null ||
+    row.applicationExecutionAuthorityJson === null ||
+    !isUint8Array(row.applicationExecutionAuthorityCanonicalBytes) ||
+    row.applicationExecutionAuthorityCanonicalBytes.byteLength < 1 ||
+    row.applicationExecutionAuthorityCanonicalBytes.byteLength > 131_072 ||
+    !isUint8ArrayWithByteLength(
+      row.applicationExecutionAuthoritySha256,
+      32,
+    )
+  ) return corruption("invocation row contains invalid Application authority");
+  const storedBytes = row.applicationExecutionAuthorityCanonicalBytes;
+  const storedSha256 = row.applicationExecutionAuthoritySha256;
+  return Effect.gen(function* () {
+    const executionAuthority = yield*
+      canonicalizeApplicationActionExecutionAuthorityV1(
+        row.applicationExecutionAuthorityJson,
+      ).pipe(Effect.mapError(() =>
+        new ApplicationActionAuthorityCorruptionV1Error({
+          detail: "invocation contains malformed Application authority",
+        })
+      ));
+    if (
+      !bytesEqualFullScan(storedBytes, executionAuthority.canonicalBytes) ||
+      !bytesEqualFullScan(storedSha256, executionAuthority.sha256) ||
+      row.scopeId !== executionAuthority.authority.runtimeTarget.scopeId ||
+      row.actionFunctionPath !==
+        executionAuthority.authority.runtimeTarget.function.path
+    ) return yield* corruption("invocation Application authority is inconsistent");
+    const common = yield* decodeCommonInvocationRow(row);
+    return Object.freeze({
+      ...common,
+      executionAuthorityGeneration: "application_v1" as const,
+      executionAuthority,
+    });
+  });
+}
+
+function decodeCommonInvocationRow(
+  row: InvocationRow,
+): Effect.Effect<
+  Omit<
+    ApplicationActionInvocationProjectionV1,
+    "applicationRevisionId" | "candidateSha256" | "actionBindingSha256"
+  >,
+  ApplicationActionAuthorityCorruptionV1Error
+> {
   const admittedAt = databaseDate(row.admittedAt);
   const updatedAt = databaseDate(row.updatedAt);
   const invocationTime = nullableDatabaseDate(row.invocationTime);
@@ -1034,8 +1781,6 @@ function decodeInvocationRow(row: InvocationRow): Effect.Effect<ApplicationActio
   }
   if (
     !isUint8ArrayWithByteLength(row.requestIdentitySha256, 32) ||
-    !isUint8ArrayWithByteLength(row.candidateSha256, 32) ||
-    !isUint8ArrayWithByteLength(row.actionBindingSha256, 32) ||
     !isUint8ArrayWithByteLength(row.executionIdentitySha256, 32) ||
     !isUint8ArrayWithByteLength(row.hostPolicySha256, 32) ||
     (row.randomSeedSha256 !== null &&
@@ -1085,10 +1830,7 @@ function decodeInvocationRow(row: InvocationRow): Effect.Effect<ApplicationActio
     requestKey: row.requestKey,
     invocationId: row.invocationId,
     requestIdentitySha256: copyBytes(row.requestIdentitySha256),
-    applicationRevisionId: row.applicationRevisionId,
-    candidateSha256: copyBytes(row.candidateSha256),
     actionFunctionPath: row.actionFunctionPath,
-    actionBindingSha256: copyBytes(row.actionBindingSha256),
     executionIdentitySha256: copyBytes(row.executionIdentitySha256),
     compatibilityDate: row.compatibilityDate,
     hostPolicySha256: copyBytes(row.hostPolicySha256),

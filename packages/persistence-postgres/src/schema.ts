@@ -165,6 +165,9 @@ import type {
 import type {
   ApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
+import type {
+  ApplicationActionExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-action-authority-v1";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
 import type {
   CanonicalFlarexValueBytesV1,
@@ -6421,9 +6424,21 @@ export const fxSystemApplicationActionInvocationsV1 = pgTable(
     requestKey: text("request_key").notNull(),
     invocationId: uuid("invocation_id").notNull(),
     requestIdentitySha256: bytea("request_identity_sha256").notNull(),
-    actionBindingSha256: bytea("action_binding_sha256").notNull(),
-    applicationRevisionId: text("application_revision_id").notNull(),
-    candidateSha256: bytea("candidate_sha256").notNull(),
+    executionAuthorityGeneration: text("execution_authority_generation")
+      .$type<"legacy_candidate_bound_v1" | "application_v1">()
+      .notNull().default("legacy_candidate_bound_v1"),
+    actionBindingSha256: bytea("action_binding_sha256"),
+    applicationRevisionId: text("application_revision_id"),
+    candidateSha256: bytea("candidate_sha256"),
+    applicationExecutionAuthorityJson: jsonb(
+      "application_execution_authority_json",
+    ).$type<ApplicationActionExecutionAuthorityV1>(),
+    applicationExecutionAuthorityCanonicalBytes: bytea(
+      "application_execution_authority_canonical_bytes",
+    ),
+    applicationExecutionAuthoritySha256: bytea(
+      "application_execution_authority_sha256",
+    ),
     actionFunctionPath: text("action_function_path").notNull(),
     executionIdentitySha256: bytea("execution_identity_sha256").notNull(),
     compatibilityDate: text("compatibility_date").notNull(),
@@ -6489,18 +6504,41 @@ export const fxSystemApplicationActionInvocationsV1 = pgTable(
       sql`${nonBlankText(table.scopeId)}
         and ${nonBlankText(table.requestKey)}
         and octet_length(convert_to(${table.requestKey}, 'UTF8')) <= 2048
-        and ${nonBlankText(table.applicationRevisionId)}
-        and octet_length(convert_to(${table.applicationRevisionId}, 'UTF8')) <= 2048
         and ${nonBlankText(table.actionFunctionPath)}
         and octet_length(convert_to(${table.actionFunctionPath}, 'UTF8')) <= 2048
         and ${nonBlankText(table.compatibilityDate)}
         and octet_length(convert_to(${table.compatibilityDate}, 'UTF8')) <= 2048
         and octet_length(${table.requestIdentitySha256}) = 32
-        and octet_length(${table.actionBindingSha256}) = 32
-        and octet_length(${table.candidateSha256}) = 32
         and octet_length(${table.executionIdentitySha256}) = 32
         and octet_length(${table.hostPolicySha256}) = 32
         and ${table.storageGenerationFence} >= 1`,
+    ),
+    check(
+      "fx_action_invocation_v1_execution_authority_check",
+      sql`(
+        (${table.executionAuthorityGeneration} = 'legacy_candidate_bound_v1'
+          and ${table.applicationRevisionId} is not null
+          and ${nonBlankText(table.applicationRevisionId)}
+          and octet_length(convert_to(${table.applicationRevisionId}, 'UTF8')) <= 2048
+          and ${table.candidateSha256} is not null
+          and octet_length(${table.candidateSha256}) = 32
+          and ${table.actionBindingSha256} is not null
+          and octet_length(${table.actionBindingSha256}) = 32
+          and ${table.applicationExecutionAuthorityJson} is null
+          and ${table.applicationExecutionAuthorityCanonicalBytes} is null
+          and ${table.applicationExecutionAuthoritySha256} is null)
+        or
+        (${table.executionAuthorityGeneration} = 'application_v1'
+          and ${table.applicationRevisionId} is null
+          and ${table.candidateSha256} is null
+          and ${table.actionBindingSha256} is null
+          and ${table.applicationExecutionAuthorityJson} is not null
+          and jsonb_typeof(${table.applicationExecutionAuthorityJson}) = 'object'
+          and ${table.applicationExecutionAuthorityCanonicalBytes} is not null
+          and octet_length(${table.applicationExecutionAuthorityCanonicalBytes}) between 1 and 131072
+          and ${table.applicationExecutionAuthoritySha256} is not null
+          and octet_length(${table.applicationExecutionAuthoritySha256}) = 32)
+      )`,
     ),
     check(
       "fx_action_invocation_v1_argument_reference_check",
