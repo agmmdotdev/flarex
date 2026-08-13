@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./internal/application-analysis-host": "./src/ApplicationAnalysisHost.ts",
+    "./internal/application-analysis-system": "./src/ApplicationAnalysisSystem.ts",
     "./internal/declarative-v2-analyzer-port-v1": "./src/DeclarativeV2AnalyzerPort.ts",
     "./internal/declarative-v2-analyzer-restart-plan-v1": "./src/PrivateDeclarativeV2AnalyzerRestartPlan.ts",
     "./internal/private-application-revision-registration-evidence-v1": "./src/PrivateApplicationRevisionRegistrationEvidence.ts"

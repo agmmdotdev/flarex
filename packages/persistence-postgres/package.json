@@ -66,6 +66,7 @@
     "./transaction-execution-claim-liveness": "./src/transactionExecutionClaimLiveness.ts",
     "./transaction-session-activation": "./src/transactionSessionActivation.ts",
     "./internal/system-test/applicationRevisionSyscallValidatorStateV1": "./src/applicationRevisionSyscallValidatorStateV1.ts",
+    "./internal/application-analysis-registration": "./src/applicationAnalysisRegistration.ts",
     "./internal/system-test/applicationAnalysisRegistration": "./src/applicationAnalysisRegistration.ts",
     "./internal/system-test/applicationPublication": "./src/applicationPublication.ts",
     "./internal/system-test/deployments": "./src/deployments.ts",

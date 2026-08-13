@@ -2401,6 +2401,38 @@ The same task-aware mutation proof now passes on PGlite and genuine PostgreSQL.
 This completes only the mutation-system parity checkpoint described above; the
 remaining AA-R7 capabilities and negative corpus are still open.
 
+#### AA-R7 finalized-source cold-analysis checkpoint — 2026-08-13
+
+The next private checkpoint connects the previously separate durable Analysis
+repository and trusted cold-load host through one unversioned, production-inert
+Application Analysis system. An exact terminal row wins replay before source
+or Worker work; a pending candidate reads the authenticated finalized Source
+Artifact V2 graph, performs the existing two fresh Worker Loader loads, and
+settles the first analyzed or rejected result through the existing repository.
+The composition adds no second source representation, analyzer result, retry
+protocol, revision owner, route, binding, or activation behavior.
+
+The shared system-test lane now starts from a real generated Standard
+Application source, uploads its modules through the Source Artifact V2 framing
+and immutable-R2 owners, rereads the completed root through the bounded
+Application Analysis reader, and executes the trusted analyzer core under
+Miniflare Worker Loader parity. Both PGlite and genuine PostgreSQL prove one
+analyzed receipt and inactive revision, a reconstructed system/repository
+replay with zero further cold loads, a fresh request that performs two new cold
+loads from the same immutable R2 bytes after reconstruction, and exact
+missing-body and digest/length corruption rejection before any Worker load.
+Those negative cases settle
+bounded `invalid_source_artifact` rejection receipts instead of falling back
+to caller-provided module bodies or old analysis evidence.
+
+This checkpoint closes only the exact Source Artifact V2 cold-analysis entry,
+durable restart, and missing/corrupt-object portion of AA-R7. Forbidden
+import-time effects, nondeterministic registration, timeout/interruption,
+manifest/receipt corruption, stale authority, wrong-runtime/capability
+rejection, point-query/internal-call/edge-action/task-binding composition, and
+the complete cross-capability vertical remain open. No production route or
+binding is enabled.
+
 ### `AA-R8` — displaced-system removal and migration stop
 
 After all new consumers and proofs are green:
