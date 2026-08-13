@@ -69,6 +69,20 @@ Reviewer subagent behavior is defined in `.codex/agents/`. Treat those files
 as the source of truth for reviewer scope, read-only boundaries, TypeScript
 skill usage, validation expectations, and response format.
 
+For materially changed JavaScript or TypeScript inside the configured Oxlint
+source roots, the main thread runs `pnpm lint:core` and `pnpm lint:diff` before
+significant review, then `pnpm lint:diff -- --staged` against the exact index
+snapshot before commit. Fix current-diff findings within the approved
+slice; do not add baselines, blanket disables, severity downgrades, assertion
+laundering, or unrelated cleanup. Pre-existing audit debt is not implementation
+authority. When changing Oxlint configuration, plugins, rules, provenance,
+severity, or scope, also apply `.agents/skills/flarex-oxlint/SKILL.md` and run
+the rule tests, Oxlint typecheck, and full audit described there. The TypeScript
+reviewer independently verifies `lint:core` and the worktree diff gate, but does
+not run staged-snapshot mode because that mode materializes temporary files; the
+main thread alone runs it. Reviewers remain read-only. `tools/oxlint/README.md`
+owns the command and rollout details.
+
 Any agent implementing or refactoring Effect code, and the TypeScript reviewer
 when a changed TypeScript flow uses or may semantically require Effect, must
 read and apply the repo-local

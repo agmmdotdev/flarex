@@ -29,6 +29,19 @@ correctness and the quality of TypeScript/Effect implementation.
   `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow and
   curated examples; the checked-in overlay owns Flarex's version-specific APIs,
   contracts, Cloudflare boundaries, and reviewer responsibility split.
+- The root Oxlint profile covers the explicitly named first-party kernel source
+  roots. `lint:core` enforces zero-debt rules repository-wide, `lint:diff`
+  rejects every configured diagnostic on added or modified lines, with an
+  explicit staged mode that reads the exact commit-candidate snapshot, and
+  `lint:audit` keeps pre-existing warning debt visible without making it a
+  migration mandate. Trigger.dev, generated sources, vendored snapshots, and
+  packages outside the rollout remain excluded.
+- `.agents/skills/flarex-oxlint/SKILL.md` owns lint-policy maintenance and
+  bounded remediation workflow. The TypeScript reviewer independently verifies
+  the non-writing `lint:core` and worktree-diff gates but stays read-only. The
+  main thread owns staged-snapshot verification and fixes, and must not use
+  baselines, blanket suppressions, severity
+  downgrades, or assertion laundering to pass the gate.
 - [`effect-native-guidance/`](./effect-native-guidance/README.md) records the
   current repository-wide pattern evidence and target direction for boundaries,
   failures, persistence, services/Layers, data types, tests, and incremental
@@ -131,6 +144,10 @@ Effect migration.
 - `.agents/skills/effect-ts-error-handling/SKILL.md` is the repo-local focused
   workflow for failure classification, mapping, recovery, retry, and boundary
   logging.
+- `.agents/skills/flarex-oxlint/SKILL.md` is the repo-local workflow for rule
+  maintenance, rollout, provenance, changed-line enforcement, and bounded
+  finding remediation. `tools/oxlint/README.md` owns the current commands and
+  rule tiers.
 - `.codex/agents/effect-review-guide.md` is the concise Flarex overlay for
   installed-version facts, contracts, platform boundaries, review scope, and
   reviewer ownership.

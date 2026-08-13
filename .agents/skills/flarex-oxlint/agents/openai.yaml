@@ -1,0 +1,4 @@
+interface:
+  display_name: "Flarex Oxlint"
+  short_description: "Maintain and remediate Flarex Oxlint policy"
+  default_prompt: "Use $flarex-oxlint to update or remediate the scoped Flarex Oxlint policy safely."
