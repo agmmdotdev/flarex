@@ -12,6 +12,7 @@ import {
 } from "@flarex/function-runtime/internal/application-function-runtime-v1";
 import {
   createFunctionRuntimeAuthV1,
+  createFunctionRuntimeApplicationErrorRegistryV1,
   createFunctionRuntimeIndexedPointDatabaseWriterV1,
   createFunctionRuntimePointReaderV1,
   createFunctionRuntimeRunQueryContextV1,
@@ -30,9 +31,16 @@ import {
   decodeApplicationActionWorkerRequestV1Effect,
   decodeApplicationTransactionWorkerRequestV1Effect,
   type ApplicationActionWorkerRequestV1,
+  type ApplicationWorkerApplicationErrorV1,
   type ApplicationTransactionWorkerRequestV1,
   type ApplicationWorkerResultV1,
+  type ApplicationWorkerSuccessResultV1,
 } from "flarex-protocol/internal/application-worker-v1";
+import {
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
+  APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1,
+} from
+  "flarex-protocol/internal/application-revision-syscall-validation-v1";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
 import {
@@ -40,7 +48,6 @@ import {
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
-import { FlarexError } from "flarex/values";
 
 export * from "flarex/server";
 export * from "flarex/values";
@@ -114,6 +121,20 @@ const NATIVE_SCHEDULER = globalThis.scheduler;
 const NATIVE_WEB_ASSEMBLY = globalThis.WebAssembly;
 const NAMED_ERRORS = new WeakSet<object>();
 const MAXIMUM_INDEX_PAGE_SEMANTIC_BYTES = 8 * 1_048_576;
+const APPLICATION_ERRORS = createFunctionRuntimeApplicationErrorRegistryV1(
+  data => normalizeFlarexValueV1(data).value,
+  detail => {
+    const error = new ERROR(
+      detail ?? "Invalid FlarexError construction.",
+    );
+    OBJECT_DEFINE_PROPERTY(error, "name", {
+      value: "FlarexErrorConstructionV1Error",
+    });
+    throw error;
+  },
+);
+
+export const FlarexError = APPLICATION_ERRORS.FlarexError;
 
 const INTERNAL_CALL_BUDGET = OBJECT_FREEZE({
   maximumCalls: 64,
@@ -222,7 +243,7 @@ export async function executeApplicationTransactionWorkerV1(
       state,
       boundaryKind,
     );
-    let value: ApplicationWorkerResultV1["value"];
+    let value: ApplicationWorkerSuccessResultV1["value"];
     try {
       value = await executeApplicationFunctionTransactionRuntimeV1(
         OBJECT_FREEZE({
@@ -237,6 +258,11 @@ export async function executeApplicationTransactionWorkerV1(
         invocations,
       );
     } catch (cause) {
+      const applicationError = applicationErrorResult(
+        cause,
+        MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
+      );
+      if (applicationError !== undefined) return applicationError;
       throw translateRuntimeFailure(cause);
     }
     return result(value);
@@ -281,7 +307,7 @@ export async function executeApplicationActionWorkerV1(
         input.definition.hostPolicy.maximumArgumentBytes
     ) throw namedError("ApplicationWorkerInvalidRequestV1Error", request);
     const registry = await loadRegistry(input.loadExecution);
-    let value: ApplicationWorkerResultV1["value"];
+    let value: ApplicationWorkerSuccessResultV1["value"];
     try {
       value = await executeApplicationFunctionActionRuntimeV1(
         OBJECT_FREEZE({
@@ -315,6 +341,14 @@ export async function executeApplicationActionWorkerV1(
         }),
       );
     } catch (cause) {
+      const applicationError = applicationErrorResult(
+        cause,
+        MATH_MIN(
+          input.definition.hostPolicy.maximumResultBytes,
+          MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
+        ),
+      );
+      if (applicationError !== undefined) return applicationError;
       throw translateRuntimeFailure(cause);
     }
     return result(value);
@@ -453,6 +487,9 @@ function trackBoundaryOperation<Value>(
     return rejected;
   }
   const pending = PROMISE.resolve().then(operation).catch(cause => {
+    if (kind === "journal" && isApplicationDocumentValidationFailure(cause)) {
+      throw cause;
+    }
     const failure = boundaryError(kind, cause);
     state.failure ??= failure;
     throw failure;
@@ -759,8 +796,9 @@ function translateRuntimeFailure(cause: unknown): Error {
       );
     case "terminal":
       return namedError("ApplicationWorkerTerminalV1Error", cause);
-    case "applicationError":
     case "userCode":
+      return namedError("ApplicationWorkerUserCodeV1Error", failure.cause);
+    case "applicationError":
       return namedError("ApplicationWorkerUserCodeV1Error", failure.cause);
     case undefined:
       return namedError("ApplicationWorkerDefectV1Error", cause);
@@ -768,17 +806,67 @@ function translateRuntimeFailure(cause: unknown): Error {
 }
 
 function isCoreApplicationError(cause: unknown): boolean {
-  return cause instanceof FlarexError;
+  return APPLICATION_ERRORS.inspect(cause);
 }
 
 function result(
-  value: ApplicationWorkerResultV1["value"],
-): ApplicationWorkerResultV1 {
+  value: ApplicationWorkerSuccessResultV1["value"],
+): ApplicationWorkerSuccessResultV1 {
   return OBJECT_FREEZE({
     format: APPLICATION_WORKER_RESULT_FORMAT_V1,
     version: APPLICATION_WORKER_RESULT_VERSION_V1,
+    kind: "success",
     value,
   });
+}
+
+function applicationErrorResult(
+  cause: unknown,
+  maximumDataSemanticBytes: number,
+): ApplicationWorkerResultV1 | undefined {
+  const failure = inspectApplicationFunctionRuntimeFailureV1(cause);
+  if (
+    failure?.kind !== "applicationError" ||
+    failure.reason !== "applicationError"
+  ) return undefined;
+  const error = captureApplicationError(
+    failure.cause,
+    maximumDataSemanticBytes,
+  );
+  return error === undefined
+    ? undefined
+    : OBJECT_FREEZE({
+        format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+        version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "applicationError",
+        error,
+      });
+}
+
+function captureApplicationError(
+  cause: unknown,
+  maximumDataSemanticBytes: number,
+): ApplicationWorkerApplicationErrorV1 | undefined {
+  if (!APPLICATION_ERRORS.inspect(cause)) return undefined;
+  const code = APPLICATION_ERRORS.code(cause);
+  const message = APPLICATION_ERRORS.message(cause);
+  const data = APPLICATION_ERRORS.data(cause);
+  if (data === undefined) return OBJECT_FREEZE({ code, message });
+  const normalized = normalizeFlarexValueV1(data);
+  if (normalized.semanticSizeBytes > maximumDataSemanticBytes) return undefined;
+  return OBJECT_FREEZE({ code, message, data: normalized.value });
+}
+
+function isApplicationDocumentValidationFailure(cause: unknown): boolean {
+  try {
+    return cause instanceof ERROR &&
+      cause.name ===
+        APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_NAME_V1 &&
+      cause.message ===
+        APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1;
+  } catch {
+    return false;
+  }
 }
 
 function admitSingleRun(): void {

@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TestClock } from "effect/testing";
 
 import {
+  ApplicationExecutionHostApplicationError,
   ApplicationExecutionHostError,
   makeApplicationExecutionHost,
 } from "../src/artifactRuntime/ApplicationExecutionHost";
@@ -104,8 +105,7 @@ describe("Application execution host", () => {
           capability: {},
         }).pipe(Effect.flip),
       );
-      expect(error).toBeInstanceOf(ApplicationExecutionHostError);
-      expect(error.reason).toBe("invalidRequest");
+      expectHostError(error, "invalidRequest");
     }
     expect(loader.loaded).toHaveLength(0);
   });
@@ -128,7 +128,7 @@ describe("Application execution host", () => {
       outbound: { fetch: vi.fn() } as unknown as Fetcher,
     }).pipe(Effect.flip));
 
-    expect(error.reason).toBe("invalidRequest");
+    expectHostError(error, "invalidRequest");
     expect(loader.loaded).toHaveLength(0);
   });
 
@@ -154,7 +154,7 @@ describe("Application execution host", () => {
       }).pipe(Effect.flip);
     }).pipe(Effect.provide(TestClock.layer())));
 
-    expect(error.reason).toBe("timedOut");
+    expectHostError(error, "timedOut");
     expect(loader.loaded).toHaveLength(0);
   });
 
@@ -177,8 +177,8 @@ describe("Application execution host", () => {
       capability: {},
     }).pipe(Effect.flip));
 
-    expect(error.reason).toBe(reason);
-    expect(error.cause).toBe(remote);
+    const observed = expectHostError(error, reason);
+    expect(observed.cause).toBe(remote);
   });
 
   it("keeps an unknown Worker rejection in the defect channel", async () => {
@@ -209,7 +209,7 @@ describe("Application execution host", () => {
       capability: {},
     }).pipe(Effect.flip));
 
-    expect(error.reason).toBe("invalidResult");
+    expectHostError(error, "invalidResult");
     expect(loader.resultDisposals).toBe(1);
   });
 
@@ -230,7 +230,7 @@ describe("Application execution host", () => {
       capability: {},
     }).pipe(Effect.flip));
 
-    expect(error.reason).toBe("workerLoadFailed");
+    expectHostError(error, "workerLoadFailed");
   });
 
   it("times out and disposes a late result", async () => {
@@ -248,7 +248,7 @@ describe("Application execution host", () => {
       capability: {},
     }).pipe(Effect.flip));
 
-    expect(error.reason).toBe("timedOut");
+    expectHostError(error, "timedOut");
     late.resolve(rpcResult("late"));
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(loader.resultDisposals).toBe(1);
@@ -274,6 +274,73 @@ describe("Application execution host", () => {
     late.resolve(rpcResult("late"));
     await Promise.resolve();
     await Promise.resolve();
+    expect(loader.resultDisposals).toBe(1);
+  });
+
+  it("projects and owns a structured application error", async () => {
+    const target = runtimeTarget("mutation");
+    const sourceData = { orderId: "order-1" };
+    const loader = new FakeWorkerLoader(async () => rpcValue({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: {
+        code: "ORDER_CLOSED",
+        message: "The order is already closed.",
+        data: sourceData,
+      },
+    }));
+    const host = makeApplicationExecutionHost(loader);
+    const error = await Effect.runPromise(host.runTransaction({
+      definition: definition(target),
+      request: transactionRequest(target),
+      capability: {},
+    }).pipe(Effect.flip));
+
+    expect(error).toBeInstanceOf(ApplicationExecutionHostApplicationError);
+    if (!(error instanceof ApplicationExecutionHostApplicationError)) {
+      throw new Error("Expected a structured application error.");
+    }
+    expect(error).toMatchObject({
+      operation: "transaction",
+      code: "ORDER_CLOSED",
+      message: "The order is already closed.",
+      data: { orderId: "order-1" },
+    });
+    expect(error.data).not.toBe(sourceData);
+    expect(Object.isFrozen(error.data)).toBe(true);
+    expect(loader.resultDisposals).toBe(1);
+  });
+
+  it("projects an action application error with action ownership", async () => {
+    const target = runtimeTarget("action");
+    const loader = new FakeWorkerLoader(async () => rpcValue({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: {
+        code: "DELIVERY_BLOCKED",
+        message: "Delivery is blocked.",
+      },
+    }));
+    const host = makeApplicationExecutionHost(loader);
+    const error = await Effect.runPromise(host.runAction({
+      definition: definition(target),
+      request: actionRequest(target),
+      callback: {},
+      outbound: { fetch: vi.fn() } as unknown as Fetcher,
+    }).pipe(Effect.flip));
+
+    expect(error).toBeInstanceOf(ApplicationExecutionHostApplicationError);
+    if (!(error instanceof ApplicationExecutionHostApplicationError)) {
+      throw new Error("Expected a structured action application error.");
+    }
+    expect(error).toMatchObject({
+      operation: "action",
+      code: "DELIVERY_BLOCKED",
+      message: "Delivery is blocked.",
+    });
+    expect("data" in error).toBe(false);
     expect(loader.resultDisposals).toBe(1);
   });
 });
@@ -390,8 +457,21 @@ function rpcResult(value: unknown): unknown {
   return rpcValue({
     format: APPLICATION_WORKER_RESULT_FORMAT_V1,
     version: APPLICATION_WORKER_RESULT_VERSION_V1,
+    kind: "success",
     value,
   });
+}
+
+function expectHostError(
+  error: unknown,
+  reason: ApplicationExecutionHostError["reason"],
+): ApplicationExecutionHostError {
+  expect(error).toBeInstanceOf(ApplicationExecutionHostError);
+  if (!(error instanceof ApplicationExecutionHostError)) {
+    throw new Error("Expected an ApplicationExecutionHostError.");
+  }
+  expect(error.reason).toBe(reason);
+  return error;
 }
 
 function rpcValue(value: Readonly<Record<string, unknown>>): unknown {

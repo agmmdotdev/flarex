@@ -31,8 +31,8 @@ import {
   type CanonicalFlarexRuntimeValueV1,
 } from "flarex-protocol/value";
 import {
-  ApplicationExecutionHostError,
   type ApplicationExecutionHost,
+  type ApplicationExecutionHostRunError,
 } from "flarex-backend/internal/application-execution-host";
 import {
   makeApplicationWorkerDefinition,
@@ -148,7 +148,7 @@ export type InvokeApplicationQueryError =
   | OpenApplicationQuerySnapshotError
   | ApplicationQueryInputError
   | ApplicationQueryCompositionError
-  | ApplicationExecutionHostError;
+  | ApplicationExecutionHostRunError;
 
 export interface ApplicationQuerySystemApi {
   readonly invoke: (

@@ -18,8 +18,10 @@ import { TransactionFunctionPathV1Schema } from
 import { SOURCE_ARTIFACT_V2_ROLE_EXECUTION } from
   "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { describe, expect, it, vi } from "vitest";
-import { ApplicationExecutionHostError } from
-  "flarex-backend/internal/application-execution-host";
+import {
+  ApplicationExecutionHostApplicationError,
+  ApplicationExecutionHostError,
+} from "flarex-backend/internal/application-execution-host";
 
 const operations = vi.hoisted(() => ({
   open: vi.fn(),
@@ -248,7 +250,40 @@ describe("Application query system", () => {
     expect(hostRun).toHaveBeenCalledOnce();
   });
 
-  it("exposes rejected Worker read capabilities through the host boundary", async () => {
+  it.each([
+    [
+      "a rejected Worker read capability",
+      () => new ApplicationExecutionHostError({
+        operation: "transaction",
+        reason: "readBoundaryFailed",
+      }),
+      {
+        _tag: "ApplicationExecutionHostError",
+        operation: "transaction",
+        reason: "readBoundaryFailed",
+      },
+    ],
+    [
+      "a structured application error",
+      () => new ApplicationExecutionHostApplicationError({
+        operation: "transaction",
+        code: "ORDER_CLOSED",
+        message: "The order is already closed.",
+        data: { orderId: "order-1" },
+      }),
+      {
+        _tag: "ApplicationExecutionHostApplicationError",
+        operation: "transaction",
+        code: "ORDER_CLOSED",
+        message: "The order is already closed.",
+        data: { orderId: "order-1" },
+      },
+    ],
+  ] as const)("exposes %s through the host boundary", async (
+    _label,
+    makeHostFailure,
+    expected,
+  ) => {
     const manifest = applicationManifest();
     const selection = Object.freeze({}) as ApplicationActiveSelection;
     const basis = activeBasis(manifest);
@@ -271,10 +306,7 @@ describe("Application query system", () => {
         budget: queryBudget(),
       }),
     }));
-    const readBoundaryError = new ApplicationExecutionHostError({
-      operation: "transaction",
-      reason: "readBoundaryFailed",
-    });
+    const hostFailure = makeHostFailure();
     const live = {
       activation: { readActive: () => Effect.succeed({
         selection,
@@ -297,7 +329,7 @@ describe("Application query system", () => {
         }]),
       }) },
       host: {
-        runTransaction: () => Effect.fail(readBoundaryError),
+        runTransaction: () => Effect.fail(hostFailure),
         runAction: vi.fn(),
       },
       executionContextFactory: () => ({
@@ -315,12 +347,8 @@ describe("Application query system", () => {
 
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
-      expect(result.failure).toBe(readBoundaryError);
-      expect(result.failure).toMatchObject({
-        _tag: "ApplicationExecutionHostError",
-        operation: "transaction",
-        reason: "readBoundaryFailed",
-      });
+      expect(result.failure).toBe(hostFailure);
+      expect(result.failure).toMatchObject(expected);
     }
   });
 

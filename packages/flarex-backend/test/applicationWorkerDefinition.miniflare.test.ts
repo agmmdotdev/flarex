@@ -137,6 +137,7 @@ describe("Application Worker definition", () => {
     expect(response).toEqual({
       format: "flarex.application-worker-result",
       version: 1,
+      kind: "success",
       value: "Ada",
     });
   });
@@ -188,7 +189,7 @@ describe("Application Worker definition", () => {
       }, "query", 7),
       "query",
     );
-    expect(response).toMatchObject({ value: "Ada" });
+    expect(response).toMatchObject({ kind: "success", value: "Ada" });
   });
 
   it("installs request determinism before application module evaluation", async () => {
@@ -244,7 +245,11 @@ describe("Application Worker definition", () => {
         "query",
       );
       if (offset === 0) {
-        const response = await execution as { readonly value: string };
+        const response = await execution as {
+          readonly kind: "success";
+          readonly value: string;
+        };
+        expect(response.kind).toBe("success");
         expect(response.value.length).toBe(size);
       } else {
         await expect(execution).rejects.toThrow(
@@ -336,7 +341,7 @@ describe("Application Worker definition", () => {
         `,
       },
     );
-    expect(response).toMatchObject({ value: "Ada" });
+    expect(response).toMatchObject({ kind: "success", value: "Ada" });
   });
 
   it("executes a mutation through a fake journal capability", async () => {
@@ -374,8 +379,205 @@ describe("Application Worker definition", () => {
     expect(response).toEqual({
       format: "flarex.application-worker-result",
       version: 1,
+      kind: "success",
       value: "1:00000000-0000-0000-0000-000000000002",
     });
+  });
+
+  it("returns an authenticated FlarexError as structured application data", async () => {
+    const fixture = applicationFixture("mutation", "applicationError");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { orderId: "order-1" }, "write", 8),
+      "mutation",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      kind: "applicationError",
+      error: {
+        code: "ORDER_CLOSED",
+        message: "The order is already closed.",
+        data: { orderId: "order-1" },
+      },
+    });
+  });
+
+  it("projects constructor-time application-error evidence after instance mutation", async () => {
+    const fixture = applicationFixture("mutation", "applicationError");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, {
+        orderId: "order-1",
+        mutateError: true,
+      }, "write", 8),
+      "mutation",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      kind: "applicationError",
+      error: {
+        code: "ORDER_CLOSED",
+        message: "The order is already closed.",
+        data: { orderId: "order-1" },
+      },
+    });
+  });
+
+  it("preserves a structured application error from an action", async () => {
+    const fixture = applicationFixture("action", "applicationError");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const argumentsValue = { orderId: "order-1" };
+    const response = await executeDefinition(
+      definition,
+      definition.actionEntrypoint,
+      {
+        format: APPLICATION_ACTION_WORKER_REQUEST_FORMAT_V1,
+        version: APPLICATION_ACTION_WORKER_REQUEST_VERSION_V1,
+        target: fixture.target,
+        auth: { kind: "anonymous" },
+        arguments: argumentsValue,
+        argumentSemanticBytes: normalizeFlarexValueV1(argumentsValue)
+          .semanticSizeBytes,
+        context: {
+          executionId: "action-error-execution",
+          invocationId: "action-error-invocation",
+          executionGeneration: 1n,
+          executionTime: 1_800_000_000_000,
+          executionDeadline: 1_800_000_030_000,
+          randomSeed: new Uint8Array(32).fill(9),
+          hostPolicySha256: digestBytes(),
+        },
+      },
+      "action",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      kind: "applicationError",
+      error: {
+        code: "ORDER_CLOSED",
+        message: "The order is already closed.",
+        data: { orderId: "order-1" },
+      },
+    });
+  });
+
+  it("enforces the authenticated action result budget on application-error data", async () => {
+    const fixture = applicationFixture("action", "applicationError");
+    const policy = hostPolicy();
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: { ...policy, maximumResultBytes: 128 },
+      hostPolicySha256: digestBytes(),
+    });
+    const argumentsValue = { size: 256 };
+
+    await expect(executeDefinition(
+      definition,
+      definition.actionEntrypoint,
+      {
+        format: APPLICATION_ACTION_WORKER_REQUEST_FORMAT_V1,
+        version: APPLICATION_ACTION_WORKER_REQUEST_VERSION_V1,
+        target: fixture.target,
+        auth: { kind: "anonymous" },
+        arguments: argumentsValue,
+        argumentSemanticBytes: normalizeFlarexValueV1(argumentsValue)
+          .semanticSizeBytes,
+        context: {
+          executionId: "action-error-budget-execution",
+          invocationId: "action-error-budget-invocation",
+          executionGeneration: 1n,
+          executionTime: 1_800_000_000_000,
+          executionDeadline: 1_800_000_030_000,
+          randomSeed: new Uint8Array(32).fill(9),
+          hostPolicySha256: digestBytes(),
+        },
+      },
+      "action",
+    )).rejects.toThrow("ApplicationWorkerUserCodeV1Error");
+  });
+
+  it("keeps exact document validation catchable without poisoning the journal", async () => {
+    const fixture = applicationFixture("mutation", "caughtDocumentValidation");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { name: "Ada" }, "write", 8),
+      "mutation",
+      {
+        capabilityMembers: `
+          insertPointDocumentCalls = 0;
+          insertPointDocument() {
+            this.insertPointDocumentCalls += 1;
+            if (this.insertPointDocumentCalls === 1) {
+              const error = new Error(
+                "The resulting document failed the active schema validator.",
+              );
+              error.name = "ApplicationRevisionSyscallDocumentValidationV1Error";
+              throw error;
+            }
+            return "1:00000000-0000-0000-0000-000000000003";
+          }
+        `,
+      },
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      kind: "success",
+      value: "1:00000000-0000-0000-0000-000000000003",
+    });
+  });
+
+  it("keeps a near-match document validation rejection terminal", async () => {
+    const fixture = applicationFixture("mutation", "caughtDocumentValidation");
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+    await expect(executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { name: "Ada" }, "write", 8),
+      "mutation",
+      {
+        capabilityMembers: `
+          insertPointDocument() {
+            const error = new Error("near match");
+            error.name = "ApplicationRevisionSyscallDocumentValidationV1Error";
+            throw error;
+          }
+        `,
+      },
+    )).rejects.toThrow("ApplicationWorkerJournalBoundaryV1Error");
   });
 
   it("rejects a journal document id outside the protocol identity contract", async () => {
@@ -473,6 +675,7 @@ describe("Application Worker definition", () => {
     expect(response).toEqual({
       format: "flarex.application-worker-result",
       version: 1,
+      kind: "success",
       value: "denied:users:lookup:Ada",
     });
   });
@@ -486,7 +689,9 @@ type ApplicationSourceScenario =
   | "determinism"
   | "largeResult"
   | "closedRead"
-  | "iteratorTamper";
+  | "iteratorTamper"
+  | "applicationError"
+  | "caughtDocumentValidation";
 
 function applicationFixture(
   kind: FunctionKind,
@@ -690,6 +895,38 @@ function applicationSources(
           "}",
           "",
         ].join("\n")
+      : scenario === "applicationError"
+      ? [
+          'import { FlarexError } from "flarex/values";',
+          "export function create(_context, args) {",
+          "  const error = new FlarexError(",
+          '    "ORDER_CLOSED",',
+          '    "The order is already closed.",',
+          '    args.size === undefined ? { orderId: args.orderId } : { detail: "x".repeat(args.size) },',
+          "  );",
+          "  if (args.mutateError === true) {",
+          '    error.code = "TAMPERED";',
+          '    error.message = "tampered";',
+          '    error.data = { orderId: "tampered" };',
+          "  }",
+          "  throw error;",
+          "}",
+          "",
+        ].join("\n")
+      : scenario === "caughtDocumentValidation"
+      ? [
+          "export async function create(context, args) {",
+          "  try {",
+          '    await context.db.insert("users", { name: 1 });',
+          "  } catch (error) {",
+          '    if (error?.name !== "ApplicationRevisionSyscallDocumentValidationV1Error") {',
+          "      throw error;",
+          "    }",
+          "  }",
+          '  return context.db.insert("users", args);',
+          "}",
+          "",
+        ].join("\n")
       : [
       "export function create(context, args) {",
       '  return context.db.insert("users", args);',
@@ -706,15 +943,28 @@ function applicationSources(
       "} };",
       "",
     ].join("\n"),
-    handlers: [
-      "export async function notify(context, args) {",
-      "  let denied = false;",
-      '  try { await fetch("https://denied.example.com/"); } catch { denied = true; }',
-      '  if (!denied) throw new Error("outbound unexpectedly succeeded");',
-      '  return "denied:" + await context.runQuery("users:lookup", args);',
-      "}",
-      "",
-    ].join("\n"),
+    handlers: scenario === "applicationError"
+      ? [
+          'import { FlarexError } from "flarex/values";',
+          "export function notify(_context, args) {",
+          "  const error = new FlarexError(",
+          '    "ORDER_CLOSED",',
+          '    "The order is already closed.",',
+          '    args.size === undefined ? { orderId: args.orderId } : { detail: "x".repeat(args.size) },',
+          "  );",
+          "  throw error;",
+          "}",
+          "",
+        ].join("\n")
+      : [
+          "export async function notify(context, args) {",
+          "  let denied = false;",
+          '  try { await fetch("https://denied.example.com/"); } catch { denied = true; }',
+          '  if (!denied) throw new Error("outbound unexpectedly succeeded");',
+          '  return "denied:" + await context.runQuery("users:lookup", args);',
+          "}",
+          "",
+        ].join("\n"),
   });
 }
 

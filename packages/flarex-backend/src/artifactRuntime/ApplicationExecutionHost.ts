@@ -4,9 +4,11 @@ import {
   decodeApplicationTransactionWorkerRequestV1Effect,
   decodeApplicationWorkerResultV1Effect,
   type ApplicationActionWorkerRequestV1,
+  type ApplicationWorkerApplicationErrorV1,
+  type ApplicationWorkerSuccessResultV1,
   type ApplicationTransactionWorkerRequestV1,
-  type ApplicationWorkerResultV1,
 } from "flarex-protocol/internal/application-worker-v1";
+import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
@@ -37,6 +39,19 @@ export class ApplicationExecutionHostError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+export class ApplicationExecutionHostApplicationError extends Data.TaggedError(
+  "ApplicationExecutionHostApplicationError",
+)<{
+  readonly operation: "transaction" | "action";
+  readonly code: string;
+  readonly message: string;
+  readonly data?: CanonicalFlarexRuntimeValueV1;
+}> {}
+
+export type ApplicationExecutionHostRunError =
+  | ApplicationExecutionHostError
+  | ApplicationExecutionHostApplicationError;
+
 export interface ApplicationTransactionExecutionHostInput {
   readonly definition: ApplicationWorkerDefinition;
   readonly request: unknown;
@@ -54,14 +69,14 @@ export interface ApplicationExecutionHost {
   readonly runTransaction: (
     input: ApplicationTransactionExecutionHostInput,
   ) => Effect.Effect<
-    ApplicationWorkerResultV1["value"],
-    ApplicationExecutionHostError
+    ApplicationWorkerSuccessResultV1["value"],
+    ApplicationExecutionHostRunError
   >;
   readonly runAction: (
     input: ApplicationActionExecutionHostInput,
   ) => Effect.Effect<
-    ApplicationWorkerResultV1["value"],
-    ApplicationExecutionHostError
+    ApplicationWorkerSuccessResultV1["value"],
+    ApplicationExecutionHostRunError
   >;
 }
 
@@ -173,8 +188,8 @@ function runWorker(
   wallMilliseconds: number,
   invoke: (entrypoint: Rpc.WorkerEntrypointBranded) => PromiseLike<unknown>,
 ): Effect.Effect<
-  ApplicationWorkerResultV1["value"],
-  ApplicationExecutionHostError
+  ApplicationWorkerSuccessResultV1["value"],
+  ApplicationExecutionHostRunError
 > {
   return Effect.try({
       try: () => loader.load(code).getEntrypoint<
@@ -195,8 +210,8 @@ function callWorker(
   wallMilliseconds: number,
   invoke: (entrypoint: Rpc.WorkerEntrypointBranded) => PromiseLike<unknown>,
 ): Effect.Effect<
-  ApplicationWorkerResultV1["value"],
-  ApplicationExecutionHostError
+  ApplicationWorkerSuccessResultV1["value"],
+  ApplicationExecutionHostRunError
 > {
   return Effect.acquireUseRelease(
     Effect.sync(createOwnedRpcResultLease),
@@ -228,8 +243,10 @@ function callWorker(
         Effect.mapError(cause => cause instanceof ApplicationExecutionHostError
           ? cause
           : hostError(operation, "invalidResult", cause)),
-        Effect.map(result => result.value),
       )),
+      Effect.flatMap(result => result.kind === "success"
+        ? Effect.succeed(result.value)
+        : Effect.fail(applicationError(operation, result.error))),
     ),
     lease => Effect.sync(() => lease.dispose()),
   );
@@ -405,6 +422,26 @@ function hostError(
     reason,
     ...(cause === undefined ? {} : { cause }),
   });
+}
+
+function applicationError(
+  operation: ApplicationExecutionHostApplicationError["operation"],
+  error: ApplicationWorkerApplicationErrorV1,
+): ApplicationExecutionHostApplicationError {
+  return new ApplicationExecutionHostApplicationError(
+    error.data === undefined
+      ? {
+          operation,
+          code: error.code,
+          message: error.message,
+        }
+      : {
+          operation,
+          code: error.code,
+          message: error.message,
+          data: error.data,
+        },
+  );
 }
 
 function hex(bytes: Uint8Array): string {

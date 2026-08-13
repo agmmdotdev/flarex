@@ -2191,20 +2191,34 @@ second journal, reinterpret replay, or own durable liveness, validation, OCC,
 commit, result, feed, or outbox decisions. The Application runner and Standard
 composition remain unwired.
 
-The connected Worker-host preflight found two directly owning gaps that must be
-corrected before the real runner can claim legacy-parity error behavior. The
-Application Worker currently maps both structured core application errors and
-ordinary user-code failures to the same `ApplicationWorkerUserCodeV1Error`, so
-`ApplicationExecutionHost` cannot reconstruct `PointMutationOccApplicationErrorV1`.
-It also converts every capability rejection into a terminal journal boundary;
-unlike the existing exact mutation runtime, it does not preserve the exact
-authenticated document-validation failure as application-catchable. The next
-bounded slice must repair those two Application Worker/host contracts, refresh
-their generated identity, and prove exact error/cleanup behavior before the
-private runner reads Source Artifact objects and invokes the host. It must not
-weaken journal failures, create a fallback, or change journal/commit ownership.
-Exact validation receipts belong in the owning commit report rather than this
-living roadmap.
+The connected Worker-host error boundary now has legacy-parity behavior. The
+private Application Worker result contract explicitly distinguishes success
+from an authenticated structured application error. The public `FlarexError`
+constructor is the isolate-local Function API Core registry constructor; its
+code, message, and canonical data are captured at construction and later
+instance mutation cannot alter the authenticated projection. Ordinary throws
+and invalid error projections retain their existing terminal user-code
+classification. The host decodes that branch into a typed
+`ApplicationExecutionHostApplicationError` without losing its bounded canonical
+data, and action errors remain subject to the authenticated host-policy result
+ceiling. The existing private Application query system preserves that typed
+host error unchanged rather than collapsing it into an infrastructure failure.
+The journal bridge also preserves
+only the exact private document-validation name/message projection as
+application-catchable; every near match and every other capability rejection
+still poisons and drains the boundary. The generated Worker identity is derived
+from that same source, and direct protocol, host, and Workerd proofs cover
+structured error ownership, disposal, validation recovery, and subsequent
+journal success.
+
+The next bounded runner slice may read the exact Source Artifact objects from
+the authenticated Application graph, build the already-proven Worker
+definition, compose the existing Application journal adapter with
+`ApplicationExecutionHost`, and translate the host's structured branch to the
+existing point-mutation application-error result. It must remain private and
+Standard-unwired, retain one journal/commit owner, and add no fallback or
+parallel execution path. Exact validation receipts belong in the owning commit
+report rather than this living roadmap.
 
 First migrate executable authority and publication:
 

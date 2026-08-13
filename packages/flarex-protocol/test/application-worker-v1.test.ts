@@ -11,6 +11,7 @@ import {
   MAX_APPLICATION_ACTION_ARGUMENT_SEMANTIC_BYTES_V1,
   MAX_APPLICATION_QUERY_ARGUMENT_SEMANTIC_BYTES_V1,
   MAX_APPLICATION_WORKER_AUTH_SEMANTIC_BYTES_V1,
+  MAX_APPLICATION_WORKER_APPLICATION_ERROR_TEXT_BYTES_V1,
   MAX_APPLICATION_WORKER_CONTEXT_TEXT_BYTES_V1,
   MAX_APPLICATION_WORKER_MEMBER_INSPECTIONS_V1,
   MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
@@ -361,6 +362,7 @@ describe("Application worker V1 protocol", () => {
     const input = {
       format: APPLICATION_WORKER_RESULT_FORMAT_V1,
       version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "success" as const,
       value: { ok: true, count: 1n },
     };
     const decoded = await Effect.runPromise(
@@ -368,6 +370,10 @@ describe("Application worker V1 protocol", () => {
     );
     input.value.ok = false;
 
+    expect(decoded.kind).toBe("success");
+    if (decoded.kind !== "success") {
+      throw new Error("Expected a success result.");
+    }
     expect(decoded.value).toEqual({ ok: true, count: 1n });
     expect(Object.isFrozen(decoded.value)).toBe(true);
     await expect(Effect.runPromise(
@@ -375,11 +381,61 @@ describe("Application worker V1 protocol", () => {
     )).rejects.toMatchObject({ boundary: "result", reason: "invalidShape" });
   });
 
+  it("owns one bounded structured application-error result", async () => {
+    const input = {
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError" as const,
+      error: {
+        code: "ORDER_CLOSED",
+        message: "Order is closed.",
+        data: { orderId: "order-1", retryable: false },
+      },
+    };
+    const decoded = await Effect.runPromise(
+      decodeApplicationWorkerResultV1Effect(input),
+    );
+    input.error.data.orderId = "changed";
+
+    expect(decoded).toEqual({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError",
+      error: {
+        code: "ORDER_CLOSED",
+        message: "Order is closed.",
+        data: { orderId: "order-1", retryable: false },
+      },
+    });
+    if (decoded.kind !== "applicationError") {
+      throw new Error("Expected an application-error result.");
+    }
+    expect(Object.isFrozen(decoded.error)).toBe(true);
+    expect(Object.isFrozen(decoded.error.data)).toBe(true);
+
+    await expect(Effect.runPromise(
+      decodeApplicationWorkerResultV1Effect({
+        ...input,
+        error: {
+          code: "x".repeat(
+            MAX_APPLICATION_WORKER_APPLICATION_ERROR_TEXT_BYTES_V1 + 1,
+          ),
+          message: "invalid",
+        },
+      }),
+    )).rejects.toMatchObject({
+      boundary: "result",
+      reason: "invalidApplicationError",
+      path: "error",
+    });
+  });
+
   it("maps hostile nested result reflection to a typed failure", async () => {
     await expect(Effect.runPromise(
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: {
           nested: new Proxy({}, {
             ownKeys() {
@@ -403,6 +459,7 @@ describe("Application worker V1 protocol", () => {
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: { nested: accessor },
       }),
     )).rejects.toMatchObject({ reason: "invalidResult", path: "value" });
@@ -414,11 +471,16 @@ describe("Application worker V1 protocol", () => {
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: new ArrayBuffer(
           MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1 - 2,
         ),
       }),
     );
+    expect(exact.kind).toBe("success");
+    if (exact.kind !== "success") {
+      throw new Error("Expected a success result.");
+    }
     expect(exact.value).toBeInstanceOf(ArrayBuffer);
     if (!(exact.value instanceof ArrayBuffer)) {
       throw new Error("Expected an owned ArrayBuffer result.");
@@ -431,6 +493,7 @@ describe("Application worker V1 protocol", () => {
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: new ArrayBuffer(
           MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1 - 1,
         ),
@@ -449,6 +512,7 @@ describe("Application worker V1 protocol", () => {
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: exactLevels,
       }),
     )).resolves.toMatchObject({ value: expect.any(Array) });
@@ -473,6 +537,7 @@ describe("Application worker V1 protocol", () => {
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: overLevels,
       }),
     )).rejects.toMatchObject({ reason: "invalidResult", path: "value" });
@@ -498,6 +563,7 @@ describe("Application worker V1 protocol", () => {
       decodeApplicationWorkerResultV1Effect({
         format: APPLICATION_WORKER_RESULT_FORMAT_V1,
         version: APPLICATION_WORKER_RESULT_VERSION_V1,
+        kind: "success",
         value: levels,
       }),
     )).rejects.toMatchObject({ reason: "invalidResult", path: "value" });

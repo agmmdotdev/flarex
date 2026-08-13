@@ -55,6 +55,7 @@ export const MAX_APPLICATION_WRITE_ARGUMENT_SEMANTIC_BYTES_V1 =
   MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 -
   POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1;
 export const MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1 = 8 * 1_048_576;
+export const MAX_APPLICATION_WORKER_APPLICATION_ERROR_TEXT_BYTES_V1 = 1_024;
 export const MAX_APPLICATION_WORKER_TABLES_V1 = 1_024;
 export const MAX_APPLICATION_WORKER_VALUE_NODES_V1 = 65_536;
 export const MAX_APPLICATION_WORKER_MEMBER_INSPECTIONS_V1 = 131_072;
@@ -132,11 +133,29 @@ export interface ApplicationActionWorkerRequestV1 {
   readonly context: ApplicationActionWorkerContextV1;
 }
 
-export interface ApplicationWorkerResultV1 {
+export interface ApplicationWorkerApplicationErrorV1 {
+  readonly code: string;
+  readonly message: string;
+  readonly data?: CanonicalFlarexRuntimeValueV1;
+}
+
+export interface ApplicationWorkerSuccessResultV1 {
   readonly format: typeof APPLICATION_WORKER_RESULT_FORMAT_V1;
   readonly version: typeof APPLICATION_WORKER_RESULT_VERSION_V1;
+  readonly kind: "success";
   readonly value: CanonicalFlarexRuntimeValueV1;
 }
+
+export interface ApplicationWorkerApplicationErrorResultV1 {
+  readonly format: typeof APPLICATION_WORKER_RESULT_FORMAT_V1;
+  readonly version: typeof APPLICATION_WORKER_RESULT_VERSION_V1;
+  readonly kind: "applicationError";
+  readonly error: ApplicationWorkerApplicationErrorV1;
+}
+
+export type ApplicationWorkerResultV1 =
+  | ApplicationWorkerSuccessResultV1
+  | ApplicationWorkerApplicationErrorResultV1;
 
 export interface NormalizedApplicationWorkerArgumentsV1 {
   readonly value: CanonicalFlarexRuntimeObjectV1;
@@ -154,7 +173,8 @@ export class ApplicationWorkerProtocolV1Error extends Data.TaggedError(
     | "invalidAuth"
     | "invalidArguments"
     | "argumentSizeMismatch"
-    | "invalidResult";
+    | "invalidResult"
+    | "invalidApplicationError";
   readonly path?: string;
   readonly cause?: unknown;
 }> {}
@@ -306,15 +326,33 @@ export const decodeApplicationWorkerResultV1Effect = Effect.fn(
   ApplicationWorkerProtocolV1Error
 > {
   const boundary = "result" as const;
-  const result = yield* decodeRecord(input, [
+  const result = yield* decodeRecordUnion(input, [[
     "format",
     "version",
+    "kind",
     "value",
-  ], boundary, "$result");
+  ], [
+    "format",
+    "version",
+    "kind",
+    "error",
+  ]], boundary, "$result");
   if (
     result.format !== APPLICATION_WORKER_RESULT_FORMAT_V1 ||
     result.version !== APPLICATION_WORKER_RESULT_VERSION_V1
   ) return yield* fail(boundary, "invalidShape", "$result");
+  if (result.kind === "applicationError") {
+    const error = yield* decodeApplicationError(result.error);
+    return Object.freeze({
+      format: APPLICATION_WORKER_RESULT_FORMAT_V1,
+      version: APPLICATION_WORKER_RESULT_VERSION_V1,
+      kind: "applicationError" as const,
+      error,
+    });
+  }
+  if (result.kind !== "success") {
+    return yield* fail(boundary, "invalidShape", "$result.kind");
+  }
   const capturedValue = yield* captureValueWithinBudgetEffect(
     result.value,
     MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
@@ -331,7 +369,57 @@ export const decodeApplicationWorkerResultV1Effect = Effect.fn(
   return Object.freeze({
     format: APPLICATION_WORKER_RESULT_FORMAT_V1,
     version: APPLICATION_WORKER_RESULT_VERSION_V1,
+    kind: "success" as const,
     value: normalized.value,
+  });
+});
+
+const decodeApplicationError = Effect.fn(
+  "ApplicationWorkerProtocol.decodeApplicationErrorV1",
+)(function* (
+  input: unknown,
+): Effect.fn.Return<
+  ApplicationWorkerApplicationErrorV1,
+  ApplicationWorkerProtocolV1Error
+> {
+  const boundary = "result" as const;
+  const error = yield* decodeRecordUnion(input, [
+    ["code", "message"],
+    ["code", "message", "data"],
+  ], boundary, "error", "invalidApplicationError");
+  if (
+    !isApplicationErrorText(error.code) ||
+    !isApplicationErrorText(error.message)
+  ) {
+    return yield* fail(
+      boundary,
+      "invalidApplicationError",
+      "error",
+    );
+  }
+  if (!Object.hasOwn(error, "data")) {
+    return Object.freeze({
+      code: error.code,
+      message: error.message,
+    });
+  }
+  const capturedData = yield* captureValueWithinBudgetEffect(
+    error.data,
+    MAX_APPLICATION_WORKER_RESULT_SEMANTIC_BYTES_V1,
+    boundary,
+    "invalidApplicationError",
+    "error.data",
+  );
+  const normalized = yield* normalizeOwnedValueEffect(
+    capturedData,
+    boundary,
+    "invalidApplicationError",
+    "error.data",
+  );
+  return Object.freeze({
+    code: error.code,
+    message: error.message,
+    data: normalized.value,
   });
 });
 
@@ -431,7 +519,11 @@ function captureValueWithinBudgetEffect(
   value: unknown,
   maximumSemanticBytes: number,
   boundary: "transactionRequest" | "actionRequest" | "result",
-  reason: "invalidAuth" | "invalidArguments" | "invalidResult",
+  reason:
+    | "invalidAuth"
+    | "invalidArguments"
+    | "invalidResult"
+    | "invalidApplicationError",
   path: string,
 ): Effect.Effect<unknown, ApplicationWorkerProtocolV1Error> {
   return Effect.fromResult(captureValueWithinBudget(
@@ -719,7 +811,11 @@ function isCrossRealmObjectPrototype(value: object): boolean {
 function normalizeOwnedValueEffect(
   value: unknown,
   boundary: ApplicationWorkerProtocolV1Error["boundary"],
-  reason: "invalidAuth" | "invalidArguments" | "invalidResult",
+  reason:
+    | "invalidAuth"
+    | "invalidArguments"
+    | "invalidResult"
+    | "invalidApplicationError",
   path?: string,
 ): Effect.Effect<NormalizedFlarexValueV1, ApplicationWorkerProtocolV1Error> {
   return Effect.try({
@@ -1063,6 +1159,14 @@ function isBoundedText(value: unknown): value is string {
     !value.includes("\0") &&
     TEXT_ENCODER.encode(value).byteLength <=
       MAX_APPLICATION_WORKER_CONTEXT_TEXT_BYTES_V1;
+}
+
+function isApplicationErrorText(value: unknown): value is string {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_APPLICATION_WORKER_APPLICATION_ERROR_TEXT_BYTES_V1 &&
+    TEXT_ENCODER.encode(value).byteLength <=
+      MAX_APPLICATION_WORKER_APPLICATION_ERROR_TEXT_BYTES_V1;
 }
 
 function isFiniteNumber(value: unknown): value is number {
