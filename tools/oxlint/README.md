@@ -19,6 +19,8 @@ have not entered the rollout.
 - `pnpm lint:audit` prints existing built-in and Flarex rule debt without
   failing the command.
 - `pnpm test:oxlint-rules` runs the custom-rule behavior suite.
+- `tools/oxlint/RULE_QUALITY.md` records the detection contract, adversarial
+  mutation families, and intentional non-goals for every custom rule.
 - `pnpm typecheck:oxlint` checks the configuration and custom plugin sources.
 
 ## Current blocking rules

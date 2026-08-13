@@ -1,6 +1,12 @@
 import { defineRule } from "@oxlint/plugins";
 
-import type { ESTree, SourceCode } from "@oxlint/plugins";
+import type {
+	Definition,
+	ESTree,
+	Scope,
+	SourceCode,
+	Variable,
+} from "@oxlint/plugins";
 
 type Parameter = ESTree.ParamPattern;
 type ParameterOwner =
@@ -31,20 +37,18 @@ function parameterName(parameter: Parameter, sourceCode: SourceCode): string {
 		: sourceCode.getText(parameter).replace(/\s*:\s*object\s*$/u, "");
 }
 
-function lexicalTypeParameterNames(node: ESTree.Node): ReadonlySet<string> {
-	const names = new Set<string>();
-	let current: ESTree.Node | null = node;
-	while (current !== null && current.type !== "Program") {
-		if ("typeParameters" in current) {
-			for (const parameter of current.typeParameters?.params ?? []) {
-				names.add(parameter.name.name);
-			}
-		}
-		if (current.type === "TSMappedType") names.add(current.key.name);
-		if (current.type === "TSInferType") names.add(current.typeParameter.name.name);
-		current = current.parent;
+function definesTypeName(definition: Definition): boolean {
+	if (definition.type === "ImportBinding" || definition.type === "ClassName") {
+		return true;
 	}
-	return names;
+	return definition.node.type === "TSTypeAliasDeclaration" ||
+		definition.node.type === "TSInterfaceDeclaration" ||
+		definition.node.type === "TSTypeParameter" ||
+		definition.node.type === "TSInferType" ||
+		definition.node.type === "TSMappedType" ||
+		definition.node.type === "TSEnumDeclaration" ||
+		definition.node.type === "TSModuleDeclaration" ||
+		definition.node.type === "TSImportEqualsDeclaration";
 }
 
 /** Ban the broad object type on function inputs, including local aliases to object. */
@@ -61,47 +65,129 @@ export const noObjectParametersRule = defineRule({
 		},
 	},
 	create(context) {
-		const aliases = new Map<string, ESTree.TSType>();
+		const resolveTypeVariable = (
+			identifier: ESTree.IdentifierReference,
+		): Variable | null => {
+			let scope: Scope | null = context.sourceCode.getScope(identifier);
+			while (scope !== null) {
+				const variable = scope.set.get(identifier.name);
+				if (variable?.defs.some(definesTypeName) === true) return variable;
+				scope = scope.upper;
+			}
+			return null;
+		};
+
+		const resolveAlias = (
+			identifier: ESTree.IdentifierReference,
+		): ESTree.TSTypeAliasDeclaration | null => {
+			const variable = resolveTypeVariable(identifier);
+			const definition = variable?.defs.find(
+				(candidate) => candidate.node.type === "TSTypeAliasDeclaration",
+			);
+			return definition?.node.type === "TSTypeAliasDeclaration"
+				? definition.node
+				: null;
+		};
 
 		const resolvesToObject = (
 			type: ESTree.TSType,
-			shadowedAliases: ReadonlySet<string>,
-			visited = new Set<string>(),
+			visited = new Set<ESTree.TSTypeAliasDeclaration>(),
 		): boolean => {
 			if (type.type === "TSObjectKeyword") return true;
 			if (type.type === "TSParenthesizedType")
-				return resolvesToObject(type.typeAnnotation, shadowedAliases, visited);
+				return resolvesToObject(type.typeAnnotation, visited);
 			if (type.type === "TSUnionType") {
-				return type.types.some((member) =>
-					resolvesToObject(member, shadowedAliases, visited),
-				);
+				return type.types.some((member) => resolvesToObject(member, visited));
 			}
 			if (
 				type.type !== "TSTypeReference" ||
 				type.typeName.type !== "Identifier" ||
 				(type.typeArguments !== null &&
 					type.typeArguments !== undefined &&
-					type.typeArguments.params.length > 0) ||
-				visited.has(type.typeName.name) ||
-				shadowedAliases.has(type.typeName.name)
+					type.typeArguments.params.length > 0)
 			) {
 				return false;
 			}
-			const alias = aliases.get(type.typeName.name);
-			if (alias === undefined) return false;
+			const alias = resolveAlias(type.typeName);
+			if (
+				alias === null ||
+				visited.has(alias) ||
+				(alias.typeParameters !== null && alias.typeParameters !== undefined)
+			) {
+				return false;
+			}
 			const nextVisited = new Set(visited);
-			nextVisited.add(type.typeName.name);
-			return resolvesToObject(alias, shadowedAliases, nextVisited);
+			nextVisited.add(alias);
+			return resolvesToObject(alias.typeAnnotation, nextVisited);
 		};
 
 		const checkParameters = (node: ParameterOwner) => {
-			const shadowedAliases = lexicalTypeParameterNames(node);
+			const restContainsObject = (
+				type: ESTree.TSType | ESTree.TSTupleType["elementTypes"][number],
+				visited = new Set<ESTree.TSTypeAliasDeclaration>(),
+			): boolean => {
+				if (type.type === "TSNamedTupleMember") {
+					return restContainsObject(type.elementType, visited);
+				}
+				if (type.type === "TSOptionalType" || type.type === "TSRestType") {
+					return restContainsObject(type.typeAnnotation, visited);
+				}
+				if (type.type === "TSParenthesizedType") {
+					return restContainsObject(type.typeAnnotation, visited);
+				}
+				if (type.type === "TSArrayType") {
+					return resolvesToObject(type.elementType);
+				}
+				if (type.type === "TSTypeOperator" && type.operator === "readonly") {
+					return restContainsObject(type.typeAnnotation, visited);
+				}
+				if (type.type === "TSTupleType") {
+					return type.elementTypes.some((element) =>
+						restContainsObject(element, visited)
+					);
+				}
+				if (type.type === "TSUnionType") {
+					return type.types.some((member) => restContainsObject(member, visited));
+				}
+				if (type.type !== "TSTypeReference" || type.typeName.type !== "Identifier") {
+					return resolvesToObject(type);
+				}
+				const name = type.typeName.name;
+				const parameters = type.typeArguments?.params ?? [];
+				const variable = resolveTypeVariable(type.typeName);
+				if (
+					(name === "Array" || name === "ReadonlyArray") &&
+					(variable === null || variable.defs.length === 0) &&
+					parameters.length === 1
+				) {
+					return parameters[0] !== undefined &&
+						resolvesToObject(parameters[0]);
+				}
+				if (parameters.length > 0) {
+					return false;
+				}
+				const alias = resolveAlias(type.typeName);
+				if (
+					alias === null ||
+					visited.has(alias) ||
+					(alias.typeParameters !== null && alias.typeParameters !== undefined)
+				) {
+					return false;
+				}
+				const nextVisited = new Set(visited);
+				nextVisited.add(alias);
+				return restContainsObject(alias.typeAnnotation, nextVisited);
+			};
 			for (const parameter of node.params) {
 				const annotation = parameterAnnotation(parameter);
 				if (annotation === null || annotation === undefined) continue;
-				if (!resolvesToObject(annotation.typeAnnotation, shadowedAliases)) continue;
+				const inspectedType = annotation.typeAnnotation;
+				const hasObject = parameter.type === "RestElement"
+					? restContainsObject(inspectedType)
+					: resolvesToObject(inspectedType);
+				if (!hasObject) continue;
 				context.report({
-					node: annotation.typeAnnotation,
+					node: inspectedType,
 					messageId: "objectParameter",
 					data: { parameter: parameterName(parameter, context.sourceCode) },
 				});
@@ -109,18 +195,6 @@ export const noObjectParametersRule = defineRule({
 		};
 
 		return {
-			Program(node) {
-				for (const statement of node.body) {
-					const declaration =
-						statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
-					if (
-						declaration?.type === "TSTypeAliasDeclaration" &&
-						(declaration.typeParameters === null || declaration.typeParameters === undefined)
-					) {
-						aliases.set(declaration.id.name, declaration.typeAnnotation);
-					}
-				}
-			},
 			ArrowFunctionExpression: checkParameters,
 			FunctionDeclaration: checkParameters,
 			FunctionExpression: checkParameters,

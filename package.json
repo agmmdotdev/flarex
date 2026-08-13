@@ -21,7 +21,7 @@
     "test": "pnpm test:scripts && pnpm -r test",
     "test:scripts": "pnpm lint:core && pnpm test:oxlint-rules && pnpm test:oxlint-diff && pnpm check:durable-task-lifecycle-vectors && pnpm check:connected-runtime-source-map && pnpm check:durable-task-source-map && pnpm check:standard-application-definition-boundaries && pnpm check:trigger-compatibility-boundary && vitest run scripts/check-connected-runtime-source-map.test.js scripts/check-durable-task-lifecycle-vectors.test.js scripts/check-durable-task-source-map.test.js scripts/check-effect-boundaries.test.js scripts/check-standard-application-definition-boundaries.test.js scripts/check-trigger-compatibility-boundary.test.js --exclude .codex-worktrees/**",
     "test:oxlint-diff": "vitest run scripts/check-oxlint-diff.test.js",
-    "test:oxlint-rules": "vitest run tools/oxlint/flarex/rules.test.ts",
+    "test:oxlint-rules": "vitest run tools/oxlint/flarex/rules.test.ts tools/oxlint/flarex/rules.adversarial.test.ts",
     "test:integration": "vitest run --config integration/vitest.config.ts",
     "trigger:source:verify": "corepack pnpm@10.33.2 --dir third_party/trigger.dev verify:source",
     "trigger:install": "corepack pnpm@10.33.2 --dir third_party/trigger.dev install --frozen-lockfile",
