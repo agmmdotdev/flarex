@@ -2240,12 +2240,26 @@ project once into the existing mutation execution families. The runner still
 owns no admission, active-head selection, session transition, seal, OCC,
 commit, outcome, feed, or outbox decision.
 
-The remaining checkpoint-2 proof is the connected private execution fixture:
-run this real Application runner through the existing stored-attempt kernel,
-show successful seal and the unchanged planning/finishing/publication tail,
-then show conflict replacement performs another fresh source/Worker load and
-commits exactly once. That proof must stay private and must not register
-`ApplicationMutationSystem`; Standard composition remains checkpoint 3.
+The connected checkpoint-2 proof is now implemented and remains private. A
+generation-aware executor activation adapter captures owned Application
+initial-session authority after the existing persistence activation and mints
+the existing process-local execution claim; the legacy adapter captures the
+same generation-discriminated session shape. Initial execution therefore
+enters the unchanged stored-attempt kernel without relabeling Application
+authority as legacy. The adapter verifies canonical argument and request
+evidence before persistence and adds no journal, seal, OCC, replacement,
+commit, feed, outbox, routing, or public Standard owner.
+
+The connected PGlite fixture activates two Application sessions against one
+real published graph, executes both through the real stored-attempt kernel,
+and forces the primary attempt to conflict with a competing material write.
+It proves the competing write publishes once, the primary attempt advances to
+the replacement fence, Application source/definition authority is freshly
+loaded for every execution, the replacement publishes once through the
+unchanged planning/finishing tail, both durable sessions retain the
+Application generation, and the final authoritative row comes from the
+replacement execution. It does not register `ApplicationMutationSystem`;
+Standard composition remains checkpoint 3.
 
 First migrate executable authority and publication:
 

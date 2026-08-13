@@ -343,7 +343,7 @@ export async function executePrivateRegisteredRevisionPointMutationThroughC07V1(
     grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
     randomUuid: input.randomUuid,
   });
-  const execution = createInitialExecution(
+  const execution = createPrivatePointMutationInitialExecutionV1(
     ports,
     executionClaims,
     createStoredAttemptEvidenceLoaderV1(ports),
@@ -679,7 +679,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
       const table = await journal.resolvePointTable("users");
       const patched = await table.runPointOperation({
         kind: "patch",
-        syscallSequence: "1",
+        syscallSequence: 1n,
         documentId,
         patch: { name: `c07-${lane.name}-competing` },
       });
@@ -691,7 +691,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
       });
     },
   }) satisfies PointMutationExactRuntimeArtifactHostBindingV1;
-  const competingExecution = createInitialExecution(
+  const competingExecution = createPrivatePointMutationInitialExecutionV1(
     ports,
     competing.executionClaims,
     loader,
@@ -716,7 +716,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
       const table = await journal.resolvePointTable("users");
       const patched = await table.runPointOperation({
         kind: "patch",
-        syscallSequence: "1",
+        syscallSequence: 1n,
         documentId,
         patch: { name: `c07-${lane.name}-${runtimeExecutions}` },
       });
@@ -742,7 +742,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
   }) satisfies PointMutationExactRuntimeArtifactHostBindingV1;
   const runtimeRunner =
     makePointMutationExactRuntimeBindingRunnerV1(runtimeBinding);
-  const execution = createInitialExecution(
+  const execution = createPrivatePointMutationInitialExecutionV1(
     ports,
     executionClaims,
     loader,
@@ -825,7 +825,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
   });
 }
 
-function createInitialExecution(
+export function createPrivatePointMutationInitialExecutionV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   executionClaims: ReturnType<
     typeof createPointMutationExecutionClaimVaultV1
@@ -852,6 +852,12 @@ function createInitialExecution(
   runner: PointMutationOccRuntimeNeutralRunnerV1,
   intrinsicCreationTimeIndexes:
     ReturnType<typeof createIntrinsicCreationTimeIndexDefinitionPortV1>,
+  applicationMutationGrantVerifier?: Parameters<
+    typeof createPointMutationInitialExecutionV1
+  >[1]["applicationMutationGrantVerifier"],
+  pointCommitOverride?: Parameters<
+    typeof createPointMutationInitialExecutionV1
+  >[1]["pointCommit"],
 ) {
   let executionSequence = 0;
   const terminalization = createPointMutationSessionAttemptTerminalizationV1(
@@ -861,12 +867,16 @@ function createInitialExecution(
   return createPointMutationInitialExecutionV1(loader, {
     evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
     transactionGrantVerifier: verifier,
+    ...(applicationMutationGrantVerifier === undefined
+      ? {}
+      : { applicationMutationGrantVerifier }),
     functionMetadata: {
       load: () => Effect.succeed(structuredClone(functionSnapshot)),
     },
-    pointCommit: createPointCommitPublisherPortV1(ports, {
-      intrinsicCreationTimeIndexes,
-    }),
+    pointCommit: pointCommitOverride ?? createPointCommitPublisherPortV1(
+      ports,
+      { intrinsicCreationTimeIndexes },
+    ),
     pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
     pointMutationAttemptReplacement:
       createPointMutationAttemptReplacementPortV1(ports, {

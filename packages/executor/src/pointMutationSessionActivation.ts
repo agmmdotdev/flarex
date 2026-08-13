@@ -1,4 +1,6 @@
+import { bytesEqual, copyBytes } from "@flarex/utils/bytes";
 import type {
+  ApplicationMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationEffectErrorV1,
   PointMutationSessionActivationResultV1,
@@ -9,8 +11,20 @@ import type {
   PointMutationSessionAttemptTerminalizationEffectErrorV1,
   PointMutationSessionAttemptTerminalizationPersistenceV1,
   PointMutationSessionAttemptTerminalizationResultV1,
+  PreparedApplicationMutationSessionActivationV1,
   PreparedPointMutationSessionActivationV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  PointMutationSessionActivationV1Error,
+} from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  canonicalizeApplicationMutationExecutionAuthorityV1,
+} from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
+  inspectVerifiedApplicationMutationGrantV1,
+} from "flarex-protocol/internal/application-mutation-grant-v1";
+import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
+import { isJsonObject } from "flarex-protocol/json";
 import {
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
 } from "flarex-protocol/transaction-grant";
@@ -27,11 +41,23 @@ import {
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
 import {
+  CanonicalTransactionArgumentsBytesV1Schema,
+  TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+  TransactionArgumentsSha256V1Schema,
+  TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestKeyV1Schema,
+  TransactionRequestSha256V1Schema,
   TransactionSessionIdV1Schema,
+  type StoredApplicationSessionScalarsV1,
+  type StoredTransactionSessionScalarsV1,
   type TransactionRequestKeyV1,
 } from
   "flarex-protocol/transaction-session";
+import { canonicalizePointMutationRequestV1 } from
+  "flarex-protocol/point-mutation-start";
+import {
+  canonicalizeFlarexValueJsonV1Effect,
+} from "flarex-protocol/value";
 import { Effect, Result } from "effect";
 
 import {
@@ -163,6 +189,24 @@ export type PointMutationSessionActivationExecutionV1Error =
   | InvalidAdmittedPointMutationStartV1Error
   | PointMutationSessionActivationEffectErrorV1;
 
+/** Private Application-authority entry into the existing mutation kernel. */
+export interface ApplicationMutationSessionActivationV1 {
+  readonly activate: (
+    prepared: PreparedApplicationMutationSessionActivationV1,
+  ) => Effect.Effect<
+    ActivatedPointMutationSessionV1,
+    ApplicationMutationSessionActivationExecutionV1Error
+  >;
+}
+
+type ApplicationMutationSessionActivationPersistenceErrorV1 =
+  ReturnType<
+    ApplicationMutationSessionActivationPersistenceV1["activateEffect"]
+  > extends Effect.Effect<unknown, infer Error, unknown> ? Error : never;
+
+export type ApplicationMutationSessionActivationExecutionV1Error =
+  ApplicationMutationSessionActivationPersistenceErrorV1;
+
 export interface PointMutationSessionAttemptLoadingV1 {
   readonly load: (
     selector: unknown,
@@ -233,11 +277,62 @@ export function createPointMutationSessionActivationV1(
       : undefined;
     registerActivatedPointMutationSessionStateV1(handle, Object.freeze({
       inspection: result,
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1",
       prepared: retainedPrepared,
       ...(executionClaim === undefined ? {} : { executionClaim }),
     }));
     return handle;
   });
+
+  return Object.freeze({ activate });
+}
+
+export function createApplicationMutationSessionActivationV1(
+  persistence: Pick<
+    ApplicationMutationSessionActivationPersistenceV1,
+    "activateEffect"
+  >,
+  executionClaims: PointMutationExecutionClaimIssuerV1,
+): ApplicationMutationSessionActivationV1 {
+  const activate: ApplicationMutationSessionActivationV1["activate"] =
+    Effect.fn("ExecutorApplicationMutationSessionActivation.activate")(
+      function* (input) {
+        const captured = yield* captureApplicationActivation(input);
+        const result = yield* persistence.activateEffect(
+          captured.persistenceInput,
+        );
+        const initialSession = yield* Effect.fromResult(
+          captureApplicationInitialSessionScalars(
+            result,
+            captured.initialEvidence,
+          ),
+        );
+        const handle = Object.freeze({
+          [activatedPointMutationSessionBrand]: true as const,
+        });
+        const executionClaim = result.status === "created"
+          ? executionClaims.mint({
+              selector: Object.freeze({
+                deploymentId: result.anchor.deploymentId,
+                scopeId: result.anchor.scopeId,
+                sessionId: result.anchor.sessionId,
+                attemptFence: result.anchor.attemptFence,
+              }),
+              observation: result.executionClaim,
+              mode: "execute",
+            })
+          : undefined;
+        registerActivatedPointMutationSessionStateV1(handle, Object.freeze({
+          inspection: result,
+          executionAuthorityGeneration: "application_v1",
+          initialSession,
+          schemaVersionId: captured.schemaVersionId,
+          requestKey: captured.requestKey,
+          ...(executionClaim === undefined ? {} : { executionClaim }),
+        }));
+        return handle;
+      },
+    );
 
   return Object.freeze({ activate });
 }
@@ -532,5 +627,231 @@ function snapshotPreparedActivation(
     deploymentId: snapshot.deploymentId,
     scopeId: snapshot.scopeId,
     evidence: Object.freeze({ ...snapshot.evidence }),
+  });
+}
+
+type ApplicationInitialSessionEvidenceV1 = Omit<
+  StoredApplicationSessionScalarsV1,
+  | "lifecycle"
+  | "storageGeneration"
+  | "storageGenerationFence"
+  | "hardExpiresAtMilliseconds"
+  | "createdAtMilliseconds"
+  | "updatedAtMilliseconds"
+>;
+
+interface CapturedApplicationActivationV1 {
+  readonly persistenceInput: PreparedApplicationMutationSessionActivationV1;
+  readonly initialEvidence: ApplicationInitialSessionEvidenceV1;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly requestKey: TransactionRequestKeyV1;
+}
+
+const captureApplicationActivation = Effect.fn(
+  "ExecutorApplicationMutationSessionActivation.capture",
+)(function* (
+  input: PreparedApplicationMutationSessionActivationV1,
+): Effect.fn.Return<
+  CapturedApplicationActivationV1,
+  ApplicationMutationSessionActivationExecutionV1Error
+> {
+  const captured = yield* Effect.try({
+    try: () => {
+      const evidence = input.evidence;
+      return Object.freeze({
+        deploymentId: input.deploymentId,
+        scopeId: input.scopeId,
+        activeSelection: input.activeSelection,
+        executionAuthority: evidence.executionAuthority,
+        verifiedGrant: evidence.verifiedGrant,
+        functionPath: evidence.functionPath,
+        functionKind: evidence.functionKind,
+        schemaVersionId: evidence.schemaVersionId,
+        policyVersion: evidence.policyVersion,
+        identityAccessPolicySha256:
+          TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
+            evidence.identityAccessPolicySha256,
+          )),
+        validatedArgsJson: structuredClone(evidence.validatedArgsJson),
+        validatedArgsValueCodecVersion:
+          evidence.validatedArgsValueCodecVersion,
+        validatedArgsCanonicalBytes:
+          CanonicalTransactionArgumentsBytesV1Schema.make(copyBytes(
+            evidence.validatedArgsCanonicalBytes,
+          )),
+        validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
+          copyBytes(evidence.validatedArgsSha256),
+        ),
+        requestKey: evidence.requestKey,
+        requestSha256: TransactionRequestSha256V1Schema.make(
+          copyBytes(evidence.requestSha256),
+        ),
+      });
+    },
+    catch: () => invalidPreparedApplicationActivation(),
+  });
+  const authority = yield* canonicalizeApplicationMutationExecutionAuthorityV1(
+    captured.executionAuthority,
+  );
+  const grant = yield* Effect.try({
+    try: () => inspectVerifiedApplicationMutationGrantV1(
+      captured.verifiedGrant,
+    ),
+    catch: () => invalidPreparedApplicationActivation(),
+  });
+  const canonicalArgs = yield* canonicalizeFlarexValueJsonV1Effect(
+    captured.validatedArgsJson,
+  ).pipe(Effect.mapError(() => invalidPreparedApplicationActivation()));
+  if (
+    !isJsonObject(canonicalArgs.valueJson) ||
+    !bytesEqual(
+      canonicalArgs.canonicalBytes,
+      captured.validatedArgsCanonicalBytes,
+    ) ||
+    !bytesEqual(canonicalArgs.sha256, captured.validatedArgsSha256)
+  ) return yield* Effect.fail(invalidPreparedApplicationActivation());
+  const canonicalRequest = yield* Effect.promise(() =>
+    canonicalizePointMutationRequestV1({
+      deploymentId: captured.deploymentId,
+      functionPath: captured.functionPath,
+      validatedArgsSha256: captured.validatedArgsSha256,
+      requestKey: captured.requestKey,
+    })
+  );
+  if (!bytesEqual(canonicalRequest.sha256, captured.requestSha256)) {
+    return yield* Effect.fail(invalidPreparedApplicationActivation());
+  }
+  const authorizationGrantExpiresAtMilliseconds = Date.parse(
+    grant.authorizationGrantExpiresAt,
+  );
+  if (!Number.isFinite(authorizationGrantExpiresAtMilliseconds)) {
+    return yield* Effect.fail(invalidPreparedApplicationActivation());
+  }
+  const initialEvidence = Object.freeze({
+    executionAuthorityGeneration: "application_v1" as const,
+    applicationExecutionAuthorityJson: authority.authorityJson,
+    applicationExecutionAuthorityCanonicalBytes: copyBytes(
+      authority.canonicalBytes,
+    ),
+    applicationExecutionAuthoritySha256: copyBytes(authority.sha256),
+    functionPath: captured.functionPath,
+    functionKind: captured.functionKind,
+    schemaVersionId: captured.schemaVersionId,
+    policyVersion: captured.policyVersion,
+    identityAccessPolicySha256: copyBytes(
+      captured.identityAccessPolicySha256,
+    ),
+    validatedArgsValueCodecVersion:
+      captured.validatedArgsValueCodecVersion,
+    validatedArgsCanonicalByteLength: canonicalArgs.canonicalBytes.byteLength,
+    validatedArgsSha256: copyBytes(canonicalArgs.sha256),
+    authorizationGrantId: grant.authorizationGrantId,
+    authorizationGrantValueCodecVersion:
+      grant.authorizationGrantValueCodecVersion,
+    authorizationGrantCanonicalByteLength:
+      grant.authorizationGrantCanonicalBytes.byteLength,
+    authorizationGrantSha256: copyBytes(grant.authorizationGrantSha256),
+    authorizationRevocationEpoch: grant.authorizationRevocationEpoch,
+    authorizationGrantExpiresAtMilliseconds,
+    requestKey: captured.requestKey,
+    requestSha256: copyBytes(captured.requestSha256),
+    protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+  } satisfies ApplicationInitialSessionEvidenceV1);
+  const persistenceInput = Object.freeze({
+    deploymentId: captured.deploymentId,
+    scopeId: captured.scopeId,
+    activeSelection: captured.activeSelection,
+    evidence: Object.freeze({
+      functionPath: captured.functionPath,
+      functionKind: captured.functionKind,
+      schemaVersionId: captured.schemaVersionId,
+      policyVersion: captured.policyVersion,
+      identityAccessPolicySha256:
+        TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
+          captured.identityAccessPolicySha256,
+        )),
+      validatedArgsJson: canonicalArgs.valueJson,
+      validatedArgsValueCodecVersion:
+        captured.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalBytes:
+        CanonicalTransactionArgumentsBytesV1Schema.make(
+          copyBytes(canonicalArgs.canonicalBytes),
+        ),
+      validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
+        copyBytes(canonicalArgs.sha256),
+      ),
+      requestKey: captured.requestKey,
+      requestSha256: TransactionRequestSha256V1Schema.make(
+        copyBytes(captured.requestSha256),
+      ),
+      executionAuthority: authority.authorityJson,
+      verifiedGrant: captured.verifiedGrant,
+    }),
+  } satisfies PreparedApplicationMutationSessionActivationV1);
+  return Object.freeze({
+    persistenceInput,
+    initialEvidence,
+    schemaVersionId: captured.schemaVersionId,
+    requestKey: captured.requestKey,
+  });
+});
+
+function captureApplicationInitialSessionScalars(
+  result: PointMutationSessionActivationResultV1,
+  evidence: ApplicationInitialSessionEvidenceV1,
+): Result.Result<
+  StoredApplicationSessionScalarsV1,
+  PointMutationSessionActivationV1Error
+> {
+  return captureInitialTemporalScalars(result).pipe(
+    Result.map(temporal => Object.freeze({
+      ...evidence,
+      lifecycle: "running",
+      storageGeneration: result.anchor.storageGeneration,
+      storageGenerationFence: result.anchor.storageGenerationFence,
+      ...temporal,
+    } satisfies StoredApplicationSessionScalarsV1)),
+  );
+}
+
+function captureInitialTemporalScalars(
+  result: PointMutationSessionActivationResultV1,
+): Result.Result<
+  Pick<
+    StoredTransactionSessionScalarsV1,
+    | "hardExpiresAtMilliseconds"
+    | "createdAtMilliseconds"
+    | "updatedAtMilliseconds"
+  >,
+  PointMutationSessionActivationV1Error
+> {
+  const hardExpiresAtMilliseconds = canonicalTimestampMilliseconds(
+    result.anchor.hardExpiresAt,
+  );
+  const createdAtMilliseconds = canonicalTimestampMilliseconds(
+    result.anchor.createdAt,
+  );
+  const updatedAtMilliseconds = canonicalTimestampMilliseconds(
+    result.anchor.updatedAt,
+  );
+  return hardExpiresAtMilliseconds === undefined ||
+      createdAtMilliseconds === undefined ||
+      updatedAtMilliseconds === undefined
+    ? Result.fail(invalidPreparedApplicationActivation())
+    : Result.succeed(Object.freeze({
+        hardExpiresAtMilliseconds,
+        createdAtMilliseconds,
+        updatedAtMilliseconds,
+      }));
+}
+
+function canonicalTimestampMilliseconds(value: string): number | undefined {
+  return isCanonicalIsoTimestamp(value) ? Date.parse(value) : undefined;
+}
+
+function invalidPreparedApplicationActivation():
+  PointMutationSessionActivationV1Error {
+  return new PointMutationSessionActivationV1Error({
+    reason: "invalidPreparedEvidence",
   });
 }

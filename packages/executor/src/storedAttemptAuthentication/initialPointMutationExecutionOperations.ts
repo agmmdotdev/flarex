@@ -92,16 +92,16 @@ export interface InitialPointMutationExecutionOperationDependenciesV1<
     PublicationResultFromCommittedOutcomeV1;
 }
 
-interface CreatedActivatedPointMutationSessionStateV1 {
+type CreatedActivatedPointMutationSessionStateV1 =
+  ActivatedPointMutationSessionStateV1 & {
   readonly inspection: Extract<
     ActivatedPointMutationSessionStateV1["inspection"],
     { readonly status: "created" }
   >;
-  readonly prepared: ActivatedPointMutationSessionStateV1["prepared"];
   readonly executionClaim: NonNullable<
     ActivatedPointMutationSessionStateV1["executionClaim"]
   >;
-}
+};
 
 export function makeInitialPointMutationExecutionOperationsV1<
   VerificationError extends PointMutationInitialExecutionV1Error,
@@ -199,7 +199,7 @@ export function makeInitialPointMutationExecutionOperationsV1<
                 verificationState,
                 verifiedEvidence,
                 expectedRequestSha256:
-                  activatedState.prepared.evidence.requestSha256,
+                  initialRequestSha256(activatedState),
                 currentInspectionUnavailable: () =>
                   new PointMutationOccExecutionAuthorityCorruptionV1Error({
                     reason: "loadedAttemptStateUnavailable",
@@ -248,8 +248,8 @@ function inspectActivatedInitialState(
     return Result.fail(new ActivatedPointMutationSessionBusyV1Error());
   }
   return Result.succeed(Object.freeze({
+    ...state,
     inspection: state.inspection,
-    prepared: state.prepared,
     executionClaim: state.executionClaim,
   }));
 }
@@ -288,7 +288,7 @@ function captureInitialExecutionAuthority(
     storageGeneration: anchor.storageGeneration,
     storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: Object.freeze({ ...anchor.snapshotToken }),
-    schemaVersionId: state.prepared.evidence.schemaVersionId,
+    schemaVersionId: initialSchemaVersionId(state),
     executionClaim: Object.freeze({
       claimOwner: executionClaim.claimOwner,
       claimFence: executionClaim.claimFence,
@@ -303,28 +303,32 @@ function captureInitialVerificationState(
   PointMutationInitialExecutionAuthorityV1Error
 > {
   const anchor = state.inspection.anchor;
-  return captureInitialSessionScalars(anchor, state.prepared.evidence).pipe(
-    Result.map((session) =>
-      Object.freeze({
-        authority: Object.freeze({
-          deploymentId: anchor.deploymentId,
-          scopeId: anchor.scopeId,
-          sessionId: anchor.sessionId,
-          attemptFence: anchor.attemptFence,
-          storageGeneration: anchor.storageGeneration,
-          storageGenerationFence: anchor.storageGenerationFence,
-          snapshotToken: Object.freeze({ ...anchor.snapshotToken }),
-          schemaVersionId: state.prepared.evidence.schemaVersionId,
-        }),
-        session,
-      })
-    ),
-  );
+  const session = state.executionAuthorityGeneration === "application_v1"
+    ? Result.succeed(
+        state.initialSession satisfies StoredAttemptSessionScalarsPortV1,
+      )
+    : captureInitialSessionScalars(anchor, state.prepared.evidence);
+  return session.pipe(Result.map(initialSession => Object.freeze({
+      authority: Object.freeze({
+        deploymentId: anchor.deploymentId,
+        scopeId: anchor.scopeId,
+        sessionId: anchor.sessionId,
+        attemptFence: anchor.attemptFence,
+        storageGeneration: anchor.storageGeneration,
+        storageGenerationFence: anchor.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...anchor.snapshotToken }),
+        schemaVersionId: initialSchemaVersionId(state),
+      }),
+      session: initialSession,
+    })));
 }
 
 function captureInitialSessionScalars(
   anchor: PointMutationSessionAnchorV1,
-  evidence: ActivatedPointMutationSessionStateV1["prepared"]["evidence"],
+  evidence: Extract<
+    ActivatedPointMutationSessionStateV1,
+    { readonly executionAuthorityGeneration: "legacy_dynamic_worker_v1" }
+  >["prepared"]["evidence"],
 ): Result.Result<
   StoredAttemptSessionScalarsPortV1,
   PointMutationInitialExecutionAuthorityV1Error
@@ -395,6 +399,30 @@ function canonicalTimestampMilliseconds(value: string): number | undefined {
   return isCanonicalIsoTimestamp(value) ? Date.parse(value) : undefined;
 }
 
+function initialSchemaVersionId(
+  state: CreatedActivatedPointMutationSessionStateV1,
+) {
+  return state.executionAuthorityGeneration === "application_v1"
+    ? state.schemaVersionId
+    : state.prepared.evidence.schemaVersionId;
+}
+
+function initialRequestKey(
+  state: CreatedActivatedPointMutationSessionStateV1,
+) {
+  return state.executionAuthorityGeneration === "application_v1"
+    ? state.requestKey
+    : state.prepared.evidence.requestKey;
+}
+
+function initialRequestSha256(
+  state: CreatedActivatedPointMutationSessionStateV1,
+) {
+  return state.executionAuthorityGeneration === "application_v1"
+    ? state.initialSession.requestSha256
+    : state.prepared.evidence.requestSha256;
+}
+
 function validateCurrentInitialAttempt(
   state: CreatedActivatedPointMutationSessionStateV1,
   current: LoadedPointMutationSessionAttemptOccRerunInspectionV1,
@@ -409,8 +437,8 @@ function validateCurrentInitialAttempt(
       current.snapshotToken.scopeId === anchor.snapshotToken.scopeId &&
       current.snapshotToken.epoch === anchor.snapshotToken.epoch &&
       current.snapshotToken.commitSeq === anchor.snapshotToken.commitSeq &&
-      current.schemaVersionId === state.prepared.evidence.schemaVersionId &&
-      current.requestKey === state.prepared.evidence.requestKey
+      current.schemaVersionId === initialSchemaVersionId(state) &&
+      current.requestKey === initialRequestKey(state)
     ? Effect.void
     : Effect.fail(new PointMutationInitialExecutionAuthorityV1Error({
         reason: "activatedStateChanged",
