@@ -398,10 +398,24 @@ No Worker Loader call is admitted in D1.
 
 No real provider composition is admitted in D2.
 
-### DTE06-D3: Worker Loader Provider Adapter
+### DTE06-D3a: Exhaustive Launch Authority
+
+- evolve the launch authority into an exact Legacy-or-Application owner without
+  widening the provider request;
+- retain the existing Legacy binding/runtime-object/input reconstruction;
+- consume and revalidate the Application prepared member, creation authority,
+  runtime target, manifest, input reference and Source Artifact V2 root;
+- return one owned discriminated launch subject and perform no Worker or
+  provider call; and
+- prove no cross-generation evidence lookup or Legacy fallback.
+
+### DTE06-D3b: Start Session And Worker Loader Provider Adapter
 
 - compose launch authority, existing materializer/module graph, Worker Loader,
   and the private task RPC;
+- replace the D2 terminal execution proof at this boundary with a distinct
+  start acknowledgement and cancellable execution session; the current
+  terminal `run` result is not provider acceptance;
 - implement the real Cloudflare `TaskComputeProvider` adapter without changing
   the provider-neutral interface;
 - preserve exact dispatch acceptance and generation-correlated cancellation;
@@ -410,6 +424,16 @@ No real provider composition is admitted in D2.
 - prove no import or runtime fallback to `InvokeRequest`, `/invoke`, action,
   query, or mutation hosts; and
 - keep the adapter absent from every deployable composition root.
+
+The D3 correction is mandatory because the first D2 Application host executes
+the handler to a terminal value and exposes no later interruption handle. An
+adapter must not return acceptance before that RPC settles, because it has not
+observed a Worker start, and must not return acceptance afterward, because it
+would make completion and user-code failure part of dispatch settlement. D3b
+therefore owns a separate private start-session ABI before it owns the provider.
+The session may be process-local while DTE06-D remains inert, but it must report
+lost execution honestly and cannot become lifecycle, heartbeat, completion or
+result authority.
 
 ### DTE06-D4: Private System-Test Composition
 
@@ -506,7 +530,7 @@ The next roadmap action was therefore a separate Standard Application
 runtime-object publication/read-authority preflight. SAP-TRP1 is now complete:
 all five role codecs, root preimages, and the private ABI/materialization
 identities are fixed. DTE06-D2 may proceed under this preflight, while the real
-D1 located adapter and DTE06-D3 remain blocked on later publication/readiness
+D1 located adapter and DTE06-D3b remain blocked on later publication/readiness
 and the separate run-input store.
 
 That owner preflight is now recorded in

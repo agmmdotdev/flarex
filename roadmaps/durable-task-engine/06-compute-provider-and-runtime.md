@@ -537,7 +537,7 @@ Preflight 38. That sequence covers application-owned runtime objects only. The
 per-run
 `TaskInputReferenceV1` store still requires a separate Task run-input
 publication/read/retention preflight before the complete production D1 adapter
-or the real DTE06-D3 provider composition can proceed.
+or the real DTE06-D3b provider composition can proceed.
 
 Preflight 38 approves an ordered, production-inert implementation rather than
 a direct extension of the current invocation host:
@@ -552,7 +552,12 @@ a direct extension of the current invocation host:
    `durable_task` runtime entrypoint;
 4. generalize the existing artifact-runtime owner at its narrow materializer,
    module-graph, Worker Loader, cache, and isolation seams; and
-5. compose a real Cloudflare provider only in a private Miniflare/system-test
+5. evolve the launch authority exhaustively for retained Legacy and Application
+   prepared evidence without invoking Worker Loader;
+6. add a true private start-session acknowledgement and interruption surface,
+   because the first Application task host awaits terminal execution and cannot
+   serve as provider acceptance; and
+7. compose a real Cloudflare provider only in a private Miniflare/system-test
    owner, proving cold/warm identity, egress denial, cancellation generations,
    cleanup, bundle safety, and no `/invoke` or action/query/mutation fallback.
 
