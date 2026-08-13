@@ -3111,6 +3111,94 @@ canonical persisted validation belongs to the generation adapter while the
 decision algorithm remains singular; it rejects a current wire codec, a generic
 structural identity lookup, and parallel Legacy/Application transition files.
 
+Checkpoint 5b2 preflight receipt (2026-08-13): accepted with a corrected
+persistence boundary. The earlier one-sentence checkpoint hid four coupled
+facts. The durable run row is the aggregate identity owner, the compute-dispatch
+row repeats that identity for later execution proof, requested-effect and
+attempt-identity rows inherit the run generation through their existing foreign
+keys, and the shipped Task System run-attempt service is a Legacy compatibility
+contract. Therefore 5b2 must not widen that public service structurally or add
+a second run table. It evolves the two identity-owning rows, adds a distinct
+private Application store surface, and shares one generation-neutral
+transaction/persistence algorithm beneath the two exact adapters.
+
+The accepted migration adds the exact persisted discriminator
+`legacy_definition_v1 | application_v1` to the durable-run and compute-dispatch
+rows. Each row has an exclusive identity pair: Legacy requires
+`task_definition_revision_id` and forbids an Application runtime-target digest;
+Application requires the exact 32-byte Application task runtime-target digest
+and forbids the Legacy revision ID. Existing rows are backfilled as Legacy and
+the temporary migration default is removed so every future writer selects a
+generation deliberately. Existing Legacy foreign keys and behavior remain
+unchanged. Requested-effect, attempt-identity, pending-compute, cancellation,
+queue and wake rows remain shared and gain no redundant discriminator because
+their existing run/effect foreign keys already select the authority owner.
+
+The run-row decoder becomes an exhaustive persisted-generation decoder. It
+uses the exact Legacy aggregate codec for Legacy rows and the exact Application
+aggregate codec for Application rows, recanonicalizes the selected JSON, and
+correlates the row discriminator, exclusive identity columns and every existing
+projection. Unknown, mixed or cross-generation values are corruption. The
+requested-effect and lifecycle-ledger correlation mechanics are parameterized
+by the already-decoded aggregate generation so Application effects use their
+exact codec and nested runtime-target identity while attempt numbering, fences,
+effect sequences and accepted-run versions remain one algorithm.
+
+The existing `TaskSystemRunAttemptStore` and its constructors remain exact
+Legacy APIs. A distinct private Application run-attempt store accepts only the
+Application decision input, decision and inspection projections introduced by
+5b1b.ii. Both adapters delegate to one persistence transaction core that locks
+the same scope authority, allocates the same attempt identity and fence, writes
+the same projections and ledgers, and preserves the same retry/error policy.
+Neither adapter can inspect or coerce the other row generation.
+
+Application creation consumes the authentic opaque 5a task selection, never
+its public metadata alone. Preparation may snapshot the request and opaque
+selection claim, but a new creation validates that selection and its canonical
+catalog/definition evidence inside the same located transaction and existing
+scope-clock share lock that owns the insert. It then creates the distinct
+canonical Application creation authority from the validated activation,
+active-head, readiness and runtime-target pins, creates the exact Application
+initial aggregate, and stores the Application branch without a manufactured
+Legacy revision ID. The run-request row remains shared.
+
+Replay ordering is deliberately asymmetric. After locking the scope authority,
+the creator first locks and resolves an existing request key and its referenced
+run. If the stored request, input, canonical creation authority and Application
+run branch agree exactly, it returns that stored result without consulting the
+current active head. Only a genuinely new request performs current selection
+validation. A same-key mismatch is conflict, and a new request whose selection
+has moved is stale. This preserves idempotent replay after later activation
+while preventing a stale selector from authorizing a new run.
+
+Until 5d, every ordinary due-run and compute-delivery discovery branch joins or
+filters through the durable-run generation and admits only
+`legacy_definition_v1`. This includes pending, initial-checkpoint, retry and
+expired-claim discovery; absence of Application data is not accepted as proof.
+Focused 5b2 tests may invoke the private Application creator/store directly,
+but no scheduler, route, trigger, compute preparation, Worker launch or public
+Task consumer is enabled. Checkpoint 5c remains the sole owner of decoding
+Application compute evidence, and 5d remains the launch/discovery cut.
+
+The proof must cover fresh migration, upgrade from the previous migration with
+existing Legacy run and dispatch rows, unknown/mixed/XOR constraint failures,
+unchanged Legacy creation and lifecycle vectors, Application creation and
+direct lifecycle persistence, exact replay and same-key conflict, stale
+selection before a new creation, replay after a later head movement, caller-byte
+detachment, corrupt aggregate/effect/reference rejection, and explicit
+Application exclusion from every due and compute discovery family. No new run
+table, duplicate lifecycle state machine, mutable-head check on exact replay,
+Legacy fallback, dual write or production consumer cut is authorized.
+
+Self-review accepts this as one medium checkpoint because the schema, decoder,
+creator and store changes terminate at the same persisted generation boundary;
+splitting them would leave either unreadable rows or a creator with no exact
+lifecycle owner. Stop and amend if implementation requires a second run table,
+a second transition algorithm, a redundant discriminator on every child row,
+current-head validation before exact replay, Application compute preparation,
+or any change to queue ownership, wake authority, dispatch fencing, settlement
+or uncertainty semantics.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
