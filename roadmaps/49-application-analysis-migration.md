@@ -2504,6 +2504,69 @@ after admission, a legacy fallback, a second outcome/idempotency path, or any
 change to journal, OCC, commit compilation, commit publication, change-feed,
 or outbox semantics.
 
+#### AA-R6 checkpoint 3b runtime-host identity correction preflight and accepted amendment
+
+The Application-native composition fixture exposed a shared contract mismatch
+before its first session could be admitted. Readiness deliberately requires the
+Task catalog binding and cold Application Worker receipt to name the same
+runtime host identity. The accepted Application Worker identity is currently
+315 UTF-16 code units because it commits both generated-core digests and the
+import/runtime policy. The Application Task Binding contract and its durable
+catalog check admit at most 256 code units. A real readiness settlement must
+therefore reject the current host with `coldMaterialization`; using a shorter
+test identity would no longer prove the runtime that execution actually loads.
+
+The bounded correction raises only the runtime-host-identity ceiling in the
+Application Task Binding contract and matching durable catalog constraint from
+256 to 1,024 code units. NUL-free Unicode-scalar validation, nonempty policy,
+canonical bytes, digest commitments, replay comparison, and PostgreSQL text
+safety remain unchanged. Revision, candidate, analysis, task, module, export,
+and other identity limits remain 256. The migration replaces the named catalog
+check without rewriting stored evidence; every value accepted before remains
+accepted, and the new ceiling remains small relative to the existing binding
+byte budget.
+
+Required proof is exact acceptance at 1,024, rejection at 1,025, persistence of
+the accepted full Application Worker identity, and the resumed readiness plus
+Standard mutation composition. This correction does not authorize a shortened
+or aliased host identity, a Task/Application policy split, a readiness bypass,
+or any journal, OCC, commit, feed, or outbox change.
+
+Self-review accepts this correction because readiness already owns exact
+identity equality and the persisted text column already owns canonical binding
+bytes. Aligning their finite ceilings restores the existing invariant rather
+than adding a new authority or fallback.
+
+The resumed run also exposed one connected runtime-accounting mismatch. Stored
+point-mutation evidence deliberately names the semantic size of the legacy
+one-element argument array, including its two-byte container charge; the
+Application Worker request carries the argument object itself. The Application
+runner must subtract the protocol-owned array overhead when projecting that
+request, while retaining the stored size for legacy exact-runtime execution.
+This is a projection correction only: arguments, canonical bytes, digest,
+validator result, and all commit evidence remain unchanged. The runner proof
+must start with the stored array size so it cannot pass through the previous
+object-sized fixture shortcut.
+
+The split PGlite fixture also has to distribute the immutable schema catalog to
+the located database because the journal resolves pinned table identities
+locally. It does so by invoking the existing schema publisher against the
+located target with the same canonical manifest after control publication. It
+does not copy rows or add a journal fallback. Production distribution and
+genuine topology coverage remain `AA-R7` gates; this receipt proves only that
+both sides are content-addressed by the same schema authority.
+
+Finally, Application retries cannot reuse the physical grant JWS: the private
+issuer creates a fresh valid grant for each invocation. Session replay must
+therefore compare the authenticated Application authority, function, schema,
+policy, argument, request, and revocation pins while retaining the first stored
+grant as the attempt's execution authority. Legacy replay remains byte-exact
+for its externally prepared grant. A changed request, arguments, authority, or
+revocation epoch still conflicts; only grant ID, JWS bytes/digest, and expiry
+may differ after the fresh Application grant has been verified against the same
+logical pins. This generation-specific equality is required for typed busy and
+durable replay semantics and does not authorize grant-family fallback.
+
 Implementation self-review corrected one overly broad concurrency claim before
 the checkpoint was frozen. Session activation intentionally returns `busy`
 without minting an execution claim, and the existing crash-redispatch owner also

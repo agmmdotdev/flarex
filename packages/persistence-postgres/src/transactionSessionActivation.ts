@@ -3850,14 +3850,7 @@ function sessionEvidenceMatches(
   session: typeof fxSystemTransactionSessions.$inferSelect,
   expected: PreparedStoredMutationSessionEvidenceV1,
 ): boolean {
-  const actualGrantExpiresAtMilliseconds = finiteDateMilliseconds(
-    session.authorizationGrantExpiresAt,
-  );
-  const expectedGrantExpiresAtMilliseconds = finiteDateMilliseconds(
-    expected.authorizationGrantExpiresAt,
-  );
-  return (
-    session.executionAuthorityGeneration ===
+  const logicalEvidenceMatches = session.executionAuthorityGeneration ===
       expected.executionAuthorityGeneration &&
     nullableJsonEqual(
       session.applicationExecutionAuthorityJson,
@@ -3892,6 +3885,24 @@ function sessionEvidenceMatches(
       expected.validatedArgsCanonicalBytes,
     ) &&
     bytesEqual(session.validatedArgsSha256, expected.validatedArgsSha256) &&
+    session.authorizationRevocationEpoch ===
+      expected.authorizationRevocationEpoch &&
+    session.requestKey === expected.requestKey &&
+    bytesEqual(session.requestSha256, expected.requestSha256);
+  if (!logicalEvidenceMatches) return false;
+  // Application admission has already authenticated the fresh grant against
+  // every logical pin above. Retain the first stored grant as execution
+  // authority so a newly signed retry of the same request is busy/replay, not
+  // a false request-key conflict. Legacy callers still replay exact grant
+  // evidence because their external preparation contract reuses that grant.
+  if (expected.executionAuthorityGeneration === "application_v1") return true;
+  const actualGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const expectedGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    expected.authorizationGrantExpiresAt,
+  );
+  return (
     session.authorizationGrantId === expected.authorizationGrantId &&
     jsonEqual(
       session.authorizationGrantJson,
@@ -3907,12 +3918,8 @@ function sessionEvidenceMatches(
       session.authorizationGrantSha256,
       expected.authorizationGrantSha256,
     ) &&
-    session.authorizationRevocationEpoch ===
-      expected.authorizationRevocationEpoch &&
     actualGrantExpiresAtMilliseconds !== undefined &&
-    actualGrantExpiresAtMilliseconds === expectedGrantExpiresAtMilliseconds &&
-    session.requestKey === expected.requestKey &&
-    bytesEqual(session.requestSha256, expected.requestSha256)
+    actualGrantExpiresAtMilliseconds === expectedGrantExpiresAtMilliseconds
   );
 }
 

@@ -27,6 +27,8 @@ import {
 import type {
   TransactionGrantInertAuthV1,
 } from "flarex-protocol/transaction-grant";
+import { POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1 } from
+  "flarex-protocol/point-mutation-start";
 import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
 import { encodeEdgeActionHostPolicyV1 } from
@@ -166,7 +168,8 @@ const projectApplicationMutationRequest = Effect.fn(
     target: input.application.runtimeTarget,
     auth: projectApplicationAuth(input.verifiedGrant.evidence.payload.auth),
     arguments: input.argumentsJson,
-    argumentSemanticBytes: input.argumentArraySemanticBytes,
+    argumentSemanticBytes: input.argumentArraySemanticBytes -
+      POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1,
     tables: input.stableBindings.map(binding => ({
       tableId: binding.tableId,
       logicalName: binding.logicalName,

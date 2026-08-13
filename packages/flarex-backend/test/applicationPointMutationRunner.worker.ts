@@ -19,6 +19,8 @@ import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
+import { POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1 } from
+  "flarex-protocol/point-mutation-start";
 import type {
   PointMutationJournalTableV1,
 } from "@flarex/executor/point-mutation-journal";
@@ -137,7 +139,8 @@ function runnerInput(
     executionAuthorityGeneration: "application_v1",
     argumentsJson: argumentsValue,
     argumentArraySemanticBytes:
-      normalizeFlarexValueV1(argumentsValue).semanticSizeBytes,
+      normalizeFlarexValueV1(argumentsValue).semanticSizeBytes +
+      POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1,
     verifiedGrant: Object.freeze({
       verifiedAtEpochMilliseconds: 1_800_000_000_000,
       evidence: Object.freeze({

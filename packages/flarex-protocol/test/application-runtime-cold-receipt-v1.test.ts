@@ -50,6 +50,17 @@ describe("ApplicationRuntimeColdReceiptV1", () => {
       publicationSha256: "A".repeat(64),
     }))).toBe(true);
   });
+
+  it("bounds the shared Application runtime-host identity", () => {
+    expect(Result.isSuccess(canonicalizeApplicationRuntimeColdReceiptV1({
+      ...receipt(),
+      runtimeHostIdentity: "h".repeat(1_024),
+    }))).toBe(true);
+    expect(Result.isFailure(canonicalizeApplicationRuntimeColdReceiptV1({
+      ...receipt(),
+      runtimeHostIdentity: "h".repeat(1_025),
+    }))).toBe(true);
+  });
 });
 
 function receipt() {

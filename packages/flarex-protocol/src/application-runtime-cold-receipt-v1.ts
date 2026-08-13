@@ -7,6 +7,7 @@ export const APPLICATION_RUNTIME_COLD_RECEIPT_FORMAT_V1 =
   "flarex.application-runtime-cold-receipt" as const;
 export const APPLICATION_RUNTIME_COLD_RECEIPT_VERSION_V1 = 1 as const;
 export const MAX_APPLICATION_RUNTIME_COLD_RECEIPT_BYTES_V1 = 16_384;
+export const MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 = 1_024;
 
 const UTF8 = new TextEncoder();
 const BoundedText = Schema.String.check(Schema.makeFilter(value =>
@@ -15,9 +16,10 @@ const BoundedText = Schema.String.check(Schema.makeFilter(value =>
     : "Expected nonempty text of at most 4096 UTF-8 bytes"
 ));
 const BoundedIdentity = Schema.String.check(Schema.makeFilter(value =>
-  value.length > 0 && value.length <= 256
+  value.length > 0 &&
+      value.length <= MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1
     ? undefined
-    : "Expected a nonempty identity of at most 256 code units"
+    : "Expected a nonempty identity of at most 1024 code units"
 ));
 const LowercaseSha256 = Schema.String.check(Schema.makeFilter(value =>
   /^[0-9a-f]{64}$/.test(value)

@@ -23,6 +23,8 @@ import {
   type ApplicationTaskHandlerBindingV1,
   type ApplicationTaskRuntimeHostPolicyV1,
 } from "./Model.js";
+import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
+  "flarex-protocol/internal/application-runtime-cold-receipt-v1";
 import {
   MAX_TASK_CATALOG_ENTRIES_V1,
   MAX_TASK_HANDLER_FIELD_UTF8_BYTES_V1,
@@ -363,7 +365,8 @@ function isCompatibilityDate(input: unknown): input is string {
 }
 
 function isRuntimeHostIdentity(input: unknown): input is string {
-  return typeof input === "string" && input.length > 0 && input.length <= 256 &&
+  return typeof input === "string" && input.length > 0 &&
+    input.length <= MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 &&
     isNulFreeScalarText(input);
 }
 

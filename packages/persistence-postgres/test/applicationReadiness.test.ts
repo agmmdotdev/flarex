@@ -653,6 +653,14 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }));
     const active = await runEffect(activation.readActive());
     const input = await applicationMutationActivationInput(fixture, active);
+    const freshGrantReplay = await applicationMutationActivationInput(
+      fixture,
+      active,
+      {
+        requestKey: "request:application:mutation",
+        grantId: "grant_application_mutation_fresh_retry",
+      },
+    );
     const staleNewRequest = await applicationMutationActivationInput(
       fixture,
       active,
@@ -680,7 +688,9 @@ describe("Application activation", { timeout: 30_000 }, () => {
     );
 
     const created = await runEffect(sessionActivation.activateEffect(input));
-    const replayed = await runEffect(sessionActivation.activateEffect(input));
+    const replayed = await runEffect(
+      sessionActivation.activateEffect(freshGrantReplay),
+    );
     expect(created.status).toBe("created");
     expect(replayed).toMatchObject({ status: "busy", anchor: created.anchor });
     const stored = await fixture.target.query<{

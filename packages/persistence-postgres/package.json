@@ -103,6 +103,7 @@
     "./internal/system-test/indexBuildReconciliation": "./src/indexBuildReconciliation.ts",
     "./internal/system-test/applicationRevisionActivationV1": "./src/applicationRevisionActivationV1.ts",
     "./internal/system-test/applicationActivation": "./src/applicationActivation.ts",
+      "./internal/system-test/application-native-mutation-fixture": "./test/fixtures/applicationNativeMutationTestFixture.ts",
     "./internal/system-test/applicationPointQuerySnapshotV1": "./src/applicationPointQuerySnapshotV1.ts"
   },
   "scripts": {

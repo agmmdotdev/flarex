@@ -4,6 +4,8 @@ import {
   type TaskDefinitionSha256V1,
   type TaskIdV1,
 } from "../taskDefinition/Model.js";
+export { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
+  "flarex-protocol/internal/application-runtime-cold-receipt-v1";
 
 export const APPLICATION_TASK_CATALOG_BINDING_CODEC_V1 =
   "flarex.standard-application/application-task-catalog-binding/v1" as const;

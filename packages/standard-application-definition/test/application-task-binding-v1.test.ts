@@ -202,6 +202,28 @@ describe("Application task binding V1", () => {
       taskCatalogSha256: catalog.taskCatalogSha256,
       taskCount: 1,
     }))).toBe(true);
+    expect(Result.isSuccess(decodeApplicationTaskCatalogBindingV1({
+      version: 1,
+      ...authority,
+      ...runtimePolicy,
+      runtimeHostIdentity: "h".repeat(1_024),
+      taskCatalogSha256: catalog.taskCatalogSha256,
+      taskCount: 1,
+    }))).toBe(true);
+    expect(decodeApplicationTaskCatalogBindingV1({
+      version: 1,
+      ...authority,
+      ...runtimePolicy,
+      runtimeHostIdentity: "h".repeat(1_025),
+      taskCatalogSha256: catalog.taskCatalogSha256,
+      taskCount: 1,
+    })).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        reason: "invalidRuntimePolicy",
+        path: "runtimeHostIdentity",
+      },
+    });
     expect(decodeApplicationTaskCatalogBindingV1({
       version: 1,
       ...authority,

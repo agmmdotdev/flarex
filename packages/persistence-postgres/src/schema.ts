@@ -4990,7 +4990,7 @@ export const fxSystemApplicationTaskCatalogsV1 = pgTable(
       sql`length(${table.revisionId}) between 1 and 256
         and length(${table.candidateId}) between 1 and 256
         and length(${table.analysisId}) between 1 and 256
-        and length(${table.runtimeHostIdentity}) between 1 and 256
+        and length(${table.runtimeHostIdentity}) between 1 and 1024
         and ${table.compatibilityDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'
         and octet_length(${table.sourceArtifactRootSha256}) = 32
         and octet_length(${table.publicationSha256}) = 32

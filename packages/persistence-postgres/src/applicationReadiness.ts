@@ -13,6 +13,8 @@ import {
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
+import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
+  "flarex-protocol/internal/application-runtime-cold-receipt-v1";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
@@ -1993,7 +1995,8 @@ function validIdentity(value: string): boolean {
 }
 
 function validRuntimeHostIdentity(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 256 &&
+  return typeof value === "string" && value.length > 0 &&
+    value.length <= MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 &&
     isNulFreeScalarText(value);
 }
 
