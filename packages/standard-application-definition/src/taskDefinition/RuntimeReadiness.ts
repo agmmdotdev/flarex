@@ -1,4 +1,5 @@
 export {
+  copyTaskRuntimeReadinessBasisV1,
   decodeTaskRuntimeReadinessBasisPreimageV1,
   encodeTaskRuntimeReadinessBasisPreimageV1,
   hashTaskRuntimeReadinessBasisV1,

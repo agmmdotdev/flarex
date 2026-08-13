@@ -155,8 +155,6 @@ import { makeApplicationTaskRuntimePublicationRepository } from
   "../src/applicationTaskRuntimePublication";
 import { createApplicationTaskRuntimeReadinessSnapshotPort } from
   "../src/applicationTaskRuntimeReadinessSnapshot";
-import type { ApplicationTaskRuntimeReadinessSnapshotPort } from
-  "../src/applicationTaskRuntimeReadinessSnapshot";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
   createPGliteLocatedSplitScopeClockTarget,
@@ -1026,7 +1024,24 @@ describe("Application activation", { timeout: 30_000 }, () => {
       runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
       compatibilityDate: COMPATIBILITY_DATE,
       activationSequence: 1n,
+      taskRuntime: {
+        kind: "empty",
+        readinessBasis: {
+          applicationRevisionId: fixture.input.revisionId,
+          kind: "empty",
+        },
+      },
     });
+    const originalReceiptByte = active.basis.taskRuntime.receiptSha256[0];
+    active.basis.taskRuntime.receiptSha256[0] ^= 0xff;
+    active.basis.taskRuntime.readinessBasis.publicationReceiptSha256[0] ^=
+      0xff;
+    const claimed = Result.getOrThrow(claimApplicationActiveSelection(
+      active.selection,
+    ));
+    expect(claimed.taskRuntime.receiptSha256[0]).toBe(originalReceiptByte);
+    expect(claimed.taskRuntime.readinessBasis.publicationReceiptSha256[0])
+      .toBe(originalReceiptByte);
     expect(Result.isSuccess(claimApplicationActiveSelection(
       active.selection,
     ))).toBe(true);
@@ -1048,6 +1063,38 @@ describe("Application activation", { timeout: 30_000 }, () => {
       }),
     ));
     expect(validated.revisionId).toBe(fixture.input.revisionId);
+  });
+
+  it("rejects retained legacy readiness as current activation authority", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    await runEffect(fixture.repository.settleLegacy(fixture.input));
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+
+    const result = await runEffect(Effect.result(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    })));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        _tag: "ApplicationReadinessError",
+        reason: "conflictingReplay",
+      });
+    }
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_activation_v1",
+    )).toBe(0);
+    expect(await scalarCount(
+      fixture.target,
+      "fx_system_application_active_head_v1",
+    )).toBe(0);
   });
 
   it("admits and replays exact Application mutation authority and rejects stale or foreign authority", async () => {
@@ -1476,7 +1523,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }));
     const firstSelection = await runEffect(activation.readActive());
     const nextRevisionId = await createAdditionalApplicationRevision(fixture);
-    const nextReadiness = await runEffect(fixture.repository.settleLegacy({
+    const nextReadiness = await runEffect(fixture.repository.settle({
       deploymentId: fixture.input.deploymentId,
       revisionId: nextRevisionId,
     }));
@@ -1772,7 +1819,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       const nextRevisionId = yield* Effect.promise(() =>
         createAdditionalApplicationRevision(fixture)
       );
-      yield* fixture.repository.settleLegacy({
+      yield* fixture.repository.settle({
         deploymentId: fixture.input.deploymentId,
         revisionId: nextRevisionId,
       });
@@ -1868,7 +1915,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
     const expected = await insertApplicationQueryRow(fixture, schemaVersionId);
     await enablePhysicalBuilds(fixture, schemaVersionId);
-    await runEffect(fixture.repository.settleLegacy(fixture.input));
+    await runEffect(fixture.repository.settle(fixture.input));
     const activation = makeApplicationActivationRepository({
       deploymentId: fixture.input.deploymentId,
       readiness: fixture.repository,
@@ -2079,16 +2126,23 @@ interface ReadinessFixtureOptions {
   readonly taskRuntimeMode?: "normal" | "corruptMembershipAfterVerify";
 }
 
-async function prepareTaskRuntimeReadinessContext(input: {
+interface PreparedTaskRuntimeReadinessFixture {
+  readonly revisionId: string;
+  readonly proof: object;
+  readonly receiptSha256: () => TaskDefinitionSha256V1;
+  readonly basis: PreparedTaskRuntimeReadinessBasisV1;
+  readonly beforeProofReturn?: () => Promise<void>;
+}
+
+async function prepareTaskRuntimeReadinessFixture(input: {
   readonly db: FlarexMetadataDatabase;
   readonly authority: ApplicationAnalysisAuthority;
   readonly definition: PreparedStandardApplicationDefinitionV1;
   readonly catalog: HashedCanonicalTaskCatalogV1;
   readonly bindings: PreparedApplicationTaskBindingsV1;
   readonly publication: ApplicationPublication;
-  readonly snapshot: ApplicationTaskRuntimeReadinessSnapshotPort;
   readonly beforeProofReturn?: () => Promise<void>;
-}): Promise<ApplicationReadinessTaskRuntimeContext<never>> {
+}): Promise<PreparedTaskRuntimeReadinessFixture> {
   const source = Result.getOrThrow(
     produceStandardApplicationSource(input.definition),
   );
@@ -2183,34 +2237,16 @@ async function prepareTaskRuntimeReadinessContext(input: {
       canonicalBytes: object.readCanonicalBytes(),
     })),
   }, taskSha256));
-  const proofs = new WeakMap<object, PreparedTaskRuntimeReadinessBasisV1>();
   const proof = Object.freeze({});
-  proofs.set(proof, verified);
-  const connected = Object.freeze({
-    verify: () => Effect.promise(async () => {
-      await input.beforeProofReturn?.();
-      return Object.freeze({
-        status: "verified" as const,
-        revisionId: input.publication.revisionId,
-        proof,
-      });
-    }),
-    capture: (received: unknown) => {
-      if (typeof received !== "object" || received === null) {
-        return Result.fail(new Error("Missing readiness proof."));
-      }
-      const basis = proofs.get(received);
-      return basis === undefined
-        ? Result.fail(new Error("Foreign readiness proof."))
-        : Result.succeed(Object.freeze({
-            revisionId: input.publication.revisionId,
-            readReceiptSha256: () => receipt.readSha256(),
-            readCanonicalBytes: () => basis.readCanonicalBytes(),
-            readSha256: () => basis.readSha256(),
-          }));
-    },
+  return Object.freeze({
+    revisionId: input.publication.revisionId,
+    proof,
+    receiptSha256: () => receipt.readSha256(),
+    basis: verified,
+    ...(input.beforeProofReturn === undefined
+      ? {}
+      : { beforeProofReturn: input.beforeProofReturn }),
   });
-  return Object.freeze({ connected, snapshot: input.snapshot });
 }
 
 async function mirrorCommitSchemaEvidenceToTarget(
@@ -2343,6 +2379,75 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
   const taskCatalogPort = createApplicationTaskCatalogSnapshotPort();
   let locatedTransactionsOpen = 0;
   let taskRuntimeBoundaryChecks = 0;
+  const taskRuntimeFixtures = new Map<
+    string,
+    PreparedTaskRuntimeReadinessFixture
+  >();
+  const taskRuntimeProofs = new WeakMap<
+    object,
+    PreparedTaskRuntimeReadinessFixture
+  >();
+  const taskRuntimeSnapshot = createApplicationTaskRuntimeReadinessSnapshotPort(
+    taskCatalogPort,
+  );
+  const taskRuntimeContext: ApplicationReadinessTaskRuntimeContext<never> =
+    Object.freeze({
+      connected: Object.freeze({
+        verify: ({ revisionId }: { readonly revisionId: string }) =>
+          Effect.promise(async () => {
+            const prepared = taskRuntimeFixtures.get(revisionId);
+            if (prepared === undefined) {
+              return Object.freeze({
+                status: "not_ready" as const,
+                revisionId,
+                reason: "readiness_snapshot_missing" as const,
+              });
+            }
+            await prepared.beforeProofReturn?.();
+            return Object.freeze({
+              status: "verified" as const,
+              revisionId,
+              proof: prepared.proof,
+            });
+          }),
+        capture: (received: unknown) => {
+          if (typeof received !== "object" || received === null) {
+            return Result.fail(new Error("Missing readiness proof."));
+          }
+          const prepared = taskRuntimeProofs.get(received);
+          return prepared === undefined
+            ? Result.fail(new Error("Foreign readiness proof."))
+            : Result.succeed(Object.freeze({
+                revisionId: prepared.revisionId,
+                readReceiptSha256: prepared.receiptSha256,
+                readCanonicalBytes: () => prepared.basis.readCanonicalBytes(),
+                readSha256: () => prepared.basis.readSha256(),
+              }));
+        },
+      }),
+      snapshot: taskRuntimeSnapshot,
+    });
+  const registerTaskRuntime = async (input: {
+    readonly definition: PreparedStandardApplicationDefinitionV1;
+    readonly catalog: HashedCanonicalTaskCatalogV1;
+    readonly bindings: PreparedApplicationTaskBindingsV1;
+    readonly publication: ApplicationPublication;
+    readonly beforeProofReturn?: () => Promise<void>;
+  }): Promise<void> => {
+    const prepared = await prepareTaskRuntimeReadinessFixture({
+      db: target.drizzle,
+      authority,
+      definition: input.definition,
+      catalog: input.catalog,
+      bindings: input.bindings,
+      publication: input.publication,
+      ...(input.beforeProofReturn === undefined
+        ? {}
+        : { beforeProofReturn: input.beforeProofReturn }),
+    });
+    taskRuntimeFixtures.set(prepared.revisionId, prepared);
+    taskRuntimeProofs.set(prepared.proof, prepared);
+  };
   let taskRuntime: ApplicationReadinessTaskRuntimeContext<never> | undefined;
   if (options.registerTaskCatalog !== false) {
     const catalog = await runEffect(hashCanonicalTaskCatalogV1({
@@ -2371,16 +2476,11 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         bindings,
       }),
     );
-    taskRuntime = await prepareTaskRuntimeReadinessContext({
-      db: target.drizzle,
-      authority,
+    await registerTaskRuntime({
       definition: preparedDefinition(),
       catalog,
       bindings,
       publication,
-      snapshot: createApplicationTaskRuntimeReadinessSnapshotPort(
-        taskCatalogPort,
-      ),
       beforeProofReturn: async () => {
         taskRuntimeBoundaryChecks += 1;
         if (locatedTransactionsOpen !== 0) {
@@ -2398,6 +2498,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
         }
       },
     });
+    taskRuntime = taskRuntimeContext;
   }
   const locatedTarget = createLocatedAppSchemaCandidateValidationTarget(
     target.drizzle,
@@ -2519,6 +2620,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     candidateValidation,
     pointCommit,
     repository,
+    registerTaskRuntime,
     schema: readinessContext.schema,
     input: Object.freeze({
       deploymentId,
@@ -2920,6 +3022,12 @@ async function createAdditionalApplicationRevision(
       bindings,
     }),
   );
+  await fixture.registerTaskRuntime({
+    definition: preparedDefinition(),
+    catalog,
+    bindings,
+    publication,
+  });
   return publication.revisionId;
 }
 

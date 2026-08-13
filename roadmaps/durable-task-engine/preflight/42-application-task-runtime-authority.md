@@ -2,13 +2,14 @@
 
 ## Status And Scope
 
-**Status:** `SAP-CAA1-A/B/C/D` is committed. `SAP-CAA1-E` is implemented
-locally as the next production-inert checkpoint. The current runtime publication now
+**Status:** `SAP-CAA1-A/B/C/D/E` is committed. `SAP-CAA1-F` and its separately
+approved shared commit-graph prerequisite are implemented locally as the next
+production-inert checkpoint. The current runtime publication now
 has a private
 transaction-only readiness snapshot that independently compares Application
 parent/catalog evidence with canonical receipt/membership evidence before any
 object-store work. No parallel V2 runtime, legacy reader, dual write, fallback,
-readiness issuance, activation, or production composition was added. External
+or production composition was added. External
 deployment inventory remains a hard gate before applying this corrected
 migration to any persistent owned environment.
 
@@ -20,9 +21,11 @@ candidate table or a task-runtime receipt as its own authority.
 
 This is a prerequisite to persistence step 4 in
 [`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md).
-It authorizes only task-aware Application-readiness persistence and its final
-transactional revalidation. It does not authorize activation, Task System
-launch, Worker Loader composition, hosted R2 operation, or production wiring.
+It authorizes task-aware Application-readiness persistence, its final
+transactional revalidation, and the bounded `SAP-CAA1-F` projection through the
+existing Application activation and active-selection owners. It does not
+authorize Task System launch, Worker Loader composition, hosted R2 operation,
+or production wiring.
 
 ## Why There Is No Second Runtime Version
 
@@ -310,7 +313,9 @@ The original implementation order was:
 5. `SAP-CAA1-E`: extend the existing Application readiness owner with explicit
    task-aware issuance and final revalidation after the connected proof exists;
    and
-6. create a legacy-retention checkpoint only if concrete inventory evidence
+6. `SAP-CAA1-F`: extend the existing activation and active-selection basis with
+   the exact task-readiness projection while preserving one active head; and
+7. create a legacy-retention checkpoint only if concrete inventory evidence
    requires one.
 
 The approved correction implemented steps 1 and 2 together because the private
@@ -320,7 +325,8 @@ or compatibility reader for an implementation with no retained consumer,
 which would contradict this preflight's no-parallel-path decision. Steps 3 and
 4 are now complete as separate production-inert checkpoints. `SAP-CAA1-E` owns
 the schema extension, exact legacy replay, task-aware issuance, and final
-no-network revalidation/commit. Activation and launch remain unimplemented.
+no-network revalidation/commit. `SAP-CAA1-F` is separately approved below;
+launch remains unimplemented.
 
 ### SAP-CAA1-D connected-verification boundary
 
@@ -396,8 +402,9 @@ Locally implemented `SAP-CAA1-E` evidence:
 - neither compatibility shape can overwrite or convert the other;
 - a runtime-membership change after connected verification is rejected by the
   final transaction with no readiness row; and
-- activation remains explicitly on `settleLegacy`, so this checkpoint cannot
-  expose incomplete task readiness through the active-selection basis.
+- `SAP-CAA1-E` itself retained activation on `settleLegacy`; the separately
+  approved `SAP-CAA1-F` checkpoint below now moves the current activation path
+  to exact task-aware settlement and selection projection.
 
 Local validation passes persistence, backend, and system-test typechecks; 39
 Application readiness/activation/query tests; the 29-test PGlite migration
@@ -405,6 +412,88 @@ chain; Drizzle generation agreement; scoped Oxlint; Effect boundaries; and the
 Trigger boundary. The added ordinary-role genuine-PostgreSQL schema/constraint
 and task-aware settlement lane is skipped locally because
 `FLAREX_POSTGRES_DATABASE_URL` is unset.
+
+### SAP-CAA1-F task-aware activation boundary
+
+The approved checkpoint reuses the existing Application activation row, CAS
+head, activation request, and active-selection capability. It adds no task
+activation table, task head, dual write, or alternate routing decision.
+
+The current activation operation must call the current task-aware readiness
+operation, then revalidate that exact issued evidence inside the existing
+activation transaction. The readiness owner remains responsible for relocking
+and comparing the immutable runtime publication and membership without network
+work. The activation basis and active selection project an owned copy of:
+
+- the explicit `empty` or `populated` task-runtime kind;
+- the runtime-publication receipt digest;
+- the readiness-basis digest; and
+- the decoded canonical readiness basis needed by the later located launch
+  adapter.
+
+`readActive` must reconstruct and revalidate the same task-aware readiness
+before returning a selection. A selection minted from legacy readiness remains
+rejected by the current task-aware activation path; the retained legacy
+settlement operation is test/compatibility evidence, not current activation
+authority. Existing activation and head canonical frames continue to bind the
+readiness digest, which already commits the task projection, so this checkpoint
+does not create a new activation wire or persisted-schema version.
+
+The stop boundary remains production-inert: no Worker, route, Queue, Cron,
+Task System run creation, Worker Loader, or task-runtime object read is wired.
+
+#### Shared commit-authority blocker discovered during SAP-CAA1-F
+
+The first connected PGlite activation run exposed a shared-owner incompatibility:
+
+- **scenario:** issue exact task-aware readiness version 2, activate that
+  revision through the existing Application head, create an ordinary
+  Application mutation session, and load its stored commit-authority graph;
+- **expected:** the graph verifier accepts the same authenticated Application
+  candidate, publication, schema, function, task-aware readiness, and activation
+  evidence already accepted by the activation owner;
+- **actual:** `verifyApplicationMutationCommitAuthorityGraph` reconstructs only
+  the legacy version-1 `flarex.application-readiness` canonical frame, so the
+  loader returns `applicationGraphInvalid` for the valid version-2 readiness;
+- **affected owner:**
+  `packages/persistence-postgres/src/applicationMutationCommitAuthorityGraph.ts`
+  and its stored-commit materialization caller, which are shared commit/OCC
+  authority rather than the Application activation owner; and
+- **evidence:** the focused `Application activation` PGlite lane passes the
+  new activation insert/read projection cases but fails the existing
+  `admits and replays exact Application mutation authority` assertion at the
+  first stored graph load (`expected loaded`, `received corrupt`).
+
+**Disposition:** separately approved and corrected in the shared owner. The
+existing graph now loads the immutable Application task catalog for both exact
+readiness shapes and the immutable task-runtime publication only when validating
+task-aware readiness. It reconstructs the unchanged legacy canonical frame or
+the exact task-aware canonical frame, decodes and hashes the canonical readiness
+basis, and correlates its Application/catalog/runtime-publication evidence before
+accepting the graph. Legacy readiness remains valid even if a runtime publication
+is registered later. No fallback, dual write, parallel verifier, commit-execution
+change, OCC change, journal change, idempotency change, outbox change, or
+Application-row change was added.
+
+Local `SAP-CAA1-F` evidence now proves:
+
+- current activation settles and transactionally revalidates task-aware
+  readiness before the existing CAS head changes;
+- insert, exact replay, cold `readActive`, second-revision head movement, and
+  query/mutation selection revalidation preserve the same task basis;
+- the returned active basis and the process-local selection own independent
+  copies of all task digests, lists, and canonical readiness-basis data;
+- retained legacy readiness is rejected as current activation authority without
+  writing activation history or a head;
+- the stored commit-authority loader accepts exact task-aware readiness and
+  still rejects post-capture corruption; and
+- the shared graph has isolated positive coverage for both compatibility shapes
+  plus negative task-basis digest correlation.
+
+Validation on 2026-08-13: Standard Application and persistence typechecks pass;
+the focused Application readiness plus commit-graph PGlite lane passes 2 files
+and 56 tests. No genuine-PostgreSQL URL is configured in this shell, so no new
+external database claim is made for this behavior-only checkpoint.
 
 ## Local Implementation Receipt
 
@@ -476,7 +565,8 @@ This preflight does not authorize:
 - changing unrelated concrete wire, RPC, Source Artifact, or Application
   readiness compatibility contracts;
 - a generic candidate API or universal database abstraction;
-- task-aware activation or active-selection projection;
+- production activation wiring or an active-selection consumer that launches
+  a task runtime;
 - Task System definition/run creation, compute delivery, Worker Loader, or
   production routing;
 - R2 credentials, object reads, repair, deletion, or garbage collection;

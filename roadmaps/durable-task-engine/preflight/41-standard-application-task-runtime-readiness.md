@@ -23,11 +23,12 @@ in a settled reservation operation and composes it with the existing backend
 cold-verification authority. The composition must close PostgreSQL before the
 first object read, capture the runtime materialization policy from trusted host
 configuration rather than from the receipt, and return only a process-local
-proof. The locally implemented `SAP-CAA1-E` checkpoint adds only the task-aware
+proof. The committed `SAP-CAA1-E` checkpoint adds only the task-aware
 readiness schema/write and final transaction revalidation. Its plain `settle`
 operation is the accepted current path; `settleLegacy` retains exact historical
-version-1 issuance for the unwired compatibility path. Activation and the
-production host remain separate and unapproved.
+version-1 issuance for the unwired compatibility path. `SAP-CAA1-F` is now
+approved to extend only the existing activation-basis and active-selection
+projection; the production host remains separate and unapproved.
 
 Earlier focused evidence remains 10 backend SAP-TRP5 tests, 34 persistence
 catalog/publication/reservation PGlite tests, and 5 genuine PostgreSQL 18
@@ -276,16 +277,20 @@ digest; no task-specific head is needed.
 
 ### Legacy policy
 
-- Existing stored version-1 readiness receipts remain readable and exactly
-  replayable so current function-only active revisions are not invalidated by
-  the migration.
-- A stored version-1 readiness may continue through the existing activation
-  compatibility path, but its active selection is explicitly
-  `taskRuntime: legacy_absent` and can never authorize a task launch.
+- Existing stored version-1 readiness receipts remain decodable and exactly
+  replayable through the explicitly retained persistence compatibility
+  operation. They remain valid immutable evidence for the shared commit graph.
+- The separately approved `SAP-CAA1-F` decision retires legacy readiness as
+  activation and active-selection authority: current `activate` and
+  `readActive` reject it rather than minting `taskRuntime: legacy_absent`.
+  Source inventory found no production composition consumer or configured
+  persistent environment, but rollout remains blocked until each real target
+  environment is inventoried for legacy readiness and active-head rows.
 - The plain current `settle` operation cannot mint a version-1 receipt. The
   explicitly retained `settleLegacy` operation may still issue or replay
-  version 1 for the private function-only compatibility and activation path
-  until its separately approved removal gate; it is not task-launch authority.
+  version 1 for private persistence and commit-graph compatibility tests. It is
+  neither activation nor task-launch authority. Removing that persisted-format
+  compatibility operation remains a separately approved gate.
 - A revision already holding version-1 readiness cannot be upgraded in place;
   publishing task runtime later requires a new immutable Application revision.
 - SAP-TRP5 performs no backfill, implicit empty receipt, in-place receipt
@@ -661,7 +666,8 @@ object existence as a readiness receipt.
 ### Persistence and activation
 
 - additive migration from the immediately prior journal and an empty database;
-- legacy version-1 exact read/replay and explicit task-launch exclusion;
+- legacy version-1 exact persistence replay, shared commit-graph decoding, and
+  explicit activation/task-launch exclusion;
 - version-2 empty and populated readiness insert/replay;
 - restrictive SAP-TRP4 receipt foreign key and shape checks;
 - snapshot/final-transaction drift for authority, catalog, receipt, membership,
@@ -710,13 +716,21 @@ After explicit approval of each remaining checkpoint:
 5. **Implemented locally as SAP-CAA1-E:** task-aware readiness issuance reuses
    the existing readiness owner, retains exact legacy replay under
    `settleLegacy`, and adds no parallel task-runtime read or write path;
-6. extend the existing activation-basis projection and transactional
-   revalidation without changing active-head authority;
+6. **Approved as SAP-CAA1-F:** extend the existing activation-basis projection
+   and transactional revalidation without changing active-head authority;
 7. prove PGlite, Miniflare, and ordinary-role genuine-PostgreSQL behavior; and
 8. stop production-inert after final reviewers and one or more bounded commits.
 
 The implementation may be split at these owner boundaries. Passing an earlier
 checkpoint does not authorize the later one automatically.
+
+`SAP-CAA1-F` exposed and recorded a shared stored mutation commit-authority
+graph incompatibility before touching that owner. After separate approval, the
+bounded prerequisite extended the existing graph to correlate the immutable
+task catalog and task-runtime publication and to decode the two exact persisted
+readiness compatibility shapes. It did not change commit execution, OCC,
+journals, idempotency, outbox, or authoritative Application rows. Preflight 42
+owns the scenario, approval, correction, and validation evidence.
 
 ## Explicit Non-Goals
 

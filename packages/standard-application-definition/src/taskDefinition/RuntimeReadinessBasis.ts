@@ -389,16 +389,15 @@ function basisJson(basis: TaskRuntimeReadinessBasisV1): Json {
     version: 1,
   };
 }
-
-
-export function copyTaskRuntimeReadinessBasisV1(basis: TaskRuntimeReadinessBasisV1): TaskRuntimeReadinessBasisV1 {
+export function copyTaskRuntimeReadinessBasisV1(
+  basis: TaskRuntimeReadinessBasisV1,
+): TaskRuntimeReadinessBasisV1 {
   return Object.freeze({
     ...basis,
     publicationReceiptSha256: copyDigest(basis.publicationReceiptSha256),
     applicationPublicationSha256:
       copyDigest(basis.applicationPublicationSha256),
-    sourceArtifactRootSha256:
-      copyDigest(basis.sourceArtifactRootSha256),
+    sourceArtifactRootSha256: copyDigest(basis.sourceArtifactRootSha256),
     applicationTaskCatalogBindingSha256:
       copyDigest(basis.applicationTaskCatalogBindingSha256),
     applicationRevisionTaskBindingSha256:
@@ -412,7 +411,9 @@ export function copyTaskRuntimeReadinessBasisV1(basis: TaskRuntimeReadinessBasis
     taskRuntimeMaterializationSpecSha256:
       copyNullableDigest(basis.taskRuntimeMaterializationSpecSha256),
     compatibilityFlags: Object.freeze([...basis.compatibilityFlags]),
-    supportedComputeProfiles: Object.freeze([...basis.supportedComputeProfiles]),
+    supportedComputeProfiles: Object.freeze([
+      ...basis.supportedComputeProfiles,
+    ]),
   });
 }
 

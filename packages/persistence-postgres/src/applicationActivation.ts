@@ -1,4 +1,8 @@
 import {
+  copyTaskRuntimeReadinessBasisV1,
+  type TaskDefinitionSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
   bytesEqualFullScan,
   copyBytes,
   copyBytesToArrayBuffer,
@@ -17,7 +21,7 @@ import {
   type ApplicationReadinessRepository,
   type ApplicationReadinessResult,
   type ReadApplicationReadinessError,
-  type SettleLegacyApplicationReadinessError,
+  type SettleApplicationReadinessError,
 } from "./applicationReadiness";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import {
@@ -108,16 +112,29 @@ export class ApplicationActivationError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-type ApplicationActivationReadinessPort<SchemaFailure, ColdFailure> = Pick<
-  ApplicationReadinessRepository<SchemaFailure, ColdFailure, unknown>,
-  "settleLegacy" | "readReady"
+type ApplicationActivationReadinessPort<
+  SchemaFailure,
+  ColdFailure,
+  TaskRuntimeFailure,
+> = Pick<
+  ApplicationReadinessRepository<
+    SchemaFailure,
+    ColdFailure,
+    TaskRuntimeFailure
+  >,
+  "settle" | "readReady"
 >;
 
-export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
+export interface ApplicationActivationContext<
+  SchemaFailure,
+  ColdFailure,
+  TaskRuntimeFailure = never,
+> {
   readonly deploymentId: string;
   readonly readiness: ApplicationActivationReadinessPort<
     SchemaFailure,
-    ColdFailure
+    ColdFailure,
+    TaskRuntimeFailure
   >;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
@@ -127,14 +144,22 @@ export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
   ) => void;
 }
 
-export interface ApplicationActivationRepository<SchemaFailure, ColdFailure> {
+export interface ApplicationActivationRepository<
+  SchemaFailure,
+  ColdFailure,
+  TaskRuntimeFailure = never,
+> {
   readonly activate: (input: {
     readonly revisionId: string;
     readonly expectedActiveHead: ApplicationActiveCasToken | null;
   }) => Effect.Effect<
     ApplicationActivationReceipt,
     | ApplicationActivationError
-    | SettleLegacyApplicationReadinessError<SchemaFailure, ColdFailure>
+    | SettleApplicationReadinessError<
+        SchemaFailure,
+        ColdFailure,
+        TaskRuntimeFailure
+      >
     | TrustedScopeAuthorityError
     | LockScopeClockForUpdateError
   >;
@@ -165,9 +190,21 @@ export function claimApplicationActiveSelection(
     : Result.succeed(copySelectionBasis(state.basis));
 }
 
-export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
-  context: ApplicationActivationContext<SchemaFailure, ColdFailure>,
-): ApplicationActivationRepository<SchemaFailure, ColdFailure> {
+export function makeApplicationActivationRepository<
+  SchemaFailure,
+  ColdFailure,
+  TaskRuntimeFailure = never,
+>(
+  context: ApplicationActivationContext<
+    SchemaFailure,
+    ColdFailure,
+    TaskRuntimeFailure
+  >,
+): ApplicationActivationRepository<
+  SchemaFailure,
+  ColdFailure,
+  TaskRuntimeFailure
+> {
   const captured = Object.freeze({
     deploymentId: context.deploymentId,
     readiness: context.readiness,
@@ -196,7 +233,7 @@ export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
           input.revisionId,
         );
       }
-      const readiness = yield* captured.readiness.settleLegacy(Object.freeze({
+      const readiness = yield* captured.readiness.settle(Object.freeze({
         deploymentId: captured.deploymentId,
         revisionId: input.revisionId,
       }));
@@ -273,10 +310,11 @@ export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
 
 const loadReadyForActiveRead = Effect.fn(
   "ApplicationActivation.loadReadyForActiveRead",
-)(function* <SchemaFailure, ColdFailure>(
+)(function* <SchemaFailure, ColdFailure, TaskRuntimeFailure>(
   readinessRepository: ApplicationActivationReadinessPort<
     SchemaFailure,
-    ColdFailure
+    ColdFailure,
+    TaskRuntimeFailure
   >,
   deploymentId: string,
   revisionId: string,
@@ -340,7 +378,7 @@ function* (
   readinessRepository: unknown,
   readiness: ApplicationReadinessResult,
   expected: ApplicationActiveCasToken | null,
-  faultAfter: ApplicationActivationContext<unknown, unknown>["faultAfter"],
+  faultAfter: ApplicationActivationContext<unknown, unknown, unknown>["faultAfter"],
 ) {
   const clock = yield* lockScopeClockForUpdateInTransactionEffect(
     tx,
@@ -875,9 +913,26 @@ function copySelectionBasis(
     taskCatalogSha256: copyBytes(basis.taskCatalogSha256),
     taskCatalogBindingSha256: copyBytes(basis.taskCatalogBindingSha256),
     readinessSha256: copyBytes(basis.readinessSha256),
+    taskRuntime: Object.freeze({
+      kind: basis.taskRuntime.kind,
+      receiptSha256:
+        copyTaskDefinitionSha256(basis.taskRuntime.receiptSha256),
+      readinessBasisSha256:
+        copyTaskDefinitionSha256(basis.taskRuntime.readinessBasisSha256),
+      readinessBasis:
+        copyTaskRuntimeReadinessBasisV1(basis.taskRuntime.readinessBasis),
+    }),
     activationSha256: copyBytes(basis.activationSha256),
     headSha256: copyBytes(basis.headSha256),
   });
+}
+
+function copyTaskDefinitionSha256(
+  value: TaskDefinitionSha256V1,
+): TaskDefinitionSha256V1 {
+  // SAFETY: the caller supplies an already branded exact 32-byte digest and
+  // byte-for-byte copying preserves that validated Task Definition contract.
+  return copyBytes(value) as TaskDefinitionSha256V1;
 }
 
 function copyCasToken(token: ApplicationActiveCasToken): ApplicationActiveCasToken {

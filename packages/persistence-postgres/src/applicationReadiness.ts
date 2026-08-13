@@ -15,6 +15,7 @@ import {
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
 import {
+  copyTaskRuntimeReadinessBasisV1,
   decodeTaskRuntimeReadinessBasisPreimageV1,
   type TaskDefinitionSha256V1,
   type TaskRuntimeReadinessBasisV1,
@@ -358,6 +359,12 @@ export interface ApplicationReadinessActivationBasis {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly readinessSha256: Uint8Array;
+  readonly taskRuntime: Readonly<{
+    readonly kind: "empty" | "populated";
+    readonly receiptSha256: TaskDefinitionSha256V1;
+    readonly readinessBasisSha256: TaskDefinitionSha256V1;
+    readonly readinessBasis: TaskRuntimeReadinessBasisV1;
+  }>;
 }
 
 export type ApplicationReadinessActivationValidation =
@@ -882,6 +889,7 @@ export const validateApplicationReadinessForActivationInTransaction =
       ApplicationReadinessActivationValidation,
       | ApplicationReadinessError
       | ApplicationTaskCatalogSnapshotError
+      | LoadApplicationTaskRuntimeReadinessSnapshotError
       | ValidateAppSchemaCandidateReadinessError
       | ValidatePointCommitUniqueConstraintEligibilityV1Error
       | LockScopeClockForShareError
@@ -896,28 +904,16 @@ export const validateApplicationReadinessForActivationInTransaction =
       if (repositoryState === undefined || issuedState === undefined ||
         issuedState.issuer !== repositoryState.issuer ||
         issuedState.prepared.bundle.authority.scopeId !== currentClock.scopeId ||
-        issuedState.prepared.taskRuntime !== null) {
+        issuedState.prepared.taskRuntime === null) {
         return yield* readinessFailure("invalidComposition");
       }
-      const replayOperation = settleReadiness(
+      const replay = yield* settleReadiness(
         tx,
         issuedState.prepared,
         repositoryState.context,
         repositoryState.issuer,
         "validate",
       );
-      // SAFETY: activation accepts only issuer-owned legacy evidence whose
-      // prepared taskRuntime is null, so settleReadiness cannot enter its
-      // task-runtime snapshot validation branch.
-      const replay = yield* replayOperation as Effect.Effect<
-        ApplicationReadinessResult,
-        | ApplicationReadinessError
-        | ApplicationTaskCatalogSnapshotError
-        | ValidateAppSchemaCandidateReadinessError
-        | ValidatePointCommitUniqueConstraintEligibilityV1Error
-        | LockScopeClockForShareError
-        | LockScopeClockForUpdateError
-      >;
       if (replay.status !== "ready") return replay;
       const replayState = issuedReadinessStates.get(replay);
       if (replayState === undefined ||
@@ -930,7 +926,10 @@ export const validateApplicationReadinessForActivationInTransaction =
         )) return yield* readinessFailure("authorityChanged");
       return Object.freeze({
         status: "ready",
-        basis: activationBasis(issuedState),
+        basis: activationBasis(
+          issuedState,
+          issuedState.prepared.taskRuntime,
+        ),
       });
     },
   );
@@ -2412,6 +2411,7 @@ function readyProjection(
 
 function activationBasis(
   state: IssuedApplicationReadinessState,
+  taskRuntime: PreparedTaskRuntimeReadiness,
 ): ApplicationReadinessActivationBasis {
   const prepared = state.prepared;
   return Object.freeze({
@@ -2444,6 +2444,14 @@ function activationBasis(
     runtimeHostIdentity: prepared.runtimeHostIdentity,
     compatibilityDate: prepared.compatibilityDate,
     readinessSha256: copyBytes(state.readinessSha256),
+    taskRuntime: Object.freeze({
+      kind: taskRuntime.kind,
+      receiptSha256:
+        copyTaskDefinitionSha256(taskRuntime.receiptSha256),
+      readinessBasisSha256:
+        copyTaskDefinitionSha256(taskRuntime.basisSha256),
+      readinessBasis: copyTaskRuntimeReadinessBasisV1(taskRuntime.basis),
+    }),
   });
 }
 
