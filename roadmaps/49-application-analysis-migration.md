@@ -2807,13 +2807,17 @@ third action lifecycle:
    and result instead of manufacturing a request-key conflict against the new
    head.
 3. A missing request selects the current active Application target and admits
-   exactly once. An existing request must match function path, canonical
-   argument digest and execution-identity digest; its stored authority,
-   compatibility date, host policy and body reference remain authoritative.
-   Executing rows use the existing Application recovery operation. Terminal
-   rows replay without Worker loading. Admitted rows dispatch through 4b and
-   publish one completed, failed, uncertain or cancelled lifecycle through the
-   existing Application action tables.
+   exactly once. The same scoped invocation retains that admitted selection, so
+   later head movement cannot retarget its dispatch. An existing request must
+   match function path, canonical argument digest and execution-identity digest;
+   its stored authority, compatibility date, host policy and body reference
+   remain authoritative. Terminal rows replay without Worker loading, and
+   executing rows use the existing Application recovery operation. A later
+   process that finds an `admitted` row may resume it only when a fresh active
+   selection reproduces the exact stored execution authority; otherwise it
+   returns the durable non-completed state without loading a Worker. This
+   deliberate fail-closed limit avoids inventing a historical-selection issuer
+   in 4c; explicit cancellation remains owned by the existing lifecycle API.
 4. The compatibility-named `invokeStandardApplicationActionV1` becomes a thin
    consumer of `ApplicationActionSystem`; it no longer reads an active revision
    or imports the candidate-bound action System. The displaced implementation,
@@ -2825,6 +2829,8 @@ third action lifecycle:
 The connected private proof must cover first success, exact terminal replay
 without another Worker, conflicting request-key reuse, head movement before
 admission, head movement after admission with the pinned target retained,
+fail-closed admitted replay when the current head no longer reproduces that
+target,
 fresh Worker loads for distinct requests, callback child mutation, confirmed
 and uncertain outbound effects, cancellation/expiry recovery, structured user
 and Application errors, interruption cleanup ordering, and zero production
