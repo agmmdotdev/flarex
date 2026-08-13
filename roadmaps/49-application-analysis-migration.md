@@ -3074,6 +3074,43 @@ lifecycle transition, SQL, run, compute discovery, launch, route or fallback.
 Self-review accepts this as the smallest honest recursive contract boundary and
 rejects a shallow mapped type or parallel Application validator.
 
+Checkpoint 5b1b.ii preflight receipt (2026-08-13): accepted. The existing
+transition implementation is one pure decision core, but its input, projected
+outcomes, receipts and commit decision are still spelled with the persisted
+Legacy `taskDefinitionRevisionId`, and `finalizeCommit` proves its next value by
+round-tripping the Legacy aggregate codec. Replacing only the aggregate-root
+field would therefore leave hidden Legacy authority in grants, evidence,
+dispatch effects and current-state outcomes; copying the functions for the
+Application branch would create the forbidden second lifecycle state machine.
+
+The accepted boundary is one current-reference lifecycle model and one set of
+decision functions. The current model carries the exhaustive
+`TaskDefinitionReference` union recursively through aggregate, state, grant,
+requested effect, evidence, accepted receipt, completion replay, outcome and
+decision. Each persisted generation adapter owns exactly three operations:
+decode/capture its concrete aggregate into the current model, validate and own a
+candidate current aggregate by round-tripping only that generation's exact
+persisted codec, and project the current decision back to that same persisted
+generation. The core receives that bounded candidate validator as a pure
+capability; it never switches on generation, reads a structural fallback or
+manufactures a Legacy definition revision. Existing Legacy `decide*V1`
+functions remain compatibility adapters with the same signatures and exact
+codec/failure behavior. Distinct Application decision adapters are private
+contract surfaces for 5b2 and must reject mixed or divergent nested references.
+
+The proof must run start, heartbeat, completion retry/terminal, cancellation
+and lease-expiry decisions through both adapters and compare the
+generation-neutral projection after removing only the definition-reference
+member. It must pin requested-effect ordering, fences, counters, retry policy,
+accepted evidence and idempotent completion replay; prove Application outputs
+contain no synthetic `taskDefinitionRevisionId`; and keep all existing Legacy
+compatibility vectors byte-for-byte green. No store interface, SQL, run row,
+discovery, compute delivery, launch, route or consumer changes are authorized in
+this checkpoint. Self-review accepts the validator-capability seam because
+canonical persisted validation belongs to the generation adapter while the
+decision algorithm remains singular; it rejects a current wire codec, a generic
+structural identity lookup, and parallel Legacy/Application transition files.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
