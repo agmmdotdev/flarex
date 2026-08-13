@@ -2921,23 +2921,28 @@ checkpoints:
    and child rows; do not add a redundant execution-binding table, allocate or
    manufacture a Legacy `taskDefinitionRevisionId`, copy module bytes, or create
    a run. This checkpoint remains inert.
-2. **5b — shared durable-run reference and creation generation.** Give the
+2. **5b1 — shared durable-run reference and lifecycle contracts.** Give the
    durable-task owner one current in-memory task-definition reference union, but
    do not widen or reinterpret any persisted V1 codec. Legacy run-creation,
    aggregate/state, grant, requested-effect and compute-request V1 values retain
    `taskDefinitionRevisionId` byte-for-byte. Add distinct Application persisted
-   contract generations carrying only the Application runtime-target identity,
-   and factor their execution through the same pure lifecycle transition core.
-   Evolve the persistence projection and shared run/dispatch rows with an exact
-   discriminator and mutually exclusive foreign-key columns; existing rows
+   request, receipt, aggregate/state, grant and requested-effect contract
+   generations carrying only the Application runtime-target identity. Both
+   generations must execute through one pure lifecycle transition core; adapters
+   own exact encode/decode and identity projection. Retry/cancellation policy,
+   requested-effect ordering, fences and lifecycle receipts remain one state
+   machine. This checkpoint changes no SQL and creates no run.
+3. **5b2 — durable-run persistence and Application creation generation.**
+   Evolve the shared run/dispatch rows with an exact discriminator and mutually
+   exclusive Legacy-definition/Application-runtime-target columns; existing rows
    migrate to the Legacy branch. Add a distinct Application run-creation
    authority whose canonical evidence binds the active head, readiness and
-   runtime target. Exact replay resolves the stored branch before current-head
-   validation. Retry/cancellation policy, requested-effect ordering, fences,
-   queue ownership, and wake scheduling remain one state machine. Until 5d,
-   compute discovery must explicitly exclude Application rows even though
-   focused private tests may create them.
-3. **5c — generation-aware immutable compute preparation.** Make the existing
+   runtime target, and a private creation store that consumes the authentic 5a
+   selector capability. Exact replay resolves the stored branch before current-
+   head validation. Queue ownership and wake scheduling remain shared. Until 5d,
+   due-run and compute discovery must explicitly exclude Application rows even
+   though focused private tests may create and directly read them.
+4. **5c — generation-aware immutable compute preparation.** Make the existing
    compute repository decode the run reference exhaustively. The Legacy branch
    keeps its current definition lookup and commitment. The Application branch
    loads and recanonicalizes only the stored Application execution binding and
@@ -2949,7 +2954,7 @@ checkpoints:
    never fallback. Application compute evidence remains directly testable, but
    ordinary discovery continues to exclude it until the 5d launch and consumer
    cut is committed.
-4. **5d — Application task Worker, launch cut, and private Task System service.**
+5. **5d — Application task Worker, launch cut, and private Task System service.**
    Add one bounded Application task Worker request/result contract and host
    definition that loads the authority-pinned Source Artifact V2 bundle, resolves
    the exact task handler, validates payload/output with the canonical task
@@ -2983,11 +2988,13 @@ the smallest prerequisite for the already-authorized 5a proof; the focused
 non-empty catalog regression must fail on the old reader and pass on the fixed
 reader.
 
-Checkpoint 5b must prove fresh and upgrade migration, exact Legacy preservation,
-unknown/mixed reference rejection, Application creation/replay/conflict, head
-movement before creation, pinned replay after later head movement,
-aggregate/effect codec round trips, and unchanged retry/cancellation/lifecycle
-receipts plus exclusion from compute discovery. Checkpoint 5c must prove both
+Checkpoint 5b1 must prove exact Legacy codec preservation, unknown/mixed
+reference rejection, Application request/receipt/aggregate/effect round trips,
+and unchanged retry/cancellation/lifecycle receipts through the shared core.
+Checkpoint 5b2 must prove fresh and upgrade migration, Application creation,
+replay/conflict, head movement before creation, pinned replay after later head
+movement, row XOR constraints, direct read correlation, and exclusion from due
+and compute discovery. Checkpoint 5c must prove both
 prepared-evidence branches, wrong binding/reference rejection, size-before-
 payload admission, dispatch/cancellation recovery, and no cross-generation
 lookup. Checkpoint 5d must prove fresh Worker loading, exact handler and source
@@ -3000,8 +3007,8 @@ Self-review accepts this decomposition because every checkpoint ends at an
 explicit compatibility boundary while the durable lifecycle remains single.
 It is larger than the earlier sentence but materially simpler than hiding four
 persisted contracts behind a structural adapter. Stop and amend before
-implementation if 5a needs the candidate-bound runtime-object store, 5b requires
-a second run table or lifecycle state machine, 5c changes dispatch fencing or
+implementation if 5a needs the candidate-bound runtime-object store, 5b1 needs
+a second lifecycle state machine, 5b2 requires a second run table, 5c changes dispatch fencing or
 uncertainty semantics, 5d cannot execute from Source Artifact V2 without
 manufactured artifact evidence, or any checkpoint adds dual selection,
 comparison execution, route, trigger, schedule, production deployment, or
