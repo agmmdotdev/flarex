@@ -438,6 +438,7 @@ type ReplaceLegacyDefinitionIdentity<
   Value,
   Identity extends Readonly<Record<string, unknown>>,
 > = Value extends Uint8Array ? Value
+  : Value extends TaskDefinitionReference ? Value
   : Value extends string | number | bigint | boolean | symbol | null | undefined
     ? Value
   : Value extends readonly unknown[] ? {
@@ -516,6 +517,14 @@ export type StartAttemptOutcomeV1 =
       readonly reason: StartAttemptCurrentReasonV1;
       readonly state: RunAttemptStateV1;
     };
+export type ApplicationStartAttemptOutcomeV1 = ReplaceLegacyDefinitionIdentity<
+  StartAttemptOutcomeV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentStartAttemptOutcome = ReplaceLegacyDefinitionIdentity<
+  StartAttemptOutcomeV1,
+  CurrentDefinitionIdentity
+>;
 
 export type HeartbeatAttemptCurrentReasonV1 =
   | "phase_not_active"
@@ -537,6 +546,14 @@ export type HeartbeatAttemptOutcomeV1 =
       readonly reason: HeartbeatAttemptCurrentReasonV1;
       readonly state: RunAttemptStateV1;
     };
+export type ApplicationHeartbeatAttemptOutcomeV1 = ReplaceLegacyDefinitionIdentity<
+  HeartbeatAttemptOutcomeV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentHeartbeatAttemptOutcome = ReplaceLegacyDefinitionIdentity<
+  HeartbeatAttemptOutcomeV1,
+  CurrentDefinitionIdentity
+>;
 
 export type TaskRetryDeliveryV1 = "immediate" | "durable";
 export type TaskRunSucceededTerminalV1 = Extract<
@@ -608,6 +625,14 @@ export type CompleteAttemptOutcomeV1 =
       readonly reason: CompleteAttemptCurrentReasonV1;
       readonly state: RunAttemptStateV1;
     };
+export type ApplicationCompleteAttemptOutcomeV1 = ReplaceLegacyDefinitionIdentity<
+  CompleteAttemptOutcomeV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentCompleteAttemptOutcome = ReplaceLegacyDefinitionIdentity<
+  CompleteAttemptOutcomeV1,
+  CurrentDefinitionIdentity
+>;
 
 export type RequestCancellationCurrentReasonV1 =
   | "already_requested"
@@ -628,6 +653,14 @@ export type RequestCancellationOutcomeV1 =
       readonly reason: RequestCancellationCurrentReasonV1;
       readonly state: RunAttemptStateV1;
     };
+export type ApplicationRequestCancellationOutcomeV1 = ReplaceLegacyDefinitionIdentity<
+  RequestCancellationOutcomeV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentRequestCancellationOutcome = ReplaceLegacyDefinitionIdentity<
+  RequestCancellationOutcomeV1,
+  CurrentDefinitionIdentity
+>;
 
 export type HandleLeaseExpiryCurrentReasonV1 =
   | "phase_not_active"
@@ -655,6 +688,14 @@ export type HandleLeaseExpiryOutcomeV1 =
       readonly reason: HandleLeaseExpiryCurrentReasonV1;
       readonly state: RunAttemptStateV1;
     };
+export type ApplicationHandleLeaseExpiryOutcomeV1 = ReplaceLegacyDefinitionIdentity<
+  HandleLeaseExpiryOutcomeV1,
+  ApplicationDefinitionIdentityV1
+>;
+export type CurrentHandleLeaseExpiryOutcome = ReplaceLegacyDefinitionIdentity<
+  HandleLeaseExpiryOutcomeV1,
+  CurrentDefinitionIdentity
+>;
 
 export interface TaskFailurePolicyDecisionEvidenceV1 {
   readonly failure: TaskExecutionFailureV1;
@@ -910,6 +951,14 @@ export interface TaskRunAttemptAcceptedReceiptV1<Outcome> {
   readonly evidence: readonly TaskRunAttemptEvidenceV1[];
   readonly requestedEffects: readonly PersistedTaskRequestedEffectV1[];
 }
+export interface CurrentTaskRunAttemptAcceptedReceipt<Outcome> {
+  readonly observedAtMs: TaskDatabaseTimeMsV1;
+  readonly acceptedRunVersion: TaskRunVersionV1;
+  readonly resultingPhase: RunAttemptPhaseV1;
+  readonly outcome: Outcome;
+  readonly evidence: readonly CurrentTaskRunAttemptEvidence[];
+  readonly requestedEffects: readonly CurrentPersistedTaskRequestedEffect[];
+}
 
 export type TaskRunAttemptDirectCommandIdentityV1 =
   | { readonly kind: "start_attempt"; readonly expectedRunVersion: TaskRunVersionV1 }
@@ -932,6 +981,26 @@ export type AcceptedHeartbeatAttemptOutcomeV1 = Extract<HeartbeatAttemptOutcomeV
 export type AcceptedCompleteAttemptOutcomeV1 = Exclude<CompleteAttemptOutcomeV1, { readonly kind: "current" }>;
 export type AcceptedRequestCancellationOutcomeV1 = Exclude<RequestCancellationOutcomeV1, { readonly kind: "current" }>;
 export type AcceptedHandleLeaseExpiryOutcomeV1 = Exclude<HandleLeaseExpiryOutcomeV1, { readonly kind: "current" }>;
+export type CurrentAcceptedStartAttemptOutcome = Extract<
+  CurrentStartAttemptOutcome,
+  { readonly kind: "attempt_granted" }
+>;
+export type CurrentAcceptedHeartbeatAttemptOutcome = Extract<
+  CurrentHeartbeatAttemptOutcome,
+  { readonly kind: "lease_renewed" }
+>;
+export type CurrentAcceptedCompleteAttemptOutcome = Exclude<
+  CurrentCompleteAttemptOutcome,
+  { readonly kind: "current" }
+>;
+export type CurrentAcceptedRequestCancellationOutcome = Exclude<
+  CurrentRequestCancellationOutcome,
+  { readonly kind: "current" }
+>;
+export type CurrentAcceptedHandleLeaseExpiryOutcome = Exclude<
+  CurrentHandleLeaseExpiryOutcome,
+  { readonly kind: "current" }
+>;
 
 export type TaskRunAttemptMutationAcceptanceV1 =
   | {
@@ -1036,6 +1105,10 @@ export interface TaskRunAttemptAggregateBaseV1 {
   readonly completionReplays: readonly TaskAttemptCompletionReplayV1[];
   readonly requestedEffectCursor: TaskRequestedEffectCursorV1;
 }
+export type CurrentTaskRunAttemptAggregateBase = ReplaceLegacyDefinitionIdentity<
+  TaskRunAttemptAggregateBaseV1,
+  CurrentDefinitionIdentity
+>;
 
 export interface TaskRunAttemptReadyAggregateV1 extends TaskRunAttemptAggregateBaseV1 {
   readonly phase: "ready";
@@ -1163,6 +1236,17 @@ export interface TaskSystemRunAttemptDecisionInputV1 {
   readonly attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null;
 }
 
+export interface CurrentTaskSystemRunAttemptDecisionInput {
+  readonly databaseNowMs: TaskDatabaseTimeMsV1;
+  readonly current: CurrentTaskRunAttemptAggregate;
+  readonly attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null;
+}
+export interface ApplicationTaskSystemRunAttemptDecisionInputV1 {
+  readonly databaseNowMs: TaskDatabaseTimeMsV1;
+  readonly current: ApplicationTaskRunAttemptAggregateV1;
+  readonly attemptGrantCandidate: TaskAttemptGrantCandidateV1 | null;
+}
+
 export type TaskRunAttemptDecisionV1<Outcome> =
   | {
       readonly kind: "no_change";
@@ -1182,6 +1266,31 @@ export type TaskRunAttemptDecisionV1<Outcome> =
       readonly requestedEffects: readonly PersistedTaskRequestedEffectV1[];
       readonly outcome: Outcome;
     };
+
+export type CurrentTaskRunAttemptDecision<Outcome> =
+  | {
+      readonly kind: "no_change";
+      readonly disposition: "idempotent";
+      readonly replay: CurrentTaskRunAttemptAcceptedReceipt<Outcome>;
+    }
+  | {
+      readonly kind: "no_change";
+      readonly disposition: "current";
+      readonly outcome: Outcome;
+    }
+  | {
+      readonly kind: "commit";
+      readonly expectedRunVersion: TaskRunVersionV1;
+      readonly next: CurrentTaskRunAttemptAggregate;
+      readonly evidence: readonly CurrentTaskRunAttemptEvidence[];
+      readonly requestedEffects: readonly CurrentPersistedTaskRequestedEffect[];
+      readonly outcome: Outcome;
+    };
+export type ApplicationTaskRunAttemptDecisionV1<Outcome> =
+  ReplaceLegacyDefinitionIdentity<
+    TaskRunAttemptDecisionV1<Outcome>,
+    ApplicationDefinitionIdentityV1
+  >;
 
 export type RunAttemptOperationV1 =
   | "start_attempt"
@@ -1266,6 +1375,73 @@ export function snapshotTaskRunAttemptAggregateV1(
 
 function snapshotRunAttemptProjectionV1<T extends RunAttemptStateV1>(value: T): T {
   return snapshotRunAttemptDomainValueV1(value);
+}
+
+function projectCurrentRunAttemptStateBase(
+  aggregate: CurrentTaskRunAttemptAggregate,
+) {
+  return {
+    version: "flarex.run-attempt-state.v1" as const,
+    runId: aggregate.runId,
+    definitionReference: aggregate.definitionReference,
+    runVersion: aggregate.runVersion,
+  };
+}
+
+export function projectCurrentRunAttemptState(
+  aggregate: CurrentTaskRunAttemptAggregate,
+): CurrentRunAttemptState {
+  const base = projectCurrentRunAttemptStateBase(aggregate);
+  switch (aggregate.phase) {
+    case "ready":
+      return snapshotRunAttemptDomainValueV1({
+        ...base,
+        phase: "ready",
+        ready: aggregate.ready,
+        cancellation: aggregate.cancellation,
+      });
+    case "attempt_granted":
+    case "executing":
+      return snapshotRunAttemptDomainValueV1({
+        ...base,
+        phase: aggregate.phase,
+        currentAttempt: projectActiveAttempt(aggregate.currentAttempt),
+        heartbeat: aggregate.heartbeat,
+        cancellation: aggregate.cancellation,
+      }) as CurrentRunAttemptState;
+    case "retry_waiting":
+      return snapshotRunAttemptDomainValueV1({
+        ...base,
+        phase: "retry_waiting",
+        retry: aggregate.retry,
+        cancellation: aggregate.cancellation,
+      });
+    case "terminal": {
+      const { terminal, cancellation } = aggregate;
+      if (terminal.kind === "succeeded" || terminal.kind === "failed") {
+        if (cancellation.kind === "resolved" &&
+          cancellation.resolution !== "superseded_by_completion") {
+          throw new Error("Invalid terminal completion cancellation state");
+        }
+        return snapshotRunAttemptDomainValueV1({
+          ...base,
+          phase: "terminal",
+          terminal,
+          cancellation,
+        });
+      }
+      if (cancellation.kind !== "resolved" ||
+        cancellation.resolution !== terminal.resolution) {
+        throw new Error("Invalid terminal cancellation resolution state");
+      }
+      return snapshotRunAttemptDomainValueV1({
+        ...base,
+        phase: "terminal",
+        terminal,
+        cancellation,
+      }) as CurrentRunAttemptState;
+    }
+  }
 }
 
 export function projectRunAttemptStateV1(

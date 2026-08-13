@@ -6,16 +6,34 @@ import type {
   TaskDefinitionReference,
 } from "../runCreation/Model.js";
 import type {
+  ApplicationCompleteAttemptOutcomeV1,
+  ApplicationHandleLeaseExpiryOutcomeV1,
+  ApplicationHeartbeatAttemptOutcomeV1,
+  ApplicationRequestCancellationOutcomeV1,
   ApplicationRunAttemptStateV1,
+  ApplicationStartAttemptOutcomeV1,
   ApplicationTaskRunAttemptAggregateV1,
+  ApplicationTaskRunAttemptDecisionV1,
   ApplicationTaskAttemptGrantV1,
   ApplicationTaskRequestedEffectV1,
+  CompleteAttemptOutcomeV1,
+  CurrentCompleteAttemptOutcome,
+  CurrentHandleLeaseExpiryOutcome,
+  CurrentHeartbeatAttemptOutcome,
+  CurrentRequestCancellationOutcome,
   CurrentRunAttemptState,
+  CurrentStartAttemptOutcome,
   CurrentTaskAttemptGrant,
   CurrentTaskRunAttemptAggregate,
+  CurrentTaskRunAttemptDecision,
   CurrentTaskRequestedEffect,
+  HandleLeaseExpiryOutcomeV1,
+  HeartbeatAttemptOutcomeV1,
+  RequestCancellationOutcomeV1,
   RunAttemptStateV1,
+  StartAttemptOutcomeV1,
   TaskRunAttemptAggregateV1,
+  TaskRunAttemptDecisionV1,
   TaskAttemptGrantV1,
   TaskRequestedEffectV1,
 } from "./Model.js";
@@ -45,6 +63,33 @@ export type PersistedTaskRunAttemptAggregate =
       readonly generation: "application_v1";
       readonly aggregate: ApplicationTaskRunAttemptAggregateV1;
     }>;
+
+export interface LegacyTaskLifecycleOutcomeByOperation {
+  readonly start_attempt: StartAttemptOutcomeV1;
+  readonly heartbeat_attempt: HeartbeatAttemptOutcomeV1;
+  readonly complete_attempt: CompleteAttemptOutcomeV1;
+  readonly request_cancellation: RequestCancellationOutcomeV1;
+  readonly handle_lease_expiry: HandleLeaseExpiryOutcomeV1;
+}
+
+export interface ApplicationTaskLifecycleOutcomeByOperation {
+  readonly start_attempt: ApplicationStartAttemptOutcomeV1;
+  readonly heartbeat_attempt: ApplicationHeartbeatAttemptOutcomeV1;
+  readonly complete_attempt: ApplicationCompleteAttemptOutcomeV1;
+  readonly request_cancellation: ApplicationRequestCancellationOutcomeV1;
+  readonly handle_lease_expiry: ApplicationHandleLeaseExpiryOutcomeV1;
+}
+
+export interface CurrentTaskLifecycleOutcomeByOperation {
+  readonly start_attempt: CurrentStartAttemptOutcome;
+  readonly heartbeat_attempt: CurrentHeartbeatAttemptOutcome;
+  readonly complete_attempt: CurrentCompleteAttemptOutcome;
+  readonly request_cancellation: CurrentRequestCancellationOutcome;
+  readonly handle_lease_expiry: CurrentHandleLeaseExpiryOutcome;
+}
+
+export type TaskLifecycleDecisionOperation =
+  keyof CurrentTaskLifecycleOutcomeByOperation;
 
 export function toCurrentTaskRunAttemptAggregate(
   input: PersistedTaskRunAttemptAggregate,
@@ -82,6 +127,102 @@ export function fromCurrentTaskRunAttemptAggregate(
           aggregate: snapshot(transformed) as
             ApplicationTaskRunAttemptAggregateV1,
         });
+  });
+}
+
+export function toCurrentLegacyTaskRunAttemptDecision<
+  Operation extends TaskLifecycleDecisionOperation,
+>(
+  operation: Operation,
+  decision: TaskRunAttemptDecisionV1<
+    LegacyTaskLifecycleOutcomeByOperation[Operation]
+  >,
+): CurrentTaskRunAttemptDecision<
+  CurrentTaskLifecycleOutcomeByOperation[Operation]
+> {
+  void operation;
+  return snapshot(Result.getOrThrow(transformDefinitionIdentity(
+    decision,
+    "legacy_definition_v1",
+    "to_current",
+  ))) as CurrentTaskRunAttemptDecision<
+    CurrentTaskLifecycleOutcomeByOperation[Operation]
+  >;
+}
+
+export function toCurrentApplicationTaskRunAttemptDecision<
+  Operation extends TaskLifecycleDecisionOperation,
+>(
+  operation: Operation,
+  decision: ApplicationTaskRunAttemptDecisionV1<
+    ApplicationTaskLifecycleOutcomeByOperation[Operation]
+  >,
+): CurrentTaskRunAttemptDecision<
+  CurrentTaskLifecycleOutcomeByOperation[Operation]
+> {
+  void operation;
+  return snapshot(Result.getOrThrow(transformDefinitionIdentity(
+    decision,
+    "application_v1",
+    "to_current",
+  ))) as CurrentTaskRunAttemptDecision<
+    CurrentTaskLifecycleOutcomeByOperation[Operation]
+  >;
+}
+
+export function fromCurrentTaskRunAttemptDecisionToLegacy<
+  Operation extends TaskLifecycleDecisionOperation,
+>(
+  operation: Operation,
+  decision: CurrentTaskRunAttemptDecision<
+    CurrentTaskLifecycleOutcomeByOperation[Operation]
+  >,
+): Result.Result<
+  TaskRunAttemptDecisionV1<LegacyTaskLifecycleOutcomeByOperation[Operation]>,
+  | TaskDefinitionReferenceGenerationMismatchError
+  | TaskDefinitionReferenceIdentityMismatchError
+> {
+  void operation;
+  return Result.gen(function* () {
+    const owned = snapshot(decision);
+    yield* validateCurrentDefinitionReferences(owned, "legacy_definition_v1");
+    const transformed = yield* transformDefinitionIdentity(
+      owned,
+      "legacy_definition_v1",
+      "from_current",
+    );
+    return snapshot(transformed) as TaskRunAttemptDecisionV1<
+      LegacyTaskLifecycleOutcomeByOperation[Operation]
+    >;
+  });
+}
+
+export function fromCurrentTaskRunAttemptDecisionToApplication<
+  Operation extends TaskLifecycleDecisionOperation,
+>(
+  operation: Operation,
+  decision: CurrentTaskRunAttemptDecision<
+    CurrentTaskLifecycleOutcomeByOperation[Operation]
+  >,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<
+    ApplicationTaskLifecycleOutcomeByOperation[Operation]
+  >,
+  | TaskDefinitionReferenceGenerationMismatchError
+  | TaskDefinitionReferenceIdentityMismatchError
+> {
+  void operation;
+  return Result.gen(function* () {
+    const owned = snapshot(decision);
+    yield* validateCurrentDefinitionReferences(owned, "application_v1");
+    const transformed = yield* transformDefinitionIdentity(
+      owned,
+      "application_v1",
+      "from_current",
+    );
+    return snapshot(transformed) as ApplicationTaskRunAttemptDecisionV1<
+      ApplicationTaskLifecycleOutcomeByOperation[Operation]
+    >;
   });
 }
 

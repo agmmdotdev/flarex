@@ -296,7 +296,7 @@
                                                  "stale expected fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "9f3e698e582beac8999b9b7191bc1c252c411d05e373d0e4d05466c90ba7695a",
+                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -328,7 +328,7 @@
                                                  "terminal outbox recovery"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "9f3e698e582beac8999b9b7191bc1c252c411d05e373d0e4d05466c90ba7695a",
+                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -363,7 +363,7 @@
                                                  "lease expiry racing completion"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "9f3e698e582beac8999b9b7191bc1c252c411d05e373d0e4d05466c90ba7695a",
+                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -396,7 +396,7 @@
                                                  "terminal failure effect recovery"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "9f3e698e582beac8999b9b7191bc1c252c411d05e373d0e4d05466c90ba7695a",
+                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -575,7 +575,7 @@
                                                  "worker loss retry exhaustion"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "9f3e698e582beac8999b9b7191bc1c252c411d05e373d0e4d05466c90ba7695a",
+                        "targetSha256":  "0bce0a3883f7678c6612f617bb4aac6b5e6fbf95c0cbc9f1f5e7e0f2ab7183a4",
                         "transformationRevision":  "dte-ip01.v1",
                         "changeReceipt":  "DTE-IP01 full schema, executable compatibility suite, focused tests, and required reviewer checkpoint"
                     },
@@ -649,7 +649,7 @@
                                                  "consumer fetches accepted fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "6fb9c524649ccc2d093a8acff7c44aadde4e58fdd6aeab6434a323265973cc93",
+                        "targetSha256":  "3fd677b1ea32ed2fddbe549e8c924801564c4baee824618fbf5e8a3e68a39ac5",
                         "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
                         "changeReceipt":  "AA-R6 Task 5b1b.i.b recursive aggregate, receipt, evidence, effect, and replay identity projections"
                     },

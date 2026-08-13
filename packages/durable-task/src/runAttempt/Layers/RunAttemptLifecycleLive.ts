@@ -2,6 +2,32 @@
 // multiple mapped upstream paths. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
 import { Brand, Effect, Layer, Result } from "effect";
 import {
+  fromCurrentTaskRunAttemptAggregate,
+  fromCurrentTaskRunAttemptDecisionToApplication,
+  fromCurrentTaskRunAttemptDecisionToLegacy,
+  toCurrentTaskRunAttemptAggregate,
+  type ApplicationTaskLifecycleOutcomeByOperation,
+  type CurrentTaskLifecycleOutcomeByOperation,
+  type LegacyTaskLifecycleOutcomeByOperation,
+  type TaskLifecycleDecisionOperation,
+} from "../DefinitionReference.js";
+import type {
+  ApplicationCompleteAttemptOutcomeV1,
+  ApplicationHandleLeaseExpiryOutcomeV1,
+  ApplicationHeartbeatAttemptOutcomeV1,
+  ApplicationRequestCancellationOutcomeV1,
+  ApplicationStartAttemptOutcomeV1,
+  ApplicationTaskRunAttemptDecisionV1,
+  ApplicationTaskSystemRunAttemptDecisionInputV1,
+  CompleteAttemptOutcomeV1,
+  HandleLeaseExpiryOutcomeV1,
+  HeartbeatAttemptOutcomeV1,
+  RequestCancellationOutcomeV1,
+  StartAttemptOutcomeV1,
+  TaskRunAttemptDecisionV1,
+  TaskSystemRunAttemptDecisionInputV1,
+} from "../Model.js";
+import {
   ConflictingTaskAttemptCompletionError,
   InvalidRunAttemptTransitionError,
   InvalidTaskCancellationAcknowledgementError,
@@ -12,25 +38,25 @@ import {
 import {
   areTaskAttemptCompletionsReplayEqualV1,
   projectRunAttemptInspectionV1,
-  projectRunAttemptStateV1,
-  type AcceptedCompleteAttemptOutcomeV1,
-  type AcceptedHandleLeaseExpiryOutcomeV1,
-  type AcceptedHeartbeatAttemptOutcomeV1,
-  type AcceptedRequestCancellationOutcomeV1,
-  type AcceptedStartAttemptOutcomeV1,
+  projectCurrentRunAttemptState,
+  type CurrentAcceptedCompleteAttemptOutcome,
+  type CurrentAcceptedHandleLeaseExpiryOutcome,
+  type CurrentAcceptedHeartbeatAttemptOutcome,
+  type CurrentAcceptedRequestCancellationOutcome,
+  type CurrentAcceptedStartAttemptOutcome,
   type CompleteAttemptCommandV1,
-  type CompleteAttemptOutcomeV1,
+  type CurrentCompleteAttemptOutcome,
   type HandleLeaseExpiryCommandV1,
-  type HandleLeaseExpiryOutcomeV1,
+  type CurrentHandleLeaseExpiryOutcome,
   type HeartbeatAttemptCommandV1,
-  type HeartbeatAttemptOutcomeV1,
-  type PersistedTaskRequestedEffectV1,
+  type CurrentHeartbeatAttemptOutcome,
+  type CurrentPersistedTaskRequestedEffect,
   type RequestCancellationCommandV1,
-  type RequestCancellationOutcomeV1,
+  type CurrentRequestCancellationOutcome,
   type RunAttemptMutationOperationV1,
   type StartAttemptCommandV1,
-  type StartAttemptOutcomeV1,
-  type TaskAttemptCompletionReplayV1,
+  type CurrentStartAttemptOutcome,
+  type CurrentTaskAttemptCompletionReplay,
   type TaskAttemptCompletionV1,
   type TaskCancellationResolvedV1,
   type TaskCurrentAttemptV1,
@@ -40,20 +66,22 @@ import {
   type TaskLifecycleEventProjectionV1,
   type TaskRequestedEffectCursorV1,
   type TaskRequestedEffectSequenceV1,
-  type TaskRequestedEffectV1,
-  type TaskRunAttemptAcceptedReceiptV1,
-  type TaskRunAttemptAggregateBaseV1,
-  type TaskRunAttemptAggregateV1,
-  type TaskRunAttemptDecisionV1,
-  type TaskRunAttemptEvidenceV1,
-  type TaskRunAttemptMutationAcceptanceV1,
+  type CurrentTaskRequestedEffect,
+  type CurrentTaskRunAttemptAcceptedReceipt,
+  type CurrentTaskRunAttemptAggregateBase,
+  type CurrentTaskRunAttemptAggregate,
+  type CurrentTaskRunAttemptDecision,
+  type CurrentTaskRunAttemptEvidence,
+  type CurrentTaskRunAttemptMutationAcceptance,
   type TaskRunVersionV1,
-  type TaskSystemRunAttemptDecisionInputV1,
+  type CurrentTaskSystemRunAttemptDecisionInput,
   type TaskTerminalAttemptRefV1,
 } from "../Model.js";
 import { decideFailurePolicyV1, validateBoundPolicyV1 } from "../Policy.js";
 import {
+  decodeApplicationTaskRunAttemptAggregateV1,
   decodeTaskRunAttemptAggregateV1,
+  encodeApplicationTaskRunAttemptAggregateV1,
   encodeTaskRunAttemptAggregateV1,
 } from "../Schema.js";
 import {
@@ -96,7 +124,7 @@ function projectFailureForLifecycleEvent(
 
 function incrementRunVersion(
   operation: RunAttemptMutationOperationV1,
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
 ): Result.Result<TaskRunVersionV1, TaskRunAttemptCounterExhaustedError> {
   return current.runVersion >= MAX_COUNTER
     ? Result.fail(new TaskRunAttemptCounterExhaustedError({
@@ -109,7 +137,7 @@ function incrementRunVersion(
 
 function incrementLeaseVersion(
   operation: Exclude<RunAttemptMutationOperationV1, "request_cancellation">,
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
 ): Result.Result<TaskLeaseVersionV1, TaskRunAttemptCounterExhaustedError> {
   const cursor = current.leaseHistory;
   if (cursor.kind === "issued" && cursor.lastLeaseVersion >= MAX_COUNTER) {
@@ -124,7 +152,7 @@ function incrementLeaseVersion(
 
 function addDatabaseDuration(
   operation: Exclude<RunAttemptMutationOperationV1, "request_cancellation">,
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
   now: TaskDatabaseTimeMsV1,
   duration: number,
 ): Result.Result<TaskDatabaseTimeMsV1, RunAttemptDecisionErrorV1> {
@@ -139,14 +167,14 @@ function addDatabaseDuration(
 }
 
 function commonBase(
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
   nextVersion: TaskRunVersionV1,
   cursor: TaskRequestedEffectCursorV1,
-): TaskRunAttemptAggregateBaseV1 {
+): CurrentTaskRunAttemptAggregateBase {
   return {
     version: "flarex.task-run-attempt-aggregate.v1",
     runId: current.runId,
-    taskDefinitionRevisionId: current.taskDefinitionRevisionId,
+    definitionReference: current.definitionReference,
     createdAtMs: current.createdAtMs,
     runVersion: nextVersion,
     boundPolicy: current.boundPolicy,
@@ -158,7 +186,7 @@ function commonBase(
   };
 }
 
-function currentDecision<Outcome>(outcome: Outcome): TaskRunAttemptDecisionV1<Outcome> {
+function currentDecision<Outcome>(outcome: Outcome): CurrentTaskRunAttemptDecision<Outcome> {
   return { kind: "no_change", disposition: "current", outcome };
 }
 
@@ -169,8 +197,8 @@ function currentDecision<Outcome>(outcome: Outcome): TaskRunAttemptDecisionV1<Ou
  * non-empty typed array.
  */
 function snapshotLifecycleDecisionV1<Outcome>(
-  decision: TaskRunAttemptDecisionV1<Outcome>,
-): TaskRunAttemptDecisionV1<Outcome> {
+  decision: CurrentTaskRunAttemptDecision<Outcome>,
+): CurrentTaskRunAttemptDecision<Outcome> {
   const snapshot = structuredClone(decision);
   freezeLifecycleDecisionV1(snapshot);
   return snapshot;
@@ -184,17 +212,17 @@ function freezeLifecycleDecisionV1(value: unknown): void {
 }
 
 function idempotentDecision<Outcome>(
-  replay: TaskRunAttemptAcceptedReceiptV1<Outcome>,
-): TaskRunAttemptDecisionV1<Outcome> {
+  replay: CurrentTaskRunAttemptAcceptedReceipt<Outcome>,
+): CurrentTaskRunAttemptDecision<Outcome> {
   return snapshotLifecycleDecisionV1({ kind: "no_change", disposition: "idempotent", replay });
 }
 
 function assignEffects(
   operation: RunAttemptMutationOperationV1,
-  current: TaskRunAttemptAggregateV1,
-  effects: readonly TaskRequestedEffectV1[],
+  current: CurrentTaskRunAttemptAggregate,
+  effects: readonly CurrentTaskRequestedEffect[],
 ): Result.Result<{
-  readonly persisted: readonly PersistedTaskRequestedEffectV1[];
+  readonly persisted: readonly CurrentPersistedTaskRequestedEffect[];
   readonly cursor: TaskRequestedEffectCursorV1;
 }, TaskRunAttemptCounterExhaustedError> {
   const first = current.requestedEffectCursor.kind === "none"
@@ -208,7 +236,7 @@ function assignEffects(
       counter: "requested_effect_sequence",
     }));
   }
-  const persisted = effects.map((effect, index): PersistedTaskRequestedEffectV1 => ({
+  const persisted = effects.map((effect, index): CurrentPersistedTaskRequestedEffect => ({
     sequence: effectSequence(first + BigInt(index)),
     effect,
   }));
@@ -219,23 +247,31 @@ function assignEffects(
 }
 
 type AcceptanceFactory<Outcome> = (
-  receipt: TaskRunAttemptAcceptedReceiptV1<Outcome>,
-) => TaskRunAttemptMutationAcceptanceV1;
+  receipt: CurrentTaskRunAttemptAcceptedReceipt<Outcome>,
+) => CurrentTaskRunAttemptMutationAcceptance;
+
+type CurrentAggregateCandidateValidator = (
+  candidate: CurrentTaskRunAttemptAggregate,
+) => Result.Result<CurrentTaskRunAttemptAggregate, InvalidRunAttemptTransitionError>;
+type CurrentDecisionInput = CurrentTaskSystemRunAttemptDecisionInput & Readonly<{
+  readonly validateCandidate: CurrentAggregateCandidateValidator;
+}>;
 
 function finalizeCommit<Outcome>(input: {
   readonly operation: RunAttemptMutationOperationV1;
-  readonly current: TaskRunAttemptAggregateV1;
+  readonly current: CurrentTaskRunAttemptAggregate;
   readonly nextVersion: TaskRunVersionV1;
   readonly observedAtMs: TaskDatabaseTimeMsV1;
-  readonly draft: (cursor: TaskRequestedEffectCursorV1) => TaskRunAttemptAggregateV1;
-  readonly evidence: readonly TaskRunAttemptEvidenceV1[];
-  readonly effects: readonly TaskRequestedEffectV1[];
+  readonly draft: (cursor: TaskRequestedEffectCursorV1) => CurrentTaskRunAttemptAggregate;
+  readonly evidence: readonly CurrentTaskRunAttemptEvidence[];
+  readonly effects: readonly CurrentTaskRequestedEffect[];
   readonly outcome: Outcome;
   readonly acceptance: AcceptanceFactory<Outcome>;
   readonly completionReplay?: (
-    receipt: TaskRunAttemptAcceptedReceiptV1<Outcome>,
-  ) => TaskAttemptCompletionReplayV1;
-}): Result.Result<TaskRunAttemptDecisionV1<Outcome>, RunAttemptDecisionErrorV1> {
+    receipt: CurrentTaskRunAttemptAcceptedReceipt<Outcome>,
+  ) => CurrentTaskAttemptCompletionReplay;
+  readonly validateCandidate: CurrentAggregateCandidateValidator;
+}): Result.Result<CurrentTaskRunAttemptDecision<Outcome>, RunAttemptDecisionErrorV1> {
   if (input.completionReplay !== undefined && input.current.completionReplays.length >= 250) {
     return Result.fail(new InvalidRunAttemptTransitionError({
       operation: input.operation,
@@ -246,7 +282,7 @@ function finalizeCommit<Outcome>(input: {
   }
   return Result.flatMap(assignEffects(input.operation, input.current, input.effects), ({ persisted, cursor }) => {
     const initial = input.draft(cursor);
-    const receipt: TaskRunAttemptAcceptedReceiptV1<Outcome> = {
+    const receipt: CurrentTaskRunAttemptAcceptedReceipt<Outcome> = {
       observedAtMs: input.observedAtMs,
       acceptedRunVersion: input.nextVersion,
       resultingPhase: initial.phase,
@@ -256,21 +292,14 @@ function finalizeCommit<Outcome>(input: {
     };
     const acceptance = input.acceptance(receipt);
     const replay = input.completionReplay?.(receipt) ?? null;
-    const next: TaskRunAttemptAggregateV1 = {
+    const next: CurrentTaskRunAttemptAggregate = {
       ...initial,
       lastLifecycleAcceptance: acceptance,
       completionReplays: replay === null
         ? initial.completionReplays
         : [...initial.completionReplays, replay],
     };
-    return encodeTaskRunAttemptAggregateV1(next).pipe(
-      Result.flatMap(decodeTaskRunAttemptAggregateV1),
-      Result.mapError(() => new InvalidRunAttemptTransitionError({
-        operation: input.operation,
-        runId: input.current.runId,
-        phase: initial.phase,
-        reason: "next_state_invalid",
-      })),
+    return input.validateCandidate(next).pipe(
       Result.map((ownedNext) => snapshotLifecycleDecisionV1({
         kind: "commit",
         expectedRunVersion: input.current.runVersion,
@@ -283,7 +312,7 @@ function finalizeCommit<Outcome>(input: {
   });
 }
 
-function effectBase(current: TaskRunAttemptAggregateV1, acceptedRunVersion: TaskRunVersionV1) {
+function effectBase(current: CurrentTaskRunAttemptAggregate, acceptedRunVersion: TaskRunVersionV1) {
   return {
     version: "flarex.task-requested-effect.v1" as const,
     runId: current.runId,
@@ -292,10 +321,10 @@ function effectBase(current: TaskRunAttemptAggregateV1, acceptedRunVersion: Task
 }
 
 function evidenceBase(
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
   acceptedRunVersion: TaskRunVersionV1,
   recordedAtMs: TaskDatabaseTimeMsV1,
-  resultingPhase: TaskRunAttemptAggregateV1["phase"],
+  resultingPhase: CurrentTaskRunAttemptAggregate["phase"],
 ) {
   return {
     version: "flarex.task-run-attempt-evidence.v1" as const,
@@ -307,9 +336,9 @@ function evidenceBase(
 }
 
 function directStartReplay(
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
   command: StartAttemptCommandV1,
-): TaskRunAttemptAcceptedReceiptV1<AcceptedStartAttemptOutcomeV1> | null {
+): CurrentTaskRunAttemptAcceptedReceipt<CurrentAcceptedStartAttemptOutcome> | null {
   const acceptance = current.lastLifecycleAcceptance;
   return acceptance?.kind === "start_attempt" &&
     acceptance.command.expectedRunVersion === command.expectedRunVersion
@@ -317,22 +346,22 @@ function directStartReplay(
     : null;
 }
 
-export function decideStartAttemptV1(
+function decideStartAttemptCore(
   command: StartAttemptCommandV1,
-  input: TaskSystemRunAttemptDecisionInputV1,
-): Result.Result<TaskRunAttemptDecisionV1<StartAttemptOutcomeV1>, RunAttemptDecisionErrorV1> {
+  input: CurrentDecisionInput,
+): Result.Result<CurrentTaskRunAttemptDecision<CurrentStartAttemptOutcome>, RunAttemptDecisionErrorV1> {
   const current = input.current;
   const replay = directStartReplay(current, command);
   if (replay !== null) return Result.succeed(idempotentDecision(replay));
   if (command.expectedRunVersion !== current.runVersion) {
-    return Result.succeed(currentDecision({ kind: "current", reason: "stale_run_version", state: projectRunAttemptStateV1(current) }));
+    return Result.succeed(currentDecision({ kind: "current", reason: "stale_run_version", state: projectCurrentRunAttemptState(current) }));
   }
   if (current.phase !== "ready" && current.phase !== "retry_waiting") {
-    return Result.succeed(currentDecision({ kind: "current", reason: "phase_not_startable", state: projectRunAttemptStateV1(current) }));
+    return Result.succeed(currentDecision({ kind: "current", reason: "phase_not_startable", state: projectCurrentRunAttemptState(current) }));
   }
   const eligibleAtMs = current.phase === "ready" ? current.ready.eligibleAtMs : current.retry.notBeforeMs;
   if (input.databaseNowMs < eligibleAtMs) {
-    return Result.succeed(currentDecision({ kind: "current", reason: "not_yet_eligible", state: projectRunAttemptStateV1(current) }));
+    return Result.succeed(currentDecision({ kind: "current", reason: "not_yet_eligible", state: projectCurrentRunAttemptState(current) }));
   }
   const candidate = input.attemptGrantCandidate;
   if (candidate === null) {
@@ -371,22 +400,22 @@ export function decideStartAttemptV1(
     const attemptRef = activeAttempt(attempt);
     const grant = {
       runId: current.runId,
-      taskDefinitionRevisionId: current.taskDefinitionRevisionId,
+      definitionReference: current.definitionReference,
       acceptedRunVersion: nextVersion,
       attempt: attemptRef,
       computeProfile,
       grantedAtMs: input.databaseNowMs,
       lease: { ...attempt.lease },
     };
-    const outcome: AcceptedStartAttemptOutcomeV1 = { kind: "attempt_granted", grant };
+    const outcome: CurrentAcceptedStartAttemptOutcome = { kind: "attempt_granted", grant };
     const baseEffect = effectBase(current, nextVersion);
-    const effects: readonly TaskRequestedEffectV1[] = [
-      { ...baseEffect, kind: "dispatch_attempt", taskDefinitionRevisionId: current.taskDefinitionRevisionId, attempt: attemptRef, leaseVersion: nextLeaseVersion, computeProfile },
+    const effects: readonly CurrentTaskRequestedEffect[] = [
+      { ...baseEffect, kind: "dispatch_attempt", definitionReference: current.definitionReference, attempt: attemptRef, leaseVersion: nextLeaseVersion, computeProfile },
       { ...baseEffect, kind: "wake_lease_expiry", attemptId: attempt.attemptId, executionFence: attempt.executionFence, expectedLeaseVersion: nextLeaseVersion, notBeforeMs: expiresAtMs },
       { ...baseEffect, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "attempt_granted", attemptNumber: attempt.attemptNumber } },
       { ...baseEffect, kind: "notify_current_state" },
     ];
-    const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
       ...evidenceBase(current, nextVersion, input.databaseNowMs, "attempt_granted"),
       kind: "attempt_granted",
       fromPhase: current.phase,
@@ -409,6 +438,7 @@ export function decideStartAttemptV1(
       evidence,
       effects,
       outcome,
+      validateCandidate: input.validateCandidate,
       acceptance: (accepted) => ({
         kind: "start_attempt",
         command: { kind: "start_attempt", expectedRunVersion: command.expectedRunVersion },
@@ -418,17 +448,17 @@ export function decideStartAttemptV1(
   });
 }
 
-function activePhase(current: TaskRunAttemptAggregateV1): current is Extract<
-  TaskRunAttemptAggregateV1,
+function activePhase(current: CurrentTaskRunAttemptAggregate): current is Extract<
+  CurrentTaskRunAttemptAggregate,
   { readonly phase: "attempt_granted" | "executing" }
 > {
   return current.phase === "attempt_granted" || current.phase === "executing";
 }
 
-export function decideHeartbeatAttemptV1(
+function decideHeartbeatAttemptCore(
   command: HeartbeatAttemptCommandV1,
-  input: TaskSystemRunAttemptDecisionInputV1,
-): Result.Result<TaskRunAttemptDecisionV1<HeartbeatAttemptOutcomeV1>, RunAttemptDecisionErrorV1> {
+  input: CurrentDecisionInput,
+): Result.Result<CurrentTaskRunAttemptDecision<CurrentHeartbeatAttemptOutcome>, RunAttemptDecisionErrorV1> {
   const current = input.current;
   if (input.attemptGrantCandidate !== null) {
     return Result.fail(new InvalidRunAttemptTransitionError({
@@ -442,8 +472,8 @@ export function decideHeartbeatAttemptV1(
     latest.command.heartbeatSequence === command.heartbeatSequence) {
     return Result.succeed(idempotentDecision(latest.accepted));
   }
-  const currentOutcome = (reason: Extract<HeartbeatAttemptOutcomeV1, { readonly kind: "current" }>["reason"]): TaskRunAttemptDecisionV1<HeartbeatAttemptOutcomeV1> =>
-    currentDecision({ kind: "current", reason, state: projectRunAttemptStateV1(current) });
+  const currentOutcome = (reason: Extract<CurrentHeartbeatAttemptOutcome, { readonly kind: "current" }>["reason"]): CurrentTaskRunAttemptDecision<CurrentHeartbeatAttemptOutcome> =>
+    currentDecision({ kind: "current", reason, state: projectCurrentRunAttemptState(current) });
   if (!activePhase(current)) return Result.succeed(currentOutcome("phase_not_active"));
   if (current.currentAttempt.attemptId !== command.attemptId) return Result.succeed(currentOutcome("stale_attempt"));
   if (current.currentAttempt.executionFence !== command.executionFence) return Result.succeed(currentOutcome("stale_fence"));
@@ -465,7 +495,7 @@ export function decideHeartbeatAttemptV1(
     };
     const attempt = activeAttempt(renewedAttempt);
     const enteredExecuting = current.phase === "attempt_granted";
-    const outcome: AcceptedHeartbeatAttemptOutcomeV1 = {
+    const outcome: CurrentAcceptedHeartbeatAttemptOutcome = {
       kind: "lease_renewed",
       attempt,
       heartbeatSequence: command.heartbeatSequence,
@@ -473,7 +503,7 @@ export function decideHeartbeatAttemptV1(
       lease: { ...renewedAttempt.lease },
     };
     const baseEffect = effectBase(current, nextVersion);
-    const effects: readonly TaskRequestedEffectV1[] = [
+    const effects: readonly CurrentTaskRequestedEffect[] = [
       { ...baseEffect, kind: "cancel_obsolete_lease_wake", attemptId: attempt.attemptId, executionFence: attempt.executionFence, obsoleteLeaseVersion: previousLease.version },
       { ...baseEffect, kind: "wake_lease_expiry", attemptId: attempt.attemptId, executionFence: attempt.executionFence, expectedLeaseVersion: nextLeaseVersion, notBeforeMs: expiresAtMs },
       ...(enteredExecuting ? [{
@@ -484,7 +514,7 @@ export function decideHeartbeatAttemptV1(
       }] : []),
       { ...baseEffect, kind: "notify_current_state" },
     ];
-    const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
       ...evidenceBase(current, nextVersion, input.databaseNowMs, "executing"),
       kind: "heartbeat_accepted",
       attempt,
@@ -506,6 +536,7 @@ export function decideHeartbeatAttemptV1(
       evidence,
       effects,
       outcome,
+      validateCandidate: input.validateCandidate,
       acceptance: (accepted) => ({
         kind: "heartbeat_attempt",
         command: { kind: "heartbeat_attempt", attemptId: command.attemptId, executionFence: command.executionFence, heartbeatSequence: command.heartbeatSequence },
@@ -516,9 +547,9 @@ export function decideHeartbeatAttemptV1(
 }
 
 function completionReplay(
-  current: TaskRunAttemptAggregateV1,
+  current: CurrentTaskRunAttemptAggregate,
   command: CompleteAttemptCommandV1,
-): Result.Result<TaskRunAttemptAcceptedReceiptV1<AcceptedCompleteAttemptOutcomeV1> | null, ConflictingTaskAttemptCompletionError> {
+): Result.Result<CurrentTaskRunAttemptAcceptedReceipt<CurrentAcceptedCompleteAttemptOutcome> | null, ConflictingTaskAttemptCompletionError> {
   const replay = current.completionReplays.find((candidate) =>
     candidate.attempt.attemptId === command.attemptId &&
     candidate.attempt.executionFence === command.executionFence);
@@ -535,7 +566,7 @@ function completionReplay(
 }
 
 function resolvedCancellation<Resolution extends "acknowledged" | "lease_expired" | "superseded_by_completion">(
-  current: Extract<TaskRunAttemptAggregateV1, { readonly phase: "attempt_granted" | "executing" }>,
+  current: Extract<CurrentTaskRunAttemptAggregate, { readonly phase: "attempt_granted" | "executing" }>,
   now: TaskDatabaseTimeMsV1,
   resolution: Resolution,
 ): TaskCancellationResolvedV1 & { readonly resolution: Resolution } {
@@ -554,11 +585,11 @@ function resolvedCancellation<Resolution extends "acknowledged" | "lease_expired
 }
 
 function completionCommonEffects(
-  current: Extract<TaskRunAttemptAggregateV1, { readonly phase: "attempt_granted" | "executing" }>,
+  current: Extract<CurrentTaskRunAttemptAggregate, { readonly phase: "attempt_granted" | "executing" }>,
   nextVersion: TaskRunVersionV1,
-  releaseCause: Extract<TaskRequestedEffectV1, { readonly kind: "release_queue_ownership" }>["cause"],
-  tail: readonly TaskRequestedEffectV1[],
-): readonly TaskRequestedEffectV1[] {
+  releaseCause: Extract<CurrentTaskRequestedEffect, { readonly kind: "release_queue_ownership" }>["cause"],
+  tail: readonly CurrentTaskRequestedEffect[],
+): readonly CurrentTaskRequestedEffect[] {
   const base = effectBase(current, nextVersion);
   return [
     { ...base, kind: "cancel_obsolete_lease_wake", attemptId: current.currentAttempt.attemptId, executionFence: current.currentAttempt.executionFence, obsoleteLeaseVersion: current.currentAttempt.lease.version },
@@ -568,10 +599,10 @@ function completionCommonEffects(
   ];
 }
 
-export function decideCompleteAttemptV1(
+function decideCompleteAttemptCore(
   command: CompleteAttemptCommandV1,
-  input: TaskSystemRunAttemptDecisionInputV1,
-): Result.Result<TaskRunAttemptDecisionV1<CompleteAttemptOutcomeV1>, RunAttemptDecisionErrorV1> {
+  input: CurrentDecisionInput,
+): Result.Result<CurrentTaskRunAttemptDecision<CurrentCompleteAttemptOutcome>, RunAttemptDecisionErrorV1> {
   const current = input.current;
   if (input.attemptGrantCandidate !== null) {
     return Result.fail(new InvalidRunAttemptTransitionError({
@@ -581,8 +612,8 @@ export function decideCompleteAttemptV1(
   return Result.gen(function* () {
     const replay = yield* completionReplay(current, command);
     if (replay !== null) return idempotentDecision(replay);
-    const currentOutcome = (reason: Extract<CompleteAttemptOutcomeV1, { readonly kind: "current" }>["reason"]): TaskRunAttemptDecisionV1<CompleteAttemptOutcomeV1> =>
-      currentDecision({ kind: "current", reason, state: projectRunAttemptStateV1(current) });
+    const currentOutcome = (reason: Extract<CurrentCompleteAttemptOutcome, { readonly kind: "current" }>["reason"]): CurrentTaskRunAttemptDecision<CurrentCompleteAttemptOutcome> =>
+      currentDecision({ kind: "current", reason, state: projectCurrentRunAttemptState(current) });
     if (!activePhase(current)) return currentOutcome("phase_not_active");
     if (current.currentAttempt.attemptId !== command.attemptId) return currentOutcome("stale_attempt");
     if (current.currentAttempt.executionFence !== command.executionFence) return currentOutcome("stale_fence");
@@ -614,12 +645,12 @@ export function decideCompleteAttemptV1(
         result: command.completion.result,
         executionDurationMs: command.completion.executionDurationMs,
       };
-      const outcome: Extract<AcceptedCompleteAttemptOutcomeV1, { readonly kind: "terminal_succeeded" }> = { kind: "terminal_succeeded", terminal, cancellation };
+      const outcome: Extract<CurrentAcceptedCompleteAttemptOutcome, { readonly kind: "terminal_succeeded" }> = { kind: "terminal_succeeded", terminal, cancellation };
       const effects = completionCommonEffects(current, nextVersion, "succeeded_completion", [{
         ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs,
         event: { kind: "run_succeeded", attemptNumber: attempt.attemptNumber, hasResult: terminal.result !== null },
       }]);
-      const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+      const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, "terminal"),
         kind: "completion_succeeded", attempt, completion: command.completion, outcome,
       }];
@@ -627,6 +658,7 @@ export function decideCompleteAttemptV1(
         operation: "complete_attempt", current, nextVersion, observedAtMs: input.databaseNowMs,
         draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation }),
         evidence, effects, outcome,
+        validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "complete_attempt", attemptId: command.attemptId, executionFence: command.executionFence, accepted }),
         completionReplay: (accepted) => ({ attempt, completion: command.completion, accepted }),
       });
@@ -643,12 +675,12 @@ export function decideCompleteAttemptV1(
         resolution: "acknowledged" as const,
         executionDurationMs: command.completion.executionDurationMs,
       };
-      const outcome: Extract<AcceptedCompleteAttemptOutcomeV1, { readonly kind: "terminal_cancelled" }> = { kind: "terminal_cancelled", terminal };
+      const outcome: Extract<CurrentAcceptedCompleteAttemptOutcome, { readonly kind: "terminal_cancelled" }> = { kind: "terminal_cancelled", terminal };
       const effects = completionCommonEffects(current, nextVersion, "cancellation_acknowledged", [{
         ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs,
         event: { kind: "run_cancelled", generation: resolved.generation, reasonCode: resolved.reason.code, cancellation: { attemptNumber: attempt.attemptNumber, resolution: "acknowledged" } },
       }]);
-      const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+      const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, "terminal"),
         kind: "completion_cancellation_acknowledged", attempt, completion: command.completion, outcome,
       }];
@@ -656,6 +688,7 @@ export function decideCompleteAttemptV1(
         operation: "complete_attempt", current, nextVersion, observedAtMs: input.databaseNowMs,
         draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation: resolved }),
         evidence, effects, outcome,
+        validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "complete_attempt", attemptId: command.attemptId, executionFence: command.executionFence, accepted }),
         completionReplay: (accepted) => ({ attempt, completion: command.completion, accepted }),
       });
@@ -675,8 +708,8 @@ export function decideCompleteAttemptV1(
         nextComputeProfile: policy.nextComputeProfile,
         cause: { kind: "failed_completion" as const, failure: command.completion.failure },
       };
-      const outcome: Extract<AcceptedCompleteAttemptOutcomeV1, { readonly kind: "retry_scheduled" }> = { kind: "retry_scheduled", delivery: policy.delivery, retry };
-      const retryEffect: TaskRequestedEffectV1 = policy.delivery === "immediate"
+      const outcome: Extract<CurrentAcceptedCompleteAttemptOutcome, { readonly kind: "retry_scheduled" }> = { kind: "retry_scheduled", delivery: policy.delivery, retry };
+      const retryEffect: CurrentTaskRequestedEffect = policy.delivery === "immediate"
         ? { ...base, kind: "continue_retry", expectedRunVersion: nextVersion, notBeforeMs: policy.notBeforeMs }
         : { ...base, kind: "wake_retry", expectedRunVersion: nextVersion, notBeforeMs: policy.notBeforeMs };
       const effects = completionCommonEffects(current, nextVersion, "failed_completion", [
@@ -684,7 +717,7 @@ export function decideCompleteAttemptV1(
         { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "retry_scheduled", previousAttemptNumber: attempt.attemptNumber, retry: { source: "failed_completion", delivery: policy.delivery }, notBeforeMs: policy.notBeforeMs } },
       ]);
       const nextPhase = policy.delivery === "immediate" ? "ready" : "retry_waiting";
-      const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+      const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, nextPhase),
         kind: "completion_failed", attempt, completion: command.completion, policy: policy.evidence, outcome,
       }];
@@ -694,6 +727,7 @@ export function decideCompleteAttemptV1(
           ? { ...commonBase(current, nextVersion, cursor), phase: "ready", ready: { kind: "immediate_retry", eligibleAtMs: policy.notBeforeMs, acceptedRetry: retry }, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }
           : { ...commonBase(current, nextVersion, cursor), phase: "retry_waiting", retry, cancellation: { kind: "not_requested", generation: current.cancellation.generation } },
         evidence, effects, outcome,
+        validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "complete_attempt", attemptId: command.attemptId, executionFence: command.executionFence, accepted }),
         completionReplay: (accepted) => ({ attempt, completion: command.completion, accepted }),
       });
@@ -706,12 +740,12 @@ export function decideCompleteAttemptV1(
       failure: command.completion.failure,
       executionDurationMs: command.completion.executionDurationMs,
     };
-    const outcome: Extract<AcceptedCompleteAttemptOutcomeV1, { readonly kind: "terminal_failed" }> = { kind: "terminal_failed", terminal, cancellation };
+    const outcome: Extract<CurrentAcceptedCompleteAttemptOutcome, { readonly kind: "terminal_failed" }> = { kind: "terminal_failed", terminal, cancellation };
     const effects = completionCommonEffects(current, nextVersion, "failed_completion", [{
       ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs,
       event: { kind: "run_failed", attemptNumber: attempt.attemptNumber, failure: projectFailureForLifecycleEvent(terminal.failure) },
     }]);
-    const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
       ...evidenceBase(current, nextVersion, input.databaseNowMs, "terminal"),
       kind: "completion_failed", attempt, completion: command.completion, policy: policy.evidence, outcome,
     }];
@@ -719,6 +753,7 @@ export function decideCompleteAttemptV1(
       operation: "complete_attempt", current, nextVersion, observedAtMs: input.databaseNowMs,
       draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation }),
       evidence, effects, outcome,
+      validateCandidate: input.validateCandidate,
       acceptance: (accepted) => ({ kind: "complete_attempt", attemptId: command.attemptId, executionFence: command.executionFence, accepted }),
       completionReplay: (accepted) => ({ attempt, completion: command.completion, accepted }),
     });
@@ -729,10 +764,10 @@ function cancellationReasonEqual(left: RequestCancellationCommandV1["reason"], r
   return left.code === right.code && left.message === right.message;
 }
 
-export function decideRequestCancellationV1(
+function decideRequestCancellationCore(
   command: RequestCancellationCommandV1,
-  input: TaskSystemRunAttemptDecisionInputV1,
-): Result.Result<TaskRunAttemptDecisionV1<RequestCancellationOutcomeV1>, RunAttemptDecisionErrorV1> {
+  input: CurrentDecisionInput,
+): Result.Result<CurrentTaskRunAttemptDecision<CurrentRequestCancellationOutcome>, RunAttemptDecisionErrorV1> {
   const current = input.current;
   if (input.attemptGrantCandidate !== null) {
     return Result.fail(new InvalidRunAttemptTransitionError({
@@ -744,10 +779,10 @@ export function decideRequestCancellationV1(
     return Result.succeed(idempotentDecision(latest.accepted));
   }
   if (current.phase === "terminal") {
-    return Result.succeed(currentDecision({ kind: "current", reason: "already_terminal", state: projectRunAttemptStateV1(current) }));
+    return Result.succeed(currentDecision({ kind: "current", reason: "already_terminal", state: projectCurrentRunAttemptState(current) }));
   }
   if (activePhase(current) && current.cancellation.kind === "requested") {
-    return Result.succeed(currentDecision({ kind: "current", reason: "already_requested", state: projectRunAttemptStateV1(current) }));
+    return Result.succeed(currentDecision({ kind: "current", reason: "already_requested", state: projectCurrentRunAttemptState(current) }));
   }
   return Result.gen(function* () {
     const nextVersion = yield* incrementRunVersion("request_cancellation", current);
@@ -761,13 +796,13 @@ export function decideRequestCancellationV1(
     if (activePhase(current)) {
       const cancellation = { kind: "requested" as const, generation, reason: command.reason, requestedAtMs: input.databaseNowMs };
       const attempt = activeAttempt(current.currentAttempt);
-      const outcome: AcceptedRequestCancellationOutcomeV1 = { kind: "cancellation_requested", attempt, cancellation };
-      const effects: readonly TaskRequestedEffectV1[] = [
+      const outcome: CurrentAcceptedRequestCancellationOutcome = { kind: "cancellation_requested", attempt, cancellation };
+      const effects: readonly CurrentTaskRequestedEffect[] = [
         { ...base, kind: "request_execution_cancellation", attemptId: attempt.attemptId, executionFence: attempt.executionFence, cancellationGeneration: generation },
         { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "cancellation_requested", attemptNumber: attempt.attemptNumber, generation, reasonCode: command.reason.code } },
         { ...base, kind: "notify_current_state" },
       ];
-      const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+      const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, current.phase),
         kind: "cancellation_requested", attempt, cancellation, outcome,
       }];
@@ -777,6 +812,7 @@ export function decideRequestCancellationV1(
           ? { ...commonBase(current, nextVersion, cursor), phase: "attempt_granted", currentAttempt: current.currentAttempt, heartbeat: current.heartbeat, cancellation }
           : { ...commonBase(current, nextVersion, cursor), phase: "executing", currentAttempt: current.currentAttempt, heartbeat: current.heartbeat, cancellation },
         evidence, effects, outcome,
+        validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "request_cancellation", command: { kind: "request_cancellation", reason: command.reason }, accepted }),
       });
     }
@@ -797,12 +833,12 @@ export function decideRequestCancellationV1(
       resolution: "without_active_attempt" as const,
       executionDurationMs: null,
     };
-    const outcome: AcceptedRequestCancellationOutcomeV1 = { kind: "terminal_cancelled", terminal };
-    const effects: readonly TaskRequestedEffectV1[] = [
+    const outcome: CurrentAcceptedRequestCancellationOutcome = { kind: "terminal_cancelled", terminal };
+    const effects: readonly CurrentTaskRequestedEffect[] = [
       { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "run_cancelled", generation, reasonCode: command.reason.code, cancellation: { attemptNumber: null, resolution: "without_active_attempt" } } },
       { ...base, kind: "notify_current_state" },
     ];
-    const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
       ...evidenceBase(current, nextVersion, input.databaseNowMs, "terminal"),
       kind: "cancellation_resolved_without_attempt", attempt: null, cancellation: resolved, outcome,
     }];
@@ -810,6 +846,7 @@ export function decideRequestCancellationV1(
       operation: "request_cancellation", current, nextVersion, observedAtMs: input.databaseNowMs,
       draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation: resolved }),
       evidence, effects, outcome,
+      validateCandidate: input.validateCandidate,
       acceptance: (accepted) => ({ kind: "request_cancellation", command: { kind: "request_cancellation", reason: command.reason }, accepted }),
     });
   });
@@ -823,10 +860,10 @@ function leaseFailure(phase: "attempt_granted" | "executing"): TaskExecutionFail
   };
 }
 
-export function decideHandleLeaseExpiryV1(
+function decideHandleLeaseExpiryCore(
   command: HandleLeaseExpiryCommandV1,
-  input: TaskSystemRunAttemptDecisionInputV1,
-): Result.Result<TaskRunAttemptDecisionV1<HandleLeaseExpiryOutcomeV1>, RunAttemptDecisionErrorV1> {
+  input: CurrentDecisionInput,
+): Result.Result<CurrentTaskRunAttemptDecision<CurrentHandleLeaseExpiryOutcome>, RunAttemptDecisionErrorV1> {
   const current = input.current;
   if (input.attemptGrantCandidate !== null) {
     return Result.fail(new InvalidRunAttemptTransitionError({
@@ -838,8 +875,8 @@ export function decideHandleLeaseExpiryV1(
     latest.command.executionFence === command.executionFence && latest.command.expectedLeaseVersion === command.expectedLeaseVersion) {
     return Result.succeed(idempotentDecision(latest.accepted));
   }
-  const currentOutcome = (reason: Extract<HandleLeaseExpiryOutcomeV1, { readonly kind: "current" }>["reason"]): TaskRunAttemptDecisionV1<HandleLeaseExpiryOutcomeV1> =>
-    currentDecision({ kind: "current", reason, state: projectRunAttemptStateV1(current) });
+  const currentOutcome = (reason: Extract<CurrentHandleLeaseExpiryOutcome, { readonly kind: "current" }>["reason"]): CurrentTaskRunAttemptDecision<CurrentHandleLeaseExpiryOutcome> =>
+    currentDecision({ kind: "current", reason, state: projectCurrentRunAttemptState(current) });
   if (!activePhase(current)) return Result.succeed(currentOutcome("phase_not_active"));
   if (current.currentAttempt.attemptId !== command.attemptId) return Result.succeed(currentOutcome("stale_attempt"));
   if (current.currentAttempt.executionFence !== command.executionFence) return Result.succeed(currentOutcome("stale_fence"));
@@ -861,13 +898,13 @@ export function decideHandleLeaseExpiryV1(
         resolution: "lease_expired" as const,
         executionDurationMs: null,
       };
-      const outcome: AcceptedHandleLeaseExpiryOutcomeV1 = { kind: "terminal_cancelled", terminal };
-      const effects: readonly TaskRequestedEffectV1[] = [
+      const outcome: CurrentAcceptedHandleLeaseExpiryOutcome = { kind: "terminal_cancelled", terminal };
+      const effects: readonly CurrentTaskRequestedEffect[] = [
         { ...base, kind: "release_queue_ownership", cause: "cancellation_lease_expired" },
         { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "run_cancelled", generation: resolved.generation, reasonCode: resolved.reason.code, cancellation: { attemptNumber: attempt.attemptNumber, resolution: "lease_expired" } } },
         { ...base, kind: "notify_current_state" },
       ];
-      const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+      const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, "terminal"),
         kind: "lease_expiry_cancelled", attempt, expiredLeaseVersion: command.expectedLeaseVersion,
         sourcePhase: current.phase, outcome,
@@ -876,6 +913,7 @@ export function decideHandleLeaseExpiryV1(
         operation: "handle_lease_expiry", current, nextVersion, observedAtMs: input.databaseNowMs,
         draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation: resolved }),
         evidence, effects, outcome,
+        validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "handle_lease_expiry", command: { kind: "handle_lease_expiry", attemptId: command.attemptId, executionFence: command.executionFence, expectedLeaseVersion: command.expectedLeaseVersion }, accepted }),
       });
     }
@@ -897,14 +935,14 @@ export function decideHandleLeaseExpiryV1(
         nextComputeProfile: policy.nextComputeProfile,
         cause: { kind: causeKind, failure },
       };
-      const outcome: AcceptedHandleLeaseExpiryOutcomeV1 = { kind: "retry_scheduled", delivery: "durable", retry };
-      const effects: readonly TaskRequestedEffectV1[] = [
+      const outcome: CurrentAcceptedHandleLeaseExpiryOutcome = { kind: "retry_scheduled", delivery: "durable", retry };
+      const effects: readonly CurrentTaskRequestedEffect[] = [
         { ...base, kind: "release_queue_ownership", cause: causeKind },
         { ...base, kind: "wake_retry", expectedRunVersion: nextVersion, notBeforeMs: policy.notBeforeMs },
         { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "retry_scheduled", previousAttemptNumber: attempt.attemptNumber, retry: { source: "lease_expiry", delivery: "durable" }, notBeforeMs: policy.notBeforeMs } },
         { ...base, kind: "notify_current_state" },
       ];
-      const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+      const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
         ...evidenceBase(current, nextVersion, input.databaseNowMs, "retry_waiting"),
         kind: "lease_expiry_recovered", attempt, expiredLeaseVersion: command.expectedLeaseVersion,
         sourcePhase: current.phase, policy: policy.evidence, outcome,
@@ -913,6 +951,7 @@ export function decideHandleLeaseExpiryV1(
         operation: "handle_lease_expiry", current, nextVersion, observedAtMs: input.databaseNowMs,
         draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "retry_waiting", retry, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }),
         evidence, effects, outcome,
+        validateCandidate: input.validateCandidate,
         acceptance: (accepted) => ({ kind: "handle_lease_expiry", command: { kind: "handle_lease_expiry", attemptId: command.attemptId, executionFence: command.executionFence, expectedLeaseVersion: command.expectedLeaseVersion }, accepted }),
       });
     }
@@ -924,13 +963,13 @@ export function decideHandleLeaseExpiryV1(
       failure,
       executionDurationMs: null,
     };
-    const outcome: AcceptedHandleLeaseExpiryOutcomeV1 = { kind: "terminal_failed", terminal };
-    const effects: readonly TaskRequestedEffectV1[] = [
+    const outcome: CurrentAcceptedHandleLeaseExpiryOutcome = { kind: "terminal_failed", terminal };
+    const effects: readonly CurrentTaskRequestedEffect[] = [
       { ...base, kind: "release_queue_ownership", cause: current.phase === "attempt_granted" ? "lease_expired_before_heartbeat" : "lease_expired_after_heartbeat" },
       { ...base, kind: "publish_lifecycle_event", observedAtMs: input.databaseNowMs, event: { kind: "run_failed", attemptNumber: attempt.attemptNumber, failure: projectFailureForLifecycleEvent(failure) } },
       { ...base, kind: "notify_current_state" },
     ];
-    const evidence: readonly TaskRunAttemptEvidenceV1[] = [{
+    const evidence: readonly CurrentTaskRunAttemptEvidence[] = [{
       ...evidenceBase(current, nextVersion, input.databaseNowMs, "terminal"),
       kind: "lease_expiry_recovered", attempt, expiredLeaseVersion: command.expectedLeaseVersion,
       sourcePhase: current.phase, policy: policy.evidence, outcome,
@@ -939,9 +978,262 @@ export function decideHandleLeaseExpiryV1(
       operation: "handle_lease_expiry", current, nextVersion, observedAtMs: input.databaseNowMs,
       draft: (cursor) => ({ ...commonBase(current, nextVersion, cursor), phase: "terminal", terminal, cancellation: { kind: "not_requested", generation: current.cancellation.generation } }),
       evidence, effects, outcome,
+      validateCandidate: input.validateCandidate,
       acceptance: (accepted) => ({ kind: "handle_lease_expiry", command: { kind: "handle_lease_expiry", attemptId: command.attemptId, executionFence: command.executionFence, expectedLeaseVersion: command.expectedLeaseVersion }, accepted }),
     });
   });
+}
+
+function legacyDecisionInput(
+  input: TaskSystemRunAttemptDecisionInputV1,
+  operation: RunAttemptMutationOperationV1,
+): CurrentDecisionInput {
+  return {
+    databaseNowMs: input.databaseNowMs,
+    attemptGrantCandidate: input.attemptGrantCandidate,
+    current: toCurrentTaskRunAttemptAggregate({
+      generation: "legacy_definition_v1",
+      aggregate: input.current,
+    }),
+    validateCandidate: makeLegacyCandidateValidator(operation),
+  };
+}
+
+const makeLegacyCandidateValidator = (
+  operation: RunAttemptMutationOperationV1,
+): CurrentAggregateCandidateValidator => (candidate) =>
+  fromCurrentTaskRunAttemptAggregate(candidate, "legacy_definition_v1").pipe(
+    Result.flatMap((persisted) => encodeTaskRunAttemptAggregateV1(
+      persisted.aggregate,
+    )),
+    Result.flatMap(decodeTaskRunAttemptAggregateV1),
+    Result.map((aggregate) => toCurrentTaskRunAttemptAggregate({
+      generation: "legacy_definition_v1",
+      aggregate,
+    })),
+    Result.mapError(() => new InvalidRunAttemptTransitionError({
+      operation,
+      runId: candidate.runId,
+      phase: candidate.phase,
+      reason: "next_state_invalid",
+    })),
+  );
+
+function applicationDecisionInput(
+  input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+  operation: RunAttemptMutationOperationV1,
+): Result.Result<CurrentDecisionInput, InvalidRunAttemptTransitionError> {
+  const validateCandidate = makeApplicationCandidateValidator(operation);
+  const current = toCurrentTaskRunAttemptAggregate({
+    generation: "application_v1",
+    aggregate: input.current,
+  });
+  return fromCurrentTaskRunAttemptAggregate(current, "application_v1").pipe(
+    Result.map((persisted) => toCurrentTaskRunAttemptAggregate(persisted)),
+    Result.mapError(() => new InvalidRunAttemptTransitionError({
+      operation,
+      runId: current.runId,
+      phase: current.phase,
+      reason: "next_state_invalid",
+    })),
+    Result.map((ownedCurrent) => ({
+      databaseNowMs: input.databaseNowMs,
+      attemptGrantCandidate: input.attemptGrantCandidate,
+      current: ownedCurrent,
+      validateCandidate,
+    })),
+  );
+}
+
+const makeApplicationCandidateValidator = (
+  operation: RunAttemptMutationOperationV1,
+): CurrentAggregateCandidateValidator => (candidate) => fromCurrentTaskRunAttemptAggregate(
+    candidate,
+    "application_v1",
+  ).pipe(
+    Result.flatMap((persisted) => encodeApplicationTaskRunAttemptAggregateV1(
+      persisted.aggregate,
+    )),
+    Result.flatMap(decodeApplicationTaskRunAttemptAggregateV1),
+    Result.map((aggregate) => toCurrentTaskRunAttemptAggregate({
+      generation: "application_v1",
+      aggregate,
+    })),
+    Result.mapError(() => new InvalidRunAttemptTransitionError({
+      operation,
+      runId: candidate.runId,
+      phase: candidate.phase,
+      reason: "next_state_invalid",
+    })),
+  );
+
+function persistLegacyDecision<
+  Operation extends TaskLifecycleDecisionOperation,
+>(
+  operation: Operation,
+  result: Result.Result<
+    CurrentTaskRunAttemptDecision<
+      CurrentTaskLifecycleOutcomeByOperation[Operation]
+    >,
+    RunAttemptDecisionErrorV1
+  >,
+): Result.Result<
+  TaskRunAttemptDecisionV1<LegacyTaskLifecycleOutcomeByOperation[Operation]>,
+  RunAttemptDecisionErrorV1
+> {
+  return result.pipe(Result.map((decision) =>
+    Result.getOrThrow(fromCurrentTaskRunAttemptDecisionToLegacy(
+      operation,
+      decision,
+    ))));
+}
+
+function persistApplicationDecision<
+  Operation extends TaskLifecycleDecisionOperation,
+>(
+  operation: Operation,
+  result: Result.Result<
+    CurrentTaskRunAttemptDecision<
+      CurrentTaskLifecycleOutcomeByOperation[Operation]
+    >,
+    RunAttemptDecisionErrorV1
+  >,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<
+    ApplicationTaskLifecycleOutcomeByOperation[Operation]
+  >,
+  RunAttemptDecisionErrorV1
+> {
+  return result.pipe(Result.map((decision) =>
+    Result.getOrThrow(fromCurrentTaskRunAttemptDecisionToApplication(
+      operation,
+      decision,
+    ))));
+}
+
+export function decideStartAttemptV1(
+  command: StartAttemptCommandV1,
+  input: TaskSystemRunAttemptDecisionInputV1,
+): Result.Result<TaskRunAttemptDecisionV1<StartAttemptOutcomeV1>, RunAttemptDecisionErrorV1> {
+  return persistLegacyDecision(
+    "start_attempt",
+    decideStartAttemptCore(command, legacyDecisionInput(input, "start_attempt")),
+  );
+}
+
+export function decideApplicationStartAttemptV1(
+  command: StartAttemptCommandV1,
+  input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<ApplicationStartAttemptOutcomeV1>,
+  RunAttemptDecisionErrorV1
+> {
+  return persistApplicationDecision(
+    "start_attempt",
+    applicationDecisionInput(input, "start_attempt").pipe(
+      Result.flatMap((admitted) => decideStartAttemptCore(command, admitted)),
+    ),
+  );
+}
+
+export function decideHeartbeatAttemptV1(
+  command: HeartbeatAttemptCommandV1,
+  input: TaskSystemRunAttemptDecisionInputV1,
+): Result.Result<TaskRunAttemptDecisionV1<HeartbeatAttemptOutcomeV1>, RunAttemptDecisionErrorV1> {
+  return persistLegacyDecision("heartbeat_attempt", decideHeartbeatAttemptCore(
+    command,
+    legacyDecisionInput(input, "heartbeat_attempt"),
+  ));
+}
+
+export function decideApplicationHeartbeatAttemptV1(
+  command: HeartbeatAttemptCommandV1,
+  input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<ApplicationHeartbeatAttemptOutcomeV1>,
+  RunAttemptDecisionErrorV1
+> {
+  return persistApplicationDecision(
+    "heartbeat_attempt",
+    applicationDecisionInput(input, "heartbeat_attempt").pipe(
+      Result.flatMap((admitted) => decideHeartbeatAttemptCore(command, admitted)),
+    ),
+  );
+}
+
+export function decideCompleteAttemptV1(
+  command: CompleteAttemptCommandV1,
+  input: TaskSystemRunAttemptDecisionInputV1,
+): Result.Result<TaskRunAttemptDecisionV1<CompleteAttemptOutcomeV1>, RunAttemptDecisionErrorV1> {
+  return persistLegacyDecision("complete_attempt", decideCompleteAttemptCore(
+    command,
+    legacyDecisionInput(input, "complete_attempt"),
+  ));
+}
+
+export function decideApplicationCompleteAttemptV1(
+  command: CompleteAttemptCommandV1,
+  input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<ApplicationCompleteAttemptOutcomeV1>,
+  RunAttemptDecisionErrorV1
+> {
+  return persistApplicationDecision(
+    "complete_attempt",
+    applicationDecisionInput(input, "complete_attempt").pipe(
+      Result.flatMap((admitted) => decideCompleteAttemptCore(command, admitted)),
+    ),
+  );
+}
+
+export function decideRequestCancellationV1(
+  command: RequestCancellationCommandV1,
+  input: TaskSystemRunAttemptDecisionInputV1,
+): Result.Result<TaskRunAttemptDecisionV1<RequestCancellationOutcomeV1>, RunAttemptDecisionErrorV1> {
+  return persistLegacyDecision("request_cancellation", decideRequestCancellationCore(
+    command,
+    legacyDecisionInput(input, "request_cancellation"),
+  ));
+}
+
+export function decideApplicationRequestCancellationV1(
+  command: RequestCancellationCommandV1,
+  input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<ApplicationRequestCancellationOutcomeV1>,
+  RunAttemptDecisionErrorV1
+> {
+  return persistApplicationDecision(
+    "request_cancellation",
+    applicationDecisionInput(input, "request_cancellation").pipe(
+      Result.flatMap((admitted) => decideRequestCancellationCore(command, admitted)),
+    ),
+  );
+}
+
+export function decideHandleLeaseExpiryV1(
+  command: HandleLeaseExpiryCommandV1,
+  input: TaskSystemRunAttemptDecisionInputV1,
+): Result.Result<TaskRunAttemptDecisionV1<HandleLeaseExpiryOutcomeV1>, RunAttemptDecisionErrorV1> {
+  return persistLegacyDecision("handle_lease_expiry", decideHandleLeaseExpiryCore(
+    command,
+    legacyDecisionInput(input, "handle_lease_expiry"),
+  ));
+}
+
+export function decideApplicationHandleLeaseExpiryV1(
+  command: HandleLeaseExpiryCommandV1,
+  input: ApplicationTaskSystemRunAttemptDecisionInputV1,
+): Result.Result<
+  ApplicationTaskRunAttemptDecisionV1<ApplicationHandleLeaseExpiryOutcomeV1>,
+  RunAttemptDecisionErrorV1
+> {
+  return persistApplicationDecision(
+    "handle_lease_expiry",
+    applicationDecisionInput(input, "handle_lease_expiry").pipe(
+      Result.flatMap((admitted) => decideHandleLeaseExpiryCore(command, admitted)),
+    ),
+  );
 }
 
 /**
