@@ -2758,6 +2758,31 @@ result can escape before close-and-drain, or any query, mutation OCC/commit,
 Task System, route, schedule, or production owner must change. Checkpoint 4c
 remains the exclusive Standard service cut and private connected proof.
 
+Checkpoint 4b is complete and private. The backend Application action runner
+owns and revalidates the canonical action
+authority, manifest, request, runtime-host identity, compatibility date, and
+host policy before reading the one authority-pinned Source Artifact root. It
+checks the canonical manifest digest against the runtime target, builds the
+Application Worker definition, and delegates to the existing fresh-load
+execution host.
+
+Standard invocation now has a separate internal Application capability
+composition module. It claims only the Application-generation execution
+subject, re-hashes the admitted host policy, cold-decodes the bounded argument
+body, projects the Application Worker action request, and reuses the existing
+sequencer, callback bridge, outbound gateway, evidence body store, and external
+effect rows. The request-scoped session closes both capability gates before it
+drains either, always drains after invalid input, host failure, success, or
+interruption, bounds the combined drain wait by the admitted cleanup deadline,
+and makes timeout or outbound possible-dispatch uncertainty authoritative over
+callback or host outcomes. The opaque settlement capability cannot be used
+until dispatch plus close-and-drain completes.
+
+This checkpoint adds no unversioned action service, Standard entrypoint cut,
+active-head reread, legacy runtime fallback, route, trigger, production
+activation, mutation OCC/commit, or Task System change. The connected consumer
+cut and its durable replay proof remain 4c.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine

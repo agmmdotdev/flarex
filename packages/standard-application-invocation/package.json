@@ -15,6 +15,7 @@
     "./internal/system-query-v1": "./src/querySystemV1.ts",
     "./internal/application-query-system": "./src/ApplicationQuerySystem.ts",
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
+    "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
     "./internal/system-v1": "./src/systemV1.ts",
     "./v1": "./src/v1.ts"
   },
