@@ -9,10 +9,12 @@ private, production-inert persistence-publication checkpoint under the
 repository-grounded schema/transaction contract in
 [`40-standard-application-task-runtime-persistence.md`](./40-standard-application-task-runtime-persistence.md),
 including its canonical receipt and PGlite/genuine-PostgreSQL proof. SAP-TRP5
-is now proposed in
+and the Application task-runtime authority/activation prerequisites are now
+complete as production-inert checkpoints under
 [`41-standard-application-task-runtime-readiness.md`](./41-standard-application-task-runtime-readiness.md)
-and remains unapproved; SAP-TRP6 remains pending. Both require the ordered
-approvals below.
+and
+[`42-application-task-runtime-authority.md`](./42-application-task-runtime-authority.md).
+SAP-TRP6 remains pending.
 
 This is the upstream owner gate discovered by DTE06-D1. It does not authorize
 DTE06-D2, Worker Loader composition, a compute provider, a host, activation, or
@@ -323,9 +325,10 @@ Validation receipt:
   ownership, empty catalogs, forged catalog/source/binding evidence, and
   unsupported runtime policy.
 
-After SAP-TRP1 closes, DTE06-D2 is no longer blocked on undefined object/spec
-contracts and may proceed independently. DTE06-D3 remains blocked on SAP-TRP6
-and the separate run-input object-store gate.
+After SAP-TRP1 closed, DTE06-D2 was no longer blocked on undefined object/spec
+contracts and proceeded independently. Its private ABI/runtime core is now
+complete and production-inert. DTE06-D3 remains blocked on SAP-TRP6 and the
+separate run-input object-store gate.
 
 ### SAP-TRP3: Immutable object-store adapter
 
@@ -426,12 +429,10 @@ not application-revision artifacts.
 
 Implementation closes SAP-TRP1 through SAP-TRP4: the pure canonical role
 contract, publication preparation, private immutable object store, and private
-PostgreSQL publication receipt. DTE06-D2 may proceed
-under its already approved Preflight 38 because the private
-ABI/materialization identities are fixed;
-that does not authorize DTE06-D3 or any production composition. SAP-TRP5 is
-the next Standard Application checkpoint and requires separate approval.
-DTE06-D1 remains a
-committed contract/verification foundation but production-incomplete until
-SAP-TRP6 and the separate run-input object-store gate both close. DTE06-D2 does
-not begin merely because this preflight document exists.
+PostgreSQL publication receipt. DTE06-D2 has now completed independently under
+its already approved Preflight 38 because the private ABI/materialization
+identities are fixed; that does not authorize DTE06-D3 or any production
+composition. SAP-TRP5 and its Application authority/activation prerequisites
+subsequently completed as separate production-inert checkpoints. DTE06-D1
+remains a committed contract/verification foundation but production-incomplete
+until SAP-TRP6 and the separate run-input object-store gate both close.

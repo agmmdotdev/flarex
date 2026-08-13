@@ -420,6 +420,56 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("keeps the DTE06-D2 runtime private and production-inert", () => {
+    const abiPath = "packages/flarex-backend/src/taskRuntime/Abi.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: abiPath,
+      text: `
+        import {
+          type TaskComputeDispatchIdentityV1,
+          TaskComputeDispatchIdentityV1Schema,
+          type TaskComputeDispatchRequestV1,
+          type TaskComputeExecutionIdV1,
+          TaskComputeExecutionIdV1Schema,
+          validateTaskComputeDispatchRequestV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+        import {
+          type TaskCancellationGenerationV1,
+          TaskCancellationGenerationV1Schema,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import {
+          type TaskInputReferenceV1,
+          decodeTaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/taskRuntime/index.ts",
+      text: `
+        export * from "./Abi.js";
+        export * from "./RuntimeCore.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: abiPath,
+      text: `
+        import { TaskComputeProvider } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskRuntimeCore } from "flarex-backend/internal/task-runtime";
+        import { makeTaskRuntimeCore as RelativeCore } from "./taskRuntime/index.js";
+      `,
+    }]).errors).toEqual([
+      `${abiPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the private Task runtime before Worker Loader admission.",
+      "packages/flarex-backend/src/worker.ts:3 production source must not activate the private Task runtime before Worker Loader admission.",
+    ]);
+  });
+
   it("admits only the checkpoint-owned persistence task symbols", () => {
     const schemaPath = "packages/persistence-postgres/src/schema.ts";
     expect(analyzeTriggerCompatibilityBoundary([{

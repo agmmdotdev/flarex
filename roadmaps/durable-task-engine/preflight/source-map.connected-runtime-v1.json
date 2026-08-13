@@ -289,7 +289,8 @@
       ],
       "targetOwners": [
         "existing TaskComputeProvider.requestCancellation",
-        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
+        "packages/flarex-backend/src/taskRuntime/RuntimeCore.ts",
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned DTE06-D3/E composition)",
         "existing @flarex/durable-task RunAttemptLifecycle cancellation acknowledgement"
       ],
       "reuseClass": "T",
@@ -327,7 +328,9 @@
       ],
       "targetOwners": [
         "discarded Trigger workload HTTP wire",
-        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned private ABI)"
+        "packages/flarex-backend/src/taskRuntime/Abi.ts",
+        "packages/flarex-backend/src/taskRuntime/RuntimeCore.ts",
+        "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned DTE06-D3/E composition)"
       ],
       "reuseClass": "D",
       "retainedControlFlow": [

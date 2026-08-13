@@ -23,6 +23,10 @@ const flarexBackendTaskRuntimeLaunchModelPath =
   "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
 const flarexBackendTaskRuntimeLaunchSourcePrefix =
   "packages/flarex-backend/src/taskRuntimeLaunch/";
+const flarexBackendTaskRuntimeAbiPath =
+  "packages/flarex-backend/src/taskRuntime/Abi.ts";
+const flarexBackendTaskRuntimeSourcePrefix =
+  "packages/flarex-backend/src/taskRuntime/";
 const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
 const flarexBackendTaskRuntimeReadinessAuthorityPath =
@@ -209,6 +213,24 @@ const admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier = new Map([
   ["@flarex/durable-task/internal/compute-provider-v1", new Set([
     "TaskComputeDispatchRequestV1",
     "validateTaskComputeDispatchRequestV1",
+  ])],
+  ["@flarex/durable-task/internal/run-creation-v1", new Set([
+    "TaskInputReferenceV1",
+    "decodeTaskInputReferenceV1",
+  ])],
+]);
+const admittedFlarexBackendTaskRuntimeAbiSymbolsBySpecifier = new Map([
+  ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+    "TaskComputeDispatchIdentityV1",
+    "TaskComputeDispatchIdentityV1Schema",
+    "TaskComputeDispatchRequestV1",
+    "TaskComputeExecutionIdV1",
+    "TaskComputeExecutionIdV1Schema",
+    "validateTaskComputeDispatchRequestV1",
+  ])],
+  ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+    "TaskCancellationGenerationV1",
+    "TaskCancellationGenerationV1Schema",
   ])],
   ["@flarex/durable-task/internal/run-creation-v1", new Set([
     "TaskInputReferenceV1",
@@ -645,6 +667,17 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task runtime launch authority before Worker Loader admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isFlarexBackendTaskRuntimeSpecifier(specifier, relativePath)
+        && !relativePath.startsWith(flarexBackendTaskRuntimeSourcePrefix)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the private Task runtime before Worker Loader admission.`);
       }
       if (
         specifier !== undefined
@@ -1174,6 +1207,14 @@ function isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath) {
 }
 
 /** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskRuntimeSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-runtime"
+    || resolved.startsWith(flarexBackendTaskRuntimeSourcePrefix);
+}
+
+/** @param {string} specifier @param {string} relativePath */
 function isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
@@ -1318,9 +1359,14 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
-  if (relativePath === flarexBackendTaskRuntimeLaunchModelPath) {
+  if (
+    relativePath === flarexBackendTaskRuntimeLaunchModelPath
+    || relativePath === flarexBackendTaskRuntimeAbiPath
+  ) {
     const admittedSymbols =
-      admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier.get(specifier);
+      (relativePath === flarexBackendTaskRuntimeLaunchModelPath
+        ? admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier
+        : admittedFlarexBackendTaskRuntimeAbiSymbolsBySpecifier).get(specifier);
     if (admittedSymbols === undefined || !ts.isImportDeclaration(node)) {
       return false;
     }

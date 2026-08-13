@@ -16,8 +16,19 @@ bodies. The authority therefore requires an explicit trusted role-codec port,
 which only a deterministic fake implements in this checkpoint. D1 stops
 at its approved ownership boundary: only located-source ports and deterministic
 fakes exist, no real storage adapter or Worker Loader composition is claimed,
-and D2 is not the next implementation step until the Standard Application
-publication owner is separately preflighted and approved.
+and the real located adapter remains blocked until the Standard Application
+publication/readiness owner and the separate run-input store close.
+
+**DTE06-D2 checkpoint:** The private strict start/cancel ABI and invocation-local
+runtime core are implemented and production-inert. The core accepts one exact
+execution identity, resolves only the exact `durable_task` entry from a trusted,
+already D1-verified binding, reads and validates the referenced canonical input,
+schedules the handler through the runtime execution context, replays the same
+start without a second invocation, and delivers only monotonic
+generation-correlated interruption. Heartbeat,
+completion, and result publication remain explicit unavailable capabilities.
+The internal package subpath is guarded from every production Worker, route,
+Queue, cron, and host owner. D2 adds no Worker Loader adapter or deployment.
 
 This preflight closes the design question left by Preflights 33 and 37: the
 Cloudflare provider must reuse Flarex's existing artifact-runtime and Worker
@@ -496,6 +507,52 @@ and both required project reviewers. No schema, migration, transaction,
 Worker Loader call, runtime ABI, route, binding, host, or deployment is part of
 this checkpoint.
 
+### DTE06-D2 implementation receipt
+
+The completed production-inert runtime checkpoint adds:
+
+- `flarex-backend/internal/task-runtime`, containing strict versioned
+  start/start-acceptance and cancellation/cancellation-acceptance codecs;
+- one invocation-local runtime core that admits one exact dispatch identity,
+  execution ID, binding, input reference, and correlation token;
+- exact same-start replay without a second input read or handler invocation,
+  conflicting-start rejection, and monotonic cancellation-generation handling;
+- a trusted loader-capability boundary, exact `durable_task` export resolution,
+  canonical input digest/length verification, and payload-schema validation
+  before the handler is scheduled;
+- explicit unavailable heartbeat, completion, and result-publication
+  capabilities so dispatch acceptance cannot be confused with settlement; and
+- exact Trigger boundary admission for only the durable-task codec symbols used
+  by the ABI, with negative provider and production-host import coverage.
+
+This checkpoint contains no Cloudflare `WorkerEntrypoint`, Worker
+Loader/materializer composition, real
+`TaskComputeProvider`, schema, migration, route, binding, host, deployment,
+heartbeat, completion, result persistence, or production activation. DTE06-D3
+owns the thin hosted adapter and remains blocked on SAP-TRP6 plus the separate
+run-input object-store gate.
+
+### Shared import-policy ownership stop
+
+D2 inspection exposed a shared-owner overlap defect that this checkpoint does
+not repair:
+
+- **scenario:** two runtime loads in one isolate independently install the
+  current Application import policy and their awaited loads settle out of
+  order;
+- **expected:** each load remains restricted for its full lifetime and restores
+  the exact original isolate globals only after the final owner releases them;
+- **actual:** the policy owner snapshots and restores global descriptors per
+  installation, so overlapping restores can expose originals or retain another
+  installation's wrappers;
+- **affected owner:** `@flarex/analysis` import policy and the existing artifact
+  runtime/Worker Loader isolation boundary, not the task ABI/runtime core; and
+- **disposition:** D2 does not install that global policy and accepts only a
+  trusted loader capability. D3 must compose the existing isolated Worker
+  Loader/materializer owner and must separately preflight any proposal for
+  same-isolate overlapping policy installation. No local fallback or duplicate
+  policy implementation is admitted here.
+
 Repository inspection confirmed the stop condition anticipated by this
 preflight: Standard Application definitions persist the full binding and
 content-addressed references, while task creation persists the immutable input
@@ -505,9 +562,9 @@ readiness guarantee.
 The next roadmap action was therefore a separate Standard Application
 runtime-object publication/read-authority preflight. SAP-TRP1 is now complete:
 all five role codecs, root preimages, and the private ABI/materialization
-identities are fixed. DTE06-D2 may proceed under this preflight, while the real
-D1 located adapter and DTE06-D3 remain blocked on later publication/readiness
-and the separate run-input store.
+identities are fixed. DTE06-D2 is now complete under this preflight, while the
+real D1 located adapter and DTE06-D3 remain blocked on SAP-TRP6 and the separate
+run-input store.
 
 That owner preflight is now recorded in
 [`39-standard-application-task-runtime-publication.md`](./39-standard-application-task-runtime-publication.md).
@@ -515,10 +572,10 @@ Its approved pure canonical role-contract checkpoint is complete. No
 persistence, R2, readiness, real located reader, Worker Loader, or host was
 added by that checkpoint.
 
-This preflight authorizes only DTE06-D1 through D4 in the stated order. The
-first code slice is D1 launch-subject resolution and read-side object ports. It
-must stop before Worker Loader composition if exact runtime objects are not
-already published by the Standard Application owner.
+This preflight authorizes only DTE06-D1 through D4 in the stated order. D1 and
+D2 are complete as private, production-inert foundations. Work must stop before
+Worker Loader composition until exact runtime objects and run inputs are
+published and readable through their owning authorities.
 
 Completion of DTE06-D proves only that the exact immutable task entry and input
 can be accepted by a restricted Worker Loader runtime through a private ABI,

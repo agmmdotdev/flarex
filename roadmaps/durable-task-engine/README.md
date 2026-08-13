@@ -107,6 +107,13 @@ object/input read contracts are now implemented and unwired. Its required stop
 probe found no production runtime-object publication/read/codec owner, so the
 Standard Application publication track was separated; no Worker Loader, host,
 or activation was admitted by D1.
+The independently admitted DTE06-D2 checkpoint now adds the private strict
+start/cancel ABI and invocation-local runtime core. It resolves only the exact
+`durable_task` entry from the trusted already D1-verified binding, validates
+canonical input, replays the same start without
+reinvocation, and applies monotonic cancellation while leaving heartbeat,
+completion, and result publication unavailable. It remains absent from every
+Worker, route, Queue, cron, binding, and deployment composition.
 That preflight is now recorded in
 [`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md).
 Its pure canonical role-contract checkpoint is now complete, including all
@@ -555,9 +562,11 @@ files remain candidates:
      memory and Miniflare while remaining production-inert. SAP-TRP4 now adds
      the canonical database receipt, additive persistence schema, exact
      transactional replay/conflict/corruption handling, and PGlite plus
-     ordinary-role PostgreSQL 18 proof. Hosted R2, readiness, activation, and
-     Worker Loader composition remain absent. DTE06-D2's
-     private ABI/runtime core may proceed independently; the real read adapter,
+     ordinary-role PostgreSQL 18 proof. DTE06-D2 now completes the private
+     strict ABI and invocation-local runtime core with deterministic cold,
+     replay, cancellation, hostile-input, and unavailable-capability proof.
+     Hosted R2, the real located read adapter, Worker Loader composition, and
+     production activation/wiring remain absent. The real read adapter,
      existing-runtime composition,
      fenced settlement, supervision, end-to-end proof, and host remain
      unwritten;
