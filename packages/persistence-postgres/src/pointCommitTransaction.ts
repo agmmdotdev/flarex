@@ -871,6 +871,10 @@ export interface PointCommitRollbackProofPortV1 {
 
 const pointCommitDeveloperIndexMaintenancePortsV1 = new WeakSet<object>();
 const pointCommitUniqueConstraintMaintenancePortsV1 = new WeakSet<object>();
+const pointCommitAuthorityPortsV1 = new WeakMap<
+  object,
+  PointMutationSessionAuthorityResolutionPortsV1
+>();
 const pointCommitUniqueConstraintEligibilityPortsV1 = new WeakMap<
   object,
   AppUniqueConstraintSetEligibilityPortV1
@@ -886,6 +890,15 @@ export function hasPointCommitDeveloperIndexMaintenanceV1(
 ): boolean {
   return typeof value === "object" && value !== null &&
     pointCommitDeveloperIndexMaintenancePortsV1.has(value);
+}
+
+/** Exact private publisher/session-authority composition guard. */
+export function hasPointCommitAuthorityBindingV1(
+  value: unknown,
+  authority: PointMutationSessionAuthorityResolutionPortsV1,
+): boolean {
+  return typeof value === "object" && value !== null &&
+    pointCommitAuthorityPortsV1.get(value) === authority;
 }
 
 function registerPointCommitDeveloperIndexMaintenanceV1<T extends object>(
@@ -1740,7 +1753,7 @@ export function createPointCommitRollbackProofPortV1(
     }));
   });
 
-  return registerPointCommitUniqueConstraintEligibilityV1(
+  const port = registerPointCommitUniqueConstraintEligibilityV1(
     registerPointCommitUniqueConstraintMaintenanceV1(
       registerPointCommitDeveloperIndexMaintenanceV1(
         Object.freeze({ prove }),
@@ -1751,6 +1764,8 @@ export function createPointCommitRollbackProofPortV1(
     capturedOptions.uniqueConstraints,
     capturedOptions.uniqueConstraintEligibility,
   );
+  pointCommitAuthorityPortsV1.set(port, ports);
+  return port;
 }
 
 export function createPointCommitPublisherPortV1(
@@ -1893,7 +1908,7 @@ export function createPointCommitPublisherPortV1(
     return yield* resolveOutcome(target, input);
   });
 
-  return registerPointCommitUniqueConstraintEligibilityV1(
+  const port = registerPointCommitUniqueConstraintEligibilityV1(
     registerPointCommitUniqueConstraintMaintenanceV1(
       registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
         ...rollback,
@@ -1905,6 +1920,8 @@ export function createPointCommitPublisherPortV1(
     capturedOptions.uniqueConstraints,
     capturedOptions.uniqueConstraintEligibility,
   );
+  pointCommitAuthorityPortsV1.set(port, ports);
+  return port;
 }
 
 function awaitPointCommitPublicationSettlement(

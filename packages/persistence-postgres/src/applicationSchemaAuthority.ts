@@ -110,7 +110,7 @@ export interface ApplicationSchemaAuthorityPublisher<Failure> {
 }
 
 const applicationSchemaPublisherControlDatabases = new WeakMap<
-  ApplicationSchemaAuthorityPublisher<unknown>,
+  object,
   FlarexMetadataDatabase
 >();
 
@@ -534,10 +534,11 @@ function schemaVersionOccupiedByReservation(
 }
 
 export function hasApplicationSchemaAuthorityComposition(
-  publisher: ApplicationSchemaAuthorityPublisher<unknown>,
+  publisher: unknown,
   controlDb: FlarexMetadataDatabase,
 ): boolean {
-  return applicationSchemaPublisherControlDatabases.get(publisher) === controlDb;
+  return typeof publisher === "object" && publisher !== null &&
+    applicationSchemaPublisherControlDatabases.get(publisher) === controlDb;
 }
 
 function verifyPublicationArtifact(

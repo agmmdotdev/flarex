@@ -10,9 +10,7 @@ import { standardV1 } from
   "@flarex/standard-application-definition/v1";
 
 import type {
-  InvokeStandardApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/v1";
-import type {
+  InvokeLegacyStandardApplicationPointMutationV1Error,
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
   StandardApplicationLegacySimulationQueryErrorV1,
@@ -36,7 +34,7 @@ export interface EnglishLearningSetupProofV1 {
 }
 
 type EnglishLearningWorkloadErrorV1 =
-  | InvokeStandardApplicationPointMutationV1Error
+  | InvokeLegacyStandardApplicationPointMutationV1Error
   | StandardApplicationLegacySimulationQueryErrorV1
   | StandardApplicationTypedReferenceV1Error;
 

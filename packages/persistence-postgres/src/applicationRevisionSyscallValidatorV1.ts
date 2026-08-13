@@ -1,4 +1,5 @@
 import { Data, Effect, Result, Scope } from "effect";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -25,6 +26,12 @@ import {
 
 import type { AppRowTransaction } from "./appRows";
 import {
+  claimApplicationActiveSelection,
+  type ApplicationActiveSelection,
+} from "./applicationActivation";
+import type { ApplicationSchemaAuthority } from
+  "./applicationSchemaAuthority";
+import {
   ApplicationRevisionActivationCorruptionV1Error,
   ApplicationRevisionActivationIntegrationV1Error,
   ApplicationRevisionActivationStaleV1Error,
@@ -37,6 +44,7 @@ import { claimActiveApplicationRevisionSyscallValidatorBasisV1 } from
 import type { ScopeClockRecord } from "./scopeClock";
 import {
   activationFencedSyscallValidatorStateV1,
+  applicationSessionPinnedSyscallValidatorStateV1,
   issueApplicationRevisionSyscallValidatorStateV1,
   readApplicationRevisionSyscallValidatorStateV1,
   revokeApplicationRevisionSyscallValidatorStateV1,
@@ -133,6 +141,54 @@ export const deriveApplicationRevisionSyscallValidatorV1 = Effect.fn(
       basis.metadata.schemaVersionId,
     ),
     schemaManifest: basis.schemaManifest,
+  });
+  return yield* Effect.acquireRelease(
+    Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(state)),
+    capability => Effect.sync(() => {
+      revokeApplicationRevisionSyscallValidatorStateV1(capability);
+    }),
+  );
+});
+
+/**
+ * Issues the schema validator for an admitted Application mutation. The
+ * active selection authenticates the immutable revision/schema pins at
+ * issuance; later OCC attempts intentionally do not re-read the mutable
+ * active head.
+ */
+export const deriveApplicationMutationSyscallValidator = Effect.fn(
+  "ApplicationMutationSyscallValidator.derive",
+)(function* (
+  selection: ApplicationActiveSelection,
+  schema: ApplicationSchemaAuthority,
+): Effect.fn.Return<
+  ApplicationRevisionSyscallValidatorV1,
+  InvalidApplicationRevisionSyscallValidatorV1Error,
+  Scope.Scope
+> {
+  const basis = yield* Effect.fromResult(
+    claimApplicationActiveSelection(selection),
+  ).pipe(Effect.mapError(() =>
+    new InvalidApplicationRevisionSyscallValidatorV1Error({
+      reason: "notIssued",
+    })
+  ));
+  if (
+    schema.deploymentId !== basis.deploymentId ||
+    schema.schemaVersionId !== basis.schemaVersionId ||
+    schema.applicationSchemaSha256 !==
+      encodeBytesToLowercaseHex(basis.applicationSchemaSha256) ||
+    schema.schemaManifestSha256 !==
+      encodeBytesToLowercaseHex(basis.schemaManifestSha256)
+  ) {
+    return yield* new InvalidApplicationRevisionSyscallValidatorV1Error({
+      reason: "notIssued",
+    });
+  }
+  const state = applicationSessionPinnedSyscallValidatorStateV1({
+    scopeId: basis.authority.scopeId,
+    schemaVersionId: basis.schemaVersionId,
+    schemaManifest: schema.manifest,
   });
   return yield* Effect.acquireRelease(
     Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(state)),

@@ -69,10 +69,10 @@ type ApplicationRunnerInput = Extract<
 >;
 
 /**
- * Creates the private generation-aware mutation runner used by AA-R6
- * checkpoint 2. Legacy and Application authority dispatch exactly once; the
- * Application branch owns only source/definition/Worker composition and binds
- * the existing attempt journal. It remains unwired from the Standard API.
+ * Creates the private generation-aware mutation runner used by AA-R6. Legacy
+ * and Application authority dispatch exactly once; the Application branch owns
+ * only source/definition/Worker composition and binds the existing attempt
+ * journal. Checkpoint 3 wires it only through the Application mutation system.
  */
 export function makeApplicationMutationRuntimeNeutralRunner(
   live: ApplicationMutationRunnerLive,

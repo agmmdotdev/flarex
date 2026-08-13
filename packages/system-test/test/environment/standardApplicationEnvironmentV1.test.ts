@@ -10,9 +10,6 @@ import { describe, expect, it } from "vitest";
 import { standardV1 } from
   "@flarex/standard-application-definition/v1";
 
-import type {
-  InvokeStandardApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/v1";
 import {
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   type PGliteFlarexPersistence,
@@ -23,6 +20,7 @@ import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
   type StandardApplicationSystemTestClientV1,
+  type InvokeLegacyStandardApplicationPointMutationV1Error,
   type StandardApplicationSystemTestSetupClientV1,
   runStandardApplicationSimulationV1,
   StandardApplicationSimulationIntegrationV1Error,
@@ -630,7 +628,7 @@ const publishRecipeForInspectionV1 = Effect.fn(
   client: StandardApplicationSystemTestSetupClientV1,
   title: string,
   requestKey: string,
-): Effect.fn.Return<string, InvokeStandardApplicationPointMutationV1Error> {
+): Effect.fn.Return<string, InvokeLegacyStandardApplicationPointMutationV1Error> {
   const outcome = yield* client.unsafeInvokeMutation(
     TransactionFunctionPathV1Schema.make("recipeCommands:create"),
     { title, servings: 1 },

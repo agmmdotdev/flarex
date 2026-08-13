@@ -79,9 +79,13 @@ import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
+  hasPointCommitAuthorityBindingV1,
 } from "@flarex/persistence-postgres/internal/system-test/pointCommitTransaction";
 import {
   createSessionJournalStorePersistenceV1,
+  createAppDeveloperIndexQueryPortV1,
+  hasAppDeveloperIndexQueryAuthorityV1,
+  hasAppDeveloperIndexQuerySchemaAuthorityCompositionV1,
 } from "@flarex/persistence-postgres/internal/system-test/sessionJournalStore";
 import {
   createStoredAttemptEvidenceLoaderV1,
@@ -122,6 +126,14 @@ import { prepareStandardApplicationDefinitionV1 } from
 import {
   makeApplicationMutationRuntimeNeutralRunner,
 } from "@flarex/standard-application-invocation/internal/application-mutation-runner";
+import {
+  ApplicationMutationGrantIssuanceError,
+  makeApplicationMutationSystemLayer,
+  type ApplicationMutationGrantIssueInput,
+} from "@flarex/standard-application-invocation/internal/application-mutation-system";
+import {
+  invokeStandardApplicationPointMutationV1,
+} from "@flarex/standard-application-invocation/v1";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
@@ -233,6 +245,23 @@ export interface ApplicationMutationStoredAttemptProof {
   readonly competingCommitSeq: string;
   readonly finalName: string;
   readonly sessionGenerations: readonly ["application_v1", "application_v1"];
+}
+
+export interface StandardApplicationMutationProof {
+  readonly firstDisposition: "published";
+  readonly replayDisposition: "replayed";
+  readonly runtimeExecutions: 1;
+  readonly sourceLoads: 1;
+  readonly grantIssuances: 1;
+  readonly exactCompositionGuards: true;
+  readonly conflictingRequestRejected: true;
+  readonly admittedSessionSurvivedHeadRemoval: true;
+  readonly staleHeadBeforeAdmissionRejected: true;
+  readonly sessionCount: 1;
+  readonly outcomeCount: 1;
+  readonly commitCount: 1;
+  readonly generation: "application_v1";
+  readonly finalName: "standard-application";
 }
 
 export async function proveApplicationMutationStoredAttemptPGlite(
@@ -409,6 +438,334 @@ export async function proveApplicationMutationStoredAttemptPGlite(
   });
 }
 
+export async function proveStandardApplicationMutationPGlite(
+  persistence: PGliteFlarexPersistence,
+): Promise<StandardApplicationMutationProof> {
+  if (globalThis.crypto === undefined) {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: webcrypto,
+    });
+  }
+  const fixture = await prepareApplicationFixture(persistence);
+  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
+    persistence.drizzle,
+  );
+  const indexedQueries = createAppDeveloperIndexQueryPortV1(
+    persistence.drizzle,
+    fixture.authorityPorts,
+    developerIndexes,
+  );
+  const copiedPointCommit = Object.freeze({ ...fixture.pointCommit });
+  const copiedIndexedQueries = Object.freeze({ ...indexedQueries });
+  if (
+    !hasPointCommitAuthorityBindingV1(
+      fixture.pointCommit,
+      fixture.authorityPorts,
+    ) ||
+    hasPointCommitAuthorityBindingV1(
+      copiedPointCommit,
+      fixture.authorityPorts,
+    ) ||
+    !hasAppDeveloperIndexQueryAuthorityV1(
+      indexedQueries,
+      fixture.authorityPorts,
+    ) ||
+    hasAppDeveloperIndexQueryAuthorityV1(
+      copiedIndexedQueries,
+      fixture.authorityPorts,
+    ) ||
+    !hasAppDeveloperIndexQuerySchemaAuthorityCompositionV1(
+      indexedQueries,
+      fixture.schema,
+    ) ||
+    hasAppDeveloperIndexQuerySchemaAuthorityCompositionV1(
+      copiedIndexedQueries,
+      fixture.schema,
+    )
+  ) throw new Error("Application mutation composition guard was not exact.");
+  let runtimeExecutions = 0;
+  let sourceLoads = 0;
+  let grantIssuances = 0;
+  let executionSequence = 0;
+  let headRemovedAfterAdmission = false;
+  let removeHeadAfterSelection = false;
+  const scopeUuid = projectScopeIdUuidV1(fixture.scopeId).scopeUuid;
+  const activeHeads = await persistence.query<{
+    scope_id: string;
+    activation_sequence: bigint;
+    revision_id: string;
+    readiness_sha256: Uint8Array;
+    activation_sha256: Uint8Array;
+    head_sha256: Uint8Array;
+    head_bytes: Uint8Array;
+    created_at: Date;
+    updated_at: Date;
+  }>(
+    `select scope_id, activation_sequence, revision_id, readiness_sha256,
+            activation_sha256, head_sha256, head_bytes, created_at, updated_at
+       from fx_system_application_active_head_v1
+      where scope_id = $1`,
+    [fixture.scopeId],
+  );
+  const admittedHead = activeHeads.rows[0];
+  if (activeHeads.rows.length !== 1 || admittedHead === undefined) {
+    throw new Error("Application mutation active head is missing.");
+  }
+  const deleteActiveHead = () => persistence.query(
+    `delete from fx_system_application_active_head_v1 where scope_id = $1`,
+    [fixture.scopeId],
+  );
+  const restoreActiveHead = () => persistence.query(
+    `insert into fx_system_application_active_head_v1 (
+       scope_id, activation_sequence, revision_id, readiness_sha256,
+       activation_sha256, head_sha256, head_bytes, created_at, updated_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      admittedHead.scope_id,
+      admittedHead.activation_sequence,
+      admittedHead.revision_id,
+      admittedHead.readiness_sha256,
+      admittedHead.activation_sha256,
+      admittedHead.head_sha256,
+      admittedHead.head_bytes,
+      admittedHead.created_at,
+      admittedHead.updated_at,
+    ],
+  );
+  const layer = makeApplicationMutationSystemLayer({
+    deploymentId: fixture.deploymentId,
+    activation: Object.freeze({
+      readActive: () => fixture.activation.readActive().pipe(
+        Effect.tap(() => {
+          if (!removeHeadAfterSelection) return Effect.void;
+          removeHeadAfterSelection = false;
+          return Effect.promise(deleteActiveHead);
+        }),
+      ),
+    }),
+    schema: fixture.schema,
+    grantIssuer: Object.freeze({
+      issue: (input: ApplicationMutationGrantIssueInput) => Effect.gen(function* () {
+        if (input.requestKey === "request:application:standard") {
+          grantIssuances += 1;
+        }
+        const segments = yield* prepareApplicationMutationGrantV1({
+          kid: TransactionGrantKeyIdV1Schema.make("application-key-1"),
+          grantId: TransactionAuthorizationGrantIdV1Schema.make(
+            "grant_application_standard",
+          ),
+          deploymentId: input.deploymentId,
+          executionAuthority: input.executionAuthority,
+          policyVersion: TransactionPolicyVersionV1Schema.make(
+            TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+          ),
+          identityAccessPolicy: input.identityAccessPolicy,
+          validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+          validatedArgsSha256: input.validatedArgsSha256,
+          requestKey: input.requestKey,
+          requestSha256: input.requestSha256,
+          issuedAt: TransactionGrantTimestampV1Schema.make(
+            new Date(fixture.now - 30_000).toISOString(),
+          ),
+          expiresAt: TransactionGrantTimestampV1Schema.make(
+            new Date(fixture.now + 300_000).toISOString(),
+          ),
+          authorizationRevocationEpoch:
+            TransactionAuthorizationRevocationEpochSchema.make(0n),
+        }).pipe(Effect.mapError(cause =>
+          new ApplicationMutationGrantIssuanceError({
+            reason: "rejected",
+            cause,
+          })
+        ));
+        const signature = yield* Effect.tryPromise({
+          try: async () => new Uint8Array(await globalThis.crypto.subtle.sign(
+            "Ed25519",
+            fixture.keyPair.privateKey,
+            copyBytesToArrayBuffer(segments.signingInput),
+          )),
+          catch: cause => new ApplicationMutationGrantIssuanceError({
+            reason: "unavailable",
+            cause,
+          }),
+        });
+        return yield* verifyApplicationMutationGrantV1(
+          assembleApplicationMutationGrantJwsV1(segments, signature),
+          fixture.applicationVerifier,
+        ).pipe(Effect.mapError(cause =>
+          new ApplicationMutationGrantIssuanceError({
+            reason: "rejected",
+            cause,
+          })
+        ));
+      }),
+    }),
+    applicationGrantVerifier: fixture.applicationVerifier,
+    legacyGrantVerifier: makeLegacyGrantVerifier(fixture),
+    source: Object.freeze({
+      read: () => Effect.sync(() => {
+        sourceLoads += 1;
+        return fixture.source;
+      }),
+    }),
+    host: Object.freeze({
+      runTransaction: input => Effect.promise(async () => {
+        runtimeExecutions += 1;
+        if (!headRemovedAfterAdmission) {
+          await deleteActiveHead();
+          headRemovedAfterAdmission = true;
+        }
+        const capability = applicationCapability(input);
+        await capability.readPointDocument("recipes", fixture.documentId);
+        await capability.patchPointDocument(fixture.documentId, {
+          name: "standard-application",
+        });
+        return { ok: true };
+      }),
+    }),
+    sessionAuthority: fixture.authorityPorts,
+    pointCommit: fixture.pointCommit,
+    indexedQueries,
+    grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
+    randomUuid: uuidSequence(110, 111, 112, 113, 114, 115),
+    executionContextFactory: Object.freeze({
+      make: () => Effect.sync(() => {
+        executionSequence += 1;
+        return Object.freeze({
+          executionId: `application-standard-${executionSequence}`,
+          logScopeId: `application-standard-log-${executionSequence}`,
+          randomSeed: new Uint8Array(32).fill(executionSequence),
+        });
+      }),
+    }),
+    leaseDurationMilliseconds: 600_000,
+    claimDurationMilliseconds: 600_000,
+    leaseRenewalDurationMilliseconds: 600_000,
+    heartbeatIntervalMilliseconds: 200_000,
+  });
+  const invoke = () => runSystemTestEffectV1(Effect.scoped(
+    invokeStandardApplicationPointMutationV1(
+      TransactionFunctionPathV1Schema.make("recipes:save"),
+      { role: "standard" },
+      TransactionRequestKeyV1Schema.make("request:application:standard"),
+    ).pipe(Effect.provide(layer)),
+  ));
+  const staleAdmissionRequestKey = TransactionRequestKeyV1Schema.make(
+    "request:application:stale-admission",
+  );
+  removeHeadAfterSelection = true;
+  let staleHeadBeforeAdmissionRejected = false;
+  try {
+    await runSystemTestEffectV1(Effect.scoped(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:save"),
+        { role: "stale-admission" },
+        staleAdmissionRequestKey,
+      ).pipe(Effect.provide(layer)),
+    ));
+  } catch (cause: unknown) {
+    staleHeadBeforeAdmissionRejected = isTaggedError(
+      cause,
+      "ApplicationActivationError",
+    );
+  } finally {
+    await restoreActiveHead();
+  }
+  const staleState = await persistence.query<{
+    sessions: string;
+    outcomes: string;
+    commits: string;
+  }>(
+    `select (select count(*)::text from fx_system_tx_session
+              where scope_uuid = $1 and request_key = $2) as sessions,
+            (select count(*)::text from fx_system_idempotency
+              where scope_uuid = $1 and request_key = $2) as outcomes,
+            (select count(*)::text from fx_system_commit
+              where scope_uuid = $1) as commits`,
+    [scopeUuid, staleAdmissionRequestKey],
+  );
+  const staleRow = staleState.rows[0];
+  if (
+    !staleHeadBeforeAdmissionRejected || runtimeExecutions !== 0 ||
+    staleRow === undefined || staleRow.sessions !== "0" ||
+    staleRow.outcomes !== "0" || staleRow.commits !== "0"
+  ) {
+    throw new Error("Application mutation did not reject stale admission head.");
+  }
+  const first = await invoke();
+  if (!headRemovedAfterAdmission) {
+    throw new Error("Application mutation did not exercise post-admission head removal.");
+  }
+  await restoreActiveHead();
+  const replay = await invoke();
+  let conflictingRequestRejected = false;
+  try {
+    await runSystemTestEffectV1(Effect.scoped(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:save"),
+        { role: "different" },
+        TransactionRequestKeyV1Schema.make("request:application:standard"),
+      ).pipe(Effect.provide(layer)),
+    ));
+  } catch (cause: unknown) {
+    conflictingRequestRejected = isTaggedError(
+      cause,
+      "CommittedPointOutcomeRequestKeyReuseErrorV1",
+    );
+  }
+  if (!conflictingRequestRejected) {
+    throw new Error("Application mutation accepted conflicting request reuse.");
+  }
+  const rows = await persistence.query<{
+    name: string;
+    session_count: string;
+    outcome_count: string;
+    commit_count: string;
+    generation: string;
+  }>(
+    `select revision.value_json->>'name' as name,
+            (select count(*)::text from fx_system_tx_session
+              where scope_uuid = $1 and request_key = $2) as session_count,
+            (select count(*)::text from fx_system_idempotency
+              where scope_uuid = $1 and request_key = $2) as outcome_count,
+            (select count(*)::text from fx_system_commit
+              where scope_uuid = $1) as commit_count,
+            (select execution_authority_generation
+               from fx_system_tx_session
+              where scope_uuid = $1 and request_key = $2) as generation
+       from fx_app_row_current as current_row
+       join fx_app_row_rev as revision
+         on revision.scope_uuid = current_row.scope_uuid
+        and revision.table_id = current_row.table_id
+        and revision.row_id = current_row.row_id
+        and revision.commit_seq = current_row.commit_seq
+      where current_row.scope_uuid = $1
+        and revision.is_tombstone = false`,
+    [scopeUuid, TransactionRequestKeyV1Schema.make(
+      "request:application:standard",
+    )],
+  );
+  const row = rows.rows[0];
+  if (row === undefined) throw new Error("Standard Application row is missing.");
+  return Object.freeze({
+    firstDisposition: requireStringLiteral(first.disposition, "published"),
+    replayDisposition: requireStringLiteral(replay.disposition, "replayed"),
+    runtimeExecutions: requireLiteral(runtimeExecutions, 1),
+    sourceLoads: requireLiteral(sourceLoads, 1),
+    grantIssuances: requireLiteral(grantIssuances, 1),
+    exactCompositionGuards: true as const,
+    conflictingRequestRejected: true as const,
+    admittedSessionSurvivedHeadRemoval: true as const,
+    staleHeadBeforeAdmissionRejected: true as const,
+    sessionCount: requireLiteral(Number(row.session_count), 1),
+    outcomeCount: requireLiteral(Number(row.outcome_count), 1),
+    commitCount: requireLiteral(Number(row.commit_count), 1),
+    generation: requireStringLiteral(row.generation, "application_v1"),
+    finalName: requireStringLiteral(row.name, "standard-application"),
+  });
+}
+
 async function prepareApplicationFixture(
   persistence: PGliteFlarexPersistence,
 ) {
@@ -512,6 +869,13 @@ async function prepareApplicationFixture(
       getScopeAuthorityProvisioningReceipt: async () => null,
     },
     scopeClockTargets: { resolve: async () => located },
+    scopeSessionTargets: {
+      resolve: async () =>
+        createPGliteLocatedPointMutationSessionActivationTargetV1(
+          persistence,
+          LOCATOR,
+        ),
+    },
   });
   const candidate = createAppSchemaCandidateValidationPort({
     controlDb: persistence.drizzle,
@@ -525,9 +889,7 @@ async function prepareApplicationFixture(
       controlDb: persistence.drizzle,
       authority: authorityPorts,
     }, uniqueConstraints);
-  const pointCommit = createPointCommitPublisherPortV1(resolutionPorts(
-    persistence,
-  ), {
+  const pointCommit = createPointCommitPublisherPortV1(authorityPorts, {
     intrinsicCreationTimeIndexes:
       createIntrinsicCreationTimeIndexDefinitionPortV1(persistence.drizzle),
     developerIndexes:
@@ -535,13 +897,14 @@ async function prepareApplicationFixture(
     uniqueConstraints,
     uniqueConstraintEligibility,
   });
+  const schema = makeApplicationSchemaAuthorityPublisher({
+    db: persistence.drizzle,
+    runTransaction: run => persistence.drizzle.transaction(run),
+  });
   const readiness = makeApplicationReadinessRepository({
     controlDb: persistence.drizzle,
     authority: authorityPorts,
-    schema: makeApplicationSchemaAuthorityPublisher({
-      db: persistence.drizzle,
-      runTransaction: run => persistence.drizzle.transaction(run),
-    }),
+    schema,
     taskCatalog: createApplicationTaskCatalogSnapshotPort(),
     candidateValidation: createAppSchemaCandidateReadinessPort(candidate),
     pointCommit,
@@ -571,7 +934,7 @@ async function prepareApplicationFixture(
       }),
     },
   });
-  const beforeValidation = await runSystemTestEffectV1(readiness.settle({
+  const beforeValidation = await runSystemTestEffectV1(readiness.settleLegacy({
     deploymentId,
     revisionId: publication.revisionId,
   }));
@@ -608,7 +971,7 @@ async function prepareApplicationFixture(
     deploymentId,
     schemaVersionId,
   );
-  const ready = await runSystemTestEffectV1(readiness.settle({
+  const ready = await runSystemTestEffectV1(readiness.settleLegacy({
     deploymentId,
     revisionId: publication.revisionId,
   }));
@@ -654,6 +1017,9 @@ async function prepareApplicationFixture(
     scopeId,
     schemaVersionId,
     active,
+    activation,
+    schema,
+    authorityPorts,
     keyPair,
     applicationVerifier,
     pointCommit,
@@ -827,23 +1193,7 @@ function createExecution(
   >,
   runner: PointMutationOccRuntimeNeutralRunnerV1,
 ) {
-  const legacyVerifier = createTransactionGrantVerifierV1({
-    clock: { now: () => new Date() },
-    verificationKeyNamespace:
-      createTransactionGrantVerificationKeyNamespaceV1({
-        deploymentId: fixture.deploymentId,
-        keys: [{
-          state: "active",
-          kid: TransactionGrantKeyIdV1Schema.make("legacy-placeholder-key"),
-          purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
-          issuedAtInclusiveEpochMilliseconds: fixture.now - 60_000,
-          verificationEndsAtExclusiveEpochMilliseconds:
-            fixture.now + 600_000,
-          verify: async () => true,
-        }],
-      }),
-    grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
-  });
+  const legacyVerifier = makeLegacyGrantVerifier(fixture);
   const loading = createPointMutationSessionAttemptLoadingV1(
     createPointMutationSessionAttemptLoadPersistenceV1(ports),
   );
@@ -888,6 +1238,33 @@ function createExecution(
     applicationVerifier,
     fixture.pointCommit,
   );
+}
+
+function makeLegacyGrantVerifier(
+  fixture: Awaited<ReturnType<typeof prepareApplicationFixture>>,
+) {
+  return createTransactionGrantVerifierV1({
+    clock: { now: () => new Date() },
+    verificationKeyNamespace:
+      createTransactionGrantVerificationKeyNamespaceV1({
+        deploymentId: fixture.deploymentId,
+        keys: [{
+          state: "active",
+          kid: TransactionGrantKeyIdV1Schema.make("legacy-placeholder-key"),
+          purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+          issuedAtInclusiveEpochMilliseconds: fixture.now - 60_000,
+          verificationEndsAtExclusiveEpochMilliseconds:
+            fixture.now + 600_000,
+          verify: async () => true,
+        }],
+      }),
+    grantRetentionPolicy: C07_TEST_GRANT_RETENTION_POLICY_V1,
+  });
+}
+
+function isTaggedError(value: unknown, tag: string): boolean {
+  return typeof value === "object" && value !== null &&
+    Reflect.get(value, "_tag") === tag;
 }
 
 async function makeRunner(

@@ -20,8 +20,7 @@ import {
 
 import type {
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-  InvokeStandardApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/v1";
+} from "@flarex/standard-application-invocation/internal/system-v1";
 import {
   ValidatorValueErrorV1,
   type ValidatorValueIssueV1,
@@ -30,6 +29,7 @@ import type {
   StandardApplicationSystemTestClientV1,
   StandardApplicationSystemTestSetupClientV1,
   StandardApplicationLegacySimulationQueryErrorV1,
+  InvokeLegacyStandardApplicationPointMutationV1Error,
   StandardApplicationTypedReferenceV1Error,
 } from "@flarex/system-test/environment/v1";
 import type {
@@ -96,13 +96,13 @@ export interface CookingSetupProofV1 {
 }
 
 type CookingWorkloadErrorV1 =
-  | InvokeStandardApplicationPointMutationV1Error
+  | InvokeLegacyStandardApplicationPointMutationV1Error
   | StandardApplicationLegacySimulationQueryErrorV1
   | StandardApplicationSystemTestInspectionV1Error
   | StandardApplicationTypedReferenceV1Error;
 
 type CookingMutationInvocationErrorV1 =
-  | InvokeStandardApplicationPointMutationV1Error
+  | InvokeLegacyStandardApplicationPointMutationV1Error
   | StandardApplicationTypedReferenceV1Error;
 
 type CookingUserCodeFailureV1 = Extract<
@@ -117,7 +117,7 @@ type CookingApplicationFailureV1 = Extract<
 
 type CookingMutationAttemptResultV1 = Result.Result<
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-  InvokeStandardApplicationPointMutationV1Error
+  InvokeLegacyStandardApplicationPointMutationV1Error
 >;
 
 type CookingTypedMutationResultV1 = Result.Result<

@@ -36,6 +36,8 @@ import {
   TransactionAuthorizationGrantIdV1Schema,
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
+  type TransactionFunctionPathV1,
+  type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -63,13 +65,12 @@ import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionActivation";
 import {
   ApplicationPointMutationRouteIndependentDispatcherV1Error,
-  invokeApplicationPointMutationV1,
-  makeApplicationPointMutationSystemV1Layer,
-  ApplicationPointMutationSystemV1,
-  type ApplicationPointMutationSystemLiveV1,
+  invokeLegacyApplicationPointMutationV1,
+  makeLegacyApplicationPointMutationSystemV1Layer,
+  LegacyApplicationPointMutationSystemV1,
+  type LegacyApplicationPointMutationSystemLiveV1,
 } from "@flarex/standard-application-invocation/internal/system-v1";
 import {
-  invokeStandardApplicationPointMutationV1,
   makeStandardApplicationActiveRevisionReaderV1Layer,
   StandardApplicationActiveRevisionReaderV1,
 } from "@flarex/standard-application-invocation/v1";
@@ -82,6 +83,23 @@ import { makeMemoryRuntimeArtifactStoreV1 } from
   "./memoryRuntimeArtifactStoreV1";
 
 type Persistence = PGliteFlarexPersistence | PostgresFlarexPersistence;
+
+const invokeLegacyStandardApplicationPointMutationV1 = Effect.fn(
+  "LegacyStandardApplication.invokePointMutationV1",
+)(function* (
+  functionRef: TransactionFunctionPathV1,
+  args: unknown,
+  requestKey: TransactionRequestKeyV1,
+) {
+  const reader = yield* StandardApplicationActiveRevisionReaderV1;
+  const active = yield* reader.read;
+  return yield* invokeLegacyApplicationPointMutationV1(
+    active.selection,
+    functionRef,
+    args,
+    requestKey,
+  );
+});
 type PointMutationSuccessV1 = Extract<
   PointMutationExactRuntimeHostResponseV2,
   Readonly<{ readonly kind: "success" }>
@@ -188,20 +206,20 @@ export async function proveFsv06StandardPointMutationV1(
     runtimeExecutions += 1;
   });
   const applicationLayer = Layer.merge(
-    makeApplicationPointMutationSystemV1Layer(system),
+    makeLegacyApplicationPointMutationSystemV1Layer(system),
     makeStandardApplicationActiveRevisionReaderV1Layer(insertReady.context),
   );
   const provideApplication = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => effect.pipe(Effect.provide(applicationLayer));
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(provideApplication(effect)));
@@ -210,7 +228,7 @@ export async function proveFsv06StandardPointMutationV1(
     `fsv06:${lane.name}:insert`,
   );
   const create = TransactionFunctionPathV1Schema.make("o:c");
-  const inserted = await invoke(invokeStandardApplicationPointMutationV1(
+  const inserted = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     create,
     { status: "new" },
     insertKey,
@@ -223,7 +241,7 @@ export async function proveFsv06StandardPointMutationV1(
     throw new Error("FSV06 insert did not return its authoritative document id.");
   }
   const executionsAfterInsert = runtimeExecutions;
-  const replayed = await invoke(invokeStandardApplicationPointMutationV1(
+  const replayed = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     create,
     { status: "new" },
     insertKey,
@@ -236,7 +254,7 @@ export async function proveFsv06StandardPointMutationV1(
 
   let conflictingReuseRejected = false;
   try {
-    await invoke(invokeStandardApplicationPointMutationV1(
+    await invoke(invokeLegacyStandardApplicationPointMutationV1(
       create,
       { status: "different" },
       insertKey,
@@ -260,7 +278,7 @@ export async function proveFsv06StandardPointMutationV1(
   try {
     await Effect.runPromise(Effect.scoped(
       readActiveApplicationRevisionV1(insertReady.context).pipe(
-        Effect.flatMap(active => invokeApplicationPointMutationV1(
+        Effect.flatMap(active => invokeLegacyApplicationPointMutationV1(
           active.selection,
           create,
           { status: "wrong-deployment" },
@@ -268,7 +286,7 @@ export async function proveFsv06StandardPointMutationV1(
             `fsv06:${lane.name}:wrong-deployment`,
           ),
         )),
-        Effect.provide(makeApplicationPointMutationSystemV1Layer(
+        Effect.provide(makeLegacyApplicationPointMutationSystemV1Layer(
           wrongDeploymentLive,
         )),
       ),
@@ -282,7 +300,7 @@ export async function proveFsv06StandardPointMutationV1(
   }
 
   const beforeInvalid = await durableCounts(lane.persistence);
-  const invalid = await invoke(invokeStandardApplicationPointMutationV1(
+  const invalid = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     create,
     { status: 42 },
     TransactionRequestKeyV1Schema.make(`fsv06:${lane.name}:invalid`),
@@ -340,7 +358,7 @@ export async function proveFsv06StandardPointMutationV1(
   );
   let confirmedRollbackPreserved = false;
   try {
-    await invoke(invokeStandardApplicationPointMutationV1(
+    await invoke(invokeLegacyStandardApplicationPointMutationV1(
       update,
       { id: documentId, d: { status: "rollback-rejected" } },
       rollbackKey,
@@ -366,7 +384,7 @@ export async function proveFsv06StandardPointMutationV1(
 
   let occCompetitorCommitted = false;
   proofController.afterRuntimeOnce = async () => {
-    const competitor = await invoke(invokeStandardApplicationPointMutationV1(
+    const competitor = await invoke(invokeLegacyStandardApplicationPointMutationV1(
       update,
       { id: documentId, d: { status: "occ-competitor" } },
       TransactionRequestKeyV1Schema.make(
@@ -376,7 +394,7 @@ export async function proveFsv06StandardPointMutationV1(
     occCompetitorCommitted = competitor.disposition === "published";
   };
   const executionsBeforeOcc = runtimeExecutions;
-  const updated = await invoke(invokeStandardApplicationPointMutationV1(
+  const updated = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     update,
     { id: documentId, d: { status: "updated" } },
     TransactionRequestKeyV1Schema.make(`fsv06:${lane.name}:occ-primary`),
@@ -390,7 +408,7 @@ export async function proveFsv06StandardPointMutationV1(
   }
 
   proofController.loseCommitResponseAtBeforeCommit = true;
-  const uncertain = await invoke(invokeStandardApplicationPointMutationV1(
+  const uncertain = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     update,
     { id: documentId, d: { status: "uncertainty-recovered" } },
     TransactionRequestKeyV1Schema.make(`fsv06:${lane.name}:uncertain`),
@@ -408,7 +426,7 @@ export async function proveFsv06StandardPointMutationV1(
     `fsv06:${lane.name}:interrupted`,
   );
   const interruptedFiber = Effect.runFork(Effect.scoped(provideApplication(
-    invokeStandardApplicationPointMutationV1(
+    invokeLegacyStandardApplicationPointMutationV1(
       update,
       { id: documentId, d: { status: "interrupted-commit" } },
       interruptionKey,
@@ -429,7 +447,7 @@ export async function proveFsv06StandardPointMutationV1(
     throw new Error("FSV06 interruption did not remain terminal to the caller.");
   }
   const interruptedReplay = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeLegacyStandardApplicationPointMutationV1(
       update,
       { id: documentId, d: { status: "interrupted-commit" } },
       interruptionKey,
@@ -439,7 +457,7 @@ export async function proveFsv06StandardPointMutationV1(
     throw new Error("FSV06 interruption did not recover the committed outcome.");
   }
 
-  const cold = await invoke(invokeStandardApplicationPointMutationV1(
+  const cold = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     update,
     { id: documentId, d: { status: "cold" } },
     TransactionRequestKeyV1Schema.make(`fsv06:${lane.name}:cold`),
@@ -546,7 +564,7 @@ export async function proveSap06A2MutationInternalQueryV1(
     insertReady.deploymentId,
   );
   const applicationLayer = Layer.merge(
-    makeApplicationPointMutationSystemV1Layer(systemLive(
+    makeLegacyApplicationPointMutationSystemV1Layer(systemLive(
       lane,
       deploymentId,
       artifacts,
@@ -558,13 +576,13 @@ export async function proveSap06A2MutationInternalQueryV1(
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(
     Effect.provide(applicationLayer),
   )));
-  const inserted = await invoke(invokeStandardApplicationPointMutationV1(
+  const inserted = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:c"),
     { status: "staged" },
     TransactionRequestKeyV1Schema.make(`sap06-a2:${lane.name}:insert`),
@@ -594,7 +612,7 @@ export async function proveSap06A2MutationInternalQueryV1(
   ));
   proofController.observedOperations = [];
   const before = await durableCounts(lane.persistence);
-  const deleted = await invoke(invokeStandardApplicationPointMutationV1(
+  const deleted = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:u"),
     { i: inserted.value },
     TransactionRequestKeyV1Schema.make(`sap06-a2:${lane.name}:delete-read`),
@@ -689,7 +707,7 @@ export async function proveSap06A3MutationInternalCallV1(
     insertReady.deploymentId,
   );
   const applicationLayer = Layer.merge(
-    makeApplicationPointMutationSystemV1Layer(systemLive(
+    makeLegacyApplicationPointMutationSystemV1Layer(systemLive(
       lane,
       deploymentId,
       artifacts,
@@ -701,13 +719,13 @@ export async function proveSap06A3MutationInternalCallV1(
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
-    | ApplicationPointMutationSystemV1
+    | LegacyApplicationPointMutationSystemV1
     | StandardApplicationActiveRevisionReaderV1
     | Scope.Scope
   >) => Effect.runPromise(Effect.scoped(effect.pipe(
     Effect.provide(applicationLayer),
   )));
-  const inserted = await invoke(invokeStandardApplicationPointMutationV1(
+  const inserted = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:c"),
     { status: "staged" },
     TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:insert`),
@@ -721,7 +739,7 @@ export async function proveSap06A3MutationInternalCallV1(
   }
   const documentIds = [inserted.value];
   for (let index = 1; index < 6; index += 1) {
-    const setup = await invoke(invokeStandardApplicationPointMutationV1(
+    const setup = await invoke(invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:c"),
       { status: `staged-${index}` },
       TransactionRequestKeyV1Schema.make(
@@ -758,7 +776,7 @@ export async function proveSap06A3MutationInternalCallV1(
   const mainKey = TransactionRequestKeyV1Schema.make(
     `sap06-a3:${lane.name}:delete-read`,
   );
-  const deleted = await invoke(invokeStandardApplicationPointMutationV1(
+  const deleted = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:u"),
     { i: inserted.value },
     mainKey,
@@ -787,7 +805,7 @@ export async function proveSap06A3MutationInternalCallV1(
     );
   }
   const executionsAfterMain = runtimeExecutions;
-  const replayed = await invoke(invokeStandardApplicationPointMutationV1(
+  const replayed = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:u"),
     { i: inserted.value },
     mainKey,
@@ -807,7 +825,7 @@ export async function proveSap06A3MutationInternalCallV1(
   );
   let confirmedRollbackPreserved = false;
   try {
-    await invoke(invokeStandardApplicationPointMutationV1(
+    await invoke(invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:u"),
       { i: documentIds[1]! },
       rollbackKey,
@@ -825,7 +843,7 @@ export async function proveSap06A3MutationInternalCallV1(
     throw new Error("SAP06-A3 exposed child state after confirmed rollback.");
   }
   const rollbackRecovery = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:u"),
       { i: documentIds[1]! },
       TransactionRequestKeyV1Schema.make(
@@ -839,7 +857,7 @@ export async function proveSap06A3MutationInternalCallV1(
 
   let occCompetitorCommitted = false;
   proofController.afterRuntimeOnce = async () => {
-    const competitor = await invoke(invokeStandardApplicationPointMutationV1(
+    const competitor = await invoke(invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:u"),
       { i: documentIds[2]! },
       TransactionRequestKeyV1Schema.make(
@@ -851,7 +869,7 @@ export async function proveSap06A3MutationInternalCallV1(
   const executionsBeforeOcc = runtimeExecutions;
   let occPrimaryRejectedAtReplacement = false;
   try {
-    await invoke(invokeStandardApplicationPointMutationV1(
+    await invoke(invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:u"),
       { i: documentIds[2]! },
       TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:occ-primary`),
@@ -869,7 +887,7 @@ export async function proveSap06A3MutationInternalCallV1(
   }
 
   proofController.loseCommitResponseAtBeforeCommit = true;
-  const uncertain = await invoke(invokeStandardApplicationPointMutationV1(
+  const uncertain = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:u"),
     { i: documentIds[3]! },
     TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:uncertain`),
@@ -887,7 +905,7 @@ export async function proveSap06A3MutationInternalCallV1(
     `sap06-a3:${lane.name}:interrupted`,
   );
   const interruptedFiber = Effect.runFork(Effect.scoped(
-    invokeStandardApplicationPointMutationV1(
+    invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:u"),
       { i: documentIds[4]! },
       interruptionKey,
@@ -905,7 +923,7 @@ export async function proveSap06A3MutationInternalCallV1(
     throw new Error("SAP06-A3 interruption was not terminal to its caller.");
   }
   const interruptedReplay = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeLegacyStandardApplicationPointMutationV1(
       TransactionFunctionPathV1Schema.make("o:u"),
       { i: documentIds[4]! },
       interruptionKey,
@@ -915,7 +933,7 @@ export async function proveSap06A3MutationInternalCallV1(
     throw new Error("SAP06-A3 interruption did not settle through parent replay.");
   }
 
-  const cold = await invoke(invokeStandardApplicationPointMutationV1(
+  const cold = await invoke(invokeLegacyStandardApplicationPointMutationV1(
     TransactionFunctionPathV1Schema.make("o:u"),
     { i: documentIds[5]! },
     TransactionRequestKeyV1Schema.make(`sap06-a3:${lane.name}:cold`),
@@ -962,7 +980,7 @@ export async function proveSap06A3MutationInternalCallV1(
 }
 
 export interface Fsv06StandardPointMutationSystemTestCompositionV1 {
-  readonly system: ApplicationPointMutationSystemLiveV1;
+  readonly system: LegacyApplicationPointMutationSystemLiveV1;
   readonly armAfterNextRuntime: (operation: Effect.Effect<void, never>) => void;
   readonly requireNoPendingInterleaving: () => void;
   readonly clearPendingInterleaving: () => void;
@@ -1011,11 +1029,11 @@ export function makeFsv06StandardPointMutationSystemTestCompositionV1(
 
 function systemLive(
   lane: Fsv06StandardPointMutationLaneV1,
-  deploymentId: ApplicationPointMutationSystemLiveV1["deploymentId"],
+  deploymentId: LegacyApplicationPointMutationSystemLiveV1["deploymentId"],
   artifacts: ReturnType<typeof makeMemoryRuntimeArtifactStoreV1>,
   proofController: Fsv06CompositionProofControllerV1,
   onRuntimeExecution: () => void,
-): ApplicationPointMutationSystemLiveV1 {
+): LegacyApplicationPointMutationSystemLiveV1 {
   const sessionAuthority: PointMutationSessionAuthorityResolutionPortsV1 = {
     scopeMetadata: lane.persistence,
     provisioningReceipts: unavailableSplitReceipt(),

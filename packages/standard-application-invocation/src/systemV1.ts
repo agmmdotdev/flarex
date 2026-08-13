@@ -177,7 +177,7 @@ type OccContextFactoryV1 = StoredPointMutationOccRerunExecutionConfigV1[
   "pointMutationOccRerun"
 ]["contextFactory"];
 
-export interface ApplicationPointMutationSystemLiveV1 {
+export interface LegacyApplicationPointMutationSystemLiveV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly intrinsicCreationTimeIndexes:
     IntrinsicCreationTimeIndexDefinitionPortV1;
@@ -241,7 +241,7 @@ export interface AuthoritativeCommittedApplicationPointMutationOutcomeV1 {
   readonly value: Json;
 }
 
-export interface ApplicationPointMutationSystemV1Api {
+export interface LegacyApplicationPointMutationSystemV1Api {
   readonly invoke: (
     activeRevision: AuthenticatedActiveApplicationRevisionSelectionV1,
     functionRef: TransactionFunctionPathV1,
@@ -254,17 +254,17 @@ export interface ApplicationPointMutationSystemV1Api {
   >;
 }
 
-export class ApplicationPointMutationSystemV1 extends Context.Service<
-  ApplicationPointMutationSystemV1,
-  ApplicationPointMutationSystemV1Api
->()("flarex/standard-application-invocation/ApplicationPointMutationSystemV1") {}
+export class LegacyApplicationPointMutationSystemV1 extends Context.Service<
+  LegacyApplicationPointMutationSystemV1,
+  LegacyApplicationPointMutationSystemV1Api
+>()("flarex/standard-application-invocation/LegacyApplicationPointMutationSystemV1") {}
 
 /**
  * Private FSV06 System Application Data operation. The supplied active
  * selection, C03-V validator, and runtime target all remain owned by the
  * caller's Scope; success is projected only from the durable outcome owner.
  */
-export const invokeApplicationPointMutationV1 = Effect.fn(
+export const invokeLegacyApplicationPointMutationV1 = Effect.fn(
   "ApplicationPointMutation.invokeV1",
 )(function* (
   activeRevision: AuthenticatedActiveApplicationRevisionSelectionV1,
@@ -274,26 +274,26 @@ export const invokeApplicationPointMutationV1 = Effect.fn(
 ): Effect.fn.Return<
   AuthoritativeCommittedApplicationPointMutationOutcomeV1,
   InvokeApplicationPointMutationV1Error,
-  ApplicationPointMutationSystemV1 | Scope.Scope
+  LegacyApplicationPointMutationSystemV1 | Scope.Scope
 > {
-  const system = yield* ApplicationPointMutationSystemV1;
+  const system = yield* LegacyApplicationPointMutationSystemV1;
   return yield* system.invoke(activeRevision, functionRef, args, requestKey);
 });
 
-export function makeApplicationPointMutationSystemV1Layer(
-  live: ApplicationPointMutationSystemLiveV1,
-): Layer.Layer<ApplicationPointMutationSystemV1> {
+export function makeLegacyApplicationPointMutationSystemV1Layer(
+  live: LegacyApplicationPointMutationSystemLiveV1,
+): Layer.Layer<LegacyApplicationPointMutationSystemV1> {
   return Layer.succeed(
-    ApplicationPointMutationSystemV1,
-    ApplicationPointMutationSystemV1.of({
+    LegacyApplicationPointMutationSystemV1,
+    LegacyApplicationPointMutationSystemV1.of({
       invoke: makeInvoke(live),
     }),
   );
 }
 
 function makeInvoke(
-  live: ApplicationPointMutationSystemLiveV1,
-): ApplicationPointMutationSystemV1Api["invoke"] {
+  live: LegacyApplicationPointMutationSystemLiveV1,
+): LegacyApplicationPointMutationSystemV1Api["invoke"] {
   return Effect.fn("ApplicationPointMutationSystem.invoke")(function* (
     activeRevision: AuthenticatedActiveApplicationRevisionSelectionV1,
     functionRefInput: TransactionFunctionPathV1,

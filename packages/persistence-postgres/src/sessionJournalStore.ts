@@ -185,6 +185,9 @@ import {
   type ValidateApplicationRevisionSyscallDocumentV1Input,
 } from "./applicationRevisionSyscallValidatorV1";
 import {
+  hasApplicationSchemaAuthorityComposition,
+} from "./applicationSchemaAuthority";
+import {
   PinnedDeveloperIndexCorruptionV1Error,
   PinnedDeveloperIndexNotFoundV1Error,
   PinnedDeveloperIndexPersistenceV1Error,
@@ -505,7 +508,7 @@ interface AppDeveloperIndexQueryPortStateV1 {
 }
 
 const appDeveloperIndexQueryPortStatesV1 = new WeakMap<
-  AppDeveloperIndexQueryPortV1,
+  object,
   AppDeveloperIndexQueryPortStateV1
 >();
 
@@ -528,6 +531,26 @@ export function createAppDeveloperIndexQueryPortV1(
     }));
   }
   return port;
+}
+
+/** Exact private indexed-query/session-authority composition guard. */
+export function hasAppDeveloperIndexQueryAuthorityV1(
+  value: unknown,
+  authority: PointMutationSessionAuthorityResolutionPortsV1,
+): boolean {
+  return typeof value === "object" && value !== null &&
+    appDeveloperIndexQueryPortStatesV1.get(value)?.authority === authority;
+}
+
+/** Exact private indexed-query/schema-control-catalog composition guard. */
+export function hasAppDeveloperIndexQuerySchemaAuthorityCompositionV1(
+  value: unknown,
+  schema: unknown,
+): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const state = appDeveloperIndexQueryPortStatesV1.get(value);
+  return state !== undefined &&
+    hasApplicationSchemaAuthorityComposition(schema, state.controlDb);
 }
 
 const preparedSessionJournalSealBrand: unique symbol = Symbol(

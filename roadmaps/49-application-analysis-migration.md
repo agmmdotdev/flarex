@@ -2261,6 +2261,41 @@ Application generation, and the final authoritative row comes from the
 replacement execution. It does not register `ApplicationMutationSystem`;
 Standard composition remains checkpoint 3.
 
+Checkpoint 3 is now implemented as the exclusive private Standard mutation
+composition. The unversioned `ApplicationMutationSystem` reads one coherent
+Application active selection, selects an exact public mutation, loads the
+published schema authority from the same control catalog as the indexed-query
+port, canonicalizes arguments and the request, constructs the authenticated
+runtime target, issues the distinct Application grant, admits the Application
+session, and delegates execution to the generation-aware runner. Point-commit
+and indexed-query capabilities must both be bound to the exact session-
+authority object; structural copies and cross-authority compositions fail
+before user code or persistence work begins.
+
+The Standard point-mutation entry now delegates only to this Application
+system. It has no legacy fallback, comparison execution, or dual acceptance.
+The displaced FSV06 and simulation system is explicitly named `Legacy...` and
+is used only by its retained historical test owners. A same-request replay is
+resolved from the durable outcome before grant issuance or Worker loading, and
+new sessions receive a schema validator pinned to their immutable admitted
+selection rather than revalidating the mutable active head during OCC retry.
+The connected Standard proof reads a coherent active selection, removes its
+head before admission, and proves the in-transaction fence rejects the stale
+selection without a session, outcome, commit, or user-code execution. It then
+removes the head after admission and proves the already-admitted session still
+completes through its immutable pinned selection. It also rejects the same
+request key with different canonical arguments without another execution or
+commit. The shared generation-aware commit-authentication engine receives its
+registered legacy-verifier dependency but selects the verifier from the stored
+session generation; the direct Application authentication proof owns that
+branch assertion.
+The connected proof reaches the existing journal, replacement, finishing,
+point-commit, and durable-outcome owners and preserves one authoritative commit
+for the successful request. This checkpoint adds no route, production trigger,
+new transaction phase, journal, OCC algorithm, commit compiler, feed, outbox,
+or genuine-PostgreSQL readiness claim; those broader vertical and PostgreSQL
+proofs remain in `AA-R7`.
+
 First migrate executable authority and publication:
 
 - the private Standard producer and fixtures emit real execution registration

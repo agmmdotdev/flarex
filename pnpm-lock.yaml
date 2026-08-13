@@ -818,6 +818,9 @@ importers:
 
   packages/standard-application-invocation:
     dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
