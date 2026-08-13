@@ -8,12 +8,14 @@ authenticated point-commit write guard now exist. M03-B remains private and
 production-inert: no Standard live composition, readiness or activation
 consumer, CLI, backfill runner, destructive cleanup, route, or trigger uses it.
 `M03-C` is complete: readiness and first activation are separately gated on
-the exact schema-validation receipt. `M03-D` remains the isolated
-multi-revision cooking scenario, but it is sequenced after the Application
-Analysis `AA-R6` capability-composition and private-consumer cut. The existing
+the exact schema-validation receipt. The Application Analysis `AA-R6`
+capability-composition prerequisite is now complete for the query and mutation
+consumers required by `M03-D`, so the isolated multi-revision cooking scenario
+may proceed through the new Application generation. The existing
 single-revision runner still selects the displaced Application Revision V1
-readiness/activation generation, so extending it now would prove a legacy
-authority and violate the accepted one-way migration.
+readiness/activation generation and remains historical regression coverage;
+extending it would prove a legacy authority and violate the accepted one-way
+migration.
 
 ## Decision
 
@@ -78,7 +80,7 @@ Flarex adopts those semantics, not Convex's physical system-table shapes. Its
 scope clock, immutable schema artifacts, stable table IDs, row-revision model,
 point-commit owner, readiness receipt, and activation CAS remain authoritative.
 
-## Current Composition Gap
+## M03-D composition preflight and accepted decomposition — 2026-08-13
 
 The managed-schema owners now publish immutable schema artifacts, preserve
 stable table and logical-index identities, validate candidate rows at an exact
@@ -88,19 +90,65 @@ activation CAS.
 
 The reusable system-test environment still prepares one relation-free revision
 through `prepareFsv05ReadyRevisionFixtureEffectV1` and selects the displaced
-Application Revision V1 readiness and activation generation. Roadmap 49 has
-accepted Application Revision V2 analysis, publication, runtime materialization,
-schema authority, readiness, activation, selection, and private-consumer
-migration as a one-way replacement. Until that consumer cut exists, there is no
-truthful system-test composition root that can run schemas A, B, and C through
-the accepted current Application authority.
+Application Revision V1 readiness and activation generation. It must remain
+legacy. Roadmap 49 now has committed the new Application analysis, publication,
+runtime materialization, schema authority, readiness, activation, active
+selection, query consumer, mutation consumer, and task-aware authority graph.
+Those owners satisfy the prerequisite for a new test-only composition root, but
+they are not yet composed into one multi-revision environment.
 
-Therefore `M03-D` must not create a test-owned scanner, schema publication,
-readiness receipt, activation pointer, consumer adapter, or dual old/new runner.
-Its implementation resumes only after `AA-R6` capability composition has moved
-the private Standard invocation consumer to the new active selection. The
-existing single-revision cooking evidence remains historical regression
-coverage; it is not the authority base for the new multi-revision scenario.
+The current AA-R7 cold-analysis harness starts from generated Standard
+Application source, immutable Source Artifact V2 objects, and two real Worker
+Loader evaluations, but intentionally stops at analyzed or rejected durable
+state. The current Application mutation harness proves the new active selection
+and unchanged journal/OCC/commit tail, but constructs and settles a canonical
+manifest directly for its focused authority proof. Neither harness alone is an
+acceptable M03-D runner, and copying either shortcut into the cooking scenario
+would weaken the accepted real-analysis requirement.
+
+The focused mutation harness also constructs its point-commit publisher without
+the optional candidate-schema write guard, because that proof owns Application
+mutation parity rather than managed-schema evolution. M03-D0 must derive the
+already-accepted guard from the same control catalog and exact scope-authority
+object and install it on the one point-commit publisher used by
+`ApplicationMutationSystem`. The new Application query service likewise has no
+connected system-test composition beside that mutation service. These are
+test-composition gaps, not authority to change either shared owner.
+
+`M03-D` therefore adds a separate private system-test composition root that
+orchestrates only the accepted owners. It must start every candidate from the
+real generated Standard source and durable Application Analysis result, then
+delegate publication, schema authority, candidate validation, readiness,
+activation, query, mutation, journal/OCC/commit, and inspection to their current
+capabilities. It must not create a test-owned scanner, schema publication,
+readiness receipt, activation pointer, consumer adapter, commit path, or dual
+old/new runner. The existing single-revision cooking evidence remains
+historical regression coverage; it is not the authority base for the new
+multi-revision scenario.
+
+Implementation is decomposed without changing the final acceptance matrix:
+
+1. **M03-D0 — current-generation environment.** Build the new private harness
+   and prove schema A from generated source through real analysis, publication,
+   candidate validation, readiness, activation, Workerd mutation/query, and
+   authoritative inspection in PGlite and genuine PostgreSQL. This slice owns
+   composition only and adds no schema, migration, protocol, or lifecycle
+   authority.
+2. **M03-D1 — removal and retry.** Add schema B, populated-field rejection,
+   continued schema-A service, ordinary cleanup mutation, exact resubmission,
+   validation, activation, and removed-field rejection.
+3. **M03-D2 — required-field and nested-validator evolution.** Add schema C,
+   ordinary backfill, bounded nested-path evidence, and activation after exact
+   validation.
+4. **M03-D3 — lifecycle adversity.** Add cursor interleavings, supersession,
+   replay, cold reload, corruption, rollback, uncertainty, concurrent
+   activation, stale-attempt replacement, and the final complete authoritative
+   inspection matrix.
+
+Every slice runs the same scenario portion in PGlite and genuine PostgreSQL.
+If composition exposes a defect in a shared owner, the system test records the
+reproduction and stops at that owner boundary under `AGENTS.md`; it does not
+repair the owner or add test-local glue without separate approval.
 
 ## Approved Code And Package Ownership
 
@@ -616,10 +664,11 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - after the `AA-R6` capability-composition/private-consumer cut,
-   extend `@flarex/system-test` with a separate multi-revision cooking
-   scenario. The existing single-revision runner remains unchanged and is not
-   a fallback or comparison authority.
+7. `M03-D` - **in progress** after the completed `AA-R6` query/mutation
+   capability-composition cut: extend `@flarex/system-test` with a separate
+   current-generation multi-revision cooking scenario. The existing
+   single-revision runner remains unchanged and is not a fallback or comparison
+   authority.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with
    non-interactive machine-readable output.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
@@ -630,14 +679,12 @@ goals do not authorize public CLI work, cloud deployment, or destructive schema
 changes during current codec/catalog slices.
 
 `M01-A`, `M01-B`, `M02`, and production-inert `M03-A` through `M03-C` are
-complete. `M03-D` is blocked only on roadmap 49's `AA-R6` replacement consumer
-cut; no additional managed-schema protocol, schema, migration, transaction, or
-activation owner is authorized here. Once that cut is complete, the next
-managed-schema implementation request may add the isolated multi-revision
-cooking scenario over those accepted current owners. It may not revive the
-displaced runner, add dual selection or fallback, or create another
-active-schema authority, transaction owner, route, trigger, or public
-deployment path.
+complete. Roadmap 49's required `AA-R6` query/mutation replacement-consumer cut
+is complete, and `M03-D0` is the current managed-schema implementation slice.
+No additional managed-schema protocol, schema, migration, transaction, or
+activation owner is authorized here. The scenario may not revive the displaced
+runner, add dual selection or fallback, or create another active-schema
+authority, transaction owner, route, trigger, or public deployment path.
 
 ## Multi-Revision Cooking Acceptance Matrix
 
