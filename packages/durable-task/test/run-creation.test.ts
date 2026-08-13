@@ -2,6 +2,7 @@ import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  encodeApplicationTaskRunCreationRequestPreimageV1,
   encodeTaskRunCreationRequestKeyPreimageV1,
   encodeTaskRunCreationRequestPreimageV1,
 } from "../src/runCreation/CanonicalRequest.js";
@@ -15,11 +16,15 @@ import { makeTaskRunCreationInitialAggregateV1 } from
 import {
   MAX_TASK_INPUT_CANONICAL_BYTES_V1,
   TASK_INPUT_OBJECT_KEY_PREFIX_V1,
+  type ApplicationTaskRunCreationRequestV1,
   type TaskInputReferenceV1,
   type TaskRunCreationRequestKeyV1,
   type TaskRunCreationRequestV1,
 } from "../src/runCreation/Model.js";
 import {
+  decodeApplicationTaskRunCreationReceiptV1,
+  decodeApplicationTaskRunCreationRequestV1,
+  decodeTaskDefinitionReference,
   decodeTaskInputReferenceV1,
   decodeTaskRunCreationReceiptV1,
   decodeTaskRunCreationRequestKeyV1,
@@ -226,6 +231,134 @@ describe("durable task run creation V1", () => {
     expect(UTF8.decode(firstRequestBytes)).toBe(
       `{"codec":"flarex.task-run-creation-request-preimage.v1","input":{"byteLength":19,"codec":"flarex.task-input-reference.v1","objectKey":"durable-task-input/v1/sha256/${digestHex}","retention":{"kind":"run_lifetime"},"sha256":"${digestHex}","store":"flarex.task-input-object-store.v1","valueCodec":"flarex-value/v1"},"taskDefinitionRevisionId":"taskdef_00000000-0000-4000-8000-000000000001"}`,
     );
+  });
+
+  it("keeps the current definition reference exact and generation-disjoint", () => {
+    const callerTarget = digest(0x31);
+    const application = success(decodeTaskDefinitionReference({
+      generation: "application_v1",
+      applicationTaskRuntimeTargetSha256: callerTarget,
+    }));
+    const legacy = success(decodeTaskDefinitionReference({
+      generation: "legacy_definition_v1",
+      taskDefinitionRevisionId: DEFINITION_ID,
+    }));
+
+    expect(application).toMatchObject({ generation: "application_v1" });
+    if (application.generation !== "application_v1") {
+      throw new Error("Expected an Application definition reference.");
+    }
+    expect(application.applicationTaskRuntimeTargetSha256).not.toBe(
+      callerTarget,
+    );
+    callerTarget.fill(0xff);
+    expect(application.applicationTaskRuntimeTargetSha256).toEqual(
+      digest(0x31),
+    );
+    expect(legacy).toEqual({
+      generation: "legacy_definition_v1",
+      taskDefinitionRevisionId: DEFINITION_ID,
+    });
+
+    for (const rejected of [
+      {
+        generation: "application_v1",
+        applicationTaskRuntimeTargetSha256: digest(1),
+        taskDefinitionRevisionId: DEFINITION_ID,
+      },
+      {
+        generation: "legacy_definition_v1",
+        applicationTaskRuntimeTargetSha256: digest(1),
+      },
+      {
+        generation: "future_definition_v2",
+        applicationTaskRuntimeTargetSha256: digest(1),
+      },
+    ]) {
+      expect(failure(decodeTaskDefinitionReference(rejected))).toMatchObject({
+        operation: "decode_definition_reference",
+      });
+    }
+  });
+
+  it("owns and canonically frames an Application creation request", () => {
+    const callerTarget = digest(0x41);
+    const input = success(makeTaskInputReferenceV1(digest(0x42), 19));
+    const request = success(decodeApplicationTaskRunCreationRequestV1({
+      version: 1,
+      requestKey: "application/create/1",
+      applicationTaskRuntimeTargetSha256: callerTarget,
+      input,
+    }));
+
+    expectTypeOf(request).toEqualTypeOf<ApplicationTaskRunCreationRequestV1>();
+    expect(request.applicationTaskRuntimeTargetSha256).not.toBe(callerTarget);
+    expect(request.input).not.toBe(input);
+    callerTarget.fill(0xff);
+    input.sha256.fill(0xff);
+    expect(request.applicationTaskRuntimeTargetSha256).toEqual(digest(0x41));
+    expect(request.input.sha256).toEqual(digest(0x42));
+
+    const bytes = success(
+      encodeApplicationTaskRunCreationRequestPreimageV1(request),
+    );
+    const text = UTF8.decode(bytes);
+    expect(text).toContain(
+      "flarex.application-task-run-creation-request-preimage.v1",
+    );
+    expect(text).toContain("41".repeat(32));
+    expect(text).toContain("42".repeat(32));
+    expect(text).not.toContain("taskDefinitionRevisionId");
+    expect(success(encodeApplicationTaskRunCreationRequestPreimageV1(request)))
+      .toEqual(bytes);
+
+    expect(failure(decodeApplicationTaskRunCreationRequestV1({
+      ...request,
+      taskDefinitionRevisionId: DEFINITION_ID,
+    }))).toMatchObject({ reason: "invalid_shape" });
+    expect(failure(decodeApplicationTaskRunCreationRequestV1({
+      ...request,
+      requestKey: " bad",
+    }))).toMatchObject({
+      operation: "decode_application_request",
+      reason: "invalid_request_key",
+    });
+  });
+
+  it("decodes a detached Application replay receipt without Legacy identity", () => {
+    const target = digest(0x51);
+    const requestKey = digest(0x52);
+    const requestSha = digest(0x53);
+    const creationAuthority = digest(0x54);
+    const receipt = success(decodeApplicationTaskRunCreationReceiptV1({
+      status: "created",
+      version: 1,
+      runId: RUN_ID,
+      applicationTaskRuntimeTargetSha256: target,
+      createdAtMs: NOW,
+      requestKeySha256: requestKey,
+      requestSha256: requestSha,
+      creationAuthoritySha256: creationAuthority,
+    }));
+
+    target.fill(0);
+    requestKey.fill(0);
+    requestSha.fill(0);
+    creationAuthority.fill(0);
+    expect(receipt.applicationTaskRuntimeTargetSha256).toEqual(digest(0x51));
+    expect(receipt.requestKeySha256).toEqual(digest(0x52));
+    expect(receipt.requestSha256).toEqual(digest(0x53));
+    expect(receipt.creationAuthoritySha256).toEqual(digest(0x54));
+    expect("taskDefinitionRevisionId" in receipt).toBe(false);
+
+    expect(failure(decodeApplicationTaskRunCreationReceiptV1({
+      ...receipt,
+      taskDefinitionRevisionId: DEFINITION_ID,
+    }))).toMatchObject({ reason: "invalid_shape" });
+    expect(failure(decodeApplicationTaskRunCreationReceiptV1({
+      ...receipt,
+      applicationTaskRuntimeTargetSha256: new Uint8Array(31),
+    }))).toMatchObject({ reason: "invalid_digest" });
   });
 
   it("returns fresh canonical preimage bytes on every call", () => {

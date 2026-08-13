@@ -1,10 +1,12 @@
 import {
+  bytesEqualFullScan,
   copyBytes,
   encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
+  uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { Result } from "effect";
+import { Encoding, Result } from "effect";
 import { encodeCanonicalJson } from "flarex-protocol/json";
 
 import {
@@ -17,6 +19,7 @@ import {
   APPLICATION_TASK_CATALOG_BINDING_CODEC_V1,
   APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
   APPLICATION_TASK_RUNTIME_TARGET_CODEC_V1,
+  APPLICATION_TASK_RUN_CREATION_AUTHORITY_CODEC_V1,
   MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1,
   type ApplicationTaskBindingAuthorityV1,
   type ApplicationTaskCatalogBindingV1,
@@ -24,6 +27,7 @@ import {
   type ApplicationTaskHandlerBindingV1,
   type ApplicationTaskRuntimeHostPolicyV1,
   type ApplicationTaskRuntimeTargetV1,
+  type ApplicationTaskRunCreationAuthorityV1,
 } from "./Model.js";
 import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
   "flarex-protocol/internal/application-runtime-cold-receipt-v1";
@@ -36,6 +40,7 @@ import {
 import { decodeTaskIdV1 } from "../taskDefinition/Schema.js";
 
 const UTF8 = new TextEncoder();
+const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
 const AUTHORITY_KEYS = [
   "analysisId",
   "candidateId",
@@ -282,6 +287,144 @@ export function encodeApplicationTaskRuntimeTargetPreimageV1(
   );
 }
 
+export function decodeApplicationTaskRunCreationAuthorityV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskRunCreationAuthorityV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  const operation = "decode_creation_authority" as const;
+  return Result.gen(function* () {
+    const value = yield* exactRecord(input, [
+      "activationSequence",
+      "activeHeadSha256",
+      "applicationTaskRuntimeTargetSha256",
+      "readinessSha256",
+      "scopeId",
+      "version",
+    ], operation);
+    if (value.version !== 1 || typeof value.activationSequence !== "bigint"
+      || value.activationSequence < 1n
+      || value.activationSequence > 9_223_372_036_854_775_807n) {
+      return yield* failure(operation, "invalidShape", "activationSequence");
+    }
+    const scopeId = yield* boundedText(
+      value.scopeId,
+      operation,
+      "scopeId",
+    );
+    return Object.freeze({
+      version: 1,
+      scopeId,
+      activationSequence: value.activationSequence,
+      activeHeadSha256: yield* digest(
+        value.activeHeadSha256,
+        operation,
+        "activeHeadSha256",
+      ),
+      readinessSha256: yield* digest(
+        value.readinessSha256,
+        operation,
+        "readinessSha256",
+      ),
+      applicationTaskRuntimeTargetSha256: yield* digest(
+        value.applicationTaskRuntimeTargetSha256,
+        operation,
+        "applicationTaskRuntimeTargetSha256",
+      ),
+    });
+  });
+}
+
+export function encodeApplicationTaskRunCreationAuthorityPreimageV1(
+  input: unknown,
+): Result.Result<Uint8Array, InvalidApplicationTaskBindingV1Error> {
+  const operation = "encode_creation_authority" as const;
+  return decodeApplicationTaskRunCreationAuthorityV1(input).pipe(
+    Result.mapError(error => reoperation(error, operation)),
+    Result.flatMap(authority => canonicalBytes({
+      authority: {
+        activationSequence: authority.activationSequence.toString(10),
+        activeHeadSha256: encodeBytesToLowercaseHex(authority.activeHeadSha256),
+        applicationTaskRuntimeTargetSha256: encodeBytesToLowercaseHex(
+          authority.applicationTaskRuntimeTargetSha256,
+        ),
+        readinessSha256: encodeBytesToLowercaseHex(authority.readinessSha256),
+        scopeId: authority.scopeId,
+        version: 1,
+      },
+      codec: APPLICATION_TASK_RUN_CREATION_AUTHORITY_CODEC_V1,
+    }, operation)),
+  );
+}
+
+export function decodeApplicationTaskRunCreationAuthorityPreimageV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskRunCreationAuthorityV1,
+  InvalidApplicationTaskBindingV1Error
+> {
+  const operation = "decode_creation_authority_preimage" as const;
+  const byteLength = uint8ArrayByteLength(input);
+  if (byteLength === undefined
+    || byteLength > MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1) {
+    return Result.fail(invalid(operation, "invalidShape"));
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = copyBytes(input as Uint8Array);
+  } catch {
+    return Result.fail(invalid(operation, "invalidShape"));
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(UTF8_FATAL.decode(bytes));
+  } catch {
+    return Result.fail(invalid(operation, "invalidShape"));
+  }
+  const outer = isNonArrayRecord(parsed)
+      && Reflect.ownKeys(parsed).length === 2
+      && Object.hasOwn(parsed, "authority")
+      && Object.hasOwn(parsed, "codec")
+    ? parsed
+    : undefined;
+  const authority = outer !== undefined && outer.codec ===
+      APPLICATION_TASK_RUN_CREATION_AUTHORITY_CODEC_V1
+    && isNonArrayRecord(outer.authority)
+    && Reflect.ownKeys(outer.authority).length === 6
+    ? outer.authority
+    : undefined;
+  if (outer === undefined || authority === undefined
+    || typeof authority.activationSequence !== "string"
+    || authority.activationSequence.length > 19
+    || !/^[1-9][0-9]*$/.test(authority.activationSequence)) {
+    return Result.fail(invalid(operation, "invalidShape"));
+  }
+  let activationSequence: bigint;
+  try {
+    activationSequence = BigInt(authority.activationSequence);
+  } catch {
+    return Result.fail(invalid(operation, "invalidShape"));
+  }
+  const decoded = decodeApplicationTaskRunCreationAuthorityV1({
+    ...authority,
+    activationSequence,
+    activeHeadSha256: decodeCanonicalDigest(authority.activeHeadSha256),
+    readinessSha256: decodeCanonicalDigest(authority.readinessSha256),
+    applicationTaskRuntimeTargetSha256: decodeCanonicalDigest(
+      authority.applicationTaskRuntimeTargetSha256,
+    ),
+  }).pipe(Result.mapError(error => reoperation(error, operation)));
+  return decoded.pipe(Result.flatMap(value =>
+    encodeApplicationTaskRunCreationAuthorityPreimageV1(value).pipe(
+      Result.mapError(error => reoperation(error, operation)),
+      Result.flatMap(canonical => bytesEqualFullScan(canonical, bytes)
+        ? Result.succeed(value)
+        : Result.fail(invalid(operation, "invalidShape"))),
+    )
+  ));
+}
+
 function decodeAuthority(
   value: Readonly<Record<string, unknown>>,
   operation: ApplicationTaskBindingOperationV1,
@@ -458,6 +601,13 @@ function digest(
   return isUint8ArrayWithByteLength(input, 32)
     ? Result.succeed(copyBytes(input) as TaskDefinitionSha256V1)
     : failure(operation, "invalidShape", path);
+}
+
+function decodeCanonicalDigest(input: unknown): Uint8Array | undefined {
+  if (typeof input !== "string" || !/^[0-9a-f]{64}$/.test(input)) {
+    return undefined;
+  }
+  return Result.getOrUndefined(Encoding.decodeHex(input));
 }
 
 function isCompatibilityDate(input: unknown): input is string {

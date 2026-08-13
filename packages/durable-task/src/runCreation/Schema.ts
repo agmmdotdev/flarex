@@ -27,6 +27,10 @@ import {
   type TaskRunCreationRequestKeyV1,
   type TaskRunCreationRequestSha256V1,
   type TaskRunCreationRequestV1,
+  type ApplicationTaskRunCreationRequestV1,
+  type ApplicationTaskRunCreationReceiptV1,
+  type ApplicationTaskRuntimeTargetSha256V1,
+  type TaskDefinitionReference,
 } from "./Model.js";
 
 const STRICT_STRUCT_OPTIONS = {
@@ -83,6 +87,9 @@ const TaskRunCreationRequestSha256V1Schema = Sha256BytesSchema.pipe(
 const TaskRunCreationAuthoritySha256V1Schema = Sha256BytesSchema.pipe(
   Schema.brand("FlarexDurableTask/TaskRunCreationAuthoritySha256V1"),
 );
+const ApplicationTaskRuntimeTargetSha256V1Schema = Sha256BytesSchema.pipe(
+  Schema.brand("FlarexDurableTask/ApplicationTaskRuntimeTargetSha256V1"),
+);
 
 const TaskInputReferenceShapeV1Schema = Schema.Struct({
   codec: Schema.Literal(TASK_INPUT_REFERENCE_CODEC_V1),
@@ -132,6 +139,33 @@ const TaskRunCreationReceiptShapeV1Schema = Schema.Struct({
 
 const TaskRunCreationReceiptV1Schema =
   TaskRunCreationReceiptShapeV1Schema;
+
+const ApplicationTaskRunCreationRequestShapeV1Schema = Schema.Struct({
+  version: Schema.Literal(1),
+  requestKey: TaskRunCreationRequestKeyV1Schema,
+  applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1Schema,
+  input: TaskInputReferenceV1Schema,
+}).annotate(STRICT_STRUCT_OPTIONS);
+const ApplicationTaskRunCreationReceiptShapeV1Schema = Schema.Struct({
+  status: Schema.Literal("created"),
+  version: Schema.Literal(1),
+  runId: TaskRunIdV1Schema,
+  applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1Schema,
+  createdAtMs: TaskDatabaseTimeMsV1Schema,
+  requestKeySha256: TaskRunCreationRequestKeySha256V1Schema,
+  requestSha256: TaskRunCreationRequestSha256V1Schema,
+  creationAuthoritySha256: TaskRunCreationAuthoritySha256V1Schema,
+}).annotate(STRICT_STRUCT_OPTIONS);
+const decodeApplicationRequest = Schema.decodeUnknownResult(
+  ApplicationTaskRunCreationRequestShapeV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const decodeApplicationReceipt = Schema.decodeUnknownResult(
+  ApplicationTaskRunCreationReceiptShapeV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
 
 const decodeRequestKey = Schema.decodeUnknownResult(
   TaskRunCreationRequestKeyV1Schema,
@@ -339,6 +373,144 @@ export function decodeTaskRunCreationReceiptV1(
   );
 }
 
+export function decodeTaskDefinitionReference(
+  input: unknown,
+): Result.Result<TaskDefinitionReference, InvalidTaskRunCreationRequestError> {
+  const captured = captureOneOfExactDataRecords(input, [[
+    "generation", "taskDefinitionRevisionId",
+  ], [
+    "generation", "applicationTaskRuntimeTargetSha256",
+  ]]);
+  const legacy = captured?.generation === "legacy_definition_v1"
+    ? captured
+    : undefined;
+  if (legacy !== undefined && legacy.generation === "legacy_definition_v1") {
+    return decodeDefinitionRevisionId(legacy.taskDefinitionRevisionId).pipe(
+      Result.map(taskDefinitionRevisionId => Object.freeze({
+        generation: "legacy_definition_v1" as const,
+        taskDefinitionRevisionId,
+      })),
+      Result.mapError(() => invalid(
+        "decode_definition_reference",
+        "invalid_definition_revision",
+      )),
+    );
+  }
+  const application = captured?.generation === "application_v1"
+    ? captured
+    : undefined;
+  const digest = application === undefined
+    ? undefined
+    : captureSha256(application.applicationTaskRuntimeTargetSha256);
+  return application?.generation === "application_v1" && digest !== undefined
+    ? Result.succeed(Object.freeze({
+        generation: "application_v1" as const,
+        applicationTaskRuntimeTargetSha256:
+          digest as ApplicationTaskRuntimeTargetSha256V1,
+      }))
+    : Result.fail(invalid("decode_definition_reference", "invalid_shape"));
+}
+
+export function decodeApplicationTaskRunCreationRequestV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskRunCreationRequestV1,
+  InvalidTaskRunCreationRequestError
+> {
+  const outer = captureExactDataRecord(input, [
+    "version",
+    "requestKey",
+    "applicationTaskRuntimeTargetSha256",
+    "input",
+  ]);
+  if (outer?.version !== 1) {
+    return Result.fail(invalid("decode_application_request", "invalid_shape"));
+  }
+  if (Result.isFailure(decodeRequestKey(outer.requestKey))) {
+    return Result.fail(
+      invalid("decode_application_request", "invalid_request_key"),
+    );
+  }
+  const digest = captureSha256(outer.applicationTaskRuntimeTargetSha256);
+  if (digest === undefined) {
+    return Result.fail(invalid("decode_application_request", "invalid_digest"));
+  }
+  const capturedInput = captureTaskInputReferenceCandidateV1(outer.input);
+  if (capturedInput === undefined) {
+    return Result.fail(
+      invalid("decode_application_request", "invalid_input_reference"),
+    );
+  }
+  return decodeApplicationRequest({
+    version: 1,
+    requestKey: outer.requestKey,
+    applicationTaskRuntimeTargetSha256: digest,
+    input: capturedInput,
+  }).pipe(
+    Result.map(request => Object.freeze({
+      ...request,
+      applicationTaskRuntimeTargetSha256: copyBytes(
+        request.applicationTaskRuntimeTargetSha256,
+      ) as ApplicationTaskRuntimeTargetSha256V1,
+      input: snapshotTaskInputReferenceV1(request.input),
+    })),
+    Result.mapError(() => invalid("decode_application_request", "invalid_shape")),
+  );
+}
+
+export function decodeApplicationTaskRunCreationReceiptV1(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskRunCreationReceiptV1,
+  InvalidTaskRunCreationRequestError
+> {
+  const outer = captureExactDataRecord(input, [
+    "status", "version", "runId", "applicationTaskRuntimeTargetSha256",
+    "createdAtMs", "requestKeySha256", "requestSha256",
+    "creationAuthoritySha256",
+  ]);
+  if (outer?.status !== "created" || outer.version !== 1) {
+    return Result.fail(invalid("decode_application_receipt", "invalid_shape"));
+  }
+  if (Result.isFailure(decodeRunId(outer.runId))) {
+    return Result.fail(invalid("decode_application_receipt", "invalid_run_id"));
+  }
+  if (Result.isFailure(decodeDatabaseTime(outer.createdAtMs))) {
+    return Result.fail(
+      invalid("decode_application_receipt", "invalid_database_time"),
+    );
+  }
+  const target = captureSha256(outer.applicationTaskRuntimeTargetSha256);
+  const requestKey = captureSha256(outer.requestKeySha256);
+  const request = captureSha256(outer.requestSha256);
+  const authority = captureSha256(outer.creationAuthoritySha256);
+  if (
+    target === undefined || requestKey === undefined || request === undefined
+    || authority === undefined
+  ) return Result.fail(invalid("decode_application_receipt", "invalid_digest"));
+  return decodeApplicationReceipt({
+    ...outer,
+    applicationTaskRuntimeTargetSha256: target,
+    requestKeySha256: requestKey,
+    requestSha256: request,
+    creationAuthoritySha256: authority,
+  }).pipe(
+    Result.map(receipt => Object.freeze({
+      ...receipt,
+      applicationTaskRuntimeTargetSha256: copyBytes(
+        receipt.applicationTaskRuntimeTargetSha256,
+      ) as ApplicationTaskRuntimeTargetSha256V1,
+      requestKeySha256: copyBytes(receipt.requestKeySha256) as
+        TaskRunCreationRequestKeySha256V1,
+      requestSha256: copyBytes(receipt.requestSha256) as
+        TaskRunCreationRequestSha256V1,
+      creationAuthoritySha256: copyBytes(receipt.creationAuthoritySha256) as
+        TaskRunCreationAuthoritySha256V1,
+    })),
+    Result.mapError(() => invalid("decode_application_receipt", "invalid_shape")),
+  );
+}
+
 function captureTaskInputReferenceCandidateV1(
   input: unknown,
 ): Readonly<Record<string, unknown>> | undefined {
@@ -397,6 +569,34 @@ function captureExactDataRecord(
       ) {
         return undefined;
       }
+      captured[key] = descriptor.value;
+    }
+    return captured;
+  } catch {
+    return undefined;
+  }
+}
+
+function captureOneOfExactDataRecords(
+  input: unknown,
+  expectedKeySets: ReadonlyArray<ReadonlyArray<string>>,
+): Readonly<Record<string, unknown>> | undefined {
+  try {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      return undefined;
+    }
+    const keys = Reflect.ownKeys(input);
+    const expectedKeys = expectedKeySets.find(candidate =>
+      keys.length === candidate.length && keys.every(key =>
+        typeof key === "string" && candidate.includes(key)
+      )
+    );
+    if (expectedKeys === undefined) return undefined;
+    const captured: Record<string, unknown> = {};
+    for (const key of expectedKeys) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (descriptor === undefined || !descriptor.enumerable
+        || !("value" in descriptor)) return undefined;
       captured[key] = descriptor.value;
     }
     return captured;

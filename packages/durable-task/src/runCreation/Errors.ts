@@ -7,9 +7,13 @@ export type TaskRunCreationValidationOperationV1 =
   | "make_input_reference"
   | "decode_input_reference"
   | "decode_request"
+  | "decode_application_request"
   | "decode_receipt"
+  | "decode_application_receipt"
+  | "decode_definition_reference"
   | "encode_request_key_preimage"
-  | "encode_request_preimage";
+  | "encode_request_preimage"
+  | "encode_application_request_preimage";
 
 export class InvalidTaskRunCreationRequestError extends Data.TaggedError(
   "InvalidTaskRunCreationRequestError",
@@ -51,6 +55,7 @@ export class TaskRunCreationCanonicalEncodingDefect extends Data.TaggedError(
 )<{
   readonly operation:
     | "encode_request_key_preimage"
-    | "encode_request_preimage";
+    | "encode_request_preimage"
+    | "encode_application_request_preimage";
   readonly issue: unknown;
 }> {}

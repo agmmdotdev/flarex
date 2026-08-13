@@ -2,8 +2,12 @@ import { Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  decodeApplicationTaskRunCreationAuthorityPreimageV1,
+  decodeApplicationTaskRunCreationAuthorityV1,
   decodeApplicationTaskRuntimeTargetV1,
+  encodeApplicationTaskRunCreationAuthorityPreimageV1,
   encodeApplicationTaskRuntimeTargetPreimageV1,
+  hashApplicationTaskRunCreationAuthorityV1,
   hashApplicationTaskRuntimeTargetV1,
   APPLICATION_TASK_CATALOG_BINDING_CODEC_V1,
   APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1,
@@ -140,6 +144,84 @@ describe("Application task binding V1", () => {
     expect(Result.isFailure(decodeApplicationTaskRuntimeTargetV1({
       ...targetInput,
       extra: true,
+    }))).toBe(true);
+  });
+
+  it("binds run creation to the selected active Application task authority", async () => {
+    const callerHead = new Uint8Array(32).fill(0x61);
+    const callerReadiness = new Uint8Array(32).fill(0x62);
+    const callerTarget = new Uint8Array(32).fill(0x63);
+    const creationAuthority = Result.getOrThrow(
+      decodeApplicationTaskRunCreationAuthorityV1({
+        version: 1,
+        scopeId: authority.scopeId,
+        activationSequence: 7n,
+        activeHeadSha256: callerHead,
+        readinessSha256: callerReadiness,
+        applicationTaskRuntimeTargetSha256: callerTarget,
+      }),
+    );
+
+    callerHead.fill(0xff);
+    callerReadiness.fill(0xff);
+    callerTarget.fill(0xff);
+    expect(creationAuthority.activeHeadSha256).toEqual(
+      new Uint8Array(32).fill(0x61),
+    );
+    expect(creationAuthority.readinessSha256).toEqual(
+      new Uint8Array(32).fill(0x62),
+    );
+    expect(creationAuthority.applicationTaskRuntimeTargetSha256).toEqual(
+      new Uint8Array(32).fill(0x63),
+    );
+
+    const bytes = Result.getOrThrow(
+      encodeApplicationTaskRunCreationAuthorityPreimageV1(creationAuthority),
+    );
+    const replay = Result.getOrThrow(
+      decodeApplicationTaskRunCreationAuthorityPreimageV1(bytes),
+    );
+    const digest = await Effect.runPromise(
+      hashApplicationTaskRunCreationAuthorityV1(creationAuthority, sha256),
+    );
+    const text = UTF8.decode(bytes);
+
+    expect(replay).toEqual(creationAuthority);
+    expect(replay.activeHeadSha256).not.toBe(
+      creationAuthority.activeHeadSha256,
+    );
+    expect(digest).toHaveLength(32);
+    expect(text).toContain(
+      "application-task-run-creation-authority/v1",
+    );
+    expect(text).toContain('"activationSequence":"7"');
+    for (const displaced of [
+      "artifactSha256",
+      "candidateSha256",
+      "taskDefinitionRevisionId",
+    ]) expect(text).not.toContain(displaced);
+
+    const nonCanonical = new TextEncoder().encode(
+      text.replace('"activationSequence":"7"', '"activationSequence":"07"'),
+    );
+    expect(Result.isFailure(
+      decodeApplicationTaskRunCreationAuthorityPreimageV1(nonCanonical),
+    )).toBe(true);
+    const oversized = new Uint8Array(16 * 1_024 * 1_024 + 1);
+    Object.defineProperty(oversized, "byteLength", { value: 0 });
+    expect(Result.isFailure(
+      decodeApplicationTaskRunCreationAuthorityPreimageV1(oversized),
+    )).toBe(true);
+    const oversizedDecimal = new TextEncoder().encode(
+      text.replace('"activationSequence":"7"',
+        `"activationSequence":"${"9".repeat(1_000_000)}"`),
+    );
+    expect(Result.isFailure(
+      decodeApplicationTaskRunCreationAuthorityPreimageV1(oversizedDecimal),
+    )).toBe(true);
+    expect(Result.isFailure(decodeApplicationTaskRunCreationAuthorityV1({
+      ...creationAuthority,
+      taskDefinitionRevisionId: "legacy",
     }))).toBe(true);
   });
 

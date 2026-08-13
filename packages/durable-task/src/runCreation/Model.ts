@@ -24,6 +24,8 @@ export const TASK_RUN_CREATION_REQUEST_KEY_PREIMAGE_CODEC_V1 =
   "flarex.task-run-creation-request-key-preimage.v1" as const;
 export const TASK_RUN_CREATION_REQUEST_PREIMAGE_CODEC_V1 =
   "flarex.task-run-creation-request-preimage.v1" as const;
+export const APPLICATION_TASK_RUN_CREATION_REQUEST_PREIMAGE_CODEC_V1 =
+  "flarex.application-task-run-creation-request-preimage.v1" as const;
 
 export type TaskInputSha256V1 = Brand.Branded<
   Uint8Array,
@@ -45,6 +47,22 @@ export type TaskRunCreationAuthoritySha256V1 = Brand.Branded<
   Uint8Array,
   "FlarexDurableTask/TaskRunCreationAuthoritySha256V1"
 >;
+export type ApplicationTaskRuntimeTargetSha256V1 = Brand.Branded<
+  Uint8Array,
+  "FlarexDurableTask/ApplicationTaskRuntimeTargetSha256V1"
+>;
+
+/** Current in-memory definition identity; persisted V1 contracts remain exact. */
+export type TaskDefinitionReference =
+  | Readonly<{
+      readonly generation: "legacy_definition_v1";
+      readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1;
+    }>
+  | Readonly<{
+      readonly generation: "application_v1";
+      readonly applicationTaskRuntimeTargetSha256:
+        ApplicationTaskRuntimeTargetSha256V1;
+    }>;
 
 export interface TaskInputReferenceV1 {
   readonly codec: typeof TASK_INPUT_REFERENCE_CODEC_V1;
@@ -65,6 +83,14 @@ export interface TaskRunCreationRequestV1 {
   readonly input: TaskInputReferenceV1;
 }
 
+export interface ApplicationTaskRunCreationRequestV1 {
+  readonly version: 1;
+  readonly requestKey: TaskRunCreationRequestKeyV1;
+  readonly applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1;
+  readonly input: TaskInputReferenceV1;
+}
+
 /**
  * Stable durable replay data. Whether this call inserted or replayed the row
  * is deliberately not part of this receipt.
@@ -74,6 +100,18 @@ export interface TaskRunCreationReceiptV1 {
   readonly version: 1;
   readonly runId: TaskRunIdV1;
   readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1;
+  readonly createdAtMs: TaskDatabaseTimeMsV1;
+  readonly requestKeySha256: TaskRunCreationRequestKeySha256V1;
+  readonly requestSha256: TaskRunCreationRequestSha256V1;
+  readonly creationAuthoritySha256: TaskRunCreationAuthoritySha256V1;
+}
+
+export interface ApplicationTaskRunCreationReceiptV1 {
+  readonly status: "created";
+  readonly version: 1;
+  readonly runId: TaskRunIdV1;
+  readonly applicationTaskRuntimeTargetSha256:
+    ApplicationTaskRuntimeTargetSha256V1;
   readonly createdAtMs: TaskDatabaseTimeMsV1;
   readonly requestKeySha256: TaskRunCreationRequestKeySha256V1;
   readonly requestSha256: TaskRunCreationRequestSha256V1;

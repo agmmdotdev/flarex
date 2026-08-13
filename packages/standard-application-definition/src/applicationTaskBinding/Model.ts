@@ -13,6 +13,8 @@ export const APPLICATION_TASK_DEFINITION_BINDING_CODEC_V1 =
   "flarex.standard-application/application-task-definition-binding/v1" as const;
 export const APPLICATION_TASK_RUNTIME_TARGET_CODEC_V1 =
   "flarex.standard-application/application-task-runtime-target/v1" as const;
+export const APPLICATION_TASK_RUN_CREATION_AUTHORITY_CODEC_V1 =
+  "flarex.standard-application/application-task-run-creation-authority/v1" as const;
 export const MAX_APPLICATION_TASK_BINDING_CANONICAL_BYTES_V1 = 16 * 1_024 * 1_024;
 /** Bounds one catalog header plus all retained definition and manifest frames. */
 export const MAX_APPLICATION_TASK_BINDING_EVIDENCE_BYTES_V1 =
@@ -74,6 +76,15 @@ export interface ApplicationTaskRuntimeTargetV1 {
   readonly handler: ApplicationTaskHandlerBindingV1;
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
+}
+
+export interface ApplicationTaskRunCreationAuthorityV1 {
+  readonly version: 1;
+  readonly scopeId: string;
+  readonly activationSequence: bigint;
+  readonly activeHeadSha256: TaskDefinitionSha256V1;
+  readonly readinessSha256: TaskDefinitionSha256V1;
+  readonly applicationTaskRuntimeTargetSha256: TaskDefinitionSha256V1;
 }
 
 export interface PreparedApplicationTaskCatalogBindingV1 {

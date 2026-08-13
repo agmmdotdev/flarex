@@ -11,10 +11,12 @@ import {
   TaskRunCreationCanonicalEncodingDefect,
 } from "./Errors.js";
 import {
+  APPLICATION_TASK_RUN_CREATION_REQUEST_PREIMAGE_CODEC_V1,
   TASK_RUN_CREATION_REQUEST_KEY_PREIMAGE_CODEC_V1,
   TASK_RUN_CREATION_REQUEST_PREIMAGE_CODEC_V1,
 } from "./Model.js";
 import {
+  decodeApplicationTaskRunCreationRequestV1,
   decodeTaskRunCreationRequestKeyV1,
   decodeTaskRunCreationRequestV1,
 } from "./Schema.js";
@@ -33,6 +35,32 @@ export function encodeTaskRunCreationRequestKeyPreimageV1(
       codec: TASK_RUN_CREATION_REQUEST_KEY_PREIMAGE_CODEC_V1,
       requestKey,
     }, "encode_request_key_preimage")),
+  );
+}
+
+export function encodeApplicationTaskRunCreationRequestPreimageV1(
+  input: unknown,
+): Result.Result<Uint8Array, InvalidTaskRunCreationRequestError> {
+  return decodeApplicationTaskRunCreationRequestV1(input).pipe(
+    Result.mapError(failure => new InvalidTaskRunCreationRequestError({
+      operation: "encode_application_request_preimage",
+      reason: failure.reason,
+    })),
+    Result.map(request => canonicalBytes({
+      codec: APPLICATION_TASK_RUN_CREATION_REQUEST_PREIMAGE_CODEC_V1,
+      input: {
+        byteLength: request.input.byteLength,
+        codec: request.input.codec,
+        objectKey: request.input.objectKey,
+        retention: { kind: request.input.retention.kind },
+        sha256: encodeBytesToLowercaseHex(request.input.sha256),
+        store: request.input.store,
+        valueCodec: request.input.valueCodec,
+      },
+      applicationTaskRuntimeTargetSha256: encodeBytesToLowercaseHex(
+        request.applicationTaskRuntimeTargetSha256,
+      ),
+    }, "encode_application_request_preimage")),
   );
 }
 

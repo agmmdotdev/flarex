@@ -9,6 +9,10 @@ export type ApplicationTaskBindingOperationV1 =
   | "decode_runtime_target"
   | "encode_runtime_target"
   | "hash_runtime_target"
+  | "decode_creation_authority"
+  | "decode_creation_authority_preimage"
+  | "encode_creation_authority"
+  | "hash_creation_authority"
   | "hash_catalog_binding"
   | "hash_definition_binding"
   | "produce";
