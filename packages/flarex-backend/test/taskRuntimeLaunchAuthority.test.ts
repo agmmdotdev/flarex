@@ -1,5 +1,10 @@
 import {
+  APPLICATION_ANALYSIS_MAXIMUM_MODULE_BYTES_V1,
+} from "@flarex/analysis/application-analysis";
+import {
+  decodeApplicationTaskComputeDispatchRequestV1,
   decodeTaskComputeDispatchRequestV1,
+  validateApplicationTaskComputeDispatchRequestV1,
   validateTaskComputeDispatchRequestV1,
   type TaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
@@ -8,15 +13,23 @@ import {
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
   TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+  decodeApplicationTaskComputePreparedExecutionV1,
   decodeTaskComputePreparedExecutionV1,
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-evidence-v1";
+import {
+  decodeApplicationTaskRunCreationAuthorityV1,
+  decodeApplicationTaskRuntimeTargetV1,
+  encodeApplicationTaskRuntimeTargetPreimageV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import {
   TASK_RUNTIME_ENTRY_CODEC_V1,
   TASK_RUNTIME_OBJECT_STORE_V1,
   decodeTaskDefinitionRuntimeBindingCommitmentV1,
   decodeTaskDefinitionRuntimeBindingV1,
+  decodeCanonicalTaskManifestV1,
   decodeTaskRuntimeEntryFrameV1,
   encodeTaskRuntimeEntryPreimageV1,
+  encodeCanonicalTaskManifestPreimageV1,
   encodeTaskDefinitionRuntimeBindingPreimageV1,
   hashCanonicalTaskManifestV1,
   hashTaskRuntimeEntryFrameV1,
@@ -47,12 +60,16 @@ import {
   TaskRuntimeLaunchHashError,
   TaskRuntimeLaunchObjectCodecError,
   TaskRuntimeLaunchPortError,
+  type CurrentTaskRuntimeLaunchEvidence,
   type TaskRuntimeLaunchDirectory,
   type TaskRuntimeLaunchEvidence,
+  type ApplicationTaskRuntimeLaunchEvidence,
   type TaskRuntimeLaunchLocatedSource,
   type TaskRuntimeLaunchObjectValidator,
   type TaskRuntimeLaunchSha256,
 } from "../src/taskRuntimeLaunch/Model";
+import type { ApplicationAnalysisSourceBundle } from
+  "../src/sourceArtifactV2/ApplicationAnalysisReader";
 
 const UTF8 = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
@@ -105,6 +122,361 @@ const launchObjectValidator: TaskRuntimeLaunchObjectValidator =
   });
 
 describe("DTE06-D1 task runtime launch authority", () => {
+  it("resolves an owned Application launch subject without Legacy object reads", async () => {
+    const fixture = await makeApplicationFixture();
+    let runtimeObjectReads = 0;
+    let sourceReads = 0;
+    let inputReads = 0;
+    const directory = applicationDirectoryFor(fixture, {
+      runtimeObjectRead: () => { runtimeObjectReads += 1; },
+      sourceRead: () => { sourceReads += 1; },
+      inputRead: () => { inputReads += 1; },
+    });
+
+    const subject = await runCurrentResolve(directory, fixture.request);
+
+    expect(subject.generation).toBe("application_v1");
+    if (subject.generation !== "application_v1") {
+      throw new Error("Expected Application launch subject.");
+    }
+    expect(runtimeObjectReads).toBe(0);
+    expect(sourceReads).toBe(1);
+    expect(inputReads).toBe(0);
+    expect(subject.runtimeTarget).toEqual(fixture.runtimeTarget);
+    expect(subject.manifest).toEqual(fixture.manifest);
+    expect(subject.creationAuthority).toEqual(fixture.creationAuthority);
+    expect(subject.source).toEqual(fixture.source);
+    expect(Object.isFrozen(subject)).toBe(true);
+    expect(Object.isFrozen(subject.source.modules)).toBe(true);
+
+    const firstInput = await Effect.runPromise(subject.input.read());
+    firstInput[0] = 0;
+    const secondInput = await Effect.runPromise(subject.input.read());
+    expect(inputReads).toBe(2);
+    expect(secondInput).toEqual(fixture.inputBytes);
+
+    (fixture.source.modules[0] as { source: string }).source =
+      "export const run = 'changed';";
+    expect(subject.source.modules[0]!.source).not.toContain("changed");
+  });
+
+  it("accepts a narrowed Application duration and rejects a duration above the manifest ceiling", async () => {
+    const fixture = await makeApplicationFixture();
+    const narrowedRequest = success(
+      validateApplicationTaskComputeDispatchRequestV1({
+        ...fixture.request,
+        maximumDurationMs: fixture.request.maximumDurationMs - 1_000,
+      }),
+    );
+    const narrowedPrepared = success(
+      decodeApplicationTaskComputePreparedExecutionV1({
+        ...fixture.preparedExecution,
+        dispatchRequest: narrowedRequest,
+      }),
+    );
+    const narrowed = await runCurrentResolve(
+      applicationDirectoryFor(fixture, {
+        evidence: Object.freeze({
+          generation: "application_v1",
+          preparedExecution: narrowedPrepared,
+        }),
+      }),
+      narrowedRequest,
+    );
+    expect(narrowed.request.maximumDurationMs).toBe(
+      narrowedRequest.maximumDurationMs,
+    );
+
+    const overLimitRequest = success(
+      validateApplicationTaskComputeDispatchRequestV1({
+        ...fixture.request,
+        maximumDurationMs: fixture.request.maximumDurationMs + 1_000,
+      }),
+    );
+    const overLimitPrepared = success(
+      decodeApplicationTaskComputePreparedExecutionV1({
+        ...fixture.preparedExecution,
+        dispatchRequest: overLimitRequest,
+      }),
+    );
+    let sourceReads = 0;
+    const failure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        evidence: Object.freeze({
+          generation: "application_v1",
+          preparedExecution: overLimitPrepared,
+        }),
+        sourceRead: () => { sourceReads += 1; },
+      }),
+      overLimitRequest,
+    );
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "application_authority_mismatch",
+      path: "preparedExecution",
+    });
+    expect(sourceReads).toBe(0);
+  });
+
+  it("rejects Application authority mismatch before source and input reads", async () => {
+    const fixture = await makeApplicationFixture();
+    let sourceReads = 0;
+    let inputReads = 0;
+    const mismatched = success(validateApplicationTaskComputeDispatchRequestV1({
+      ...fixture.request,
+      applicationTaskRuntimeTargetSha256: digest(0xee),
+    }));
+    const failure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        sourceRead: () => { sourceReads += 1; },
+        inputRead: () => { inputReads += 1; },
+      }),
+      mismatched,
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "request_mismatch",
+      path: "preparedExecution.dispatchRequest",
+    });
+    expect(sourceReads).toBe(0);
+    expect(inputReads).toBe(0);
+  });
+
+  it("requires the Application-only source reader without using Legacy fallback", async () => {
+    const fixture = await makeApplicationFixture();
+    const directory = applicationDirectoryFor(fixture, {}, false);
+    const failure = await runFailure(directory, fixture.request);
+
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "application_source_invalid",
+      path: "source.readApplicationSource",
+    });
+  });
+
+  it("preserves terminal and transient Application source failures", async () => {
+    const fixture = await makeApplicationFixture();
+    const failures = [
+      new TaskRuntimeLaunchPortError<"read_application_source">({
+        operation: "read_application_source",
+        reason: "corrupt",
+      }),
+      new TaskRuntimeLaunchPortError<"read_application_source">({
+        operation: "read_application_source",
+        reason: "resource_failure",
+        cause: new Error("source store unavailable"),
+      }),
+    ] as const;
+
+    for (const expected of failures) {
+      const actual = await runFailure(
+        applicationDirectoryFor(fixture, { sourceFailure: expected }),
+        fixture.request,
+      );
+      expect(actual).toBe(expected);
+    }
+  });
+
+  it("rejects a divergent prepared Application authority before source access", async () => {
+    const fixture = await makeApplicationFixture();
+    let sourceReads = 0;
+    const divergentTarget = success(decodeApplicationTaskRuntimeTargetV1({
+      ...fixture.runtimeTarget,
+      publicationSha256: "d".repeat(64),
+    }));
+    const divergentPrepared = success(
+      decodeApplicationTaskComputePreparedExecutionV1({
+        ...fixture.preparedExecution,
+        runtimeTarget: divergentTarget,
+      }),
+    );
+    const failure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        sourceRead: () => { sourceReads += 1; },
+        evidence: Object.freeze({
+          generation: "application_v1" as const,
+          preparedExecution: divergentPrepared,
+        }),
+      }),
+      fixture.request,
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "application_authority_mismatch",
+      path: "preparedExecution",
+    });
+    expect(sourceReads).toBe(0);
+  });
+
+  it("rejects unknown and cross-generation evidence wrappers before source access", async () => {
+    const application = await makeApplicationFixture();
+    const legacy = await makeFixture();
+    let sourceReads = 0;
+    const invalidEvidence: ReadonlyArray<CurrentTaskRuntimeLaunchEvidence> = [
+      Object.freeze({
+        generation: "unknown",
+        preparedExecution: application.preparedExecution,
+      }) as unknown as CurrentTaskRuntimeLaunchEvidence,
+      Object.freeze({
+        preparedExecution: application.preparedExecution,
+        runtimeBinding: legacy.binding,
+        runtimeBindingCanonicalBytes: legacy.evidence.runtimeBindingCanonicalBytes,
+      }),
+      Object.freeze({
+        generation: "application_v1",
+        preparedExecution: legacy.evidence.preparedExecution,
+      }),
+    ];
+
+    for (const evidence of invalidEvidence) {
+      const failure = await runFailure(
+        applicationDirectoryFor(application, {
+          evidence,
+          sourceRead: () => { sourceReads += 1; },
+        }),
+        application.request,
+      );
+      expect(failure).toMatchObject({
+        _tag: "TaskRuntimeLaunchValidationError",
+        reason: "invalid_evidence",
+      });
+    }
+    expect(sourceReads).toBe(0);
+  });
+
+  it("rejects hostile or wrong-root Application source values as typed validation", async () => {
+    const fixture = await makeApplicationFixture();
+    let getterReads = 0;
+    const hostile = {};
+    Object.defineProperty(hostile, "sourceArtifact", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("hostile source getter");
+      },
+    });
+    Object.defineProperty(hostile, "modules", {
+      enumerable: true,
+      value: [],
+    });
+    const hostileFailure = await runFailure(
+      applicationDirectoryFor(fixture, { source: hostile }),
+      fixture.request,
+    );
+    expect(hostileFailure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "application_source_invalid",
+      path: "source.applicationSource",
+    });
+    expect(getterReads).toBe(0);
+
+    const wrongRoot = {
+      ...fixture.source,
+      sourceArtifact: {
+        ...fixture.source.sourceArtifact,
+        rootSha256: "f".repeat(64),
+      },
+    };
+    const rootFailure = await runFailure(
+      applicationDirectoryFor(fixture, { source: wrongRoot }),
+      fixture.request,
+    );
+    expect(rootFailure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "application_source_invalid",
+      path: "source.applicationSource",
+    });
+  });
+
+  it("rejects mismatched and oversized Application source bodies", async () => {
+    const fixture = await makeApplicationFixture();
+    const baseModule = fixture.source.modules[0]!;
+    const invalidSources: ReadonlyArray<ApplicationAnalysisSourceBundle> = [
+      {
+        sourceArtifact: fixture.source.sourceArtifact,
+        modules: [{ ...baseModule, source: `${baseModule.source}x` }],
+      },
+      (() => {
+        const source = "x".repeat(
+          APPLICATION_ANALYSIS_MAXIMUM_MODULE_BYTES_V1 + 1,
+        );
+        const module = {
+          ...baseModule,
+          sourceByteLength: source.length,
+          source,
+        };
+        return {
+          sourceArtifact: {
+            ...fixture.source.sourceArtifact,
+            modules: [{
+              path: module.path,
+              roles: module.roles,
+              sourceSha256: module.sourceSha256,
+              sourceByteLength: module.sourceByteLength,
+            }],
+          },
+          modules: [module],
+        };
+      })(),
+    ];
+
+    for (const source of invalidSources) {
+      const failure = await runFailure(
+        applicationDirectoryFor(fixture, { source }),
+        fixture.request,
+      );
+      expect(failure).toMatchObject({
+        _tag: "TaskRuntimeLaunchValidationError",
+        reason: "application_source_invalid",
+        path: "source.applicationSource",
+      });
+    }
+  });
+
+  it("stops before reading later Application source bodies after the first identity mismatch", async () => {
+    const fixture = await makeApplicationFixture();
+    let laterSourceReads = 0;
+    const firstIdentity = fixture.source.sourceArtifact.modules[0]!;
+    const firstBody = fixture.source.modules[0]!;
+    const wrongDigest = "0".repeat(64);
+    const secondIdentity = { ...firstIdentity, path: "tasks/later.js" };
+    const secondBody = { ...firstBody, path: "tasks/later.js" };
+    Object.defineProperty(secondBody, "source", {
+      enumerable: true,
+      get() {
+        laterSourceReads += 1;
+        return "x".repeat(APPLICATION_ANALYSIS_MAXIMUM_MODULE_BYTES_V1);
+      },
+    });
+    const failure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        source: {
+          sourceArtifact: {
+            ...fixture.source.sourceArtifact,
+            modules: [
+              { ...firstIdentity, sourceSha256: wrongDigest },
+              secondIdentity,
+            ],
+          },
+          modules: [
+            { ...firstBody, sourceSha256: wrongDigest },
+            secondBody,
+          ],
+        },
+      }),
+      fixture.request,
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "application_source_invalid",
+      path: "source.applicationSource.modules.sourceSha256",
+    });
+    expect(laterSourceReads).toBe(0);
+  });
+
   it("resolves one exact owned launch subject and lazy canonical input", async () => {
     const fixture = await makeFixture();
     const observedRuntimeRoles: string[] = [];
@@ -288,7 +660,7 @@ describe("DTE06-D1 task runtime launch authority", () => {
       reason: "invalid_evidence",
       path: "evidence",
     });
-    expect(reads).toBe(1);
+    expect(reads).toBe(0);
   });
 
   it("rejects a located source for a different trusted scope before reading evidence", async () => {
@@ -398,6 +770,20 @@ describe("DTE06-D1 task runtime launch authority", () => {
 });
 
 async function runResolve(
+  directory: TaskRuntimeLaunchDirectory,
+  input: unknown,
+) {
+  const subject = await Effect.runPromise(Effect.gen(function* () {
+    const authority = yield* TaskRuntimeLaunchAuthority;
+    return yield* authority.resolve(input);
+  }).pipe(Effect.provide(authorityLayer(directory))));
+  if (subject.generation === "application_v1") {
+    throw new Error("Legacy fixture resolved to Application launch subject.");
+  }
+  return subject;
+}
+
+async function runCurrentResolve(
   directory: TaskRuntimeLaunchDirectory,
   input: unknown,
 ) {
@@ -520,6 +906,188 @@ async function makeFixture() {
       preparedExecution,
       runtimeBinding: binding,
       runtimeBindingCanonicalBytes,
+    }),
+  };
+}
+
+async function makeApplicationFixture() {
+  const manifest = success(decodeCanonicalTaskManifestV1({
+    version: 1,
+    taskId: "orders.process",
+    handler: {
+      logicalModulePath: "tasks/orders",
+      artifactModulePath: "tasks/orders.js",
+      exportName: "run",
+    },
+    payloadValidator: { type: "any" },
+    outputValidator: null,
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 3,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-small",
+    queue: { kind: "default" },
+  }));
+  const manifestSha256 = await hashBytes(success(
+    encodeCanonicalTaskManifestPreimageV1(manifest),
+  ));
+  const sourceText = "export const run = async x => x;";
+  const sourceSha256 = encodeBytesToLowercaseHex(
+    await hashBytes(UTF8.encode(sourceText)),
+  );
+  const sourceModules = [{
+    path: "tasks/orders.js",
+    roles: 9,
+    sourceSha256,
+    sourceByteLength: UTF8.encode(sourceText).byteLength,
+    source: sourceText,
+  }];
+  const source: ApplicationAnalysisSourceBundle = {
+    sourceArtifact: {
+      rootSha256: "a".repeat(64),
+      executionModulePath: "tasks/orders.js",
+      schemaModulePath: null,
+      modules: sourceModules.map(({ source: _source, ...module }) => module),
+    },
+    modules: sourceModules,
+  };
+  const runtimeTarget = success(decodeApplicationTaskRuntimeTargetV1({
+    version: 1,
+    scopeId: "scope_97000000-0000-4000-8000-000000000001",
+    revisionId: "revision-application-launch",
+    candidateId: "candidate-application-launch",
+    analysisId: "analysis-application-launch",
+    sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
+    publicationSha256: "c".repeat(64),
+    applicationTaskCatalogBindingSha256: digest(0x21),
+    applicationTaskDefinitionBindingSha256: digest(0x22),
+    taskCatalogSha256: digest(0x23),
+    taskId: manifest.taskId,
+    canonicalTaskManifestSha256: manifestSha256,
+    handler: {
+      logicalModulePath: manifest.handler.logicalModulePath,
+      sourceModulePath: manifest.handler.artifactModulePath,
+      exportName: manifest.handler.exportName,
+    },
+    runtimeHostIdentity: "flarex-application-worker-v1",
+    compatibilityDate: "2026-06-14",
+  }));
+  const runtimeTargetSha256 = await hashBytes(success(
+    encodeApplicationTaskRuntimeTargetPreimageV1(runtimeTarget),
+  ));
+  const creationAuthority = success(
+    decodeApplicationTaskRunCreationAuthorityV1({
+      version: 1,
+      scopeId: runtimeTarget.scopeId,
+      activationSequence: 7n,
+      activeHeadSha256: digest(0x24),
+      readinessSha256: digest(0x25),
+      runtimeTarget,
+      applicationTaskRuntimeTargetSha256: runtimeTargetSha256,
+    }),
+  );
+  const request = success(validateApplicationTaskComputeDispatchRequestV1({
+    version: "flarex.task-compute-dispatch-request.v1",
+    identity: {
+      version: "flarex.task-compute-dispatch-identity.v1",
+      scopeId: runtimeTarget.scopeId,
+      runId: "run_97000000-0000-4000-8000-000000000012",
+      requestedEffectSequence: 7n,
+      attemptId: "attempt_97000000-0000-4000-8000-000000000013",
+      executionFence: 11n,
+    },
+    applicationTaskRuntimeTargetSha256: runtimeTargetSha256,
+    attemptNumber: 1,
+    leaseVersion: 13n,
+    computeProfile: manifest.computeProfile,
+    cancellation: { kind: "not_requested", generation: 0n },
+    maximumDurationMs: manifest.maximumDurationInSeconds * 1_000,
+  }));
+  const inputCanonical = await canonicalizeFlarexValueV1({ orderId: "A-2" });
+  const inputBytes = copyBytes(inputCanonical.canonicalBytes);
+  const inputReference = success(makeTaskInputReferenceV1(
+    inputCanonical.sha256,
+    inputBytes.byteLength,
+  ));
+  const preparedExecution = success(
+    decodeApplicationTaskComputePreparedExecutionV1({
+      version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
+      generation: "application_v1",
+      dispatchRequest: request,
+      runtimeTarget,
+      manifest,
+      creationAuthority,
+      inputReference,
+    }),
+  );
+  const evidence: ApplicationTaskRuntimeLaunchEvidence = Object.freeze({
+    generation: "application_v1",
+    preparedExecution,
+  });
+  return {
+    request,
+    runtimeTarget,
+    manifest,
+    creationAuthority,
+    inputBytes,
+    inputReference,
+    source,
+    evidence,
+    preparedExecution,
+  };
+}
+
+function applicationDirectoryFor(
+  fixture: Awaited<ReturnType<typeof makeApplicationFixture>>,
+  observations: Readonly<{
+    readonly runtimeObjectRead?: () => void;
+    readonly sourceRead?: () => void;
+    readonly inputRead?: () => void;
+    readonly evidence?: CurrentTaskRuntimeLaunchEvidence;
+    readonly source?: unknown;
+    readonly sourceFailure?: TaskRuntimeLaunchPortError<"read_application_source">;
+  }> = {},
+  includeSourceReader = true,
+): TaskRuntimeLaunchDirectory {
+  return {
+    resolve: () => Effect.succeed({
+      scopeId: fixture.request.identity.scopeId,
+      readEvidence: () => Effect.succeed(
+        observations.evidence ?? fixture.evidence,
+      ),
+      readRuntimeObject: () => {
+        observations.runtimeObjectRead?.();
+        return Effect.fail(new TaskRuntimeLaunchPortError({
+          operation: "read_runtime_object",
+          reason: "not_found",
+        }));
+      },
+      readInput: () => {
+        observations.inputRead?.();
+        return Effect.succeed(fixture.inputBytes);
+      },
+      ...(includeSourceReader
+        ? {
+          readApplicationSource: (rootSha256: string) => {
+            observations.sourceRead?.();
+            expect(rootSha256).toBe(
+              fixture.runtimeTarget.sourceArtifactRootSha256,
+            );
+            if (observations.sourceFailure !== undefined) {
+              return Effect.fail(observations.sourceFailure);
+            }
+            return Effect.succeed(observations.source ?? fixture.source);
+          },
+        }
+        : {}),
     }),
   };
 }

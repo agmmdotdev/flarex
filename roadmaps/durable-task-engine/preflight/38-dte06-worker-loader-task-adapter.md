@@ -435,6 +435,28 @@ The session may be process-local while DTE06-D remains inert, but it must report
 lost execution honestly and cannot become lifecycle, heartbeat, completion or
 result authority.
 
+#### DTE06-D3a implementation receipt
+
+D3a is complete. `TaskRuntimeLaunchAuthority` owns one exact current request and
+prepared-evidence union. Its Legacy branch preserves the admitted D1 runtime
+binding/object/input path. Its Application branch revalidates runtime-target,
+manifest, creation-authority, policy, digest and input pins, reads only the
+authority-selected Source Artifact V2 root, and returns one owned frozen launch
+subject. The source result is descriptor-captured and bounded before retention.
+Its actual UTF-8 body lengths must equal declared module lengths and remain
+inside the Application Analysis per-module and aggregate source ceilings.
+Identity/body pairs are admitted and correlated sequentially so a mismatch
+stops before any later source body is accessed. Each admitted source body is
+also SHA-256 verified against its authority-bound module identity before the
+next body is touched.
+There is no Worker Loader call, provider call, discovery change or lifecycle
+write. Focused tests prove both generations, no cross-generation read fallback,
+exact outer evidence-shape and wrapper/prepared-generation rejection, hostile
+source rejection, request-duration narrowing under the manifest ceiling and
+caller-ownership detachment. Its Application source port keeps terminal
+missing/corrupt evidence distinct from transient resource failure. D3b remains
+the sole owner of the true start session, interruption and provider adapter.
+
 ### DTE06-D4: Private System-Test Composition
 
 - compose the D3 adapter only in an explicitly private Miniflare/system-test

@@ -1,12 +1,19 @@
 import {
+  type ApplicationTaskComputeDispatchRequestV1,
+  type CurrentTaskComputeDispatchRequestV1,
   type TaskComputeDispatchRequestV1,
-  validateTaskComputeDispatchRequestV1,
+  validateCurrentTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
   type TaskInputReferenceV1,
   decodeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import type {
+  ApplicationTaskRunCreationAuthorityV1,
+  ApplicationTaskRuntimeTargetV1,
+} from "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import type {
+  CanonicalTaskManifestV1,
   TaskDefinitionRuntimeBindingV1,
   TaskRuntimeObjectReferenceV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -14,18 +21,21 @@ import { Data, Effect, Result } from "effect";
 import type {
   ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
+import type { ApplicationAnalysisSourceBundle } from
+  "../sourceArtifactV2/ApplicationAnalysisReader.js";
 
 export type TaskRuntimeLaunchPortOperation =
   | "resolve_source"
   | "read_evidence"
   | "read_runtime_object"
+  | "read_application_source"
   | "read_input";
 
 export type TaskRuntimeLaunchPortFailureReason<
   Operation extends TaskRuntimeLaunchPortOperation,
 > = Operation extends "resolve_source"
   ? "authority_unavailable" | "resource_failure"
-  : Operation extends "read_evidence"
+  : Operation extends "read_evidence" | "read_application_source"
     ? "not_found" | "corrupt" | "resource_failure"
     : "not_found" | "resource_failure";
 
@@ -54,6 +64,8 @@ export type TaskRuntimeLaunchValidationReason<
     | "runtime_policy_mismatch"
     | "runtime_object_budget_exceeded"
     | "runtime_object_invalid"
+    | "application_authority_mismatch"
+    | "application_source_invalid"
   : "input_invalid";
 
 export class TaskRuntimeLaunchValidationError<
@@ -100,10 +112,22 @@ export class TaskRuntimeLaunchConfigurationError extends Data.TaggedError(
 }> {}
 
 export interface TaskRuntimeLaunchEvidence {
+  readonly generation?: never;
   readonly preparedExecution: unknown;
   readonly runtimeBinding: unknown;
   readonly runtimeBindingCanonicalBytes: unknown;
 }
+
+export interface ApplicationTaskRuntimeLaunchEvidence {
+  readonly generation: "application_v1";
+  readonly preparedExecution: unknown;
+  readonly runtimeBinding?: never;
+  readonly runtimeBindingCanonicalBytes?: never;
+}
+
+export type CurrentTaskRuntimeLaunchEvidence =
+  | TaskRuntimeLaunchEvidence
+  | ApplicationTaskRuntimeLaunchEvidence;
 
 /**
  * Scope-local capability. Several located sources may coexist in one Worker,
@@ -112,9 +136,9 @@ export interface TaskRuntimeLaunchEvidence {
 export interface TaskRuntimeLaunchLocatedSource {
   readonly scopeId: ReplacementScopeIdV1;
   readonly readEvidence: (
-    request: TaskComputeDispatchRequestV1,
+    request: CurrentTaskComputeDispatchRequestV1,
   ) => Effect.Effect<
-    TaskRuntimeLaunchEvidence,
+    CurrentTaskRuntimeLaunchEvidence,
     TaskRuntimeLaunchPortError<"read_evidence">
   >;
   readonly readRuntimeObject: (
@@ -126,6 +150,12 @@ export interface TaskRuntimeLaunchLocatedSource {
   readonly readInput: (
     reference: TaskInputReferenceV1,
   ) => Effect.Effect<unknown, TaskRuntimeLaunchPortError<"read_input">>;
+  readonly readApplicationSource?: (
+    rootSha256: string,
+  ) => Effect.Effect<
+    unknown,
+    TaskRuntimeLaunchPortError<"read_application_source">
+  >;
 }
 
 export interface TaskRuntimeLaunchDirectory {
@@ -177,20 +207,35 @@ export interface TaskRuntimeLaunchSubject {
   readonly input: TaskRuntimeInputSource;
 }
 
+export interface ApplicationTaskRuntimeLaunchSubject {
+  readonly generation: "application_v1";
+  readonly request: ApplicationTaskComputeDispatchRequestV1;
+  readonly runtimeTarget: ApplicationTaskRuntimeTargetV1;
+  readonly manifest: CanonicalTaskManifestV1;
+  readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
+  readonly source: ApplicationAnalysisSourceBundle;
+  readonly input: TaskRuntimeInputSource;
+}
+
+export type CurrentTaskRuntimeLaunchSubject =
+  | (TaskRuntimeLaunchSubject & { readonly generation?: never })
+  | ApplicationTaskRuntimeLaunchSubject;
+
 export type TaskRuntimeLaunchAuthorityError =
   | TaskRuntimeLaunchPortError<"resolve_source">
   | TaskRuntimeLaunchPortError<"read_evidence">
   | TaskRuntimeLaunchPortError<"read_runtime_object">
+  | TaskRuntimeLaunchPortError<"read_application_source">
   | TaskRuntimeLaunchValidationError<"resolve">
   | TaskRuntimeLaunchHashError;
 
 export function decodeTaskRuntimeLaunchRequest(
   input: unknown,
 ): Result.Result<
-  TaskComputeDispatchRequestV1,
+  CurrentTaskComputeDispatchRequestV1,
   TaskRuntimeLaunchValidationError<"resolve">
 > {
-  return validateTaskComputeDispatchRequestV1(input).pipe(
+  return validateCurrentTaskComputeDispatchRequestV1(input).pipe(
     Result.mapError((cause) =>
       new TaskRuntimeLaunchValidationError<"resolve">({
         operation: "resolve",

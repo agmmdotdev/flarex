@@ -3385,6 +3385,35 @@ public task SDK, 5d2a needs raw preparation in the provider request, 5d2b needs
 durable lifecycle authority, or 5d3 requires a period of dual selection,
 fallback delivery, a second scheduler or a production route.
 
+Checkpoint 5d2a implementation receipt (2026-08-14): complete. The existing
+`TaskRuntimeLaunchAuthority` now decodes the current provider request and the
+current prepared-execution union once, requires exact request equality, and
+branches exhaustively. The Legacy member retains its full binding,
+runtime-object and lazy input reconstruction. The Application member
+recanonicalizes and hashes the runtime target and canonical task manifest,
+correlates the request, creation authority, nested runtime target, task
+manifest, compute policy and input reference, and then invokes only the
+Application Source Artifact V2 reader for the authority-pinned root. It returns
+an owned frozen Application launch subject with an exact lazy input capability;
+it never reads a Legacy runtime object, manufactures Legacy evidence, loads a
+Worker or calls a provider. The source adapter result is descriptor-captured,
+module-count bounded, identity/body correlated and detached before retention.
+
+Focused proof keeps all retained Legacy authority tests green and adds exact
+Application success, owned source/input values, zero Legacy object reads,
+request and nested-authority mismatch before source access, missing
+Application-reader rejection, exact outer evidence-shape and
+wrapper/prepared-generation rejection before source access, hostile getter
+rejection without invocation, narrowed-duration acceptance, over-limit
+rejection before source access, terminal-versus-transient source-port failure
+preservation, sequential actual source-byte correlation and budget rejection
+plus exact source-digest verification without later-body access after mismatch,
+and wrong-root rejection. Backend no-emit typecheck, the 20-test authority suite,
+Effect-boundary check and connected-runtime source-map check pass. Self-review
+accepts 5d2a as the intended launch-authority terminal and leaves all start,
+interruption, provider acceptance, discovery and lifecycle ownership to 5d2b
+and later checkpoints.
+
 ### `AA-R7` — private proof
 
 Run the complete private application vertical against PGlite and genuine
