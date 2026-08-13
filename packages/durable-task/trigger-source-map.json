@@ -176,9 +176,9 @@
                                                  "stored policy corruption"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "30e6b040e71dfa9685d31e4a27daeb29b9a6a09ce14d00b6d4369ddbb08d0802",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-a.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.a exact Legacy and Application state, grant, and requested-effect schema families"
+                        "targetSha256":  "56c42237ed7bdd89b9992ec06ec7b9c344a3799fe23feb6fe12ed7e8d70539bf",
+                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b exact recursive Legacy and Application aggregate, receipt, evidence, effect, and replay schemas"
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -209,9 +209,9 @@
                                                  "new error variant compile-time failure"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "a9aaccb9fb9a000e07200890257f774b3c7beed2264823f2e75babf95d2605bd",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-a.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.a typed definition-reference generation mismatch for current requested-effect projection"
+                        "targetSha256":  "8bf85e2e394b256fc23efc1591b0c8e4a2943535ae93c7ddc144d0b7af000e4d",
+                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch"
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -237,9 +237,9 @@
                                                  "redaction boundary"
                                              ],
                         "licenseNotice":  "mit",
-                        "targetSha256":  "a9aaccb9fb9a000e07200890257f774b3c7beed2264823f2e75babf95d2605bd",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-a.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.a typed definition-reference generation mismatch for current requested-effect projection"
+                        "targetSha256":  "8bf85e2e394b256fc23efc1591b0c8e4a2943535ae93c7ddc144d0b7af000e4d",
+                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch"
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -265,9 +265,9 @@
                                                  "development-mode stall divergence receipt"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "a9aaccb9fb9a000e07200890257f774b3c7beed2264823f2e75babf95d2605bd",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-a.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.a typed definition-reference generation mismatch for current requested-effect projection"
+                        "targetSha256":  "8bf85e2e394b256fc23efc1591b0c8e4a2943535ae93c7ddc144d0b7af000e4d",
+                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b typed recursive aggregate definition-reference mismatch"
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",
@@ -649,9 +649,9 @@
                                                  "consumer fetches accepted fence"
                                              ],
                         "licenseNotice":  "apache-2.0",
-                        "targetSha256":  "750f6ab7d803f81bcf91cb6f6836327a904d1d4abf6ee82e96ba5c7f9fb2e43a",
-                        "transformationRevision":  "aa-r6-task-5b1b-i-a.v1",
-                        "changeReceipt":  "AA-R6 Task 5b1b.i.a current definition-reference projections with exact per-generation adapters"
+                        "targetSha256":  "6fb9c524649ccc2d093a8acff7c44aadde4e58fdd6aeab6434a323265973cc93",
+                        "transformationRevision":  "aa-r6-task-5b1b-i-b.v1",
+                        "changeReceipt":  "AA-R6 Task 5b1b.i.b recursive aggregate, receipt, evidence, effect, and replay identity projections"
                     },
                     {
                         "upstreamCommit":  "f10bc23785e569e5d917318cf2033aabdbe96a0b",

@@ -26,9 +26,15 @@ export class InvalidRunAttemptCommandError extends Data.TaggedError(
 
 export class TaskDefinitionReferenceGenerationMismatchError extends
   Data.TaggedError("TaskDefinitionReferenceGenerationMismatchError")<{
-    readonly operation: "persist_requested_effect";
+    readonly operation: "persist_requested_effect" | "persist_aggregate";
     readonly expectedGeneration: TaskDefinitionReference["generation"];
     readonly receivedGeneration: TaskDefinitionReference["generation"];
+  }> {}
+
+export class TaskDefinitionReferenceIdentityMismatchError extends
+  Data.TaggedError("TaskDefinitionReferenceIdentityMismatchError")<{
+    readonly operation: "persist_aggregate";
+    readonly generation: TaskDefinitionReference["generation"];
   }> {}
 
 export class InvalidRunAttemptTransitionError extends Data.TaggedError(

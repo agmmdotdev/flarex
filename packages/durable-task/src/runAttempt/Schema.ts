@@ -6,9 +6,11 @@ import { ApplicationTaskRuntimeTargetSha256V1Schema } from
 import {
   fromCurrentRunAttemptState,
   fromCurrentTaskAttemptGrant,
+  fromCurrentTaskRunAttemptAggregate,
   fromCurrentTaskRequestedEffect,
   toCurrentRunAttemptState,
   toCurrentTaskAttemptGrant,
+  toCurrentTaskRunAttemptAggregate,
   toCurrentTaskRequestedEffect,
 } from "./DefinitionReference.js";
 import { InvalidRunAttemptCommandError } from "./Errors.js";
@@ -22,12 +24,17 @@ import type {
   RunAttemptCommandV1,
   RunAttemptInspectionV1,
   ApplicationRunAttemptStateV1,
+  ApplicationTaskAttemptCompletionReplayV1,
   ApplicationTaskAttemptGrantV1,
+  ApplicationTaskRunAttemptAggregateV1,
+  ApplicationTaskRunAttemptEvidenceV1,
+  ApplicationTaskRunAttemptMutationAcceptanceV1,
   ApplicationTaskRequestedEffectV1,
   RunAttemptOperationV1,
   RunAttemptStateV1,
   StartAttemptCommandV1,
   TaskAttemptCompletionV1,
+  TaskAttemptCompletionReplayV1,
   TaskAttemptGrantV1,
   TaskAttemptIdV1,
   TaskAttemptNumberV1,
@@ -51,9 +58,23 @@ import type {
   TaskRunIdV1,
   TaskRunAttemptAggregateV1,
   TaskRunAttemptEvidenceV1,
+  TaskRunAttemptMutationAcceptanceV1,
   TaskRunVersionV1,
 } from "./Model.js";
 import { snapshotTaskRunAttemptAggregateV1 } from "./Model.js";
+
+type PersistedTaskRunAttemptAggregate =
+  | TaskRunAttemptAggregateV1
+  | ApplicationTaskRunAttemptAggregateV1;
+type PersistedTaskRunAttemptEvidence =
+  | TaskRunAttemptEvidenceV1
+  | ApplicationTaskRunAttemptEvidenceV1;
+type PersistedTaskRunAttemptMutationAcceptance =
+  | TaskRunAttemptMutationAcceptanceV1
+  | ApplicationTaskRunAttemptMutationAcceptanceV1;
+type PersistedTaskAttemptCompletionReplay =
+  | TaskAttemptCompletionReplayV1
+  | ApplicationTaskAttemptCompletionReplayV1;
 
 const STRICT_STRUCT_OPTIONS = {
   parseOptions: { onExcessProperty: "error" },
@@ -90,6 +111,29 @@ function terminalAttemptRefEqualV1(
 ): boolean {
   return left.attemptId === right.attemptId && left.attemptNumber === right.attemptNumber &&
     left.executionFence === right.executionFence;
+}
+
+function definitionIdentityEqualV1(
+  left: {
+    readonly taskDefinitionRevisionId: string;
+  } | {
+    readonly applicationTaskRuntimeTargetSha256: Uint8Array;
+  },
+  right: {
+    readonly taskDefinitionRevisionId: string;
+  } | {
+    readonly applicationTaskRuntimeTargetSha256: Uint8Array;
+  },
+): boolean {
+  if ("taskDefinitionRevisionId" in left) {
+    return "taskDefinitionRevisionId" in right &&
+      left.taskDefinitionRevisionId === right.taskDefinitionRevisionId;
+  }
+  return "applicationTaskRuntimeTargetSha256" in right &&
+    persistedValueEqualV1(
+      left.applicationTaskRuntimeTargetSha256,
+      right.applicationTaskRuntimeTargetSha256,
+    );
 }
 
 function utf8ByteLength(value: string): number {
@@ -753,10 +797,17 @@ export const ApplicationTaskAttemptGrantV1Schema = makeTaskAttemptGrantSchema(
   ApplicationDefinitionIdentityFieldsV1,
 );
 
-const StartAttemptAcceptedOutcomeV1Schema = Schema.Struct({
-  kind: Schema.Literal("attempt_granted"),
-  grant: TaskAttemptGrantV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+function makeStartAttemptAcceptedOutcomeSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return Schema.Struct({
+    kind: Schema.Literal("attempt_granted"),
+    grant: makeTaskAttemptGrantSchema(identityFields),
+  }).annotate(STRICT_STRUCT_OPTIONS);
+}
+const StartAttemptAcceptedOutcomeV1Schema = makeStartAttemptAcceptedOutcomeSchema(
+  LegacyDefinitionIdentityFieldsV1,
+);
 export const StartAttemptOutcomeV1Schema = Schema.Union([
   StartAttemptAcceptedOutcomeV1Schema,
   Schema.Struct({
@@ -1022,6 +1073,17 @@ export const PersistedTaskRequestedEffectV1Schema = Schema.Struct({
   effect: TaskRequestedEffectV1Schema,
 }).annotate(STRICT_STRUCT_OPTIONS);
 
+function makePersistedTaskRequestedEffectSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return Schema.Struct({
+    sequence: TaskRequestedEffectSequenceV1Schema,
+    effect: makeTaskRequestedEffectSchema(identityFields),
+  }).annotate(STRICT_STRUCT_OPTIONS);
+}
+const ApplicationPersistedTaskRequestedEffectV1Schema =
+  makePersistedTaskRequestedEffectSchema(ApplicationDefinitionIdentityFieldsV1);
+
 const TaskRunAttemptEvidenceBaseFieldsV1 = {
   version: Schema.Literal("flarex.task-run-attempt-evidence.v1"),
   runId: TaskRunIdV1Schema,
@@ -1029,12 +1091,15 @@ const TaskRunAttemptEvidenceBaseFieldsV1 = {
   recordedAtMs: TaskDatabaseTimeMsV1Schema,
   resultingPhase: Schema.Literals(["ready", "attempt_granted", "executing", "retry_waiting", "terminal"]),
 };
-export const TaskRunAttemptEvidenceV1Schema = Schema.Union([
+function makeTaskRunAttemptEvidenceSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return Schema.Union([
   Schema.Struct({
     ...TaskRunAttemptEvidenceBaseFieldsV1,
     kind: Schema.Literal("attempt_granted"),
     fromPhase: Schema.Literals(["ready", "retry_waiting"]),
-    grant: TaskAttemptGrantV1Schema,
+    grant: makeTaskAttemptGrantSchema(identityFields),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
     ...TaskRunAttemptEvidenceBaseFieldsV1,
@@ -1098,62 +1163,83 @@ export const TaskRunAttemptEvidenceV1Schema = Schema.Union([
     sourcePhase: Schema.Literals(["attempt_granted", "executing"]),
     outcome: HandleLeaseExpiryCancelledOutcomeV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
-]);
+  ]);
+}
+export const TaskRunAttemptEvidenceV1Schema = makeTaskRunAttemptEvidenceSchema(
+  LegacyDefinitionIdentityFieldsV1,
+);
+export const ApplicationTaskRunAttemptEvidenceV1Schema =
+  makeTaskRunAttemptEvidenceSchema(ApplicationDefinitionIdentityFieldsV1);
 
-const AcceptedReceiptBaseFieldsV1 = {
+function makeAcceptedReceiptBaseFields<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return {
   observedAtMs: TaskDatabaseTimeMsV1Schema,
   acceptedRunVersion: TaskRunVersionV1Schema,
   resultingPhase: Schema.Literals(["ready", "attempt_granted", "executing", "retry_waiting", "terminal"]),
-  evidence: Schema.Array(TaskRunAttemptEvidenceV1Schema).check(
+  evidence: Schema.Array(makeTaskRunAttemptEvidenceSchema(identityFields)).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(1),
   ),
-  requestedEffects: Schema.Array(PersistedTaskRequestedEffectV1Schema).check(
+  requestedEffects: Schema.Array(makePersistedTaskRequestedEffectSchema(identityFields)).check(
     Schema.isMinLength(2),
     Schema.isMaxLength(5),
   ),
-};
-const AcceptedStartReceiptV1Schema = Schema.Struct({
-  ...AcceptedReceiptBaseFieldsV1,
-  outcome: StartAttemptAcceptedOutcomeV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
-const AcceptedHeartbeatReceiptV1Schema = Schema.Struct({
-  ...AcceptedReceiptBaseFieldsV1,
-  outcome: HeartbeatAttemptAcceptedOutcomeV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
-const AcceptedCompleteReceiptV1Schema = Schema.Struct({
-  ...AcceptedReceiptBaseFieldsV1,
-  outcome: Schema.Union([
-    CompleteAttemptSucceededOutcomeV1Schema,
-    CompleteAttemptRetryOutcomeV1Schema,
-    CompleteAttemptFailedOutcomeV1Schema,
-    CompleteAttemptCancelledOutcomeV1Schema,
-  ]),
-}).annotate(STRICT_STRUCT_OPTIONS);
-const AcceptedCancellationReceiptV1Schema = Schema.Struct({
-  ...AcceptedReceiptBaseFieldsV1,
-  outcome: Schema.Union([
-    RequestCancellationRequestedOutcomeV1Schema,
-    RequestCancellationTerminalOutcomeV1Schema,
-  ]),
-}).annotate(STRICT_STRUCT_OPTIONS);
-const AcceptedLeaseExpiryReceiptV1Schema = Schema.Struct({
-  ...AcceptedReceiptBaseFieldsV1,
-  outcome: Schema.Union([
-    HandleLeaseExpiryRetryOutcomeV1Schema,
-    HandleLeaseExpiryFailedOutcomeV1Schema,
-    HandleLeaseExpiryCancelledOutcomeV1Schema,
-  ]),
-}).annotate(STRICT_STRUCT_OPTIONS);
+  };
+}
+function makeAcceptedReceiptSchemas<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  const base = makeAcceptedReceiptBaseFields(identityFields);
+  return {
+    start: Schema.Struct({
+      ...base,
+      outcome: makeStartAttemptAcceptedOutcomeSchema(identityFields),
+    }).annotate(STRICT_STRUCT_OPTIONS),
+    heartbeat: Schema.Struct({
+      ...base,
+      outcome: HeartbeatAttemptAcceptedOutcomeV1Schema,
+    }).annotate(STRICT_STRUCT_OPTIONS),
+    complete: Schema.Struct({
+      ...base,
+      outcome: Schema.Union([
+        CompleteAttemptSucceededOutcomeV1Schema,
+        CompleteAttemptRetryOutcomeV1Schema,
+        CompleteAttemptFailedOutcomeV1Schema,
+        CompleteAttemptCancelledOutcomeV1Schema,
+      ]),
+    }).annotate(STRICT_STRUCT_OPTIONS),
+    cancellation: Schema.Struct({
+      ...base,
+      outcome: Schema.Union([
+        RequestCancellationRequestedOutcomeV1Schema,
+        RequestCancellationTerminalOutcomeV1Schema,
+      ]),
+    }).annotate(STRICT_STRUCT_OPTIONS),
+    leaseExpiry: Schema.Struct({
+      ...base,
+      outcome: Schema.Union([
+        HandleLeaseExpiryRetryOutcomeV1Schema,
+        HandleLeaseExpiryFailedOutcomeV1Schema,
+        HandleLeaseExpiryCancelledOutcomeV1Schema,
+      ]),
+    }).annotate(STRICT_STRUCT_OPTIONS),
+  };
+}
 
-export const TaskRunAttemptMutationAcceptanceV1Schema = Schema.Union([
+function makeTaskRunAttemptMutationAcceptanceSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  const receipts = makeAcceptedReceiptSchemas(identityFields);
+  return Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("start_attempt"),
     command: Schema.Struct({
       kind: Schema.Literal("start_attempt"),
       expectedRunVersion: TaskRunVersionV1Schema,
     }).annotate(STRICT_STRUCT_OPTIONS),
-    accepted: AcceptedStartReceiptV1Schema,
+    accepted: receipts.start,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
     kind: Schema.Literal("heartbeat_attempt"),
@@ -1163,13 +1249,13 @@ export const TaskRunAttemptMutationAcceptanceV1Schema = Schema.Union([
       executionFence: TaskExecutionFenceV1Schema,
       heartbeatSequence: TaskHeartbeatSequenceV1Schema,
     }).annotate(STRICT_STRUCT_OPTIONS),
-    accepted: AcceptedHeartbeatReceiptV1Schema,
+    accepted: receipts.heartbeat,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
     kind: Schema.Literal("complete_attempt"),
     attemptId: TaskAttemptIdV1Schema,
     executionFence: TaskExecutionFenceV1Schema,
-    accepted: AcceptedCompleteReceiptV1Schema,
+    accepted: receipts.complete,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
     kind: Schema.Literal("request_cancellation"),
@@ -1177,7 +1263,7 @@ export const TaskRunAttemptMutationAcceptanceV1Schema = Schema.Union([
       kind: Schema.Literal("request_cancellation"),
       reason: TaskCancellationReasonV1Schema,
     }).annotate(STRICT_STRUCT_OPTIONS),
-    accepted: AcceptedCancellationReceiptV1Schema,
+    accepted: receipts.cancellation,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
     kind: Schema.Literal("handle_lease_expiry"),
@@ -1187,17 +1273,33 @@ export const TaskRunAttemptMutationAcceptanceV1Schema = Schema.Union([
       executionFence: TaskExecutionFenceV1Schema,
       expectedLeaseVersion: TaskLeaseVersionV1Schema,
     }).annotate(STRICT_STRUCT_OPTIONS),
-    accepted: AcceptedLeaseExpiryReceiptV1Schema,
+    accepted: receipts.leaseExpiry,
   }).annotate(STRICT_STRUCT_OPTIONS),
-]);
-export const TaskAttemptCompletionReplayV1Schema = Schema.Struct({
-  attempt: TaskTerminalAttemptRefV1Schema,
-  completion: TaskAttemptCompletionV1Schema,
-  accepted: AcceptedCompleteReceiptV1Schema,
-}).annotate(STRICT_STRUCT_OPTIONS);
+  ]);
+}
+export const TaskRunAttemptMutationAcceptanceV1Schema =
+  makeTaskRunAttemptMutationAcceptanceSchema(LegacyDefinitionIdentityFieldsV1);
+export const ApplicationTaskRunAttemptMutationAcceptanceV1Schema =
+  makeTaskRunAttemptMutationAcceptanceSchema(
+    ApplicationDefinitionIdentityFieldsV1,
+  );
+
+function makeTaskAttemptCompletionReplaySchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return Schema.Struct({
+    attempt: TaskTerminalAttemptRefV1Schema,
+    completion: TaskAttemptCompletionV1Schema,
+    accepted: makeAcceptedReceiptSchemas(identityFields).complete,
+  }).annotate(STRICT_STRUCT_OPTIONS);
+}
+export const TaskAttemptCompletionReplayV1Schema =
+  makeTaskAttemptCompletionReplaySchema(LegacyDefinitionIdentityFieldsV1);
+export const ApplicationTaskAttemptCompletionReplayV1Schema =
+  makeTaskAttemptCompletionReplaySchema(ApplicationDefinitionIdentityFieldsV1);
 
 function completionOutcomePhaseV1(
-  outcome: TaskRunAttemptAggregateV1["completionReplays"][number]["accepted"]["outcome"],
+  outcome: PersistedTaskRunAttemptAggregate["completionReplays"][number]["accepted"]["outcome"],
 ): "ready" | "retry_waiting" | "terminal" {
   return outcome.kind === "retry_scheduled"
     ? outcome.delivery === "immediate" ? "ready" : "retry_waiting"
@@ -1205,10 +1307,10 @@ function completionOutcomePhaseV1(
 }
 
 function recomputedFailurePolicyMatchesV1(input: {
-  readonly aggregate: TaskRunAttemptAggregateV1;
-  readonly attempt: TaskRunAttemptAggregateV1["completionReplays"][number]["attempt"];
+  readonly aggregate: PersistedTaskRunAttemptAggregate;
+  readonly attempt: PersistedTaskRunAttemptAggregate["completionReplays"][number]["attempt"];
   readonly observedAtMs: TaskDatabaseTimeMsV1;
-  readonly evidence: Extract<TaskRunAttemptEvidenceV1, {
+  readonly evidence: Extract<PersistedTaskRunAttemptEvidence, {
     readonly kind: "completion_failed" | "lease_expiry_recovered";
   }>["policy"];
   readonly failure: TaskExecutionFailureV1;
@@ -1259,7 +1361,7 @@ function recomputedFailurePolicyMatchesV1(input: {
 }
 
 function completionEffectPlanMatchesV1(
-  replay: TaskRunAttemptAggregateV1["completionReplays"][number],
+  replay: PersistedTaskRunAttemptAggregate["completionReplays"][number],
 ): boolean {
   const { accepted } = replay;
   const effects = accepted.requestedEffects.map((persisted) => persisted.effect);
@@ -1309,8 +1411,8 @@ function completionEffectPlanMatchesV1(
 }
 
 function completionReplayCorrelatesV1(
-  replay: TaskRunAttemptAggregateV1["completionReplays"][number],
-  aggregate: TaskRunAttemptAggregateV1,
+  replay: PersistedTaskRunAttemptAggregate["completionReplays"][number],
+  aggregate: PersistedTaskRunAttemptAggregate,
 ): boolean {
   const maximumAttempts = aggregate.boundPolicy.runAttempt.retry.maxAttempts;
   const evidence = replay.accepted.evidence[0];
@@ -1393,7 +1495,7 @@ function requestedEffectKindsEqualV1(
 }
 
 function leaseFailurePolicyCorrelatesV1(
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: PersistedTaskRunAttemptAggregate,
   evidence: Extract<TaskRunAttemptAggregateV1["lastLifecycleAcceptance"], { readonly kind: "handle_lease_expiry" }>["accepted"]["evidence"][number] &
     { readonly kind: "lease_expiry_recovered" },
 ): boolean {
@@ -1437,8 +1539,8 @@ function leaseFailurePolicyCorrelatesV1(
 }
 
 function latestAcceptanceCorrelatesV1(
-  aggregate: TaskRunAttemptAggregateV1,
-  acceptance: NonNullable<TaskRunAttemptAggregateV1["lastLifecycleAcceptance"]>,
+  aggregate: PersistedTaskRunAttemptAggregate,
+  acceptance: NonNullable<PersistedTaskRunAttemptAggregate["lastLifecycleAcceptance"]>,
 ): boolean {
   const accepted = acceptance.accepted;
   const evidence = accepted.evidence[0];
@@ -1451,7 +1553,7 @@ function latestAcceptanceCorrelatesV1(
         !persistedValueEqualV1(evidence.grant, accepted.outcome.grant) ||
         accepted.outcome.grant.acceptedRunVersion !== accepted.acceptedRunVersion ||
         accepted.outcome.grant.runId !== aggregate.runId ||
-        accepted.outcome.grant.taskDefinitionRevisionId !== aggregate.taskDefinitionRevisionId ||
+        !definitionIdentityEqualV1(accepted.outcome.grant, aggregate) ||
         accepted.outcome.grant.grantedAtMs !== accepted.observedAtMs ||
         aggregate.currentAttempt.grantBasisRunVersion !== acceptance.command.expectedRunVersion ||
         !terminalAttemptRefEqualV1(accepted.outcome.grant.attempt, aggregate.currentAttempt) ||
@@ -1465,7 +1567,7 @@ function latestAcceptanceCorrelatesV1(
       const [dispatch, wake, publish] = accepted.requestedEffects.map((item) => item.effect);
       return dispatch?.kind === "dispatch_attempt" && wake?.kind === "wake_lease_expiry" &&
         publish?.kind === "publish_lifecycle_event" &&
-        dispatch.taskDefinitionRevisionId === aggregate.taskDefinitionRevisionId &&
+        definitionIdentityEqualV1(dispatch, aggregate) &&
         terminalAttemptRefEqualV1(dispatch.attempt, accepted.outcome.grant.attempt) &&
         dispatch.leaseVersion === accepted.outcome.grant.lease.version &&
         dispatch.computeProfile === accepted.outcome.grant.computeProfile &&
@@ -1631,7 +1733,7 @@ function latestAcceptanceCorrelatesV1(
 }
 
 function terminalCancellationCorrelatesV1(
-  aggregate: Extract<TaskRunAttemptAggregateV1, { readonly phase: "terminal" }>,
+  aggregate: Extract<PersistedTaskRunAttemptAggregate, { readonly phase: "terminal" }>,
 ): boolean {
   const { cancellation, terminal } = aggregate;
   if (terminal.kind === "succeeded" || terminal.kind === "failed") {
@@ -1645,42 +1747,49 @@ function terminalCancellationCorrelatesV1(
     cancellation.resolvedAtMs === terminal.completedAtMs;
 }
 
-const TaskRunAttemptAggregateBaseFieldsV1 = {
+function makeTaskRunAttemptAggregateBaseFields<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  return {
   version: Schema.Literal("flarex.task-run-attempt-aggregate.v1"),
   runId: TaskRunIdV1Schema,
-  taskDefinitionRevisionId: TaskDefinitionRevisionIdV1Schema,
+  ...identityFields,
   createdAtMs: TaskDatabaseTimeMsV1Schema,
   runVersion: TaskRunVersionV1Schema,
   boundPolicy: TaskRunAttemptBoundPolicyV1Schema,
   attemptHistory: TaskAttemptHistoryCursorV1Schema,
   leaseHistory: TaskLeaseHistoryCursorV1Schema,
-  lastLifecycleAcceptance: Schema.NullOr(TaskRunAttemptMutationAcceptanceV1Schema),
-  completionReplays: Schema.Array(TaskAttemptCompletionReplayV1Schema).check(
+  lastLifecycleAcceptance: Schema.NullOr(
+    makeTaskRunAttemptMutationAcceptanceSchema(identityFields),
+  ),
+  completionReplays: Schema.Array(
+    makeTaskAttemptCompletionReplaySchema(identityFields),
+  ).check(
     Schema.isMaxLength(250),
   ),
   requestedEffectCursor: TaskRequestedEffectCursorV1Schema,
-};
-export const TaskRunAttemptAggregateV1Schema: Schema.Codec<
-  TaskRunAttemptAggregateV1,
-  unknown,
-  never,
-  never
-> = Schema.Union([
+  };
+}
+function makeTaskRunAttemptAggregateSchema<
+  const IdentityFields extends Schema.Struct.Fields,
+>(identityFields: IdentityFields) {
+  const base = makeTaskRunAttemptAggregateBaseFields(identityFields);
+  return Schema.Union([
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("ready"),
     ready: TaskRunReadyStateV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("attempt_granted"),
     currentAttempt: TaskCurrentAttemptV1Schema,
     heartbeat: Schema.Struct({ kind: Schema.Literal("none_accepted") }).annotate(STRICT_STRUCT_OPTIONS),
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("executing"),
     currentAttempt: TaskCurrentAttemptV1Schema,
     heartbeat: Schema.Struct({
@@ -1690,37 +1799,46 @@ export const TaskRunAttemptAggregateV1Schema: Schema.Codec<
     cancellation: Schema.Union([TaskCancellationNotRequestedV1Schema, TaskCancellationRequestedV1Schema]),
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("retry_waiting"),
     retry: TaskAcceptedRetryV1Schema,
     cancellation: TaskCancellationNotRequestedV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("terminal"),
     terminal: Schema.Union([TaskRunSucceededTerminalV1Schema, TaskRunFailedTerminalV1Schema]),
     cancellation: CompletionTerminalCancellationStateV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunCancelledWithoutAttemptTerminalV1Schema,
     cancellation: TaskCancellationResolvedWithoutAttemptV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunAcknowledgedCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedAcknowledgedV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
   Schema.Struct({
-    ...TaskRunAttemptAggregateBaseFieldsV1,
+    ...base,
     phase: Schema.Literal("terminal"),
     terminal: TaskRunLeaseExpiredCancellationTerminalV1Schema,
     cancellation: TaskCancellationResolvedLeaseExpiredV1Schema,
   }).annotate(STRICT_STRUCT_OPTIONS),
-]).check(
-  Schema.makeFilter((aggregate) => {
+])
+}
+const LegacyTaskRunAttemptAggregateV1Schema = makeTaskRunAttemptAggregateSchema(
+  LegacyDefinitionIdentityFieldsV1,
+);
+const ApplicationTaskRunAttemptAggregateSchemaV1 = makeTaskRunAttemptAggregateSchema(
+  ApplicationDefinitionIdentityFieldsV1,
+);
+function taskRunAttemptAggregateFailureV1(
+  aggregate: PersistedTaskRunAttemptAggregate,
+): string | undefined {
     const maximumAttempts = aggregate.boundPolicy.runAttempt.retry.maxAttempts;
     const lastAttempt = aggregate.attemptHistory.kind === "none" ? null : aggregate.attemptHistory.lastAttemptNumber;
     if ((aggregate.attemptHistory.kind === "none") !== (aggregate.leaseHistory.kind === "none")) {
@@ -1881,8 +1999,29 @@ export const TaskRunAttemptAggregateV1Schema: Schema.Codec<
       return "Expected completion replay effects to precede the latest non-completion acceptance";
     }
     return undefined;
-  }),
-);
+}
+
+export const TaskRunAttemptAggregateV1Schema: Schema.Codec<
+  TaskRunAttemptAggregateV1,
+  unknown,
+  never,
+  never
+> =
+  LegacyTaskRunAttemptAggregateV1Schema.check(
+    Schema.makeFilter((aggregate: typeof LegacyTaskRunAttemptAggregateV1Schema.Type) =>
+      taskRunAttemptAggregateFailureV1(aggregate)),
+  );
+export const ApplicationTaskRunAttemptAggregateV1Schema: Schema.Codec<
+  ApplicationTaskRunAttemptAggregateV1,
+  unknown,
+  never,
+  never
+> =
+  ApplicationTaskRunAttemptAggregateSchemaV1.check(
+    Schema.makeFilter((
+      aggregate: typeof ApplicationTaskRunAttemptAggregateSchemaV1.Type,
+    ) => taskRunAttemptAggregateFailureV1(aggregate)),
+  );
 
 const decodeTaskRunAttemptAggregateSchemaV1: (
   input: unknown,
@@ -1890,6 +2029,11 @@ const decodeTaskRunAttemptAggregateSchemaV1: (
   TaskRunAttemptAggregateV1Schema,
   STRICT_PARSE_OPTIONS,
 );
+const decodeApplicationTaskRunAttemptAggregateSchemaV1 =
+  Schema.decodeUnknownResult(
+    ApplicationTaskRunAttemptAggregateV1Schema,
+    STRICT_PARSE_OPTIONS,
+  );
 export const decodeTaskRunAttemptAggregateV1 = (
   input: unknown,
 ): Result.Result<TaskRunAttemptAggregateV1, Schema.SchemaError> =>
@@ -1900,6 +2044,31 @@ export const encodeTaskRunAttemptAggregateV1: (
   TaskRunAttemptAggregateV1Schema,
   STRICT_PARSE_OPTIONS,
 );
+export const decodeApplicationTaskRunAttemptAggregateV1 = (
+  input: unknown,
+): Result.Result<ApplicationTaskRunAttemptAggregateV1, Schema.SchemaError> =>
+  decodeApplicationTaskRunAttemptAggregateSchemaV1(input).pipe(
+    Result.map(aggregate => {
+      const current = toCurrentTaskRunAttemptAggregate({
+        generation: "application_v1",
+        aggregate,
+      });
+      const persisted = Result.getOrThrow(fromCurrentTaskRunAttemptAggregate(
+        current,
+        "application_v1",
+      ));
+      if (persisted.generation !== "application_v1") {
+        throw new Error("Application aggregate adapter changed definition generation.");
+      }
+      return persisted.aggregate;
+    }),
+  );
+export const encodeApplicationTaskRunAttemptAggregateV1: (
+  input: unknown,
+) => Result.Result<unknown, Schema.SchemaError> = Schema.encodeUnknownResult(
+    ApplicationTaskRunAttemptAggregateV1Schema,
+    STRICT_PARSE_OPTIONS,
+  );
 export const decodeRunAttemptStateV1: (
   input: unknown,
 ) => Result.Result<RunAttemptStateV1, Schema.SchemaError> = Schema.decodeUnknownResult(

@@ -437,9 +437,27 @@ export type RunAttemptStateV1 =
 type ReplaceLegacyDefinitionIdentity<
   Value,
   Identity extends Readonly<Record<string, unknown>>,
-> = Value extends { readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1 }
-  ? Omit<Value, "taskDefinitionRevisionId"> & Identity
-  : Value;
+> = Value extends Uint8Array ? Value
+  : Value extends string | number | bigint | boolean | symbol | null | undefined
+    ? Value
+  : Value extends readonly unknown[] ? {
+      readonly [Index in keyof Value]: ReplaceLegacyDefinitionIdentity<
+        Value[Index],
+        Identity
+      >;
+    }
+  : Value extends { readonly taskDefinitionRevisionId: TaskDefinitionRevisionIdV1 }
+    ? ReplaceLegacyDefinitionIdentity<
+        Omit<Value, "taskDefinitionRevisionId">,
+        Identity
+      > & Identity
+    : Value extends object ? {
+        readonly [Key in keyof Value]: ReplaceLegacyDefinitionIdentity<
+          Value[Key],
+          Identity
+        >;
+      }
+    : Value;
 
 type ApplicationDefinitionIdentityV1 = Readonly<{
   readonly applicationTaskRuntimeTargetSha256:
@@ -797,6 +815,16 @@ export interface PersistedTaskRequestedEffectV1 {
   readonly effect: TaskRequestedEffectV1;
 }
 
+export type ApplicationPersistedTaskRequestedEffectV1 =
+  ReplaceLegacyDefinitionIdentity<
+    PersistedTaskRequestedEffectV1,
+    ApplicationDefinitionIdentityV1
+  >;
+export type CurrentPersistedTaskRequestedEffect = ReplaceLegacyDefinitionIdentity<
+  PersistedTaskRequestedEffectV1,
+  CurrentDefinitionIdentity
+>;
+
 export interface TaskRunAttemptEvidenceBaseV1 {
   readonly version: "flarex.task-run-attempt-evidence.v1";
   readonly runId: TaskRunIdV1;
@@ -864,6 +892,16 @@ export type TaskRunAttemptEvidenceV1 = TaskRunAttemptEvidenceBaseV1 &
       }
   );
 
+export type ApplicationTaskRunAttemptEvidenceV1 =
+  ReplaceLegacyDefinitionIdentity<
+    TaskRunAttemptEvidenceV1,
+    ApplicationDefinitionIdentityV1
+  >;
+export type CurrentTaskRunAttemptEvidence = ReplaceLegacyDefinitionIdentity<
+  TaskRunAttemptEvidenceV1,
+  CurrentDefinitionIdentity
+>;
+
 export interface TaskRunAttemptAcceptedReceiptV1<Outcome> {
   readonly observedAtMs: TaskDatabaseTimeMsV1;
   readonly acceptedRunVersion: TaskRunVersionV1;
@@ -923,11 +961,32 @@ export type TaskRunAttemptMutationAcceptanceV1 =
       readonly accepted: TaskRunAttemptAcceptedReceiptV1<AcceptedHandleLeaseExpiryOutcomeV1>;
     };
 
+export type ApplicationTaskRunAttemptMutationAcceptanceV1 =
+  ReplaceLegacyDefinitionIdentity<
+    TaskRunAttemptMutationAcceptanceV1,
+    ApplicationDefinitionIdentityV1
+  >;
+export type CurrentTaskRunAttemptMutationAcceptance =
+  ReplaceLegacyDefinitionIdentity<
+    TaskRunAttemptMutationAcceptanceV1,
+    CurrentDefinitionIdentity
+  >;
+
 export interface TaskAttemptCompletionReplayV1 {
   readonly attempt: TaskTerminalAttemptRefV1;
   readonly completion: TaskAttemptCompletionV1;
   readonly accepted: TaskRunAttemptAcceptedReceiptV1<AcceptedCompleteAttemptOutcomeV1>;
 }
+
+export type ApplicationTaskAttemptCompletionReplayV1 =
+  ReplaceLegacyDefinitionIdentity<
+    TaskAttemptCompletionReplayV1,
+    ApplicationDefinitionIdentityV1
+  >;
+export type CurrentTaskAttemptCompletionReplay = ReplaceLegacyDefinitionIdentity<
+  TaskAttemptCompletionReplayV1,
+  CurrentDefinitionIdentity
+>;
 
 function taskResultDigestBytesEqualV1(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
@@ -1028,6 +1087,16 @@ export type TaskRunAttemptAggregateV1 =
   | TaskRunAttemptExecutingAggregateV1
   | TaskRunAttemptRetryWaitingAggregateV1
   | TaskRunAttemptTerminalAggregateV1;
+
+export type ApplicationTaskRunAttemptAggregateV1 =
+  ReplaceLegacyDefinitionIdentity<
+    TaskRunAttemptAggregateV1,
+    ApplicationDefinitionIdentityV1
+  >;
+export type CurrentTaskRunAttemptAggregate = ReplaceLegacyDefinitionIdentity<
+  TaskRunAttemptAggregateV1,
+  CurrentDefinitionIdentity
+>;
 
 export interface StartAttemptCommandV1 {
   readonly type: "start_attempt";
