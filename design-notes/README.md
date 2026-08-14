@@ -9,6 +9,25 @@ the chronological implementation history. When a design note becomes an
 implementation checkpoint, record the active work in the relevant `roadmaps/`
 domain file.
 
+## Authority Order
+
+For FlarexDB app-data and relationship work, use these sources in order:
+
+1. `flarex-db-accepted-design.md` owns the general Postgres authority,
+   transaction, migration, sync, Payload, and Medusa boundaries.
+2. `flarexdb-native-relational-system.md` owns relation-specific API layering,
+   logical semantics, identity, edge authority, OCC, build/readiness, and
+   reactive invalidation.
+3. `flarexdb-payload-relational-adapter.md` owns only the mapping from Payload
+   relationship, upload, join, transaction, population, and lifecycle behavior
+   onto the native FlarexDB relational system.
+4. The focused files under `roadmaps/flarexdb-foundation/` own executable gate
+   order and implementation status.
+
+Older relationship examples in broad CMS, commerce, developer-API, InstantDB,
+or internal-schema notes remain research vocabulary. They do not override the
+native relational authority above.
+
 ## Notes
 
 - `flarex-postgres-persistence-domain-separation-idea.md`
@@ -42,7 +61,22 @@ domain file.
 - `flarex-db-accepted-design.md`
   - Authoritative review and accepted correction for the unified FlarexDB
     schema, commit compiler, sync engine, Payload adapter, and Medusa boundary.
-    When an older design note conflicts with it, this document controls.
+    When an older general FlarexDB design note conflicts with it, this document
+    controls.
+
+- `flarexdb-native-relational-system.md`
+  - Accepted relation-specific architecture correction. Relationships are a
+    native FlarexDB database capability represented by Standard Application
+    intent, executed through FlarexDB System APIs, proved first by internal test
+    producers, and made ergonomic later by developer APIs. Authoritative row
+    values derive current edge sidecars; Payload and other frameworks adapt to
+    this system rather than defining it.
+
+- `flarexdb-payload-relational-adapter.md`
+  - Accepted Payload adapter boundary over the native FlarexDB relation system.
+    It maps Payload relationships, uploads, joins, request transactions,
+    population, nested/localized fields, and later lifecycle behavior without
+    copying Payload's physical `_rels` model or creating another row authority.
 
 - `postgres-authoritative-sync.md`
   - Accepted v1 Postgres-authoritative sync topology and deferred cache layers.
@@ -55,17 +89,25 @@ domain file.
     runtime with InstantDB-inspired derived edges/indexes, while sharing one
     Flarex-owned data plane with Medusa commerce and Payload-style CMS logic.
     Its mixed app/commerce transaction proposal is historical and is corrected
-    by `flarex-db-accepted-design.md`.
+    by `flarex-db-accepted-design.md`. Its relation vocabulary is further
+    constrained by `flarexdb-native-relational-system.md`.
 - `flarex-internal-db-schema.md`
   - Proposed internal FlarexDB schema direction for platform catalog data,
     typed app/Payload JSON rows, relational sidecars, Medusa reserved system
     tables, commit/OCC metadata, outbox, sync cursors, locks, workflow state,
-    and optional internal read models. Use its accepted-corrections section and
-    `flarex-db-accepted-design.md` for implementation decisions.
+    and optional internal read models. Use its accepted-corrections section,
+    `flarex-db-accepted-design.md`, and the native relational note for
+    implementation decisions.
 - `flarex-developer-backend-api.md`
   - Proposed backend-only developer API for schemas, validators, relations,
     indexes, functions, `ctx.db`, transactions, commerce, CMS, live sync, and
-    query ceilings.
+    query ceilings. Its relation syntax is ergonomic research only; the native
+    System and Standard relation contracts control.
+- `flarex-commerce-cms-sections-blocks.md`
+  - Long-term CMS/commerce and storefront-composition vocabulary. Its relation
+    examples describe desired product ergonomics but do not define the native
+    FlarexDB System API, Standard relation AST, edge storage, or Payload adapter
+    authority.
 - `flarex-runtime-admin-extensions.md`
   - Runtime admin extension architecture for a centralized Flarex dashboard
     with signed manifests, scoped admin context APIs, and sandboxed runtime
