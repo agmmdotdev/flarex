@@ -501,6 +501,33 @@ typed remote errors and result disposal. D3b.ii remains the sole owner of the
 accepted start session and interruption surface; D3b.iii remains the sole owner
 of provider composition.
 
+#### DTE06-D3b.ii implementation receipt
+
+D3b.ii is complete. The protocol now owns one strict, descriptor-safe private
+session ABI for both retained Legacy and Application task generations: start,
+acceptance, monotonic interruption delivery and terminal settlement remain
+separate correlated envelopes. Both genuine Worker definitions expose the same
+RPC session target while preserving their generation-specific request,
+definition and failure contracts. The shared host performs a fresh
+outbound-denied Worker load, establishes explicit RPC-result ownership before
+handoff, returns only after decoding the correlated start acknowledgement, and
+starts one absolute wall deadline at admission. Expiry delivers interruption
+and disposes even when settlement is never observed; later settlement uses only
+the remaining budget. Explicit close stops new calls, drains already-owned RPCs
+before disposal, and reports process-local session loss honestly.
+
+Interruption advances one generation watermark and rejects stale delivery. It
+terminates the Worker-owned await boundary and classifies that terminal path
+separately from user-code failure; it does not claim to preempt arbitrary
+JavaScript that has already been scheduled. Focused protocol, host and genuine
+Miniflare proofs cover both generations, acceptance-before-settlement,
+interruption correlation, stale/foreign rejection, terminal separation,
+blocked input interruption with late payload disposal, unobserved expiry,
+close-versus-RPC draining, fresh-load outbound denial and late RPC-session
+disposal. No provider,
+discovery, composition-root or Task lifecycle write was added. D3b.iii remains
+the sole owner of provider composition.
+
 ### DTE06-D4: Private System-Test Composition
 
 - compose the D3 adapter only in an explicitly private Miniflare/system-test

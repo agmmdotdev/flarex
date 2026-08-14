@@ -23,6 +23,7 @@ import {
   ApplicationTaskWorkerContractV1Error,
   decodeApplicationTaskWorkerRequestV1Effect,
   normalizeApplicationTaskWorkerValueV1,
+  type ApplicationTaskWorkerRequestV1,
   type ApplicationTaskWorkerResultV1,
 } from "flarex-protocol/internal/application-task-worker-v1";
 import {
@@ -30,8 +31,24 @@ import {
   LEGACY_TASK_WORKER_RESULT_VERSION_V1,
   LegacyTaskWorkerContractV1Error,
   decodeLegacyTaskWorkerRequestV1Effect,
+  type LegacyTaskWorkerRequestV1,
   type LegacyTaskWorkerResultV1,
 } from "flarex-protocol/internal/legacy-task-worker-v1";
+import {
+  TASK_WORKER_SESSION_ACCEPTANCE_FORMAT_V1,
+  TASK_WORKER_SESSION_ACCEPTANCE_VERSION_V1,
+  TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
+  TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
+  TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+  TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+  TaskWorkerSessionContractV1Error,
+  decodeTaskWorkerSessionStartRequestV1,
+  decodeTaskWorkerSessionInterruptionRequestV1,
+  taskWorkerSessionIdentitiesEqualV1,
+  type TaskWorkerSessionAcceptanceV1,
+  type TaskWorkerSessionInterruptionAcceptanceV1,
+  type TaskWorkerSessionSettlementV1,
+} from "flarex-protocol/internal/task-worker-session-v1";
 import type {
   ApplicationTaskRuntimeTargetV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
@@ -96,6 +113,7 @@ const PROMISE = Promise;
 const PROMISE_ALL = Promise.all;
 const PROMISE_ALL_SETTLED = Promise.allSettled;
 const PROMISE_REJECT = Promise.reject;
+const PROMISE_RACE = Promise.race;
 const PROMISE_RESOLVE = Promise.resolve;
 const REFLECT = Reflect;
 const REFLECT_APPLY = Reflect.apply;
@@ -188,6 +206,8 @@ export interface ApplicationTaskWorkerExecutionInputV1 {
   readonly capability: unknown;
   readonly definition: ApplicationTaskWorkerDefinitionV1;
   readonly loadExecution: () => Promise<unknown>;
+  readonly admittedRequest?: ApplicationTaskWorkerRequestV1;
+  readonly interruption?: TaskWorkerInterruptionStateV1;
 }
 
 export interface LegacyTaskWorkerDefinitionV1 {
@@ -201,6 +221,23 @@ export interface LegacyTaskWorkerExecutionInputV1 {
   readonly capability: unknown;
   readonly definition: LegacyTaskWorkerDefinitionV1;
   readonly loadExecution: () => Promise<unknown>;
+  readonly admittedRequest?: LegacyTaskWorkerRequestV1;
+  readonly interruption?: TaskWorkerInterruptionStateV1;
+}
+
+interface TaskWorkerInterruptionStateV1 {
+  readonly interrupted: () => boolean;
+  readonly signal: Promise<never>;
+  readonly request: () => void;
+}
+
+export interface TaskWorkerSessionExecutionV1<ResultValue> {
+  readonly acceptance: TaskWorkerSessionAcceptanceV1;
+  readonly requestInterruption: (
+    request: unknown,
+  ) => TaskWorkerSessionInterruptionAcceptanceV1;
+  readonly settlement: () => Promise<TaskWorkerSessionSettlementV1>;
+  readonly terminal: Promise<ResultValue>;
 }
 
 interface TransactionCapability {
@@ -406,26 +443,32 @@ export async function executeApplicationTaskWorkerV1(
 ): Promise<ApplicationTaskWorkerResultV1> {
   let settledFailure: Error | undefined;
   try {
-    admitSingleRun("ApplicationTaskWorkerInvalidRequestV1Error");
-    const request = await decodeTaskRequest(input.request);
+    if (input.admittedRequest === undefined) {
+      admitSingleRun("ApplicationTaskWorkerInvalidRequestV1Error");
+    }
+    const request = input.admittedRequest ?? await decodeTaskRequest(input.request);
     if (
       hex(request.dispatch.applicationTaskRuntimeTargetSha256) !==
         input.definition.runtimeTargetSha256Hex ||
       request.dispatch.computeProfile !== input.definition.manifest.computeProfile
     ) throw namedError("ApplicationTaskWorkerInvalidRequestV1Error", request);
     installRuntimeGlobals(0, new UINT8_ARRAY(32), false);
+    requireTaskNotInterrupted(input.interruption, "ApplicationTaskWorkerTerminalV1Error");
     const capability = taskInputCapability(
       input.capability,
       "ApplicationTaskWorkerInputBoundaryV1Error",
     );
     let rawPayload: unknown;
     try {
-      rawPayload = await invokeCapability(
+      rawPayload = await invokeTaskInputCapability(
         capability.read,
         capability.receiver,
-        [],
+        input.interruption,
       );
     } catch (cause) {
+      if (input.interruption?.interrupted() === true) {
+        throw namedError("ApplicationTaskWorkerTerminalV1Error", cause);
+      }
       throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", cause);
     }
     let payload: ReturnType<typeof normalizeTaskValue>;
@@ -462,6 +505,7 @@ export async function executeApplicationTaskWorkerV1(
     if (payloadIssue !== undefined) {
       throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", payloadIssue);
     }
+    requireTaskNotInterrupted(input.interruption, "ApplicationTaskWorkerTerminalV1Error");
     const handler = await loadTaskHandler(
       input.loadExecution,
       input.definition.handlerExportName,
@@ -469,12 +513,16 @@ export async function executeApplicationTaskWorkerV1(
     );
     let rawResult: unknown;
     try {
-      rawResult = await PROMISE.resolve(REFLECT_APPLY(
-        handler,
-        undefined,
-        [payload.value],
+      const execution = PROMISE.resolve(REFLECT_APPLY(
+        handler, undefined, [payload.value],
       ));
+      rawResult = input.interruption === undefined
+        ? await execution
+        : await PROMISE_RACE.call(PROMISE, [execution, input.interruption.signal]);
     } catch (cause) {
+      if (input.interruption?.interrupted() === true) {
+        throw namedError("ApplicationTaskWorkerTerminalV1Error", cause);
+      }
       throw namedError("ApplicationTaskWorkerUserCodeV1Error", cause);
     }
     const output = normalizeTaskValue(
@@ -492,6 +540,7 @@ export async function executeApplicationTaskWorkerV1(
     if (outputIssue !== undefined) {
       throw namedError("ApplicationTaskWorkerUserCodeV1Error", outputIssue);
     }
+    requireTaskNotInterrupted(input.interruption, "ApplicationTaskWorkerTerminalV1Error");
     return OBJECT_FREEZE({
       format: APPLICATION_TASK_WORKER_RESULT_FORMAT_V1,
       version: APPLICATION_TASK_WORKER_RESULT_VERSION_V1,
@@ -517,31 +566,88 @@ export async function executeApplicationTaskWorkerV1(
   }
 }
 
+export async function startApplicationTaskWorkerSessionV1(
+  input: Omit<ApplicationTaskWorkerExecutionInputV1, "request"> & Readonly<{
+    readonly startRequest: unknown;
+  }>,
+): Promise<TaskWorkerSessionExecutionV1<ApplicationTaskWorkerResultV1>> {
+  let capabilityTransferred = false;
+  try {
+    admitSingleRun("ApplicationTaskWorkerInvalidRequestV1Error");
+    const startRequest = decodeTaskWorkerSessionStartRequestV1(input.startRequest).pipe(
+      Result.mapError(cause => namedError(
+        "ApplicationTaskWorkerInvalidRequestV1Error",
+        cause,
+      )),
+      Result.filterOrFail(
+        (value): value is Extract<typeof value, { readonly generation: "application_v1" }> =>
+          value.generation === "application_v1",
+        value => namedError("ApplicationTaskWorkerInvalidRequestV1Error", value),
+      ),
+      Result.getOrThrow,
+    );
+    const request = startRequest.request;
+    if (
+      hex(request.dispatch.applicationTaskRuntimeTargetSha256) !==
+        input.definition.runtimeTargetSha256Hex ||
+      request.dispatch.computeProfile !== input.definition.manifest.computeProfile
+    ) throw namedError("ApplicationTaskWorkerInvalidRequestV1Error", request);
+    const interruption = makeTaskWorkerInterruptionState(
+      request.dispatch.cancellation.kind === "requested",
+      "ApplicationTaskWorkerTerminalV1Error",
+    );
+    const session = startTaskWorkerSession(
+      "application_v1",
+      startRequest.executionId,
+      request.dispatch.identity,
+      request.dispatch.cancellation.generation,
+      executeApplicationTaskWorkerV1({
+        ...input,
+        request,
+        admittedRequest: request,
+        interruption,
+      }),
+      interruption,
+      "ApplicationTaskWorkerInvalidRequestV1Error",
+    );
+    capabilityTransferred = true;
+    return session;
+  } finally {
+    if (!capabilityTransferred) disposeReceivedCapability(input.capability);
+  }
+}
+
 export async function executeLegacyTaskWorkerV1(
   input: LegacyTaskWorkerExecutionInputV1,
 ): Promise<LegacyTaskWorkerResultV1> {
   let settledFailure: Error | undefined;
   try {
-    admitSingleRun("LegacyTaskWorkerInvalidRequestV1Error");
-    const request = await decodeLegacyTaskRequest(input.request);
+    if (input.admittedRequest === undefined) {
+      admitSingleRun("LegacyTaskWorkerInvalidRequestV1Error");
+    }
+    const request = input.admittedRequest ?? await decodeLegacyTaskRequest(input.request);
     if (
       request.dispatch.taskDefinitionRevisionId !==
         input.definition.taskDefinitionRevisionId ||
       request.dispatch.computeProfile !== input.definition.manifest.computeProfile
     ) throw namedError("LegacyTaskWorkerInvalidRequestV1Error", request);
     installRuntimeGlobals(0, new UINT8_ARRAY(32), false);
+    requireTaskNotInterrupted(input.interruption, "LegacyTaskWorkerTerminalV1Error");
     const capability = taskInputCapability(
       input.capability,
       "LegacyTaskWorkerInputBoundaryV1Error",
     );
     let rawPayload: unknown;
     try {
-      rawPayload = await invokeCapability(
+      rawPayload = await invokeTaskInputCapability(
         capability.read,
         capability.receiver,
-        [],
+        input.interruption,
       );
     } catch (cause) {
+      if (input.interruption?.interrupted() === true) {
+        throw namedError("LegacyTaskWorkerTerminalV1Error", cause);
+      }
       throw namedError("LegacyTaskWorkerInputBoundaryV1Error", cause);
     }
     let payload: ReturnType<typeof normalizeTaskValue>;
@@ -575,6 +681,7 @@ export async function executeLegacyTaskWorkerV1(
     if (payloadIssue !== undefined) {
       throw namedError("LegacyTaskWorkerInputBoundaryV1Error", payloadIssue);
     }
+    requireTaskNotInterrupted(input.interruption, "LegacyTaskWorkerTerminalV1Error");
     const handler = await loadTaskHandler(
       input.loadExecution,
       input.definition.handlerExportName,
@@ -582,12 +689,16 @@ export async function executeLegacyTaskWorkerV1(
     );
     let rawResult: unknown;
     try {
-      rawResult = await PROMISE.resolve(REFLECT_APPLY(
-        handler,
-        undefined,
-        [payload.value],
+      const execution = PROMISE.resolve(REFLECT_APPLY(
+        handler, undefined, [payload.value],
       ));
+      rawResult = input.interruption === undefined
+        ? await execution
+        : await PROMISE_RACE.call(PROMISE, [execution, input.interruption.signal]);
     } catch (cause) {
+      if (input.interruption?.interrupted() === true) {
+        throw namedError("LegacyTaskWorkerTerminalV1Error", cause);
+      }
       throw namedError("LegacyTaskWorkerUserCodeV1Error", cause);
     }
     const output = normalizeTaskValue(
@@ -605,6 +716,7 @@ export async function executeLegacyTaskWorkerV1(
     if (outputIssue !== undefined) {
       throw namedError("LegacyTaskWorkerUserCodeV1Error", outputIssue);
     }
+    requireTaskNotInterrupted(input.interruption, "LegacyTaskWorkerTerminalV1Error");
     return OBJECT_FREEZE({
       format: LEGACY_TASK_WORKER_RESULT_FORMAT_V1,
       version: LEGACY_TASK_WORKER_RESULT_VERSION_V1,
@@ -627,6 +739,202 @@ export async function executeLegacyTaskWorkerV1(
         throw namedError("LegacyTaskWorkerInputBoundaryV1Error", cause);
       }
     }
+  }
+}
+
+export async function startLegacyTaskWorkerSessionV1(
+  input: Omit<LegacyTaskWorkerExecutionInputV1, "request"> & Readonly<{
+    readonly startRequest: unknown;
+  }>,
+): Promise<TaskWorkerSessionExecutionV1<LegacyTaskWorkerResultV1>> {
+  let capabilityTransferred = false;
+  try {
+    admitSingleRun("LegacyTaskWorkerInvalidRequestV1Error");
+    const startRequest = decodeTaskWorkerSessionStartRequestV1(input.startRequest).pipe(
+      Result.mapError(cause => namedError("LegacyTaskWorkerInvalidRequestV1Error", cause)),
+      Result.filterOrFail(
+        (value): value is Extract<
+          typeof value,
+          { readonly generation: "legacy_dynamic_worker_v1" }
+        > => value.generation === "legacy_dynamic_worker_v1",
+        value => namedError("LegacyTaskWorkerInvalidRequestV1Error", value),
+      ),
+      Result.getOrThrow,
+    );
+    const request = startRequest.request;
+    if (
+      request.dispatch.taskDefinitionRevisionId !==
+        input.definition.taskDefinitionRevisionId ||
+      request.dispatch.computeProfile !== input.definition.manifest.computeProfile
+    ) throw namedError("LegacyTaskWorkerInvalidRequestV1Error", request);
+    const interruption = makeTaskWorkerInterruptionState(
+      request.dispatch.cancellation.kind === "requested",
+      "LegacyTaskWorkerTerminalV1Error",
+    );
+    const session = startTaskWorkerSession(
+      "legacy_dynamic_worker_v1",
+      startRequest.executionId,
+      request.dispatch.identity,
+      request.dispatch.cancellation.generation,
+      executeLegacyTaskWorkerV1({
+        ...input,
+        request,
+        admittedRequest: request,
+        interruption,
+      }),
+      interruption,
+      "LegacyTaskWorkerInvalidRequestV1Error",
+    );
+    capabilityTransferred = true;
+    return session;
+  } finally {
+    if (!capabilityTransferred) disposeReceivedCapability(input.capability);
+  }
+}
+
+function startTaskWorkerSession<ResultValue>(
+  generation: "legacy_dynamic_worker_v1" | "application_v1",
+  executionId: string,
+  identity: ApplicationTaskWorkerResultV1["identity"],
+  initialCancellationGeneration: bigint,
+  terminal: Promise<ResultValue>,
+  interruption: TaskWorkerInterruptionStateV1,
+  errorName: string,
+): TaskWorkerSessionExecutionV1<ResultValue> {
+  let acceptedCancellationGeneration = initialCancellationGeneration;
+  let settled = false;
+  terminal.then(
+    () => { settled = true; },
+    () => { settled = true; },
+  );
+  terminal.catch(() => undefined);
+  const acceptance = OBJECT_FREEZE({
+    format: TASK_WORKER_SESSION_ACCEPTANCE_FORMAT_V1,
+    version: TASK_WORKER_SESSION_ACCEPTANCE_VERSION_V1,
+    kind: "accepted" as const,
+    generation,
+    identity,
+    executionId,
+    cancellationGeneration: initialCancellationGeneration,
+  });
+  const requestInterruption = (
+    input: unknown,
+  ): TaskWorkerSessionInterruptionAcceptanceV1 => {
+    if (settled) {
+      throw namedError(
+        "TaskWorkerSessionLostV1Error",
+        new ERROR("Task Worker session is already settled."),
+      );
+    }
+    const decoded = decodeTaskWorkerSessionInterruptionRequestV1(input);
+    if (Result.isFailure(decoded)) {
+      throw namedError(errorName, decoded.failure);
+    }
+    const request = decoded.success;
+    if (request.cancellationGeneration < acceptedCancellationGeneration) {
+      throw namedError(
+        "TaskWorkerSessionStaleCancellationV1Error",
+        new TaskWorkerSessionContractV1Error({
+          boundary: "interruption",
+          reason: "stale_generation",
+        }),
+      );
+    }
+    if (
+      request.generation !== generation || request.executionId !== executionId ||
+      !taskWorkerSessionIdentitiesEqualV1(request.identity, identity)
+    ) throw namedError(errorName, new TaskWorkerSessionContractV1Error({
+      boundary: "interruption",
+      reason: "identity_mismatch",
+    }));
+    if (request.cancellationGeneration > acceptedCancellationGeneration) {
+      acceptedCancellationGeneration = request.cancellationGeneration;
+      interruption.request();
+    }
+    return OBJECT_FREEZE({
+      format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
+      version: TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
+      kind: "interruption_requested" as const,
+      generation,
+      identity,
+      executionId,
+      cancellationGeneration: acceptedCancellationGeneration,
+    });
+  };
+  const settlement = (): Promise<TaskWorkerSessionSettlementV1> => terminal.then(() =>
+    OBJECT_FREEZE({
+      format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+      version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+      kind: "settled" as const,
+      generation,
+      identity,
+      executionId,
+    })
+  );
+  return OBJECT_FREEZE({ acceptance, requestInterruption, settlement, terminal });
+}
+
+function makeTaskWorkerInterruptionState(
+  initiallyInterrupted: boolean,
+  errorName: string,
+): TaskWorkerInterruptionStateV1 {
+  let interrupted = initiallyInterrupted;
+  let rejectSignal!: (cause: unknown) => void;
+  const signal = new PROMISE<never>((_resolve, reject) => { rejectSignal = reject; });
+  signal.catch(() => undefined);
+  if (initiallyInterrupted) {
+    rejectSignal(namedError(errorName, new ERROR("Task interruption was requested.")));
+  }
+  return OBJECT_FREEZE({
+    interrupted: () => interrupted,
+    signal,
+    request: () => {
+      if (interrupted) return;
+      interrupted = true;
+      rejectSignal(namedError(errorName, new ERROR("Task interruption was requested.")));
+    },
+  });
+}
+
+function invokeTaskInputCapability(
+  call: (...args: never[]) => unknown,
+  receiver: object,
+  interruption: TaskWorkerInterruptionStateV1 | undefined,
+): Promise<unknown> {
+  const pending = invokeCapability(call, receiver, []);
+  if (interruption === undefined) return pending;
+  return new PROMISE((resolve, reject) => {
+    let settled = false;
+    pending.then(value => {
+      if (settled) {
+        try {
+          disposeReceivedCapability(value);
+        } catch {
+          // No live execution remains to observe late-result cleanup failure.
+        }
+        return;
+      }
+      settled = true;
+      resolve(value);
+    }, cause => {
+      if (settled) return;
+      settled = true;
+      reject(cause);
+    });
+    interruption.signal.then(undefined, cause => {
+      if (settled) return;
+      settled = true;
+      reject(cause);
+    });
+  });
+}
+
+function requireTaskNotInterrupted(
+  state: TaskWorkerInterruptionStateV1 | undefined,
+  errorName: string,
+): void {
+  if (state?.interrupted() === true) {
+    throw namedError(errorName, new ERROR("Task interruption was requested."));
   }
 }
 

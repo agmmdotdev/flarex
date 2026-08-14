@@ -56,6 +56,28 @@ afterEach(async () => {
 });
 
 describe("Legacy task Worker definition", () => {
+  it("returns a correlated session acceptance before interruption settlement", async () => {
+    const fixture = await legacyFixture(
+      "export async function run() { await new Promise(() => {}); }",
+    );
+    const definition = await buildDefinition(fixture.subject);
+    const receipt = await executeSessionDefinition(definition, requestFor(definition));
+    expect(receipt).toMatchObject({
+      acceptance: {
+        kind: "accepted",
+        generation: "legacy_dynamic_worker_v1",
+        executionId: "execution-1",
+        cancellationGeneration: { __bigint: "0" },
+      },
+      interruption: {
+        kind: "interruption_requested",
+        cancellationGeneration: { __bigint: "1" },
+      },
+      settlementName: "LegacyTaskWorkerTerminalV1Error",
+      payloadDisposals: 1,
+    });
+  }, 20_000);
+
   it("executes canonical Legacy runtime objects without Application authority", async () => {
     const fixture = await legacyFixture([
       "export function run(payload) {",
@@ -460,6 +482,72 @@ export default { async fetch(_request, env) {
   const text = await response.text();
   if (!response.ok) throw new Error(`Legacy Worker failed: ${text}`);
   return JSON.parse(text);
+}
+
+async function executeSessionDefinition(
+  definition: LegacyTaskWorkerDefinition,
+  request: unknown,
+): Promise<unknown> {
+  const encoded = JSON.stringify(request, (_key, value: unknown) =>
+    typeof value === "bigint" ? { __bigint: String(value) } : value
+  );
+  const outerSource = `
+import { RpcTarget } from "cloudflare:workers";
+const code = ${JSON.stringify({
+    compatibilityDate: definition.compatibilityDate,
+    compatibilityFlags: definition.compatibilityFlags,
+    limits: definition.limits,
+    mainModule: definition.mainModule,
+    modules: definition.modules,
+    env: definition.env,
+    globalOutbound: null,
+  })};
+const request = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+globalThis.payloadDisposals = 0;
+class Payload extends RpcTarget {
+  [Symbol.dispose]() { globalThis.payloadDisposals += 1; }
+}
+class Input extends RpcTarget {
+  async read() { await scheduler.wait(50); return new Payload(); }
+}
+export default { async fetch(_request, env) {
+  const worker = env.LOADER.load(code);
+  const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
+    .start({ format: "flarex.task-worker-session-start", version: 1,
+      generation: "legacy_dynamic_worker_v1", executionId: "execution-1", request },
+      new Input());
+  try {
+    const acceptance = await session.acceptance();
+    await scheduler.wait(10);
+    const interruption = await session.requestInterruption({
+      format: "flarex.task-worker-session-interruption", version: 1,
+      generation: acceptance.generation, identity: acceptance.identity,
+      executionId: acceptance.executionId, cancellationGeneration: 1n,
+    });
+    let settlementName;
+    try { await session.settlement(); }
+    catch (error) { settlementName = error?.name; }
+    await scheduler.wait(75);
+    return new Response(JSON.stringify({ acceptance, interruption, settlementName,
+      payloadDisposals: globalThis.payloadDisposals },
+      (_key, value) => typeof value === "bigint"
+        ? { __bigint: String(value) } : value),
+      { headers: { "content-type": "application/json" } });
+  } finally { session[Symbol.dispose]?.(); }
+} };`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: true,
+    script: outerSource,
+    workerLoaders: { LOADER: {} },
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://legacy-session.test/");
+  const body = await response.json();
+  if (!response.ok) throw new Error(`Legacy session failed: ${JSON.stringify(body)}`);
+  return body;
 }
 
 async function executeDefinitionFailure(

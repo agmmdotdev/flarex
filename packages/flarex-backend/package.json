@@ -27,6 +27,7 @@
     "./internal/application-task-worker-definition": "./src/artifactRuntime/ApplicationTaskWorkerDefinition.ts",
     "./internal/legacy-task-worker-definition": "./src/artifactRuntime/LegacyTaskWorkerDefinition.ts",
     "./internal/legacy-task-execution-host": "./src/artifactRuntime/LegacyTaskExecutionHost.ts",
+    "./internal/task-worker-session-host": "./src/artifactRuntime/TaskWorkerSessionHost.ts",
     "./internal/application-point-mutation-runner": "./src/artifactRuntime/ApplicationPointMutationRunner.ts",
     "./internal/application-action-runner": "./src/artifactRuntime/ApplicationActionRunner.ts",
     "./internal/application-mutation-grant-issuer": "./src/applicationMutationGrantIssuer.ts",

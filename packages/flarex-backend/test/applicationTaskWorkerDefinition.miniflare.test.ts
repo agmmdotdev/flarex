@@ -40,6 +40,44 @@ afterEach(async () => {
 });
 
 describe("Application task Worker definition", () => {
+  it("returns a correlated session acceptance before interruption settlement", async () => {
+    const definition = await buildDefinition(taskFixture(
+      "export async function run() { await new Promise(() => {}); }",
+    ));
+    const receipt = await executeSessionDefinition(
+      definition,
+      requestFor(definition),
+    );
+    expect(receipt).toMatchObject({
+      acceptance: {
+        kind: "accepted",
+        generation: "application_v1",
+        executionId: "execution-1",
+        cancellationGeneration: { __bigint: "0" },
+      },
+      interruption: {
+        kind: "interruption_requested",
+        cancellationGeneration: { __bigint: "1" },
+      },
+      settlementName: "ApplicationTaskWorkerTerminalV1Error",
+      payloadDisposals: 1,
+    });
+  }, 20_000);
+
+  it("disposes the duplicated capability when a second start is rejected", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const definition = await buildDefinition(fixture);
+    const receipt = await executeDuplicateSessionStart(
+      definition,
+      fixture.manifest,
+      requestFor(definition),
+    );
+    expect(receipt).toEqual({
+      disposals: 2,
+      secondName: "ApplicationTaskWorkerInvalidRequestV1Error",
+    });
+  }, 20_000);
+
   it("executes only the selected plain export with deterministic globals", async () => {
     const fixture = taskFixture([
       "const importedNow = Date.now();",
@@ -564,6 +602,75 @@ export default {
   return body;
 }
 
+async function executeSessionDefinition(
+  definition: ApplicationTaskWorkerDefinition,
+  requestValue: unknown,
+): Promise<unknown> {
+  const encoded = JSON.stringify(requestValue, (_key, value: unknown) => {
+    if (typeof value === "bigint") return { __bigint: String(value) };
+    if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+    return value;
+  });
+  const workerCode = {
+    compatibilityDate: definition.compatibilityDate,
+    limits: definition.limits,
+    mainModule: definition.mainModule,
+    modules: definition.modules,
+    env: definition.env,
+    globalOutbound: null,
+  };
+  const outerSource = `
+import { RpcTarget } from "cloudflare:workers";
+const code = ${JSON.stringify(workerCode)};
+const request = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+globalThis.payloadDisposals = 0;
+class Payload extends RpcTarget {
+  [Symbol.dispose]() { globalThis.payloadDisposals += 1; }
+}
+class Input extends RpcTarget {
+  async read() { await scheduler.wait(50); return new Payload(); }
+}
+export default { async fetch(_request, env) {
+  const worker = env.LOADER.load(code);
+  const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
+    .start({ format: "flarex.task-worker-session-start", version: 1,
+      generation: "application_v1", executionId: "execution-1", request }, new Input());
+  try {
+    const acceptance = await session.acceptance();
+    await scheduler.wait(10);
+    const interruption = await session.requestInterruption({
+      format: "flarex.task-worker-session-interruption", version: 1,
+      generation: acceptance.generation, identity: acceptance.identity,
+      executionId: acceptance.executionId, cancellationGeneration: 1n,
+    });
+    let settlementName;
+    try { await session.settlement(); }
+    catch (error) { settlementName = error?.name; }
+    await scheduler.wait(75);
+    return new Response(JSON.stringify({ acceptance, interruption, settlementName,
+      payloadDisposals: globalThis.payloadDisposals },
+      (_key, value) => typeof value === "bigint"
+        ? { __bigint: String(value) } : value),
+      { headers: { "content-type": "application/json" } });
+  } finally { session[Symbol.dispose]?.(); }
+} };`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: true,
+    script: outerSource,
+    workerLoaders: { LOADER: {} },
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://application-session.test/");
+  const body = await response.json();
+  if (!response.ok) throw new Error(`Application session failed: ${JSON.stringify(body)}`);
+  return body;
+}
+
 async function executeDisposalFailure(
   definition: ApplicationTaskWorkerDefinition,
   manifest: unknown,
@@ -624,5 +731,57 @@ export default {
   });
   instances.push(runtime);
   const response = await runtime.dispatchFetch("https://dispose-task.test/");
+  return await response.json();
+}
+
+async function executeDuplicateSessionStart(
+  definition: ApplicationTaskWorkerDefinition,
+  manifest: unknown,
+  requestValue: unknown,
+): Promise<unknown> {
+  const encoded = JSON.stringify(requestValue, (_key, value: unknown) => {
+    if (typeof value === "bigint") return { __bigint: String(value) };
+    if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+    return value;
+  });
+  const source = `
+import { startApplicationTaskWorkerSessionV1 } from "./core.js";
+const request = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+const startRequest = { format: "flarex.task-worker-session-start", version: 1,
+  generation: "application_v1", executionId: "execution-1", request };
+const definition = { handlerExportName: "run",
+  manifest: JSON.parse(${JSON.stringify(JSON.stringify(manifest))}),
+  runtimeTargetSha256Hex: ${JSON.stringify(definition.runtimeTargetSha256Hex)} };
+let disposals = 0;
+const capability = () => ({ read() { return null; },
+  [Symbol.dispose]() { disposals += 1; } });
+const loadExecution = async () => ({ run() { return null; } });
+export default { async fetch() {
+  const first = await startApplicationTaskWorkerSessionV1({
+    startRequest, capability: capability(), definition, loadExecution,
+  });
+  await first.terminal;
+  let secondName;
+  try {
+    await startApplicationTaskWorkerSessionV1({
+      startRequest, capability: capability(), definition, loadExecution,
+    });
+  } catch (error) { secondName = error?.name; }
+  return Response.json({ disposals, secondName });
+} };`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: [{ type: "ESModule", path: "test.js", contents: source }, {
+      type: "ESModule",
+      path: "core.js",
+      contents: APPLICATION_WORKER_CORE_SOURCE,
+    }],
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://duplicate-session.test/");
   return await response.json();
 }
