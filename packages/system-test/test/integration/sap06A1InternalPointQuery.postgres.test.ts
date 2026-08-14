@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createPostgresLocatedApplicationRevisionActivationTargetV1,
   createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/postgres";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import { postgresUrl, withTemporaryPostgresPersistence } from
@@ -53,6 +53,6 @@ describePostgres("SAP06-A1 inline internal point query - PostgreSQL", () => {
         noMutationPublication: true,
       });
       expect(proof.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

@@ -6,20 +6,21 @@
     "src"
   ],
   "exports": {
-    "./internal/edge-action-dispatch-capability-bundle-v1": "./src/edgeActionDispatchCapabilityBundleV1.ts",
+    "./internal/system-test/edge-action-dispatch-capability-bundle-v1": "./src/edgeActionDispatchCapabilityBundleV1.ts",
     "./internal/edge-action-outbound-gateway-v1": "./src/edgeActionOutboundGatewayV1.ts",
     "./internal/edge-action-callback-bridge-v1": "./src/edgeActionCallbackBridgeV1.ts",
     "./internal/edge-action-host-syscall-sequencer-v1": "./src/edgeActionHostSyscallSequencerV1.ts",
-    "./internal/action-admission-system-v1": "./src/actionAdmissionSystemV1.ts",
-    "./internal/system-action-v1": "./src/actionSystemV1.ts",
-    "./internal/system-query-v1": "./src/querySystemV1.ts",
+    "./internal/system-test/action-admission-system-v1": "./src/actionAdmissionSystemV1.ts",
+    "./internal/system-test/system-action-v1": "./src/actionSystemV1.ts",
+    "./internal/system-test/system-query-v1": "./src/querySystemV1.ts",
     "./internal/application-query-system": "./src/ApplicationQuerySystem.ts",
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
     "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
-    "./internal/system-v1": "./src/systemV1.ts",
+    "./internal/system-test/system-v1": "./src/systemV1.ts",
+    "./internal/system-test/legacy-active-revision-reader-v1": "./src/LegacyStandardApplicationActiveRevisionReaderV1.ts",
     "./v1": "./src/v1.ts"
   },
   "scripts": {

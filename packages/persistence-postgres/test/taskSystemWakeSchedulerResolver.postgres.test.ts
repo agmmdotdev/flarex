@@ -106,7 +106,7 @@ describePostgres("DTE05-D fresh Queue scheduler resolution - PostgreSQL", () => 
         runId: MISSED_RUN_ID,
         disposition: "accepted",
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   });
 });
 

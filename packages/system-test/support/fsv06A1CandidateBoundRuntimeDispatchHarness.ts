@@ -12,11 +12,11 @@ import {
   activateApplicationRevisionV1,
   inspectActiveApplicationRevisionSelectionV1,
   readActiveApplicationRevisionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   claimApplicationRevisionRuntimeTargetAuthorityV1,
   type ApplicationRevisionRuntimeTargetAuthorityV1,
-} from "@flarex/persistence-postgres/internal/application-revision-runtime-target-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-runtime-target-v1";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/postgres";
 import {

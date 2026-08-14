@@ -5,18 +5,6 @@ import { Result } from "effect";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import {
-  createLocatedApplicationRevisionRegistrationTargetV1,
-  type LocatedApplicationRevisionRegistrationTargetV1,
-} from "./applicationRevisionRegistrationV1";
-import {
-  createLocatedApplicationRevisionReadinessTargetV1,
-  type LocatedApplicationRevisionReadinessTargetV1,
-} from "./applicationRevisionReadinessV1";
-import {
-  createLocatedApplicationRevisionActivationTargetV1,
-  type LocatedApplicationRevisionActivationTargetV1,
-} from "./applicationRevisionActivationV1";
-import {
   createLocatedApplicationActionAuthorityTargetV1,
   type LocatedApplicationActionAuthorityTargetV1,
 } from "./applicationActionAuthorityV1";
@@ -200,36 +188,6 @@ export function createPGliteTaskComputeDeliveryControlDirectoryTarget(
       persistence.drizzle,
     ),
     deadlineInput,
-  );
-}
-
-export function createPGliteLocatedApplicationRevisionRegistrationTargetV1(
-  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
-  physicalLocator: ScopePhysicalLocator,
-): LocatedApplicationRevisionRegistrationTargetV1 {
-  return createLocatedApplicationRevisionRegistrationTargetV1(
-    persistence.drizzle,
-    physicalLocator,
-  );
-}
-
-export function createPGliteLocatedApplicationRevisionReadinessTargetV1(
-  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
-  physicalLocator: ScopePhysicalLocator,
-): LocatedApplicationRevisionReadinessTargetV1 {
-  return createLocatedApplicationRevisionReadinessTargetV1(
-    persistence.drizzle,
-    physicalLocator,
-  );
-}
-
-export function createPGliteLocatedApplicationRevisionActivationTargetV1(
-  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
-  physicalLocator: ScopePhysicalLocator,
-): LocatedApplicationRevisionActivationTargetV1 {
-  return createLocatedApplicationRevisionActivationTargetV1(
-    persistence.drizzle,
-    physicalLocator,
   );
 }
 

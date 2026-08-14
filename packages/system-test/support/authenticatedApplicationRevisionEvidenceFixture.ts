@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
   makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
@@ -10,7 +10,7 @@ import {
   type DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
   type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1";
 import type {
   PreparedStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";
@@ -39,16 +39,16 @@ import {
   type DeclarativeV2AuthenticatedCommandSelectionV1,
   type DeclarativeV2AuthenticatedCommandStableCommitmentsV1,
   type DeclarativeV2AuthenticatedRegistrationEvidenceV1,
-} from "flarex-backend/internal/declarative-v2-authenticated-command-producer-v1";
+} from "flarex-backend/internal/system-test/declarative-v2-authenticated-command-producer-v1";
 import {
   makeDeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1,
   type DeclarativeV2AuthenticatedApplicationRevisionEvidencePortV1,
-} from "flarex-backend/internal/declarative-v2-authenticated-application-revision-evidence-v1";
+} from "flarex-backend/internal/system-test/declarative-v2-authenticated-application-revision-evidence-v1";
 import {
   makeDeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1,
   type DeclarativeV2AuthenticatedCommandPreparedReservationClaimPortV1,
 } from
-  "flarex-backend/internal/declarative-v2-authenticated-command-reservation-preparation-v1";
+  "flarex-backend/internal/system-test/declarative-v2-authenticated-command-reservation-preparation-v1";
 import {
   DeclarativeV2AuthenticatedReadSessionInputError,
   type DeclarativeV2AuthenticatedByteCursorV1,
@@ -56,16 +56,16 @@ import {
   type DeclarativeV2AuthenticatedReadSessionFactoryV1,
   type DeclarativeV2AuthenticatedReadSessionReceiptV1,
   type DeclarativeV2AuthenticatedReadSessionV1,
-} from "flarex-backend/internal/declarative-v2-authenticated-verifier-read-session-v1";
+} from "flarex-backend/internal/system-test/declarative-v2-authenticated-verifier-read-session-v1";
 import type {
   SemanticArtifactV1FinalizedSourceProof,
   SemanticArtifactV1FinalizedSourceProofFactory,
   SemanticArtifactV1FinalizedSourceProofInput,
-} from "flarex-backend/internal/semantic-artifact-v1-finalized-source-proof";
+} from "flarex-backend/internal/system-test/semantic-artifact-v1-finalized-source-proof";
 
 export type {
   DeclarativeV2AuthenticatedCommandProducerOpenErrorV1,
-} from "flarex-backend/internal/declarative-v2-authenticated-command-producer-v1";
+} from "flarex-backend/internal/system-test/declarative-v2-authenticated-command-producer-v1";
 
 const UTF8 = new TextEncoder();
 const MAXIMUM = 2_000_000;

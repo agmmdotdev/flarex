@@ -7,14 +7,14 @@ import type { EdgeActionHostPolicyFrameV1 } from
   "flarex-protocol/internal/edge-action-host-policy-v1";
 
 import {
-  confirmActiveApplicationOutboundHttpEffectV1,
-  declareActiveApplicationExternalEffectDispatchV1,
-  failActiveApplicationExternalEffectBeforeDispatchV1,
-  markActiveApplicationExternalEffectUncertainV1,
-  prepareActiveApplicationOutboundHttpEffectV1,
-  type ActiveApplicationActionEffectRunnerV1,
-  type ActiveApplicationActionEvidenceLiveV1,
-} from "./actionAdmissionSystemV1";
+  confirmApplicationOutboundHttpEffect as confirmActiveApplicationOutboundHttpEffectV1,
+  declareApplicationExternalEffectDispatch as declareActiveApplicationExternalEffectDispatchV1,
+  failApplicationExternalEffectBeforeDispatch as failActiveApplicationExternalEffectBeforeDispatchV1,
+  markApplicationExternalEffectUncertain as markActiveApplicationExternalEffectUncertainV1,
+  prepareApplicationOutboundHttpEffect as prepareActiveApplicationOutboundHttpEffectV1,
+  type ApplicationActionEffectRunner as ActiveApplicationActionEffectRunnerV1,
+  type ApplicationActionEvidenceLive as ActiveApplicationActionEvidenceLiveV1,
+} from "./ApplicationActionEvidence";
 import type { EdgeActionHostSyscallSequencerV1 } from
   "./edgeActionHostSyscallSequencerV1";
 

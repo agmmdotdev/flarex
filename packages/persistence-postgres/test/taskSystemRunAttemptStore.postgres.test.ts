@@ -172,7 +172,7 @@ describePostgres("DTE04-B/E scope-bound Task System lifecycle store - PostgreSQL
       expect(failure).toBe(expected);
       expect(await runVersion(persistence, scopeId)).toBe(before);
       expect(await counts(persistence)).toEqual({ attempts: 1, effects: 8 });
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 
   it("orders terminal completion before a blocked heartbeat and returns the current terminal state", async () => {
@@ -496,7 +496,7 @@ async function withLifecycleFixture(
       store,
       layer: createLifecycleLayer(store),
     }));
-  });
+  }, { historicalApplicationAnalysis: true });
 }
 
 function shortLeaseReadyAggregate(): TaskRunAttemptAggregateV1 {

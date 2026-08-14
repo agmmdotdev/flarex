@@ -5,14 +5,14 @@ import * as persistenceRoot from "@flarex/persistence-postgres";
 import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   FSV05_SUPPORTED_LOCATOR,
 } from "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
   provePqvA1ApplicationPointQuerySnapshotV1,
 } from "../../support/pqvA1ApplicationPointQuerySnapshotHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("PQV-A1 target-native query snapshot - PGlite", () => {
   it("pins one active snapshot and exposes only bounded point reads", async () => {

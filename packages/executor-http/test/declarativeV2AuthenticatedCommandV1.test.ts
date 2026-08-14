@@ -1171,7 +1171,7 @@ describe("Declarative V2 authenticated command V1 transport", () => {
       "encodeDeclarativeV2AuthenticatedCommandRequestV1" in root,
     ).toBe(false);
     const internal = await import(
-      "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1"
+      "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1"
     );
     expect(internal.DECLARATIVE_V2_AUTHENTICATED_COMMAND_PROTOCOL_VERSION_V1)
       .toBe(1);

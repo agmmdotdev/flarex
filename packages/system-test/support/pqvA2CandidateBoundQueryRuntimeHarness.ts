@@ -31,17 +31,17 @@ import {
   activateApplicationRevisionV1,
   inspectActiveApplicationRevisionSelectionV1,
   readActiveApplicationRevisionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   inspectApplicationPointQuerySnapshotV1,
   openApplicationPointQuerySnapshotV1,
   readApplicationPointQueryDocumentV1,
   revalidateApplicationPointQuerySnapshotV1,
   type AuthenticatedApplicationPointQuerySnapshotV1,
-} from "@flarex/persistence-postgres/internal/application-point-query-snapshot-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-point-query-snapshot-v1";
 import {
   claimApplicationRevisionQueryRuntimeTargetAuthorityV1,
-} from "@flarex/persistence-postgres/internal/application-revision-query-runtime-target-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-query-runtime-target-v1";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/postgres";
 import {

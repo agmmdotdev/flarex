@@ -507,8 +507,8 @@ describe("Declarative V2 artifact module path V1", () => {
     );
   });
 
-  test("is package-private and uses no path-normalization helper", async () => {
-    const [source, root, internal] = await Promise.all([
+  test("is an explicit internal subpath and uses no path-normalization helper", async () => {
+    const [source, root, packageJson] = await Promise.all([
       readFile(
         resolve(
           PACKAGE_ROOT,
@@ -517,15 +517,13 @@ describe("Declarative V2 artifact module path V1", () => {
         "utf8",
       ),
       readFile(resolve(PACKAGE_ROOT, "src/index.ts"), "utf8"),
-      readFile(
-        resolve(PACKAGE_ROOT, "src/declarativeV2VerifierV1.ts"),
-        "utf8",
-      ),
+      readFile(resolve(PACKAGE_ROOT, "package.json"), "utf8"),
     ]);
     expect(root).not.toContain("declarativeV2ArtifactModulePathV1");
     expect(root).not.toContain("DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1");
-    expect(internal).toContain("DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1");
-    expect(internal).toContain("makeDeclarativeV2ArtifactModulePathFactoryV1");
+    expect(packageJson).toContain(
+      '"./internal/declarative-v2-artifact-module-path-v1"',
+    );
     expect(source).not.toMatch(/\.normalize\s*\(/u);
     expect(source).not.toContain("path.normalize");
     expect(source).not.toContain("TextDecoder");

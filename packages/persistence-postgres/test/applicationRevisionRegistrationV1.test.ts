@@ -66,10 +66,15 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
+import {
+  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
+} from "../src/systemTestApplicationRevisionTargetsV1";
+import {
+  withHistoricalApplicationAnalysisMigrations,
+} from "../src/systemTestHistoricalApplicationAnalysisMigrations";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import {
@@ -220,8 +225,9 @@ describe("inactive application revision registration V1", () => {
 
   it("registers through backend-owned opaque evidence and its exact command receipt", async () => {
     await runEffect(Effect.scoped(Effect.gen(function* () {
-      const persistence = yield* Effect.promise(() => createPGlitePersistence());
-      yield* Effect.promise(() => persistence.migrate());
+      const persistence = yield* Effect.promise(
+        createHistoricalApplicationAnalysisPGlitePersistence,
+      );
       const target =
         createPGliteLocatedApplicationRevisionRegistrationTargetV1(
           persistence,
@@ -881,8 +887,9 @@ function makeTestEvidenceAuthority() {
 
 function registrationFixture(correlate = true) {
   return Effect.gen(function* () {
-    const persistence = yield* Effect.promise(() => createPGlitePersistence());
-    yield* Effect.promise(() => persistence.migrate());
+    const persistence = yield* Effect.promise(
+      createHistoricalApplicationAnalysisPGlitePersistence,
+    );
     const target =
       createPGliteLocatedApplicationRevisionRegistrationTargetV1(
         persistence,
@@ -893,6 +900,14 @@ function registrationFixture(correlate = true) {
       target,
       correlate,
     );
+  });
+}
+
+async function createHistoricalApplicationAnalysisPGlitePersistence() {
+  return withHistoricalApplicationAnalysisMigrations(async migrationsFolder => {
+    const persistence = await createPGlitePersistence({ migrationsFolder });
+    await persistence.migrate();
+    return persistence;
   });
 }
 

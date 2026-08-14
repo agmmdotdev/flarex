@@ -7,14 +7,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   createLocatedApplicationRevisionReadinessTargetV1,
-} from "@flarex/persistence-postgres/internal/application-revision-readiness-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-readiness-v1";
 import { defaultMigrationsFolder } from
   "@flarex/persistence-postgres/internal/system-test/defaultMigrationsFolder";
 import {
   createPostgresPersistence,
+} from "@flarex/persistence-postgres/postgres";
+import {
   createPostgresLocatedApplicationRevisionReadinessTargetV1,
   createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/postgres";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
 } from "@flarex/persistence-postgres/internal/system-test/postgresLocatedReadCommitted";
@@ -29,6 +31,9 @@ import {
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "../support/databaseFixturesV1";
+import {
+  migrationJournalBeforeRetirement,
+} from "../support/historicalApplicationAnalysisMigrations";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const LOCATOR = Object.freeze({
@@ -246,7 +251,7 @@ describePostgres("FSV04 application revision readiness - PostgreSQL", () => {
         coldAuthorityFailures: ["missingGroup", "projectionMismatch"],
       });
       expect(proof.postgresVersion).toContain("PostgreSQL 18.3");
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 240_000);
 });
 
@@ -260,7 +265,9 @@ async function makeMigration0043Fixture(label: string) {
   );
   const journalPath = resolve(migrationsFolder, "meta/_journal.json");
   await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
-  const currentJournal = await readFile(sourceJournalPath, "utf8");
+  const currentJournal = migrationJournalBeforeRetirement(
+    await readFile(sourceJournalPath, "utf8"),
+  );
   const parsed: unknown = JSON.parse(currentJournal);
   if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
     throw new Error("Expected a Drizzle migration journal.");

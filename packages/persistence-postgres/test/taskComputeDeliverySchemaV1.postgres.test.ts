@@ -84,6 +84,6 @@ describePostgres("real PostgreSQL DTE06-C1 compute delivery schema", () => {
           )
       `);
       expect(result.rows).toEqual([{ count: 3 }]);
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

@@ -29,25 +29,27 @@ import {
   invokeApplicationPointQueryV1,
   makeApplicationPointQuerySystemV1Layer,
   type InvokeApplicationPointQueryV1Error,
-} from "@flarex/standard-application-invocation/internal/system-query-v1";
+} from "@flarex/standard-application-invocation/internal/system-test/system-query-v1";
 import {
   LegacyApplicationPointMutationSystemV1,
   invokeLegacyApplicationPointMutationV1,
   makeLegacyApplicationPointMutationSystemV1Layer,
-} from "@flarex/standard-application-invocation/internal/system-v1";
+} from "@flarex/standard-application-invocation/internal/system-test/system-v1";
 import {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+} from "@flarex/standard-application-invocation/v1";
+import {
   makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
   LegacyStandardApplicationActiveRevisionReaderV1,
-} from "@flarex/standard-application-invocation/v1";
+} from "@flarex/standard-application-invocation/internal/system-test/legacy-active-revision-reader-v1";
 import type {
   InvokeLegacyApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/internal/system-v1";
+} from "@flarex/standard-application-invocation/internal/system-test/system-v1";
 import {
   activateApplicationRevisionV1,
   type ActivateApplicationRevisionV1Error,
   type ReadActiveApplicationRevisionV1Error,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   type Fsv06StandardPointMutationLaneV1 as PersistenceStandardApplicationSystemTestLaneV1,
   makeFsv06StandardPointMutationSystemTestCompositionV1,

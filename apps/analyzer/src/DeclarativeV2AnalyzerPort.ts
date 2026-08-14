@@ -20,7 +20,7 @@ import {
   type DeclarativeV2VerifierRestartClaimV1,
   type DeclarativeV2VerifierRestartPageSourceV1,
   type DeclarativeV2VerifierRestartProducerStepV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   encodeDeclarativeV2AuthenticatedCommandRequestV1,
   type DeclarativeV2AuthenticatedCommandAdmittedFrameMetadataV1,
@@ -30,12 +30,12 @@ import {
   type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandIncrementalV1Error,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1";
 import {
   type DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
   type DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
   type DeclarativeV2AuthenticatedCommandRestartInputV1Error,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-restart-input-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-restart-input-v1";
 import {
   bytesEqualFullScan,
   isUint8ArrayWithByteLength,

@@ -4,10 +4,12 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
   createPostgresPersistence,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import {
+  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
+} from "../src/systemTestApplicationRevisionTargetsV1";
 import { runEffect } from "./effectTestRuntime";
 import {
   postgresUrl,

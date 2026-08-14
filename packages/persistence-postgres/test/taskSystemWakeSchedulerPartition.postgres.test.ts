@@ -111,7 +111,7 @@ describePostgres("DTE05-C1 located-scope scheduler composition - PostgreSQL", ()
         attempts: 3,
         effects: 12,
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   });
 });
 

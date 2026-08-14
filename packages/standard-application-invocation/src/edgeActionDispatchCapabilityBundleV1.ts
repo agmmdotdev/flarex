@@ -1,6 +1,6 @@
 import type {
   AuthenticatedActiveApplicationRevisionSelectionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import type {
   DirectActionExecutionSubjectCapabilityV1,
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";

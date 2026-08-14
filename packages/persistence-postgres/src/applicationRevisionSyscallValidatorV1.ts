@@ -6,8 +6,6 @@ import type {
   CatalogSchemaVersionId,
   SchemaManifestAppSchemaV1,
 } from "flarex-protocol/schema-manifest";
-import { decodeCatalogSchemaVersionId } from
-  "flarex-protocol/schema-manifest";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 import {
   APPLICATION_REVISION_SYSCALL_DOCUMENT_VALIDATION_ERROR_MESSAGE_V1,
@@ -31,13 +29,9 @@ import {
   ApplicationRevisionActivationStaleV1Error,
   InvalidActiveApplicationRevisionSelectionV1Error,
   validateActiveApplicationRevisionSelectionInTransactionV1,
-  type AuthenticatedActiveApplicationRevisionSelectionV1,
 } from "./applicationRevisionActivationV1";
-import { claimActiveApplicationRevisionSyscallValidatorBasisV1 } from
-  "./applicationRevisionActiveSelectionStateV1";
 import type { ScopeClockRecord } from "./scopeClock";
 import {
-  activationFencedSyscallValidatorStateV1,
   issueApplicationRevisionSyscallValidatorStateV1,
   readApplicationRevisionSyscallValidatorStateV1,
   revokeApplicationRevisionSyscallValidatorStateV1,
@@ -111,38 +105,6 @@ export type ApplicationRevisionSyscallValidatorV1Error =
   | ApplicationRevisionSyscallValidatorCorruptionV1Error
   | ApplicationRevisionSyscallValidatorIntegrationV1Error
   | ApplicationRevisionSyscallDocumentValidationV1Error;
-
-export const deriveApplicationRevisionSyscallValidatorV1 = Effect.fn(
-  "ApplicationRevisionSyscallValidator.derive",
-)(function* (
-  selection: AuthenticatedActiveApplicationRevisionSelectionV1,
-): Effect.fn.Return<
-  ApplicationRevisionSyscallValidatorV1,
-  InvalidApplicationRevisionSyscallValidatorV1Error,
-  Scope.Scope
-> {
-  const basis = yield* Effect.fromResult(
-    claimActiveApplicationRevisionSyscallValidatorBasisV1(selection),
-  ).pipe(Effect.mapError(() =>
-    new InvalidApplicationRevisionSyscallValidatorV1Error({
-      reason: "notIssued",
-    })
-  ));
-  const state = activationFencedSyscallValidatorStateV1({
-    selection,
-    scopeId: basis.metadata.scopeId,
-    schemaVersionId: decodeCatalogSchemaVersionId(
-      basis.metadata.schemaVersionId,
-    ),
-    schemaManifest: basis.schemaManifest,
-  });
-  return yield* Effect.acquireRelease(
-    Effect.sync(() => issueApplicationRevisionSyscallValidatorStateV1(state)),
-    capability => Effect.sync(() => {
-      revokeApplicationRevisionSyscallValidatorStateV1(capability);
-    }),
-  );
-});
 
 /**
  * Application-generation adapter over the retained journal validator

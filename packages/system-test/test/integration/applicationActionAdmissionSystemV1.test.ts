@@ -4,19 +4,21 @@ import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import {
   activateApplicationRevisionV1,
   readActiveApplicationRevisionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   claimDirectActionExecutionV1,
   declareExternalEffectDispatchV1,
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import {
   claimApplicationRevisionActionRuntimeTargetAuthorityV1,
-} from "@flarex/persistence-postgres/internal/application-revision-action-runtime-target-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-action-runtime-target-v1";
 import {
   createPGliteLocatedApplicationActionAuthorityTargetV1,
+} from "@flarex/persistence-postgres/pglite";
+import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   makeExecutionEvidenceBodyStoreV1,
   type ExecutionEvidenceBodyR2BucketV1,
@@ -28,8 +30,10 @@ import {
 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 
-import { createMigratedPGlitePersistence } from
-  "../support/databaseFixturesV1";
+import {
+  createHistoricalApplicationAnalysisPGlitePersistence as
+    createMigratedPGlitePersistence,
+} from "../support/databaseFixturesV1";
 import { prepareFsv05ReadyRevisionFixtureV1 } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import { makeMemoryRuntimeArtifactStoreV1 } from
@@ -42,7 +46,7 @@ import {
   confirmActiveApplicationOutboundHttpEffectV1,
   prepareActiveApplicationOutboundHttpEffectV1,
 } from
-  "@flarex/standard-application-invocation/internal/action-admission-system-v1";
+  "@flarex/standard-application-invocation/internal/system-test/action-admission-system-v1";
 
 describe("AAV-A1 active action admission composition", () => {
   it("publishes canonical arguments to R2 before exact active-revision admission", async () => {
@@ -208,7 +212,7 @@ describe("AAV-A1 active action admission composition", () => {
       (select count(*)::text
        from fx_system_external_effect_attempt_v1) as effects`);
     expect(rows.rows).toEqual([{
-      body_columns: "0",
+      body_columns: "1",
       effects: "1",
       invocations: "1",
     }]);

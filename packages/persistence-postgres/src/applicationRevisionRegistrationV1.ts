@@ -6,9 +6,6 @@ import {
 import { and, desc, eq } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result, Scope } from "effect";
 import type {
-  AuthenticatedVerifiedStandardApplicationAnalysisV1,
-} from "@flarex/standard-application-analysis/v1";
-import type {
   PreparedStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";
 import {
@@ -76,6 +73,7 @@ import {
   type DeclarativeV2VerifierProgressRepositoryV2Error,
   type DeclarativeV2VerifierProgressSettlementSnapshotV2,
 } from "./declarativeV2VerifierProgressRepositoryV2";
+
 import {
   makeLiveDeclarativeV2Sha256V1,
   type DeclarativeV2Sha256V1Error,
@@ -102,6 +100,7 @@ import {
   fxSystemDeclarativeV2VerifierAttemptsV2,
   fxSystemDeclarativeV2VerifierCommandsV2,
 } from "./schema";
+
 import {
   getPreparedSchemaVersionArtifactEvidenceResult,
   SchemaVersionArtifactPreparationError,
@@ -127,6 +126,15 @@ import {
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
+
+interface LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1 {
+  readonly result: Readonly<{
+    readonly registrationFrames: ReadonlyArray<Uint8Array>;
+    readonly registrationRootSha256: Uint8Array;
+    readonly outputManifestBytes: Uint8Array;
+    readonly nextProgressBytes: Uint8Array;
+  }>;
+}
 
 const REGISTRATION_TARGET_DB: unique symbol = Symbol(
   "FlarexDB/applicationRevisionRegistrationTargetDbV1",
@@ -379,7 +387,7 @@ export interface DurableRegisteredApplicationRevisionV1 {
 
 export interface ApplicationRevisionRegistrationContextV1 {
   readonly register: (
-    verifiedAnalysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+    verifiedAnalysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
     requestKey: unknown,
   ) => Effect.Effect<
     DurableRegisteredApplicationRevisionV1,
@@ -399,7 +407,7 @@ export interface PrivateApplicationRevisionRegistrationContextV1
   >;
   readonly correlateAnalysis: (
     preparation: PrivateApplicationRevisionAnalysisPreparationV1,
-    analysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+    analysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
     authenticatedCommand: unknown,
   ) => Effect.Effect<
     void,
@@ -441,14 +449,14 @@ interface PreparedRegistrationStateV1 {
   readonly artifactSha256: Uint8Array;
   readonly progress: DeclarativeV2VerifierProgressRepositoryV2;
   correlation: "prepared" | "correlating" | "correlated";
-  analysis?: AuthenticatedVerifiedStandardApplicationAnalysisV1;
+  analysis?: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1;
   command?: ApplicationRevisionRegistrationCommandReceiptV1;
   settlement?: DeclarativeV2VerifierProgressSettlementSnapshotV2;
   registrationFramesBytes?: Uint8Array;
 }
 
 interface CorrelatedRegistrationStateV1 extends PreparedRegistrationStateV1 {
-  readonly analysis: AuthenticatedVerifiedStandardApplicationAnalysisV1;
+  readonly analysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1;
   readonly command: ApplicationRevisionRegistrationCommandReceiptV1;
   readonly settlement: DeclarativeV2VerifierProgressSettlementSnapshotV2;
   readonly registrationFramesBytes: Uint8Array;
@@ -462,7 +470,7 @@ export function makeApplicationRevisionRegistrationContextV1(
     PreparedRegistrationStateV1
   >();
   const analyses = new WeakMap<
-    AuthenticatedVerifiedStandardApplicationAnalysisV1,
+    LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
     CorrelatedRegistrationStateV1
   >();
 
@@ -623,7 +631,7 @@ export function makeApplicationRevisionRegistrationContextV1(
     "ApplicationRevisionRegistration.correlateAnalysis",
   )(function* (
     preparation: PrivateApplicationRevisionAnalysisPreparationV1,
-    analysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+    analysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
     authenticatedCommand: unknown,
   ) {
     const state = preparations.get(preparation);
@@ -688,7 +696,7 @@ export function makeApplicationRevisionRegistrationContextV1(
   const register = Effect.fn(
     "ApplicationRevisionRegistration.register",
   )(function* (
-    analysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+    analysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
     rawRequestKey: unknown,
   ): Effect.fn.Return<
     DurableRegisteredApplicationRevisionV1,
@@ -726,7 +734,7 @@ export function makeApplicationRevisionRegistrationContextV1(
 export const registerApplicationRevisionV1 = Effect.fn(
   "ApplicationRevisionRegistration.registerApplicationRevisionV1",
 )(function* (
-  verifiedAnalysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+  verifiedAnalysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
   requestKey: ApplicationRevisionRegistrationRequestKeyV1,
   context: ApplicationRevisionRegistrationContextV1,
 ): Effect.fn.Return<
@@ -1107,7 +1115,7 @@ function requireCommandCorrelation(
 
 function validateTerminalCorrelation(
   state: PreparedRegistrationStateV1,
-  analysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+  analysis: LegacyAuthenticatedVerifiedStandardApplicationAnalysisV1,
   command: ApplicationRevisionRegistrationCommandReceiptV1,
   settlement: DeclarativeV2VerifierProgressSettlementSnapshotV2,
 ): Result.Result<void, ApplicationRevisionRegistrationEvidenceV1Error> {

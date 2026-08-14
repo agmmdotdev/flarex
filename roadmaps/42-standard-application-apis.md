@@ -22,12 +22,14 @@ frame, immutable task-definition runtime binding, separate creation-authority
 receipt, and their canonical SHA-256 operations. The original `./v1` behavior
 is unchanged, and no registration, activation, runtime, persistence, route, or
 public SDK surface is enabled.
-`@flarex/standard-application-analysis/v1` exposes the function-first analysis
-operation over a request-scoped context, and the analyzer app provides the
-first private implementation over the then-accepted static-verifier host.
-`@flarex/standard-application-registration/v1` exposes the narrow inactive
-registration result over the persistence-owned `FSV02` System operation, and
-the private SAP04 consumer now reaches one authoritative point mutation. The
+The former `@flarex/standard-application-analysis/v1` and
+`@flarex/standard-application-registration/v1` surfaces completed SAP02/SAP03
+over the then-accepted static verifier. Application Analysis migration roadmap
+49 has now displaced them from production exports; they remain only behind
+explicit `internal/system-test/legacy-v1` subpaths while the historical proof
+drains. The current unversioned Application Analysis composition owns cold
+analysis and inactive registration. The private SAP04 consumer now reaches
+one authoritative point mutation. The
 second vertical is owned by
 [`44-second-flarexdb-system-api-point-query-vertical.md`](./44-second-flarexdb-system-api-point-query-vertical.md):
 PQV-A1 snapshot authority, PQV-A2 query runtime/ABI, and the private SAP05
@@ -59,15 +61,13 @@ final reviewers reported no findings: one
 route-independent public action composes the existing active reader, AAV-A1,
 AAV-A2, and R2 body ownership without adding a route or another lifecycle.
 
-Roadmap 17 now displaces the static-verifier implementation behind the current
-Standard analysis operation. That operation and its exact registration-
-complete result remain historical compatibility during migration; they must
-not be reinterpreted as the new cold-load result. The accepted Standard target
-stays in the existing `@flarex/standard-application-analysis` package and
-exposes the new `ApplicationManifestV1` plus
-`ApplicationAnalysisReceiptV1` authority only after AA-R2 settles the exact
-export and migration contract. Do not create a version-named replacement
-package or allow both results to authorize one candidate.
+Roadmap 49 completed the replacement of the static-verifier Standard analysis
+operation. Its exact registration-complete result remains historical
+system-test compatibility only and must not be reinterpreted as the current
+cold-load result. The current target stayed in the existing Standard analysis
+package and uses `ApplicationManifestV1` plus
+`ApplicationAnalysisReceiptV1`; no version-named replacement package or dual
+candidate authority was created.
 
 This roadmap owns the stable workspace-internal application-facing APIs that
 sit between:

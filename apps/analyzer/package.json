@@ -3,37 +3,29 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./internal/declarative-v2-analyzer-port-v1": "./src/DeclarativeV2AnalyzerPort.ts",
-    "./internal/declarative-v2-analyzer-restart-plan-v1": "./src/PrivateDeclarativeV2AnalyzerRestartPlan.ts",
-    "./internal/private-application-revision-registration-evidence-v1": "./src/PrivateApplicationRevisionRegistrationEvidence.ts"
+    "./internal/application-analysis-composition": "./src/ApplicationAnalysisComposition.ts",
+    "./internal/system-test/declarative-v2-analyzer-port-v1": "./src/DeclarativeV2AnalyzerPort.ts",
+    "./internal/system-test/declarative-v2-analyzer-restart-plan-v1": "./src/PrivateDeclarativeV2AnalyzerRestartPlan.ts",
+    "./internal/system-test/private-application-revision-registration-evidence-v1": "./src/PrivateApplicationRevisionRegistrationEvidence.ts"
   },
   "scripts": {
     "application-analysis-core:check": "tsx scripts/buildApplicationAnalysisWorkerCore.ts check",
     "application-analysis-core:update": "tsx scripts/buildApplicationAnalysisWorkerCore.ts update",
-    "build": "pnpm typecheck && pnpm application-analysis-core:check && pnpm check:identity",
-    "check:bundle": "tsx scripts/buildIdentity.ts check",
-    "check:identity": "tsx scripts/buildIdentity.ts check",
-    "deploy:dry-run": "pnpm check:identity",
-    "identity:update": "tsx scripts/buildIdentity.ts update",
+    "build": "pnpm typecheck && pnpm application-analysis-core:check",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
-    "@flarex/executor-http": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/standard-application-analysis": "workspace:*",
-    "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
-    "flarex": "workspace:*",
     "flarex-backend": "workspace:*",
     "flarex-protocol": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@flarex/declarative-materializer": "workspace:*",
-    "@flarex/declarative-program": "workspace:*",
     "@types/node": "catalog:",
     "miniflare": "catalog:",
     "tsx": "catalog:",

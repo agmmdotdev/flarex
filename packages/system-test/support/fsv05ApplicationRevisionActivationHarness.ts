@@ -28,7 +28,7 @@ import {
 
 import {
   makePrivateApplicationRevisionActivationCoordinatorV1,
-} from "flarex-backend/internal/application-revision-activation-coordinator-v1";
+} from "flarex-backend/internal/system-test/application-revision-activation-coordinator-v1";
 import {
   activateApplicationRevisionV1,
   inspectActiveApplicationRevisionSelectionV1,
@@ -38,11 +38,13 @@ import {
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionActivationV1";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
-  deriveApplicationRevisionSyscallValidatorV1,
   inspectApplicationRevisionSyscallValidatorV1,
   InvalidApplicationRevisionSyscallValidatorV1Error,
   validateApplicationRevisionSyscallDocumentInTransactionV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionSyscallValidatorV1";
+import {
+  deriveApplicationRevisionSyscallValidatorV1,
+} from "@flarex/persistence-postgres/internal/system-test/legacy-application-revision-syscall-validator-v1";
 import {
   settleApplicationRevisionReadinessV1,
 } from "@flarex/persistence-postgres/internal/system-test/applicationRevisionReadinessV1";

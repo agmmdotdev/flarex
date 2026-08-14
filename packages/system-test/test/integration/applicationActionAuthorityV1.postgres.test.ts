@@ -5,9 +5,11 @@ import {
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import {
   createPostgresLocatedApplicationActionAuthorityTargetV1,
+} from "@flarex/persistence-postgres/postgres";
+import {
   createPostgresLocatedApplicationRevisionActivationTargetV1,
   createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/postgres";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { RUN_LOCATED_READ_COMMITTED_V1 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import {
@@ -104,6 +106,6 @@ describePostgres("AAV-A1 application action authority - PostgreSQL", () => {
         storedBodyColumnCount: 0,
       });
       expect(proof.postgresVersion).toContain("PostgreSQL");
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

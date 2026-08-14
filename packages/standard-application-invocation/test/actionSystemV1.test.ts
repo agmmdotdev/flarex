@@ -5,7 +5,7 @@ import {
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import type {
   AuthenticatedActiveApplicationRevisionSelectionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
   EDGE_ACTION_EXACT_RUNTIME_RESULT_FORMAT_V1,

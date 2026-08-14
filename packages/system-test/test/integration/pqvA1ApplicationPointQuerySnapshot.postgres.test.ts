@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createPostgresLocatedApplicationRevisionActivationTargetV1,
   createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/postgres";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   FSV05_SUPPORTED_LOCATOR,
 } from "../../support/fsv05ApplicationRevisionActivationHarness";
@@ -61,6 +61,6 @@ describePostgres("PQV-A1 target-native query snapshot - PostgreSQL", () => {
         cleanupCausePreserved: true,
       });
       expect(proof.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

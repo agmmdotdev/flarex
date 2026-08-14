@@ -5,16 +5,18 @@ import {
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import {
   createPGliteLocatedApplicationActionAuthorityTargetV1,
+} from "@flarex/persistence-postgres/pglite";
+import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { RUN_LOCATED_READ_COMMITTED_V1 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
 import {
   AAV_A1_LOCATOR,
   proveApplicationActionAuthorityV1,
 } from "../../support/applicationActionAuthorityV1Harness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("AAV-A1 application action authority - PGlite", () => {
   it("proves fenced admission, effects, replay, recovery, and R2-only bodies", async () => {

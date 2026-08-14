@@ -4,10 +4,10 @@ import {
   type ApplicationRevisionRegistrationRequestKeyV1,
   type RegisterApplicationRevisionV1Error,
 } from
-  "@flarex/persistence-postgres/application-revision-registration-v1";
+  "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
 import type {
   AuthenticatedVerifiedStandardApplicationAnalysisV1,
-} from "@flarex/standard-application-analysis/v1";
+} from "@flarex/standard-application-analysis/internal/system-test/legacy-v1";
 import { Effect, Scope } from "effect";
 
 export interface RegisteredStandardApplicationRevisionV1 {

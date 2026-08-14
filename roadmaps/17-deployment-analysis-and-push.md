@@ -2982,10 +2982,11 @@ after consuming that same-process scope witness, it performs one exact
 read-only DeploymentDO lookup, revalidates the finalized upload row, and
 recomputes the selector digest without publishing a transferable reference or
 dispatch authority. `R0b0-H` is also complete: the intentional
-`@flarex/analysis/internal/private-analyzer-release-v1` subpath now solely owns
-the cause-free V1 release tuple, canonical handshake wire contract, and
-generated release manifest consumed by the private analyzer host. The package
-root remains unchanged. Full `R0b` remains blocked until a real dispatch gate
+historical `@flarex/analysis/internal/system-test/private-analyzer-release-v1`
+subpath solely retains the cause-free V1 release tuple, canonical handshake
+wire contract, and generated release manifest used by the displaced analyzer
+proof. It is not a production analyzer export. The package root remains
+unchanged. Full `R0b` remains blocked until a real dispatch gate
 owns a trusted backend expected tuple and the analyzer deployment posture is
 explicitly versioned for its eventual source-reader reachability; serialized
 root, selector, request, or release data remains inert meanwhile.

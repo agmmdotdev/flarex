@@ -340,7 +340,7 @@ async function withReadFixture(
 ): Promise<void> {
   await withTemporaryPostgresPersistence(async persistence => {
     await run(await makeReadFixture(persistence));
-  });
+  }, { historicalApplicationAnalysis: true });
 }
 
 async function makeReadFixture(persistence: PostgresFlarexPersistence) {

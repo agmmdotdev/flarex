@@ -1,9 +1,4 @@
-import {
-  readActiveApplicationRevisionV1,
-  type ApplicationRevisionActivationContextV1,
-} from
-  "@flarex/persistence-postgres/internal/application-revision-activation-v1";
-import { Context, Effect, Layer, Scope } from "effect";
+import { Effect, Scope } from "effect";
 import type {
   TransactionFunctionPathV1,
   TransactionRequestKeyV1,
@@ -28,17 +23,6 @@ import {
   type InvokeApplicationActionError,
   type InvokeApplicationActionResult,
 } from "./ApplicationActionSystem";
-
-export interface LegacyStandardApplicationActiveRevisionReaderV1Api {
-  readonly read: ReturnType<typeof makeRead>;
-}
-
-export class LegacyStandardApplicationActiveRevisionReaderV1 extends Context.Service<
-  LegacyStandardApplicationActiveRevisionReaderV1,
-  LegacyStandardApplicationActiveRevisionReaderV1Api
->()(
-  "flarex/standard-application-invocation/LegacyStandardApplicationActiveRevisionReaderV1",
-) {}
 
 export type InvokeStandardApplicationPointMutationV1Error =
   InvokeApplicationMutationError;
@@ -104,23 +88,6 @@ export const invokeStandardApplicationActionV1 = Effect.fn(
 > {
   return yield* invokeApplicationAction(functionRef, args, requestKey);
 });
-
-export function makeLegacyStandardApplicationActiveRevisionReaderV1Layer(
-  context: ApplicationRevisionActivationContextV1,
-): Layer.Layer<LegacyStandardApplicationActiveRevisionReaderV1> {
-  return Layer.succeed(
-    LegacyStandardApplicationActiveRevisionReaderV1,
-    LegacyStandardApplicationActiveRevisionReaderV1.of({
-      read: makeRead(context),
-    }),
-  );
-}
-
-function makeRead(context: ApplicationRevisionActivationContextV1) {
-  return Effect.fn("StandardApplicationActiveRevisionReader.read")(
-    () => readActiveApplicationRevisionV1(context),
-  )();
-}
 
 export {
   type AuthoritativeCommittedApplicationMutationOutcome as

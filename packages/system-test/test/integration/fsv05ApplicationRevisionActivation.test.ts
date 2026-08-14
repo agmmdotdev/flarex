@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   createLocatedApplicationRevisionActivationTargetV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -15,11 +15,14 @@ import {
   FSV05_SUPPORTED_LOCATOR,
   proveFsv05ApplicationRevisionActivationV1,
 } from "../../support/fsv05ApplicationRevisionActivationHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import {
+  createHistoricalApplicationAnalysisPGlitePersistence,
+} from "../support/databaseFixturesV1";
 
 describe("FSV05 application revision activation - PGlite", () => {
   it("atomically activates and coherently reads only ready revisions", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+    const persistence =
+      await createHistoricalApplicationAnalysisPGlitePersistence();
     const proof = await proveFsv05ApplicationRevisionActivationV1({
       name: "pglite",
       persistence,

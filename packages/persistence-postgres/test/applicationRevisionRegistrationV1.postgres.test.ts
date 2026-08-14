@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "../src/postgres";
+} from "../src/systemTestApplicationRevisionTargetsV1";
 import { runEffect } from "./effectTestRuntime";
 import {
   postgresUrl,
@@ -61,7 +61,7 @@ describePostgres("real Postgres inactive application revision registration V1", 
         reason: "authorityChanged",
         path: "candidateAuthority",
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 60_000);
 
   it("registers concurrently, cold-reloads, and replays DB time", async () => {
@@ -207,7 +207,7 @@ describePostgres("real Postgres inactive application revision registration V1", 
         manifests: "1",
         entries: "1",
       }]);
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 60_000);
 
   it("rolls schema, revision, and receipt publication back together", async () => {
@@ -261,7 +261,7 @@ describePostgres("real Postgres inactive application revision registration V1", 
         receipts: "0",
         schemas: "0",
       }]);
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 60_000);
 });
 

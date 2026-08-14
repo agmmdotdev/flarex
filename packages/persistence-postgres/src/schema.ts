@@ -6488,19 +6488,6 @@ export const fxSystemApplicationActionInvocationsV1 = pgTable(
       columns: [table.scopeId],
       foreignColumns: [fxSystemScopeClocks.scopeId],
     }).onDelete("restrict"),
-    foreignKey({
-      name: "fx_action_invocation_v1_revision_fk",
-      columns: [
-        table.scopeId,
-        table.candidateSha256,
-        table.applicationRevisionId,
-      ],
-      foreignColumns: [
-        fxSystemApplicationRevisionsV1.scopeId,
-        fxSystemApplicationRevisionsV1.candidateSha256,
-        fxSystemApplicationRevisionsV1.revisionId,
-      ],
-    }).onDelete("restrict"),
     check(
       "fx_action_invocation_v1_identity_check",
       sql`${nonBlankText(table.scopeId)}
@@ -6871,19 +6858,6 @@ export const fxSystemDurableTaskDefinitionRevisionsV1 = pgTable(
       name: "fx_task_definition_v1_scope_fk",
       columns: [table.scopeId],
       foreignColumns: [fxSystemScopeClocks.scopeId],
-    }).onDelete("restrict"),
-    foreignKey({
-      name: "fx_task_definition_v1_application_revision_fk",
-      columns: [
-        table.scopeId,
-        table.candidateSha256,
-        table.applicationRevisionId,
-      ],
-      foreignColumns: [
-        fxSystemApplicationRevisionsV1.scopeId,
-        fxSystemApplicationRevisionsV1.candidateSha256,
-        fxSystemApplicationRevisionsV1.revisionId,
-      ],
     }).onDelete("restrict"),
     check(
       "fx_task_definition_v1_identity_check",
@@ -7946,19 +7920,10 @@ export const flarexSchema = {
   fxSystemApplicationPublicationsV1,
   fxSystemApplicationReadinessFunctionsV1,
   fxSystemApplicationReadinessV1,
-  fxSystemApplicationRevisionRequestsV1,
   fxSystemApplicationRevisionSchemasV1,
-  fxSystemApplicationRevisionsV1,
   fxSystemApplicationRevisionsV2,
   fxControlApplicationSchemaAuthoritiesV1,
   fxSystemApplicationActionInvocationsV1,
-  fxSystemDeclarativeV2ActivationHeads,
-  fxSystemDeclarativeV2ActivationRevisions,
-  fxSystemDeclarativeV2Candidates,
-  fxSystemDeclarativeV2Verdicts,
-  fxSystemDeclarativeV2VerifierAttemptsV2,
-  fxSystemDeclarativeV2VerifierCommandsV2,
-  fxSystemDeclarativeV2VerifierEvidencePagesV2,
   fxSystemDurableTaskAttemptIdentitiesV1,
   fxSystemDurableTaskComputeCancellationsV1,
   fxSystemDurableTaskComputeDispatchesV1,

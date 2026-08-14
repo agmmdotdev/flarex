@@ -2,7 +2,7 @@ import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
   type DeclarativeV2ArtifactModulePathV1Error,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/declarative-v2-artifact-module-path-v1";
 import {
   bytesEqualFullScan,
   copyBytes,

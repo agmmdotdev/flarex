@@ -69,11 +69,11 @@ import {
   makeLegacyApplicationPointMutationSystemV1Layer,
   LegacyApplicationPointMutationSystemV1,
   type LegacyApplicationPointMutationSystemLiveV1,
-} from "@flarex/standard-application-invocation/internal/system-v1";
+} from "@flarex/standard-application-invocation/internal/system-test/system-v1";
 import {
   makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
   LegacyStandardApplicationActiveRevisionReaderV1,
-} from "@flarex/standard-application-invocation/v1";
+} from "@flarex/standard-application-invocation/internal/system-test/legacy-active-revision-reader-v1";
 import {
   FSV05_SUPPORTED_LOCATOR,
   prepareFsv05ReadyRevisionFixtureV1,

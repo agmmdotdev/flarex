@@ -2,11 +2,11 @@ import type {
   DeclarativeV2AnalyzerCompleteV1,
   DeclarativeV2AnalyzerRestartEvidenceClaimV1,
   DeclarativeV2VerifierRestartProducerStepV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import type {
   DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1,
   DeclarativeV2AuthenticatedCommandRestartInputFactoryV1,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-restart-input-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-restart-input-v1";
 import {
   DeclarativeV2VerifierProgressRepositoryConfirmedRollbackV2Error,
   type AuthenticatedDeclarativeV2CommandBridgeV1,
@@ -18,7 +18,7 @@ import {
   type DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
   type DeclarativeV2VerifierProgressRepositoryPageOperationBudgetV2,
   type DeclarativeV2VerifierProgressSettlementSnapshotV2,
-} from "@flarex/persistence-postgres/internal/authenticated-declarative-v2-command-bridge-v1";
+} from "@flarex/persistence-postgres/internal/system-test/authenticated-declarative-v2-command-bridge-v1";
 /*
  * The import above is deliberately the analyzer app's narrow private
  * persistence surface. It does not expose repository Run/Work/transaction

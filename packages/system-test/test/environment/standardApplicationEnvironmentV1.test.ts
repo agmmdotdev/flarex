@@ -11,11 +11,15 @@ import { standardV1 } from
   "@flarex/standard-application-definition/v1";
 
 import {
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   type PGliteFlarexPersistence,
 } from "@flarex/persistence-postgres/pglite";
-import { createMigratedPGlitePersistence } from
-  "../support/databaseFixturesV1";
+import {
+  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
+import {
+  createHistoricalApplicationAnalysisPGlitePersistence as
+    createMigratedPGlitePersistence,
+} from "../support/databaseFixturesV1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import {

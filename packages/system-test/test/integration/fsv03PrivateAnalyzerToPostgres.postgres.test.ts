@@ -20,10 +20,12 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "@flarex/persistence-postgres/internal/system-test/appRows";
 import {
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   type PostgresFlarexPersistence,
 } from "@flarex/persistence-postgres/postgres";
+import {
+  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
@@ -166,7 +168,7 @@ describePostgres("FSV03 private analyzer-to-Postgres system - PostgreSQL", () =>
           completedRowCount: 8,
         },
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 180_000);
 });
 

@@ -80,26 +80,12 @@ describe("createPGlitePersistence", () => {
       "fx_system_application_publication_v1",
       "fx_system_application_readiness_function_v1",
       "fx_system_application_readiness_v1",
-      "fx_system_application_revision_request_v1",
       "fx_system_application_revision_schema_v1",
-      "fx_system_application_revision_v1",
       "fx_system_application_revision_v2",
       "fx_system_application_task_catalog_v1",
       "fx_system_application_task_definition_v1",
       "fx_system_commit",
       "fx_system_commit_app_row_change",
-      "fx_system_declarative_v2_activation_head",
-      "fx_system_declarative_v2_activation_revision",
-      "fx_system_declarative_v2_candidate",
-      "fx_system_declarative_v2_function_group_entry",
-      "fx_system_declarative_v2_function_group_manifest",
-      "fx_system_declarative_v2_runtime_projection",
-      "fx_system_declarative_v2_runtime_projection_module",
-      "fx_system_declarative_v2_verdict",
-      "fx_system_declarative_v2_verifier_attempt_v2",
-      "fx_system_declarative_v2_verifier_command_authority_v1",
-      "fx_system_declarative_v2_verifier_command_v2",
-      "fx_system_declarative_v2_verifier_evidence_page_v2",
       "fx_system_durable_task_attempt_identity_v1",
       "fx_system_durable_task_compute_cancellation_v1",
       "fx_system_durable_task_compute_dispatch_v1",
@@ -168,7 +154,8 @@ describe("createPGlitePersistence", () => {
     const db = new PGlite();
     try {
       await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
-      const journal = JSON.parse(await readFile(journalPath, "utf8")) as {
+      const currentJournalText = await readFile(journalPath, "utf8");
+      const journal = JSON.parse(currentJournalText) as {
         entries?: Array<{ idx?: number }>;
       };
       if (!Array.isArray(journal.entries)) {
@@ -183,9 +170,10 @@ describe("createPGlitePersistence", () => {
       await seedTaskComputeDeliverySchemaV1(previous, undefined, {
         legacySchema: true,
       });
-      await copyFile(
-        resolve(currentMigrationsFolder, "meta/_journal.json"),
+      await writeFile(
         journalPath,
+        migrationJournalBefore(currentJournalText, 64),
+        "utf8",
       );
       const current = await createPGlitePersistence({ db, migrationsFolder });
       await current.migrate();
@@ -370,7 +358,11 @@ describe("createPGlitePersistence", () => {
         )
       `, [scopeId]);
 
-      await copyFile(currentJournal, copiedJournal);
+      await writeFile(
+        copiedJournal,
+        migrationJournalBefore(await readFile(currentJournal, "utf8"), 64),
+        "utf8",
+      );
       const current = await createPGlitePersistence({ db, migrationsFolder });
       await current.migrate();
       const row = await current.query<{
@@ -1807,7 +1799,11 @@ describe("createPGlitePersistence", () => {
       `);
       expect(before.rows).toEqual([{ count: "0" }]);
 
-      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      await writeFile(
+        copiedJournalPath,
+        migrationJournalBefore(currentJournalText, 64),
+        "utf8",
+      );
       const current = await createPGlitePersistence({
         db,
         migrationsFolder,
@@ -1924,7 +1920,11 @@ describe("createPGlitePersistence", () => {
         `select count(*) from fx_system_declarative_v2_verifier_attempt_v2`,
       )).rejects.toThrow();
 
-      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      await writeFile(
+        copiedJournalPath,
+        migrationJournalBefore(currentJournalText, 64),
+        "utf8",
+      );
       const current = await createPGlitePersistence({
         db,
         migrationsFolder,
@@ -2238,7 +2238,11 @@ describe("createPGlitePersistence", () => {
       );
       expect(previousReceipts.rows).toEqual([{ count: "37" }]);
 
-      await writeFile(copiedJournalPath, currentJournalText, "utf8");
+      await writeFile(
+        copiedJournalPath,
+        migrationJournalBefore(currentJournalText, 64),
+        "utf8",
+      );
       const current = await createPGlitePersistence({
         db,
         migrationsFolder,
@@ -2268,7 +2272,7 @@ describe("createPGlitePersistence", () => {
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
       expect(currentReceipts.rows).toEqual([{
-        count: await currentMigrationReceiptCount(),
+        count: "64",
       }]);
     } finally {
       try {
@@ -2642,7 +2646,11 @@ describe("createPGlitePersistence", () => {
       expect(oldForeignKey.rows[0]?.target).toContain(
         "fx_system_declarative_v2_verifier_attempt",
       );
-      await writeFile(copiedJournalPath, journalText, "utf8");
+      await writeFile(
+        copiedJournalPath,
+        migrationJournalBefore(journalText, 64),
+        "utf8",
+      );
       const realMigration = await readFile(migrationPath, "utf8");
       await writeFile(
         migrationPath,
@@ -2686,7 +2694,7 @@ describe("createPGlitePersistence", () => {
         revision_column: "1",
         attempt_target: "fx_system_declarative_v2_verifier_attempt_v2",
         revision_target: "fx_system_application_revision_v1",
-        receipts: await currentMigrationReceiptCount(),
+        receipts: "64",
       }]);
     } finally {
       try {
@@ -2873,6 +2881,24 @@ describe("createPGlitePersistence", () => {
     }
   }, 30_000);
 });
+
+function migrationJournalBefore(
+  journalText: string,
+  exclusiveIndex: number,
+): string {
+  const parsed: unknown = JSON.parse(journalText);
+  if (!isNonArrayRecord(parsed) || !Array.isArray(parsed.entries)) {
+    throw new Error("Current Drizzle journal is missing its entries array.");
+  }
+  return `${JSON.stringify({
+    ...parsed,
+    entries: parsed.entries.filter(entry =>
+      isNonArrayRecord(entry) &&
+      typeof entry.idx === "number" &&
+      entry.idx < exclusiveIndex
+    ),
+  }, null, 2)}\n`;
+}
 
 async function currentMigrationReceiptCount(): Promise<string> {
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");

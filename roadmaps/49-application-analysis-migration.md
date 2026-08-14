@@ -2,9 +2,10 @@
 
 ## Status And Scope
 
-**Status:** Accepted focused execution plan. The docs-first preflight is
-complete and self-reviewed. Implementation is authorized through `AA-R8` and
-must stop before `AA-R9` production cutover.
+**Status:** `AA-R0` through `AA-R8` are complete. The static-verifier analysis
+system has been replaced, its production exports removed, and its storage
+retired behind a guarded migration. This focused goal is complete and must
+stop before `AA-R9` production cutover.
 
 This plan owns the ordered replacement of the private Declarative V2 static
 verifier with Application Analysis. It coordinates the existing analysis,
@@ -3570,6 +3571,54 @@ write was added. `AA-R8` is now the next authorized gate.
 
 ### `AA-R8` — displaced-system removal and migration stop
 
+#### Removal preflight correction — 2026-08-14
+
+The final removal inventory found one unfinished replacement seam that the
+earlier checkpoint wording treated as implementation. `AA-R6` added the
+unversioned Standard Application Analysis facade, the cold Application Analysis
+host, and the durable Application Analysis repository, but no production module
+composes those three owners. `AA-R7` proved every downstream consumer from
+authoritative Application rows; its fixtures deliberately seeded or settled
+those rows and therefore did not prove that a current caller can run the new
+host and durably settle the first terminal result. The analyzer Worker's default
+fetch surface and the only implemented persistence-backed Standard analysis
+context still execute the displaced Declarative V2 verifier.
+
+Deleting that verifier before closing this seam would leave a producer-less
+replacement. Keeping the old default Worker as an implicit producer would leave
+the migration incomplete. The accepted final gate is therefore split into
+three medium checkpoints without authorizing `AA-R9`:
+
+1. **AA-R8a — private producer composition.** Implement one unversioned,
+   request-owned Standard Application Analysis context that calls the current
+   cold host and the current Application Analysis repository. Admission is
+   scope-authority fenced; exact durable replay returns without another host
+   call; retryable host failure leaves the row pending; analyzed and rejected
+   host outcomes settle through the repository's first-terminal transaction;
+   every root and analyzer-identity field is correlated. The composition is an
+   injected private module only. It adds no route, binding, deployment, caller,
+   fallback, comparison run, or dual write.
+2. **AA-R8b — displaced code and export removal.** Remove the old analyzer
+   default HTTP host, restart/progress/evidence orchestration, Standard V1
+   analysis/registration bridge, verifier-specific backend and executor HTTP
+   transports, and package exports that have no remaining production consumer.
+   Retain only explicitly identified historical persisted-row decoders or
+   legacy drain readers. Canonical Declarative Program and the declarative
+   materializer remain authoring inputs while Standard definition production
+   still imports them; their names are not evidence that the retired analyzer
+   remains active.
+3. **AA-R8c — guarded storage retirement.** Add the next migration after the
+   actual journal head. It must refuse nonempty old verifier, semantic-artifact,
+   revision, or activation state before dropping the complete displaced foreign
+   key graph. PGlite proves refusal and empty retirement; genuine PostgreSQL
+   proves the same migration plus the full Application producer-to-consumer
+   path with zero skips.
+
+This correction is accepted by the requested preflight challenge. It closes a
+real missing composition rather than widening the product: public routing,
+deployment bindings, auth, caller selection, and production cutover remain
+owned by `AA-R9` and are still forbidden here.
+
 After all new consumers and proofs are green:
 
 - remove production imports and package exports for the static verifier,
@@ -3586,6 +3635,39 @@ After all new consumers and proofs are green:
 Completion of `AA-R8` completes this focused goal. Stop there. Do not enable a
 route, Worker binding, production caller, Dynamic V1 retirement, auth support,
 or `AA-R9` cutover.
+
+#### AA-R8 durable status
+
+`AA-R8` is complete. The analyzer app now exports one injected, unversioned
+Application Analysis composition that joins the cold host, Standard context,
+and durable first-terminal repository without adding a route, binding,
+production caller, fallback, comparison run, or dual write. The analyzer
+Worker default surface contains only the current Application Analysis host.
+The displaced verifier/restart/handshake host, generated executable and bounds
+scripts, and production Standard V1 analysis/registration exports are removed.
+The displaced revision-readiness and activation readers, coordinators, command
+bridge/progress adapter, and Legacy Standard systems are reachable only through
+explicit `internal/system-test` subpaths for historical proof; current Standard
+Application query, mutation and action exports use the unversioned Application
+systems and cannot reach the retired relations.
+
+Migration `0064_application_analysis_retirement.sql` is the new journal head.
+The live Drizzle schema excludes all 14 displaced analyzer, revision, verdict,
+projection and activation tables. The migration takes exclusive locks, refuses
+when any retired table is nonempty, drops the two remaining external foreign
+keys explicitly, and drops the graph without `CASCADE`. Historical FSV04/FSV05
+proofs use copied migration journals capped before 0064; current Application
+query, mutation, action and Task proofs use the latest retired schema.
+
+The connected composition proof uses the real post-retirement repository,
+replays retained terminal evidence without a second host call, and publishes
+the retained inactive revision into a canonical runtime target. Current
+consumer proofs run on the retired schema. Historical compatibility proofs use
+an explicit copied migration journal capped before retirement and reach the
+displaced targets only through `internal/system-test` package subpaths.
+
+Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
+production cutover remain unauthorized.
 
 ## Medium Implementation Slices
 
@@ -3619,18 +3701,16 @@ not.
 ## Current Execution Constraints
 
 Application schema authority, readiness, activation history, the active head,
-and issuer-backed selection are now the accepted private authority chain. The
-private Standard query, mutation, and action consumers now select only that
+and issuer-backed selection are the accepted private authority chain. The
+private Standard query, mutation, and action consumers select only that
 Application authority. Application Task registration, active selection, run
 creation, compute preparation and authenticated Source Artifact V2 Worker
 launch are connected through the shared generation-aware Task lifecycle; the
-retained Legacy lane remains explicitly `legacy_only`. AA-R7 now owns only the
-combined private proof and any narrowly missing test composition needed to run
-that proof on both database implementations. Any unrelated durable-task,
-system-test, foundation-roadmap, or script work in the worktree must still be
-protected rather than absorbed. Before the proof or later removal slice, the
-main thread must re-read the current schema/migration head and preserve the
-production-inert boundary.
+retained Legacy task lane remains explicitly `legacy_only`. AA-R8 removed the
+displaced analyzer production surface and retired its storage while preserving
+historical proof behind pre-retirement migration fixtures. Any unrelated
+durable-task, system-test, foundation-roadmap, or script work in the worktree
+remains outside this completed goal.
 
 ## Preflight Review Decision
 

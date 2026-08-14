@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const legacyOperations = vi.hoisted(() => ({ readActive: vi.fn() }));
 
 vi.mock(
-  "@flarex/persistence-postgres/internal/application-revision-activation-v1",
+  "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1",
   async importOriginal => ({
     ...await importOriginal<Readonly<Record<string, unknown>>>(),
     readActiveApplicationRevisionV1: legacyOperations.readActive,

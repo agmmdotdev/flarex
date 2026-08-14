@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 import { proveSap05StandardPointQueryV1 } from
   "../../support/sap05StandardPointQueryHarness";
 

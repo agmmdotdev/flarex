@@ -238,7 +238,7 @@ async function withCreationFixture(
 ): Promise<void> {
   await withTemporaryPostgresPersistence(async persistence => {
     await run(await makeCreationFixture(persistence));
-  });
+  }, { historicalApplicationAnalysis: true });
 }
 
 async function makeCreationFixture(persistence: PostgresFlarexPersistence) {

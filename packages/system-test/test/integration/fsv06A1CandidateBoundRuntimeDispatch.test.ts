@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
   proveFsv06A1CandidateBoundRuntimeDispatchV1,
 } from "../../support/fsv06A1CandidateBoundRuntimeDispatchHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("FSV06-A1 candidate-bound runtime dispatch - PGlite", () => {
   it("derives a scoped exact runtime solely from active evidence and R2", async () => {

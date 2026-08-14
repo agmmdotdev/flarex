@@ -5,7 +5,7 @@ import {
   type ApplicationRevisionRegistrationEvidenceAuthorityV1,
   type PrivateApplicationRevisionAnalysisPreparationV1,
 } from
-  "@flarex/persistence-postgres/application-revision-registration-v1";
+  "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
 import type {
   PreparedStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";

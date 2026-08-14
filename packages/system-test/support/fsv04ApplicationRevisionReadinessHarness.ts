@@ -4,7 +4,7 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 
 import {
   makePrivateApplicationRevisionReadinessCoordinatorV1,
-} from "flarex-backend/internal/application-revision-readiness-coordinator-v1";
+} from "flarex-backend/internal/system-test/application-revision-readiness-coordinator-v1";
 import {
   probeDeclarativeV2ColdMaterializationV1,
 } from "flarex-backend/internal/declarative-v2-cold-materialization-probe-v1";

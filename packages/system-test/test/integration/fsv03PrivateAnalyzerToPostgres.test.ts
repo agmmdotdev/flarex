@@ -20,10 +20,12 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "@flarex/persistence-postgres/internal/system-test/appRows";
 import {
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   type PGliteFlarexPersistence,
 } from "@flarex/persistence-postgres/pglite";
+import {
+  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
@@ -36,7 +38,7 @@ import {
   type Fsv03PrivateAnalyzerToPostgresLaneV1,
   proveFsv03PrivateAnalyzerToPostgresSystemV1,
 } from "../../support/fsv03PrivateAnalyzerToPostgresHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 const physicalLocator = Object.freeze({
   kind: "shared_database",

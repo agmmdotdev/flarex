@@ -36,33 +36,38 @@ import { describe, expect, it } from "vitest";
 
 import {
   claimApplicationRevisionActionRuntimeTargetAuthorityV1,
-} from "@flarex/persistence-postgres/internal/application-revision-action-runtime-target-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-action-runtime-target-v1";
 import {
   activateApplicationRevisionV1,
   readActiveApplicationRevisionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   createPGliteLocatedApplicationActionAuthorityTargetV1,
+} from "@flarex/persistence-postgres/pglite";
+import {
   createPGliteLocatedApplicationRevisionActivationTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   makeLegacyApplicationActionSystemV1Layer,
   invokeLegacyApplicationActionV1,
   type LegacyApplicationActionSystemLiveV1,
-} from "@flarex/standard-application-invocation/internal/system-action-v1";
+} from "@flarex/standard-application-invocation/internal/system-test/system-action-v1";
 import {
   claimActiveApplicationEdgeActionArtifactHostDispatchV1,
 } from
-  "@flarex/standard-application-invocation/internal/edge-action-dispatch-capability-bundle-v1";
+  "@flarex/standard-application-invocation/internal/system-test/edge-action-dispatch-capability-bundle-v1";
 import {
   makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
-} from "@flarex/standard-application-invocation/v1";
+} from "@flarex/standard-application-invocation/internal/system-test/legacy-active-revision-reader-v1";
 import { AAV_A1_LOCATOR } from "../../support/applicationActionAuthorityV1Harness";
 import {
   prepareFsv05ReadyRevisionFixtureV1,
 } from "../../support/fsv05ApplicationRevisionActivationHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import {
+  createHistoricalApplicationAnalysisPGlitePersistence as
+    createMigratedPGlitePersistence,
+} from "../support/databaseFixturesV1";
 import { makeMemoryRuntimeArtifactStoreV1 } from
   "../../support/memoryRuntimeArtifactStoreV1";
 
@@ -344,7 +349,7 @@ describe("Legacy SAP07 Standard public edge action", () => {
       (select count(*)::text
        from fx_system_external_effect_attempt_v1) as effects`);
     expect(rows.rows).toEqual([{
-      body_columns: "0",
+      body_columns: "1",
       effects: "1",
       invocations: "3",
     }]);

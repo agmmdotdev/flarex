@@ -2,7 +2,7 @@ import {
   createDeclarativeV2VerifierEngineV1,
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import { copyBytes } from "@flarex/utils/bytes";
 import { Cause, Effect, Exit, Result } from "effect";
 import {

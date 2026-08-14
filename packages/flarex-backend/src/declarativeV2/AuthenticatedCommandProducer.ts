@@ -2,14 +2,14 @@ import {
   capturePrivateAnalyzerReleaseTupleV1,
   installedPrivateAnalyzerReleaseTupleV1,
   type PrivateAnalyzerReleaseTupleV1,
-} from "@flarex/analysis/internal/private-analyzer-release-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-release-v1";
 import {
   installedPrivateAnalyzerVerifierIdentitiesV1,
-} from "@flarex/analysis/internal/private-analyzer-verification-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-verification-v1";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   captureDeclarativeV2AuthenticatedCommandTransportBudgetV1,
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
@@ -21,7 +21,7 @@ import {
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
   type DeclarativeV2AuthenticatedCommandTransportUsageV1,
   type DeclarativeV2AuthenticatedCommandV1Error,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1";
 import {
   bytesEqualFullScan,
   copyBytes,

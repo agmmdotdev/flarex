@@ -12,6 +12,9 @@ import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import {
+  withHistoricalApplicationAnalysisMigrations,
+} from "../src/systemTestHistoricalApplicationAnalysisMigrations";
 
 export const postgresUrl = trimToNonBlankOrNull(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
@@ -143,6 +146,9 @@ export async function rollbackAndReleasePostgresClient(
 
 export async function withTemporaryPostgresPersistence(
   fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
+  options: Readonly<{
+    readonly historicalApplicationAnalysis?: boolean;
+  }> = {},
 ): Promise<void> {
   const connectionString = requiredPostgresUrl();
   const schemaName = temporaryIdentifier("flarex_test");
@@ -154,14 +160,21 @@ export async function withTemporaryPostgresPersistence(
   try {
     await adminPool.query(`create schema ${quoteIdentifier(schemaName)}`);
     await adminPool.query(`create schema ${quoteIdentifier(migrationsSchema)}`);
-    persistence = await createPostgresPersistence({
-      connectionString,
-      migrationsSchema,
-      poolConfig: {
-        options: `-c search_path=${schemaName}`,
-      },
-    });
-    await persistence.migrate();
+    const create = async (migrationsFolder?: string) => {
+      const current = await createPostgresPersistence({
+        connectionString,
+        migrationsSchema,
+        ...(migrationsFolder === undefined ? {} : { migrationsFolder }),
+        poolConfig: {
+          options: `-c search_path=${schemaName}`,
+        },
+      });
+      await current.migrate();
+      return current;
+    };
+    persistence = options.historicalApplicationAnalysis === true
+      ? await withHistoricalApplicationAnalysisMigrations(create)
+      : await create();
     await fn(persistence);
   } catch (error) {
     primaryError = error;

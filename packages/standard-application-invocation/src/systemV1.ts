@@ -44,11 +44,13 @@ import {
   type AuthenticatedActiveApplicationRevisionSelectionV1,
   type InvalidActiveApplicationRevisionSelectionV1Error,
 } from
-  "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+  "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import { claimApplicationRevisionMutationInternalCallRuntimeTargetAuthorityV1 } from
-  "@flarex/persistence-postgres/internal/application-revision-mutation-internal-call-runtime-target-v1";
+  "@flarex/persistence-postgres/internal/system-test/application-revision-mutation-internal-call-runtime-target-v1";
 import {
   deriveApplicationRevisionSyscallValidatorV1,
+} from "@flarex/persistence-postgres/internal/system-test/legacy-application-revision-syscall-validator-v1";
+import {
   type InvalidApplicationRevisionSyscallValidatorV1Error,
 } from
   "@flarex/persistence-postgres/internal/application-revision-syscall-validator-v1";

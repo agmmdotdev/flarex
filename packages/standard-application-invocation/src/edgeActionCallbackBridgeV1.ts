@@ -13,13 +13,13 @@ import {
 } from "flarex-protocol/value";
 
 import {
-  confirmActiveApplicationChildMutationEffectV1,
-  declareActiveApplicationExternalEffectDispatchV1,
-  failActiveApplicationExternalEffectBeforeDispatchV1,
-  markActiveApplicationExternalEffectUncertainV1,
-  prepareActiveApplicationChildMutationEffectV1,
-  type ActiveApplicationActionEffectRunnerV1,
-} from "./actionAdmissionSystemV1";
+  confirmApplicationChildMutationEffect as confirmActiveApplicationChildMutationEffectV1,
+  declareApplicationExternalEffectDispatch as declareActiveApplicationExternalEffectDispatchV1,
+  failApplicationExternalEffectBeforeDispatch as failActiveApplicationExternalEffectBeforeDispatchV1,
+  markApplicationExternalEffectUncertain as markActiveApplicationExternalEffectUncertainV1,
+  prepareApplicationChildMutationEffect as prepareActiveApplicationChildMutationEffectV1,
+  type ApplicationActionEffectRunner as ActiveApplicationActionEffectRunnerV1,
+} from "./ApplicationActionEvidence";
 import type { EdgeActionHostSyscallSequencerV1 } from
   "./edgeActionHostSyscallSequencerV1";
 

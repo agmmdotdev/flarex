@@ -6,11 +6,13 @@ import {
 } from "flarex-backend/internal/point-mutation-internal-call-exact-runtime-host-v1";
 
 import {
-  createPGliteLocatedApplicationRevisionActivationTargetV1,
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteLocatedScopeAuthorizationEpochTarget,
 } from "@flarex/persistence-postgres/pglite";
+import {
+  createPGliteLocatedApplicationRevisionActivationTargetV1,
+  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
@@ -19,7 +21,7 @@ import {
   proveSap06A2MutationInternalQueryV1,
 } from
   "../../support/fsv06StandardPointMutationHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("SAP06-A2 mutation internal query - PGlite", () => {
   it("reads a staged write inline and publishes only the parent outcome", async () => {

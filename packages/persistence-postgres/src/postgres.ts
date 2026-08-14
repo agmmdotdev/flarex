@@ -4,18 +4,6 @@ import { Pool, type PoolConfig } from "pg";
 
 import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import {
-  createLocatedApplicationRevisionRegistrationTargetV1,
-  type LocatedApplicationRevisionRegistrationTargetV1,
-} from "./applicationRevisionRegistrationV1";
-import {
-  createLocatedApplicationRevisionReadinessTargetV1,
-  type LocatedApplicationRevisionReadinessTargetV1,
-} from "./applicationRevisionReadinessV1";
-import {
-  createLocatedApplicationRevisionActivationTargetV1,
-  type LocatedApplicationRevisionActivationTargetV1,
-} from "./applicationRevisionActivationV1";
-import {
   createLocatedApplicationActionAuthorityTargetV1,
   type LocatedApplicationActionAuthorityTargetV1,
 } from "./applicationActionAuthorityV1";
@@ -160,39 +148,6 @@ export function createPostgresLocatedTaskSystemRunAttemptTargetV1(
   physicalLocator: ScopePhysicalLocator,
 ): LocatedTaskSystemRunAttemptTargetV1 {
   return createLocatedTaskSystemRunAttemptTargetV1(
-    persistence.drizzle,
-    physicalLocator,
-    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
-  );
-}
-
-export function createPostgresLocatedApplicationRevisionRegistrationTargetV1(
-  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
-  physicalLocator: ScopePhysicalLocator,
-): LocatedApplicationRevisionRegistrationTargetV1 {
-  return createLocatedApplicationRevisionRegistrationTargetV1(
-    persistence.drizzle,
-    physicalLocator,
-    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
-  );
-}
-
-export function createPostgresLocatedApplicationRevisionReadinessTargetV1(
-  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
-  physicalLocator: ScopePhysicalLocator,
-): LocatedApplicationRevisionReadinessTargetV1 {
-  return createLocatedApplicationRevisionReadinessTargetV1(
-    persistence.drizzle,
-    physicalLocator,
-    createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),
-  );
-}
-
-export function createPostgresLocatedApplicationRevisionActivationTargetV1(
-  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
-  physicalLocator: ScopePhysicalLocator,
-): LocatedApplicationRevisionActivationTargetV1 {
-  return createLocatedApplicationRevisionActivationTargetV1(
     persistence.drizzle,
     physicalLocator,
     createPostgresLocatedReadCommittedTransactionRunnerV1(persistence.pool),

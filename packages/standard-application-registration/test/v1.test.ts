@@ -1,10 +1,10 @@
 import {
   decodeApplicationRevisionRegistrationRequestKeyV1,
   type ApplicationRevisionRegistrationContextV1,
-} from "@flarex/persistence-postgres/application-revision-registration-v1";
+} from "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
 import type {
   AuthenticatedVerifiedStandardApplicationAnalysisV1,
-} from "@flarex/standard-application-analysis/v1";
+} from "@flarex/standard-application-analysis/internal/system-test/legacy-v1";
 import { Effect, Result } from "effect";
 import type {
   DeclarativeV2VerifierBudgetFrameV2,
@@ -25,7 +25,9 @@ describe("Standard Application registration V1", () => {
     );
     const context: ApplicationRevisionRegistrationContextV1 = Object.freeze({
       register: (
-        actualAnalysis: AuthenticatedVerifiedStandardApplicationAnalysisV1,
+        actualAnalysis: Parameters<
+          ApplicationRevisionRegistrationContextV1["register"]
+        >[0],
         actualRequestKey: unknown,
       ) => {
         expect(actualAnalysis).toBe(analysis);

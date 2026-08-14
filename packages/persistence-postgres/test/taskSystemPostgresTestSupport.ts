@@ -2,9 +2,11 @@ import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 
 import {
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import {
+  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
+} from "../src/systemTestApplicationRevisionTargetsV1";
 import { runEffect } from "./effectTestRuntime";
 import {
   TASK_LOCATOR,

@@ -45,9 +45,9 @@ import {
 } from "flarex-protocol/value";
 
 import {
-  type ActiveApplicationActionEffectRunnerV1,
-  type ActiveApplicationActionEvidenceLiveV1,
-} from "./actionAdmissionSystemV1";
+  type ApplicationActionEffectRunner as ActiveApplicationActionEffectRunnerV1,
+  type ApplicationActionEvidenceLive as ActiveApplicationActionEvidenceLiveV1,
+} from "./ApplicationActionEvidence";
 import {
   makeActiveApplicationEdgeActionCallbackEvidencePortV1,
   makeEdgeActionCallbackBridgeV1,

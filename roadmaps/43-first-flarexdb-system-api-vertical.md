@@ -2,8 +2,9 @@
 
 ## Status And Scope
 
-**Status:** Completed private vertical with an analysis-replacement migration
-open. `FSV00` accepted the documentation boundary, `FSV01` completed `SAP02`
+**Status:** Completed historical private vertical; its Application Analysis
+replacement and full private consumer reproof are complete under roadmap 49.
+`FSV00` accepted the documentation boundary, `FSV01` completed `SAP02`
 through the then-accepted static-verifier analyzer port, and `FSV02` completes
 the first implementation-bearing System operation plus `SAP03`: authenticated,
 durable, idempotent,
@@ -29,14 +30,12 @@ composes those owners into the first private System Application Data operation
 and the thin SAP04 Standard consumer. Production routing remains the separate
 `FSV07` gate.
 
-Roadmap 17 now accepts Application Analysis and displaces the A1b2 static-
-verifier authority used by FSV01-FSV06. The completed vertical remains strong
-evidence for registration, readiness, activation, runtime, executor, OCC,
-commit, and Postgres composition, but it is not evidence that the new analysis
-boundary is implemented. AA-R6 must recompose registration/readiness over
-`ApplicationManifestV1` and `ApplicationAnalysisReceiptV1`; AA-R7 must rerun
-the private PGlite and genuine-PostgreSQL vertical before FSV07 can be
-reconsidered.
+Roadmap 49 displaced the A1b2 static-verifier authority used by FSV01-FSV06.
+AA-R6 recomposed registration/readiness over `ApplicationManifestV1` and
+`ApplicationAnalysisReceiptV1`, and AA-R7 reproved every current Application
+consumer in PGlite and genuine PostgreSQL. This roadmap remains historical
+evidence for the shared runtime, executor, OCC, commit and Postgres owners; it
+is not a production route or authority for the retired analyzer generation.
 
 The challenged contract and consumer migration are governed by
 [`49-application-analysis-migration.md`](./49-application-analysis-migration.md).
@@ -82,17 +81,17 @@ The first vertical is not:
 
 ## Current Truth
 
-Current implementation truth:
+Historical implementation truth for this displaced vertical:
 
 - `SAP01-A` through `SAP01-D` provide and enforce Standard definition
   preparation;
-- A1b2 exposes the completed historical static-verifier semantic factory and
-  private Effect host; Application Analysis is not yet implemented;
-- `SAP02` exposes `analyzeStandardApplicationV1` through the narrow
-  `@flarex/standard-application-analysis/v1` package and preserves the exact
-  accepted registration-complete result;
-- `FSV02` exposes persistence-owned `registerApplicationRevisionV1` and the
-  narrow `@flarex/standard-application-registration/v1` SAP03 wrapper;
+- A1b2 exposed the historical static-verifier semantic factory and private
+  Effect host; those exports are now system-test-only during final drain;
+- `SAP02` exposed `analyzeStandardApplicationV1` through the former narrow
+  Standard analysis V1 surface and preserved the exact registration-complete
+  result;
+- `FSV02` exposed persistence-owned `registerApplicationRevisionV1` and the
+  former narrow Standard registration V1 SAP03 wrapper;
 - the persistence-backed analyzer lane privately prepares candidate and V2
   attempt authority before SAP02, then correlates the exact returned analysis
   object with authenticated definition, artifact, function, validator,

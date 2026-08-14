@@ -42,7 +42,7 @@ import {
   type ActiveApplicationEdgeActionCapabilityBundleLiveV1,
 } from "../src/edgeActionDispatchCapabilityBundleV1";
 import type { AuthenticatedActiveApplicationRevisionSelectionV1 } from
-  "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+  "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   canonicalizeFlarexValueV1,
   normalizeFlarexValueV1,

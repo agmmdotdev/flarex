@@ -8,7 +8,7 @@ import {
   canonicalPrivateAnalyzerHandshakeRequestV1,
   decodePrivateAnalyzerHandshakeResponseV1,
   type PrivateAnalyzerReleaseTupleV1,
-} from "@flarex/analysis/internal/private-analyzer-release-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-release-v1";
 import {
   canonicalPrivateAnalyzerVerificationModuleHeaderV1,
   canonicalPrivateAnalyzerVerificationRequestHeaderV1,
@@ -25,10 +25,10 @@ import {
   type PrivateAnalyzerVerificationModuleHeaderV1,
   type PrivateAnalyzerVerificationRequestHeaderV1,
   type PrivateAnalyzerVerificationResponseHeaderV1,
-} from "@flarex/analysis/internal/private-analyzer-verification-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-verification-v1";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import { Data, Effect, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,

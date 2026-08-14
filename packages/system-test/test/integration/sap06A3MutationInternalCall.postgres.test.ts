@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createPostgresLocatedApplicationRevisionActivationTargetV1,
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresLocatedScopeAuthorizationEpochTarget,
 } from "@flarex/persistence-postgres/postgres";
+import {
+  createPostgresLocatedApplicationRevisionActivationTargetV1,
+  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import { proveSap06A3MutationInternalCallV1 } from
@@ -74,6 +76,6 @@ describePostgres("SAP06-A3 mutation internal calls - PostgreSQL", () => {
         outboxCount: 12,
       });
       expect(proof.postgresVersion).toContain("PostgreSQL 18.3");
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

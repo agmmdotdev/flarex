@@ -7,7 +7,7 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Result } from "effect";
 import type {
   DeclarativeV2ArtifactModulePathHandleV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 
 import type {
   SemanticArtifactV1CommandInput,

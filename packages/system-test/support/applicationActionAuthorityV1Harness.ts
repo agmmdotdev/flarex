@@ -28,12 +28,12 @@ import {
   activateApplicationRevisionV1,
   readActiveApplicationRevisionV1,
   type LocatedApplicationRevisionActivationTargetV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   claimApplicationRevisionActionRuntimeTargetAuthorityV1,
-} from "@flarex/persistence-postgres/internal/application-revision-action-runtime-target-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-action-runtime-target-v1";
 import type { LocatedApplicationRevisionRegistrationTargetV1 } from
-  "@flarex/persistence-postgres/application-revision-registration-v1";
+  "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
 import type { PGliteFlarexPersistence } from "@flarex/persistence-postgres/pglite";
 import type { PostgresFlarexPersistence } from "@flarex/persistence-postgres/postgres";
 import {

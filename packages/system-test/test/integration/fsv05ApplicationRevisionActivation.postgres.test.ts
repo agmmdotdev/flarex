@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   createLocatedApplicationRevisionActivationTargetV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   createPostgresLocatedApplicationRevisionActivationTargetV1,
   createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/postgres";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
 } from "@flarex/persistence-postgres/internal/system-test/postgresLocatedReadCommitted";
@@ -98,6 +98,6 @@ describePostgres("FSV05 application revision activation - PostgreSQL", () => {
       });
       expect(proof.coldReloadRevision).toBe(5n);
       expect(proof.postgresVersion).toContain("PostgreSQL 18.3");
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

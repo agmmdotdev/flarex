@@ -2,7 +2,7 @@ import { Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   DECLARATIVE_V2_APPLICATION_ERROR_ADMISSION_SOURCE_V1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 
 import {
   POINT_MUTATION_EXACT_RUNTIME_CONFIG_MODULE_V1,

@@ -4,7 +4,7 @@ import {
   type AuthenticatedActiveApplicationRevisionSelectionV1,
   type InvalidActiveApplicationRevisionSelectionV1Error,
 } from
-  "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+  "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import {
   openApplicationPointQuerySnapshotV1,
   readApplicationPointQueryDocumentV1,
@@ -15,11 +15,11 @@ import {
   type ReadApplicationPointQueryDocumentV1Error,
   type RevalidateApplicationPointQuerySnapshotV1Error,
 } from
-  "@flarex/persistence-postgres/internal/application-point-query-snapshot-v1";
+  "@flarex/persistence-postgres/internal/system-test/application-point-query-snapshot-v1";
 import {
   claimApplicationRevisionQueryInternalCallRuntimeTargetAuthorityV1,
 } from
-  "@flarex/persistence-postgres/internal/application-revision-query-internal-call-runtime-target-v1";
+  "@flarex/persistence-postgres/internal/system-test/application-revision-query-internal-call-runtime-target-v1";
 import {
   prepareCandidateBoundPointQueryInternalCallRuntimeTargetV1,
   validateCandidateBoundPointQueryInternalCallResultV1,

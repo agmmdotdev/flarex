@@ -4,11 +4,11 @@ import { Cause, Effect, Exit } from "effect";
 import {
   createLocatedApplicationRevisionReadinessTargetV1,
   settleApplicationRevisionReadinessV1,
-} from "@flarex/persistence-postgres/internal/application-revision-readiness-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-readiness-v1";
 import {
   createPGliteLocatedApplicationRevisionReadinessTargetV1,
   createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/pglite";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
@@ -25,7 +25,9 @@ import {
 import {
   makeMemoryRuntimeArtifactStoreV1,
 } from "../../support/memoryRuntimeArtifactStoreV1";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import {
+  createHistoricalApplicationAnalysisPGlitePersistence,
+} from "../support/databaseFixturesV1";
 
 const LOCATOR = Object.freeze({
   kind: "shared_database",
@@ -35,7 +37,8 @@ const LOCATOR = Object.freeze({
 
 describe("FSV04 application revision readiness - PGlite", () => {
   it("settles only complete target-native evidence and remains non-activating", async () => {
-    const persistence = await createMigratedPGlitePersistence();
+    const persistence =
+      await createHistoricalApplicationAnalysisPGlitePersistence();
     const proof = await proveFsv04ApplicationRevisionReadinessV1({
       name: "pglite",
       persistence,
@@ -103,8 +106,10 @@ describe("FSV04 application revision readiness - PGlite", () => {
   }, 240_000);
 
   it("rejects foreign or copied readiness capabilities", async () => {
-    const persistence = await createMigratedPGlitePersistence();
-    const otherPersistence = await createMigratedPGlitePersistence();
+    const persistence =
+      await createHistoricalApplicationAnalysisPGlitePersistence();
+    const otherPersistence =
+      await createHistoricalApplicationAnalysisPGlitePersistence();
     const artifacts = makeMemoryRuntimeArtifactStoreV1();
     const registered = await prepareFsv04RegisteredRevisionFixtureV1({
       name: "pglite",

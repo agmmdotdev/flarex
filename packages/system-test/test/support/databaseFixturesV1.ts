@@ -13,6 +13,10 @@ import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 import { Pool, type PoolConfig } from "pg";
 import { onTestFinished } from "vitest";
 
+import {
+  withHistoricalApplicationAnalysisMigrations,
+} from "./historicalApplicationAnalysisMigrations";
+
 let migratedDataDirPromise: Promise<Blob | File> | undefined;
 
 export const postgresUrl = trimToNonBlankOrNull(
@@ -40,8 +44,35 @@ export async function createMigratedPGlitePersistence(): Promise<
   }
 }
 
+export async function createHistoricalApplicationAnalysisPGlitePersistence(): Promise<
+  PGliteFlarexPersistence
+> {
+  const db = new PGlite();
+  try {
+    const persistence = await withHistoricalApplicationAnalysisMigrations(
+      async migrationsFolder => {
+        const current = await createPGlitePersistence({
+          db,
+          migrationsFolder,
+        });
+        await current.migrate();
+        return current;
+      },
+    );
+    onTestFinished(() => db.close());
+    return persistence;
+  } catch (cause: unknown) {
+    await db.close();
+    throw cause;
+  }
+}
+
 export async function withTemporaryPostgresPersistence(
   run: (persistence: PostgresFlarexPersistence) => Promise<void>,
+  options: Readonly<{
+    readonly migrationsFolder?: string;
+    readonly historicalApplicationAnalysis?: boolean;
+  }> = {},
 ): Promise<void> {
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
@@ -55,12 +86,19 @@ export async function withTemporaryPostgresPersistence(
   try {
     await adminPool.query(`create schema ${quoteIdentifierV1(schemaName)}`);
     await adminPool.query(`create schema ${quoteIdentifierV1(migrationsSchema)}`);
-    persistence = await createPostgresPersistence({
-      connectionString: postgresUrl,
-      migrationsSchema,
-      poolConfig: { options: `-c search_path=${schemaName}` },
-    });
-    await persistence.migrate();
+    const create = async (migrationsFolder: string | undefined) => {
+      const current = await createPostgresPersistence({
+        connectionString: postgresUrl,
+        migrationsSchema,
+        ...(migrationsFolder === undefined ? {} : { migrationsFolder }),
+        poolConfig: { options: `-c search_path=${schemaName}` },
+      });
+      await current.migrate();
+      return current;
+    };
+    persistence = options.historicalApplicationAnalysis === true
+      ? await withHistoricalApplicationAnalysisMigrations(create)
+      : await create(options.migrationsFolder);
     await run(persistence);
   } catch (cause: unknown) {
     primaryCause = cause;

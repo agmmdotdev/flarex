@@ -7,7 +7,7 @@ import type {
 import {
   createPostgresClientDeclarativeV2VerifierProgressRepositoryV2,
 } from
-  "@flarex/persistence-postgres/internal/postgres-client-declarative-v2-verifier-progress-v2";
+  "@flarex/persistence-postgres/internal/system-test/postgres-client-declarative-v2-verifier-progress-v2";
 import * as packageRoot from "../src";
 
 describe("Postgres Client Declarative V2 verifier progress adapter", () => {

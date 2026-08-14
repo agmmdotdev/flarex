@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
   makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
@@ -10,7 +10,7 @@ import {
   type DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
   type DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1";
 import type {
   PreparedStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";

@@ -2,19 +2,19 @@ import { createHash } from "node:crypto";
 
 import {
   installedPrivateAnalyzerReleaseTupleV1,
-} from "@flarex/analysis/internal/private-analyzer-release-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-release-v1";
 import {
   makeDeclarativeV2SemanticStreamBudgetV1,
   type DeclarativeV2AnalyzerCompleteV1,
   type DeclarativeV2AnalyzerRestartEvidenceClaimV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   executePointMutationV1,
   type PointMutationRuntimeContextV1,
 } from "@flarex/function-runtime/point-mutation";
 import {
   analyzeStandardApplicationV1,
-} from "@flarex/standard-application-analysis/v1";
+} from "@flarex/standard-application-analysis/internal/system-test/legacy-v1";
 import {
   prepareStandardApplicationDefinitionV1,
   type PreparedStandardApplicationDefinitionV1,
@@ -65,17 +65,17 @@ import {
 
 import {
   makePrivateApplicationRevisionRegistrationEvidenceBridgeV1,
-} from "@flarex/source-analyzer-v2/internal/private-application-revision-registration-evidence-v1";
+} from "@flarex/source-analyzer-v2/internal/system-test/private-application-revision-registration-evidence-v1";
 import {
   makePrivateDeclarativeV2AnalyzerHostV1,
   PrivateDeclarativeV2AnalyzerHostV1Error,
   type PrivateDeclarativeV2AnalyzerAdmissionV1,
-} from "@flarex/source-analyzer-v2/internal/declarative-v2-analyzer-port-v1";
+} from "@flarex/source-analyzer-v2/internal/system-test/declarative-v2-analyzer-port-v1";
 import {
   loadPrivateDeclarativeV2SettledRestartEvidenceV1,
   persistPrivateDeclarativeV2RestartEvidenceV1,
   settlePrivateDeclarativeV2AnalyzerCommandV1,
-} from "@flarex/source-analyzer-v2/internal/declarative-v2-analyzer-restart-plan-v1";
+} from "@flarex/source-analyzer-v2/internal/system-test/declarative-v2-analyzer-restart-plan-v1";
 import {
   makePointMutationExactRuntimeBindingRunnerV1,
   type PointMutationExactRuntimeArtifactHostBindingV1,
@@ -87,7 +87,7 @@ import {
 } from "./authenticatedApplicationRevisionEvidenceFixture";
 import type {
   DeclarativeV2AuthenticatedCommandProducerV1Error,
-} from "flarex-backend/internal/declarative-v2-authenticated-command-producer-v1";
+} from "flarex-backend/internal/system-test/declarative-v2-authenticated-command-producer-v1";
 import {
   makeApplicationRevisionRegistrationContextV1,
   type DurableRegisteredApplicationRevisionV1,

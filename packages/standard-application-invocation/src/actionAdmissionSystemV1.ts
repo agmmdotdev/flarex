@@ -3,12 +3,7 @@ import { bytesEqualFullScan, copyBytes, isUint8ArrayWithByteLength } from
 import {
   admitDirectActionInvocationV1,
   claimDirectActionExecutionV1,
-  confirmExternalEffectAttemptV1,
-  declareExternalEffectDispatchV1,
-  failExternalEffectBeforeDispatchV1,
   inspectDirectActionInvocationV1,
-  markExternalEffectUncertainV1,
-  prepareExternalEffectAttemptV1,
   recoverExpiredDirectActionExecutionV1,
   revokeDirectActionExecutionSubjectV1,
   settleDirectActionInvocationV1,
@@ -16,15 +11,14 @@ import {
   type ApplicationActionAuthorityV1Error,
   type ApplicationActionInvocationProjectionV1,
   type DirectActionExecutionSubjectCapabilityV1,
-  type ExternalEffectAttemptProjectionV1,
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import {
   claimApplicationRevisionActionRuntimeTargetAuthorityV1,
   type ClaimApplicationRevisionActionRuntimeTargetAuthorityV1Error,
-} from "@flarex/persistence-postgres/internal/application-revision-action-runtime-target-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-action-runtime-target-v1";
 import type {
   AuthenticatedActiveApplicationRevisionSelectionV1,
-} from "@flarex/persistence-postgres/internal/application-revision-activation-v1";
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
 import type {
   ExecutionEvidenceBodyBudgetV1,
   ExecutionEvidenceBodyStoreV1,
@@ -71,6 +65,23 @@ import {
   revokeActiveApplicationEdgeActionSettlementV1,
   type ActiveApplicationEdgeActionSettlementV1,
 } from "./edgeActionSettlementCapabilityV1";
+import type {
+  ApplicationActionEvidenceError as ActiveApplicationActionEvidenceV1Error,
+  ApplicationActionEvidenceLive as ActiveApplicationActionEvidenceLiveV1,
+} from "./ApplicationActionEvidence";
+
+export {
+  confirmApplicationChildMutationEffect as confirmActiveApplicationChildMutationEffectV1,
+  confirmApplicationOutboundHttpEffect as confirmActiveApplicationOutboundHttpEffectV1,
+  declareApplicationExternalEffectDispatch as declareActiveApplicationExternalEffectDispatchV1,
+  failApplicationExternalEffectBeforeDispatch as failActiveApplicationExternalEffectBeforeDispatchV1,
+  markApplicationExternalEffectUncertain as markActiveApplicationExternalEffectUncertainV1,
+  prepareApplicationChildMutationEffect as prepareActiveApplicationChildMutationEffectV1,
+  prepareApplicationOutboundHttpEffect as prepareActiveApplicationOutboundHttpEffectV1,
+  type ApplicationActionEffectRunner as ActiveApplicationActionEffectRunnerV1,
+  type ApplicationActionEvidenceError as ActiveApplicationActionEvidenceV1Error,
+  type ApplicationActionEvidenceLive as ActiveApplicationActionEvidenceLiveV1,
+} from "./ApplicationActionEvidence";
 
 export type { ActiveApplicationEdgeActionSettlementV1 } from
   "./edgeActionSettlementCapabilityV1";
@@ -110,15 +121,6 @@ export type AdmitActiveApplicationActionV1Error<
 export interface AdmittedActiveApplicationActionV1 {
   readonly disposition: "inserted" | "replayed";
   readonly invocation: ApplicationActionInvocationProjectionV1;
-}
-
-export interface ActiveApplicationActionEvidenceLiveV1<
-  HashError,
-  CanonicalError,
-> {
-  readonly bodyStore: ExecutionEvidenceBodyStoreV1<HashError, CanonicalError>;
-  readonly bodyBudget: ExecutionEvidenceBodyBudgetV1;
-  readonly authority: ApplicationActionAuthorityContextV1<HashError>;
 }
 
 /** Reads the existing request-key owner without selecting a new revision. */
@@ -175,10 +177,6 @@ export const isActiveApplicationActionInvocationTargetCurrentV1 = Effect.fn(
     bytesEqualFullScan(invocation.hostPolicySha256, hostPolicySha256);
 });
 
-export interface ActiveApplicationActionEffectRunnerV1 {
-  readonly runPromise: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
-}
-
 export interface PrepareActiveApplicationEdgeActionDispatchV1Input {
   readonly selection: AuthenticatedActiveApplicationRevisionSelectionV1;
   readonly requestKey: string;
@@ -218,10 +216,6 @@ export type PrepareActiveApplicationEdgeActionDispatchV1Error<
   | ExecutionEvidenceBodyStoreV1Error<HashError, CanonicalError>
   | EdgeActionExactRuntimeProtocolV1Error
   | ActiveApplicationEdgeActionDispatchV1Error;
-
-export type ActiveApplicationActionEvidenceV1Error<HashError, CanonicalError> =
-  | ExecutionEvidenceBodyStoreV1Error<HashError, CanonicalError>
-  | ApplicationActionAuthorityV1Error<HashError>;
 
 export class InvalidActiveApplicationEdgeActionSettlementV1Error
   extends Data.TaggedError(
@@ -435,161 +429,6 @@ export const admitActiveApplicationActionV1 = Effect.fn(
       authority: target.scopeAuthority,
     },
   );
-});
-
-/**
- * Publishes and cold-verifies the exact canonical HTTP request in R2 before
- * the short effect-attempt transaction can reference it.
- */
-export const prepareActiveApplicationOutboundHttpEffectV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.prepareOutboundHttpV1",
-)(function* <HashError, CanonicalError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  input: Readonly<{
-    readonly stableEffectKey: string;
-    readonly canonicalRequestBytes: Uint8Array;
-  }>,
-  live: ActiveApplicationActionEvidenceLiveV1<HashError, CanonicalError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ActiveApplicationActionEvidenceV1Error<HashError, CanonicalError>
-> {
-  const bytes = copyBytes(input.canonicalRequestBytes);
-  const request = yield* live.bodyStore.putImmutable(
-    "outbound_http_request",
-    bytes,
-    live.bodyBudget,
-  );
-  const requestIdentitySha256 = yield* live.authority.sha256.hash(bytes);
-  return yield* prepareExternalEffectAttemptV1(subject, {
-    effectKind: "outbound_http",
-    stableEffectKey: input.stableEffectKey,
-    requestIdentitySha256,
-    request,
-  }, live.authority);
-});
-
-/** Publishes a verified canonical response before recording confirmation. */
-export const confirmActiveApplicationOutboundHttpEffectV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.confirmOutboundHttpV1",
-)(function* <HashError, CanonicalError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  effectOrdinal: bigint,
-  canonicalResponseBytes: Uint8Array,
-  live: ActiveApplicationActionEvidenceLiveV1<HashError, CanonicalError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ActiveApplicationActionEvidenceV1Error<HashError, CanonicalError>
-> {
-  const response = yield* live.bodyStore.putImmutable(
-    "outbound_http_response",
-    copyBytes(canonicalResponseBytes),
-    live.bodyBudget,
-  );
-  return yield* confirmExternalEffectAttemptV1(subject, effectOrdinal, {
-    effectKind: "outbound_http",
-    response,
-  }, live.authority);
-});
-
-export const declareActiveApplicationExternalEffectDispatchV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.declareExternalEffectDispatchV1",
-)(function* <HashError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  effectOrdinal: bigint,
-  authority: ApplicationActionAuthorityContextV1<HashError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ApplicationActionAuthorityV1Error<HashError>
-> {
-  return yield* declareExternalEffectDispatchV1(
-    subject,
-    effectOrdinal,
-    authority,
-  );
-});
-
-export const failActiveApplicationExternalEffectBeforeDispatchV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.failExternalEffectBeforeDispatchV1",
-)(function* <HashError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  effectOrdinal: bigint,
-  terminalCode: string,
-  authority: ApplicationActionAuthorityContextV1<HashError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ApplicationActionAuthorityV1Error<HashError>
-> {
-  return yield* failExternalEffectBeforeDispatchV1(
-    subject,
-    effectOrdinal,
-    terminalCode,
-    authority,
-  );
-});
-
-export const markActiveApplicationExternalEffectUncertainV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.markExternalEffectUncertainV1",
-)(function* <HashError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  effectOrdinal: bigint,
-  terminalCode: string,
-  authority: ApplicationActionAuthorityContextV1<HashError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ApplicationActionAuthorityV1Error<HashError>
-> {
-  return yield* markExternalEffectUncertainV1(
-    subject,
-    effectOrdinal,
-    terminalCode,
-    authority,
-  );
-});
-
-export const prepareActiveApplicationChildMutationEffectV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.prepareChildMutationV1",
-)(function* <HashError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  input: Readonly<{
-    readonly stableEffectKey: string;
-    readonly requestIdentitySha256: Uint8Array;
-    readonly childMutationRequestKey: string;
-    readonly childMutationFunctionPath: string;
-    readonly childMutationArgumentsSha256: Uint8Array;
-  }>,
-  authority: ApplicationActionAuthorityContextV1<HashError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ApplicationActionAuthorityV1Error<HashError>
-> {
-  return yield* prepareExternalEffectAttemptV1(subject, {
-    effectKind: "child_mutation",
-    stableEffectKey: input.stableEffectKey,
-    requestIdentitySha256: copyBytes(input.requestIdentitySha256),
-    childMutationRequestKey: input.childMutationRequestKey,
-    childMutationFunctionPath: input.childMutationFunctionPath,
-    childMutationArgumentsSha256: copyBytes(
-      input.childMutationArgumentsSha256,
-    ),
-  }, authority);
-});
-
-export const confirmActiveApplicationChildMutationEffectV1 = Effect.fn(
-  "ActiveApplicationActionEvidence.confirmChildMutationV1",
-)(function* <HashError>(
-  subject: DirectActionExecutionSubjectCapabilityV1,
-  effectOrdinal: bigint,
-  childMutationOutcomeSha256: Uint8Array,
-  authority: ApplicationActionAuthorityContextV1<HashError>,
-): Effect.fn.Return<
-  ExternalEffectAttemptProjectionV1,
-  ApplicationActionAuthorityV1Error<HashError>
-> {
-  return yield* confirmExternalEffectAttemptV1(subject, effectOrdinal, {
-    effectKind: "child_mutation",
-    childMutationOutcomeSha256: copyBytes(childMutationOutcomeSha256),
-  }, authority);
 });
 
 /** Publishes a canonical validated result before terminal completion. */

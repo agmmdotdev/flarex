@@ -12,21 +12,16 @@
     "./internal/application-import-policy-v1": "./src/applicationImportPolicyV1.ts",
     "./internal/application-analysis-module-path-policy": "./src/applicationAnalysisModulePathPolicy.ts",
     "./internal/canonical-declarative-program-v1": "./src/canonicalDeclarativeProgramV1.ts",
-    "./internal/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
-    "./internal/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts",
-    "./internal/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
-    "./internal/private-sha256-v1": "./src/privateSha256V1.ts"
+    "./internal/declarative-v2-artifact-module-path-v1": "./src/declarativeV2ArtifactModulePathV1.ts",
+    "./internal/private-sha256-v1": "./src/privateSha256V1.ts",
+    "./internal/system-test/declarative-v2-verifier-v1": "./src/declarativeV2VerifierV1.ts",
+    "./internal/system-test/private-analyzer-release-v1": "./src/privateAnalyzerReleaseV1.ts",
+    "./internal/system-test/private-analyzer-verification-v1": "./src/privateAnalyzerVerificationV1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check:declarative-v2-verifier-bounds": "tsx scripts/declarativeV2VerifierBoundsV1.ts check",
-    "check:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts check",
-    "check:declarative-v2-verifier-executable": "tsx scripts/declarativeV2VerifierExecutableV1.ts check",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "update:declarative-v2-verifier-bounds": "tsx scripts/declarativeV2VerifierBoundsV1.ts update",
-    "update:declarative-v2-verifier": "tsx scripts/declarativeV2VerifierV1.ts update",
-    "update:declarative-v2-verifier-executable": "tsx scripts/declarativeV2VerifierExecutableV1.ts update"
+    "test": "vitest run"
   },
   "dependencies": {
     "@flarex/declarative-program": "workspace:*",

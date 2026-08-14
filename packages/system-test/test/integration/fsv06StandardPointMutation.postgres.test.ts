@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createPostgresLocatedApplicationRevisionActivationTargetV1,
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresLocatedScopeAuthorizationEpochTarget,
 } from "@flarex/persistence-postgres/postgres";
+import {
+  createPostgresLocatedApplicationRevisionActivationTargetV1,
+  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import { proveFsv06StandardPointMutationV1 } from
@@ -78,6 +80,6 @@ describePostgres("FSV06 Standard point mutation - PostgreSQL", () => {
         outboxCount: 7,
       });
       expect(proof.postgresVersion).toContain("PostgreSQL 18.3");
-    });
+    }, { historicalApplicationAnalysis: true });
   }, 480_000);
 });

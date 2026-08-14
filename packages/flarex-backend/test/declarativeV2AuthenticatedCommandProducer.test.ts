@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
   type DeclarativeV2ArtifactModulePathHandleV1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   decodeDeclarativeV2AuthenticatedCommandRequestV1,
   DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1,
   type DeclarativeV2AuthenticatedCommandEncodedRequestV1,
   type DeclarativeV2AuthenticatedCommandTransportBudgetV1,
-} from "@flarex/executor-http/internal-declarative-v2-authenticated-command-v1";
+} from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1";
 import {
   prepareStandardApplicationDefinitionV1,
   type PreparedStandardApplicationDefinitionV1,
@@ -1013,11 +1013,11 @@ describe("authenticated Declarative V2 command producer", () => {
       .not.toEqual(result.candidate.deploymentAnalysisSha256);
     expect(Buffer.from(result.candidate.deploymentAnalysisSha256)
       .toString("hex")).toBe(
-        "d8ec5b35b02fac355f7cb02217d3256f6db2c3ce68311eaae4696848f3e43495",
+        "b4d003cb2646b6a251fa7557cec6c7fbb8ee62ea0887351dcc0737955786d449",
       );
     expect(Buffer.from(result.candidate.deploymentCodegenAnalysisSha256)
       .toString("hex")).toBe(
-        "1999e41a09e51a479318c78052a634fd0d65da119f0d0c1e00bb02909fd092fa",
+        "36ab1fe5455d5059e6ff8e03b662a1d8e1f6b315623a6a38f01185ea1567b2c0",
       );
     expect(result.command).toMatchObject({
       commandKind: "registration_page",

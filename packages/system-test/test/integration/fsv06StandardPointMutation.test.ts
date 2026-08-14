@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createPGliteLocatedApplicationRevisionActivationTargetV1,
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteLocatedScopeAuthorizationEpochTarget,
 } from "@flarex/persistence-postgres/pglite";
+import {
+  createPGliteLocatedApplicationRevisionActivationTargetV1,
+  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
+} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import { proveFsv06StandardPointMutationV1 } from
   "../../support/fsv06StandardPointMutationHarness";
-import { createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
+import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("FSV06 Standard point mutation - PGlite", () => {
   it("invokes real Standard source through active runtime and C07", async () => {

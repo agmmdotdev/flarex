@@ -6,7 +6,7 @@ import {
   type DeclarativeV2ArtifactModulePathV1Error,
   type DeclarativeV2SemanticRecordV1,
   type DeclarativeV2SemanticRecordV1Error,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import {
   bytesEqualFullScan,
   copyBytes,

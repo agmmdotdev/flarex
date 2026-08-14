@@ -98,7 +98,7 @@ describePostgres("DTE05-C2 trusted Task scheduler directory - PostgreSQL", () =>
         candidatesHandled: 0,
         continuation: null,
       });
-    });
+    }, { historicalApplicationAnalysis: true });
   });
 });
 

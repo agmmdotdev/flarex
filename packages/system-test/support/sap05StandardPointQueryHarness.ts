@@ -29,11 +29,11 @@ import {
   makeApplicationPointQuerySystemV1Layer,
   type ApplicationPointQueryRouteIndependentDispatchV1Error,
   type ApplicationPointQuerySystemLiveV1,
-} from "@flarex/standard-application-invocation/internal/system-query-v1";
+} from "@flarex/standard-application-invocation/internal/system-test/system-query-v1";
 import {
   makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
   LegacyStandardApplicationActiveRevisionReaderV1,
-} from "@flarex/standard-application-invocation/v1";
+} from "@flarex/standard-application-invocation/internal/system-test/legacy-active-revision-reader-v1";
 import {
   FSV05_SUPPORTED_LOCATOR,
   prepareFsv05ReadyRevisionFixtureV1,

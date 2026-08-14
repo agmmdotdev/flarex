@@ -1,7 +1,7 @@
 import {
   canonicalPrivateAnalyzerHandshakeResponseV1,
   installedPrivateAnalyzerReleaseTupleV1,
-} from "@flarex/analysis/internal/private-analyzer-release-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-release-v1";
 import {
   canonicalPrivateAnalyzerVerificationResponseHeaderV1,
   canonicalPrivateAnalyzerVerificationResultIdentityPreimageV1,
@@ -11,10 +11,10 @@ import {
   PRIVATE_ANALYZER_VERIFICATION_CONTENT_TYPE_V1,
   sha256HexFromBytesV1,
   type PrivateAnalyzerVerificationResponseHeaderV1,
-} from "@flarex/analysis/internal/private-analyzer-verification-v1";
+} from "@flarex/analysis/internal/system-test/private-analyzer-verification-v1";
 import {
   DECLARATIVE_V2_ARTIFACT_MODULE_PATHS_V1,
-} from "@flarex/analysis/internal/declarative-v2-verifier-v1";
+} from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import { Cause, Effect, Exit, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
