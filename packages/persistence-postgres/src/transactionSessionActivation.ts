@@ -9,7 +9,7 @@ import {
 } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
+import { Data, Effect, Exit, Result, Schema } from "effect";
 import type { Cause as EffectCause } from "effect/Cause";
 
 import {
@@ -107,6 +107,7 @@ import {
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
   TrustedScopeAuthorityPortError,
+  type LocatedTrustedScopeAuthority,
   type LocatedScopeClockReader,
   type ScopeClockTargetReaderResolver,
   type ScopeMetadataReader,
@@ -118,6 +119,10 @@ import {
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
+import { ScopeExecutionAuthorityError } from "./scopeExecution/Errors";
+import { liveScopeExecution } from "./scopeExecution/ScopeExecution";
+import { defineScopedWriteOperation } from
+  "./scopeExecution/ScopedTransaction";
 import {
   resolvePinnedDeveloperIndexIdV1Effect,
   resolvePinnedPointTableIdV1Effect,
@@ -194,6 +199,7 @@ import {
   type ExactRunningAttemptEffectWorkV1,
   type ExactRunningAttemptKernelInputV1,
   type LocatedExactRunningAttemptKernelV1,
+  type LocatedReadCommittedAttemptTargetV1,
   type LocatedPointCommitPublicationTargetV1,
   type RunLocatedReadCommittedTransactionV1,
 } from "./transactionSessionAttemptKernel";
@@ -1350,6 +1356,60 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
   return Object.freeze({ abortEffect, expireEffect });
 }
 
+const legacyActivationScopedOperation = defineScopedWriteOperation(
+  (
+    tx,
+    _scoped,
+    operationInput: Readonly<{
+      readonly input: LocatedPointMutationSessionActivationInputV1;
+      readonly afterWrite?: (
+        step: PointMutationSessionActivationWriteStepV1,
+      ) => void | Promise<void>;
+    }>,
+  ) => Effect.tryPromise({
+    try: () => activateInTransaction(
+      tx,
+      operationInput.input,
+      operationInput.afterWrite,
+    ),
+    catch: mapActivationTransactionError,
+  }),
+);
+
+const applicationActivationScopedOperation = defineScopedWriteOperation(
+  Effect.fn("ApplicationMutationSessionActivation.inTransaction")(
+    function* (
+      tx: AppRowTransaction,
+      _scoped,
+      operationInput: Readonly<{
+        readonly input: LocatedPointMutationSessionActivationInputV1;
+        readonly selection: ApplicationActiveSelection;
+      }>,
+    ) {
+      const { input, selection } = operationInput;
+      const clock = yield* Effect.tryPromise({
+        try: () => lockPointMutationSessionClock(tx, input.prepared.scopeId),
+        catch: mapActivationTransactionError,
+      });
+      requireStableAuthority(clock, input);
+      const replay = yield* Effect.tryPromise({
+        try: () => replayApplicationSessionIfPresent(tx, input, clock),
+        catch: mapActivationTransactionError,
+      });
+      if (replay !== null) return replay;
+      yield* validateApplicationActiveSelectionInTransaction(
+        selection,
+        tx,
+        clock.record,
+      );
+      return yield* Effect.tryPromise({
+        try: () => activateAfterLockedClock(tx, input, clock, undefined),
+        catch: mapActivationTransactionError,
+      });
+    },
+  ),
+);
+
 export function createLocatedPointMutationSessionActivationTargetV1(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
@@ -1364,57 +1424,48 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const runReadCommitted = options[LOCATED_READ_COMMITTED_RUNNER_V1] ??
     createDefaultLocatedReadCommittedTransactionRunnerV1(db);
   const committedOutcomeResolver = createCommittedPointOutcomeResolverV1(db);
+  const getCurrentClockAtTarget = (scopeId: ScopeId) =>
+    getScopeClock(db, scopeId);
+  const scopeExecutionTarget = Object.freeze({
+    physicalLocator: capturedLocator,
+    getCurrentClock: getCurrentClockAtTarget,
+    [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
+  });
   const target = Object.freeze({
     physicalLocator: capturedLocator,
-    getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    getCurrentClock: getCurrentClockAtTarget,
     [ACTIVATE_PREPARED_POINT_MUTATION_SESSION_EFFECT_V1]: (
       input: LocatedPointMutationSessionActivationInputV1,
-    ) => Effect.uninterruptible(Effect.tryPromise({
-      try: () =>
-        runReadCommitted((tx) => activateInTransaction(tx, input, afterWrite)),
-      catch: mapActivationTransactionError,
-    })),
+    ) => liveScopeExecution.runWrite(
+      locatedActivationAuthority(
+        scopeExecutionTarget,
+        input.preliminaryAuthority,
+      ),
+      {
+        rollbackMessage: "Point-mutation session activation rolled back.",
+        cleanupDefect: mapActivationTransactionError,
+      },
+      legacyActivationScopedOperation,
+      Object.freeze({
+        input,
+        ...(afterWrite === undefined ? {} : { afterWrite }),
+      }),
+    ).pipe(Effect.mapError(mapActivationTransactionError)),
     [ACTIVATE_APPLICATION_MUTATION_SESSION_EFFECT_V1]: (
       input: LocatedPointMutationSessionActivationInputV1,
       selection: ApplicationActiveSelection,
-    ) => runLocatedApplicationActivationTransaction(
-      runReadCommitted,
-      Effect.fn("ApplicationMutationSessionActivation.inTransaction")(
-        function* (tx: AppRowTransaction) {
-          const clock = yield* Effect.tryPromise({
-            try: () => lockPointMutationSessionClock(
-              tx,
-              input.prepared.scopeId,
-            ),
-            catch: mapActivationTransactionError,
-          });
-          requireStableAuthority(clock, input);
-          const replay = yield* Effect.tryPromise({
-            try: () => replayApplicationSessionIfPresent(
-              tx,
-              input,
-              clock,
-            ),
-            catch: mapActivationTransactionError,
-          });
-          if (replay !== null) return replay;
-          yield* validateApplicationActiveSelectionInTransaction(
-            selection,
-            tx,
-            clock.record,
-          );
-          return yield* Effect.tryPromise({
-            try: () => activateAfterLockedClock(
-              tx,
-              input,
-              clock,
-              undefined,
-            ),
-            catch: mapActivationTransactionError,
-          });
-        },
+    ) => liveScopeExecution.runWrite(
+      locatedActivationAuthority(
+        scopeExecutionTarget,
+        input.preliminaryAuthority,
       ),
-    ),
+      {
+        rollbackMessage: "Application mutation session activation rolled back.",
+        cleanupDefect: mapApplicationActivationTransactionError,
+      },
+      applicationActivationScopedOperation,
+      Object.freeze({ input, selection }),
+    ).pipe(Effect.mapError(mapApplicationActivationTransactionError)),
     [LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptLoadInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({
@@ -4645,6 +4696,14 @@ function mapActivationTransactionError(
 ): PointMutationSessionActivationV1Error |
   PointMutationSessionAuthorityCorruptionV1Error |
   PointMutationSessionActivationPersistenceV1Error {
+  if (cause instanceof ScopeExecutionAuthorityError) {
+    return activationError({
+      reason: cause.reason === "targetPlacementMismatch" ||
+          cause.reason === "scopeMismatch"
+        ? "scopeMismatch"
+        : cause.reason,
+    });
+  }
   if (
     cause instanceof LocatedReadCommittedTransactionFailureV1 &&
     cause.issue.kind === "callbackRolledBack"
@@ -4653,7 +4712,8 @@ function mapActivationTransactionError(
   }
   if (
     cause instanceof PointMutationSessionActivationV1Error ||
-    cause instanceof PointMutationSessionAuthorityCorruptionV1Error
+    cause instanceof PointMutationSessionAuthorityCorruptionV1Error ||
+    cause instanceof PointMutationSessionActivationPersistenceV1Error
   ) {
     return cause;
   }
@@ -4685,60 +4745,12 @@ function mapApplicationActivationTransactionError(
   return mapActivationTransactionError(cause);
 }
 
-const runLocatedApplicationActivationTransaction = Effect.fn(
-  "ApplicationMutationSessionActivation.runTransaction",
-)(function* <A, E>(
-  runReadCommitted: RunLocatedReadCommittedTransactionV1,
-  body: (tx: AppRowTransaction) => Effect.Effect<A, E>,
-): Effect.fn.Return<
-  A,
-  | E
-  | PointMutationSessionActivationV1Error
-  | PointMutationSessionAuthorityCorruptionV1Error
-  | PointMutationSessionActivationPersistenceV1Error
-  | ApplicationActivationError
-> {
-  const rollbackSignal = Object.freeze({
-    kind: "ApplicationMutationSessionActivationRollback",
-  });
-  let callbackCause: EffectCause<E> | undefined;
-  const settled = yield* Effect.uninterruptible(Effect.exit(
-    Effect.tryPromise({
-      try: () => runReadCommitted(async tx => {
-        const exit = await Effect.runPromiseExit(body(tx));
-        if (Exit.isSuccess(exit)) return exit.value;
-        callbackCause = exit.cause;
-        throw rollbackSignal;
-      }),
-      catch: cause => cause,
-    }),
-  ));
-  if (Exit.isSuccess(settled)) return settled.value;
-  const error = Cause.findErrorOption(settled.cause);
-  if (error._tag === "None") {
-    return yield* Effect.failCause(Cause.map(
-      settled.cause,
-      mapApplicationActivationTransactionError,
-    ));
-  }
-  const cause = error.value;
-  if (
-    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
-    cause.issue.kind === "callbackRolledBack" &&
-    cause.issue.callbackCause === rollbackSignal &&
-    callbackCause !== undefined
-  ) return yield* Effect.failCause(callbackCause);
-  if (
-    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
-    cause.issue.kind === "callbackCleanupFailed" &&
-    cause.issue.callbackCause === rollbackSignal &&
-    callbackCause !== undefined
-  ) return yield* Effect.failCause(Cause.combine(
-    callbackCause,
-    Cause.die(mapApplicationActivationTransactionError(cause)),
-  ));
-  return yield* Effect.fail(mapApplicationActivationTransactionError(cause));
-});
+function locatedActivationAuthority(
+  target: LocatedReadCommittedAttemptTargetV1,
+  authority: TrustedScopeAuthority,
+): LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1> {
+  return Object.freeze({ authority, target });
+}
 
 function mapAttemptLoadAuthorityError(
   error: TrustedScopeAuthorityError,

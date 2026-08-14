@@ -158,11 +158,13 @@ import {
   type CoherentActiveApplication,
 } from "../src/applicationActivation";
 import {
-  openApplicationQuerySnapshot,
+  openApplicationQuerySnapshot as openApplicationQuerySnapshotEffect,
   readApplicationQueryIndex,
   readApplicationQueryPoint,
   revalidateApplicationQuerySnapshot,
 } from "../src/applicationQuerySnapshot";
+import { ScopeExecutionLive } from
+  "../src/scopeExecution/ScopeExecution";
 import { makeApplicationSchemaAuthorityPublisher } from
   "../src/applicationSchemaAuthority";
 import {
@@ -236,6 +238,12 @@ import {
   fxSystemApplicationActionInvocationsV1,
   fxSystemScopeClocks,
 } from "../src/schema";
+
+const openApplicationQuerySnapshot = (
+  ...args: Parameters<typeof openApplicationQuerySnapshotEffect>
+) => openApplicationQuerySnapshotEffect(...args).pipe(
+  Effect.provide(ScopeExecutionLive),
+);
 
 const ROOT = "a".repeat(64);
 const EXECUTION_SOURCE = "b".repeat(64);

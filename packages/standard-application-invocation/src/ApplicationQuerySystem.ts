@@ -54,6 +54,12 @@ import type {
   ApplicationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
 import {
+  ScopeExecution,
+  ScopeExecutionLive,
+  type ScopeExecutionApi,
+} from
+  "@flarex/persistence-postgres/internal/scope-execution";
+import {
   Context,
   Data,
   Effect,
@@ -188,10 +194,14 @@ export function makeApplicationQuerySystemLayer(
   const captured = captureLive(live);
   return Layer.effect(
     ApplicationQuerySystem,
-    queryWorkerPolicy.pipe(Effect.map(policy =>
-      ApplicationQuerySystem.of({ invoke: makeInvoke(captured, policy) })
-    )),
-  );
+    Effect.gen(function* () {
+      const scopeExecution = yield* ScopeExecution;
+      const policy = yield* queryWorkerPolicy;
+      return ApplicationQuerySystem.of({
+        invoke: makeInvoke(captured, policy, scopeExecution),
+      });
+    }),
+  ).pipe(Layer.provide(ScopeExecutionLive));
 }
 
 function captureLive(live: ApplicationQuerySystemLive): ApplicationQuerySystemLive {
@@ -211,6 +221,7 @@ function captureLive(live: ApplicationQuerySystemLive): ApplicationQuerySystemLi
 function makeInvoke(
   live: ApplicationQuerySystemLive,
   policy: QueryWorkerPolicy,
+  scopeExecution: ScopeExecutionApi,
 ): ApplicationQuerySystemApi["invoke"] {
   return Effect.fn("ApplicationQuerySystem.invoke")(function* (
     functionRef,
@@ -238,7 +249,7 @@ function makeInvoke(
       functionRef,
       live.snapshotBudget,
       live.snapshot,
-    );
+    ).pipe(Effect.provideService(ScopeExecution, scopeExecution));
     const target = yield* Effect.fromResult(
       canonicalizeApplicationRuntimeTargetV1(runtimeTarget(opened.metadata)).pipe(
         Result.mapError(cause => new ApplicationQueryCompositionError({

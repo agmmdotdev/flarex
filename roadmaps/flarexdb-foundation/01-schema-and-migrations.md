@@ -7,8 +7,11 @@ through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
 `S07-A` scope-revocation prerequisite and C03's bounded exact-attempt journal
 DDL are complete. S08, S09-A, S09-B, and O08-B2b1/C06-A's migration-0032
 exact-attempt execution-claim DDL are also complete. Hosted proof `H01` through
-`H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
-deferred. The `O03-A` parent is complete: protocol-only `O03-A1`, auth-
+`H04` and `H05-A` are complete. `S02-E0` admits the mandatory scoped-execution
+kernel plan and production-inert `S02-E1` is complete; genuine-Postgres
+`S02-E2` is next. `H05-B` and production routing `S02-D2` remain deferred. The
+`O03-A` parent is complete:
+protocol-only `O03-A1`, auth-
 provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and corrected
 two-boundary `O03-A2c` are complete. `O03-A2` and `O03-A` are therefore
 complete. The required `O03-B` authority core through activation, reload, and
@@ -259,8 +262,20 @@ Progress:
 - [x] `S02-D1`: host-neutral read-only shared/split authority resolver.
 - [ ] `S02-D2`: compose resolver into persisted-session execution and enable
   production routing only after `H05-B`.
-- [ ] `S02-E`: prove real-Postgres scope/fence isolation, pooled-connection
-  cleanup, and cross-scope rejection.
+- [ ] `S02-E`: make scoped execution structurally mandatory and prove real-
+  Postgres scope/fence isolation, pooled-connection cleanup, and cross-scope
+  rejection.
+  - [x] `S02-E0`: admit the persistence-owned kernel, package boundary, proof
+    matrix, and no-RLS first-slice decision.
+  - [x] `S02-E1`: implement the production-inert scoped-execution kernel and
+    migrate one current query and one current writer through its opaque
+    transaction capability.
+  - [ ] `S02-E2`: prove same-connection reuse, stale-authority rejection,
+    rollback, interruption, settlement uncertainty, and quarantine on genuine
+    PostgreSQL.
+  - [ ] `S02-E3`: close production-intended bypasses, migrate the remaining
+    located FlarexDB consumers, and hand the enforced boundary to `H05-B` and
+    later `S02-D2` routing.
 
 Durable provisioning rules:
 
@@ -295,6 +310,149 @@ Remaining exit gates:
 - rollover preserves counters and existing row visibility;
 - pooled connections cannot retain a prior scope; and
 - missing metadata never becomes an implicit compatibility default.
+
+#### [x] S02-E0 — Admit The Mandatory Scoped-Execution Kernel
+
+Decision: FlarexDB application-data operations must become impossible without
+a trusted, transaction-scoped database capability. Application code and future
+developer APIs remain scope-free: they name logical tables, indexes, documents,
+and predicates, while trusted backend preparation selects the persisted scope.
+No caller-authored `scopeId`, raw SQL string, physical table, Drizzle database,
+or PostgreSQL client can establish application-data authority.
+
+The first implementation stays inside `@flarex/persistence-postgres` under a
+domain-first `scopeExecution/` owner. A new top-level `core` or adapter-neutral
+package is rejected for this checkpoint: the guarantee depends on the concrete
+PostgreSQL connection, transaction, clock lock, settlement, release, and
+quarantine owners, and the current package direction already has executor and
+Standard invocation depend on persistence. A later preflight may extract only
+a proven host-neutral logical query/operation contract after a second concrete
+adapter requires it; it may not move PostgreSQL lifecycle or authority into
+that package.
+
+The domain has two deliberately different lifetimes:
+
+- `ScopeExecution` is the long-lived, stateless Effect service-shaped
+  capability. Its live Layer captures no request, target, pool client, or
+  transaction state: each operation supplies the resolver-issued located
+  authority and target, while the target retains its existing pool/settlement
+  owner. `ApplicationQuerySystem` consumes and provides that Layer at its
+  composition boundary. The local multi-instance activation-target factory
+  receives the same live capability explicitly rather than hiding target state
+  in Context.
+- `ScopedTransaction` is an opaque, package-internal value created for one
+  request transaction. It is owned by Effect's uninterruptible
+  acquire/use/release lifecycle, cannot be reconstructed structurally, cannot
+  retain usable authority after its callback closes, and never becomes a
+  global Context service. Persistence-owned registered operations consume it;
+  application, Worker, route, executor, framework, and SDK code never receive
+  a raw transaction.
+
+The kernel sequence is fixed:
+
+1. receive only a resolver-issued `LocatedTrustedScopeAuthority` and a package-
+   owned operation; snapshot the complete deployment, scope, physical locator,
+   storage generation, generation fence, and epoch before asynchronous work;
+2. acquire the exact target connection through the located target owner and
+   begin the requested isolation mode;
+3. configure only transaction-local state. If the implementation uses a
+   PostgreSQL scope setting or `search_path`, it must be transaction-local and
+   parameterized; session-global `SET`, caller-authored identifiers, and
+   interpolated locator SQL are forbidden;
+4. lock/read the target scope clock inside that transaction and compare the
+   exact scope, locator, generation, fence, and epoch before any domain read or
+   write;
+5. mint the opaque `ScopedTransaction`, run the persistence-owned operation,
+   and keep every physical app-data predicate qualified by trusted
+   `scope_uuid` plus its stable table/index identity;
+6. commit or roll back through the existing located settlement owner; and
+7. release only a demonstrably safe connection. Transaction uncertainty,
+   connection failure, configuration failure, or cleanup failure quarantines
+   or discards the connection instead of returning it to the pool.
+
+This is capability enforcement, not HTTP middleware. HTTP, Queue, Task,
+scheduled recovery, internal calls, and framework adapters enter through
+different hosts, so none of them owns the guarantee. Their application-data
+operations must converge below those hosts on the same scoped-execution
+boundary. The Dynamic Worker continues to receive only restricted `ctx.db`
+syscalls; the trusted snapshot/journal/commit adapters remain the only bridge
+to persistence.
+
+The first slice keeps the existing explicit `scope_uuid` predicates, composite
+keys, stable catalog bindings, OCC journal, commit compiler, commit execution,
+feeds, outbox, and outcome semantics. PostgreSQL RLS is optional defense in
+depth and is not part of `S02-E1` or an excuse to weaken the capability guard.
+Adding RLS, changing roles, or making a database/session setting authoritative
+requires a separate evidence-backed preflight covering migrations, plans,
+pooling, framework adapters, and operational recovery.
+
+Failure ownership remains exact:
+
+- missing, corrupt, or inconsistent persisted metadata is a terminal trusted-
+  authority failure and never a compatibility default;
+- a changed scope, generation, fence, or epoch rejects before domain work. The
+  caller may re-resolve only through an operation-specific retry owner;
+- ordinary callback failure preserves its typed domain Cause and proves
+  rollback before release;
+- acquisition/configuration/resource failures remain distinct from domain
+  failures and are retryable only where their owning operation says so; and
+- commit/cleanup uncertainty is never blindly retried. Existing durable
+  evidence and idempotent outcome recovery remain authoritative.
+
+`S02-E1` is the first implementation checkpoint. It must:
+
+1. add the `scopeExecution/` domain contract, errors, live Postgres
+   implementation, and opaque transaction capability without a new package or
+   ordinary public raw-transaction export;
+2. adapt the existing located transaction construction seam rather than create
+   a second transaction wrapper;
+3. route the current `ApplicationQuerySnapshot` read and the located point-
+   mutation session-activation writer through the kernel, preserving their
+   exact snapshot/OCC/commit behavior; and
+4. add focused capability-authenticity, lifetime, stale-authority, and no-work-
+   before-guard tests. It adds no route, binding, trigger, production caller,
+   storage-generation switch, RLS policy, DDL, dual execution, or fallback.
+
+Completion receipt: `scopeExecution/` now owns the stateless service and live
+Layer, the final in-transaction scope-clock guard, registered opaque
+read/write operations, and the WeakMap-authenticated `ScopedTransaction`
+lifecycle. Dynamic callers cannot unwrap or retain a raw transaction, and a
+direct raw-transaction result is rejected as a defect. `ApplicationQuerySnapshot`
+and both located point-mutation session-activation branches use that kernel on
+top of the existing read-committed settlement owner; query operations reuse the
+kernel's locked clock and the index path derives its scope from the guarded
+transaction context. Focused PGlite proofs
+cover authentic, forged, expired, stale-fence, foreign-locator, rollback,
+interruption, exact-replay, query revalidation, retained-history, snapshot-close
+serialization, and ordered-index behavior. Persistence and Standard invocation
+typechecks plus
+the Effect runtime-boundary check pass. This receipt makes no genuine-
+PostgreSQL pool or Hyperdrive claim; those remain `S02-E2` and `H05-B`.
+
+`S02-E2` owns the genuine PostgreSQL proof. Its pool must deliberately reuse
+the same backend connection, recording `pg_backend_pid()`, so a scope-A
+transaction followed by scope B proves that no transaction-local scope,
+`search_path`, timeout, listener, callback, or authority state survives reuse.
+The matrix must also cover concurrent A/B access, cross-scope identity reuse,
+wrong locator, stale generation/fence/epoch between preliminary resolution and
+the clock lock, callback rollback, interruption, timeout, connection failure,
+post-callback settlement uncertainty, release failure, quarantine, and safe
+reuse only after known cleanup. PGlite remains the fast mapping lane but cannot
+claim pool or connection-lifecycle proof.
+
+`S02-E3` owns closure rather than new behavior. It inventories every ordinary
+production-intended FlarexDB query, mutation, Task/System writer, recovery, and
+framework-adapter construction seam; migrates them to the kernel or records an
+explicit non-app-data reason; rejects unauthorized raw database/transaction
+imports through an executable boundary check; and proves no package export,
+route, Worker binding, or test helper can mint `ScopedTransaction`. System-test
+raw seams may remain only behind explicit `internal/system-test` exports.
+
+S02-E completion does not complete live Hyperdrive proof or production routing.
+After `S02-E1`–`S02-E3` are green, `H05-B` must exercise the same kernel through
+the cache-disabled hosted Hyperdrive path and mandatory teardown. Only then may
+`S02-D2`, together with its other route-specific correctness gates, select
+`legacy_v1` versus `flarexdb_v1` from persisted authority.
 
 ### [ ] S03 — Add The Minimal Stable Catalog
 

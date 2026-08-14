@@ -22,6 +22,7 @@ import {
 } from "effect";
 import {
   requireAppDocumentIdentityV1ForTableResult,
+  type AppDocumentIdentityV1,
   type AppDocumentIdV1,
   type AppDocumentIdV1Error,
 } from "flarex-protocol/app-document-id";
@@ -94,13 +95,13 @@ import {
   type ReadFencedIndexBuildStateError,
 } from "./indexBuildStates";
 import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
-import {
-  lockScopeClockForShareInTransactionEffect,
-  type LockScopeClockForShareError,
-  type ScopeClockRecord,
+import type {
+  LockScopeClockForShareError,
+  ScopeClockRecord,
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
@@ -113,8 +114,17 @@ import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedAttemptTargetV1,
 } from "./transactionSessionAttemptKernel";
-import { runLocatedReadCommittedEffect } from
-  "./locatedReadCommittedEffect";
+import { ScopeExecutionAuthorityError } from
+  "./scopeExecution/Errors";
+import {
+  ScopeExecution,
+  type ScopeExecutionApi,
+} from "./scopeExecution/ScopeExecution";
+import {
+  defineScopedReadOperation,
+  type ScopedReadOperation,
+  type ScopedTransactionContext,
+} from "./scopeExecution/ScopedTransaction";
 
 const decodeIndexDescriptorResult = Schema.decodeUnknownResult(
   Schema.toType(SchemaManifestAppIndexDescriptorSchema),
@@ -217,6 +227,7 @@ export type OpenApplicationQuerySnapshotError =
   | ReadAppIndexDefinitionError
   | ReadAppSchemaVersionIndexBindingError
   | TrustedScopeAuthorityError
+  | ScopeExecutionAuthorityError
   | LockScopeClockForShareError
   | LocatedReadCommittedTransactionFailureV1;
 
@@ -227,6 +238,7 @@ export type UseApplicationQuerySnapshotError =
   | ReadAppRowError
   | ReadAppIndexRangeV1Error
   | ReadFencedIndexBuildStateError
+  | ScopeExecutionAuthorityError
   | LockScopeClockForShareError
   | LocatedReadCommittedTransactionFailureV1;
 
@@ -248,8 +260,11 @@ interface Usage {
 }
 
 interface State {
+  readonly scopeExecution: ScopeExecutionApi;
   readonly selection: ApplicationActiveSelection;
-  readonly target: LocatedReadCommittedAttemptTargetV1;
+  readonly located: LocatedTrustedScopeAuthority<
+    LocatedReadCommittedAttemptTargetV1
+  >;
   readonly schema: ApplicationSchemaAuthority;
   readonly definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>;
   readonly metadata: ApplicationQuerySnapshotMetadata;
@@ -259,6 +274,50 @@ interface State {
 }
 
 const states = new WeakMap<ApplicationQuerySnapshot, State>();
+
+const openScopedOperation = defineScopedReadOperation(
+  (tx, scoped, input: Readonly<{
+    readonly selection: ApplicationActiveSelection;
+    readonly basis: ApplicationActiveSelectionBasis;
+    readonly fn: ApplicationManifestV1["functions"][number];
+  }>) => openInTransaction(
+    tx,
+    scoped.clock,
+    input.selection,
+    input.basis,
+    input.fn,
+  ),
+);
+
+const revalidateScopedOperation = defineScopedReadOperation(
+  (tx, scoped, input: Readonly<{
+    readonly state: State;
+    readonly operation: ApplicationQuerySnapshotError["operation"];
+  }>) => revalidateInTransaction(
+    tx,
+    scoped.clock,
+    input.state,
+    input.operation,
+  ),
+);
+
+const pointReadScopedOperation = defineScopedReadOperation(
+  (tx, scoped, input: Readonly<{
+    readonly state: State;
+    readonly tableId: CatalogTableId;
+    readonly rowId: AppDocumentIdentityV1["rowId"];
+  }>) => readPointInTransaction(tx, scoped, input),
+);
+
+const indexReadScopedOperation = defineScopedReadOperation(
+  (tx, scoped, input: Readonly<{
+    readonly state: State;
+    readonly table: State["schema"]["tables"][number];
+    readonly definition: LocatedAppIndexDefinitionV1;
+    readonly bounds: OrderedIndexBoundsV1;
+    readonly limit: number;
+  }>) => readIndexInTransaction(tx, scoped, input),
+);
 
 export const openApplicationQuerySnapshot = Effect.fn(
   "ApplicationQuerySnapshot.open",
@@ -270,9 +329,10 @@ export const openApplicationQuerySnapshot = Effect.fn(
 ): Effect.fn.Return<
   OpenedApplicationQuerySnapshot,
   OpenApplicationQuerySnapshotError,
-  Scope.Scope
+  Scope.Scope | ScopeExecution
 > {
   const capturedBudget = yield* Effect.fromResult(captureBudget(budget));
+  const scopeExecution = yield* ScopeExecution;
   const basis = yield* Effect.fromResult(claimApplicationActiveSelection(selection));
   if (
     basis.deploymentId !== context.deploymentId ||
@@ -322,9 +382,11 @@ export const openApplicationQuerySnapshot = Effect.fn(
   );
   yield* requireSameAuthority(basis.authority, located.authority);
   const opened = yield* runLocatedRead(
-    located.target,
+    scopeExecution,
+    located,
     "open",
-    tx => openInTransaction(tx, selection, basis, fn),
+    openScopedOperation,
+    Object.freeze({ selection, basis, fn }),
   );
   const metadata = snapshotMetadata({
     basis,
@@ -344,8 +406,9 @@ export const openApplicationQuerySnapshot = Effect.fn(
   }));
   const closed = yield* Ref.make(false);
   const state = Object.freeze({
+    scopeExecution,
     selection,
-    target: located.target,
+    located,
     schema,
     definitions,
     metadata,
@@ -373,9 +436,11 @@ export const revalidateApplicationQuerySnapshot = Effect.fn(
   yield* state.readGate.withPermit(Effect.gen(function* () {
     yield* requireOpen(state, "revalidate");
     yield* runLocatedRead(
-      state.target,
+      state.scopeExecution,
+      state.located,
       "revalidate",
-      tx => revalidateInTransaction(tx, state),
+      revalidateScopedOperation,
+      Object.freeze({ state, operation: "revalidate" as const }),
     );
   }));
   return snapshotMetadata(state.metadata);
@@ -402,15 +467,14 @@ export const readApplicationQueryPoint = Effect.fn(
     yield* charge(state, "pointRead", { pointReads: 1 });
     yield* requireDocumentBudgetRemaining(state, "pointRead");
     const result = yield* runLocatedRead(
-      state.target,
+      state.scopeExecution,
+      state.located,
       "pointRead",
-      tx => Effect.gen(function* () {
-        yield* revalidateInTransaction(tx, state, "pointRead");
-        return yield* getAppRowAtSnapshotInTransactionEffect(tx, {
-          snapshotToken: state.metadata.snapshotToken,
-          tableId: table.tableId,
-          rowId: identity.rowId,
-        });
+      pointReadScopedOperation,
+      Object.freeze({
+        state,
+        tableId: table.tableId,
+        rowId: identity.rowId,
       }),
     );
     if (result.kind === "missing") return Object.freeze({ kind: "missing" });
@@ -472,72 +536,16 @@ function readIndex(
   yield* charge(state, "indexRead", { indexReads: 1 });
   yield* requireDocumentBudgetRemaining(state, "indexRead");
   const page = yield* runLocatedRead(
-    state.target,
+    state.scopeExecution,
+    state.located,
     "indexRead",
-    tx => Effect.gen(function* () {
-      yield* revalidateInTransaction(tx, state, "indexRead");
-      const build = yield* readFencedIndexBuildStateEffect(tx, {
-        scopeId: state.metadata.basis.authority.scopeId,
-        indexDefinitionId: definition.indexDefinitionId,
-      });
-      if (build.status !== "current" || build.buildState.lifecycle !== "enabled") {
-        return yield* failure("indexRead", "indexUnavailable");
-      }
-      if (build.buildState.startCommitSeq > state.metadata.snapshotToken.commitSeq) {
-        return yield* failure("indexRead", "indexUnavailable");
-      }
-      const positions = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
-        scopeId: state.metadata.basis.authority.scopeId,
-        definition,
-        bounds: decodedBounds,
-        limit,
-        snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
-      });
-      const documents: CanonicalFlarexRuntimeObjectV1[] = [];
-      for (
-        let offset = 0;
-        offset < positions.entries.length;
-        offset += INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE
-      ) {
-        const entries = positions.entries.slice(
-          offset,
-          offset + INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE,
-        );
-        const rows = yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
-          scopeId: state.metadata.basis.authority.scopeId,
-          tableId: table.tableId,
-          rowIds: Object.freeze(entries.map(entry => entry.rowId)),
-          snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
-        });
-        let semanticBytes = 0;
-        for (let index = 0; index < rows.length; index += 1) {
-          const row = rows[index]!;
-          const entry = entries[index]!;
-          if (
-            entry.tableId !== table.tableId || row.rowId !== entry.rowId ||
-            !isCanonicalFlarexRuntimeObjectV1(row.document.value)
-          ) return yield* failure("indexRead", "resourceFailure");
-          const encodedKey = yield* Effect.fromResult(
-            lowerAppDeveloperIndexKeyV1(
-              definition,
-              row.document,
-              row.creationTime,
-            ).pipe(Result.mapError(cause =>
-              failureValue("indexRead", "resourceFailure", false, cause)
-            )),
-          );
-          if (encodedKey !== entry.encodedKey) {
-            return yield* failure("indexRead", "resourceFailure");
-          }
-          semanticBytes += row.document.semanticSizeBytes;
-          documents.push(row.document.value);
-        }
-        yield* charge(state, "indexRead", {
-          documents: rows.length,
-          semanticBytes,
-        });
-      }
-      return Object.freeze({ positions, documents: Object.freeze(documents) });
+    indexReadScopedOperation,
+    Object.freeze({
+      state,
+      table,
+      definition,
+      bounds: decodedBounds,
+      limit,
     }),
   );
   return Object.freeze({
@@ -549,15 +557,12 @@ function readIndex(
 
 function openInTransaction(
   tx: AppRowTransaction,
+  clock: ScopeClockRecord,
   selection: ApplicationActiveSelection,
   basis: ApplicationActiveSelectionBasis,
   fn: ApplicationManifestV1["functions"][number],
 ) {
   return Effect.gen(function* () {
-    const clock = yield* lockScopeClockForShareInTransactionEffect(
-      tx,
-      basis.authority.scopeId,
-    );
     yield* validateApplicationActiveSelectionInTransaction(selection, tx, clock);
     yield* requireHistoryAvailable(tx, clock, clock.lastCommitSeq, "open");
   const rows = yield* query(
@@ -602,14 +607,11 @@ function openInTransaction(
 
 function revalidateInTransaction(
   tx: AppRowTransaction,
+  clock: ScopeClockRecord,
   state: State,
   operation: ApplicationQuerySnapshotError["operation"] = "revalidate",
 ) {
   return Effect.gen(function* () {
-    const clock = yield* lockScopeClockForShareInTransactionEffect(
-      tx,
-      state.metadata.basis.authority.scopeId,
-    );
     yield* validateApplicationActiveSelectionInTransaction(
       state.selection,
       tx,
@@ -621,6 +623,114 @@ function revalidateInTransaction(
       state.metadata.snapshotToken.commitSeq,
       operation,
     );
+  });
+}
+
+function readPointInTransaction(
+  tx: AppRowTransaction,
+  scoped: ScopedTransactionContext,
+  input: Readonly<{
+    readonly state: State;
+    readonly tableId: CatalogTableId;
+    readonly rowId: AppDocumentIdentityV1["rowId"];
+  }>,
+) {
+  return Effect.gen(function* () {
+    yield* revalidateInTransaction(
+      tx,
+      scoped.clock,
+      input.state,
+      "pointRead",
+    );
+    return yield* getAppRowAtSnapshotInTransactionEffect(tx, {
+      snapshotToken: input.state.metadata.snapshotToken,
+      tableId: input.tableId,
+      rowId: input.rowId,
+    });
+  });
+}
+
+function readIndexInTransaction(
+  tx: AppRowTransaction,
+  scoped: ScopedTransactionContext,
+  input: Readonly<{
+    readonly state: State;
+    readonly table: State["schema"]["tables"][number];
+    readonly definition: LocatedAppIndexDefinitionV1;
+    readonly bounds: OrderedIndexBoundsV1;
+    readonly limit: number;
+  }>,
+) {
+  return Effect.gen(function* () {
+    const { state, table, definition, bounds, limit } = input;
+    yield* revalidateInTransaction(
+      tx,
+      scoped.clock,
+      state,
+      "indexRead",
+    );
+    const build = yield* readFencedIndexBuildStateEffect(tx, {
+      scopeId: scoped.authority.scopeId,
+      indexDefinitionId: definition.indexDefinitionId,
+    });
+    if (build.status !== "current" || build.buildState.lifecycle !== "enabled") {
+      return yield* failure("indexRead", "indexUnavailable");
+    }
+    if (build.buildState.startCommitSeq > state.metadata.snapshotToken.commitSeq) {
+      return yield* failure("indexRead", "indexUnavailable");
+    }
+    const positions = yield* scanAppIndexAtSnapshotInTransactionEffect(tx, {
+      scopeId: scoped.authority.scopeId,
+      definition,
+      bounds,
+      limit,
+      snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
+    });
+    const documents: CanonicalFlarexRuntimeObjectV1[] = [];
+    for (
+      let offset = 0;
+      offset < positions.entries.length;
+      offset += INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE
+    ) {
+      const entries = positions.entries.slice(
+        offset,
+        offset + INDEX_DOCUMENT_MATERIALIZATION_BATCH_SIZE,
+      );
+      const rows = yield* readLiveAppRowsAtSnapshotInTransactionEffect(tx, {
+        scopeId: scoped.authority.scopeId,
+        tableId: table.tableId,
+        rowIds: Object.freeze(entries.map(entry => entry.rowId)),
+        snapshotCommitSeq: state.metadata.snapshotToken.commitSeq,
+      });
+      let semanticBytes = 0;
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index]!;
+        const entry = entries[index]!;
+        if (
+          entry.tableId !== table.tableId || row.rowId !== entry.rowId ||
+          !isCanonicalFlarexRuntimeObjectV1(row.document.value)
+        ) return yield* failure("indexRead", "resourceFailure");
+        const encodedKey = yield* Effect.fromResult(
+          lowerAppDeveloperIndexKeyV1(
+            definition,
+            row.document,
+            row.creationTime,
+          ).pipe(Result.mapError(cause =>
+            failureValue("indexRead", "resourceFailure", false, cause)
+          )),
+        );
+        if (encodedKey !== entry.encodedKey) {
+          return yield* failure("indexRead", "resourceFailure");
+        }
+        semanticBytes += row.document.semanticSizeBytes;
+        documents.push(row.document.value);
+      }
+      yield* charge(state, "indexRead", {
+        documents: rows.length,
+        semanticBytes,
+      });
+    }
+    return Object.freeze({ positions, documents: Object.freeze(documents) });
   });
 }
 
@@ -910,20 +1020,23 @@ function failureValue(
 
 const runLocatedRead = Effect.fn(
   "ApplicationQuerySnapshot.runLocatedRead",
-)(function <Value, Failure>(
-  target: LocatedReadCommittedAttemptTargetV1,
-  operation: ApplicationQuerySnapshotError["operation"],
-  body: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
+)(function <Input, Value, Failure>(
+  scopeExecution: ScopeExecutionApi,
+  located: LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>,
+  errorOperation: ApplicationQuerySnapshotError["operation"],
+  operation: ScopedReadOperation<Input, Value, Failure>,
+  input: Input,
 ): Effect.Effect<
   Value,
   Failure | ApplicationQuerySnapshotError |
+    ScopeExecutionAuthorityError | LockScopeClockForShareError |
     LocatedReadCommittedTransactionFailureV1
 > {
-  return runLocatedReadCommittedEffect(target, {
+  return scopeExecution.runRead(located, {
     rollbackMessage: "Application query transaction rolled back.",
     cleanupDefect: cause =>
-      failureValue(operation, "resourceFailure", false, cause),
-  }, body);
+      failureValue(errorOperation, "resourceFailure", false, cause),
+  }, operation, input);
 });
 
 function isRetryableTransactionCause(cause: unknown): boolean {

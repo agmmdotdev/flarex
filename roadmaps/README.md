@@ -124,7 +124,7 @@ consumers.
 | Plan | Classification | Purpose |
 | --- | --- | --- |
 | [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) | Focused execution index | Master status, wave order, hosted gate, and cross-plan invariants. |
-| [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md) | Active focused execution plan | Target schema/catalog, codecs, app storage, readiness, activation, prototype retirement, and conditional shipped-state migration. |
+| [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md) | Active focused execution plan; `S02-E1` complete and genuine-Postgres `S02-E2` next | Target schema/catalog, mandatory scoped execution, codecs, app storage, readiness, activation, prototype retirement, and conditional shipped-state migration. |
 | [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md) | Active focused execution plan | Exact snapshots, OCC dependencies, atomic commit lane, retry classes, retention, clean prototype retirement, and conditional live migration. |
 | [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md) | Active focused execution plan | Retired standalone `C01`, completed inert `C02` protocol, active `C03`–`C09` compiler gates, and conditional `C07A`. |
 | [`37-production-redelivery-and-c06b.md`](./37-production-redelivery-and-c06b.md) | Active focused execution plan | Production exact-attempt runtime hosting, one bounded scheduled-event composition, trigger activation, and stable C06-B finish/lost-outcome dispatch. |
