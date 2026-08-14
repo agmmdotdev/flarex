@@ -103,6 +103,7 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       const discovery = success(makeTaskComputeDeliveryCandidateDiscovery(
         located,
         DISCOVERY_DEADLINE_POLICY,
+        "legacy_and_application",
       ));
       expect(authorityReads).toBe(1);
       await runEffect(discovery.discoverDispatchCandidates({ limit: 1 }));
@@ -201,7 +202,12 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
   });
 
   it("discovers unseen, initial, retry-due, and expired-claim candidates separately", async () => {
-    await withFixture(async ({ persistence, discovery, seeded }) => {
+    await withFixture(async ({
+      persistence,
+      discovery,
+      legacyDiscovery,
+      seeded,
+    }) => {
       const initialDispatch = await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       );
@@ -216,11 +222,17 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       ]);
       await setRunDefinitionGeneration(persistence, "application_v1");
       expect((await runEffect(
-        discovery.discoverDispatchCandidates({ limit: 10 }),
+        legacyDiscovery.discoverDispatchCandidates({ limit: 10 }),
       )).candidates).toEqual([]);
       expect((await runEffect(
-        discovery.discoverCancellationCandidates({ limit: 10 }),
+        legacyDiscovery.discoverCancellationCandidates({ limit: 10 }),
       )).candidates).toEqual([]);
+      expect(candidateKeys(await runEffect(
+        discovery.discoverDispatchCandidates({ limit: 10 }),
+      ))).toEqual([`dispatch:${seeded.runId}:1`]);
+      expect(candidateKeys(await runEffect(
+        discovery.discoverCancellationCandidates({ limit: 10 }),
+      ))).toEqual([`cancellation:${seeded.runId}:2`]);
       await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
       await persistence.query(
@@ -237,19 +249,19 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
         discovery.discoverCancellationCandidates({ limit: 10 }),
       ))).toEqual([`cancellation:${seeded.runId}:2`]);
       await setRunDefinitionGeneration(persistence, "application_v1");
-      expect((await runEffect(
+      expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
-      expect((await runEffect(
+      ))).toEqual([`dispatch:${seeded.runId}:1`]);
+      expect(candidateKeys(await runEffect(
         discovery.discoverCancellationCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
+      ))).toEqual([`cancellation:${seeded.runId}:2`]);
       await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
       await seedDispatchCheckpointFromEvidence(persistence, seeded);
       await setRunDefinitionGeneration(persistence, "application_v1");
-      expect((await runEffect(
+      expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
+      ))).toEqual([`dispatch:${seeded.runId}:1`]);
       await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
       await persistence.query(`
         update fx_system_durable_task_compute_dispatch_v1
@@ -272,9 +284,9 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
         discovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
       await setRunDefinitionGeneration(persistence, "application_v1");
-      expect((await runEffect(
+      expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
+      ))).toEqual([`dispatch:${seeded.runId}:1`]);
       await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
       await persistence.query(`
@@ -314,9 +326,9 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
         discovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
       await setRunDefinitionGeneration(persistence, "application_v1");
-      expect((await runEffect(
+      expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
+      ))).toEqual([`dispatch:${seeded.runId}:1`]);
     });
   });
 
@@ -369,6 +381,7 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
         return success(makeTaskComputeDeliveryCandidateDiscovery(
           Object.freeze({ authority: locatedAuthority, target }),
           DISCOVERY_DEADLINE_POLICY,
+          "legacy_and_application",
         ));
       };
       const emptyRow = Object.freeze({
@@ -508,11 +521,18 @@ async function makeFixture(raw: PGlite) {
   const discovery = success(makeTaskComputeDeliveryCandidateDiscovery(
     Object.freeze({ authority: lifecycleLocated.authority, target }),
     DISCOVERY_DEADLINE_POLICY,
+    "legacy_and_application",
+  ));
+  const legacyDiscovery = success(makeTaskComputeDeliveryCandidateDiscovery(
+    Object.freeze({ authority: lifecycleLocated.authority, target }),
+    DISCOVERY_DEADLINE_POLICY,
+    "legacy_only",
   ));
   return Object.freeze({
     persistence,
     seeded,
     discovery,
+    legacyDiscovery,
     locatedAuthority: lifecycleLocated.authority,
   });
 }

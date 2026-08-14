@@ -126,7 +126,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute-delivery discovery", () => {
           makeTaskComputeDeliveryCandidateDiscovery(Object.freeze({
             authority: lifecycleLocated.authority,
             target: deliveryTarget,
-          }), DISCOVERY_DEADLINE_POLICY),
+          }), DISCOVERY_DEADLINE_POLICY, "legacy_and_application"),
         );
 
         const [dispatch, cancellation] = await Promise.all([
@@ -197,6 +197,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute-delivery discovery", () => {
               scopeId,
               limitPlusOne: 11,
               continuation: undefined,
+              definitionGenerationPolicy: "legacy_and_application",
             }),
           )),
           explainAnalyze(persistence, dialect.sqlToQuery(
@@ -204,6 +205,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute-delivery discovery", () => {
               scopeId,
               limitPlusOne: 11,
               continuation: undefined,
+              definitionGenerationPolicy: "legacy_and_application",
             }),
           )),
         ]);

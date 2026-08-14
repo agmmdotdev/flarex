@@ -909,6 +909,29 @@ describe("Application activation", { timeout: 30_000 }, () => {
       revisionId: nextRevisionId,
       expectedActiveHead: active.expectedActiveHead,
     }));
+    const replayRequest = Object.freeze({
+      version: request.version,
+      requestKey: request.requestKey,
+      input: request.input,
+    });
+    expect(await runEffect(store.replayRun(
+      "tasks.users.get",
+      replayRequest,
+    ))).toEqual(created);
+    const missingRequest = Result.getOrThrow(
+      decodeApplicationTaskRunCreationRequestV1({
+        ...request,
+        requestKey: "application-task-missing",
+      }),
+    );
+    expect(await runEffect(store.replayRun(
+      "tasks.users.get",
+      Object.freeze({
+        version: missingRequest.version,
+        requestKey: missingRequest.requestKey,
+        input: missingRequest.input,
+      }),
+    ))).toBeNull();
     const replayed = await runEffect(store.createRun(selected.selection, request));
     expect(replayed).toEqual(created);
     const staleNewRequest = Result.getOrThrow(

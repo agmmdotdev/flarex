@@ -15,6 +15,7 @@ import {
   type ApplicationTaskComputeDispatchRequestV1,
   type CurrentTaskComputeDispatchRequestV1,
   validateApplicationTaskComputeDispatchRequestV1,
+  validateCurrentTaskComputeDispatchRequestV1,
   validateTaskComputeCancellationReceiptV1,
   validateTaskComputeCancellationRequestV1,
   validateTaskComputeDispatchAcceptanceV1,
@@ -421,6 +422,18 @@ export class TaskComputeDeliveryRepositoryConfigurationV1Error
       | "invalid_random_uuid"
       | "invalid_scope";
   }> {}
+
+export class TaskComputePreparedExecutionReadV1Error extends Data.TaggedError(
+  "TaskComputePreparedExecutionReadV1Error",
+)<{
+  readonly reason:
+    | "invalid_request"
+    | "not_found"
+    | "corrupt"
+    | "stale_authority"
+    | "resource_failure";
+  readonly cause?: unknown;
+}> {}
 
 export class TaskComputeDeliveryRepositoryInputV1Error<
   Operation extends TaskComputeDeliveryRepositoryOperationV1 =
@@ -1017,6 +1030,222 @@ export function makeTaskComputeDeliveryRepositoryV1(
       )
     ),
   );
+}
+
+/**
+ * Reconstructs the exact immutable prepared execution for an already-issued
+ * provider request without claiming, consuming, or mutating delivery state.
+ */
+export const readTaskComputePreparedExecutionV1 = Effect.fn(
+  "TaskComputeDeliveryRepository.readPreparedExecution",
+)(function* (
+  located: LocatedTrustedScopeAuthority<LocatedTaskComputeDeliveryTargetV1>,
+  suppliedRequest: unknown,
+): Effect.fn.Return<
+  CurrentTaskComputePreparedExecutionV1,
+  TaskComputePreparedExecutionReadV1Error
+> {
+  const request = yield* Effect.fromResult(
+    validateCurrentTaskComputeDispatchRequestV1(suppliedRequest).pipe(
+      Result.mapError(cause => new TaskComputePreparedExecutionReadV1Error({
+        reason: "invalid_request",
+        cause,
+      })),
+    ),
+  );
+  const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
+  const scopeId = yield* Effect.fromResult(
+    decodeReplacementScopeIdResult(authority.scopeId).pipe(
+      Result.mapError(cause => new TaskComputePreparedExecutionReadV1Error({
+        reason: "stale_authority",
+        cause,
+      })),
+    ),
+  );
+  if (request.identity.scopeId !== scopeId) {
+    return yield* new TaskComputePreparedExecutionReadV1Error({
+      reason: "invalid_request",
+    });
+  }
+  const selected = yield* Effect.fromResult(
+    captureAcquireRequest({
+      runId: request.identity.runId,
+      requestedEffectSequence: request.identity.requestedEffectSequence,
+    }, "acquire_dispatch").pipe(
+      Result.mapError(cause => new TaskComputePreparedExecutionReadV1Error({
+        reason: "invalid_request",
+        cause,
+      })),
+    ),
+  );
+  for (let execution = 1; execution <= 2; execution += 1) {
+    const transaction = located.target[RUN_LOCATED_READ_COMMITTED_V1](tx =>
+      readPreparedExecutionTransaction(
+        tx,
+        authority,
+        scopeId,
+        located.target,
+        selected,
+      )
+    );
+    const settled = yield* Effect.exit(awaitSettlement(transaction));
+    if (Exit.isSuccess(settled)) {
+      if (!taskSystemPersistedValueEqualV1(
+        settled.value.dispatchRequest,
+        request,
+      )) {
+        return yield* new TaskComputePreparedExecutionReadV1Error({
+          reason: "invalid_request",
+        });
+      }
+      return settled.value;
+    }
+    const failure = yield* Result.match(Cause.findError(settled.cause), {
+      onFailure: Effect.failCause,
+      onSuccess: Effect.succeed,
+    });
+    const classified = classifyTransactionFailure(
+      "acquire_dispatch",
+      failure,
+      execution,
+    );
+    if (classified.kind === "retry") continue;
+    if (classified.kind === "defect") return yield* Effect.die(classified.cause);
+    return yield* classified.error.pipe(
+      Effect.mapError(mapPreparedExecutionReadFailure),
+    );
+  }
+  return yield* new TaskComputePreparedExecutionReadV1Error({
+    reason: "resource_failure",
+  });
+});
+
+async function readPreparedExecutionTransaction(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  replacementScopeId: ReplacementScopeIdV1,
+  target: LocatedTaskComputeDeliveryTargetV1,
+  selected: CapturedAcquireRequestV1,
+): Promise<CurrentTaskComputePreparedExecutionV1> {
+  const operation = "acquire_dispatch" as const;
+  await statement(operation, () => requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    mismatch => rollback(
+      new TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error({
+        operation,
+        runId: selected.runId,
+        authority: mismatch,
+      }),
+    ),
+  ));
+  const runRows = await statement(operation, () => tx.select().from(
+    fxSystemDurableTaskRunsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, selected.runId),
+  )).limit(1).for("share"));
+  const storedRun = runRows[0];
+  if (storedRun === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: selected.runId,
+      reason: "run_unavailable",
+    }));
+  }
+  const aggregate = decodeRun(storedRun, operation, selected.runId);
+  const effectRow = await findRequestedEffect(
+    tx,
+    authority.scopeId,
+    selected,
+    operation,
+  );
+  if (effectRow === undefined) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: selected.runId,
+      reason: "effect_unavailable",
+    }));
+  }
+  const persistedEffect = decodeDispatchEffect(
+    effectRow,
+    aggregate.generation,
+    selected,
+    operation,
+  );
+  requireSelectedDispatchDefinitionIdentity(storedRun, persistedEffect, operation);
+  await correlateRunLedger(
+    tx,
+    authority.scopeId,
+    selected.runId,
+    aggregate,
+    operation,
+  );
+  const immutable = await loadImmutablePreparation(
+    tx,
+    authority.scopeId,
+    storedRun,
+    persistedEffect,
+    operation,
+  );
+  const currentRequest = buildDispatchRequest(
+    replacementScopeId,
+    aggregate.aggregate,
+    persistedEffect,
+    operation,
+  );
+  const checkpoint = await loadDispatchCheckpoint(
+    tx,
+    authority.scopeId,
+    selected,
+    operation,
+  );
+  if (checkpoint === null) {
+    throw rollback(new TaskComputeDeliveryRepositoryUnavailableV1Error({
+      operation,
+      runId: selected.runId,
+      reason: "effect_unavailable",
+    }));
+  }
+  const storedRequest = await decodeAndCorrelateDispatchCheckpoint(
+    checkpoint,
+    currentRequest,
+    persistedEffect.effect.acceptedRunVersion,
+    operation,
+    selected.runId,
+  );
+  return capturePreparedExecution(storedRequest, immutable);
+}
+
+function mapPreparedExecutionReadFailure(
+  cause: TaskComputeDeliveryRepositoryErrorV1<"acquire_dispatch">,
+): TaskComputePreparedExecutionReadV1Error {
+  if (cause instanceof TaskComputeDeliveryRepositoryUnavailableV1Error) {
+    return new TaskComputePreparedExecutionReadV1Error({
+      reason: "not_found",
+      cause,
+    });
+  }
+  if (cause instanceof TaskComputeDeliveryRepositoryStaleScopeAuthorityV1Error) {
+    return new TaskComputePreparedExecutionReadV1Error({
+      reason: "stale_authority",
+      cause,
+    });
+  }
+  if (
+    cause instanceof TaskComputeDeliveryRepositoryCorruptionV1Error
+    || cause instanceof TaskComputeDeliveryEvidenceV1Error
+  ) {
+    return new TaskComputePreparedExecutionReadV1Error({
+      reason: "corrupt",
+      cause,
+    });
+  }
+  return new TaskComputePreparedExecutionReadV1Error({
+    reason: "resource_failure",
+    cause,
+  });
 }
 
 function makeRepository(

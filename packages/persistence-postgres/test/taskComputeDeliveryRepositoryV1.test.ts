@@ -43,6 +43,7 @@ import {
   TaskComputeDeliveryRepositoryStaleClaimV1Error,
   createLocatedTaskComputeDeliveryTargetV1,
   makeTaskComputeDeliveryRepositoryV1,
+  readTaskComputePreparedExecutionV1,
   type TaskComputeDeliveryRepositoryErrorV1,
   type TaskComputeDeliveryRepositoryOptionsV1,
   type TaskComputeDeliveryRepositoryV1,
@@ -483,6 +484,52 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         claim_fence: "1",
         delivery_state: "delivering",
         delivery_attempt_count: "1",
+      });
+    });
+  });
+
+  it("reads the issued dispatch checkpoint after cancellation advances", async () => {
+    await withFixture(async (fixture) => {
+      const dispatchRepository = repository(
+        fixture.deliveryLocated,
+        CLAIM_OWNER_A,
+      );
+      const acquired = await runEffect(dispatchRepository.acquireDispatch({
+        runId: fixture.runId,
+        requestedEffectSequence: fixture.dispatchSequence,
+      }));
+      if (acquired.kind !== "claimed") throw new Error("dispatch was not claimed");
+
+      await runEffect(
+        dispatchRepository.markDispatchDeliveryStarted(acquired.handle),
+      );
+      await requestFixtureCancellation(fixture);
+
+      const prepared = await runEffect(readTaskComputePreparedExecutionV1(
+        fixture.deliveryLocated,
+        acquired.prepared.dispatchRequest,
+      ));
+      expect(prepared.dispatchRequest).toEqual(
+        acquired.prepared.dispatchRequest,
+      );
+      expect(prepared.dispatchRequest.cancellation).toEqual({
+        kind: "not_requested",
+        generation: 0n,
+      });
+      expect((await inspectFixtureAttempt(fixture)).state).toMatchObject({
+        cancellation: { kind: "requested", generation: 1n },
+      });
+
+      await expect(runEffectFailure(readTaskComputePreparedExecutionV1(
+        fixture.deliveryLocated,
+        {
+          ...acquired.prepared.dispatchRequest,
+          maximumDurationMs:
+            acquired.prepared.dispatchRequest.maximumDurationMs - 1,
+        },
+      ))).resolves.toMatchObject({
+        _tag: "TaskComputePreparedExecutionReadV1Error",
+        reason: "invalid_request",
       });
     });
   });
@@ -1018,6 +1065,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       const discovery = success(makeTaskComputeDeliveryCandidateDiscovery(
         fixture.deliveryLocated,
         DISCOVERY_DEADLINE_POLICY,
+        "legacy_and_application",
       ));
       const beforeDispatch = await runEffect(
         discovery.discoverCancellationCandidates({ limit: 10 }),

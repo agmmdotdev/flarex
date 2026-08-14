@@ -25,6 +25,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   MAX_TASK_DEFINITION_CANONICAL_BYTES_V1,
+  decodeTaskIdV1,
   type StandardApplicationTaskSha256V1,
   type TaskDefinitionSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -101,6 +102,13 @@ export interface ApplicationTaskSystemRunCreationOptions {
 }
 
 export interface ApplicationTaskSystemRunCreationStore {
+  readonly replayRun: (
+    taskId: unknown,
+    request: ApplicationTaskRunReplayRequestV1,
+  ) => Effect.Effect<
+    ApplicationTaskRunCreationReceiptV1 | null,
+    ApplicationTaskSystemRunCreationError
+  >;
   readonly createRun: (
     selection: ApplicationTaskSelection,
     request: ApplicationTaskRunCreationRequestV1,
@@ -108,18 +116,33 @@ export interface ApplicationTaskSystemRunCreationStore {
     ApplicationTaskRunCreationReceiptV1,
     ApplicationTaskSystemRunCreationError
   >;
+  readonly createSelectedRun: (
+    selection: ApplicationTaskSelection,
+    request: ApplicationTaskRunReplayRequestV1,
+  ) => Effect.Effect<
+    ApplicationTaskRunCreationReceiptV1,
+    ApplicationTaskSystemRunCreationError
+  >;
 }
+
+export type ApplicationTaskRunReplayRequestV1 = Omit<
+  ApplicationTaskRunCreationRequestV1,
+  "applicationTaskRuntimeTargetSha256"
+>;
 
 interface CapturedApplicationTaskSystemRunCreationOptions {
   readonly leaseDurationMs: TaskDurationMsV1;
   readonly immediateRetryThresholdMs: TaskDurationMsV1;
 }
 
-interface PreparedCreation {
-  readonly selection: ApplicationTaskSelection;
+interface PreparedCreationEvidence {
   readonly request: ApplicationTaskRunCreationRequestV1;
   readonly requestKeySha256: TaskRunCreationRequestKeySha256V1;
   readonly requestSha256: TaskRunCreationRequestSha256V1;
+}
+
+interface PreparedCreation extends PreparedCreationEvidence {
+  readonly selection: ApplicationTaskSelection;
 }
 
 export function makeApplicationTaskSystemRunCreationStore(
@@ -132,6 +155,16 @@ export function makeApplicationTaskSystemRunCreationStore(
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
   const capturedOptions = captureCreationOptions(options);
   return Object.freeze({
+    replayRun: (
+      taskId: unknown,
+      request: ApplicationTaskRunReplayRequestV1,
+    ) => replayApplicationRun(
+      authority,
+      target,
+      sha256,
+      taskId,
+      request,
+    ),
     createRun: (
       selection: ApplicationTaskSelection,
       request: ApplicationTaskRunCreationRequestV1,
@@ -144,7 +177,229 @@ export function makeApplicationTaskSystemRunCreationStore(
       selection,
       request,
     ),
+    createSelectedRun: (
+      selection: ApplicationTaskSelection,
+      request: ApplicationTaskRunReplayRequestV1,
+    ) => createSelectedApplicationRun(
+      authority,
+      target,
+      sha256,
+      capturedOptions,
+      randomUuid,
+      selection,
+      request,
+    ),
   });
+}
+
+const replayApplicationRun = Effect.fn(
+  "ApplicationTaskSystemRunCreation.replayRun",
+)(function* (
+  authority: TrustedScopeAuthority,
+  target: LocatedReadCommittedAttemptTargetV1,
+  sha256: StandardApplicationTaskSha256V1,
+  suppliedTaskId: unknown,
+  suppliedRequest: ApplicationTaskRunReplayRequestV1,
+): Effect.fn.Return<
+  ApplicationTaskRunCreationReceiptV1 | null,
+  ApplicationTaskSystemRunCreationError
+> {
+  const taskId = yield* Effect.fromResult(
+    decodeTaskIdV1(suppliedTaskId).pipe(Result.mapError(() =>
+      new TaskSystemRunCreationBindingError({
+        operation: "create_run",
+        reason: "request_authority_mismatch",
+      })
+    )),
+  );
+  const placeholderRequest = yield* Effect.fromResult(
+    decodeApplicationTaskRunCreationRequestV1({
+      ...suppliedRequest,
+      applicationTaskRuntimeTargetSha256: new Uint8Array(32),
+    }),
+  );
+  const requestKeyBytes = yield* Effect.fromResult(
+    encodeTaskRunCreationRequestKeyPreimageV1(placeholderRequest.requestKey),
+  );
+  const requestKeySha256 = requestKeyDigest(
+    yield* hashBytes(requestKeyBytes, sha256),
+  );
+  for (let execution = 1; execution <= MAX_TRANSACTION_EXECUTIONS; execution += 1) {
+    const settled = yield* Effect.exit(awaitTransaction(
+      target[RUN_LOCATED_READ_COMMITTED_V1](tx => transactApplicationReplay(
+        tx,
+        authority,
+        target,
+        sha256,
+        taskId,
+        placeholderRequest,
+        requestKeySha256,
+      )),
+    ));
+    if (Exit.isSuccess(settled)) {
+      return settled.value === null
+        ? null
+        : yield* Effect.fromResult(
+          decodeApplicationTaskRunCreationReceiptV1(settled.value),
+        );
+    }
+    const cause = yield* Result.match(Cause.findError(settled.cause), {
+      onFailure: Effect.failCause,
+      onSuccess: Effect.succeed,
+    });
+    if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+      if (cause.issue.kind === "callbackRolledBack") {
+        const callbackCause = cause.issue.callbackCause;
+        if (callbackCause instanceof ApplicationCreationRollback) {
+          return yield* Effect.fail(callbackCause.error);
+        }
+        if (callbackCause instanceof ApplicationCreationCauseRollback) {
+          return yield* Effect.failCause(callbackCause.cause);
+        }
+        if (execution < MAX_TRANSACTION_EXECUTIONS && isRetryable(callbackCause)) {
+          continue;
+        }
+      }
+      return yield* new TaskSystemRunCreationTransientStoreError({
+        operation: "create_run",
+        reason: cause.issue.kind === "infrastructureFailure"
+          ? "connection_unavailable"
+          : "driver_failure",
+        cause,
+      });
+    }
+    return yield* Effect.die(cause);
+  }
+  return yield* new TaskSystemRunCreationTransientStoreError({
+    operation: "create_run",
+    reason: "transaction_conflict",
+    cause: null,
+  });
+});
+
+const createSelectedApplicationRun = Effect.fn(
+  "ApplicationTaskSystemRunCreation.createSelectedRun",
+)(function* (
+  authority: TrustedScopeAuthority,
+  target: LocatedReadCommittedAttemptTargetV1,
+  sha256: StandardApplicationTaskSha256V1,
+  capturedOptions: Result.Result<
+    CapturedApplicationTaskSystemRunCreationOptions,
+    InvalidTaskRunInitialAggregateError
+  >,
+  randomUuid: () => string,
+  selection: ApplicationTaskSelection,
+  suppliedRequest: ApplicationTaskRunReplayRequestV1,
+): Effect.fn.Return<
+  ApplicationTaskRunCreationReceiptV1,
+  ApplicationTaskSystemRunCreationError
+> {
+  const claimed = yield* Effect.fromResult(claimApplicationTaskSelection(selection));
+  const request = yield* Effect.fromResult(
+    decodeApplicationTaskRunCreationRequestV1({
+      ...suppliedRequest,
+      applicationTaskRuntimeTargetSha256: runtimeTargetDigest(
+        copyBytes(claimed.runtimeTargetSha256),
+      ),
+    }),
+  );
+  return yield* createApplicationRun(
+    authority,
+    target,
+    sha256,
+    capturedOptions,
+    randomUuid,
+    selection,
+    request,
+  );
+});
+
+async function transactApplicationReplay(
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  target: LocatedReadCommittedAttemptTargetV1,
+  sha256: StandardApplicationTaskSha256V1,
+  taskId: string,
+  placeholderRequest: ApplicationTaskRunCreationRequestV1,
+  requestKeySha256: TaskRunCreationRequestKeySha256V1,
+): Promise<ApplicationTaskRunCreationReceiptV1 | null> {
+  await requireLockedTaskSystemScopeAuthorityV1(
+    tx,
+    authority,
+    target,
+    mismatch => rollback(new TaskSystemRunCreationStaleScopeAuthorityError({
+      operation: "create_run",
+      authority: mismatch,
+    })),
+  );
+  const requestRow = await loadRequest(tx, authority.scopeId, requestKeySha256);
+  if (requestRow === null) return null;
+  const runId = Result.getOrThrowWith(
+    decodeTaskRunIdV1(requestRow.runId),
+    () => rollback(new TaskSystemRunCreationCorruptionError({
+      operation: "create_run",
+      reason: "idempotency_row_invalid",
+    })),
+  );
+  const run = await loadRun(tx, authority.scopeId, runId);
+  if (run === null) throw rollback(new TaskSystemRunCreationCorruptionError({
+    operation: "create_run",
+    reason: "run_row_invalid",
+  }));
+  const decoded = Result.getOrThrowWith(
+    decodeAndCorrelateTaskSystemRunRowV1(run),
+    () => rollback(new TaskSystemRunCreationCorruptionError({
+      operation: "create_run",
+      reason: "run_row_invalid",
+    })),
+  );
+  if (decoded.generation !== "application_v1") {
+    throw rollback(new TaskRunCreationIdempotencyConflictError({
+      requestKey: placeholderRequest.requestKey,
+      reason: "request_digest_mismatch",
+    }));
+  }
+  const creationAuthority = Result.getOrThrowWith(
+    decodeApplicationTaskRunCreationAuthorityPreimageV1(
+      run.creationAuthorityBytes,
+    ),
+    () => rollback(new TaskSystemRunCreationCorruptionError({
+      operation: "create_run",
+      reason: "creation_authority_invalid",
+    })),
+  );
+  if (creationAuthority.runtimeTarget.taskId !== taskId) {
+    throw rollback(new TaskRunCreationIdempotencyConflictError({
+      requestKey: placeholderRequest.requestKey,
+      reason: "request_digest_mismatch",
+    }));
+  }
+  const request = Result.getOrThrowWith(
+    decodeApplicationTaskRunCreationRequestV1({
+      ...placeholderRequest,
+      applicationTaskRuntimeTargetSha256:
+        creationAuthority.applicationTaskRuntimeTargetSha256,
+    }),
+    cause => rollback(cause),
+  );
+  const requestBytes = Result.getOrThrowWith(
+    encodeApplicationTaskRunCreationRequestPreimageV1(request),
+    cause => rollback(cause),
+  );
+  const prepared: PreparedCreationEvidence = Object.freeze({
+    request,
+    requestKeySha256,
+    requestSha256: requestDigest(
+      await runEffectInTransaction(hashBytes(requestBytes, sha256)),
+    ),
+  });
+  return replayCreation(
+    tx,
+    authority.scopeId,
+    requestRow,
+    prepared,
+    sha256,
+  );
 }
 
 const createApplicationRun = Effect.fn(
@@ -387,7 +642,7 @@ async function replayCreation(
   tx: AppRowTransaction,
   scopeId: ScopeId,
   requestRow: RunRequestRow,
-  prepared: PreparedCreation,
+  prepared: PreparedCreationEvidence,
   sha256: StandardApplicationTaskSha256V1,
 ): Promise<ApplicationTaskRunCreationReceiptV1> {
   if (requestRow.requestKeyCodecVersion !== 1
@@ -477,7 +732,7 @@ async function replayCreation(
 }
 
 function receipt(
-  prepared: PreparedCreation,
+  prepared: PreparedCreationEvidence,
   runId: TaskRunIdV1,
   createdAtMs: TaskDatabaseTimeMsV1,
   creationAuthoritySha256: TaskRunCreationAuthoritySha256V1,
@@ -520,7 +775,7 @@ async function loadRun(
   return rows[0] ?? null;
 }
 
-function runMatches(run: RunRow, prepared: PreparedCreation): boolean {
+function runMatches(run: RunRow, prepared: PreparedCreationEvidence): boolean {
   const input = prepared.request.input;
   return run.definitionGeneration === "application_v1"
     && run.taskDefinitionRevisionId === null

@@ -269,6 +269,7 @@ function directoryOptions(resolvedScopeId: typeof SCOPE_ID) {
       transactionTimeoutMilliseconds: 300,
       settlementReserveMilliseconds: 1_000,
     }),
+    definitionGenerationPolicy: "legacy_only",
     resolutionTimeoutMilliseconds: 500,
   });
 }

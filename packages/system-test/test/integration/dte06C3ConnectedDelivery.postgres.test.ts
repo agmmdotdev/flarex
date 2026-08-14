@@ -625,6 +625,7 @@ function connectedLayer(
         randomUuid: () => claimOwner,
       },
       discoveryDeadline: DEADLINE_POLICY,
+      definitionGenerationPolicy: "legacy_only",
       resolutionTimeoutMilliseconds: 100,
     },
   );

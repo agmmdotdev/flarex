@@ -99,6 +99,7 @@ import type {
 export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
+  readonly includeTask?: boolean;
 }
 
 export interface ApplicationNativeMutationSourceBundle {
@@ -294,10 +295,12 @@ export async function createApplicationNativeMutationPGliteFixture(
   );
   const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
     version: 1,
-    tasks: [],
+    tasks: options.includeTask === true ? [applicationTaskManifest()] : [],
   }, taskSha256));
   const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
-    definition: emptyPreparedDefinition(),
+    definition: options.includeTask === true
+      ? taskPreparedDefinition()
+      : emptyPreparedDefinition(),
     catalog,
     authority: {
       scopeId: publication.scopeId,
@@ -307,7 +310,10 @@ export async function createApplicationNativeMutationPGliteFixture(
       sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
       publicationSha256: publication.publicationSha256,
     },
-    runtimePolicy: options,
+    runtimePolicy: {
+      runtimeHostIdentity: options.runtimeHostIdentity,
+      compatibilityDate: options.compatibilityDate,
+    },
   }, taskSha256));
   await Effect.runPromise(
     makeApplicationTaskBindingRepository(target.drizzle).register({
@@ -472,10 +478,12 @@ export async function createApplicationNativeMutationPGliteFixture(
     );
     const nextCatalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
       version: 1,
-      tasks: [],
+      tasks: options.includeTask === true ? [applicationTaskManifest()] : [],
     }, taskSha256));
     const nextBindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
-      definition: emptyPreparedDefinition(),
+      definition: options.includeTask === true
+        ? taskPreparedDefinition()
+        : emptyPreparedDefinition(),
       catalog: nextCatalog,
       authority: {
         scopeId: nextPublication.scopeId,
@@ -485,7 +493,10 @@ export async function createApplicationNativeMutationPGliteFixture(
         sourceArtifactRootSha256: nextPublication.sourceArtifactRootSha256,
         publicationSha256: nextPublication.publicationSha256,
       },
-      runtimePolicy: options,
+      runtimePolicy: {
+        runtimeHostIdentity: options.runtimeHostIdentity,
+        compatibilityDate: options.compatibilityDate,
+      },
     }, taskSha256));
     await Effect.runPromise(
       makeApplicationTaskBindingRepository(target.drizzle).register({
@@ -700,6 +711,9 @@ async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBu
     "export async function notify(_ctx, args) {",
     "  return { delivered: args.message };",
     "}",
+    "export async function task(_ctx, payload) {",
+    "  return { accepted: payload };",
+    "}",
     "",
   ].join("\n");
   const schema = "export default {};\n";
@@ -788,6 +802,91 @@ function emptyPreparedDefinition() {
       authPath: null,
     },
   }));
+}
+
+function taskPreparedDefinition() {
+  return Result.getOrThrow(prepareStandardApplicationDefinitionV1({
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 1_024,
+      maximumValidatorNodes: 32,
+      maximumValidatorDepth: 8,
+      maximumValidatorStringUtf8Bytes: 1_024,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: { tables: [], indexes: [] },
+      modules: [{
+        modulePath: "users",
+        functions: [{
+          exportName: "create",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: null,
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 1,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 4_096,
+      maximumSourceMapBytes: 0,
+      maximumBytesMaterialized: 16_384,
+      maximumSemanticRecords: 16,
+      maximumSemanticRecordBytes: 4_096,
+      maximumSemanticStreamBytes: 16_384,
+    },
+    graphInput: {
+      modules: [{
+        path: "functions/users.js",
+        roles: ["function", "execution"],
+        sourceBytes: new TextEncoder().encode([
+          "export const create = () => null;",
+          "export const task = (_ctx, payload) => ({ accepted: payload });",
+          "",
+        ].join("\n")),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "users",
+        artifactModulePath: "functions/users.js",
+      }],
+      executionPath: "functions/users.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  }));
+}
+
+function applicationTaskManifest() {
+  return Object.freeze({
+    version: 1 as const,
+    taskId: "tasks.users.task",
+    handler: Object.freeze({
+      logicalModulePath: "users",
+      artifactModulePath: "functions/users.js",
+      exportName: "task",
+    }),
+    payloadValidator: Object.freeze({ type: "any" as const }),
+    outputValidator: Object.freeze({ type: "any" as const }),
+    runAttemptPolicy: Object.freeze({
+      version: 1 as const,
+      retry: Object.freeze({
+        maxAttempts: 3,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      }),
+      outOfMemory: Object.freeze({ kind: "disabled" as const }),
+    }),
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: Object.freeze({ kind: "default" as const }),
+  });
 }
 
 function uuidSequence(...sequences: ReadonlyArray<number>): () => string {

@@ -16,6 +16,8 @@
     "./internal/application-query-system": "./src/ApplicationQuerySystem.ts",
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
+    "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
+    "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
     "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
     "./internal/system-v1": "./src/systemV1.ts",
     "./v1": "./src/v1.ts"

@@ -15,6 +15,7 @@ import {
 import {
   makeTaskComputeDeliveryCandidateDiscovery,
   type TaskComputeDeliveryCandidateDiscovery,
+  type TaskComputeDeliveryDefinitionGenerationPolicy,
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-discovery";
 import {
   makeTaskComputeDeliveryRepositoryV1,
@@ -133,6 +134,8 @@ export interface TaskComputeDeliveryTrustedDirectoryOptions {
   >;
   readonly repository: TaskComputeDeliveryRepositoryOptionsV1;
   readonly discoveryDeadline: TaskRepairPostgresDeadlinePolicyInputV1;
+  readonly definitionGenerationPolicy:
+    TaskComputeDeliveryDefinitionGenerationPolicy;
   readonly resolutionTimeoutMilliseconds: number;
 }
 
@@ -221,6 +224,7 @@ function makeTaskComputeDeliveryTrustedDirectory(
             makeTaskComputeDeliveryCandidateDiscovery(
               located,
               options.discoveryDeadline,
+              options.definitionGenerationPolicy,
             ).pipe(
               Result.mapError(() =>
                 "discovery_configuration_invalid" as const
@@ -351,6 +355,7 @@ function captureDirectoryOptions(
       if (typeof randomUuid !== "function") throw INVALID_CONFIGURATION;
 
       const deadlineOwner = input.discoveryDeadline;
+      const definitionGenerationPolicy = input.definitionGenerationPolicy;
       const resolutionTimeoutMilliseconds =
         input.resolutionTimeoutMilliseconds;
       const settlementReserveMilliseconds =
@@ -358,6 +363,10 @@ function captureDirectoryOptions(
       if (
         !isPositiveSafeInteger(resolutionTimeoutMilliseconds)
         || !isPositiveSafeInteger(settlementReserveMilliseconds)
+        || (
+          definitionGenerationPolicy !== "legacy_only"
+          && definitionGenerationPolicy !== "legacy_and_application"
+        )
       ) {
         throw INVALID_CONFIGURATION;
       }
@@ -394,6 +403,7 @@ function captureDirectoryOptions(
             deadlineOwner.transactionTimeoutMilliseconds,
           settlementReserveMilliseconds,
         }),
+        definitionGenerationPolicy,
         resolutionTimeoutMilliseconds,
         resolveSettlementBudgetMilliseconds:
           resolutionTimeoutMilliseconds + 1,

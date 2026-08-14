@@ -3420,13 +3420,13 @@ discovery composition.
 The accepted 5d3 composition owns `select` and `createRun` through the existing
 issuer-backed Application selection and Application run-creation store. It does
 not expose Drizzle, physical locators, activation mutation or a Legacy selector.
-Only after the real 5d2b adapter is connected may the four ordinary compute
-discovery branches remove their temporary `legacy_definition_v1` filter. The
-same generation-neutral candidate runner then discovers both stored generations;
-there is no comparison run, fallback provider or second scheduler. The connected
-PGlite proof must start from authentic active Application selection and end at
-one accepted fresh Worker launch. AA-R7 remains the genuine PostgreSQL and
-combined private vertical gate.
+Only the composition that connects the real 5d2b adapter may install the
+generation-neutral discovery policy. All retained compositions keep an explicit
+Legacy-only policy. The same candidate runner then discovers both stored
+generations without a comparison run, fallback provider or second scheduler.
+The connected PGlite proof must start from authentic active Application
+selection and end at one accepted fresh Worker launch. AA-R7 remains the genuine
+PostgreSQL and combined private vertical gate.
 
 Self-review accepts the corrected split because 5d1 terminates at a strict
 Application terminal Worker proof, 5d2a at the exhaustive launch subject,
@@ -3470,6 +3470,35 @@ Effect-boundary check and connected-runtime source-map check pass. Self-review
 accepts 5d2a as the intended launch-authority terminal and leaves all start,
 interruption, provider acceptance, discovery and lifecycle ownership to 5d2b
 and later checkpoints.
+
+Checkpoint 5d3 implementation receipt (2026-08-14): complete. The private
+unversioned `ApplicationTaskSystem` now owns active task selection and
+Application run creation. It first resolves an exact durable replay from the
+stored request key, Application creation authority and runtime-target identity;
+only a missing request reads the current active head and issues a new authentic
+selection. Exact replay therefore remains pinned after later activation without
+turning current-head lookup into replay authority.
+
+Ordinary compute discovery now requires one explicit generation policy. Every
+retained composition selects `legacy_only`; the private
+`ApplicationTaskComputeDelivery` composition alone installs
+`legacy_and_application` in the same Layer graph as the real Worker Loader
+provider. Discovery, claims, candidate execution and settlement remain one
+shared path and no fallback or comparison provider was added. The connected
+PGlite proof creates from authentic active Application task selection, replays
+before and after a later head, starts the shared lifecycle, discovers the
+Application row, reconstructs its stored immutable execution evidence, loads
+the authority-pinned Source Artifact V2 bundle, and records exactly one accepted
+fresh Application Worker launch with zero Legacy runtime-object reads. The
+retained Legacy connected lane remains green under `legacy_only`.
+
+Focused validation is the persistence, backend and Standard invocation
+typechecks; 70 Application readiness, compute repository and discovery tests;
+five trusted-directory tests; four retained Legacy connected-delivery tests;
+and the new connected Application Task System PGlite test. The workspace-wide
+system-test typecheck remains blocked only by the pre-existing untracked
+Application mutation harness files and is not relaxed or repaired by this
+checkpoint. This completes `AA-R6`; `AA-R7` is now the next authorized gate.
 
 ### `AA-R7` — private proof
 

@@ -40,6 +40,10 @@ export const MAX_TASK_COMPUTE_DELIVERY_DISCOVERY_LIMIT = 100;
 
 export type TaskComputeDeliveryOperation = "dispatch" | "cancellation";
 
+export type TaskComputeDeliveryDefinitionGenerationPolicy =
+  | "legacy_only"
+  | "legacy_and_application";
+
 export interface TaskComputeDeliveryContinuationPositionV1 {
   readonly eligibleAt: string;
   readonly runId: TaskRunIdV1;
@@ -111,7 +115,8 @@ export class TaskComputeDeliveryDiscoveryConfigurationError
     readonly reason:
       | "invalid_scope"
       | "invalid_target"
-      | "invalid_deadline_policy";
+      | "invalid_deadline_policy"
+      | "invalid_definition_generation_policy";
     readonly cause?: unknown;
   }> {}
 
@@ -250,6 +255,8 @@ export interface TaskComputeDeliveryDiscoveryStatementInput {
   readonly scopeId: ReplacementScopeIdV1;
   readonly limitPlusOne: number;
   readonly continuation: TaskComputeDeliveryContinuationV1 | undefined;
+  readonly definitionGenerationPolicy:
+    TaskComputeDeliveryDefinitionGenerationPolicy;
 }
 
 export function decodeTaskComputeDeliveryContinuationV1(
@@ -316,11 +323,17 @@ function decodeContinuation<
 export function makeTaskComputeDeliveryCandidateDiscovery(
   located: LocatedTrustedScopeAuthority<LocatedTaskComputeDeliveryTargetV1>,
   deadlinePolicyInput: TaskRepairPostgresDeadlinePolicyInputV1,
+  definitionGenerationPolicyInput:
+    TaskComputeDeliveryDefinitionGenerationPolicy,
 ): Result.Result<
   TaskComputeDeliveryCandidateDiscovery,
   TaskComputeDeliveryDiscoveryConfigurationError
 > {
-  return createTaskRepairPostgresDeadlinePolicyV1(deadlinePolicyInput).pipe(
+  return captureDefinitionGenerationPolicy(
+    definitionGenerationPolicyInput,
+  ).pipe(
+    Result.flatMap((definitionGenerationPolicy) =>
+      createTaskRepairPostgresDeadlinePolicyV1(deadlinePolicyInput).pipe(
     Result.mapError((cause) =>
       new TaskComputeDeliveryDiscoveryConfigurationError({
         reason: "invalid_deadline_policy",
@@ -361,6 +374,7 @@ export function makeTaskComputeDeliveryCandidateDiscovery(
             target,
             runLocatedTransaction,
             deadlinePolicy,
+            definitionGenerationPolicy,
             buildTaskComputeDispatchDiscoveryStatement,
           );
           const discoverCancellationCandidates = makeDiscoveryOperation(
@@ -370,6 +384,7 @@ export function makeTaskComputeDeliveryCandidateDiscovery(
             target,
             runLocatedTransaction,
             deadlinePolicy,
+            definitionGenerationPolicy,
             buildTaskComputeCancellationDiscoveryStatement,
           );
           return Result.succeed(Object.freeze({
@@ -378,8 +393,21 @@ export function makeTaskComputeDeliveryCandidateDiscovery(
           }));
         }),
       );
-    }),
+    }))),
   );
+}
+
+function captureDefinitionGenerationPolicy(
+  input: unknown,
+): Result.Result<
+  TaskComputeDeliveryDefinitionGenerationPolicy,
+  TaskComputeDeliveryDiscoveryConfigurationError
+> {
+  return input === "legacy_only" || input === "legacy_and_application"
+    ? Result.succeed(input)
+    : Result.fail(new TaskComputeDeliveryDiscoveryConfigurationError({
+      reason: "invalid_definition_generation_policy",
+    }));
 }
 
 function makeDiscoveryOperation<Operation extends TaskComputeDeliveryOperation>(
@@ -391,6 +419,7 @@ function makeDiscoveryOperation<Operation extends TaskComputeDeliveryOperation>(
     work: (tx: AppRowTransaction) => Promise<Value>,
   ) => Promise<Value>,
   deadlinePolicy: TaskRepairPostgresDeadlinePolicyV1,
+  definitionGenerationPolicy: TaskComputeDeliveryDefinitionGenerationPolicy,
   buildStatement: (input: TaskComputeDeliveryDiscoveryStatementInput) => SQL,
 ): (
   input: unknown,
@@ -411,6 +440,7 @@ function makeDiscoveryOperation<Operation extends TaskComputeDeliveryOperation>(
       scopeId,
       limitPlusOne: input.limit + 1,
       continuation: input.continuation,
+      definitionGenerationPolicy,
     });
     const rows = yield* runDiscoveryTransaction(
       operation,
@@ -634,6 +664,7 @@ function buildDiscoveryStatement(
       limit: 1,
       highWater,
       last: undefined,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     }),
     ...initialStates.map((state) => checkpointInitialDiscoveryBranch({
       scopeId: input.scopeId,
@@ -644,6 +675,7 @@ function buildDiscoveryStatement(
       limit: 1,
       highWater,
       last: undefined,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     })),
     checkpointRetryDiscoveryBranch({
       scopeId: input.scopeId,
@@ -653,6 +685,7 @@ function buildDiscoveryStatement(
       limit: 1,
       highWater,
       last: undefined,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     }),
     checkpointClaimDiscoveryBranch({
       scopeId: input.scopeId,
@@ -662,6 +695,7 @@ function buildDiscoveryStatement(
       limit: 1,
       highWater,
       last: undefined,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     }),
   ];
   const pageBranches = [
@@ -673,6 +707,7 @@ function buildDiscoveryStatement(
       limit: input.limitPlusOne,
       highWater,
       last,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     }),
     ...initialStates.map((state) => checkpointInitialDiscoveryBranch({
       scopeId: input.scopeId,
@@ -683,6 +718,7 @@ function buildDiscoveryStatement(
       limit: input.limitPlusOne,
       highWater,
       last,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     })),
     checkpointRetryDiscoveryBranch({
       scopeId: input.scopeId,
@@ -692,6 +728,7 @@ function buildDiscoveryStatement(
       limit: input.limitPlusOne,
       highWater,
       last,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     }),
     checkpointClaimDiscoveryBranch({
       scopeId: input.scopeId,
@@ -701,6 +738,7 @@ function buildDiscoveryStatement(
       limit: input.limitPlusOne,
       highWater,
       last,
+      definitionGenerationPolicy: input.definitionGenerationPolicy,
     }),
   ];
   return sql`
@@ -785,6 +823,8 @@ interface DiscoveryBranchInput {
   readonly limit: number;
   readonly highWater: TaskComputeDeliveryContinuationPositionV1 | undefined;
   readonly last: TaskComputeDeliveryContinuationPositionV1 | undefined;
+  readonly definitionGenerationPolicy:
+    TaskComputeDeliveryDefinitionGenerationPolicy;
 }
 
 function pendingDiscoveryBranch(
@@ -809,7 +849,7 @@ function pendingDiscoveryBranch(
         and run.run_id = pending.run_id
       ${pageHighWaterJoin(input.last)}
       where pending.scope_id = ${input.scopeId}
-        and run.definition_generation = 'legacy_definition_v1'
+        and ${definitionGenerationPredicate(input.definitionGenerationPolicy)}
         and pending.kind = ${input.requestedKind}
         and ${eligibleAt} <= ${input.timeBound}
         and ${branchPositionPredicate(identity, input.highWater, input.last)}
@@ -843,7 +883,7 @@ function checkpointInitialDiscoveryBranch(
         and run.run_id = checkpoint.run_id
       ${pageHighWaterJoin(input.last)}
       where checkpoint.scope_id = ${input.scopeId}
-        and run.definition_generation = 'legacy_definition_v1'
+        and ${definitionGenerationPredicate(input.definitionGenerationPolicy)}
         and checkpoint.delivery_state = ${input.state}
         and checkpoint.claim_owner is null
         and checkpoint.next_attempt_at is null
@@ -876,7 +916,7 @@ function checkpointRetryDiscoveryBranch(input: DiscoveryBranchInput): SQL {
         and run.run_id = checkpoint.run_id
       ${pageHighWaterJoin(input.last)}
       where checkpoint.scope_id = ${input.scopeId}
-        and run.definition_generation = 'legacy_definition_v1'
+        and ${definitionGenerationPredicate(input.definitionGenerationPolicy)}
         and checkpoint.delivery_state = 'retry_wait'
         and checkpoint.claim_owner is null
         and checkpoint.next_attempt_at <= ${input.timeBound}
@@ -909,7 +949,7 @@ function checkpointClaimDiscoveryBranch(input: DiscoveryBranchInput): SQL {
         and run.run_id = checkpoint.run_id
       ${pageHighWaterJoin(input.last)}
       where checkpoint.scope_id = ${input.scopeId}
-        and run.definition_generation = 'legacy_definition_v1'
+        and ${definitionGenerationPredicate(input.definitionGenerationPolicy)}
         and checkpoint.claim_owner is not null
         and checkpoint.claim_expires_at <= ${input.timeBound}
         and ${branchPositionPredicate(identity, input.highWater, input.last)}
@@ -920,6 +960,16 @@ function checkpointClaimDiscoveryBranch(input: DiscoveryBranchInput): SQL {
       limit ${input.limit}
     )
   `;
+}
+
+function definitionGenerationPredicate(
+  policy: TaskComputeDeliveryDefinitionGenerationPolicy,
+): SQL {
+  return policy === "legacy_only"
+    ? sql`run.definition_generation = 'legacy_definition_v1'`
+    : sql`run.definition_generation in (
+        'legacy_definition_v1', 'application_v1'
+      )`;
 }
 
 function pageHighWaterJoin(
