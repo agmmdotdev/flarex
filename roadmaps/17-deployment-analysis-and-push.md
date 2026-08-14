@@ -19,7 +19,9 @@ Declarative V2 contract names, Semantic Artifact V1 bytes, verifier attempts,
 progress rows, registration roots, and completed receipts keep their historical
 meaning until explicit migration and removal gates pass. They must not become
 aliases for cold-load success, and no production caller may choose between the
-two analysis authorities. Production routing and cutover remain unapproved.
+two analysis authorities. The `AA-R9-P` production-cutover preflight is
+complete with a no-go decision. Production routing and cutover remain
+unapproved.
 
 This roadmap owns:
 
@@ -425,12 +427,13 @@ activation without readiness.
 
 ## Known Gaps And Limitations
 
-- `apps/backend/wrangler.jsonc` still binds `FLAREX_ANALYZER` to
-  `flarex-analyzer`; the new `flarex-source-analyzer-v2` app is only an inert
-  private identity/compatibility host and is not wired to that production
-  binding. Tests and local dev still inject whole-package service
-  implementations, so hosted source-only analysis remains operationally
-  unproven.
+- `apps/backend/wrangler.jsonc` still binds the Fetcher-shaped
+  `FLAREX_ANALYZER` contract to `flarex-analyzer`, while the current
+  `flarex-source-analyzer-v2` app exposes the RPC
+  `FlarexApplicationAnalysisHost` and no HTTP `/analyze` surface. The durable
+  Application Analysis composition is deliberately injected and has no
+  production owner. Tests and local dev still inject whole-package services,
+  so hosted source-only Application Analysis remains operationally unproven.
 - The current hosted artifact-runtime Worker materializes and invokes Dynamic
   Workers but does not expose the analyzer service expected by the public
   backend. Hosted analysis ownership and deployment wiring remain incomplete.
@@ -611,11 +614,14 @@ That focused plan accepts the docs-first preflight and governs `AA-R1` through
    protocols, obsolete internal exports, and Semantic Artifact V1 production
    if it is orphaned. Retire tables only through new guarded migrations that
    refuse nonempty or still-referenced state.
-9. **AA-R9 — separate production cutover.** Only after hosted proofs and the
-   existing readiness/routing prerequisites are green, switch the production
-   caller atomically without fallback, shadow analysis, comparison authority,
-   or dual writes. Retire Dynamic V1 compatibility separately after its own
-   consumer and behavior audit.
+9. **AA-R9 — separate production cutover.** `AA-R9-P` is complete with a
+   no-go decision: the hosted, generation-routing, scope-isolation, recovery,
+   request-key, identity, response-parity, auth, hosted-analyzer-composition,
+   and atomic-deployment prerequisites are not all green. Only after those
+   owners close may a new implementation-bearing checkpoint switch one
+   production caller atomically without fallback, shadow analysis, comparison
+   authority, or dual writes. Retire Dynamic V1 compatibility separately after
+   its own consumer and behavior audit.
 
 Temporary code coexistence is allowed only to make the migration mechanically
 reviewable. It must never become request-time fallback, comparison acceptance,

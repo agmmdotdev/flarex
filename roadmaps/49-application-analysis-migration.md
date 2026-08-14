@@ -4,8 +4,10 @@
 
 **Status:** `AA-R0` through `AA-R8` are complete. The static-verifier analysis
 system has been replaced, its production exports removed, and its storage
-retired behind a guarded migration. This focused goal is complete and must
-stop before `AA-R9` production cutover.
+retired behind a guarded migration. `AA-R9-P`, the required production-cutover
+preflight, is complete with a **no-go** decision. Production cutover remains
+blocked on separately owned hosted, routing, identity, request, response, auth,
+and recovery gates.
 
 This plan owns the ordered replacement of the private Declarative V2 static
 verifier with Application Analysis. It coordinates the existing analysis,
@@ -3668,6 +3670,99 @@ displaced targets only through `internal/system-test` package subpaths.
 
 Stop here. `AA-R9` routing, bindings, deployment, caller selection, auth and
 production cutover remain unauthorized.
+
+### `AA-R9-P` — production-cutover preflight and no-go decision
+
+The 2026-08-14 repository-grounded production-cutover preflight is complete.
+Its decision is **do not implement or activate AA-R9 yet**. This preflight
+authorizes no route, binding, deployment, schema, migration, caller switch,
+fallback, comparison execution, dual write, or Dynamic V1 retirement.
+
+The current production analysis path is:
+
+```text
+public source-only push
+  -> backend Fetcher binding FLAREX_ANALYZER
+  -> POST /analyze using the Dynamic V1 SourcePackage JSON contract
+  -> AnalyzerSuccessEnvelope with deployment analysis + codegen analysis
+  -> DeploymentDO candidate/active state
+  -> Dynamic V1 artifact and /invoke routing
+```
+
+The Application Analysis replacement has a different honest authority chain:
+
+```text
+authenticated finalized Source Artifact V2 root
+  -> RPC FlarexApplicationAnalysisHost.analyze
+  -> ApplicationManifestV1 + backend-owned ApplicationAnalysisReceiptV1
+  -> scope-clock-fenced Postgres Application candidate/revision
+  -> Application publication/readiness/activation
+  -> issuer-backed Standard Application query/mutation/action/task consumers
+```
+
+These are not wire-compatible alternatives. The backend binding is currently
+typed as `Fetcher` and calls `/analyze`; the current analyzer app exports a
+named RPC `WorkerEntrypoint` and no HTTP fetch surface. The public push path
+expects caller-provided Dynamic V1 source-package fields and an
+`AnalyzerSuccessEnvelope`; the replacement requires an authenticated finalized
+Source Artifact V2 root, trusted scope authority, a durable Application
+Analysis repository, and an Application manifest/receipt. The current push
+then writes DeploymentDO candidate state, whereas the replacement writes the
+Postgres Application authority used by readiness and activation. Adapting one
+shape into the other would reinterpret a compatibility contract or create two
+valid authorities, both forbidden by this plan.
+
+The following gates block AA-R9:
+
+1. **Hosted Postgres proof:** foundation `H05-B` must capture the live
+   Cloudflare, cache-disabled Hyperdrive, private executor/probe,
+   SQL/OCC/control/trace, cleanup, and mandatory-teardown receipt.
+2. **Trusted generation routing:** foundation `S02-D2` must compose the
+   persisted scope resolver into execution so no header, request option, or
+   missing metadata can select `legacy_v1` versus `flarexdb_v1`.
+3. **Scope isolation:** foundation `S02-E` must prove real-Postgres
+   scope/generation/fence isolation, pooled-connection cleanup, and
+   cross-scope rejection.
+4. **Hosted recovery and observability:** roadmap 37 must complete its hosted
+   initial/redelivery composition and crash/expiry soak, including live
+   journal count, retained bytes, oldest nonterminal age, terminal backlog,
+   cleanup failures, and exact fenced recovery.
+5. **Public request identity:** the public mutation request still permits no
+   idempotency key while the Application mutation path requires one. A public
+   compatibility decision must preserve or explicitly version existing
+   behavior; AA-R9 may not manufacture a key or silently reject old traffic.
+6. **Execution identity and policy parity:** the current public caller forwards
+   authenticated `ExecutionIdentity`; the private Application proof does not
+   yet establish the complete authenticated/anonymous policy-digest and error
+   projection contract required by the route.
+7. **Response and error parity:** Application query, mutation, and action
+   outcomes are not the current `InvokeResponse`. A backend-owned adapter and
+   exact success/validation/conflict/retry/replay/interruption/uncertainty
+   parity proof are required before any caller switch.
+8. **Application auth support:** Application Analysis deliberately rejects or
+   omits application auth configuration. Auth is an explicit production
+   prerequisite; it cannot be copied from Dynamic V1 metadata or hidden in a
+   route adapter.
+9. **Hosted analyzer composition:** a production owner must compose finalized
+   Source Artifact V2 admission, trusted scope authority, the durable
+   Application Analysis context, and the RPC analyzer binding. The analyzer
+   Worker does not own Postgres, public routing, candidate admission, or
+   activation.
+10. **Atomic deployment procedure:** the eventual cut must name one persisted
+    generation selector, one forward/rollback procedure, binding and secret
+    ownership, observability, cold restart, and fail-closed behavior. It must
+    never call both systems or fall back after an Application failure.
+
+`AA-R8` closes the former analysis-replacement blocker in `FSV07-P`; it does
+not waive the remaining hosted and production-routing gates. Query, mutation,
+action, and Task consumers are privately proven, but production caller
+selection remains a separate operation-owned decision. Dynamic V1 retirement
+remains later still and requires its own consumer and behavior audit.
+
+When every prerequisite is green, return for a new implementation-bearing
+AA-R9 checkpoint. That checkpoint must name the exact first caller and should
+cut only one complete persisted generation atomically. Until then, the only
+safe AA-R9 action is to leave production routes and bindings unchanged.
 
 ## Medium Implementation Slices
 

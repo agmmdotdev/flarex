@@ -1028,10 +1028,11 @@ The following gates block that caller:
 7. The authoritative SAP04 committed outcome is not the existing
    `InvokeResponse`. A backend-owned response/error adapter needs explicit
    parity proof; the route may not expose private persistence or commit shapes.
-8. Roadmap 17 AA-R1-AA-R7 have not replaced the private static-verifier
-   analysis, registration, and readiness evidence with
-   `ApplicationManifestV1` and `ApplicationAnalysisReceiptV1` or rerun this
-   vertical through the new sole authority.
+8. **Closed by AA-R8:** Application Analysis now supplies the sole current
+   manifest/receipt authority, every private query/mutation/action/task
+   consumer has been rerun through Application rows, and the displaced
+   analyzer storage is retired. This closes only the analysis prerequisite;
+   it does not waive gates 1 through 7.
 
 Fail-closed rollback and recovery:
 
@@ -1064,11 +1065,11 @@ scope isolation, pooled cleanup, response/error compatibility, commit/change
 feed, result, and outbox facts. Query and action retirement additionally require
 their own routed parity decisions.
 
-The next executable analysis prerequisite is roadmap 17 AA-R1, not an FSV07
-route edit. `H05-B`, `S02-D2`, `S02-E`, and the roadmap 37 hosted soak remain
-independent routing prerequisites and are not waived by the analysis redesign.
-Return here for an implementation-bearing routing decision only after both the
-AA-R7 replacement proof and those hosted/runtime gates are green.
+The analysis prerequisite is complete through AA-R8. `AA-R9-P` revalidated the
+no-go decision: `H05-B`, `S02-D2`, `S02-E`, the roadmap 37 hosted soak, public
+request-key policy, identity parity, and response/error parity remain
+independent routing prerequisites. Return here for an implementation-bearing
+routing decision only after those hosted/runtime gates are green.
 
 ## Historical Completed FSV01 And FSV02 Handoff
 
@@ -1096,9 +1097,9 @@ candidate-bound exact runtime target, FSV06-A2 supplies the existing mixed-ABI
 catchability semantics, and FSV06 composes them without creating a route,
 trigger, hosted-redelivery authority, public SDK, or production caller. The
 FSV07-P records the separate production-routing preflight as a no-go decision.
-The next executable analysis gate is AA-R1; `H05-B` and the other hosted
-routing prerequisites remain independently open, and production routing remains
-unchanged.
+Application Analysis is complete through AA-R8, and AA-R9-P records a no-go
+cutover decision. `H05-B` and the other hosted routing prerequisites remain
+independently open, and production routing remains unchanged.
 
 ## Overall Completion Criteria
 
