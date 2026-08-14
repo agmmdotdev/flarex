@@ -1,0 +1,1076 @@
+import {
+  TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
+  TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+  TaskComputeCancellationRejectedError,
+  TaskComputeCancellationStaleError,
+  TaskComputeCancellationTransportError,
+  TaskComputeCancellationUncertainError,
+  TaskComputeDispatchConflictError,
+  TaskComputeDispatchRejectedError,
+  TaskComputeDispatchTransportError,
+  TaskComputeDispatchUncertainError,
+  TaskComputeExecutionIdV1Schema,
+  TaskComputeProvider,
+  decodeTaskComputeProviderDescriptorV1,
+  makeTaskComputeProviderV1,
+  snapshotTaskComputeCancellationReceiptV1,
+  snapshotTaskComputeDispatchAcceptanceV1,
+  type CurrentTaskComputeDispatchRequestV1,
+  type TaskComputeCancellationErrorV1,
+  type TaskComputeCancellationReceiptV1,
+  type TaskComputeCancellationRequestV1,
+  type TaskComputeDispatchAcceptanceV1,
+  type TaskComputeDispatchErrorV1,
+  type TaskComputeExecutionIdV1,
+  type TaskComputeExecutionRefV1,
+  type TaskComputeProviderDescriptorV1,
+  type TaskComputeProviderShape,
+} from "@flarex/durable-task/internal/compute-provider-v1";
+import {
+  MAX_TASK_RUNTIME_COMPATIBILITY_FLAGS_V1,
+  MAX_TASK_RUNTIME_COMPUTE_PROFILES_V1,
+  makeLiveStandardApplicationTaskSha256V1,
+  type StandardApplicationTaskSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
+import { RpcTarget } from "cloudflare:workers";
+import {
+  Cause,
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Ref,
+  Result,
+  Schema,
+  Scope,
+  Semaphore,
+} from "effect";
+import {
+  APPLICATION_TASK_WORKER_REQUEST_FORMAT_V1,
+  APPLICATION_TASK_WORKER_REQUEST_VERSION_V1,
+  type ApplicationTaskWorkerInputCapabilityV1,
+} from "flarex-protocol/internal/application-task-worker-v1";
+import {
+  LEGACY_TASK_WORKER_REQUEST_FORMAT_V1,
+  LEGACY_TASK_WORKER_REQUEST_VERSION_V1,
+} from "flarex-protocol/internal/legacy-task-worker-v1";
+import {
+  TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
+  TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
+} from "flarex-protocol/internal/task-worker-session-v1";
+import {
+  decodeCanonicalFlarexValueEvidenceV1,
+} from "flarex-protocol/value";
+
+import {
+  type ApplicationTaskWorkerHostPolicy,
+  ApplicationTaskWorkerDefinitionError,
+  makeApplicationTaskWorkerDefinition,
+} from "../artifactRuntime/ApplicationTaskWorkerDefinition";
+import {
+  type LegacyTaskWorkerHostPolicy,
+  LegacyTaskWorkerDefinitionError,
+  makeLegacyTaskWorkerDefinition,
+} from "../artifactRuntime/LegacyTaskWorkerDefinition";
+import {
+  type TaskWorkerSession,
+  type TaskWorkerSessionHost,
+  TaskWorkerSessionHostError,
+  makeTaskWorkerSessionHost,
+} from "../artifactRuntime/TaskWorkerSessionHost";
+import {
+  TaskRuntimeLaunchAuthority,
+  type TaskRuntimeLaunchAuthorityShape,
+} from "../taskRuntimeLaunch/Authority";
+import {
+  TaskRuntimeLaunchHashError,
+  TaskRuntimeLaunchPortError,
+  TaskRuntimeLaunchValidationError,
+  type CurrentTaskRuntimeLaunchSubject,
+  type TaskRuntimeInputSource,
+} from "../taskRuntimeLaunch/Model";
+
+export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME =
+  "flarex-worker-loader" as const;
+export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_VERSION =
+  "task-worker-session-v1" as const;
+
+const DEFAULT_MAXIMUM_SCOPED_DISPATCHES = 4_096;
+const EXECUTION_ID_PREFIX = "task-worker-";
+
+export class WorkerLoaderTaskComputeProviderConfigurationError
+  extends Data.TaggedError("WorkerLoaderTaskComputeProviderConfigurationError")<{
+    readonly reason: "invalid_options";
+    readonly cause?: unknown;
+  }>
+{}
+
+export interface WorkerLoaderTaskComputeProviderOptions {
+  readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
+  readonly legacyHostPolicy: LegacyTaskWorkerHostPolicy;
+  /** Hard admission ceiling for the lifetime of this private provider Layer. */
+  readonly maximumScopedDispatches?: number;
+  readonly handshakeMilliseconds?: number;
+  readonly randomUuid?: () => string;
+  readonly sha256?: StandardApplicationTaskSha256V1;
+}
+
+interface CapturedOptions {
+  readonly descriptor: TaskComputeProviderDescriptorV1;
+  readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
+  readonly legacyHostPolicy: LegacyTaskWorkerHostPolicy;
+  readonly maximumScopedDispatches: number;
+  readonly randomUuid: () => string;
+  readonly sha256: StandardApplicationTaskSha256V1;
+  readonly handshakeMilliseconds: number | undefined;
+}
+
+interface StartingDispatch {
+  readonly phase: "starting";
+  readonly request: CurrentTaskComputeDispatchRequestV1;
+  readonly executionId: TaskComputeExecutionIdV1;
+  readonly completion: Deferred.Deferred<
+    TaskComputeDispatchAcceptanceV1,
+    TaskComputeDispatchErrorV1
+  >;
+}
+
+interface ActiveDispatch {
+  readonly phase: "active";
+  readonly request: CurrentTaskComputeDispatchRequestV1;
+  readonly acceptance: TaskComputeDispatchAcceptanceV1;
+  readonly session: TaskWorkerSession;
+  readonly cancellationSemaphore: Semaphore.Semaphore;
+  readonly cancellationState: Ref.Ref<CancellationState>;
+}
+
+interface CancellationState {
+  readonly acceptedGeneration:
+    TaskComputeCancellationRequestV1["cancellationGeneration"];
+  readonly receipt: TaskComputeCancellationReceiptV1 | undefined;
+}
+
+interface UncertainDispatch {
+  readonly phase: "uncertain";
+  readonly request: CurrentTaskComputeDispatchRequestV1;
+  readonly failure: TaskComputeDispatchUncertainError;
+}
+
+interface SettledDispatch {
+  readonly phase: "settled";
+  readonly request: CurrentTaskComputeDispatchRequestV1;
+  readonly acceptance: TaskComputeDispatchAcceptanceV1;
+}
+
+type DispatchState =
+  | StartingDispatch
+  | ActiveDispatch
+  | UncertainDispatch
+  | SettledDispatch;
+
+interface ProviderState {
+  readonly closing: boolean;
+  readonly dispatches: ReadonlyMap<string, DispatchState>;
+}
+
+type DispatchClaim =
+  | Readonly<{ readonly kind: "replay"; readonly acceptance: TaskComputeDispatchAcceptanceV1 }>
+  | Readonly<{
+      readonly kind: "await_start";
+      readonly completion: StartingDispatch["completion"];
+    }>
+  | Readonly<{ readonly kind: "start"; readonly state: StartingDispatch }>;
+
+const decodeExecutionId = Schema.decodeUnknownResult(TaskComputeExecutionIdV1Schema);
+
+export function makeWorkerLoaderTaskComputeProviderLayer(
+  loader: WorkerLoader,
+  options: WorkerLoaderTaskComputeProviderOptions,
+): Layer.Layer<
+  TaskComputeProvider,
+  WorkerLoaderTaskComputeProviderConfigurationError,
+  TaskRuntimeLaunchAuthority
+> {
+  return Layer.effect(
+    TaskComputeProvider,
+    Effect.gen(function* () {
+      const authority = yield* TaskRuntimeLaunchAuthority;
+      const captured = yield* Effect.fromResult(captureOptions(options));
+      const host = yield* Effect.try({
+        try: () => makeTaskWorkerSessionHost(
+          captureWorkerLoader(loader),
+          captured.handshakeMilliseconds === undefined
+            ? {}
+            : { handshakeMilliseconds: captured.handshakeMilliseconds },
+        ),
+        catch: cause => configurationError(cause),
+      });
+      const provider = yield* makeWorkerLoaderTaskComputeProvider(
+        authority,
+        host,
+        captured,
+      );
+      return TaskComputeProvider.of(provider);
+    }),
+  );
+}
+
+const makeWorkerLoaderTaskComputeProvider = Effect.fn(
+  "WorkerLoaderTaskComputeProvider.make",
+)(function* (
+  authority: TaskRuntimeLaunchAuthorityShape,
+  host: TaskWorkerSessionHost,
+  options: CapturedOptions,
+): Effect.fn.Return<TaskComputeProviderShape, never, Scope.Scope> {
+  const providerScope = yield* Scope.Scope;
+  const stateRef = yield* Ref.make<ProviderState>(Object.freeze({
+    closing: false,
+    dispatches: new Map(),
+  }));
+
+  yield* Effect.addFinalizer(() => Effect.gen(function* () {
+    const previous = yield* Ref.getAndSet(stateRef, Object.freeze({
+      closing: true,
+      dispatches: new Map(),
+    }));
+    const active = [...previous.dispatches.values()].filter(
+      (state): state is ActiveDispatch => state.phase === "active",
+    );
+    yield* Effect.forEach(
+      active,
+      state => Effect.exit(state.session.close),
+      { concurrency: 16, discard: true },
+    );
+  }));
+
+  const implementation: TaskComputeProviderShape = Object.freeze({
+    dispatch: Effect.fn("WorkerLoaderTaskComputeProvider.dispatch")(
+      request => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
+        const claim = yield* Ref.modify(
+          stateRef,
+          state => claimDispatch(state, request, options),
+        ).pipe(Effect.flatMap(Effect.fromResult));
+        if (claim.kind === "replay") return claim.acceptance;
+        if (claim.kind === "start") {
+          yield* Effect.forkIn(
+            completeStart(
+              stateRef,
+              authority,
+              host,
+              options,
+              providerScope,
+              claim.state,
+            ),
+            providerScope,
+            { startImmediately: true },
+          );
+        }
+        return yield* restore(Deferred.await(
+          claim.kind === "start" ? claim.state.completion : claim.completion,
+        ));
+      })),
+    ),
+    requestCancellation: Effect.fn(
+      "WorkerLoaderTaskComputeProvider.requestCancellation",
+    )(request => Effect.gen(function* () {
+      const providerState = yield* Ref.get(stateRef);
+      const state = yield* Effect.fromResult(findActiveDispatch(
+        providerState.dispatches,
+        request,
+      ));
+      return yield* state.cancellationSemaphore.withPermit(
+        deliverCancellation(stateRef, state, request),
+      );
+    })),
+  });
+  return makeTaskComputeProviderV1(implementation);
+});
+
+function claimDispatch(
+  state: ProviderState,
+  request: CurrentTaskComputeDispatchRequestV1,
+  options: CapturedOptions,
+): readonly [
+  Result.Result<DispatchClaim, TaskComputeDispatchErrorV1>,
+  ProviderState,
+] {
+  if (state.closing) {
+    return [Result.fail(new TaskComputeDispatchRejectedError({
+      operation: "dispatch",
+      reason: "provider_disabled",
+      retryable: true,
+      computeProfile: request.computeProfile,
+    })), state];
+  }
+  const key = dispatchIdentityKey(request);
+  const existing = state.dispatches.get(key);
+  if (existing !== undefined) {
+    if (!dispatchRequestsEqual(existing.request, request)) {
+      return [Result.fail(new TaskComputeDispatchConflictError({
+        identity: request.identity,
+        reason: "dispatch_request_mismatch",
+      })), state];
+    }
+    if (existing.phase === "active" || existing.phase === "settled") {
+      return [Result.succeed(Object.freeze({
+        kind: "replay" as const,
+        acceptance: existing.acceptance,
+      })), state];
+    }
+    if (existing.phase === "starting") {
+      return [Result.succeed(Object.freeze({
+        kind: "await_start" as const,
+        completion: existing.completion,
+      })), state];
+    }
+    return [Result.fail(existing.failure), state];
+  }
+  if (state.dispatches.size >= options.maximumScopedDispatches) {
+    return [Result.fail(new TaskComputeDispatchRejectedError({
+      operation: "dispatch",
+      reason: "capacity_unavailable",
+      retryable: true,
+      computeProfile: request.computeProfile,
+    })), state];
+  }
+  return Result.match(allocateExecutionId(options, request), {
+    onFailure: failure => [Result.fail(failure), state] as const,
+    onSuccess: executionId => {
+      const starting = Object.freeze({
+        phase: "starting" as const,
+        request,
+        executionId,
+        completion: Deferred.makeUnsafe<
+          TaskComputeDispatchAcceptanceV1,
+          TaskComputeDispatchErrorV1
+        >(),
+      });
+      return [
+        Result.succeed(Object.freeze({ kind: "start" as const, state: starting })),
+        setDispatchState(state, key, starting),
+      ] as const;
+    },
+  });
+}
+
+const completeStart = Effect.fn("WorkerLoaderTaskComputeProvider.completeStart")(
+  function* (
+    stateRef: Ref.Ref<ProviderState>,
+    authority: TaskRuntimeLaunchAuthorityShape,
+    host: TaskWorkerSessionHost,
+    options: CapturedOptions,
+    providerScope: Scope.Scope,
+    starting: StartingDispatch,
+  ) {
+    const started = yield* Effect.exit(startDispatch(
+      authority,
+      host,
+      options,
+      starting.request,
+      starting.executionId,
+    ).pipe(Effect.provideService(Scope.Scope, providerScope)));
+    const key = dispatchIdentityKey(starting.request);
+    if (Exit.isSuccess(started)) {
+      const active = started.value;
+      const retained = yield* Ref.modify(stateRef, state => {
+        if (state.closing || state.dispatches.get(key) !== starting) {
+          return [false, state] as const;
+        }
+        return [true, setDispatchState(state, key, active)] as const;
+      });
+      if (!retained) {
+        yield* Effect.exit(active.session.close);
+        yield* Deferred.done(starting.completion, Exit.fail(
+          providerDisabled(starting.request),
+        ));
+        return;
+      }
+      yield* Effect.forkIn(
+        superviseSession(stateRef, active),
+        providerScope,
+        { startImmediately: true },
+      );
+      yield* Deferred.done(starting.completion, Exit.succeed(active.acceptance));
+      return;
+    }
+    const failure = Cause.findErrorOption(started.cause);
+    if (Option.isSome(failure) &&
+      failure.value instanceof TaskComputeDispatchUncertainError) {
+      const uncertainFailure = failure.value;
+      yield* Ref.update(stateRef, state => state.closing ||
+          state.dispatches.get(key) !== starting
+        ? state
+        : setDispatchState(state, key, Object.freeze({
+            phase: "uncertain" as const,
+            request: starting.request,
+            failure: uncertainFailure,
+          })));
+    } else {
+      yield* Ref.update(stateRef, state => state.dispatches.get(key) === starting
+        ? deleteDispatchState(state, key)
+        : state);
+    }
+    yield* Deferred.done(starting.completion, Exit.failCause(started.cause));
+  },
+);
+
+const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")(
+  function* (
+    authority: TaskRuntimeLaunchAuthorityShape,
+    host: TaskWorkerSessionHost,
+    options: CapturedOptions,
+    request: CurrentTaskComputeDispatchRequestV1,
+    executionId: TaskComputeExecutionIdV1,
+  ): Effect.fn.Return<
+    ActiveDispatch,
+    TaskComputeDispatchErrorV1,
+    Scope.Scope
+  > {
+    const subject = yield* authority.resolve(request).pipe(
+      Effect.mapError(cause => mapLaunchFailure(request, cause)),
+    );
+    const capability = new TaskWorkerInputCapabilityTarget(subject.input);
+    const session = subject.generation === "application_v1"
+      ? yield* Effect.gen(function* () {
+          const definition = yield* makeApplicationTaskWorkerDefinition({
+            source: subject.source,
+            target: subject.runtimeTarget,
+            runtimeTargetSha256:
+              subject.request.applicationTaskRuntimeTargetSha256,
+            manifest: subject.manifest,
+            hostPolicy: options.applicationHostPolicy,
+            sha256: options.sha256,
+          }).pipe(Effect.mapError(cause => mapDefinitionFailure(request, cause)));
+          return yield* Effect.acquireRelease(
+            host.start({
+              generation: "application_v1",
+              definition,
+              request: Object.freeze({
+                format: APPLICATION_TASK_WORKER_REQUEST_FORMAT_V1,
+                version: APPLICATION_TASK_WORKER_REQUEST_VERSION_V1,
+                dispatch: subject.request,
+              }),
+              capability,
+              executionId,
+            }).pipe(Effect.mapError(cause => mapStartFailure(request, cause))),
+            session => Effect.exit(session.close).pipe(Effect.asVoid),
+            { interruptible: true },
+          );
+        })
+      : yield* Effect.gen(function* () {
+          const definition = yield* makeLegacyTaskWorkerDefinition({
+            subject,
+            hostPolicy: options.legacyHostPolicy,
+            sha256: options.sha256,
+          }).pipe(Effect.mapError(cause => mapDefinitionFailure(request, cause)));
+          return yield* Effect.acquireRelease(
+            host.start({
+              generation: "legacy_dynamic_worker_v1",
+              definition,
+              request: Object.freeze({
+                format: LEGACY_TASK_WORKER_REQUEST_FORMAT_V1,
+                version: LEGACY_TASK_WORKER_REQUEST_VERSION_V1,
+                dispatch: subject.request,
+              }),
+              capability,
+              executionId,
+            }).pipe(Effect.mapError(cause => mapStartFailure(request, cause))),
+            session => Effect.exit(session.close).pipe(Effect.asVoid),
+            { interruptible: true },
+          );
+        });
+    const execution: TaskComputeExecutionRefV1 = Object.freeze({
+      ...options.descriptor,
+      executionId,
+    });
+    const acceptance = snapshotTaskComputeDispatchAcceptanceV1({
+      version: TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1,
+      kind: "accepted",
+      identity: request.identity,
+      execution,
+    });
+    return {
+      phase: "active",
+      request,
+      acceptance,
+      session,
+      cancellationSemaphore: Semaphore.makeUnsafe(1),
+      cancellationState: Ref.makeUnsafe<CancellationState>(Object.freeze({
+        acceptedGeneration: request.cancellation.generation,
+        receipt: undefined,
+      })),
+    };
+  },
+);
+
+function superviseSession(
+  stateRef: Ref.Ref<ProviderState>,
+  active: ActiveDispatch,
+): Effect.Effect<void> {
+  return Effect.exit(active.session.settlement).pipe(
+    Effect.ensuring(Effect.exit(active.session.close)),
+    Effect.ensuring(Ref.update(stateRef, state => {
+      const key = dispatchIdentityKey(active.request);
+      if (state.dispatches.get(key) !== active) return state;
+      return setDispatchState(state, key, Object.freeze({
+        phase: "settled" as const,
+        request: active.request,
+        acceptance: active.acceptance,
+      }));
+    })),
+    Effect.asVoid,
+  );
+}
+
+function findActiveDispatch(
+  states: ReadonlyMap<string, DispatchState>,
+  request: TaskComputeCancellationRequestV1,
+): Result.Result<ActiveDispatch, TaskComputeCancellationRejectedError> {
+  const state = states.get(dispatchIdentityKey(request));
+  if (state === undefined || state.phase !== "active") {
+    return Result.fail(new TaskComputeCancellationRejectedError({
+      operation: "request_cancellation",
+      reason: "execution_not_found",
+      retryable: false,
+    }));
+  }
+  if (!executionRefsEqual(state.acceptance.execution, request.execution)) {
+    return Result.fail(new TaskComputeCancellationRejectedError({
+      operation: "request_cancellation",
+      reason: "execution_mismatch",
+      retryable: false,
+    }));
+  }
+  return Result.succeed(state);
+}
+
+function deliverCancellation(
+  stateRef: Ref.Ref<ProviderState>,
+  active: ActiveDispatch,
+  request: TaskComputeCancellationRequestV1,
+): Effect.Effect<TaskComputeCancellationReceiptV1, TaskComputeCancellationErrorV1> {
+  return Effect.gen(function* () {
+    const providerState = yield* Ref.get(stateRef);
+    if (providerState.dispatches.get(dispatchIdentityKey(request)) !== active) {
+      return yield* cancellationRejected("execution_not_found");
+    }
+    const cancellation = yield* Ref.get(active.cancellationState);
+    if (request.cancellationGeneration < cancellation.acceptedGeneration) {
+      return yield* new TaskComputeCancellationStaleError({
+        identity: request.identity,
+        receivedGeneration: request.cancellationGeneration,
+        acceptedGeneration: cancellation.acceptedGeneration,
+      });
+    }
+    if (request.cancellationGeneration === cancellation.acceptedGeneration) {
+      return cancellation.receipt ?? cancellationReceipt(request);
+    }
+    const receipt = yield* active.session.requestInterruption(Object.freeze({
+      format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
+      version: TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
+      generation: "applicationTaskRuntimeTargetSha256" in active.request
+        ? "application_v1"
+        : "legacy_dynamic_worker_v1",
+      identity: request.identity,
+      executionId: request.execution.executionId,
+      cancellationGeneration: request.cancellationGeneration,
+    })).pipe(Effect.mapError(cause => mapCancellationFailure(request, cause)));
+    const accepted = snapshotTaskComputeCancellationReceiptV1({
+      version: TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
+      kind: "interruption_requested",
+      identity: request.identity,
+      execution: request.execution,
+      cancellationGeneration: request.cancellationGeneration,
+    });
+    yield* Ref.set(active.cancellationState, Object.freeze({
+      acceptedGeneration: accepted.cancellationGeneration,
+      receipt: accepted,
+    }));
+    return accepted;
+  });
+}
+
+class TaskWorkerInputCapabilityTarget
+  extends RpcTarget
+  implements ApplicationTaskWorkerInputCapabilityV1
+{
+  readonly #source: TaskRuntimeInputSource;
+
+  constructor(source: TaskRuntimeInputSource) {
+    super();
+    this.#source = source;
+  }
+
+  read(): Promise<unknown> {
+    return Effect.runPromise(this.#source.read().pipe(
+      Effect.flatMap(canonicalBytes => Effect.tryPromise({
+        try: () => decodeCanonicalFlarexValueEvidenceV1({
+          canonicalBytes,
+          sha256: this.#source.reference.sha256,
+        }),
+        catch: cause => cause,
+      })),
+      Effect.map(canonical => canonical.value),
+    ));
+  }
+}
+
+function cancellationReceipt(
+  request: TaskComputeCancellationRequestV1,
+): TaskComputeCancellationReceiptV1 {
+  return snapshotTaskComputeCancellationReceiptV1({
+    version: TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,
+    kind: "interruption_requested",
+    identity: request.identity,
+    execution: request.execution,
+    cancellationGeneration: request.cancellationGeneration,
+  });
+}
+
+function cancellationRejected(
+  reason: "execution_not_found" | "execution_mismatch",
+): Effect.Effect<never, TaskComputeCancellationRejectedError> {
+  return Effect.fail(new TaskComputeCancellationRejectedError({
+    operation: "request_cancellation",
+    reason,
+    retryable: false,
+  }));
+}
+
+function providerDisabled(
+  request: CurrentTaskComputeDispatchRequestV1,
+): TaskComputeDispatchRejectedError {
+  return new TaskComputeDispatchRejectedError({
+    operation: "dispatch",
+    reason: "provider_disabled",
+    retryable: true,
+    computeProfile: request.computeProfile,
+  });
+}
+
+function setDispatchState(
+  state: ProviderState,
+  key: string,
+  dispatch: DispatchState,
+): ProviderState {
+  const dispatches = new Map(state.dispatches);
+  dispatches.set(key, dispatch);
+  return Object.freeze({ closing: state.closing, dispatches });
+}
+
+function deleteDispatchState(
+  state: ProviderState,
+  key: string,
+): ProviderState {
+  const dispatches = new Map(state.dispatches);
+  dispatches.delete(key);
+  return Object.freeze({ closing: state.closing, dispatches });
+}
+
+function allocateExecutionId(
+  options: CapturedOptions,
+  request: CurrentTaskComputeDispatchRequestV1,
+): Result.Result<TaskComputeExecutionIdV1, TaskComputeDispatchTransportError> {
+  return Result.try({
+    try: () => `${EXECUTION_ID_PREFIX}${options.randomUuid()}`,
+    catch: cause => executionAllocationFailure(request, cause),
+  }).pipe(
+    Result.flatMap(executionId => decodeExecutionId(executionId).pipe(
+      Result.mapError(cause => executionAllocationFailure(request, cause)),
+    )),
+  );
+}
+
+function executionAllocationFailure(
+  request: CurrentTaskComputeDispatchRequestV1,
+  cause: unknown,
+): TaskComputeDispatchTransportError {
+  return new TaskComputeDispatchTransportError({
+    operation: "dispatch",
+    retryable: false,
+    cause: Object.freeze({ request: request.identity, cause }),
+  });
+}
+
+function mapLaunchFailure(
+  request: CurrentTaskComputeDispatchRequestV1,
+  cause:
+    | TaskRuntimeLaunchPortError
+    | TaskRuntimeLaunchValidationError<"resolve">
+    | TaskRuntimeLaunchHashError,
+): TaskComputeDispatchTransportError {
+  const retryable = cause instanceof TaskRuntimeLaunchPortError
+    ? cause.reason === "resource_failure" || cause.reason === "authority_unavailable"
+    : cause instanceof TaskRuntimeLaunchHashError
+      ? cause.reason === "unavailable" || cause.reason === "native_rejected"
+      : false;
+  return new TaskComputeDispatchTransportError({
+    operation: "dispatch",
+    retryable,
+    cause: Object.freeze({ identity: request.identity, cause }),
+  });
+}
+
+function mapDefinitionFailure(
+  request: CurrentTaskComputeDispatchRequestV1,
+  cause: ApplicationTaskWorkerDefinitionError | LegacyTaskWorkerDefinitionError,
+): TaskComputeDispatchRejectedError | TaskComputeDispatchTransportError {
+  if (cause.reason === "unsupportedComputeProfile" ||
+    cause.reason === "unsupportedDuration") {
+    return new TaskComputeDispatchRejectedError({
+      operation: "dispatch",
+      reason: "unsupported_compute_profile",
+      retryable: false,
+      computeProfile: request.computeProfile,
+    });
+  }
+  return new TaskComputeDispatchTransportError({
+    operation: "dispatch",
+    retryable: cause.reason === "resourceFailure",
+    cause,
+  });
+}
+
+function mapStartFailure(
+  request: CurrentTaskComputeDispatchRequestV1,
+  cause: TaskWorkerSessionHostError,
+): TaskComputeDispatchTransportError | TaskComputeDispatchUncertainError {
+  if (cause.reason === "workerLoadFailed" || cause.reason === "invalidRequest" ||
+    cause.reason === "workerDefinitionFailed") {
+    return new TaskComputeDispatchTransportError({
+      operation: "dispatch",
+      retryable: cause.reason === "workerLoadFailed",
+      cause,
+    });
+  }
+  return new TaskComputeDispatchUncertainError({
+    operation: "dispatch",
+    identity: request.identity,
+    cause,
+  });
+}
+
+function mapCancellationFailure(
+  request: TaskComputeCancellationRequestV1,
+  cause: TaskWorkerSessionHostError,
+):
+  | TaskComputeCancellationStaleError
+  | TaskComputeCancellationRejectedError
+  | TaskComputeCancellationTransportError
+  | TaskComputeCancellationUncertainError {
+  if (cause.reason === "staleCancellation") {
+    return new TaskComputeCancellationUncertainError({
+      operation: "request_cancellation",
+      identity: request.identity,
+      cause,
+    });
+  }
+  if (cause.reason === "sessionLost" || cause.reason === "terminalFailed" ||
+    cause.reason === "userCodeFailed" || cause.reason === "inputBoundaryFailed") {
+    return new TaskComputeCancellationRejectedError({
+      operation: "request_cancellation",
+      reason: "execution_not_found",
+      retryable: false,
+    });
+  }
+  if (cause.reason === "invalidResponse" || cause.reason === "timedOut") {
+    return new TaskComputeCancellationUncertainError({
+      operation: "request_cancellation",
+      identity: request.identity,
+      cause,
+    });
+  }
+  return new TaskComputeCancellationTransportError({
+    operation: "request_cancellation",
+    retryable: cause.reason === "workerStartFailed" ||
+      cause.reason === "workerLoadFailed",
+    cause,
+  });
+}
+
+function captureOptions(
+  input: WorkerLoaderTaskComputeProviderOptions,
+): Result.Result<CapturedOptions, WorkerLoaderTaskComputeProviderConfigurationError> {
+  return Result.gen(function* () {
+    const outer = yield* captureProperties(input, [
+      "applicationHostPolicy",
+      "legacyHostPolicy",
+      "maximumScopedDispatches",
+      "handshakeMilliseconds",
+      "randomUuid",
+      "sha256",
+    ]);
+    const descriptor = yield* decodeTaskComputeProviderDescriptorV1({
+      provider: WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME,
+      providerVersion: WORKER_LOADER_TASK_COMPUTE_PROVIDER_VERSION,
+    }).pipe(Result.mapError(configurationError));
+    const applicationHostPolicy = yield* captureApplicationPolicy(
+      outer.applicationHostPolicy,
+    );
+    const legacyHostPolicy = yield* captureLegacyPolicy(outer.legacyHostPolicy);
+    const maximumScopedDispatches = outer.maximumScopedDispatches ??
+      DEFAULT_MAXIMUM_SCOPED_DISPATCHES;
+    const handshakeMilliseconds = outer.handshakeMilliseconds;
+    if (!isPositiveSafeInteger(maximumScopedDispatches) ||
+      handshakeMilliseconds !== undefined &&
+        !isPositiveSafeInteger(handshakeMilliseconds) ||
+      outer.randomUuid !== undefined && typeof outer.randomUuid !== "function" ||
+      outer.sha256 !== undefined && typeof outer.sha256 !== "function") {
+      return yield* Result.fail(configurationError());
+    }
+    const owner = input;
+    const randomUuid = outer.randomUuid === undefined
+      ? () => crypto.randomUUID()
+      : () => Reflect.apply(outer.randomUuid as () => string, owner, []);
+    const sha256 = outer.sha256 === undefined
+      ? makeLiveStandardApplicationTaskSha256V1()
+      : ((bytes: unknown, budget: unknown) => Reflect.apply(
+          outer.sha256 as StandardApplicationTaskSha256V1,
+          owner,
+          [bytes, budget],
+        ));
+    return Object.freeze({
+      descriptor,
+      applicationHostPolicy,
+      legacyHostPolicy,
+      maximumScopedDispatches,
+      randomUuid,
+      sha256,
+      handshakeMilliseconds,
+    });
+  });
+}
+
+function captureApplicationPolicy(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskWorkerHostPolicy,
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.gen(function* () {
+    const policy = yield* captureProperties(input, [
+      "runtimeHostIdentity",
+      "compatibilityDate",
+      "computeProfiles",
+    ]);
+    const profiles = yield* captureProfiles(policy.computeProfiles);
+    if (typeof policy.runtimeHostIdentity !== "string" ||
+      policy.runtimeHostIdentity.length === 0 ||
+      typeof policy.compatibilityDate !== "string" ||
+      policy.compatibilityDate.length === 0) {
+      return yield* Result.fail(configurationError());
+    }
+    return Object.freeze({
+      runtimeHostIdentity: policy.runtimeHostIdentity,
+      compatibilityDate: policy.compatibilityDate,
+      computeProfiles: profiles,
+    });
+  });
+}
+
+function captureLegacyPolicy(
+  input: unknown,
+): Result.Result<
+  LegacyTaskWorkerHostPolicy,
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.gen(function* () {
+    const policy = yield* captureProperties(input, [
+      "runtimeImplementationVersion",
+      "admittedCompatibilityDate",
+      "computeProfiles",
+      "admittedCompatibilityFlags",
+    ]);
+    const profiles = yield* captureProfiles(policy.computeProfiles);
+    const flags = yield* captureDenseArray(
+      policy.admittedCompatibilityFlags,
+      MAX_TASK_RUNTIME_COMPATIBILITY_FLAGS_V1,
+    );
+    const admittedCompatibilityFlags: string[] = [];
+    for (const flag of flags) {
+      if (typeof flag !== "string" || flag.length === 0) {
+        return yield* Result.fail(configurationError());
+      }
+      admittedCompatibilityFlags.push(flag);
+    }
+    if (typeof policy.runtimeImplementationVersion !== "string" ||
+      policy.runtimeImplementationVersion.length === 0 ||
+      typeof policy.admittedCompatibilityDate !== "string" ||
+      policy.admittedCompatibilityDate.length === 0) {
+      return yield* Result.fail(configurationError());
+    }
+    return Object.freeze({
+      runtimeImplementationVersion: policy.runtimeImplementationVersion,
+      admittedCompatibilityDate: policy.admittedCompatibilityDate,
+      computeProfiles: profiles,
+      admittedCompatibilityFlags: Object.freeze(admittedCompatibilityFlags),
+    });
+  });
+}
+
+function captureProfiles(input: unknown): Result.Result<
+  ApplicationTaskWorkerHostPolicy["computeProfiles"],
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.gen(function* () {
+    const inputs = yield* captureDenseArray(
+      input,
+      MAX_TASK_RUNTIME_COMPUTE_PROFILES_V1,
+    );
+    const profiles: Array<{
+      readonly computeProfile: string;
+      readonly cpuMilliseconds: number;
+      readonly maximumDurationMs: number;
+    }> = [];
+    const observed = new Set<string>();
+    for (const input of inputs) {
+      const value = yield* captureProperties(input, [
+        "computeProfile",
+        "cpuMilliseconds",
+        "maximumDurationMs",
+      ]);
+      if (typeof value.computeProfile !== "string" ||
+        value.computeProfile.length === 0 ||
+        observed.has(value.computeProfile) ||
+        !isPositiveSafeInteger(value.cpuMilliseconds) ||
+        !isPositiveSafeInteger(value.maximumDurationMs)) {
+        return yield* Result.fail(configurationError());
+      }
+      observed.add(value.computeProfile);
+      profiles.push(Object.freeze({
+        computeProfile: value.computeProfile,
+        cpuMilliseconds: value.cpuMilliseconds,
+        maximumDurationMs: value.maximumDurationMs,
+      }));
+    }
+    return Object.freeze(profiles);
+  });
+}
+
+function captureDenseArray(
+  input: unknown,
+  maximum: number,
+): Result.Result<unknown[], WorkerLoaderTaskComputeProviderConfigurationError> {
+  return Result.try({
+    try: () => {
+      if (!Array.isArray(input)) throw new Error("Expected an array.");
+      const length = Object.getOwnPropertyDescriptor(input, "length");
+      if (length === undefined || !("value" in length) ||
+        !isNonNegativeSafeInteger(length.value) ||
+        length.value > maximum) throw new Error("Invalid array length.");
+      const keys = Reflect.ownKeys(input);
+      if (keys.length !== length.value + 1 || !keys.includes("length")) {
+        throw new Error("Expected a dense undecorated array.");
+      }
+      const output: unknown[] = [];
+      for (let index = 0; index < length.value; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
+        if (descriptor === undefined || !("value" in descriptor) ||
+          !descriptor.enumerable) throw new Error("Invalid array member.");
+        output.push(descriptor.value);
+      }
+      return output;
+    },
+    catch: configurationError,
+  });
+}
+
+function captureProperties(
+  input: unknown,
+  keys: ReadonlyArray<string>,
+): Result.Result<
+  Readonly<Record<string, unknown>>,
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.try({
+    try: () => {
+      if (input === null || typeof input !== "object" || Array.isArray(input)) {
+        throw new Error("Expected a configuration object.");
+      }
+      const output: Record<string, unknown> = Object.create(null);
+      for (const key of keys) {
+        const descriptor = Object.getOwnPropertyDescriptor(input, key);
+        output[key] = descriptor !== undefined && "value" in descriptor
+          ? descriptor.value
+          : undefined;
+      }
+      return Object.freeze(output);
+    },
+    catch: configurationError,
+  });
+}
+
+function captureWorkerLoader(loader: WorkerLoader): WorkerLoader {
+  if (loader === null || typeof loader !== "object") {
+    throw new Error("Worker Loader is unavailable.");
+  }
+  const load = Reflect.get(loader, "load");
+  const get = Reflect.get(loader, "get");
+  if (typeof load !== "function" || typeof get !== "function") {
+    throw new Error("Worker Loader is unavailable.");
+  }
+  return Object.freeze({
+    load: (code: WorkerLoaderWorkerCode) => Reflect.apply(load, loader, [code]),
+    get: (name: string | null, getCode: () => WorkerLoaderWorkerCode |
+      Promise<WorkerLoaderWorkerCode>) => Reflect.apply(get, loader, [name, getCode]),
+  });
+}
+
+function dispatchIdentityKey(
+  request: Pick<CurrentTaskComputeDispatchRequestV1, "identity"> |
+    Pick<TaskComputeCancellationRequestV1, "identity">,
+): string {
+  const identity = request.identity;
+  return [
+    identity.scopeId,
+    identity.runId,
+    identity.requestedEffectSequence,
+    identity.attemptId,
+    identity.executionFence,
+  ].join("\u0000");
+}
+
+function dispatchRequestsEqual(
+  left: CurrentTaskComputeDispatchRequestV1,
+  right: CurrentTaskComputeDispatchRequestV1,
+): boolean {
+  return dispatchIdentityKey(left) === dispatchIdentityKey(right) &&
+    left.version === right.version &&
+    left.attemptNumber === right.attemptNumber &&
+    left.leaseVersion === right.leaseVersion &&
+    left.computeProfile === right.computeProfile &&
+    left.cancellation.kind === right.cancellation.kind &&
+    left.cancellation.generation === right.cancellation.generation &&
+    left.maximumDurationMs === right.maximumDurationMs &&
+    ("taskDefinitionRevisionId" in left
+      ? "taskDefinitionRevisionId" in right &&
+        left.taskDefinitionRevisionId === right.taskDefinitionRevisionId
+      : "applicationTaskRuntimeTargetSha256" in right &&
+        bytesEqualFullScan(left.applicationTaskRuntimeTargetSha256,
+          right.applicationTaskRuntimeTargetSha256));
+}
+
+function executionRefsEqual(
+  left: TaskComputeExecutionRefV1,
+  right: TaskComputeExecutionRefV1,
+): boolean {
+  return left.provider === right.provider &&
+    left.providerVersion === right.providerVersion &&
+    left.executionId === right.executionId;
+}
+
+function configurationError(
+  cause?: unknown,
+): WorkerLoaderTaskComputeProviderConfigurationError {
+  return new WorkerLoaderTaskComputeProviderConfigurationError({
+    reason: "invalid_options",
+    ...(cause === undefined ? {} : { cause }),
+  });
+}

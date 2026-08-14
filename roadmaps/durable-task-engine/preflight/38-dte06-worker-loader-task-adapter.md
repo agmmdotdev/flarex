@@ -528,6 +528,35 @@ disposal. No provider,
 discovery, composition-root or Task lifecycle write was added. D3b.iii remains
 the sole owner of provider composition.
 
+#### DTE06-D3b.iii implementation receipt
+
+D3b.iii is complete. `WorkerLoaderTaskComputeProvider` is the single private
+adapter from the unchanged provider-neutral dispatch/cancellation contract to
+the exhaustive launch authority, the two genuine generation-specific Worker
+definitions and the shared D3b.ii session host. Dispatch returns only after the
+remote start acknowledgement is decoded and correlated. Terminal settlement
+remains process-local supervision evidence; it is never converted into provider
+acceptance, Task lifecycle state, heartbeat, result publication or completion.
+
+The provider retains one bounded process-local record per exact dispatch
+identity. Concurrent exact dispatches share one provider-scoped start, exact
+replay returns the original acceptance, conflicting replay fails closed, and an
+unknown start response becomes sticky uncertainty so exact retry cannot launch
+a second physical Worker. Cancellation is serialized per live session,
+exact-generation replay is
+idempotent, lower generations are stale, and session loss is reported as a lost
+execution rather than reconstructed from durable state. Provider-scope shutdown
+interrupts start supervision and guarantees owned session closure. Focused
+proof covers both generations, fresh Worker loads, canonical input delivery,
+shared start, conflict, unsupported profile, sticky unknown-response replay, monotonic
+cancellation, the explicit provider-scope admission ceiling, terminal loss,
+timeout uncertainty and RPC-result disposal. Retained exact replay/uncertainty
+records are deliberately not retired inside this private provider; D4/5d3 must
+own a bounded provider scope and may not invent lifecycle retirement here. The
+adapter is exported only from the private backend package; D4 remains the sole
+owner of system-test composition and no discovery, route or lifecycle write was
+added.
+
 ### DTE06-D4: Private System-Test Composition
 
 - compose the D3 adapter only in an explicitly private Miniflare/system-test

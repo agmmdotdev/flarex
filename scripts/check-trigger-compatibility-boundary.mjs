@@ -17,12 +17,18 @@ const persistencePostgresManifestPath =
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
 const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
   "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
+const flarexBackendWorkerLoaderTaskComputeProviderPath =
+  "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
 const flarexBackendTaskComputeDeliverySourcePrefix =
   "packages/flarex-backend/src/taskComputeDelivery/";
 const flarexBackendTaskRuntimeLaunchModelPath =
   "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
+const flarexBackendTaskRuntimeLaunchAuthorityPath =
+  "packages/flarex-backend/src/taskRuntimeLaunch/Authority.ts";
 const flarexBackendTaskRuntimeLaunchSourcePrefix =
   "packages/flarex-backend/src/taskRuntimeLaunch/";
+const flarexBackendLegacyTaskWorkerDefinitionPath =
+  "packages/flarex-backend/src/artifactRuntime/LegacyTaskWorkerDefinition.ts";
 const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
 const flarexBackendImmutableR2SourcePrefix =
@@ -126,16 +132,21 @@ const admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier =
     ["@flarex/durable-task/internal/compute-provider-v1", new Set([
       "TaskComputeCancellationReceiptV1",
       "TaskComputeCancellationRequestV1",
+      "ApplicationTaskComputeDispatchRequestV1",
+      "CurrentTaskComputeDispatchRequestV1",
       "TaskComputeDispatchAcceptanceV1",
       "TaskComputeDispatchRequestV1",
+      "decodeApplicationTaskComputeDispatchRequestV1",
       "decodeTaskComputeCancellationReceiptV1",
       "decodeTaskComputeCancellationRequestV1",
       "decodeTaskComputeDispatchAcceptanceV1",
       "decodeTaskComputeDispatchRequestV1",
+      "encodeApplicationTaskComputeDispatchRequestV1",
       "encodeTaskComputeCancellationReceiptV1",
       "encodeTaskComputeCancellationRequestV1",
       "encodeTaskComputeDispatchAcceptanceV1",
       "encodeTaskComputeDispatchRequestV1",
+      "validateApplicationTaskComputeDispatchRequestV1",
       "validateTaskComputeCancellationReceiptV1",
       "validateTaskComputeCancellationRequestV1",
       "validateTaskComputeDispatchAcceptanceV1",
@@ -166,6 +177,9 @@ const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
       "TaskComputeDispatchTransportError",
       "TaskComputeDispatchAcceptanceV1",
       "TaskComputeDispatchRequestV1",
+      "ApplicationTaskComputeDispatchRequestV1",
+      "CurrentTaskComputeDispatchRequestV1",
+      "validateApplicationTaskComputeDispatchRequestV1",
       "validateTaskComputeCancellationReceiptV1",
       "validateTaskComputeCancellationRequestV1",
       "validateTaskComputeDispatchAcceptanceV1",
@@ -177,6 +191,10 @@ const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
     ])],
     ["@flarex/durable-task/internal/run-attempt-v1", new Set([
       "PersistedTaskRequestedEffectV1",
+      "ApplicationPersistedTaskRequestedEffectV1",
+      "ApplicationTaskRunAttemptAggregateV1",
+      "CurrentPersistedTaskRequestedEffect",
+      "CurrentTaskRunAttemptAggregate",
       "TaskCancellationGenerationV1",
       "TaskRequestedEffectSequenceV1",
       "TaskRunAttemptAggregateV1",
@@ -208,13 +226,63 @@ const admittedFlarexBackendTaskComputeDeliveryCandidateRunnerSymbols =
   ]);
 const admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier = new Map([
   ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+    "ApplicationTaskComputeDispatchRequestV1",
+    "CurrentTaskComputeDispatchRequestV1",
     "TaskComputeDispatchRequestV1",
+    "validateCurrentTaskComputeDispatchRequestV1",
     "validateTaskComputeDispatchRequestV1",
   ])],
   ["@flarex/durable-task/internal/run-creation-v1", new Set([
     "TaskInputReferenceV1",
     "decodeTaskInputReferenceV1",
   ])],
+]);
+const admittedFlarexBackendTaskRuntimeLaunchAuthoritySymbolsBySpecifier = new Map([
+  ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+    "validateTaskComputeDispatchRequestV1",
+  ])],
+]);
+const admittedFlarexBackendWorkerLoaderProviderSymbols = new Set([
+  "TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1",
+  "TASK_COMPUTE_DISPATCH_ACCEPTANCE_VERSION_V1",
+  "TaskComputeCancellationRejectedError",
+  "TaskComputeCancellationStaleError",
+  "TaskComputeCancellationTransportError",
+  "TaskComputeCancellationUncertainError",
+  "TaskComputeDispatchConflictError",
+  "TaskComputeDispatchRejectedError",
+  "TaskComputeDispatchTransportError",
+  "TaskComputeDispatchUncertainError",
+  "TaskComputeExecutionIdV1",
+  "TaskComputeExecutionIdV1Schema",
+  "TaskComputeProvider",
+  "decodeTaskComputeProviderDescriptorV1",
+  "makeTaskComputeProviderV1",
+  "snapshotTaskComputeCancellationReceiptV1",
+  "snapshotTaskComputeDispatchAcceptanceV1",
+  "CurrentTaskComputeDispatchRequestV1",
+  "TaskComputeCancellationErrorV1",
+  "TaskComputeCancellationReceiptV1",
+  "TaskComputeCancellationRequestV1",
+  "TaskComputeDispatchAcceptanceV1",
+  "TaskComputeDispatchErrorV1",
+  "TaskComputeExecutionRefV1",
+  "TaskComputeProviderDescriptorV1",
+  "TaskComputeProviderShape",
+]);
+const admittedLegacyWorkerLaunchModelImports = new Map([
+  ["TaskRuntimeLaunchSubject", "type"],
+]);
+const admittedWorkerLoaderLaunchAuthorityImports = new Map([
+  ["TaskRuntimeLaunchAuthority", "value"],
+  ["TaskRuntimeLaunchAuthorityShape", "type"],
+]);
+const admittedWorkerLoaderLaunchModelImports = new Map([
+  ["TaskRuntimeLaunchHashError", "value"],
+  ["TaskRuntimeLaunchPortError", "value"],
+  ["TaskRuntimeLaunchValidationError", "value"],
+  ["CurrentTaskRuntimeLaunchSubject", "type"],
+  ["TaskRuntimeInputSource", "type"],
 ]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "ApplicationPersistedTaskRequestedEffectV1",
@@ -703,6 +771,11 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath)
         && !relativePath.startsWith(
           flarexBackendTaskRuntimeLaunchSourcePrefix,
+        )
+        && !isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
+          relativePath,
+          specifier,
+          node,
         )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
@@ -1225,6 +1298,54 @@ function isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath) {
     || resolved.startsWith(flarexBackendTaskRuntimeLaunchSourcePrefix);
 }
 
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
+  relativePath,
+  specifier,
+  node,
+) {
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  if (relativePath === flarexBackendLegacyTaskWorkerDefinitionPath &&
+    matchesRepositoryModule(resolved, flarexBackendTaskRuntimeLaunchModelPath)) {
+    return hasExactNamedImportModes(node, admittedLegacyWorkerLaunchModelImports);
+  }
+  if (relativePath !== flarexBackendWorkerLoaderTaskComputeProviderPath) {
+    return false;
+  }
+  if (matchesRepositoryModule(resolved, flarexBackendTaskRuntimeLaunchAuthorityPath)) {
+    return hasExactNamedImportModes(
+      node,
+      admittedWorkerLoaderLaunchAuthorityImports,
+    );
+  }
+  if (matchesRepositoryModule(resolved, flarexBackendTaskRuntimeLaunchModelPath)) {
+    return hasExactNamedImportModes(node, admittedWorkerLoaderLaunchModelImports);
+  }
+  return false;
+}
+
+/** @param {ts.Node} node @param {Map<string, string>} expected */
+function hasExactNamedImportModes(node, expected) {
+  if (!ts.isImportDeclaration(node)) return false;
+  const clause = node.importClause;
+  if (clause === undefined || clause.name !== undefined ||
+    clause.namedBindings === undefined ||
+    !ts.isNamedImports(clause.namedBindings) ||
+    clause.namedBindings.elements.length !== expected.size) {
+    return false;
+  }
+  return clause.namedBindings.elements.every((element) => {
+    const importedName = element.propertyName?.text ?? element.name.text;
+    const mode = expected.get(importedName);
+    const typeOnly = clause.isTypeOnly || element.isTypeOnly;
+    return mode === (typeOnly ? "type" : "value");
+  });
+}
+
 /** @param {string} specifier @param {string} relativePath */
 function isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
@@ -1362,9 +1483,13 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
-  if (relativePath === flarexBackendTaskRuntimeLaunchModelPath) {
-    const admittedSymbols =
-      admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier.get(specifier);
+  if (relativePath === flarexBackendTaskRuntimeLaunchModelPath ||
+    relativePath === flarexBackendTaskRuntimeLaunchAuthorityPath) {
+    const admittedSymbols = relativePath === flarexBackendTaskRuntimeLaunchModelPath
+      ? admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier.get(specifier)
+      : admittedFlarexBackendTaskRuntimeLaunchAuthoritySymbolsBySpecifier.get(
+          specifier,
+        );
     if (admittedSymbols === undefined || !ts.isImportDeclaration(node)) {
       return false;
     }
@@ -1380,6 +1505,25 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
     return clause.namedBindings.elements.every((element) => {
       const importedName = element.propertyName?.text ?? element.name.text;
       return admittedSymbols.has(importedName);
+    });
+  }
+  if (
+    relativePath === flarexBackendWorkerLoaderTaskComputeProviderPath
+    && specifier === "@flarex/durable-task/internal/compute-provider-v1"
+    && ts.isImportDeclaration(node)
+  ) {
+    const clause = node.importClause;
+    if (
+      clause === undefined || clause.name !== undefined
+      || clause.namedBindings === undefined
+      || !ts.isNamedImports(clause.namedBindings)
+      || clause.namedBindings.elements.length === 0
+    ) {
+      return false;
+    }
+    return clause.namedBindings.elements.every((element) => {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      return admittedFlarexBackendWorkerLoaderProviderSymbols.has(importedName);
     });
   }
   if (

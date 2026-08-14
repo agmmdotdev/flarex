@@ -420,6 +420,78 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the private DTE06-D3b.iii Worker Loader provider chain", () => {
+    const providerPath =
+      "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: providerPath,
+      text: `
+        import {
+          TaskComputeProvider,
+          TaskComputeDispatchConflictError,
+          type CurrentTaskComputeDispatchRequestV1,
+          type TaskComputeExecutionIdV1,
+          type TaskComputeProviderShape,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+        import {
+          TaskRuntimeLaunchAuthority,
+          type TaskRuntimeLaunchAuthorityShape,
+        } from "../taskRuntimeLaunch/Authority";
+        import {
+          TaskRuntimeLaunchHashError,
+          TaskRuntimeLaunchPortError,
+          TaskRuntimeLaunchValidationError,
+          type CurrentTaskRuntimeLaunchSubject,
+          type TaskRuntimeInputSource,
+        } from "../taskRuntimeLaunch/Model";
+      `,
+    }, {
+      relativePath:
+        "packages/flarex-backend/src/artifactRuntime/LegacyTaskWorkerDefinition.ts",
+      text: `
+        import type { TaskRuntimeLaunchSubject } from "../taskRuntimeLaunch/Model";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: providerPath,
+      text: `
+        import { RunAttemptLifecycle } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeWorkerLoaderTaskComputeProviderLayer } from
+          "flarex-backend/internal/task-compute-delivery";
+      `,
+    }]).errors).toEqual([
+      `${providerPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the connected Task compute-delivery runtime before host admission.",
+    ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/flarex-backend/src/artifactRuntime/LegacyTaskWorkerDefinition.ts",
+      text: `
+        import { TaskRuntimeLaunchAuthority } from "../taskRuntimeLaunch/Authority";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/artifactRuntime/LegacyTaskWorkerDefinition.ts:2 production source must not activate the Task runtime launch authority before Worker Loader admission.",
+    ]);
+
+    for (const text of [
+      `import type { TaskRuntimeLaunchDirectory } from "../taskRuntimeLaunch/Model";`,
+      `import { TaskRuntimeLaunchAuthority } from "flarex-backend/internal/task-runtime-launch";`,
+    ]) {
+      expect(analyzeTriggerCompatibilityBoundary([], [{
+        relativePath: providerPath,
+        text,
+      }]).errors).toEqual([
+        `${providerPath}:1 production source must not activate the Task runtime launch authority before Worker Loader admission.`,
+      ]);
+    }
+  });
+
   it("admits only the checkpoint-owned persistence task symbols", () => {
     const schemaPath = "packages/persistence-postgres/src/schema.ts";
     expect(analyzeTriggerCompatibilityBoundary([{

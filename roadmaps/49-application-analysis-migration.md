@@ -3394,9 +3394,28 @@ module-graph mechanics now accept a neutral verified module projection, so the
 Legacy path does not manufacture an Application source artifact or runtime
 target. Its result remains process-local terminal evidence and no provider,
 start-session, discovery or lifecycle owner is present. Focused protocol,
-Miniflare and host proofs are green. Checkpoint 5d2b.ii remains next and owns
-the exact accepted start session plus correlated interruption for both genuine
-generation-specific Workers.
+Miniflare and host proofs are green.
+
+Checkpoint 5d2b.ii is complete. Both generation-specific Workers expose the
+same strict accepted-start session contract while preserving their distinct
+request, definition and error identities. The shared host owns the fresh
+outbound-denied Worker load, exact acknowledgement, monotonic interruption,
+absolute deadline, terminal settlement observation and RPC-result cleanup. It
+adds no provider or lifecycle write.
+
+Checkpoint 5d2b.iii is complete. The private
+`WorkerLoaderTaskComputeProvider` composes the exhaustive launch authority,
+both genuine Worker definitions and the 5d2b.ii host behind the unchanged
+provider-neutral interface. Exact concurrent starts share one scoped start;
+exact replay preserves acceptance; conflicting replay fails closed; an unknown
+response remains sticky uncertainty instead of cold-starting a second Worker;
+cancellation is monotonic and generation-correlated; and lost sessions remain
+honest process-local loss. Provider scope guarantees live-session cleanup and
+owns an explicit hard admission ceiling; retirement remains forbidden until a
+later composition owner has durable lifecycle evidence. The adapter returns after start
+acceptance only and does not publish terminal results, heartbeat, completion or
+Task lifecycle state. Checkpoint 5d3 remains the sole owner of Task System and
+discovery composition.
 
 The accepted 5d3 composition owns `select` and `createRun` through the existing
 issuer-backed Application selection and Application run-creation store. It does
