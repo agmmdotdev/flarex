@@ -31,6 +31,11 @@
     "test:fsv06-a1:postgres": "vitest run test/integration/fsv06A1CandidateBoundRuntimeDispatch.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:fsv06:pglite": "vitest run test/integration/fsv06StandardPointMutation.test.ts --no-file-parallelism --testTimeout=480000",
     "test:application-native-mutation:pglite": "vitest run test/integration/applicationNativeMutation.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:application-native-mutation:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationNativeMutation.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:application-native-query:pglite": "vitest run test/integration/applicationNativeQuery.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:application-native-query:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationNativeQuery.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:application-native-action:pglite": "vitest run test/integration/applicationNativeAction.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:application-native-action:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationNativeAction.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:fsv06:postgres": "vitest run test/integration/fsv06StandardPointMutation.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:pqv-a1:pglite": "vitest run test/integration/pqvA1ApplicationPointQuerySnapshot.test.ts --no-file-parallelism --testTimeout=480000",
     "test:pqv-a1:postgres": "vitest run test/integration/pqvA1ApplicationPointQuerySnapshot.postgres.test.ts --no-file-parallelism --testTimeout=480000",
@@ -46,7 +51,8 @@
     "test:sap06-a3:postgres": "vitest run test/integration/sap06A3MutationInternalCall.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:dte06-c3:pglite": "vitest run test/integration/dte06C3ConnectedDelivery.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte06-c3:postgres": "vitest run test/integration/dte06C3ConnectedDelivery.postgres.test.ts --no-file-parallelism --testTimeout=120000",
-    "test:application-task-system:pglite": "vitest run test/integration/applicationTaskSystemConnected.test.ts --no-file-parallelism --testTimeout=120000"
+    "test:application-task-system:pglite": "vitest run test/integration/applicationTaskSystemConnected.test.ts --no-file-parallelism --testTimeout=120000",
+    "test:application-task-system:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationTaskSystemConnected.postgres.test.ts --no-file-parallelism --testTimeout=120000"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

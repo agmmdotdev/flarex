@@ -3510,11 +3510,63 @@ current test vertical includes it. After AA-R6 Task checkpoint 5d, task proof is
 required and must include active task selection, run creation, compute
 preparation, and launch from authenticated Source Artifact V2 bytes.
 
+The accepted proof shape is one explicit Application proof graph, not a new
+runtime composition and not one oversized shared-database fixture. Its lineage
+spine proves finalized Source Artifact V2 bytes through cold Declarative V2
+analysis, inactive revision registration, publication, readiness and
+activation. Its consumer branches prove the current unversioned Application
+query, mutation, action and Task System services from that same authority and
+artifact contract family. The AA-R7 commands must enumerate the graph
+explicitly for both database lanes so a displaced SAP, FSV runtime-dispatch or
+Legacy Task test cannot silently substitute for a missing current consumer.
+PGlite and genuine PostgreSQL may use isolated fixtures, but neither lane may
+claim completion unless every named branch runs without a skip.
+
+The PGlite graph deliberately does not use FSV03's retained C07 mutation tail
+as its successful mutation branch. That tail still exposes the separately
+recorded shared journal sequence defect: PGlite returns a decimal string while
+the exact journal contract requires a bigint. AA-R7 has no authority to change
+that shared executor owner. FSV04 and FSV05 retain the real cold-analysis,
+registration, readiness and activation lineage; the current Application
+mutation proof owns the successful commit branch. FSV04, FSV05 and the exact
+Worker suites retain the required corruption and invalid-runtime negative
+evidence. This separation is not a fallback and does not relax either
+assertion.
+
 Required negative proof includes invalid metadata, missing runtime entry,
 forbidden import-time effects, nondeterminism, timeout, interruption, cold
 restart from bytes, manifest/receipt corruption, stale scope/candidate evidence,
 wrong runtime group, and runtime capability rejection. No suite may pass by
 falling back to old evidence or weakening an assertion.
+
+#### AA-R7 completion receipt
+
+`AA-R7` is complete. `test:aa-r7:pglite` names the cold-analysis/readiness and
+activation spine, the current Application query, mutation, action and Task
+System branches, the exact Application Worker/host boundary, and the unified
+Application function runtime including internal calls. Its final run completed
+six system-test files with seven tests, 38 backend Worker/host tests, and 27
+function-runtime tests: 72 passing tests and zero skips.
+
+`test:aa-r7:postgres` runs the same durable lineage from readiness through
+activation and every current Application consumer branch on genuine
+PostgreSQL. Its final disposable PostgreSQL 18 run completed six files with 14
+passing tests and zero skips. The query branch proves a fresh active selection,
+Source Artifact V2 read, generated-Worker execution through Miniflare, snapshot
+revalidation, and an actual `ctx.db.get` of a seeded authoritative row before
+and after head replacement. Mutation retains the shared
+commit/OCC/idempotency/outbox tail;
+action retains durable effect uncertainty, recovery and interruption cleanup;
+Task retains active selection, run replay, compute preparation and an executed
+Application Worker launch with zero Legacy runtime-object reads.
+
+The negative matrix remains distributed by owner: FSV04/FSV05 own cold replay,
+stored evidence, scope/head and corruption failures; the backend Worker/host
+suites own invalid metadata/runtime entry, forbidden ambient behavior,
+determinism, timeout, interruption and capability rejection; the current
+consumer proofs own stale authority, exact replay and durable boundary
+failures. No route, production caller, fallback, comparison authority or dual
+write was added. `AA-R8` is now the next authorized gate.
 
 ### `AA-R8` — displaced-system removal and migration stop
 
@@ -3569,13 +3621,16 @@ not.
 Application schema authority, readiness, activation history, the active head,
 and issuer-backed selection are now the accepted private authority chain. The
 private Standard query, mutation, and action consumers now select only that
-Application authority. Task registration exists, but Task run creation,
-compute preparation, and launch still consume only the displaced definition
-generation and remain explicitly unwired from Application authority. Any
-unrelated durable-task, system-test, foundation-roadmap, or script work in the
-worktree must still be protected rather than absorbed. Before each Task
-checkpoint or later simulation slice, the main thread must re-read the current
-schema/migration head and preserve the production-inert boundary.
+Application authority. Application Task registration, active selection, run
+creation, compute preparation and authenticated Source Artifact V2 Worker
+launch are connected through the shared generation-aware Task lifecycle; the
+retained Legacy lane remains explicitly `legacy_only`. AA-R7 now owns only the
+combined private proof and any narrowly missing test composition needed to run
+that proof on both database implementations. Any unrelated durable-task,
+system-test, foundation-roadmap, or script work in the worktree must still be
+protected rather than absorbed. Before the proof or later removal slice, the
+main thread must re-read the current schema/migration head and preserve the
+production-inert boundary.
 
 ## Preflight Review Decision
 

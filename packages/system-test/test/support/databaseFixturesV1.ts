@@ -88,6 +88,79 @@ export async function withTemporaryPostgresPersistence(
   }
 }
 
+export async function withTemporarySplitPostgresPersistence(
+  run: (persistence: Readonly<{
+    readonly control: PostgresFlarexPersistence;
+    readonly target: PostgresFlarexPersistence;
+  }>) => Promise<void>,
+): Promise<void> {
+  if (postgresUrl === null) {
+    throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
+  }
+  const suffix = randomBytes(12).toString("hex");
+  const controlSchema = `flarex_system_test_control_${suffix}`;
+  const targetSchema = `flarex_system_test_target_${suffix}`;
+  const migrationsSchema = `flarex_system_test_migrations_${suffix}`;
+  const adminPool = new Pool({ connectionString: postgresUrl });
+  let control: PostgresFlarexPersistence | undefined;
+  let target: PostgresFlarexPersistence | undefined;
+  let primaryCause: unknown;
+  try {
+    await adminPool.query(`create schema ${quoteIdentifierV1(controlSchema)}`);
+    await adminPool.query(`create schema ${quoteIdentifierV1(targetSchema)}`);
+    await adminPool.query(`create schema ${quoteIdentifierV1(migrationsSchema)}`);
+    control = await createPostgresPersistence({
+      connectionString: postgresUrl,
+      migrationsSchema,
+      migrationsTable: `control_${suffix}`,
+      poolConfig: { options: `-c search_path=${controlSchema}` },
+    });
+    target = await createPostgresPersistence({
+      connectionString: postgresUrl,
+      migrationsSchema,
+      migrationsTable: `target_${suffix}`,
+      poolConfig: { options: `-c search_path=${targetSchema}` },
+    });
+    await Promise.all([control.migrate(), target.migrate()]);
+    await run(Object.freeze({ control, target }));
+  } catch (cause: unknown) {
+    primaryCause = cause;
+    throw cause;
+  } finally {
+    const cleanupCauses: unknown[] = [];
+    if (control !== undefined) {
+      const activeControl = control;
+      await captureCleanupV1(cleanupCauses, () => activeControl.close());
+    }
+    if (target !== undefined) {
+      const activeTarget = target;
+      await captureCleanupV1(cleanupCauses, () => activeTarget.close());
+    }
+    await captureCleanupV1(cleanupCauses, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifierV1(controlSchema)} cascade`,
+      )
+    );
+    await captureCleanupV1(cleanupCauses, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifierV1(targetSchema)} cascade`,
+      )
+    );
+    await captureCleanupV1(cleanupCauses, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifierV1(migrationsSchema)} cascade`,
+      )
+    );
+    await captureCleanupV1(cleanupCauses, () => adminPool.end());
+    if (primaryCause === undefined && cleanupCauses.length > 0) {
+      throw new Error(
+        "Failed to clean up the split system-test PostgreSQL fixture.",
+        { cause: cleanupCauses },
+      );
+    }
+  }
+}
+
 export async function withTemporaryPostgresSchema(
   run: (options: TemporaryPostgresSchemaOptionsV1) => Promise<void>,
 ): Promise<void> {

@@ -10,6 +10,8 @@ import { selectApplicationActionAdmission } from
   "@flarex/persistence-postgres/internal/application-action-admission";
 import {
   createApplicationNativeMutationPGliteFixture,
+  type ApplicationNativeMutationFixture,
+  type ApplicationNativeMutationPersistence,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
@@ -87,13 +89,20 @@ export interface ApplicationNativeActionProof {
   readonly dispatches: number;
 }
 
-export async function proveApplicationNativeAction(): Promise<
+export type ApplicationNativeActionFixtureFactory = () => Promise<
+  ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
+>;
+
+export async function proveApplicationNativeAction(
+  createFixture: ApplicationNativeActionFixtureFactory = () =>
+    createApplicationNativeMutationPGliteFixture({
+      runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+    }),
+): Promise<
   ApplicationNativeActionProof
 > {
-  const fixture = await createApplicationNativeMutationPGliteFixture({
-    runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
-    compatibilityDate: COMPATIBILITY_DATE,
-  });
+  const fixture = await createFixture();
   const bodyStore = makeExecutionEvidenceBodyStoreV1(
     new MemoryEvidenceBucket(),
     { hash: bytes => Effect.sync(() => sha256(bytes)) },

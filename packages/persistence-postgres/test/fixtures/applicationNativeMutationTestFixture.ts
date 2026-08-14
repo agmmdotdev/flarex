@@ -1,5 +1,6 @@
 import { webcrypto } from "node:crypto";
 
+import { eq } from "drizzle-orm";
 import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
@@ -27,8 +28,23 @@ import {
   canonicalizeApplicationRuntimeTargetV1,
   type CanonicalApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
+import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import {
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+  decodeAppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
+import {
+  CommitSeqSchema,
+  projectScopeEpochUuidV1,
+  projectScopeIdUuidV1,
+} from "flarex-protocol/storage-authority";
 
 import {
   createAppSchemaCandidateReadinessPort,
@@ -65,6 +81,9 @@ import {
   makeApplicationTaskBindingRepository,
 } from "../../src/applicationTaskBindings";
 import {
+  appendAppRowRevisionAndAdvanceCurrentInTransaction,
+} from "../../src/appRows";
+import {
   createAppDeveloperIndexDefinitionPortV1,
 } from "../../src/appDeveloperIndexCommitV1";
 import {
@@ -87,7 +106,23 @@ import {
   createPGliteSplitScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../../src/pglite";
+import {
+  createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresLocatedScopeAuthorizationEpochTarget,
+  createPostgresLocatedSplitScopeClockTarget,
+  createPostgresSplitScopeAuthorityProvisioner,
+  type PostgresFlarexPersistence,
+} from "../../src/postgres";
+import type { FlarexMetadataDatabase } from "../../src/deployments";
+import type { FlarexPersistence } from "../../src/index";
+import type { LocatedScopeClockReader } from
+  "../../src/scopeAuthorityResolution";
 import { createPointCommitPublisherPortV1 } from "../../src/pointCommitTransaction";
+import {
+  fxSystemCommitAppRowChanges,
+  fxSystemCommits,
+  fxSystemScopeClocks,
+} from "../../src/schema";
 import { getScopeAuthorityProvisioningReceipt } from
   "../../src/scopeAuthorityProvisioningReceipt";
 import { createAppDeveloperIndexQueryPortV1 } from "../../src/sessionJournalStore";
@@ -113,9 +148,15 @@ export interface ApplicationNativeMutationSourceBundle {
   }>>;
 }
 
-export interface ApplicationNativeMutationPGliteFixture {
-  readonly control: PGliteFlarexPersistence;
-  readonly target: PGliteFlarexPersistence;
+export type ApplicationNativeMutationPersistence = FlarexPersistence & Readonly<{
+  drizzle: FlarexMetadataDatabase;
+}>;
+
+export interface ApplicationNativeMutationFixture<
+  Persistence extends ApplicationNativeMutationPersistence,
+> {
+  readonly control: Persistence;
+  readonly target: Persistence;
   readonly deploymentId: string;
   readonly authority: ApplicationAnalysisAuthority;
   readonly authorityPorts: ReturnType<typeof fixtureAuthorityPorts>;
@@ -125,26 +166,20 @@ export interface ApplicationNativeMutationPGliteFixture {
   readonly source: ApplicationNativeMutationSourceBundle;
   readonly schema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
   readonly sessionAuthority: Readonly<{
-    readonly scopeMetadata: PGliteFlarexPersistence;
+    readonly scopeMetadata: Persistence;
     readonly provisioningReceipts: ReturnType<typeof fixtureProvisioningReceipts>;
     readonly scopeSessionTargets: Readonly<{
-      readonly resolve: (
-        locator: ScopePhysicalLocator,
-      ) => Promise<ReturnType<
-        typeof createPGliteLocatedPointMutationSessionActivationTargetV1
-      >>;
+      readonly resolve: (locator: ScopePhysicalLocator) =>
+        Promise<LocatedScopeClockReader>;
     }>;
-    readonly applicationControlDb: PGliteFlarexPersistence["drizzle"];
+    readonly applicationControlDb: FlarexMetadataDatabase;
   }>;
   readonly currentEpochAuthority: Readonly<{
-    readonly scopeMetadata: PGliteFlarexPersistence;
+    readonly scopeMetadata: Persistence;
     readonly provisioningReceipts: ReturnType<typeof fixtureProvisioningReceipts>;
     readonly scopeEpochTargets: Readonly<{
-      readonly resolve: (
-        locator: ScopePhysicalLocator,
-      ) => Promise<ReturnType<
-        typeof createPGliteLocatedScopeAuthorizationEpochTarget
-      >>;
+      readonly resolve: (locator: ScopePhysicalLocator) =>
+        Promise<LocatedScopeClockReader>;
     }>;
   }>;
   readonly intrinsicCreationTimeIndexes: ReturnType<
@@ -154,7 +189,34 @@ export interface ApplicationNativeMutationPGliteFixture {
     typeof createAppDeveloperIndexDefinitionPortV1
   >;
   readonly indexedQueries: ReturnType<typeof createAppDeveloperIndexQueryPortV1>;
+  readonly seedUserDocument: (name: string) => Promise<Readonly<{
+    readonly documentId: string;
+    readonly name: string;
+  }>>;
   readonly moveHead: () => Promise<CoherentActiveApplication>;
+}
+
+export type ApplicationNativeMutationPGliteFixture =
+  ApplicationNativeMutationFixture<PGliteFlarexPersistence>;
+
+export type ApplicationNativeMutationPostgresFixture =
+  ApplicationNativeMutationFixture<PostgresFlarexPersistence>;
+
+interface ApplicationNativeMutationFixtureLane<
+  Persistence extends ApplicationNativeMutationPersistence,
+> {
+  readonly control: Persistence;
+  readonly target: Persistence;
+  readonly provision: (
+    options: Parameters<typeof createPGliteSplitScopeAuthorityProvisioner>[1],
+  ) => ReturnType<typeof createPGliteSplitScopeAuthorityProvisioner>;
+  readonly locateClock: (
+    locator: SplitScopePhysicalLocator,
+  ) => ReturnType<typeof createPGliteLocatedSplitScopeClockTarget>;
+  readonly locateSession: (locator: ScopePhysicalLocator) =>
+    LocatedScopeClockReader;
+  readonly locateEpoch: (locator: ScopePhysicalLocator) =>
+    LocatedScopeClockReader;
 }
 
 const LOCATOR = Object.freeze({
@@ -181,14 +243,62 @@ export async function createApplicationNativeMutationPGliteFixture(
     createPGlitePersistence(),
   ]);
   await Promise.all([control.migrate(), target.migrate()]);
-  const deploymentId = "deployment_application_native_mutation";
-  const provisioned = await createPGliteSplitScopeAuthorityProvisioner(
+  return createApplicationNativeMutationFixture(options, {
     control,
-    {
+    target,
+    provision: options =>
+      createPGliteSplitScopeAuthorityProvisioner(control, options),
+    locateClock: locator =>
+      createPGliteLocatedSplitScopeClockTarget(target, locator),
+    locateSession: locator =>
+      createPGliteLocatedPointMutationSessionActivationTargetV1(target, locator),
+    locateEpoch: locator =>
+      createPGliteLocatedScopeAuthorizationEpochTarget(target, locator),
+  });
+}
+
+export function createApplicationNativeMutationPostgresFixture(
+  options: ApplicationNativeMutationFixtureOptions,
+  persistence: Readonly<{
+    readonly control: PostgresFlarexPersistence;
+    readonly target: PostgresFlarexPersistence;
+  }>,
+): Promise<ApplicationNativeMutationPostgresFixture> {
+  return createApplicationNativeMutationFixture(options, {
+    ...persistence,
+    provision: options =>
+      createPostgresSplitScopeAuthorityProvisioner(
+        persistence.control,
+        options,
+      ),
+    locateClock: locator =>
+      createPostgresLocatedSplitScopeClockTarget(persistence.target, locator),
+    locateSession: locator =>
+      createPostgresLocatedPointMutationSessionActivationTargetV1(
+        persistence.target,
+        locator,
+      ),
+    locateEpoch: locator =>
+      createPostgresLocatedScopeAuthorizationEpochTarget(
+        persistence.target,
+        locator,
+      ),
+  });
+}
+
+async function createApplicationNativeMutationFixture<
+  Persistence extends ApplicationNativeMutationPersistence,
+>(
+  options: ApplicationNativeMutationFixtureOptions,
+  lane: ApplicationNativeMutationFixtureLane<Persistence>,
+): Promise<ApplicationNativeMutationFixture<Persistence>> {
+  const { control, target } = lane;
+  const deploymentId = "deployment_application_native_mutation";
+  const provisioned = await lane.provision({
       placementPlanner: { plan: () => LOCATOR },
       targetResolver: {
         resolve: async locator =>
-          createPGliteLocatedSplitScopeClockTarget(target, locator),
+          lane.locateClock(locator),
       },
       randomUuid: uuidSequence(1, 2),
     },
@@ -249,6 +359,15 @@ export async function createApplicationNativeMutationPGliteFixture(
         visibility: "public",
         args: { type: "any" },
         returns: null,
+        partition: null,
+      }, {
+        path: "users:get",
+        moduleName: "users",
+        exportName: "get",
+        kind: "query",
+        visibility: "public",
+        args: { type: "any" },
+        returns: { type: "any" },
         partition: null,
       }, {
         path: "users:notify",
@@ -524,10 +643,7 @@ export async function createApplicationNativeMutationPGliteFixture(
     provisioningReceipts,
     scopeSessionTargets: Object.freeze({
       resolve: async (locator: ScopePhysicalLocator) =>
-        createPGliteLocatedPointMutationSessionActivationTargetV1(
-          target,
-          locator,
-        ),
+        lane.locateSession(locator),
     }),
     applicationControlDb: control.drizzle,
   });
@@ -536,12 +652,80 @@ export async function createApplicationNativeMutationPGliteFixture(
     provisioningReceipts,
     scopeEpochTargets: Object.freeze({
       resolve: async (locator: ScopePhysicalLocator) =>
-        createPGliteLocatedScopeAuthorizationEpochTarget(target, locator),
+        lane.locateEpoch(locator),
     }),
   });
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
     control.drizzle,
   );
+  const seedUserDocument = async (name: string) => {
+    const tableRows = await control.query<{ table_id: number }>(
+      `select table_id
+         from fx_control_table
+        where deployment_id = $1
+          and namespace = 'app'
+          and logical_name = 'users'
+        limit 1`,
+      [deploymentId],
+    );
+    const tableIdValue = tableRows.rows[0]?.table_id;
+    if (tableIdValue === undefined) {
+      throw new Error("Application-native users table is missing.");
+    }
+    const tableId = decodeCatalogTableId(tableIdValue);
+    const rowId = decodeAppRowIdHexV1("00000000000000000000000000000001");
+    const documentId = appDocumentIdV1FromRowIdentity({ tableId, rowId });
+    const clock = await target.getScopeClock(authority.scopeId);
+    if (clock === null) {
+      throw new Error("Application-native scope clock is missing.");
+    }
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    const canonicalDocument = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime: decodeAppCreationTimeV1(1),
+      fields: { name },
+    });
+    const scopeUuid = projectScopeIdUuidV1(authority.scopeId).scopeUuid;
+    const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
+    await target.drizzle.transaction(async tx => {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: authority.scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime: decodeAppCreationTimeV1(1),
+        value: {
+          codecVersion: canonicalDocument.codecVersion,
+          valueJson: canonicalDocument.valueJson,
+          canonicalBytes: canonicalDocument.canonicalBytes,
+          sha256: canonicalDocument.sha256,
+        },
+      });
+      await tx.insert(fxSystemCommits).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeCount: 1,
+      });
+      await tx.insert(fxSystemCommitAppRowChanges).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: 0,
+        tableId,
+        rowId: appRowIdHexV1ToBytes(rowId),
+      });
+      await tx.update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+    });
+    return Object.freeze({ documentId, name });
+  };
   return Object.freeze({
     control,
     target,
@@ -563,11 +747,14 @@ export async function createApplicationNativeMutationPGliteFixture(
       sessionAuthority,
       developerIndexes,
     ),
+    seedUserDocument,
     moveHead,
   });
 }
 
-function fixtureProvisioningReceipts(control: PGliteFlarexPersistence) {
+function fixtureProvisioningReceipts(
+  control: ApplicationNativeMutationPersistence,
+) {
   return Object.freeze({
     getScopeAuthorityProvisioningReceipt: (scopeId: ApplicationAnalysisAuthority["scopeId"]) =>
       getScopeAuthorityProvisioningReceipt(control.drizzle, scopeId),
@@ -575,8 +762,8 @@ function fixtureProvisioningReceipts(control: PGliteFlarexPersistence) {
 }
 
 function fixtureAuthorityPorts(
-  control: PGliteFlarexPersistence,
-  target: PGliteFlarexPersistence,
+  control: ApplicationNativeMutationPersistence,
+  target: ApplicationNativeMutationPersistence,
   authority: ApplicationAnalysisAuthority,
 ) {
   const located = createLocatedAppSchemaCandidateValidationTarget(
@@ -594,7 +781,7 @@ function fixtureAuthorityPorts(
 }
 
 async function enablePhysicalBuilds(
-  control: PGliteFlarexPersistence,
+  control: ApplicationNativeMutationPersistence,
   authority: ReturnType<typeof fixtureAuthorityPorts>,
   scopeId: ApplicationAnalysisAuthority["scopeId"],
   deploymentId: string,
@@ -643,7 +830,7 @@ async function enablePhysicalBuilds(
 }
 
 async function closeEmptyUniqueConstraintSet(
-  control: PGliteFlarexPersistence,
+  control: ApplicationNativeMutationPersistence,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
@@ -683,7 +870,7 @@ async function settleCandidateValidation(
 }
 
 async function requireSchemaVersionId(
-  control: PGliteFlarexPersistence,
+  control: ApplicationNativeMutationPersistence,
 ): Promise<CatalogSchemaVersionId> {
   const result = await control.query<{
     schema_version_id: CatalogSchemaVersionId;
@@ -695,16 +882,21 @@ async function requireSchemaVersionId(
 
 async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBundle> {
   const execution = [
+    'import { query } from "flarex/server";',
     'import { mutation } from "flarex/server";',
     'import { action } from "flarex/server";',
     'import * as users from "../functions/users.js";',
     "export default { users: {",
+    "  get: query({ handler: users.get }),",
     "  create: mutation({ handler: users.create }),",
     "  notify: action({ handler: users.notify }),",
     "} };",
     "",
   ].join("\n");
   const handler = [
+    "export async function get(ctx, args) {",
+    "  return await ctx.db.get(args.id);",
+    "}",
     "export async function create(ctx, args) {",
     "  return await ctx.db.insert(\"users\", { name: args.name });",
     "}",

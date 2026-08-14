@@ -9,10 +9,10 @@ import {
 } from "@flarex/executor/transaction-grant";
 import {
   createApplicationNativeMutationPGliteFixture,
+  type ApplicationNativeMutationFixture,
+  type ApplicationNativeMutationPersistence,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
-import type { PGliteFlarexPersistence } from
-  "@flarex/persistence-postgres/pglite";
 import { selectApplicationMutationAdmission } from
   "@flarex/persistence-postgres/internal/application-mutation-admission";
 import {
@@ -90,13 +90,20 @@ export interface ApplicationNativeMutationProof {
   readonly outboxCount: number;
 }
 
-export async function proveApplicationNativeMutation(): Promise<
+export type ApplicationNativeMutationFixtureFactory = () => Promise<
+  ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
+>;
+
+export async function proveApplicationNativeMutation(
+  createFixture: ApplicationNativeMutationFixtureFactory = () =>
+    createApplicationNativeMutationPGliteFixture({
+      runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+    }),
+): Promise<
   ApplicationNativeMutationProof
 > {
-  const fixture = await createApplicationNativeMutationPGliteFixture({
-    runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
-    compatibilityDate: COMPATIBILITY_DATE,
-  });
+  const fixture = await createFixture();
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     fixture.deploymentId,
   );
@@ -720,7 +727,7 @@ function applicationHostPolicy() {
   });
 }
 
-async function durableCounts(persistence: PGliteFlarexPersistence) {
+async function durableCounts(persistence: ApplicationNativeMutationPersistence) {
   const result = await persistence.query<{
     commits: string;
     outcomes: string;
