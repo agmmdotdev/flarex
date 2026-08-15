@@ -127,6 +127,19 @@ cold analysis loads, one Workerd mutation, durable replay without re-execution,
 one Workerd query, and exactly one commit/outcome/feed/outbox publication in
 both PGlite and genuine PostgreSQL. Schemas B and C remain the next M03-D cuts.
 
+The first schema-B run exposed `ST-CORE-023` before remediation could begin.
+The existing scanner correctly rejects a populated removal and persists bounded
+failure evidence, but the active-reader readiness path then evaluates active
+schema A against the single failed schema-B candidate head. Consequently
+`readActive()` fails `notReady`, so schema-A queries and the ordinary schema-A
+remediation mutation cannot run. This is a shared readiness/activation and
+candidate-head composition defect, not permission for the system-test package
+to cache an active selection, synthesize a receipt, or clear the failed head.
+Schema-B acceptance is paused until that owner preserves the last accepted
+active-revision readiness authority independently of mutable non-active
+candidate progress, with exact receipt, CAS, rollback, reload, and uncertainty
+proof.
+
 ## Approved Code And Package Ownership
 
 Managed schema evolution is a separate private domain capability, not another
@@ -641,7 +654,8 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schema A complete**: extend `@flarex/system-test`
+7. `M03-D` - **in progress; schema A complete, schema B blocked by
+   `ST-CORE-023`**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
    schema-A baseline is complete in both PGlite and genuine PostgreSQL; next
    add the schema-B removal and schema-C required-field cuts.

@@ -14,6 +14,36 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-023` - failed candidate validation makes the active schema unreadable
+
+- **Status:** Open; reproduced by the M03-D schema-B cooking scenario in
+  PGlite. No readiness, activation, or candidate-validation owner has been
+  changed by the scenario.
+- **Reproduction:** Activate schema A, whose `recipes.description` field is
+  optional. Submit schema B, which removes that field, while an authoritative
+  schema-A row still contains `description`. Let the existing exact-frontier
+  scanner persist bounded schema-B failure evidence. A subsequent
+  `applicationActivation.readActive()` for the unchanged schema-A head fails
+  with `ApplicationActivationError { operation: "read", reason: "notReady" }`.
+  The active revision is being checked against the single target-local
+  candidate-validation head, which now belongs to failed schema B.
+- **Expected:** Schema B remains failed and cannot activate, while the already
+  active schema A remains readable and writable so ordinary schema-A mutations
+  can remediate the incompatible rows. Candidate failure must not revoke a
+  previously accepted active-readiness receipt.
+- **Actual:** The failed schema-B head makes readiness for active schema A
+  report the wrong validation authority, so coherent active reads fail before
+  the application query or remediation mutation can run.
+- **Owner and trust boundary:** Application readiness/activation composition
+  with the guarded single candidate-validation head. The system-test harness
+  must not cache an active selection, synthesize readiness, bypass
+  `readActive()`, or mutate the validation head to keep A serving.
+- **Current disposition:** Requires a separately approved shared-owner
+  correction that distinguishes immutable active-revision readiness evidence
+  from the mutable non-active candidate head while preserving exact schema,
+  frontier, receipt, CAS, rollback, and uncertainty authority. Re-run the same
+  schema-B scenario through PGlite and genuine PostgreSQL after correction.
+
 ### `ST-CORE-018` - SAP06-A2 fixture omits the application-error platform module
 
 - **Status:** Open; reproduced independently during the FSV04/FSV05 C08
