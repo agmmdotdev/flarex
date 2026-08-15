@@ -16,8 +16,9 @@ fixture succeeds.
 
 ### `ST-CORE-025` - stale schema attempt can publish after replacement activation
 
-- **Status:** Open; exposed by the M03-D acceptance-item-9 preflight. No shared
-  commit, activation, session, or Application mutation owner has been changed.
+- **Status:** Resolved by an Application-generation publication fence in the
+  existing point-commit transaction. No second commit, activation, session, or
+  Application mutation owner was added.
 - **Reproduction:** Activate schema F and prepare a compatible replacement
   schema G. Start a real Standard Application mutation under F and pause its
   Workerd execution only after the existing admission/session owner has pinned
@@ -57,9 +58,18 @@ fixture succeeds.
   and publish exactly once after a fresh ordinary G admission. Existing
   same-schema pinned-head publication, replay, rollback, uncertainty, and
   candidate-write-guard behavior must remain green.
-- **Current disposition:** Stop M03-D item 9 at this owner boundary until the
-  shared publication-fence correction is separately approved. Do not encode a
-  workaround in the simulation or weaken the acceptance item.
+- **Correction and evidence:** After the existing scope-clock lock and exact
+  outcome-replay check, Application point commit now authenticates the pinned
+  session schema against the immutable readiness row selected by the current
+  active head. A schema mismatch fails with typed stale authority before any
+  row, outcome, feed, or outbox publication; same-schema active-revision
+  movement remains allowed. The unchanged cooking lineage pauses a real
+  schema-F Workerd attempt after admission, activates G through the existing
+  CAS, proves the stale transaction leaves all publication and application
+  storage unchanged, then publishes exactly once through a fresh ordinary G
+  admission. The same transaction path passes in PGlite and genuine
+  PostgreSQL, including candidate-receipt, sidecar, reload, and final-query
+  inspection.
 
 ### `ST-CORE-024` - Standard mutation omits candidate-schema write-guard composition
 

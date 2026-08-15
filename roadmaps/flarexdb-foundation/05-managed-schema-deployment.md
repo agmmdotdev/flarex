@@ -6,8 +6,9 @@ managed-schema compatibility, read-only planning, candidate-document policy,
 canonical validation frames, guarded target-local single candidate head,
 bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
-`AA-R0` through `AA-R8` are complete. `M03-D` is now in progress with its
-current-generation schema-A through schema-F item-8 system-test cuts complete.
+`AA-R0` through `AA-R8` are complete. `M03-D` is complete through its
+current-generation schema-A through schema-G system-test lineage and all nine
+acceptance items.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -201,21 +202,23 @@ activation plus one exact replay. A final stored-frame corruption is rejected
 by another cold port while the already-active F revision remains coherent from
 its immutable readiness and activation evidence. PGlite and genuine
 PostgreSQL run the same scenario and retain one candidate head, one active
-head, and the unchanged application commit/feed/outbox counts. The next M03-D
-cut is acceptance item 9.
+head, and the unchanged application commit/feed/outbox counts.
 
-The item-9 preflight exposed `ST-CORE-025` before extending the cooking
-scenario. A Standard mutation admitted under schema F retains the correct
-immutable F runtime and schema pins, but the existing point-commit transaction
-does not yet authenticate that pinned schema against the schema of the current
-active Application head. Activating a compatible replacement G therefore
-leaves no publication fence for an F-pinned final row that is valid under both
-schemas. This is a shared stored-attempt/point-commit/active-head authority gap,
-not permission for the system-test harness to manufacture a conflict or a
-second current-head reader. Item 9 is paused pending separate approval of one
-lock-compatible fence that rejects schema-stale publication while preserving
-the accepted behavior that ordinary same-schema active-revision movement does
-not invalidate admitted work.
+The schema-G stale-attempt cut completes acceptance item 9 and resolves
+`ST-CORE-025`. The existing point-commit transaction now performs one
+Application-generation-only schema fence after its scope-clock lock and exact
+outcome replay: it authenticates the pinned session schema against the
+immutable readiness row selected by the current active Application head.
+Ordinary same-schema active-revision movement remains allowed, while a
+schema-replacing activation makes an admitted old-schema attempt fail with
+typed stale authority before any row, outcome, feed, or outbox publication.
+The cooking lineage pauses a real schema-F Workerd attempt after ordinary
+admission, activates compatible schema G through the existing activation CAS,
+proves publication/application storage and the exact G candidate receipt stay
+unchanged, then issues a fresh ordinary G mutation and observes exactly one
+publication plus a G-selected final query. PGlite and genuine PostgreSQL run
+the same transaction and inspection path. No second active-head reader,
+session owner, OCC system, commit path, fallback, or test-owned retry was added.
 
 ## Approved Code And Package Ownership
 
@@ -733,12 +736,12 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schemas A through F and item 8 complete**: extend `@flarex/system-test`
+7. `M03-D` - **complete; schemas A through G and all nine acceptance items**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
    schema-A baseline, schema-B removal/remediation cut, and schema-C required-
-   field/backfill, nested-validator-tightening, concurrent-write, and recovery/
-   concurrent-activation cuts are complete in both PGlite and genuine
-   PostgreSQL. Historical
+   field/backfill, nested-validator-tightening, concurrent-write, recovery/
+   concurrent-activation, and stale-attempt publication-fence cuts are complete
+   in both PGlite and genuine PostgreSQL. Historical
    single-revision runners remain unchanged and are not fallback or comparison
    authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with
@@ -752,12 +755,12 @@ changes during current codec/catalog slices.
 
 `M01-A`, `M01-B`, `M02`, and production-inert `M03-A` through `M03-C` are
 complete. Roadmap 49's `AA-R6` through `AA-R8` replacement, private proof, and
-retirement gates are also complete. `M03-D` may now add only the isolated
-multi-revision cooking scenario over those accepted current owners. It adds no
-managed-schema protocol, schema, migration, transaction, readiness, activation,
-or runtime owner and may not revive a displaced runner, add dual selection or
-fallback, or create another active-schema authority, route, trigger, public
-deployment path, or production generation cut.
+retirement gates are also complete. `M03-D` is complete over those accepted
+current owners. It added no managed-schema protocol, schema, migration,
+transaction, readiness, activation, or runtime owner and did not revive a
+displaced runner, add dual selection or fallback, or create another
+active-schema authority, route, trigger, public deployment path, or production
+generation cut.
 
 ## Multi-Revision Cooking Acceptance Matrix
 

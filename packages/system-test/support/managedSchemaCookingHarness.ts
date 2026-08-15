@@ -39,6 +39,8 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import { PointCommitStaleAuthorityV1Error } from
+  "@flarex/persistence-postgres/point-commit-transaction";
 import type { ScopePhysicalLocator } from
   "@flarex/persistence-postgres/internal/system-test/scopeMetadataTypes";
 import {
@@ -187,6 +189,27 @@ export interface ManagedSchemaCookingSchemaFProof {
   readonly outcomeCount: 6;
   readonly feedCount: 6;
   readonly outboxCount: 6;
+}
+
+export interface ManagedSchemaCookingSchemaGProof {
+  readonly attemptStartedUnderSchemaF: true;
+  readonly replacementActivatedBeforePublication: true;
+  readonly staleAttemptRejected: true;
+  readonly staleAttemptLeftPublicationUnchanged: true;
+  readonly staleAttemptLeftApplicationStorageUnchanged: true;
+  readonly candidateReceiptStayedExact: true;
+  readonly ordinaryRetrySelectedSchemaG: true;
+  readonly ordinaryRetryPublishedExactlyOnce: true;
+  readonly finalDocumentConformsToSchemaG: true;
+  readonly candidateHeadCount: 1;
+  readonly activationCount: 6;
+  readonly activeHeadCount: 1;
+  readonly analysisWorkerLoads: 18;
+  readonly runtimeWorkerLoads: 19;
+  readonly commitCount: 7;
+  readonly outcomeCount: 7;
+  readonly feedCount: 7;
+  readonly outboxCount: 7;
 }
 
 export type ManagedSchemaCookingFixtureFactory = (
@@ -1668,6 +1691,275 @@ export async function proveManagedSchemaCookingSchemaF(
   });
 }
 
+export async function proveManagedSchemaCookingSchemaG(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaCookingSchemaGProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const schemaDState = await establishCookingSchemaD(scenario);
+
+    const schemaFSource = await cookingSourceBundle("F");
+    scenario.sources.set(schemaFSource.sourceArtifact.rootSha256, schemaFSource);
+    const schemaFRevision = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-f:stale-attempt-base",
+      analysis: cookingAnalysis(
+        schemaFSource,
+        scenario.analysisLoader,
+        "schema F stale-attempt base",
+      ),
+    });
+    const schemaF = await scenario.fixture.preparePublishedSchema(
+      schemaFRevision.manifest,
+    );
+    const schemaFInput = Object.freeze({
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaF.schemaVersionId,
+    });
+    await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(
+      scenario.fixture.candidateValidation,
+      schemaFInput,
+    ));
+    await settleReadyCandidateValidation(
+      scenario.fixture,
+      schemaFInput,
+      "schema F stale-attempt base",
+    );
+    const readyF = await runSystemTestEffectV1(scenario.fixture.readiness.settle({
+      deploymentId: scenario.fixture.deploymentId,
+      revisionId: schemaFRevision.publication.revisionId,
+    }));
+    if (readyF.status !== "ready") {
+      throw new Error("Cooking schema F stale-attempt base did not become ready.");
+    }
+    const activatedF = await runSystemTestEffectV1(
+      scenario.fixture.activation.activate({
+        revisionId: schemaFRevision.publication.revisionId,
+        expectedActiveHead: schemaDState.activeSchemaD.expectedActiveHead,
+      }),
+    );
+    const activeF = await runSystemTestEffectV1(
+      scenario.fixture.activation.readActive(),
+    );
+    if (activatedF.status !== "activated" ||
+      activeF.basis.revisionId !== schemaFRevision.publication.revisionId ||
+      activeF.basis.schemaVersionId !== schemaF.schemaVersionId) {
+      throw new Error("Cooking schema F stale-attempt base did not activate.");
+    }
+
+    const schemaGSource = await cookingSourceBundle("G");
+    scenario.sources.set(schemaGSource.sourceArtifact.rootSha256, schemaGSource);
+    const schemaGRevision = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-g:first",
+      analysis: cookingAnalysis(
+        schemaGSource,
+        scenario.analysisLoader,
+        "schema G",
+      ),
+    });
+    const schemaG = await scenario.fixture.preparePublishedSchema(
+      schemaGRevision.manifest,
+    );
+    if (schemaG.schemaVersionId === schemaF.schemaVersionId) {
+      throw new Error("Cooking schema G did not receive a replacement identity.");
+    }
+    const schemaGInput = Object.freeze({
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaG.schemaVersionId,
+    });
+    await runSystemTestEffectV1(installAppSchemaCandidateValidationEffect(
+      scenario.fixture.candidateValidation,
+      schemaGInput,
+    ));
+    await settleReadyCandidateValidation(
+      scenario.fixture,
+      schemaGInput,
+      "schema G",
+    );
+    const readyG = await runSystemTestEffectV1(scenario.fixture.readiness.settle({
+      deploymentId: scenario.fixture.deploymentId,
+      revisionId: schemaGRevision.publication.revisionId,
+    }));
+    const candidateBeforeActivation = await runSystemTestEffectV1(
+      loadAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        schemaGInput,
+      ),
+    );
+    if (readyG.status !== "ready" ||
+      candidateBeforeActivation.status !== "present" ||
+      candidateBeforeActivation.head.frame.kind !==
+        "app_schema_candidate_validation_receipt") {
+      throw new Error("Cooking schema G did not become exactly ready.");
+    }
+
+    const beforeStaleAttempt = await durableCounts(scenario.fixture);
+    const storageBeforeStaleAttempt = await applicationStorageCounts(
+      scenario.fixture,
+    );
+    const runtimeRevisionStart = scenario.runtimeLoader.revisionIds.length;
+    const block = scenario.runtimeLoader.blockNextInvocation();
+    const staleAttempt = scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+        {
+          id: schemaDState.schemaCState.schemaBState.baseline.recipeId,
+          slug: "tea-leaf-salad-stale-f",
+          details: { difficulty: "easy", servings: 2 },
+        },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-f:stale-attempt",
+        ),
+      ),
+    );
+    await block.started;
+    const startedRevision = scenario.runtimeLoader.revisionIds.at(-1);
+    let activationFailure: unknown;
+    try {
+      const activatedG = await runSystemTestEffectV1(
+        scenario.fixture.activation.activate({
+          revisionId: schemaGRevision.publication.revisionId,
+          expectedActiveHead: activeF.expectedActiveHead,
+        }),
+      );
+      const activeG = await runSystemTestEffectV1(
+        scenario.fixture.activation.readActive(),
+      );
+      if (activatedG.status !== "activated" ||
+        activeG.basis.revisionId !== schemaGRevision.publication.revisionId ||
+        activeG.basis.schemaVersionId !== schemaG.schemaVersionId) {
+        throw new Error("Cooking schema G replacement did not activate.");
+      }
+    } catch (cause) {
+      activationFailure = cause;
+    } finally {
+      block.release();
+    }
+
+    let staleAttemptRejected = false;
+    try {
+      await staleAttempt;
+    } catch (cause) {
+      staleAttemptRejected =
+        cause instanceof PointCommitStaleAuthorityV1Error &&
+        cause.reason === "activeSchemaChanged";
+    }
+    if (activationFailure !== undefined) {
+      throw activationFailure;
+    }
+    const afterStaleAttempt = await durableCounts(scenario.fixture);
+    const storageAfterStaleAttempt = await applicationStorageCounts(
+      scenario.fixture,
+    );
+    const candidateAfterStaleAttempt = await runSystemTestEffectV1(
+      loadAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        schemaGInput,
+      ),
+    );
+    if (startedRevision !== schemaFRevision.publication.revisionId ||
+      !staleAttemptRejected) {
+      throw new Error("Schema F attempt was not rejected after G activation.");
+    }
+    if (!sameDurableCounts(beforeStaleAttempt, afterStaleAttempt)) {
+      throw new Error("Schema-stale attempt changed publication evidence.");
+    }
+    if (!sameApplicationStorageCounts(
+      storageBeforeStaleAttempt,
+      storageAfterStaleAttempt,
+    )) {
+      throw new Error("Schema-stale attempt changed application storage.");
+    }
+    if (candidateAfterStaleAttempt.status !== "present" ||
+      candidateAfterStaleAttempt.head.frameSha256Hex !==
+        candidateBeforeActivation.head.frameSha256Hex) {
+      throw new Error("Schema-stale attempt changed the exact G receipt.");
+    }
+
+    const retried = await scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+        {
+          id: schemaDState.schemaCState.schemaBState.baseline.recipeId,
+          slug: "tea-leaf-salad-g",
+          details: { difficulty: "easy", servings: 2 },
+        },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-g:ordinary-retry",
+        ),
+      ),
+    );
+    if (retried.disposition !== "published" || retried.value !== true) {
+      throw new Error("Ordinary schema G retry did not publish.");
+    }
+    const finalDocument = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaDState.schemaCState.schemaBState.baseline.recipeId },
+      ),
+    );
+    if (!isCookingRecipe(finalDocument) ||
+      finalDocument.slug !== "tea-leaf-salad-g" ||
+      finalDocument.details?.difficulty !== "easy" ||
+      finalDocument.details.servings !== 2) {
+      throw new Error("Schema G retry did not produce its authoritative row.");
+    }
+    const runtimeRevisionIds = scenario.runtimeLoader.revisionIds.slice(
+      runtimeRevisionStart,
+    );
+    if (runtimeRevisionIds.join(",") !== [
+      schemaFRevision.publication.revisionId,
+      schemaGRevision.publication.revisionId,
+      schemaGRevision.publication.revisionId,
+    ].join(",")) {
+      throw new Error("Ordinary retry did not select only the new revision.");
+    }
+
+    const finalCounts = await durableCounts(scenario.fixture);
+    const finalStorage = await applicationStorageCounts(scenario.fixture);
+    const lifecycleCounts = await managedSchemaLifecycleCounts(scenario.fixture);
+    if (scenario.analysisLoader.loads !== 18 ||
+      scenario.runtimeLoader.loads !== 19 ||
+      finalCounts.commits !== beforeStaleAttempt.commits + 1 ||
+      finalCounts.outcomes !== beforeStaleAttempt.outcomes + 1 ||
+      finalCounts.feed !== beforeStaleAttempt.feed + 1 ||
+      finalCounts.outbox !== beforeStaleAttempt.outbox + 1 ||
+      finalStorage.rowRevisions !== storageBeforeStaleAttempt.rowRevisions + 1 ||
+      finalStorage.currentRows !== storageBeforeStaleAttempt.currentRows ||
+      finalStorage.indexRevisions !==
+        storageBeforeStaleAttempt.indexRevisions + 1 ||
+      finalStorage.indexCurrent !== storageBeforeStaleAttempt.indexCurrent ||
+      finalStorage.uniqueKeys !== storageBeforeStaleAttempt.uniqueKeys ||
+      lifecycleCounts.candidateHeads !== 1 ||
+      lifecycleCounts.activations !== 6 ||
+      lifecycleCounts.activeHeads !== 1 ||
+      finalCounts.commits !== 7 || finalCounts.outcomes !== 7 ||
+      finalCounts.feed !== 7 || finalCounts.outbox !== 7) {
+      throw new Error("Cooking schema G observed unexpected durable evidence.");
+    }
+
+    return Object.freeze({
+      attemptStartedUnderSchemaF: true,
+      replacementActivatedBeforePublication: true,
+      staleAttemptRejected: true,
+      staleAttemptLeftPublicationUnchanged: true,
+      staleAttemptLeftApplicationStorageUnchanged: true,
+      candidateReceiptStayedExact: true,
+      ordinaryRetrySelectedSchemaG: true,
+      ordinaryRetryPublishedExactlyOnce: true,
+      finalDocumentConformsToSchemaG: true,
+      candidateHeadCount: 1,
+      activationCount: 6,
+      activeHeadCount: 1,
+      analysisWorkerLoads: 18,
+      runtimeWorkerLoads: 19,
+      commitCount: 7,
+      outcomeCount: 7,
+      feedCount: 7,
+      outboxCount: 7,
+    } satisfies ManagedSchemaCookingSchemaGProof);
+  });
+}
+
 interface CookingScenario {
   readonly fixture: ApplicationNativeMutationFixture<
     ApplicationNativeMutationPersistence
@@ -1834,7 +2126,7 @@ function makeCookingQueryLayer(
 }
 
 async function cookingSourceBundle(
-  schema: "A" | "B" | "C" | "D" | "E" | "F",
+  schema: "A" | "B" | "C" | "D" | "E" | "F" | "G",
 ): Promise<
   ApplicationNativeMutationSourceBundle
 > {
@@ -1846,7 +2138,8 @@ async function cookingSourceBundle(
     fieldType: { type: "string" as const },
     optional: schema === "B",
   };
-  const difficultyValidator = schema === "D" || schema === "E" || schema === "F"
+  const difficultyValidator = schema === "D" || schema === "E" ||
+      schema === "F" || schema === "G"
     ? { type: "literal" as const, value: "easy" }
     : { type: "string" as const };
   const servingsValidator = schema === "E"
@@ -1896,9 +2189,17 @@ async function cookingSourceBundle(
                 ...(schema === "A" ? { description: descriptionField } : {}),
                 ...(schema === "A" ? {} : { slug: slugField }),
                 ...(schema === "A" ? {} : { details: detailsField }),
-                ...(schema === "F"
+                ...(schema === "F" || schema === "G"
                   ? {
                     notes: {
+                      fieldType: { type: "string" },
+                      optional: true,
+                    },
+                  }
+                  : {}),
+                ...(schema === "G"
+                  ? {
+                    category: {
                       fieldType: { type: "string" },
                       optional: true,
                     },
@@ -2348,6 +2649,58 @@ async function durableCounts(
     feed: Number(row.feed),
     outbox: Number(row.outbox),
   });
+}
+
+type DurableCounts = Awaited<ReturnType<typeof durableCounts>>;
+
+function sameDurableCounts(left: DurableCounts, right: DurableCounts): boolean {
+  return left.commits === right.commits &&
+    left.outcomes === right.outcomes &&
+    left.feed === right.feed &&
+    left.outbox === right.outbox;
+}
+
+async function applicationStorageCounts(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+) {
+  const result = await fixture.target.query<{
+    row_revisions: string;
+    current_rows: string;
+    index_revisions: string;
+    index_current: string;
+    unique_keys: string;
+  }>(`select
+    (select count(*)::text from fx_app_row_rev) as row_revisions,
+    (select count(*)::text from fx_app_row_current) as current_rows,
+    (select count(*)::text from fx_app_index_entry_rev) as index_revisions,
+    (select count(*)::text from fx_app_index_entry_current) as index_current,
+    (select count(*)::text from fx_app_unique_key) as unique_keys`);
+  const row = result.rows[0];
+  if (row === undefined) {
+    throw new Error("Cooking application storage counts are missing.");
+  }
+  return Object.freeze({
+    rowRevisions: Number(row.row_revisions),
+    currentRows: Number(row.current_rows),
+    indexRevisions: Number(row.index_revisions),
+    indexCurrent: Number(row.index_current),
+    uniqueKeys: Number(row.unique_keys),
+  });
+}
+
+type ApplicationStorageCounts = Awaited<
+  ReturnType<typeof applicationStorageCounts>
+>;
+
+function sameApplicationStorageCounts(
+  left: ApplicationStorageCounts,
+  right: ApplicationStorageCounts,
+): boolean {
+  return left.rowRevisions === right.rowRevisions &&
+    left.currentRows === right.currentRows &&
+    left.indexRevisions === right.indexRevisions &&
+    left.indexCurrent === right.indexCurrent &&
+    left.uniqueKeys === right.uniqueKeys;
 }
 
 async function managedSchemaLifecycleCounts(

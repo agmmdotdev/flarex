@@ -140,6 +140,23 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   readonly documentIds: string[] = [];
   readonly #runtimes = new Set<Miniflare>();
   readonly #disposals: Array<Promise<void>> = [];
+  #nextInvocationBlock: InvocationBlock | undefined;
+
+  blockNextInvocation(): Readonly<{
+    readonly started: Promise<void>;
+    readonly release: () => void;
+  }> {
+    if (this.#nextInvocationBlock !== undefined) {
+      throw new Error("Application Worker invocation block is already armed.");
+    }
+    const started = deferred<void>();
+    const released = deferred<void>();
+    this.#nextInvocationBlock = Object.freeze({ started, released });
+    return Object.freeze({
+      started: started.promise,
+      release: () => released.resolve(),
+    });
+  }
 
   get(
     _name: string | null,
@@ -171,6 +188,14 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   release(runtime: Miniflare): void {
     if (!this.#runtimes.delete(runtime)) return;
     this.#disposals.push(runtime.dispose());
+  }
+
+  async waitForNextInvocationBlock(): Promise<void> {
+    const block = this.#nextInvocationBlock;
+    if (block === undefined) return;
+    this.#nextInvocationBlock = undefined;
+    block.started.resolve();
+    await block.released.promise;
   }
 
   async dispose(): Promise<void> {
@@ -219,6 +244,7 @@ class MiniflareQueryWorkerStub implements WorkerStub {
       throw new Error("Application query Worker entrypoint was not selected.");
     }
     this.owner.revisionIds.push(requireNestedString(request, "target", "revisionId"));
+    await this.owner.waitForNextInvocationBlock();
     const runtime = new Miniflare({
       compatibilityDate: COMPATIBILITY_DATE,
       modules: true,
@@ -259,6 +285,24 @@ class MiniflareQueryWorkerStub implements WorkerStub {
       throw cause;
     }
   }
+}
+
+interface Deferred<A> {
+  readonly promise: Promise<A>;
+  readonly resolve: (value: A | PromiseLike<A>) => void;
+}
+
+interface InvocationBlock {
+  readonly started: Deferred<void>;
+  readonly released: Deferred<void>;
+}
+
+function deferred<A>(): Deferred<A> {
+  let resolve!: Deferred<A>["resolve"];
+  const promise = new Promise<A>(settle => {
+    resolve = settle;
+  });
+  return Object.freeze({ promise, resolve });
 }
 
 async function invokeCapability(

@@ -64,7 +64,10 @@ import {
   type OrderedIndexKeyBytesHexV1,
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
-import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import {
+  CatalogSchemaVersionIdSchema,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
 import {
   MAX_PERSISTED_SIGNED_INT64_V1,
   CommitSeqSchema,
@@ -246,6 +249,8 @@ import {
   fxSystemCommits,
   fxSystemIdempotency,
   fxSystemIndexBuildStates,
+  fxSystemApplicationActiveHeadsV1,
+  fxSystemApplicationReadinessV1,
   fxSystemOutbox,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
@@ -316,6 +321,9 @@ const decodePointCommitTableIdResult = Schema.decodeUnknownResult(
 );
 const decodePointCommitRowIdResult = Schema.decodeUnknownResult(
   Schema.toType(AppRowIdHexV1Schema),
+);
+const decodePointCommitSchemaVersionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogSchemaVersionIdSchema),
 );
 
 interface PointCommitAuthorityCommonPinsV1 {
@@ -645,6 +653,7 @@ export type PointCommitStaleAuthorityReasonV1 =
   | "generationChanged"
   | "epochChanged"
   | "revocationEpochChanged"
+  | "activeSchemaChanged"
   | "attemptMissing"
   | "attemptReplaced"
   | "lifecycleChanged"
@@ -664,6 +673,7 @@ export type PointCommitCorruptionReasonV1 =
   | "finishingTransitionInvalid"
   | "readCommittedCapabilityMissing"
   | "scopeClockInvalid"
+  | "activeApplicationHeadInvalid"
   | "sessionDuplicate"
   | "sessionInvalid"
   | "leaseDuplicate"
@@ -759,6 +769,7 @@ export type PointCommitSqlOperationV1 =
   | "resolveAuthority"
   | "beginOrRollback"
   | "lockScopeClock"
+  | "validateActiveApplicationSchema"
   | "lockSession"
   | "lockLease"
   | "lockJournalRoot"
@@ -1115,6 +1126,7 @@ export interface PointCommitOutcomeResolutionPortV1 {
 
 export type PointCommitTransactionProofStepV1 =
   | "clockLocked"
+  | "activeApplicationSchemaValidated"
   | "sessionLocked"
   | "leaseLocked"
   | "journalRootLocked"
@@ -4120,6 +4132,18 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
+  await validateActiveApplicationSchemaForPointCommit(
+    tx,
+    command,
+    options,
+  );
+  if (command.authorityPins.executionAuthorityGeneration === "application_v1") {
+    await emitTransactionStep(
+      options,
+      command,
+      "activeApplicationSchemaValidated",
+    );
+  }
   const intrinsicBuilds = await lockPointCommitIntrinsicIndexBuilds(
     tx,
     clock,
@@ -4641,6 +4665,64 @@ function requireLockedClockAuthorityResult(
       return yield* Result.fail(corruption("scopeClockInvalid"));
     }
   });
+}
+
+async function validateActiveApplicationSchemaForPointCommit(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitAttemptScalarCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
+  if (command.authorityPins.executionAuthorityGeneration !== "application_v1") {
+    return;
+  }
+  const query = tx.select({
+    deploymentId: fxSystemApplicationReadinessV1.deploymentId,
+    schemaVersionId: fxSystemApplicationReadinessV1.schemaVersionId,
+  }).from(fxSystemApplicationActiveHeadsV1).innerJoin(
+    fxSystemApplicationReadinessV1,
+    and(
+      eq(
+        fxSystemApplicationReadinessV1.scopeId,
+        fxSystemApplicationActiveHeadsV1.scopeId,
+      ),
+      eq(
+        fxSystemApplicationReadinessV1.revisionId,
+        fxSystemApplicationActiveHeadsV1.revisionId,
+      ),
+      eq(
+        fxSystemApplicationReadinessV1.readinessSha256,
+        fxSystemApplicationActiveHeadsV1.readinessSha256,
+      ),
+    ),
+  ).where(eq(
+    fxSystemApplicationActiveHeadsV1.scopeId,
+    command.authorityPins.scopeId,
+  )).limit(2).for("share");
+  observeDrizzleQuery("validateActiveApplicationSchema", query, options);
+  const rows = await sqlCall(
+    "validateActiveApplicationSchema",
+    () => query,
+  );
+  projectPointCommitTransactionResult(Result.gen(function* () {
+    if (rows.length !== 1) {
+      return yield* Result.fail(corruption("activeApplicationHeadInvalid"));
+    }
+    const row = rows[0];
+    if (
+      row === undefined ||
+      row.deploymentId !== command.authorityPins.deploymentId
+    ) {
+      return yield* Result.fail(corruption("activeApplicationHeadInvalid"));
+    }
+    const activeSchemaVersionId = yield* decodePointCommitSchemaVersionIdResult(
+      row.schemaVersionId,
+    ).pipe(
+      Result.mapError(() => corruption("activeApplicationHeadInvalid")),
+    );
+    if (activeSchemaVersionId !== command.authorityPins.schemaVersionId) {
+      return yield* Result.fail(stale("activeSchemaChanged"));
+    }
+  }));
 }
 
 async function lockPointCommitSession(
