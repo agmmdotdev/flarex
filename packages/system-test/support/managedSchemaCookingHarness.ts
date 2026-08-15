@@ -107,6 +107,22 @@ export interface ManagedSchemaCookingSchemaBProof {
   readonly outboxCount: 3;
 }
 
+export interface ManagedSchemaCookingSchemaCProof {
+  readonly plannedRequiredFieldValidation: true;
+  readonly missingRequiredFieldBlocked: true;
+  readonly schemaBStayedActive: true;
+  readonly backfilledThroughSchemaB: true;
+  readonly activatedSchemaC: true;
+  readonly schemaCRejectedMissingSlugArgument: true;
+  readonly finalDocumentsConformToSchemaC: true;
+  readonly analysisWorkerLoads: 10;
+  readonly runtimeWorkerLoads: 12;
+  readonly commitCount: 5;
+  readonly outcomeCount: 5;
+  readonly feedCount: 5;
+  readonly outboxCount: 5;
+}
+
 export type ManagedSchemaCookingFixtureFactory = (
   options: ApplicationNativeMutationFixtureOptions,
 ) => Promise<
@@ -140,7 +156,12 @@ export async function proveManagedSchemaCookingSchemaB(
   createFixture: ManagedSchemaCookingFixtureFactory = options =>
     createApplicationNativeMutationPGliteFixture(options),
 ): Promise<ManagedSchemaCookingSchemaBProof> {
-  return withCookingScenario(createFixture, async scenario => {
+  return withCookingScenario(createFixture, async scenario =>
+    (await establishCookingSchemaB(scenario)).proof
+  );
+}
+
+async function establishCookingSchemaB(scenario: CookingScenario) {
     const baseline = await establishCookingSchemaABaseline(scenario);
     const withoutDescription = await scenario.mutation(
       invokeStandardApplicationPointMutationV1(
@@ -411,7 +432,7 @@ export async function proveManagedSchemaCookingSchemaB(
       counts.outbox !== 3) {
       throw new Error("Cooking schema B observed unexpected durable counts.");
     }
-    return Object.freeze({
+    const proof = Object.freeze({
       plannedManagedValidation: true,
       populatedRemovalBlocked: true,
       schemaAStayedActive: true,
@@ -426,6 +447,276 @@ export async function proveManagedSchemaCookingSchemaB(
       outcomeCount: 3,
       feedCount: 3,
       outboxCount: 3,
+    } satisfies ManagedSchemaCookingSchemaBProof);
+    return Object.freeze({
+      baseline,
+      secondRecipeId: withoutDescription.value,
+      schemaB,
+      activeSchemaB,
+      proof,
+    });
+}
+
+export async function proveManagedSchemaCookingSchemaC(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaCookingSchemaCProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const schemaBState = await establishCookingSchemaB(scenario);
+    const schemaCSource = await cookingSourceBundle("C");
+    scenario.sources.set(
+      schemaCSource.sourceArtifact.rootSha256,
+      schemaCSource,
+    );
+    const firstSchemaC = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-c:first",
+      analysis: cookingAnalysis(
+        schemaCSource,
+        scenario.analysisLoader,
+        "schema C",
+      ),
+    });
+    const priorValidation = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: firstSchemaC.publication.revisionId,
+      }),
+    );
+    if (priorValidation.status !== "not_ready" ||
+      priorValidation.reason !== "candidateValidationWrongSchema") {
+      throw new Error(
+        "Cooking schema C did not reject schema B validation evidence.",
+      );
+    }
+    const schemaC = await scenario.fixture.preparePublishedSchema(
+      firstSchemaC.manifest,
+    );
+    const clock = await scenario.fixture.target.getScopeClock(
+      scenario.fixture.authority.scopeId,
+    );
+    if (clock === null) throw new Error("Cooking schema C planning clock is missing.");
+    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
+      authority: {
+        scopeId: scenario.fixture.authority.scopeId,
+        storageGeneration: scenario.fixture.authority.storageGeneration,
+        storageGenerationFence:
+          scenario.fixture.authority.storageGenerationFence,
+        scopeEpoch: scenario.fixture.authority.epoch,
+        activeSchemaVersionId: schemaBState.activeSchemaB.basis.schemaVersionId,
+        activeManifestSha256: schemaManifestSha256(
+          schemaBState.schemaB.schemaManifestSha256,
+        ),
+        candidateSchemaVersionId: schemaC.schemaVersionId,
+        candidateManifestSha256: schemaManifestSha256(
+          schemaC.schemaManifestSha256,
+        ),
+        dataFrontierCommitSeq: clock.lastCommitSeq,
+      },
+      activeManifest: schemaBState.schemaB.manifest,
+      candidateManifest: schemaC.manifest,
+    }));
+    if (plan.disposition !== "managedBuildAndValidation" ||
+      !plan.operations.some(operation =>
+        operation.safetyClass === "requiresDataValidation" &&
+        operation.change.kind === "tableValidatorChanged"
+      )) {
+      throw new Error(
+        "Cooking schema C did not produce a required-field validation plan.",
+      );
+    }
+
+    const validationInput = {
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaC.schemaVersionId,
+    } as const;
+    await Effect.runPromise(installAppSchemaCandidateValidationEffect(
+      scenario.fixture.candidateValidation,
+      validationInput,
+    ));
+    const failed = await advanceUntilCandidateFailure(
+      scenario.fixture,
+      validationInput,
+      "schema C",
+    );
+    if (failed.head.frame.kind !==
+        "app_schema_candidate_validation_failure_evidence" ||
+      !failed.head.frame.entries.some(entry =>
+        entry.reason === "candidateValidatorRejected" &&
+        entry.validatorPath === "$document.slug"
+      )) {
+      throw new Error("Cooking schema C omitted bounded slug evidence.");
+    }
+    const blockedReadiness = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: firstSchemaC.publication.revisionId,
+      }),
+    );
+    if (blockedReadiness.status !== "not_ready" ||
+      blockedReadiness.reason !== "candidateValidationFailed") {
+      throw new Error("Cooking schema C failure did not block readiness.");
+    }
+    const activationAttempt = await Effect.runPromise(Effect.result(
+      scenario.fixture.activation.activate({
+        revisionId: firstSchemaC.publication.revisionId,
+        expectedActiveHead: schemaBState.activeSchemaB.expectedActiveHead,
+      }),
+    ));
+    const activationBlocked = Result.match(activationAttempt, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "ApplicationActivationError" &&
+        failure.reason === "notReady",
+      onSuccess: () => false,
+    });
+    if (!activationBlocked) {
+      throw new Error("Cooking schema C activation did not fail closed.");
+    }
+    const stillSchemaB = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (stillSchemaB.basis.revisionId !==
+      schemaBState.activeSchemaB.basis.revisionId) {
+      throw new Error("Rejected cooking schema C replaced schema B.");
+    }
+    const stillReadable = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaBState.baseline.recipeId },
+      ),
+    );
+    if (!isCookingRecipe(stillReadable) || stillReadable.slug !== undefined) {
+      throw new Error("Schema B stopped serving after schema C failed.");
+    }
+
+    for (const [recipeId, slug, requestKey] of [
+      [
+        schemaBState.baseline.recipeId,
+        "tea-leaf-salad",
+        "managed-schema:cooking:schema-b:backfill-tea-leaf-salad",
+      ],
+      [
+        schemaBState.secondRecipeId,
+        "mohinga",
+        "managed-schema:cooking:schema-b:backfill-mohinga",
+      ],
+    ] as const) {
+      const backfilled = await scenario.mutation(
+        invokeStandardApplicationPointMutationV1(
+          TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+          { id: recipeId, slug },
+          TransactionRequestKeyV1Schema.make(requestKey),
+        ),
+      );
+      if (backfilled.disposition !== "published" || backfilled.value !== true) {
+        throw new Error("Schema B did not backfill the required slug normally.");
+      }
+    }
+
+    const retriedSchemaC = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-c:retry",
+      analysis: cookingAnalysis(
+        schemaCSource,
+        scenario.analysisLoader,
+        "schema C retry",
+      ),
+    });
+    const restarted = await Effect.runPromise(
+      installAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (restarted.disposition !== "restarted") {
+      throw new Error("Cooking schema C validation did not restart.");
+    }
+    await settleReadyCandidateValidation(
+      scenario.fixture,
+      validationInput,
+      "schema C",
+    );
+    const ready = await Effect.runPromise(scenario.fixture.readiness.settle({
+      deploymentId: scenario.fixture.deploymentId,
+      revisionId: retriedSchemaC.publication.revisionId,
+    }));
+    if (ready.status !== "ready") {
+      throw new Error("Backfilled cooking schema C did not become ready.");
+    }
+    const activated = await Effect.runPromise(
+      scenario.fixture.activation.activate({
+        revisionId: retriedSchemaC.publication.revisionId,
+        expectedActiveHead: stillSchemaB.expectedActiveHead,
+      }),
+    );
+    if (activated.status !== "activated") {
+      throw new Error("Backfilled cooking schema C did not activate.");
+    }
+    const activeSchemaC = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (activeSchemaC.basis.revisionId !==
+        retriedSchemaC.publication.revisionId ||
+      activeSchemaC.basis.schemaVersionId !== schemaC.schemaVersionId) {
+      throw new Error("Cooking schema C active authority is inconsistent.");
+    }
+    const missingSlugResult = await scenario.mutation(Effect.result(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:create"),
+        { name: "Invalid schema C recipe" },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-c:missing-slug",
+        ),
+      ),
+    ));
+    const missingSlugRejected = Result.match(missingSlugResult, {
+      onFailure: failure => failure instanceof ValidatorValueErrorV1 &&
+        failure.issue.reason === "missingRequiredField" &&
+        failure.issue.path === "$args.slug" &&
+        failure.issue.field === "slug",
+      onSuccess: () => false,
+    });
+    if (!missingSlugRejected) {
+      throw new Error("Cooking schema C did not reject its missing slug argument.");
+    }
+    const teaLeafSalad = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaBState.baseline.recipeId },
+      ),
+    );
+    const mohinga = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaBState.secondRecipeId },
+      ),
+    );
+    if (!isCookingRecipe(teaLeafSalad) ||
+      teaLeafSalad.slug !== "tea-leaf-salad" ||
+      teaLeafSalad.description !== undefined ||
+      !isCookingRecipe(mohinga) || mohinga.slug !== "mohinga" ||
+      mohinga.description !== undefined) {
+      throw new Error("Cooking schema C returned nonconforming documents.");
+    }
+    const counts = await durableCounts(scenario.fixture);
+    if (scenario.analysisLoader.loads !== 10 ||
+      scenario.runtimeLoader.loads !== 12 ||
+      counts.commits !== 5 || counts.outcomes !== 5 || counts.feed !== 5 ||
+      counts.outbox !== 5) {
+      throw new Error("Cooking schema C observed unexpected durable counts.");
+    }
+    return Object.freeze({
+      plannedRequiredFieldValidation: true,
+      missingRequiredFieldBlocked: true,
+      schemaBStayedActive: true,
+      backfilledThroughSchemaB: true,
+      activatedSchemaC: true,
+      schemaCRejectedMissingSlugArgument: true,
+      finalDocumentsConformToSchemaC: true,
+      analysisWorkerLoads: 10,
+      runtimeWorkerLoads: 12,
+      commitCount: 5,
+      outcomeCount: 5,
+      feedCount: 5,
+      outboxCount: 5,
     });
   });
 }
@@ -596,7 +887,7 @@ function makeCookingQueryLayer(
 }
 
 async function cookingSourceBundle(
-  schema: "A" | "B",
+  schema: "A" | "B" | "C",
 ): Promise<
   ApplicationNativeMutationSourceBundle
 > {
@@ -604,10 +895,14 @@ async function cookingSourceBundle(
     fieldType: { type: "string" as const },
     optional: true,
   };
+  const slugField = {
+    fieldType: { type: "string" as const },
+    optional: schema === "B",
+  };
   const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: {
       maximumModules: 1,
-      maximumFunctions: 4,
+      maximumFunctions: 5,
       maximumIdentifierUtf8Bytes: 1_024,
       maximumValidatorNodes: 128,
       maximumValidatorDepth: 16,
@@ -630,6 +925,7 @@ async function cookingSourceBundle(
                   optional: false,
                 },
                 ...(schema === "A" ? { description: descriptionField } : {}),
+                ...(schema === "A" ? {} : { slug: slugField }),
               },
             },
           },
@@ -650,6 +946,7 @@ async function cookingSourceBundle(
                 optional: false,
               },
               ...(schema === "A" ? { description: descriptionField } : {}),
+              ...(schema === "A" ? {} : { slug: slugField }),
             },
           },
           returnsValidator: { type: "string" },
@@ -695,12 +992,30 @@ async function cookingSourceBundle(
             },
           },
           returnsValidator: { type: "boolean" as const },
-        }] : [])],
+        }] : []), ...(schema === "A" ? [] : [{
+          exportName: "addSlug",
+          kind: "mutation" as const,
+          visibility: "public" as const,
+          argsValidator: {
+            type: "object" as const,
+            value: {
+              id: {
+                fieldType: { type: "string" as const },
+                optional: false,
+              },
+              slug: {
+                fieldType: { type: "string" as const },
+                optional: false,
+              },
+            },
+          },
+          returnsValidator: { type: "boolean" as const },
+        }])],
       }],
     },
     materializationBudgetInput: {
       maximumModules: 1,
-      maximumEntryBindings: 4,
+      maximumEntryBindings: 5,
       maximumSourceBytes: 8_192,
       maximumSourceMapBytes: 0,
       maximumBytesMaterialized: 65_536,
@@ -720,7 +1035,13 @@ async function cookingSourceBundle(
               "    ? { name: args.name }",
               "    : { name: args.name, description: args.description };",
             ]
-            : ["  const value = { name: args.name };"]),
+            : schema === "B"
+            ? [
+              "  const value = args.slug === undefined",
+              "    ? { name: args.name }",
+              "    : { name: args.name, slug: args.slug };",
+            ]
+            : ["  const value = { name: args.name, slug: args.slug };"]),
           '  const id = await ctx.db.insert("recipes", value);',
           "  await ctx.db.replace(id, value);",
           "  return id;",
@@ -728,7 +1049,14 @@ async function cookingSourceBundle(
           "export async function removeDescription(ctx, args) {",
           "  const current = await ctx.db.get(args.id);",
           "  if (current === null) return false;",
-          "  await ctx.db.replace(args.id, { name: current.name });",
+          ...(schema === "A"
+            ? ["  await ctx.db.replace(args.id, { name: current.name });"]
+            : [
+              "  const value = current.slug === undefined",
+              "    ? { name: current.name }",
+              "    : { name: current.name, slug: current.slug };",
+              "  await ctx.db.replace(args.id, value);",
+            ]),
           "  return true;",
           "}",
           "export async function get(ctx, args) {",
@@ -744,6 +1072,16 @@ async function cookingSourceBundle(
               "}",
             ]
             : []),
+          ...(schema === "A"
+            ? []
+            : [
+              "export async function addSlug(ctx, args) {",
+              "  const current = await ctx.db.get(args.id);",
+              "  if (current === null) return false;",
+              "  await ctx.db.replace(args.id, { name: current.name, slug: args.slug });",
+              "  return true;",
+              "}",
+            ]),
           "",
         ].join("\n")),
         sourceMapBytes: null,
@@ -855,6 +1193,7 @@ async function advanceUntilCandidateFailure(
     readonly deploymentId: string;
     readonly schemaVersionId: CatalogSchemaVersionId;
   }>,
+  label = "schema B",
 ) {
   for (let step = 0; step < 64; step += 1) {
     const advanced = await Effect.runPromise(
@@ -865,10 +1204,10 @@ async function advanceUntilCandidateFailure(
     );
     if (advanced.disposition === "failed") return advanced;
     if (advanced.disposition === "readyToSettle") {
-      throw new Error("Cooking schema B unexpectedly passed validation.");
+      throw new Error(`Cooking ${label} unexpectedly passed validation.`);
     }
   }
-  throw new Error("Cooking schema B validation did not reach failure.");
+  throw new Error(`Cooking ${label} validation did not reach failure.`);
 }
 
 async function settleReadyCandidateValidation(
@@ -877,6 +1216,7 @@ async function settleReadyCandidateValidation(
     readonly deploymentId: string;
     readonly schemaVersionId: CatalogSchemaVersionId;
   }>,
+  label = "schema B",
 ): Promise<void> {
   for (let step = 0; step < 64; step += 1) {
     const advanced = await Effect.runPromise(
@@ -886,7 +1226,7 @@ async function settleReadyCandidateValidation(
       ),
     );
     if (advanced.disposition === "failed") {
-      throw new Error("Remediated cooking schema B still failed validation.");
+      throw new Error(`Remediated cooking ${label} still failed validation.`);
     }
     if (advanced.disposition !== "readyToSettle") continue;
     await Effect.runPromise(settleAppSchemaCandidateValidationEffect(
@@ -895,7 +1235,7 @@ async function settleReadyCandidateValidation(
     ));
     return;
   }
-  throw new Error("Remediated cooking schema B did not settle.");
+  throw new Error(`Remediated cooking ${label} did not settle.`);
 }
 
 function schemaManifestSha256(value: string) {
@@ -1020,12 +1360,15 @@ async function durableCounts(
 function isCookingRecipe(value: unknown): value is Readonly<{
   readonly name: string;
   readonly description?: string;
+  readonly slug?: string;
 }> {
   if (value === null || typeof value !== "object") return false;
   const name = Reflect.get(value, "name");
   const description = Reflect.get(value, "description");
+  const slug = Reflect.get(value, "slug");
   return typeof name === "string" &&
-    (description === undefined || typeof description === "string");
+    (description === undefined || typeof description === "string") &&
+    (slug === undefined || typeof slug === "string");
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

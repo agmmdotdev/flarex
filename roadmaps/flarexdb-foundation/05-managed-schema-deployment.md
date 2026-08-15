@@ -7,9 +7,10 @@ canonical validation frames, guarded target-local single candidate head,
 bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
 `AA-R0` through `AA-R8` are complete. `M03-D` is now in progress with its
-current-generation schema-A and schema-B system-test cuts complete. It remains private and
-production-inert: no public route, CLI, deployment caller, trigger, destructive
-cleanup, or production generation cut is authorized by this roadmap.
+current-generation schema-A, schema-B, and schema-C system-test cuts complete.
+It remains private and production-inert: no public route, CLI, deployment
+caller, trigger, destructive cleanup, or production generation cut is
+authorized by this roadmap.
 
 ## Decision
 
@@ -113,8 +114,9 @@ directly or duplicate its lock, placement, or authority policy.
 The first `M03-D` implementation slice establishes schema A only in a new,
 separate multi-revision cooking harness: real analysis, publication, candidate
 validation, readiness, activation, Workerd query/mutation execution, durable
-reload/replay, and exactly one commit. Later slices add schemas B and C and the
-remaining acceptance matrix. The scenario must not revive the deleted
+reload/replay, and exactly one commit. Subsequent slices extend that same
+lineage through schemas B and C and the remaining acceptance matrix. The
+scenario must not revive the deleted
 stored-attempt harness, extend the historical single-revision runner, create a
 test-owned scanner or receipt, or add dual selection or fallback.
 
@@ -125,7 +127,7 @@ approved correction now reuses the canonical Application function-entry frame
 for exact order-independent comparison. The unchanged scenario completes two
 cold analysis loads, one Workerd mutation, durable replay without re-execution,
 one Workerd query, and exactly one commit/outcome/feed/outbox publication in
-both PGlite and genuine PostgreSQL. Schema C remains the next M03-D cut.
+both PGlite and genuine PostgreSQL.
 
 The first schema-B run exposed `ST-CORE-023` before remediation could begin.
 The existing scanner correctly rejects a populated removal and persists bounded
@@ -147,6 +149,18 @@ B, rejects the removed argument before execution, and rejects a valid-argument
 handler write that attempts to restore the removed field without publishing a
 commit, feed, or outbox entry. No new schema, fallback, or readiness owner was
 added.
+
+The schema-C required-field cut is complete. Schema B introduces `slug` as an
+optional field so ordinary active-schema mutations can perform the business
+backfill; schema C tightens that same field to required. Existing rows without
+`slug` produce bounded `$document.slug` failure evidence, block readiness and
+activation, and leave schema B serving. Two ordinary schema-B mutations
+backfill the rows, the same candidate restarts at a newer frontier, and schema
+C then validates and activates. The active schema-C argument validator rejects
+a missing slug exactly, and final Workerd queries prove both authoritative rows
+carry their backfilled values. No setup write, synthetic receipt, fallback,
+second schema authority, or shared-core correction was required. The nested
+validator tightening case is the next M03-D cut.
 
 ## Approved Code And Package Ownership
 
@@ -662,12 +676,13 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schemas A and B complete**: extend `@flarex/system-test`
+7. `M03-D` - **in progress; schemas A through C complete**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
-   schema-A baseline and schema-B removal/remediation cut are complete in both
-   PGlite and genuine PostgreSQL; next add the schema-C required-field cut.
-   Historical single-revision runners remain unchanged and are not fallback or
-   comparison authorities.
+   schema-A baseline, schema-B removal/remediation cut, and schema-C required-
+   field/backfill cut are complete in both PGlite and genuine PostgreSQL; next
+   add nested-validator tightening with bounded path-only evidence. Historical
+   single-revision runners remain unchanged and are not fallback or comparison
+   authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with
    non-interactive machine-readable output.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,

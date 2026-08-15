@@ -2358,6 +2358,16 @@ that field without publishing commit/feed/outbox state through both PGlite and
 genuine PostgreSQL. No second selection, readiness authority, schema, fallback,
 or production route was added.
 
+The schema-C required-field cut is complete. Schema B declares optional
+`slug`, schema C tightens it to required, and authoritative rows missing that
+field block C with bounded `$document.slug` evidence while B remains active.
+Ordinary schema-B mutations backfill both rows, validation restarts at the new
+frontier, and C then becomes ready and activates through the existing CAS. The
+active schema-C argument validator rejects a missing slug exactly and final
+Workerd queries observe both backfilled documents. No setup-table write,
+synthetic progress, alternate activation, shared-core change, or fallback was
+added. Nested-validator tightening is the next M03-D scenario cut.
+
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly
 `revalidate`, point read, index range, insert, patch, replace, and delete over
