@@ -42,6 +42,8 @@
     "test:managed-schema-cooking-b:postgres": "vitest run --config vitest.postgres.config.ts test/integration/managedSchemaCookingSchemaB.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:managed-schema-cooking-c:pglite": "vitest run test/integration/managedSchemaCookingSchemaC.test.ts --no-file-parallelism --testTimeout=480000",
     "test:managed-schema-cooking-c:postgres": "vitest run --config vitest.postgres.config.ts test/integration/managedSchemaCookingSchemaC.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:managed-schema-cooking-d:pglite": "vitest run test/integration/managedSchemaCookingSchemaD.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:managed-schema-cooking-d:postgres": "vitest run --config vitest.postgres.config.ts test/integration/managedSchemaCookingSchemaD.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:fsv06:postgres": "vitest run test/integration/fsv06StandardPointMutation.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:pqv-a1:pglite": "vitest run test/integration/pqvA1ApplicationPointQuerySnapshot.test.ts --no-file-parallelism --testTimeout=480000",
     "test:pqv-a1:postgres": "vitest run test/integration/pqvA1ApplicationPointQuerySnapshot.postgres.test.ts --no-file-parallelism --testTimeout=480000",

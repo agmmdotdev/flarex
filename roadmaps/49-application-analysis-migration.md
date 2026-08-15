@@ -2366,7 +2366,21 @@ frontier, and C then becomes ready and activates through the existing CAS. The
 active schema-C argument validator rejects a missing slug exactly and final
 Workerd queries observe both backfilled documents. No setup-table write,
 synthetic progress, alternate activation, shared-core change, or fallback was
-added. Nested-validator tightening is the next M03-D scenario cut.
+added.
+
+The schema-D nested-validator cut is also complete. Schemas B and C admit an
+optional `details` object with required string child `difficulty`; the ordinary
+schema-B backfill creates one candidate-valid `easy` value and one incompatible
+`expert` value. Schema D narrows the child to literal `easy`, and the scanner's
+bounded failure entry identifies the exact `recipes` table/row plus
+`$document.details.difficulty` without carrying the document body or rejected
+value. Schema C remains active for an ordinary remediation mutation; the same D
+candidate restarts at the newer frontier, validates, and activates. The active
+D function validator separately rejects an incompatible nested argument at
+`$args.details.difficulty`. This cut changes no shared analysis, validator,
+candidate-validation, readiness, activation, runtime, or commit owner. The
+next M03-D scenario cut is cursor/reset behavior under concurrent active-schema
+writes.
 
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly

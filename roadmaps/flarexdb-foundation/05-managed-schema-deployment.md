@@ -160,7 +160,20 @@ C then validates and activates. The active schema-C argument validator rejects
 a missing slug exactly, and final Workerd queries prove both authoritative rows
 carry their backfilled values. No setup write, synthetic receipt, fallback,
 second schema authority, or shared-core correction was required. The nested
-validator tightening case is the next M03-D cut.
+validator tightening case follows from that same lineage.
+
+The schema-D nested-validator cut is complete. Schemas B and C admit optional
+`details` whose required `difficulty` child is a string; the ordinary schema-B
+slug backfill leaves one recipe at `easy` and one at `expert`. Schema D narrows
+that child to the literal `easy`. Candidate validation identifies only the
+authoritative `recipes` table/row and `$document.details.difficulty` path, with
+no document body or rejected value in the bounded failure entry. Schema C stays
+active while its ordinary mutation rewrites the incompatible row, the same D
+candidate restarts at the newer frontier, and D then validates and activates.
+The active D function validator also rejects the incompatible nested argument
+at `$args.details.difficulty`. No shared validator, scanner, evidence, runtime,
+or commit owner changed. Cursor/reset behavior under concurrent active-schema
+writes is the next M03-D cut.
 
 ## Approved Code And Package Ownership
 
@@ -676,11 +689,12 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schemas A through C complete**: extend `@flarex/system-test`
+7. `M03-D` - **in progress; schemas A through D complete**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
    schema-A baseline, schema-B removal/remediation cut, and schema-C required-
-   field/backfill cut are complete in both PGlite and genuine PostgreSQL; next
-   add nested-validator tightening with bounded path-only evidence. Historical
+   field/backfill and nested-validator-tightening cuts are complete in both
+   PGlite and genuine PostgreSQL; next prove cursor/reset behavior under
+   concurrent active-schema writes. Historical
    single-revision runners remain unchanged and are not fallback or comparison
    authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with

@@ -123,6 +123,23 @@ export interface ManagedSchemaCookingSchemaCProof {
   readonly outboxCount: 5;
 }
 
+export interface ManagedSchemaCookingSchemaDProof {
+  readonly plannedNestedValidatorValidation: true;
+  readonly nestedValidatorBlocked: true;
+  readonly failureEvidenceWasPathOnly: true;
+  readonly schemaCStayedActive: true;
+  readonly remediatedThroughSchemaC: true;
+  readonly activatedSchemaD: true;
+  readonly schemaDRejectedInvalidNestedArgument: true;
+  readonly finalDocumentsConformToSchemaD: true;
+  readonly analysisWorkerLoads: 14;
+  readonly runtimeWorkerLoads: 16;
+  readonly commitCount: 6;
+  readonly outcomeCount: 6;
+  readonly feedCount: 6;
+  readonly outboxCount: 6;
+}
+
 export type ManagedSchemaCookingFixtureFactory = (
   options: ApplicationNativeMutationFixtureOptions,
 ) => Promise<
@@ -461,7 +478,12 @@ export async function proveManagedSchemaCookingSchemaC(
   createFixture: ManagedSchemaCookingFixtureFactory = options =>
     createApplicationNativeMutationPGliteFixture(options),
 ): Promise<ManagedSchemaCookingSchemaCProof> {
-  return withCookingScenario(createFixture, async scenario => {
+  return withCookingScenario(createFixture, async scenario =>
+    (await establishCookingSchemaC(scenario)).proof
+  );
+}
+
+async function establishCookingSchemaC(scenario: CookingScenario) {
     const schemaBState = await establishCookingSchemaB(scenario);
     const schemaCSource = await cookingSourceBundle("C");
     scenario.sources.set(
@@ -588,22 +610,24 @@ export async function proveManagedSchemaCookingSchemaC(
       throw new Error("Schema B stopped serving after schema C failed.");
     }
 
-    for (const [recipeId, slug, requestKey] of [
+    for (const [recipeId, slug, difficulty, requestKey] of [
       [
         schemaBState.baseline.recipeId,
         "tea-leaf-salad",
+        "easy",
         "managed-schema:cooking:schema-b:backfill-tea-leaf-salad",
       ],
       [
         schemaBState.secondRecipeId,
         "mohinga",
+        "expert",
         "managed-schema:cooking:schema-b:backfill-mohinga",
       ],
     ] as const) {
       const backfilled = await scenario.mutation(
         invokeStandardApplicationPointMutationV1(
           TransactionFunctionPathV1Schema.make("recipes:addSlug"),
-          { id: recipeId, slug },
+          { id: recipeId, slug, details: { difficulty } },
           TransactionRequestKeyV1Schema.make(requestKey),
         ),
       );
@@ -691,8 +715,10 @@ export async function proveManagedSchemaCookingSchemaC(
     );
     if (!isCookingRecipe(teaLeafSalad) ||
       teaLeafSalad.slug !== "tea-leaf-salad" ||
+      teaLeafSalad.details?.difficulty !== "easy" ||
       teaLeafSalad.description !== undefined ||
       !isCookingRecipe(mohinga) || mohinga.slug !== "mohinga" ||
+      mohinga.details?.difficulty !== "expert" ||
       mohinga.description !== undefined) {
       throw new Error("Cooking schema C returned nonconforming documents.");
     }
@@ -703,7 +729,7 @@ export async function proveManagedSchemaCookingSchemaC(
       counts.outbox !== 5) {
       throw new Error("Cooking schema C observed unexpected durable counts.");
     }
-    return Object.freeze({
+    const proof = Object.freeze({
       plannedRequiredFieldValidation: true,
       missingRequiredFieldBlocked: true,
       schemaBStayedActive: true,
@@ -717,6 +743,299 @@ export async function proveManagedSchemaCookingSchemaC(
       outcomeCount: 5,
       feedCount: 5,
       outboxCount: 5,
+    } satisfies ManagedSchemaCookingSchemaCProof);
+    return Object.freeze({
+      schemaBState,
+      schemaC,
+      activeSchemaC,
+      proof,
+    });
+}
+
+export async function proveManagedSchemaCookingSchemaD(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaCookingSchemaDProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const schemaCState = await establishCookingSchemaC(scenario);
+    const schemaDSource = await cookingSourceBundle("D");
+    scenario.sources.set(
+      schemaDSource.sourceArtifact.rootSha256,
+      schemaDSource,
+    );
+    const firstSchemaD = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-d:first",
+      analysis: cookingAnalysis(
+        schemaDSource,
+        scenario.analysisLoader,
+        "schema D",
+      ),
+    });
+    const priorValidation = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: firstSchemaD.publication.revisionId,
+      }),
+    );
+    if (priorValidation.status !== "not_ready" ||
+      priorValidation.reason !== "candidateValidationWrongSchema") {
+      throw new Error(
+        "Cooking schema D did not reject schema C validation evidence.",
+      );
+    }
+    const schemaD = await scenario.fixture.preparePublishedSchema(
+      firstSchemaD.manifest,
+    );
+    const clock = await scenario.fixture.target.getScopeClock(
+      scenario.fixture.authority.scopeId,
+    );
+    if (clock === null) throw new Error("Cooking schema D planning clock is missing.");
+    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
+      authority: {
+        scopeId: scenario.fixture.authority.scopeId,
+        storageGeneration: scenario.fixture.authority.storageGeneration,
+        storageGenerationFence:
+          scenario.fixture.authority.storageGenerationFence,
+        scopeEpoch: scenario.fixture.authority.epoch,
+        activeSchemaVersionId: schemaCState.activeSchemaC.basis.schemaVersionId,
+        activeManifestSha256: schemaManifestSha256(
+          schemaCState.schemaC.schemaManifestSha256,
+        ),
+        candidateSchemaVersionId: schemaD.schemaVersionId,
+        candidateManifestSha256: schemaManifestSha256(
+          schemaD.schemaManifestSha256,
+        ),
+        dataFrontierCommitSeq: clock.lastCommitSeq,
+      },
+      activeManifest: schemaCState.schemaC.manifest,
+      candidateManifest: schemaD.manifest,
+    }));
+    if (plan.disposition !== "managedBuildAndValidation" ||
+      !plan.operations.some(operation =>
+        operation.safetyClass === "requiresDataValidation" &&
+        operation.change.kind === "tableValidatorChanged"
+      ) ||
+      !plan.incompatibilityEvidence.entries.some(evidence =>
+        evidence.code === "candidateDocumentValidationRequired" &&
+        evidence.logicalName === "recipes" &&
+        evidence.validatorPath === "$document.details.difficulty"
+      )) {
+      throw new Error(
+        "Cooking schema D did not plan nested-validator validation.",
+      );
+    }
+
+    const validationInput = {
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaD.schemaVersionId,
+    } as const;
+    await Effect.runPromise(installAppSchemaCandidateValidationEffect(
+      scenario.fixture.candidateValidation,
+      validationInput,
+    ));
+    const failed = await advanceUntilCandidateFailure(
+      scenario.fixture,
+      validationInput,
+      "schema D",
+    );
+    if (failed.head.frame.kind !==
+      "app_schema_candidate_validation_failure_evidence") {
+      throw new Error("Cooking schema D did not persist failure evidence.");
+    }
+    const recipesTable = schemaD.manifest.tableDefinitions.tables.find(
+      table => table.logicalName === "recipes",
+    );
+    const failureEntry = failed.head.frame.entries.find(entry =>
+      entry.reason === "candidateValidatorRejected" &&
+      entry.validatorPath === "$document.details.difficulty"
+    );
+    const failureEntryKeys = failureEntry === undefined
+      ? ""
+      : Object.keys(failureEntry).sort().join(",");
+    if (recipesTable === undefined || failureEntry === undefined ||
+      failureEntry.tableId !== recipesTable.tableId ||
+      failed.head.frame.entries.length !== 1 ||
+      failed.head.frame.observedFailureCount !== 1n ||
+      failed.head.frame.truncated ||
+      failureEntryKeys !==
+        "observedCommitSeq,reason,rowId,source,tableId,validatorPath" ||
+      Object.values(failureEntry).some(value =>
+        value === "Mohinga" || value === "mohinga" || value === "expert"
+      )) {
+      throw new Error(
+        "Cooking schema D failure evidence was not bounded table/path-only evidence.",
+      );
+    }
+    const blockedReadiness = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: firstSchemaD.publication.revisionId,
+      }),
+    );
+    if (blockedReadiness.status !== "not_ready" ||
+      blockedReadiness.reason !== "candidateValidationFailed") {
+      throw new Error("Cooking schema D failure did not block readiness.");
+    }
+    const activationAttempt = await Effect.runPromise(Effect.result(
+      scenario.fixture.activation.activate({
+        revisionId: firstSchemaD.publication.revisionId,
+        expectedActiveHead: schemaCState.activeSchemaC.expectedActiveHead,
+      }),
+    ));
+    const activationBlocked = Result.match(activationAttempt, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "ApplicationActivationError" &&
+        failure.reason === "notReady",
+      onSuccess: () => false,
+    });
+    if (!activationBlocked) {
+      throw new Error("Cooking schema D activation did not fail closed.");
+    }
+    const stillSchemaC = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (stillSchemaC.basis.revisionId !==
+      schemaCState.activeSchemaC.basis.revisionId) {
+      throw new Error("Rejected cooking schema D replaced schema C.");
+    }
+    const stillReadable = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaCState.schemaBState.secondRecipeId },
+      ),
+    );
+    if (!isCookingRecipe(stillReadable) ||
+      stillReadable.details?.difficulty !== "expert") {
+      throw new Error("Schema C stopped serving after schema D failed.");
+    }
+
+    const remediated = await scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+        {
+          id: schemaCState.schemaBState.secondRecipeId,
+          slug: "mohinga",
+          details: { difficulty: "easy" },
+        },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-c:remediate-nested-difficulty",
+        ),
+      ),
+    );
+    if (remediated.disposition !== "published" || remediated.value !== true) {
+      throw new Error("Schema C did not remediate nested difficulty normally.");
+    }
+
+    const retriedSchemaD = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-d:retry",
+      analysis: cookingAnalysis(
+        schemaDSource,
+        scenario.analysisLoader,
+        "schema D retry",
+      ),
+    });
+    const restarted = await Effect.runPromise(
+      installAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (restarted.disposition !== "restarted") {
+      throw new Error("Cooking schema D validation did not restart.");
+    }
+    await settleReadyCandidateValidation(
+      scenario.fixture,
+      validationInput,
+      "schema D",
+    );
+    const ready = await Effect.runPromise(scenario.fixture.readiness.settle({
+      deploymentId: scenario.fixture.deploymentId,
+      revisionId: retriedSchemaD.publication.revisionId,
+    }));
+    if (ready.status !== "ready") {
+      throw new Error("Remediated cooking schema D did not become ready.");
+    }
+    const activated = await Effect.runPromise(
+      scenario.fixture.activation.activate({
+        revisionId: retriedSchemaD.publication.revisionId,
+        expectedActiveHead: stillSchemaC.expectedActiveHead,
+      }),
+    );
+    if (activated.status !== "activated") {
+      throw new Error("Remediated cooking schema D did not activate.");
+    }
+    const activeSchemaD = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (activeSchemaD.basis.revisionId !==
+        retriedSchemaD.publication.revisionId ||
+      activeSchemaD.basis.schemaVersionId !== schemaD.schemaVersionId) {
+      throw new Error("Cooking schema D active authority is inconsistent.");
+    }
+    const invalidNestedArgument = await scenario.mutation(Effect.result(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+        {
+          id: schemaCState.schemaBState.secondRecipeId,
+          slug: "mohinga",
+          details: { difficulty: "expert" },
+        },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-d:invalid-nested-difficulty",
+        ),
+      ),
+    ));
+    const invalidNestedArgumentRejected = Result.match(invalidNestedArgument, {
+      onFailure: failure => failure instanceof ValidatorValueErrorV1 &&
+        failure.issue.reason === "literalMismatch" &&
+        failure.issue.path === "$args.details.difficulty",
+      onSuccess: () => false,
+    });
+    if (!invalidNestedArgumentRejected) {
+      throw new Error(
+        "Cooking schema D did not reject its invalid nested argument exactly.",
+      );
+    }
+    const teaLeafSalad = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaCState.schemaBState.baseline.recipeId },
+      ),
+    );
+    const mohinga = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaCState.schemaBState.secondRecipeId },
+      ),
+    );
+    if (!isCookingRecipe(teaLeafSalad) ||
+      teaLeafSalad.details?.difficulty !== "easy" ||
+      !isCookingRecipe(mohinga) ||
+      mohinga.details?.difficulty !== "easy") {
+      throw new Error("Cooking schema D returned nonconforming documents.");
+    }
+    const counts = await durableCounts(scenario.fixture);
+    if (scenario.analysisLoader.loads !== 14 ||
+      scenario.runtimeLoader.loads !== 16 ||
+      counts.commits !== 6 || counts.outcomes !== 6 || counts.feed !== 6 ||
+      counts.outbox !== 6) {
+      throw new Error("Cooking schema D observed unexpected durable counts.");
+    }
+    return Object.freeze({
+      plannedNestedValidatorValidation: true,
+      nestedValidatorBlocked: true,
+      failureEvidenceWasPathOnly: true,
+      schemaCStayedActive: true,
+      remediatedThroughSchemaC: true,
+      activatedSchemaD: true,
+      schemaDRejectedInvalidNestedArgument: true,
+      finalDocumentsConformToSchemaD: true,
+      analysisWorkerLoads: 14,
+      runtimeWorkerLoads: 16,
+      commitCount: 6,
+      outcomeCount: 6,
+      feedCount: 6,
+      outboxCount: 6,
     });
   });
 }
@@ -887,7 +1206,7 @@ function makeCookingQueryLayer(
 }
 
 async function cookingSourceBundle(
-  schema: "A" | "B" | "C",
+  schema: "A" | "B" | "C" | "D",
 ): Promise<
   ApplicationNativeMutationSourceBundle
 > {
@@ -898,6 +1217,21 @@ async function cookingSourceBundle(
   const slugField = {
     fieldType: { type: "string" as const },
     optional: schema === "B",
+  };
+  const difficultyValidator = schema === "D"
+    ? { type: "literal" as const, value: "easy" }
+    : { type: "string" as const };
+  const detailsField = {
+    fieldType: {
+      type: "object" as const,
+      value: {
+        difficulty: {
+          fieldType: difficultyValidator,
+          optional: false,
+        },
+      },
+    },
+    optional: true,
   };
   const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: {
@@ -926,6 +1260,7 @@ async function cookingSourceBundle(
                 },
                 ...(schema === "A" ? { description: descriptionField } : {}),
                 ...(schema === "A" ? {} : { slug: slugField }),
+                ...(schema === "A" ? {} : { details: detailsField }),
               },
             },
           },
@@ -947,6 +1282,7 @@ async function cookingSourceBundle(
               },
               ...(schema === "A" ? { description: descriptionField } : {}),
               ...(schema === "A" ? {} : { slug: slugField }),
+              ...(schema === "A" ? {} : { details: detailsField }),
             },
           },
           returnsValidator: { type: "string" },
@@ -1007,6 +1343,10 @@ async function cookingSourceBundle(
                 fieldType: { type: "string" as const },
                 optional: false,
               },
+              details: {
+                ...detailsField,
+                optional: false,
+              },
             },
           },
           returnsValidator: { type: "boolean" as const },
@@ -1039,9 +1379,15 @@ async function cookingSourceBundle(
             ? [
               "  const value = args.slug === undefined",
               "    ? { name: args.name }",
-              "    : { name: args.name, slug: args.slug };",
+              "    : args.details === undefined",
+              "    ? { name: args.name, slug: args.slug }",
+              "    : { name: args.name, slug: args.slug, details: args.details };",
             ]
-            : ["  const value = { name: args.name, slug: args.slug };"]),
+            : [
+              "  const value = args.details === undefined",
+              "    ? { name: args.name, slug: args.slug }",
+              "    : { name: args.name, slug: args.slug, details: args.details };",
+            ]),
           '  const id = await ctx.db.insert("recipes", value);',
           "  await ctx.db.replace(id, value);",
           "  return id;",
@@ -1054,7 +1400,9 @@ async function cookingSourceBundle(
             : [
               "  const value = current.slug === undefined",
               "    ? { name: current.name }",
-              "    : { name: current.name, slug: current.slug };",
+              "    : current.details === undefined",
+              "    ? { name: current.name, slug: current.slug }",
+              "    : { name: current.name, slug: current.slug, details: current.details };",
               "  await ctx.db.replace(args.id, value);",
             ]),
           "  return true;",
@@ -1078,7 +1426,7 @@ async function cookingSourceBundle(
               "export async function addSlug(ctx, args) {",
               "  const current = await ctx.db.get(args.id);",
               "  if (current === null) return false;",
-              "  await ctx.db.replace(args.id, { name: current.name, slug: args.slug });",
+              "  await ctx.db.replace(args.id, { name: current.name, slug: args.slug, details: args.details });",
               "  return true;",
               "}",
             ]),
@@ -1361,14 +1709,19 @@ function isCookingRecipe(value: unknown): value is Readonly<{
   readonly name: string;
   readonly description?: string;
   readonly slug?: string;
+  readonly details?: Readonly<{ readonly difficulty: string }>;
 }> {
   if (value === null || typeof value !== "object") return false;
   const name = Reflect.get(value, "name");
   const description = Reflect.get(value, "description");
   const slug = Reflect.get(value, "slug");
+  const details = Reflect.get(value, "details");
   return typeof name === "string" &&
     (description === undefined || typeof description === "string") &&
-    (slug === undefined || typeof slug === "string");
+    (slug === undefined || typeof slug === "string") &&
+    (details === undefined ||
+      (isNonArrayRecord(details) &&
+        typeof Reflect.get(details, "difficulty") === "string"));
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
