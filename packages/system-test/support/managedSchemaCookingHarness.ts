@@ -1,7 +1,10 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { Result, Effect, Scope } from "effect";
+import { Effect, Encoding, Result, Scope } from "effect";
 import { Miniflare } from "miniflare";
+import {
+  planAppSchemaEvolutionV1Effect,
+} from "@flarex/managed-schema/planning";
 import {
   makeApplicationAnalysisContext,
 } from "@flarex/source-analyzer-v2/internal/application-analysis-composition";
@@ -16,6 +19,7 @@ import {
 } from "@flarex/standard-application-definition/v1";
 import {
   createApplicationNativeMutationPGliteFixture,
+  type ApplicationNativeMutationAnalysis,
   type ApplicationNativeMutationFixture,
   type ApplicationNativeMutationFixtureOptions,
   type ApplicationNativeMutationPersistence,
@@ -23,10 +27,19 @@ import {
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
+  advanceAppSchemaCandidateValidationEffect,
+  installAppSchemaCandidateValidationEffect,
+  settleAppSchemaCandidateValidationEffect,
+} from
+  "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
+import {
   ApplicationMutationSystem,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
+import { PointMutationOccUserCodeV1Error } from
+  "@flarex/executor/internal/stored-attempt-authentication-v1";
 import {
+  ApplicationQuerySystem,
   makeApplicationQuerySystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
@@ -38,12 +51,18 @@ import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   ApplicationAnalysisSourceReadError,
   type ApplicationAnalysisSourceBundle,
 } from "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
+import {
+  SchemaManifestSha256Schema,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
+import { ValidatorValueErrorV1 } from "flarex-protocol/validator-engine";
 import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
@@ -71,6 +90,23 @@ export interface ManagedSchemaCookingSchemaAProof {
   readonly outboxCount: 1;
 }
 
+export interface ManagedSchemaCookingSchemaBProof {
+  readonly plannedManagedValidation: true;
+  readonly populatedRemovalBlocked: true;
+  readonly schemaAStayedActive: true;
+  readonly remediatedThroughSchemaA: true;
+  readonly activatedSchemaB: true;
+  readonly schemaBRejectedRemovedArgument: true;
+  readonly schemaBRejectedRemovedWrite: true;
+  readonly finalDocumentConformsToSchemaB: true;
+  readonly analysisWorkerLoads: 6;
+  readonly runtimeWorkerLoads: 7;
+  readonly commitCount: 3;
+  readonly outcomeCount: 3;
+  readonly feedCount: 3;
+  readonly outboxCount: 3;
+}
+
 export type ManagedSchemaCookingFixtureFactory = (
   options: ApplicationNativeMutationFixtureOptions,
 ) => Promise<
@@ -83,108 +119,8 @@ export async function proveManagedSchemaCookingSchemaA(
 ): Promise<
   ManagedSchemaCookingSchemaAProof
 > {
-  const source = await cookingSchemaASourceBundle();
-  const analysisLoader = new MiniflareAnalysisWorkerLoader();
-  const runtimeLoader = new MiniflareApplicationWorkerLoader();
-  try {
-    const fixture = await createFixture({
-      runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
-      compatibilityDate: COMPATIBILITY_DATE,
-      analysis: {
-        source,
-        run: async input => {
-          const context = makeApplicationAnalysisContext({
-            authority: input.authority,
-            repository: input.repository,
-            host: {
-              analyze: request => applicationAnalysisHostEffectWithCapabilities({
-                source: {
-                  read: rootSha256 => rootSha256 ===
-                      input.sourceArtifactRootSha256
-                    ? Effect.succeed(
-                        source satisfies ApplicationAnalysisSourceBundle,
-                      )
-                    : Effect.fail(new ApplicationAnalysisSourceReadError({
-                        operation: "read",
-                        reason: "invalidRoot",
-                      })),
-                },
-                loader: analysisLoader,
-              }, request),
-            },
-          });
-          const analyzed = await Effect.runPromise(context.analyze({
-            requestKey: input.requestKey,
-            sourceArtifactRootSha256: input.sourceArtifactRootSha256,
-          }));
-          if (analyzed.kind !== "analyzed") {
-            throw new Error("Cooking schema A was rejected by Application Analysis.");
-          }
-          return Effect.runPromise(input.repository.inspect(
-            input.authority,
-            analyzed.receipt.candidateId,
-          ));
-        },
-      },
-    });
-    const mutationLayer = await makeApplicationNativeMutationTestLayer(
-      fixture,
-      runtimeLoader,
-    );
-    const mutation = <A, E>(effect: Effect.Effect<
-      A,
-      E,
-      ApplicationMutationSystem | Scope.Scope
-    >) => Effect.runPromise(Effect.scoped(
-      effect.pipe(Effect.provide(mutationLayer)),
-    ));
-    const requestKey = TransactionRequestKeyV1Schema.make(
-      "managed-schema:cooking:schema-a:create",
-    );
-    const create = TransactionFunctionPathV1Schema.make("recipes:create");
-    const published = await mutation(invokeStandardApplicationPointMutationV1(
-      create,
-      { name: "Tea leaf salad", description: "A bright, crunchy salad." },
-      requestKey,
-    ));
-    if (published.disposition !== "published" ||
-      typeof published.value !== "string") {
-      throw new Error("Cooking schema-A mutation did not publish a document.");
-    }
-    const loadsAfterPublish = runtimeLoader.loads;
-    const replayed = await mutation(invokeStandardApplicationPointMutationV1(
-      create,
-      { name: "Tea leaf salad", description: "A bright, crunchy salad." },
-      requestKey,
-    ));
-    if (replayed.disposition !== "replayed" ||
-      replayed.status !== published.status ||
-      replayed.scopeUuid !== published.scopeUuid ||
-      replayed.epochUuid !== published.epochUuid ||
-      replayed.commitSeq !== published.commitSeq ||
-      replayed.value !== published.value ||
-      runtimeLoader.loads !== loadsAfterPublish) {
-      throw new Error("Cooking schema-A replay did not return the exact outcome.");
-    }
-
-    const queryLayer = makeCookingQueryLayer(fixture, runtimeLoader);
-    const queried = await Effect.runPromise(Effect.scoped(
-      invokeStandardApplicationPointQueryV1(
-        TransactionFunctionPathV1Schema.make("recipes:get"),
-        { id: published.value },
-      ).pipe(Effect.provide(queryLayer)),
-    ));
-    if (!isCookingRecipe(queried) ||
-      queried.name !== "Tea leaf salad" ||
-      queried.description !== "A bright, crunchy salad.") {
-      throw new Error("Cooking schema-A query did not read the committed recipe.");
-    }
-    const counts = await durableCounts(fixture);
-    if (analysisLoader.loads !== 2 || runtimeLoader.loads !== 2 ||
-      counts.commits !== 1 || counts.outcomes !== 1 || counts.feed !== 1 ||
-      counts.outbox !== 1) {
-      throw new Error("Cooking schema-A proof observed unexpected durable counts.");
-    }
+  return withCookingScenario(createFixture, async scenario => {
+    await establishCookingSchemaABaseline(scenario);
     return Object.freeze({
       analyzedWithTwoColdLoads: true,
       activatedSchemaA: true,
@@ -197,6 +133,369 @@ export async function proveManagedSchemaCookingSchemaA(
       feedCount: 1,
       outboxCount: 1,
     });
+  });
+}
+
+export async function proveManagedSchemaCookingSchemaB(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaCookingSchemaBProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const baseline = await establishCookingSchemaABaseline(scenario);
+    const withoutDescription = await scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:create"),
+        { name: "Mohinga" },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-a:create-without-description",
+        ),
+      ),
+    );
+    if (withoutDescription.disposition !== "published" ||
+      typeof withoutDescription.value !== "string") {
+      throw new Error("Cooking schema A did not seed its optional-field row.");
+    }
+
+    const schemaBSource = await cookingSourceBundle("B");
+    scenario.sources.set(
+      schemaBSource.sourceArtifact.rootSha256,
+      schemaBSource,
+    );
+    const firstSchemaB = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-b:first",
+      analysis: cookingAnalysis(
+        schemaBSource,
+        scenario.analysisLoader,
+        "schema B",
+      ),
+    });
+    const priorValidation = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: firstSchemaB.publication.revisionId,
+      }),
+    );
+    if (priorValidation.status !== "not_ready" ||
+      priorValidation.reason !== "candidateValidationWrongSchema") {
+      const detail = priorValidation.status === "not_ready"
+        ? `${priorValidation.status}:${priorValidation.reason}`
+        : priorValidation.status;
+      throw new Error(
+        `Cooking schema B did not reject schema A validation evidence: ${detail}.`,
+      );
+    }
+    const schemaB = await scenario.fixture.preparePublishedSchema(
+      firstSchemaB.manifest,
+    );
+    const clock = await scenario.fixture.target.getScopeClock(
+      scenario.fixture.authority.scopeId,
+    );
+    if (clock === null) throw new Error("Cooking schema planning clock is missing.");
+    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
+      authority: {
+        scopeId: scenario.fixture.authority.scopeId,
+        storageGeneration: scenario.fixture.authority.storageGeneration,
+        storageGenerationFence:
+          scenario.fixture.authority.storageGenerationFence,
+        scopeEpoch: scenario.fixture.authority.epoch,
+        activeSchemaVersionId:
+          scenario.fixture.schemaAuthority.schemaVersionId,
+        activeManifestSha256: schemaManifestSha256(
+          scenario.fixture.schemaAuthority.schemaManifestSha256,
+        ),
+        candidateSchemaVersionId: schemaB.schemaVersionId,
+        candidateManifestSha256: schemaManifestSha256(
+          schemaB.schemaManifestSha256,
+        ),
+        dataFrontierCommitSeq: clock.lastCommitSeq,
+      },
+      activeManifest: scenario.fixture.schemaAuthority.manifest,
+      candidateManifest: schemaB.manifest,
+    }));
+    if (plan.disposition !== "managedBuildAndValidation" ||
+      !plan.operations.some(operation =>
+        operation.safetyClass === "requiresDataValidation" &&
+        operation.change.kind === "tableValidatorChanged"
+      )) {
+      throw new Error("Cooking schema B did not produce a managed validation plan.");
+    }
+
+    const validationInput = {
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaB.schemaVersionId,
+    } as const;
+    await Effect.runPromise(installAppSchemaCandidateValidationEffect(
+      scenario.fixture.candidateValidation,
+      validationInput,
+    ));
+    const failed = await advanceUntilCandidateFailure(
+      scenario.fixture,
+      validationInput,
+    );
+    if (failed.head.frame.kind !==
+        "app_schema_candidate_validation_failure_evidence" ||
+      !failed.head.frame.entries.some(entry =>
+        entry.reason === "candidateValidatorRejected" &&
+        entry.validatorPath === "$document.description"
+      )) {
+      throw new Error("Cooking schema B omitted bounded description evidence.");
+    }
+    const failedReadiness = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: firstSchemaB.publication.revisionId,
+      }),
+    );
+    if (failedReadiness.status !== "not_ready" ||
+      failedReadiness.reason !== "candidateValidationFailed") {
+      throw new Error("Cooking schema B failure did not block readiness.");
+    }
+    const activationAttempt = await Effect.runPromise(Effect.result(
+      scenario.fixture.activation.activate({
+        revisionId: firstSchemaB.publication.revisionId,
+        expectedActiveHead: scenario.fixture.active.expectedActiveHead,
+      }),
+    ));
+    const activationBlocked = Result.isFailure(activationAttempt) &&
+      isNonArrayRecord(activationAttempt.failure) &&
+      activationAttempt.failure._tag === "ApplicationActivationError" &&
+      activationAttempt.failure.reason === "notReady";
+    if (!activationBlocked) {
+      throw new Error("Cooking schema B activation did not fail closed.");
+    }
+    const stillSchemaA = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (stillSchemaA.basis.revisionId !==
+      scenario.fixture.active.basis.revisionId) {
+      throw new Error("Rejected cooking schema B replaced schema A.");
+    }
+    const stillReadable = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: baseline.recipeId },
+      ),
+    );
+    if (!isCookingRecipe(stillReadable) ||
+      stillReadable.description !== "A bright, crunchy salad.") {
+      throw new Error("Schema A stopped serving after schema B failed.");
+    }
+
+    const remediated = await scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:removeDescription"),
+        { id: baseline.recipeId },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-a:remove-description",
+        ),
+      ),
+    );
+    if (remediated.disposition !== "published" ||
+      remediated.value !== true) {
+      throw new Error("Schema A did not remove the description normally.");
+    }
+
+    const retriedSchemaB = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-b:retry",
+      analysis: cookingAnalysis(
+        schemaBSource,
+        scenario.analysisLoader,
+        "schema B retry",
+      ),
+    });
+    const restarted = await Effect.runPromise(
+      installAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (restarted.disposition !== "restarted") {
+      throw new Error("Cooking schema B validation did not restart at a new frontier.");
+    }
+    await settleReadyCandidateValidation(
+      scenario.fixture,
+      validationInput,
+    );
+    const ready = await Effect.runPromise(scenario.fixture.readiness.settle({
+      deploymentId: scenario.fixture.deploymentId,
+      revisionId: retriedSchemaB.publication.revisionId,
+    }));
+    if (ready.status !== "ready") {
+      throw new Error("Remediated cooking schema B did not become ready.");
+    }
+    const activated = await Effect.runPromise(
+      scenario.fixture.activation.activate({
+        revisionId: retriedSchemaB.publication.revisionId,
+        expectedActiveHead: stillSchemaA.expectedActiveHead,
+      }),
+    );
+    if (activated.status !== "activated") {
+      throw new Error("Remediated cooking schema B did not activate.");
+    }
+    const activeSchemaB = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (activeSchemaB.basis.revisionId !==
+        retriedSchemaB.publication.revisionId ||
+      activeSchemaB.basis.schemaVersionId !== schemaB.schemaVersionId) {
+      throw new Error("Cooking schema B active authority is inconsistent.");
+    }
+    const removedArgumentResult = await scenario.mutation(Effect.result(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:create"),
+        { name: "Invalid salad", description: "must not return" },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-b:removed-field",
+        ),
+      ),
+    ));
+    const removedArgumentRejected = Result.match(removedArgumentResult, {
+      onFailure: failure => failure instanceof ValidatorValueErrorV1 &&
+        failure.issue.reason === "unexpectedField" &&
+        failure.issue.path === "$args.description" &&
+        failure.issue.field === "description",
+      onSuccess: () => false,
+    });
+    if (!removedArgumentRejected) {
+      throw new Error(
+        "Cooking schema B did not reject the removed description argument exactly.",
+      );
+    }
+    const countsBeforeRejectedWrite = await durableCounts(scenario.fixture);
+    const removedWriteResult = await scenario.mutation(Effect.result(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:writeRemovedDescription"),
+        { id: baseline.recipeId },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-b:removed-write",
+        ),
+      ),
+    ));
+    const removedWriteRejected = Result.match(removedWriteResult, {
+      onFailure: failure =>
+        failure instanceof PointMutationOccUserCodeV1Error &&
+        failure.cause instanceof Error &&
+        failure.cause.name === "ApplicationWorkerUserCodeV1Error" &&
+        failure.cause.message === "ApplicationWorkerUserCodeV1Error",
+      onSuccess: () => false,
+    });
+    if (!removedWriteRejected) {
+      throw new Error(
+        "Cooking schema B journal did not reject the removed description write.",
+      );
+    }
+    const countsAfterRejectedWrite = await durableCounts(scenario.fixture);
+    if (countsAfterRejectedWrite.commits !== countsBeforeRejectedWrite.commits ||
+      countsAfterRejectedWrite.outcomes !== countsBeforeRejectedWrite.outcomes ||
+      countsAfterRejectedWrite.feed !== countsBeforeRejectedWrite.feed ||
+      countsAfterRejectedWrite.outbox !== countsBeforeRejectedWrite.outbox) {
+      throw new Error(
+        "Cooking schema B forbidden write changed durable commit projections.",
+      );
+    }
+    const finalRecipe = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: baseline.recipeId },
+      ),
+    );
+    if (!isCookingRecipe(finalRecipe) ||
+      finalRecipe.name !== "Tea leaf salad" ||
+      finalRecipe.description !== undefined) {
+      throw new Error("Cooking schema B returned a nonconforming document.");
+    }
+    const counts = await durableCounts(scenario.fixture);
+    if (scenario.analysisLoader.loads !== 6 ||
+      scenario.runtimeLoader.loads !== 7 ||
+      counts.commits !== 3 || counts.outcomes !== 3 || counts.feed !== 3 ||
+      counts.outbox !== 3) {
+      throw new Error("Cooking schema B observed unexpected durable counts.");
+    }
+    return Object.freeze({
+      plannedManagedValidation: true,
+      populatedRemovalBlocked: true,
+      schemaAStayedActive: true,
+      remediatedThroughSchemaA: true,
+      activatedSchemaB: true,
+      schemaBRejectedRemovedArgument: true,
+      schemaBRejectedRemovedWrite: true,
+      finalDocumentConformsToSchemaB: true,
+      analysisWorkerLoads: 6,
+      runtimeWorkerLoads: 7,
+      commitCount: 3,
+      outcomeCount: 3,
+      feedCount: 3,
+      outboxCount: 3,
+    });
+  });
+}
+
+interface CookingScenario {
+  readonly fixture: ApplicationNativeMutationFixture<
+    ApplicationNativeMutationPersistence
+  >;
+  readonly analysisLoader: MiniflareAnalysisWorkerLoader;
+  readonly runtimeLoader: MiniflareApplicationWorkerLoader;
+  readonly sources: Map<string, ApplicationNativeMutationSourceBundle>;
+  readonly mutation: <A, E>(effect: Effect.Effect<
+    A,
+    E,
+    ApplicationMutationSystem | Scope.Scope
+  >) => Promise<A>;
+  readonly query: <A, E>(effect: Effect.Effect<
+    A,
+    E,
+    ApplicationQuerySystem | Scope.Scope
+  >) => Promise<A>;
+}
+
+async function withCookingScenario<A>(
+  createFixture: ManagedSchemaCookingFixtureFactory,
+  run: (scenario: CookingScenario) => Promise<A>,
+): Promise<A> {
+  const source = await cookingSourceBundle("A");
+  const analysisLoader = new MiniflareAnalysisWorkerLoader();
+  const runtimeLoader = new MiniflareApplicationWorkerLoader();
+  const sources = new Map([[source.sourceArtifact.rootSha256, source]]);
+  const sourceReader = cookingSourceReader(sources);
+  try {
+    const fixture = await createFixture({
+      runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+      analysis: cookingAnalysis(source, analysisLoader, "schema A"),
+    });
+    const mutationLayer = await makeApplicationNativeMutationTestLayer(
+      fixture,
+      runtimeLoader,
+      { source: sourceReader },
+    );
+    const mutation = <A, E>(effect: Effect.Effect<
+      A,
+      E,
+      ApplicationMutationSystem | Scope.Scope
+    >) => Effect.runPromise(Effect.scoped(
+      effect.pipe(Effect.provide(mutationLayer)),
+    ));
+    const queryLayer = makeCookingQueryLayer(
+      fixture,
+      runtimeLoader,
+      sourceReader,
+    );
+    const query = <A, E>(effect: Effect.Effect<
+      A,
+      E,
+      ApplicationQuerySystem | Scope.Scope
+    >) => Effect.runPromise(Effect.scoped(
+      effect.pipe(Effect.provide(queryLayer)),
+    ));
+    return await run({
+      fixture,
+      analysisLoader,
+      runtimeLoader,
+      sources,
+      mutation,
+      query,
+    });
   } finally {
     await Promise.all([
       analysisLoader.dispose(),
@@ -205,9 +504,67 @@ export async function proveManagedSchemaCookingSchemaA(
   }
 }
 
+async function establishCookingSchemaABaseline(
+  scenario: CookingScenario,
+): Promise<Readonly<{ readonly recipeId: string }>> {
+  const requestKey = TransactionRequestKeyV1Schema.make(
+    "managed-schema:cooking:schema-a:create",
+  );
+  const create = TransactionFunctionPathV1Schema.make("recipes:create");
+  const published = await scenario.mutation(
+    invokeStandardApplicationPointMutationV1(
+      create,
+      { name: "Tea leaf salad", description: "A bright, crunchy salad." },
+      requestKey,
+    ),
+  );
+  if (published.disposition !== "published" ||
+    typeof published.value !== "string") {
+    throw new Error("Cooking schema-A mutation did not publish a document.");
+  }
+  const loadsAfterPublish = scenario.runtimeLoader.loads;
+  const replayed = await scenario.mutation(
+    invokeStandardApplicationPointMutationV1(
+      create,
+      { name: "Tea leaf salad", description: "A bright, crunchy salad." },
+      requestKey,
+    ),
+  );
+  if (replayed.disposition !== "replayed" ||
+    replayed.status !== published.status ||
+    replayed.scopeUuid !== published.scopeUuid ||
+    replayed.epochUuid !== published.epochUuid ||
+    replayed.commitSeq !== published.commitSeq ||
+    replayed.value !== published.value ||
+    scenario.runtimeLoader.loads !== loadsAfterPublish) {
+    throw new Error("Cooking schema-A replay did not return the exact outcome.");
+  }
+
+  const queried = await scenario.query(
+    invokeStandardApplicationPointQueryV1(
+      TransactionFunctionPathV1Schema.make("recipes:get"),
+      { id: published.value },
+    ),
+  );
+  if (!isCookingRecipe(queried) ||
+    queried.name !== "Tea leaf salad" ||
+    queried.description !== "A bright, crunchy salad.") {
+    throw new Error("Cooking schema-A query did not read the committed recipe.");
+  }
+  const counts = await durableCounts(scenario.fixture);
+  if (scenario.analysisLoader.loads !== 2 ||
+    scenario.runtimeLoader.loads !== 2 ||
+    counts.commits !== 1 || counts.outcomes !== 1 || counts.feed !== 1 ||
+    counts.outbox !== 1) {
+    throw new Error("Cooking schema-A proof observed unexpected durable counts.");
+  }
+  return Object.freeze({ recipeId: published.value });
+}
+
 function makeCookingQueryLayer(
   fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
   loader: MiniflareApplicationWorkerLoader,
+  source: ReturnType<typeof cookingSourceReader>,
 ) {
   let executionSequence = 0;
   return makeApplicationQuerySystemLayer({
@@ -225,15 +582,7 @@ function makeCookingQueryLayer(
       maximumDocuments: 64,
       maximumSemanticBytes: 1_048_576,
     }),
-    source: Object.freeze({
-      read: (rootSha256: string) => rootSha256 ===
-          fixture.source.sourceArtifact.rootSha256
-        ? Effect.succeed(fixture.source)
-        : Effect.fail(new ApplicationAnalysisSourceReadError({
-            operation: "read",
-            reason: "invalidRoot",
-          })),
-    }),
+    source,
     host: makeApplicationExecutionHost(loader),
     executionContextFactory: () => {
       executionSequence += 1;
@@ -246,13 +595,19 @@ function makeCookingQueryLayer(
   });
 }
 
-async function cookingSchemaASourceBundle(): Promise<
+async function cookingSourceBundle(
+  schema: "A" | "B",
+): Promise<
   ApplicationNativeMutationSourceBundle
 > {
+  const descriptionField = {
+    fieldType: { type: "string" as const },
+    optional: true,
+  };
   const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: {
       maximumModules: 1,
-      maximumFunctions: 2,
+      maximumFunctions: 4,
       maximumIdentifierUtf8Bytes: 1_024,
       maximumValidatorNodes: 128,
       maximumValidatorDepth: 16,
@@ -274,10 +629,7 @@ async function cookingSchemaASourceBundle(): Promise<
                   fieldType: { type: "string" },
                   optional: false,
                 },
-                description: {
-                  fieldType: { type: "string" },
-                  optional: true,
-                },
+                ...(schema === "A" ? { description: descriptionField } : {}),
               },
             },
           },
@@ -297,13 +649,24 @@ async function cookingSchemaASourceBundle(): Promise<
                 fieldType: { type: "string" },
                 optional: false,
               },
-              description: {
-                fieldType: { type: "string" },
-                optional: true,
-              },
+              ...(schema === "A" ? { description: descriptionField } : {}),
             },
           },
           returnsValidator: { type: "string" },
+        }, {
+          exportName: "removeDescription",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: {
+            type: "object",
+            value: {
+              id: {
+                fieldType: { type: "string" },
+                optional: false,
+              },
+            },
+          },
+          returnsValidator: { type: "boolean" },
         }, {
           exportName: "get",
           kind: "query",
@@ -318,12 +681,26 @@ async function cookingSchemaASourceBundle(): Promise<
             },
           },
           returnsValidator: { type: "any" },
-        }],
+        }, ...(schema === "B" ? [{
+          exportName: "writeRemovedDescription",
+          kind: "mutation" as const,
+          visibility: "public" as const,
+          argsValidator: {
+            type: "object" as const,
+            value: {
+              id: {
+                fieldType: { type: "string" as const },
+                optional: false,
+              },
+            },
+          },
+          returnsValidator: { type: "boolean" as const },
+        }] : [])],
       }],
     },
     materializationBudgetInput: {
       maximumModules: 1,
-      maximumEntryBindings: 2,
+      maximumEntryBindings: 4,
       maximumSourceBytes: 8_192,
       maximumSourceMapBytes: 0,
       maximumBytesMaterialized: 65_536,
@@ -337,16 +714,36 @@ async function cookingSchemaASourceBundle(): Promise<
         roles: ["function", "execution"],
         sourceBytes: new TextEncoder().encode([
           "export async function create(ctx, args) {",
-          "  const value = args.description === undefined",
-          "    ? { name: args.name }",
-          "    : { name: args.name, description: args.description };",
+          ...(schema === "A"
+            ? [
+              "  const value = args.description === undefined",
+              "    ? { name: args.name }",
+              "    : { name: args.name, description: args.description };",
+            ]
+            : ["  const value = { name: args.name };"]),
           '  const id = await ctx.db.insert("recipes", value);',
           "  await ctx.db.replace(id, value);",
           "  return id;",
           "}",
+          "export async function removeDescription(ctx, args) {",
+          "  const current = await ctx.db.get(args.id);",
+          "  if (current === null) return false;",
+          "  await ctx.db.replace(args.id, { name: current.name });",
+          "  return true;",
+          "}",
           "export async function get(ctx, args) {",
           "  return ctx.db.get(args.id);",
           "}",
+          ...(schema === "B"
+            ? [
+              "export async function writeRemovedDescription(ctx, args) {",
+              "  const current = await ctx.db.get(args.id);",
+              "  if (current === null) return false;",
+              '  await ctx.db.replace(args.id, { name: current.name, description: "forbidden" });',
+              "  return true;",
+              "}",
+            ]
+            : []),
           "",
         ].join("\n")),
         sourceMapBytes: null,
@@ -390,6 +787,121 @@ async function cookingSchemaASourceBundle(): Promise<
     }),
     modules,
   });
+}
+
+function cookingAnalysis(
+  source: ApplicationNativeMutationSourceBundle,
+  loader: MiniflareAnalysisWorkerLoader,
+  label: string,
+): ApplicationNativeMutationAnalysis {
+  const run: ApplicationNativeMutationAnalysis["run"] = async input => {
+    const context = makeApplicationAnalysisContext({
+      authority: input.authority,
+      repository: input.repository,
+      host: {
+        analyze: request => applicationAnalysisHostEffectWithCapabilities({
+          source: {
+            read: rootSha256 => rootSha256 ===
+                input.sourceArtifactRootSha256
+              ? Effect.succeed(
+                  source satisfies ApplicationAnalysisSourceBundle,
+                )
+              : Effect.fail(new ApplicationAnalysisSourceReadError({
+                operation: "read",
+                reason: "invalidRoot",
+              })),
+          },
+          loader,
+        }, request),
+      },
+    });
+    const analyzed = await Effect.runPromise(context.analyze({
+      requestKey: input.requestKey,
+      sourceArtifactRootSha256: input.sourceArtifactRootSha256,
+    }));
+    if (analyzed.kind !== "analyzed") {
+      throw new Error(`Cooking ${label} was rejected by Application Analysis.`);
+    }
+    return Effect.runPromise(input.repository.inspect(
+      input.authority,
+      analyzed.receipt.candidateId,
+    ));
+  };
+  return Object.freeze({
+    source,
+    run,
+  });
+}
+
+function cookingSourceReader(
+  sources: ReadonlyMap<string, ApplicationNativeMutationSourceBundle>,
+) {
+  return Object.freeze({
+    read: (rootSha256: string) => {
+      const source = sources.get(rootSha256);
+      return source === undefined
+        ? Effect.fail(new ApplicationAnalysisSourceReadError({
+          operation: "read",
+          reason: "invalidRoot",
+        }))
+        : Effect.succeed(source satisfies ApplicationAnalysisSourceBundle);
+    },
+  });
+}
+
+async function advanceUntilCandidateFailure(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  input: Readonly<{
+    readonly deploymentId: string;
+    readonly schemaVersionId: CatalogSchemaVersionId;
+  }>,
+) {
+  for (let step = 0; step < 64; step += 1) {
+    const advanced = await Effect.runPromise(
+      advanceAppSchemaCandidateValidationEffect(
+        fixture.candidateValidation,
+        input,
+      ),
+    );
+    if (advanced.disposition === "failed") return advanced;
+    if (advanced.disposition === "readyToSettle") {
+      throw new Error("Cooking schema B unexpectedly passed validation.");
+    }
+  }
+  throw new Error("Cooking schema B validation did not reach failure.");
+}
+
+async function settleReadyCandidateValidation(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  input: Readonly<{
+    readonly deploymentId: string;
+    readonly schemaVersionId: CatalogSchemaVersionId;
+  }>,
+): Promise<void> {
+  for (let step = 0; step < 64; step += 1) {
+    const advanced = await Effect.runPromise(
+      advanceAppSchemaCandidateValidationEffect(
+        fixture.candidateValidation,
+        input,
+      ),
+    );
+    if (advanced.disposition === "failed") {
+      throw new Error("Remediated cooking schema B still failed validation.");
+    }
+    if (advanced.disposition !== "readyToSettle") continue;
+    await Effect.runPromise(settleAppSchemaCandidateValidationEffect(
+      fixture.candidateValidation,
+      input,
+    ));
+    return;
+  }
+  throw new Error("Remediated cooking schema B did not settle.");
+}
+
+function schemaManifestSha256(value: string) {
+  return SchemaManifestSha256Schema.make(
+    Result.getOrThrow(Encoding.decodeHex(value)),
+  );
 }
 
 class MiniflareAnalysisWorkerLoader implements WorkerLoader {

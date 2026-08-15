@@ -2343,6 +2343,21 @@ The unchanged schema-A system scenario now passes through both PGlite and
 genuine PostgreSQL with two cold analysis loads, Workerd mutation/query,
 durable replay without re-execution, and one commit/outcome/feed/outbox.
 
+The schema-B removal cut is also complete. It exposed `ST-CORE-023`: the
+active-reader path rechecked settled schema A against the later mutable
+schema-B candidate head, so a correctly failed B candidate made A unreadable.
+The approved correction leaves settlement and activation dependent on the
+exact current candidate-validation head, while active reads authenticate and
+transactionally revalidate the durable readiness row and its canonical
+evidence graph, including a freshly reloaded application function/task graph in
+the final target transaction. The connected scenario now proves populated
+removal failure, continued A service, ordinary A remediation, newer-frontier
+validation restart, B activation, exact B argument rejection for the removed
+field, and rejection of a valid-argument handler write that attempts to restore
+that field without publishing commit/feed/outbox state through both PGlite and
+genuine PostgreSQL. No second selection, readiness authority, schema, fallback,
+or production route was added.
+
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly
 `revalidate`, point read, index range, insert, patch, replace, and delete over

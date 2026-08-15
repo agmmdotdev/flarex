@@ -16,9 +16,9 @@ fixture succeeds.
 
 ### `ST-CORE-023` - failed candidate validation makes the active schema unreadable
 
-- **Status:** Open; reproduced by the M03-D schema-B cooking scenario in
-  PGlite. No readiness, activation, or candidate-validation owner has been
-  changed by the scenario.
+- **Status:** Resolved by separating current candidate settlement from durable
+  active-readiness replay. The unchanged M03-D schema-B scenario passes in
+  PGlite and genuine PostgreSQL.
 - **Reproduction:** Activate schema A, whose `recipes.description` field is
   optional. Submit schema B, which removes that field, while an authoritative
   schema-A row still contains `description`. Let the existing exact-frontier
@@ -38,11 +38,20 @@ fixture succeeds.
   with the guarded single candidate-validation head. The system-test harness
   must not cache an active selection, synthesize readiness, bypass
   `readActive()`, or mutate the validation head to keep A serving.
-- **Current disposition:** Requires a separately approved shared-owner
-  correction that distinguishes immutable active-revision readiness evidence
-  from the mutable non-active candidate head while preserving exact schema,
-  frontier, receipt, CAS, rollback, and uncertainty authority. Re-run the same
-  schema-B scenario through PGlite and genuine PostgreSQL after correction.
+- **Resolution:** Candidate settlement and activation still require the exact
+  current candidate-validation head. Active reads instead authenticate the
+  already-settled durable readiness row, its canonical bytes/digest, schema and
+  task bindings, cold-receipt children, scope authority, and active-head CAS,
+  then reload and revalidate the same application function/task graph inside
+  the activation transaction. A later failed candidate can no longer revoke
+  the active revision, and no fallback, cached selection, synthetic receipt,
+  schema change, or second readiness owner was introduced.
+- **Acceptance evidence:** The real schema-B scenario proves bounded populated-
+  removal failure, continued schema-A query and mutation service, ordinary
+  remediation, newer-frontier validation restart, schema-B activation, and
+  both exact argument rejection and journal rejection of a valid-argument
+  handler write that restores the removed field, with no commit/feed/outbox
+  publication, through both PGlite and genuine PostgreSQL.
 
 ### `ST-CORE-018` - SAP06-A2 fixture omits the application-error platform module
 

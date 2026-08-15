@@ -17,6 +17,7 @@ import { selectApplicationMutationAdmission } from
   "@flarex/persistence-postgres/internal/application-mutation-admission";
 import {
   ApplicationMutationSystem,
+  type ApplicationMutationSystemLive,
   makeApplicationMutationSystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
@@ -355,6 +356,9 @@ export async function proveApplicationNativeMutation(
 export async function makeApplicationNativeMutationTestLayer(
   fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
   loader: WorkerLoader,
+  options: Readonly<{
+    readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+  }> = {},
 ) {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     fixture.deploymentId,
@@ -462,7 +466,7 @@ export async function makeApplicationNativeMutationTestLayer(
     indexedQueries: fixture.indexedQueries,
     grantRetentionPolicy: RETENTION,
     applicationRunner: {
-      source: Object.freeze({
+      source: options.source ?? Object.freeze({
         read: (rootSha256: string) => rootSha256 ===
             fixture.source.sourceArtifact.rootSha256
           ? Effect.succeed(

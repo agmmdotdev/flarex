@@ -74,10 +74,15 @@ import {
   makeApplicationActivationRepository,
   type CoherentActiveApplication,
 } from "../../src/applicationActivation";
-import { makeApplicationPublicationRepository } from "../../src/applicationPublication";
+import {
+  makeApplicationPublicationRepository,
+  type ApplicationPublication,
+} from "../../src/applicationPublication";
 import { makeApplicationReadinessRepository } from "../../src/applicationReadiness";
-import { makeApplicationSchemaAuthorityPublisher } from
-  "../../src/applicationSchemaAuthority";
+import {
+  makeApplicationSchemaAuthorityPublisher,
+  type ApplicationSchemaAuthority,
+} from "../../src/applicationSchemaAuthority";
 import {
   createApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
@@ -133,19 +138,21 @@ import type {
   SplitScopePhysicalLocator,
 } from "../../src/scopeMetadataTypes";
 
+export interface ApplicationNativeMutationAnalysis {
+  readonly source: ApplicationNativeMutationSourceBundle;
+  readonly run: (input: Readonly<{
+    readonly authority: ApplicationAnalysisAuthority;
+    readonly repository: ApplicationAnalysisRepository;
+    readonly requestKey: string;
+    readonly sourceArtifactRootSha256: string;
+  }>) => Promise<ApplicationAnalysisProjection>;
+}
+
 export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeTask?: boolean;
-  readonly analysis?: Readonly<{
-    readonly source: ApplicationNativeMutationSourceBundle;
-    readonly run: (input: Readonly<{
-      readonly authority: ApplicationAnalysisAuthority;
-      readonly repository: ApplicationAnalysisRepository;
-      readonly requestKey: string;
-      readonly sourceArtifactRootSha256: string;
-    }>) => Promise<ApplicationAnalysisProjection>;
-  }>;
+  readonly analysis?: Readonly<ApplicationNativeMutationAnalysis>;
 }
 
 export interface ApplicationNativeMutationSourceBundle {
@@ -163,6 +170,12 @@ export type ApplicationNativeMutationPersistence = FlarexPersistence & Readonly<
   drizzle: FlarexMetadataDatabase;
 }>;
 
+export interface ApplicationNativeMutationRegisteredRevision {
+  readonly source: ApplicationNativeMutationSourceBundle;
+  readonly manifest: ApplicationManifestV1;
+  readonly publication: ApplicationPublication;
+}
+
 export interface ApplicationNativeMutationFixture<
   Persistence extends ApplicationNativeMutationPersistence,
 > {
@@ -176,6 +189,17 @@ export interface ApplicationNativeMutationFixture<
   readonly active: CoherentActiveApplication;
   readonly source: ApplicationNativeMutationSourceBundle;
   readonly schema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
+  readonly schemaAuthority: ApplicationSchemaAuthority;
+  readonly candidateValidation: ReturnType<
+    typeof createAppSchemaCandidateValidationPort
+  >;
+  readonly registerRevision: (input: Readonly<{
+    readonly requestKey: string;
+    readonly analysis: ApplicationNativeMutationAnalysis;
+  }>) => Promise<ApplicationNativeMutationRegisteredRevision>;
+  readonly preparePublishedSchema: (
+    manifest: ApplicationManifestV1,
+  ) => Promise<ApplicationSchemaAuthority>;
   readonly sessionAuthority: Readonly<{
     readonly scopeMetadata: Persistence;
     readonly provisioningReceipts: ReturnType<typeof fixtureProvisioningReceipts>;
@@ -425,34 +449,7 @@ async function createApplicationNativeMutationFixture<
       manifest: analyzed.manifest,
     }),
   );
-  const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
-    version: 1,
-    tasks: options.includeTask === true ? [applicationTaskManifest()] : [],
-  }, taskSha256));
-  const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
-    definition: options.includeTask === true
-      ? taskPreparedDefinition()
-      : emptyPreparedDefinition(),
-    catalog,
-    authority: {
-      scopeId: publication.scopeId,
-      revisionId: publication.revisionId,
-      candidateId: publication.candidateId,
-      analysisId: publication.analysisId,
-      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
-      publicationSha256: publication.publicationSha256,
-    },
-    runtimePolicy: {
-      runtimeHostIdentity: options.runtimeHostIdentity,
-      compatibilityDate: options.compatibilityDate,
-    },
-  }, taskSha256));
-  await Effect.runPromise(
-    makeApplicationTaskBindingRepository(target.drizzle).register({
-      authority,
-      bindings,
-    }),
-  );
+  await registerFixtureTaskBindings(target, authority, publication, options);
 
   const authorityPorts = fixtureAuthorityPorts(control, target, authority);
   const candidateValidation = createAppSchemaCandidateValidationPort({
@@ -516,6 +513,37 @@ async function createApplicationNativeMutationFixture<
       }),
     },
   }));
+  const preparePublishedSchema = async (
+    manifest: ApplicationManifestV1,
+  ): Promise<ApplicationSchemaAuthority> => {
+    const published = await Effect.runPromise(schema.readPublished({
+      deploymentId,
+      manifest,
+    }));
+    const targetPublished = await Effect.runPromise(
+      makeApplicationSchemaAuthorityPublisher({
+        db: target.drizzle,
+        runTransaction: run => target.drizzle.transaction(run),
+      }).publish({ deploymentId, manifest }),
+    );
+    if (targetPublished.schemaVersionId !== published.schemaVersionId ||
+      targetPublished.schemaManifestSha256 !== published.schemaManifestSha256) {
+      throw new Error("Application-native schema authorities diverged.");
+    }
+    await closeEmptyUniqueConstraintSet(
+      control,
+      deploymentId,
+      published.schemaVersionId,
+    );
+    await enablePhysicalBuilds(
+      control,
+      authorityPorts,
+      authority.scopeId,
+      deploymentId,
+      published.schemaVersionId,
+    );
+    return published;
+  };
   const notReady = await Effect.runPromise(readiness.settle({
     deploymentId,
     revisionId: publication.revisionId,
@@ -527,24 +555,12 @@ async function createApplicationNativeMutationFixture<
   // The located journal resolves the pinned schema catalog locally. Exercise
   // the existing schema publisher as the test topology's distribution owner;
   // do not copy control rows or add a journal fallback.
-  await Effect.runPromise(makeApplicationSchemaAuthorityPublisher({
-    db: target.drizzle,
-    runTransaction: run => target.drizzle.transaction(run),
-  }).publish({
-    deploymentId,
-    manifest: canonicalManifest.manifest,
-  }));
-  const schemaVersionId = await requireSchemaVersionId(control);
-  await closeEmptyUniqueConstraintSet(control, deploymentId, schemaVersionId);
+  const schemaAuthority = await preparePublishedSchema(
+    canonicalManifest.manifest,
+  );
+  const schemaVersionId = schemaAuthority.schemaVersionId;
   await settleCandidateValidation(
     candidateValidation,
-    deploymentId,
-    schemaVersionId,
-  );
-  await enablePhysicalBuilds(
-    control,
-    authorityPorts,
-    authority.scopeId,
     deploymentId,
     schemaVersionId,
   );
@@ -570,6 +586,55 @@ async function createApplicationNativeMutationFixture<
   const active = await Effect.runPromise(activation.readActive());
   let headMoveSequence = 0;
   let currentActive = active;
+  let registrationSequence = 0;
+  const registerRevision = async (input: Readonly<{
+    readonly requestKey: string;
+    readonly analysis: ApplicationNativeMutationAnalysis;
+  }>): Promise<ApplicationNativeMutationRegisteredRevision> => {
+    registrationSequence += 1;
+    const sequence = registrationSequence;
+    const repository = makeApplicationAnalysisRepository(target.drizzle, {
+      randomUuid: uuidSequence(
+        100 + sequence * 3 + 1,
+        100 + sequence * 3 + 2,
+        100 + sequence * 3 + 3,
+      ),
+    });
+    const projected = await input.analysis.run({
+      authority,
+      repository,
+      requestKey: input.requestKey,
+      sourceArtifactRootSha256:
+        input.analysis.source.sourceArtifact.rootSha256,
+    });
+    if (projected.status !== "analyzed") {
+      throw new Error("Application-native registered analysis did not settle.");
+    }
+    const registeredManifest = Result.getOrThrow(
+      canonicalizeApplicationManifestV1(projected.manifest),
+    ).manifest;
+    const registeredPublication = await Effect.runPromise(
+      makeApplicationPublicationRepository(target.drizzle).publish({
+        authority,
+        revisionId: projected.revision.revisionId,
+        candidateId: projected.candidateId,
+        analysisId: projected.analysisId,
+        manifestSha256: projected.manifestSha256,
+        manifest: projected.manifest,
+      }),
+    );
+    await registerFixtureTaskBindings(
+      target,
+      authority,
+      registeredPublication,
+      options,
+    );
+    return Object.freeze({
+      source: input.analysis.source,
+      manifest: registeredManifest,
+      publication: registeredPublication,
+    });
+  };
   const moveHead = async (): Promise<CoherentActiveApplication> => {
     headMoveSequence += 1;
     const sequence = headMoveSequence;
@@ -750,6 +815,10 @@ async function createApplicationNativeMutationFixture<
     active,
     source,
     schema,
+    schemaAuthority,
+    candidateValidation,
+    registerRevision,
+    preparePublishedSchema,
     sessionAuthority,
     currentEpochAuthority,
     intrinsicCreationTimeIndexes:
@@ -882,17 +951,6 @@ async function settleCandidateValidation(
   throw new Error("Application-native candidate validation did not settle.");
 }
 
-async function requireSchemaVersionId(
-  control: ApplicationNativeMutationPersistence,
-): Promise<CatalogSchemaVersionId> {
-  const result = await control.query<{
-    schema_version_id: CatalogSchemaVersionId;
-  }>("select schema_version_id from fx_control_application_schema_authority_v1");
-  const id = result.rows[0]?.schema_version_id;
-  if (id === undefined) throw new Error("Application-native schema is missing.");
-  return id;
-}
-
 async function settleFixtureAnalysis(
   repository: ApplicationAnalysisRepository,
   authority: ApplicationAnalysisAuthority,
@@ -915,6 +973,42 @@ async function settleFixtureAnalysis(
     analyzerPolicyIdentity: "application-analyzer-policy",
     canonicalManifest,
   }));
+}
+
+async function registerFixtureTaskBindings(
+  target: ApplicationNativeMutationPersistence,
+  authority: ApplicationAnalysisAuthority,
+  publication: ApplicationPublication,
+  options: ApplicationNativeMutationFixtureOptions,
+): Promise<void> {
+  const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: options.includeTask === true ? [applicationTaskManifest()] : [],
+  }, taskSha256));
+  const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
+    definition: options.includeTask === true
+      ? taskPreparedDefinition()
+      : emptyPreparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: options.runtimeHostIdentity,
+      compatibilityDate: options.compatibilityDate,
+    },
+  }, taskSha256));
+  await Effect.runPromise(
+    makeApplicationTaskBindingRepository(target.drizzle).register({
+      authority,
+      bindings,
+    }),
+  );
 }
 
 async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBundle> {

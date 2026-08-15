@@ -149,8 +149,11 @@ import {
 } from "../src/applicationActionAuthorityV1";
 import { makeApplicationPublicationRepository } from
   "../src/applicationPublication";
-import { makeApplicationReadinessRepository } from
-  "../src/applicationReadiness";
+import {
+  makeApplicationReadinessRepository,
+  validateApplicationReadinessForActivationInTransaction,
+  validateStoredApplicationReadinessForActivationInTransaction,
+} from "../src/applicationReadiness";
 import {
   claimApplicationActiveSelection,
   makeApplicationActivationRepository,
@@ -234,6 +237,8 @@ import { lockScopeClockForShareInTransactionEffect } from
 import {
   fxSystemIndexBuildStates,
   fxSystemApplicationFunctionsV1,
+  fxSystemApplicationReadinessFunctionsV1,
+  fxSystemApplicationReadinessV1,
   fxSystemApplicationActiveHeadsV1,
   fxSystemApplicationActionInvocationsV1,
   fxSystemScopeClocks,
@@ -622,6 +627,87 @@ describe("Application readiness", { timeout: 30_000 }, () => {
 });
 
 describe("Application activation", { timeout: 30_000 }, () => {
+  it("fails closed when durable readiness disappears before an active read", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const ready = await runEffect(fixture.repository.settle(fixture.input));
+    expect(ready).toMatchObject({ status: "ready" });
+    await fixture.target.drizzle.delete(
+      fxSystemApplicationReadinessFunctionsV1,
+    ).where(eq(
+      fxSystemApplicationReadinessFunctionsV1.scopeId,
+      fixture.authority.scopeId,
+    ));
+    await fixture.target.drizzle.delete(fxSystemApplicationReadinessV1).where(
+      eq(fxSystemApplicationReadinessV1.scopeId, fixture.authority.scopeId),
+    );
+
+    const result = await runEffect(Effect.result(
+      fixture.repository.readReady(fixture.input),
+    ));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        operation: "readReady",
+        reason: "storedState",
+      });
+    }
+  });
+
+  it("revalidates the stored application graph inside the activation transaction", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const settled = await runEffect(fixture.repository.settle(fixture.input));
+    expect(settled).toMatchObject({ status: "ready" });
+    const issued = await runEffect(fixture.repository.readReady(fixture.input));
+    expect(issued).toMatchObject({ status: "ready" });
+    const activationBypass = await fixture.target.drizzle.transaction(tx =>
+      runEffect(Effect.result(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(
+          tx,
+          fixture.authority.scopeId,
+        );
+        return yield* validateApplicationReadinessForActivationInTransaction(
+          fixture.repository,
+          issued,
+          tx,
+          clock,
+        );
+      })))
+    );
+    expect(Result.isFailure(activationBypass)).toBe(true);
+    if (Result.isFailure(activationBypass)) {
+      expect(activationBypass.failure).toMatchObject({
+        reason: "invalidComposition",
+      });
+    }
+    await fixture.target.drizzle.update(fxSystemApplicationFunctionsV1).set({
+      entryBytes: new Uint8Array([1]),
+    }).where(eq(
+      fxSystemApplicationFunctionsV1.scopeId,
+      fixture.authority.scopeId,
+    ));
+
+    const result = await fixture.target.drizzle.transaction(tx => runEffect(
+      Effect.result(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(
+          tx,
+          fixture.authority.scopeId,
+        );
+        return yield* validateStoredApplicationReadinessForActivationInTransaction(
+          fixture.repository,
+          issued,
+          tx,
+          clock,
+        );
+      })),
+    ));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ reason: "storedState" });
+    }
+  });
+
   it("activates by explicit CAS, exactly replays, and issues one authentic selection", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);

@@ -7,7 +7,7 @@ canonical validation frames, guarded target-local single candidate head,
 bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
 `AA-R0` through `AA-R8` are complete. `M03-D` is now in progress with its
-current-generation schema-A system-test baseline complete. It remains private and
+current-generation schema-A and schema-B system-test cuts complete. It remains private and
 production-inert: no public route, CLI, deployment caller, trigger, destructive
 cleanup, or production generation cut is authorized by this roadmap.
 
@@ -125,7 +125,7 @@ approved correction now reuses the canonical Application function-entry frame
 for exact order-independent comparison. The unchanged scenario completes two
 cold analysis loads, one Workerd mutation, durable replay without re-execution,
 one Workerd query, and exactly one commit/outcome/feed/outbox publication in
-both PGlite and genuine PostgreSQL. Schemas B and C remain the next M03-D cuts.
+both PGlite and genuine PostgreSQL. Schema C remains the next M03-D cut.
 
 The first schema-B run exposed `ST-CORE-023` before remediation could begin.
 The existing scanner correctly rejects a populated removal and persists bounded
@@ -135,10 +135,18 @@ schema A against the single failed schema-B candidate head. Consequently
 remediation mutation cannot run. This is a shared readiness/activation and
 candidate-head composition defect, not permission for the system-test package
 to cache an active selection, synthesize a receipt, or clear the failed head.
-Schema-B acceptance is paused until that owner preserves the last accepted
-active-revision readiness authority independently of mutable non-active
-candidate progress, with exact receipt, CAS, rollback, reload, and uncertainty
-proof.
+The approved correction preserves the last accepted active-revision readiness
+authority independently of mutable non-active candidate progress. Candidate
+settlement still requires the exact current validation head; active reads
+authenticate and transactionally revalidate the durable readiness row, its
+canonical bytes/digest, schema/task bindings, cold children, a freshly reloaded
+application function/task graph, scope authority, and active-head CAS. The
+resumed scenario proves A remains available, removes the incompatible field
+through a normal A mutation, restarts validation at the new frontier, activates
+B, rejects the removed argument before execution, and rejects a valid-argument
+handler write that attempts to restore the removed field without publishing a
+commit, feed, or outbox entry. No new schema, fallback, or readiness owner was
+added.
 
 ## Approved Code And Package Ownership
 
@@ -654,11 +662,10 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schema A complete, schema B blocked by
-   `ST-CORE-023`**: extend `@flarex/system-test`
+7. `M03-D` - **in progress; schemas A and B complete**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
-   schema-A baseline is complete in both PGlite and genuine PostgreSQL; next
-   add the schema-B removal and schema-C required-field cuts.
+   schema-A baseline and schema-B removal/remediation cut are complete in both
+   PGlite and genuine PostgreSQL; next add the schema-C required-field cut.
    Historical single-revision runners remain unchanged and are not fallback or
    comparison authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with

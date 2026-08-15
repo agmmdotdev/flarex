@@ -13,6 +13,7 @@ import type { AppRowTransaction } from "./appRows";
 import {
   hasApplicationReadinessComposition,
   validateApplicationReadinessForActivationInTransaction,
+  validateStoredApplicationReadinessForActivationInTransaction,
   type ApplicationReadinessActivationBasis,
   type ApplicationReadinessRepository,
   type ApplicationReadinessResult,
@@ -551,15 +552,12 @@ function* (
   if (!clockMatches(authority, clock)) {
     return yield* activationFailure("read", "scopeAuthority");
   }
-  const validated = yield* validateApplicationReadinessForActivationInTransaction(
+  const validated = yield* validateStoredApplicationReadinessForActivationInTransaction(
     readinessRepository,
     readiness,
     tx,
     clock,
   );
-  if (validated.status !== "ready") {
-    return yield* activationFailure("read", "notReady", validated.revisionId);
-  }
   const basis = validated.basis;
   const rows = yield* query(
     tx.select().from(fxSystemApplicationActiveHeadsV1).where(eq(

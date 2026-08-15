@@ -865,6 +865,9 @@ importers:
       '@flarex/function-runtime':
         specifier: workspace:*
         version: link:../function-runtime
+      '@flarex/managed-schema':
+        specifier: workspace:*
+        version: link:../managed-schema
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres

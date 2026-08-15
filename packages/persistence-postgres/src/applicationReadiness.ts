@@ -11,6 +11,8 @@ import {
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
+  uint8ArrayByteLength,
 } from "@flarex/utils/bytes";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { MAX_APPLICATION_RUNTIME_HOST_IDENTITY_CODE_UNITS_V1 } from
@@ -227,10 +229,6 @@ export type ReadApplicationReadinessError =
   | ReadAppSchemaVersionIndexBindingError
   | IndexBuildReconciliationCatalogV1Error
   | TrustedScopeAuthorityError
-  | LoadAppSchemaCandidateReadinessError
-  | ValidateAppSchemaCandidateReadinessError
-  | LoadPointCommitUniqueConstraintEligibilityV1Error
-  | ValidatePointCommitUniqueConstraintEligibilityV1Error
   | LockScopeClockForShareError;
 
 export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
@@ -278,6 +276,11 @@ export type ApplicationReadinessActivationValidation =
       readonly status: "ready";
       readonly basis: ApplicationReadinessActivationBasis;
     }>;
+
+type StoredApplicationReadinessActivationValidation = Extract<
+  ApplicationReadinessActivationValidation,
+  { readonly status: "ready" }
+>;
 
 type ApplicationReadinessAuthority = TrustedScopeAuthority & Readonly<{
   readonly storageGeneration: FlarexDbV1StorageGeneration;
@@ -331,12 +334,36 @@ interface ApplicationReadinessIssuerState {
   readonly issuer: object;
 }
 
-interface IssuedApplicationReadinessState {
+interface PreparedIssuedApplicationReadinessState {
+  readonly kind: "prepared";
   readonly issuer: object;
   readonly prepared: PreparedReadiness;
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
 }
+
+interface StoredReadinessAuthority {
+  readonly bundle: StoredBundle;
+  readonly schemaVersion: CatalogSchemaVersion;
+  readonly schema: ApplicationSchemaAuthority;
+  readonly schemaBindingSha256: Uint8Array;
+  readonly cold: PreparedColdEvidence;
+  readonly readinessSha256: Uint8Array;
+  readonly readinessBytes: Uint8Array;
+  readonly readyAt: Date;
+}
+
+interface StoredIssuedApplicationReadinessState {
+  readonly kind: "stored";
+  readonly issuer: object;
+  readonly stored: StoredReadinessAuthority;
+  readonly readinessSha256: Uint8Array;
+  readonly readinessBytes: Uint8Array;
+}
+
+type IssuedApplicationReadinessState =
+  | PreparedIssuedApplicationReadinessState
+  | StoredIssuedApplicationReadinessState;
 
 const readinessRepositoryStates = new WeakMap<
   object,
@@ -499,19 +526,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
       const coldEvidence = storedColdEvidence ??
         (yield* materializeFunctions(reserved, capturedContext.cold));
       const cold = coldEvidence.entries;
-      const coldReceiptSetSha256 = yield* digestCanonicalJson({
-        format: "flarex.application-cold-receipt-set",
-        version: 1,
-        runtimeHostIdentity: coldEvidence.runtimeHostIdentity,
-        compatibilityDate: coldEvidence.compatibilityDate,
-        entries: cold.map(entry => ({
-          functionPath: entry.functionPath,
-          runtimeTargetSha256:
-            encodeBytesToLowercaseHex(entry.runtimeTargetSha256),
-          coldReceiptSha256:
-            encodeBytesToLowercaseHex(entry.coldReceiptSha256),
-        })),
-      });
+      const coldReceiptSetSha256 = yield* digestColdReceiptSet(coldEvidence);
       const uniqueConstraintEligibilitySha256 = yield* digestCanonicalJson(
         uniqueConstraintFrame(uniqueConstraintEligibility),
       );
@@ -598,82 +613,20 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
         capturedContext.controlDb,
         tx => readSchemaBinding(tx, reserved, schemaVersion, schema),
       );
-      const candidateValidation = yield* loadAppSchemaCandidateReadinessEffect(
-        capturedContext.candidateValidation,
-        Object.freeze({
-          deploymentId: reserved.deploymentId,
-          scopeId: reserved.authority.scopeId,
-          schemaVersionId: schema.schemaVersionId,
-          schemaManifestSha256Hex:
-            appSchemaCandidateManifestSha256HexV1FromBytes(
-              requirements.manifestSha256,
-            ),
-        }),
-      );
-      if (candidateValidation.status !== "ready") {
-        return notReady(
-          reserved.revision.revisionId,
-          candidateNotReadyReason(candidateValidation.reason),
-        );
-      }
-      const uniqueConstraintEligibility = yield*
-        loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(
-          capturedContext.pointCommit,
-          Object.freeze({
-            deploymentId: reserved.deploymentId,
-            scopeId: reserved.authority.scopeId,
-            schemaVersionId: schema.schemaVersionId,
-          }),
-          capturedContext.controlDb,
-          capturedContext.authority,
-        );
-      if (uniqueConstraintEligibility.status === "not_ready") {
-        return notReady(
-          reserved.revision.revisionId,
-          uniqueNotReadyReason(uniqueConstraintEligibility.reason),
-          uniqueConstraintEligibility.lifecycle,
-        );
-      }
-      const coldEvidence = yield* runLocatedTransaction(
+      const stored = yield* runLocatedTransaction(
         located.target,
-        tx => loadStoredColdEvidence(tx, reserved, capturedContext.cold),
-      );
-      if (coldEvidence === null) {
-        return yield* readinessFailure("storedState");
-      }
-      const coldReceiptSetSha256 = yield* digestCanonicalJson({
-        format: "flarex.application-cold-receipt-set",
-        version: 1,
-        runtimeHostIdentity: coldEvidence.runtimeHostIdentity,
-        compatibilityDate: coldEvidence.compatibilityDate,
-        entries: coldEvidence.entries.map(entry => ({
-          functionPath: entry.functionPath,
-          runtimeTargetSha256:
-            encodeBytesToLowercaseHex(entry.runtimeTargetSha256),
-          coldReceiptSha256:
-            encodeBytesToLowercaseHex(entry.coldReceiptSha256),
-        })),
-      });
-      const uniqueConstraintEligibilitySha256 = yield* digestCanonicalJson(
-        uniqueConstraintFrame(uniqueConstraintEligibility),
-      );
-      return yield* runLocatedTransaction(
-        located.target,
-        tx => settleReadiness(tx, {
-          bundle: reserved,
+        tx => loadStoredReadinessAuthority(
+          tx,
+          reserved,
           schemaVersion,
           schema,
           schemaBindingSha256,
-          cold: coldEvidence.entries,
-          runtimeHostIdentity: coldEvidence.runtimeHostIdentity,
-          compatibilityDate: coldEvidence.compatibilityDate,
-          coldReceiptSetSha256,
-          requirements,
-          candidateValidation: candidateValidation.evidence,
-          uniqueConstraintEligibility,
-          uniqueConstraintEligibilitySha256,
-        }, capturedContext, issuer, "validate"),
+          capturedContext.cold,
+        ),
       );
+      return stored === null
+        ? yield* readinessFailure("storedState")
+        : storedReadyProjection(stored, issuer);
     },
   );
   const readReady: ApplicationReadinessRepository<
@@ -725,6 +678,7 @@ export const validateApplicationReadinessForActivationInTransaction =
       const repositoryState = readinessRepositoryStates.get(repository);
       const issuedState = issuedReadinessStates.get(issued);
       if (repositoryState === undefined || issuedState === undefined ||
+        issuedState.kind !== "prepared" ||
         issuedState.issuer !== repositoryState.issuer ||
         issuedState.prepared.bundle.authority.scopeId !== currentClock.scopeId) {
         return yield* readinessFailure("invalidComposition");
@@ -752,6 +706,87 @@ export const validateApplicationReadinessForActivationInTransaction =
       });
     },
   );
+
+export const validateStoredApplicationReadinessForActivationInTransaction =
+  Effect.fn("ApplicationReadiness.validateStoredForActivationInTransaction")(
+    function* (
+      repository: unknown,
+      issued: ApplicationReadinessResult,
+      tx: AppRowTransaction,
+      currentClock: ScopeClockRecord,
+    ): Effect.fn.Return<
+      StoredApplicationReadinessActivationValidation,
+      | ApplicationReadinessError
+      | ApplicationTaskCatalogSnapshotError
+      | LockScopeClockForShareError
+    > {
+      if (typeof repository !== "object" || repository === null ||
+        issued.status !== "ready") {
+        return yield* readinessFailure("invalidComposition");
+      }
+      const repositoryState = readinessRepositoryStates.get(repository);
+      const issuedState = issuedReadinessStates.get(issued);
+      if (repositoryState === undefined || issuedState === undefined ||
+        issuedState.kind !== "stored" ||
+        issuedState.issuer !== repositoryState.issuer ||
+        issuedState.stored.bundle.authority.scopeId !== currentClock.scopeId) {
+        return yield* readinessFailure("invalidComposition");
+      }
+      return yield* validateStoredIssuedReadiness(
+        repositoryState,
+        issuedState,
+        tx,
+      );
+    },
+  );
+
+const validateStoredIssuedReadiness = Effect.fn(
+  "ApplicationReadiness.validateStoredIssuedReadiness",
+)(function* (
+  repositoryState: ApplicationReadinessIssuerState,
+  issuedState: StoredIssuedApplicationReadinessState,
+  tx: AppRowTransaction,
+): Effect.fn.Return<
+  StoredApplicationReadinessActivationValidation,
+  | ApplicationReadinessError
+  | ApplicationTaskCatalogSnapshotError
+  | LockScopeClockForShareError
+> {
+  const currentBundle = yield* reserveBundle(
+    tx,
+    issuedState.stored.bundle.authority,
+    Object.freeze({
+      deploymentId: issuedState.stored.bundle.deploymentId,
+      revisionId: issuedState.stored.bundle.revision.revisionId,
+    }),
+    repositoryState.context.taskCatalog,
+    "share",
+  );
+  if ("status" in currentBundle ||
+    !storedBundlesEqual(currentBundle, issuedState.stored.bundle)) {
+    return yield* readinessFailure("authorityChanged");
+  }
+  const replay = yield* loadStoredReadinessAuthority(
+    tx,
+    currentBundle,
+    issuedState.stored.schemaVersion,
+    issuedState.stored.schema,
+    issuedState.stored.schemaBindingSha256,
+    repositoryState.context.cold,
+  );
+  if (replay === null ||
+    !bytesEqualFullScan(
+      replay.readinessSha256,
+      issuedState.readinessSha256,
+    ) || !bytesEqualFullScan(
+      replay.readinessBytes,
+      issuedState.readinessBytes,
+    )) return yield* readinessFailure("authorityChanged");
+  return Object.freeze({
+    status: "ready",
+    basis: activationBasis(issuedState),
+  });
+});
 
 const reserveBundle = Effect.fn("ApplicationReadiness.reserveBundle")(
 function* (
@@ -1260,6 +1295,140 @@ function loadStoredColdEvidence<Failure>(
   });
 }
 
+const loadStoredReadinessAuthority = Effect.fn(
+  "ApplicationReadiness.loadStoredAuthority",
+)(function* <Failure>(
+  tx: AppRowTransaction,
+  bundle: StoredBundle,
+  schemaVersion: CatalogSchemaVersion,
+  schema: ApplicationSchemaAuthority,
+  schemaBindingSha256: Uint8Array,
+  coldPort: ApplicationReadinessColdMaterializationPort<Failure>,
+): Effect.fn.Return<
+  StoredReadinessAuthority | null,
+  ApplicationReadinessError | LockScopeClockForShareError
+> {
+  const cold = yield* loadStoredColdEvidence(tx, bundle, coldPort);
+  if (cold === null) return null;
+  const rows = yield* query(
+    tx.select().from(fxSystemApplicationReadinessV1).where(and(
+      eq(fxSystemApplicationReadinessV1.scopeId, bundle.authority.scopeId),
+      eq(fxSystemApplicationReadinessV1.revisionId, bundle.revision.revisionId),
+    )).limit(1).for("share"),
+  );
+  const row = rows[0];
+  if (row === undefined) return yield* readinessFailure("storedState");
+  const readyAt = databaseTimestampFromUnknown(row.readyAt);
+  const readinessByteLength = uint8ArrayByteLength(row.readinessBytes);
+  const sha256Fields = [
+    row.sourceArtifactRootSha256,
+    row.manifestSha256,
+    row.publicationSha256,
+    row.applicationSchemaSha256,
+    row.functionCatalogSha256,
+    row.schemaManifestSha256,
+    row.schemaBindingSha256,
+    row.taskCatalogBindingSha256,
+    row.coldReceiptSetSha256,
+    row.candidateValidationReceiptSha256,
+    row.uniqueConstraintEligibilitySha256,
+    row.physicalReadinessSha256,
+    row.readinessSha256,
+  ];
+  if (readyAt === null ||
+    sha256Fields.some(value => !isUint8ArrayWithByteLength(value, 32)) ||
+    readinessByteLength === undefined || readinessByteLength < 1 ||
+    readinessByteLength > MAX_READINESS_BYTES) {
+    return yield* readinessFailure("storedState");
+  }
+  const coldReceiptSetSha256 = yield* digestColdReceiptSet(cold);
+  const readinessBytes = readinessFrameFromAuthority({
+    bundle,
+    schemaVersionId: schema.schemaVersionId,
+    schemaManifestSha256Hex: schema.schemaManifestSha256,
+    schemaBindingSha256,
+    runtimeHostIdentity: cold.runtimeHostIdentity,
+    compatibilityDate: cold.compatibilityDate,
+    coldReceiptSetSha256,
+    candidateValidationReceiptSha256Hex: encodeBytesToLowercaseHex(
+      row.candidateValidationReceiptSha256,
+    ),
+    uniqueConstraintStatus: row.uniqueConstraintStatus,
+    uniqueConstraintEligibilitySha256:
+      row.uniqueConstraintEligibilitySha256,
+    physicalReadinessSha256: row.physicalReadinessSha256,
+    cold: cold.entries,
+  }, readyAt);
+  const readinessSha256 = yield* sha256(readinessBytes);
+  if (row.deploymentId !== bundle.deploymentId ||
+    row.candidateId !== bundle.revision.candidateId ||
+    row.analysisId !== bundle.revision.analysisId ||
+    row.storageGeneration !== bundle.authority.storageGeneration ||
+    row.storageGenerationFence !== bundle.authority.storageGenerationFence ||
+    row.epoch !== bundle.authority.epoch ||
+    row.schemaVersionId !== schema.schemaVersionId ||
+    row.runtimeHostIdentity !== cold.runtimeHostIdentity ||
+    row.compatibilityDate !== cold.compatibilityDate ||
+    !bytesEqualFullScan(
+      row.sourceArtifactRootSha256,
+      bundle.revision.sourceArtifactRootSha256,
+    ) ||
+    !bytesEqualFullScan(row.manifestSha256, bundle.revision.manifestSha256) ||
+    !bytesEqualFullScan(
+      row.publicationSha256,
+      bundle.publication.publicationSha256,
+    ) ||
+    !bytesEqualFullScan(
+      row.applicationSchemaSha256,
+      bundle.publication.schemaSha256,
+    ) ||
+    !bytesEqualFullScan(
+      row.functionCatalogSha256,
+      bundle.publication.functionCatalogSha256,
+    ) ||
+    !bytesEqualFullScan(
+      row.schemaManifestSha256,
+      decodeSha256(schema.schemaManifestSha256),
+    ) ||
+    !bytesEqualFullScan(row.schemaBindingSha256, schemaBindingSha256) ||
+    !bytesEqualFullScan(
+      row.taskCatalogBindingSha256,
+      bundle.task.taskCatalogBindingSha256,
+    ) ||
+    !bytesEqualFullScan(row.coldReceiptSetSha256, coldReceiptSetSha256) ||
+    !bytesEqualFullScan(row.readinessSha256, readinessSha256) ||
+    !bytesEqualFullScan(row.readinessBytes, readinessBytes)) {
+    return yield* readinessFailure("storedState");
+  }
+  return Object.freeze({
+    bundle,
+    schemaVersion,
+    schema,
+    schemaBindingSha256: copyBytes(schemaBindingSha256),
+    cold,
+    readinessSha256: copyBytes(readinessSha256),
+    readinessBytes: copyBytes(readinessBytes),
+    readyAt: new Date(readyAt.getTime()),
+  });
+});
+
+function digestColdReceiptSet(
+  cold: PreparedColdEvidence,
+): Effect.Effect<Uint8Array> {
+  return digestCanonicalJson({
+    format: "flarex.application-cold-receipt-set",
+    version: 1,
+    runtimeHostIdentity: cold.runtimeHostIdentity,
+    compatibilityDate: cold.compatibilityDate,
+    entries: cold.entries.map(entry => ({
+      functionPath: entry.functionPath,
+      runtimeTargetSha256:
+        encodeBytesToLowercaseHex(entry.runtimeTargetSha256),
+      coldReceiptSha256: encodeBytesToLowercaseHex(entry.coldReceiptSha256),
+    })),
+  });
+}
+
 function prepareRuntimeTarget(
   bundle: StoredBundle,
   fn: ApplicationManifestV1["functions"][number],
@@ -1657,50 +1826,87 @@ function readinessFrame(
   physicalReadinessSha256: Uint8Array,
   readyAt: Date,
 ): Uint8Array {
+  return readinessFrameFromAuthority({
+    bundle: prepared.bundle,
+    schemaVersionId: prepared.schema.schemaVersionId,
+    schemaManifestSha256Hex: prepared.schema.schemaManifestSha256,
+    schemaBindingSha256: prepared.schemaBindingSha256,
+    runtimeHostIdentity: prepared.runtimeHostIdentity,
+    compatibilityDate: prepared.compatibilityDate,
+    coldReceiptSetSha256: prepared.coldReceiptSetSha256,
+    candidateValidationReceiptSha256Hex:
+      prepared.candidateValidation.receiptSha256Hex,
+    uniqueConstraintStatus: prepared.uniqueConstraintEligibility.status,
+    uniqueConstraintEligibilitySha256:
+      prepared.uniqueConstraintEligibilitySha256,
+    physicalReadinessSha256,
+    cold: prepared.cold,
+  }, readyAt);
+}
+
+interface ReadinessFrameAuthority {
+  readonly bundle: StoredBundle;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly schemaManifestSha256Hex: string;
+  readonly schemaBindingSha256: Uint8Array;
+  readonly runtimeHostIdentity: string;
+  readonly compatibilityDate: string;
+  readonly coldReceiptSetSha256: Uint8Array;
+  readonly candidateValidationReceiptSha256Hex: string;
+  readonly uniqueConstraintStatus: "not_required" | "eligible";
+  readonly uniqueConstraintEligibilitySha256: Uint8Array;
+  readonly physicalReadinessSha256: Uint8Array;
+  readonly cold: ReadonlyArray<ColdEvidence>;
+}
+
+function readinessFrameFromAuthority(
+  authority: ReadinessFrameAuthority,
+  readyAt: Date,
+): Uint8Array {
   return canonicalBytes({
     format: "flarex.application-readiness",
     version: 1,
     status: "ready",
-    scopeId: prepared.bundle.revision.scopeId,
-    deploymentId: prepared.bundle.deploymentId,
-    revisionId: prepared.bundle.revision.revisionId,
-    candidateId: prepared.bundle.revision.candidateId,
-    analysisId: prepared.bundle.revision.analysisId,
-    storageGeneration: prepared.bundle.authority.storageGeneration,
+    scopeId: authority.bundle.revision.scopeId,
+    deploymentId: authority.bundle.deploymentId,
+    revisionId: authority.bundle.revision.revisionId,
+    candidateId: authority.bundle.revision.candidateId,
+    analysisId: authority.bundle.revision.analysisId,
+    storageGeneration: authority.bundle.authority.storageGeneration,
     storageGenerationFence:
-      prepared.bundle.authority.storageGenerationFence.toString(),
-    epoch: prepared.bundle.authority.epoch,
+      authority.bundle.authority.storageGenerationFence.toString(),
+    epoch: authority.bundle.authority.epoch,
     sourceArtifactRootSha256: encodeBytesToLowercaseHex(
-      prepared.bundle.revision.sourceArtifactRootSha256,
+      authority.bundle.revision.sourceArtifactRootSha256,
     ),
     manifestSha256:
-      encodeBytesToLowercaseHex(prepared.bundle.revision.manifestSha256),
+      encodeBytesToLowercaseHex(authority.bundle.revision.manifestSha256),
     publicationSha256:
-      encodeBytesToLowercaseHex(prepared.bundle.publication.publicationSha256),
+      encodeBytesToLowercaseHex(authority.bundle.publication.publicationSha256),
     applicationSchemaSha256:
-      encodeBytesToLowercaseHex(prepared.bundle.publication.schemaSha256),
+      encodeBytesToLowercaseHex(authority.bundle.publication.schemaSha256),
     functionCatalogSha256: encodeBytesToLowercaseHex(
-      prepared.bundle.publication.functionCatalogSha256,
+      authority.bundle.publication.functionCatalogSha256,
     ),
-    schemaVersionId: prepared.schema.schemaVersionId,
-    schemaManifestSha256: prepared.schema.schemaManifestSha256,
+    schemaVersionId: authority.schemaVersionId,
+    schemaManifestSha256: authority.schemaManifestSha256Hex,
     schemaBindingSha256:
-      encodeBytesToLowercaseHex(prepared.schemaBindingSha256),
+      encodeBytesToLowercaseHex(authority.schemaBindingSha256),
     taskCatalogBindingSha256: encodeBytesToLowercaseHex(
-      prepared.bundle.task.taskCatalogBindingSha256,
+      authority.bundle.task.taskCatalogBindingSha256,
     ),
-    runtimeHostIdentity: prepared.runtimeHostIdentity,
-    compatibilityDate: prepared.compatibilityDate,
+    runtimeHostIdentity: authority.runtimeHostIdentity,
+    compatibilityDate: authority.compatibilityDate,
     coldReceiptSetSha256:
-      encodeBytesToLowercaseHex(prepared.coldReceiptSetSha256),
+      encodeBytesToLowercaseHex(authority.coldReceiptSetSha256),
     candidateValidationReceiptSha256:
-      prepared.candidateValidation.receiptSha256Hex,
-    uniqueConstraintStatus: prepared.uniqueConstraintEligibility.status,
+      authority.candidateValidationReceiptSha256Hex,
+    uniqueConstraintStatus: authority.uniqueConstraintStatus,
     uniqueConstraintEligibilitySha256:
-      encodeBytesToLowercaseHex(prepared.uniqueConstraintEligibilitySha256),
+      encodeBytesToLowercaseHex(authority.uniqueConstraintEligibilitySha256),
     physicalReadinessSha256:
-      encodeBytesToLowercaseHex(physicalReadinessSha256),
-    coldReceipts: prepared.cold.map(entry => ({
+      encodeBytesToLowercaseHex(authority.physicalReadinessSha256),
+    coldReceipts: authority.cold.map(entry => ({
       functionPath: entry.functionPath,
       runtimeTargetSha256:
         encodeBytesToLowercaseHex(entry.runtimeTargetSha256),
@@ -1931,6 +2137,7 @@ function readyProjection(
     readyAt: new Date(readyAt.getTime()),
   } as const);
   issuedReadinessStates.set(result, Object.freeze({
+    kind: "prepared",
     issuer,
     prepared,
     readinessSha256: copyBytes(readinessSha256),
@@ -1939,39 +2146,77 @@ function readyProjection(
   return result;
 }
 
+function storedReadyProjection(
+  stored: StoredReadinessAuthority,
+  issuer: object,
+): ApplicationReadinessResult {
+  const result = Object.freeze({
+    status: "ready",
+    disposition: "replayed",
+    scopeId: stored.bundle.revision.scopeId,
+    revisionId: stored.bundle.revision.revisionId,
+    schemaVersionId: stored.schema.schemaVersionId,
+    readinessSha256: encodeBytesToLowercaseHex(stored.readinessSha256),
+    readinessBytes: copyBytes(stored.readinessBytes),
+    readyAt: new Date(stored.readyAt.getTime()),
+  } as const);
+  issuedReadinessStates.set(result, Object.freeze({
+    kind: "stored",
+    issuer,
+    stored,
+    readinessSha256: copyBytes(stored.readinessSha256),
+    readinessBytes: copyBytes(stored.readinessBytes),
+  }));
+  return result;
+}
+
 function activationBasis(
   state: IssuedApplicationReadinessState,
 ): ApplicationReadinessActivationBasis {
-  const prepared = state.prepared;
+  const bundle = state.kind === "prepared"
+    ? state.prepared.bundle
+    : state.stored.bundle;
+  const schema = state.kind === "prepared"
+    ? state.prepared.schema
+    : state.stored.schema;
+  const schemaBindingSha256 = state.kind === "prepared"
+    ? state.prepared.schemaBindingSha256
+    : state.stored.schemaBindingSha256;
+  const runtimeHostIdentity = state.kind === "prepared"
+    ? state.prepared.runtimeHostIdentity
+    : state.stored.cold.runtimeHostIdentity;
+  const compatibilityDate = state.kind === "prepared"
+    ? state.prepared.compatibilityDate
+    : state.stored.cold.compatibilityDate;
   return Object.freeze({
     authority: Object.freeze({
-      ...prepared.bundle.authority,
+      ...bundle.authority,
       physicalLocator: Object.freeze({
-        ...prepared.bundle.authority.physicalLocator,
+        ...bundle.authority.physicalLocator,
       }),
     }),
-    deploymentId: prepared.bundle.deploymentId,
-    revisionId: prepared.bundle.revision.revisionId,
-    candidateId: prepared.bundle.revision.candidateId,
-    analysisId: prepared.bundle.revision.analysisId,
+    deploymentId: bundle.deploymentId,
+    revisionId: bundle.revision.revisionId,
+    candidateId: bundle.revision.candidateId,
+    analysisId: bundle.revision.analysisId,
     sourceArtifactRootSha256:
-      copyBytes(prepared.bundle.revision.sourceArtifactRootSha256),
-    manifestSha256: copyBytes(prepared.bundle.revision.manifestSha256),
-    manifest: prepared.bundle.manifest,
+      copyBytes(bundle.revision.sourceArtifactRootSha256),
+    manifestSha256: copyBytes(bundle.revision.manifestSha256),
+    manifest: bundle.manifest,
     publicationSha256:
-      copyBytes(prepared.bundle.publication.publicationSha256),
+      copyBytes(bundle.publication.publicationSha256),
     functionCatalogSha256:
-      copyBytes(prepared.bundle.publication.functionCatalogSha256),
+      copyBytes(bundle.publication.functionCatalogSha256),
     applicationSchemaSha256:
-      copyBytes(prepared.bundle.publication.schemaSha256),
-    schemaVersionId: prepared.schema.schemaVersionId,
-    schemaManifestSha256: decodeSha256(prepared.schema.schemaManifestSha256),
-    schemaBindingSha256: copyBytes(prepared.schemaBindingSha256),
-    taskCatalogSha256: copyBytes(prepared.bundle.task.taskCatalogSha256),
+      copyBytes(bundle.publication.schemaSha256),
+    schemaVersionId: schema.schemaVersionId,
+    schemaManifestSha256: decodeSha256(schema.schemaManifestSha256),
+    schemaBindingSha256: copyBytes(schemaBindingSha256),
+    taskCatalogSha256: copyBytes(bundle.task.taskCatalogSha256),
     taskCatalogBindingSha256:
-      copyBytes(prepared.bundle.task.taskCatalogBindingSha256),
-    runtimeHostIdentity: prepared.runtimeHostIdentity,
-    compatibilityDate: prepared.compatibilityDate,
+      copyBytes(bundle.task.taskCatalogBindingSha256),
+    runtimeHostIdentity,
+    compatibilityDate,
     readinessSha256: copyBytes(state.readinessSha256),
   });
 }
