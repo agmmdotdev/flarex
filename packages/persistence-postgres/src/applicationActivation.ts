@@ -12,6 +12,7 @@ import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 import type { AppRowTransaction } from "./appRows";
 import {
   hasApplicationReadinessComposition,
+  hasApplicationReadinessPlanningComposition,
   validateApplicationReadinessForActivationInTransaction,
   validateStoredApplicationReadinessForActivationInTransaction,
   type ApplicationReadinessActivationBasis,
@@ -20,7 +21,10 @@ import {
   type ReadApplicationReadinessError,
   type SettleApplicationReadinessError,
 } from "./applicationReadiness";
+import type { ApplicationSchemaAuthorityPublisher } from
+  "./applicationSchemaAuthority";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
+import type { FlarexMetadataDatabase } from "./deployments";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
@@ -145,6 +149,35 @@ interface SelectionState {
 }
 
 const selectionStates = new WeakMap<ApplicationActiveSelection, SelectionState>();
+interface ApplicationActivationRepositoryState {
+  readonly readiness: unknown;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >;
+}
+
+const activationRepositoryStates = new WeakMap<
+  ApplicationActivationRepository<unknown, unknown>,
+  ApplicationActivationRepositoryState
+>();
+
+export function hasApplicationActivationPlanningComposition(
+  repository: ApplicationActivationRepository<unknown, unknown>,
+  controlDb: FlarexMetadataDatabase,
+  schema: ApplicationSchemaAuthorityPublisher<unknown>,
+  authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >,
+): boolean {
+  const state = activationRepositoryStates.get(repository);
+  return state !== undefined && state.authority === authority &&
+    hasApplicationReadinessPlanningComposition(
+      state.readiness,
+      controlDb,
+      schema,
+      authority,
+    );
+}
 
 export function claimApplicationActiveSelection(
   selection: unknown,
@@ -261,7 +294,12 @@ export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
     },
   );
 
-  return Object.freeze({ activate, readActive });
+  const repository = Object.freeze({ activate, readActive });
+  activationRepositoryStates.set(repository, Object.freeze({
+    readiness: captured.readiness,
+    authority: captured.authority,
+  }));
+  return repository;
 }
 
 const loadReadyForActiveRead = Effect.fn(

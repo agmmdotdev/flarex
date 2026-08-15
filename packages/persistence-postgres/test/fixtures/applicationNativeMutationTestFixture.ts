@@ -1,6 +1,6 @@
 import { webcrypto } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   canonicalizeApplicationManifestV1,
   type ApplicationManifestV1,
@@ -78,6 +78,10 @@ import {
   makeApplicationPublicationRepository,
   type ApplicationPublication,
 } from "../../src/applicationPublication";
+import {
+  createApplicationManagedSchemaPlanningPort,
+  type ApplicationManagedSchemaPlanningPort,
+} from "../../src/applicationManagedSchemaPlanning";
 import { makeApplicationReadinessRepository } from "../../src/applicationReadiness";
 import {
   makeApplicationSchemaAuthorityPublisher,
@@ -129,6 +133,7 @@ import {
   isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/transactionSessionAttemptKernel";
 import {
+  fxSystemApplicationPublicationsV1,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
@@ -193,6 +198,7 @@ export interface ApplicationNativeMutationFixture<
   readonly source: ApplicationNativeMutationSourceBundle;
   readonly schema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
   readonly schemaAuthority: ApplicationSchemaAuthority;
+  readonly managedSchemaPlanning: ApplicationManagedSchemaPlanningPort;
   readonly candidateValidation: ReturnType<
     typeof createAppSchemaCandidateValidationPort
   >;
@@ -237,6 +243,10 @@ export interface ApplicationNativeMutationFixture<
   readonly moveHead: () => Promise<CoherentActiveApplication>;
   /** Persistence-owned corruption seam for fail-closed system-test proof. */
   readonly corruptCandidateValidationFrameBytesForTest: () => Promise<void>;
+  /** Persistence-owned corruption seam for publication revalidation proof. */
+  readonly corruptApplicationPublicationSchemaSha256ForTest: (
+    publication: ApplicationPublication,
+  ) => Promise<() => Promise<void>>;
 }
 
 export type ApplicationNativeMutationPGliteFixture =
@@ -745,6 +755,13 @@ async function createApplicationNativeMutationFixture<
         lane.locateEpoch(locator),
     }),
   });
+  const managedSchemaPlanning = createApplicationManagedSchemaPlanningPort({
+    deploymentId,
+    controlDb: control.drizzle,
+    activation,
+    schema,
+    authority: authorityPorts,
+  });
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
     control.drizzle,
   );
@@ -828,6 +845,35 @@ async function createApplicationNativeMutationFixture<
       [authority.scopeId],
     );
   };
+  const corruptApplicationPublicationSchemaSha256ForTest = async (
+    publication: ApplicationPublication,
+  ) => {
+    const rows = await target.drizzle.select({
+      schemaSha256: fxSystemApplicationPublicationsV1.schemaSha256,
+    }).from(fxSystemApplicationPublicationsV1).where(and(
+      eq(fxSystemApplicationPublicationsV1.scopeId, publication.scopeId),
+      eq(fxSystemApplicationPublicationsV1.revisionId, publication.revisionId),
+    )).limit(1);
+    const row = rows[0];
+    if (row === undefined) {
+      throw new Error("Application publication corruption target is missing.");
+    }
+    const original = new Uint8Array(row.schemaSha256);
+    await target.drizzle.update(fxSystemApplicationPublicationsV1).set({
+      schemaSha256: new Uint8Array(32),
+    }).where(and(
+      eq(fxSystemApplicationPublicationsV1.scopeId, publication.scopeId),
+      eq(fxSystemApplicationPublicationsV1.revisionId, publication.revisionId),
+    ));
+    return async () => {
+      await target.drizzle.update(fxSystemApplicationPublicationsV1).set({
+        schemaSha256: original,
+      }).where(and(
+        eq(fxSystemApplicationPublicationsV1.scopeId, publication.scopeId),
+        eq(fxSystemApplicationPublicationsV1.revisionId, publication.revisionId),
+      ));
+    };
+  };
   return Object.freeze({
     control,
     target,
@@ -840,6 +886,7 @@ async function createApplicationNativeMutationFixture<
     source,
     schema,
     schemaAuthority,
+    managedSchemaPlanning,
     candidateValidation,
     candidateSchemaWriteGuard,
     registerRevision,
@@ -857,6 +904,7 @@ async function createApplicationNativeMutationFixture<
     seedUserDocument,
     moveHead,
     corruptCandidateValidationFrameBytesForTest,
+    corruptApplicationPublicationSchemaSha256ForTest,
   });
 }
 

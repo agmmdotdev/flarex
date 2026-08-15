@@ -1,10 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { Effect, Encoding, Result, Scope } from "effect";
+import { Effect, Result, Scope } from "effect";
+import { eq } from "drizzle-orm";
 import { Miniflare } from "miniflare";
 import {
-  planAppSchemaEvolutionV1Effect,
-} from "@flarex/managed-schema/planning";
+  claimPreparedApplicationManagedSchemaPlanResult,
+  makeApplicationManagedSchemaPlanningLayer,
+  prepareApplicationManagedSchemaPlan,
+  type PrepareApplicationManagedSchemaPlanInput,
+} from "@flarex/standard-application-registration/application";
 import {
   makeApplicationAnalysisContext,
 } from "@flarex/source-analyzer-v2/internal/application-analysis-composition";
@@ -23,6 +27,7 @@ import {
   type ApplicationNativeMutationFixture,
   type ApplicationNativeMutationFixtureOptions,
   type ApplicationNativeMutationPersistence,
+  type ApplicationNativeMutationRegisteredRevision,
   type ApplicationNativeMutationSourceBundle,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
@@ -39,6 +44,13 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import {
+  ApplicationManagedSchemaPlanningError,
+  createApplicationManagedSchemaPlanningPort,
+} from
+  "@flarex/persistence-postgres/internal/application-managed-schema-planning";
+import { fxSystemScopeClocks } from
+  "@flarex/persistence-postgres/internal/system-test/schema";
 import { PointCommitStaleAuthorityV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
 import type { ScopePhysicalLocator } from
@@ -72,15 +84,14 @@ import {
 } from "flarex-backend/internal/application-analysis-source-reader";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
-import {
-  SchemaManifestSha256Schema,
-  type CatalogSchemaVersionId,
-} from "flarex-protocol/schema-manifest";
+import type { CatalogSchemaVersionId } from
+  "flarex-protocol/schema-manifest";
 import { ValidatorValueErrorV1 } from "flarex-protocol/validator-engine";
 import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+import { ScopeEpochSchema } from "flarex-protocol/storage-authority";
 
 import {
   makeApplicationNativeMutationTestLayer,
@@ -245,9 +256,44 @@ export async function proveManagedSchemaCookingSchemaB(
   createFixture: ManagedSchemaCookingFixtureFactory = options =>
     createApplicationNativeMutationPGliteFixture(options),
 ): Promise<ManagedSchemaCookingSchemaBProof> {
-  return withCookingScenario(createFixture, async scenario =>
-    (await establishCookingSchemaB(scenario)).proof
-  );
+  return withCookingScenario(createFixture, async scenario => {
+    const state = await establishCookingSchemaB(scenario);
+    await proveCrossTargetPlanningRejection(
+      scenario,
+      state.activePublication,
+      state.candidateManifest,
+    );
+    await scenario.fixture.target.drizzle.update(fxSystemScopeClocks).set({
+      epoch: ScopeEpochSchema.make("22222222-2222-4222-8222-222222222222"),
+    }).where(eq(
+      fxSystemScopeClocks.scopeId,
+      scenario.fixture.authority.scopeId,
+    ));
+    const changedAuthority = await runSystemTestEffectV1(Effect.result(
+      prepareApplicationManagedSchemaPlan({
+        candidatePublication: state.activePublication,
+      }).pipe(Effect.provide(
+        makeApplicationManagedSchemaPlanningLayer(
+          scenario.fixture.managedSchemaPlanning,
+        ),
+      )),
+    ));
+    if (Result.isSuccess(changedAuthority) ||
+      !hasTaggedReason(
+        changedAuthority.failure,
+        "ApplicationReadinessError",
+        "authorityChanged",
+      )) {
+      throw new Error(
+        `Managed-schema planning accepted changed scope authority: ${
+          Result.isSuccess(changedAuthority)
+            ? "success"
+            : failureIdentity(changedAuthority.failure)
+        }.`,
+      );
+    }
+    return state.proof;
+  });
 }
 
 async function establishCookingSchemaB(scenario: CookingScenario) {
@@ -297,31 +343,35 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     const schemaB = await scenario.fixture.preparePublishedSchema(
       firstSchemaB.manifest,
     );
-    const clock = await scenario.fixture.target.getScopeClock(
-      scenario.fixture.authority.scopeId,
+    const restorePublication = await scenario.fixture
+      .corruptApplicationPublicationSchemaSha256ForTest(
+        firstSchemaB.publication,
+      );
+    try {
+      const corrupted = await runSystemTestEffectV1(Effect.result(
+        prepareApplicationManagedSchemaPlan({
+          candidatePublication: firstSchemaB.publication,
+        }).pipe(Effect.provide(
+          makeApplicationManagedSchemaPlanningLayer(
+            scenario.fixture.managedSchemaPlanning,
+          ),
+        )),
+      ));
+      if (Result.isSuccess(corrupted) ||
+        !(corrupted.failure instanceof ApplicationManagedSchemaPlanningError) ||
+        corrupted.failure.reason !== "candidatePublicationChanged") {
+        throw new Error(
+          "Managed-schema planning accepted changed publication evidence.",
+        );
+      }
+    } finally {
+      await restorePublication();
+    }
+    const preparedPlan = await prepareManagedSchemaPlan(
+      scenario,
+      firstSchemaB.publication,
     );
-    if (clock === null) throw new Error("Cooking schema planning clock is missing.");
-    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
-      authority: {
-        scopeId: scenario.fixture.authority.scopeId,
-        storageGeneration: scenario.fixture.authority.storageGeneration,
-        storageGenerationFence:
-          scenario.fixture.authority.storageGenerationFence,
-        scopeEpoch: scenario.fixture.authority.epoch,
-        activeSchemaVersionId:
-          scenario.fixture.schemaAuthority.schemaVersionId,
-        activeManifestSha256: schemaManifestSha256(
-          scenario.fixture.schemaAuthority.schemaManifestSha256,
-        ),
-        candidateSchemaVersionId: schemaB.schemaVersionId,
-        candidateManifestSha256: schemaManifestSha256(
-          schemaB.schemaManifestSha256,
-        ),
-        dataFrontierCommitSeq: clock.lastCommitSeq,
-      },
-      activeManifest: scenario.fixture.schemaAuthority.manifest,
-      candidateManifest: schemaB.manifest,
-    }));
+    const plan = preparedPlan.plan;
     if (plan.disposition !== "managedBuildAndValidation" ||
       !plan.operations.some(operation =>
         operation.safetyClass === "requiresDataValidation" &&
@@ -413,6 +463,17 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
         "schema B retry",
       ),
     });
+    const initialClaim = claimPreparedApplicationManagedSchemaPlanResult(
+      preparedPlan.prepared,
+      scenario.fixture.managedSchemaPlanning,
+    );
+    if (Result.isFailure(initialClaim) ||
+      initialClaim.success.candidatePublication !== firstSchemaB.publication ||
+      initialClaim.success.candidatePublication === retriedSchemaB.publication) {
+      throw new Error(
+        "Managed-schema prepared authority did not retain the exact publication.",
+      );
+    }
     const restarted = await Effect.runPromise(
       installAppSchemaCandidateValidationEffect(
         scenario.fixture.candidateValidation,
@@ -542,6 +603,8 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       secondRecipeId: withoutDescription.value,
       schemaB,
       activeSchemaB,
+      activePublication: retriedSchemaB.publication,
+      candidateManifest: firstSchemaB.manifest,
       proof,
     });
 }
@@ -557,6 +620,20 @@ export async function proveManagedSchemaCookingSchemaC(
 
 async function establishCookingSchemaC(scenario: CookingScenario) {
     const schemaBState = await establishCookingSchemaB(scenario);
+    const staleCandidate = await runSystemTestEffectV1(Effect.result(
+      prepareApplicationManagedSchemaPlan({
+        candidatePublication: schemaBState.activePublication,
+      }).pipe(Effect.provide(
+        makeApplicationManagedSchemaPlanningLayer(
+          scenario.fixture.managedSchemaPlanning,
+        ),
+      )),
+    ));
+    if (Result.isSuccess(staleCandidate) ||
+      !(staleCandidate.failure instanceof ApplicationManagedSchemaPlanningError) ||
+      staleCandidate.failure.reason !== "candidateAlreadyActive") {
+      throw new Error("Managed-schema planning accepted the active revision as a candidate.");
+    }
     const schemaCSource = await cookingSourceBundle("C");
     scenario.sources.set(
       schemaCSource.sourceArtifact.rootSha256,
@@ -585,30 +662,10 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
     const schemaC = await scenario.fixture.preparePublishedSchema(
       firstSchemaC.manifest,
     );
-    const clock = await scenario.fixture.target.getScopeClock(
-      scenario.fixture.authority.scopeId,
+    const { plan } = await prepareManagedSchemaPlan(
+      scenario,
+      firstSchemaC.publication,
     );
-    if (clock === null) throw new Error("Cooking schema C planning clock is missing.");
-    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
-      authority: {
-        scopeId: scenario.fixture.authority.scopeId,
-        storageGeneration: scenario.fixture.authority.storageGeneration,
-        storageGenerationFence:
-          scenario.fixture.authority.storageGenerationFence,
-        scopeEpoch: scenario.fixture.authority.epoch,
-        activeSchemaVersionId: schemaBState.activeSchemaB.basis.schemaVersionId,
-        activeManifestSha256: schemaManifestSha256(
-          schemaBState.schemaB.schemaManifestSha256,
-        ),
-        candidateSchemaVersionId: schemaC.schemaVersionId,
-        candidateManifestSha256: schemaManifestSha256(
-          schemaC.schemaManifestSha256,
-        ),
-        dataFrontierCommitSeq: clock.lastCommitSeq,
-      },
-      activeManifest: schemaBState.schemaB.manifest,
-      candidateManifest: schemaC.manifest,
-    }));
     if (plan.disposition !== "managedBuildAndValidation" ||
       !plan.operations.some(operation =>
         operation.safetyClass === "requiresDataValidation" &&
@@ -865,30 +922,10 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
     const schemaD = await scenario.fixture.preparePublishedSchema(
       firstSchemaD.manifest,
     );
-    const clock = await scenario.fixture.target.getScopeClock(
-      scenario.fixture.authority.scopeId,
+    const { plan } = await prepareManagedSchemaPlan(
+      scenario,
+      firstSchemaD.publication,
     );
-    if (clock === null) throw new Error("Cooking schema D planning clock is missing.");
-    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
-      authority: {
-        scopeId: scenario.fixture.authority.scopeId,
-        storageGeneration: scenario.fixture.authority.storageGeneration,
-        storageGenerationFence:
-          scenario.fixture.authority.storageGenerationFence,
-        scopeEpoch: scenario.fixture.authority.epoch,
-        activeSchemaVersionId: schemaCState.activeSchemaC.basis.schemaVersionId,
-        activeManifestSha256: schemaManifestSha256(
-          schemaCState.schemaC.schemaManifestSha256,
-        ),
-        candidateSchemaVersionId: schemaD.schemaVersionId,
-        candidateManifestSha256: schemaManifestSha256(
-          schemaD.schemaManifestSha256,
-        ),
-        dataFrontierCommitSeq: clock.lastCommitSeq,
-      },
-      activeManifest: schemaCState.schemaC.manifest,
-      candidateManifest: schemaD.manifest,
-    }));
     if (plan.disposition !== "managedBuildAndValidation" ||
       !plan.operations.some(operation =>
         operation.safetyClass === "requiresDataValidation" &&
@@ -1153,30 +1190,10 @@ export async function proveManagedSchemaCookingSchemaE(
     const schemaE = await scenario.fixture.preparePublishedSchema(
       schemaERevision.manifest,
     );
-    const clock = await scenario.fixture.target.getScopeClock(
-      scenario.fixture.authority.scopeId,
+    const { plan } = await prepareManagedSchemaPlan(
+      scenario,
+      schemaERevision.publication,
     );
-    if (clock === null) throw new Error("Cooking schema E planning clock is missing.");
-    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
-      authority: {
-        scopeId: scenario.fixture.authority.scopeId,
-        storageGeneration: scenario.fixture.authority.storageGeneration,
-        storageGenerationFence:
-          scenario.fixture.authority.storageGenerationFence,
-        scopeEpoch: scenario.fixture.authority.epoch,
-        activeSchemaVersionId: schemaDState.activeSchemaD.basis.schemaVersionId,
-        activeManifestSha256: schemaManifestSha256(
-          schemaDState.schemaD.schemaManifestSha256,
-        ),
-        candidateSchemaVersionId: schemaE.schemaVersionId,
-        candidateManifestSha256: schemaManifestSha256(
-          schemaE.schemaManifestSha256,
-        ),
-        dataFrontierCommitSeq: clock.lastCommitSeq,
-      },
-      activeManifest: schemaDState.schemaD.manifest,
-      candidateManifest: schemaE.manifest,
-    }));
     if (plan.disposition !== "managedBuildAndValidation" ||
       !plan.incompatibilityEvidence.entries.some(evidence =>
         evidence.code === "candidateDocumentValidationRequired" &&
@@ -2532,10 +2549,155 @@ async function settleReadyCandidateValidation(
   throw new Error(`Remediated cooking ${label} did not settle.`);
 }
 
-function schemaManifestSha256(value: string) {
-  return SchemaManifestSha256Schema.make(
-    Result.getOrThrow(Encoding.decodeHex(value)),
+async function prepareManagedSchemaPlan(
+  scenario: CookingScenario,
+  candidatePublication: ApplicationNativeMutationRegisteredRevision["publication"],
+) {
+  const result = await runSystemTestEffectV1(
+    prepareApplicationManagedSchemaPlan({ candidatePublication }).pipe(
+      Effect.provide(
+        makeApplicationManagedSchemaPlanningLayer(
+          scenario.fixture.managedSchemaPlanning,
+        ),
+      ),
+    ),
   );
+  const claimed = claimPreparedApplicationManagedSchemaPlanResult(
+    result.prepared,
+    scenario.fixture.managedSchemaPlanning,
+  );
+  const copied = claimPreparedApplicationManagedSchemaPlanResult(
+    { ...result.prepared },
+    scenario.fixture.managedSchemaPlanning,
+  );
+  if (Result.isFailure(claimed) || claimed.success.plan !== result.plan ||
+    claimed.success.candidatePublication !== candidatePublication ||
+    Result.isSuccess(copied)) {
+    throw new Error(
+      "Managed-schema prepared-plan capability authenticity was not preserved.",
+    );
+  }
+
+  const copiedPort = structuredClone(scenario.fixture.managedSchemaPlanning);
+  const crossControlPort = createApplicationManagedSchemaPlanningPort({
+    deploymentId: scenario.fixture.deploymentId,
+    controlDb: scenario.fixture.target.drizzle,
+    activation: scenario.fixture.activation,
+    schema: scenario.fixture.schema,
+    authority: scenario.fixture.authorityPorts,
+  });
+  const copiedAuthorityPort = createApplicationManagedSchemaPlanningPort({
+    deploymentId: scenario.fixture.deploymentId,
+    controlDb: scenario.fixture.control.drizzle,
+    activation: scenario.fixture.activation,
+    schema: scenario.fixture.schema,
+    authority: { ...scenario.fixture.authorityPorts },
+  });
+  for (const invalidPort of [
+    copiedPort,
+    crossControlPort,
+    copiedAuthorityPort,
+  ]) {
+    const rejected = await runSystemTestEffectV1(Effect.result(
+      prepareApplicationManagedSchemaPlan({ candidatePublication }).pipe(
+        Effect.provide(makeApplicationManagedSchemaPlanningLayer(invalidPort)),
+      ),
+    ));
+    if (Result.isSuccess(rejected) ||
+      !(rejected.failure instanceof ApplicationManagedSchemaPlanningError) ||
+      rejected.failure.reason !== "invalidComposition") {
+      throw new Error("Managed-schema planning accepted an invalid composition.");
+    }
+  }
+  const copiedCandidate = await runSystemTestEffectV1(Effect.result(
+    prepareApplicationManagedSchemaPlan({
+      candidatePublication: { ...candidatePublication },
+    }).pipe(Effect.provide(
+      makeApplicationManagedSchemaPlanningLayer(
+        scenario.fixture.managedSchemaPlanning,
+      ),
+    )),
+  ));
+  if (Result.isSuccess(copiedCandidate) ||
+    !(copiedCandidate.failure instanceof ApplicationManagedSchemaPlanningError) ||
+    copiedCandidate.failure.reason !== "candidateEvidenceInvalid") {
+    throw new Error("Managed-schema planning accepted copied candidate evidence.");
+  }
+  let candidateReads = 0;
+  const changingInput: PrepareApplicationManagedSchemaPlanInput = {
+    get candidatePublication() {
+      candidateReads += 1;
+      return candidateReads === 1
+        ? candidatePublication
+        : { ...candidatePublication };
+    },
+  };
+  const capturedOnce = await runSystemTestEffectV1(
+    prepareApplicationManagedSchemaPlan(changingInput).pipe(Effect.provide(
+      makeApplicationManagedSchemaPlanningLayer(
+        scenario.fixture.managedSchemaPlanning,
+      ),
+    )),
+  );
+  const capturedClaim = claimPreparedApplicationManagedSchemaPlanResult(
+    capturedOnce.prepared,
+    scenario.fixture.managedSchemaPlanning,
+  );
+  if (candidateReads !== 1 || Result.isFailure(capturedClaim) ||
+    capturedClaim.success.candidatePublication !== candidatePublication) {
+    throw new Error(
+      "Managed-schema planning did not capture candidate evidence exactly once.",
+    );
+  }
+  return result;
+}
+
+async function proveCrossTargetPlanningRejection(
+  scenario: CookingScenario,
+  candidatePublication: ApplicationNativeMutationRegisteredRevision["publication"],
+  candidateManifest: ApplicationNativeMutationRegisteredRevision["manifest"],
+): Promise<void> {
+  await withCookingScenario(
+    options => createApplicationNativeMutationPGliteFixture(options),
+    async foreign => {
+      await foreign.fixture.preparePublishedSchema(candidateManifest);
+      const crossControlPort = createApplicationManagedSchemaPlanningPort({
+        deploymentId: scenario.fixture.deploymentId,
+        controlDb: foreign.fixture.control.drizzle,
+        activation: scenario.fixture.activation,
+        schema: foreign.fixture.schema,
+        authority: scenario.fixture.authorityPorts,
+      });
+      for (const [label, port] of [
+        ["foreign target database", foreign.fixture.managedSchemaPlanning],
+        ["split activation/control composition", crossControlPort],
+      ] as const) {
+        const rejected = await runSystemTestEffectV1(Effect.result(
+          prepareApplicationManagedSchemaPlan({ candidatePublication }).pipe(
+            Effect.provide(makeApplicationManagedSchemaPlanningLayer(port)),
+          ),
+        ));
+        if (Result.isSuccess(rejected) ||
+          !(rejected.failure instanceof ApplicationManagedSchemaPlanningError) ||
+          rejected.failure.reason !== "invalidComposition") {
+          throw new Error(`Managed-schema planning accepted ${label}.`);
+        }
+      }
+    },
+  );
+}
+
+function hasTaggedReason(
+  value: unknown,
+  tag: string,
+  reason: string,
+): boolean {
+  return isNonArrayRecord(value) && value._tag === tag && value.reason === reason;
+}
+
+function failureIdentity(value: unknown): string {
+  if (!isNonArrayRecord(value)) return "unknown";
+  return `${String(value._tag)}:${String(value.reason)}`;
 }
 
 class MiniflareAnalysisWorkerLoader implements WorkerLoader {

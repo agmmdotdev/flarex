@@ -8,9 +8,9 @@ bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
 `AA-R0` through `AA-R8` are complete. `M03-D` is complete through its
 current-generation schema-A through schema-G system-test lineage and all nine
-acceptance items. `M04` has completed its developer-tooling composition
-preflight; implementation remains private and is split into the plan, apply,
-and adapter checkpoints below.
+acceptance items. `M04-A` now provides the private read-only prepared-plan
+composition; `M04-B` exact-plan apply and `M04-C` developer adapters remain
+deferred behind the checkpoints below.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -309,6 +309,30 @@ credential model, deployment discovery, public compatibility promise, raw SQL,
 automatic data deletion, migration-history rewrite, dual apply path, fallback
 to the existing deployment-push finish operation, or `AA-R9` production
 cutover. Those require their directly owning roadmaps and separate approval.
+
+### Current M04-A implementation
+
+The unversioned Application entrypoint in
+`@flarex/standard-application-registration` now exposes one Effect service for
+private read-only plan preparation. Its persistence port authenticates the
+exact Application publication object, control catalog, active-selection owner,
+schema-artifact publisher, scope-authority resolver, and located target
+database before it takes a shared scope-clock snapshot. It revalidates the
+active head and candidate publication under that target transaction, then
+passes immutable active/candidate manifests and the exact frontier pins to the
+existing pure `@flarex/managed-schema` planner.
+
+The result contains the canonical plan, its digest, and an opaque process-local
+prepared handle bound to the exact planning port, candidate publication, and
+plan identity. Structural
+copies of the port, publication, or prepared handle fail closed; cross-control
+composition, changed scope authority, a candidate that became active, and
+changed stored publication evidence also fail closed. The current cooking
+lineage for schemas B through E consumes this service instead of reconstructing
+planner pins in the test package, and the later schema-F scenario traverses the
+same lineage. M04-A performs no candidate installation, physical build,
+readiness settlement, activation, route, CLI, or production work. M04-B is the
+next authorized checkpoint and must consume only the exact prepared handle.
 
 ## Approved Code And Package Ownership
 
@@ -834,11 +858,13 @@ These are separate later goals, not one giant deployment goal:
    in both PGlite and genuine PostgreSQL. Historical
    single-revision runners remain unchanged and are not fallback or comparison
    authorities.
-8. `M04` - **preflight complete; implementation not started**: extract the
-   private current-generation plan/apply composition first, then expose its
-   detached machine-readable result through `flarex-dev`, CI, and AI tooling.
-   Do not reinterpret the existing deployment-push finish operation as managed
-   apply or add a public/production route before the private checkpoints pass.
+8. `M04-A` - **complete and private**: the current-generation read-only planning
+   composition authenticates exact publication, active-schema, schema-artifact,
+   scope-frontier, control, and target identities and returns the canonical plan
+   plus an opaque exact-plan handle. `M04-B` exact-plan apply is next; `M04-C`
+   developer adapters remain deferred. Do not reinterpret the existing
+   deployment-push finish operation as managed apply or add a public/production
+   route before those private checkpoints pass.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
    reconnect, and adapter retention gates pass.
 

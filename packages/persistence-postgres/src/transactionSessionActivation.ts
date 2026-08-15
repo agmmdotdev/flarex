@@ -194,6 +194,7 @@ import {
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
+  registerLocatedReadCommittedTargetDatabaseV1,
   reconcileExactRunningAttemptTransactionFailureV1,
   type ExactRunningAttemptKernelContextV1,
   type ExactRunningAttemptEffectWorkV1,
@@ -1556,6 +1557,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       ),
     })),
   } satisfies LocatedPointMutationSessionTargetV1);
+  registerLocatedReadCommittedTargetDatabaseV1(target, db);
   return target;
 }
 

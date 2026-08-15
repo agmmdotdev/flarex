@@ -655,6 +655,20 @@ export function hasApplicationReadinessComposition(
     readinessRepositoryStates.get(repository)?.context.authority === authority;
 }
 
+export function hasApplicationReadinessPlanningComposition(
+  repository: unknown,
+  controlDb: FlarexMetadataDatabase,
+  schema: ApplicationSchemaAuthorityPublisher<unknown>,
+  authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >,
+): boolean {
+  if (typeof repository !== "object" || repository === null) return false;
+  const context = readinessRepositoryStates.get(repository)?.context;
+  return context !== undefined && context.controlDb === controlDb &&
+    context.schema === schema && context.authority === authority;
+}
+
 export const validateApplicationReadinessForActivationInTransaction =
   Effect.fn("ApplicationReadiness.validateForActivationInTransaction")(
     function* (

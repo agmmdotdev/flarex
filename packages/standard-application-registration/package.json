@@ -6,6 +6,7 @@
     "src"
   ],
   "exports": {
+    "./application": "./src/application.ts",
     "./internal/system-test/legacy-v1": "./src/v1.ts"
   },
   "scripts": {
@@ -14,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/managed-schema": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/standard-application-analysis": "workspace:*",
     "effect": "catalog:"

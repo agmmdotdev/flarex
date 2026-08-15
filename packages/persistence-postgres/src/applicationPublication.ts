@@ -93,6 +93,46 @@ export interface ApplicationPublicationRepository {
   ) => Effect.Effect<ApplicationPublication, ApplicationPublicationError>;
 }
 
+/**
+ * Package-private evidence retained for read-only managed-schema planning.
+ * The publication object identity is the capability; a structural copy is
+ * deliberately not recognized.
+ */
+export interface ApplicationPublicationPlanningEvidence {
+  readonly authority: ApplicationAnalysisAuthority;
+  readonly manifest: ApplicationManifestV1;
+  readonly database: FlarexMetadataDatabase;
+}
+
+const applicationPublicationPlanningEvidence = new WeakMap<
+  ApplicationPublication,
+  Omit<ApplicationPublicationPlanningEvidence, "database">
+>();
+const applicationPublicationDatabases = new WeakMap<
+  ApplicationPublication,
+  FlarexMetadataDatabase
+>();
+
+export function claimApplicationPublicationPlanningEvidenceResult(
+  publication: unknown,
+): Result.Result<
+  ApplicationPublicationPlanningEvidence,
+  ApplicationPublicationError
+> {
+  if (typeof publication !== "object" || publication === null) {
+    return Result.fail(failureValue("invalidInput"));
+  }
+  const evidence = applicationPublicationPlanningEvidence.get(
+    publication as ApplicationPublication,
+  );
+  const database = applicationPublicationDatabases.get(
+    publication as ApplicationPublication,
+  );
+  return evidence === undefined || database === undefined
+    ? Result.fail(failureValue("invalidInput"))
+    : Result.succeed(Object.freeze({ ...evidence, database }));
+}
+
 export function makeApplicationPublicationRepository(
   db: FlarexMetadataDatabase,
 ): ApplicationPublicationRepository {
@@ -102,7 +142,12 @@ export function makeApplicationPublicationRepository(
       ApplicationPublicationError
     > {
       const prepared = yield* preparePublication(input);
-      return yield* runTransaction(db, tx => publishInTransaction(tx, prepared));
+      const publication = yield* runTransaction(
+        db,
+        tx => publishInTransaction(tx, prepared),
+      );
+      applicationPublicationDatabases.set(publication, db);
+      return publication;
     },
   );
   return Object.freeze({ publish });
@@ -432,7 +477,7 @@ function projection(
   prepared: PreparedPublication,
   publishedAt: Date,
 ): ApplicationPublication {
-  return Object.freeze({
+  const publication = Object.freeze({
     scopeId: prepared.input.authority.scopeId,
     revisionId: prepared.input.revisionId,
     candidateId: prepared.input.candidateId,
@@ -460,6 +505,11 @@ function projection(
     }))),
     publishedAt: new Date(publishedAt.getTime()),
   });
+  applicationPublicationPlanningEvidence.set(publication, Object.freeze({
+    authority: Object.freeze({ ...prepared.input.authority }),
+    manifest: prepared.input.manifest,
+  }));
+  return publication;
 }
 
 function requireExactAuthority(

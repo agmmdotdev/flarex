@@ -3,6 +3,7 @@ import type { CatalogIndexId, CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
+import type { FlarexMetadataDatabase } from "./deployments";
 import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import type {
@@ -206,6 +207,26 @@ export interface LocatedRepeatableReadAttemptTargetV1
 export interface LocatedReadCommittedAttemptTargetV1
   extends LocatedScopeClockReader {
   readonly [RUN_LOCATED_READ_COMMITTED_V1]: RunLocatedReadCommittedTransactionV1;
+}
+
+const locatedReadCommittedTargetDatabasesV1 = new WeakMap<
+  LocatedReadCommittedAttemptTargetV1,
+  FlarexMetadataDatabase
+>();
+
+/** Package-local exact target/database composition evidence. */
+export function registerLocatedReadCommittedTargetDatabaseV1(
+  target: LocatedReadCommittedAttemptTargetV1,
+  database: FlarexMetadataDatabase,
+): void {
+  locatedReadCommittedTargetDatabasesV1.set(target, database);
+}
+
+export function hasLocatedReadCommittedTargetDatabaseV1(
+  target: LocatedReadCommittedAttemptTargetV1,
+  database: FlarexMetadataDatabase,
+): boolean {
+  return locatedReadCommittedTargetDatabasesV1.get(target) === database;
 }
 
 /**

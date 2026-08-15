@@ -14,6 +14,7 @@
     "./internal/application-analysis-registration": "./src/applicationAnalysisRegistration.ts",
     "./internal/application-publication": "./src/applicationPublication.ts",
     "./internal/application-activation": "./src/applicationActivation.ts",
+    "./internal/application-managed-schema-planning": "./src/applicationManagedSchemaPlanning.ts",
     "./internal/application-query-snapshot": "./src/applicationQuerySnapshot.ts",
     "./internal/scope-execution": "./src/scopeExecution/ScopeExecution.ts",
     "./internal/application-mutation-admission": "./src/applicationMutationAdmission.ts",

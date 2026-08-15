@@ -77,6 +77,7 @@
     "@flarex/standard-application-analysis": "workspace:*",
     "@flarex/standard-application-definition": "workspace:*",
     "@flarex/standard-application-invocation": "workspace:*",
+    "@flarex/standard-application-registration": "workspace:*",
     "@flarex/utils": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "effect": "catalog:",
