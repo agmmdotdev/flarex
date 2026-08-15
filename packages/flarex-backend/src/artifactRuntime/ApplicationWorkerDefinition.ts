@@ -1,10 +1,16 @@
 import type {
   ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
+import {
+  applicationFunctionEntryPublicationFrameV1,
+} from "@flarex/analysis/internal/application-publication-v1";
 import type {
   ApplicationFunctionRuntimeFunctionV1,
 } from "@flarex/function-runtime/internal/application-function-runtime-v1";
-import { isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import { Result } from "effect";
 import {
   canonicalizeApplicationRuntimeTargetV1,
@@ -207,16 +213,7 @@ function functionMatchesTarget(
   manifest: ApplicationManifestV1["functions"][number],
   target: ApplicationRuntimeTargetV1["function"],
 ): boolean {
-  return JSON.stringify({
-    path: manifest.path,
-    moduleName: manifest.moduleName,
-    exportName: manifest.exportName,
-    kind: manifest.kind,
-    visibility: manifest.visibility,
-    args: manifest.args,
-    returns: manifest.returns,
-    partition: manifest.partition,
-  }) === JSON.stringify({
+  const targetProjection: ApplicationManifestV1["functions"][number] = {
     path: target.path,
     moduleName: target.moduleName,
     exportName: target.exportName,
@@ -225,6 +222,14 @@ function functionMatchesTarget(
     args: target.args,
     returns: target.returns,
     partition: target.partition,
+  };
+  return Result.match(Result.all([
+    applicationFunctionEntryPublicationFrameV1(manifest),
+    applicationFunctionEntryPublicationFrameV1(targetProjection),
+  ]), {
+    onFailure: () => false,
+    onSuccess: ([manifestFrame, targetFrame]) =>
+      bytesEqualFullScan(manifestFrame, targetFrame),
   });
 }
 

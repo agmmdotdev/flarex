@@ -2331,6 +2331,18 @@ cursor, then calls `ApplicationExecutionHost.runTransaction`. Each call reaches
 the host separately, so initial execution and every OCC rerun perform a fresh
 Worker Loader load. No mutable active head is consulted.
 
+The connected managed-schema schema-A evidence exposed `ST-CORE-022` at this
+exact seam. Stored graph materialization reconstructs the authenticated manifest
+and runtime target through distinct canonical decoders, while the Worker
+definition compared nested validator records with property-order-sensitive
+`JSON.stringify` equality. The approved correction reuses the existing
+canonical Application function-entry publication frame for both projections
+and compares its bytes in full. Source, manifest, target, entry, publication,
+readiness, activation, and host-policy authority checks remain unchanged.
+The unchanged schema-A system scenario now passes through both PGlite and
+genuine PostgreSQL with two cold analysis loads, Workerd mutation/query,
+durable replay without re-execution, and one commit/outcome/feed/outbox.
+
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly
 `revalidate`, point read, index range, insert, patch, replace, and delete over

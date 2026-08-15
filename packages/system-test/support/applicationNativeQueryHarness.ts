@@ -49,7 +49,7 @@ export async function proveApplicationNativeQuery(
 ): Promise<ApplicationNativeQueryProof> {
   const fixture = await createFixture();
   const seeded = await fixture.seedUserDocument("Ada");
-  const loader = new MiniflareQueryWorkerLoader();
+  const loader = new MiniflareApplicationWorkerLoader();
   let sourceReads = 0;
   let executionSequence = 0;
   const layer = makeApplicationQuerySystemLayer({
@@ -132,7 +132,7 @@ export async function proveApplicationNativeQuery(
   }
 }
 
-class MiniflareQueryWorkerLoader implements WorkerLoader {
+export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   loads = 0;
   revalidations = 0;
   pointDocumentReads = 0;
@@ -185,7 +185,7 @@ class MiniflareQueryWorkerLoader implements WorkerLoader {
 
 class MiniflareQueryWorkerStub implements WorkerStub {
   constructor(
-    private readonly owner: MiniflareQueryWorkerLoader,
+    private readonly owner: MiniflareApplicationWorkerLoader,
     private readonly code: WorkerLoaderWorkerCode,
   ) {}
 
@@ -320,6 +320,18 @@ class Capability extends RpcTarget {
   }
   queryIndexRange(tableName, indexDescriptor, bounds, limit) {
     return this.call("queryIndexRange", [tableName, indexDescriptor, bounds, limit]);
+  }
+  insertPointDocument(tableName, value) {
+    return this.call("insertPointDocument", [tableName, value]);
+  }
+  patchPointDocument(documentId, value) {
+    return this.call("patchPointDocument", [documentId, value]);
+  }
+  replacePointDocument(documentId, value) {
+    return this.call("replacePointDocument", [documentId, value]);
+  }
+  deletePointDocument(documentId) {
+    return this.call("deletePointDocument", [documentId]);
   }
 }
 export default {

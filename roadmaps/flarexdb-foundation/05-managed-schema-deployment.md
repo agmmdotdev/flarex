@@ -6,8 +6,8 @@ managed-schema compatibility, read-only planning, candidate-document policy,
 canonical validation frames, guarded target-local single candidate head,
 bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
-`AA-R0` through `AA-R8` are complete, so `M03-D` is the next isolated
-current-generation system-test checkpoint. It remains private and
+`AA-R0` through `AA-R8` are complete. `M03-D` is now in progress with its
+current-generation schema-A system-test baseline complete. It remains private and
 production-inert: no public route, CLI, deployment caller, trigger, destructive
 cleanup, or production generation cut is authorized by this roadmap.
 
@@ -117,6 +117,15 @@ reload/replay, and exactly one commit. Later slices add schemas B and C and the
 remaining acceptance matrix. The scenario must not revive the deleted
 stored-attempt harness, extend the historical single-revision runner, create a
 test-owned scanner or receipt, or add dual selection or fallback.
+
+The schema-A baseline is complete. It exposed `ST-CORE-022`, where the backend
+Worker-definition owner compared nested function validators with
+property-order-sensitive `JSON.stringify` equality after durable reload. The
+approved correction now reuses the canonical Application function-entry frame
+for exact order-independent comparison. The unchanged scenario completes two
+cold analysis loads, one Workerd mutation, durable replay without re-execution,
+one Workerd query, and exactly one commit/outcome/feed/outbox publication in
+both PGlite and genuine PostgreSQL. Schemas B and C remain the next M03-D cuts.
 
 ## Approved Code And Package Ownership
 
@@ -632,9 +641,10 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **next**: extend `@flarex/system-test` with a separate
-   current-generation multi-revision cooking scenario. Start with the schema-A
-   baseline, then add the schema-B removal and schema-C required-field cuts.
+7. `M03-D` - **in progress; schema A complete**: extend `@flarex/system-test`
+   with a separate current-generation multi-revision cooking scenario. The
+   schema-A baseline is complete in both PGlite and genuine PostgreSQL; next
+   add the schema-B removal and schema-C required-field cuts.
    Historical single-revision runners remain unchanged and are not fallback or
    comparison authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with

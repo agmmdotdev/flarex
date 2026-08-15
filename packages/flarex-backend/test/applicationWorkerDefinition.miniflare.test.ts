@@ -103,6 +103,79 @@ describe("Application Worker definition", () => {
     })).toThrow("Application worker source authority mismatches.");
   });
 
+  it("compares nested function authority independently of object member order", () => {
+    const fixture = applicationFixture("mutation");
+    const manifestArgs = {
+      type: "object" as const,
+      value: {
+        description: {
+          fieldType: { type: "string" as const },
+          optional: true,
+        },
+        name: {
+          fieldType: { type: "string" as const },
+          optional: false,
+        },
+      },
+    };
+    const targetArgs = {
+      type: "object" as const,
+      value: {
+        name: {
+          fieldType: { type: "string" as const },
+          optional: false,
+        },
+        description: {
+          fieldType: { type: "string" as const },
+          optional: true,
+        },
+      },
+    };
+    const manifest = Object.freeze({
+      ...fixture.manifest,
+      functions: Object.freeze(fixture.manifest.functions.map(fn =>
+        Object.freeze({ ...fn, args: manifestArgs })
+      )),
+    });
+    const target = Result.getOrThrow(canonicalizeApplicationRuntimeTargetV1({
+      ...fixture.target,
+      function: {
+        ...fixture.target.function,
+        args: targetArgs,
+      },
+    })).target;
+
+    expect(() => makeApplicationWorkerDefinition({
+      source: fixture.source,
+      manifest,
+      target,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    })).not.toThrow();
+    expect(() => makeApplicationWorkerDefinition({
+      source: fixture.source,
+      manifest,
+      target: Result.getOrThrow(canonicalizeApplicationRuntimeTargetV1({
+        ...target,
+        function: {
+          ...target.function,
+          args: {
+            ...targetArgs,
+            value: {
+              ...targetArgs.value,
+              description: {
+                ...targetArgs.value.description,
+                optional: false,
+              },
+            },
+          },
+        },
+      })).target,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    })).toThrow("Application worker root function authority mismatches.");
+  });
+
   it("executes a query and its internal query through a fake read capability", async () => {
     const fixture = applicationFixture("query");
     const definition = makeApplicationWorkerDefinition({

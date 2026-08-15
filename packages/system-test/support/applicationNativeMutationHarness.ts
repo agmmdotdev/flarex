@@ -23,7 +23,7 @@ import {
 import {
   invokeStandardApplicationPointMutationV1,
 } from "@flarex/standard-application-invocation/v1";
-import { Effect, Layer, Result, Scope } from "effect";
+import { Effect, Result, Scope } from "effect";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
@@ -107,142 +107,8 @@ export async function proveApplicationNativeMutation(
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     fixture.deploymentId,
   );
-  const keyPair = await crypto.subtle.generateKey(
-    "Ed25519",
-    false,
-    ["sign", "verify"],
-  );
-  if (!("privateKey" in keyPair) || !("publicKey" in keyPair)) {
-    throw new Error("Application-native proof requires an Ed25519 key pair.");
-  }
-  const now = Date.now();
-  const applicationKeyId = TransactionGrantKeyIdV1Schema.make(
-    "application-native-mutation-key",
-  );
-  const applicationKey = Object.freeze({
-    kid: applicationKeyId,
-    purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
-    state: "active",
-    issuedAtInclusiveEpochMilliseconds: now - 60_000,
-    verificationEndsAtExclusiveEpochMilliseconds: now + 3_600_000,
-    publicKey: keyPair.publicKey,
-  }) satisfies ApplicationMutationGrantVerificationKeyV1;
-  let grantSequence = 0;
-  const grantIssuer = makeApplicationMutationGrantIssuer({
-    deploymentId,
-    grantRetentionPolicy: RETENTION,
-    signer: {
-      ...applicationKey,
-      sign: bytes => Effect.promise(async () => new Uint8Array(
-        await crypto.subtle.sign(
-          "Ed25519",
-          keyPair.privateKey,
-          copyBytesToArrayBuffer(bytes),
-        ),
-      )),
-    },
-    runtime: {
-      currentTimeMillis: Effect.sync(Date.now),
-      nextGrantId: Effect.sync(() => {
-        grantSequence += 1;
-        return TransactionAuthorizationGrantIdV1Schema.make(
-          `application-native-grant-${grantSequence}`,
-        );
-      }),
-    },
-  });
-  const applicationGrantVerifier =
-    createApplicationMutationGrantVerificationKernelV1({
-      deploymentId,
-      grantRetentionPolicy: RETENTION,
-      keys: [applicationKey],
-    });
-  const legacyGrantVerifier = createTransactionGrantVerifierV1({
-    clock: { now: () => new Date() },
-    verificationKeyNamespace:
-      createTransactionGrantVerificationKeyNamespaceV1({
-        deploymentId,
-        keys: [{
-          state: "active",
-          kid: TransactionGrantKeyIdV1Schema.make(
-            "application-native-retained-legacy-key",
-          ),
-          purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
-          issuedAtInclusiveEpochMilliseconds: now - 60_000,
-          verificationEndsAtExclusiveEpochMilliseconds: now + 3_600_000,
-          verify: async () => false,
-        }],
-      }),
-    grantRetentionPolicy: RETENTION,
-  });
-  const hostPolicy = applicationHostPolicy();
-  const policyBytes = Result.getOrThrow(encodeEdgeActionHostPolicyV1(
-    hostPolicy,
-    {
-      maximumOrigins: 1_024,
-      maximumOriginBytes: 8_192,
-      maximumCanonicalBytes: 1_048_576,
-    },
-  )).canonicalBytes;
-  const hostPolicySha256 = await sha256(policyBytes);
   const loader = new ApplicationNativeWorkerLoader();
-  const host = makeApplicationExecutionHost(loader);
-  let uuidSequence = 0;
-  let executionSequence = 0;
-  const layer = makeApplicationMutationSystemLayer({
-    deploymentId,
-    activation: fixture.activation,
-    admission: {
-      deploymentId,
-      controlDb: fixture.control.drizzle,
-      schema: fixture.schema,
-      authority: fixture.authorityPorts,
-    },
-    currentEpochAuthority: fixture.currentEpochAuthority,
-    grantIssuer,
-    applicationGrantVerifier,
-    legacyGrantVerifier,
-    legacyFunctionMetadata: {
-      load: () => Effect.die("Application authority must not load legacy metadata."),
-    },
-    sessionAuthority: fixture.sessionAuthority,
-    intrinsicCreationTimeIndexes: fixture.intrinsicCreationTimeIndexes,
-    developerIndexes: fixture.developerIndexes,
-    indexedQueries: fixture.indexedQueries,
-    grantRetentionPolicy: RETENTION,
-    applicationRunner: {
-      source: Object.freeze({
-        read: (rootSha256: string) => rootSha256 ===
-            fixture.source.sourceArtifact.rootSha256
-          ? Effect.succeed(
-            fixture.source satisfies ApplicationAnalysisSourceBundle,
-          )
-          : Effect.die("Application-native proof requested the wrong source root."),
-      }),
-      host,
-      hostPolicy,
-      hostPolicySha256,
-      sha256: (bytes: Uint8Array) => Effect.promise(() => sha256(bytes)),
-    },
-    randomUuid: () => {
-      uuidSequence += 1;
-      return `35000000-0000-4000-8000-${uuidSequence.toString().padStart(12, "0")}`;
-    },
-    executionContextFactory: {
-      make: () => Effect.sync(() => {
-        executionSequence += 1;
-        return Object.freeze({
-          executionId: `application-native-execution-${executionSequence}`,
-          logScopeId: `application-native-log-${executionSequence}`,
-          randomSeed: new Uint8Array(32).fill(executionSequence),
-        });
-      }),
-    },
-    leaseDurationMilliseconds: 600_000,
-    claimDurationMilliseconds: 600_000,
-    leaseRenewalDurationMilliseconds: 600_000,
-    heartbeatIntervalMilliseconds: 200_000,
-  });
+  const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
@@ -483,6 +349,150 @@ export async function proveApplicationNativeMutation(
     outcomeCount: afterFailure.outcomes,
     feedCount: afterFailure.feed,
     outboxCount: afterFailure.outbox,
+  });
+}
+
+export async function makeApplicationNativeMutationTestLayer(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  loader: WorkerLoader,
+) {
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    fixture.deploymentId,
+  );
+  const keyPair = await crypto.subtle.generateKey(
+    "Ed25519",
+    false,
+    ["sign", "verify"],
+  );
+  if (!("privateKey" in keyPair) || !("publicKey" in keyPair)) {
+    throw new Error("Application-native proof requires an Ed25519 key pair.");
+  }
+  const now = Date.now();
+  const applicationKeyId = TransactionGrantKeyIdV1Schema.make(
+    "application-native-mutation-key",
+  );
+  const applicationKey = Object.freeze({
+    kid: applicationKeyId,
+    purpose: APPLICATION_MUTATION_GRANT_KEY_PURPOSE_V1,
+    state: "active",
+    issuedAtInclusiveEpochMilliseconds: now - 60_000,
+    verificationEndsAtExclusiveEpochMilliseconds: now + 3_600_000,
+    publicKey: keyPair.publicKey,
+  }) satisfies ApplicationMutationGrantVerificationKeyV1;
+  let grantSequence = 0;
+  const grantIssuer = makeApplicationMutationGrantIssuer({
+    deploymentId,
+    grantRetentionPolicy: RETENTION,
+    signer: {
+      ...applicationKey,
+      sign: bytes => Effect.promise(async () => new Uint8Array(
+        await crypto.subtle.sign(
+          "Ed25519",
+          keyPair.privateKey,
+          copyBytesToArrayBuffer(bytes),
+        ),
+      )),
+    },
+    runtime: {
+      currentTimeMillis: Effect.sync(Date.now),
+      nextGrantId: Effect.sync(() => {
+        grantSequence += 1;
+        return TransactionAuthorizationGrantIdV1Schema.make(
+          `application-native-grant-${grantSequence}`,
+        );
+      }),
+    },
+  });
+  const applicationGrantVerifier =
+    createApplicationMutationGrantVerificationKernelV1({
+      deploymentId,
+      grantRetentionPolicy: RETENTION,
+      keys: [applicationKey],
+    });
+  const legacyGrantVerifier = createTransactionGrantVerifierV1({
+    clock: { now: () => new Date() },
+    verificationKeyNamespace:
+      createTransactionGrantVerificationKeyNamespaceV1({
+        deploymentId,
+        keys: [{
+          state: "active",
+          kid: TransactionGrantKeyIdV1Schema.make(
+            "application-native-retained-legacy-key",
+          ),
+          purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+          issuedAtInclusiveEpochMilliseconds: now - 60_000,
+          verificationEndsAtExclusiveEpochMilliseconds: now + 3_600_000,
+          verify: async () => false,
+        }],
+      }),
+    grantRetentionPolicy: RETENTION,
+  });
+  const hostPolicy = applicationHostPolicy();
+  const policyBytes = Result.getOrThrow(encodeEdgeActionHostPolicyV1(
+    hostPolicy,
+    {
+      maximumOrigins: 1_024,
+      maximumOriginBytes: 8_192,
+      maximumCanonicalBytes: 1_048_576,
+    },
+  )).canonicalBytes;
+  const hostPolicySha256 = await sha256(policyBytes);
+  const host = makeApplicationExecutionHost(loader);
+  let uuidSequence = 0;
+  let executionSequence = 0;
+  return makeApplicationMutationSystemLayer({
+    deploymentId,
+    activation: fixture.activation,
+    admission: {
+      deploymentId,
+      controlDb: fixture.control.drizzle,
+      schema: fixture.schema,
+      authority: fixture.authorityPorts,
+    },
+    currentEpochAuthority: fixture.currentEpochAuthority,
+    grantIssuer,
+    applicationGrantVerifier,
+    legacyGrantVerifier,
+    legacyFunctionMetadata: {
+      load: () => Effect.die("Application authority must not load legacy metadata."),
+    },
+    sessionAuthority: fixture.sessionAuthority,
+    intrinsicCreationTimeIndexes: fixture.intrinsicCreationTimeIndexes,
+    developerIndexes: fixture.developerIndexes,
+    indexedQueries: fixture.indexedQueries,
+    grantRetentionPolicy: RETENTION,
+    applicationRunner: {
+      source: Object.freeze({
+        read: (rootSha256: string) => rootSha256 ===
+            fixture.source.sourceArtifact.rootSha256
+          ? Effect.succeed(
+            fixture.source satisfies ApplicationAnalysisSourceBundle,
+          )
+          : Effect.die("Application-native proof requested the wrong source root."),
+      }),
+      host,
+      hostPolicy,
+      hostPolicySha256,
+      sha256: (bytes: Uint8Array) => Effect.promise(() => sha256(bytes)),
+    },
+    randomUuid: () => {
+      uuidSequence += 1;
+      return `35000000-0000-4000-8000-${uuidSequence.toString().padStart(12, "0")}`;
+    },
+    executionContextFactory: {
+      make: () => Effect.sync(() => {
+        executionSequence += 1;
+        return Object.freeze({
+          executionId: `application-native-execution-${executionSequence}`,
+          logScopeId: `application-native-log-${executionSequence}`,
+          randomSeed: new Uint8Array(32).fill(executionSequence),
+        });
+      }),
+    },
+    leaseDurationMilliseconds: 600_000,
+    claimDurationMilliseconds: 600_000,
+    leaseRenewalDurationMilliseconds: 600_000,
+    heartbeatIntervalMilliseconds: 200_000,
   });
 }
 

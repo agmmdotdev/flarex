@@ -67,6 +67,8 @@ import {
 import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
+  type ApplicationAnalysisProjection,
+  type ApplicationAnalysisRepository,
 } from "../../src/applicationAnalysisRegistration";
 import {
   makeApplicationActivationRepository,
@@ -135,6 +137,15 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeTask?: boolean;
+  readonly analysis?: Readonly<{
+    readonly source: ApplicationNativeMutationSourceBundle;
+    readonly run: (input: Readonly<{
+      readonly authority: ApplicationAnalysisAuthority;
+      readonly repository: ApplicationAnalysisRepository;
+      readonly requestKey: string;
+      readonly sourceArtifactRootSha256: string;
+    }>) => Promise<ApplicationAnalysisProjection>;
+  }>;
 }
 
 export interface ApplicationNativeMutationSourceBundle {
@@ -327,9 +338,8 @@ async function createApplicationNativeMutationFixture<
     storageGenerationFence: clock.storageGenerationFence,
     epoch: clock.epoch,
   });
-  const source = await mutationSourceBundle();
-  const canonicalManifest = Result.getOrThrow(
-    canonicalizeApplicationManifestV1({
+  const source = options.analysis?.source ?? await mutationSourceBundle();
+  const fixtureManifest = {
       format: "flarex.application-manifest",
       version: 1,
       sourceArtifact: source.sourceArtifact,
@@ -379,29 +389,32 @@ async function createApplicationNativeMutationFixture<
         returns: { type: "any" },
         partition: null,
       }],
-    }),
-  );
+    } as const;
   const analyses = makeApplicationAnalysisRepository(target.drizzle, {
     randomUuid: uuidSequence(11, 12, 13),
   });
-  const pending = await Effect.runPromise(analyses.begin({
-    authority,
-    requestKey: "request:application-native-mutation:analysis",
-    sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
-    analyzerIdentity: "application-analyzer",
-    analyzerPolicyIdentity: "application-analyzer-policy",
-  }));
-  const analyzed = await Effect.runPromise(analyses.settle(authority, {
-    kind: "analyzed",
-    candidateId: pending.candidateId,
-    sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
-    analyzerIdentity: "application-analyzer",
-    analyzerPolicyIdentity: "application-analyzer-policy",
-    canonicalManifest: canonicalManifest.canonicalText,
-  }));
+  const requestKey = "request:application-native-mutation:analysis";
+  const analyzed = options.analysis === undefined
+    ? await settleFixtureAnalysis(
+        analyses,
+        authority,
+        requestKey,
+        source.sourceArtifact.rootSha256,
+        Result.getOrThrow(canonicalizeApplicationManifestV1(fixtureManifest))
+          .canonicalText,
+      )
+    : await options.analysis.run({
+        authority,
+        repository: analyses,
+        requestKey,
+        sourceArtifactRootSha256: source.sourceArtifact.rootSha256,
+      });
   if (analyzed.status !== "analyzed") {
     throw new Error("Application-native mutation analysis did not settle.");
   }
+  const canonicalManifest = Result.getOrThrow(
+    canonicalizeApplicationManifestV1(analyzed.manifest),
+  );
   const publication = await Effect.runPromise(
     makeApplicationPublicationRepository(target.drizzle).publish({
       authority,
@@ -878,6 +891,30 @@ async function requireSchemaVersionId(
   const id = result.rows[0]?.schema_version_id;
   if (id === undefined) throw new Error("Application-native schema is missing.");
   return id;
+}
+
+async function settleFixtureAnalysis(
+  repository: ApplicationAnalysisRepository,
+  authority: ApplicationAnalysisAuthority,
+  requestKey: string,
+  sourceArtifactRootSha256: string,
+  canonicalManifest: string,
+): Promise<ApplicationAnalysisProjection> {
+  const pending = await Effect.runPromise(repository.begin({
+    authority,
+    requestKey,
+    sourceArtifactRootSha256,
+    analyzerIdentity: "application-analyzer",
+    analyzerPolicyIdentity: "application-analyzer-policy",
+  }));
+  return Effect.runPromise(repository.settle(authority, {
+    kind: "analyzed",
+    candidateId: pending.candidateId,
+    sourceArtifactRootSha256,
+    analyzerIdentity: "application-analyzer",
+    analyzerPolicyIdentity: "application-analyzer-policy",
+    canonicalManifest,
+  }));
 }
 
 async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBundle> {

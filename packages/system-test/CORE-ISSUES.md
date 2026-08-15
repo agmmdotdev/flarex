@@ -113,6 +113,27 @@ None.
 
 ## Resolved Issues
 
+### `ST-CORE-022` - durable Application mutation reload rejected equivalent function authority
+
+- **Status:** Resolved by the approved backend authority-correlation correction.
+- **Root cause:** `ApplicationWorkerDefinition.functionMatchesTarget` projected
+  the same semantic function fields but compared their nested validator values
+  with `JSON.stringify`. Durable graph materialization reconstructs the
+  canonical manifest and runtime target through distinct decoders, so record
+  member insertion order can differ without any semantic or digest difference.
+- **Correction:** The Worker-definition owner now canonicalizes both exact
+  function-entry projections through the existing Application publication-frame
+  contract and compares their bytes in full. All source, manifest, runtime
+  target, entry, publication, readiness, activation, and host-policy checks
+  remain unchanged and fail closed.
+- **Evidence:** A direct backend regression accepts reordered nested validator
+  members and still rejects a real optionality change. The unchanged schema-A
+  cooking lane then completes two cold Application Analysis loads, publication,
+  candidate validation, readiness, activation, a real Workerd mutation, durable
+  replay without another Worker load, a real Workerd query, and exactly one
+  commit/outcome/feed/outbox publication in both PGlite and genuine
+  PostgreSQL.
+
 ### `ST-CORE-021` - journal RPC rejected the exact runtime syscall sequence type
 
 - **Status:** Resolved by the executor journal runtime-boundary correction.

@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./internal/application-analysis-composition": "./src/ApplicationAnalysisComposition.ts",
+    "./internal/application-analysis-host": "./src/ApplicationAnalysisHost.ts",
     "./internal/system-test/declarative-v2-analyzer-port-v1": "./src/DeclarativeV2AnalyzerPort.ts",
     "./internal/system-test/declarative-v2-analyzer-restart-plan-v1": "./src/PrivateDeclarativeV2AnalyzerRestartPlan.ts",
     "./internal/system-test/private-application-revision-registration-evidence-v1": "./src/PrivateApplicationRevisionRegistrationEvidence.ts"
