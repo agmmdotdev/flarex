@@ -235,6 +235,8 @@ export interface ApplicationNativeMutationFixture<
     readonly name: string;
   }>>;
   readonly moveHead: () => Promise<CoherentActiveApplication>;
+  /** Persistence-owned corruption seam for fail-closed system-test proof. */
+  readonly corruptCandidateValidationFrameBytesForTest: () => Promise<void>;
 }
 
 export type ApplicationNativeMutationPGliteFixture =
@@ -814,6 +816,18 @@ async function createApplicationNativeMutationFixture<
     });
     return Object.freeze({ documentId, name });
   };
+  const corruptCandidateValidationFrameBytesForTest = async () => {
+    await target.query(
+      `update fx_system_app_schema_candidate_validation
+          set frame_bytes = set_byte(
+            frame_bytes,
+            0,
+            (get_byte(frame_bytes, 0) + 1) % 256
+          )
+        where scope_id = $1`,
+      [authority.scopeId],
+    );
+  };
   return Object.freeze({
     control,
     target,
@@ -842,6 +856,7 @@ async function createApplicationNativeMutationFixture<
     ),
     seedUserDocument,
     moveHead,
+    corruptCandidateValidationFrameBytesForTest,
   });
 }
 

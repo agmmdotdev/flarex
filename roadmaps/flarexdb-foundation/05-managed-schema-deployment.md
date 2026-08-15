@@ -7,7 +7,7 @@ canonical validation frames, guarded target-local single candidate head,
 bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
 `AA-R0` through `AA-R8` are complete. `M03-D` is now in progress with its
-current-generation schema-A through schema-E item-7 system-test cuts complete.
+current-generation schema-A through schema-F item-8 system-test cuts complete.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -187,8 +187,22 @@ mutation still publishes its row, outcome, feed, and outbox while the same
 transaction replaces E progress with bounded `pointCommit` evidence at
 `$document.details.servings`. Schema D remains active, E cannot become ready or
 activate, and both writes are visible through D. This adds no validator,
-transaction, head writer, fallback, public API, or second commit path. The next
-M03-D cut is acceptance item 8.
+transaction, head writer, fallback, public API, or second commit path.
+
+The schema-F recovery cut completes acceptance item 8 without adding another
+owner. Schema E first replays exactly, then an F candidate with a distinct
+schema identity supersedes it. F installation commits before a deliberately
+lost response and a newly issued candidate-validation port recovers the exact
+durable head; replay preserves its digest and attempt fence. A fault after the
+next progress write reports confirmed rollback and leaves that head unchanged.
+F then settles through the existing scanner/readiness owners, and two
+concurrent requests to the existing activation CAS converge on one inserted
+activation plus one exact replay. A final stored-frame corruption is rejected
+by another cold port while the already-active F revision remains coherent from
+its immutable readiness and activation evidence. PGlite and genuine
+PostgreSQL run the same scenario and retain one candidate head, one active
+head, and the unchanged application commit/feed/outbox counts. The next M03-D
+cut is acceptance item 9.
 
 ## Approved Code And Package Ownership
 
@@ -706,11 +720,12 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schemas A through E and item 7 complete**: extend `@flarex/system-test`
+7. `M03-D` - **in progress; schemas A through F and item 8 complete**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
    schema-A baseline, schema-B removal/remediation cut, and schema-C required-
-   field/backfill, nested-validator-tightening, and concurrent-write cuts are
-   complete in both PGlite and genuine PostgreSQL. Historical
+   field/backfill, nested-validator-tightening, concurrent-write, and recovery/
+   concurrent-activation cuts are complete in both PGlite and genuine
+   PostgreSQL. Historical
    single-revision runners remain unchanged and are not fallback or comparison
    authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with

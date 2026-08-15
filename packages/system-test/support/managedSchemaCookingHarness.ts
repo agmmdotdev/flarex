@@ -28,11 +28,22 @@ import {
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
   advanceAppSchemaCandidateValidationEffect,
+  createAppSchemaCandidateValidationPort,
+  createLocatedAppSchemaCandidateValidationTarget,
   installAppSchemaCandidateValidationEffect,
   loadAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
 } from
   "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+} from
+  "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import type { ScopePhysicalLocator } from
+  "@flarex/persistence-postgres/internal/system-test/scopeMetadataTypes";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   ApplicationMutationSystem,
 } from
@@ -75,6 +86,7 @@ import {
 import {
   MiniflareApplicationWorkerLoader,
 } from "./applicationNativeQueryHarness";
+import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
 const COMPATIBILITY_DATE = "2026-06-14";
 
@@ -156,6 +168,25 @@ export interface ManagedSchemaCookingSchemaEProof {
   readonly outcomeCount: 8;
   readonly feedCount: 8;
   readonly outboxCount: 8;
+}
+
+export interface ManagedSchemaCookingSchemaFProof {
+  readonly supersededCandidate: true;
+  readonly exactCandidateReplay: true;
+  readonly decisionUncertaintyColdReplayed: true;
+  readonly confirmedRollbackPreservedHead: true;
+  readonly concurrentActivationConverged: true;
+  readonly corruptionRejectedCold: true;
+  readonly activeSchemaSurvivedCandidateCorruption: true;
+  readonly candidateHeadCount: 1;
+  readonly activationCount: 5;
+  readonly activeHeadCount: 1;
+  readonly analysisWorkerLoads: 18;
+  readonly runtimeWorkerLoads: 18;
+  readonly commitCount: 6;
+  readonly outcomeCount: 6;
+  readonly feedCount: 6;
+  readonly outboxCount: 6;
 }
 
 export type ManagedSchemaCookingFixtureFactory = (
@@ -1320,6 +1351,323 @@ export async function proveManagedSchemaCookingSchemaE(
   });
 }
 
+export async function proveManagedSchemaCookingSchemaF(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaCookingSchemaFProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const schemaDState = await establishCookingSchemaD(scenario);
+
+    const schemaESource = await cookingSourceBundle("E");
+    scenario.sources.set(schemaESource.sourceArtifact.rootSha256, schemaESource);
+    const schemaERevision = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-e:recovery",
+      analysis: cookingAnalysis(
+        schemaESource,
+        scenario.analysisLoader,
+        "schema E recovery candidate",
+      ),
+    });
+    const schemaE = await scenario.fixture.preparePublishedSchema(
+      schemaERevision.manifest,
+    );
+    const schemaEInput = Object.freeze({
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaE.schemaVersionId,
+    });
+    const installedE = await runSystemTestEffectV1(
+      installAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        schemaEInput,
+      ),
+    );
+    const replayedE = await runSystemTestEffectV1(
+      installAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        schemaEInput,
+      ),
+    );
+    if (replayedE.disposition !== "replayed" ||
+      replayedE.head.frameSha256Hex !== installedE.head.frameSha256Hex ||
+      replayedE.head.frame.attemptFence !==
+        installedE.head.frame.attemptFence) {
+      throw new Error("Cooking schema E candidate did not replay exactly.");
+    }
+
+    const schemaFSource = await cookingSourceBundle("F");
+    scenario.sources.set(schemaFSource.sourceArtifact.rootSha256, schemaFSource);
+    const schemaFRevision = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-f:first",
+      analysis: cookingAnalysis(
+        schemaFSource,
+        scenario.analysisLoader,
+        "schema F",
+      ),
+    });
+    const schemaF = await scenario.fixture.preparePublishedSchema(
+      schemaFRevision.manifest,
+    );
+    if (schemaF.schemaVersionId === schemaE.schemaVersionId ||
+      schemaF.schemaVersionId === schemaDState.schemaD.schemaVersionId) {
+      throw new Error("Cooking schema F did not receive a distinct identity.");
+    }
+    const schemaFInput = Object.freeze({
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaF.schemaVersionId,
+    });
+
+    const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
+      scenario.fixture.target.drizzle,
+    );
+    let uncertaintyInjected = false;
+    const uncertainCandidateValidation = createAppSchemaCandidateValidationPort({
+      controlDb: scenario.fixture.control.drizzle,
+      authority: Object.freeze({
+        scopeMetadata: scenario.fixture.authorityPorts.scopeMetadata,
+        provisioningReceipts:
+          scenario.fixture.authorityPorts.provisioningReceipts,
+        scopeClockTargets: Object.freeze({
+          resolve: async (locator: ScopePhysicalLocator) =>
+            createLocatedAppSchemaCandidateValidationTarget(
+              scenario.fixture.target.drizzle,
+              locator,
+              async work => {
+                const result = await baseRunner(work);
+                if (!uncertaintyInjected) {
+                  uncertaintyInjected = true;
+                  throw new LocatedReadCommittedTransactionFailureV1(
+                    Object.freeze({
+                      kind: "decisionUncertain",
+                      settlementCause: new Error(
+                        "lost schema F candidate-install response",
+                      ),
+                    }),
+                  );
+                }
+                return result;
+              },
+            ),
+        }),
+      }),
+    });
+    const uncertainInstall = await runSystemTestEffectV1(Effect.result(
+      installAppSchemaCandidateValidationEffect(
+        uncertainCandidateValidation,
+        schemaFInput,
+      ),
+    ));
+    const uncertaintyProjected = Result.match(uncertainInstall, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "AppSchemaCandidateValidationOperationV1Error" &&
+        failure.operation === "install" &&
+        failure.reason === "decisionUncertain",
+      onSuccess: () => false,
+    });
+    if (!uncertaintyInjected || !uncertaintyProjected) {
+      throw new Error(
+        "Cooking schema F did not project committed decision uncertainty.",
+      );
+    }
+
+    const coldCandidateValidation = createAppSchemaCandidateValidationPort({
+      controlDb: scenario.fixture.control.drizzle,
+      authority: scenario.fixture.authorityPorts,
+    });
+    const coldLoadedF = await runSystemTestEffectV1(
+      loadAppSchemaCandidateValidationEffect(
+        coldCandidateValidation,
+        schemaFInput,
+      ),
+    );
+    if (coldLoadedF.status !== "present" ||
+      coldLoadedF.head.schemaVersionId !== schemaF.schemaVersionId ||
+      coldLoadedF.head.frame.attemptFence !==
+        installedE.head.frame.attemptFence + 1n) {
+      throw new Error(
+        "Cold candidate-validation port did not recover schema F supersession.",
+      );
+    }
+    const supersededE = await runSystemTestEffectV1(Effect.result(
+      loadAppSchemaCandidateValidationEffect(
+        coldCandidateValidation,
+        schemaEInput,
+      ),
+    ));
+    const eWasSuperseded = Result.match(supersededE, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "AppSchemaCandidateValidationOperationV1Error" &&
+        failure.operation === "load" && failure.reason === "superseded",
+      onSuccess: () => false,
+    });
+    if (!eWasSuperseded) {
+      throw new Error("Cooking schema F did not supersede schema E exactly.");
+    }
+    const replayedF = await runSystemTestEffectV1(
+      installAppSchemaCandidateValidationEffect(
+        coldCandidateValidation,
+        schemaFInput,
+      ),
+    );
+    if (replayedF.disposition !== "replayed" ||
+      replayedF.head.frameSha256Hex !== coldLoadedF.head.frameSha256Hex) {
+      throw new Error(
+        "Cold candidate-validation replay did not preserve schema F evidence.",
+      );
+    }
+
+    let rollbackFaultInjected = false;
+    const rolledBackAdvance = await runSystemTestEffectV1(Effect.result(
+      advanceAppSchemaCandidateValidationEffect(
+        coldCandidateValidation,
+        schemaFInput,
+        {
+          faultAfter: point => {
+            if (point !== "afterProgressWrite") return;
+            rollbackFaultInjected = true;
+            throw new Error("rollback schema F candidate progress");
+          },
+        },
+      ),
+    ));
+    const rollbackConfirmed = Result.match(rolledBackAdvance, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "AppSchemaCandidateValidationOperationV1Error" &&
+        failure.operation === "advance" &&
+        failure.reason === "rollbackConfirmed",
+      onSuccess: () => false,
+    });
+    const afterRollback = await runSystemTestEffectV1(
+      loadAppSchemaCandidateValidationEffect(
+        coldCandidateValidation,
+        schemaFInput,
+      ),
+    );
+    if (!rollbackFaultInjected || !rollbackConfirmed ||
+      afterRollback.status !== "present" ||
+      afterRollback.head.frameSha256Hex !== coldLoadedF.head.frameSha256Hex) {
+      throw new Error(
+        "Cooking schema F rollback did not preserve the exact candidate head.",
+      );
+    }
+
+    await settleReadyCandidateValidation(
+      scenario.fixture,
+      schemaFInput,
+      "schema F",
+      coldCandidateValidation,
+    );
+    const readyF = await runSystemTestEffectV1(scenario.fixture.readiness.settle({
+      deploymentId: scenario.fixture.deploymentId,
+      revisionId: schemaFRevision.publication.revisionId,
+    }));
+    if (readyF.status !== "ready") {
+      throw new Error("Cooking schema F did not become ready.");
+    }
+    const activationResults = await runSystemTestEffectV1(Effect.all([
+      scenario.fixture.activation.activate({
+        revisionId: schemaFRevision.publication.revisionId,
+        expectedActiveHead: schemaDState.activeSchemaD.expectedActiveHead,
+      }),
+      scenario.fixture.activation.activate({
+        revisionId: schemaFRevision.publication.revisionId,
+        expectedActiveHead: schemaDState.activeSchemaD.expectedActiveHead,
+      }),
+    ], { concurrency: "unbounded" }));
+    if (activationResults.some(result => result.status !== "activated") ||
+      activationResults.map(result => result.disposition).sort().join(",") !==
+        "inserted,replayed") {
+      throw new Error(
+        "Concurrent cooking schema F activation did not converge exactly.",
+      );
+    }
+    const activeF = await runSystemTestEffectV1(
+      scenario.fixture.activation.readActive(),
+    );
+    if (activeF.basis.revisionId !== schemaFRevision.publication.revisionId ||
+      activeF.basis.schemaVersionId !== schemaF.schemaVersionId ||
+      activeF.basis.activationSequence !==
+        schemaDState.activeSchemaD.basis.activationSequence + 1n) {
+      throw new Error("Cooking schema F active authority is inconsistent.");
+    }
+
+    const teaLeafSalad = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaDState.schemaCState.schemaBState.baseline.recipeId },
+      ),
+    );
+    const mohinga = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaDState.schemaCState.schemaBState.secondRecipeId },
+      ),
+    );
+    if (!isCookingRecipe(teaLeafSalad) ||
+      teaLeafSalad.details?.servings !== 2 ||
+      !isCookingRecipe(mohinga) || mohinga.details?.servings !== 2) {
+      throw new Error("Cooking schema F did not read the schema-D documents.");
+    }
+
+    const lifecycleCounts = await managedSchemaLifecycleCounts(scenario.fixture);
+    const counts = await durableCounts(scenario.fixture);
+    if (scenario.analysisLoader.loads !== 18 ||
+      scenario.runtimeLoader.loads !== 18 ||
+      lifecycleCounts.candidateHeads !== 1 ||
+      lifecycleCounts.activations !== 5 ||
+      lifecycleCounts.activeHeads !== 1 ||
+      counts.commits !== 6 || counts.outcomes !== 6 || counts.feed !== 6 ||
+      counts.outbox !== 6) {
+      throw new Error("Cooking schema F observed unexpected durable counts.");
+    }
+
+    await scenario.fixture.corruptCandidateValidationFrameBytesForTest();
+    const corruptedColdPort = createAppSchemaCandidateValidationPort({
+      controlDb: scenario.fixture.control.drizzle,
+      authority: scenario.fixture.authorityPorts,
+    });
+    const corruptedLoad = await runSystemTestEffectV1(Effect.result(
+      loadAppSchemaCandidateValidationEffect(
+        corruptedColdPort,
+        schemaFInput,
+      ),
+    ));
+    const corruptionRejected = Result.match(corruptedLoad, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "AppSchemaCandidateValidationOperationV1Error" &&
+        failure.operation === "load" && failure.reason === "corruption",
+      onSuccess: () => false,
+    });
+    const activeAfterCorruption = await runSystemTestEffectV1(
+      scenario.fixture.activation.readActive(),
+    );
+    if (!corruptionRejected || activeAfterCorruption.basis.revisionId !==
+        schemaFRevision.publication.revisionId) {
+      throw new Error(
+        "Schema F candidate corruption was not isolated from active authority.",
+      );
+    }
+
+    return Object.freeze({
+      supersededCandidate: true,
+      exactCandidateReplay: true,
+      decisionUncertaintyColdReplayed: true,
+      confirmedRollbackPreservedHead: true,
+      concurrentActivationConverged: true,
+      corruptionRejectedCold: true,
+      activeSchemaSurvivedCandidateCorruption: true,
+      candidateHeadCount: 1,
+      activationCount: 5,
+      activeHeadCount: 1,
+      analysisWorkerLoads: 18,
+      runtimeWorkerLoads: 18,
+      commitCount: 6,
+      outcomeCount: 6,
+      feedCount: 6,
+      outboxCount: 6,
+    } satisfies ManagedSchemaCookingSchemaFProof);
+  });
+}
+
 interface CookingScenario {
   readonly fixture: ApplicationNativeMutationFixture<
     ApplicationNativeMutationPersistence
@@ -1486,7 +1834,7 @@ function makeCookingQueryLayer(
 }
 
 async function cookingSourceBundle(
-  schema: "A" | "B" | "C" | "D" | "E",
+  schema: "A" | "B" | "C" | "D" | "E" | "F",
 ): Promise<
   ApplicationNativeMutationSourceBundle
 > {
@@ -1498,7 +1846,7 @@ async function cookingSourceBundle(
     fieldType: { type: "string" as const },
     optional: schema === "B",
   };
-  const difficultyValidator = schema === "D" || schema === "E"
+  const difficultyValidator = schema === "D" || schema === "E" || schema === "F"
     ? { type: "literal" as const, value: "easy" }
     : { type: "string" as const };
   const servingsValidator = schema === "E"
@@ -1548,6 +1896,14 @@ async function cookingSourceBundle(
                 ...(schema === "A" ? { description: descriptionField } : {}),
                 ...(schema === "A" ? {} : { slug: slugField }),
                 ...(schema === "A" ? {} : { details: detailsField }),
+                ...(schema === "F"
+                  ? {
+                    notes: {
+                      fieldType: { type: "string" },
+                      optional: true,
+                    },
+                  }
+                  : {}),
               },
             },
           },
@@ -1853,11 +2209,12 @@ async function settleReadyCandidateValidation(
     readonly schemaVersionId: CatalogSchemaVersionId;
   }>,
   label = "schema B",
+  candidateValidation = fixture.candidateValidation,
 ): Promise<void> {
   for (let step = 0; step < 64; step += 1) {
-    const advanced = await Effect.runPromise(
+    const advanced = await runSystemTestEffectV1(
       advanceAppSchemaCandidateValidationEffect(
-        fixture.candidateValidation,
+        candidateValidation,
         input,
       ),
     );
@@ -1865,8 +2222,8 @@ async function settleReadyCandidateValidation(
       throw new Error(`Remediated cooking ${label} still failed validation.`);
     }
     if (advanced.disposition !== "readyToSettle") continue;
-    await Effect.runPromise(settleAppSchemaCandidateValidationEffect(
-      fixture.candidateValidation,
+    await runSystemTestEffectV1(settleAppSchemaCandidateValidationEffect(
+      candidateValidation,
       input,
     ));
     return;
@@ -1990,6 +2347,31 @@ async function durableCounts(
     outcomes: Number(row.outcomes),
     feed: Number(row.feed),
     outbox: Number(row.outbox),
+  });
+}
+
+async function managedSchemaLifecycleCounts(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+) {
+  const result = await fixture.target.query<{
+    candidate_heads: string;
+    activations: string;
+    active_heads: string;
+  }>(`select
+    (select count(*)::text
+       from fx_system_app_schema_candidate_validation) as candidate_heads,
+    (select count(*)::text
+       from fx_system_application_activation_v1) as activations,
+    (select count(*)::text
+       from fx_system_application_active_head_v1) as active_heads`);
+  const row = result.rows[0];
+  if (row === undefined) {
+    throw new Error("Cooking managed-schema lifecycle counts are missing.");
+  }
+  return Object.freeze({
+    candidateHeads: Number(row.candidate_heads),
+    activations: Number(row.activations),
+    activeHeads: Number(row.active_heads),
   });
 }
 

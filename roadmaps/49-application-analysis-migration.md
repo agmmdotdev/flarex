@@ -2392,9 +2392,19 @@ E-invalid write publishes normally while atomically failing E with bounded
 `$document.details.servings` evidence. Schema D remains active and readable,
 and E remains non-ready and non-activatable. No validator, transaction, head
 writer, fallback, public contract, readiness, activation, or routing authority
-was introduced. The next M03-D cut is supersession, replay, cold reload,
-corruption, rollback, uncertainty, and concurrent activation from acceptance
-item 8.
+was introduced.
+
+The schema-F cut completes M03-D acceptance item 8 through the same current
+owners. Schema E replays exactly before F supersedes it; F's installation
+commits before an injected lost response, a fresh candidate-validation port
+cold-loads and exactly replays the committed head, and an injected post-write
+fault proves confirmed rollback without digest movement. F then reaches the
+existing readiness receipt, two concurrent activation requests converge on
+one insert and one replay, and another cold port rejects corrupted stored
+candidate bytes while active F remains coherent. The same lineage passes in
+PGlite and genuine PostgreSQL without changing application commit, outcome,
+feed, or outbox counts. The next M03-D cut is the stale-attempt publication
+fence in acceptance item 9.
 
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly
