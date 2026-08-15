@@ -2382,6 +2382,19 @@ candidate-validation, readiness, activation, runtime, or commit owner. The
 next M03-D scenario cut is cursor/reset behavior under concurrent active-schema
 writes.
 
+That preflight exposed `ST-CORE-024`. The current unversioned
+`ApplicationMutationSystem` constructs the existing point-commit publisher
+without the private M03-B candidate write guard, so the real Standard Workerd
+path cannot atomically correlate active-valid writes with a non-active
+candidate head. The system-test package may not work around this by constructing
+a second publisher or calling candidate validation directly. The bounded
+proposed correction requires one issuer-backed opaque guard in the Standard
+mutation composition, proves it is bound to the exact captured session
+authority, and passes it to the unchanged point-commit owner. This introduces
+no validator, transaction, head writer, fallback, public contract, readiness,
+activation, or routing authority. Implementation is paused pending explicit
+approval of that shared composition slice.
+
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly
 `revalidate`, point read, index range, insert, patch, replace, and delete over

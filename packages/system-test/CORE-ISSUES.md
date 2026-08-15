@@ -14,6 +14,48 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-024` - Standard mutation omits candidate-schema write-guard composition
+
+- **Status:** Open; exposed by the M03-D cursor/concurrent-write preflight.
+  No Standard invocation, point-commit, candidate-validation, or fixture owner
+  has been changed.
+- **Reproduction:** Activate schema D, install a non-active schema candidate,
+  and advance its exact-frontier validation to a non-null cursor. Invoke an
+  ordinary active-schema mutation through the real `ApplicationMutationSystem`.
+  That System constructs its point-commit publisher with intrinsic and
+  developer index capabilities only. It does not supply the existing opaque
+  `AppSchemaCandidateWriteGuardPort`, so a final row that is active-valid but
+  candidate-invalid publishes without atomically replacing the candidate
+  progress/receipt with failure evidence.
+- **Expected:** Every material Standard Application commit observes the one
+  authenticated candidate head. A candidate-valid final row leaves progress
+  unchanged; an active-valid/candidate-invalid final row still publishes but
+  atomically marks that candidate failed through the existing point-commit
+  transaction. The Standard system must not reproduce validation or mutate the
+  head itself.
+- **Actual:** The private persistence/point-commit guard exists and has direct
+  transactional proofs, but `ApplicationMutationSystemLive`, `captureLive`,
+  and its `createPointCommitPublisherPortV1` composition omit it. The real
+  Workerd cooking route therefore cannot exercise M03-D acceptance item 7.
+- **Owner and trust boundary:** Standard Application mutation composition and
+  its exact point-commit capability graph. The system-test harness must not
+  bypass `ApplicationMutationSystem`, construct a second publisher, call the
+  guard directly, synthesize failure evidence, or weaken the connected proof.
+- **Proposed bounded correction:** Require one already-issued opaque candidate
+  write guard in `ApplicationMutationSystemLive`, capture it by identity,
+  prove its exact binding to the same `sessionAuthority`, and pass it into the
+  existing point-commit publisher. The trusted composition root issues it from
+  the existing candidate-validation port and exact session-authority object.
+  Keep the lower point-commit lane optional outside Standard; add no fallback,
+  second validator, transaction, head writer, or public API.
+- **Required acceptance:** Positive exact composition plus structural-copy,
+  foreign-authority, and missing-capability refusal; candidate-valid unchanged
+  progress; active-valid/candidate-invalid atomic candidate failure while the
+  commit/feed/outbox publish; rollback and uncertainty preservation; and the
+  unchanged M03-D scenario in PGlite and genuine PostgreSQL.
+- **Current disposition:** Stop at this shared-core boundary pending explicit
+  approval of the bounded Standard composition correction.
+
 ### `ST-CORE-023` - failed candidate validation makes the active schema unreadable
 
 - **Status:** Resolved by separating current candidate settlement from durable
