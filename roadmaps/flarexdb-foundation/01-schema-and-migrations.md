@@ -9,7 +9,8 @@ DDL are complete. S08, S09-A, S09-B, and O08-B2b1/C06-A's migration-0032
 exact-attempt execution-claim DDL are also complete. Hosted proof `H01` through
 `H04` and `H05-A` are complete. `S02-E0` admits the mandatory scoped-execution
 kernel plan and production-inert `S02-E1` is complete; genuine-Postgres
-`S02-E2` is next. `H05-B` and production routing `S02-D2` remain deferred. The
+`S02-E2` is complete and bypass closure `S02-E3` is next. `H05-B` and
+production routing `S02-D2` remain deferred. The
 `O03-A` parent is complete:
 protocol-only `O03-A1`, auth-
 provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and corrected
@@ -270,7 +271,7 @@ Progress:
   - [x] `S02-E1`: implement the production-inert scoped-execution kernel and
     migrate one current query and one current writer through its opaque
     transaction capability.
-  - [ ] `S02-E2`: prove same-connection reuse, stale-authority rejection,
+  - [x] `S02-E2`: prove same-connection reuse, stale-authority rejection,
     rollback, interruption, settlement uncertainty, and quarantine on genuine
     PostgreSQL.
   - [ ] `S02-E3`: close production-intended bypasses, migrate the remaining
@@ -439,6 +440,38 @@ the clock lock, callback rollback, interruption, timeout, connection failure,
 post-callback settlement uncertainty, release failure, quarantine, and safe
 reuse only after known cleanup. PGlite remains the fast mapping lane but cannot
 claim pool or connection-lifecycle proof.
+
+`S02-E2` execution preflight keeps production behavior unchanged. A gated
+genuine-PostgreSQL suite constructs the committed Postgres located-transaction
+runner over deliberately bounded pools and invokes it only through
+`ScopeExecution`. A one-connection lane proves sequential A-to-B reuse and
+transaction-local reset; a two-connection lane proves simultaneous A/B
+isolation. Fault lanes prove wrong-placement rejection before acquisition,
+stale generation/fence/epoch rejection after preliminary resolution, callback
+rollback, statement timeout, Effect interruption waiting for database
+settlement, backend termination after callback completion, release failure,
+connection quarantine/replacement, and reuse only after known cleanup. The
+tests record backend PIDs and exact guarded scope context. They do not add a
+route, schema object, migration, RLS policy, Hyperdrive binding, production
+caller, fallback, or alternate settlement implementation. `S02-E2` cannot be
+marked complete from a skipped environment-gated run; its completion receipt
+requires the genuine PostgreSQL lane to execute successfully.
+
+Completion receipt: the environment-gated S02-E2 suite executed against
+genuine PostgreSQL 18. A pool capped at one connection recorded the same
+`pg_backend_pid()` across scope A and scope B, reset transaction-local
+`search_path` and statement timeout, removed its checked-out-client error
+observer before reuse, and kept the same logical input bound to each guarded
+scope's own persisted clock. A pool capped at two connections held A and B
+simultaneously on distinct backend PIDs. Separate fault paths rejected foreign
+placement before acquisition and stale generation, fence, and epoch before
+domain work; proved rollback and statement-timeout cleanup on the same PID;
+deferred interruption until the database transaction settled; and converted
+backend termination after callback completion plus injected release failure
+into uncertain outcomes that destroyed the affected connection before a new
+PID could serve later work. The suite adds no production route, DDL, RLS,
+Hyperdrive claim, or settlement path. S02-E remains incomplete until S02-E3
+closes the production-intended bypass inventory.
 
 `S02-E3` owns closure rather than new behavior. It inventories every ordinary
 production-intended FlarexDB query, mutation, Task/System writer, recovery, and

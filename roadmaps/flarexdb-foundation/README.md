@@ -175,12 +175,12 @@ bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, scoped-execution `S02-E0`/`S02-E1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete; genuine-Postgres `S02-E2` is next |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, scoped-execution `S02-E0`–`S02-E2`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete; bypass closure `S02-E3` is next |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, and O09 multi-row plus unique/developer-sidecar contention proof are complete; the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Managed schema | Storage-free `M01-A`/`M01-B` and `M02` plus production-inert `M03-A` candidate head/exact-frontier scan complete; `M03-B` point-commit guard is next and separately gated |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
-| Production replacement routing | `S02-D2` blocked on `S02-E2`–`S02-E3`, `H05-B`, and later replacement correctness gates |
+| Production replacement routing | `S02-D2` blocked on `S02-E3`, `H05-B`, and later replacement correctness gates |
 
 This folder converts the accepted FlarexDB architecture into small,
 reviewable implementation gates for:
@@ -362,9 +362,9 @@ decision or a material blocker, not ordinary implementation sequencing.
 
 1. [x] `S01`: freeze legacy behavior behind a named generation boundary.
 2. [ ] `S02`: trusted scope location and scope clock.
-   - Complete: `S02-A`–`S02-C`, `S02-D1`, `S02-E0`, `S02-E1`.
-   - Next: genuine-Postgres `S02-E2` pooled scoped-execution proof.
-   - Remaining: `S02-E2`, `S02-E3`, `H05-B`, and `S02-D2`.
+   - Complete: `S02-A`–`S02-C`, `S02-D1`, `S02-E0`–`S02-E2`.
+   - Next: `S02-E3` scoped-execution bypass closure.
+   - Remaining: `S02-E3`, `H05-B`, and `S02-D2`.
 3. [ ] `S03`: minimal stable catalog.
    - Complete through `S03-D2d`, including interleaved `S05-A`.
    - Completed: `S03-D3` in Wave 3.
