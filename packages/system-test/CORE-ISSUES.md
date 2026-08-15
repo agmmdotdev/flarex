@@ -14,6 +14,53 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-025` - stale schema attempt can publish after replacement activation
+
+- **Status:** Open; exposed by the M03-D acceptance-item-9 preflight. No shared
+  commit, activation, session, or Application mutation owner has been changed.
+- **Reproduction:** Activate schema F and prepare a compatible replacement
+  schema G. Start a real Standard Application mutation under F and pause its
+  Workerd execution only after the existing admission/session owner has pinned
+  F. Activate G through the existing readiness and activation CAS, then let the
+  old attempt finish with a document valid under both schemas.
+- **Expected:** The F-pinned attempt cannot publish after G becomes active. Its
+  ordinary owner reports the stale authority and allows the caller to issue a
+  new request under G; only that G-pinned retry may publish. The old attempt
+  must not reinterpret itself through G, and the simulation must not cancel,
+  rewrite, or commit it through a test-owned path.
+- **Actual:** Application admission and session activation correctly preserve
+  the immutable F execution and schema pins. Point commit authenticates those
+  pins against the stored session and applies the prepared candidate-schema
+  write guard, but its scope-clock transaction does not authenticate the
+  session schema against the schema of the current active Application head.
+  Replacement activation does not repurpose the immutable session or the
+  candidate-validation head. Consequently a final row valid under both F and G
+  has no current active-schema mismatch to stop publication. The established
+  same-schema head-movement proof intentionally demonstrates the more general
+  behavior: an admitted revision remains pinned and may publish after ordinary
+  active-head movement.
+- **Owner and trust boundary:** The Application mutation publication authority
+  shared by stored-attempt commit authentication, the existing point-commit
+  transaction, and the active Application head. This is not owned by
+  `@flarex/system-test` or the candidate-document validator. The harness must
+  not add a second active-head reader, synthesize a conflict, make G reject the
+  row merely to force failure, or bypass the ordinary retry path.
+- **Required design decision:** Add one exact, lock-compatible publication
+  fence that distinguishes a schema-replacing activation from an allowed
+  same-schema revision movement. The fence must reuse the existing active-head
+  and point-commit transaction authorities, preserve current lock order and
+  idempotency/OCC owners, fail closed on corruption or composition drift, and
+  not make every ordinary revision deployment abort admitted work.
+- **Required acceptance:** A direct PGlite and genuine-PostgreSQL transaction
+  proof plus the unchanged cooking scenario must pause a real F attempt,
+  activate G, reject publication with no row/outcome/feed/outbox increment,
+  and publish exactly once after a fresh ordinary G admission. Existing
+  same-schema pinned-head publication, replay, rollback, uncertainty, and
+  candidate-write-guard behavior must remain green.
+- **Current disposition:** Stop M03-D item 9 at this owner boundary until the
+  shared publication-fence correction is separately approved. Do not encode a
+  workaround in the simulation or weaken the acceptance item.
+
 ### `ST-CORE-024` - Standard mutation omits candidate-schema write-guard composition
 
 - **Status:** Resolved by composing the existing opaque candidate write guard

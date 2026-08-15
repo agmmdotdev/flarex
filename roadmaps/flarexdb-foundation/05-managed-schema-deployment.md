@@ -204,6 +204,19 @@ PostgreSQL run the same scenario and retain one candidate head, one active
 head, and the unchanged application commit/feed/outbox counts. The next M03-D
 cut is acceptance item 9.
 
+The item-9 preflight exposed `ST-CORE-025` before extending the cooking
+scenario. A Standard mutation admitted under schema F retains the correct
+immutable F runtime and schema pins, but the existing point-commit transaction
+does not yet authenticate that pinned schema against the schema of the current
+active Application head. Activating a compatible replacement G therefore
+leaves no publication fence for an F-pinned final row that is valid under both
+schemas. This is a shared stored-attempt/point-commit/active-head authority gap,
+not permission for the system-test harness to manufacture a conflict or a
+second current-head reader. Item 9 is paused pending separate approval of one
+lock-compatible fence that rejects schema-stale publication while preserving
+the accepted behavior that ordinary same-schema active-revision movement does
+not invalidate admitted work.
+
 ## Approved Code And Package Ownership
 
 Managed schema evolution is a separate private domain capability, not another
