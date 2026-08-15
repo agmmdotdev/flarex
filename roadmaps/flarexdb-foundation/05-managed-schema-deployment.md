@@ -7,7 +7,7 @@ canonical validation frames, guarded target-local single candidate head,
 bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
 `AA-R0` through `AA-R8` are complete. `M03-D` is now in progress with its
-current-generation schema-A, schema-B, and schema-C system-test cuts complete.
+current-generation schema-A through schema-E item-7 system-test cuts complete.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -174,19 +174,21 @@ The active D function validator also rejects the incompatible nested argument
 at `$args.details.difficulty`. No shared validator, scanner, evidence, runtime,
 or commit owner changed.
 
-Preflight for the next cursor/concurrent-write cut exposed `ST-CORE-024`. The
-private M03-B point-commit write guard is implemented, but the current
-`ApplicationMutationSystem` constructs its publisher without that capability.
-Consequently the real Standard Workerd route cannot yet prove that a
-candidate-valid commit leaves progress sound or that an active-valid/candidate-
-invalid commit atomically fails the candidate while publishing normally. The
-system-test harness must not bypass Standard or invoke the guard directly. The
-bounded proposed correction is to require an already-issued opaque write guard
-in the Standard mutation composition, authenticate its exact binding to the
-same session-authority object, and pass it into the existing publisher; no new
-validator, transaction, head writer, fallback, or public API is permitted.
-That shared composition change remains unapproved, so M03-D pauses before item
-7.
+The schema-E concurrent-write cut and `ST-CORE-024` correction are complete.
+The unversioned `ApplicationMutationSystem` now requires the existing opaque
+M03-B write guard, authenticates its exact session-authority binding at Layer
+construction, and passes it to the unchanged point-commit publisher. Missing,
+structurally copied, and foreign-authority capabilities fail closed. The
+connected cooking scenario tightens `details.servings` from number to literal
+`2`, advances the non-active E candidate to a non-null cursor, and then commits
+two ordinary schema-D mutations through Workerd. The candidate-valid mutation
+leaves the exact progress digest unchanged. The active-valid/candidate-invalid
+mutation still publishes its row, outcome, feed, and outbox while the same
+transaction replaces E progress with bounded `pointCommit` evidence at
+`$document.details.servings`. Schema D remains active, E cannot become ready or
+activate, and both writes are visible through D. This adds no validator,
+transaction, head writer, fallback, public API, or second commit path. The next
+M03-D cut is acceptance item 8.
 
 ## Approved Code And Package Ownership
 
@@ -430,8 +432,10 @@ be constructed with the exact opaque write-guard facet; when absent, the
 existing lower lane is unchanged. Guard preparation, final-live-row validation,
 candidate failure replacement, rollback proof, publication, and committed-
 outcome recovery all reuse the existing point-commit transaction and outcome
-owners. The capability is not composed into the Standard live application path
-and its failure or receipt is not readiness, activation, or routing authority.
+owners. The lower point-commit lane may still omit the capability, while the
+unversioned Standard Application mutation path now requires its exact guard
+composition. Its failure or receipt is not readiness, activation, or routing
+authority.
 
 ### M03-C readiness and activation preflight
 
@@ -702,14 +706,11 @@ These are separate later goals, not one giant deployment goal:
    receipt and let the existing activation CAS consume it. Reprove index,
    unique, runtime, cold-load, activation, stale-attempt, replay, rollback, and
    uncertainty behavior without a second active-schema authority.
-7. `M03-D` - **in progress; schemas A through D complete, item 7 blocked by
-   `ST-CORE-024`**: extend `@flarex/system-test`
+7. `M03-D` - **in progress; schemas A through E and item 7 complete**: extend `@flarex/system-test`
    with a separate current-generation multi-revision cooking scenario. The
    schema-A baseline, schema-B removal/remediation cut, and schema-C required-
-   field/backfill and nested-validator-tightening cuts are complete in both
-   PGlite and genuine PostgreSQL. Cursor/reset behavior under concurrent
-   active-schema writes requires the separately approved Standard candidate-
-   guard composition correction before the scenario may continue. Historical
+   field/backfill, nested-validator-tightening, and concurrent-write cuts are
+   complete in both PGlite and genuine PostgreSQL. Historical
    single-revision runners remain unchanged and are not fallback or comparison
    authorities.
 8. `M04` - expose plan/apply through developer CLI and AI tooling with

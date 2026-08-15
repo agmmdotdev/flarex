@@ -547,6 +547,48 @@ describe("M03-A app-schema candidate validation", () => {
       { ...pointCommitAuthority },
     )).toBe(false);
 
+    const applicationPointCommitAuthority = Object.freeze({
+      ...pointCommitAuthority,
+      applicationControlDb: dependencies.controlDb,
+    });
+    const applicationGuard = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority: applicationPointCommitAuthority,
+    });
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      applicationGuard,
+      applicationPointCommitAuthority,
+    )).toBe(true);
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      { ...applicationGuard },
+      applicationPointCommitAuthority,
+    )).toBe(false);
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      applicationGuard,
+      { ...applicationPointCommitAuthority },
+    )).toBe(false);
+
+    const foreignFixture = await fixtureFor("write_guard_foreign_control");
+    const foreignControlAuthority = Object.freeze({
+      ...pointCommitAuthority,
+      applicationControlDb: foreignFixture.persistence.drizzle,
+    });
+    const foreignControlGuard = createAppSchemaCandidateWriteGuardPort({
+      candidateValidation,
+      pointCommitAuthority: foreignControlAuthority,
+    });
+    expect(hasAppSchemaCandidateWriteGuardComposition(
+      foreignControlGuard,
+      foreignControlAuthority,
+    )).toBe(false);
+    await expect(runEffectFailure(prepareAppSchemaCandidateWriteGuardEffect(
+      foreignControlGuard,
+      { deploymentId: fixture.deploymentId, scopeId: fixture.scopeId },
+    ))).resolves.toMatchObject({
+      _tag: "AppSchemaCandidateWriteGuardError",
+      reason: "notIssued",
+    });
+
     let getterReads = 0;
     const accessorAuthority = Object.defineProperties({}, {
       scopeMetadata: {

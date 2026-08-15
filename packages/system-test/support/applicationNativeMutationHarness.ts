@@ -16,6 +16,7 @@ import {
 import { selectApplicationMutationAdmission } from
   "@flarex/persistence-postgres/internal/application-mutation-admission";
 import {
+  ApplicationMutationSystemConfigurationError,
   ApplicationMutationSystem,
   type ApplicationMutationSystemLive,
   makeApplicationMutationSystemLayer,
@@ -84,6 +85,10 @@ export interface ApplicationNativeMutationProof {
   readonly admittedHeadStayedPinned: true;
   readonly terminalJournalFailureDidNotCommit: true;
   readonly terminalFailureDidNotCommit: true;
+  readonly exactCandidateGuardComposed: true;
+  readonly copiedCandidateGuardRejected: true;
+  readonly foreignCandidateGuardAuthorityRejected: true;
+  readonly missingCandidateGuardRejected: true;
   readonly freshWorkerLoads: number;
   readonly commitCount: number;
   readonly outcomeCount: number;
@@ -109,7 +114,50 @@ export async function proveApplicationNativeMutation(
     fixture.deploymentId,
   );
   const loader = new ApplicationNativeWorkerLoader();
-  const layer = await makeApplicationNativeMutationTestLayer(fixture, loader);
+  const live = await makeApplicationNativeMutationTestLive(fixture, loader);
+  const layer = makeApplicationMutationSystemLayer(live);
+  let copiedCandidateGuardRejected = false;
+  try {
+    makeApplicationMutationSystemLayer(Object.freeze({
+      ...live,
+      candidateSchemaWriteGuard: Object.freeze({
+        ...live.candidateSchemaWriteGuard,
+      }),
+    }));
+  } catch (cause) {
+    copiedCandidateGuardRejected =
+      cause instanceof ApplicationMutationSystemConfigurationError &&
+      cause.reason === "invalidCandidateSchemaWriteGuard";
+  }
+  let foreignCandidateGuardAuthorityRejected = false;
+  try {
+    makeApplicationMutationSystemLayer(Object.freeze({
+      ...live,
+      sessionAuthority: Object.freeze({ ...live.sessionAuthority }),
+    }));
+  } catch (cause) {
+    foreignCandidateGuardAuthorityRejected =
+      cause instanceof ApplicationMutationSystemConfigurationError &&
+      cause.reason === "invalidCandidateSchemaWriteGuard";
+  }
+  const {
+    candidateSchemaWriteGuard: _omittedCandidateSchemaWriteGuard,
+    ...missingCandidateGuardLive
+  } = live;
+  let missingCandidateGuardRejected = false;
+  try {
+    // @ts-expect-error Deliberately exercise a missing required capability.
+    makeApplicationMutationSystemLayer(missingCandidateGuardLive);
+  } catch (cause) {
+    missingCandidateGuardRejected =
+      cause instanceof ApplicationMutationSystemConfigurationError &&
+      cause.reason === "invalidCandidateSchemaWriteGuard";
+  }
+  if (!copiedCandidateGuardRejected ||
+    !foreignCandidateGuardAuthorityRejected ||
+    !missingCandidateGuardRejected) {
+    throw new Error("Application mutation accepted an invalid candidate guard.");
+  }
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
@@ -345,6 +393,10 @@ export async function proveApplicationNativeMutation(
     admittedHeadStayedPinned: true,
     terminalJournalFailureDidNotCommit: true,
     terminalFailureDidNotCommit: true,
+    exactCandidateGuardComposed: true,
+    copiedCandidateGuardRejected: true,
+    foreignCandidateGuardAuthorityRejected: true,
+    missingCandidateGuardRejected: true,
     freshWorkerLoads: loader.loads,
     commitCount: afterFailure.commits,
     outcomeCount: afterFailure.outcomes,
@@ -360,6 +412,18 @@ export async function makeApplicationNativeMutationTestLayer(
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
   }> = {},
 ) {
+  return makeApplicationMutationSystemLayer(
+    await makeApplicationNativeMutationTestLive(fixture, loader, options),
+  );
+}
+
+async function makeApplicationNativeMutationTestLive(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  loader: WorkerLoader,
+  options: Readonly<{
+    readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+  }> = {},
+): Promise<ApplicationMutationSystemLive> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     fixture.deploymentId,
   );
@@ -444,7 +508,7 @@ export async function makeApplicationNativeMutationTestLayer(
   const host = makeApplicationExecutionHost(loader);
   let uuidSequence = 0;
   let executionSequence = 0;
-  return makeApplicationMutationSystemLayer({
+  return Object.freeze({
     deploymentId,
     activation: fixture.activation,
     admission: {
@@ -461,6 +525,7 @@ export async function makeApplicationNativeMutationTestLayer(
       load: () => Effect.die("Application authority must not load legacy metadata."),
     },
     sessionAuthority: fixture.sessionAuthority,
+    candidateSchemaWriteGuard: fixture.candidateSchemaWriteGuard,
     intrinsicCreationTimeIndexes: fixture.intrinsicCreationTimeIndexes,
     developerIndexes: fixture.developerIndexes,
     indexedQueries: fixture.indexedQueries,
@@ -497,7 +562,7 @@ export async function makeApplicationNativeMutationTestLayer(
     claimDurationMilliseconds: 600_000,
     leaseRenewalDurationMilliseconds: 600_000,
     heartbeatIntervalMilliseconds: 200_000,
-  });
+  } satisfies ApplicationMutationSystemLive);
 }
 
 type ApplicationJournalCapability = Readonly<{

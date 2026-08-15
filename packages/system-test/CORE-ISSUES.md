@@ -16,9 +16,8 @@ fixture succeeds.
 
 ### `ST-CORE-024` - Standard mutation omits candidate-schema write-guard composition
 
-- **Status:** Open; exposed by the M03-D cursor/concurrent-write preflight.
-  No Standard invocation, point-commit, candidate-validation, or fixture owner
-  has been changed.
+- **Status:** Resolved by composing the existing opaque candidate write guard
+  into the unversioned Standard Application mutation System.
 - **Reproduction:** Activate schema D, install a non-active schema candidate,
   and advance its exact-frontier validation to a non-null cursor. Invoke an
   ordinary active-schema mutation through the real `ApplicationMutationSystem`.
@@ -53,8 +52,21 @@ fixture succeeds.
   progress; active-valid/candidate-invalid atomic candidate failure while the
   commit/feed/outbox publish; rollback and uncertainty preservation; and the
   unchanged M03-D scenario in PGlite and genuine PostgreSQL.
-- **Current disposition:** Stop at this shared-core boundary pending explicit
-  approval of the bounded Standard composition correction.
+- **Resolution:** `ApplicationMutationSystemLive` now requires the already-
+  issued guard, construction rejects missing, copied, or foreign-authority
+  capabilities, and the unchanged point-commit publisher receives that exact
+  guard. The trusted fixture issues it from the existing candidate-validation
+  port and the exact Standard session-authority object. The established
+  Application authority shape with `applicationControlDb` remains exact-key,
+  own-data, and identity-bound; no alternate publisher, validator, transaction,
+  head writer, fallback, or public API was added.
+- **Acceptance evidence:** The connected schema-E cooking cut pauses validation
+  after a non-null cursor, publishes a candidate-valid active-schema write
+  without changing progress, then publishes an active-valid/candidate-invalid
+  write while atomically replacing progress with bounded path-only failure
+  evidence. Schema D stays active and both writes remain visible. The same
+  lineage passes through PGlite and genuine PostgreSQL, while the existing
+  direct guard suite retains rollback, replay, and uncertainty coverage.
 
 ### `ST-CORE-023` - failed candidate validation makes the active schema unreadable
 

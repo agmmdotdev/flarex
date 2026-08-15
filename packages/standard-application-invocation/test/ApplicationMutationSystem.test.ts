@@ -18,9 +18,10 @@ describe("Application mutation System", () => {
       throw new Error("must not verify");
     });
 
-    expect(() => preflightApplicationMutationSystemConfiguration({
-      legacyGrantVerifier: Object.freeze({ verify }),
-    })).toThrow(ApplicationMutationSystemConfigurationError);
+    expect(() => preflightApplicationMutationSystemConfiguration(
+      // @ts-expect-error Intentionally incomplete hostile configuration.
+      { legacyGrantVerifier: Object.freeze({ verify }) },
+    )).toThrow(ApplicationMutationSystemConfigurationError);
     expect(verify).not.toHaveBeenCalled();
   });
 

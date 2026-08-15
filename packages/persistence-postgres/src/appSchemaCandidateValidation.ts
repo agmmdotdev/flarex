@@ -127,6 +127,10 @@ const POINT_COMMIT_AUTHORITY_KEYS = Object.freeze([
   "provisioningReceipts",
   "scopeSessionTargets",
 ] as const);
+const APPLICATION_POINT_COMMIT_AUTHORITY_KEYS = Object.freeze([
+  ...POINT_COMMIT_AUTHORITY_KEYS,
+  "applicationControlDb",
+] as const);
 const appSchemaCandidateValidationPortBrand: unique symbol = Symbol(
   "Flarex/AppSchemaCandidateValidationPort",
 );
@@ -220,7 +224,7 @@ export function createAppSchemaCandidateValidationPortForPointCommitAuthority(
   controlDb: FlarexMetadataDatabase,
   pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
 ): AppSchemaCandidateValidationPort {
-  if (!hasExactOwnDataKeys(pointCommitAuthority, POINT_COMMIT_AUTHORITY_KEYS)) {
+  if (!hasPointCommitAuthorityOwnDataKeys(pointCommitAuthority)) {
     return Object.freeze({
       [appSchemaCandidateValidationPortBrand]: true as const,
     });
@@ -656,7 +660,12 @@ export function createAppSchemaCandidateWriteGuardPort(
     );
     const pointCommitAuthority = dependencies.pointCommitAuthority;
     if (
-      hasExactOwnDataKeys(pointCommitAuthority, POINT_COMMIT_AUTHORITY_KEYS) &&
+      hasPointCommitAuthorityOwnDataKeys(pointCommitAuthority) &&
+      (
+        !hasApplicationPointCommitAuthorityOwnDataKeys(pointCommitAuthority) ||
+        candidateValidation?.controlDb ===
+          pointCommitAuthority.applicationControlDb
+      ) &&
       candidateValidation !== undefined &&
       candidateValidation.authority.scopeMetadata ===
         pointCommitAuthority.scopeMetadata &&
@@ -686,6 +695,21 @@ export function hasAppSchemaCandidateWriteGuardComposition(
   if (typeof guard !== "object" || guard === null) return false;
   return candidateWriteGuardStates.get(guard as AppSchemaCandidateWriteGuardPort)
     ?.pointCommitAuthority === pointCommitAuthority;
+}
+
+function hasPointCommitAuthorityOwnDataKeys(
+  value: PointMutationSessionAuthorityResolutionPortsV1,
+): boolean {
+  return hasExactOwnDataKeys(value, POINT_COMMIT_AUTHORITY_KEYS) ||
+    hasApplicationPointCommitAuthorityOwnDataKeys(value);
+}
+
+function hasApplicationPointCommitAuthorityOwnDataKeys(
+  value: PointMutationSessionAuthorityResolutionPortsV1,
+): value is PointMutationSessionAuthorityResolutionPortsV1 & Readonly<{
+  readonly applicationControlDb: FlarexMetadataDatabase;
+}> {
+  return hasExactOwnDataKeys(value, APPLICATION_POINT_COMMIT_AUTHORITY_KEYS);
 }
 
 export class AppSchemaCandidateWriteGuardError extends Data.TaggedError(

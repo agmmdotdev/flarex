@@ -29,6 +29,7 @@ import {
 import {
   advanceAppSchemaCandidateValidationEffect,
   installAppSchemaCandidateValidationEffect,
+  loadAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
 } from
   "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
@@ -138,6 +139,23 @@ export interface ManagedSchemaCookingSchemaDProof {
   readonly outcomeCount: 6;
   readonly feedCount: 6;
   readonly outboxCount: 6;
+}
+
+export interface ManagedSchemaCookingSchemaEProof {
+  readonly plannedConcurrentWriteValidation: true;
+  readonly pausedAfterNonNullCursor: true;
+  readonly candidateValidCommitPreservedProgress: true;
+  readonly candidateInvalidCommitPublished: true;
+  readonly candidateInvalidCommitFailedValidationAtomically: true;
+  readonly failureEvidenceWasPathOnly: true;
+  readonly schemaDStayedActive: true;
+  readonly finalWritesVisibleThroughSchemaD: true;
+  readonly analysisWorkerLoads: 16;
+  readonly runtimeWorkerLoads: 20;
+  readonly commitCount: 8;
+  readonly outcomeCount: 8;
+  readonly feedCount: 8;
+  readonly outboxCount: 8;
 }
 
 export type ManagedSchemaCookingFixtureFactory = (
@@ -627,7 +645,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
       const backfilled = await scenario.mutation(
         invokeStandardApplicationPointMutationV1(
           TransactionFunctionPathV1Schema.make("recipes:addSlug"),
-          { id: recipeId, slug, details: { difficulty } },
+          { id: recipeId, slug, details: { difficulty, servings: 2 } },
           TransactionRequestKeyV1Schema.make(requestKey),
         ),
       );
@@ -716,9 +734,11 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
     if (!isCookingRecipe(teaLeafSalad) ||
       teaLeafSalad.slug !== "tea-leaf-salad" ||
       teaLeafSalad.details?.difficulty !== "easy" ||
+      teaLeafSalad.details.servings !== 2 ||
       teaLeafSalad.description !== undefined ||
       !isCookingRecipe(mohinga) || mohinga.slug !== "mohinga" ||
       mohinga.details?.difficulty !== "expert" ||
+      mohinga.details.servings !== 2 ||
       mohinga.description !== undefined) {
       throw new Error("Cooking schema C returned nonconforming documents.");
     }
@@ -756,7 +776,12 @@ export async function proveManagedSchemaCookingSchemaD(
   createFixture: ManagedSchemaCookingFixtureFactory = options =>
     createApplicationNativeMutationPGliteFixture(options),
 ): Promise<ManagedSchemaCookingSchemaDProof> {
-  return withCookingScenario(createFixture, async scenario => {
+  return withCookingScenario(createFixture, async scenario =>
+    (await establishCookingSchemaD(scenario)).proof
+  );
+}
+
+async function establishCookingSchemaD(scenario: CookingScenario) {
     const schemaCState = await establishCookingSchemaC(scenario);
     const schemaDSource = await cookingSourceBundle("D");
     scenario.sources.set(
@@ -915,7 +940,7 @@ export async function proveManagedSchemaCookingSchemaD(
         {
           id: schemaCState.schemaBState.secondRecipeId,
           slug: "mohinga",
-          details: { difficulty: "easy" },
+          details: { difficulty: "easy", servings: 2 },
         },
         TransactionRequestKeyV1Schema.make(
           "managed-schema:cooking:schema-c:remediate-nested-difficulty",
@@ -978,7 +1003,7 @@ export async function proveManagedSchemaCookingSchemaD(
         {
           id: schemaCState.schemaBState.secondRecipeId,
           slug: "mohinga",
-          details: { difficulty: "expert" },
+          details: { difficulty: "expert", servings: 2 },
         },
         TransactionRequestKeyV1Schema.make(
           "managed-schema:cooking:schema-d:invalid-nested-difficulty",
@@ -1010,8 +1035,10 @@ export async function proveManagedSchemaCookingSchemaD(
     );
     if (!isCookingRecipe(teaLeafSalad) ||
       teaLeafSalad.details?.difficulty !== "easy" ||
+      teaLeafSalad.details.servings !== 2 ||
       !isCookingRecipe(mohinga) ||
-      mohinga.details?.difficulty !== "easy") {
+      mohinga.details?.difficulty !== "easy" ||
+      mohinga.details.servings !== 2) {
       throw new Error("Cooking schema D returned nonconforming documents.");
     }
     const counts = await durableCounts(scenario.fixture);
@@ -1021,7 +1048,7 @@ export async function proveManagedSchemaCookingSchemaD(
       counts.outbox !== 6) {
       throw new Error("Cooking schema D observed unexpected durable counts.");
     }
-    return Object.freeze({
+    const proof = Object.freeze({
       plannedNestedValidatorValidation: true,
       nestedValidatorBlocked: true,
       failureEvidenceWasPathOnly: true,
@@ -1036,7 +1063,260 @@ export async function proveManagedSchemaCookingSchemaD(
       outcomeCount: 6,
       feedCount: 6,
       outboxCount: 6,
+    } satisfies ManagedSchemaCookingSchemaDProof);
+    return Object.freeze({
+      schemaCState,
+      schemaD,
+      activeSchemaD,
+      sourceArtifactRootSha256: schemaDSource.sourceArtifact.rootSha256,
+      proof,
     });
+}
+
+export async function proveManagedSchemaCookingSchemaE(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaCookingSchemaEProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const schemaDState = await establishCookingSchemaD(scenario);
+    const schemaESource = await cookingSourceBundle("E");
+    scenario.sources.set(
+      schemaESource.sourceArtifact.rootSha256,
+      schemaESource,
+    );
+    const schemaERevision = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:cooking:schema-e:first",
+      analysis: cookingAnalysis(
+        schemaESource,
+        scenario.analysisLoader,
+        "schema E",
+      ),
+    });
+    if (schemaESource.sourceArtifact.rootSha256 ===
+      schemaDState.sourceArtifactRootSha256) {
+      throw new Error("Cooking schema D and E source identities collided.");
+    }
+    const schemaE = await scenario.fixture.preparePublishedSchema(
+      schemaERevision.manifest,
+    );
+    const clock = await scenario.fixture.target.getScopeClock(
+      scenario.fixture.authority.scopeId,
+    );
+    if (clock === null) throw new Error("Cooking schema E planning clock is missing.");
+    const plan = await Effect.runPromise(planAppSchemaEvolutionV1Effect({
+      authority: {
+        scopeId: scenario.fixture.authority.scopeId,
+        storageGeneration: scenario.fixture.authority.storageGeneration,
+        storageGenerationFence:
+          scenario.fixture.authority.storageGenerationFence,
+        scopeEpoch: scenario.fixture.authority.epoch,
+        activeSchemaVersionId: schemaDState.activeSchemaD.basis.schemaVersionId,
+        activeManifestSha256: schemaManifestSha256(
+          schemaDState.schemaD.schemaManifestSha256,
+        ),
+        candidateSchemaVersionId: schemaE.schemaVersionId,
+        candidateManifestSha256: schemaManifestSha256(
+          schemaE.schemaManifestSha256,
+        ),
+        dataFrontierCommitSeq: clock.lastCommitSeq,
+      },
+      activeManifest: schemaDState.schemaD.manifest,
+      candidateManifest: schemaE.manifest,
+    }));
+    if (plan.disposition !== "managedBuildAndValidation" ||
+      !plan.incompatibilityEvidence.entries.some(evidence =>
+        evidence.code === "candidateDocumentValidationRequired" &&
+        evidence.logicalName === "recipes" &&
+        evidence.validatorPath === "$document.details.servings"
+      )) {
+      throw new Error(
+        "Cooking schema E did not plan nested servings validation.",
+      );
+    }
+
+    const validationInput = {
+      deploymentId: scenario.fixture.deploymentId,
+      schemaVersionId: schemaE.schemaVersionId,
+    } as const;
+    await Effect.runPromise(installAppSchemaCandidateValidationEffect(
+      scenario.fixture.candidateValidation,
+      validationInput,
+    ));
+    const paused = await Effect.runPromise(
+      advanceAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (paused.disposition !== "readyToSettle" ||
+      paused.head.frame.kind !== "app_schema_candidate_validation_progress" ||
+      paused.head.frame.cursor === null) {
+      throw new Error(
+        "Cooking schema E did not pause after a non-null validation cursor.",
+      );
+    }
+    const pausedFrameSha256Hex = paused.head.frameSha256Hex;
+
+    const candidateValid = await scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+        {
+          id: schemaDState.schemaCState.schemaBState.baseline.recipeId,
+          slug: "tea-leaf-salad-v2",
+          details: { difficulty: "easy", servings: 2 },
+        },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-d:candidate-valid-write",
+        ),
+      ),
+    );
+    if (candidateValid.disposition !== "published" ||
+      candidateValid.value !== true) {
+      throw new Error("Schema D candidate-valid write did not publish.");
+    }
+    const afterValid = await Effect.runPromise(
+      loadAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (afterValid.status !== "present" ||
+      afterValid.head.frameSha256Hex !== pausedFrameSha256Hex) {
+      throw new Error(
+        "Candidate-valid point commit changed paused schema E progress.",
+      );
+    }
+
+    const candidateInvalid = await scenario.mutation(
+      invokeStandardApplicationPointMutationV1(
+        TransactionFunctionPathV1Schema.make("recipes:addSlug"),
+        {
+          id: schemaDState.schemaCState.schemaBState.secondRecipeId,
+          slug: "mohinga",
+          details: { difficulty: "easy", servings: 4 },
+        },
+        TransactionRequestKeyV1Schema.make(
+          "managed-schema:cooking:schema-d:candidate-invalid-write",
+        ),
+      ),
+    );
+    if (candidateInvalid.disposition !== "published" ||
+      candidateInvalid.value !== true) {
+      throw new Error("Schema D candidate-invalid write did not publish.");
+    }
+    const failed = await Effect.runPromise(
+      loadAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (failed.status !== "present" ||
+      failed.head.frame.kind !==
+        "app_schema_candidate_validation_failure_evidence") {
+      throw new Error(
+        "Candidate-invalid point commit did not atomically fail schema E.",
+      );
+    }
+    const recipesTable = schemaE.manifest.tableDefinitions.tables.find(
+      table => table.logicalName === "recipes",
+    );
+    const failureEntry = failed.head.frame.entries[0];
+    const failureEntryKeys = failureEntry === undefined
+      ? ""
+      : Object.keys(failureEntry).sort().join(",");
+    if (recipesTable === undefined || failureEntry === undefined ||
+      failed.head.frame.entries.length !== 1 ||
+      failed.head.frame.observedFailureCount !== 1n ||
+      failed.head.frame.truncated ||
+      failureEntry.source !== "pointCommit" ||
+      failureEntry.reason !== "candidateValidatorRejected" ||
+      failureEntry.tableId !== recipesTable.tableId ||
+      failureEntry.validatorPath !== "$document.details.servings" ||
+      failureEntry.observedCommitSeq !== candidateInvalid.commitSeq ||
+      failureEntryKeys !==
+        "observedCommitSeq,reason,rowId,source,tableId,validatorPath" ||
+      Object.values(failureEntry).some(value =>
+        value === "Mohinga" || value === "mohinga" || value === 4
+      )) {
+      throw new Error(
+        "Schema E point-commit failure evidence was not exact and path-only.",
+      );
+    }
+    const blockedReadiness = await Effect.runPromise(
+      scenario.fixture.readiness.settle({
+        deploymentId: scenario.fixture.deploymentId,
+        revisionId: schemaERevision.publication.revisionId,
+      }),
+    );
+    if (blockedReadiness.status !== "not_ready" ||
+      blockedReadiness.reason !== "candidateValidationFailed") {
+      throw new Error("Schema E point-commit failure did not block readiness.");
+    }
+    const activationAttempt = await Effect.runPromise(Effect.result(
+      scenario.fixture.activation.activate({
+        revisionId: schemaERevision.publication.revisionId,
+        expectedActiveHead: schemaDState.activeSchemaD.expectedActiveHead,
+      }),
+    ));
+    const activationBlocked = Result.match(activationAttempt, {
+      onFailure: failure => isNonArrayRecord(failure) &&
+        failure._tag === "ApplicationActivationError" &&
+        failure.reason === "notReady",
+      onSuccess: () => false,
+    });
+    if (!activationBlocked) {
+      throw new Error("Failed schema E remained activatable.");
+    }
+    const activeSchemaD = await Effect.runPromise(
+      scenario.fixture.activation.readActive(),
+    );
+    if (activeSchemaD.basis.revisionId !==
+      schemaDState.activeSchemaD.basis.revisionId) {
+      throw new Error("Failed schema E replaced active schema D.");
+    }
+    const teaLeafSalad = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaDState.schemaCState.schemaBState.baseline.recipeId },
+      ),
+    );
+    const mohinga = await scenario.query(
+      invokeStandardApplicationPointQueryV1(
+        TransactionFunctionPathV1Schema.make("recipes:get"),
+        { id: schemaDState.schemaCState.schemaBState.secondRecipeId },
+      ),
+    );
+    if (!isCookingRecipe(teaLeafSalad) ||
+      teaLeafSalad.slug !== "tea-leaf-salad-v2" ||
+      teaLeafSalad.details?.servings !== 2 ||
+      !isCookingRecipe(mohinga) ||
+      mohinga.slug !== "mohinga" ||
+      mohinga.details?.servings !== 4) {
+      throw new Error("Schema D did not expose both concurrent writes.");
+    }
+    const counts = await durableCounts(scenario.fixture);
+    if (scenario.analysisLoader.loads !== 16 ||
+      scenario.runtimeLoader.loads !== 20 ||
+      counts.commits !== 8 || counts.outcomes !== 8 || counts.feed !== 8 ||
+      counts.outbox !== 8) {
+      throw new Error("Cooking schema E observed unexpected durable counts.");
+    }
+    return Object.freeze({
+      plannedConcurrentWriteValidation: true,
+      pausedAfterNonNullCursor: true,
+      candidateValidCommitPreservedProgress: true,
+      candidateInvalidCommitPublished: true,
+      candidateInvalidCommitFailedValidationAtomically: true,
+      failureEvidenceWasPathOnly: true,
+      schemaDStayedActive: true,
+      finalWritesVisibleThroughSchemaD: true,
+      analysisWorkerLoads: 16,
+      runtimeWorkerLoads: 20,
+      commitCount: 8,
+      outcomeCount: 8,
+      feedCount: 8,
+      outboxCount: 8,
+    } satisfies ManagedSchemaCookingSchemaEProof);
   });
 }
 
@@ -1206,7 +1486,7 @@ function makeCookingQueryLayer(
 }
 
 async function cookingSourceBundle(
-  schema: "A" | "B" | "C" | "D",
+  schema: "A" | "B" | "C" | "D" | "E",
 ): Promise<
   ApplicationNativeMutationSourceBundle
 > {
@@ -1218,15 +1498,22 @@ async function cookingSourceBundle(
     fieldType: { type: "string" as const },
     optional: schema === "B",
   };
-  const difficultyValidator = schema === "D"
+  const difficultyValidator = schema === "D" || schema === "E"
     ? { type: "literal" as const, value: "easy" }
     : { type: "string" as const };
+  const servingsValidator = schema === "E"
+    ? { type: "literal" as const, value: 2 }
+    : { type: "number" as const };
   const detailsField = {
     fieldType: {
       type: "object" as const,
       value: {
         difficulty: {
           fieldType: difficultyValidator,
+          optional: false,
+        },
+        servings: {
+          fieldType: servingsValidator,
           optional: false,
         },
       },
@@ -1368,6 +1655,7 @@ async function cookingSourceBundle(
         path: "functions/recipes.js",
         roles: ["function", "execution"],
         sourceBytes: new TextEncoder().encode([
+          `// managed schema ${schema}`,
           "export async function create(ctx, args) {",
           ...(schema === "A"
             ? [
@@ -1709,7 +1997,10 @@ function isCookingRecipe(value: unknown): value is Readonly<{
   readonly name: string;
   readonly description?: string;
   readonly slug?: string;
-  readonly details?: Readonly<{ readonly difficulty: string }>;
+  readonly details?: Readonly<{
+    readonly difficulty: string;
+    readonly servings: number;
+  }>;
 }> {
   if (value === null || typeof value !== "object") return false;
   const name = Reflect.get(value, "name");
@@ -1721,7 +2012,8 @@ function isCookingRecipe(value: unknown): value is Readonly<{
     (slug === undefined || typeof slug === "string") &&
     (details === undefined ||
       (isNonArrayRecord(details) &&
-        typeof Reflect.get(details, "difficulty") === "string"));
+        typeof Reflect.get(details, "difficulty") === "string" &&
+        typeof Reflect.get(details, "servings") === "number"));
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

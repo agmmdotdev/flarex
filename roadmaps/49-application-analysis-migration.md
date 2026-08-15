@@ -2379,21 +2379,22 @@ candidate restarts at the newer frontier, validates, and activates. The active
 D function validator separately rejects an incompatible nested argument at
 `$args.details.difficulty`. This cut changes no shared analysis, validator,
 candidate-validation, readiness, activation, runtime, or commit owner. The
-next M03-D scenario cut is cursor/reset behavior under concurrent active-schema
+next M03-D scenario cut was cursor behavior under concurrent active-schema
 writes.
 
-That preflight exposed `ST-CORE-024`. The current unversioned
-`ApplicationMutationSystem` constructs the existing point-commit publisher
-without the private M03-B candidate write guard, so the real Standard Workerd
-path cannot atomically correlate active-valid writes with a non-active
-candidate head. The system-test package may not work around this by constructing
-a second publisher or calling candidate validation directly. The bounded
-proposed correction requires one issuer-backed opaque guard in the Standard
-mutation composition, proves it is bound to the exact captured session
-authority, and passes it to the unchanged point-commit owner. This introduces
-no validator, transaction, head writer, fallback, public contract, readiness,
-activation, or routing authority. Implementation is paused pending explicit
-approval of that shared composition slice.
+That schema-E cut and `ST-CORE-024` are now complete. The current unversioned
+`ApplicationMutationSystem` requires the existing opaque M03-B candidate write
+guard, rejects missing, copied, and foreign-authority composition, and passes
+the exact guard into the unchanged point-commit publisher. The real Standard
+Workerd path pauses E validation after a non-null cursor, proves a candidate-
+valid schema-D write leaves progress unchanged, then proves an active-valid but
+E-invalid write publishes normally while atomically failing E with bounded
+`$document.details.servings` evidence. Schema D remains active and readable,
+and E remains non-ready and non-activatable. No validator, transaction, head
+writer, fallback, public contract, readiness, activation, or routing authority
+was introduced. The next M03-D cut is supersession, replay, cold reload,
+corruption, rollback, uncertainty, and concurrent activation from acceptance
+item 8.
 
 Application Worker transaction capabilities are flat while the existing journal
 port is table/index scoped. A private executor adapter may expose exactly

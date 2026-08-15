@@ -43,6 +43,10 @@ import type { AppDeveloperIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/app-developer-index-commit-v1";
 import type { IntrinsicCreationTimeIndexDefinitionPortV1 } from
   "@flarex/persistence-postgres/internal/intrinsic-creation-time-index-build-v1";
+import {
+  hasAppSchemaCandidateWriteGuardComposition,
+  type AppSchemaCandidateWriteGuardPort,
+} from "@flarex/persistence-postgres/internal/app-schema-candidate-validation";
 import { createStoredAttemptEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/internal/stored-attempt-evidence-v1";
 import {
@@ -146,6 +150,7 @@ export interface ApplicationMutationSystemLive {
   readonly legacyFunctionMetadata:
     StoredPointMutationOccRerunExecutionConfigV1["functionMetadata"];
   readonly sessionAuthority: ApplicationStoredCommitAuthorityPorts;
+  readonly candidateSchemaWriteGuard: AppSchemaCandidateWriteGuardPort;
   readonly intrinsicCreationTimeIndexes:
     IntrinsicCreationTimeIndexDefinitionPortV1;
   readonly developerIndexes: AppDeveloperIndexDefinitionPortV1;
@@ -178,7 +183,9 @@ export class ApplicationMutationSystemConfigurationError extends Error {
   readonly _tag = "ApplicationMutationSystemConfigurationError" as const;
   readonly name = "ApplicationMutationSystemConfigurationError";
 
-  constructor(readonly reason: "unregisteredLegacyGrantVerifier") {
+  constructor(readonly reason:
+    | "unregisteredLegacyGrantVerifier"
+    | "invalidCandidateSchemaWriteGuard") {
     super(`Application mutation System configuration is invalid: ${reason}.`);
   }
 }
@@ -249,8 +256,8 @@ export const invokeApplicationMutation = Effect.fn(
 export function makeApplicationMutationSystemLayer(
   live: ApplicationMutationSystemLive,
 ): Layer.Layer<ApplicationMutationSystem> {
-  preflightApplicationMutationSystemConfiguration(live);
   const captured = captureLive(live);
+  preflightApplicationMutationSystemConfiguration(captured);
   return Layer.succeed(
     ApplicationMutationSystem,
     ApplicationMutationSystem.of({ invoke: makeInvoke(captured) }),
@@ -258,11 +265,23 @@ export function makeApplicationMutationSystemLayer(
 }
 
 export function preflightApplicationMutationSystemConfiguration(
-  live: Pick<ApplicationMutationSystemLive, "legacyGrantVerifier">,
+  live: Pick<
+    ApplicationMutationSystemLive,
+    "legacyGrantVerifier" | "sessionAuthority" | "candidateSchemaWriteGuard"
+  >,
 ): void {
   if (!isRegisteredTransactionGrantVerifierV1(live.legacyGrantVerifier)) {
     throw new ApplicationMutationSystemConfigurationError(
       "unregisteredLegacyGrantVerifier",
+    );
+  }
+  if (!Object.isFrozen(live.sessionAuthority) ||
+    !hasAppSchemaCandidateWriteGuardComposition(
+      live.candidateSchemaWriteGuard,
+      live.sessionAuthority,
+    )) {
+    throw new ApplicationMutationSystemConfigurationError(
+      "invalidCandidateSchemaWriteGuard",
     );
   }
 }
@@ -278,6 +297,7 @@ function makeInvoke(
     {
       intrinsicCreationTimeIndexes: live.intrinsicCreationTimeIndexes,
       developerIndexes: live.developerIndexes,
+      candidateSchemaWriteGuard: live.candidateSchemaWriteGuard,
       ...(live.pointCommitProofAfterTransactionStep === undefined
         ? {}
         : {
@@ -547,12 +567,10 @@ function captureLive(
     // Registration is WeakMap-backed in executor; identity is the capability.
     legacyGrantVerifier: live.legacyGrantVerifier,
     legacyFunctionMetadata: live.legacyFunctionMetadata,
-    sessionAuthority: Object.freeze({
-      scopeMetadata: live.sessionAuthority.scopeMetadata,
-      provisioningReceipts: live.sessionAuthority.provisioningReceipts,
-      scopeSessionTargets: live.sessionAuthority.scopeSessionTargets,
-      applicationControlDb: live.sessionAuthority.applicationControlDb,
-    }),
+    // The candidate guard is WeakMap-bound to this exact authority capability.
+    // Derived persistence ports snapshot the fields they consume at creation.
+    sessionAuthority: live.sessionAuthority,
+    candidateSchemaWriteGuard: live.candidateSchemaWriteGuard,
     intrinsicCreationTimeIndexes: Object.freeze({
       locate: live.intrinsicCreationTimeIndexes.locate,
     }),

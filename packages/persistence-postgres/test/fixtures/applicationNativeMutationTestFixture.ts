@@ -49,7 +49,7 @@ import {
 import {
   createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
-  createLocatedAppSchemaCandidateValidationTarget,
+  createAppSchemaCandidateWriteGuardPort,
   advanceAppSchemaCandidateValidationEffect,
   installAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
@@ -126,6 +126,9 @@ import type { LocatedScopeClockReader } from
   "../../src/scopeAuthorityResolution";
 import { createPointCommitPublisherPortV1 } from "../../src/pointCommitTransaction";
 import {
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../../src/transactionSessionAttemptKernel";
+import {
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
@@ -192,6 +195,9 @@ export interface ApplicationNativeMutationFixture<
   readonly schemaAuthority: ApplicationSchemaAuthority;
   readonly candidateValidation: ReturnType<
     typeof createAppSchemaCandidateValidationPort
+  >;
+  readonly candidateSchemaWriteGuard: ReturnType<
+    typeof createAppSchemaCandidateWriteGuardPort
   >;
   readonly registerRevision: (input: Readonly<{
     readonly requestKey: string;
@@ -451,10 +457,24 @@ async function createApplicationNativeMutationFixture<
   );
   await registerFixtureTaskBindings(target, authority, publication, options);
 
-  const authorityPorts = fixtureAuthorityPorts(control, target, authority);
+  const authorityPorts = fixtureAuthorityPorts(
+    control,
+    authority,
+    lane.locateSession,
+  );
+  const sessionAuthority = Object.freeze({
+    scopeMetadata: control,
+    provisioningReceipts: authorityPorts.provisioningReceipts,
+    scopeSessionTargets: authorityPorts.scopeClockTargets,
+    applicationControlDb: control.drizzle,
+  });
   const candidateValidation = createAppSchemaCandidateValidationPort({
     controlDb: control.drizzle,
     authority: authorityPorts,
+  });
+  const candidateSchemaWriteGuard = createAppSchemaCandidateWriteGuardPort({
+    candidateValidation,
+    pointCommitAuthority: sessionAuthority,
   });
   const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
     control.drizzle,
@@ -516,7 +536,7 @@ async function createApplicationNativeMutationFixture<
   const preparePublishedSchema = async (
     manifest: ApplicationManifestV1,
   ): Promise<ApplicationSchemaAuthority> => {
-    const published = await Effect.runPromise(schema.readPublished({
+    const published = await Effect.runPromise(schema.publish({
       deploymentId,
       manifest,
     }));
@@ -715,19 +735,9 @@ async function createApplicationNativeMutationFixture<
     currentActive = await Effect.runPromise(activation.readActive());
     return currentActive;
   };
-  const provisioningReceipts = fixtureProvisioningReceipts(control);
-  const sessionAuthority = Object.freeze({
-    scopeMetadata: control,
-    provisioningReceipts,
-    scopeSessionTargets: Object.freeze({
-      resolve: async (locator: ScopePhysicalLocator) =>
-        lane.locateSession(locator),
-    }),
-    applicationControlDb: control.drizzle,
-  });
   const currentEpochAuthority = Object.freeze({
     scopeMetadata: control,
-    provisioningReceipts,
+    provisioningReceipts: authorityPorts.provisioningReceipts,
     scopeEpochTargets: Object.freeze({
       resolve: async (locator: ScopePhysicalLocator) =>
         lane.locateEpoch(locator),
@@ -817,6 +827,7 @@ async function createApplicationNativeMutationFixture<
     schema,
     schemaAuthority,
     candidateValidation,
+    candidateSchemaWriteGuard,
     registerRevision,
     preparePublishedSchema,
     sessionAuthority,
@@ -845,18 +856,22 @@ function fixtureProvisioningReceipts(
 
 function fixtureAuthorityPorts(
   control: ApplicationNativeMutationPersistence,
-  target: ApplicationNativeMutationPersistence,
   authority: ApplicationAnalysisAuthority,
+  locateSession: (locator: ScopePhysicalLocator) => LocatedScopeClockReader,
 ) {
-  const located = createLocatedAppSchemaCandidateValidationTarget(
-    target.drizzle,
-    LOCATOR,
-  );
   return Object.freeze({
     scopeMetadata: control,
     provisioningReceipts: fixtureProvisioningReceipts(control),
     scopeClockTargets: Object.freeze({
-      resolve: async (_locator: ScopePhysicalLocator) => located,
+      resolve: async (locator: ScopePhysicalLocator) => {
+        const target = locateSession(locator);
+        if (!isLocatedReadCommittedAttemptTargetV1(target)) {
+          throw new Error(
+            "Application-native session target lacks read-committed authority.",
+          );
+        }
+        return target;
+      },
     }),
     authority,
   });
@@ -928,7 +943,9 @@ async function closeEmptyUniqueConstraintSet(
 }
 
 async function settleCandidateValidation(
-  candidateValidation: ReturnType<typeof createAppSchemaCandidateValidationPort>,
+  candidateValidation: ReturnType<
+    typeof createAppSchemaCandidateValidationPort
+  >,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
 ): Promise<void> {
