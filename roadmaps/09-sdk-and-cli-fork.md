@@ -343,6 +343,15 @@ chooses `enable` or `try` (or when another caller supplies a pre-finish hook).
 Therefore the CLI help's conceptual “typecheck before activation” is not a
 default safety guarantee yet.
 
+Managed-schema M04 is not part of this command yet. The existing deploy flow
+speaks the deployment-push start/finish contract; its finish operation must not
+be reinterpreted as the current Application managed-schema apply authority.
+Roadmap 05 requires a private current-generation plan coordinator, an
+exact-plan apply coordinator, and direct database/system proof before
+`flarex-dev` may adapt that capability. The later CLI adapter will share one
+detached machine-readable result with CI and AI tooling rather than duplicating
+planning or granting AI callers a privileged apply path.
+
 There is no CLI login, project/team management, dashboard, cloud token,
 deployment selection, logs, data import/export, migration, or standalone `dev`
 command. Vite integration currently owns the local watch/runtime experience.

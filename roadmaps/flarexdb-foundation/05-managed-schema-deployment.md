@@ -8,7 +8,9 @@ bounded exact-frontier scanner, authenticated point-commit write guard,
 readiness receipt, and activation gate now exist. Application Analysis
 `AA-R0` through `AA-R8` are complete. `M03-D` is complete through its
 current-generation schema-A through schema-G system-test lineage and all nine
-acceptance items.
+acceptance items. `M04` has completed its developer-tooling composition
+preflight; implementation remains private and is split into the plan, apply,
+and adapter checkpoints below.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -219,6 +221,94 @@ unchanged, then issues a fresh ordinary G mutation and observes exactly one
 publication plus a G-selected final query. PGlite and genuine PostgreSQL run
 the same transaction and inspection path. No second active-head reader,
 session owner, OCC system, commit path, fallback, or test-owned retry was added.
+
+## M04 Developer-Tooling Composition Preflight
+
+### Current truth
+
+The current system-test composition proves the complete Application path, but
+it does so through a persistence-owned fixture. That fixture explicitly joins
+the current Application Analysis context and cold host, durable Application
+publication, schema-authority publication, candidate validation, readiness,
+activation, Standard query/mutation Systems, and real Workerd execution. It is
+proof evidence, not a developer-facing deployment coordinator.
+
+`@flarex/managed-schema` currently owns the pure canonical
+`AppSchemaEvolutionPlanV1` operation. It accepts already-decoded authenticated
+active/candidate manifests, exact scope/storage/epoch/frontier pins, and
+optional explicit rename intents. It intentionally performs no catalog, row,
+DDL, readiness, activation, or source-analysis I/O and grants no apply
+authority.
+
+The current `flarex-dev deploy` command is not that missing coordinator. It
+speaks the existing deployment-push `start` / `finish` / `abandon` contract and
+its finish operation activates that contract's deployment metadata. Treating
+it as managed-schema apply would bypass the new Application Analysis,
+candidate-validation, readiness, and activation authorities. The current
+`@flarex/standard-application-registration` package also exposes only an
+explicit historical system-test entrypoint; it has no current unversioned
+Application registration/deployment composition yet.
+
+### Decision
+
+M04 must first extract the proven current-generation composition behind one
+private host-neutral deployment capability. CLI and AI adapters consume that
+same capability only after its direct PGlite and genuine-PostgreSQL proof.
+Neither adapter may reconstruct planning, read raw authority tables, or call
+candidate/readiness/activation repositories independently.
+
+```text
+developer source package
+  -> current Application Analysis and immutable publication
+  -> private managed deployment plan coordinator
+     -> authenticated active/candidate manifests and authority frontier
+     -> @flarex/managed-schema canonical AppSchemaEvolutionPlanV1
+  -> explicit apply request bound to the exact plan digest
+     -> existing candidate validation and physical-build owners
+     -> existing readiness owner
+     -> existing activation CAS
+  -> one detached machine-readable result
+     -> local CLI presentation
+     -> CI or AI-tool consumption
+```
+
+The private composition owner remains
+`@flarex/standard-application-registration`, but its current entrypoint must be
+a new plain unversioned Application module rather than an extension of the
+retained `internal/system-test/legacy-v1` surface. Domain planning policy and
+the canonical plan remain in `@flarex/managed-schema`; PostgreSQL mechanics and
+opaque authority ports remain in `@flarex/persistence-postgres`; source
+packaging and human/JSON presentation remain in `flarex-dev`.
+
+### Checkpoints
+
+1. **M04-A — private prepared plan.** Add the unversioned current Application
+   deployment composition and one read-only plan operation. It consumes exact
+   current Application Analysis/publication evidence plus opaque active-schema,
+   schema-artifact, and scope-frontier ports; invokes the existing pure planner;
+   and returns the canonical plan and digest. Structural copies, cross-control
+   or cross-target composition, stale active/candidate identities, and changed
+   scope authority fail closed. It performs no candidate installation, build,
+   readiness settlement, activation, route, or CLI work.
+2. **M04-B — private exact-plan apply.** Accept only an exact prepared plan from
+   M04-A, revalidate every activation prerequisite, and drive the existing
+   candidate-validation, physical-build, readiness, and activation owners.
+   Blocked plans remain non-applicable; remediation is ordinary application
+   work followed by a new plan at a new frontier. Apply is resumable and
+   idempotent but owns no new transaction, OCC, row-write, readiness, or
+   activation semantics.
+3. **M04-C — developer adapters.** After the private capability passes the full
+   system scenario in PGlite and genuine PostgreSQL, add one `flarex-dev`
+   adapter and one shared detached JSON projection for human, CI, and AI-tool
+   callers. Exact command spelling remains deferred until this checkpoint. AI
+   tooling receives no separate privileged API and cannot auto-confirm rename
+   intent or destructive remediation.
+
+M04 does not authorize an HTTP route, Worker binding, production caller,
+credential model, deployment discovery, public compatibility promise, raw SQL,
+automatic data deletion, migration-history rewrite, dual apply path, fallback
+to the existing deployment-push finish operation, or `AA-R9` production
+cutover. Those require their directly owning roadmaps and separate approval.
 
 ## Approved Code And Package Ownership
 
@@ -744,8 +834,11 @@ These are separate later goals, not one giant deployment goal:
    in both PGlite and genuine PostgreSQL. Historical
    single-revision runners remain unchanged and are not fallback or comparison
    authorities.
-8. `M04` - expose plan/apply through developer CLI and AI tooling with
-   non-interactive machine-readable output.
+8. `M04` - **preflight complete; implementation not started**: extract the
+   private current-generation plan/apply composition first, then expose its
+   detached machine-readable result through `flarex-dev`, CI, and AI tooling.
+   Do not reinterpret the existing deployment-push finish operation as managed
+   apply or add a public/production route before the private checkpoints pass.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
    reconnect, and adapter retention gates pass.
 
