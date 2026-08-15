@@ -16,12 +16,16 @@ import {
   type CatalogIndexDefinitionId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
+import { appIndexPhysicalSpecSha256HexV1ToBytes } from
+  "flarex-protocol/index-definition";
 import type { IndexBuildStateRecord } from "./indexBuildStates";
 import {
   encodeAppOrderedIndexKeyV1,
   OrderedIndexKeyTooLargeError,
   orderedIndexCreationTimeV1,
+  orderedIndexKeyHexV1ToBytes,
   orderedIndexRowIdHexV1FromBytesResult,
+  orderedIndexRowIdHexV1ToBytes,
   type OrderedIndexKeyHexV1,
   type OrderedIndexRowIdHexV1,
 } from "flarex-protocol/ordered-index";
@@ -819,7 +823,9 @@ const backfillPage = Effect.fn(
   | AppendAppIndexEntryRevisionV1Error
 > {
   const cursor = state.backfillCursor.afterRowId;
-  const cursorBytes = cursor === null ? null : Buffer.from(cursor, "hex");
+  const cursorBytes = cursor === null
+    ? null
+    : orderedIndexRowIdHexV1ToBytes(cursor);
   const candidates = yield* queryEffect(
     tx.selectDistinctOn([fxAppRowRevisions.rowId], {
       rowId: fxAppRowRevisions.rowId,
@@ -906,7 +912,9 @@ const validateAndEnable = Effect.fn(
   | ReadAppIndexRangeV1Error
 > {
   const cursor = state.backfillCursor.afterRowId;
-  const cursorBytes = cursor === null ? null : Buffer.from(cursor, "hex");
+  const cursorBytes = cursor === null
+    ? null
+    : orderedIndexRowIdHexV1ToBytes(cursor);
   const expectedRowIds = yield* queryEffect(
     tx.select({ rowId: fxAppRowCurrent.rowId }).from(fxAppRowCurrent).where(and(
       eq(fxAppRowCurrent.scopeUuid, scopeUuid),
@@ -989,7 +997,9 @@ const validateAndEnable = Effect.fn(
       actualRow.encodedKey !== encodedKey ||
       !bytesEqualFullScan(
         actualRow.physicalSpecSha256,
-        Buffer.from(definition.physicalSpecSha256Hex, "hex"),
+        appIndexPhysicalSpecSha256HexV1ToBytes(
+          definition.physicalSpecSha256Hex,
+        ),
       )
     ) {
       return yield* mismatch(state, `current row ${index} is inconsistent`);
@@ -1034,7 +1044,7 @@ const loadCurrentAppRow = Effect.fn(
   | AppOrderedIndexBuildIntegrationError
   | AppOrderedIndexBuildStateError
 > {
-  const rowIdBytes = Buffer.from(rowId, "hex");
+  const rowIdBytes = orderedIndexRowIdHexV1ToBytes(rowId);
   if (policy.kind === "intrinsicCreationTime") {
     const rows = yield* queryEffect(
       tx.select({
@@ -1154,7 +1164,9 @@ const ensureCurrentIndexEntry = Effect.fn(
     state,
   );
   const rowId = yield* Effect.fromResult(
-    orderedIndexRowIdHexV1FromBytesResult(Buffer.from(current.rowId, "hex")),
+    orderedIndexRowIdHexV1FromBytesResult(
+      orderedIndexRowIdHexV1ToBytes(current.rowId),
+    ),
   ).pipe(Effect.mapError((cause) =>
     new AppOrderedIndexBuildStateError({
       scopeId: state.scopeId,
@@ -1163,8 +1175,8 @@ const ensureCurrentIndexEntry = Effect.fn(
       detail: String(cause),
     })
   ));
-  const keyBytes = Buffer.from(encodedKey, "hex");
-  const rowIdBytes = Buffer.from(rowId, "hex");
+  const keyBytes = orderedIndexKeyHexV1ToBytes(encodedKey);
+  const rowIdBytes = orderedIndexRowIdHexV1ToBytes(rowId);
   const heads = yield* queryEffect(
     tx.select({
       commitSeq: fxAppIndexEntryRevisions.commitSeq,
@@ -1274,7 +1286,9 @@ function transitionLifecycle(
       tx.update(fxSystemIndexBuildStates).set({
         lifecycle,
         backfillCursorRowId:
-          cursorRowId === null ? null : Buffer.from(cursorRowId, "hex"),
+          cursorRowId === null
+            ? null
+            : orderedIndexRowIdHexV1ToBytes(cursorRowId),
         updatedAt: sql`clock_timestamp()`,
       }).where(and(
         eq(fxSystemIndexBuildStates.scopeId, state.scopeId),

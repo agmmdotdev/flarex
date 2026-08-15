@@ -82,6 +82,10 @@ import {
   createApplicationManagedSchemaPlanningPort,
   type ApplicationManagedSchemaPlanningPort,
 } from "../../src/applicationManagedSchemaPlanning";
+import {
+  createApplicationManagedSchemaApplicationPort,
+  type ApplicationManagedSchemaApplicationPort,
+} from "../../src/applicationManagedSchemaApplication";
 import { makeApplicationReadinessRepository } from "../../src/applicationReadiness";
 import {
   makeApplicationSchemaAuthorityPublisher,
@@ -199,6 +203,7 @@ export interface ApplicationNativeMutationFixture<
   readonly schema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
   readonly schemaAuthority: ApplicationSchemaAuthority;
   readonly managedSchemaPlanning: ApplicationManagedSchemaPlanningPort;
+  readonly managedSchemaApplication: ApplicationManagedSchemaApplicationPort;
   readonly candidateValidation: ReturnType<
     typeof createAppSchemaCandidateValidationPort
   >;
@@ -210,6 +215,9 @@ export interface ApplicationNativeMutationFixture<
     readonly analysis: ApplicationNativeMutationAnalysis;
   }>) => Promise<ApplicationNativeMutationRegisteredRevision>;
   readonly preparePublishedSchema: (
+    manifest: ApplicationManifestV1,
+  ) => Promise<ApplicationSchemaAuthority>;
+  readonly publishManagedSchemaCandidate: (
     manifest: ApplicationManifestV1,
   ) => Promise<ApplicationSchemaAuthority>;
   readonly sessionAuthority: Readonly<{
@@ -545,7 +553,7 @@ async function createApplicationNativeMutationFixture<
       }),
     },
   }));
-  const preparePublishedSchema = async (
+  const publishManagedSchemaCandidate = async (
     manifest: ApplicationManifestV1,
   ): Promise<ApplicationSchemaAuthority> => {
     const published = await Effect.runPromise(schema.publish({
@@ -562,6 +570,12 @@ async function createApplicationNativeMutationFixture<
       targetPublished.schemaManifestSha256 !== published.schemaManifestSha256) {
       throw new Error("Application-native schema authorities diverged.");
     }
+    return published;
+  };
+  const preparePublishedSchema = async (
+    manifest: ApplicationManifestV1,
+  ): Promise<ApplicationSchemaAuthority> => {
+    const published = await publishManagedSchemaCandidate(manifest);
     await closeEmptyUniqueConstraintSet(
       control,
       deploymentId,
@@ -762,6 +776,15 @@ async function createApplicationNativeMutationFixture<
     schema,
     authority: authorityPorts,
   });
+  const managedSchemaApplication = createApplicationManagedSchemaApplicationPort({
+    deploymentId,
+    controlDb: control.drizzle,
+    targetDb: target.drizzle,
+    authority: authorityPorts,
+    activation,
+    candidateValidation,
+    planning: managedSchemaPlanning,
+  });
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
     control.drizzle,
   );
@@ -887,10 +910,12 @@ async function createApplicationNativeMutationFixture<
     schema,
     schemaAuthority,
     managedSchemaPlanning,
+    managedSchemaApplication,
     candidateValidation,
     candidateSchemaWriteGuard,
     registerRevision,
     preparePublishedSchema,
+    publishManagedSchemaCandidate,
     sessionAuthority,
     currentEpochAuthority,
     intrinsicCreationTimeIndexes:

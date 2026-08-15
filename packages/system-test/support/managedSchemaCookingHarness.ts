@@ -4,9 +4,15 @@ import { Effect, Result, Scope } from "effect";
 import { eq } from "drizzle-orm";
 import { Miniflare } from "miniflare";
 import {
+  applyApplicationManagedSchemaPlan,
   claimPreparedApplicationManagedSchemaPlanResult,
+  makeApplicationManagedSchemaApplicationLayer,
   makeApplicationManagedSchemaPlanningLayer,
   prepareApplicationManagedSchemaPlan,
+  ApplicationManagedSchemaApplyError,
+  ApplicationManagedSchemaPlanCompositionError,
+  type ApplyApplicationManagedSchemaPlanResult,
+  type PreparedApplicationManagedSchemaPlan,
   type PrepareApplicationManagedSchemaPlanInput,
 } from "@flarex/standard-application-registration/application";
 import {
@@ -44,6 +50,11 @@ import {
   LocatedReadCommittedTransactionFailureV1,
 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import {
+  ApplicationManagedSchemaApplicationError,
+  createApplicationManagedSchemaApplicationPort,
+} from
+  "@flarex/persistence-postgres/internal/application-managed-schema-application";
 import {
   ApplicationManagedSchemaPlanningError,
   createApplicationManagedSchemaPlanningPort,
@@ -118,6 +129,12 @@ export interface ManagedSchemaCookingSchemaAProof {
 
 export interface ManagedSchemaCookingSchemaBProof {
   readonly plannedManagedValidation: true;
+  readonly applyRejectedCopiedHandle: true;
+  readonly applyRejectedForeignTarget: true;
+  readonly applyRejectedStaleFrontier: true;
+  readonly applyDrovePhysicalBuild: true;
+  readonly applyObservedActiveCandidate: true;
+  readonly applyDidNotMislabelStaleReplay: true;
   readonly populatedRemovalBlocked: true;
   readonly schemaAStayedActive: true;
   readonly remediatedThroughSchemaA: true;
@@ -131,6 +148,12 @@ export interface ManagedSchemaCookingSchemaBProof {
   readonly outcomeCount: 3;
   readonly feedCount: 3;
   readonly outboxCount: 3;
+}
+
+export interface ManagedSchemaBlockedApplyProof {
+  readonly blockedPlanStayedNonApplicable: true;
+  readonly candidateValidationWasNotInstalled: true;
+  readonly activeSchemaStayedExact: true;
 }
 
 export interface ManagedSchemaCookingSchemaCProof {
@@ -296,6 +319,74 @@ export async function proveManagedSchemaCookingSchemaB(
   });
 }
 
+export async function proveManagedSchemaBlockedPlanDoesNotApply(
+  createFixture: ManagedSchemaCookingFixtureFactory = options =>
+    createApplicationNativeMutationPGliteFixture(options),
+): Promise<ManagedSchemaBlockedApplyProof> {
+  return withCookingScenario(createFixture, async scenario => {
+    const source = await cookingSourceBundle("BLOCKED");
+    scenario.sources.set(source.sourceArtifact.rootSha256, source);
+    const candidate = await scenario.fixture.registerRevision({
+      requestKey: "request:managed-schema:blocked-table-replacement",
+      analysis: cookingAnalysis(
+        source,
+        scenario.analysisLoader,
+        "blocked table replacement",
+      ),
+    });
+    const schema = await scenario.fixture.publishManagedSchemaCandidate(
+      candidate.manifest,
+    );
+    const prepared = await prepareManagedSchemaPlan(
+      scenario,
+      candidate.publication,
+    );
+    if (prepared.plan.disposition !== "blocked") {
+      throw new Error("Managed-schema replacement candidate was not blocked.");
+    }
+    const applied = await runSystemTestEffectV1(
+      applyApplicationManagedSchemaPlan({
+        prepared: prepared.prepared,
+      }).pipe(Effect.provide(
+        makeApplicationManagedSchemaApplicationLayer(
+          scenario.fixture.managedSchemaPlanning,
+          scenario.fixture.managedSchemaApplication,
+        ),
+      )),
+    );
+    if (applied.status !== "blocked" || applied.reason !== "planBlocked") {
+      throw new Error("Managed-schema blocked plan became applicable.");
+    }
+    const validation = await runSystemTestEffectV1(Effect.result(
+      loadAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        {
+          deploymentId: scenario.fixture.deploymentId,
+          schemaVersionId: schema.schemaVersionId,
+        },
+      ),
+    ));
+    const active = await runSystemTestEffectV1(
+      scenario.fixture.activation.readActive(),
+    );
+    const validationWasNotInstalled = Result.isFailure(validation) &&
+      hasTaggedReason(
+        validation.failure,
+        "AppSchemaCandidateValidationOperationV1Error",
+        "superseded",
+      );
+    if (!validationWasNotInstalled ||
+      active.basis.revisionId !== scenario.fixture.active.basis.revisionId) {
+      throw new Error("Blocked plan changed managed-schema authority.");
+    }
+    return Object.freeze({
+      blockedPlanStayedNonApplicable: true,
+      candidateValidationWasNotInstalled: true,
+      activeSchemaStayedExact: true,
+    });
+  });
+}
+
 async function establishCookingSchemaB(scenario: CookingScenario) {
     const baseline = await establishCookingSchemaABaseline(scenario);
     const withoutDescription = await scenario.mutation(
@@ -340,7 +431,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
         `Cooking schema B did not reject schema A validation evidence: ${detail}.`,
       );
     }
-    const schemaB = await scenario.fixture.preparePublishedSchema(
+    const schemaB = await scenario.fixture.publishManagedSchemaCandidate(
       firstSchemaB.manifest,
     );
     const restorePublication = await scenario.fixture
@@ -376,22 +467,79 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       !plan.operations.some(operation =>
         operation.safetyClass === "requiresDataValidation" &&
         operation.change.kind === "tableValidatorChanged"
+      ) ||
+      !plan.operations.some(operation =>
+        operation.safetyClass === "requiresPhysicalWork" &&
+        operation.change.kind === "indexAdded"
       )) {
-      throw new Error("Cooking schema B did not produce a managed validation plan.");
+      throw new Error(
+        "Cooking schema B did not produce managed validation and build work.",
+      );
     }
 
     const validationInput = {
       deploymentId: scenario.fixture.deploymentId,
       schemaVersionId: schemaB.schemaVersionId,
     } as const;
-    await Effect.runPromise(installAppSchemaCandidateValidationEffect(
-      scenario.fixture.candidateValidation,
-      validationInput,
+    const copiedApply = await runSystemTestEffectV1(Effect.result(
+      applyApplicationManagedSchemaPlan({
+        prepared: { ...preparedPlan.prepared },
+      }).pipe(Effect.provide(
+        makeApplicationManagedSchemaApplicationLayer(
+          scenario.fixture.managedSchemaPlanning,
+          scenario.fixture.managedSchemaApplication,
+        ),
+      )),
     ));
-    const failed = await advanceUntilCandidateFailure(
-      scenario.fixture,
-      validationInput,
+    if (Result.isSuccess(copiedApply) ||
+      !(copiedApply.failure instanceof
+        ApplicationManagedSchemaPlanCompositionError) ||
+      copiedApply.failure.reason !== "invalidPreparedPlan") {
+      throw new Error("Managed-schema apply accepted a copied plan handle.");
+    }
+    const wrongTargetApplication = createApplicationManagedSchemaApplicationPort({
+      deploymentId: scenario.fixture.deploymentId,
+      controlDb: scenario.fixture.control.drizzle,
+      targetDb: scenario.fixture.control.drizzle,
+      authority: scenario.fixture.authorityPorts,
+      activation: scenario.fixture.activation,
+      candidateValidation: scenario.fixture.candidateValidation,
+      planning: scenario.fixture.managedSchemaPlanning,
+    });
+    const wrongTargetApply = await runSystemTestEffectV1(Effect.result(
+      applyApplicationManagedSchemaPlan({
+        prepared: preparedPlan.prepared,
+      }).pipe(Effect.provide(
+        makeApplicationManagedSchemaApplicationLayer(
+          scenario.fixture.managedSchemaPlanning,
+          wrongTargetApplication,
+        ),
+      )),
+    ));
+    if (Result.isSuccess(wrongTargetApply) ||
+      !(wrongTargetApply.failure instanceof
+        ApplicationManagedSchemaApplicationError) ||
+      wrongTargetApply.failure.reason !== "invalidComposition") {
+      throw new Error("Managed-schema apply accepted a foreign target DB.");
+    }
+    const failedApply = await applyManagedSchemaPlanUntilTerminal(
+      scenario,
+      preparedPlan.prepared,
     );
+    if (failedApply.status !== "requires_remediation" ||
+      failedApply.reason !== "candidateValidationFailed") {
+      throw new Error("Cooking schema B apply did not require remediation.");
+    }
+    const loadedFailure = await runSystemTestEffectV1(
+      loadAppSchemaCandidateValidationEffect(
+        scenario.fixture.candidateValidation,
+        validationInput,
+      ),
+    );
+    if (loadedFailure.status !== "present") {
+      throw new Error("Cooking schema B apply omitted candidate failure state.");
+    }
+    const failed = loadedFailure;
     if (failed.head.frame.kind !==
         "app_schema_candidate_validation_failure_evidence" ||
       !failed.head.frame.entries.some(entry =>
@@ -454,6 +602,21 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       remediated.value !== true) {
       throw new Error("Schema A did not remove the description normally.");
     }
+    const staleApply = await runSystemTestEffectV1(Effect.result(
+      applyApplicationManagedSchemaPlan({
+        prepared: preparedPlan.prepared,
+      }).pipe(Effect.provide(
+        makeApplicationManagedSchemaApplicationLayer(
+          scenario.fixture.managedSchemaPlanning,
+          scenario.fixture.managedSchemaApplication,
+        ),
+      )),
+    ));
+    if (Result.isSuccess(staleApply) ||
+      !(staleApply.failure instanceof ApplicationManagedSchemaApplyError) ||
+      staleApply.failure.reason !== "stalePlan") {
+      throw new Error("Cooking schema B apply accepted a stale data frontier.");
+    }
 
     const retriedSchemaB = await scenario.fixture.registerRevision({
       requestKey: "request:managed-schema:cooking:schema-b:retry",
@@ -474,40 +637,45 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
         "Managed-schema prepared authority did not retain the exact publication.",
       );
     }
-    const restarted = await Effect.runPromise(
-      installAppSchemaCandidateValidationEffect(
-        scenario.fixture.candidateValidation,
-        validationInput,
-      ),
+    const retriedPreparedPlan = await prepareManagedSchemaPlan(
+      scenario,
+      firstSchemaB.publication,
     );
-    if (restarted.disposition !== "restarted") {
-      throw new Error("Cooking schema B validation did not restart at a new frontier.");
+    if (preparedPlan.plan.planSha256Hex ===
+        retriedPreparedPlan.plan.planSha256Hex) {
+      throw new Error("Managed-schema frontier movement did not change the plan.");
     }
-    await settleReadyCandidateValidation(
-      scenario.fixture,
-      validationInput,
+    const applyPhases = new Set<string>();
+    const applied = await applyManagedSchemaPlanUntilTerminal(
+      scenario,
+      retriedPreparedPlan.prepared,
+      applyPhases,
     );
-    const ready = await Effect.runPromise(scenario.fixture.readiness.settle({
-      deploymentId: scenario.fixture.deploymentId,
-      revisionId: retriedSchemaB.publication.revisionId,
-    }));
-    if (ready.status !== "ready") {
-      throw new Error("Remediated cooking schema B did not become ready.");
+    if (applied.status !== "activated" || !applyPhases.has("physicalBuild")) {
+      throw new Error("Remediated cooking schema B apply did not activate.");
     }
-    const activated = await Effect.runPromise(
-      scenario.fixture.activation.activate({
-        revisionId: retriedSchemaB.publication.revisionId,
-        expectedActiveHead: stillSchemaA.expectedActiveHead,
-      }),
+    const staleConvergedApply = await applyManagedSchemaPlanUntilTerminal(
+      scenario,
+      preparedPlan.prepared,
     );
-    if (activated.status !== "activated") {
-      throw new Error("Remediated cooking schema B did not activate.");
+    if (staleConvergedApply.status !== "already_active" ||
+      staleConvergedApply.activationSequence !== applied.activationSequence ||
+      "planSha256Hex" in staleConvergedApply) {
+      throw new Error("Stale managed-schema plan was mislabeled as exact replay.");
+    }
+    const convergedApply = await applyManagedSchemaPlanUntilTerminal(
+      scenario,
+      retriedPreparedPlan.prepared,
+    );
+    if (convergedApply.status !== "already_active" ||
+      convergedApply.activationSequence !== applied.activationSequence) {
+      throw new Error("Managed-schema apply did not observe the active candidate.");
     }
     const activeSchemaB = await Effect.runPromise(
       scenario.fixture.activation.readActive(),
     );
     if (activeSchemaB.basis.revisionId !==
-        retriedSchemaB.publication.revisionId ||
+        firstSchemaB.publication.revisionId ||
       activeSchemaB.basis.schemaVersionId !== schemaB.schemaVersionId) {
       throw new Error("Cooking schema B active authority is inconsistent.");
     }
@@ -584,6 +752,12 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     }
     const proof = Object.freeze({
       plannedManagedValidation: true,
+      applyRejectedCopiedHandle: true,
+      applyRejectedForeignTarget: true,
+      applyRejectedStaleFrontier: true,
+      applyDrovePhysicalBuild: true,
+      applyObservedActiveCandidate: true,
+      applyDidNotMislabelStaleReplay: true,
       populatedRemovalBlocked: true,
       schemaAStayedActive: true,
       remediatedThroughSchemaA: true,
@@ -603,7 +777,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       secondRecipeId: withoutDescription.value,
       schemaB,
       activeSchemaB,
-      activePublication: retriedSchemaB.publication,
+      activePublication: firstSchemaB.publication,
       candidateManifest: firstSchemaB.manifest,
       proof,
     });
@@ -1943,7 +2117,7 @@ export async function proveManagedSchemaCookingSchemaG(
       finalStorage.rowRevisions !== storageBeforeStaleAttempt.rowRevisions + 1 ||
       finalStorage.currentRows !== storageBeforeStaleAttempt.currentRows ||
       finalStorage.indexRevisions !==
-        storageBeforeStaleAttempt.indexRevisions + 1 ||
+        storageBeforeStaleAttempt.indexRevisions + 2 ||
       finalStorage.indexCurrent !== storageBeforeStaleAttempt.indexCurrent ||
       finalStorage.uniqueKeys !== storageBeforeStaleAttempt.uniqueKeys ||
       lifecycleCounts.candidateHeads !== 1 ||
@@ -2143,7 +2317,7 @@ function makeCookingQueryLayer(
 }
 
 async function cookingSourceBundle(
-  schema: "A" | "B" | "C" | "D" | "E" | "F" | "G",
+  schema: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "BLOCKED",
 ): Promise<
   ApplicationNativeMutationSourceBundle
 > {
@@ -2178,6 +2352,7 @@ async function cookingSourceBundle(
     },
     optional: true,
   };
+  const tableLogicalName = schema === "BLOCKED" ? "meals" : "recipes";
   const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
     programBudgetInput: {
       maximumModules: 1,
@@ -2192,7 +2367,7 @@ async function cookingSourceBundle(
       version: 1,
       schema: {
         tables: [{
-          logicalName: "recipes",
+          logicalName: tableLogicalName,
           definition: {
             kind: "appDocument",
             definitionVersion: 1,
@@ -2226,7 +2401,13 @@ async function cookingSourceBundle(
             },
           },
         }],
-        indexes: [],
+        indexes: schema === "A"
+          ? []
+          : [{
+              tableLogicalName,
+              descriptor: "by_name",
+              fields: ["name"],
+            }],
       },
       modules: [{
         modulePath: "recipes",
@@ -2650,6 +2831,31 @@ async function prepareManagedSchemaPlan(
     );
   }
   return result;
+}
+
+async function applyManagedSchemaPlanUntilTerminal(
+  scenario: CookingScenario,
+  prepared: PreparedApplicationManagedSchemaPlan,
+  observedPhases?: Set<string>,
+): Promise<Exclude<
+  ApplyApplicationManagedSchemaPlanResult,
+  { readonly status: "in_progress" }
+>> {
+  for (let step = 0; step < 128; step += 1) {
+    const result = await runSystemTestEffectV1(
+      applyApplicationManagedSchemaPlan({ prepared }).pipe(Effect.provide(
+        makeApplicationManagedSchemaApplicationLayer(
+          scenario.fixture.managedSchemaPlanning,
+          scenario.fixture.managedSchemaApplication,
+        ),
+      )),
+    );
+    if (result.status === "in_progress") {
+      observedPhases?.add(result.phase);
+    }
+    if (result.status !== "in_progress") return result;
+  }
+  throw new Error("Managed-schema apply did not settle within 128 steps.");
 }
 
 async function proveCrossTargetPlanningRejection(

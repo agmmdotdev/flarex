@@ -28,6 +28,7 @@ import {
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runEffectTransaction } from "./effectTransaction";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   lockSchemaManifestBindingDeploymentEffect,
@@ -150,6 +151,10 @@ export type CloseAppUniqueConstraintSetV1Error =
   | ReadAppUniqueConstraintDefinitionV1Error
   | SchemaManifestTableBindingPersistenceError
   | StableTableCatalogDeploymentNotFoundError;
+
+export type EnsureAppUniqueConstraintSetClosureV1Error =
+  | PrepareAppUniqueConstraintSetClosureV1Error
+  | CloseAppUniqueConstraintSetV1Error;
 
 export type ReadAppUniqueConstraintSetClosureV1Error =
   | AppUniqueConstraintSetClosureCorruptionV1Error
@@ -314,6 +319,36 @@ export const closeAppUniqueConstraintSetV1InTransactionEffect = Effect.fn(
     closure: yield* decodeClosureRowEffect(row),
     members: state.canonical.members,
   });
+});
+
+/** Prepare and close the immutable set through one rollback-safe owner call. */
+export const ensureAppUniqueConstraintSetClosureV1Effect = Effect.fn(
+  "AppUniqueConstraintSetClosure.ensure",
+)(function* (
+  db: FlarexMetadataDatabase,
+  input: PrepareAppUniqueConstraintSetClosureV1Input,
+): Effect.fn.Return<
+  CloseAppUniqueConstraintSetV1Result,
+  EnsureAppUniqueConstraintSetClosureV1Error
+> {
+  const prepared = yield* prepareAppUniqueConstraintSetClosureV1Effect(
+    db,
+    input,
+  );
+  return yield* runEffectTransaction<
+    CloseAppUniqueConstraintSetV1Result,
+    CloseAppUniqueConstraintSetV1Error,
+    AppUniqueConstraintSetClosurePersistenceV1Error,
+    StableTableCatalogTransaction
+  >(
+    callback => db.transaction(tx => callback(tx)),
+    "Application unique-constraint set closure rolled back.",
+    tx => closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),
+    cause => new AppUniqueConstraintSetClosurePersistenceV1Error({
+      operation: "closeTransaction",
+      cause,
+    }),
+  );
 });
 
 function decodeInputResult(input: PrepareAppUniqueConstraintSetClosureV1Input) {

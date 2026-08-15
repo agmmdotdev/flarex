@@ -6,6 +6,16 @@ import {
   type AppSchemaRenameIntentV1,
 } from "@flarex/managed-schema/planning";
 import {
+  applyApplicationManagedSchemaPlanStepEffect,
+  hasApplicationManagedSchemaApplicationForPlanningPort,
+  readApplicationManagedSchemaActiveCandidateEffect,
+  type ApplicationManagedSchemaApplicationError,
+  type ApplicationManagedSchemaApplicationOwnerError,
+  type ApplicationManagedSchemaApplicationPort,
+  type ApplicationManagedSchemaApplyResult,
+} from
+  "@flarex/persistence-postgres/internal/application-managed-schema-application";
+import {
   loadApplicationManagedSchemaPlanningSnapshot,
   type ApplicationManagedSchemaPlanningPort,
   type LoadApplicationManagedSchemaPlanningSnapshotError,
@@ -42,6 +52,11 @@ export class ApplicationManagedSchemaPlanCompositionError
     readonly reason: "invalidPreparedPlan" | "differentPlanningPort";
   }> {}
 
+export class ApplicationManagedSchemaApplyError
+  extends Data.TaggedError("ApplicationManagedSchemaApplyError")<{
+    readonly reason: "invalidComposition" | "stalePlan";
+  }> {}
+
 export type PrepareApplicationManagedSchemaPlanError =
   | LoadApplicationManagedSchemaPlanningSnapshotError
   | AppSchemaEvolutionPlanningV1Error;
@@ -55,10 +70,44 @@ export interface ApplicationManagedSchemaPlanningApi {
   >;
 }
 
+export interface ApplyApplicationManagedSchemaPlanInput {
+  readonly prepared: PreparedApplicationManagedSchemaPlan;
+}
+
+export type ApplyApplicationManagedSchemaPlanResult =
+  | Readonly<{
+      readonly status: "blocked";
+      readonly reason: "planBlocked";
+      readonly planSha256Hex: string;
+    }>
+  | ApplicationManagedSchemaApplyResult;
+
+export type ApplyApplicationManagedSchemaPlanError =
+  | ApplicationManagedSchemaPlanCompositionError
+  | ApplicationManagedSchemaApplyError
+  | ApplicationManagedSchemaApplicationError
+  | ApplicationManagedSchemaApplicationOwnerError
+  | LoadApplicationManagedSchemaPlanningSnapshotError
+  | AppSchemaEvolutionPlanningV1Error;
+
+export interface ApplicationManagedSchemaApplicationApi {
+  readonly apply: (
+    input: ApplyApplicationManagedSchemaPlanInput,
+  ) => Effect.Effect<
+    ApplyApplicationManagedSchemaPlanResult,
+    ApplyApplicationManagedSchemaPlanError
+  >;
+}
+
 export class ApplicationManagedSchemaPlanning extends Context.Service<
   ApplicationManagedSchemaPlanning,
   ApplicationManagedSchemaPlanningApi
 >()("flarex/standard-application-registration/ApplicationManagedSchemaPlanning") {}
+
+export class ApplicationManagedSchemaApplication extends Context.Service<
+  ApplicationManagedSchemaApplication,
+  ApplicationManagedSchemaApplicationApi
+>()("flarex/standard-application-registration/ApplicationManagedSchemaApplication") {}
 
 interface PreparedPlanState {
   readonly port: ApplicationManagedSchemaPlanningPort;
@@ -89,6 +138,19 @@ export const prepareApplicationManagedSchemaPlan = Effect.fn(
   return yield* service.prepare(input);
 });
 
+export const applyApplicationManagedSchemaPlan = Effect.fn(
+  "ApplicationManagedSchemaApplication.apply",
+)(function* (
+  input: ApplyApplicationManagedSchemaPlanInput,
+): Effect.fn.Return<
+  ApplyApplicationManagedSchemaPlanResult,
+  ApplyApplicationManagedSchemaPlanError,
+  ApplicationManagedSchemaApplication
+> {
+  const service = yield* ApplicationManagedSchemaApplication;
+  return yield* service.apply(input);
+});
+
 export function makeApplicationManagedSchemaPlanningLayer(
   port: ApplicationManagedSchemaPlanningPort,
 ): Layer.Layer<ApplicationManagedSchemaPlanning> {
@@ -96,6 +158,18 @@ export function makeApplicationManagedSchemaPlanningLayer(
     ApplicationManagedSchemaPlanning,
     ApplicationManagedSchemaPlanning.of({
       prepare: makePrepare(port),
+    }),
+  );
+}
+
+export function makeApplicationManagedSchemaApplicationLayer(
+  planning: ApplicationManagedSchemaPlanningPort,
+  application: ApplicationManagedSchemaApplicationPort,
+): Layer.Layer<ApplicationManagedSchemaApplication> {
+  return Layer.succeed(
+    ApplicationManagedSchemaApplication,
+    ApplicationManagedSchemaApplication.of({
+      apply: makeApply(planning, application),
     }),
   );
 }
@@ -160,6 +234,64 @@ function makePrepare(
         plan,
         planSha256Hex: plan.planSha256Hex,
       });
+    },
+  );
+}
+
+function makeApply(
+  planning: ApplicationManagedSchemaPlanningPort,
+  application: ApplicationManagedSchemaApplicationPort,
+): ApplicationManagedSchemaApplicationApi["apply"] {
+  return Effect.fn("ApplicationManagedSchemaApplication.applyLive")(
+    function* (input: ApplyApplicationManagedSchemaPlanInput) {
+      if (!hasApplicationManagedSchemaApplicationForPlanningPort(
+        application,
+        planning,
+      )) {
+        return yield* Effect.fail(new ApplicationManagedSchemaApplyError({
+          reason: "invalidComposition",
+        }));
+      }
+      const authority = yield* Effect.fromResult(
+        claimPreparedApplicationManagedSchemaPlanResult(
+          input.prepared,
+          planning,
+        ),
+      );
+      if (authority.plan.disposition === "blocked") {
+        return Object.freeze({
+          status: "blocked" as const,
+          reason: "planBlocked" as const,
+          planSha256Hex: authority.plan.planSha256Hex,
+        });
+      }
+      const applyInput = Object.freeze({
+        plan: authority.plan,
+        candidatePublication: authority.candidatePublication,
+      });
+      const activeCandidate = yield*
+        readApplicationManagedSchemaActiveCandidateEffect(
+          application,
+          applyInput,
+        );
+      if (activeCandidate !== null) return activeCandidate;
+      const snapshot = yield* loadApplicationManagedSchemaPlanningSnapshot(
+        planning,
+        authority.candidatePublication,
+      );
+      const recomputed = yield* planAppSchemaEvolutionV1Effect({
+        ...snapshot,
+        renameIntents: authority.plan.resolvedRenames,
+      });
+      if (recomputed.planSha256Hex !== authority.plan.planSha256Hex) {
+        return yield* Effect.fail(new ApplicationManagedSchemaApplyError({
+          reason: "stalePlan",
+        }));
+      }
+      return yield* applyApplicationManagedSchemaPlanStepEffect(
+        application,
+        applyInput,
+      );
     },
   );
 }

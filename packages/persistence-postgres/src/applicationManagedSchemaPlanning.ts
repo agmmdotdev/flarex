@@ -120,6 +120,27 @@ export function createApplicationManagedSchemaPlanningPort(
   return port;
 }
 
+/** Exact shared-dependency guard used by the private apply port constructor. */
+export function hasApplicationManagedSchemaPlanningApplicationComposition(
+  port: unknown,
+  dependencies: Readonly<{
+    readonly deploymentId: string;
+    readonly controlDb: FlarexMetadataDatabase;
+    readonly activation: ApplicationActivationRepository<unknown, unknown>;
+    readonly authority: TrustedScopeAuthorityResolutionPorts<
+      LocatedReadCommittedAttemptTargetV1
+    >;
+  }>,
+): port is ApplicationManagedSchemaPlanningPort {
+  if (typeof port !== "object" || port === null) return false;
+  const state = portStates.get(port as ApplicationManagedSchemaPlanningPort);
+  return state !== undefined &&
+    state.deploymentId === dependencies.deploymentId &&
+    state.controlDb === dependencies.controlDb &&
+    state.activation === dependencies.activation &&
+    state.authority === dependencies.authority;
+}
+
 export const loadApplicationManagedSchemaPlanningSnapshot = Effect.fn(
   "ApplicationManagedSchemaPlanning.loadSnapshot",
 )(function* (

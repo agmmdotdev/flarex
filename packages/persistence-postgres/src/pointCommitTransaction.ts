@@ -56,6 +56,7 @@ import {
   orderedIndexCreationTimeV1,
   orderedIndexKeyBytesHexV1FromBytes,
   orderedIndexKeyBytesHexV1ToBytes,
+  orderedIndexKeyHexV1ToBytes,
   orderedIndexRowIdHexV1ToBytes,
   orderedIndexRowIdHexV1FromBytesResult,
   OrderedIndexKeyBytesHexV1Schema,
@@ -7058,7 +7059,7 @@ async function lowerTentativePointCommitIntrinsicIndex(
       corruption("intrinsicIndexTransitionInvalid")
     )),
   );
-  const keyBytes = Buffer.from(encodedKey, "hex");
+  const keyBytes = orderedIndexKeyHexV1ToBytes(encodedKey);
   const rowIdBytes = appRowIdHexV1ToBytes(rowRevision.rowId);
   const heads = await sqlCall("writeIntrinsicIndexEntry", () =>
     tx.select({

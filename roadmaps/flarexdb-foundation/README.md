@@ -2031,8 +2031,9 @@ After the foundation reaches its relevant gates, separate plans own:
 The migrationless developer experience and managed migration safety classes
 are owned by
 [`05-managed-schema-deployment.md`](./05-managed-schema-deployment.md).
-Storage-free `M01-A`/`M01-B` and `M02` plus production-inert `M03-A` are now
-complete. `M03-A` adds one target-local candidate-validation head and bounded
-exact-frontier scanner without point-commit, readiness, activation, routing, or
-production behavior. `M03-B` is the next separately approved managed-schema
-gate; later `M03-C` through `M05` remain deferred.
+Storage-free `M01-A`/`M01-B` and `M02`, production-inert `M03-A` through
+`M03-C`, and the current-generation `M03-D` cooking lineage are complete.
+`M04-A` provides exact private prepared plans. `M04-B` now has a bounded,
+resumable private apply coordinator and direct PGlite proof; its genuine-
+PostgreSQL receipt remains the completion gate before `M04-C` developer
+adapters. `M05` retirement remains deferred.

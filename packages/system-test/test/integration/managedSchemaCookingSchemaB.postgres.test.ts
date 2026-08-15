@@ -17,7 +17,7 @@ describe("Managed-schema cooking schema B PostgreSQL acceptance environment", ()
   it("requires an authenticated genuine PostgreSQL URL", () => {
     expect(
       postgresUrl,
-      "Set FLAREX_POSTGRES_DATABASE_URL before accepting M03-D schema B.",
+      "Set FLAREX_POSTGRES_DATABASE_URL before accepting M04-B schema B.",
     ).not.toBeNull();
   });
 });
@@ -29,6 +29,12 @@ describePostgres("Managed-schema cooking schema B - PostgreSQL", () => {
         createApplicationNativeMutationPostgresFixture(options, persistence)
       )).resolves.toMatchObject({
         plannedManagedValidation: true,
+        applyRejectedCopiedHandle: true,
+        applyRejectedForeignTarget: true,
+        applyRejectedStaleFrontier: true,
+        applyDrovePhysicalBuild: true,
+        applyObservedActiveCandidate: true,
+        applyDidNotMislabelStaleReplay: true,
         populatedRemovalBlocked: true,
         schemaAStayedActive: true,
         remediatedThroughSchemaA: true,
