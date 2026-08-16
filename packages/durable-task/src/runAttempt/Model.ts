@@ -6,6 +6,11 @@ import type {
   TaskDefinitionReference,
 } from "../runCreation/Model.js";
 
+export const TASK_RESULT_CODEC_V1 = "flarex.task-result.v1" as const;
+export const TASK_RESULT_OBJECT_KEY_PREFIX_V1 =
+  "durable-task-result/v1/sha256/" as const;
+export const MAX_TASK_RESULT_CANONICAL_BYTES_V1 = 32 * 1_048_576;
+
 export type TaskDefinitionRevisionIdV1 = Brand.Branded<
   string,
   "FlarexDurableTask/TaskDefinitionRevisionIdV1"
@@ -147,7 +152,7 @@ export interface TaskCancellationReasonV1 {
 }
 
 export interface TaskResultCommitmentV1 {
-  readonly codec: "flarex.task-result.v1";
+  readonly codec: typeof TASK_RESULT_CODEC_V1;
   readonly byteLength: number;
   readonly sha256: Uint8Array;
 }

@@ -1,6 +1,6 @@
 // Adapted from Trigger.dev commit f10bc23785e569e5d917318cf2033aabdbe96a0b,
 // upstream/packages/core/src/v3/schemas/schemas.ts. See trigger-source-map.json and THIRD_PARTY_NOTICES.md.
-import { Result, Schema, SchemaTransformation } from "effect";
+import { Encoding, Result, Schema, SchemaTransformation } from "effect";
 import { ApplicationTaskRuntimeTargetSha256V1Schema } from
   "../runCreation/ApplicationTaskRuntimeTarget.js";
 import {
@@ -61,7 +61,12 @@ import type {
   TaskRunAttemptMutationAcceptanceV1,
   TaskRunVersionV1,
 } from "./Model.js";
-import { snapshotTaskRunAttemptAggregateV1 } from "./Model.js";
+import {
+  MAX_TASK_RESULT_CANONICAL_BYTES_V1,
+  snapshotTaskRunAttemptAggregateV1,
+  TASK_RESULT_CODEC_V1,
+  TASK_RESULT_OBJECT_KEY_PREFIX_V1,
+} from "./Model.js";
 
 type PersistedTaskRunAttemptAggregate =
   | TaskRunAttemptAggregateV1
@@ -288,11 +293,13 @@ const Sha256Schema = Schema.Uint8Array.check(
     : "Expected a 32-byte SHA-256 digest"),
 );
 const TaskResultCommitmentShapeV1Schema = Schema.Struct({
-  codec: Schema.Literal("flarex.task-result.v1"),
+  codec: Schema.Literal(TASK_RESULT_CODEC_V1),
   byteLength: Schema.Number.check(
-    Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= 0
-      ? undefined
-      : "Expected a nonnegative safe integer byte length"),
+    Schema.makeFilter((value) =>
+      Number.isSafeInteger(value) && value >= 1 &&
+        value <= MAX_TASK_RESULT_CANONICAL_BYTES_V1
+        ? undefined
+        : `Expected a byte length from 1 through ${MAX_TASK_RESULT_CANONICAL_BYTES_V1}`),
   ),
   sha256: Sha256Schema,
 }).annotate(STRICT_STRUCT_OPTIONS);
@@ -308,6 +315,12 @@ export const TaskResultCommitmentV1Schema = TaskResultCommitmentShapeV1Schema.pi
     }),
   ),
 );
+
+export function taskResultObjectKeyV1(
+  sha256: TaskResultCommitmentV1["sha256"],
+): string {
+  return `${TASK_RESULT_OBJECT_KEY_PREFIX_V1}${Encoding.encodeHex(sha256)}`;
+}
 
 export const TaskRetryDirectiveV1Schema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("use_bound_policy") }).annotate(STRICT_STRUCT_OPTIONS),
@@ -2202,6 +2215,10 @@ export const decodeTaskRetryJitterV1 = Schema.decodeUnknownResult(TaskRetryJitte
 export const decodeTaskRetryDirectiveV1 = Schema.decodeUnknownResult(TaskRetryDirectiveV1Schema, STRICT_PARSE_OPTIONS);
 export const decodeTaskCancellationReasonV1 = Schema.decodeUnknownResult(TaskCancellationReasonV1Schema, STRICT_PARSE_OPTIONS);
 export const decodeTaskExecutionFailureV1 = Schema.decodeUnknownResult(TaskExecutionFailureV1Schema, STRICT_PARSE_OPTIONS);
+export const decodeTaskResultCommitmentV1 = Schema.decodeUnknownResult(
+  TaskResultCommitmentV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
 export const decodeTaskAttemptCompletionV1 = Schema.decodeUnknownResult(TaskAttemptCompletionV1Schema, STRICT_PARSE_OPTIONS);
 
 function ownCompletion(completion: TaskAttemptCompletionV1): TaskAttemptCompletionV1 {

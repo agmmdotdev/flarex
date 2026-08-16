@@ -3,8 +3,8 @@
 ## Status
 
 **Decision:** Approved as the implementation-ready, production-inert DTE06-E
-boundary. DTE06-E1 is complete privately. DTE06-E2 through DTE06-E5 remain
-pending. This document does not authorize a scheduled host,
+boundary. DTE06-E1 and DTE06-E2 are complete privately. DTE06-E3 through
+DTE06-E5 remain pending. This document does not authorize a scheduled host,
 Queue consumer, Cron Trigger, route, binding, deployment, public API,
 observability feed, or production activation.
 
@@ -97,7 +97,7 @@ The real Worker Loader adapter may accept a backend-private supervision
 capability in its Layer composition. That capability is an adapter seam, not a
 new method on `TaskComputeProvider`.
 
-### The Immutable R2 Core Is Reusable, But No Task Result Store Exists
+### The Immutable R2 Core And Task Result Store Are Reused
 
 The backend immutable R2 core already provides:
 
@@ -109,14 +109,17 @@ The backend immutable R2 core already provides:
 - distinct missing, corrupt, resource, budget, and settlement-uncertain
   failures.
 
-Task runtime objects reuse that core through their own domain store. There is
-no corresponding task-result publisher today. `TaskResultCommitmentV1` stores
-only codec, byte length, and digest, as intended; it does not publish or prove
-the body.
+Task runtime objects reuse that core through their own domain store. DTE06-E2
+now adds a separate backend-private `TaskResultStore`. It canonicalizes and
+bounds a successful Flarex value, publishes or reconciles its immutable body,
+and returns only the exact owned `TaskResultCommitmentV1`. The durable-task
+contract owns the codec, maximum canonical byte length, and deterministic key
+derivation. The store also verifies bounded cold reads for later Roadmap 07 and
+retention/GC consumers.
 
-DTE06-E must add a narrow task-result owner over the immutable R2 core. It must
-not reuse action result storage, place raw result bytes in Task System rows, or
-give a Worker an R2 bucket capability.
+The result store does not reuse action result storage, place raw result bytes
+in Task System rows, give a Worker an R2 bucket capability, call lifecycle
+state, or own deletion/GC.
 
 ## Trigger Reuse Decision
 
@@ -445,9 +448,10 @@ must not clear that record merely because lifecycle completion was accepted.
 - regenerate both current Worker definitions atomically, with no fallback
   protocol.
 
-This stop is enforced: E1 writes neither lifecycle state nor R2. E2 is next.
+This stop was enforced: E1 wrote neither lifecycle state nor R2. E2 now owns
+only immutable result publication and reads. E3 is next.
 
-### DTE06-E2: Immutable Task Result Store
+### DTE06-E2: Immutable Task Result Store — Complete Privately
 
 - add protocol-owned result limits and deterministic key derivation;
 - add the backend Task result store over the existing immutable R2 core;

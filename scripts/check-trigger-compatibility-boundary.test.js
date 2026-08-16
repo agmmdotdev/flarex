@@ -418,6 +418,42 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the E2 Task result store edges", () => {
+    const resultStorePath =
+      "packages/flarex-backend/src/taskResult/TaskResultStore.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: resultStorePath,
+      text: `
+        import {
+          MAX_TASK_RESULT_CANONICAL_BYTES_V1,
+          TASK_RESULT_CODEC_V1,
+          type TaskResultCommitmentV1,
+          decodeTaskResultCommitmentV1,
+          taskResultObjectKeyV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import { makeImmutableR2ByteStore } from
+          "../immutableR2/ImmutableR2ByteStore.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: resultStorePath,
+      text: `
+        import { makeRunAttemptLifecycleV1 } from
+          "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeImmutableR2ByteStore } from
+          "./immutableR2/ImmutableR2ByteStore.js";
+      `,
+    }]).errors).toEqual([
+      `${resultStorePath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not consume the private immutable R2 mechanics outside admitted store adapters.",
+    ]);
+  });
+
   it("admits the DTE06-D1 launch model without admitting a host", () => {
     const modelPath =
       "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";

@@ -33,6 +33,8 @@ const flarexBackendLegacyTaskWorkerDefinitionPath =
   "packages/flarex-backend/src/artifactRuntime/LegacyTaskWorkerDefinition.ts";
 const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
+const flarexBackendTaskResultStorePath =
+  "packages/flarex-backend/src/taskResult/TaskResultStore.ts";
 const flarexBackendImmutableR2SourcePrefix =
   "packages/flarex-backend/src/immutableR2/";
 const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
@@ -277,6 +279,13 @@ const admittedFlarexBackendTaskWorkerTerminalCompletionSymbols = new Set([
   "TaskCancellationGenerationV1",
   "TaskExecutionFailureV1",
   "TaskRetryDirectiveV1",
+]);
+const admittedFlarexBackendTaskResultStoreSymbols = new Set([
+  "MAX_TASK_RESULT_CANONICAL_BYTES_V1",
+  "TASK_RESULT_CODEC_V1",
+  "TaskResultCommitmentV1",
+  "decodeTaskResultCommitmentV1",
+  "taskResultObjectKeyV1",
 ]);
 const admittedLegacyWorkerLaunchModelImports = new Map([
   ["TaskRuntimeLaunchSubject", "type"],
@@ -807,6 +816,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && isFlarexBackendImmutableR2Specifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRuntimeObjectStorePath
+        && relativePath !== flarexBackendTaskResultStorePath
         && relativePath !== flarexBackendDeclarativeV2RuntimeArtifactStorePath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
@@ -1491,6 +1501,23 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
+  if (
+    relativePath === flarexBackendTaskResultStorePath &&
+    specifier === "@flarex/durable-task/internal/run-attempt-v1" &&
+    ts.isImportDeclaration(node)
+  ) {
+    const clause = node.importClause;
+    if (
+      clause === undefined || clause.name !== undefined ||
+      clause.namedBindings === undefined ||
+      !ts.isNamedImports(clause.namedBindings) ||
+      clause.namedBindings.elements.length === 0
+    ) return false;
+    return clause.namedBindings.elements.every((element) => {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      return admittedFlarexBackendTaskResultStoreSymbols.has(importedName);
+    });
+  }
   if (
     relativePath === flarexBackendTaskWorkerTerminalCompletionPath &&
     specifier === "@flarex/durable-task/internal/run-attempt-v1" &&

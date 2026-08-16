@@ -550,9 +550,9 @@ evidence remains process-local until DTE06-E connects it to the existing fenced
 Task lifecycle. No route, deployment binding, scheduled host, public API,
 fallback, comparison execution, or production activation is part of DTE06-D.
 
-### DTE06-E: Attempt Supervision And Settlement — E1 Complete Privately
+### DTE06-E: Attempt Supervision And Settlement — E2 Complete Privately
 
-Preflight 41 owns the approved implementation boundary. E1 now corrects the
+Preflight 41 owns the approved implementation boundary. E1 corrects the
 current private Worker session atomically: successful canonical values, bounded
 runtime failure codes, and exact cancellation/maximum-duration/host-shutdown
 provenance survive terminal settlement. Its exhaustive pure mapper returns
@@ -560,10 +560,11 @@ result publication, an existing lifecycle completion, or unconfirmed host
 shutdown without writing R2 or Task state. The provider-neutral contract
 remains unchanged.
 
-E2 is next: it must publish the canonical successful value through a new
-Task-result owner over the existing immutable R2 core before any succeeded
-completion can exist. E3 through E5 still own the lifecycle gateway,
-Scope-owned supervisor, and private connected proof.
+E2 now adds the backend-private Task-result owner over the existing immutable
+R2 core. It owns canonical publication, exact replay and reconciliation,
+bounded verified reads, and the durable-task-owned result commitment without
+calling lifecycle state or adding deletion authority. E3 through E5 still own
+the lifecycle gateway, Scope-owned supervisor, and private connected proof.
 
 - connect accepted compute to fenced heartbeat, completion, result publication,
   and cancellation operations;
@@ -644,12 +645,13 @@ publication/readiness, exact launch authority, private Worker ABI/runtime,
 shared accepted-start session, real Worker Loader provider, and the private
 Application Task selection/run-creation/delivery composition.
 
-The current stop is DTE06-E2 under
+The current stop is DTE06-E3 under
 [`Preflight 41`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
 No existing provider acceptance, local terminal Worker outcome, E1 pure
-disposition, AA-R7 private launch proof, or persisted delivery checkpoint may
-be described as a durable heartbeat, completion, result publication,
-cancellation acknowledgement, retry decision, or supervised Worker lifetime.
+disposition, isolated E2 result publication, AA-R7 private launch proof, or
+persisted delivery checkpoint may be described as a durable heartbeat,
+completion, cancellation acknowledgement, retry decision, or supervised
+Worker lifetime.
 The remaining DTE06-E slices must be implemented in Preflight 41 order before
 terminal runtime evidence can reach the fenced Task lifecycle.
 DTE06-F must then prove

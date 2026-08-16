@@ -391,6 +391,24 @@ export async function decodeCanonicalFlarexValueEvidenceV1(
   return canonical;
 }
 
+export const decodeCanonicalFlarexValueEvidenceV1Effect = Effect.fn(
+  "FlarexValue.decodeCanonicalEvidenceV1",
+)((
+  input: DecodeCanonicalFlarexValueEvidenceV1Input,
+): Effect.Effect<
+  CanonicalFlarexValueV1,
+  FlarexValueCodecV1Error | FlarexValueEvidenceV1Error
+> =>
+  Effect.tryPromise({
+    try: () => decodeCanonicalFlarexValueEvidenceV1(input),
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch((cause: unknown) =>
+    cause instanceof FlarexValueEvidenceV1Error ||
+      cause instanceof FlarexValueCodecV1Error
+      ? Effect.fail(cause)
+      : Effect.die(cause)
+  )));
+
 export function isFlarexValueEnvelopeV1(
   value: unknown,
 ): value is FlarexValueEnvelopeV1 {

@@ -254,6 +254,7 @@
         "packages/flarex-backend/src/artifactRuntime/ApplicationWorkerCore.ts",
         "packages/flarex-backend/src/artifactRuntime/TaskWorkerSessionHost.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts",
+        "packages/flarex-backend/src/taskResult/TaskResultStore.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle completion operation"
       ],
