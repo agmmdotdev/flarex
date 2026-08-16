@@ -58,10 +58,90 @@ describe("Application task Worker definition", () => {
       interruption: {
         kind: "interruption_requested",
         cancellationGeneration: { __bigint: "1" },
+        reason: "cancellation_requested",
       },
-      settlementName: "ApplicationTaskWorkerTerminalV1Error",
+      settlement: {
+        kind: "settled",
+        outcome: {
+          kind: "interrupted",
+          interruption: {
+            cancellationGeneration: { __bigint: "1" },
+            reason: "cancellation_requested",
+          },
+        },
+      },
       payloadDisposals: 1,
     });
+  }, 20_000);
+
+  it.each([
+    ["export function run() { return null; }", "completed", undefined],
+    ["export function run() { throw new Error('private'); }", "failed", "handler_failed"],
+  ] as const)(
+    "returns an exact %s terminal session outcome",
+    async (handlerSource, outcomeKind, failureCode) => {
+      const definition = await buildDefinition(taskFixture(handlerSource));
+      const settlement = await executeTerminalSessionDefinition(
+        definition,
+        requestFor(definition),
+        null,
+      ) as {
+        readonly outcome: {
+          readonly kind: string;
+          readonly failure?: { readonly code: string; readonly message: null };
+        };
+      };
+      expect(settlement.outcome.kind).toBe(outcomeKind);
+      if (failureCode !== undefined) {
+        expect(settlement.outcome.failure).toEqual({
+          code: failureCode,
+          message: null,
+        });
+      }
+    },
+    20_000,
+  );
+
+  it("keeps post-execution capability cleanup failure out of terminal data", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const definition = await buildDefinition(fixture);
+    const receipt = await executeSessionCapabilityCleanupFailure(
+      definition,
+      fixture.manifest,
+      requestFor(definition),
+    );
+    expect(receipt).toEqual({
+      name: "ApplicationTaskWorkerCleanupV1Error",
+      primaryName: null,
+      cleanupMessage: "input capability dispose failed",
+    });
+  }, 20_000);
+
+  it("does not hide cleanup uncertainty behind a handler failure", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const definition = await buildDefinition(fixture);
+    const receipt = await executeSessionCapabilityCleanupFailure(
+      definition,
+      fixture.manifest,
+      requestFor(definition),
+      true,
+    );
+    expect(receipt).toEqual({
+      name: "ApplicationTaskWorkerCleanupV1Error",
+      primaryName: "ApplicationTaskWorkerHandlerV1Error",
+      cleanupMessage: "input capability dispose failed",
+    });
+  }, 20_000);
+
+  it("keeps unexpected trusted-runtime defects out of terminal data", async () => {
+    const fixture = taskFixture("export function run() { return null; }");
+    const definition = await buildDefinition(fixture);
+    const receipt = await executeSessionUnexpectedDefect(
+      definition,
+      fixture.manifest,
+      requestFor(definition),
+    );
+    expect(receipt).toEqual({ name: "ApplicationTaskWorkerDefectV1Error" });
   }, 20_000);
 
   it("disposes the duplicated capability when a second start is rejected", async () => {
@@ -122,7 +202,7 @@ describe("Application task Worker definition", () => {
       requestFor(definition),
       { wrong: "secret-input-must-not-cross" },
     ).then(() => "must-not-succeed", error => String(error));
-    expect(inputFailure).toContain("ApplicationTaskWorkerInputBoundaryV1Error");
+    expect(inputFailure).toContain("ApplicationTaskWorkerInputValidationV1Error");
     expect(inputFailure).toContain("missingRequiredField");
     expect(inputFailure).not.toContain("secret-input-must-not-cross");
 
@@ -131,7 +211,7 @@ describe("Application task Worker definition", () => {
       requestFor(definition),
       { name: "Ada" },
     ).then(() => "must-not-succeed", error => String(error));
-    expect(outputFailure).toContain("ApplicationTaskWorkerUserCodeV1Error");
+    expect(outputFailure).toContain("ApplicationTaskWorkerOutputValidationV1Error");
     expect(outputFailure).toContain("typeMismatch");
     expect(outputFailure).not.toContain("Ada");
   }, 20_000);
@@ -149,10 +229,15 @@ describe("Application task Worker definition", () => {
         invalidPayload,
       );
       expect(response).toMatchObject({
-        name: "ApplicationTaskWorkerInputBoundaryV1Error",
+        name: "ApplicationTaskWorkerCleanupV1Error",
         ...(invalidPayload
-          ? { causeName: "ApplicationTaskWorkerContractV1Error", causeReason: "invalid_value" }
-          : { causeMessage: "payload dispose failed" }),
+          ? {
+            primaryName: "ApplicationTaskWorkerInputValidationV1Error",
+            primaryCauseName: "ApplicationTaskWorkerContractV1Error",
+            primaryCauseReason: "invalid_value",
+          }
+          : { primaryName: null }),
+        cleanupMessage: "payload dispose failed",
       });
     }
   }, 20_000);
@@ -187,7 +272,7 @@ describe("Application task Worker definition", () => {
       definition,
       requestFor(definition),
       { size: 8 * 1_048_576 },
-    )).rejects.toThrow("ApplicationTaskWorkerUserCodeV1Error");
+    )).rejects.toThrow("ApplicationTaskWorkerOutputValidationV1Error");
   }, 20_000);
 
   it("rejects mismatched source and runtime-host authority before loading", async () => {
@@ -646,12 +731,11 @@ export default { async fetch(_request, env) {
       format: "flarex.task-worker-session-interruption", version: 1,
       generation: acceptance.generation, identity: acceptance.identity,
       executionId: acceptance.executionId, cancellationGeneration: 1n,
+      reason: "cancellation_requested",
     });
-    let settlementName;
-    try { await session.settlement(); }
-    catch (error) { settlementName = error?.name; }
+    const settlement = await session.settlement();
     await scheduler.wait(75);
-    return new Response(JSON.stringify({ acceptance, interruption, settlementName,
+    return new Response(JSON.stringify({ acceptance, interruption, settlement,
       payloadDisposals: globalThis.payloadDisposals },
       (_key, value) => typeof value === "bigint"
         ? { __bigint: String(value) } : value),
@@ -668,6 +752,61 @@ export default { async fetch(_request, env) {
   const response = await runtime.dispatchFetch("https://application-session.test/");
   const body = await response.json();
   if (!response.ok) throw new Error(`Application session failed: ${JSON.stringify(body)}`);
+  return body;
+}
+
+async function executeTerminalSessionDefinition(
+  definition: ApplicationTaskWorkerDefinition,
+  requestValue: unknown,
+  payload: unknown,
+): Promise<unknown> {
+  const encoded = JSON.stringify({ requestValue, payload }, (_key, value: unknown) => {
+    if (typeof value === "bigint") return { __bigint: String(value) };
+    if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+    return value;
+  });
+  const workerCode = {
+    compatibilityDate: definition.compatibilityDate,
+    limits: definition.limits,
+    mainModule: definition.mainModule,
+    modules: definition.modules,
+    env: definition.env,
+    globalOutbound: null,
+  };
+  const outerSource = `
+import { RpcTarget } from "cloudflare:workers";
+const code = ${JSON.stringify(workerCode)};
+const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+class Input extends RpcTarget { read() { return structuredClone(input.payload); } }
+export default { async fetch(_request, env) {
+  const worker = env.LOADER.load(code);
+  const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
+    .start({ format: "flarex.task-worker-session-start", version: 1,
+      generation: "application_v1", executionId: "execution-1",
+      request: input.requestValue }, new Input());
+  try {
+    const settlement = await session.settlement();
+    return new Response(JSON.stringify(structuredClone(settlement), (_key, value) =>
+      typeof value === "bigint" ? { __bigint: String(value) } : value),
+      { headers: { "content-type": "application/json" } });
+  } finally { session[Symbol.dispose]?.(); }
+} };`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: true,
+    script: outerSource,
+    workerLoaders: { LOADER: {} },
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://application-terminal-session.test/");
+  const body = await response.json();
+  if (!response.ok) throw new Error(`Application terminal session failed: ${
+    JSON.stringify(body)
+  }`);
   return body;
 }
 
@@ -716,9 +855,10 @@ export default {
     } catch (error) {
       return Response.json({
         name: error?.name,
-        causeName: error?.cause?.name,
-        causeMessage: error?.cause?.message,
-        causeReason: error?.cause?.reason,
+        primaryName: error?.cause?.primaryFailure?.name ?? null,
+        primaryCauseName: error?.cause?.primaryFailure?.cause?.name,
+        primaryCauseReason: error?.cause?.primaryFailure?.cause?.reason,
+        cleanupMessage: error?.cause?.cleanupFailure?.message,
       });
     }
   },
@@ -731,6 +871,121 @@ export default {
   });
   instances.push(runtime);
   const response = await runtime.dispatchFetch("https://dispose-task.test/");
+  return await response.json();
+}
+
+async function executeSessionCapabilityCleanupFailure(
+  definition: ApplicationTaskWorkerDefinition,
+  manifest: unknown,
+  requestValue: unknown,
+  handlerFails = false,
+): Promise<unknown> {
+  const encoded = JSON.stringify(requestValue, (_key, value: unknown) => {
+    if (typeof value === "bigint") return { __bigint: String(value) };
+    if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+    return value;
+  });
+  const source = `
+import { startApplicationTaskWorkerSessionV1 } from "./core.js";
+const request = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+const definition = {
+  handlerExportName: "run",
+  manifest: JSON.parse(${JSON.stringify(JSON.stringify(manifest))}),
+  runtimeTargetSha256Hex: ${JSON.stringify(definition.runtimeTargetSha256Hex)},
+};
+export default {
+  async fetch() {
+    const session = await startApplicationTaskWorkerSessionV1({
+      startRequest: { format: "flarex.task-worker-session-start", version: 1,
+        generation: "application_v1", executionId: "execution-1", request },
+      capability: {
+        read() { return null; },
+        [Symbol.dispose]() { throw new Error("input capability dispose failed"); },
+      },
+      definition,
+      loadExecution: async () => ({ run() {
+        ${handlerFails ? 'throw new Error("handler failed");' : "return null;"}
+      } }),
+    });
+    try {
+      await session.settlement();
+      return Response.json({ name: "must-not-succeed" });
+    } catch (error) {
+      return Response.json({
+        name: error?.name,
+        primaryName: error?.cause?.primaryFailure?.name ?? null,
+        cleanupMessage: error?.cause?.cleanupFailure?.message,
+      });
+    }
+  },
+};`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: [{ type: "ESModule", path: "test.js", contents: source }, {
+      type: "ESModule", path: "core.js", contents: APPLICATION_WORKER_CORE_SOURCE,
+    }],
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://cleanup-session.test/");
+  return await response.json();
+}
+
+async function executeSessionUnexpectedDefect(
+  definition: ApplicationTaskWorkerDefinition,
+  manifest: unknown,
+  requestValue: unknown,
+): Promise<unknown> {
+  const encoded = JSON.stringify(requestValue, (_key, value: unknown) => {
+    if (typeof value === "bigint") return { __bigint: String(value) };
+    if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
+    return value;
+  });
+  const source = `
+import { startApplicationTaskWorkerSessionV1 } from "./core.js";
+const request = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
+  value && typeof value === "object" && Array.isArray(value.__bytes)
+    ? new Uint8Array(value.__bytes)
+    : value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+let runtimeTargetReads = 0;
+const definition = {
+  handlerExportName: "run",
+  manifest: JSON.parse(${JSON.stringify(JSON.stringify(manifest))}),
+  get runtimeTargetSha256Hex() {
+    runtimeTargetReads += 1;
+    if (runtimeTargetReads === 1) {
+      return ${JSON.stringify(definition.runtimeTargetSha256Hex)};
+    }
+    throw new Error("trusted runtime defect");
+  },
+};
+export default { async fetch() {
+  const session = await startApplicationTaskWorkerSessionV1({
+    startRequest: { format: "flarex.task-worker-session-start", version: 1,
+      generation: "application_v1", executionId: "execution-1", request },
+    capability: { read() { return null; } },
+    definition,
+    loadExecution: async () => ({ run() { return null; } }),
+  });
+  try {
+    await session.settlement();
+    return Response.json({ name: "must-not-succeed" });
+  } catch (error) {
+    return Response.json({ name: error?.name });
+  }
+} };`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: [{ type: "ESModule", path: "test.js", contents: source }, {
+      type: "ESModule", path: "core.js", contents: APPLICATION_WORKER_CORE_SOURCE,
+    }],
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://defect-session.test/");
   return await response.json();
 }
 

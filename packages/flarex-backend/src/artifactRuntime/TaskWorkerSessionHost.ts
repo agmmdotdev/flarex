@@ -12,6 +12,7 @@ import {
   taskWorkerSessionIdentitiesEqualV1,
   type TaskWorkerSessionAcceptanceV1,
   type TaskWorkerSessionInterruptionAcceptanceV1,
+  type TaskWorkerSessionInterruptionReasonV1,
   type TaskWorkerSessionSettlementV1,
   type TaskWorkerSessionStartRequestV1,
 } from "flarex-protocol/internal/task-worker-session-v1";
@@ -176,6 +177,7 @@ export function makeTaskWorkerSessionHost(
       return yield* makeSession(
         remote,
         acceptance,
+        startRequest,
         handshakeMilliseconds,
         deadline,
       );
@@ -243,6 +245,7 @@ function workerCode(input: TaskWorkerSessionHostStartInput): WorkerLoaderWorkerC
 function makeSession(
   remote: RemoteTaskWorkerSession,
   acceptance: TaskWorkerSessionAcceptanceV1,
+  startRequest: TaskWorkerSessionStartRequestV1,
   handshakeMilliseconds: number,
   deadline: number,
 ): Effect.Effect<TaskWorkerSession, TaskWorkerSessionHostError> {
@@ -250,6 +253,29 @@ function makeSession(
   let closed = false;
   let closeReason: "sessionLost" | "timedOut" = "sessionLost";
   let acceptedCancellationGeneration = acceptance.cancellationGeneration;
+  let acceptedInterruptionReason: TaskWorkerSessionInterruptionReasonV1 | undefined =
+    startRequest.request.dispatch.cancellation.kind === "requested"
+      ? "cancellation_requested"
+      : undefined;
+  const interruptionCandidates: Array<Readonly<{
+    readonly cancellationGeneration: bigint;
+    readonly reason: TaskWorkerSessionInterruptionReasonV1;
+  }>> = startRequest.request.dispatch.cancellation.kind === "requested"
+    ? [Object.freeze({
+        cancellationGeneration: startRequest.request.dispatch.cancellation.generation,
+        reason: "cancellation_requested" as const,
+      })]
+    : [];
+  const recordInterruptionCandidate = (
+    cancellationGeneration: bigint,
+    reason: TaskWorkerSessionInterruptionReasonV1,
+  ): void => {
+    if (interruptionCandidates.some(candidate =>
+      candidate.cancellationGeneration === cancellationGeneration &&
+      candidate.reason === reason
+    )) return;
+    interruptionCandidates.push(Object.freeze({ cancellationGeneration, reason }));
+  };
   let terminalObserved = false;
   let cleanupCause: unknown;
   let backgroundCause: unknown;
@@ -316,8 +342,14 @@ function makeSession(
     if (request.cancellationGeneration < acceptedCancellationGeneration) {
       return yield* hostError("requestInterruption", "staleCancellation");
     }
+    if (
+      request.cancellationGeneration === acceptedCancellationGeneration &&
+      acceptedInterruptionReason !== undefined &&
+      request.reason !== acceptedInterruptionReason
+    ) return yield* hostError("requestInterruption", "invalidRequest");
     if (request.cancellationGeneration > acceptedCancellationGeneration) {
       acceptedCancellationGeneration = request.cancellationGeneration;
+      acceptedInterruptionReason = request.reason;
     }
     const wallMilliseconds = yield* remainingWallMilliseconds(
       deadline,
@@ -326,7 +358,10 @@ function makeSession(
     );
     const raw = yield* callOwnedWorkerRpc({
       wallMilliseconds,
-      invoke: () => remote.requestInterruption(request),
+      invoke: () => {
+        recordInterruptionCandidate(request.cancellationGeneration, request.reason);
+        return remote.requestInterruption(request);
+      },
       mapExpectedFailure: cause => expectedWorkerFailure("requestInterruption", cause) ??
         hostError("requestInterruption", "sessionLost", cause),
       timedOut: () => hostError("requestInterruption", "timedOut"),
@@ -340,11 +375,13 @@ function makeSession(
     if (receipt.generation !== request.generation ||
       receipt.executionId !== request.executionId ||
       receipt.cancellationGeneration !== request.cancellationGeneration ||
+      receipt.reason !== request.reason ||
       !taskWorkerSessionIdentitiesEqualV1(receipt.identity, request.identity)) {
       return yield* hostError("requestInterruption", "invalidResponse");
     }
     if (receipt.cancellationGeneration > acceptedCancellationGeneration) {
       acceptedCancellationGeneration = receipt.cancellationGeneration;
+      acceptedInterruptionReason = receipt.reason;
     }
     return receipt;
   })));
@@ -372,6 +409,15 @@ function makeSession(
       !taskWorkerSessionIdentitiesEqualV1(receipt.identity, acceptance.identity)) {
       return yield* hostError("settlement", "invalidResponse");
     }
+    if (
+      receipt.outcome.kind === "interrupted" &&
+      !interruptionCandidates.some(candidate =>
+        receipt.outcome.kind === "interrupted" &&
+        receipt.outcome.interruption.cancellationGeneration ===
+          candidate.cancellationGeneration &&
+        receipt.outcome.interruption.reason === candidate.reason
+      )
+    ) return yield* hostError("settlement", "invalidResponse");
     terminalObserved = true;
     return receipt;
   })));
@@ -392,10 +438,19 @@ function makeSession(
           acceptedCancellationGeneration === 9_223_372_036_854_775_807n
             ? acceptedCancellationGeneration
             : acceptedCancellationGeneration + 1n,
+        reason: "maximum_duration" as const,
       });
+      acceptedCancellationGeneration = expiryInterruptionRequest.cancellationGeneration;
+      acceptedInterruptionReason = expiryInterruptionRequest.reason;
       return callOwnedWorkerRpc({
         wallMilliseconds: handshakeMilliseconds,
-        invoke: () => remote.requestInterruption(expiryInterruptionRequest),
+        invoke: () => {
+          recordInterruptionCandidate(
+            expiryInterruptionRequest.cancellationGeneration,
+            expiryInterruptionRequest.reason,
+          );
+          return remote.requestInterruption(expiryInterruptionRequest);
+        },
         mapExpectedFailure: cause => expectedWorkerFailure("requestInterruption", cause) ??
           hostError("requestInterruption", "sessionLost", cause),
         timedOut: () => hostError("requestInterruption", "timedOut"),
@@ -430,10 +485,16 @@ function makeSession(
             acceptedCancellationGeneration === 9_223_372_036_854_775_807n
               ? acceptedCancellationGeneration
               : acceptedCancellationGeneration + 1n,
+          reason: "host_shutdown" as const,
         });
+        acceptedCancellationGeneration = request.cancellationGeneration;
+        acceptedInterruptionReason = request.reason;
         const delivery = callOwnedWorkerRpc({
           wallMilliseconds: handshakeMilliseconds,
-          invoke: () => remote.requestInterruption(request),
+          invoke: () => {
+            recordInterruptionCandidate(request.cancellationGeneration, request.reason);
+            return remote.requestInterruption(request);
+          },
           mapExpectedFailure: cause =>
             expectedWorkerFailure("requestInterruption", cause) ??
             hostError("requestInterruption", "sessionLost", cause),
@@ -455,6 +516,7 @@ function makeSession(
             receipt => receipt.generation === request.generation &&
               receipt.executionId === request.executionId &&
               receipt.cancellationGeneration === request.cancellationGeneration &&
+              receipt.reason === request.reason &&
               taskWorkerSessionIdentitiesEqualV1(receipt.identity, request.identity),
             () => hostError("requestInterruption", "invalidResponse"),
           ),

@@ -20,10 +20,14 @@ import {
 import {
   APPLICATION_TASK_WORKER_REQUEST_FORMAT_V1,
   APPLICATION_TASK_WORKER_REQUEST_VERSION_V1,
+  APPLICATION_TASK_WORKER_RESULT_FORMAT_V1,
+  APPLICATION_TASK_WORKER_RESULT_VERSION_V1,
 } from "../src/application-task-worker-v1";
 import {
   LEGACY_TASK_WORKER_REQUEST_FORMAT_V1,
   LEGACY_TASK_WORKER_REQUEST_VERSION_V1,
+  LEGACY_TASK_WORKER_RESULT_FORMAT_V1,
+  LEGACY_TASK_WORKER_RESULT_VERSION_V1,
 } from "../src/legacy-task-worker-v1";
 
 describe("Task Worker session V1", () => {
@@ -91,6 +95,7 @@ describe("Task Worker session V1", () => {
       identity,
       executionId: "execution-1",
       cancellationGeneration: 1n,
+      reason: "cancellation_requested",
     }))).toBe(true);
     expect(Result.isSuccess(decodeTaskWorkerSessionSettlementV1({
       format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
@@ -99,6 +104,10 @@ describe("Task Worker session V1", () => {
       generation: "application_v1",
       identity,
       executionId: "execution-1",
+      outcome: {
+        kind: "failed",
+        failure: { code: "handler_failed", message: null },
+      },
     }))).toBe(true);
     expect(Result.isFailure(decodeTaskWorkerSessionInterruptionRequestV1({
       format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
@@ -107,7 +116,100 @@ describe("Task Worker session V1", () => {
       identity,
       executionId: "execution-1",
       cancellationGeneration: 0n,
+      reason: "cancellation_requested",
     }))).toBe(true);
+  });
+
+  it.each(["application_v1", "legacy_dynamic_worker_v1"] as const)(
+    "decodes an owned, generation-correlated %s completed settlement",
+    generation => {
+      const identity = dispatchIdentity();
+      const result = generation === "application_v1"
+        ? {
+            format: APPLICATION_TASK_WORKER_RESULT_FORMAT_V1,
+            version: APPLICATION_TASK_WORKER_RESULT_VERSION_V1,
+            kind: "completed" as const,
+            identity,
+            value: null,
+            valueSemanticBytes: 1,
+          }
+        : {
+            format: LEGACY_TASK_WORKER_RESULT_FORMAT_V1,
+            version: LEGACY_TASK_WORKER_RESULT_VERSION_V1,
+            kind: "completed" as const,
+            identity,
+            value: null,
+            valueSemanticBytes: 1,
+          };
+      const decoded = decodeTaskWorkerSessionSettlementV1({
+        format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+        version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+        kind: "settled",
+        generation,
+        identity,
+        executionId: "execution-1",
+        outcome: { kind: "completed", result },
+      });
+      expect(Result.isSuccess(decoded)).toBe(true);
+      if (Result.isFailure(decoded)) return;
+      expect(decoded.success.outcome.kind).toBe("completed");
+      expect(Object.isFrozen(decoded.success.outcome)).toBe(true);
+      expect(Object.isFrozen(decoded.success.identity)).toBe(true);
+    },
+  );
+
+  it("rejects result identity drift and excess terminal outcome fields", () => {
+    const identity = dispatchIdentity();
+    const settlement = {
+      format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+      version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+      kind: "settled",
+      generation: "application_v1",
+      identity,
+      executionId: "execution-1",
+      outcome: {
+        kind: "completed",
+        result: {
+          format: APPLICATION_TASK_WORKER_RESULT_FORMAT_V1,
+          version: APPLICATION_TASK_WORKER_RESULT_VERSION_V1,
+          kind: "completed",
+          identity: { ...identity, executionFence: 2n },
+          value: null,
+          valueSemanticBytes: 1,
+        },
+      },
+    };
+    expect(Result.isFailure(decodeTaskWorkerSessionSettlementV1(settlement))).toBe(true);
+    expect(Result.isFailure(decodeTaskWorkerSessionSettlementV1({
+      ...settlement,
+      outcome: {
+        kind: "failed",
+        failure: { code: "handler_failed", message: null },
+        excess: true,
+      },
+    }))).toBe(true);
+  });
+
+  it("rejects nested terminal accessors without invoking them", () => {
+    let reads = 0;
+    const failureValue = { code: "handler_failed" };
+    Object.defineProperty(failureValue, "message", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        throw new Error("terminal getter must not run");
+      },
+    });
+    expect(Result.isFailure(decodeTaskWorkerSessionSettlementV1({
+      format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+      version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+      kind: "settled",
+      generation: "application_v1",
+      identity: dispatchIdentity(),
+      executionId: "execution-1",
+      outcome: { kind: "failed", failure: failureValue },
+    }))).toBe(true);
+    expect(reads).toBe(0);
   });
 
   it("rejects nested identity accessors without invoking them", () => {
@@ -136,6 +238,7 @@ describe("Task Worker session V1", () => {
         identity,
         executionId: "execution-1",
         cancellationGeneration: 1n,
+        reason: "cancellation_requested",
       };
     const interruptionAcceptance = {
         format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
@@ -145,6 +248,7 @@ describe("Task Worker session V1", () => {
         identity,
         executionId: "execution-1",
         cancellationGeneration: 1n,
+        reason: "cancellation_requested",
       };
     const settlement = {
         format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
@@ -153,6 +257,13 @@ describe("Task Worker session V1", () => {
         generation: "application_v1",
         identity,
         executionId: "execution-1",
+        outcome: {
+          kind: "interrupted",
+          interruption: {
+            cancellationGeneration: 1n,
+            reason: "cancellation_requested",
+          },
+        },
       };
     expect(Result.isFailure(decodeTaskWorkerSessionAcceptanceV1(acceptance))).toBe(true);
     expect(Result.isFailure(

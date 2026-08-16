@@ -2,16 +2,31 @@
 
 ## Status And Scope
 
-**Status:** Active roadmap. DTE06-A's docs-only source/contract preflight and
-DTE06-B's private host-neutral provider domain are complete and
-production-inert. DTE06-C0 now completes the docs-only durable-delivery schema
-and transaction preflight, and DTE06-C1 completes its canonical evidence and
-Task-owned storage checkpoint. The approved C1 correction now exposes an owned
-runtime-binding commitment reconstructed from durable canonical definition
-bytes, leaving full manifest loading and commitment verification with the
-later runtime owner. DTE06-C2's private scope-bound fenced repository is
-complete and production-inert. The provider contract and DTE06-B
-implementation receipt live in
+**Status:** Active roadmap. DTE06-A through DTE06-D are complete privately and
+production-inert. DTE06-B owns the provider-neutral dispatch/cancellation
+contract and deterministic in-memory adapter. DTE06-C owns canonical delivery
+evidence, Task-owned checkpoint storage, the scope-bound fenced repository,
+bounded discovery, trusted directory, recovery decision, restart-stable
+continuation, deterministic multi-scope runner, and database-owned deadline
+composition. DTE06-D now owns the trusted launch authority, authenticated
+runtime-object/input reads, private Worker ABI/runtime core, exhaustive Legacy
+and Application launch subjects, generation-specific Worker definitions,
+shared accepted-start session, and the real private
+`WorkerLoaderTaskComputeProvider`.
+
+The unversioned private `ApplicationTaskSystem` and
+`ApplicationTaskComputeDelivery` composition now connect authentic active
+Application selection through run creation, the shared lifecycle, compute
+discovery, preparation, Source Artifact V2 loading, and one accepted
+Application Worker start. Exact replay remains pinned after later activation,
+retained compositions remain `legacy_only`, and no fallback, comparison
+provider, or second scheduler exists. Provider acceptance is not durable Task
+completion: DTE06-E still owns heartbeat, cancellation acknowledgement,
+terminal result publication, retry/settlement, and lost-session supervision;
+DTE06-F still owns the hosted end-to-end recovery proof. No scheduled host,
+route, binding, public API, or production activation is authorized.
+
+The provider contract and DTE06-B implementation receipt live in
 [`preflight/33-dte06-compute-provider-and-runtime-contract.md`](./preflight/33-dte06-compute-provider-and-runtime-contract.md).
 The C0 schema/transaction decision is recorded in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md).
@@ -27,26 +42,13 @@ The approved Worker Loader task-adapter boundary, trusted launch-subject
 resolution, private runtime ABI, and DTE06-D implementation order are recorded
 in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
-The provider port, deterministic in-memory conformance adapter, canonical
-evidence boundary, checkpoint tables, and C2 transactions now exist; no
-connected requested-effect delivery operation, task runtime route, Worker
-binding, deployment configuration, or production activation exists. The C2
-repository now records the exact provider-stale cancellation-generation
-outcome as terminal non-receipt evidence. C3's private persistence discovery is
-production-inert and accepted: its Task-owned pending projection removes the
-history-linear anti-join and proves bounded operation-specific scans. The
-trusted backend directory and single-candidate provider runner are now complete
-and production-inert under the approved Preflight 37 map. The canonical
-active-scope continuation and deterministic bounded multi-scope runner core are
-also complete with restart-stable fairness charges. The separately approved
-deadline-owned control-directory adapter now closes its PGlite and genuine-
-PostgreSQL settlement prerequisite. Connected PGlite proof now covers
-two-host exclusion, exact active-scope restart, and fair progress across two
-real scopes. A controlled lost-receipt case now proves conservative charges
-when the provider and persistence settle but the runner confirms no candidate
-or provider call. The equivalent ordinary-role genuine-PostgreSQL 18 lane now
-proves the two-scope transaction/provider path and exact resume. The connected
-C3 persistence gate is complete and remains production-inert.
+The proposed production-inert supervision, terminal-outcome, result-store,
+heartbeat, cancellation-acknowledgement, and fenced-settlement boundary is
+recorded in
+[`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
+The detailed C0-C3 evidence, repository, discovery, deadline, restart,
+lost-receipt, two-host, multi-scope, PGlite, and genuine-PostgreSQL proofs remain
+the admitted foundation for the current private Worker Loader composition.
 
 Roadmaps 01 through 05 already establish first-class task definitions,
 scope-bound durable run state, fenced attempts, requested effects, Queue wake
@@ -80,14 +82,13 @@ Prove one private, production-inert execution vertical:
 8. recover correctly from duplicate delivery, dispatch uncertainty, provider
    loss, lease expiry, cancellation races, and a lost completion response.
 
-The first vertical remains private and unwired. It is an architectural and
-correctness prerequisite for DTE05-E3; it is not production activation.
-
-Before implementing the remaining vertical, the roadmap must prove which
-Trigger dispatch, delivery, supervision, heartbeat, cancellation, settlement,
-and recovery control flow will actually be retained. Existing Flarex provider,
-persistence, and runtime owners are necessary integration seams, but their
-existence is not evidence of Trigger source reuse.
+The first vertical remains private and production-unwired. Its path through
+Worker start acceptance is composed; durable supervision and settlement remain
+DTE06-E, and hosted recovery proof remains DTE06-F. The completed connected
+source map records which Trigger dispatch, delivery, supervision, heartbeat,
+cancellation, settlement, and recovery control flow is retained. Existing
+Flarex provider, persistence, and runtime owners are necessary integration
+seams, but their existence alone is not evidence of Trigger source reuse.
 
 ## Current Reality
 
@@ -125,20 +126,24 @@ current code provide substantial reusable runtime mechanics:
 - typed runtime-response decoding, abort, OCC, and cleanup behavior for current
   query/mutation invocation.
 
-Those owners do **not** currently provide a durable task ABI. The current
-hosted route accepts an `InvokeRequest`, resolves registered query/mutation
-functions, and returns an ordinary invocation response. Actions and workflow
-mutations are intentionally unsupported. There is no Task attempt identity,
-execution fence, heartbeat, cancellation, result-object publication, or Task
-completion callback in that contract.
+Those owners now provide a private durable-task start/interruption ABI and one
+shared Task Worker session host for the retained Legacy and current Application
+launch subjects. The real private Worker Loader provider correlates Task
+attempt identity, execution fence, provider execution identity, accepted start,
+and cancellation generation. Its terminal Worker result remains process-local,
+however: there is still no durable heartbeat, cancellation acknowledgement,
+result-object publication, or Task completion callback from the Worker session
+into the Task System. The public production invocation route does not compose
+this private Task path.
 
 ### Existing Prototype Evidence Is Not Task Authority
 
-Current `action` and `internalAction` behavior remains prototype evidence for
-runtime isolation, outbound I/O, and callback mechanics. It does not own task
-identity, retry policy, attempt state, task context, result durability, or
-scheduling. A task must never be encoded as `kind: "action"` merely to reach
-the existing runtime.
+The displaced `action` and `internalAction` prototypes remain non-authoritative
+for Tasks. The current private unversioned `ApplicationActionSystem` is a real
+direct-action owner with durable request/outcome and external-effect
+uncertainty, but it still does not own task identity, retry policy, attempt
+state, task context, result durability, or scheduling. A task must never be
+encoded as `kind: "action"` to reach that separate runtime.
 
 ## Ownership And Dependency Direction
 
@@ -475,7 +480,7 @@ candidate/provider work. The ordinary-role genuine-PostgreSQL 18 lane now
 proves the same two-scope budget stop, exact fresh-runner resume, alternating
 dispatch/cancellation delivery, final stored states, and exact dispatch plus
 cancellation recovery after post-start uncertainty. The connected C3 gate is
-complete; no host or activation path exists.
+complete; that checkpoint itself composes no Worker host or activation path.
 The durable-delivery contract is
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md),
 and the exact C2 implementation boundary is
@@ -510,77 +515,55 @@ runner checkpoints add bounded alternating orchestration without adding a
 Worker Loader runtime, host, schema, migration, route, binding, or production
 activation.
 
-### DTE06-D: Worker Loader Task Runtime Adapter — D1 Foundation And SAP-TRP1 Complete
+### DTE06-D: Worker Loader Task Runtime Adapter — Complete Privately
 
-DTE06-D1 now implements the private backend launch authority and verified
-read-side contracts. It correlates the exact C2 prepared execution with the
-full canonical Standard Application runtime binding, checks every declared
-runtime-object length and digest under explicit budgets, requires a trusted
-role-codec capability, and exposes only an exact lazy input capability. The
-role codec is a deterministic fake in this checkpoint. It does not implement a real R2/definition
-adapter, Worker Loader, runtime ABI, or host.
+The ordered Preflight 38 implementation is complete. The backend launch
+authority exhaustively resolves retained Legacy and current Application
+prepared execution without widening `TaskComputeDispatchRequestV1`. Standard
+Application publication/readiness supplies the authenticated runtime objects;
+the Task input owner supplies the exact lazy per-run value. The launch authority
+returns one owned generation-discriminated subject and never manufactures a
+Legacy definition identity for Application work.
 
-The D1 stop probe found the expected upstream gap: the repository stores the
-full binding, immutable runtime-object references, and task-input reference,
-but no production readiness owner publishes, serves, and role-decodes the
-referenced runtime-object bodies. Preflight 39 therefore separated the
-Standard Application runtime-object publication/read-authority track; DTE06-D2
-must not invent that write path inside the compute adapter.
-The exact upstream sequence is recorded in
-[`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md): canonical role
-contracts first, then pure preparation, immutable object publication,
-persistence/readiness integration, and only then the real D1 located adapter.
-SAP-TRP1 is now closed: the task-owned module, projection, entry, group
-manifest, materialization-spec, and root contracts are strict and canonical,
-and the private ABI/profile identities are fixed. DTE06-D2 may now begin under
-Preflight 38. That sequence covers application-owned runtime objects only. The
-per-run
-`TaskInputReferenceV1` store still requires a separate Task run-input
-publication/read/retention preflight before the complete production D1 adapter
-or the real DTE06-D3b provider composition can proceed.
+Both generation-specific Worker definitions now execute only the declared
+`durable_task` entry through the shared private Task Worker session ABI. The
+session owns accepted start, generation-correlated interruption, absolute
+deadline, terminal observation, close/drain, and late-RPC disposal. The real
+private `WorkerLoaderTaskComputeProvider` composes that session with the
+unchanged provider-neutral dispatch/cancellation contract. Exact concurrent
+starts share one provider-scoped start; replay preserves acceptance;
+conflicting replay fails closed; unknown responses remain sticky uncertainty;
+and provider scope owns bounded live-session cleanup.
 
-Preflight 38 approves an ordered, production-inert implementation rather than
-a direct extension of the current invocation host:
+The current unversioned `ApplicationTaskSystem` owns active task selection and
+exact run creation/replay. `ApplicationTaskComputeDelivery` installs
+`legacy_and_application` discovery only in the same Layer graph as the real
+Worker Loader provider; every retained composition remains `legacy_only`.
+Connected PGlite and genuine-PostgreSQL private proofs start from authentic
+Application readiness/activation and reach exactly one accepted fresh
+Application Worker launch with zero Legacy runtime-object reads.
 
-1. add a backend-owned trusted launch authority that resolves the provider
-   request to the exact full runtime binding, runtime objects, and input
-   reference without widening `TaskComputeDispatchRequestV1`;
-2. add verified read-side runtime-object and input ports at their existing
-   owners, stopping if the Standard Application readiness path does not yet
-   publish the required runtime objects;
-3. define a private strict versioned task start/cancel RPC ABI and a separate
-   `durable_task` runtime entrypoint;
-4. generalize the existing artifact-runtime owner at its narrow materializer,
-   module-graph, Worker Loader, cache, and isolation seams; and
-5. evolve the launch authority exhaustively for retained Legacy and Application
-   prepared evidence without invoking Worker Loader;
-6. first add the missing retained Legacy terminal Worker definition/host from
-   the verified Legacy launch subject; the existing task host consumes only
-   Application Source Artifact V2 and cannot execute retained runtime objects;
-7. add a true shared private start-session acknowledgement and interruption
-   surface, because the first Application task host awaits terminal execution
-   and cannot serve as provider acceptance; and
-8. compose one exhaustive real Cloudflare provider only in a private
-   Miniflare/system-test
-   owner, proving cold/warm identity, egress denial, cancellation generations,
-   cleanup, bundle safety, and no `/invoke` or action/query/mutation fallback.
+Dispatch acceptance still means only that the exact Worker runtime accepted the
+same Task/provider identity. It is not heartbeat, completion, cancellation
+acknowledgement, result durability, or durable supervision. Terminal Worker
+evidence remains process-local until DTE06-E connects it to the existing fenced
+Task lifecycle. No route, deployment binding, scheduled host, public API,
+fallback, comparison execution, or production activation is part of DTE06-D.
 
-Dispatch acceptance means that the exact Worker runtime accepted the same
-identity and execution ID. It is not heartbeat, completion, cancellation
-acknowledgement, result durability, or proof that a bounded Worker execution
-context is durable supervision. Those remain DTE06-E work.
+### DTE06-E: Attempt Supervision And Settlement — E1 Complete Privately
 
-The Application Analysis migration's private 5d1 Worker checkpoint closes only
-the host-policy seam of the previously deferred compute-profile mapping. Its
-definition builder receives a trusted, injected map from compute-profile
-references to Worker CPU and maximum-duration limits, rejects missing or
-invalid entries, and lets the manifest duration narrow the admitted ceiling.
-It does not publish a global preset catalog or choose deployment values. The
-real provider composition remains responsible for supplying that trusted map;
-changing the provider-neutral dispatch contract or durable lifecycle remains
-outside 5d1.
+Preflight 41 owns the approved implementation boundary. E1 now corrects the
+current private Worker session atomically: successful canonical values, bounded
+runtime failure codes, and exact cancellation/maximum-duration/host-shutdown
+provenance survive terminal settlement. Its exhaustive pure mapper returns
+result publication, an existing lifecycle completion, or unconfirmed host
+shutdown without writing R2 or Task state. The provider-neutral contract
+remains unchanged.
 
-### DTE06-E: Attempt Supervision And Settlement — Pending
+E2 is next: it must publish the canonical successful value through a new
+Task-result owner over the existing immutable R2 core before any succeeded
+completion can exist. E3 through E5 still own the lifecycle gateway,
+Scope-owned supervisor, and private connected proof.
 
 - connect accepted compute to fenced heartbeat, completion, result publication,
   and cancellation operations;
@@ -652,32 +635,24 @@ Roadmap 06 does not authorize:
 
 ## Stop Boundary
 
-DTE06-C1 stops at canonical delivery evidence and production-inert Task-owned
-storage. Completed DTE06-C2 adds only the private production-inert repository
-in Preflight 35 after its recorded C1 evidence gap and provider-stale
-cancellation-generation gap were resolved. Preflight 36 admits only its bounded
-C3 persistence discovery checkpoint. The approved Preflight 37 map now admits
-and the implementation completes only the trusted backend directory,
-Trigger-derived recovery decision, and single-candidate deterministic-provider
-operations, canonical active-scope continuation, and deterministic bounded
-multi-scope runner core, plus the private deadline-owned control-directory
-adapter. A connected PGlite system test now proves the C2/C3
-repository/discovery/provider transaction flow, exact continuation resume,
-two-host exclusion, fair later-scope progress across two real scopes, and
-conservative persistence-backed accounting when an accepted dispatch receipt
-is lost before the runner observes it. Ordinary-role genuine-PostgreSQL 18
-parity now proves the same two-scope connected transaction path and exact
-dispatch/cancellation recovery after post-start uncertainty. The next
-roadmapped work is a separate preflight for the Standard Application
-runtime-object publication/read authority required by the now-implemented,
-still-private DTE06-D1 launch-subject resolver. Private ABI and Worker Loader
-composition follow only after that publication gate; fenced settlement
-composition follows DTE06-D, and host activation does not.
-Preflight 39 now records that upstream sequence; its pure canonical
-role-contract checkpoint is complete. The next admitted DTE06 action is D2's
-private ABI/runtime core, while SAP-TRP2 pure publication preparation remains
-the next action in the Standard Application publication track.
-This does not authorize additional
-database/application semantics, a real provider, Worker/runtime wiring,
-routes, bindings, deployment, or production
-activation.
+DTE06-A through DTE06-D are closed private foundations. They include the
+provider-neutral domain, operation-specific delivery evidence and storage,
+fenced repository, bounded pending discovery, trusted directory,
+Trigger-derived recovery decision, restart-stable continuation, deterministic
+multi-scope runner, database-owned deadlines, authenticated task-runtime
+publication/readiness, exact launch authority, private Worker ABI/runtime,
+shared accepted-start session, real Worker Loader provider, and the private
+Application Task selection/run-creation/delivery composition.
+
+The current stop is DTE06-E2 under
+[`Preflight 41`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
+No existing provider acceptance, local terminal Worker outcome, E1 pure
+disposition, AA-R7 private launch proof, or persisted delivery checkpoint may
+be described as a durable heartbeat, completion, result publication,
+cancellation acknowledgement, retry decision, or supervised Worker lifetime.
+The remaining DTE06-E slices must be implemented in Preflight 41 order before
+terminal runtime evidence can reach the fenced Task lifecycle.
+DTE06-F must then prove
+hosted recovery and cleanup before DTE05-E3 may add a scheduled host. Public APIs,
+observability/live streams, routes, bindings, deployment, fallback, dual
+execution, and production activation remain unauthorized.

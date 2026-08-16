@@ -84,7 +84,8 @@ acceptance, lifecycle-owned cancellation delivery, fair progress across two
 real scope databases, and conservative charged-versus-confirmed accounting
 when an accepted dispatch receipt is lost. The ordinary-role genuine-
 PostgreSQL 18 lane proves the equivalent two-scope connected transaction path,
-exact resume, alternating delivery, and stored settlement; no host exists. The
+exact resume, alternating delivery, and stored settlement; that C3 lane
+deliberately composes no Worker host. The
 mandatory connected-runtime reuse audit in
 [`preflight/37-dte06-connected-runtime-reuse-audit.md`](./preflight/37-dte06-connected-runtime-reuse-audit.md)
 maps the exact Trigger dispatch, supervision, heartbeat, cancellation,
@@ -102,35 +103,38 @@ recovery path reuses Trigger's mapped moved/unchanged/probe-uncertain decision
 over a Flarex-owned exact fenced persistence probe. Fresh-runner PGlite and
 ordinary-role PostgreSQL 18 tests prove dispatch and cancellation replay the
 same stored provider request after post-start uncertainty without minting a
-second identity. DTE06-D1's private launch authority and verified runtime-
-object/input read contracts are now implemented and unwired. Its required stop
-probe found no production runtime-object publication/read/codec owner, so the
-Standard Application publication track was separated; no Worker Loader, host,
-or activation was admitted by D1.
-That preflight is now recorded in
-[`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md).
-Its pure canonical role-contract checkpoint is now complete, including all
-five role decode/re-encode paths, task-owned roots, and fixed private
-ABI/profile identities. It keeps persistence, readiness,
-the real located reader, Worker Loader, and activation behind ordered gates.
-It does not absorb the distinct per-run task-input object store; that writer,
-reader, and `run_lifetime` retention authority need a separate Task-owned
-preflight before D1 is production-complete.
-The next Standard Application checkpoint is the proposed SAP-TRP4 persistence
-contract in
+second identity. DTE06-D is now complete through its private Worker Loader
+provider adapter. The Standard Application task-runtime publication sequence
+closed the earlier D1 stop: canonical role contracts, immutable object
+publication, database receipt and membership, readiness and activation
+correlation, exact located runtime/input reads, the private Worker ABI/runtime
+core, exhaustive Legacy and Application launch authority, generation-specific
+Worker definitions, the shared accepted-start session, and the real
+`WorkerLoaderTaskComputeProvider` now exist. The provider remains
+provider-neutral and returns only after the exact Worker accepts the correlated
+execution identity; terminal Worker evidence remains process-local and is not
+Task lifecycle completion.
+The current private `ApplicationTaskSystem` now owns active Application task
+selection and exact run creation/replay, while
+`ApplicationTaskComputeDelivery` is the only composition that admits
+Application compute discovery together with the real Worker Loader provider.
+Its connected PGlite and genuine-PostgreSQL private proofs reach one fresh
+Application Worker start with zero Legacy runtime-object reads. Retained
+compositions remain explicitly `legacy_only`; no fallback, comparison provider,
+second scheduler, public caller, route, binding, or production activation was
+added. The ordered DTE06-D boundary remains recorded in
+[`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md),
+and the publication chain remains recorded in
+[`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md)
+and
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
-It adds only an immutable publication header and ordered object membership
-under the existing Application task-catalog chain, requires a Standard
-Application-owned canonical receipt before persistence, and fixes exact
-replay, conflict, corruption, rollback, and genuine-PostgreSQL uncertainty
-proofs. It remains documentation-only until explicit implementation approval
-and creates no second revision, readiness, activation, or active-head system.
-The approved DTE06-D adapter boundary and implementation order are recorded in
-[`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
-It keeps `TaskComputeDispatchRequestV1` provider-neutral, resolves full runtime
-and input evidence through a trusted backend launch authority, reuses the
-existing Flarex materializer/module graph/Worker Loader owners, and reserves
-durable supervision and settlement for DTE06-E.
+The approved DTE06-E supervision and settlement boundary is recorded in
+[`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
+E1 is complete privately: the current session preserves exact terminal values,
+typed failures, and interruption provenance, and the pure mapper cannot claim
+durable success before result publication. Result publication, lifecycle
+gateway, structured supervision, and connected proof remain E2 through E5;
+the hosted end-to-end proof remains DTE06-F.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -143,10 +147,10 @@ with the C0 decision in
 [`preflight/34-dte06-durable-compute-delivery.md`](./preflight/34-dte06-durable-compute-delivery.md)
 and the C2 contract and receipt in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
-The provider is not wired to any host. Connected provider calls exist only in
-the private system-test composition; Cloudflare task bindings, a scheduled
-Worker host, public APIs, production compute delivery, and activation do not
-exist yet.
+The real provider is wired only inside the private Application compute
+composition and its system-test/AA-R7 proof. Cloudflare task deployment
+bindings, a scheduled Worker host, public APIs, durable Worker settlement,
+production compute delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
 task engine derived from the pinned Trigger.dev compatibility source. For now,
@@ -221,9 +225,13 @@ Its current run-engine construction also mixes that behavior with:
 - Trigger public SDK, management API, and dashboard contracts.
 
 `@flarex/durable-task` now implements the admitted private run-attempt
-lifecycle, and `@flarex/persistence-postgres` now contains its first
-production-inert scope-bound lifecycle adapter. No backend/host composes that
-capability and no imported Trigger package is production-routed.
+lifecycle, and `@flarex/persistence-postgres` owns its scope-bound lifecycle,
+run-creation, discovery, delivery-checkpoint, and repair adapters. The private
+Application Task composition connects active selection, run creation, shared
+lifecycle, compute discovery, trusted launch resolution, and Worker Loader
+start acceptance. It does not yet connect terminal Worker evidence to durable
+heartbeat/completion/result settlement, and no imported Trigger package or
+private Task composition is production-routed.
 
 The admitted run-attempt source map contains 29 explicit decisions: 13
 seam-adapted entries, 12 adapter-translated entries, and four discarded entries;
@@ -288,9 +296,12 @@ metadata, manifest, handler, retry, duration, queue, and catalog semantics. It
 will enter the private Standard Application chain as a canonical task catalog
 beside the existing function catalog.
 
-Current Flarex `action` and `internalAction` code is prototype evidence only.
-It may supply reusable runtime mechanics later, but it does not own task
-identity, task metadata, task context, artifact grouping, or lifecycle.
+The displaced Flarex `action` and `internalAction` prototypes do not own task
+semantics. The current private unversioned `ApplicationActionSystem` is now a
+real Application action owner with durable request/outcome and external-effect
+uncertainty, but it remains separate from the Task System and does not own task
+identity, task metadata, task context, artifact grouping, retry, scheduling, or
+run/attempt lifecycle.
 `TaskIdV1`, not function path, is the logical task identity across application
 revisions.
 
@@ -506,36 +517,27 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A/B and DTE06-C0/C1/C2 plus C3 persistence discovery
-     complete:** the provider contract, in-memory conformance adapter,
-     operation-specific delivery evidence and tables, fenced repository, and
-     bounded pending discovery are production-inert. The connected runtime
-     reuse audit in Preflight 37 is approved. The backend trusted directory and
-     single-candidate provider delivery, canonical active-scope continuation,
-     and deterministic bounded multi-scope runner core are implemented but
-     unwired. The deadline-owned control-directory prerequisite and connected
-     PGlite repository/discovery/provider proof across two real scopes are
-     complete, including conservative persistence-backed lost-receipt
-     accounting and ordinary-role genuine-PostgreSQL 18 parity. DTE06-D's
-     Worker Loader adapter preflight is complete, and D1 now supplies the
-     private trusted launch-subject resolver plus verified runtime-object/input
-     contracts. The stop probe found no production runtime-object publication
-     and role-codec owner, so Preflight 39 separated that Standard Application
-     sequence; its pure canonical task-runtime role-contract, publication
-     preparation, and private immutable object-store checkpoints are complete.
-     The preparation reuses the existing
-     Standard Application graph/catalog/binding owners and emits only an owned
-     immutable object plan plus publication-receipt preimage. The object-store
-     checkpoint reuses the existing Declarative V2 conditional R2 mechanics
-     through one backend-local immutable-byte core, adds an exact task-specific
-     reference adapter, and proves replay/collision/uncertainty/ownership in
-     memory and Miniflare while remaining production-inert. Database receipt,
-     hosted R2, readiness, activation, and Worker Loader composition remain
-     absent. DTE06-D2's
-     private ABI/runtime core may proceed independently; the real read adapter,
-     existing-runtime composition,
-     fenced settlement, supervision, end-to-end proof, and host remain
-     unwritten;
+   - **active; DTE06-A through DTE06-D and DTE06-E1 complete privately;
+     DTE06-E2 through E5 and DTE06-F pending:** the
+     provider-neutral contract, delivery evidence, fenced
+     repository, bounded discovery, trusted directory, continuation, recovery,
+     multi-scope runner, and Postgres deadline owners remain production-inert.
+     The Standard Application publication chain now supplies authenticated task
+     runtime objects, readiness/activation evidence, and exact located reads.
+     The private Worker ABI/runtime core, exhaustive Legacy/Application launch
+     authority, genuine Worker definitions, accepted-start session, and real
+     `WorkerLoaderTaskComputeProvider` are implemented. The unversioned
+     `ApplicationTaskSystem` and `ApplicationTaskComputeDelivery` composition
+     connect authentic active Application selection through run creation,
+     discovery, preparation, Source Artifact V2 loading, and exactly one
+     accepted Application Worker start, with retained compositions remaining
+     `legacy_only`. Preflight 41 fixes the approved terminal-outcome,
+     interruption-provenance, result-store, heartbeat, cancellation, and
+     fenced-settlement topology without changing the provider-neutral API.
+     E1 implements only the exact terminal contract and pure disposition; the
+     remaining topology is not implemented yet. Hosted end-to-end recovery proof
+     remains DTE06-F. No scheduled host, public API, route, binding, fallback, dual
+     execution, or production activation exists;
 7. `07-observability-live-apis-and-ui.md`
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;

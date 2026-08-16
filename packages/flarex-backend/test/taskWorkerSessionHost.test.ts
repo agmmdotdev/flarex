@@ -40,6 +40,8 @@ describe("Task Worker session host", () => {
           return interruptionFor(
             start,
             (request as { cancellationGeneration: bigint }).cancellationGeneration,
+            true,
+            (request as { reason: "cancellation_requested" }).reason,
           );
         },
       ));
@@ -85,7 +87,12 @@ describe("Task Worker session host", () => {
             name: "TaskWorkerSessionStaleCancellationV1Error",
           });
         }
-        return interruptionFor(start, requested);
+        return interruptionFor(
+          start,
+          requested,
+          true,
+          (request as { reason: "cancellation_requested" }).reason,
+        );
       },
     ));
     const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(
@@ -109,6 +116,133 @@ describe("Task Worker session host", () => {
     expect(interruptionCalls).toBe(1);
     await Effect.runPromise(session.close);
     expect(interruptionCalls).toBe(2);
+  });
+
+  it("accepts only settlement for the first exact interruption provenance", async () => {
+    for (const settlementReason of [
+      "cancellation_requested",
+      "maximum_duration",
+    ] as const) {
+      const pending = deferred<unknown>();
+      const input = startInput("application_v1");
+      const loader = new FakeWorkerLoader(start => remoteSession(
+        start,
+        pending.promise,
+        request => interruptionFor(
+          start,
+          (request as { readonly cancellationGeneration: bigint })
+            .cancellationGeneration,
+          true,
+          (request as { readonly reason: "cancellation_requested" }).reason,
+        ),
+      ));
+      const session = await Effect.runPromise(
+        makeTaskWorkerSessionHost(loader).start(input),
+      );
+      await Effect.runPromise(session.requestInterruption(
+        interruptionFor(input, 1n, false, "cancellation_requested"),
+      ));
+      pending.resolve(interruptedSettlementFor(
+        session.acceptance,
+        1n,
+        settlementReason,
+      ));
+      if (settlementReason === "cancellation_requested") {
+        await expect(Effect.runPromise(session.settlement)).resolves.toMatchObject({
+          outcome: {
+            kind: "interrupted",
+            interruption: { reason: "cancellation_requested" },
+          },
+        });
+      } else {
+        const failure = await Effect.runPromise(session.settlement.pipe(Effect.flip));
+        expect(failure.reason).toBe("invalidResponse");
+      }
+      await Effect.runPromise(session.close);
+    }
+  });
+
+  it("correlates cancellation settlement to the newest accepted generation", async () => {
+    const pending = deferred<unknown>();
+    const input = startInput("application_v1");
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start,
+      pending.promise,
+      request => interruptionFor(
+        start,
+        (request as { readonly cancellationGeneration: bigint })
+          .cancellationGeneration,
+        true,
+        "cancellation_requested",
+      ),
+    ));
+    const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(input));
+    await Effect.runPromise(session.requestInterruption(
+      interruptionFor(input, 1n, false, "cancellation_requested"),
+    ));
+    await Effect.runPromise(session.requestInterruption(
+      interruptionFor(input, 2n, false, "cancellation_requested"),
+    ));
+    pending.resolve(interruptedSettlementFor(
+      session.acceptance,
+      2n,
+      "cancellation_requested",
+    ));
+    await expect(Effect.runPromise(session.settlement)).resolves.toMatchObject({
+      outcome: {
+        interruption: { cancellationGeneration: 2n },
+      },
+    });
+    await Effect.runPromise(session.close);
+  });
+
+  it("accepts the exact later interruption when an earlier delivery is uncertain", async () => {
+    const terminal = deferred<unknown>();
+    const input = startInput("application_v1", 1_000);
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start,
+      terminal.promise,
+      request => {
+        const interruption = request as {
+          readonly cancellationGeneration: bigint;
+          readonly reason: "cancellation_requested" | "maximum_duration";
+        };
+        if (interruption.reason === "cancellation_requested") {
+          return new Promise(() => undefined);
+        }
+        terminal.resolve(interruptedSettlementFor(
+          acceptanceFor(start),
+          interruption.cancellationGeneration,
+          interruption.reason,
+        ));
+        return interruptionFor(
+          start,
+          interruption.cancellationGeneration,
+          true,
+          interruption.reason,
+        );
+      },
+    ));
+    const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader, {
+      handshakeMilliseconds: 5,
+    }).start(input));
+    const uncertain = await Effect.runPromise(session.requestInterruption(
+      interruptionFor(input, 1n, false, "cancellation_requested"),
+    ).pipe(Effect.flip));
+    expect(uncertain.reason).toBe("timedOut");
+    await Effect.runPromise(session.requestInterruption(
+      interruptionFor(input, 2n, false, "maximum_duration"),
+    ));
+    await expect(Effect.runPromise(session.settlement)).resolves.toMatchObject({
+      outcome: {
+        kind: "interrupted",
+        interruption: {
+          cancellationGeneration: 2n,
+          reason: "maximum_duration",
+        },
+      },
+    });
+    await Effect.runPromise(session.close);
   });
 
   it("disposes a session that arrives after start interruption", async () => {
@@ -179,9 +313,14 @@ describe("Task Worker session host", () => {
     const loader = new FakeWorkerLoader(start => remoteSession(
       start,
       new Promise(() => undefined),
-      () => {
+      request => {
         expiryInterruptions += 1;
-        return interruptionFor(start, 1n);
+        return interruptionFor(
+          start,
+          1n,
+          true,
+          (request as { reason: "maximum_duration" }).reason,
+        );
       },
     ));
     const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader, {
@@ -227,7 +366,12 @@ describe("Task Worker session host", () => {
           .cancellationGeneration;
         if (generation === 2n) return pending.promise;
         closeGeneration = generation;
-        return interruptionFor(start, generation);
+        return interruptionFor(
+          start,
+          generation,
+          true,
+          (request as { reason: "cancellation_requested" | "host_shutdown" }).reason,
+        );
       },
     ));
     const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(input));
@@ -266,7 +410,7 @@ describe("Task Worker session host", () => {
     expect(closeFinished).toBe(false);
     expect(loader.sessionDisposals).toBe(0);
 
-    pending.resolve(interruptionFor(input, 1n));
+    pending.resolve(interruptionFor(input, 1n, true, "maximum_duration"));
     await closing;
     expect(loader.sessionDisposals).toBe(1);
   });
@@ -280,7 +424,7 @@ describe("Task Worker session host", () => {
       request => {
         closeGeneration = (request as { cancellationGeneration: bigint })
           .cancellationGeneration;
-        return interruptionFor(start, closeGeneration);
+        return interruptionFor(start, closeGeneration, true, "host_shutdown");
       },
     ));
     const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(input));
@@ -330,7 +474,16 @@ function remoteSessionValue(
     acceptance: async () => acceptance,
     requestInterruption: async (request: unknown) => {
       if (owner !== undefined) owner.interruptionCalls += 1;
-      return interrupt?.(request) ?? interruptionFor(start, 1n);
+      const requested = request as {
+        readonly cancellationGeneration: bigint;
+        readonly reason: "cancellation_requested" | "maximum_duration" | "host_shutdown";
+      };
+      return interrupt?.(request) ?? interruptionFor(
+        start,
+        requested.cancellationGeneration,
+        true,
+        requested.reason,
+      );
     },
     settlement: () => settlement,
   }, owner === undefined ? {} : {
@@ -354,6 +507,8 @@ function interruptionFor(
   start: TaskWorkerSessionHostStartInput,
   cancellationGeneration: bigint,
   acceptance = true,
+  reason: "cancellation_requested" | "maximum_duration" | "host_shutdown" =
+    "cancellation_requested",
 ) {
   return {
     format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
@@ -363,6 +518,7 @@ function interruptionFor(
     identity: (start.request as ReturnType<typeof applicationRequest>).dispatch.identity,
     executionId: start.executionId,
     cancellationGeneration,
+    reason,
   };
 }
 
@@ -374,11 +530,34 @@ function settlementFor(acceptance: ReturnType<typeof acceptanceFor>) {
     generation: acceptance.generation,
     identity: acceptance.identity,
     executionId: acceptance.executionId,
+    outcome: {
+      kind: "failed" as const,
+      failure: { code: "handler_failed" as const, message: null },
+    },
   };
 }
 
 function settlementForAcceptance(start: TaskWorkerSessionHostStartInput) {
   return settlementFor(acceptanceFor(start));
+}
+
+function interruptedSettlementFor(
+  acceptance: ReturnType<typeof acceptanceFor>,
+  cancellationGeneration: bigint,
+  reason: "cancellation_requested" | "maximum_duration" | "host_shutdown",
+) {
+  return {
+    format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+    version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+    kind: "settled" as const,
+    generation: acceptance.generation,
+    identity: acceptance.identity,
+    executionId: acceptance.executionId,
+    outcome: {
+      kind: "interrupted" as const,
+      interruption: { cancellationGeneration, reason },
+    },
+  };
 }
 
 function applicationDefinition(wallMilliseconds = 30_000): ApplicationTaskWorkerDefinition {

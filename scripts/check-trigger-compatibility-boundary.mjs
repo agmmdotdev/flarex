@@ -19,6 +19,8 @@ const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
   "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
 const flarexBackendWorkerLoaderTaskComputeProviderPath =
   "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
+const flarexBackendTaskWorkerTerminalCompletionPath =
+  "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts";
 const flarexBackendTaskComputeDeliverySourcePrefix =
   "packages/flarex-backend/src/taskComputeDelivery/";
 const flarexBackendTaskRuntimeLaunchModelPath =
@@ -269,6 +271,12 @@ const admittedFlarexBackendWorkerLoaderProviderSymbols = new Set([
   "TaskComputeExecutionRefV1",
   "TaskComputeProviderDescriptorV1",
   "TaskComputeProviderShape",
+]);
+const admittedFlarexBackendTaskWorkerTerminalCompletionSymbols = new Set([
+  "TaskAttemptCompletionV1",
+  "TaskCancellationGenerationV1",
+  "TaskExecutionFailureV1",
+  "TaskRetryDirectiveV1",
 ]);
 const admittedLegacyWorkerLaunchModelImports = new Map([
   ["TaskRuntimeLaunchSubject", "type"],
@@ -1483,6 +1491,25 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
+  if (
+    relativePath === flarexBackendTaskWorkerTerminalCompletionPath &&
+    specifier === "@flarex/durable-task/internal/run-attempt-v1" &&
+    ts.isImportDeclaration(node)
+  ) {
+    const clause = node.importClause;
+    if (
+      clause === undefined || clause.name !== undefined ||
+      clause.namedBindings === undefined ||
+      !ts.isNamedImports(clause.namedBindings) ||
+      clause.namedBindings.elements.length === 0
+    ) return false;
+    return clause.namedBindings.elements.every((element) => {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      return admittedFlarexBackendTaskWorkerTerminalCompletionSymbols.has(
+        importedName,
+      );
+    });
+  }
   if (relativePath === flarexBackendTaskRuntimeLaunchModelPath ||
     relativePath === flarexBackendTaskRuntimeLaunchAuthorityPath) {
     const admittedSymbols = relativePath === flarexBackendTaskRuntimeLaunchModelPath

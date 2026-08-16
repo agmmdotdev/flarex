@@ -672,7 +672,11 @@ with idempotent dispatch identity and generation-correlated interruption
 delivery. It does not prove durable task completion, supervision, result
 storage, hosted platform parity, or production readiness.
 
-DTE06-E follows with a separate preflight for the durable supervision and
-settlement topology. DTE06-F then owns the private end-to-end hosted proof.
+DTE06-E's approved durable supervision and settlement topology is recorded
+in
+[`41-dte06-attempt-supervision-and-settlement.md`](./41-dte06-attempt-supervision-and-settlement.md).
+E1's terminal contract and pure disposition are complete privately; E2 through
+E5 remain pending in that ordered preflight. DTE06-F then owns the private end-
+to-end hosted proof.
 Only after those gates may DTE05-E3 consider a scheduled Worker host and
 activation.

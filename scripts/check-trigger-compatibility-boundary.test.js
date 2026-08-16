@@ -385,6 +385,39 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the E1 terminal completion type edge", () => {
+    const completionPath =
+      "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: completionPath,
+      text: `
+        import type {
+          TaskAttemptCompletionV1,
+          TaskCancellationGenerationV1,
+          TaskExecutionFailureV1,
+          TaskRetryDirectiveV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: completionPath,
+      text: `
+        import { makeRunAttemptLifecycleV1 } from
+          "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import type { TaskAttemptCompletionV1 } from
+          "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([
+      `${completionPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+  });
+
   it("admits the DTE06-D1 launch model without admitting a host", () => {
     const modelPath =
       "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";

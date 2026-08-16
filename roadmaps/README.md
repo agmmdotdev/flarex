@@ -99,6 +99,7 @@ with domain rationale in
 | [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) | Postgres-authoritative sync, per-scope coordination, recovery, delivery boundaries, and deferred caches. |
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
 | [`42-standard-application-apis.md`](./42-standard-application-apis.md) | Stable workspace-internal application stage APIs. Definition preparation and the historical static-verifier analysis path are implemented; Application Analysis replacement is governed by AA-R1 through AA-R8. |
+| [`durable-task-engine/06-compute-provider-and-runtime.md`](./durable-task-engine/06-compute-provider-and-runtime.md) | Private durable-task compute delivery and Worker runtime. DTE06-A through D and DTE06-E1 are complete privately; E2 through E5 and the hosted DTE06-F proof remain pending. |
 
 ## Cross-Cutting Engineering Guidance
 
@@ -117,7 +118,6 @@ consumers.
 | --- | --- | --- |
 | [`39-canonical-declarative-program-contract.md`](./39-canonical-declarative-program-contract.md) | Accepted direction; preflight required | Standard versioned contract chain between developer definitions, direct fixtures, artifact generation, analysis, verification, and runtime projection without making SDK objects downstream authority. |
 | [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md) | FAC01-FAC19 complete; FAC20 preflight required | Shared user-code execution semantics with Cloudflare Dynamic Worker and in-process adapters while preserving executor and FlarexDB authority and retaining platform evidence. |
-| [`durable-task-engine/README.md`](./durable-task-engine/README.md) | DTE04-A1 complete; Roadmap 04 active | Aggregate/effect JSON envelopes and the lifecycle projection are implemented; READ COMMITTED locking, database-clock, retry, and discovery decisions are closed for later checkpoints, while missing canonical task-definition and input-reference owners still block DDL, run creation, and concrete adapters. |
 
 ## Foundation Execution And Deferred Contracts
 

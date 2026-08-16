@@ -581,6 +581,7 @@ function deliverCancellation(
       identity: request.identity,
       executionId: request.execution.executionId,
       cancellationGeneration: request.cancellationGeneration,
+      reason: "cancellation_requested" as const,
     })).pipe(Effect.mapError(cause => mapCancellationFailure(request, cause)));
     const accepted = snapshotTaskComputeCancellationReceiptV1({
       version: TASK_COMPUTE_CANCELLATION_RECEIPT_VERSION_V1,

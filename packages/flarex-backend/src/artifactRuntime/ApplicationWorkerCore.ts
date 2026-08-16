@@ -42,11 +42,14 @@ import {
   TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
   TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
   TaskWorkerSessionContractV1Error,
+  decodeTaskWorkerSessionSettlementV1,
   decodeTaskWorkerSessionStartRequestV1,
   decodeTaskWorkerSessionInterruptionRequestV1,
   taskWorkerSessionIdentitiesEqualV1,
   type TaskWorkerSessionAcceptanceV1,
+  type TaskWorkerSessionFailureCodeV1,
   type TaskWorkerSessionInterruptionAcceptanceV1,
+  type TaskWorkerSessionInterruptionReasonV1,
   type TaskWorkerSessionSettlementV1,
 } from "flarex-protocol/internal/task-worker-session-v1";
 import type {
@@ -227,8 +230,15 @@ export interface LegacyTaskWorkerExecutionInputV1 {
 
 interface TaskWorkerInterruptionStateV1 {
   readonly interrupted: () => boolean;
+  readonly snapshot: () => Readonly<{
+    readonly cancellationGeneration: bigint;
+    readonly reason: TaskWorkerSessionInterruptionReasonV1;
+  }> | null;
   readonly signal: Promise<never>;
-  readonly request: () => void;
+  readonly request: (
+    cancellationGeneration: bigint,
+    reason: TaskWorkerSessionInterruptionReasonV1,
+  ) => void;
 }
 
 export interface TaskWorkerSessionExecutionV1<ResultValue> {
@@ -480,7 +490,7 @@ export async function executeApplicationTaskWorkerV1(
           "ApplicationTaskWorkerInputBoundaryV1Error",
         ),
         "request",
-        "ApplicationTaskWorkerInputBoundaryV1Error",
+        "ApplicationTaskWorkerInputValidationV1Error",
       );
     } catch (cause) {
       payloadFailure = namedUnlessNamed(
@@ -492,9 +502,11 @@ export async function executeApplicationTaskWorkerV1(
       try {
         disposeReceivedCapability(rawPayload);
       } catch (cause) {
-        if (payloadFailure === undefined) {
-          throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", cause);
-        }
+        throw taskWorkerCleanupError(
+          "ApplicationTaskWorkerCleanupV1Error",
+          payloadFailure,
+          cause,
+        );
       }
     }
     const payloadIssue = validateValidatorValueIssueV1(
@@ -503,7 +515,7 @@ export async function executeApplicationTaskWorkerV1(
       { idPolicy: { mode: "shapeOnly" }, path: "$payload" },
     );
     if (payloadIssue !== undefined) {
-      throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", payloadIssue);
+      throw namedError("ApplicationTaskWorkerInputValidationV1Error", payloadIssue);
     }
     requireTaskNotInterrupted(input.interruption, "ApplicationTaskWorkerTerminalV1Error");
     const handler = await loadTaskHandler(
@@ -523,12 +535,12 @@ export async function executeApplicationTaskWorkerV1(
       if (input.interruption?.interrupted() === true) {
         throw namedError("ApplicationTaskWorkerTerminalV1Error", cause);
       }
-      throw namedError("ApplicationTaskWorkerUserCodeV1Error", cause);
+      throw namedError("ApplicationTaskWorkerHandlerV1Error", cause);
     }
     const output = normalizeTaskValue(
       rawResult,
       "result",
-      "ApplicationTaskWorkerUserCodeV1Error",
+      "ApplicationTaskWorkerOutputValidationV1Error",
     );
     const outputIssue = input.definition.manifest.outputValidator === null
       ? undefined
@@ -538,7 +550,7 @@ export async function executeApplicationTaskWorkerV1(
         { idPolicy: { mode: "shapeOnly" }, path: "$output" },
       );
     if (outputIssue !== undefined) {
-      throw namedError("ApplicationTaskWorkerUserCodeV1Error", outputIssue);
+      throw namedError("ApplicationTaskWorkerOutputValidationV1Error", outputIssue);
     }
     requireTaskNotInterrupted(input.interruption, "ApplicationTaskWorkerTerminalV1Error");
     return OBJECT_FREEZE({
@@ -551,7 +563,7 @@ export async function executeApplicationTaskWorkerV1(
     });
   } catch (cause) {
     settledFailure = namedUnlessNamed(
-      "ApplicationTaskWorkerInvalidRequestV1Error",
+      "ApplicationTaskWorkerDefectV1Error",
       cause,
     );
     throw settledFailure;
@@ -559,9 +571,11 @@ export async function executeApplicationTaskWorkerV1(
     try {
       disposeReceivedCapability(input.capability);
     } catch (cause) {
-      if (settledFailure === undefined) {
-        throw namedError("ApplicationTaskWorkerInputBoundaryV1Error", cause);
-      }
+      throw taskWorkerCleanupError(
+        "ApplicationTaskWorkerCleanupV1Error",
+        settledFailure,
+        cause,
+      );
     }
   }
 }
@@ -593,7 +607,12 @@ export async function startApplicationTaskWorkerSessionV1(
       request.dispatch.computeProfile !== input.definition.manifest.computeProfile
     ) throw namedError("ApplicationTaskWorkerInvalidRequestV1Error", request);
     const interruption = makeTaskWorkerInterruptionState(
-      request.dispatch.cancellation.kind === "requested",
+      request.dispatch.cancellation.kind === "requested"
+        ? OBJECT_FREEZE({
+            cancellationGeneration: request.dispatch.cancellation.generation,
+            reason: "cancellation_requested" as const,
+          })
+        : null,
       "ApplicationTaskWorkerTerminalV1Error",
     );
     const session = startTaskWorkerSession(
@@ -656,7 +675,7 @@ export async function executeLegacyTaskWorkerV1(
       payload = normalizeTaskValue(
         detachCapabilityValue(rawPayload, "LegacyTaskWorkerInputBoundaryV1Error"),
         "request",
-        "LegacyTaskWorkerInputBoundaryV1Error",
+        "LegacyTaskWorkerInputValidationV1Error",
       );
     } catch (cause) {
       payloadFailure = namedUnlessNamed(
@@ -668,9 +687,11 @@ export async function executeLegacyTaskWorkerV1(
       try {
         disposeReceivedCapability(rawPayload);
       } catch (cause) {
-        if (payloadFailure === undefined) {
-          throw namedError("LegacyTaskWorkerInputBoundaryV1Error", cause);
-        }
+        throw taskWorkerCleanupError(
+          "LegacyTaskWorkerCleanupV1Error",
+          payloadFailure,
+          cause,
+        );
       }
     }
     const payloadIssue = validateValidatorValueIssueV1(
@@ -679,7 +700,7 @@ export async function executeLegacyTaskWorkerV1(
       { idPolicy: { mode: "shapeOnly" }, path: "$payload" },
     );
     if (payloadIssue !== undefined) {
-      throw namedError("LegacyTaskWorkerInputBoundaryV1Error", payloadIssue);
+      throw namedError("LegacyTaskWorkerInputValidationV1Error", payloadIssue);
     }
     requireTaskNotInterrupted(input.interruption, "LegacyTaskWorkerTerminalV1Error");
     const handler = await loadTaskHandler(
@@ -699,12 +720,12 @@ export async function executeLegacyTaskWorkerV1(
       if (input.interruption?.interrupted() === true) {
         throw namedError("LegacyTaskWorkerTerminalV1Error", cause);
       }
-      throw namedError("LegacyTaskWorkerUserCodeV1Error", cause);
+      throw namedError("LegacyTaskWorkerHandlerV1Error", cause);
     }
     const output = normalizeTaskValue(
       rawResult,
       "result",
-      "LegacyTaskWorkerUserCodeV1Error",
+      "LegacyTaskWorkerOutputValidationV1Error",
     );
     const outputIssue = input.definition.manifest.outputValidator === null
       ? undefined
@@ -714,7 +735,7 @@ export async function executeLegacyTaskWorkerV1(
         { idPolicy: { mode: "shapeOnly" }, path: "$output" },
       );
     if (outputIssue !== undefined) {
-      throw namedError("LegacyTaskWorkerUserCodeV1Error", outputIssue);
+      throw namedError("LegacyTaskWorkerOutputValidationV1Error", outputIssue);
     }
     requireTaskNotInterrupted(input.interruption, "LegacyTaskWorkerTerminalV1Error");
     return OBJECT_FREEZE({
@@ -727,7 +748,7 @@ export async function executeLegacyTaskWorkerV1(
     });
   } catch (cause) {
     settledFailure = namedUnlessNamed(
-      "LegacyTaskWorkerInvalidRequestV1Error",
+      "LegacyTaskWorkerDefectV1Error",
       cause,
     );
     throw settledFailure;
@@ -735,9 +756,11 @@ export async function executeLegacyTaskWorkerV1(
     try {
       disposeReceivedCapability(input.capability);
     } catch (cause) {
-      if (settledFailure === undefined) {
-        throw namedError("LegacyTaskWorkerInputBoundaryV1Error", cause);
-      }
+      throw taskWorkerCleanupError(
+        "LegacyTaskWorkerCleanupV1Error",
+        settledFailure,
+        cause,
+      );
     }
   }
 }
@@ -768,7 +791,12 @@ export async function startLegacyTaskWorkerSessionV1(
       request.dispatch.computeProfile !== input.definition.manifest.computeProfile
     ) throw namedError("LegacyTaskWorkerInvalidRequestV1Error", request);
     const interruption = makeTaskWorkerInterruptionState(
-      request.dispatch.cancellation.kind === "requested",
+      request.dispatch.cancellation.kind === "requested"
+        ? OBJECT_FREEZE({
+            cancellationGeneration: request.dispatch.cancellation.generation,
+            reason: "cancellation_requested" as const,
+          })
+        : null,
       "LegacyTaskWorkerTerminalV1Error",
     );
     const session = startTaskWorkerSession(
@@ -802,6 +830,7 @@ function startTaskWorkerSession<ResultValue>(
   errorName: string,
 ): TaskWorkerSessionExecutionV1<ResultValue> {
   let acceptedCancellationGeneration = initialCancellationGeneration;
+  let acceptedInterruptionReason = interruption.snapshot()?.reason;
   let settled = false;
   terminal.then(
     () => { settled = true; },
@@ -826,11 +855,14 @@ function startTaskWorkerSession<ResultValue>(
         new ERROR("Task Worker session is already settled."),
       );
     }
-    const decoded = decodeTaskWorkerSessionInterruptionRequestV1(input);
-    if (Result.isFailure(decoded)) {
-      throw namedError(errorName, decoded.failure);
-    }
-    const request = decoded.success;
+    const request = decodeTaskWorkerSessionInterruptionRequestV1(input).pipe(
+      Result.match({
+        onFailure: cause => {
+          throw namedError(errorName, cause);
+        },
+        onSuccess: request => request,
+      }),
+    );
     if (request.cancellationGeneration < acceptedCancellationGeneration) {
       throw namedError(
         "TaskWorkerSessionStaleCancellationV1Error",
@@ -847,9 +879,19 @@ function startTaskWorkerSession<ResultValue>(
       boundary: "interruption",
       reason: "identity_mismatch",
     }));
+    if (
+      request.cancellationGeneration === acceptedCancellationGeneration &&
+      acceptedInterruptionReason !== undefined &&
+      request.reason !== acceptedInterruptionReason
+    ) throw namedError(errorName, new TaskWorkerSessionContractV1Error({
+      boundary: "interruption",
+      reason: "identity_mismatch",
+      path: "reason",
+    }));
     if (request.cancellationGeneration > acceptedCancellationGeneration) {
       acceptedCancellationGeneration = request.cancellationGeneration;
-      interruption.request();
+      acceptedInterruptionReason = request.reason;
+      interruption.request(request.cancellationGeneration, request.reason);
     }
     return OBJECT_FREEZE({
       format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
@@ -859,41 +901,146 @@ function startTaskWorkerSession<ResultValue>(
       identity,
       executionId,
       cancellationGeneration: acceptedCancellationGeneration,
+      reason: request.reason,
     });
   };
-  const settlement = (): Promise<TaskWorkerSessionSettlementV1> => terminal.then(() =>
-    OBJECT_FREEZE({
+  const settlement = (): Promise<TaskWorkerSessionSettlementV1> => terminal.then(
+    result => ownTaskWorkerSessionSettlement({
       format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
       version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
-      kind: "settled" as const,
+      kind: "settled",
       generation,
       identity,
       executionId,
-    })
+      outcome: { kind: "completed", result },
+    }, errorName),
+    cause => {
+      const admittedInterruption = interruption.snapshot();
+      if (
+        admittedInterruption !== null &&
+        isTaskWorkerInterruptionFailure(cause)
+      ) {
+        return ownTaskWorkerSessionSettlement({
+          format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+          version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+          kind: "settled",
+          generation,
+          identity,
+          executionId,
+          outcome: {
+            kind: "interrupted",
+            interruption: admittedInterruption,
+          },
+        }, errorName);
+      }
+      const code = taskWorkerSessionFailureCode(cause);
+      if (code === undefined) throw cause;
+      return ownTaskWorkerSessionSettlement({
+        format: TASK_WORKER_SESSION_SETTLEMENT_FORMAT_V1,
+        version: TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
+        kind: "settled",
+        generation,
+        identity,
+        executionId,
+        outcome: {
+          kind: "failed",
+          failure: { code, message: null },
+        },
+      }, errorName);
+    },
   );
   return OBJECT_FREEZE({ acceptance, requestInterruption, settlement, terminal });
 }
 
 function makeTaskWorkerInterruptionState(
-  initiallyInterrupted: boolean,
+  initial: Readonly<{
+    readonly cancellationGeneration: bigint;
+    readonly reason: TaskWorkerSessionInterruptionReasonV1;
+  }> | null,
   errorName: string,
 ): TaskWorkerInterruptionStateV1 {
-  let interrupted = initiallyInterrupted;
+  let interruption = initial;
   let rejectSignal!: (cause: unknown) => void;
   const signal = new PROMISE<never>((_resolve, reject) => { rejectSignal = reject; });
   signal.catch(() => undefined);
-  if (initiallyInterrupted) {
+  if (initial !== null) {
     rejectSignal(namedError(errorName, new ERROR("Task interruption was requested.")));
   }
   return OBJECT_FREEZE({
-    interrupted: () => interrupted,
+    interrupted: () => interruption !== null,
+    snapshot: () => interruption,
     signal,
-    request: () => {
-      if (interrupted) return;
-      interrupted = true;
+    request: (
+      cancellationGeneration: bigint,
+      reason: TaskWorkerSessionInterruptionReasonV1,
+    ) => {
+      if (interruption !== null) {
+        if (
+          interruption.reason === "cancellation_requested" &&
+          reason === "cancellation_requested" &&
+          cancellationGeneration > interruption.cancellationGeneration
+        ) interruption = OBJECT_FREEZE({ cancellationGeneration, reason });
+        return;
+      }
+      interruption = OBJECT_FREEZE({ cancellationGeneration, reason });
       rejectSignal(namedError(errorName, new ERROR("Task interruption was requested.")));
     },
   });
+}
+
+function ownTaskWorkerSessionSettlement(
+  input: unknown,
+  errorName: string,
+): TaskWorkerSessionSettlementV1 {
+  return decodeTaskWorkerSessionSettlementV1(input).pipe(
+    Result.match({
+      onFailure: cause => {
+        throw namedError(errorName, cause);
+      },
+      onSuccess: settlement => settlement,
+    }),
+  );
+}
+
+function isTaskWorkerInterruptionFailure(cause: unknown): boolean {
+  const name = taskWorkerOwnedErrorName(cause);
+  return name === "ApplicationTaskWorkerTerminalV1Error" ||
+    name === "LegacyTaskWorkerTerminalV1Error";
+}
+
+function taskWorkerSessionFailureCode(
+  cause: unknown,
+): TaskWorkerSessionFailureCodeV1 | undefined {
+  switch (taskWorkerOwnedErrorName(cause)) {
+    case "ApplicationTaskWorkerInputValidationV1Error":
+    case "LegacyTaskWorkerInputValidationV1Error":
+      return "input_validation_failed";
+    case "ApplicationTaskWorkerOutputValidationV1Error":
+    case "LegacyTaskWorkerOutputValidationV1Error":
+      return "output_validation_failed";
+    case "ApplicationTaskWorkerHandlerV1Error":
+    case "LegacyTaskWorkerHandlerV1Error":
+      return "handler_failed";
+    case "ApplicationTaskWorkerInputBoundaryV1Error":
+    case "LegacyTaskWorkerInputBoundaryV1Error":
+      return "runtime_input_unavailable";
+    case "ApplicationTaskWorkerDefinitionV1Error":
+    case "LegacyTaskWorkerDefinitionV1Error":
+      return "configuration_invalid";
+    case "ApplicationTaskWorkerInvalidRequestV1Error":
+    case "LegacyTaskWorkerInvalidRequestV1Error":
+      return "internal_invariant";
+    default:
+      return undefined;
+  }
+}
+
+function taskWorkerOwnedErrorName(cause: unknown): string | undefined {
+  if (!isNamedError(cause)) return undefined;
+  const name = ownDataValue(cause, "name");
+  return name.kind === "value" && typeof name.value === "string"
+    ? name.value
+    : undefined;
 }
 
 function invokeTaskInputCapability(
@@ -1864,6 +2011,17 @@ function namedError(name: string, cause: unknown): Error {
   OBJECT_DEFINE_PROPERTY(error, "cause", { value: cause });
   NAMED_ERRORS.add(error);
   return error;
+}
+
+function taskWorkerCleanupError(
+  name: "ApplicationTaskWorkerCleanupV1Error" | "LegacyTaskWorkerCleanupV1Error",
+  primaryFailure: Error | undefined,
+  cleanupFailure: unknown,
+): Error {
+  return namedError(name, OBJECT_FREEZE({
+    primaryFailure: primaryFailure ?? null,
+    cleanupFailure,
+  }));
 }
 
 function disposeReceivedCapability(value: unknown): void {

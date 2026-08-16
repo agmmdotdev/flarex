@@ -72,9 +72,33 @@ describe("Legacy task Worker definition", () => {
       interruption: {
         kind: "interruption_requested",
         cancellationGeneration: { __bigint: "1" },
+        reason: "cancellation_requested",
       },
-      settlementName: "LegacyTaskWorkerTerminalV1Error",
+      settlement: {
+        kind: "settled",
+        outcome: {
+          kind: "interrupted",
+          interruption: {
+            cancellationGeneration: { __bigint: "1" },
+            reason: "cancellation_requested",
+          },
+        },
+      },
       payloadDisposals: 1,
+    });
+  }, 20_000);
+
+  it("does not hide Legacy cleanup uncertainty behind a handler failure", async () => {
+    const fixture = await legacyFixture("export function run() { return null; }");
+    const definition = await buildDefinition(fixture.subject);
+    const receipt = await executeSessionCleanupFailure(
+      definition,
+      requestFor(definition),
+    );
+    expect(receipt).toEqual({
+      name: "LegacyTaskWorkerCleanupV1Error",
+      primaryName: "LegacyTaskWorkerHandlerV1Error",
+      cleanupMessage: "legacy input capability dispose failed",
     });
   }, 20_000);
 
@@ -525,12 +549,11 @@ export default { async fetch(_request, env) {
       format: "flarex.task-worker-session-interruption", version: 1,
       generation: acceptance.generation, identity: acceptance.identity,
       executionId: acceptance.executionId, cancellationGeneration: 1n,
+      reason: "cancellation_requested",
     });
-    let settlementName;
-    try { await session.settlement(); }
-    catch (error) { settlementName = error?.name; }
+    const settlement = await session.settlement();
     await scheduler.wait(75);
-    return new Response(JSON.stringify({ acceptance, interruption, settlementName,
+    return new Response(JSON.stringify({ acceptance, interruption, settlement,
       payloadDisposals: globalThis.payloadDisposals },
       (_key, value) => typeof value === "bigint"
         ? { __bigint: String(value) } : value),
@@ -548,6 +571,59 @@ export default { async fetch(_request, env) {
   const body = await response.json();
   if (!response.ok) throw new Error(`Legacy session failed: ${JSON.stringify(body)}`);
   return body;
+}
+
+async function executeSessionCleanupFailure(
+  definition: LegacyTaskWorkerDefinition,
+  request: unknown,
+): Promise<unknown> {
+  const requestJson = JSON.stringify(request, (_key, value: unknown) =>
+    typeof value === "bigint" ? { __bigint: String(value) } : value
+  );
+  const outerSource = `
+import { startLegacyTaskWorkerSessionV1 } from "./core.js";
+const request = JSON.parse(${JSON.stringify(requestJson)}, (_key, value) =>
+  value && typeof value === "object" && typeof value.__bigint === "string"
+    ? BigInt(value.__bigint) : value);
+export default { async fetch() {
+  const session = await startLegacyTaskWorkerSessionV1({
+    startRequest: { format: "flarex.task-worker-session-start", version: 1,
+      generation: "legacy_dynamic_worker_v1", executionId: "execution-1", request },
+    capability: {
+      read() { return null; },
+      [Symbol.dispose]() { throw new Error("legacy input capability dispose failed"); },
+    },
+    definition: {
+      taskDefinitionRevisionId: ${JSON.stringify(definition.taskDefinitionRevisionId)},
+      handlerExportName: "run",
+      manifest: { payloadValidator: { type: "any" }, outputValidator: null,
+        computeProfile: ${JSON.stringify(definition.computeProfile)} },
+    },
+    loadExecution: async () => ({ run() { throw new Error("handler failed"); } }),
+  });
+  try {
+    await session.settlement();
+    return Response.json({ name: "must-not-succeed" });
+  } catch (error) {
+    return Response.json({
+      name: error?.name,
+      primaryName: error?.cause?.primaryFailure?.name ?? null,
+      cleanupMessage: error?.cause?.cleanupFailure?.message,
+    });
+  }
+} };`;
+  const runtime = new Miniflare({
+    compatibilityDate: "2026-06-14",
+    modules: [{ type: "ESModule", path: "test.js", contents: outerSource }, {
+      type: "ESModule",
+      path: "core.js",
+      contents: (definition.modules[Object.keys(definition.modules).find(key =>
+        key.includes("_core.js"))!] as { readonly js: string }).js,
+    }],
+  });
+  instances.push(runtime);
+  const response = await runtime.dispatchFetch("https://legacy-cleanup-session.test/");
+  return await response.json();
 }
 
 async function executeDefinitionFailure(

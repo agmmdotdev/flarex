@@ -512,6 +512,7 @@ class FakeWorkerSession {
         identity: TaskWorkerSessionStartRequestV1["request"]["dispatch"]["identity"];
         executionId: string;
         cancellationGeneration: bigint;
+        reason: "cancellation_requested" | "maximum_duration" | "host_shutdown";
       }>) => {
         this.onInterruption();
         return owned({
@@ -522,6 +523,7 @@ class FakeWorkerSession {
           identity: request.identity,
           executionId: request.executionId,
           cancellationGeneration: request.cancellationGeneration,
+          reason: request.reason,
         });
       },
       settlement: () => this.completion,
@@ -536,6 +538,10 @@ class FakeWorkerSession {
       generation: this.start.generation,
       identity: this.start.request.dispatch.identity,
       executionId: this.start.executionId,
+      outcome: {
+        kind: "failed",
+        failure: { code: "handler_failed", message: null },
+      },
     }));
   }
 }
