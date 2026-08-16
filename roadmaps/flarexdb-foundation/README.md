@@ -2033,7 +2033,7 @@ are owned by
 [`05-managed-schema-deployment.md`](./05-managed-schema-deployment.md).
 Storage-free `M01-A`/`M01-B` and `M02`, production-inert `M03-A` through
 `M03-C`, and the current-generation `M03-D` cooking lineage are complete.
-`M04-A` provides exact private prepared plans. `M04-B` now has a bounded,
-resumable private apply coordinator and direct PGlite proof; its genuine-
-PostgreSQL receipt remains the completion gate before `M04-C` developer
-adapters. `M05` retirement remains deferred.
+`M04-A` provides exact private prepared plans. `M04-B` is complete and private:
+its bounded resumable apply coordinator passes the matching PGlite and genuine-
+PostgreSQL schema-B scenario. `M04-C` developer adapters are the next separate
+cut. `M05` retirement remains deferred.

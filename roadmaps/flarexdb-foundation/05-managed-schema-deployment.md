@@ -10,8 +10,8 @@ readiness receipt, and activation gate now exist. Application Analysis
 current-generation schema-A through schema-G system-test lineage and all nine
 acceptance items. `M04-A` provides the private read-only prepared-plan
 composition. `M04-B` now has its private bounded exact-plan apply coordinator
-and direct PGlite schema-B proof; its completion still awaits the matching
-genuine-PostgreSQL receipt. `M04-C` developer adapters remain deferred.
+and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
+checkpoint is complete. `M04-C` developer adapters are the next separate cut.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -373,9 +373,9 @@ commit advances the frontier, accepts a newly prepared plan, drives the new
 physical build, settles readiness, activates schema B, and observes the same
 active candidate without another sequence. The proof also retries the older stale
 handle after activation and confirms it is reported only as candidate
-convergence, not exact-plan replay. PGlite is green. The same genuine-
-PostgreSQL scenario remains mandatory before M04-B is complete or M04-C can
-begin.
+convergence, not exact-plan replay. The same scenario is green in PGlite and
+genuine PostgreSQL, completing M04-B without a public route, CLI, or production
+caller.
 
 ## Approved Code And Package Ownership
 
@@ -904,11 +904,11 @@ These are separate later goals, not one giant deployment goal:
 8. `M04-A` - **complete and private**: the current-generation read-only planning
    composition authenticates exact publication, active-schema, schema-artifact,
    scope-frontier, control, and target identities and returns the canonical plan
-   plus an opaque exact-plan handle. `M04-B` is **implemented privately with
-   direct PGlite proof; genuine PostgreSQL remains the completion gate**. Its
-   bounded resumable coordinator consumes only that handle and delegates every
-   validation/build/readiness/activation transition to the existing owner.
-   `M04-C` developer adapters remain deferred. Do not reinterpret the existing
+   plus an opaque exact-plan handle. `M04-B` is **complete and private** with
+   matching PGlite and genuine-PostgreSQL proof. Its bounded resumable
+   coordinator consumes only that handle and delegates every validation/build/
+   readiness/activation transition to the existing owner. `M04-C` developer
+   adapters are the next separate cut. Do not reinterpret the existing
    deployment-push finish operation as managed apply or add a public/production
    route before those private checkpoints pass.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
