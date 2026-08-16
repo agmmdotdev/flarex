@@ -2047,4 +2047,9 @@ is complete: it deletes only one explicitly selected, non-enabled coordinator
 row after exact active/candidate/authority refusal and retains definitions,
 claims, sidecars, application data, and immutable evidence. Enabled-build
 retirement and physical purge remain deferred behind rollback, active-attempt,
-`O11`, reconnect, adapter, and evidence-retention gates.
+`O11`, reconnect, adapter, and evidence-retention gates. `M05-A2` is the next
+private implementation checkpoint: atomically reclaim that exact rebuildable
+workspace when authenticated candidate installation supersedes it. The
+preflight rejects a post-install callback because lost responses would lose the
+displaced identity, and it adds no timer, scheduler, inferred-age selection,
+public trigger, enabled-state retirement, or purge.

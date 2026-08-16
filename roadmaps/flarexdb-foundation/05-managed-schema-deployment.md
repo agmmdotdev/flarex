@@ -969,6 +969,48 @@ retained claims/catalog authority, and rebuild. No schema, migration, public
 API, CLI, route, trigger, automatic eviction, `CASCADE`, definition retirement,
 or physical/evidence purge was added.
 
+### Private Supersession Reclamation Handoff
+
+The next safe checkpoint is not a timer, oldest-row policy, or general
+background garbage collector. A post-install callback is also insufficient:
+if candidate installation commits and its response is lost before a separate
+reclamation call, replay observes only the new candidate head and no longer has
+authenticated authority to infer which displaced candidate should be cleaned.
+
+The separately implementation-bearing `M05-A2` checkpoint may therefore make
+workspace reclamation automatic only as part of the private managed-schema
+candidate-supersession operation. It must:
+
+1. authenticate the existing planning/application composition, candidate-
+   validation authority, and exact unique-set reclamation authority before
+   target mutation;
+2. prepare an opaque reclamation claim for the exact candidate head observed
+   before supersession, including its schema-version and immutable closure
+   authority, without exposing a caller-forgeable schema choice;
+3. under the existing scope-clock-first target transaction, re-read and lock
+   that exact candidate head, refuse drift, install the new candidate head, and
+   reclaim the displaced build workspace atomically only when it is absent or
+   non-enabled and is neither the active schema nor another current authority;
+4. retain enabled builds and every immutable definition, binding, claim,
+   sidecar, app-row, readiness, activation, and R2 artifact body;
+5. make committed replay and decision-uncertainty recovery derive only from
+   the resulting authoritative head/build state, so a lost response cannot
+   cause a guessed second cleanup; and
+6. preserve the standalone exact `M05-A` operation for explicit private
+   recovery while adding no public route, CLI, scheduler, age scan, directory
+   scan, `CASCADE`, second transaction/commit owner, retirement, or purge.
+
+This is the first automatic behavior allowed by M05: one exact cleanup caused
+by one authenticated private supersession. It is not periodic maintenance and
+does not make enabled-definition retirement or physical purge automatic.
+Implementation requires direct PGlite and genuine-PostgreSQL proof for atomic
+install/delete, absent and enabled displaced builds, active-schema retention,
+head drift, rollback after each write, committed lost-response replay, directory
+slot recovery, and exact composition rejection. The implementation preflight
+must prefer a narrow transaction-composition owner over a callback that lets
+the managed-schema coordinator inject arbitrary work into candidate-validation
+transactions.
+
 Enabled-build retirement and physical purge remain deferred. Before either can
 be approved, all of the following must exist and compose exactly:
 
@@ -1050,6 +1092,11 @@ These are separate later goals, not one giant deployment goal:
     and transaction owners. Enabled-build retirement and physical purge remain
     blocked on the explicit rollback, active-attempt, `O11`, reconnect,
     adapter, and evidence-retention gates above.
+11. `M05-A2` - **preflight complete; implementation pending**: compose exact
+    workspace reclamation atomically with private candidate supersession so
+    lost responses cannot lose or guess the displaced schema identity. This
+    checkpoint adds no timer, scheduler, public deployment trigger, enabled-
+    build retirement, or physical/evidence purge.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
