@@ -892,6 +892,88 @@ example: keep a field optional, run a named backfill, remove incompatible
 values, declare a rename, or split the change into expand/backfill/contract
 deployments.
 
+## M05 Retirement And Purge Preflight
+
+`M05-P` is complete as a design preflight. It rejects a broad "delete old
+schemas" operation. Retirement, workspace reclamation, and purge are different
+operations with different authority:
+
+- **retirement** makes an obsolete physical definition ineligible for new
+  selection or maintenance while retaining its committed evidence;
+- **workspace reclamation** deletes rebuildable, non-enabled coordinator state
+  that cannot currently confer readiness or activation authority; and
+- **purge** irreversibly deletes physical current rows, revision history,
+  claims, artifacts, or immutable evidence.
+
+The current catalog and target state divide as follows:
+
+| State | M05 policy |
+| --- | --- |
+| Active schema/application heads and the current non-active candidate-validation head | Never infer retirement. These are current selection or validation authority. |
+| Immutable schema artifacts, schema-version bindings, application revisions, readiness receipts, activation revisions, and activation history | Retain. They are audit, replay, cold-materialization, and rollback evidence, not cleanup workspace. A separate evidence-retention policy may later prove a bounded deletion rule. |
+| `fx_system_unique_constraint_set_build` rows in `declared`, `building`, `backfilling`, or `validating` | Eligible only for the narrow `M05-A` workspace-reclamation rule below. |
+| Enabled unique-set builds and enabled developer-index builds | Retain until the exact rollback and admitted-attempt floors prove that no old revision can be selected or resumed. |
+| Unique claims, developer-index current entries, and their revision histories | Retain until `O11` has advanced a mutually safe row/index/feed history floor. |
+| Candidate-validation progress | It is already one scope-local slot that exact candidate installation supersedes in place; it is not a separate accumulating purge target. |
+| Catalog definitions and schema-version bindings | Retain while any immutable artifact, application revision, readiness receipt, activation record, active/candidate selection, or retained physical evidence refers to them. Foreign-key reachability alone is not cleanup authority. |
+
+The immediate pressure is the bounded unique-set build directory: it admits at
+most 32 schema-version build rows per scope, and sanctioned point commits fail
+closed if that directory is exceeded. Raising the ceiling would postpone the
+problem and increase commit-lane work; it is not the accepted fix.
+
+The first implementation-bearing checkpoint may therefore be only `M05-A`:
+reclaim one explicitly identified superseded, non-enabled unique-set build row.
+Under the existing scope-clock-first transaction order, the operation must:
+
+1. authenticate the exact control database, located target, scope authority,
+   and requested schema-version identity through a private capability;
+2. lock the scope clock and the bounded build directory, then re-read the
+   active application schema and current candidate-validation head in the same
+   transaction;
+3. refuse the active schema, the current candidate schema, every `enabled`
+   build, a changed row, an authority mismatch, and every ambiguous
+   composition;
+4. delete only the exact non-enabled build-workspace row. It must not delete
+   definitions, bindings, unique claims, index entries, app-row history,
+   readiness/activation evidence, or R2 artifacts;
+5. return an exact `already_absent` replay for an authenticated request when the
+   row is already absent, fail closed on concurrent replacement, and preserve
+   the existing reconciliation path so a later explicit submission can rebuild
+   from retained authoritative rows; and
+6. use no `CASCADE`, fallback, inferred age threshold, automatic oldest-row
+   eviction, public route, CLI, production trigger, or second transaction/
+   commit owner.
+
+`M05-A` requires direct PGlite and genuine-PostgreSQL proof for active and
+candidate refusal, every non-enabled lifecycle, enabled refusal, exact replay,
+concurrent reconciliation, confirmed rollback, decision uncertainty, the
+31/32-row directory boundary, and a subsequent rebuild from retained rows. It
+needs no schema migration unless implementation evidence proves otherwise; a
+new migration would require a separate preflight.
+
+Enabled-build retirement and physical purge remain deferred. Before either can
+be approved, all of the following must exist and compose exactly:
+
+- `O11` active-snapshot retention and persisted
+  `oldest_available_commit_seq`, with mutually safe row/index/feed compaction;
+- roadmap 21's accepted reconnect identity, expiry/reset contract, retention
+  DDL, and reconnect floor consumer;
+- an explicit rollback-retention policy that says when an inactive application
+  revision and its readiness evidence cease to be selectable;
+- an admitted-attempt/lease floor proving no running execution remains pinned
+  to the old schema or physical definition;
+- adapter retention gates for every supported private or future public
+  consumer; and
+- an evidence-retention decision for immutable schema, readiness, activation,
+  and cold-materialization records.
+
+After those gates, a separately approved `M05-B` may add logical physical-
+definition retirement. A later `M05-C` may add dependency-ordered, bounded,
+resumable physical purge. Neither may use foreign-key cascades, reinterpret
+compacted history as absence, delete PostgreSQL references before R2/evidence
+policy permits it, or combine audit-evidence deletion with sidecar compaction.
+
 ## Ordered Turn Sequence
 
 These are separate later goals, not one giant deployment goal:
@@ -943,8 +1025,12 @@ These are separate later goals, not one giant deployment goal:
    scenario in PGlite and genuine PostgreSQL. Do not reinterpret the existing
    deployment-push finish operation as managed apply or add a public/production
    route before those private checkpoints pass.
-9. `M05` - add explicit retirement/purge policy after rollback, snapshot,
-   reconnect, and adapter retention gates pass.
+9. `M05-P` - **complete preflight; no destructive cleanup authorized**:
+   separate non-enabled build-workspace reclamation from logical retirement and
+   irreversible purge. `M05-A` is the only eligible next implementation slice;
+   enabled-build retirement and physical purge remain blocked on the explicit
+   rollback, active-attempt, `O11`, reconnect, adapter, and evidence-retention
+   gates above.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema

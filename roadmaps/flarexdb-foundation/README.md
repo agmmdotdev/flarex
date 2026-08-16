@@ -2039,4 +2039,10 @@ PostgreSQL schema-B scenario. `M04-C` is also complete and private: the internal
 `flarex-dev` adapter exposes the exact opaque-handle workflow plus one shared
 detached JSON projection, and the same connected schema-B scenario passes in
 PGlite and genuine PostgreSQL. It adds no CLI, route, or production caller.
-`M05` retirement remains deferred.
+`M05-P` retirement/purge preflight is complete. It rejects broad old-schema
+deletion and separates rebuildable non-enabled build-workspace reclamation from
+logical physical-definition retirement and irreversible history/evidence
+purge. Only the narrow private `M05-A` unique-set build-workspace reclamation
+slice is eligible next; enabled-build retirement and physical purge remain
+deferred behind rollback, active-attempt, `O11`, reconnect, adapter, and
+evidence-retention gates.
