@@ -983,6 +983,38 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("keeps the Task attempt lifecycle gateway production-inert until E4", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
+      text: `
+        import {
+          decideHeartbeatAttemptV1,
+          type TaskSystemRunAttemptStoreShape,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import {
+          type CurrentTaskComputeDispatchRequestV1,
+          validateCurrentTaskComputeDispatchRequestV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { createTaskAttemptLifecycleGateway } from
+          "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
+      `,
+    }, {
+      relativePath: "apps/executor/src/taskLifecycle.ts",
+      text: `
+        import { createTaskAttemptLifecycleGateway } from
+          "../../../packages/persistence-postgres/src/taskAttemptLifecycleGateway.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
+      "apps/executor/src/taskLifecycle.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
+    ]);
+  });
+
   it("keeps the Task wake scheduler directory production-inert", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: "apps/executor/src/taskSchedulerDirectory.ts",

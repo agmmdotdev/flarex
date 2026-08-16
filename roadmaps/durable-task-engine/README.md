@@ -130,13 +130,16 @@ and
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 The approved DTE06-E supervision and settlement boundary is recorded in
 [`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
-E1 and E2 are complete privately. The current session preserves exact terminal
+E1 through E3 are complete privately. The current session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
 claim durable success before result publication. The backend-private Task
 result store now canonicalizes and bounds successful values, publishes them
 through the shared immutable R2 core, and returns the exact durable-task-owned
-commitment. Lifecycle gateway, structured supervision, and connected proof
-remain E3 through E5; the hosted end-to-end proof remains DTE06-F.
+commitment. The private scope-bound lifecycle gateway now reuses the exact
+Legacy/Application stores and decisions for inspect, heartbeat, and completion
+without adding a lifecycle or runtime call inside a transaction. Structured
+supervision and connected proof remain E4 and E5; the hosted end-to-end proof
+remains DTE06-F.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -519,8 +522,8 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A through DTE06-D and DTE06-E1/E2 complete privately;
-     DTE06-E3 through E5 and DTE06-F pending:** the
+   - **active; DTE06-A through DTE06-D and DTE06-E1/E2/E3 complete privately;
+     DTE06-E4/E5 and DTE06-F pending:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -537,7 +540,8 @@ files remain candidates:
      interruption-provenance, result-store, heartbeat, cancellation, and
      fenced-settlement topology without changing the provider-neutral API.
      E1 implements the exact terminal contract and pure disposition; E2 adds
-     the isolated immutable Task-result store without lifecycle wiring. The
+     the isolated immutable Task-result store; E3 adds the scope-bound
+     Legacy/Application lifecycle gateway without supervision wiring. The
      remaining topology is not implemented yet. Hosted end-to-end recovery proof
      remains DTE06-F. No scheduled host, public API, route, binding, fallback, dual
      execution, or production activation exists;

@@ -123,43 +123,46 @@ export async function seedTaskSystemRunAttemptStoreV1(
       values ('${parent.scopeId}', 'flarexdb_v1',
         'epoch_72000000-0000-4000-8000-000000000006')
     `);
-    await persistence.query("set session_replication_role = replica");
-    try {
-      await persistence.query(`
-      insert into fx_system_application_revision_v1 (
-        scope_id, candidate_sha256, revision_id, deployment_id,
-        attempt_sha256, registration_input_sha256,
-        semantic_attempt_identity_sha256, source_codec_identity,
-        package_sha256, artifact_runtime_identity, artifact_sha256,
-        schema_version_id, schema_version, manifest_codec_version,
-        manifest_byte_length, schema_artifact_sha256, schema_binding_sha256,
-        function_metadata_codec_version, function_metadata_byte_length,
-        function_metadata_sha256, function_metadata_bytes,
-        validator_root_sha256, declared_handler_set_sha256,
-        registration_root_sha256, registration_frame_count,
-        registration_frames_byte_length, registration_frames_bytes,
-        output_manifest_sha256, output_manifest_bytes, next_progress_sha256,
-        next_progress_bytes, receipt_sha256, receipt_bytes, status
-      ) values (
-        '${parent.scopeId}', decode(repeat('31', 32), 'hex'),
-        '${parent.applicationRevisionId}', '${parent.deploymentId}',
-        decode(repeat('32', 32), 'hex'), decode(repeat('33', 32), 'hex'),
-        decode(repeat('34', 32), 'hex'),
-        'flarex.source-artifact-v2/codec-v1',
-        decode(repeat('35', 32), 'hex'), 'dynamic-worker',
-        decode(repeat('36', 32), 'hex'), 'schema_task_store_v1',
-        1, 1, 1, decode(repeat('37', 32), 'hex'),
-        decode(repeat('38', 32), 'hex'), 1, 1,
-        decode(repeat('39', 32), 'hex'), decode('01', 'hex'),
-        decode(repeat('3a', 32), 'hex'), decode(repeat('3b', 32), 'hex'),
-        decode(repeat('3c', 32), 'hex'), 0, 0, decode('', 'hex'),
-        decode(repeat('3d', 32), 'hex'), decode('01', 'hex'),
-        decode(repeat('3e', 32), 'hex'), decode('01', 'hex'),
-        decode(repeat('3f', 32), 'hex'), decode('01', 'hex'), 'inactive'
-      )
-      `);
-    } finally {
-      await persistence.query("set session_replication_role = origin");
+    if (options.legacySchema === true) {
+      await persistence.query("set session_replication_role = replica");
+      try {
+        await persistence.query(`
+          insert into fx_system_application_revision_v1 (
+            scope_id, candidate_sha256, revision_id, deployment_id,
+            attempt_sha256, registration_input_sha256,
+            semantic_attempt_identity_sha256, source_codec_identity,
+            package_sha256, artifact_runtime_identity, artifact_sha256,
+            schema_version_id, schema_version, manifest_codec_version,
+            manifest_byte_length, schema_artifact_sha256,
+            schema_binding_sha256, function_metadata_codec_version,
+            function_metadata_byte_length, function_metadata_sha256,
+            function_metadata_bytes, validator_root_sha256,
+            declared_handler_set_sha256, registration_root_sha256,
+            registration_frame_count, registration_frames_byte_length,
+            registration_frames_bytes, output_manifest_sha256,
+            output_manifest_bytes, next_progress_sha256, next_progress_bytes,
+            receipt_sha256, receipt_bytes, status
+          ) values (
+            '${parent.scopeId}', decode(repeat('31', 32), 'hex'),
+            '${parent.applicationRevisionId}', '${parent.deploymentId}',
+            decode(repeat('32', 32), 'hex'), decode(repeat('33', 32), 'hex'),
+            decode(repeat('34', 32), 'hex'),
+            'flarex.source-artifact-v2/codec-v1',
+            decode(repeat('35', 32), 'hex'), 'dynamic-worker',
+            decode(repeat('36', 32), 'hex'), 'schema_task_store_v1',
+            1, 1, 1, decode(repeat('37', 32), 'hex'),
+            decode(repeat('38', 32), 'hex'), 1, 1,
+            decode(repeat('39', 32), 'hex'), decode('01', 'hex'),
+            decode(repeat('3a', 32), 'hex'), decode(repeat('3b', 32), 'hex'),
+            decode(repeat('3c', 32), 'hex'), 0, 0, decode('', 'hex'),
+            decode(repeat('3d', 32), 'hex'), decode('01', 'hex'),
+            decode(repeat('3e', 32), 'hex'), decode('01', 'hex'),
+            decode(repeat('3f', 32), 'hex'), decode('01', 'hex'), 'inactive'
+          )
+        `);
+      } finally {
+        await persistence.query("set session_replication_role = origin");
+      }
     }
   }
   await persistence.query(`

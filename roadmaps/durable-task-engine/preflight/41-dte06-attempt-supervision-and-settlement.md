@@ -3,7 +3,7 @@
 ## Status
 
 **Decision:** Approved as the implementation-ready, production-inert DTE06-E
-boundary. DTE06-E1 and DTE06-E2 are complete privately. DTE06-E3 through
+boundary. DTE06-E1 through DTE06-E3 are complete privately. DTE06-E4 and
 DTE06-E5 remain pending. This document does not authorize a scheduled host,
 Queue consumer, Cron Trigger, route, binding, deployment, public API,
 observability feed, or production activation.
@@ -448,8 +448,8 @@ must not clear that record merely because lifecycle completion was accepted.
 - regenerate both current Worker definitions atomically, with no fallback
   protocol.
 
-This stop was enforced: E1 wrote neither lifecycle state nor R2. E2 now owns
-only immutable result publication and reads. E3 is next.
+This stop was enforced: E1 wrote neither lifecycle state nor R2. E2 owns only
+immutable result publication and reads. E3 is complete privately; E4 is next.
 
 ### DTE06-E2: Immutable Task Result Store — Complete Privately
 
@@ -459,7 +459,7 @@ only immutable result publication and reads. E3 is next.
   reads, uncertain-write reconciliation, and owned bytes; and
 - add no lifecycle call or deletion/GC authority.
 
-### DTE06-E3: Scope-Bound Lifecycle Gateway
+### DTE06-E3: Scope-Bound Lifecycle Gateway — Complete Privately
 
 - add a trusted resolver for the existing Legacy and Application lifecycle
   stores;
@@ -468,6 +468,20 @@ only immutable result publication and reads. E3 is next.
 - prove database-time renewal, stale fence/lease/current outcomes, identical
   completion replay, conflicting completion, and transaction uncertainty; and
 - add no Worker or provider call inside a database transaction.
+
+The current private gateway resolves the existing trusted scope authority,
+selects the existing Legacy or Application aggregate/store from an owned
+dispatch contract, and returns one dynamic capability bound to the exact
+scope, run, attempt, fence, requested effect, and lease projection. It exposes
+only inspection, heartbeat, and completion. The capability delegates every
+transition to the admitted lifecycle decisions and located store; it owns no
+state machine, retry policy, clock, Worker, provider, or result-store call.
+The connected PGlite lane proves both generations, scope rejection,
+database-time renewal, stale-fence current state, exact completion replay and
+conflict, and owned invalid-input rejection. The existing genuine-PostgreSQL
+lifecycle lanes remain the platform proof for lock ordering, database time,
+transaction settlement/uncertainty, and safe connection reuse; E3 adds no
+second database boundary.
 
 ### DTE06-E4: Structured Session Supervisor
 

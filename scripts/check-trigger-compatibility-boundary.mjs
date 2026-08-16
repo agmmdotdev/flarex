@@ -43,6 +43,8 @@ const persistencePostgresSchemaPath =
   "packages/persistence-postgres/src/schema.ts";
 const persistencePostgresTaskRunAttemptStorePath =
   "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts";
+const persistencePostgresTaskAttemptLifecycleGatewayPath =
+  "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts";
 const persistencePostgresTaskLifecycleLedgerCorrelationPath =
   "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts";
 const persistencePostgresTaskRunCreationPath =
@@ -359,6 +361,37 @@ const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "toCurrentLegacyTaskRunAttemptDecision",
   "toCurrentTaskRunAttemptAggregate",
 ]);
+const admittedPersistenceTaskAttemptLifecycleGatewaySymbolsBySpecifier =
+  new Map([
+    ["@flarex/durable-task/internal/run-attempt-v1", new Set([
+      "ApplicationCompleteAttemptOutcomeV1",
+      "ApplicationHeartbeatAttemptOutcomeV1",
+      "ApplicationTaskSystemRunAttemptInspectionSnapshotV1",
+      "ApplicationTaskSystemRunAttemptStoreShape",
+      "ApplicationTaskSystemRunAttemptTransactionReceiptV1",
+      "ApplicationTaskSystemRunAttemptTransactionV1",
+      "CompleteAttemptOutcomeV1",
+      "HeartbeatAttemptOutcomeV1",
+      "RunAttemptDecisionErrorV1",
+      "TaskAttemptCompletionV1",
+      "TaskHeartbeatSequenceV1",
+      "TaskSystemRunAttemptInspectionSnapshotV1",
+      "TaskSystemRunAttemptStoreErrorV1",
+      "TaskSystemRunAttemptStoreShape",
+      "TaskSystemRunAttemptTransactionReceiptV1",
+      "TaskSystemRunAttemptTransactionV1",
+      "decideApplicationCompleteAttemptV1",
+      "decideApplicationHeartbeatAttemptV1",
+      "decideCompleteAttemptV1",
+      "decideHeartbeatAttemptV1",
+      "decodeTaskAttemptCompletionV1",
+      "decodeTaskHeartbeatSequenceV1",
+    ])],
+    ["@flarex/durable-task/internal/compute-provider-v1", new Set([
+      "CurrentTaskComputeDispatchRequestV1",
+      "validateCurrentTaskComputeDispatchRequestV1",
+    ])],
+  ]);
 const admittedPersistenceTaskLifecycleLedgerCorrelationSymbols = new Set([
   "ApplicationTaskRunAttemptAggregateV1",
   "CurrentPersistedTaskRequestedEffect",
@@ -665,6 +698,17 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
         errors.push(`${relativePath}:${line} production source must not import durable-task compatibility harness "${specifier}".`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskAttemptLifecycleGatewaySpecifier(specifier, relativePath)
+        && relativePath !== persistencePostgresTaskAttemptLifecycleGatewayPath
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task attempt lifecycle gateway before supervisor admission.`);
       }
       if (
         specifier !== undefined
@@ -1224,6 +1268,19 @@ function isTaskWakeSchedulerPartitionSpecifier(specifier, relativePath) {
     || resolved === `${targetWithoutExtension}.js`;
 }
 
+/** @param {string} specifier @param {string} relativePath */
+function isTaskAttemptLifecycleGatewaySpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension =
+    persistencePostgresTaskAttemptLifecycleGatewayPath.slice(0, -3);
+  return normalized ===
+      "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway"
+    || resolved === persistencePostgresTaskAttemptLifecycleGatewayPath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
 /** @param {ts.Node} node */
 function isTypeOnlyImportDeclaration(node) {
   return ts.isImportDeclaration(node)
@@ -1647,6 +1704,10 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     : relativePath === persistencePostgresTaskRunAttemptStorePath
       && specifier === "@flarex/durable-task/internal/run-attempt-v1"
     ? admittedPersistenceTaskRunAttemptStoreSymbols
+    : relativePath === persistencePostgresTaskAttemptLifecycleGatewayPath
+    ? admittedPersistenceTaskAttemptLifecycleGatewaySymbolsBySpecifier.get(
+      specifier,
+    )
     : relativePath === persistencePostgresTaskLifecycleLedgerCorrelationPath
       && specifier === "@flarex/durable-task/internal/run-attempt-v1"
     ? admittedPersistenceTaskLifecycleLedgerCorrelationSymbols

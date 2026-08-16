@@ -53,6 +53,40 @@ export interface TrustedScopeAuthorityResolutionPorts<
   readonly scopeClockTargets: ScopeClockTargetReaderResolver<Target>;
 }
 
+/**
+ * Captures a dynamic authority directory without losing method receivers.
+ * Consumers retain their own domain-specific configuration and resolution
+ * policy; this helper owns only the shared authority-port mechanics.
+ */
+export function captureTrustedScopeAuthorityResolutionPorts<
+  Target extends LocatedScopeClockReader,
+>(
+  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+): TrustedScopeAuthorityResolutionPorts<Target> {
+  const scopeMetadataOwner = ports.scopeMetadata;
+  const getScopeMetadataByDeploymentId =
+    scopeMetadataOwner.getScopeMetadataByDeploymentId;
+  const receiptOwner = ports.provisioningReceipts;
+  const getScopeAuthorityProvisioningReceipt =
+    receiptOwner.getScopeAuthorityProvisioningReceipt;
+  const targetOwner = ports.scopeClockTargets;
+  const resolve = targetOwner.resolve;
+  return Object.freeze({
+    scopeMetadata: Object.freeze({
+      getScopeMetadataByDeploymentId: (deploymentId: string) =>
+        getScopeMetadataByDeploymentId.call(scopeMetadataOwner, deploymentId),
+    }),
+    provisioningReceipts: Object.freeze({
+      getScopeAuthorityProvisioningReceipt: (scopeId: ScopeId) =>
+        getScopeAuthorityProvisioningReceipt.call(receiptOwner, scopeId),
+    }),
+    scopeClockTargets: Object.freeze({
+      resolve: (physicalLocator: ScopePhysicalLocator) =>
+        resolve.call(targetOwner, physicalLocator),
+    }),
+  });
+}
+
 export interface TrustedScopeAuthority {
   readonly deploymentId: ScopeMetadataRecord["deploymentId"];
   readonly scopeId: ScopeMetadataRecord["scopeId"];

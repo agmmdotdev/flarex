@@ -216,6 +216,7 @@
         "POST workload heartbeat route"
       ],
       "targetOwners": [
+        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle heartbeat operation"
       ],
@@ -255,6 +256,7 @@
         "packages/flarex-backend/src/artifactRuntime/TaskWorkerSessionHost.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts",
         "packages/flarex-backend/src/taskResult/TaskResultStore.ts",
+        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle completion operation"
       ],
@@ -296,6 +298,7 @@
         "packages/flarex-backend/src/artifactRuntime/ApplicationWorkerCore.ts",
         "packages/flarex-backend/src/artifactRuntime/TaskWorkerSessionHost.ts",
         "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts",
+        "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
         "packages/flarex-backend/src/artifactRuntime/DurableTaskRuntimeHost.ts (planned)",
         "existing @flarex/durable-task RunAttemptLifecycle cancellation acknowledgement"
       ],
