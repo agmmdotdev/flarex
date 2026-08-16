@@ -94,12 +94,16 @@ import {
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
-import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
+import {
+  captureScopePhysicalLocator,
+  scopePhysicalLocatorsEqual,
+} from "./scopePhysicalLocator";
 import {
   fxAppRowCurrent,
   fxSystemAppSchemaCandidateValidations,
@@ -139,6 +143,12 @@ const appSchemaCandidateReadinessPortBrand: unique symbol = Symbol(
 );
 const appSchemaCandidateReadinessEvidenceBrand: unique symbol = Symbol(
   "Flarex/AppSchemaCandidateReadinessEvidence",
+);
+const preparedCandidateInstallBrand: unique symbol = Symbol(
+  "Flarex/PreparedAppSchemaCandidateValidationInstall",
+);
+const expectedCandidateHeadClaimBrand: unique symbol = Symbol(
+  "Flarex/ExpectedAppSchemaCandidateValidationHeadClaim",
 );
 const MAX_LIVE_ROWS_PER_MATERIALIZATION_CHUNK = 8;
 const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n;
@@ -196,9 +206,53 @@ export interface AppSchemaCandidateValidationPort {
   readonly [appSchemaCandidateValidationPortBrand]: true;
 }
 
+/**
+ * Process-local authority for composing candidate installation into another
+ * owner of the same located target transaction. It is not a wire or storage
+ * contract and cannot be reconstructed structurally.
+ */
+export interface PreparedAppSchemaCandidateValidationInstall {
+  readonly [preparedCandidateInstallBrand]: true;
+}
+
+export interface ExpectedAppSchemaCandidateValidationHeadClaim {
+  readonly [expectedCandidateHeadClaimBrand]: true;
+}
+
+export interface ClaimedAppSchemaCandidateValidationHead {
+  readonly claim: ExpectedAppSchemaCandidateValidationHeadClaim;
+  readonly head: StoredAppSchemaCandidateValidationHead | null;
+  readonly target: LocatedAppSchemaCandidateValidationTarget;
+  readonly authority: TrustedScopeAuthority;
+}
+
+interface ExpectedAppSchemaCandidateValidationHead {
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly frameSha256Hex: StoredAppSchemaCandidateValidationHead["frameSha256Hex"];
+}
+
 const portStates = new WeakMap<
   AppSchemaCandidateValidationPort,
   Readonly<AppSchemaCandidateValidationPortDependencies>
+>();
+const preparedCandidateInstallStates = new WeakMap<
+  PreparedAppSchemaCandidateValidationInstall,
+  Readonly<{
+    readonly port: AppSchemaCandidateValidationPort;
+    readonly snapshot: CandidateSnapshot;
+    readonly located: LocatedTrustedScopeAuthority<
+      LocatedAppSchemaCandidateValidationTarget
+    >;
+  }>
+>();
+const expectedCandidateHeadClaimStates = new WeakMap<
+  ExpectedAppSchemaCandidateValidationHeadClaim,
+  Readonly<{
+    readonly port: AppSchemaCandidateValidationPort;
+    readonly prepared: PreparedAppSchemaCandidateValidationInstall;
+    readonly head: StoredAppSchemaCandidateValidationHead | null;
+  }>
 >();
 const candidateValidationPointCommitBindings = new WeakMap<
   AppSchemaCandidateValidationPort,
@@ -845,6 +899,68 @@ export type LoadAppSchemaCandidateValidationError =
   | TrustedScopeAuthorityError
   | LockScopeClockForShareError;
 
+export const claimCurrentAppSchemaCandidateValidationHeadEffect = Effect.fn(
+  "AppSchemaCandidateValidation.claimCurrentHead",
+)(function* (
+  port: AppSchemaCandidateValidationPort,
+  prepared: PreparedAppSchemaCandidateValidationInstall,
+): Effect.fn.Return<
+  ClaimedAppSchemaCandidateValidationHead,
+  LoadAppSchemaCandidateValidationError
+> {
+  const state = preparedCandidateInstallStates.get(prepared);
+  if (state === undefined || state.port !== port) {
+    return yield* Effect.fail(operationError("load", "corruption"));
+  }
+  const head = yield* runLocatedTransaction(
+    state.located.target,
+    "load",
+    (tx) =>
+    Effect.gen(function* () {
+      const clock = yield* lockScopeClockForShareInTransactionEffect(
+        tx,
+        state.located.authority.scopeId,
+      );
+      yield* Effect.fromResult(requireExactAuthorityResult(
+        state.located.authority,
+        clock,
+        "load",
+      ));
+      const currentHead = yield*
+        readAppSchemaCandidateValidationHeadForShareInTransactionEffect(
+          tx,
+          state.located.authority.scopeId,
+          "load",
+        );
+      if (currentHead !== null) {
+        if (currentHead.deploymentId !== state.located.authority.deploymentId) {
+          return yield* Effect.fail(operationError("load", "corruption"));
+        }
+        yield* Effect.fromResult(requireHeadAuthorityResult(
+          currentHead,
+          clock,
+          "load",
+        ));
+      }
+      return currentHead;
+    }),
+  );
+  const claim = Object.freeze({
+    [expectedCandidateHeadClaimBrand]: true as const,
+  });
+  expectedCandidateHeadClaimStates.set(claim, Object.freeze({
+    port,
+    prepared,
+    head,
+  }));
+  return Object.freeze({
+    claim,
+    head,
+    target: state.located.target,
+    authority: state.located.authority,
+  });
+});
+
 export type AdvanceAppSchemaCandidateValidationError =
   | AppSchemaCandidateValidationOperationV1Error
   | AppSchemaCandidateValidationPersistenceError
@@ -859,15 +975,16 @@ export type SettleAppSchemaCandidateValidationError =
   | TrustedScopeAuthorityError
   | LockScopeClockForUpdateError;
 
-export const installAppSchemaCandidateValidationEffect = Effect.fn(
-  "AppSchemaCandidateValidation.install",
+export const prepareAppSchemaCandidateValidationInstallEffect = Effect.fn(
+  "AppSchemaCandidateValidation.prepareInstall",
 )(function* (
   port: AppSchemaCandidateValidationPort,
   input: unknown,
-  options: AppSchemaCandidateValidationOptions = {},
 ): Effect.fn.Return<
-  InstallAppSchemaCandidateValidationResult,
-  InstallAppSchemaCandidateValidationError
+  PreparedAppSchemaCandidateValidationInstall,
+  | AppSchemaCandidateValidationOperationV1Error
+  | ReadSchemaVersionArtifactError
+  | TrustedScopeAuthorityError
 > {
   const { controlDb, authority } = yield* Effect.fromResult(
     requirePortStateResult(port, "install"),
@@ -878,13 +995,92 @@ export const installAppSchemaCandidateValidationEffect = Effect.fn(
     decoded.deploymentId,
     authority,
   );
+  const prepared = Object.freeze({
+    [preparedCandidateInstallBrand]: true as const,
+  });
+  preparedCandidateInstallStates.set(prepared, Object.freeze({
+    port,
+    snapshot,
+    located,
+  }));
+  return prepared;
+});
+
+/**
+ * Installs one previously authenticated candidate inside a transaction owned
+ * by an exact higher-level composition. The expected head prevents a stale
+ * preflight from superseding a different candidate that won the race.
+ */
+export const installPreparedAppSchemaCandidateValidationInTransactionEffect =
+  Effect.fn("AppSchemaCandidateValidation.installPreparedInTransaction")(
+    function* (
+      tx: AppRowTransaction,
+      port: AppSchemaCandidateValidationPort,
+      prepared: PreparedAppSchemaCandidateValidationInstall,
+      authority: TrustedScopeAuthority,
+      expectedHeadClaim:
+        | ExpectedAppSchemaCandidateValidationHeadClaim
+        | undefined,
+      options: AppSchemaCandidateValidationOptions = {},
+    ): Effect.fn.Return<
+      InstallAppSchemaCandidateValidationResult,
+      InstallAppSchemaCandidateValidationError
+    > {
+      const state = preparedCandidateInstallStates.get(prepared);
+      if (state === undefined || state.port !== port) {
+        return yield* Effect.fail(operationError("install", "corruption"));
+      }
+      const claimState = expectedHeadClaim === undefined
+        ? undefined
+        : expectedCandidateHeadClaimStates.get(expectedHeadClaim);
+      if (
+        expectedHeadClaim !== undefined &&
+        (claimState === undefined ||
+          claimState.port !== port ||
+          claimState.prepared !== prepared)
+      ) {
+        return yield* Effect.fail(operationError("install", "corruption"));
+      }
+      if (!trustedAuthoritiesEqual(state.located.authority, authority)) {
+        return yield* Effect.fail(operationError("install", "superseded"));
+      }
+      return yield* installInTransaction(
+        tx,
+        authority,
+        state.snapshot,
+        options,
+        claimState?.head,
+      );
+    },
+  );
+
+export const installAppSchemaCandidateValidationEffect = Effect.fn(
+  "AppSchemaCandidateValidation.install",
+)(function* (
+  port: AppSchemaCandidateValidationPort,
+  input: unknown,
+  options: AppSchemaCandidateValidationOptions = {},
+): Effect.fn.Return<
+  InstallAppSchemaCandidateValidationResult,
+  InstallAppSchemaCandidateValidationError
+> {
+  const prepared = yield* prepareAppSchemaCandidateValidationInstallEffect(
+    port,
+    input,
+  );
+  const preparedState = preparedCandidateInstallStates.get(prepared);
+  if (preparedState === undefined) {
+    return yield* Effect.fail(operationError("install", "corruption"));
+  }
   return yield* runLocatedTransaction(
-    located.target,
+    preparedState.located.target,
     "install",
-    (tx) => installInTransaction(
+    (tx) => installPreparedAppSchemaCandidateValidationInTransactionEffect(
       tx,
-      located.authority,
-      snapshot,
+      port,
+      prepared,
+      preparedState.located.authority,
+      undefined,
       options,
     ),
   );
@@ -1262,6 +1458,8 @@ const installInTransaction = Effect.fn(
   authority: TrustedScopeAuthority,
   snapshot: CandidateSnapshot,
   options: AppSchemaCandidateValidationOptions,
+  expectedHead: ExpectedAppSchemaCandidateValidationHead | null | undefined =
+    undefined,
 ): Effect.fn.Return<
   InstallAppSchemaCandidateValidationResult,
   InstallAppSchemaCandidateValidationError
@@ -1284,6 +1482,17 @@ const installInTransaction = Effect.fn(
   const existing = existingRow[0] === undefined
     ? null
     : yield* decodeHeadRowEffect(existingRow[0], "install");
+  if (
+    expectedHead !== undefined &&
+    (expectedHead === null
+      ? existing !== null
+      : existing === null ||
+        existing.deploymentId !== expectedHead.deploymentId ||
+        existing.schemaVersionId !== expectedHead.schemaVersionId ||
+        existing.frameSha256Hex !== expectedHead.frameSha256Hex)
+  ) {
+    return yield* Effect.fail(operationError("install", "superseded"));
+  }
   if (
     existing !== null &&
     headMatchesSnapshot(existing, authority, snapshot) &&
@@ -2396,6 +2605,18 @@ function headMatchesSnapshot(
     head.frame.storageGeneration === authority.storageGeneration &&
     head.frame.storageGenerationFence === authority.storageGenerationFence &&
     head.frame.scopeEpoch === authority.epoch;
+}
+
+function trustedAuthoritiesEqual(
+  left: TrustedScopeAuthority,
+  right: TrustedScopeAuthority,
+): boolean {
+  return left.deploymentId === right.deploymentId &&
+    left.scopeId === right.scopeId &&
+    scopePhysicalLocatorsEqual(left.physicalLocator, right.physicalLocator) &&
+    left.storageGeneration === right.storageGeneration &&
+    left.storageGenerationFence === right.storageGenerationFence &&
+    left.epoch === right.epoch;
 }
 
 function requireHeadSnapshotResult(

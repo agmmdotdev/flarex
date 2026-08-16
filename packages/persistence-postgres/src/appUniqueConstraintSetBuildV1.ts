@@ -58,7 +58,18 @@ import {
 } from "./appUniqueConstraintSetClosureV1";
 import {
   AppSchemaCandidateValidationPersistenceError,
+  claimCurrentAppSchemaCandidateValidationHeadEffect,
+  hasAppSchemaCandidateValidationComposition,
+  installPreparedAppSchemaCandidateValidationInTransactionEffect,
+  prepareAppSchemaCandidateValidationInstallEffect,
   readAppSchemaCandidateValidationHeadForShareInTransactionEffect,
+  type AppSchemaCandidateValidationOptions,
+  type AppSchemaCandidateValidationPort,
+  type ExpectedAppSchemaCandidateValidationHeadClaim,
+  type InstallAppSchemaCandidateValidationError,
+  type InstallAppSchemaCandidateValidationResult,
+  type LoadAppSchemaCandidateValidationError,
+  type PreparedAppSchemaCandidateValidationInstall,
 } from "./appSchemaCandidateValidation";
 import {
   readApplicationActiveRevisionForShareInTransactionEffect,
@@ -207,6 +218,35 @@ export type ReclaimSupersededAppUniqueConstraintSetBuildError =
   | ReadAppUniqueConstraintSetClosureV1Error
   | LockScopeClockForUpdateError
   | TrustedScopeAuthorityError;
+
+export type InstallAppSchemaCandidateWithWorkspaceReclamationResult =
+  Readonly<{
+    readonly installation: InstallAppSchemaCandidateValidationResult;
+    readonly workspace:
+      | Readonly<{ readonly disposition: "not_applicable" }>
+      | Readonly<{
+          readonly disposition: "already_absent" | "deleted";
+          readonly schemaVersionId: CatalogSchemaVersionId;
+        }>
+      | Readonly<{
+          readonly disposition: "retained";
+          readonly reason: "activeSchema" | "buildEnabled";
+          readonly schemaVersionId: CatalogSchemaVersionId;
+        }>;
+  }>;
+
+export type InstallAppSchemaCandidateWithWorkspaceReclamationError =
+  | InstallAppSchemaCandidateValidationError
+  | LoadAppSchemaCandidateValidationError
+  | Exclude<
+      ReclaimSupersededAppUniqueConstraintSetBuildError,
+      AppUniqueConstraintSetBuildDecisionUncertainV1Error
+    >;
+
+export interface InstallAppSchemaCandidateWithWorkspaceReclamationOptions {
+  readonly candidateValidation?: AppSchemaCandidateValidationOptions;
+  readonly uniqueConstraintBuild?: AppUniqueConstraintSetBuildOptionsV1;
+}
 
 /**
  * Same-transaction invalidation hook for the existing point-commit owner.
@@ -832,6 +872,81 @@ export const reclaimSupersededAppUniqueConstraintSetBuildEffect = Effect.fn(
   );
 });
 
+/**
+ * Private M05-A2 composition. The exact candidate observed before the write is
+ * authenticated again under the target scope lock, then its rebuildable
+ * unique-set workspace is reclaimed in the same transaction that installs the
+ * replacement candidate.
+ */
+export const installAppSchemaCandidateWithWorkspaceReclamationEffect =
+  Effect.fn("AppUniqueConstraintSetBuild.installCandidateWithReclamation")(
+    function* (
+      port: AppUniqueConstraintSetEligibilityPortV1,
+      candidateValidation: AppSchemaCandidateValidationPort,
+      input: unknown,
+      options: InstallAppSchemaCandidateWithWorkspaceReclamationOptions = {},
+    ): Effect.fn.Return<
+      InstallAppSchemaCandidateWithWorkspaceReclamationResult,
+      InstallAppSchemaCandidateWithWorkspaceReclamationError
+    > {
+      const decoded = yield* Effect.fromResult(decodeInputResult(input));
+      const state = eligibilityPortStates.get(port);
+      if (
+        state === undefined ||
+        !hasAppSchemaCandidateValidationComposition(
+          candidateValidation,
+          state.ports.controlDb,
+          state.ports.authority,
+        )
+      ) {
+        return yield* Effect.fail(new AppUniqueConstraintSetBuildReclamationError({
+          deploymentId: decoded.deploymentId,
+          schemaVersionId: decoded.schemaVersionId,
+          reason: "invalidPort",
+          retryable: false,
+        }));
+      }
+      const prepared = yield* prepareAppSchemaCandidateValidationInstallEffect(
+        candidateValidation,
+        decoded,
+      );
+      const claimedCurrent =
+        yield* claimCurrentAppSchemaCandidateValidationHeadEffect(
+        candidateValidation,
+        prepared,
+      );
+      const current = claimedCurrent.head;
+      const displacedSchemaVersionId = current !== null &&
+          current.schemaVersionId !== decoded.schemaVersionId
+        ? current.schemaVersionId
+        : null;
+      const displacedClosure = displacedSchemaVersionId === null
+        ? null
+        : yield* readAppUniqueConstraintSetClosureV1Effect(
+            state.ports.controlDb,
+            decoded.deploymentId,
+            displacedSchemaVersionId,
+          );
+      const displacedSnapshot = displacedClosure === null ||
+          displacedSchemaVersionId === null
+        ? null
+        : buildSnapshot(Object.freeze({
+            deploymentId: decoded.deploymentId,
+            schemaVersionId: displacedSchemaVersionId,
+          }), displacedClosure);
+      return yield* runCandidateSupersessionReclamationTransaction(
+        claimedCurrent.target,
+        claimedCurrent.authority,
+        candidateValidation,
+        prepared,
+        claimedCurrent.claim,
+        displacedSchemaVersionId,
+        displacedSnapshot,
+        options,
+      );
+    },
+  );
+
 function decodeInputResult(input: unknown) {
   return Result.gen(function* () {
     if (!hasExactOwnDataKeys(input, INPUT_KEYS)) {
@@ -1317,6 +1432,248 @@ const runWorkspaceReclamationTransaction = Effect.fn(
   }));
 });
 
+const runCandidateSupersessionReclamationTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.runCandidateSupersessionReclamationTransaction",
+)(function* (
+  target: LocatedAppUniqueConstraintSetBuildTargetV1,
+  authority: TrustedScopeAuthority,
+  candidateValidation: AppSchemaCandidateValidationPort,
+  prepared: PreparedAppSchemaCandidateValidationInstall,
+  expectedHeadClaim: ExpectedAppSchemaCandidateValidationHeadClaim,
+  displacedSchemaVersionId: CatalogSchemaVersionId | null,
+  displacedSnapshot: BuildSnapshot | null,
+  options: InstallAppSchemaCandidateWithWorkspaceReclamationOptions,
+): Effect.fn.Return<
+  InstallAppSchemaCandidateWithWorkspaceReclamationResult,
+  InstallAppSchemaCandidateWithWorkspaceReclamationError
+> {
+  const started = startLocatedEffectTransaction(
+    target,
+    "M05-A2 candidate supersession and workspace reclamation rolled back.",
+    (tx) => installCandidateAndReclaimWorkspaceInTransaction(
+      tx,
+      authority,
+      candidateValidation,
+      prepared,
+      expectedHeadClaim,
+      displacedSchemaVersionId,
+      displacedSnapshot,
+      options,
+    ),
+  );
+  const settled = yield* awaitTransactionExit(started.promise);
+  if (Exit.isSuccess(settled)) return settled.value;
+  const failure = Cause.findErrorOption(settled.cause);
+  if (Option.isNone(failure)) return yield* Effect.die(settled.cause);
+  const cause = failure.value;
+  const callbackCause = started.callbackCause();
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackRolledBack" &&
+    cause.issue.callbackCause === started.rollbackSignal &&
+    callbackCause !== undefined
+  ) {
+    return yield* Effect.failCause(callbackCause);
+  }
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackCleanupFailed" &&
+    callbackCause !== undefined
+  ) {
+    return yield* Effect.failCause(Cause.combine(
+      callbackCause,
+      Cause.die(new AppUniqueConstraintSetBuildIntegrationV1Error({
+        phase: "targetTransaction",
+        retryable: false,
+        cause,
+      })),
+    ));
+  }
+  const retryable = cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    (cause.issue.kind === "decisionUncertain" ||
+      cause.issue.kind === "infrastructureFailure" ||
+      cause.issue.kind === "callbackRolledBack");
+  return yield* Effect.fail(new AppUniqueConstraintSetBuildIntegrationV1Error({
+    phase: "targetTransaction",
+    retryable,
+    cause,
+  }));
+});
+
+const installCandidateAndReclaimWorkspaceInTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.installCandidateAndReclaimWorkspaceInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  candidateValidation: AppSchemaCandidateValidationPort,
+  prepared: PreparedAppSchemaCandidateValidationInstall,
+  expectedHeadClaim: ExpectedAppSchemaCandidateValidationHeadClaim,
+  displacedSchemaVersionId: CatalogSchemaVersionId | null,
+  displacedSnapshot: BuildSnapshot | null,
+  options: InstallAppSchemaCandidateWithWorkspaceReclamationOptions,
+): Effect.fn.Return<
+  InstallAppSchemaCandidateWithWorkspaceReclamationResult,
+  | InstallAppSchemaCandidateValidationError
+  | AppUniqueConstraintSetBuildReclamationError
+  | AppUniqueConstraintSetBuildDirectoryV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | LockScopeClockForUpdateError
+> {
+  const installation = yield*
+    installPreparedAppSchemaCandidateValidationInTransactionEffect(
+      tx,
+      candidateValidation,
+      prepared,
+      authority,
+      expectedHeadClaim,
+      options.candidateValidation,
+    );
+  if (displacedSchemaVersionId === null) {
+    return Object.freeze({
+      installation,
+      workspace: Object.freeze({ disposition: "not_applicable" as const }),
+    });
+  }
+  if (installation.disposition !== "superseded") {
+    return yield* Effect.fail(new AppUniqueConstraintSetBuildReclamationError({
+      deploymentId: installation.head.deploymentId,
+      schemaVersionId: displacedSchemaVersionId,
+      scopeId: authority.scopeId,
+      reason: "concurrentStateChange",
+      retryable: true,
+    }));
+  }
+  const workspace = yield* reclaimDisplacedWorkspaceInTransaction(
+    tx,
+    authority,
+    installation.head.deploymentId,
+    displacedSchemaVersionId,
+    displacedSnapshot,
+    options.uniqueConstraintBuild ?? {},
+  );
+  return Object.freeze({ installation, workspace });
+});
+
+const reclaimDisplacedWorkspaceInTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.reclaimDisplacedWorkspaceInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+  snapshot: BuildSnapshot | null,
+  options: AppUniqueConstraintSetBuildOptionsV1,
+): Effect.fn.Return<
+  InstallAppSchemaCandidateWithWorkspaceReclamationResult["workspace"],
+  | AppUniqueConstraintSetBuildReclamationError
+  | AppUniqueConstraintSetBuildDirectoryV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | LockScopeClockForUpdateError
+> {
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  const directory = yield* loadBuildDirectoryForUpdate(tx, authority.scopeId);
+  if (directory.length > MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1) {
+    return yield* Effect.fail(new AppUniqueConstraintSetBuildDirectoryV1Error({
+      scopeId: authority.scopeId,
+      reason: "tooManyBuildRows",
+      maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    }));
+  }
+  if (snapshot === null) {
+    const authorityDisposition = yield* inspectDisplacedSchemaAuthority(
+      tx,
+      authority,
+      deploymentId,
+      schemaVersionId,
+    );
+    if (authorityDisposition === "activeSchema") {
+      return Object.freeze({
+        disposition: "retained" as const,
+        reason: "activeSchema" as const,
+        schemaVersionId,
+      });
+    }
+    const row = yield* queryEffect(
+      tx.select({
+        schemaVersionId: fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+      }).from(fxSystemUniqueConstraintSetBuilds).where(and(
+        eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
+        eq(fxSystemUniqueConstraintSetBuilds.schemaVersionId, schemaVersionId),
+      )).limit(1).for("update"),
+    );
+    if (row.length !== 0) {
+      return yield* Effect.fail(new AppUniqueConstraintSetBuildReclamationError({
+        deploymentId,
+        schemaVersionId,
+        scopeId: authority.scopeId,
+        reason: "schemaAuthorityMissing",
+        retryable: false,
+      }));
+    }
+    return Object.freeze({
+      disposition: "already_absent" as const,
+      schemaVersionId,
+    });
+  }
+  const selection = yield* inspectSelectedWorkspaceReclamation(
+    tx,
+    authority,
+    snapshot,
+  );
+  if (selection === "activeSchema") {
+    return Object.freeze({
+      disposition: "retained" as const,
+      reason: "activeSchema" as const,
+      schemaVersionId,
+    });
+  }
+  const deletion = yield* attemptWorkspaceDeletionInTransaction(
+    tx,
+    authority,
+    snapshot,
+    clock,
+    options,
+  );
+  if (deletion.disposition === "enabled") {
+    return Object.freeze({
+      disposition: "retained" as const,
+      reason: "buildEnabled" as const,
+      schemaVersionId,
+    });
+  }
+  return Object.freeze({
+    disposition: deletion.disposition,
+    schemaVersionId,
+  });
+});
+
+const inspectDisplacedSchemaAuthority = Effect.fn(
+  "AppUniqueConstraintSetBuild.inspectDisplacedSchemaAuthority",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  deploymentId: string,
+  schemaVersionId: CatalogSchemaVersionId,
+): Effect.fn.Return<
+  "eligible" | "activeSchema",
+  AppUniqueConstraintSetBuildReclamationError |
+    AppUniqueConstraintSetBuildIntegrationV1Error
+> {
+  return yield* inspectSelectedWorkspaceReclamation(
+    tx,
+    authority,
+    Object.freeze({ deploymentId, schemaVersionId }),
+  );
+});
+
 const reclaimWorkspaceInTransaction = Effect.fn(
   "AppUniqueConstraintSetBuild.reclaimWorkspaceInTransaction",
 )(function* (
@@ -1346,7 +1703,56 @@ const reclaimWorkspaceInTransaction = Effect.fn(
       maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
     }));
   }
-  yield* refuseSelectedWorkspaceReclamation(tx, authority, snapshot);
+  const selection = yield* inspectSelectedWorkspaceReclamation(
+    tx,
+    authority,
+    snapshot,
+  );
+  if (selection === "activeSchema") {
+    return yield* Effect.fail(reclamationError(
+      authority,
+      snapshot,
+      "activeSchema",
+      false,
+    ));
+  }
+  const deletion = yield* attemptWorkspaceDeletionInTransaction(
+    tx,
+    authority,
+    snapshot,
+    clock,
+    options,
+  );
+  if (deletion.disposition === "already_absent") {
+    return reclamationAbsentResult(authority, snapshot, "already_absent");
+  }
+  if (deletion.disposition === "enabled") {
+    return yield* Effect.fail(reclamationError(
+      authority,
+      snapshot,
+      "buildEnabled",
+      false,
+    ));
+  }
+  return Object.freeze({
+    status: "reclaimed" as const,
+    disposition: "deleted" as const,
+    deploymentId: snapshot.deploymentId,
+    scopeId: authority.scopeId,
+    schemaVersionId: snapshot.schemaVersionId,
+    lifecycle: deletion.lifecycle,
+  });
+});
+
+const attemptWorkspaceDeletionInTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.attemptWorkspaceDeletionInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  clock: ScopeClockRecord,
+  options: AppUniqueConstraintSetBuildOptionsV1,
+) {
   const rows = yield* queryEffect(
     tx.select().from(fxSystemUniqueConstraintSetBuilds).where(and(
       eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
@@ -1358,7 +1764,7 @@ const reclaimWorkspaceInTransaction = Effect.fn(
   );
   const row = rows[0];
   if (row === undefined) {
-    return reclamationAbsentResult(authority, snapshot, "already_absent");
+    return Object.freeze({ disposition: "already_absent" as const });
   }
   const state = yield* decodeBuildStateEffect(
     authority,
@@ -1370,12 +1776,7 @@ const reclaimWorkspaceInTransaction = Effect.fn(
     requireCurrentBuildAuthorityResult(authority, state, clock),
   );
   if (state.lifecycle === "enabled") {
-    return yield* Effect.fail(reclamationError(
-      authority,
-      snapshot,
-      "buildEnabled",
-      false,
-    ));
+    return Object.freeze({ disposition: "enabled" as const });
   }
   const deleted = yield* queryEffect(
     tx.delete(fxSystemUniqueConstraintSetBuilds).where(and(
@@ -1409,23 +1810,19 @@ const reclaimWorkspaceInTransaction = Effect.fn(
   }
   yield* runFault(options, "afterWorkspaceDelete");
   return Object.freeze({
-    status: "reclaimed" as const,
     disposition: "deleted" as const,
-    deploymentId: snapshot.deploymentId,
-    scopeId: authority.scopeId,
-    schemaVersionId: snapshot.schemaVersionId,
     lifecycle: state.lifecycle,
   });
 });
 
-const refuseSelectedWorkspaceReclamation = Effect.fn(
-  "AppUniqueConstraintSetBuild.refuseSelectedWorkspaceReclamation",
+const inspectSelectedWorkspaceReclamation = Effect.fn(
+  "AppUniqueConstraintSetBuild.inspectSelectedWorkspaceReclamation",
 )(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
-  snapshot: BuildSnapshot,
+  snapshot: Pick<BuildSnapshot, "deploymentId" | "schemaVersionId">,
 ): Effect.fn.Return<
-  void,
+  "eligible" | "activeSchema",
   | AppUniqueConstraintSetBuildReclamationError
   | AppUniqueConstraintSetBuildIntegrationV1Error
 > {
@@ -1450,12 +1847,7 @@ const refuseSelectedWorkspaceReclamation = Effect.fn(
       ));
     }
     if (active.schemaVersionId === snapshot.schemaVersionId) {
-      return yield* Effect.fail(reclamationError(
-        authority,
-        snapshot,
-        "activeSchema",
-        false,
-      ));
+      return "activeSchema" as const;
     }
   }
   const candidate = yield*
@@ -1489,6 +1881,7 @@ const refuseSelectedWorkspaceReclamation = Effect.fn(
       false,
     ));
   }
+  return "eligible" as const;
 });
 
 const observeWorkspaceReclamationAfterUncertainCompletion = Effect.fn(
@@ -3121,7 +3514,7 @@ function stateError(
 
 function reclamationError(
   authority: TrustedScopeAuthority,
-  snapshot: BuildSnapshot,
+  snapshot: Pick<BuildSnapshot, "deploymentId" | "schemaVersionId">,
   reason: AppUniqueConstraintSetBuildReclamationError["reason"],
   retryable: boolean,
   cause?: unknown,

@@ -14,6 +14,7 @@ import {
 import {
   AppUniqueConstraintSetBuildReclamationError,
   createAppUniqueConstraintSetEligibilityPortV1,
+  installAppSchemaCandidateWithWorkspaceReclamationEffect,
   reclaimSupersededAppUniqueConstraintSetBuildEffect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
@@ -37,6 +38,61 @@ describePostgres(
   "real PostgreSQL M05-A selected-schema refusal",
   { timeout: 180_000 },
   () => {
+    it("atomically installs the replacement and reclaims its displaced workspace", async () => {
+      await withTemporaryPostgresPersistencePair(async (control, target) => {
+        const fixture = await createApplicationNativeMutationPostgresFixture({
+          runtimeHostIdentity: "flarex.test/m05-a2-postgres-runtime-host",
+          compatibilityDate: "2026-08-16",
+        }, { control, target });
+        const candidateA = await fixture.publishManagedSchemaCandidate(
+          manifestWithOptionalField(fixture.active.basis.manifest, "candidateA"),
+        );
+        await closeEmptySet(fixture, candidateA.schemaVersionId);
+        await runEffect(reconcileAppUniqueConstraintSetBuildV1Effect(
+          buildPorts(fixture),
+          buildInput(fixture, candidateA.schemaVersionId),
+        ));
+        await runEffect(installAppSchemaCandidateValidationEffect(
+          fixture.candidateValidation,
+          buildInput(fixture, candidateA.schemaVersionId),
+        ));
+        const candidateB = await fixture.publishManagedSchemaCandidate(
+          manifestWithOptionalField(fixture.active.basis.manifest, "candidateB"),
+        );
+        await expect(runEffect(
+          installAppSchemaCandidateWithWorkspaceReclamationEffect(
+            fixture.uniqueConstraintEligibility,
+            fixture.candidateValidation,
+            buildInput(fixture, candidateB.schemaVersionId),
+          ),
+        )).resolves.toMatchObject({
+          installation: { disposition: "superseded" },
+          workspace: {
+            disposition: "deleted",
+            schemaVersionId: candidateA.schemaVersionId,
+          },
+        });
+        const durable = await fixture.target.query<{
+          candidate_schema_version_id: string;
+          displaced_build_count: string;
+        }>(
+          `select candidate.schema_version_id candidate_schema_version_id,
+                  count(build.schema_version_id)::text displaced_build_count
+             from fx_system_app_schema_candidate_validation candidate
+             left join fx_system_unique_constraint_set_build build
+               on build.scope_id = candidate.scope_id
+              and build.schema_version_id = $2
+            where candidate.scope_id = $1
+            group by candidate.schema_version_id`,
+          [fixture.authority.scopeId, candidateA.schemaVersionId],
+        );
+        expect(durable.rows).toEqual([{
+          candidate_schema_version_id: candidateB.schemaVersionId,
+          displaced_build_count: "0",
+        }]);
+      });
+    });
+
     it("refuses active/current-candidate workspaces and reclaims superseded state", async () => {
       await withTemporaryPostgresPersistencePair(async (control, target) => {
         const fixture = await createApplicationNativeMutationPostgresFixture({

@@ -207,6 +207,9 @@ export interface ApplicationNativeMutationFixture<
   readonly candidateValidation: ReturnType<
     typeof createAppSchemaCandidateValidationPort
   >;
+  readonly uniqueConstraintEligibility: ReturnType<
+    typeof createAppUniqueConstraintSetEligibilityPortV1
+  >;
   readonly candidateSchemaWriteGuard: ReturnType<
     typeof createAppSchemaCandidateWriteGuardPort
   >;
@@ -783,6 +786,7 @@ async function createApplicationNativeMutationFixture<
     authority: authorityPorts,
     activation,
     candidateValidation,
+    uniqueConstraintEligibility,
     planning: managedSchemaPlanning,
   });
   const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
@@ -912,6 +916,7 @@ async function createApplicationNativeMutationFixture<
     managedSchemaPlanning,
     managedSchemaApplication,
     candidateValidation,
+    uniqueConstraintEligibility,
     candidateSchemaWriteGuard,
     registerRevision,
     preparePublishedSchema,

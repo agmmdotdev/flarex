@@ -9,14 +9,16 @@ import {
 import {
   advanceAppSchemaCandidateValidationEffect,
   hasAppSchemaCandidateValidationComposition,
-  installAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
   type AppSchemaCandidateValidationPort,
 } from "./appSchemaCandidateValidation";
 import {
   advanceAppUniqueConstraintSetBackfillV1Effect,
+  hasAppUniqueConstraintSetEligibilityCompositionV1,
+  installAppSchemaCandidateWithWorkspaceReclamationEffect,
   MAX_APP_UNIQUE_CONSTRAINT_SET_BACKFILL_PAGE_SIZE_V1,
   reconcileAppUniqueConstraintSetBuildV1Effect,
+  type AppUniqueConstraintSetEligibilityPortV1,
 } from "./appUniqueConstraintSetBuildV1";
 import {
   ensureAppUniqueConstraintSetClosureV1Effect,
@@ -67,6 +69,7 @@ export interface ApplicationManagedSchemaApplicationPortDependencies {
   >;
   readonly activation: ApplicationActivationRepository<unknown, unknown>;
   readonly candidateValidation: AppSchemaCandidateValidationPort;
+  readonly uniqueConstraintEligibility: AppUniqueConstraintSetEligibilityPortV1;
   readonly planning: ApplicationManagedSchemaPlanningPort;
 }
 
@@ -134,9 +137,6 @@ export type ApplicationManagedSchemaApplicationOwnerError =
       typeof resolveLocatedTrustedScopeAuthorityEffect
     >>
   | Effect.Error<ReturnType<
-      typeof installAppSchemaCandidateValidationEffect
-    >>
-  | Effect.Error<ReturnType<
       typeof advanceAppSchemaCandidateValidationEffect
     >>
   | Effect.Error<ReturnType<
@@ -154,6 +154,9 @@ export type ApplicationManagedSchemaApplicationOwnerError =
     >>
   | Effect.Error<ReturnType<
       typeof advanceAppUniqueConstraintSetBackfillV1Effect
+    >>
+  | Effect.Error<ReturnType<
+      typeof installAppSchemaCandidateWithWorkspaceReclamationEffect
     >>;
 
 interface PortState {
@@ -163,6 +166,7 @@ interface PortState {
   readonly authority: ApplicationManagedSchemaApplicationPortDependencies["authority"];
   readonly activation: ApplicationManagedSchemaApplicationPortDependencies["activation"];
   readonly candidateValidation: AppSchemaCandidateValidationPort;
+  readonly uniqueConstraintEligibility: AppUniqueConstraintSetEligibilityPortV1;
   readonly planning: ApplicationManagedSchemaPlanningPort;
 }
 
@@ -182,6 +186,7 @@ export function createApplicationManagedSchemaApplicationPort(
   const authority = dependencies.authority;
   const activation = dependencies.activation;
   const candidateValidation = dependencies.candidateValidation;
+  const uniqueConstraintEligibility = dependencies.uniqueConstraintEligibility;
   const planning = dependencies.planning;
   const port = Object.freeze({
     [applicationPortBrand]: true as const,
@@ -195,6 +200,10 @@ export function createApplicationManagedSchemaApplicationPort(
     candidateValidation,
     controlDb,
     authority,
+  ) && hasAppUniqueConstraintSetEligibilityCompositionV1(
+    uniqueConstraintEligibility,
+    controlDb,
+    authority,
   )) {
     portStates.set(port, Object.freeze({
       deploymentId,
@@ -203,6 +212,7 @@ export function createApplicationManagedSchemaApplicationPort(
       authority,
       activation,
       candidateValidation,
+      uniqueConstraintEligibility,
       planning,
     }));
   }
@@ -289,10 +299,13 @@ export const applyApplicationManagedSchemaPlanStepEffect = Effect.fn(
     deploymentId: state.deploymentId,
     schemaVersionId: input.plan.authority.candidateSchemaVersionId,
   });
-  const installed = yield* installAppSchemaCandidateValidationEffect(
-    state.candidateValidation,
-    validationInput,
-  );
+  const candidateInstallation = yield*
+    installAppSchemaCandidateWithWorkspaceReclamationEffect(
+      state.uniqueConstraintEligibility,
+      state.candidateValidation,
+      validationInput,
+    );
+  const installed = candidateInstallation.installation;
   if (installed.head.frame.kind ===
       "app_schema_candidate_validation_failure_evidence") {
     return remediationResult(input, installed.head.frameSha256Hex);

@@ -511,6 +511,8 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       authority: scenario.fixture.authorityPorts,
       activation: scenario.fixture.activation,
       candidateValidation: scenario.fixture.candidateValidation,
+      uniqueConstraintEligibility:
+        scenario.fixture.uniqueConstraintEligibility,
       planning: scenario.fixture.managedSchemaPlanning,
     });
     const wrongTargetApply = await runSystemTestEffectV1(Effect.result(

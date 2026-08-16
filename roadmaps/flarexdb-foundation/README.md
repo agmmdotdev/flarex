@@ -2047,9 +2047,11 @@ is complete: it deletes only one explicitly selected, non-enabled coordinator
 row after exact active/candidate/authority refusal and retains definitions,
 claims, sidecars, application data, and immutable evidence. Enabled-build
 retirement and physical purge remain deferred behind rollback, active-attempt,
-`O11`, reconnect, adapter, and evidence-retention gates. `M05-A2` is the next
-private implementation checkpoint: atomically reclaim that exact rebuildable
-workspace when authenticated candidate installation supersedes it. The
-preflight rejects a post-install callback because lost responses would lose the
-displaced identity, and it adds no timer, scheduler, inferred-age selection,
-public trigger, enabled-state retirement, or purge.
+`O11`, reconnect, adapter, and evidence-retention gates. Private `M05-A2` is
+complete: authenticated candidate installation atomically rechecks the exact
+displaced head and reclaims only its rebuildable non-enabled workspace. It
+retains active and enabled state, fails closed on drift or corrupt authority,
+preserves the directory ceiling, and cold-replays a committed lost response
+without guessing displaced identity. It adds no post-install callback, timer,
+scheduler, inferred-age selection, public trigger, enabled-state retirement,
+or purge.

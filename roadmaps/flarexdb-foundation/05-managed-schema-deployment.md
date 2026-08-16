@@ -13,9 +13,11 @@ composition. `M04-B` now has its private bounded exact-plan apply coordinator
 and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
 checkpoint is complete. `M04-C` now provides the private `flarex-dev` adapter
 and shared detached JSON projection, with the same connected schema-B proof in
-PGlite and genuine PostgreSQL. `M05-P` and private `M05-A` are complete: the
-accepted retirement boundary is explicit and one exact non-enabled unique-set
-build workspace can be reclaimed without retiring physical authority.
+PGlite and genuine PostgreSQL. `M05-P`, private `M05-A`, and private `M05-A2`
+are complete: the accepted retirement boundary is explicit, one exact non-
+enabled unique-set build workspace can be reclaimed without retiring physical
+authority, and authenticated candidate supersession now performs that narrow
+reclamation atomically.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, enabled-definition retirement, physical/evidence purge, or
 production generation cut is authorized by this roadmap.
@@ -969,17 +971,16 @@ retained claims/catalog authority, and rebuild. No schema, migration, public
 API, CLI, route, trigger, automatic eviction, `CASCADE`, definition retirement,
 or physical/evidence purge was added.
 
-### Private Supersession Reclamation Handoff
+### Private Supersession Reclamation
 
-The next safe checkpoint is not a timer, oldest-row policy, or general
+The accepted automatic shape is not a timer, oldest-row policy, or general
 background garbage collector. A post-install callback is also insufficient:
 if candidate installation commits and its response is lost before a separate
 reclamation call, replay observes only the new candidate head and no longer has
 authenticated authority to infer which displaced candidate should be cleaned.
 
-The separately implementation-bearing `M05-A2` checkpoint may therefore make
-workspace reclamation automatic only as part of the private managed-schema
-candidate-supersession operation. It must:
+`M05-A2` therefore makes workspace reclamation automatic only as part of the
+private managed-schema candidate-supersession operation. It must:
 
 1. authenticate the existing planning/application composition, candidate-
    validation authority, and exact unique-set reclamation authority before
@@ -1010,6 +1011,22 @@ slot recovery, and exact composition rejection. The implementation preflight
 must prefer a narrow transaction-composition owner over a callback that lets
 the managed-schema coordinator inject arbitrary work into candidate-validation
 transactions.
+
+`M05-A2` is complete at this private checkpoint. Candidate installation now
+prepares an opaque install claim, observes the exact displaced candidate head,
+and authenticates the candidate-validation and unique-set capabilities as one
+control/target composition. The target transaction rechecks that head under
+the existing scope-clock lock, installs its replacement, and deletes only the
+displaced non-enabled build row. Drift rejects before mutation; absent
+workspaces replay as absent; active and enabled workspaces are retained; corrupt
+or unclosed authority with a surviving row fails closed. The exact build-
+directory ceiling remains intact and the reclaimed slot can be used by ordinary
+reconciliation. PGlite and genuine-PostgreSQL coverage exercise atomic
+supersession/reclamation, both rollback points, lost-response cold replay, head
+movement, absence, active/enabled retention, directory-slot recovery, and
+opaque composition rejection. The standalone `M05-A` recovery operation is
+unchanged. No schema, migration, timer, scheduler, callback extension point,
+public route, CLI, retirement, or physical/evidence purge was added.
 
 Enabled-build retirement and physical purge remain deferred. Before either can
 be approved, all of the following must exist and compose exactly:
@@ -1092,11 +1109,11 @@ These are separate later goals, not one giant deployment goal:
     and transaction owners. Enabled-build retirement and physical purge remain
     blocked on the explicit rollback, active-attempt, `O11`, reconnect,
     adapter, and evidence-retention gates above.
-11. `M05-A2` - **preflight complete; implementation pending**: compose exact
-    workspace reclamation atomically with private candidate supersession so
-    lost responses cannot lose or guess the displaced schema identity. This
-    checkpoint adds no timer, scheduler, public deployment trigger, enabled-
-    build retirement, or physical/evidence purge.
+11. `M05-A2` - **complete and private**: exact workspace reclamation composes
+    atomically with private candidate supersession, so lost responses cannot
+    lose or guess the displaced schema identity. This checkpoint adds no timer,
+    scheduler, public deployment trigger, enabled-build retirement, or
+    physical/evidence purge.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
