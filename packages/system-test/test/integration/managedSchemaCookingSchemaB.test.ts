@@ -7,6 +7,8 @@ describe("Managed-schema cooking simulation - schema B", () => {
   it("blocks populated removal, preserves A, remediates, and activates B", async () => {
     await expect(proveManagedSchemaCookingSchemaB()).resolves.toEqual({
       plannedManagedValidation: true,
+      developerAdapterProjectionDetached: true,
+      developerAdapterProjectionJsonSafe: true,
       applyRejectedCopiedHandle: true,
       applyRejectedForeignTarget: true,
       applyRejectedStaleFrontier: true,

@@ -11,7 +11,9 @@ current-generation schema-A through schema-G system-test lineage and all nine
 acceptance items. `M04-A` provides the private read-only prepared-plan
 composition. `M04-B` now has its private bounded exact-plan apply coordinator
 and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
-checkpoint is complete. `M04-C` developer adapters are the next separate cut.
+checkpoint is complete. `M04-C` now provides the private `flarex-dev` adapter
+and shared detached JSON projection, with the same connected schema-B proof in
+PGlite and genuine PostgreSQL.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, destructive cleanup, or production generation cut is
 authorized by this roadmap.
@@ -376,6 +378,34 @@ handle after activation and confirms it is reported only as candidate
 convergence, not exact-plan replay. The same scenario is green in PGlite and
 genuine PostgreSQL, completing M04-B without a public route, CLI, or production
 caller.
+
+### Current M04-C implementation
+
+The internal `flarex-dev/internal/managed-schema` subpath now provides one
+Effect-native preparation adapter and one apply adapter over the existing
+Standard Application services. Preparation returns the exact process-local
+opaque handle separately from a detached JSON projection of the canonical
+plan. Apply accepts only that exact handle and projects the existing bounded
+result union field by field into one protocol-validated JSON discriminated
+shape; the only wire adaptation is the activation sequence's canonical
+unsigned decimal string. Connected coverage proves lossless JSON round trips
+for the plan and every apply status. The adapters do not catch, reinterpret, or
+replace the planning/apply error channels and do not reconstruct planner,
+persistence, build, readiness, or activation logic.
+
+The existing `flarex-dev deploy` push operation is intentionally unchanged and
+is not a managed-schema apply path. M04-C adds no CLI command, HTTP route,
+Worker binding, database access, deployment discovery, autonomous confirmation,
+or AI-only privilege. Human, CI, and future AI callers must consume the same
+projection and retain the same opaque-handle and remediation boundaries.
+
+The connected cooking schema-B simulation now prepares and applies entirely
+through this adapter while preserving the M04-A/M04-B authenticity and
+fail-closed assertions. It proves detached plan presentation, JSON-safe apply
+presentation, copied/foreign/stale handle refusal, bounded progress,
+remediation, activation, and convergence in both PGlite and genuine
+PostgreSQL. This completes the private M04-C adapter checkpoint; public command
+spelling and production wiring remain separate decisions.
 
 ## Approved Code And Package Ownership
 
@@ -907,8 +937,10 @@ These are separate later goals, not one giant deployment goal:
    plus an opaque exact-plan handle. `M04-B` is **complete and private** with
    matching PGlite and genuine-PostgreSQL proof. Its bounded resumable
    coordinator consumes only that handle and delegates every validation/build/
-   readiness/activation transition to the existing owner. `M04-C` developer
-   adapters are the next separate cut. Do not reinterpret the existing
+   readiness/activation transition to the existing owner. `M04-C` is
+   **complete and private**: `flarex-dev` delegates to those exact services and
+   exposes one detached JSON projection proven through the connected schema-B
+   scenario in PGlite and genuine PostgreSQL. Do not reinterpret the existing
    deployment-push finish operation as managed apply or add a public/production
    route before those private checkpoints pass.
 9. `M05` - add explicit retirement/purge policy after rollback, snapshot,

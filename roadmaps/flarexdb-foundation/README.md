@@ -2035,5 +2035,8 @@ Storage-free `M01-A`/`M01-B` and `M02`, production-inert `M03-A` through
 `M03-C`, and the current-generation `M03-D` cooking lineage are complete.
 `M04-A` provides exact private prepared plans. `M04-B` is complete and private:
 its bounded resumable apply coordinator passes the matching PGlite and genuine-
-PostgreSQL schema-B scenario. `M04-C` developer adapters are the next separate
-cut. `M05` retirement remains deferred.
+PostgreSQL schema-B scenario. `M04-C` is also complete and private: the internal
+`flarex-dev` adapter exposes the exact opaque-handle workflow plus one shared
+detached JSON projection, and the same connected schema-B scenario passes in
+PGlite and genuine PostgreSQL. It adds no CLI, route, or production caller.
+`M05` retirement remains deferred.

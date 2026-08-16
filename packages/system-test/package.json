@@ -81,6 +81,7 @@
     "@flarex/utils": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "effect": "catalog:",
+    "flarex-dev": "workspace:*",
     "flarex-backend": "workspace:*",
     "miniflare": "catalog:",
     "flarex-protocol": "workspace:*"

@@ -563,6 +563,9 @@ importers:
       '@flarex/standard-application-definition':
         specifier: workspace:*
         version: link:../standard-application-definition
+      '@flarex/standard-application-registration':
+        specifier: workspace:*
+        version: link:../standard-application-registration
       '@flarex/utils':
         specifier: workspace:*
         version: link:../utils
@@ -898,6 +901,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
+      flarex-dev:
+        specifier: workspace:*
+        version: link:../flarex-dev
       flarex-backend:
         specifier: workspace:*
         version: link:../flarex-backend

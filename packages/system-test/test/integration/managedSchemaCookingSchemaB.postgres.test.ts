@@ -29,6 +29,8 @@ describePostgres("Managed-schema cooking schema B - PostgreSQL", () => {
         createApplicationNativeMutationPostgresFixture(options, persistence)
       )).resolves.toMatchObject({
         plannedManagedValidation: true,
+        developerAdapterProjectionDetached: true,
+        developerAdapterProjectionJsonSafe: true,
         applyRejectedCopiedHandle: true,
         applyRejectedForeignTarget: true,
         applyRejectedStaleFrontier: true,

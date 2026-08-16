@@ -12,6 +12,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
+    "./internal/managed-schema": "./src/managedSchema.ts",
     "./internal/declarative-materializer-v1": "./src/declarativeMaterializerV1.ts",
     "./internal/declarative-program-v1": "./src/declarativeProgramV1.ts",
     "./vite": "./src/vite.ts"
@@ -31,6 +32,7 @@
     "@flarex/freshness": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/standard-application-definition": "workspace:*",
+    "@flarex/standard-application-registration": "workspace:*",
     "@flarex/utils": "workspace:*",
     "flarex": "workspace:*",
     "flarex-backend": "workspace:*",

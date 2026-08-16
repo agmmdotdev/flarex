@@ -4,17 +4,20 @@ import { Effect, Result, Scope } from "effect";
 import { eq } from "drizzle-orm";
 import { Miniflare } from "miniflare";
 import {
-  applyApplicationManagedSchemaPlan,
   claimPreparedApplicationManagedSchemaPlanResult,
   makeApplicationManagedSchemaApplicationLayer,
   makeApplicationManagedSchemaPlanningLayer,
   prepareApplicationManagedSchemaPlan,
   ApplicationManagedSchemaApplyError,
   ApplicationManagedSchemaPlanCompositionError,
-  type ApplyApplicationManagedSchemaPlanResult,
   type PreparedApplicationManagedSchemaPlan,
   type PrepareApplicationManagedSchemaPlanInput,
 } from "@flarex/standard-application-registration/application";
+import {
+  applyFlarexManagedSchemaDeployment,
+  prepareFlarexManagedSchemaDeployment,
+  type FlarexManagedSchemaApplyJson,
+} from "flarex-dev/internal/managed-schema";
 import {
   makeApplicationAnalysisContext,
 } from "@flarex/source-analyzer-v2/internal/application-analysis-composition";
@@ -97,6 +100,7 @@ import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
+import { isJson, jsonEqual, type Json } from "flarex-protocol/json";
 import { ValidatorValueErrorV1 } from "flarex-protocol/validator-engine";
 import {
   TransactionFunctionPathV1Schema,
@@ -129,6 +133,8 @@ export interface ManagedSchemaCookingSchemaAProof {
 
 export interface ManagedSchemaCookingSchemaBProof {
   readonly plannedManagedValidation: true;
+  readonly developerAdapterProjectionDetached: true;
+  readonly developerAdapterProjectionJsonSafe: true;
   readonly applyRejectedCopiedHandle: true;
   readonly applyRejectedForeignTarget: true;
   readonly applyRejectedStaleFrontier: true;
@@ -345,7 +351,7 @@ export async function proveManagedSchemaBlockedPlanDoesNotApply(
       throw new Error("Managed-schema replacement candidate was not blocked.");
     }
     const applied = await runSystemTestEffectV1(
-      applyApplicationManagedSchemaPlan({
+      applyFlarexManagedSchemaDeployment({
         prepared: prepared.prepared,
       }).pipe(Effect.provide(
         makeApplicationManagedSchemaApplicationLayer(
@@ -354,6 +360,7 @@ export async function proveManagedSchemaBlockedPlanDoesNotApply(
         ),
       )),
     );
+    assertManagedSchemaJsonRoundTrip(applied);
     if (applied.status !== "blocked" || applied.reason !== "planBlocked") {
       throw new Error("Managed-schema blocked plan became applicable.");
     }
@@ -482,7 +489,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       schemaVersionId: schemaB.schemaVersionId,
     } as const;
     const copiedApply = await runSystemTestEffectV1(Effect.result(
-      applyApplicationManagedSchemaPlan({
+      applyFlarexManagedSchemaDeployment({
         prepared: { ...preparedPlan.prepared },
       }).pipe(Effect.provide(
         makeApplicationManagedSchemaApplicationLayer(
@@ -507,7 +514,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       planning: scenario.fixture.managedSchemaPlanning,
     });
     const wrongTargetApply = await runSystemTestEffectV1(Effect.result(
-      applyApplicationManagedSchemaPlan({
+      applyFlarexManagedSchemaDeployment({
         prepared: preparedPlan.prepared,
       }).pipe(Effect.provide(
         makeApplicationManagedSchemaApplicationLayer(
@@ -603,7 +610,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       throw new Error("Schema A did not remove the description normally.");
     }
     const staleApply = await runSystemTestEffectV1(Effect.result(
-      applyApplicationManagedSchemaPlan({
+      applyFlarexManagedSchemaDeployment({
         prepared: preparedPlan.prepared,
       }).pipe(Effect.provide(
         makeApplicationManagedSchemaApplicationLayer(
@@ -653,6 +660,9 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     );
     if (applied.status !== "activated" || !applyPhases.has("physicalBuild")) {
       throw new Error("Remediated cooking schema B apply did not activate.");
+    }
+    if (!/^[1-9][0-9]*$/.test(applied.activationSequence)) {
+      throw new Error("Managed-schema adapter emitted a non-canonical sequence.");
     }
     const staleConvergedApply = await applyManagedSchemaPlanUntilTerminal(
       scenario,
@@ -752,6 +762,8 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     }
     const proof = Object.freeze({
       plannedManagedValidation: true,
+      developerAdapterProjectionDetached: true,
+      developerAdapterProjectionJsonSafe: true,
       applyRejectedCopiedHandle: true,
       applyRejectedForeignTarget: true,
       applyRejectedStaleFrontier: true,
@@ -2735,7 +2747,7 @@ async function prepareManagedSchemaPlan(
   candidatePublication: ApplicationNativeMutationRegisteredRevision["publication"],
 ) {
   const result = await runSystemTestEffectV1(
-    prepareApplicationManagedSchemaPlan({ candidatePublication }).pipe(
+    prepareFlarexManagedSchemaDeployment({ candidatePublication }).pipe(
       Effect.provide(
         makeApplicationManagedSchemaPlanningLayer(
           scenario.fixture.managedSchemaPlanning,
@@ -2751,7 +2763,10 @@ async function prepareManagedSchemaPlan(
     { ...result.prepared },
     scenario.fixture.managedSchemaPlanning,
   );
-  if (Result.isFailure(claimed) || claimed.success.plan !== result.plan ||
+  assertManagedSchemaJsonRoundTrip(result.projection);
+  if (Result.isFailure(claimed) ||
+    claimed.success.plan === result.projection.plan ||
+    claimed.success.plan.operations === result.projection.plan.operations ||
     claimed.success.candidatePublication !== candidatePublication ||
     Result.isSuccess(copied)) {
     throw new Error(
@@ -2830,7 +2845,11 @@ async function prepareManagedSchemaPlan(
       "Managed-schema planning did not capture candidate evidence exactly once.",
     );
   }
-  return result;
+  return Object.freeze({
+    prepared: result.prepared,
+    plan: result.projection.plan,
+    planSha256Hex: result.projection.plan.planSha256Hex,
+  });
 }
 
 async function applyManagedSchemaPlanUntilTerminal(
@@ -2838,24 +2857,39 @@ async function applyManagedSchemaPlanUntilTerminal(
   prepared: PreparedApplicationManagedSchemaPlan,
   observedPhases?: Set<string>,
 ): Promise<Exclude<
-  ApplyApplicationManagedSchemaPlanResult,
+  FlarexManagedSchemaApplyJson,
   { readonly status: "in_progress" }
 >> {
   for (let step = 0; step < 128; step += 1) {
     const result = await runSystemTestEffectV1(
-      applyApplicationManagedSchemaPlan({ prepared }).pipe(Effect.provide(
+      applyFlarexManagedSchemaDeployment({ prepared }).pipe(Effect.provide(
         makeApplicationManagedSchemaApplicationLayer(
           scenario.fixture.managedSchemaPlanning,
           scenario.fixture.managedSchemaApplication,
         ),
       )),
     );
+    assertManagedSchemaJsonRoundTrip(result);
+    if (result.operation !== "apply") {
+      throw new Error("Managed-schema apply projection was not detached JSON.");
+    }
     if (result.status === "in_progress") {
       observedPhases?.add(result.phase);
     }
     if (result.status !== "in_progress") return result;
   }
   throw new Error("Managed-schema apply did not settle within 128 steps.");
+}
+
+function assertManagedSchemaJsonRoundTrip(projection: Json): void {
+  const encoded = JSON.stringify(projection);
+  if (encoded === undefined) {
+    throw new Error("Managed-schema projection was not JSON serializable.");
+  }
+  const decoded: unknown = JSON.parse(encoded);
+  if (!isJson(decoded) || !jsonEqual(projection, decoded)) {
+    throw new Error("Managed-schema projection did not round-trip losslessly.");
+  }
 }
 
 async function proveCrossTargetPlanningRejection(
