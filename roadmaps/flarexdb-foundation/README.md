@@ -2042,7 +2042,9 @@ PGlite and genuine PostgreSQL. It adds no CLI, route, or production caller.
 `M05-P` retirement/purge preflight is complete. It rejects broad old-schema
 deletion and separates rebuildable non-enabled build-workspace reclamation from
 logical physical-definition retirement and irreversible history/evidence
-purge. Only the narrow private `M05-A` unique-set build-workspace reclamation
-slice is eligible next; enabled-build retirement and physical purge remain
-deferred behind rollback, active-attempt, `O11`, reconnect, adapter, and
-evidence-retention gates.
+purge. The narrow private `M05-A` unique-set build-workspace reclamation slice
+is complete: it deletes only one explicitly selected, non-enabled coordinator
+row after exact active/candidate/authority refusal and retains definitions,
+claims, sidecars, application data, and immutable evidence. Enabled-build
+retirement and physical purge remain deferred behind rollback, active-attempt,
+`O11`, reconnect, adapter, and evidence-retention gates.

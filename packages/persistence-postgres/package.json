@@ -176,6 +176,8 @@
     "test:c08-b1b:postgres": "vitest run test/appUniqueConstraintSetBuildV1.postgres.test.ts --no-file-parallelism --testTimeout=180000",
     "test:c08-b1c:pglite": "vitest run test/appUniqueConstraintSetBuildV1.test.ts test/storedAttemptEvidence.test.ts --no-file-parallelism --testTimeout=180000",
     "test:c08-b1c:postgres": "vitest run test/appUniqueConstraintSetBuildV1.postgres.test.ts test/pointCommitTransaction.postgres.test.ts --no-file-parallelism --testTimeout=180000",
+    "test:m05-a:pglite": "vitest run test/appUniqueConstraintSetBuildV1.test.ts test/appUniqueConstraintSetBuildReclamation.test.ts --no-file-parallelism --testTimeout=180000",
+    "test:m05-a:postgres": "vitest run test/appUniqueConstraintSetBuildV1.postgres.test.ts test/appUniqueConstraintSetBuildReclamation.postgres.test.ts --no-file-parallelism --testTimeout=180000",
     "test:o09-b:pglite": "vitest run test/appUniqueKeys.test.ts test/storedAttemptEvidence.test.ts --no-file-parallelism --testTimeout=180000",
     "test:o09-b:postgres": "vitest run test/appUniqueKeys.postgres.test.ts test/pointCommitTransaction.postgres.test.ts --no-file-parallelism --testTimeout=180000",
     "test:pglite": "vitest run test/pglite.runtime.test.ts --no-file-parallelism",

@@ -1,3 +1,6 @@
+import { setTimeout as delay } from "node:timers/promises";
+
+import type { PoolClient } from "pg";
 import {
   APP_UNIQUE_KEY_CODEC_IDENTITY_V1,
   APP_UNIQUE_KEY_CODEC_VERSION_V1,
@@ -25,10 +28,16 @@ import {
 } from "../src/appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
+  AppUniqueConstraintSetBuildReclamationError,
+  AppUniqueConstraintSetBuildStaleAuthorityV1Error,
+  MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
   advanceAppUniqueConstraintSetBackfillV1Effect,
   createAppUniqueConstraintSetEligibilityPortV1,
+  createLocatedAppUniqueConstraintSetBuildTargetV1,
   loadAppUniqueConstraintSetEligibilityV1Effect,
+  reclaimSupersededAppUniqueConstraintSetBuildEffect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
+  type ReclaimSupersededAppUniqueConstraintSetBuildResult,
 } from "../src/appUniqueConstraintSetBuildV1";
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
@@ -40,6 +49,10 @@ import {
   createPostgresLocatedAppUniqueConstraintSetBuildTargetV1,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import { createPostgresLocatedReadCommittedTransactionRunnerV1 } from
+  "../src/postgresLocatedReadCommitted";
+import { LocatedReadCommittedTransactionFailureV1 } from
+  "../src/transactionSessionAttemptKernel";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
@@ -194,6 +207,291 @@ describePostgres("real PostgreSQL C08-B1 unique-set build foundation", () => {
       ]);
     });
   }, 120_000);
+
+  it("serializes exact workspace reclamation, replay, and rollback", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const fixture = await fixtureFor(persistence);
+      const prepared = await runEffect(
+        prepareAppUniqueConstraintSetClosureV1Effect(
+          persistence.drizzle,
+          fixture.input,
+        ),
+      );
+      await persistence.drizzle.transaction(tx => runEffect(
+        closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),
+      ));
+      const port = createAppUniqueConstraintSetEligibilityPortV1(
+        fixture.ports,
+        createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
+      );
+      for (const lifecycle of [
+        "declared",
+        "building",
+        "backfilling",
+        "validating",
+      ] as const) {
+        await reconcile(fixture);
+        await persistence.query(
+          `update fx_system_unique_constraint_set_build
+              set lifecycle = $3, cursor_definition_id = null,
+                  cursor_row_id = null
+            where scope_id = $1 and schema_version_id = $2`,
+          [fixture.scopeId, fixture.schemaVersionId, lifecycle],
+        );
+        await expect(runEffect(
+          reclaimSupersededAppUniqueConstraintSetBuildEffect(
+            port,
+            fixture.input,
+          ),
+        )).resolves.toMatchObject({ disposition: "deleted", lifecycle });
+      }
+
+      await reconcile(fixture);
+      await persistence.query(
+        `update fx_system_unique_constraint_set_build set lifecycle = 'enabled'
+          where scope_id = $1 and schema_version_id = $2`,
+        [fixture.scopeId, fixture.schemaVersionId],
+      );
+      const enabledFailure = await runEffectFailure(
+        reclaimSupersededAppUniqueConstraintSetBuildEffect(
+          port,
+          fixture.input,
+        ),
+      );
+      expect(enabledFailure).toBeInstanceOf(
+        AppUniqueConstraintSetBuildReclamationError,
+      );
+      expect(enabledFailure).toMatchObject({ reason: "buildEnabled" });
+      await persistence.query(
+        "delete from fx_system_unique_constraint_set_build where scope_id = $1",
+        [fixture.scopeId],
+      );
+
+      await reconcile(fixture);
+      await persistence.query(
+        `update fx_system_scope_clock
+            set storage_generation_fence = 2, epoch = $2, last_commit_seq = 7
+          where scope_id = $1`,
+        [fixture.scopeId, ScopeEpochSchema.make("epoch_unique_set_pg_stale")],
+      );
+      const staleFailure = await runEffectFailure(
+        reclaimSupersededAppUniqueConstraintSetBuildEffect(
+          port,
+          fixture.input,
+        ),
+      );
+      expect(staleFailure).toBeInstanceOf(
+        AppUniqueConstraintSetBuildStaleAuthorityV1Error,
+      );
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(1);
+      await persistence.query(
+        `update fx_system_scope_clock
+            set storage_generation_fence = 1, epoch = $2, last_commit_seq = 0
+          where scope_id = $1`,
+        [fixture.scopeId, fixture.epoch],
+      );
+      await runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(
+        port,
+        fixture.input,
+      ));
+
+      await reconcile(fixture);
+      const reclaimed = await Promise.all(Array.from({ length: 8 }, () =>
+        runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(
+          port,
+          fixture.input,
+        ))
+      ));
+      expect(reclaimed.filter(result => result.disposition === "deleted"))
+        .toHaveLength(1);
+      expect(reclaimed.filter(result => result.disposition === "already_absent"))
+        .toHaveLength(7);
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(0);
+
+      await reconcile(fixture);
+      const held = await acquireScopeClockLock(persistence, fixture.scopeId);
+      let concurrentReclamation:
+        Promise<ReclaimSupersededAppUniqueConstraintSetBuildResult> | undefined;
+      let concurrentReconciliation:
+        ReturnType<typeof reconcile> | undefined;
+      let released = false;
+      try {
+        concurrentReclamation = runEffect(
+          reclaimSupersededAppUniqueConstraintSetBuildEffect(
+            port,
+            fixture.input,
+          ),
+        );
+        concurrentReconciliation = reconcile(fixture);
+        await waitForBlockedScopeClockOperations(
+          persistence,
+          held.blockerPid,
+          2,
+        );
+        await held.client.query("commit");
+        released = true;
+        const [reclamation, reconciliation] = await Promise.all([
+          concurrentReclamation,
+          concurrentReconciliation,
+        ]);
+        expect(reclamation.disposition).toBe("deleted");
+        expect(reconciliation).toMatchObject({
+          status: "reconciled",
+        });
+        if (await buildCount(persistence, fixture.scopeId) === 0) {
+          await reconcile(fixture);
+        }
+      } finally {
+        if (!released) await held.client.query("rollback").catch(() => undefined);
+        held.client.release();
+        await Promise.allSettled([
+          concurrentReclamation,
+          concurrentReconciliation,
+        ].filter(value => value !== undefined));
+      }
+
+      const failure = await runEffectFailure(
+        reclaimSupersededAppUniqueConstraintSetBuildEffect(
+          port,
+          fixture.input,
+          {
+            faultAfter: (point) => {
+              if (point === "afterWorkspaceDelete") {
+                throw new Error("postgres workspace reclamation rollback");
+              }
+            },
+          },
+        ),
+      );
+      expect(failure).toBeInstanceOf(
+        AppUniqueConstraintSetBuildIntegrationV1Error,
+      );
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(1);
+      await expect(runEffect(
+        reclaimSupersededAppUniqueConstraintSetBuildEffect(
+          port,
+          fixture.input,
+        ),
+      )).resolves.toMatchObject({ disposition: "deleted" });
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(0);
+    });
+  }, 120_000);
+
+  it("recovers uncertainty and reuses the exact 32-row directory slot", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const fixture = await fixtureFor(persistence);
+      await closeFixtureSet(fixture);
+      await reconcile(fixture);
+      const baseRunner = createPostgresLocatedReadCommittedTransactionRunnerV1(
+        persistence.pool,
+      );
+      let injected = false;
+      const uncertainTarget = createLocatedAppUniqueConstraintSetBuildTargetV1(
+        persistence.drizzle,
+        LOCATOR,
+        async work => {
+          const result = await baseRunner(work);
+          if (!injected) {
+            injected = true;
+            throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+              kind: "decisionUncertain",
+              settlementCause: new Error("lost PostgreSQL reclamation response"),
+            }));
+          }
+          return result;
+        },
+      );
+      const uncertainPort = createAppUniqueConstraintSetEligibilityPortV1({
+        ...fixture.ports,
+        authority: {
+          ...fixture.ports.authority,
+          scopeClockTargets: { resolve: async () => uncertainTarget },
+        },
+      }, createAppUniqueConstraintDefinitionPortV1(persistence.drizzle));
+      await expect(runEffect(
+        reclaimSupersededAppUniqueConstraintSetBuildEffect(
+          uncertainPort,
+          fixture.input,
+        ),
+      )).resolves.toMatchObject({
+        disposition: "replayedAfterUncertainCompletion",
+      });
+      expect(injected).toBe(true);
+
+      await reconcile(fixture);
+      for (
+        let ordinal = 0;
+        ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1;
+        ordinal += 1
+      ) {
+        await persistence.query(
+          `insert into fx_system_unique_constraint_set_build
+            (scope_id, schema_version_id, set_codec_version, definition_count,
+             definition_set_sha256, storage_generation,
+             storage_generation_fence, epoch, start_commit_seq, lifecycle,
+             cursor_codec_version, cursor_definition_id, cursor_row_id,
+             attempt_fence)
+           values ($1, $2, 1, 0, decode(repeat('cd', 32), 'hex'),
+                   'flarexdb_v1', 1, $3, 0, 'enabled', 1, null, null, 1)`,
+          [fixture.scopeId, `schema_capacity_pg_${ordinal}`, fixture.epoch],
+        );
+      }
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(
+        MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+      );
+      const port = createAppUniqueConstraintSetEligibilityPortV1(
+        fixture.ports,
+        createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
+      );
+      await runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(
+        port,
+        fixture.input,
+      ));
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(
+        MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1,
+      );
+      await expect(reconcile(fixture)).resolves.toMatchObject({
+        disposition: "created",
+      });
+      expect(await buildCount(persistence, fixture.scopeId)).toBe(
+        MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+      );
+    });
+  }, 120_000);
+
+  it("rebuilds to enabled from retained claims without duplication", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const fixture = await fixtureFor(persistence);
+      await closeFixtureSet(fixture);
+      await appendLiveRow(
+        fixture,
+        "73000000000040008000000000000021",
+        "retained@example.com",
+      );
+      await persistence.query(
+        "update fx_system_scope_clock set last_commit_seq = 1 where scope_id = $1",
+        [fixture.scopeId],
+      );
+      await reconcile(fixture);
+      await advanceBackfill(fixture, 1);
+      await advanceBackfill(fixture, 1);
+      await advanceBackfill(fixture, 1);
+      const claimsBefore = await uniqueClaims(persistence);
+      expect(claimsBefore).toHaveLength(1);
+      const port = createAppUniqueConstraintSetEligibilityPortV1(
+        fixture.ports,
+        createAppUniqueConstraintDefinitionPortV1(persistence.drizzle),
+      );
+      await runEffect(reclaimSupersededAppUniqueConstraintSetBuildEffect(
+        port,
+        fixture.input,
+      ));
+      expect(await uniqueClaims(persistence)).toEqual(claimsBefore);
+      await reconcile(fixture);
+      await advanceUntilEnabled(fixture);
+      expect(await uniqueClaims(persistence)).toEqual(claimsBefore);
+    });
+  }, 120_000);
 });
 
 async function fixtureFor(persistence: PostgresFlarexPersistence) {
@@ -304,6 +602,18 @@ function reconcile(fixture: Awaited<ReturnType<typeof fixtureFor>>) {
   ));
 }
 
+async function closeFixtureSet(
+  fixture: Awaited<ReturnType<typeof fixtureFor>>,
+) {
+  const prepared = await runEffect(prepareAppUniqueConstraintSetClosureV1Effect(
+    fixture.persistence.drizzle,
+    fixture.input,
+  ));
+  await fixture.persistence.drizzle.transaction(tx => runEffect(
+    closeAppUniqueConstraintSetV1InTransactionEffect(tx, prepared),
+  ));
+}
+
 function advanceBackfill(
   fixture: Awaited<ReturnType<typeof fixtureFor>>,
   pageSize: number,
@@ -312,6 +622,16 @@ function advanceBackfill(
     fixture.ports,
     { ...fixture.input, pageSize },
   ));
+}
+
+async function advanceUntilEnabled(
+  fixture: Awaited<ReturnType<typeof fixtureFor>>,
+) {
+  for (let step = 0; step < 128; step += 1) {
+    const result = await advanceBackfill(fixture, 1);
+    if (result.lifecycle === "enabled") return result;
+  }
+  throw new Error("PostgreSQL unique-set build did not reach enabled.");
 }
 
 async function appendLiveRow(
@@ -357,4 +677,70 @@ async function buildCount(
     [scopeId],
   );
   return result.rows[0]?.count ?? -1;
+}
+
+function uniqueClaims(persistence: PostgresFlarexPersistence) {
+  return persistence.query<{ row_id_hex: string; commit_seq: string }>(
+    `select encode(row_id, 'hex') row_id_hex, commit_seq::text
+       from fx_app_unique_key order by row_id asc`,
+  ).then(result => result.rows);
+}
+
+async function acquireScopeClockLock(
+  persistence: PostgresFlarexPersistence,
+  scopeId: string,
+): Promise<Readonly<{ client: PoolClient; blockerPid: number }>> {
+  const client = await persistence.pool.connect();
+  try {
+    await client.query("begin");
+    await client.query(
+      "select 1 from fx_system_scope_clock where scope_id = $1 for update",
+      [scopeId],
+    );
+    const pid = await client.query<{ pid: number }>(
+      "select pg_backend_pid()::int pid",
+    );
+    const blockerPid = pid.rows[0]?.pid;
+    if (blockerPid === undefined) throw new Error("Missing PostgreSQL backend PID.");
+    return Object.freeze({ client, blockerPid });
+  } catch (error: unknown) {
+    await client.query("rollback").catch(() => undefined);
+    client.release();
+    throw error;
+  }
+}
+
+async function waitForBlockedScopeClockOperations(
+  persistence: PostgresFlarexPersistence,
+  blockerPid: number,
+  expected: number,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const blocked = await persistence.query<{ count: number }>(
+      `with recursive blocked(pid) as (
+         select activity.pid
+           from pg_stat_activity activity
+          where $1::int = any(pg_blocking_pids(activity.pid))
+
+         union
+
+         select activity.pid
+           from pg_stat_activity activity
+           join blocked blocker
+             on blocker.pid = any(pg_blocking_pids(activity.pid))
+       )
+       select count(*)::int count
+         from blocked
+         join pg_stat_activity activity using (pid)
+        where activity.datname = current_database()
+          and activity.wait_event_type = 'Lock'
+          and activity.query ilike '%fx_system_scope_clock%'
+          and activity.query ilike '%for update%'`,
+      [blockerPid],
+    );
+    if ((blocked.rows[0]?.count ?? 0) >= expected) return;
+    await delay(25);
+  }
+  throw new Error(`Timed out waiting for ${expected} scope-clock waiters.`);
 }

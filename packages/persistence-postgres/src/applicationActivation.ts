@@ -11,6 +11,10 @@ import { encodeCanonicalJson, isJson } from "flarex-protocol/json";
 
 import type { AppRowTransaction } from "./appRows";
 import {
+  decodeApplicationActiveHeadRowEffect,
+  type DecodedApplicationActiveHead,
+} from "./applicationActiveHeadRead";
+import {
   hasApplicationReadinessComposition,
   hasApplicationReadinessPlanningComposition,
   validateApplicationReadinessForActivationInTransaction,
@@ -673,14 +677,7 @@ function* (
   return rows[0]!.revisionId;
 });
 
-interface DecodedHead {
-  readonly scopeId: TrustedScopeAuthority["scopeId"];
-  readonly activationSequence: bigint;
-  readonly revisionId: string;
-  readonly readinessSha256: Uint8Array;
-  readonly activationSha256: Uint8Array;
-  readonly headSha256: Uint8Array;
-}
+type DecodedHead = DecodedApplicationActiveHead;
 
 interface DecodedActivation {
   readonly scopeId: TrustedScopeAuthority["scopeId"];
@@ -697,35 +694,15 @@ function decodeHead(
   operation: ApplicationActivationError["operation"],
   revisionId?: string,
 ): Effect.Effect<DecodedHead, ApplicationActivationError> {
-  return Effect.gen(function* () {
-    yield* validateStoredFrame(
-      row.headBytes,
-      row.headSha256,
+  return decodeApplicationActiveHeadRowEffect(row).pipe(Effect.mapError(error =>
+    activationError(
       operation,
-      revisionId,
-    );
-    const expected = {
-      format: "flarex.application-active-head",
-      version: 1,
-      scopeId: row.scopeId,
-      activationSequence: row.activationSequence.toString(),
-      revisionId: row.revisionId,
-      readinessSha256: encodeBytesToLowercaseHex(row.readinessSha256),
-      activationSha256: encodeBytesToLowercaseHex(row.activationSha256),
-    };
-    const canonical = yield* canonicalFrame(expected, operation, revisionId);
-    if (!bytesEqualFullScan(canonical.bytes, row.headBytes)) {
-      return yield* activationFailure(operation, "storedState", revisionId);
-    }
-    return Object.freeze({
-      scopeId: row.scopeId,
-      activationSequence: row.activationSequence,
-      revisionId: row.revisionId,
-      readinessSha256: copyBytes(row.readinessSha256),
-      activationSha256: copyBytes(row.activationSha256),
-      headSha256: copyBytes(row.headSha256),
-    });
-  });
+      error.reason === "resourceFailure" ? "resourceFailure" : "storedState",
+      revisionId ?? error.revisionId,
+      error.retryable,
+      error.cause,
+    )
+  ));
 }
 
 function decodeActivation(

@@ -3,7 +3,7 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result, Schema } from "effect";
+import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
 import {
   appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
@@ -56,6 +56,13 @@ import {
   type LocatedAppUniqueConstraintSetClosureV1,
   type ReadAppUniqueConstraintSetClosureV1Error,
 } from "./appUniqueConstraintSetClosureV1";
+import {
+  AppSchemaCandidateValidationPersistenceError,
+  readAppSchemaCandidateValidationHeadForShareInTransactionEffect,
+} from "./appSchemaCandidateValidation";
+import {
+  readApplicationActiveRevisionForShareInTransactionEffect,
+} from "./applicationActiveHeadRead";
 import {
   readCurrentAppRowInTransactionEffect,
   type AppRowReadResultV1,
@@ -151,6 +158,55 @@ export class AppUniqueConstraintSetBuildDirectoryV1Error
     readonly reason: "tooManyBuildRows" | "concurrentStateChange";
     readonly maximumBuilds: number;
   }> {}
+
+export type ReclaimSupersededAppUniqueConstraintSetBuildResult =
+  | Readonly<{
+      readonly status: "reclaimed";
+      readonly disposition: "deleted";
+      readonly deploymentId: string;
+      readonly scopeId: ScopeId;
+      readonly schemaVersionId: CatalogSchemaVersionId;
+      readonly lifecycle: Exclude<BuildState["lifecycle"], "enabled">;
+    }>
+  | Readonly<{
+      readonly status: "reclaimed";
+      readonly disposition:
+        | "already_absent"
+        | "replayedAfterUncertainCompletion";
+      readonly deploymentId: string;
+      readonly scopeId: ScopeId;
+      readonly schemaVersionId: CatalogSchemaVersionId;
+    }>;
+
+export class AppUniqueConstraintSetBuildReclamationError
+  extends Data.TaggedError("AppUniqueConstraintSetBuildReclamationError")<{
+    readonly deploymentId: string;
+    readonly schemaVersionId: CatalogSchemaVersionId;
+    readonly scopeId?: ScopeId;
+    readonly reason:
+      | "invalidPort"
+      | "schemaAuthorityMissing"
+      | "activeSchema"
+      | "currentCandidate"
+      | "buildEnabled"
+      | "activeSchemaStateInvalid"
+      | "candidateSchemaStateInvalid"
+      | "concurrentStateChange";
+    readonly retryable: boolean;
+    readonly cause?: unknown;
+  }> {}
+
+export type ReclaimSupersededAppUniqueConstraintSetBuildError =
+  | InvalidAppUniqueConstraintSetBuildInputV1Error
+  | AppUniqueConstraintSetBuildReclamationError
+  | AppUniqueConstraintSetBuildDirectoryV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildDecisionUncertainV1Error
+  | ReadAppUniqueConstraintSetClosureV1Error
+  | LockScopeClockForUpdateError
+  | TrustedScopeAuthorityError;
 
 /**
  * Same-transaction invalidation hook for the existing point-commit owner.
@@ -485,7 +541,8 @@ export type AppUniqueConstraintSetBuildFaultPointV1 =
   | "afterBackfillLifecycleTransition"
   | "afterValidationRow"
   | "beforeEnable"
-  | "afterValidationLifecycleTransition";
+  | "afterValidationLifecycleTransition"
+  | "afterWorkspaceDelete";
 
 export interface AppUniqueConstraintSetBuildOptionsV1 {
   readonly faultAfter?: (
@@ -720,6 +777,57 @@ export const advanceAppUniqueConstraintSetBackfillV1Effect = Effect.fn(
     snapshot,
     definitions,
     decoded.pageSize,
+    options,
+  );
+});
+
+/**
+ * Reclaims one exact non-enabled build-workspace row. This operation never
+ * retires definitions or deletes claims, sidecars, app rows, or immutable
+ * readiness/activation evidence.
+ */
+export const reclaimSupersededAppUniqueConstraintSetBuildEffect = Effect.fn(
+  "AppUniqueConstraintSetBuild.reclaimSupersededWorkspace",
+)(function* (
+  port: AppUniqueConstraintSetEligibilityPortV1,
+  input: unknown,
+  options: AppUniqueConstraintSetBuildOptionsV1 = {},
+): Effect.fn.Return<
+  ReclaimSupersededAppUniqueConstraintSetBuildResult,
+  ReclaimSupersededAppUniqueConstraintSetBuildError
+> {
+  const decoded = yield* Effect.fromResult(decodeInputResult(input));
+  const state = eligibilityPortStates.get(port);
+  if (state === undefined) {
+    return yield* Effect.fail(new AppUniqueConstraintSetBuildReclamationError({
+      deploymentId: decoded.deploymentId,
+      schemaVersionId: decoded.schemaVersionId,
+      reason: "invalidPort",
+      retryable: false,
+    }));
+  }
+  const locatedClosure = yield* readAppUniqueConstraintSetClosureV1Effect(
+    state.ports.controlDb,
+    decoded.deploymentId,
+    decoded.schemaVersionId,
+  );
+  if (locatedClosure === null) {
+    return yield* Effect.fail(new AppUniqueConstraintSetBuildReclamationError({
+      deploymentId: decoded.deploymentId,
+      schemaVersionId: decoded.schemaVersionId,
+      reason: "schemaAuthorityMissing",
+      retryable: false,
+    }));
+  }
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    decoded.deploymentId,
+    state.ports.authority,
+  );
+  const snapshot = buildSnapshot(decoded, locatedClosure);
+  return yield* runWorkspaceReclamationTransaction(
+    located.target,
+    located.authority,
+    snapshot,
     options,
   );
 });
@@ -1132,6 +1240,350 @@ const runReconciliationTransaction = Effect.fn(
     retryable,
     cause,
   }));
+});
+
+const runWorkspaceReclamationTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.runWorkspaceReclamationTransaction",
+)(function* (
+  target: LocatedAppUniqueConstraintSetBuildTargetV1,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  options: AppUniqueConstraintSetBuildOptionsV1,
+): Effect.fn.Return<
+  ReclaimSupersededAppUniqueConstraintSetBuildResult,
+  Exclude<
+    ReclaimSupersededAppUniqueConstraintSetBuildError,
+    | InvalidAppUniqueConstraintSetBuildInputV1Error
+    | ReadAppUniqueConstraintSetClosureV1Error
+    | TrustedScopeAuthorityError
+  >
+> {
+  const started = startLocatedEffectTransaction(
+    target,
+    "M05-A unique-set build workspace reclamation rolled back.",
+    (tx) => reclaimWorkspaceInTransaction(
+      tx,
+      authority,
+      snapshot,
+      options,
+    ),
+  );
+  const settled = yield* awaitTransactionExit(started.promise);
+  if (Exit.isSuccess(settled)) return settled.value;
+  const failure = Cause.findErrorOption(settled.cause);
+  if (Option.isNone(failure)) return yield* Effect.die(settled.cause);
+  const cause = failure.value;
+  const callbackCause = started.callbackCause();
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackRolledBack" &&
+    cause.issue.callbackCause === started.rollbackSignal &&
+    callbackCause !== undefined
+  ) {
+    return yield* Effect.failCause(callbackCause);
+  }
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "decisionUncertain"
+  ) {
+    return yield* observeWorkspaceReclamationAfterUncertainCompletion(
+      target,
+      authority,
+      snapshot,
+      cause,
+    );
+  }
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackCleanupFailed" &&
+    callbackCause !== undefined
+  ) {
+    return yield* Effect.failCause(Cause.combine(
+      callbackCause,
+      Cause.die(new AppUniqueConstraintSetBuildIntegrationV1Error({
+        phase: "targetTransaction",
+        retryable: false,
+        cause,
+      })),
+    ));
+  }
+  const retryable = cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    (cause.issue.kind === "infrastructureFailure" ||
+      cause.issue.kind === "callbackRolledBack");
+  return yield* Effect.fail(new AppUniqueConstraintSetBuildIntegrationV1Error({
+    phase: "targetTransaction",
+    retryable,
+    cause,
+  }));
+});
+
+const reclaimWorkspaceInTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.reclaimWorkspaceInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  options: AppUniqueConstraintSetBuildOptionsV1,
+): Effect.fn.Return<
+  ReclaimSupersededAppUniqueConstraintSetBuildResult,
+  | AppUniqueConstraintSetBuildReclamationError
+  | AppUniqueConstraintSetBuildDirectoryV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | AppUniqueConstraintSetBuildStateV1Error
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | LockScopeClockForUpdateError
+> {
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  const directory = yield* loadBuildDirectoryForUpdate(tx, authority.scopeId);
+  if (directory.length > MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1) {
+    return yield* Effect.fail(new AppUniqueConstraintSetBuildDirectoryV1Error({
+      scopeId: authority.scopeId,
+      reason: "tooManyBuildRows",
+      maximumBuilds: MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    }));
+  }
+  yield* refuseSelectedWorkspaceReclamation(tx, authority, snapshot);
+  const rows = yield* queryEffect(
+    tx.select().from(fxSystemUniqueConstraintSetBuilds).where(and(
+      eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
+      eq(
+        fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+        snapshot.schemaVersionId,
+      ),
+    )).limit(1).for("update"),
+  );
+  const row = rows[0];
+  if (row === undefined) {
+    return reclamationAbsentResult(authority, snapshot, "already_absent");
+  }
+  const state = yield* decodeBuildStateEffect(
+    authority,
+    snapshot,
+    row,
+    clock.lastCommitSeq,
+  );
+  yield* Effect.fromResult(
+    requireCurrentBuildAuthorityResult(authority, state, clock),
+  );
+  if (state.lifecycle === "enabled") {
+    return yield* Effect.fail(reclamationError(
+      authority,
+      snapshot,
+      "buildEnabled",
+      false,
+    ));
+  }
+  const deleted = yield* queryEffect(
+    tx.delete(fxSystemUniqueConstraintSetBuilds).where(and(
+      eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
+      eq(
+        fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+        snapshot.schemaVersionId,
+      ),
+      eq(
+        fxSystemUniqueConstraintSetBuilds.storageGenerationFence,
+        state.storageGenerationFence,
+      ),
+      eq(fxSystemUniqueConstraintSetBuilds.epoch, state.epoch),
+      eq(fxSystemUniqueConstraintSetBuilds.startCommitSeq, state.startCommitSeq),
+      eq(fxSystemUniqueConstraintSetBuilds.lifecycle, state.lifecycle),
+      eq(fxSystemUniqueConstraintSetBuilds.attemptFence, state.attemptFence),
+    )).returning({
+      schemaVersionId: fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+    }),
+  );
+  if (
+    deleted.length !== 1 ||
+    deleted[0]?.schemaVersionId !== snapshot.schemaVersionId
+  ) {
+    return yield* Effect.fail(reclamationError(
+      authority,
+      snapshot,
+      "concurrentStateChange",
+      true,
+    ));
+  }
+  yield* runFault(options, "afterWorkspaceDelete");
+  return Object.freeze({
+    status: "reclaimed" as const,
+    disposition: "deleted" as const,
+    deploymentId: snapshot.deploymentId,
+    scopeId: authority.scopeId,
+    schemaVersionId: snapshot.schemaVersionId,
+    lifecycle: state.lifecycle,
+  });
+});
+
+const refuseSelectedWorkspaceReclamation = Effect.fn(
+  "AppUniqueConstraintSetBuild.refuseSelectedWorkspaceReclamation",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+): Effect.fn.Return<
+  void,
+  | AppUniqueConstraintSetBuildReclamationError
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+> {
+  const active = yield*
+    readApplicationActiveRevisionForShareInTransactionEffect(
+      tx,
+      authority.scopeId,
+    ).pipe(Effect.mapError(cause => reclamationError(
+      authority,
+      snapshot,
+      "activeSchemaStateInvalid",
+      cause.retryable,
+      cause,
+    )));
+  if (active !== null) {
+    if (active.deploymentId !== snapshot.deploymentId) {
+      return yield* Effect.fail(reclamationError(
+        authority,
+        snapshot,
+        "activeSchemaStateInvalid",
+        false,
+      ));
+    }
+    if (active.schemaVersionId === snapshot.schemaVersionId) {
+      return yield* Effect.fail(reclamationError(
+        authority,
+        snapshot,
+        "activeSchema",
+        false,
+      ));
+    }
+  }
+  const candidate = yield*
+    readAppSchemaCandidateValidationHeadForShareInTransactionEffect(
+      tx,
+      authority.scopeId,
+      "load",
+    ).pipe(Effect.mapError(cause => reclamationError(
+      authority,
+      snapshot,
+      "candidateSchemaStateInvalid",
+      cause instanceof AppSchemaCandidateValidationPersistenceError,
+      cause,
+    )));
+  if (candidate !== null && (
+    candidate.deploymentId !== snapshot.deploymentId ||
+    candidate.scopeId !== authority.scopeId
+  )) {
+    return yield* Effect.fail(reclamationError(
+      authority,
+      snapshot,
+      "candidateSchemaStateInvalid",
+      false,
+    ));
+  }
+  if (candidate?.schemaVersionId === snapshot.schemaVersionId) {
+    return yield* Effect.fail(reclamationError(
+      authority,
+      snapshot,
+      "currentCandidate",
+      false,
+    ));
+  }
+});
+
+const observeWorkspaceReclamationAfterUncertainCompletion = Effect.fn(
+  "AppUniqueConstraintSetBuild.observeWorkspaceReclamationAfterUncertainCompletion",
+)(function* (
+  target: LocatedAppUniqueConstraintSetBuildTargetV1,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  transactionCause: unknown,
+): Effect.fn.Return<
+  ReclaimSupersededAppUniqueConstraintSetBuildResult,
+  | AppUniqueConstraintSetBuildIntegrationV1Error
+  | AppUniqueConstraintSetBuildDecisionUncertainV1Error
+  | AppUniqueConstraintSetBuildStaleAuthorityV1Error
+  | LockScopeClockForUpdateError
+> {
+  const started = startLocatedEffectTransaction(
+    target,
+    "M05-A unique-set reclamation observation rolled back.",
+    (tx) => observeWorkspaceAbsenceInTransaction(tx, authority, snapshot),
+  );
+  const settled = yield* awaitTransactionExit(started.promise);
+  if (Exit.isFailure(settled)) {
+    const failure = Cause.findErrorOption(settled.cause);
+    if (Option.isNone(failure)) return yield* Effect.die(settled.cause);
+    const cause = failure.value;
+    const callbackCause = started.callbackCause();
+    if (
+      cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+      cause.issue.kind === "callbackRolledBack" &&
+      cause.issue.callbackCause === started.rollbackSignal &&
+      callbackCause !== undefined
+    ) {
+      return yield* Effect.failCause(callbackCause);
+    }
+    if (
+      cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+      cause.issue.kind === "callbackCleanupFailed" &&
+      callbackCause !== undefined
+    ) {
+      return yield* Effect.failCause(Cause.combine(
+        callbackCause,
+        Cause.die(new AppUniqueConstraintSetBuildIntegrationV1Error({
+          phase: "targetTransaction",
+          retryable: false,
+          cause,
+        })),
+      ));
+    }
+    return yield* Effect.fail(new AppUniqueConstraintSetBuildIntegrationV1Error({
+      phase: "targetTransaction",
+      retryable: true,
+      cause,
+    }));
+  }
+  if (!settled.value) {
+    return yield* Effect.fail(
+      new AppUniqueConstraintSetBuildDecisionUncertainV1Error({
+        scopeId: authority.scopeId,
+        schemaVersionId: snapshot.schemaVersionId,
+        cause: transactionCause,
+      }),
+    );
+  }
+  return reclamationAbsentResult(
+    authority,
+    snapshot,
+    "replayedAfterUncertainCompletion",
+  );
+});
+
+const observeWorkspaceAbsenceInTransaction = Effect.fn(
+  "AppUniqueConstraintSetBuild.observeWorkspaceAbsenceInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+) {
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* Effect.fromResult(requireExactAuthorityResult(authority, clock));
+  const rows = yield* queryEffect(
+    tx.select({
+      schemaVersionId: fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+    }).from(fxSystemUniqueConstraintSetBuilds).where(and(
+      eq(fxSystemUniqueConstraintSetBuilds.scopeId, authority.scopeId),
+      eq(
+        fxSystemUniqueConstraintSetBuilds.schemaVersionId,
+        snapshot.schemaVersionId,
+      ),
+    )).limit(1).for("share"),
+  );
+  return rows.length === 0;
 });
 
 const runBackfillTransaction = Effect.fn(
@@ -2664,6 +3116,43 @@ function stateError(
     schemaVersionId: snapshot.schemaVersionId,
     reason,
     cause,
+  });
+}
+
+function reclamationError(
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  reason: AppUniqueConstraintSetBuildReclamationError["reason"],
+  retryable: boolean,
+  cause?: unknown,
+) {
+  return new AppUniqueConstraintSetBuildReclamationError({
+    deploymentId: snapshot.deploymentId,
+    scopeId: authority.scopeId,
+    schemaVersionId: snapshot.schemaVersionId,
+    reason,
+    retryable,
+    cause,
+  });
+}
+
+function reclamationAbsentResult(
+  authority: TrustedScopeAuthority,
+  snapshot: BuildSnapshot,
+  disposition: Extract<
+    ReclaimSupersededAppUniqueConstraintSetBuildResult,
+    { disposition: "already_absent" | "replayedAfterUncertainCompletion" }
+  >["disposition"],
+): Extract<
+  ReclaimSupersededAppUniqueConstraintSetBuildResult,
+  { disposition: "already_absent" | "replayedAfterUncertainCompletion" }
+> {
+  return Object.freeze({
+    status: "reclaimed" as const,
+    disposition,
+    deploymentId: snapshot.deploymentId,
+    scopeId: authority.scopeId,
+    schemaVersionId: snapshot.schemaVersionId,
   });
 }
 

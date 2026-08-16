@@ -31,6 +31,8 @@ import {
 } from "../src/appUniqueConstraintDefinitions";
 import {
   AppUniqueConstraintSetBuildIntegrationV1Error,
+  AppUniqueConstraintSetBuildReclamationError,
+  AppUniqueConstraintSetBuildStaleAuthorityV1Error,
   AppUniqueConstraintSetBuildStateV1Error,
   AppUniqueConstraintSetBuildDirectoryV1Error,
   MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
@@ -40,6 +42,7 @@ import {
   hasAppUniqueConstraintSetEligibilityEvidenceV1,
   loadAppUniqueConstraintSetEligibilityForReadinessV1Effect,
   loadAppUniqueConstraintSetEligibilityV1Effect,
+  reclaimSupersededAppUniqueConstraintSetBuildEffect,
   reconcileAppUniqueConstraintSetBuildV1Effect,
 } from "../src/appUniqueConstraintSetBuildV1";
 import {
@@ -54,6 +57,10 @@ import {
 } from "../src/appRows";
 import { createPGlitePersistence } from "../src/pglite";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { createDefaultLocatedReadCommittedTransactionRunnerV1 } from
+  "../src/transactionSessionActivation";
+import { LocatedReadCommittedTransactionFailureV1 } from
+  "../src/transactionSessionAttemptKernel";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const LOCATOR = Object.freeze({
@@ -470,6 +477,211 @@ describe("C08-B1 closed unique-set build foundation", () => {
     await expect(reconcile(fixture)).resolves.toMatchObject({
       disposition: "created",
     });
+  });
+
+  it("reclaims each non-enabled workspace lifecycle and rebuilds cleanly", async () => {
+    const fixture = await closedFixture("workspace_lifecycles");
+    const port = eligibilityPort(fixture);
+    const lifecycles = [
+      "declared",
+      "building",
+      "backfilling",
+      "validating",
+    ] as const;
+
+    for (const lifecycle of lifecycles) {
+      await reconcile(fixture);
+      await fixture.persistence.query(
+        `update fx_system_unique_constraint_set_build
+            set lifecycle = $3, cursor_definition_id = null,
+                cursor_row_id = null
+          where scope_id = $1 and schema_version_id = $2`,
+        [fixture.scopeId, fixture.schemaVersionId, lifecycle],
+      );
+      await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+        status: "reclaimed",
+        disposition: "deleted",
+        lifecycle,
+      });
+      expect(await buildRows(fixture)).toEqual([]);
+      expect(await closureCount(fixture)).toBe(1);
+      expect(await bindingCount(fixture)).toBe(1);
+    }
+
+    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+      disposition: "already_absent",
+    });
+    await expect(reconcile(fixture)).resolves.toMatchObject({
+      disposition: "created",
+    });
+  });
+
+  it("refuses enabled workspaces and structurally copied ports", async () => {
+    const fixture = await closedFixture("workspace_refusal");
+    await reconcile(fixture);
+    await fixture.persistence.query(
+      `update fx_system_unique_constraint_set_build
+          set lifecycle = 'enabled'
+        where scope_id = $1 and schema_version_id = $2`,
+      [fixture.scopeId, fixture.schemaVersionId],
+    );
+    const port = eligibilityPort(fixture);
+    const enabledFailure = await runEffectFailure(reclaim(fixture, port));
+    expect(enabledFailure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildReclamationError,
+    );
+    expect(enabledFailure).toMatchObject({ reason: "buildEnabled" });
+    expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "enabled" }]);
+
+    const copiedPort = Object.freeze({ ...port });
+    const copiedFailure = await runEffectFailure(reclaim(fixture, copiedPort));
+    expect(copiedFailure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildReclamationError,
+    );
+    expect(copiedFailure).toMatchObject({ reason: "invalidPort" });
+  });
+
+  it("rolls back reclamation faults without losing the workspace", async () => {
+    const fixture = await closedFixture("workspace_rollback");
+    await reconcile(fixture);
+    const port = eligibilityPort(fixture);
+    const failure = await runEffectFailure(
+      reclaimSupersededAppUniqueConstraintSetBuildEffect(
+        port,
+        input(fixture),
+        {
+          faultAfter: (point) => {
+            if (point === "afterWorkspaceDelete") {
+              throw new Error("injected workspace reclamation rollback");
+            }
+          },
+        },
+      ),
+    );
+    expect(failure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildIntegrationV1Error,
+    );
+    expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "declared" }]);
+    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+      disposition: "deleted",
+    });
+  });
+
+  it("observes committed reclamation after a lost transaction response", async () => {
+    const fixture = await closedFixture("workspace_uncertain");
+    await reconcile(fixture);
+    const baseRunner = createDefaultLocatedReadCommittedTransactionRunnerV1(
+      fixture.persistence.drizzle,
+    );
+    let injected = false;
+    const target = createLocatedAppUniqueConstraintSetBuildTargetV1(
+      fixture.persistence.drizzle,
+      LOCATOR,
+      async (work) => {
+        const value = await baseRunner(work);
+        if (!injected) {
+          injected = true;
+          throw new LocatedReadCommittedTransactionFailureV1(Object.freeze({
+            kind: "decisionUncertain",
+            settlementCause: new Error("lost reclamation response"),
+          }));
+        }
+        return value;
+      },
+    );
+    const port = eligibilityPort(fixture, target);
+    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+      disposition: "replayedAfterUncertainCompletion",
+    });
+    expect(injected).toBe(true);
+    expect(await buildRows(fixture)).toEqual([]);
+  });
+
+  it("retains claims and immutable definition authority when reclaiming progress", async () => {
+    const fixture = await closedFixture("workspace_authority_retention");
+    await appendLiveRow(
+      fixture,
+      rowId(21),
+      1n,
+      null,
+      { tenantId: "tenant-a", email: "retained@example.com" },
+    );
+    await setClockCommit(fixture, 1n);
+    await reconcile(fixture);
+    await advanceBackfill(fixture, 1);
+    await advanceBackfill(fixture, 1);
+    const backfilled = await advanceBackfill(fixture, 1);
+    expect(backfilled.claimed).toBe(1);
+    const claimsBefore = await uniqueClaims(fixture);
+    const port = eligibilityPort(fixture);
+
+    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+      disposition: "deleted",
+    });
+    expect(await uniqueClaims(fixture)).toEqual(claimsBefore);
+    expect(await closureCount(fixture)).toBe(1);
+    expect(await bindingCount(fixture)).toBe(1);
+    await expect(reconcile(fixture)).resolves.toMatchObject({
+      disposition: "created",
+    });
+    await advanceToEnabled(fixture, 1);
+    expect(await uniqueClaims(fixture)).toEqual(claimsBefore);
+  });
+
+  it("refuses a stale build authority without deleting its workspace", async () => {
+    const fixture = await closedFixture("workspace_stale_authority");
+    await reconcile(fixture);
+    await fixture.persistence.query(
+      `update fx_system_scope_clock
+          set storage_generation_fence = 2, epoch = $2, last_commit_seq = 7
+        where scope_id = $1`,
+      [fixture.scopeId, ScopeEpochSchema.make("epoch_workspace_stale_2")],
+    );
+    const failure = await runEffectFailure(
+      reclaim(fixture, eligibilityPort(fixture)),
+    );
+    expect(failure).toBeInstanceOf(
+      AppUniqueConstraintSetBuildStaleAuthorityV1Error,
+    );
+    expect(await buildRows(fixture)).toMatchObject([{ lifecycle: "declared" }]);
+  });
+
+  it("releases one exact directory slot without weakening the ceiling", async () => {
+    const fixture = await closedFixture("workspace_capacity");
+    await reconcile(fixture);
+    for (
+      let ordinal = 0;
+      ordinal < MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1;
+      ordinal += 1
+    ) {
+      await fixture.persistence.query(
+        `insert into fx_system_unique_constraint_set_build
+          (scope_id, schema_version_id, set_codec_version, definition_count,
+           definition_set_sha256, storage_generation,
+           storage_generation_fence, epoch, start_commit_seq, lifecycle,
+           cursor_codec_version, cursor_definition_id, cursor_row_id,
+           attempt_fence)
+         values ($1, $2, 1, 0, decode(repeat('cd', 32), 'hex'),
+                 'flarexdb_v1', 1, $3, 0, 'enabled', 1, null, null, 1)`,
+        [fixture.scopeId, `schema_capacity_${ordinal}`, fixture.epoch],
+      );
+    }
+    expect(await buildDirectoryCount(fixture)).toBe(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    );
+    const port = eligibilityPort(fixture);
+    await expect(runEffect(reclaim(fixture, port))).resolves.toMatchObject({
+      disposition: "deleted",
+    });
+    expect(await buildDirectoryCount(fixture)).toBe(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1 - 1,
+    );
+    await expect(reconcile(fixture)).resolves.toMatchObject({
+      disposition: "created",
+    });
+    expect(await buildDirectoryCount(fixture)).toBe(
+      MAX_APP_UNIQUE_CONSTRAINT_SET_BUILDS_PER_SCOPE_V1,
+    );
   });
 
   it("returns absent until the control set is closed", async () => {
@@ -1087,6 +1299,23 @@ function ports(fixture: Fixture) {
   } as const;
 }
 
+function eligibilityPort(
+  fixture: Fixture,
+  target: Fixture["target"] = fixture.target,
+) {
+  const buildPorts = ports(fixture);
+  return createAppUniqueConstraintSetEligibilityPortV1(
+    {
+      ...buildPorts,
+      authority: {
+        ...buildPorts.authority,
+        scopeClockTargets: { resolve: async () => target },
+      },
+    },
+    createAppUniqueConstraintDefinitionPortV1(fixture.persistence.drizzle),
+  );
+}
+
 function input(fixture: Fixture) {
   return Object.freeze({
     deploymentId: fixture.deploymentId,
@@ -1099,6 +1328,16 @@ function eligibilityInput(fixture: Fixture) {
     ...input(fixture),
     scopeId: fixture.scopeId,
   });
+}
+
+function reclaim(
+  fixture: Fixture,
+  port: ReturnType<typeof eligibilityPort>,
+) {
+  return reclaimSupersededAppUniqueConstraintSetBuildEffect(
+    port,
+    input(fixture),
+  );
 }
 
 function reconcile(fixture: Fixture) {
@@ -1122,6 +1361,14 @@ async function advanceToValidating(fixture: Fixture, pageSize: number) {
     if (advanced.lifecycle === "validating") return advanced;
   }
   throw new Error("Unique-set fixture did not reach validating.");
+}
+
+async function advanceToEnabled(fixture: Fixture, pageSize: number) {
+  for (let step = 0; step < 128; step += 1) {
+    const advanced = await advanceBackfill(fixture, pageSize);
+    if (advanced.lifecycle === "enabled") return advanced;
+  }
+  throw new Error("Unique-set fixture did not reach enabled.");
 }
 
 async function appendLiveRow(

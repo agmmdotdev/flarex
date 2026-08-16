@@ -953,7 +953,7 @@ export const prepareAppSchemaCandidateWriteGuardEffect = Effect.fn(
         clock,
         "load",
       ));
-      const current = yield* readHeadForShareEffect(
+      const current = yield* readAppSchemaCandidateValidationHeadForShareInTransactionEffect(
         tx,
         located.authority.scopeId,
         "load",
@@ -1398,7 +1398,12 @@ const loadInTransaction = Effect.fn(
     clock,
     "load",
   ));
-  const head = yield* readHeadForShareEffect(tx, authority.scopeId, "load");
+  const head = yield*
+    readAppSchemaCandidateValidationHeadForShareInTransactionEffect(
+      tx,
+      authority.scopeId,
+      "load",
+    );
   if (head === null) return Object.freeze({ status: "absent" as const });
   if (
     head.deploymentId !== input.deploymentId ||
@@ -2117,23 +2122,24 @@ const readHeadForUpdateEffect = Effect.fn(
     : yield* decodeHeadRowEffect(rows[0], operation);
 });
 
-const readHeadForShareEffect = Effect.fn(
-  "AppSchemaCandidateValidation.readHeadForShare",
-)(function* (
-  tx: AppRowTransaction,
-  scopeId: ScopeId,
-  operation: "load",
-) {
-  const rows = yield* queryEffect(
-    "readHead",
-    tx.select().from(fxSystemAppSchemaCandidateValidations).where(
-      eq(fxSystemAppSchemaCandidateValidations.scopeId, scopeId),
-    ).limit(1).for("share"),
-  );
-  return rows[0] === undefined
-    ? null
-    : yield* decodeHeadRowEffect(rows[0], operation);
-});
+export const readAppSchemaCandidateValidationHeadForShareInTransactionEffect =
+  Effect.fn(
+    "AppSchemaCandidateValidation.readHeadForShare",
+  )(function* (
+    tx: AppRowTransaction,
+    scopeId: ScopeId,
+    operation: "load",
+  ) {
+    const rows = yield* queryEffect(
+      "readHead",
+      tx.select().from(fxSystemAppSchemaCandidateValidations).where(
+        eq(fxSystemAppSchemaCandidateValidations.scopeId, scopeId),
+      ).limit(1).for("share"),
+    );
+    return rows[0] === undefined
+      ? null
+      : yield* decodeHeadRowEffect(rows[0], operation);
+  });
 
 const readHeadWithLockEffect = Effect.fn(
   "AppSchemaCandidateValidation.readHeadWithLock",

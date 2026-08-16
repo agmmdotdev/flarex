@@ -13,10 +13,12 @@ composition. `M04-B` now has its private bounded exact-plan apply coordinator
 and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
 checkpoint is complete. `M04-C` now provides the private `flarex-dev` adapter
 and shared detached JSON projection, with the same connected schema-B proof in
-PGlite and genuine PostgreSQL.
+PGlite and genuine PostgreSQL. `M05-P` and private `M05-A` are complete: the
+accepted retirement boundary is explicit and one exact non-enabled unique-set
+build workspace can be reclaimed without retiring physical authority.
 It remains private and production-inert: no public route, CLI, deployment
-caller, trigger, destructive cleanup, or production generation cut is
-authorized by this roadmap.
+caller, trigger, enabled-definition retirement, physical/evidence purge, or
+production generation cut is authorized by this roadmap.
 
 ## Decision
 
@@ -952,6 +954,21 @@ concurrent reconciliation, confirmed rollback, decision uncertainty, the
 needs no schema migration unless implementation evidence proves otherwise; a
 new migration would require a separate preflight.
 
+`M05-A` is complete at this private checkpoint. One operation authenticated by
+the existing exact unique-set eligibility capability reclaims only an
+explicitly selected `declared`, `building`, `backfilling`, or `validating`
+unique-set build-workspace row. Its located transaction retains the existing
+scope-clock-first order, locks the bounded build directory, re-reads active and
+candidate selection, verifies the exact stored build authority, and refuses
+active, current-candidate, enabled, corrupt, stale, or ambiguous state. Exact
+absence replays, and a lost transaction response is resolved only by a second
+authority-checked absence observation. Direct PGlite and genuine-PostgreSQL
+coverage proves the refusal matrix, every eligible lifecycle, replay,
+concurrent reconciliation, rollback, uncertainty, directory-slot recovery,
+retained claims/catalog authority, and rebuild. No schema, migration, public
+API, CLI, route, trigger, automatic eviction, `CASCADE`, definition retirement,
+or physical/evidence purge was added.
+
 Enabled-build retirement and physical purge remain deferred. Before either can
 be approved, all of the following must exist and compose exactly:
 
@@ -1027,10 +1044,12 @@ These are separate later goals, not one giant deployment goal:
    route before those private checkpoints pass.
 9. `M05-P` - **complete preflight; no destructive cleanup authorized**:
    separate non-enabled build-workspace reclamation from logical retirement and
-   irreversible purge. `M05-A` is the only eligible next implementation slice;
-   enabled-build retirement and physical purge remain blocked on the explicit
-   rollback, active-attempt, `O11`, reconnect, adapter, and evidence-retention
-   gates above.
+   irreversible purge.
+10. `M05-A` - **complete and private**: reclaim one exact superseded,
+    non-enabled unique-set build-workspace row through the existing authority
+    and transaction owners. Enabled-build retirement and physical purge remain
+    blocked on the explicit rollback, active-attempt, `O11`, reconnect,
+    adapter, and evidence-retention gates above.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
