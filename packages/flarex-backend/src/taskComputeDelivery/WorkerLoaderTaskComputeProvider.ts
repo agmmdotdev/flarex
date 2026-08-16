@@ -96,6 +96,12 @@ import {
   type CurrentTaskRuntimeLaunchSubject,
   type TaskRuntimeInputSource,
 } from "../taskRuntimeLaunch/Model";
+import type {
+  TaskAttemptSupervisor,
+  TaskAttemptSupervisorError,
+  TaskAttemptSupervisorInput,
+  TaskAttemptSupervisorOutcome,
+} from "./TaskAttemptSupervisor.js";
 
 export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME =
   "flarex-worker-loader" as const;
@@ -130,6 +136,26 @@ interface CapturedOptions {
   readonly randomUuid: () => string;
   readonly sha256: StandardApplicationTaskSha256V1;
   readonly handshakeMilliseconds: number | undefined;
+}
+
+interface CapturedProviderOptions extends CapturedOptions {
+  readonly sessionSupervisor: TaskAttemptSupervisor | undefined;
+  readonly supervisionExitObserver:
+    | TaskAttemptSupervisionExitObserver
+    | undefined;
+}
+
+export interface TaskAttemptSupervisionExitObserver {
+  readonly observe: (
+    observation: Readonly<{
+      readonly dispatch: TaskAttemptSupervisorInput["dispatch"];
+      readonly acceptance: TaskWorkerSession["acceptance"];
+    }>,
+    exit: Exit.Exit<
+      TaskAttemptSupervisorOutcome,
+      TaskAttemptSupervisorError
+    >,
+  ) => void;
 }
 
 interface StartingDispatch {
@@ -198,11 +224,56 @@ export function makeWorkerLoaderTaskComputeProviderLayer(
   WorkerLoaderTaskComputeProviderConfigurationError,
   TaskRuntimeLaunchAuthority
 > {
+  return makeWorkerLoaderTaskComputeProviderLayerInternal(
+    loader,
+    options,
+    undefined,
+    undefined,
+  );
+}
+
+/**
+ * E4-private adapter seam. It preserves the provider-neutral public contract
+ * while handing each owned accepted Worker session to exactly one supervisor.
+ */
+export function makeSupervisedWorkerLoaderTaskComputeProviderLayer(
+  loader: WorkerLoader,
+  options: WorkerLoaderTaskComputeProviderOptions,
+  supervisor: TaskAttemptSupervisor,
+  supervisionExitObserver: TaskAttemptSupervisionExitObserver,
+): Layer.Layer<
+  TaskComputeProvider,
+  WorkerLoaderTaskComputeProviderConfigurationError,
+  TaskRuntimeLaunchAuthority
+> {
+  return makeWorkerLoaderTaskComputeProviderLayerInternal(
+    loader,
+    options,
+    supervisor,
+    supervisionExitObserver,
+  );
+}
+
+function makeWorkerLoaderTaskComputeProviderLayerInternal(
+  loader: WorkerLoader,
+  options: WorkerLoaderTaskComputeProviderOptions,
+  supervisor: TaskAttemptSupervisor | undefined,
+  supervisionExitObserver: TaskAttemptSupervisionExitObserver | undefined,
+): Layer.Layer<
+  TaskComputeProvider,
+  WorkerLoaderTaskComputeProviderConfigurationError,
+  TaskRuntimeLaunchAuthority
+> {
   return Layer.effect(
     TaskComputeProvider,
     Effect.gen(function* () {
       const authority = yield* TaskRuntimeLaunchAuthority;
-      const captured = yield* Effect.fromResult(captureOptions(options));
+      const capturedOptions = yield* Effect.fromResult(captureOptions(options));
+      const captured: CapturedProviderOptions = Object.freeze({
+        ...capturedOptions,
+        sessionSupervisor: supervisor,
+        supervisionExitObserver,
+      });
       const host = yield* Effect.try({
         try: () => makeTaskWorkerSessionHost(
           captureWorkerLoader(loader),
@@ -227,7 +298,7 @@ const makeWorkerLoaderTaskComputeProvider = Effect.fn(
 )(function* (
   authority: TaskRuntimeLaunchAuthorityShape,
   host: TaskWorkerSessionHost,
-  options: CapturedOptions,
+  options: CapturedProviderOptions,
 ): Effect.fn.Return<TaskComputeProviderShape, never, Scope.Scope> {
   const providerScope = yield* Scope.Scope;
   const stateRef = yield* Ref.make<ProviderState>(Object.freeze({
@@ -365,7 +436,7 @@ const completeStart = Effect.fn("WorkerLoaderTaskComputeProvider.completeStart")
     stateRef: Ref.Ref<ProviderState>,
     authority: TaskRuntimeLaunchAuthorityShape,
     host: TaskWorkerSessionHost,
-    options: CapturedOptions,
+    options: CapturedProviderOptions,
     providerScope: Scope.Scope,
     starting: StartingDispatch,
   ) {
@@ -393,7 +464,12 @@ const completeStart = Effect.fn("WorkerLoaderTaskComputeProvider.completeStart")
         return;
       }
       yield* Effect.forkIn(
-        superviseSession(stateRef, active),
+        superviseSession(
+          stateRef,
+          active,
+          options.sessionSupervisor,
+          options.supervisionExitObserver,
+        ),
         providerScope,
         { startImmediately: true },
       );
@@ -513,9 +589,31 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
 function superviseSession(
   stateRef: Ref.Ref<ProviderState>,
   active: ActiveDispatch,
+  supervisor: TaskAttemptSupervisor | undefined,
+  exitObserver: TaskAttemptSupervisionExitObserver | undefined,
 ): Effect.Effect<void> {
-  return Effect.exit(active.session.settlement).pipe(
-    Effect.ensuring(Effect.exit(active.session.close)),
+  const supervision = supervisor === undefined || exitObserver === undefined
+    ? Effect.exit(active.session.settlement).pipe(
+        Effect.asVoid,
+        Effect.ensuring(Effect.exit(active.session.close)),
+      )
+    : Effect.suspend(() => {
+        const input = Object.freeze({
+          dispatch: active.request,
+          session: active.session,
+        });
+        const observation = Object.freeze({
+          dispatch: active.request,
+          acceptance: active.session.acceptance,
+        });
+        return Effect.exit(supervisor.supervise(input)).pipe(
+          Effect.tap(exit => Effect.sync(() => {
+            exitObserver.observe(observation, exit);
+          })),
+          Effect.asVoid,
+        );
+      });
+  return supervision.pipe(
     Effect.ensuring(Ref.update(stateRef, state => {
       const key = dispatchIdentityKey(active.request);
       if (state.dispatches.get(key) !== active) return state;

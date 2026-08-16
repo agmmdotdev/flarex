@@ -29,8 +29,15 @@ import type {
 } from "../src/taskRuntimeLaunch/Model";
 import {
   makeWorkerLoaderTaskComputeProviderLayer,
+  makeSupervisedWorkerLoaderTaskComputeProviderLayer,
+  type TaskAttemptSupervisionExitObserver,
 } from "../src/taskComputeDelivery/WorkerLoaderTaskComputeProvider";
-import { Effect, Layer, Result } from "effect";
+import {
+  TaskAttemptSupervisorContractError,
+  type TaskAttemptSupervisor,
+  type TaskAttemptSupervisorInput,
+} from "../src/taskComputeDelivery/TaskAttemptSupervisor";
+import { Deferred, Effect, Exit, Layer, Result } from "effect";
 import {
   TASK_WORKER_SESSION_ACCEPTANCE_FORMAT_V1,
   TASK_WORKER_SESSION_ACCEPTANCE_VERSION_V1,
@@ -280,6 +287,46 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     expect(timeout).toBeInstanceOf(TaskComputeDispatchUncertainError);
     expect(timeoutLoader.starts).toBe(1);
   });
+
+  it("delegates one accepted session and observes the exact supervisor failure", async () => {
+    const input = await canonicalizeFlarexValueV1(null);
+    const request = applicationRequest();
+    const authority = new FakeLaunchAuthority(input, request);
+    const loader = new FakeWorkerLoader();
+    const supervised: TaskAttemptSupervisorInput[] = [];
+    const observed = Deferred.makeUnsafe<Parameters<
+      TaskAttemptSupervisionExitObserver["observe"]
+    >[1]>();
+    const supervise: TaskAttemptSupervisor["supervise"] = sessionInput =>
+      Effect.gen(function* () {
+        supervised.push(sessionInput);
+        return yield* new TaskAttemptSupervisorContractError({
+          reason: "lifecycle_identity_mismatch",
+        });
+      }).pipe(Effect.ensuring(Effect.exit(sessionInput.session.close)));
+    const supervisor: TaskAttemptSupervisor = Object.freeze({ supervise });
+    const observe: TaskAttemptSupervisionExitObserver["observe"] =
+      (_sessionInput, exit) => {
+        Deferred.doneUnsafe(observed, Effect.succeed(exit));
+      };
+    const observer: TaskAttemptSupervisionExitObserver = Object.freeze({
+      observe,
+    });
+
+    await runWithProvider(loader, authority, Effect.gen(function* () {
+      const provider = yield* TaskComputeProvider;
+      yield* provider.dispatch(request);
+      const exit = yield* Deferred.await(observed);
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(supervised).toHaveLength(1);
+      expect(supervised[0]?.dispatch).toEqual(request);
+      expect(supervised[0]?.session.acceptance.identity).toEqual(
+        request.identity,
+      );
+    }), undefined, 100, 32, { supervisor, observer });
+    expect(loader.starts).toBe(1);
+    expect(loader.sessionDisposals).toBe(1);
+  });
 });
 
 async function runWithProvider<Success, Failure>(
@@ -289,19 +336,31 @@ async function runWithProvider<Success, Failure>(
   randomUuid: (() => string) | undefined = undefined,
   handshakeMilliseconds = 100,
   maximumScopedDispatches = 32,
+  supervision: Readonly<{
+    readonly supervisor: TaskAttemptSupervisor;
+    readonly observer: TaskAttemptSupervisionExitObserver;
+  }> | undefined = undefined,
 ): Promise<Success> {
   const authorityLayer = Layer.succeed(
     TaskRuntimeLaunchAuthority,
     TaskRuntimeLaunchAuthority.of(authority),
   );
-  const providerLayer = makeWorkerLoaderTaskComputeProviderLayer(loader, {
+  const options = {
     applicationHostPolicy: applicationHostPolicy(),
     legacyHostPolicy: legacyHostPolicy(),
     maximumScopedDispatches,
     handshakeMilliseconds,
     randomUuid: randomUuid ?? (() => crypto.randomUUID()),
     sha256: () => Effect.succeed(new Uint8Array(32)),
-  }).pipe(Layer.provide(authorityLayer));
+  };
+  const providerLayer = (supervision === undefined
+    ? makeWorkerLoaderTaskComputeProviderLayer(loader, options)
+    : makeSupervisedWorkerLoaderTaskComputeProviderLayer(
+        loader,
+        options,
+        supervision.supervisor,
+        supervision.observer,
+      )).pipe(Layer.provide(authorityLayer));
   return Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(providerLayer))));
 }
 

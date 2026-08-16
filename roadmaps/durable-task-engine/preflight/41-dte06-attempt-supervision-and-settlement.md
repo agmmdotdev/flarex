@@ -3,8 +3,8 @@
 ## Status
 
 **Decision:** Approved as the implementation-ready, production-inert DTE06-E
-boundary. DTE06-E1 through DTE06-E3 are complete privately. DTE06-E4 and
-DTE06-E5 remain pending. This document does not authorize a scheduled host,
+boundary. DTE06-E1 through DTE06-E4 are complete privately. DTE06-E5 remains
+pending. This document does not authorize a scheduled host,
 Queue consumer, Cron Trigger, route, binding, deployment, public API,
 observability feed, or production activation.
 
@@ -449,7 +449,8 @@ must not clear that record merely because lifecycle completion was accepted.
   protocol.
 
 This stop was enforced: E1 wrote neither lifecycle state nor R2. E2 owns only
-immutable result publication and reads. E3 is complete privately; E4 is next.
+immutable result publication and reads. E3 and E4 are complete privately; E5
+is next.
 
 ### DTE06-E2: Immutable Task Result Store — Complete Privately
 
@@ -483,7 +484,7 @@ lifecycle lanes remain the platform proof for lock ordering, database time,
 transaction settlement/uncertainty, and safe connection reuse; E3 adds no
 second database boundary.
 
-### DTE06-E4: Structured Session Supervisor
+### DTE06-E4: Structured Session Supervisor — Complete Privately
 
 - compose one Scope-owned session with E2 result publication and E3 lifecycle;
 - perform immediate and periodic heartbeats;
@@ -493,6 +494,38 @@ second database boundary.
   and
 - integrate through a backend-private Worker Loader adapter seam without
   changing `TaskComputeProvider`.
+
+The current backend-private `TaskAttemptSupervisor` owns one already accepted
+session. It validates the exact session and lifecycle identities, races only
+terminal observation against an immediate and bounded periodic heartbeat loop,
+then stops heartbeats before result publication or completion work. It
+publishes a successful canonical result before completion, replays only the
+same encoded completion after admitted transient or timed-out settlement
+attempts, and always closes the session while preserving interruption and
+combined failure causes. Lifecycle resolution, each heartbeat, result
+publication, each completion attempt, replay delay, and session close have
+construction-validated deadlines. Lifecycle resolution and consecutive
+heartbeat latency plus the reserve fit inside the minimum lease, while the
+worst-case publication, completion replay, and close budget fits inside that
+reserve. The accepted Worker session advertises the close ceiling enforced by
+its own handshake and drain owner. Closing interrupts owned in-flight RPC
+Effects, whose result leases still dispose late replies, and waits only for the
+internally bounded shutdown or already-started expiry delivery. The supervisor
+rejects a session whose advertised ceiling exceeds its configured close budget
+before resolving lifecycle authority. Its outer deadline remains a secondary
+failure-classification boundary; the lease-margin proof relies on the session
+owner's internal bound because close/drain is deliberately uninterruptible. Exact
+cancellation acknowledgement is emitted only from a correlated Worker
+settlement; host shutdown remains unconfirmed and writes no completion.
+
+The provider-neutral dispatch contract still has no deployment identity. E4
+therefore accepts an injected scope-aware lifecycle resolver and adds only a
+backend-private supervised Worker Loader Layer constructor. It does not compose
+the real deployment-to-scope gateway or activate that constructor. DTE06-E5
+owns that exact connected composition and proof. The adapter requires a private
+exit observer and reports the complete supervisor `Exit` before it changes the
+process-local dispatch marker to settled; it does not widen
+`TaskComputeProvider` or silently erase supervision causes.
 
 ### DTE06-E5: Private Connected Proof
 
@@ -558,14 +591,16 @@ DTE06-E does not authorize:
 
 ## Stop Boundary
 
-Completing DTE06-E proves that one already accepted private Worker session can
+Completing DTE06-E4 proves that one already accepted private Worker session can
 be supervised into the existing durable lifecycle with bounded heartbeats,
 exact cancellation acknowledgement, typed failure/retry settlement, and
 content-addressed successful results.
 
-It does not prove that a deployed host will always run the supervisor,
+It does not prove that the real delivery composition always supplies the
+scope-aware resolver, that a deployed host will always run the supervisor,
 redeliver after process loss, expose public status/results, or satisfy hosted
-Cloudflare/PostgreSQL operational behavior. DTE06-F remains the next gate for
-the private hosted end-to-end recovery proof. DTE05-E3 may consider a scheduled
+Cloudflare/PostgreSQL operational behavior. DTE06-E5 remains the next gate for
+private connected proof; DTE06-F then owns hosted end-to-end recovery.
+DTE05-E3 may consider a scheduled
 Worker/Cron host only after DTE06-F closes and receives separate deployment
 approval.

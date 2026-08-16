@@ -334,7 +334,35 @@ describe("Task Worker session host", () => {
     expect(expired.reason).toBe("timedOut");
   });
 
-  it("closes only after a concurrent settlement RPC drains", async () => {
+  it("reports timeout when expiry interrupts an in-flight settlement", async () => {
+    const input = startInput("application_v1", 20);
+    const expirySent = deferred<void>();
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start,
+      new Promise(() => undefined),
+      request => {
+        expirySent.resolve();
+        return interruptionFor(
+          start,
+          (request as { cancellationGeneration: bigint }).cancellationGeneration,
+          true,
+          "maximum_duration",
+        );
+      },
+    ));
+    const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader, {
+      handshakeMilliseconds: 100,
+    }).start(input));
+
+    const settling = Effect.runPromise(session.settlement.pipe(Effect.flip));
+    await expirySent.promise;
+    const failure = await settling;
+    expect(failure).toMatchObject({ operation: "settlement", reason: "timedOut" });
+    await Effect.runPromise(session.close);
+    expect(loader.sessionDisposals).toBe(1);
+  });
+
+  it("interrupts and drains a concurrent settlement RPC before close returns", async () => {
     const pending = deferred<unknown>();
     const loader = new FakeWorkerLoader(start => remoteSession(start, pending.promise));
     const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(
@@ -342,19 +370,15 @@ describe("Task Worker session host", () => {
     ));
     const settling = Effect.runPromise(session.settlement);
     await Promise.resolve();
-    let closeFinished = false;
-    const closing = Effect.runPromise(session.close).then(() => { closeFinished = true; });
-    await Promise.resolve();
-    expect(closeFinished).toBe(false);
-    expect(loader.sessionDisposals).toBe(0);
+    await Effect.runPromise(session.close);
+    await expect(settling).rejects.toMatchObject({ reason: "sessionLost" });
+    expect(loader.sessionDisposals).toBe(1);
 
     pending.resolve(settlementFor(session.acceptance));
-    await expect(settling).resolves.toMatchObject({ kind: "settled" });
-    await closing;
-    expect(loader.sessionDisposals).toBe(1);
+    await Promise.resolve();
   });
 
-  it("advances beyond and drains a concurrent accepted interruption generation", async () => {
+  it("advances beyond and interrupts a concurrent accepted interruption", async () => {
     const pending = deferred<unknown>();
     const input = startInput("application_v1");
     let closeGeneration: bigint | undefined;
@@ -379,17 +403,13 @@ describe("Task Worker session host", () => {
       interruptionFor(input, 2n, false),
     ));
     await Promise.resolve();
-    let closeFinished = false;
-    const closing = Effect.runPromise(session.close).then(() => { closeFinished = true; });
-    await Promise.resolve();
-    expect(closeFinished).toBe(false);
-    expect(loader.sessionDisposals).toBe(0);
+    await Effect.runPromise(session.close);
     expect(closeGeneration).toBe(3n);
+    expect(loader.sessionDisposals).toBe(1);
+    await expect(interrupting).rejects.toMatchObject({ reason: "sessionLost" });
 
     pending.resolve(interruptionFor(input, 2n));
-    await expect(interrupting).resolves.toMatchObject({ kind: "interruption_requested" });
-    await closing;
-    expect(loader.sessionDisposals).toBe(1);
+    await Promise.resolve();
   });
 
   it("drains an active expiry interruption before explicit close", async () => {
@@ -430,6 +450,23 @@ describe("Task Worker session host", () => {
     const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(input));
     await Effect.runPromise(session.close);
     expect(closeGeneration).toBe(1n);
+    expect(loader.sessionDisposals).toBe(1);
+  });
+
+  it("advertises and internally enforces its close settlement bound", async () => {
+    const input = startInput("application_v1");
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start,
+      new Promise(() => undefined),
+      () => new Promise(() => undefined),
+    ));
+    const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader, {
+      handshakeMilliseconds: 5,
+    }).start(input));
+
+    expect(session.maximumCloseMilliseconds).toBe(5);
+    const failure = await Effect.runPromise(session.close.pipe(Effect.flip));
+    expect(failure).toMatchObject({ operation: "close", reason: "cleanupFailed" });
     expect(loader.sessionDisposals).toBe(1);
   });
 });

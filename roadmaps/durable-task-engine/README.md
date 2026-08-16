@@ -130,16 +130,21 @@ and
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 The approved DTE06-E supervision and settlement boundary is recorded in
 [`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
-E1 through E3 are complete privately. The current session preserves exact terminal
+E1 through E4 are complete privately. The current session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
 claim durable success before result publication. The backend-private Task
 result store now canonicalizes and bounds successful values, publishes them
 through the shared immutable R2 core, and returns the exact durable-task-owned
 commitment. The private scope-bound lifecycle gateway now reuses the exact
 Legacy/Application stores and decisions for inspect, heartbeat, and completion
-without adding a lifecycle or runtime call inside a transaction. Structured
-supervision and connected proof remain E4 and E5; the hosted end-to-end proof
-remains DTE06-F.
+without adding a lifecycle or runtime call inside a transaction. The isolated
+backend-private supervisor now owns bounded heartbeats, result-before-completion
+ordering, deadline-bounded identical completion replay, exact cancellation
+acknowledgement, observed supervision exits, and structured session close while
+preserving interruption. Terminal Worker evidence stops heartbeat renewal
+before result or completion I/O. Its scope-aware
+resolver is still injected: real delivery/gateway composition and connected
+proof remain E5, and the hosted end-to-end proof remains DTE06-F.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -522,8 +527,8 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A through DTE06-D and DTE06-E1/E2/E3 complete privately;
-     DTE06-E4/E5 and DTE06-F pending:** the
+   - **active; DTE06-A through DTE06-D and DTE06-E1/E2/E3/E4 complete privately;
+     DTE06-E5 and DTE06-F pending:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.

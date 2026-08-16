@@ -2220,6 +2220,10 @@ export const decodeTaskResultCommitmentV1 = Schema.decodeUnknownResult(
   STRICT_PARSE_OPTIONS,
 );
 export const decodeTaskAttemptCompletionV1 = Schema.decodeUnknownResult(TaskAttemptCompletionV1Schema, STRICT_PARSE_OPTIONS);
+export const encodeTaskAttemptCompletionV1 = Schema.encodeUnknownResult(
+  TaskAttemptCompletionV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
 
 function ownCompletion(completion: TaskAttemptCompletionV1): TaskAttemptCompletionV1 {
   if (completion.kind !== "succeeded" || completion.result === null) return completion;

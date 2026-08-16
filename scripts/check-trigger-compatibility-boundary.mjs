@@ -21,6 +21,8 @@ const flarexBackendWorkerLoaderTaskComputeProviderPath =
   "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
 const flarexBackendTaskWorkerTerminalCompletionPath =
   "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts";
+const flarexBackendTaskAttemptSupervisorPath =
+  "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts";
 const flarexBackendTaskComputeDeliverySourcePrefix =
   "packages/flarex-backend/src/taskComputeDelivery/";
 const flarexBackendTaskRuntimeLaunchModelPath =
@@ -282,6 +284,21 @@ const admittedFlarexBackendTaskWorkerTerminalCompletionSymbols = new Set([
   "TaskExecutionFailureV1",
   "TaskRetryDirectiveV1",
 ]);
+const admittedFlarexBackendTaskAttemptSupervisorRunAttemptSymbols = new Set([
+  "ApplicationCompleteAttemptOutcomeV1",
+  "ApplicationHeartbeatAttemptOutcomeV1",
+  "ApplicationTaskSystemRunAttemptTransactionReceiptV1",
+  "CompleteAttemptCurrentReasonV1",
+  "CompleteAttemptOutcomeV1",
+  "HeartbeatAttemptCurrentReasonV1",
+  "HeartbeatAttemptOutcomeV1",
+  "TaskAttemptCompletionV1",
+  "TaskSystemRunAttemptTransactionReceiptV1",
+  "TaskSystemRunAttemptTransientStoreError",
+  "encodeTaskAttemptCompletionV1",
+]);
+const admittedFlarexBackendTaskAttemptSupervisorComputeProviderSymbols =
+  new Set(["CurrentTaskComputeDispatchRequestV1"]);
 const admittedFlarexBackendTaskResultStoreSymbols = new Set([
   "MAX_TASK_RESULT_CANONICAL_BYTES_V1",
   "TASK_RESULT_CODEC_V1",
@@ -704,6 +721,8 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && isTaskAttemptLifecycleGatewaySpecifier(specifier, relativePath)
         && relativePath !== persistencePostgresTaskAttemptLifecycleGatewayPath
+        && !(relativePath === flarexBackendTaskAttemptSupervisorPath
+          && isTypeOnlyImportDeclaration(node))
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1558,6 +1577,28 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
+  if (
+    relativePath === flarexBackendTaskAttemptSupervisorPath
+    && ts.isImportDeclaration(node)
+  ) {
+    const admittedSymbols = specifier ===
+        "@flarex/durable-task/internal/run-attempt-v1"
+      ? admittedFlarexBackendTaskAttemptSupervisorRunAttemptSymbols
+      : specifier === "@flarex/durable-task/internal/compute-provider-v1"
+      ? admittedFlarexBackendTaskAttemptSupervisorComputeProviderSymbols
+      : undefined;
+    const clause = node.importClause;
+    if (
+      admittedSymbols === undefined || clause === undefined
+      || clause.name !== undefined || clause.namedBindings === undefined
+      || !ts.isNamedImports(clause.namedBindings)
+      || clause.namedBindings.elements.length === 0
+    ) return false;
+    return clause.namedBindings.elements.every((element) => {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      return admittedSymbols.has(importedName);
+    });
+  }
   if (
     relativePath === flarexBackendTaskResultStorePath &&
     specifier === "@flarex/durable-task/internal/run-attempt-v1" &&

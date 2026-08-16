@@ -1,4 +1,4 @@
-import { Clock, Data, Effect, Exit, Fiber, Result } from "effect";
+import { Clock, Data, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import {
   TASK_WORKER_SESSION_START_FORMAT_V1,
   TASK_WORKER_SESSION_START_VERSION_V1,
@@ -73,6 +73,11 @@ export type TaskWorkerSessionHostStartInput = ApplicationStartInput | LegacyStar
 
 export interface TaskWorkerSession {
   readonly acceptance: TaskWorkerSessionAcceptanceV1;
+  /**
+   * Maximum wall time the session owner needs to settle its internally bounded
+   * RPC delivery and drain before `close` completes.
+   */
+  readonly maximumCloseMilliseconds: number;
   readonly requestInterruption: (
     request: unknown,
   ) => Effect.Effect<
@@ -284,6 +289,7 @@ function makeSession(
   let expiryFinished = false;
   let inFlight = 0;
   let disposed = false;
+  const closeStarted = Deferred.makeUnsafe<void>();
   let resolveDrained!: () => void;
   const drained = new Promise<void>(resolve => { resolveDrained = resolve; });
   const finishClose = (): void => {
@@ -301,6 +307,7 @@ function makeSession(
     if (closed) return;
     closed = true;
     closeReason = reason;
+    Deferred.doneUnsafe(closeStarted, Effect.void);
     if (inFlight === 0) finishClose();
   };
   const beginOperation = (
@@ -323,7 +330,16 @@ function makeSession(
         ? cause
         : hostError(operation, "sessionLost", cause),
     }),
-    () => effect,
+    () => Effect.raceFirst(
+      effect,
+      Deferred.await(closeStarted).pipe(Effect.andThen(Effect.suspend(() =>
+        Effect.fail(hostError(
+          operation,
+          closeReason,
+          cleanupCause ?? backgroundCause,
+        ))
+      ))),
+    ),
     () => Effect.sync(endOperation),
   );
   const requestInterruption: TaskWorkerSession["requestInterruption"] = Effect.fn(
@@ -539,6 +555,7 @@ function makeSession(
   );
   return Object.freeze({
     acceptance,
+    maximumCloseMilliseconds: handshakeMilliseconds,
     requestInterruption,
     settlement: settlement(),
     close: close(),

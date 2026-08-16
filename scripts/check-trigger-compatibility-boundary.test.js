@@ -983,7 +983,7 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
-  it("keeps the Task attempt lifecycle gateway production-inert until E4", () => {
+  it("admits only the E4 supervisor type edge to the lifecycle gateway", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
         "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts",
@@ -998,6 +998,28 @@ describe("Trigger compatibility boundary checker", () => {
         } from "@flarex/durable-task/internal/compute-provider-v1";
       `,
     }, {
+      relativePath:
+        "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts",
+      text: `
+        import {
+          encodeTaskAttemptCompletionV1,
+          type ApplicationHeartbeatAttemptOutcomeV1,
+          type HeartbeatAttemptOutcomeV1,
+          type TaskAttemptCompletionV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import type { CurrentTaskComputeDispatchRequestV1 } from
+          "@flarex/durable-task/internal/compute-provider-v1";
+        import type { TaskAttemptLifecycleCapability } from
+          "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
+      `,
+    }, {
+      relativePath:
+        "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts",
+      text: `
+        import { createTaskAttemptLifecycleGateway } from
+          "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
+      `,
+    }, {
       relativePath: "packages/flarex-backend/src/worker.ts",
       text: `
         import { createTaskAttemptLifecycleGateway } from
@@ -1010,6 +1032,7 @@ describe("Trigger compatibility boundary checker", () => {
           "../../../packages/persistence-postgres/src/taskAttemptLifecycleGateway.js";
       `,
     }]).errors).toEqual([
+      "packages/flarex-backend/src/taskComputeDelivery/TaskAttemptSupervisor.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
       "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
       "apps/executor/src/taskLifecycle.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
     ]);
