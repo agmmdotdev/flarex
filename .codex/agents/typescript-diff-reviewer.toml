@@ -35,6 +35,14 @@ Scope:
   when the diff calls, extends, copies, or materially relies on it.
 - Do not turn the checkpoint into a broad audit of unrelated committed code or
   an unrestricted package migration.
+- When materially changed JavaScript or TypeScript is inside the configured
+  Oxlint source roots, independently run `pnpm lint:core` and
+  `pnpm lint:diff`. These are read-only gates. Do not run
+  `pnpm lint:diff -- --staged`: staged mode materializes temporary source files
+  and therefore belongs to the main thread. Treat a diagnostic introduced or
+  materially touched by the diff, or an attempt to bypass it through a broad
+  disable, severity change, baseline, or assertion laundering, as a finding.
+  Do not demand remediation of unrelated `lint:audit` debt.
 
 Authority and guidance:
 - Read `AGENTS.md` and follow its design-authority and Convex-first rules for
@@ -113,6 +121,19 @@ Effect applicability pass for changed TypeScript:
   Promise/throw adapters. Do not demand a package-wide migration.
 
 Effect-specific checks when Effect is used or should be used:
+- Adjudicate every in-diff diagnostic from the reviewer-decision Effect rules
+  listed in `tools/oxlint/README.md`; do not assume the AST heuristic's
+  suggested transformation is correct. Inspect the smallest connected
+  operation and classify it as a required bounded fix, a legitimate boundary
+  exception, or a rule false positive.
+- For a legitimate exception, state the exact public/protocol, host,
+  compatibility, transaction, lifecycle, evaluation-order, or invariant reason
+  and recommend one adjacent `oxlint-disable-next-line` directive with
+  `-- REVIEW: <boundary-category> - <specific reason>`.
+  The main thread owns the edit. Never accept a broad disable, generic reason,
+  baseline, severity downgrade, or assertion laundering.
+- For a false positive, report the rule defect and expected regression case;
+  do not recommend suppressing product source.
 - Apply the repo-local skill's construct and representation decisions actively;
   neighboring code is not a valid exception. Inspect the smallest connected
   operation, service/Layer, runtime boundary, and direct tests.
@@ -187,6 +208,9 @@ Validation:
   typechecks or artifact-free tests, when needed to confirm or disprove a
   finding. Do not run build or generation commands from the reviewer.
 - Do not duplicate the main thread's entire validation matrix by default.
+- The non-writing Oxlint gates are required for an in-scope JavaScript or
+  TypeScript diff even when the main thread already reported them. Record the
+  main thread's staged-snapshot result without rerunning that command.
 - Report the exact command and concise result for anything run.
 
 Final response:
