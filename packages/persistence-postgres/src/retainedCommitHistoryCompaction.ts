@@ -1,5 +1,5 @@
 import { and, asc, eq, lt } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Option, Result, Schema } from "effect";
 import { MAX_COMMIT_WRITE_OPERATIONS_V1 } from
   "flarex-protocol/commit-protocol";
 import {
@@ -17,6 +17,11 @@ import {
   isLocatedRetainedHistoryFloorTargetInternal,
   type LocatedRetainedHistoryFloorTarget,
 } from "./retainedHistoryFloorObservation";
+import {
+  retainedHistoryPageGuardChanged,
+  type RetainedHistoryPageExpectation,
+  type RetainedHistoryPageGuardChangedResult,
+} from "./retainedHistoryPageGuard";
 import {
   lockScopeClockForShareInTransactionEffect,
   type LockScopeClockForShareError,
@@ -119,6 +124,10 @@ export type RetainedCommitHistoryCompactionResult =
       readonly deletedChangeCount: number;
     }>;
 
+export type GuardedRetainedCommitHistoryCompactionResult =
+  | RetainedCommitHistoryCompactionResult
+  | RetainedHistoryPageGuardChangedResult;
+
 export class RetainedCommitHistoryCompactionError extends Data.TaggedError(
   "RetainedCommitHistoryCompactionError",
 )<{
@@ -149,15 +158,46 @@ export type CompactRetainedCommitHistoryPageError =
   | LocatedReadCommittedTransactionFailureV1
   | TrustedScopeAuthorityError;
 
-export const compactRetainedCommitHistoryPageEffect = Effect.fn(
+export function compactRetainedCommitHistoryPageEffect(
+  port: RetainedCommitHistoryCompactionPort,
+  deploymentId: string,
+): Effect.Effect<
+  RetainedCommitHistoryCompactionResult,
+  CompactRetainedCommitHistoryPageError
+>;
+export function compactRetainedCommitHistoryPageEffect(
+  port: RetainedCommitHistoryCompactionPort,
+  deploymentId: string,
+  expectation: RetainedHistoryPageExpectation,
+): Effect.Effect<
+  GuardedRetainedCommitHistoryCompactionResult,
+  CompactRetainedCommitHistoryPageError
+>;
+export function compactRetainedCommitHistoryPageEffect(
+  port: RetainedCommitHistoryCompactionPort,
+  deploymentId: string,
+  expectation: RetainedHistoryPageExpectation | null = null,
+): Effect.Effect<
+  GuardedRetainedCommitHistoryCompactionResult,
+  CompactRetainedCommitHistoryPageError
+> {
+  return compactRetainedCommitHistoryPageWithExpectationEffect(
+    port,
+    deploymentId,
+    expectation,
+  );
+}
+
+const compactRetainedCommitHistoryPageWithExpectationEffect = Effect.fn(
   "RetainedCommitHistory.compactPage",
 )(function* (
   port: RetainedCommitHistoryCompactionPort,
   deploymentId: string,
+  expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.fn.Return<
-  RetainedCommitHistoryCompactionResult,
+  GuardedRetainedCommitHistoryCompactionResult,
   CompactRetainedCommitHistoryPageError
-> {
+  > {
   const state = portStates.get(port);
   if (state === undefined) {
     return yield* Effect.fail(new RetainedCommitHistoryCompactionError({
@@ -182,7 +222,12 @@ export const compactRetainedCommitHistoryPageEffect = Effect.fn(
       rollbackMessage: "rollback:retained-commit-history-compaction",
       cleanupDefect: failure => failure,
     },
-    tx => compactInTransaction(tx, located.authority, state),
+    tx => compactInTransaction(
+      tx,
+      located.authority,
+      state,
+      expectation,
+    ),
   );
 });
 
@@ -192,8 +237,9 @@ const compactInTransaction = Effect.fn(
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   state: RetainedCommitHistoryCompactionPortState,
+  expectation: RetainedHistoryPageExpectation | null,
 ): Effect.fn.Return<
-  RetainedCommitHistoryCompactionResult,
+  GuardedRetainedCommitHistoryCompactionResult,
   | RetainedCommitHistoryCompactionError
   | RetainedCommitHistoryCompactionPersistenceError
   | LockScopeClockForShareError
@@ -203,6 +249,14 @@ const compactInTransaction = Effect.fn(
     authority.scopeId,
   );
   yield* requireExactAuthority(authority, clock);
+  const guardChanged = retainedHistoryPageGuardChanged(
+    authority,
+    clock.oldestAvailableCommitSeq,
+    expectation,
+  );
+  if (Option.isSome(guardChanged)) {
+    return guardChanged.value;
+  }
   const scopeUuid = yield* projectScopeIdUuidV1Result(clock.scopeId).pipe(
     Result.mapError(cause => compactionError(
       authority,

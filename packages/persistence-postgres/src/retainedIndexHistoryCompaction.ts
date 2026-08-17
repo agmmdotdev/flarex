@@ -13,7 +13,7 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Option, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogTableIdSchema,
@@ -43,6 +43,11 @@ import {
   isLocatedRetainedHistoryFloorTargetInternal,
   type LocatedRetainedHistoryFloorTarget,
 } from "./retainedHistoryFloorObservation";
+import {
+  retainedHistoryPageGuardChanged,
+  type RetainedHistoryPageExpectation,
+  type RetainedHistoryPageGuardChangedResult,
+} from "./retainedHistoryPageGuard";
 import {
   lockScopeClockForShareInTransactionEffect,
   type LockScopeClockForShareError,
@@ -174,6 +179,10 @@ export type RetainedIndexHistoryCompactionResult =
       readonly continuation: RetainedIndexHistoryCursor;
     }>;
 
+export type GuardedRetainedIndexHistoryCompactionResult =
+  | RetainedIndexHistoryCompactionResult
+  | RetainedHistoryPageGuardChangedResult;
+
 export class RetainedIndexHistoryCompactionError extends Data.TaggedError(
   "RetainedIndexHistoryCompactionError",
 )<{
@@ -205,14 +214,49 @@ export type CompactRetainedIndexHistoryPageError =
   | LocatedReadCommittedTransactionFailureV1
   | TrustedScopeAuthorityError;
 
-export const compactRetainedIndexHistoryPageEffect = Effect.fn(
+export function compactRetainedIndexHistoryPageEffect(
+  port: RetainedIndexHistoryCompactionPort,
+  deploymentId: string,
+  cursorInput: unknown,
+): Effect.Effect<
+  RetainedIndexHistoryCompactionResult,
+  CompactRetainedIndexHistoryPageError
+>;
+export function compactRetainedIndexHistoryPageEffect(
+  port: RetainedIndexHistoryCompactionPort,
+  deploymentId: string,
+  cursorInput: unknown,
+  expectation: RetainedHistoryPageExpectation,
+): Effect.Effect<
+  GuardedRetainedIndexHistoryCompactionResult,
+  CompactRetainedIndexHistoryPageError
+>;
+export function compactRetainedIndexHistoryPageEffect(
+  port: RetainedIndexHistoryCompactionPort,
+  deploymentId: string,
+  cursorInput: unknown,
+  expectation: RetainedHistoryPageExpectation | null = null,
+): Effect.Effect<
+  GuardedRetainedIndexHistoryCompactionResult,
+  CompactRetainedIndexHistoryPageError
+> {
+  return compactRetainedIndexHistoryPageWithExpectationEffect(
+    port,
+    deploymentId,
+    cursorInput,
+    expectation,
+  );
+}
+
+const compactRetainedIndexHistoryPageWithExpectationEffect = Effect.fn(
   "RetainedIndexHistory.compactPage",
 )(function* (
   port: RetainedIndexHistoryCompactionPort,
   deploymentId: string,
   cursorInput: unknown,
+  expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.fn.Return<
-  RetainedIndexHistoryCompactionResult,
+  GuardedRetainedIndexHistoryCompactionResult,
   CompactRetainedIndexHistoryPageError
 > {
   const state = portStates.get(port);
@@ -247,7 +291,13 @@ export const compactRetainedIndexHistoryPageEffect = Effect.fn(
       rollbackMessage: "rollback:retained-index-history-compaction",
       cleanupDefect: failure => failure,
     },
-    tx => compactInTransaction(tx, located.authority, state, cursor),
+    tx => compactInTransaction(
+      tx,
+      located.authority,
+      state,
+      cursor,
+      expectation,
+    ),
   );
 });
 
@@ -258,8 +308,9 @@ const compactInTransaction = Effect.fn(
   authority: TrustedScopeAuthority,
   state: RetainedIndexHistoryCompactionPortState,
   cursor: RetainedIndexHistoryCursor,
+  expectation: RetainedHistoryPageExpectation | null,
 ): Effect.fn.Return<
-  RetainedIndexHistoryCompactionResult,
+  GuardedRetainedIndexHistoryCompactionResult,
   | RetainedIndexHistoryCompactionError
   | RetainedIndexHistoryCompactionPersistenceError
   | LockScopeClockForShareError
@@ -269,6 +320,14 @@ const compactInTransaction = Effect.fn(
     authority.scopeId,
   );
   yield* requireExactAuthority(authority, clock);
+  const guardChanged = retainedHistoryPageGuardChanged(
+    authority,
+    clock.oldestAvailableCommitSeq,
+    expectation,
+  );
+  if (Option.isSome(guardChanged)) {
+    return guardChanged.value;
+  }
   const scopeUuid = yield* projectScopeIdUuidV1Result(clock.scopeId).pipe(
     Result.mapError(cause => compactionError(
       authority,

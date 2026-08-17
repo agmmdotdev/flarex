@@ -1,5 +1,5 @@
 import { asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Option, Result, Schema } from "effect";
 import {
   AppCreationTimeV1Schema,
   type AppCreationTimeV1,
@@ -26,6 +26,11 @@ import {
   isLocatedRetainedHistoryFloorTargetInternal,
   type LocatedRetainedHistoryFloorTarget,
 } from "./retainedHistoryFloorObservation";
+import {
+  retainedHistoryPageGuardChanged,
+  type RetainedHistoryPageExpectation,
+  type RetainedHistoryPageGuardChangedResult,
+} from "./retainedHistoryPageGuard";
 import {
   lockScopeClockForShareInTransactionEffect,
   type LockScopeClockForShareError,
@@ -152,6 +157,10 @@ export type RetainedAppRowHistoryCompactionResult =
       readonly continuation: RetainedAppRowHistoryCursor;
     }>;
 
+export type GuardedRetainedAppRowHistoryCompactionResult =
+  | RetainedAppRowHistoryCompactionResult
+  | RetainedHistoryPageGuardChangedResult;
+
 export class RetainedAppRowHistoryCompactionError extends Data.TaggedError(
   "RetainedAppRowHistoryCompactionError",
 )<{
@@ -183,14 +192,49 @@ export type CompactRetainedAppRowHistoryPageError =
   | LocatedReadCommittedTransactionFailureV1
   | TrustedScopeAuthorityError;
 
-export const compactRetainedAppRowHistoryPageEffect = Effect.fn(
+export function compactRetainedAppRowHistoryPageEffect(
+  port: RetainedAppRowHistoryCompactionPort,
+  deploymentId: string,
+  cursorInput: unknown,
+): Effect.Effect<
+  RetainedAppRowHistoryCompactionResult,
+  CompactRetainedAppRowHistoryPageError
+>;
+export function compactRetainedAppRowHistoryPageEffect(
+  port: RetainedAppRowHistoryCompactionPort,
+  deploymentId: string,
+  cursorInput: unknown,
+  expectation: RetainedHistoryPageExpectation,
+): Effect.Effect<
+  GuardedRetainedAppRowHistoryCompactionResult,
+  CompactRetainedAppRowHistoryPageError
+>;
+export function compactRetainedAppRowHistoryPageEffect(
+  port: RetainedAppRowHistoryCompactionPort,
+  deploymentId: string,
+  cursorInput: unknown,
+  expectation: RetainedHistoryPageExpectation | null = null,
+): Effect.Effect<
+  GuardedRetainedAppRowHistoryCompactionResult,
+  CompactRetainedAppRowHistoryPageError
+> {
+  return compactRetainedAppRowHistoryPageWithExpectationEffect(
+    port,
+    deploymentId,
+    cursorInput,
+    expectation,
+  );
+}
+
+const compactRetainedAppRowHistoryPageWithExpectationEffect = Effect.fn(
   "RetainedAppRowHistory.compactPage",
 )(function* (
   port: RetainedAppRowHistoryCompactionPort,
   deploymentId: string,
   cursorInput: unknown,
+  expectation: RetainedHistoryPageExpectation | null = null,
 ): Effect.fn.Return<
-  RetainedAppRowHistoryCompactionResult,
+  GuardedRetainedAppRowHistoryCompactionResult,
   CompactRetainedAppRowHistoryPageError
 > {
   const state = portStates.get(port);
@@ -225,7 +269,13 @@ export const compactRetainedAppRowHistoryPageEffect = Effect.fn(
       rollbackMessage: "rollback:retained-app-row-history-compaction",
       cleanupDefect: failure => failure,
     },
-    tx => compactInTransaction(tx, located.authority, state, cursor),
+    tx => compactInTransaction(
+      tx,
+      located.authority,
+      state,
+      cursor,
+      expectation,
+    ),
   );
 });
 
@@ -236,8 +286,9 @@ const compactInTransaction = Effect.fn(
   authority: TrustedScopeAuthority,
   state: RetainedAppRowHistoryCompactionPortState,
   cursor: RetainedAppRowHistoryCursor,
+  expectation: RetainedHistoryPageExpectation | null,
 ): Effect.fn.Return<
-  RetainedAppRowHistoryCompactionResult,
+  GuardedRetainedAppRowHistoryCompactionResult,
   | RetainedAppRowHistoryCompactionError
   | RetainedAppRowHistoryCompactionPersistenceError
   | LockScopeClockForShareError
@@ -247,6 +298,14 @@ const compactInTransaction = Effect.fn(
     authority.scopeId,
   );
   yield* requireExactAuthority(authority, clock);
+  const guardChanged = retainedHistoryPageGuardChanged(
+    authority,
+    clock.oldestAvailableCommitSeq,
+    expectation,
+  );
+  if (Option.isSome(guardChanged)) {
+    return guardChanged.value;
+  }
   const scopeUuid = yield* projectScopeIdUuidV1Result(clock.scopeId).pipe(
     Result.mapError(cause => compactionError(
       authority,

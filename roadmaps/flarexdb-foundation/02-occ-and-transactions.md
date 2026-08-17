@@ -1937,7 +1937,7 @@ preflight rather than opportunistic DDL.
    that schema/protocol preflight rather than folding it into O11-D. The
    commit/change-feed, ordered-index revision, and app-row revision owners are
    complete; host-neutral composition remains O11-E.
-5. [ ] `O11-E` — compose those exact pages in one host-neutral count/time-bounded
+5. [x] `O11-E` — compose those exact pages in one host-neutral count/time-bounded
    maintenance run with continuation evidence. It remains private and inert.
 6. [ ] `O11-F` — separately preflight any production timer, queue, scheduler,
    routing, backoff, observability, or operational liveness owner. Existing
@@ -2043,7 +2043,40 @@ Genuine PostgreSQL proof exercises the 128-row page against 4,396 populated
 revisions, inventories all four incoming FK owners, and confirms the existing
 app-row primary key serves identity, anchor, candidate, and exact deletion
 plans. O11-D is now complete; no cross-owner loop, scheduler, trigger, or
-production composition is introduced. O11-E remains the next checkpoint.
+production composition is introduced. O11-E now owns only their private,
+host-neutral composition; O11-F remains the next checkpoint.
+
+`O11-E` composes only those three exact private page owners in dependency order:
+commit/change-feed history, ordered-index revisions, then app-row revisions.
+One lifecycle-free opaque maintenance port constructs all three from one
+captured located-authority input so independently sourced targets cannot be
+miscomposed. A pure configuration decoder admits only bounded page and elapsed-
+time policies. Each run that passes port, continuation, and authority preflight
+executes at least one and at most the admitted number of already-bounded owner
+pages, checks the Effect monotonic clock between page transactions, and never
+interrupts or guesses the settlement of an in-flight page merely to meet the
+cooperative time ceiling. Its frozen process-local
+continuation is authenticated to the exact issuer, deployment, scope, and
+retained floor, physical placement, storage generation and fence, and epoch,
+and carries only the current dependency phase plus the existing owner cursor.
+Structural copies, foreign issuers, and cross-deployment resumes fail closed.
+Every resumed page compares that exact authority and floor under its own
+scope-clock share lock before any directory read or deletion. If the monotonic
+floor advances between pages or runs, that no-write guard returns a
+reset-to-commit continuation pinned to the newer floor so no earlier identity
+can be skipped; a lower floor or scope mismatch is corruption. Any authority
+replacement before resume, under the page lock, or after a page discards the
+cursor and returns an explicit restart-from-commit signal with no trusted
+continuation. Losing the process-local continuation likewise safely restarts
+from commit history. This
+checkpoint adds no persisted cursor, wire codec, schema, scheduler, timer,
+route, retry policy, or production activation. Focused evidence proves
+dependency ordering through real foreign keys, count and cooperative-time
+stops, exact resume and structural-copy rejection, floor-advance reset,
+authority-change cursor rejection, floor-regression failure,
+failure/uncertainty replay without guessed progress, empty exhaustion, and a
+genuine-PostgreSQL connected run. O11-F remains the only owner allowed to
+preflight durable checkpointing or a production trigger.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,
