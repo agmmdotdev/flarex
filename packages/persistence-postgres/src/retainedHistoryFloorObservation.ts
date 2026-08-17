@@ -17,8 +17,12 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import { getScopeClock } from "./scopeClock";
 import {
+  lockScopeClockForUpdateInTransactionEffect,
   lockScopeClockForShareInTransactionEffect,
+  type LockScopeClockForUpdateError,
   type LockScopeClockForShareError,
+  type ScopeClockRecord,
+  decodeScopeClockRecordResult,
 } from "./scopeClock";
 import {
   captureTrustedScopeAuthorityResolutionPorts,
@@ -30,6 +34,7 @@ import {
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
+  fxSystemScopeClocks,
   fxSystemCommits,
   fxSystemSnapshotLeases,
 } from "./schema";
@@ -50,6 +55,12 @@ const retainedHistoryFloorPortBrand: unique symbol = Symbol(
 );
 const retainedHistoryFloorPinFacetBrand: unique symbol = Symbol(
   "FlarexDB/retainedHistoryFloorPinFacet",
+);
+const retainedHistoryFloorPublicationPinFacetBrand: unique symbol = Symbol(
+  "FlarexDB/retainedHistoryFloorPublicationPinFacet",
+);
+const retainedHistoryFloorPublicationPortBrand: unique symbol = Symbol(
+  "FlarexDB/retainedHistoryFloorPublicationPort",
 );
 
 export interface LocatedRetainedHistoryFloorTarget
@@ -94,10 +105,35 @@ const pinFacetStates = new WeakMap<
   RetainedHistoryFloorPinFacetState
 >();
 
+export interface RetainedHistoryFloorPublicationPinFacet {
+  readonly [retainedHistoryFloorPublicationPinFacetBrand]: true;
+}
+
+const publicationPinFacetStates = new WeakMap<
+  RetainedHistoryFloorPublicationPinFacet,
+  Readonly<{ readonly policy: "testNoReconnect" }>
+>();
+
 /**
- * Package-private O11-B composition seam. A future pin owner must authenticate
- * its own observation before constructing this process-local facet. O11-C must
- * replace static preparation with an in-transaction reread before publication.
+ * Explicit private proof policy. It is not production permission to advance a
+ * floor: roadmap 21 must supply the reconnect owner before O11 is wired.
+ */
+export function createTestNoReconnectRetainedHistoryFloorPublicationPinFacet():
+  RetainedHistoryFloorPublicationPinFacet {
+  const facet = Object.freeze({
+    [retainedHistoryFloorPublicationPinFacetBrand]: true as const,
+  });
+  publicationPinFacetStates.set(facet, Object.freeze({
+    policy: "testNoReconnect" as const,
+  }));
+  return facet;
+}
+
+/**
+ * Package-private O11-B observation seam. A future pin owner must authenticate
+ * its own observation before constructing this process-local facet. The O11-C
+ * writer deliberately rejects these static observation facets and owns a
+ * separate in-transaction publication policy.
  */
 export function createRetainedHistoryFloorPinFacet(
   owner: RetainedHistoryFloorPinFacetState["owner"],
@@ -130,6 +166,25 @@ interface RetainedHistoryFloorObservationPortState {
   readonly maximumLiveSnapshotRetentionMilliseconds: number;
   readonly pinFacets: ReadonlyArray<RetainedHistoryFloorPinFacetState>;
 }
+
+export interface RetainedHistoryFloorPublicationPort {
+  readonly [retainedHistoryFloorPublicationPortBrand]: true;
+}
+
+interface RetainedHistoryFloorPublicationPortState {
+  readonly authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedRetainedHistoryFloorTarget
+  >;
+  readonly maximumLiveSnapshotRetentionMilliseconds: number;
+  readonly pinFacets: ReadonlyArray<
+    Readonly<{ readonly policy: "testNoReconnect" }>
+  >;
+}
+
+const publicationPortStates = new WeakMap<
+  RetainedHistoryFloorPublicationPort,
+  RetainedHistoryFloorPublicationPortState
+>();
 
 const portStates = new WeakMap<
   RetainedHistoryFloorObservationPort,
@@ -166,6 +221,36 @@ export function createRetainedHistoryFloorObservationPort(input: {
   return port;
 }
 
+export function createRetainedHistoryFloorPublicationPort(input: {
+  readonly authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedRetainedHistoryFloorTarget
+  >;
+  readonly grantRetentionPolicy: GrantRetentionPolicyV1;
+  readonly pinFacets: ReadonlyArray<RetainedHistoryFloorPublicationPinFacet>;
+}): RetainedHistoryFloorPublicationPort {
+  const port = Object.freeze({
+    [retainedHistoryFloorPublicationPortBrand]: true as const,
+  });
+  const facets = input.pinFacets;
+  if (facets.length === 0 || facets.length > MAX_RETAINED_FLOOR_PIN_FACETS) {
+    return port;
+  }
+  const capturedPins: Array<Readonly<{ readonly policy: "testNoReconnect" }>> =
+    [];
+  for (const facet of facets) {
+    const state = publicationPinFacetStates.get(facet);
+    if (state === undefined) return port;
+    capturedPins.push(state);
+  }
+  publicationPortStates.set(port, Object.freeze({
+    authority: captureTrustedScopeAuthorityResolutionPorts(input.authority),
+    maximumLiveSnapshotRetentionMilliseconds:
+      input.grantRetentionPolicy.maximumLiveSnapshotRetentionMilliseconds,
+    pinFacets: Object.freeze(capturedPins),
+  }));
+  return port;
+}
+
 export type RetainedHistoryFloorHoldReason =
   | "leaseDirectoryLimit"
   | "liveLeaseAuthorityUnavailable"
@@ -178,6 +263,22 @@ export interface RetainedHistoryFloorCandidateObservation {
   readonly deploymentId: string;
   readonly scopeId: ScopeId;
   readonly databaseNow: string;
+  readonly currentFloor: CommitSeq;
+  readonly lastCommitSeq: CommitSeq;
+  readonly candidateFloor: CommitSeq;
+  readonly leaseCeiling: CommitSeq;
+  readonly timeWindowCeiling: CommitSeq;
+  readonly additionalPinCeiling: CommitSeq;
+  readonly holdReasons: ReadonlyArray<RetainedHistoryFloorHoldReason>;
+}
+
+export interface RetainedHistoryFloorPublicationResult {
+  readonly status: "published";
+  readonly disposition: "held" | "advanced";
+  readonly deploymentId: string;
+  readonly scopeId: ScopeId;
+  readonly databaseNow: string;
+  readonly previousFloor: CommitSeq;
   readonly currentFloor: CommitSeq;
   readonly lastCommitSeq: CommitSeq;
   readonly candidateFloor: CommitSeq;
@@ -203,7 +304,11 @@ export class RetainedHistoryFloorObservationError extends Data.TaggedError(
 export class RetainedHistoryFloorPersistenceError extends Data.TaggedError(
   "RetainedHistoryFloorPersistenceError",
 )<{
-  readonly operation: "databaseTime" | "leaseDirectory" | "commitDirectory";
+  readonly operation:
+    | "databaseTime"
+    | "leaseDirectory"
+    | "commitDirectory"
+    | "publication";
   readonly cause: unknown;
 }> {}
 
@@ -211,6 +316,13 @@ export type ObserveRetainedHistoryFloorCandidateError =
   | RetainedHistoryFloorObservationError
   | RetainedHistoryFloorPersistenceError
   | LockScopeClockForShareError
+  | LocatedReadCommittedTransactionFailureV1
+  | TrustedScopeAuthorityError;
+
+export type PublishRetainedHistoryFloorError =
+  | RetainedHistoryFloorObservationError
+  | RetainedHistoryFloorPersistenceError
+  | LockScopeClockForUpdateError
   | LocatedReadCommittedTransactionFailureV1
   | TrustedScopeAuthorityError;
 
@@ -251,6 +363,43 @@ export const observeRetainedHistoryFloorCandidateEffect = Effect.fn(
   );
 });
 
+export const publishRetainedHistoryFloorEffect = Effect.fn(
+  "RetainedHistoryFloor.publish",
+)(function* (
+  port: RetainedHistoryFloorPublicationPort,
+  deploymentId: string,
+): Effect.fn.Return<
+  RetainedHistoryFloorPublicationResult,
+  PublishRetainedHistoryFloorError
+> {
+  const state = publicationPortStates.get(port);
+  if (state === undefined) {
+    return yield* Effect.fail(new RetainedHistoryFloorObservationError({
+      reason: "invalidPort",
+      deploymentId,
+    }));
+  }
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    deploymentId,
+    state.authority,
+  );
+  if (!locatedTargets.has(located.target)) {
+    return yield* Effect.fail(new RetainedHistoryFloorObservationError({
+      reason: "invalidTarget",
+      deploymentId,
+      scopeId: located.authority.scopeId,
+    }));
+  }
+  return yield* runLocatedReadCommittedEffect(
+    located.target,
+    {
+      rollbackMessage: "rollback:retained-history-floor-publication",
+      cleanupDefect: failure => failure,
+    },
+    tx => publishInTransaction(tx, located.authority, state),
+  );
+});
+
 const observeInTransaction = Effect.fn(
   "RetainedHistoryFloor.observeInTransaction",
 )(function* (
@@ -267,17 +416,115 @@ const observeInTransaction = Effect.fn(
     tx,
     authority.scopeId,
   );
+  yield* requireExactAuthority(authority, clock);
+  return yield* calculateCandidateInTransaction(
+    tx,
+    authority,
+    clock,
+    state.maximumLiveSnapshotRetentionMilliseconds,
+    state.pinFacets,
+  );
+});
+
+const publishInTransaction = Effect.fn(
+  "RetainedHistoryFloor.publishInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  state: RetainedHistoryFloorPublicationPortState,
+): Effect.fn.Return<
+  RetainedHistoryFloorPublicationResult,
+  | RetainedHistoryFloorObservationError
+  | RetainedHistoryFloorPersistenceError
+  | LockScopeClockForUpdateError
+> {
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* requireExactAuthority(authority, clock);
+  const pins = state.pinFacets.map(() => Object.freeze({
+    owner: "test" as const,
+    observation: Object.freeze({ kind: "absent" as const }),
+  }));
+  const observation = yield* calculateCandidateInTransaction(
+    tx,
+    authority,
+    clock,
+    state.maximumLiveSnapshotRetentionMilliseconds,
+    pins,
+  );
+  if (observation.candidateFloor === observation.currentFloor) {
+    return publicationResult(observation, "held", observation.currentFloor);
+  }
+  const updatedRows = yield* queryEffect(
+    "publication",
+    tx.update(fxSystemScopeClocks)
+      .set({
+        oldestAvailableCommitSeq: observation.candidateFloor,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(and(
+        eq(fxSystemScopeClocks.scopeId, authority.scopeId),
+        eq(fxSystemScopeClocks.storageGeneration, clock.storageGeneration),
+        eq(
+          fxSystemScopeClocks.storageGenerationFence,
+          clock.storageGenerationFence,
+        ),
+        eq(fxSystemScopeClocks.epoch, clock.epoch),
+        eq(fxSystemScopeClocks.lastCommitSeq, clock.lastCommitSeq),
+        eq(
+          fxSystemScopeClocks.oldestAvailableCommitSeq,
+          clock.oldestAvailableCommitSeq,
+        ),
+      ))
+      .returning(),
+  );
+  if (updatedRows.length !== 1) {
+    return yield* Effect.fail(observationError(
+      authority,
+      "storedEvidenceInvalid",
+    ));
+  }
+  const updated = yield* decodeScopeClockRecordResult(updatedRows[0]).pipe(
+    Result.mapError(cause => observationError(
+      authority,
+      "storedEvidenceInvalid",
+      cause,
+    )),
+    Effect.fromResult,
+  );
   if (
-    clock.storageGeneration !== "flarexdb_v1" ||
-    clock.storageGeneration !== authority.storageGeneration ||
-    clock.storageGenerationFence !== authority.storageGenerationFence ||
-    clock.epoch !== authority.epoch
+    updated.oldestAvailableCommitSeq !== observation.candidateFloor ||
+    updated.lastCommitSeq !== clock.lastCommitSeq ||
+    updated.storageGeneration !== clock.storageGeneration ||
+    updated.storageGenerationFence !== clock.storageGenerationFence ||
+    updated.epoch !== clock.epoch
   ) {
     return yield* Effect.fail(observationError(
       authority,
-      "staleAuthority",
+      "storedEvidenceInvalid",
     ));
   }
+  return publicationResult(
+    observation,
+    "advanced",
+    updated.oldestAvailableCommitSeq,
+  );
+});
+
+const calculateCandidateInTransaction = Effect.fn(
+  "RetainedHistoryFloor.calculateCandidateInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+  maximumLiveSnapshotRetentionMilliseconds: number,
+  pinFacets: ReadonlyArray<RetainedHistoryFloorPinFacetState>,
+): Effect.fn.Return<
+  RetainedHistoryFloorCandidateObservation,
+  RetainedHistoryFloorObservationError | RetainedHistoryFloorPersistenceError
+> {
   const epochUuid = yield* projectScopeEpochUuidV1Result(clock.epoch).pipe(
     Result.mapError(cause => observationError(
       authority,
@@ -297,7 +544,7 @@ const observeInTransaction = Effect.fn(
   const databaseNow = yield* readDatabaseTimeEffect(tx, authority);
   const databaseNowMilliseconds = databaseNow.getTime();
   const cutoffMilliseconds = databaseNowMilliseconds -
-    state.maximumLiveSnapshotRetentionMilliseconds;
+    maximumLiveSnapshotRetentionMilliseconds;
   if (!Number.isSafeInteger(cutoffMilliseconds)) {
     return yield* Effect.fail(observationError(
       authority,
@@ -352,7 +599,7 @@ const observeInTransaction = Effect.fn(
     authority,
     clock.oldestAvailableCommitSeq,
     clock.lastCommitSeq,
-    state.pinFacets,
+    pinFacets,
   ));
 
   const holdReasons = Object.freeze([
@@ -382,6 +629,40 @@ const observeInTransaction = Effect.fn(
     holdReasons,
   });
 });
+
+function requireExactAuthority(
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+): Effect.Effect<void, RetainedHistoryFloorObservationError> {
+  return clock.storageGeneration === "flarexdb_v1" &&
+      clock.storageGeneration === authority.storageGeneration &&
+      clock.storageGenerationFence === authority.storageGenerationFence &&
+      clock.epoch === authority.epoch
+    ? Effect.void
+    : Effect.fail(observationError(authority, "staleAuthority"));
+}
+
+function publicationResult(
+  observation: RetainedHistoryFloorCandidateObservation,
+  disposition: RetainedHistoryFloorPublicationResult["disposition"],
+  currentFloor: CommitSeq,
+): RetainedHistoryFloorPublicationResult {
+  return Object.freeze({
+    status: "published" as const,
+    disposition,
+    deploymentId: observation.deploymentId,
+    scopeId: observation.scopeId,
+    databaseNow: observation.databaseNow,
+    previousFloor: observation.currentFloor,
+    currentFloor,
+    lastCommitSeq: observation.lastCommitSeq,
+    candidateFloor: observation.candidateFloor,
+    leaseCeiling: observation.leaseCeiling,
+    timeWindowCeiling: observation.timeWindowCeiling,
+    additionalPinCeiling: observation.additionalPinCeiling,
+    holdReasons: observation.holdReasons,
+  });
+}
 
 function observeLeasesResult(
   authority: TrustedScopeAuthority,

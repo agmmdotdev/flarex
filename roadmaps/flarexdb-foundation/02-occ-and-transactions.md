@@ -1768,21 +1768,23 @@ Exit gate:
 
 ### [ ] O11 — Enforce Retention Floors
 
-Status: implementation preflight, `O11-A` nonzero-floor consumer closure, and
-`O11-B` private read-only candidate observation are complete. No retained-floor
-writer, compaction operation, coordinator, scheduler, route, or production
-trigger is authorized yet.
+Status: implementation preflight, `O11-A` nonzero-floor consumer closure,
+`O11-B` private read-only candidate observation, and `O11-C` private logical-
+floor publication are complete. The publisher is intentionally usable only
+with an authenticated test/no-reconnect pin policy; no production composition,
+compaction operation, coordinator, scheduler, route, or trigger is authorized.
 
 #### Current Truth And Corrected Safety Model
 
 S08 already persists inclusive `oldest_available_commit_seq` on the scope
-clock with `0 <= floor <= last_commit_seq`, but production has no writer and
-the value remains `0`. Application point/query snapshot readers already reject
+clock with `0 <= floor <= last_commit_seq`. `O11-C` now owns a private writer,
+but production still has no composition and its floor remains `0`. Application
+point/query snapshot readers already reject
 a snapshot below a nonzero floor, committed-outcome and wake readers understand
 missing pre-floor headers, snapshot leases plus their supporting indexes exist,
 and `O11-A` made commit-feed plus lease admission explicitly nonzero-floor-safe.
-`O11-B` can now observe a conservative candidate without changing this state.
-There is still no floor writer.
+`O11-B` observes a conservative candidate without changing this state, while
+`O11-C` can publish that candidate only through its separate private proof port.
 
 The prior wording that advanced the floor only after physical compaction is
 unsafe for bounded multi-transaction cleanup. Deleting one physical page while
@@ -1924,7 +1926,7 @@ preflight rather than opportunistic DDL.
    and immutable process-local pin facets, uses the scope-clock share lane, and
    holds on bounded directory overflow or unavailable pins. Add no writer,
    cleanup, or scheduler.
-3. [ ] `O11-C` — add monotonic logical-floor publication under the scope-clock
+3. [x] `O11-C` — add monotonic logical-floor publication under the scope-clock
    update lock with stale authority, lease race, rollback, interruption, and
    decision-uncertainty recovery. Add no physical deletion.
 4. [ ] `O11-D` — add separate bounded idempotent compaction pages in dependency
@@ -1956,8 +1958,23 @@ or a conservative hold. Focused PGlite evidence covers time, live/expired
 leases, pins, structural-copy rejection, bounded overflow, and corrupt time
 evidence. Genuine PostgreSQL evidence proves the share-lock relationship to the
 existing update lane and that observation leaves the persisted clock unchanged.
-The persisted production floor remains zero because `O11-C` has not added a
-writer.
+The persisted production floor remains zero because no production owner can
+construct the `O11-C` publication policy.
+
+`O11-C` adds a separate opaque publication port and does not promote O11-B's
+static observations into write authority. Its initial pin owner is an explicit
+test/no-reconnect policy; future reconnect, rollback, and adapter owners must
+add their own authenticated transaction-compatible readers before production
+composition. Each call resolves exact located scope authority, takes the scope-
+clock update lock, then recomputes database time, live leases, commit-window
+evidence, and the admitted pin policy inside that transaction. A hold performs
+no update. An advance uses one exact compare-and-set update and returns the
+persisted candidate; the floor cannot move backward or choose an intermediate
+sequence. PGlite and genuine-PostgreSQL proofs cover structural-copy rejection,
+stale authority, exact replay, a real snapshot-lease admission holding the same
+scope-clock lane, rollback after the update, interruption settlement, and a
+committed-but-uncertain response recovered by a cold idempotent retry. No
+physical deletion, maintenance loop, or trigger is part of this checkpoint.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,
