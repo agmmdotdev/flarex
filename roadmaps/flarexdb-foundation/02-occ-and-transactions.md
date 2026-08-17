@@ -48,10 +48,11 @@ operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
 O11's implementation preflight is complete: nonzero-floor consumer closure,
 read-only candidate observation, logical floor publication, bounded owner-local
-compaction, host-neutral coordination, and any production trigger are six
-separate checkpoints. `O11-A` consumer closure and `O11-B` private read-only
-candidate observation are implemented; no floor publisher, cleanup operation,
-coordinator, or production trigger is implemented.
+compaction, host-neutral coordination, and production liveness remain separate
+checkpoints. `O11-A` through `O11-E` are implemented as private capabilities.
+`O11-F0` now records the production-liveness design, but no durable O11
+checkpoint, scheduler run, scheduled export, Wrangler trigger, or production
+activation is implemented.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -1939,10 +1940,28 @@ preflight rather than opportunistic DDL.
    complete; host-neutral composition remains O11-E.
 5. [x] `O11-E` — compose those exact pages in one host-neutral count/time-bounded
    maintenance run with continuation evidence. It remains private and inert.
-6. [ ] `O11-F` — separately preflight any production timer, queue, scheduler,
-   routing, backoff, observability, or operational liveness owner. Existing
-   redelivery scheduler primitives do not automatically confer O11 trigger or
-   retention authority.
+6. [x] `O11-F0` — preflight the separate production-liveness owner. Reuse only
+   exact generic lease/checkpoint, directory-pagination, and scheduled-event
+   lifecycle mechanics; do not reuse another scheduler's row, continuation,
+   opaque run handle, error family, or domain authority.
+7. [ ] `O11-F1` — add the private durable O11 continuation codec and its own
+   singleton fenced checkpoint repository through a new additive migration.
+   Keep it inert and prove fresh, upgrade, rollback, corruption, fencing,
+   interruption, and committed-but-uncertain recovery in PGlite and genuine
+   PostgreSQL.
+8. [ ] `O11-F2` — add the host-neutral bounded multi-scope scheduler run. It
+   reuses the O11-E maintenance owner, checkpoints only settled progress,
+   renews with settlement headroom, and proves cold resume, scope fairness,
+   floor/authority reset, duplicate wake, and dependency order. Add no platform
+   handler or trigger.
+9. [ ] `O11-F3` — compose O11 into the single executor scheduled-event resource
+   boundary. Generalize that host's leaf run contract without changing either
+   O11 or redelivery authority, keep client lifetime event-scoped, and leave the
+   default Worker Fetch-only.
+10. [ ] `O11-F4` — activate the scheduled export and Wrangler cron only after
+    deployed-shape PostgreSQL, duplicate-event, cleanup, observability, and
+    operational-cadence evidence passes. A platform wake is only a hint; the
+    database checkpoint remains restart truth.
 
 `O11-A` records the inclusive floor in every decoded scope-clock projection,
 returns a typed commit-feed reset before the `floor - 1` exclusive cursor,
@@ -2044,7 +2063,7 @@ revisions, inventories all four incoming FK owners, and confirms the existing
 app-row primary key serves identity, anchor, candidate, and exact deletion
 plans. O11-D is now complete; no cross-owner loop, scheduler, trigger, or
 production composition is introduced. O11-E now owns only their private,
-host-neutral composition; O11-F remains the next checkpoint.
+host-neutral composition; O11-F1 remains the next implementation checkpoint.
 
 `O11-E` composes only those three exact private page owners in dependency order:
 commit/change-feed history, ordered-index revisions, then app-row revisions.
@@ -2077,6 +2096,69 @@ authority-change cursor rejection, floor-regression failure,
 failure/uncertainty replay without guessed progress, empty exhaustion, and a
 genuine-PostgreSQL connected run. O11-F remains the only owner allowed to
 preflight durable checkpointing or a production trigger.
+
+`O11-F0` rejects both tempting shortcuts. The point-mutation redelivery
+checkpoint is constrained to its own scheduler key and continuation codec, and
+the Task repair scheduler likewise owns a separate row and error family; using
+either for retained-history progress would merge unrelated leases, retry
+decisions, corruption domains, and operational authority. A fully stateless
+production wake is also insufficient. Losing O11-E's process-local continuation
+is safe because it restarts from commit history, but repeated event or process
+loss can continually repay that work and starve the later ordered-index and
+app-row phases on a large or advancing floor. Production liveness therefore
+needs a durable scheduling hint without turning that hint into deletion
+authority.
+
+The accepted O11-F shape is:
+
+- one O11-owned singleton checkpoint row per control metadata database, stored
+  in a new additive table rather than another scheduler's constrained table;
+  the row carries only fenced lease state, a checkpoint sequence, due time, and
+  canonical continuation bytes plus their digest;
+- one versioned canonical continuation contract containing the bounded scope-
+  directory high-water cursor, the current deployment/scope, the retained
+  floor, exact placement/generation/fence/epoch pins, and the O11-E dependency
+  phase plus owner cursor. The decoded value is a scheduling hint only. Before
+  deletion, O11-E still resolves current trusted authority and every page still
+  checks the exact floor and authority under its scope-clock share lock;
+- reuse of the existing package-internal fenced singleton checkpoint engine
+  only after an O11 storage policy is added, wrapped by O11-specific opaque run
+  handles and typed errors. No point-mutation or Task-repair run handle,
+  continuation, result, or error becomes assignable to O11;
+- reuse of the generic high-water replacement-scope directory query mechanics
+  through an O11-owned discovery wrapper. The point-mutation redelivery
+  discovery port and its candidate semantics do not become retention
+  authority. The fixed high-water sweep prevents newly inserted scopes from
+  starving the current directory pass;
+- a host-neutral scheduler run that acquires the database lease, decodes the
+  durable hint, performs bounded O11-E work sequentially, canonicalizes and
+  checkpoints settled continuation before starting later work, renews only
+  with sufficient settlement headroom, and releases deterministically. A
+  confirmed rollback may receive one bounded retry; decision uncertainty,
+  interruption, stale ownership, or cleanup failure never guesses progress;
+  and
+- eventual composition through the existing executor scheduled-event resource
+  boundary, not a second Worker scheduler surface. That host may be generalized
+  from its current redelivery-named leaf contract, but it continues to own only
+  Hyperdrive client acquisition/cleanup and full event-Promise settlement.
+  Domain runners retain checkpointing, lease, time-budget, and retry policy.
+
+O11-F does not require a queue for its first production shape. A Cloudflare
+scheduled event is a replaceable wake source; duplicate or delayed wakes are
+resolved by the fenced database lease. The initial retry cadence is the cron
+cadence, because the existing generic release mechanic makes work immediately
+due. Any adaptive backoff or operator override would change durable scheduling
+policy and requires its own later checkpoint rather than being inferred from
+logs or platform retry. Structured receipts, logs, metrics, and traces are
+projections only and never substitute for the checkpoint row.
+
+The new table and persisted continuation are real schema/protocol work, so this
+preflight does not authorize their implementation. `O11-F1` is the next
+smallest slice and must first pin exact names, byte ceilings, canonical vectors,
+row constraints, migration behavior, and whether the shared checkpoint engine
+needs a neutral package-internal policy type. No scheduled export, Wrangler
+trigger, routing change, queue, production cadence, or activation may enter
+F1 or F2.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,
