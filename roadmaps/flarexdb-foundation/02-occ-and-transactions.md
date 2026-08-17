@@ -1935,8 +1935,8 @@ preflight rather than opportunistic DDL.
    compatibility proof, and populated PGlite plus genuine-PostgreSQL plan
    evidence. If any owner needs a checkpoint row or persisted cursor, stop for
    that schema/protocol preflight rather than folding it into O11-D. The
-   commit/change-feed owner is complete; app-row and ordered-index revision
-   owners remain.
+   commit/change-feed and ordered-index revision owners are complete; the
+   app-row revision owner remains.
 5. [ ] `O11-E` — compose those exact pages in one host-neutral count/time-bounded
    maintenance run with continuation evidence. It remains private and inert.
 6. [ ] `O11-F` — separately preflight any production timer, queue, scheduler,
@@ -1995,6 +1995,30 @@ covers child-first deletion, exhaustion, corruption refusal, authority
 rejection, rollback, and cold uncertainty recovery. Genuine PostgreSQL proof
 covers the maximum 16,000-child group and the exact index-backed header/child
 read and delete plans.
+
+The second `O11-D` owner adds one private ordered-index revision cleanup page,
+also without DDL or a persisted cursor. It takes the scope-clock share lane,
+authenticates the current located authority and inclusive floor, and processes
+one exact `(index_definition_id, encoded_key, row_id)` membership identity at a
+time. A stateless continuation either repeats that identity or advances past
+it. Each transaction locks and deletes at most 128 of the oldest revisions
+strictly before the newest revision at or below the floor; it reads one extra
+candidate to determine whether the same identity continues. The inclusive
+anchor, every later revision, and the current pointer remain. Missing anchors,
+stable table/spec/key evidence drift, copied or stale authority, an incoming
+current-pointer foreign-key blocker, or a late failure stop and roll back the
+page without `CASCADE` or reinterpretation. The retained anchor may continue to
+name a physically deleted predecessor: a focused proof appends the next
+revision through the existing S10 writer after cleanup and confirms that the
+writer authenticates the retained head rather than walking deleted history.
+PGlite proof covers mixed identities, a 300-revision hot identity, exact cursor
+replay, anchor/current preservation, corruption refusal, FK refusal, rollback,
+and committed-but-uncertain cold retry. Genuine PostgreSQL proof covers the
+128-row page against 4,396 populated revisions, inventories the sole incoming
+current-pointer FK, and confirms the existing revision primary/range indexes
+serve identity, anchor, candidate, and exact deletion plans. App-row revision
+cleanup remains the final unimplemented `O11-D` owner; no cross-owner loop,
+scheduler, trigger, or production composition is introduced here.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,
