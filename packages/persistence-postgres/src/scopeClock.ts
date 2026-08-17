@@ -50,6 +50,7 @@ export interface ScopeClockRecord {
   readonly storageGeneration: StorageGeneration;
   readonly storageGenerationFence: StorageGenerationFence;
   readonly lastCommitSeq: CommitSeq;
+  readonly oldestAvailableCommitSeq: CommitSeq;
   readonly lastOutboxSeq: OutboxSeq;
   readonly epoch: ScopeEpoch;
   readonly updatedAt: Date;
@@ -364,6 +365,7 @@ interface ScopeClockRecordRow {
   readonly storageGeneration: unknown;
   readonly storageGenerationFence: unknown;
   readonly lastCommitSeq: unknown;
+  readonly oldestAvailableCommitSeq: unknown;
   readonly lastOutboxSeq: unknown;
   readonly epoch: unknown;
   readonly updatedAt: unknown;
@@ -432,6 +434,23 @@ export function decodeScopeClockRecordResult(
       ));
     }
 
+    const rawOldestAvailableCommitSeq = row.oldestAvailableCommitSeq;
+    if (typeof rawOldestAvailableCommitSeq !== "bigint") {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "oldest available commit sequence is invalid",
+      ));
+    }
+    if (
+      rawOldestAvailableCommitSeq < 0n ||
+      rawOldestAvailableCommitSeq > rawLastCommitSeq
+    ) {
+      return yield* Result.fail(new ScopeClockCorruptionError(
+        diagnosticScopeId,
+        "oldest available commit sequence is outside the retained range",
+      ));
+    }
+
     const rawLastOutboxSeq = row.lastOutboxSeq;
     if (typeof rawLastOutboxSeq !== "bigint") {
       return yield* Result.fail(new ScopeClockCorruptionError(
@@ -474,6 +493,11 @@ export function decodeScopeClockRecordResult(
       diagnosticScopeId,
       "last commit sequence is outside the signed-bigint range",
     );
+    const oldestAvailableCommitSeq = yield* decodeScopeClockFieldResult(
+      decodeCommitSeqResult(rawOldestAvailableCommitSeq),
+      diagnosticScopeId,
+      "oldest available commit sequence is outside the signed-bigint range",
+    );
     const lastOutboxSeq = yield* decodeScopeClockFieldResult(
       decodeOutboxSeqResult(rawLastOutboxSeq),
       diagnosticScopeId,
@@ -490,6 +514,7 @@ export function decodeScopeClockRecordResult(
       storageGeneration,
       storageGenerationFence,
       lastCommitSeq,
+      oldestAvailableCommitSeq,
       lastOutboxSeq,
       epoch,
       updatedAt,

@@ -33,6 +33,7 @@ import {
   InvalidApplicationPointQuerySnapshotV1Error,
   openApplicationPointQuerySnapshotV1,
   readApplicationPointQueryDocumentV1,
+  revalidateApplicationPointQuerySnapshotV1,
   type AuthenticatedApplicationPointQuerySnapshotV1,
   type ReadApplicationPointQueryDocumentV1Result,
 } from "@flarex/persistence-postgres/internal/system-test/applicationPointQuerySnapshotV1";
@@ -94,6 +95,14 @@ export interface PqvA1ApplicationPointQuerySnapshotProofV1 {
   readonly postgresVersion: string | null;
 }
 
+export interface PqvA1RetainedFloorBoundaryProofV1 {
+  readonly lane: "pglite" | "postgres";
+  readonly snapshotCommitSeq: bigint;
+  readonly aboveFloorAccepted: true;
+  readonly atFloorAccepted: true;
+  readonly belowFloorRejected: true;
+}
+
 const QUERY_BUDGET = Object.freeze({
   maximumPointReads: 32,
   maximumDocumentBytes: 1_048_576,
@@ -109,6 +118,77 @@ export interface AppendPqvA1DocumentCommitInputV1 {
   readonly previousCommitSeq: bigint | null;
   readonly status: "pending" | "complete";
   readonly beforeClockAdvance?: (backendPid: number) => void | Promise<void>;
+}
+
+export async function provePqvA1RetainedFloorBoundariesV1(
+  lane: PqvA1ApplicationPointQuerySnapshotLaneV1,
+): Promise<PqvA1RetainedFloorBoundaryProofV1> {
+  const fixture = await prepareFsv05ReadyRevisionFixtureV1(
+    lane,
+    makeMemoryRuntimeArtifactStoreV1(),
+    "pqv-a1-query",
+    true,
+  );
+  const proof = await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    yield* activateApplicationRevisionV1(
+      fixture.revisionId,
+      null,
+      fixture.context,
+    );
+    const active = yield* readActiveApplicationRevisionV1(fixture.context);
+    yield* Effect.promise(() => lane.persistence.query(
+      `update fx_system_scope_clock
+       set last_commit_seq = 2, oldest_available_commit_seq = 1
+       where scope_id = $1`,
+      [active.metadata.scopeId],
+    ));
+    const opened = yield* openApplicationPointQuerySnapshotV1(
+      active.selection,
+      "orders:get",
+      QUERY_BUDGET,
+      fixture.context,
+    );
+    const aboveFloor = yield* revalidateApplicationPointQuerySnapshotV1(
+      opened.capability,
+    );
+    yield* Effect.promise(() => lane.persistence.query(
+      `update fx_system_scope_clock
+       set oldest_available_commit_seq = 2 where scope_id = $1`,
+      [active.metadata.scopeId],
+    ));
+    const atFloor = yield* revalidateApplicationPointQuerySnapshotV1(
+      opened.capability,
+    );
+    yield* Effect.promise(() => lane.persistence.query(
+      `update fx_system_scope_clock
+       set last_commit_seq = 3, oldest_available_commit_seq = 3
+       where scope_id = $1`,
+      [active.metadata.scopeId],
+    ));
+    const belowFloor = yield* Effect.result(
+      revalidateApplicationPointQuerySnapshotV1(opened.capability),
+    );
+    return Object.freeze({ opened, aboveFloor, atFloor, belowFloor });
+  })));
+  const belowFloorRejected = Result.isFailure(proof.belowFloor) &&
+    proof.belowFloor.failure instanceof ApplicationPointQuerySnapshotStaleV1Error &&
+    proof.belowFloor.failure.reason === "historyUnavailable";
+  return Object.freeze({
+    lane: lane.name,
+    snapshotCommitSeq: proof.opened.metadata.snapshotToken.commitSeq,
+    aboveFloorAccepted: requireTrue(
+      proof.aboveFloor.snapshotToken.commitSeq === 2n,
+      `${lane.name} snapshot above retained floor`,
+    ),
+    atFloorAccepted: requireTrue(
+      proof.atFloor.snapshotToken.commitSeq === 2n,
+      `${lane.name} snapshot at retained floor`,
+    ),
+    belowFloorRejected: requireTrue(
+      belowFloorRejected,
+      `${lane.name} snapshot below retained floor`,
+    ),
+  });
 }
 
 export async function provePqvA1ApplicationPointQuerySnapshotV1(

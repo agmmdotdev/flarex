@@ -9,6 +9,7 @@ import {
 } from "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
   provePqvA1ApplicationPointQuerySnapshotV1,
+  provePqvA1RetainedFloorBoundariesV1,
 } from "../../support/pqvA1ApplicationPointQuerySnapshotHarness";
 import {
   postgresUrl,
@@ -27,6 +28,38 @@ describe("PQV-A1 PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("PQV-A1 target-native query snapshot - PostgreSQL", () => {
+  it("accepts snapshots at or above the retained floor and rejects below it", async () => {
+    await withTemporaryPostgresPersistence(async persistence => {
+      await expect(provePqvA1RetainedFloorBoundariesV1({
+        name: "postgres",
+        persistence,
+        registrationTarget:
+          createPostgresLocatedApplicationRevisionRegistrationTargetV1(
+            persistence,
+            FSV05_SUPPORTED_LOCATOR,
+          ),
+        makeActivationTarget: () =>
+          createPostgresLocatedApplicationRevisionActivationTargetV1(
+            persistence,
+            FSV05_SUPPORTED_LOCATOR,
+          ),
+        makeDecisionUncertainTarget: () => Object.freeze({
+          target: createPostgresLocatedApplicationRevisionActivationTargetV1(
+            persistence,
+            FSV05_SUPPORTED_LOCATOR,
+          ),
+          wasInjected: () => false,
+        }),
+      })).resolves.toMatchObject({
+        lane: "postgres",
+        snapshotCommitSeq: 2n,
+        aboveFloorAccepted: true,
+        atFloorAccepted: true,
+        belowFloorRejected: true,
+      });
+    }, { historicalApplicationAnalysis: true });
+  }, 180_000);
+
   it("pins one active snapshot through concurrent writes with zero mutation publication", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
       const proof = await provePqvA1ApplicationPointQuerySnapshotV1({

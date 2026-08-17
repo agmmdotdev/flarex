@@ -479,6 +479,7 @@ describe("split scope authority provisioning", { timeout: 20_000 }, () => {
               LegacyV1StorageGenerationSchema.make("legacy_v1"),
             storageGenerationFence: StorageGenerationFenceSchema.make(1n),
             lastCommitSeq: CommitSeqSchema.make(0n),
+            oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
             lastOutboxSeq: OutboxSeqSchema.make(0n),
             epoch: ScopeEpochSchema.make("epoch_inexact_target_result"),
             updatedAt: new Date(),

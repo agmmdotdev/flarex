@@ -1192,6 +1192,53 @@ describePostgres("real Postgres O03-B session authority", () => {
     });
   });
 
+  it("terminalizes an expired attempt whose snapshot is below the retained floor", async () => {
+    await withPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "attempt_terminal_expired_below_floor",
+        sharedLocator("attempt-terminal-expired-below-floor"),
+        ids,
+      );
+      const anchor = (
+        await activatePointMutationSession(
+          createActivationPersistence(persistence, ids),
+          pointMutationSessionActivationFixture(
+            context.deploymentId,
+            context.scopeId,
+          ),
+        )
+      ).anchor;
+      await persistence.query(
+        `update fx_system_snapshot_lease
+         set lease_expires_at = '2000-01-01T00:00:00.000Z'
+         where session_id = $1`,
+        [anchor.sessionId],
+      );
+      await persistence.query(
+        `update fx_system_scope_clock
+         set last_commit_seq = 1, oldest_available_commit_seq = 1
+         where scope_id = $1`,
+        [context.scopeId],
+      );
+
+      await expect(expirePointMutationSessionAttempt(
+        createTerminalizationPersistence(persistence),
+        selectorFromAnchor(anchor),
+      )).resolves.toMatchObject({
+        status: "terminalized",
+        terminal: { lifecycle: "expired" },
+      });
+      await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
+        sessions: 1,
+        leases: 0,
+        journals: 0,
+        executionClaims: 0,
+      });
+    });
+  });
+
   it("allows an independent scope to terminalize while another attempt is paused", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const ids = uuidFactory();

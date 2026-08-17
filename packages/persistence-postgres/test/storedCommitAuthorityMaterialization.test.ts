@@ -248,6 +248,7 @@ function validClockAuthorityRow() {
     storageGeneration: "flarexdb_v1",
     storageGenerationFence: 1n,
     lastCommitSeq: 0n,
+    oldestAvailableCommitSeq: 0n,
     lastOutboxSeq: 0n,
     epoch: `epoch_${EPOCH_UUID}`,
     updatedAt: new Date("2026-07-19T00:00:00.000Z"),

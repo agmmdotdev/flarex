@@ -35,7 +35,6 @@ export type CommitFeedInputFailureReasonV1 =
 export type CommitFeedCorruptionReasonV1 =
   | "scopeClockDuplicate"
   | "scopeClockInvalid"
-  | "retainedFloorActivated"
   | "commitHeaderInvalid"
   | "commitHeaderGap"
   | "commitHeaderPastClock"
@@ -58,6 +57,15 @@ export class CommitFeedScopeNotFoundErrorV1 extends Data.TaggedError(
   readonly scopeUuid: ScopeUuidV1;
 }> {}
 
+export class CommitFeedCursorResetRequiredErrorV1 extends Data.TaggedError(
+  "CommitFeedCursorResetRequiredErrorV1",
+)<{
+  readonly scopeUuid: ScopeUuidV1;
+  readonly requestedExclusiveCommitSeq: CommitSeq;
+  readonly restartExclusiveCommitSeq: CommitSeq;
+  readonly observedOldestAvailableCommitSeq: CommitSeq;
+}> {}
+
 export class CommitFeedCorruptionErrorV1 extends Data.TaggedError(
   "CommitFeedCorruptionErrorV1",
 )<{
@@ -76,6 +84,7 @@ export class CommitFeedSqlErrorV1 extends Data.TaggedError(
 export type CommitFeedListAfterErrorV1 =
   | CommitFeedInputErrorV1
   | CommitFeedScopeNotFoundErrorV1
+  | CommitFeedCursorResetRequiredErrorV1
   | CommitFeedCorruptionErrorV1
   | CommitFeedSqlErrorV1;
 
@@ -272,6 +281,14 @@ async function captureCommitFeedRows(
     observeCommitFeedQuery("clock", clockQuery, observeQuery);
     const clockRows = await clockQuery;
 
+    if (!shouldCaptureCommitHeaders(input, clockRows)) {
+      return Object.freeze({
+        clockRows: detachDriverRows(clockRows),
+        headerRows: Object.freeze([]),
+        appRowChangeRows: Object.freeze([]),
+      });
+    }
+
     const headerQuery = tx
       .select()
       .from(fxSystemCommits)
@@ -381,7 +398,11 @@ function selectHeadersForChildCapture(
     typeof clock.oldestAvailableCommitSeq !== "bigint" ||
     clock.lastCommitSeq < 0n ||
     clock.lastCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1 ||
-    clock.oldestAvailableCommitSeq !== 0n ||
+    clock.oldestAvailableCommitSeq < 0n ||
+    clock.oldestAvailableCommitSeq > clock.lastCommitSeq ||
+    input.exclusiveCommitSeq < retainedFloorExclusiveCursor(
+      clock.oldestAvailableCommitSeq,
+    ) ||
     input.exclusiveCommitSeq > clock.lastCommitSeq
   ) {
     return null;
@@ -444,6 +465,7 @@ function materializeCommitFeedPage(
 ): Result.Result<
   CommitFeedPageV1,
   CommitFeedInputErrorV1 | CommitFeedScopeNotFoundErrorV1 |
+    CommitFeedCursorResetRequiredErrorV1 |
     CommitFeedCorruptionErrorV1
 > {
   if (captured.clockRows.length === 0) {
@@ -467,12 +489,22 @@ function materializeCommitFeedPage(
   ) {
     return corruption(input, "scopeClockInvalid");
   }
-  if (clock.oldestAvailableCommitSeq !== 0n) {
-    return corruption(input, "retainedFloorActivated");
-  }
   if (input.exclusiveCommitSeq > clock.lastCommitSeq) {
     return Result.fail(new CommitFeedInputErrorV1({
       reason: "cursorAheadOfClock",
+    }));
+  }
+  const restartExclusiveCommitSeq = retainedFloorExclusiveCursor(
+    clock.oldestAvailableCommitSeq,
+  );
+  if (input.exclusiveCommitSeq < restartExclusiveCommitSeq) {
+    return Result.fail(new CommitFeedCursorResetRequiredErrorV1({
+      scopeUuid: input.scopeUuid,
+      requestedExclusiveCommitSeq: input.exclusiveCommitSeq,
+      restartExclusiveCommitSeq,
+      observedOldestAvailableCommitSeq: CommitSeqSchema.make(
+        clock.oldestAvailableCommitSeq,
+      ),
     }));
   }
 
@@ -552,6 +584,33 @@ function materializeCommitFeedPage(
     commits: Object.freeze(commits),
     continuation,
   }));
+}
+
+function shouldCaptureCommitHeaders(
+  input: ValidatedCommitFeedInputV1,
+  clockRows: ReadonlyArray<ScopeClockRow>,
+): boolean {
+  const clock = clockRows.length === 1 ? clockRows[0] : undefined;
+  return clock !== undefined &&
+    clock.scopeUuid === input.scopeUuid &&
+    typeof clock.lastCommitSeq === "bigint" &&
+    clock.lastCommitSeq >= 0n &&
+    clock.lastCommitSeq <= MAX_PERSISTED_SIGNED_INT64_V1 &&
+    typeof clock.oldestAvailableCommitSeq === "bigint" &&
+    clock.oldestAvailableCommitSeq >= 0n &&
+    clock.oldestAvailableCommitSeq <= clock.lastCommitSeq &&
+    input.exclusiveCommitSeq >= retainedFloorExclusiveCursor(
+      clock.oldestAvailableCommitSeq,
+    ) &&
+    input.exclusiveCommitSeq <= clock.lastCommitSeq;
+}
+
+function retainedFloorExclusiveCursor(
+  oldestAvailableCommitSeq: bigint,
+): CommitSeq {
+  return CommitSeqSchema.make(
+    oldestAvailableCommitSeq === 0n ? 0n : oldestAvailableCommitSeq - 1n,
+  );
 }
 
 function validateCommitHeaders(

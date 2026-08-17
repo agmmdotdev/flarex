@@ -11,10 +11,42 @@ import {
 } from "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
   provePqvA1ApplicationPointQuerySnapshotV1,
+  provePqvA1RetainedFloorBoundariesV1,
 } from "../../support/pqvA1ApplicationPointQuerySnapshotHarness";
 import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("PQV-A1 target-native query snapshot - PGlite", () => {
+  it("accepts snapshots at or above the retained floor and rejects below it", async () => {
+    const persistence = await createMigratedPGlitePersistence();
+    await expect(provePqvA1RetainedFloorBoundariesV1({
+      name: "pglite",
+      persistence,
+      registrationTarget:
+        createPGliteLocatedApplicationRevisionRegistrationTargetV1(
+          persistence,
+          FSV05_SUPPORTED_LOCATOR,
+        ),
+      makeActivationTarget: () =>
+        createPGliteLocatedApplicationRevisionActivationTargetV1(
+          persistence,
+          FSV05_SUPPORTED_LOCATOR,
+        ),
+      makeDecisionUncertainTarget: () => Object.freeze({
+        target: createPGliteLocatedApplicationRevisionActivationTargetV1(
+          persistence,
+          FSV05_SUPPORTED_LOCATOR,
+        ),
+        wasInjected: () => false,
+      }),
+    })).resolves.toMatchObject({
+      lane: "pglite",
+      snapshotCommitSeq: 2n,
+      aboveFloorAccepted: true,
+      atFloorAccepted: true,
+      belowFloorRejected: true,
+    });
+  }, 180_000);
+
   it("pins one active snapshot and exposes only bounded point reads", async () => {
     type RootLeak = Extract<
       keyof typeof persistenceRoot,

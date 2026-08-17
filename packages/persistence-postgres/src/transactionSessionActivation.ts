@@ -1634,6 +1634,7 @@ async function renewExecutionClaimLivenessInTransaction(
     },
     clock,
     session,
+    "requireRetainedSnapshot",
   );
   if (locked.leaseState === "absent") {
     throw executionClaimLivenessCorruption("leaseInvalid");
@@ -2060,6 +2061,7 @@ async function acquireExecutionClaimInTransaction(
     },
     clock,
     session,
+    "requireRetainedSnapshot",
   );
   if (locked.leaseState === "absent") {
     throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
@@ -2896,6 +2898,7 @@ async function loadLockedRunningAttempt<Failure extends Error>(
     input,
     clock,
     session,
+    "requireRetainedSnapshot",
   );
   if (session.lifecycle !== "running") {
     throw input.failures.terminal(session.lifecycle);
@@ -3220,6 +3223,9 @@ async function lockPointMutationSessionAttemptStructure(
   },
   clock: LockedPointMutationSessionClockV1,
   session: TransactionSessionRow,
+  snapshotRetentionFloorPolicy:
+    | "requireRetainedSnapshot"
+    | "allowExpiredTerminalization",
 ): Promise<LockedPointMutationSessionAttemptStructureV1> {
   if (session.storageGeneration !== "flarexdb_v1") {
     throw input.failures.unsupportedStorageGeneration();
@@ -3322,6 +3328,15 @@ async function lockPointMutationSessionAttemptStructure(
   if (snapshotCommitSeq > clock.record.lastCommitSeq) {
     throw corruptionError(input.scopeId, "snapshotAheadOfScopeClock");
   }
+  if (snapshotRetentionFloorPolicy === "requireRetainedSnapshot") {
+    projectTransactionSessionActivationResult(
+      validateSnapshotRetentionFloorResult(
+        input.scopeId,
+        snapshotCommitSeq,
+        clock.record.oldestAvailableCommitSeq,
+      ),
+    );
+  }
 
   return Object.freeze({
     leaseState: "present",
@@ -3333,6 +3348,16 @@ async function lockPointMutationSessionAttemptStructure(
     snapshotEpoch,
     snapshotCommitSeq,
   } satisfies LockedPointMutationSessionAttemptStructureV1);
+}
+
+function validateSnapshotRetentionFloorResult(
+  scopeId: ReplacementScopeIdV1,
+  snapshotCommitSeq: CommitSeq,
+  oldestAvailableCommitSeq: CommitSeq,
+): Result.Result<void, PointMutationSessionAuthorityCorruptionV1Error> {
+  return snapshotCommitSeq < oldestAvailableCommitSeq
+    ? Result.fail(corruptionError(scopeId, "snapshotLeaseInvalid"))
+    : Result.succeed(undefined);
 }
 
 async function terminalizeAttemptInTransaction(
@@ -3386,6 +3411,9 @@ async function terminalizeAttemptInTransaction(
     },
     clock,
     session,
+    input.operation === "expire"
+      ? "allowExpiredTerminalization"
+      : "requireRetainedSnapshot",
   );
   const databaseNow = await readDatabaseNow(tx, selector.scopeId);
   const journalRoots = await tx

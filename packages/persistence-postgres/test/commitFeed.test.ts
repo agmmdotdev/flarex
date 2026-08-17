@@ -9,6 +9,7 @@ import * as persistenceRoot from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import {
   CommitFeedCorruptionErrorV1,
+  CommitFeedCursorResetRequiredErrorV1,
   MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1,
   MAX_COMMIT_FEED_PAGE_COMMITS_V1,
   createCommitFeedRepositoryV1,
@@ -347,29 +348,56 @@ describe("S08 package-private commit feed reader", () => {
     );
   });
 
-  it("keeps the retained floor inert and fails closed when it is nonzero", async () => {
+  it("requires reset only before the retained floor and resumes at floor minus one", async () => {
     const persistence = await migratedPGlite();
-    await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 1n);
-    await insertHeader(persistence, {
-      scopeUuid: SCOPE_FLOOR,
-      epochUuid: EPOCH_A,
-      commitSeq: 1n,
-      changeCount: 0,
-    });
+    await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 3n);
+    for (const commitSeq of [1n, 2n, 3n]) {
+      await insertHeader(persistence, {
+        scopeUuid: SCOPE_FLOOR,
+        epochUuid: EPOCH_A,
+        commitSeq,
+        changeCount: 0,
+      });
+    }
     await persistence.query(
       `
         update fx_system_scope_clock
-        set oldest_available_commit_seq = 1
+        set oldest_available_commit_seq = 2
         where scope_uuid = $1::uuid
       `,
       [SCOPE_FLOOR],
     );
-    const repository = createCommitFeedRepositoryV1(persistence.drizzle);
-
-    await expectCorruption(
-      listAfter(repository, SCOPE_FLOOR, 0n),
-      "retainedFloorActivated",
+    await persistence.query(
+      `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
+      [SCOPE_FLOOR],
     );
+    const queries: Array<CommitFeedQueryV1> = [];
+    const repository = createCommitFeedRepositoryV1(persistence.drizzle, {
+      observeQuery: (query) => queries.push(query),
+    });
+
+    await expectResetRequired(
+      listAfter(repository, SCOPE_FLOOR, 0n),
+      {
+        requestedExclusiveCommitSeq: 0n,
+        restartExclusiveCommitSeq: 1n,
+        observedOldestAvailableCommitSeq: 2n,
+      },
+    );
+    expect(queries.map((query) => query.name)).toEqual(["clock"]);
+
+    await expect(listAfter(repository, SCOPE_FLOOR, 1n)).resolves.toMatchObject({
+      observedOldestAvailableCommitSeq: 2n,
+      commits: [{ commitSeq: 2n }, { commitSeq: 3n }],
+      continuation: { kind: "complete", observedLastCommitSeq: 3n },
+    });
+    await expect(listAfter(repository, SCOPE_FLOOR, 2n)).resolves.toMatchObject({
+      commits: [{ commitSeq: 3n }],
+    });
+    await expect(listAfter(repository, SCOPE_FLOOR, 3n)).resolves.toMatchObject({
+      commits: [],
+      continuation: { kind: "complete", observedLastCommitSeq: 3n },
+    });
   });
 
   it("returns exactly 100 whole commit groups before an explicit continuation", async () => {
@@ -539,6 +567,20 @@ async function expectCorruption(
 ): Promise<void> {
   await expect(result).rejects.toBeInstanceOf(CommitFeedCorruptionErrorV1);
   await expect(result).rejects.toMatchObject({ reason });
+}
+
+async function expectResetRequired(
+  result: Promise<unknown>,
+  expected: Readonly<{
+    requestedExclusiveCommitSeq: bigint;
+    restartExclusiveCommitSeq: bigint;
+    observedOldestAvailableCommitSeq: bigint;
+  }>,
+): Promise<void> {
+  await expect(result).rejects.toBeInstanceOf(
+    CommitFeedCursorResetRequiredErrorV1,
+  );
+  await expect(result).rejects.toMatchObject(expected);
 }
 
 async function insertScope(

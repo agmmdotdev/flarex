@@ -354,9 +354,9 @@ describe("S09-B private commit-wake outbox", () => {
     await insertWakeScope(persistence, {
       scopeUuid: WAKE_SCOPE_A,
       epochUuid: WAKE_EPOCH_A,
-      lastCommitSeq: 2n,
+      lastCommitSeq: 3n,
       oldestAvailableCommitSeq: 2n,
-      lastOutboxSeq: 2n,
+      lastOutboxSeq: 3n,
     });
     await insertPendingWake(persistence, {
       scopeUuid: WAKE_SCOPE_A,
@@ -369,6 +369,12 @@ describe("S09-B private commit-wake outbox", () => {
       outboxSeq: 2n,
       epochUuid: WAKE_EPOCH_A,
       commitSeq: 2n,
+    });
+    await insertPendingWake(persistence, {
+      scopeUuid: WAKE_SCOPE_A,
+      outboxSeq: 3n,
+      epochUuid: WAKE_EPOCH_A,
+      commitSeq: 3n,
     });
     const repository = createCommitWakeOutboxRepositoryV1(
       persistence.drizzle,
@@ -396,6 +402,23 @@ describe("S09-B private commit-wake outbox", () => {
         CommitWakeCorruptionErrorV1,
       );
       expect(floorResult.failure).toMatchObject({
+        reason: "missingRetainedHeader",
+      });
+    }
+    const aboveFloorResult = await runEffect(Effect.result(
+      repository.claimForCommit({
+        scopeUuid: WAKE_SCOPE_A,
+        commitSeq: commitSeq(3n),
+        claimOwner: WAKE_OWNER_A,
+        leaseMilliseconds: 60_000,
+      }),
+    ));
+    expect(Result.isFailure(aboveFloorResult)).toBe(true);
+    if (Result.isFailure(aboveFloorResult)) {
+      expect(aboveFloorResult.failure).toBeInstanceOf(
+        CommitWakeCorruptionErrorV1,
+      );
+      expect(aboveFloorResult.failure).toMatchObject({
         reason: "missingRetainedHeader",
       });
     }

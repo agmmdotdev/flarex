@@ -203,6 +203,7 @@ function scopedContext(
       storageGeneration: clock.storageGeneration,
       storageGenerationFence: clock.storageGenerationFence,
       lastCommitSeq: clock.lastCommitSeq,
+      oldestAvailableCommitSeq: clock.oldestAvailableCommitSeq,
       lastOutboxSeq: clock.lastOutboxSeq,
       epoch: clock.epoch,
       updatedAt,

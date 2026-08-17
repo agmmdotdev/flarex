@@ -77,6 +77,8 @@ describe("scope clock", () => {
       .toEqualTypeOf<StorageGenerationFence>();
     expectTypeOf<ScopeClockRecord["lastCommitSeq"]>()
       .toEqualTypeOf<CommitSeq>();
+    expectTypeOf<ScopeClockRecord["oldestAvailableCommitSeq"]>()
+      .toEqualTypeOf<CommitSeq>();
     expectTypeOf<ScopeClockRecord["lastOutboxSeq"]>()
       .toEqualTypeOf<OutboxSeq>();
     expectTypeOf<ForbiddenScopeClockMethod>().toEqualTypeOf<never>();
@@ -131,6 +133,7 @@ describe("scope clock", () => {
         LegacyV1StorageGenerationSchema.make("legacy_v1"),
       storageGenerationFence: StorageGenerationFenceSchema.make(1n),
       lastCommitSeq: CommitSeqSchema.make(0n),
+      oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
       lastOutboxSeq: OutboxSeqSchema.make(0n),
       epoch: ScopeEpochSchema.make("epoch-stateful-date"),
       updatedAt: source,
@@ -178,6 +181,18 @@ describe("scope clock", () => {
           lastCommitSeq: MAX_PERSISTED_SIGNED_INT64_V1 + 1n,
         },
         reason: "last commit sequence is outside the signed-bigint range",
+      },
+      {
+        row: { ...valid, oldestAvailableCommitSeq: 1 },
+        reason: "oldest available commit sequence is invalid",
+      },
+      {
+        row: { ...valid, oldestAvailableCommitSeq: -1n },
+        reason: "oldest available commit sequence is outside the retained range",
+      },
+      {
+        row: { ...valid, oldestAvailableCommitSeq: 1n },
+        reason: "oldest available commit sequence is outside the retained range",
       },
       {
         row: { ...valid, lastOutboxSeq: 1 },
@@ -372,6 +387,7 @@ describe("scope clock", () => {
       storageGeneration: "flarexdb_v1",
       storageGenerationFence: 9_007_199_254_740_993n,
       lastCommitSeq: 9_007_199_254_740_993n,
+      oldestAvailableCommitSeq: 0n,
       lastOutboxSeq: 9_007_199_254_740_994n,
       epoch: "epoch-large",
       updatedAt: new Date("2026-07-10T00:00:00.000Z"),
@@ -916,6 +932,7 @@ function validScopeClockRow() {
     storageGeneration: "flarexdb_v1",
     storageGenerationFence: 1n,
     lastCommitSeq: 0n,
+    oldestAvailableCommitSeq: 0n,
     lastOutboxSeq: 0n,
     epoch: "epoch-clock-result-decoder",
     updatedAt: new Date("2026-07-10T00:00:00.000Z"),

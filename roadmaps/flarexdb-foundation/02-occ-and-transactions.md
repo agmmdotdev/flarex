@@ -1766,9 +1766,9 @@ Exit gate:
 
 ### [ ] O11 — Enforce Retention Floors
 
-Status: implementation preflight complete; no retained-floor writer,
-compaction operation, coordinator, scheduler, route, or production trigger is
-authorized yet.
+Status: implementation preflight and `O11-A` nonzero-floor consumer closure are
+complete. No retained-floor writer, compaction operation, coordinator,
+scheduler, route, or production trigger is authorized yet.
 
 #### Current Truth And Corrected Safety Model
 
@@ -1892,7 +1892,7 @@ preflight rather than opportunistic DDL.
 
 #### Ordered Implementation Checkpoints
 
-1. `O11-A` — close nonzero-floor consumer semantics first. Introduce one exact
+1. [x] `O11-A` — close nonzero-floor consumer semantics first. Introduce one exact
    typed below-floor/reset result where needed, upgrade commit-feed behavior,
    and prove every current point/query/outcome/wake consumer at `floor - 1`,
    `floor`, and `floor + 1`. Snapshot reads reject `snapshot < floor`.
@@ -1902,23 +1902,33 @@ preflight rather than opportunistic DDL.
    `commit_seq < floor`; missing evidence at or above the floor is corruption.
    Lease admission/renewal must also prove it cannot establish or extend a pin
    below the current floor. Add no writer or deletion.
-2. `O11-B` — add the authenticated read-only candidate-floor observation over
+2. [ ] `O11-B` — add the authenticated read-only candidate-floor observation over
    database time, live leases, commit-header safety window, and explicit
    optional pin facets. Add no writer, cleanup, or scheduler.
-3. `O11-C` — add monotonic logical-floor publication under the scope-clock
+3. [ ] `O11-C` — add monotonic logical-floor publication under the scope-clock
    update lock with stale authority, lease race, rollback, interruption, and
    decision-uncertainty recovery. Add no physical deletion.
-4. `O11-D` — add separate bounded idempotent compaction pages in dependency
+4. [ ] `O11-D` — add separate bounded idempotent compaction pages in dependency
    order, with current/root/anchor/reference preservation, predecessor-chain
    compatibility proof, and populated PGlite plus genuine-PostgreSQL plan
    evidence. If any owner needs a checkpoint row or persisted cursor, stop for
    that schema/protocol preflight rather than folding it into O11-D.
-5. `O11-E` — compose those exact pages in one host-neutral count/time-bounded
+5. [ ] `O11-E` — compose those exact pages in one host-neutral count/time-bounded
    maintenance run with continuation evidence. It remains private and inert.
-6. `O11-F` — separately preflight any production timer, queue, scheduler,
+6. [ ] `O11-F` — separately preflight any production timer, queue, scheduler,
    routing, backoff, observability, or operational liveness owner. Existing
    redelivery scheduler primitives do not automatically confer O11 trigger or
    retention authority.
+
+`O11-A` records the inclusive floor in every decoded scope-clock projection,
+returns a typed commit-feed reset before the `floor - 1` exclusive cursor,
+permits exact resume from that cursor, and rejects lease extension below the
+floor. Application point and final query snapshots reject only when their
+snapshot is below the floor. Existing committed-outcome and commit-wake owners
+continue to accept a missing header strictly below the floor and reject missing
+evidence at or above it. Focused PGlite and genuine-PostgreSQL proofs cover the
+below/equal/above boundaries. The persisted production value remains zero
+because `O11-B` and `O11-C` have not added an observer or writer.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,

@@ -2872,6 +2872,72 @@ describe("Application activation", { timeout: 30_000 }, () => {
     expect(metadata.function.entrySha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("accepts Application query snapshots at or above the retained floor and rejects below it", async () => {
+    const fixture = await readinessFixture();
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    await fixture.target.query(
+      `update fx_system_scope_clock
+       set last_commit_seq = 2, oldest_available_commit_seq = 1
+       where scope_id = $1`,
+      [fixture.authority.scopeId],
+    );
+    const proof = await runEffect(Effect.scoped(Effect.gen(function* () {
+      const active = yield* activation.readActive();
+      const opened = yield* openApplicationQuerySnapshot(
+        active.selection,
+        "users:get",
+        queryBudget(),
+        {
+          deploymentId: fixture.input.deploymentId,
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authorityPorts,
+          schema: fixture.schema,
+          developerIndexes: queryDeveloperIndexes(fixture),
+        },
+      );
+      const aboveFloor = yield* revalidateApplicationQuerySnapshot(
+        opened.snapshot,
+      );
+      yield* Effect.promise(() => fixture.target.query(
+        `update fx_system_scope_clock
+         set oldest_available_commit_seq = 2 where scope_id = $1`,
+        [fixture.authority.scopeId],
+      ));
+      const atFloor = yield* revalidateApplicationQuerySnapshot(
+        opened.snapshot,
+      );
+      yield* Effect.promise(() => fixture.target.query(
+        `update fx_system_scope_clock
+         set last_commit_seq = 3, oldest_available_commit_seq = 3
+         where scope_id = $1`,
+        [fixture.authority.scopeId],
+      ));
+      const belowFloor = yield* Effect.result(
+        revalidateApplicationQuerySnapshot(opened.snapshot),
+      );
+      return { opened, aboveFloor, atFloor, belowFloor };
+    })));
+    expect(proof.opened.metadata.snapshotToken.commitSeq).toBe(2n);
+    expect(proof.aboveFloor).toEqual(proof.opened.metadata);
+    expect(proof.atFloor).toEqual(proof.opened.metadata);
+    expect(Result.isFailure(proof.belowFloor)).toBe(true);
+    if (Result.isFailure(proof.belowFloor)) {
+      expect(proof.belowFloor.failure).toMatchObject({
+        operation: "revalidate",
+        reason: "historyUnavailable",
+      });
+    }
+  });
+
   it("rejects corrupted stored Application function evidence before issuing a query snapshot", async () => {
     const fixture = await readinessFixture();
     await prepareReadinessAuthorities(fixture);

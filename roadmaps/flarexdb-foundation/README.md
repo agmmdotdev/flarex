@@ -142,7 +142,8 @@ package-private reader, and S09-A's private committed-success result DDL are
 complete. S09-B's fixed-kind private commit-wake schema and fenced repository
 are also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof are complete. The retained-history floor is physically
-present but fixed at zero until O11. O07-A's private read-only committed-
+present; `O11-A` consumers are nonzero-floor-safe, while production remains at
+zero because no floor observer or writer exists. O07-A's private read-only committed-
 outcome resolver and O07-B's private durable point publication are complete.
 C05-A's private scalar-fenced `running -> finishing` transition and same-factory
 continuation are complete. C05-B fresh-process reconstruction and private
@@ -172,15 +173,15 @@ a conditional
 operational extension outside the current
 master order; it requires a real runtime or retention consumer that proves a
 bounded attempt must outlive its initial lease.
-O11's implementation preflight is complete, but its consumer-closure, floor-
-observation, floor-publication, physical-compaction, coordinator, and production-
-trigger checkpoints remain unimplemented. The persisted retained floor stays
-fixed at zero.
+O11's implementation preflight and `O11-A` consumer closure are complete, but
+its floor-observation, floor-publication, physical-compaction, coordinator, and
+production-trigger checkpoints remain unimplemented. The persisted production
+floor stays fixed at zero.
 
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, scoped-execution `S02-E0`–`S02-E2`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete; bypass closure `S02-E3` is next |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, and O09 multi-row plus unique/developer-sidecar contention proof are complete; O11's implementation preflight is complete with no writer/cleanup/trigger; the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, O09 multi-row plus unique/developer-sidecar contention proof, and O11-A nonzero-floor consumer closure are complete; O11 has no observer/writer/cleanup/trigger; the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Managed schema | Private `M01-A` through `M04-C`, retirement preflight `M05-P`, exact workspace recovery `M05-A`, and atomic supersession reclamation `M05-A2` are complete and production-inert; enabled-definition retirement and purge remain blocked on O11 plus reconnect, rollback, active-attempt, adapter, and evidence-retention gates |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -796,8 +797,8 @@ start Payload feature parity. Their contract is in
    snapshot; it never falls back to DeploymentDO, legacy `prepareInvoke`,
    `activePackageId`, `analysisJson`, the legacy schema pointer, or partition
    routing.
-4. `O11`: implementation preflight complete; close nonzero-floor consumers,
-   then add read-only floor observation, logical floor publication, bounded
+4. `O11`: implementation preflight and nonzero-floor consumer closure complete;
+   next add read-only floor observation, logical floor publication, bounded
    owner-local compaction, host-neutral coordination, and only later a
    separately approved production trigger. Consume reconnect floors only after
    roadmap 21 supplies their accepted contract and DDL.

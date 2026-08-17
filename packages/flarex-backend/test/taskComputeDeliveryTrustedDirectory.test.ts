@@ -331,6 +331,7 @@ function scopeClock(scopeId: typeof SCOPE_ID): ScopeClockRecord {
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
+    oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
     lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch: ScopeEpochSchema.make("epoch-task-compute-delivery"),
     updatedAt: new Date("2026-08-11T00:00:00.000Z"),

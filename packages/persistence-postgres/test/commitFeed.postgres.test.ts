@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { FlarexPersistence } from "../src";
 import {
   CommitFeedCorruptionErrorV1,
+  CommitFeedCursorResetRequiredErrorV1,
   MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1,
   MAX_COMMIT_FEED_PAGE_COMMITS_V1,
   createCommitFeedRepositoryV1,
@@ -177,21 +178,27 @@ describePostgres("real Postgres S08 commit feed reader", () => {
     });
   }, 30_000);
 
-  it("fails closed on an active floor, missing tail, child-count mismatch, and invalid physical provenance", async () => {
+  it("resumes exactly at the retained floor and fails closed on malformed retained evidence", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 1n);
-      await insertHeader(persistence, {
-        scopeUuid: SCOPE_FLOOR,
-        epochUuid: EPOCH_A,
-        commitSeq: 1n,
-        changeCount: 0,
-      });
+      await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 3n);
+      for (const commitSeq of [1n, 2n, 3n]) {
+        await insertHeader(persistence, {
+          scopeUuid: SCOPE_FLOOR,
+          epochUuid: EPOCH_A,
+          commitSeq,
+          changeCount: 0,
+        });
+      }
       await persistence.query(
         `
           update fx_system_scope_clock
-          set oldest_available_commit_seq = 1
+          set oldest_available_commit_seq = 2
           where scope_uuid = $1::uuid
         `,
+        [SCOPE_FLOOR],
+      );
+      await persistence.query(
+        `delete from fx_system_commit where scope_uuid = $1::uuid and commit_seq = 1`,
         [SCOPE_FLOOR],
       );
 
@@ -263,10 +270,25 @@ describePostgres("real Postgres S08 commit feed reader", () => {
       ).rejects.toThrow();
 
       const repository = createCommitFeedRepositoryV1(persistence.drizzle);
-      await expectCorruption(
+      await expectResetRequired(
         listAfter(repository, SCOPE_FLOOR, 0n),
-        "retainedFloorActivated",
+        {
+          requestedExclusiveCommitSeq: 0n,
+          restartExclusiveCommitSeq: 1n,
+          observedOldestAvailableCommitSeq: 2n,
+        },
       );
+      await expect(listAfter(repository, SCOPE_FLOOR, 1n)).resolves.toMatchObject({
+        observedOldestAvailableCommitSeq: 2n,
+        commits: [{ commitSeq: 2n }, { commitSeq: 3n }],
+      });
+      await expect(listAfter(repository, SCOPE_FLOOR, 2n)).resolves.toMatchObject({
+        commits: [{ commitSeq: 3n }],
+      });
+      await expect(listAfter(repository, SCOPE_FLOOR, 3n)).resolves.toMatchObject({
+        commits: [],
+        continuation: { kind: "complete", observedLastCommitSeq: 3n },
+      });
       await expectCorruption(
         listAfter(repository, SCOPE_TAIL, 0n),
         "commitHeaderMissingBeforeClock",
@@ -413,6 +435,20 @@ async function expectCorruption(
 ): Promise<void> {
   await expect(result).rejects.toBeInstanceOf(CommitFeedCorruptionErrorV1);
   await expect(result).rejects.toMatchObject({ reason });
+}
+
+async function expectResetRequired(
+  result: Promise<unknown>,
+  expected: Readonly<{
+    requestedExclusiveCommitSeq: bigint;
+    restartExclusiveCommitSeq: bigint;
+    observedOldestAvailableCommitSeq: bigint;
+  }>,
+): Promise<void> {
+  await expect(result).rejects.toBeInstanceOf(
+    CommitFeedCursorResetRequiredErrorV1,
+  );
+  await expect(result).rejects.toMatchObject(expected);
 }
 
 async function insertScope(

@@ -704,6 +704,7 @@ function scopeClock(
       LegacyV1StorageGenerationSchema.make("legacy_v1"),
     storageGenerationFence: StorageGenerationFenceSchema.make(1n),
     lastCommitSeq: CommitSeqSchema.make(0n),
+    oldestAvailableCommitSeq: CommitSeqSchema.make(0n),
     lastOutboxSeq: OutboxSeqSchema.make(0n),
     epoch: initialEpoch,
     updatedAt: new Date("2026-07-11T00:00:00.000Z"),

@@ -220,6 +220,56 @@ describe("O03-B1 point-mutation session activation", () => {
     });
   });
 
+  it("refuses to extend an existing lease below the retained-history floor", async () => {
+    const created = await activateClaimScenario("liveness_below_floor");
+    const before = await attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    );
+    await persistence.query(
+      `update fx_system_scope_clock
+       set last_commit_seq = 1, oldest_available_commit_seq = 1
+       where scope_id = $1`,
+      [created.anchor.scopeId],
+    );
+
+    await expect(runFailure(executionClaimLiveness().renewEffect({
+      selector: selectorFromAnchor(created.anchor),
+      executionClaim: created.executionClaim,
+    }))).resolves.toMatchObject({ reason: "leaseInvalid" });
+    await expect(attemptLivenessState(
+      persistence,
+      created.anchor.sessionId,
+    )).resolves.toEqual(before);
+  });
+
+  it("admits a new lease exactly at the retained-history floor", async () => {
+    const context = await provisionContext("activation_at_floor");
+    await persistence.query(
+      `update fx_system_scope_clock
+       set last_commit_seq = 1, oldest_available_commit_seq = 1
+       where scope_id = $1`,
+      [context.scopeId],
+    );
+
+    const created = await activatePointMutationSession(
+      activationPersistence(),
+      pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ),
+    );
+    expect(created.status).toBe("created");
+    if (created.status !== "created") return;
+    await expect(persistence.query<{ snapshot_commit_seq: string }>(
+      `select snapshot_commit_seq::text
+       from fx_system_snapshot_lease where session_id = $1`,
+      [created.anchor.sessionId],
+    )).resolves.toMatchObject({
+      rows: [{ snapshot_commit_seq: "1" }],
+    });
+  });
+
   it("rolls the lease renewal back when claim renewal fails", async () => {
     const created = await activateClaimScenario("liveness_rollback");
     const before = await attemptLivenessState(

@@ -1034,6 +1034,39 @@ describe("O03-B exact point-mutation attempt authority", () => {
     });
   });
 
+  it("terminalizes an expired attempt whose snapshot is below the retained floor", async () => {
+    const context = await provisionContext("terminal_expired_below_floor");
+    const anchor = (await activate(context)).anchor;
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set lease_expires_at = '2000-01-01T00:00:00.000Z'
+       where session_id = $1`,
+      [anchor.sessionId],
+    );
+    await persistence.query(
+      `update fx_system_scope_clock
+       set last_commit_seq = 1, oldest_available_commit_seq = 1
+       where scope_id = $1`,
+      [context.scopeId],
+    );
+
+    await expect(expirePointMutationSessionAttempt(
+      terminalizationPersistence(),
+      selectorFromAnchor(anchor),
+    )).resolves.toMatchObject({
+      status: "terminalized",
+      terminal: { lifecycle: "expired" },
+    });
+    await expect(rowState(persistence, context.scopeId)).resolves
+      .toMatchObject({
+        lifecycle: "expired",
+        lease_attempt_fence: null,
+        snapshot_epoch_uuid: null,
+        snapshot_commit_seq: null,
+        lease_expires_at: null,
+      });
+  });
+
   it("fails closed on invalid lifecycle, active-child, snapshot, fence, and authority state", async () => {
     const terminalization = terminalizationPersistence();
 
