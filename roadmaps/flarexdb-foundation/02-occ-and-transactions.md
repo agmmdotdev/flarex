@@ -49,7 +49,9 @@ does not block the private C02-C07 proof.
 O11's implementation preflight is complete: nonzero-floor consumer closure,
 read-only candidate observation, logical floor publication, bounded owner-local
 compaction, host-neutral coordination, and any production trigger are six
-separate checkpoints. No O11 runtime checkpoint is implemented.
+separate checkpoints. `O11-A` consumer closure and `O11-B` private read-only
+candidate observation are implemented; no floor publisher, cleanup operation,
+coordinator, or production trigger is implemented.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -1766,9 +1768,10 @@ Exit gate:
 
 ### [ ] O11 — Enforce Retention Floors
 
-Status: implementation preflight and `O11-A` nonzero-floor consumer closure are
-complete. No retained-floor writer, compaction operation, coordinator,
-scheduler, route, or production trigger is authorized yet.
+Status: implementation preflight, `O11-A` nonzero-floor consumer closure, and
+`O11-B` private read-only candidate observation are complete. No retained-floor
+writer, compaction operation, coordinator, scheduler, route, or production
+trigger is authorized yet.
 
 #### Current Truth And Corrected Safety Model
 
@@ -1776,10 +1779,10 @@ S08 already persists inclusive `oldest_available_commit_seq` on the scope
 clock with `0 <= floor <= last_commit_seq`, but production has no writer and
 the value remains `0`. Application point/query snapshot readers already reject
 a snapshot below a nonzero floor, committed-outcome and wake readers understand
-missing pre-floor headers, and snapshot leases plus their supporting indexes
-exist. The package-private commit-feed reader still classifies every nonzero
-floor as corruption. O11 cannot add a writer until every retained-history
-consumer has an explicit nonzero-floor contract.
+missing pre-floor headers, snapshot leases plus their supporting indexes exist,
+and `O11-A` made commit-feed plus lease admission explicitly nonzero-floor-safe.
+`O11-B` can now observe a conservative candidate without changing this state.
+There is still no floor writer.
 
 The prior wording that advanced the floor only after physical compaction is
 unsafe for bounded multi-transaction cleanup. Deleting one physical page while
@@ -1801,15 +1804,15 @@ second commit/OCC owner.
 
 #### Floor Authority
 
-The floor is scope-local and monotonic. One private, process-local retention
-port must compose the exact located target authority, scope clock, database
-time, and the already accepted `GrantRetentionPolicyV1`; structural copies or
-foreign target/control composition fail closed. It acquires the same scope-
-clock update lock used by snapshot admission/commit, then re-reads pins before
-publication. Readers either take the corresponding share lock for their exact
-read or capture clock and history in one repeatable-read snapshot. Snapshot-
-lease creation/renewal and floor publication must be proven to serialize on
-that same authority boundary.
+The floor is scope-local and monotonic. `O11-B` owns one private, process-local
+observation port that composes the exact located target authority, scope clock,
+database time, and the already accepted `GrantRetentionPolicyV1`; structural
+copies or foreign target/control composition fail closed. Its read-committed
+transaction takes the scope-clock share lock before reading database time,
+leases, and commit headers. `O11-C` must introduce a separate publisher that
+takes the scope-clock update lock and re-reads every pin before publication.
+Snapshot-lease creation/renewal and floor publication must be proven to
+serialize on that same authority boundary.
 
 For the initial engine-history owner, compute the candidate floor as the
 minimum of:
@@ -1828,6 +1831,19 @@ guessing from commit volume. An expired row is absence of a lease pin, not
 authority to exceed the other ceilings. Optional future pin facets use their
 explicitly authenticated absent semantics, while an unavailable required facet
 holds.
+
+Candidate observation is also bounded in physical work. The lease directory is
+read in stable session order with a 4,096-row ceiling plus one overflow row.
+The commit directory is read backward from `last_commit_seq` toward the current
+floor with the same ceiling plus one overflow row. Observation may return an
+old-enough commit found inside that authenticated contiguous window; otherwise
+an overflowing directory holds at the current floor rather than running a
+whole-scope aggregate, guessing, or adding an index/migration. Missing,
+noncontiguous, or future-dated retained commit evidence fails closed. A retained
+header may legitimately carry an earlier epoch's immutable provenance; the
+candidate calculation does not reinterpret that provenance as current-epoch
+authority. This conservative observation bound is distinct from the later
+physical-compaction page budgets.
 
 The current persisted floor is the monotonic lower bound, not another member of
 that minimum. A computed candidate below the current floor is corruption or
@@ -1902,9 +1918,12 @@ preflight rather than opportunistic DDL.
    `commit_seq < floor`; missing evidence at or above the floor is corruption.
    Lease admission/renewal must also prove it cannot establish or extend a pin
    below the current floor. Add no writer or deletion.
-2. [ ] `O11-B` — add the authenticated read-only candidate-floor observation over
+2. [x] `O11-B` — add the authenticated read-only candidate-floor observation over
    database time, live leases, commit-header safety window, and explicit
-   optional pin facets. Add no writer, cleanup, or scheduler.
+   optional pin facets. The private port authenticates exact located authority
+   and immutable process-local pin facets, uses the scope-clock share lane, and
+   holds on bounded directory overflow or unavailable pins. Add no writer,
+   cleanup, or scheduler.
 3. [ ] `O11-C` — add monotonic logical-floor publication under the scope-clock
    update lock with stale authority, lease race, rollback, interruption, and
    decision-uncertainty recovery. Add no physical deletion.
@@ -1927,8 +1946,18 @@ floor. Application point and final query snapshots reject only when their
 snapshot is below the floor. Existing committed-outcome and commit-wake owners
 continue to accept a missing header strictly below the floor and reject missing
 evidence at or above it. Focused PGlite and genuine-PostgreSQL proofs cover the
-below/equal/above boundaries. The persisted production value remains zero
-because `O11-B` and `O11-C` have not added an observer or writer.
+below/equal/above boundaries.
+
+`O11-B` adds only a private candidate observer. It authenticates the exact
+located target and explicit pin facets, captures those facets immutably, takes
+database time and all retained evidence under one read-committed transaction
+after the scope-clock share lock, and returns either the exact minimum candidate
+or a conservative hold. Focused PGlite evidence covers time, live/expired
+leases, pins, structural-copy rejection, bounded overflow, and corrupt time
+evidence. Genuine PostgreSQL evidence proves the share-lock relationship to the
+existing update lane and that observation leaves the persisted clock unchanged.
+The persisted production floor remains zero because `O11-C` has not added a
+writer.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,

@@ -34,6 +34,10 @@ import {
   createLocatedScopeAuthorizationEpochTarget,
 } from "./scopeAuthorizationEpochAuthority";
 import {
+  createLocatedRetainedHistoryFloorTargetInternal,
+  type LocatedRetainedHistoryFloorTarget,
+} from "./retainedHistoryFloorObservation";
+import {
   createLocatedPointMutationSessionActivationTargetV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
 } from "./transactionSessionActivation";
@@ -57,6 +61,7 @@ import {
 } from "./postgresRuntime";
 import {
   createPostgresLocatedReadCommittedTransactionRunnerV1,
+  type PostgresLocatedReadCommittedRunnerOptionsV1,
 } from "./postgresLocatedReadCommitted";
 import { flarexSchema } from "./schema";
 
@@ -140,6 +145,21 @@ export function createPostgresLocatedPointMutationSessionActivationTargetV1(
           persistence.pool,
         ),
     },
+  );
+}
+
+export function createPostgresLocatedRetainedHistoryFloorTarget(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle" | "pool">,
+  physicalLocator: ScopePhysicalLocator,
+  options: PostgresLocatedReadCommittedRunnerOptionsV1 = {},
+): LocatedRetainedHistoryFloorTarget {
+  return createLocatedRetainedHistoryFloorTargetInternal(
+    persistence.drizzle,
+    physicalLocator,
+    createPostgresLocatedReadCommittedTransactionRunnerV1(
+      persistence.pool,
+      options,
+    ),
   );
 }
 

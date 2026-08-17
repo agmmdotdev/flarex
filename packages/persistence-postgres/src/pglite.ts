@@ -40,6 +40,10 @@ import {
   createLocatedScopeAuthorizationEpochTarget,
 } from "./scopeAuthorizationEpochAuthority";
 import {
+  createLocatedRetainedHistoryFloorTargetInternal,
+  type LocatedRetainedHistoryFloorTarget,
+} from "./retainedHistoryFloorObservation";
+import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
   createLocatedPointMutationSessionActivationTargetV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
@@ -161,6 +165,19 @@ export function createPGliteLocatedPointMutationSessionActivationTargetV1(
     persistence.drizzle,
     physicalLocator,
     options,
+  );
+}
+
+export function createPGliteLocatedRetainedHistoryFloorTarget(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedRetainedHistoryFloorTarget {
+  return createLocatedRetainedHistoryFloorTargetInternal(
+    persistence.drizzle,
+    physicalLocator,
+    createDefaultLocatedReadCommittedTransactionRunnerV1(
+      persistence.drizzle,
+    ),
   );
 }
 

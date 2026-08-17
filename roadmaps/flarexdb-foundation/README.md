@@ -142,9 +142,10 @@ package-private reader, and S09-A's private committed-success result DDL are
 complete. S09-B's fixed-kind private commit-wake schema and fenced repository
 are also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof are complete. The retained-history floor is physically
-present; `O11-A` consumers are nonzero-floor-safe, while production remains at
-zero because no floor observer or writer exists. O07-A's private read-only committed-
-outcome resolver and O07-B's private durable point publication are complete.
+present; `O11-A` consumers are nonzero-floor-safe and `O11-B` can privately
+observe a bounded conservative candidate, while production remains at zero
+because no floor writer exists. O07-A's private read-only committed-outcome
+resolver and O07-B's private durable point publication are complete.
 C05-A's private scalar-fenced `running -> finishing` transition and same-factory
 continuation are complete. C05-B fresh-process reconstruction and private
 compiler/O07-B publisher composition are also complete. O08-A's atomic exact-
