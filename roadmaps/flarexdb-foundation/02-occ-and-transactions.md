@@ -46,6 +46,10 @@ remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
+O11's implementation preflight is complete: nonzero-floor consumer closure,
+read-only candidate observation, logical floor publication, bounded owner-local
+compaction, host-neutral coordination, and any production trigger are six
+separate checkpoints. No O11 runtime checkpoint is implemented.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -769,9 +773,10 @@ Deferred ownership after the required O03-B core:
   `O08-C` owns
   known-settled SQL retry, and
   `O08-D` owns uncertain-outcome lookup policy; and
-- `O11` first introduces the active-floor query and engine-history cleanup
-  consumer. S09-A committed-key lifetime and result-payload expiry remain
-  separate from engine/feed, reconnect, and S09-B outbox retention.
+- `O11-B` first introduces read-only floor-candidate observation, while
+  `O11-D` later introduces the owner-local engine-history cleanup operations.
+  S09-A committed-key lifetime and result-payload expiry remain separate from
+  engine/feed, reconnect, and S09-B outbox retention.
 
 ### [x] O04 — Implement Exact-Snapshot Point Reads
 
@@ -1761,40 +1766,190 @@ Exit gate:
 
 ### [ ] O11 — Enforce Retention Floors
 
-Outcome:
+Status: implementation preflight complete; no retained-floor writer,
+compaction operation, coordinator, scheduler, route, or production trigger is
+authorized yet.
 
-- Introduce the read-only minimum-unexpired-active-snapshot query when this
-  retention consumer first needs it; do not create an earlier standalone floor
-  API in O03-B.
-- Compute engine-history retention from that active snapshot-lease floor plus
-  a safety margin. Consume reconnect floors only after roadmap 21 supplies an
-  accepted reconnect contract and separately preflighted DDL.
-- Persist and advance `oldest_available_commit_seq` only after compaction
-  succeeds so restart can reject tokens below the actual retained floor.
-- For every row identity, index-entry membership identity, and any edge-history
-  identity selected by `O10-R`, retain the newest revision/tombstone at or
-  before the floor plus every required later revision, or materialize an
-  equivalent checkpoint. Deleting all pre-floor rows would make snapshots at
-  the floor incorrect. Current-edge plus adjacency-version implementations
-  retain the dependency evidence required by every unexpired attempt.
-- Advance the global floor only after row, index, commit/change, and required
-  dependency histories are mutually safe at that floor.
-- Keep engine revision retention, S09-A result-payload expiry, scope-lifetime
-  committed-key retention, Payload user-visible versions, S09-B outbox
-  delivery retention, and roadmap-21 reconnect retention as separate policies.
-- Return an explicit reset/out-of-retention outcome for a token below the floor
-  or from another epoch.
+#### Current Truth And Corrected Safety Model
 
-Exit gate:
+S08 already persists inclusive `oldest_available_commit_seq` on the scope
+clock with `0 <= floor <= last_commit_seq`, but production has no writer and
+the value remains `0`. Application point/query snapshot readers already reject
+a snapshot below a nonzero floor, committed-outcome and wake readers understand
+missing pre-floor headers, and snapshot leases plus their supporting indexes
+exist. The package-private commit-feed reader still classifies every nonzero
+floor as corruption. O11 cannot add a writer until every retained-history
+consumer has an explicit nonzero-floor contract.
 
-- active sessions prevent required history deletion;
-- expired leases release history;
+The prior wording that advanced the floor only after physical compaction is
+unsafe for bounded multi-transaction cleanup. Deleting one physical page while
+the logical floor remains old would allow a newly admitted old snapshot to read
+partially compacted history. The corrected invariant is:
+
+1. compute and authenticate one conservative candidate floor;
+2. under the existing scope-clock update lock, re-read every admitted pin and
+   monotonically publish that candidate as the **logical admission floor**;
+3. reject every later snapshot/feed cursor below the published floor; and only
+4. delete physical history strictly below that floor through bounded,
+   dependency-ordered, idempotent pages.
+
+Physical bytes may therefore lag the logical floor. A crash after floor
+publication but before cleanup retains extra history and is safe; a crash may
+never leave deleted history below an older advertised floor. Floor publication
+and physical deletion are separate facts, not one giant transaction and not a
+second commit/OCC owner.
+
+#### Floor Authority
+
+The floor is scope-local and monotonic. One private, process-local retention
+port must compose the exact located target authority, scope clock, database
+time, and the already accepted `GrantRetentionPolicyV1`; structural copies or
+foreign target/control composition fail closed. It acquires the same scope-
+clock update lock used by snapshot admission/commit, then re-reads pins before
+publication. Readers either take the corresponding share lock for their exact
+read or capture clock and history in one repeatable-read snapshot. Snapshot-
+lease creation/renewal and floor publication must be proven to serialize on
+that same authority boundary.
+
+For the initial engine-history owner, compute the candidate floor as the
+minimum of:
+
+- the minimum current-epoch snapshot sequence among leases whose
+  `lease_expires_at` is strictly after database `clock_timestamp()`;
+- the newest authoritative commit whose `committed_at` is at or before
+  `clock_timestamp() - maximumLiveSnapshotRetentionMilliseconds`; and
+- every available reconnect, rollback, or adapter pin admitted by its own
+  later owner.
+
+When no unexpired current-epoch snapshot lease exists, the lease component is
+`last_commit_seq`. When no commit is old enough for the time window, the time
+component is the current persisted floor, so the candidate holds rather than
+guessing from commit volume. An expired row is absence of a lease pin, not
+authority to exceed the other ceilings. Optional future pin facets use their
+explicitly authenticated absent semantics, while an unavailable required facet
+holds.
+
+The current persisted floor is the monotonic lower bound, not another member of
+that minimum. A computed candidate below the current floor is corruption or
+stale pin authority, never permission to move backward. The initial writer
+holds when the candidate equals the current floor and otherwise publishes that
+exact candidate; it does not choose an arbitrary intermediate sequence.
+
+The time window is resolved through authoritative commit-header timestamps; it
+is never approximated by subtracting a guessed number of commits. An expired
+lease row does not pin retention. Missing, corrupt, cross-epoch, or unavailable
+required pin authority holds the floor rather than being interpreted as no
+pin. Until roadmap 21 supplies an accepted reconnect contract, any private O11
+proof remains production-inert or uses an explicit test-only reset/no-reconnect
+policy; absence of a reconnect owner is not production permission to compact.
+
+#### Physical Compaction Rules
+
+O11 owns only engine history. It does not expire committed result payloads,
+delete scope-lifetime request keys, collect pending/claimed outbox rows, remove
+Payload user-visible versions, retire schema/index/constraint definitions, or
+purge readiness, activation, analysis, R2, or audit evidence.
+
+Each physical owner keeps its own bounded page operation and exact deletion
+predicate; O11 does not inject arbitrary callbacks into one generic SQL
+transaction. Pages are deterministic and replayable without a new maintenance
+table initially. If populated-plan evidence shows stateless pagination cannot
+remain bounded, any persisted cursor/workspace requires a separate schema
+preflight rather than opportunistic DDL.
+
+- Commit/change-feed children are removed before their strictly pre-floor
+  headers. A header at the inclusive floor remains retained.
+- For every app-row identity, retain its immutable first/root revision, the
+  newest revision/tombstone at or before the floor, and every later revision.
+  The root currently supplies the exact-frontier identity directory used by
+  managed-schema validation; O11 cannot remove it unless a separately approved
+  authoritative directory replaces that role. Current pointers and every row
+  revision still referenced by retained index revisions, unique-key authority,
+  commit/change evidence, or another durable foreign-key owner also remain
+  retained.
+- For every ordered-index membership identity, retain the newest
+  revision/tombstone at or before the floor and every later revision. Current
+  index pointers remain retained. Current readers and writers do not consume a
+  separate index-root directory, so O11 must not invent one; if a later owner
+  authenticates root provenance, that owner becomes an explicit retention pin.
+- The retained anchor may record a `prev_commit_seq` below the floor whose row
+  was compacted. Current snapshot readers select by commit sequence and current
+  writes authenticate the retained head rather than walking the whole chain,
+  so the scalar remains historical provenance rather than a live foreign key.
+  O11-D must prove this exact behavior for app rows and index entries. Any
+  consumer that requires physical predecessor existence blocks deletion until
+  it gains separately approved floor-aware semantics or a checkpoint format.
+- Delete in dependency order: removable commit/change children and removable
+  index revisions precede their referenced app-row revisions; headers follow
+  their removable children. Every O11-D owner must inventory all incoming
+  foreign keys and prove that a blocked retained reference stops the page.
+- Any later O10-R edge history must adopt the same anchor rule before joining
+  the global floor. Compacted absence must never be accepted as evidence of no
+  row, no index membership, or no conflict.
+- Foreign-key blockers, unexpected cardinality, corrupt chains, missing
+  anchors, or owner disagreement stop the page without `CASCADE`, fallback, or
+  floor reinterpretation.
+
+#### Ordered Implementation Checkpoints
+
+1. `O11-A` — close nonzero-floor consumer semantics first. Introduce one exact
+   typed below-floor/reset result where needed, upgrade commit-feed behavior,
+   and prove every current point/query/outcome/wake consumer at `floor - 1`,
+   `floor`, and `floor + 1`. Snapshot reads reject `snapshot < floor`.
+   Commit-feed's exclusive cursor may resume at `floor - 1` because its first
+   requested header is the retained inclusive floor, but an earlier cursor
+   resets. Outcome/wake readers may accept a missing header only for
+   `commit_seq < floor`; missing evidence at or above the floor is corruption.
+   Lease admission/renewal must also prove it cannot establish or extend a pin
+   below the current floor. Add no writer or deletion.
+2. `O11-B` — add the authenticated read-only candidate-floor observation over
+   database time, live leases, commit-header safety window, and explicit
+   optional pin facets. Add no writer, cleanup, or scheduler.
+3. `O11-C` — add monotonic logical-floor publication under the scope-clock
+   update lock with stale authority, lease race, rollback, interruption, and
+   decision-uncertainty recovery. Add no physical deletion.
+4. `O11-D` — add separate bounded idempotent compaction pages in dependency
+   order, with current/root/anchor/reference preservation, predecessor-chain
+   compatibility proof, and populated PGlite plus genuine-PostgreSQL plan
+   evidence. If any owner needs a checkpoint row or persisted cursor, stop for
+   that schema/protocol preflight rather than folding it into O11-D.
+5. `O11-E` — compose those exact pages in one host-neutral count/time-bounded
+   maintenance run with continuation evidence. It remains private and inert.
+6. `O11-F` — separately preflight any production timer, queue, scheduler,
+   routing, backoff, observability, or operational liveness owner. Existing
+   redelivery scheduler primitives do not automatically confer O11 trigger or
+   retention authority.
+
+`M05-B` logical definition retirement remains blocked after O11 itself until
+roadmap 21 reconnect retention, rollback/application-revision retention,
+active-attempt pins, adapter gates, and evidence-retention policy also compose.
+`M05-C` physical schema purge remains a later, separately approved owner.
+
+#### Exit Gate
+
+- active sessions prevent floor movement past their exact snapshots, while
+  expired leases release history under database time;
+- a concurrent lease/admission cannot appear below a newly published floor,
+  and a concurrent share-locked read cannot observe partially compacted state;
+- snapshot consumers return typed stale below the floor; commit-feed returns
+  typed reset before the `floor - 1` exclusive cursor and can resume exactly at
+  the inclusive floor; outcome/wake evidence remains exact at the floor;
 - a row revised at 5 and 100 still returns revision 5 at snapshot 50 after the
   floor advances to 50;
-- a row/index membership deleted before the floor remains absent rather than
-  resurrecting after compaction;
-- pending/claimed outbox rows are never collected;
-- epoch rollover does not hide or delete untouched data.
+- live, tombstone, delete/reinsert, index movement, and phantom evidence retain
+  exact anchors and never resurrect compacted state;
+- managed-schema exact-frontier enumeration and validation return the same
+  identities/documents after compaction because required root-directory rows
+  remain authoritative;
+- crash/interruption after floor publication and between every physical page
+  is replay-safe; rollback and uncertain settlement never guess progress;
+- full-directory/page ceilings and genuine-PostgreSQL plans bound work and lock
+  duration under populated history;
+- unique claims, current pointers, pending/claimed outbox rows, idempotency
+  keys, managed-schema authority, and immutable evidence are unchanged; and
+- epoch rollover does not hide or delete untouched data, and no `CASCADE`,
+  route, public API, scheduler, production trigger, or schema migration enters
+  before its own checkpoint.
 
 ### Conditional Live Migration Branch
 

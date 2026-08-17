@@ -1031,8 +1031,10 @@ public route, CLI, retirement, or physical/evidence purge was added.
 Enabled-build retirement and physical purge remain deferred. Before either can
 be approved, all of the following must exist and compose exactly:
 
-- `O11` active-snapshot retention and persisted
+- fully implemented `O11` active-snapshot retention and persisted
   `oldest_available_commit_seq`, with mutually safe row/index/feed compaction;
+  its implementation preflight is complete, but no O11 runtime checkpoint is,
+  so this gate remains unmet;
 - roadmap 21's accepted reconnect identity, expiry/reset contract, retention
   DDL, and reconnect floor consumer;
 - an explicit rollback-retention policy that says when an inactive application
