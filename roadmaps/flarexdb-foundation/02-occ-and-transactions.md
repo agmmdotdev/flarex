@@ -1769,10 +1769,11 @@ Exit gate:
 ### [ ] O11 — Enforce Retention Floors
 
 Status: implementation preflight, `O11-A` nonzero-floor consumer closure,
-`O11-B` private read-only candidate observation, and `O11-C` private logical-
-floor publication are complete. The publisher is intentionally usable only
-with an authenticated test/no-reconnect pin policy; no production composition,
-compaction operation, coordinator, scheduler, route, or trigger is authorized.
+`O11-B` private read-only candidate observation, `O11-C` private logical-floor
+publication, and the first `O11-D` commit/change-feed cleanup page are
+complete. The publisher and cleanup page are intentionally usable only through
+private authenticated composition; no production composition, cross-owner
+compaction run, coordinator, scheduler, route, or trigger is authorized.
 
 #### Current Truth And Corrected Safety Model
 
@@ -1933,7 +1934,9 @@ preflight rather than opportunistic DDL.
    order, with current/root/anchor/reference preservation, predecessor-chain
    compatibility proof, and populated PGlite plus genuine-PostgreSQL plan
    evidence. If any owner needs a checkpoint row or persisted cursor, stop for
-   that schema/protocol preflight rather than folding it into O11-D.
+   that schema/protocol preflight rather than folding it into O11-D. The
+   commit/change-feed owner is complete; app-row and ordered-index revision
+   owners remain.
 5. [ ] `O11-E` — compose those exact pages in one host-neutral count/time-bounded
    maintenance run with continuation evidence. It remains private and inert.
 6. [ ] `O11-F` — separately preflight any production timer, queue, scheduler,
@@ -1975,6 +1978,23 @@ stale authority, exact replay, a real snapshot-lease admission holding the same
 scope-clock lane, rollback after the update, interruption settlement, and a
 committed-but-uncertain response recovered by a cold idempotent retry. No
 physical deletion, maintenance loop, or trigger is part of this checkpoint.
+
+The first `O11-D` owner adds one private commit/change-feed cleanup page without
+DDL or a persisted cursor. It takes the scope-clock share lane, authenticates
+the current located authority and inclusive floor, locks exactly the oldest
+strictly pre-floor header, and verifies its complete ordinal directory before
+deleting all child rows and then that header in one transaction. The existing
+header and child primary-key access paths bound the page; the schema's
+`change_count` and ordinal constraints cap it at 16,000 children. Cardinality
+drift, stale or copied authority, any foreign-key blocker, or a late failure
+rolls back the whole page. Repeated invocation is deletion-idempotent, a
+committed-but-uncertain page is safe to retry, the inclusive-floor header and
+all app-row revisions remain, and no `CASCADE`, row/index cleanup, cross-owner
+loop, scheduler, or production trigger is introduced. Populated PGlite proof
+covers child-first deletion, exhaustion, corruption refusal, authority
+rejection, rollback, and cold uncertainty recovery. Genuine PostgreSQL proof
+covers the maximum 16,000-child group and the exact index-backed header/child
+read and delete plans.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,

@@ -68,6 +68,13 @@ export interface LocatedRetainedHistoryFloorTarget
 
 const locatedTargets = new WeakSet<LocatedRetainedHistoryFloorTarget>();
 
+/** Package-internal authenticity check shared by the O11 physical owners. */
+export function isLocatedRetainedHistoryFloorTargetInternal(
+  target: LocatedRetainedHistoryFloorTarget,
+): boolean {
+  return locatedTargets.has(target);
+}
+
 /** Package-internal primitive; public composition roots bind one persistence. */
 export function createLocatedRetainedHistoryFloorTargetInternal(
   database: FlarexMetadataDatabase,
