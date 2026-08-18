@@ -2214,10 +2214,16 @@ route, queue, alarm, background fiber, scheduled export, Wrangler trigger,
 production cadence, or activation is added. Scheduled-event composition
 remains `O11-F3b`, and cron activation remains `O11-F4`.
 
-`M05-B` logical definition retirement remains blocked after O11 itself until
-roadmap 21 reconnect retention, rollback/application-revision retention,
-active-attempt pins, adapter gates, and evidence-retention policy also compose.
-`M05-C` physical schema purge remains a later, separately approved owner.
+O11 is sufficient for a later explicit M05-B retirement attempt to consume an
+exact persisted floor and live-lease evidence through the completed manual
+runner; scheduled-event and cron activation are operability choices, not
+retirement authority. M05-B must still use its own deployment-wide `draining`
+barrier and bounded cross-scope proof for current Application mutation, action,
+durable-task, active/candidate, and supported resumable-adapter pins. Future
+reconnect, rollback, or adapter features must register their pins before those
+features activate rather than blocking retirement merely because they may
+exist later. Immutable evidence remains retained by M05-B. `M05-C` physical
+schema and evidence purge remains a later, separately approved owner.
 
 #### Exit Gate
 

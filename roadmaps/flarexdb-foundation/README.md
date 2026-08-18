@@ -182,9 +182,9 @@ floor stays fixed at zero.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, scoped-execution `S02-E0`–`S02-E2`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete; bypass closure `S02-E3` is next |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, O09 multi-row plus unique/developer-sidecar contention proof, and O11-A nonzero-floor consumer closure are complete; O11 has no observer/writer/cleanup/trigger; the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, O09 multi-row plus unique/developer-sidecar contention proof, and O11-A through O11-F3a retained-floor observation/publication, dependency-ordered cleanup, durable checkpointing, bounded runner, and private manual adapter are complete; O11 scheduled-event and cron activation remain deliberately deferred, while the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
-| Managed schema | Private `M01-A` through `M04-C`, retirement preflight `M05-P`, exact workspace recovery `M05-A`, and atomic supersession reclamation `M05-A2` are complete and production-inert; enabled-definition retirement and purge remain blocked on O11 plus reconnect, rollback, active-attempt, adapter, and evidence-retention gates |
+| Managed schema | Private `M01-A` through `M04-C`, retirement preflight `M05-P`, exact workspace recovery `M05-A`, atomic supersession reclamation `M05-A2`, and docs-only retirement gate reconciliation `M05-B0` are complete and production-inert; logical retirement next requires its own additive two-phase draining authority and bounded current-pin proof, while physical/evidence purge remains separate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `S02-E3`, `H05-B`, and later replacement correctness gates |
 
@@ -2054,12 +2054,20 @@ purge. The narrow private `M05-A` unique-set build-workspace reclamation slice
 is complete: it deletes only one explicitly selected, non-enabled coordinator
 row after exact active/candidate/authority refusal and retains definitions,
 claims, sidecars, application data, and immutable evidence. Enabled-build
-retirement and physical purge remain deferred behind rollback, active-attempt,
-`O11`, reconnect, adapter, and evidence-retention gates. Private `M05-A2` is
+retirement and physical purge remain deferred. Private `M05-A2` is
 complete: authenticated candidate installation atomically rechecks the exact
 displaced head and reclaims only its rebuildable non-enabled workspace. It
 retains active and enabled state, fails closed on drift or corrupt authority,
 preserves the directory ceiling, and cold-replays a committed lost response
 without guessing displaced identity. It adds no post-install callback, timer,
 scheduler, inferred-age selection, public trigger, enabled-state retirement,
-or purge.
+or purge. The docs-only `M05-B0` preflight now reflects the current core:
+logical retirement is a manual two-phase `active -> draining -> retired`
+operation with bounded cross-scope checks for active/candidate selection,
+nonterminal Application mutation sessions, admitted/executing actions,
+nonterminal durable tasks, O11 live retention pins, and any currently supported
+resumable adapter. Automatic O11 scheduling, hypothetical future reconnect or
+rollback features, and immutable-evidence deletion are not current logical-
+retirement prerequisites. Future consumers must register a pin before
+activation; immutable evidence and physical rows remain retained until the
+separate `M05-C` purge owner is approved.

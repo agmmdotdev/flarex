@@ -13,11 +13,13 @@ composition. `M04-B` now has its private bounded exact-plan apply coordinator
 and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
 checkpoint is complete. `M04-C` now provides the private `flarex-dev` adapter
 and shared detached JSON projection, with the same connected schema-B proof in
-PGlite and genuine PostgreSQL. `M05-P`, private `M05-A`, and private `M05-A2`
-are complete: the accepted retirement boundary is explicit, one exact non-
-enabled unique-set build workspace can be reclaimed without retiring physical
-authority, and authenticated candidate supersession now performs that narrow
-reclamation atomically.
+PGlite and genuine PostgreSQL. `M05-P`, private `M05-A`, private `M05-A2`,
+and the docs-only `M05-B0` are complete: the accepted retirement boundary is
+explicit, one exact non-enabled unique-set build workspace can be reclaimed
+without retiring physical authority, and authenticated candidate supersession
+now performs that narrow reclamation atomically. `M05-B0` has also reconciled
+logical-retirement gates with the current Application mutation, action,
+durable-task, and O11 owners; it adds no retirement authority or storage.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, enabled-definition retirement, physical/evidence purge, or
 production generation cut is authorized by this roadmap.
@@ -1028,31 +1030,83 @@ opaque composition rejection. The standalone `M05-A` recovery operation is
 unchanged. No schema, migration, timer, scheduler, callback extension point,
 public route, CLI, retirement, or physical/evidence purge was added.
 
-Enabled-build retirement and physical purge remain deferred. Before either can
-be approved, all of the following must exist and compose exactly:
+### M05-B0 Logical-Retirement Gate Reconciliation
 
-- fully implemented `O11` active-snapshot retention and persisted
-  `oldest_available_commit_seq`, with mutually safe row/index/feed compaction;
-  the private owner pages, durable checkpoint, bounded runner, and manual
-  adapter are complete, while scheduled production activation and deployed
-  cadence/operability evidence remain deliberately deferred, so this gate is
-  not yet a production-retirement clearance;
-- roadmap 21's accepted reconnect identity, expiry/reset contract, retention
-  DDL, and reconnect floor consumer;
-- an explicit rollback-retention policy that says when an inactive application
-  revision and its readiness evidence cease to be selectable;
-- an admitted-attempt/lease floor proving no running execution remains pinned
-  to the old schema or physical definition;
-- adapter retention gates for every supported private or future public
-  consumer; and
-- an evidence-retention decision for immutable schema, readiness, activation,
-  and cold-materialization records.
+`M05-B0` is complete as a docs-only preflight. It challenges the earlier broad
+blocker list against the current implementation. Logical retirement means only
+that an obsolete physical definition can no longer receive a new binding,
+selection, or maintenance authority. It retains the definition, every schema-
+version binding, physical sidecar and claim, application row, revision history,
+artifact, readiness receipt, activation record, and cold-materialization body.
+It is therefore not physical cleanup and does not require an evidence-deletion
+policy.
 
-After those gates, a separately approved `M05-B` may add logical physical-
-definition retirement. A later `M05-C` may add dependency-ordered, bounded,
-resumable physical purge. Neither may use foreign-key cascades, reinterpret
-compacted history as absence, delete PostgreSQL references before R2/evidence
-policy permits it, or combine audit-evidence deletion with sidecar compaction.
+Physical definitions are deployment-wide, while execution and snapshot pins
+are scope-local. A safe retirement cannot perform an unbounded cross-scope scan
+and flip one flag. The accepted later shape is a private, explicit, two-phase
+state machine:
+
+1. `active -> draining` closes new schema bindings and new runtime admissions
+   that would depend on the exact physical definition;
+2. a bounded, resumable fixed-high-water scope-directory pass proves that all
+   currently supported pin owners have drained; and
+3. `draining -> retired` rechecks the unchanged closure and the completed drain
+   evidence before making retirement final.
+
+The current pin matrix is:
+
+| Owner | Logical-retirement rule |
+| --- | --- |
+| Active Application head and current candidate-validation head | Always refuse when either reachable schema binds the definition. |
+| Application mutation sessions | Refuse every nonterminal session (`created`, `running`, `finishing`, `committing`, or `retrying`) whose authenticated Application execution authority binds the revision/schema. Terminal `committed`, `aborted`, and `expired` rows remain evidence but cease to be execution pins. |
+| Direct Application actions | Refuse `admitted` or `executing` invocations whose authenticated Application action authority binds the revision. `completed`, `failed`, `uncertain`, and `cancelled` are terminal evidence; the current recovery owner does not redispatch an `uncertain` terminal invocation. |
+| Durable tasks | Refuse every Application task run in `ready`, `attempt_granted`, `executing`, or `retry_waiting` through its immutable task-definition revision. Only `terminal` releases execution selection; run, attempt, effect, and result evidence remains retained. |
+| Snapshot/history retention | Consume the exact persisted O11 floor and current live-lease/pin evidence. The completed manual O11 runner is sufficient for an explicit retirement attempt; scheduled-event or cron activation is an operability choice, not retirement authority. |
+| Application rollback | The current Application activation repository exposes activation and coherent active reads, not an inactive-revision rollback selector. Immutable activation history alone is not current selectability. Any future rollback feature must register its selectable revision window as a retirement pin before activation. |
+| Reconnect | Roadmap 21 has not activated reconnectable sessions. Its absence does not block current logical retirement. Before reconnect is enabled, that owner must add its authenticated lease/floor pin and compose it into both O11 and M05-B admission. |
+| Other adapters | Only currently supported persisted resumable consumers belong in the drain catalog. A future adapter is not a permanent blocker, but it must register an exact transactional retirement pin before it can activate. |
+| Immutable artifacts and audit evidence | Retain unchanged. Their deletion policy is an `M05-C` prerequisite, not an `M05-B` prerequisite. |
+
+The cross-scope race is closed by the `draining` barrier, not by hoping a scan
+finishes before a new session appears. Schema publication, application
+readiness/activation, mutation-session admission, action admission, and durable-
+task run creation must each refuse a newly draining definition before the final
+drain proof can be trusted. Adding those checks changes the corresponding owner
+and therefore requires separately approved bounded slices; this preflight does
+not authorize incidental edits to them.
+
+The current catalogs have immutable physical definitions and schema bindings,
+but no shared definition-retirement authority. The developer-index build's
+`retiring` lifecycle is build state only, and the unique-set build has no
+equivalent; neither can be reused as deployment-wide definition retirement.
+`M05-B` therefore requires additive, separately preflighted storage rather than
+overloading a build row or rewriting migration history.
+
+The ordered implementation path is:
+
+1. `M05-B1` - freeze the monotonic retirement contract and add an additive,
+   authenticated deployment-wide `active | draining | retired` authority plus
+   bounded fixed-high-water drain progress. It remains private and performs no
+   physical deletion.
+2. `M05-B2` - close new schema/application bindings and each current runtime
+   admission owner against `draining`, one explicitly approved owner at a time,
+   with concurrency and rollback proof.
+3. `M05-B3` - add the bounded read-only per-scope pin inspectors for active/
+   candidate selection, mutation sessions, actions, durable tasks, O11 leases,
+   and any then-supported resumable adapter.
+4. `M05-B4` - compose one manual private coordinator that begins draining,
+   checkpoints the fixed directory, and finalizes only after an exact cold-
+   replayable recheck. No timer, cron, queue, route, or automatic trigger is
+   required; a future wake source may call the same coordinator without owning
+   retirement policy.
+
+`M05-C` remains a later, separately approved dependency-ordered, bounded,
+resumable physical purge. It still requires explicit immutable-evidence and R2
+retention policy, exact foreign-key/dependency ordering, O11 physical-history
+safety, and populated migration/rollback evidence. Neither M05-B nor M05-C may
+use foreign-key cascades, reinterpret compacted history as absence, silently
+reactivate a retired definition, or combine audit-evidence deletion with
+sidecar compaction.
 
 ## Ordered Turn Sequence
 
@@ -1111,13 +1165,18 @@ These are separate later goals, not one giant deployment goal:
 10. `M05-A` - **complete and private**: reclaim one exact superseded,
     non-enabled unique-set build-workspace row through the existing authority
     and transaction owners. Enabled-build retirement and physical purge remain
-    blocked on the explicit rollback, active-attempt, `O11`, reconnect,
-    adapter, and evidence-retention gates above.
+    separate later owners.
 11. `M05-A2` - **complete and private**: exact workspace reclamation composes
     atomically with private candidate supersession, so lost responses cannot
     lose or guess the displaced schema identity. This checkpoint adds no timer,
     scheduler, public deployment trigger, enabled-build retirement, or
     physical/evidence purge.
+12. `M05-B0` - **complete docs-only preflight; no retirement authority**:
+    replace the broad future-feature blocker list with the exact current pin
+    matrix, add Application actions and durable tasks, separate logical
+    retirement from evidence purge, and freeze the later two-phase manual
+    draining shape. `M05-B1` is the next implementation-bearing slice and
+    requires its own additive-storage preflight and approval.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
