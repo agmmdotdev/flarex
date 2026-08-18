@@ -40,6 +40,8 @@ import {
 import {
   makeApplicationTaskComputeDeliveryLayer,
 } from "@flarex/standard-application-invocation/internal/application-task-compute-delivery";
+import { makeApplicationTaskQueryAuthority } from
+  "@flarex/standard-application-invocation/internal/application-task-query-authority";
 import {
   makeTaskAttemptSupervisor,
   TaskComputeDeliveryConnectedRunner,
@@ -160,6 +162,7 @@ export type ApplicationTaskSystemConnectedScenario =
   | "result_publication_uncertain"
   | "completion_response_lost"
   | "duplicate_delivery"
+  | "query_callback"
   | "cancel_complete_race";
 
 export async function proveApplicationTaskSystemConnected(
@@ -223,8 +226,14 @@ export async function proveApplicationTaskSystemConnected(
       scenario === "result_publication_uncertain" ||
       scenario === "completion_response_lost" ||
       scenario === "duplicate_delivery" ||
+      scenario === "query_callback" ||
       scenario === "cancel_complete_race";
-    const inputValue = successfulWorkerResult
+    const inputValue = scenario === "query_callback"
+      ? Object.freeze({
+          __fixtureTaskQuery: true,
+          id: "1:11111111-1111-1111-1111-111111111111",
+        })
+      : successfulWorkerResult
       ? Object.freeze({ orderId: "order-1" })
       : scenario === "task_failure_retry"
         ? Object.freeze({ __fixtureTaskFailure: true })
@@ -257,11 +266,13 @@ export async function proveApplicationTaskSystemConnected(
         Effect.provide(applicationTaskSystem),
       );
     expect(exactReplay).toEqual(created);
-    yield* Effect.promise(() => fixture.moveHead());
-    const pinnedReplay = yield* createApplicationTaskRun(TASK_ID, request).pipe(
-        Effect.provide(applicationTaskSystem),
-      );
-    expect(pinnedReplay).toEqual(created);
+    if (scenario !== "query_callback") {
+      yield* Effect.promise(() => fixture.moveHead());
+      const pinnedReplay = yield* createApplicationTaskRun(TASK_ID, request).pipe(
+          Effect.provide(applicationTaskSystem),
+        );
+      expect(pinnedReplay).toEqual(created);
+    }
 
     const lifecycle = makeApplicationTaskSystemRunAttemptStoreV1(
       locatedRunAuthority,
@@ -493,6 +504,32 @@ export async function proveApplicationTaskSystemConnected(
       supervisorPolicy,
     ));
     const supervision = new SupervisionExitProbe();
+    const queryCalls: Array<Readonly<{
+      readonly functionPath: string;
+      readonly argumentsValue: unknown;
+      readonly subject: string;
+    }>> = [];
+    const queryAuthority = makeApplicationTaskQueryAuthority({
+      activation: fixture.activation,
+      query: {
+        runQuery: (_selection, functionPath, argumentsValue, identity) =>
+          Effect.sync(() => {
+            if (identity.kind !== "user" ||
+              argumentsValue === null || typeof argumentsValue !== "object") {
+              throw new Error("Task query callback received invalid bound evidence.");
+            }
+            queryCalls.push(Object.freeze({
+              functionPath,
+              argumentsValue,
+              subject: identity.user.subject,
+            }));
+            return Object.freeze({
+              queried: true,
+              id: Reflect.get(argumentsValue, "id"),
+            });
+          }),
+      },
+    });
     const layer = makeApplicationTaskComputeDeliveryLayer({
       controlTarget: control.target,
       directory: {
@@ -531,6 +568,7 @@ export async function proveApplicationTaskSystemConnected(
         randomUuid: uuidSequence(4),
         sha256: taskSha256,
       },
+      queryAuthority,
       supervision: {
         supervisor,
         exitObserver: supervision,
@@ -672,6 +710,7 @@ export async function proveApplicationTaskSystemConnected(
           scenario === "result_publication_reconciled" ||
           scenario === "completion_response_lost" ||
           scenario === "duplicate_delivery" ||
+          scenario === "query_callback" ||
           scenario === "cancel_complete_race"
         ) {
           if (
@@ -800,6 +839,7 @@ export async function proveApplicationTaskSystemConnected(
       connected.scenario === "result_publication_reconciled" ||
       connected.scenario === "completion_response_lost" ||
       connected.scenario === "duplicate_delivery" ||
+      connected.scenario === "query_callback" ||
       connected.scenario === "cancel_complete_race"
     ) {
       expect(connected.supervisionExit.value).toMatchObject({
@@ -813,11 +853,28 @@ export async function proveApplicationTaskSystemConnected(
       if (workerSettlement?.outcome.kind !== "completed") {
         throw new Error("Application Task Worker did not complete successfully.");
       }
-      expect(connected.storedResult.value).toEqual(
+      if (connected.storedResult === null) {
+        throw new Error("Application Task result was not stored.");
+      }
+      const storedResult = connected.storedResult;
+      expect(storedResult.value).toEqual(
         workerSettlement.outcome.result.value,
       );
       expect(resultBucket.putCalls).toBe(1);
       expect(resultBucket.getCalls).toBeGreaterThanOrEqual(1);
+      if (connected.scenario === "query_callback") {
+        expect(queryCalls).toEqual([{
+          functionPath: "users:get",
+          argumentsValue: {
+            id: "1:11111111-1111-1111-1111-111111111111",
+          },
+          subject: "system-test-user",
+        }]);
+        expect(storedResult.value).toEqual({
+          queried: true,
+          id: "1:11111111-1111-1111-1111-111111111111",
+        });
+      }
       if (connected.scenario === "cancel_complete_race") {
         expect(connected.cancellationDelivery).not.toBeNull();
         expect(connected.cancellationGeneration).not.toBeNull();
@@ -1194,6 +1251,7 @@ class MiniflareWorkerLoader implements WorkerLoader {
     entrypoint: string | undefined,
     request: TaskWorkerSessionStartRequestV1,
     capability: unknown,
+    queryCapability: unknown,
   ) {
     this.starts += 1;
     this.generations.push(request.generation);
@@ -1205,6 +1263,7 @@ class MiniflareWorkerLoader implements WorkerLoader {
       entrypoint,
       request,
       payload,
+      queryCapability,
     );
     this.sessions.add(session);
     let settlement: Promise<TaskWorkerSessionSettlementV1> | undefined;
@@ -1250,8 +1309,11 @@ class MiniflareWorkerStub implements WorkerStub {
     name?: string,
   ): Fetcher<T> {
     return {
-      start: (request: TaskWorkerSessionStartRequestV1, capability: unknown) =>
-        this.owner.start(this.code, name, request, capability),
+      start: (
+        request: TaskWorkerSessionStartRequestV1,
+        capability: unknown,
+        queryCapability: unknown,
+      ) => this.owner.start(this.code, name, request, capability, queryCapability),
     } as unknown as Fetcher<T>;
   }
 
@@ -1279,6 +1341,7 @@ class LiveGeneratedTaskSession {
     entrypoint: string | undefined,
     request: TaskWorkerSessionStartRequestV1,
     payload: unknown,
+    queryCapability: unknown,
   ): Promise<LiveGeneratedTaskSession> {
     if (entrypoint === undefined) {
       throw new Error("Application Task Worker entrypoint was not selected.");
@@ -1325,10 +1388,21 @@ export default {
   async fetch(_request, env) {
     let session;
     try {
+      class QueryCapability extends RpcTarget {
+        async invoke(request) {
+          const response = await env.CONTROL.fetch(
+            "https://task-control.test/query",
+            { method: "POST", body: encode(request) },
+          );
+          const text = await response.text();
+          if (!response.ok) throw new Error(text);
+          return decode(text);
+        }
+      }
       const worker = env.LOADER.load(code);
       session = await worker
         .getEntrypoint(${JSON.stringify(entrypoint)})
-        .start(input.request, new InputCapability());
+        .start(input.request, new InputCapability(), new QueryCapability());
       const acceptance = await session.acceptance();
       await env.CONTROL.fetch("https://task-control.test/accepted", {
         method: "POST",
@@ -1360,7 +1434,7 @@ export default {
     }
   },
 };`;
-    const control = new LiveTaskSessionControl();
+    const control = new LiveTaskSessionControl(queryCapability);
     const runtime = new Miniflare({
       compatibilityDate: COMPATIBILITY_DATE,
       modules: true,
@@ -1408,6 +1482,8 @@ export default {
 }
 
 class LiveTaskSessionControl {
+  private readonly queryReceiver: object;
+  private readonly queryInvoke: (request: unknown) => unknown;
   private readonly acceptance: Promise<TaskWorkerSessionAcceptanceV1>;
   private resolveAcceptance: ((value: TaskWorkerSessionAcceptanceV1) => void) |
     undefined;
@@ -1425,7 +1501,18 @@ class LiveTaskSessionControl {
   ) => void) | undefined;
   private interruptionRequested = false;
 
-  constructor() {
+  constructor(queryCapability: unknown) {
+    if (queryCapability === null ||
+      (typeof queryCapability !== "object" &&
+        typeof queryCapability !== "function")) {
+      throw new Error("Application Task query capability is unavailable.");
+    }
+    const queryInvoke = Reflect.get(queryCapability, "invoke");
+    if (typeof queryInvoke !== "function") {
+      throw new Error("Application Task query capability is unavailable.");
+    }
+    this.queryReceiver = queryCapability;
+    this.queryInvoke = queryInvoke;
     this.acceptance = new Promise(resolve => {
       this.resolveAcceptance = resolve;
     });
@@ -1459,6 +1546,29 @@ class LiveTaskSessionControl {
       }>;
       this.resolveInterruptionAcceptance?.(body.interruptionAcceptance);
       return new Response(null, { status: 204 });
+    }
+    if (pathname === "/query") {
+      try {
+        const queryRequest = JSON.parse(await request.text(), decodeRpcValue);
+        const result = await Reflect.apply(
+          this.queryInvoke,
+          this.queryReceiver,
+          [queryRequest],
+        );
+        try {
+          return new Response(JSON.stringify(result, encodeRpcValue), {
+            headers: { "content-type": "application/json" },
+          });
+        } finally {
+          if (result !== null &&
+            (typeof result === "object" || typeof result === "function")) {
+            const dispose = Reflect.get(result, Symbol.dispose);
+            if (typeof dispose === "function") Reflect.apply(dispose, result, []);
+          }
+        }
+      } catch (cause) {
+        return new Response(String(cause), { status: 500 });
+      }
     }
     return new Response("not found", { status: 404 });
   }

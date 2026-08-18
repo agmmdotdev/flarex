@@ -40,6 +40,7 @@ import {
 import { RpcTarget } from "cloudflare:workers";
 import {
   Cause,
+  Clock,
   Data,
   Deferred,
   Effect,
@@ -102,6 +103,10 @@ import type {
   TaskAttemptSupervisorInput,
   TaskAttemptSupervisorOutcome,
 } from "./TaskAttemptSupervisor.js";
+import {
+  makeApplicationTaskQueryCallbackCapability,
+  type ApplicationTaskQueryCallbackAuthority,
+} from "./ApplicationTaskQueryCallback.js";
 
 export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME =
   "flarex-worker-loader" as const;
@@ -120,6 +125,7 @@ export class WorkerLoaderTaskComputeProviderConfigurationError
 
 export interface WorkerLoaderTaskComputeProviderOptions {
   readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
+  readonly applicationQueryAuthority: ApplicationTaskQueryCallbackAuthority;
   readonly legacyHostPolicy: LegacyTaskWorkerHostPolicy;
   /** Hard admission ceiling for the lifetime of this private provider Layer. */
   readonly maximumScopedDispatches?: number;
@@ -131,6 +137,7 @@ export interface WorkerLoaderTaskComputeProviderOptions {
 interface CapturedOptions {
   readonly descriptor: TaskComputeProviderDescriptorV1;
   readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
+  readonly applicationQueryAuthority: ApplicationTaskQueryCallbackAuthority;
   readonly legacyHostPolicy: LegacyTaskWorkerHostPolicy;
   readonly maximumScopedDispatches: number;
   readonly randomUuid: () => string;
@@ -515,6 +522,17 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
     const capability = new TaskWorkerInputCapabilityTarget(subject.input);
     const session = subject.generation === "application_v1"
       ? yield* Effect.gen(function* () {
+          const querySession = yield* Effect.fromResult(
+            options.applicationQueryAuthority.bindLaunch({
+              creationAuthority: subject.creationAuthority,
+              runtimeTarget: subject.runtimeTarget,
+              executionIdentity: subject.executionIdentity,
+            }),
+          ).pipe(Effect.mapError(cause => new TaskComputeDispatchTransportError({
+            operation: "dispatch",
+            retryable: false,
+            cause,
+          })));
           const definition = yield* makeApplicationTaskWorkerDefinition({
             source: subject.source,
             target: subject.runtimeTarget,
@@ -524,7 +542,18 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
             hostPolicy: options.applicationHostPolicy,
             sha256: options.sha256,
           }).pipe(Effect.mapError(cause => mapDefinitionFailure(request, cause)));
-          return yield* Effect.acquireRelease(
+          const startedAt = yield* Clock.currentTimeMillis;
+          const queryCapabilityLease = makeApplicationTaskQueryCallbackCapability(
+            querySession,
+            {
+              executionId,
+              absoluteTaskDeadlineMs: Math.min(
+                Number.MAX_SAFE_INTEGER,
+                startedAt + request.maximumDurationMs,
+              ),
+            },
+          );
+          const startedSession = yield* Effect.acquireRelease(
             host.start({
               generation: "application_v1",
               definition,
@@ -534,10 +563,23 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
                 dispatch: subject.request,
               }),
               capability,
+              queryCapability: queryCapabilityLease.capability,
               executionId,
-            }).pipe(Effect.mapError(cause => mapStartFailure(request, cause))),
-            session => Effect.exit(session.close).pipe(Effect.asVoid),
+            }).pipe(
+              Effect.mapError(cause => mapStartFailure(request, cause)),
+              Effect.onExit(exit => Exit.isFailure(exit)
+                ? Effect.sync(() => queryCapabilityLease.close())
+                : Effect.void),
+            ),
+            session => Effect.sync(() => queryCapabilityLease.close()).pipe(
+              Effect.andThen(Effect.exit(session.close)),
+              Effect.asVoid,
+            ),
             { interruptible: true },
+          );
+          return withApplicationQueryCapability(
+            startedSession,
+            queryCapabilityLease,
           );
         })
       : yield* Effect.gen(function* () {
@@ -625,6 +667,18 @@ function superviseSession(
     })),
     Effect.asVoid,
   );
+}
+
+function withApplicationQueryCapability(
+  session: TaskWorkerSession,
+  capability: Readonly<{ readonly close: () => void }>,
+): TaskWorkerSession {
+  return Object.freeze({
+    ...session,
+    close: Effect.sync(() => capability.close()).pipe(
+      Effect.andThen(session.close),
+    ),
+  });
 }
 
 function findActiveDispatch(
@@ -900,6 +954,7 @@ function captureOptions(
   return Result.gen(function* () {
     const outer = yield* captureProperties(input, [
       "applicationHostPolicy",
+      "applicationQueryAuthority",
       "legacyHostPolicy",
       "maximumScopedDispatches",
       "handshakeMilliseconds",
@@ -912,6 +967,9 @@ function captureOptions(
     }).pipe(Result.mapError(configurationError));
     const applicationHostPolicy = yield* captureApplicationPolicy(
       outer.applicationHostPolicy,
+    );
+    const applicationQueryAuthority = yield* captureApplicationQueryAuthority(
+      outer.applicationQueryAuthority,
     );
     const legacyHostPolicy = yield* captureLegacyPolicy(outer.legacyHostPolicy);
     const maximumScopedDispatches = outer.maximumScopedDispatches ??
@@ -938,12 +996,42 @@ function captureOptions(
     return Object.freeze({
       descriptor,
       applicationHostPolicy,
+      applicationQueryAuthority,
       legacyHostPolicy,
       maximumScopedDispatches,
       randomUuid,
       sha256,
       handshakeMilliseconds,
     });
+  });
+}
+
+function captureApplicationQueryAuthority(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskQueryCallbackAuthority,
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.try({
+    try: () => {
+      if (input === null || typeof input !== "object") {
+        throw new Error("Application Task query authority is unavailable.");
+      }
+      const bindLaunch = Reflect.get(input, "bindLaunch");
+      if (typeof bindLaunch !== "function") {
+        throw new Error("Application Task query authority is unavailable.");
+      }
+      // SAFETY: this is a typed private composition port; the runtime check
+      // above proves its callable member while its Result contract remains
+      // owned by the supplying Application composition.
+      const ownedBindLaunch = bindLaunch as ApplicationTaskQueryCallbackAuthority["bindLaunch"];
+      return Object.freeze({
+        bindLaunch: (subject: Parameters<
+          ApplicationTaskQueryCallbackAuthority["bindLaunch"]
+        >[0]) => Reflect.apply(ownedBindLaunch, input, [subject]),
+      });
+    },
+    catch: configurationError,
   });
 }
 

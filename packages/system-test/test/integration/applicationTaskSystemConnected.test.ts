@@ -8,6 +8,13 @@ describe("DTE06-E5 Application Task supervision", () => {
     await expect(proveApplicationTaskSystemConnected()).resolves.toBeUndefined();
   }, 120_000);
 
+  it("runs a query from the genuine Task Worker with the launch-bound user principal", async () => {
+    await expect(proveApplicationTaskSystemConnected(
+      undefined,
+      "query_callback",
+    )).resolves.toBeUndefined();
+  }, 120_000);
+
   it("maps a real Application Worker handler failure into the durable retry policy", async () => {
     await expect(proveApplicationTaskSystemConnected(
       undefined,

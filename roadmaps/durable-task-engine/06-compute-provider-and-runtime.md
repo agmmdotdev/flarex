@@ -644,6 +644,9 @@ lifecycle accepts the unchanged success and records the cancellation as
 - retain the implemented scope-bound authenticated-user principal publication,
   persisted reference, and exact launch reconstruction as the only identity
   source for the first `runQuery` capability;
+- retain the implemented query-only Task Worker RPC target, exact bounded
+  request/result envelope, host-allocated call identity and deadline, and
+  per-call `ApplicationTaskQueryAuthority` selection revalidation;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;

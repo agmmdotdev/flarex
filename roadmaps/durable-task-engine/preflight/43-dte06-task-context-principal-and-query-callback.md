@@ -1,8 +1,8 @@
 # Preflight 43: Task Context Principal And Query Callback
 
-Status: Approved; authenticated-user principal issuance, immutable publication,
-persisted run binding, and launch reconstruction implemented. The capability-
-only Worker query callback remains pending.
+Status: Implemented privately and production-inert. Authenticated-user
+principal issuance, immutable publication, persisted run binding, launch
+reconstruction, and the capability-only Worker query callback are complete.
 
 This preflight owns the next DTE06-F0A core-runtime checkpoint. It does not
 authorize observability APIs, UI work, mutation callbacks, outbound I/O,
@@ -16,7 +16,7 @@ The shared Application query execution core and the backend-private
 not merely an RPC adapter. This checkpoint now issues a scope-bound immutable
 authenticated-user principal object, includes its exact reference in new
 Application Task creation requests and run rows, and reconstructs an owned
-identity at launch. The Worker still receives no callback.
+identity at launch. The Worker receives no identity or selection authority.
 
 Before this checkpoint, Application Task run creation contained only:
 
@@ -34,14 +34,16 @@ marked `legacy_absent` fail closed during compute preparation; Legacy Task rows
 remain `not_applicable`. Compute preparation carries the persisted reference,
 and launch verifies its key, length, digest, canonical codec, user kind, and
 scope before returning an owned frozen identity. The Worker session does not
-receive that identity. The current Application Task Worker still invokes the
-task handler with `task(payload)` and projects no context callback.
+receive that identity. The current Application Task Worker invokes the handler
+as `task(ctx, payload)`, where the frozen context exposes only
+`runQuery(functionPath, arguments)`.
 
-The host now has the authenticated launch identity needed to construct
-`ctx.runQuery`, but the capability-only session and Worker RPC contract do not
-yet exist. Provider execution identity, run ID, scope, request key, and compute-
-dispatch identity remain invalid substitutes. Anonymous request identity is
-explicitly forbidden.
+The host binds that authenticated launch identity through
+`ApplicationTaskQueryAuthority` before Worker start. The Worker receives a
+separate RPC target that exposes only one bounded query invocation method.
+Provider execution identity, run ID, scope, request key, and compute-dispatch
+identity remain invalid substitutes. Anonymous request identity is explicitly
+forbidden.
 
 ## Accepted Direction To Approve
 
@@ -87,32 +89,42 @@ session.
 ## First Callback Contract
 
 The first admitted Task context member is read-only query execution. Its
-private Worker RPC contract must include:
+private Worker RPC contract includes:
 
 - one operation discriminant and compatibility version;
 - a bounded function path;
 - canonical bounded arguments;
 - one host-allocated call identity;
 - cancellation/interruption and absolute-deadline behavior;
+- a host-owned per-session in-flight query ceiling;
 - a canonical bounded result or typed failure; and
 - exact single-settlement and late-result disposal rules.
 
-The callback must re-read and correlate the active Application selection on
+The callback re-reads and correlates the active Application selection on
 every call through `ApplicationTaskQueryAuthority`, then invoke the shared
 selection-bound query port. The Worker cannot select scope, activation,
 revision, candidate, principal, or snapshot.
 
-The task-handler context shape and argument order must be defined with the
-Standard Application authoring/runtime owner before the Worker ABI changes.
-Current `task(payload)` behavior remains unchanged until that contract is
-approved and tested. No compatibility fallback may invoke both signatures.
+The Standard Application runtime owns the exact handler order
+`task(ctx, payload)`. There is no dual-signature fallback. Legacy Task execution
+retains its existing handler contract and receives no Application query
+capability.
+
+The Worker request contains only the operation, bounded path, normalized
+arguments, and semantic byte count. The host allocates the call identity and
+absolute deadline, revalidates the active Application selection for every
+call, and returns a strict success/failure envelope. Session close interrupts
+in-flight host Effects; the Worker stops awaiting a callback on Task
+interruption and disposes any late RPC result.
 
 ## Explicitly Deferred
 
 - `ctx.runMutation`;
 - outbound network calls;
 - nested Task creation, enqueue, delay, or scheduling;
-- process-local callback ordinals;
+- durable or replay-significant callback ordinals; the current read-only query
+  capability uses only an ephemeral session-local ordinal in its diagnostic
+  call identity;
 - requested-effect persistence for side-effecting callbacks;
 - public API or SDK ergonomics;
 - run dashboards, logs, traces, live subscriptions, or Trigger.dev UI reuse;
@@ -144,8 +156,7 @@ effect/ordinal/replay contract and cannot reuse foreground Action callbacks.
 
 ## Stop Boundary
 
-Approval of this preflight authorizes only the persisted Task-principal
-contract, its exact launch reconstruction, the read-only query callback ABI,
-and private connected proof. The implementation currently stops after launch
-reconstruction. It does not authorize the deferred capabilities or any
-production activation.
+This implementation stops after the persisted Task-principal contract, exact
+launch reconstruction, read-only query callback ABI, and private connected
+proof. It does not authorize the deferred capabilities or any production
+activation.

@@ -563,6 +563,8 @@ describe("Trigger compatibility boundary checker", () => {
   it("admits only the private DTE06-D3b.iii Worker Loader provider chain", () => {
     const providerPath =
       "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
+    const queryCallbackPath =
+      "packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskQueryCallback.ts";
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: providerPath,
       text: `
@@ -592,6 +594,39 @@ describe("Trigger compatibility boundary checker", () => {
         import type { TaskRuntimeLaunchSubject } from "../taskRuntimeLaunch/Model";
       `,
     }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: queryCallbackPath,
+      text: `
+        import type { ApplicationTaskRuntimeLaunchSubject } from
+          "../taskRuntimeLaunch/Model";
+        import type { TaskComputeExecutionIdV1 } from
+          "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: queryCallbackPath,
+      text: `
+        import {
+          type ApplicationTaskRuntimeLaunchSubject,
+          TaskRuntimeLaunchPortError,
+        } from "../taskRuntimeLaunch/Model";
+      `,
+    }]).errors).toEqual([
+      `${queryCallbackPath}:2 production source must not activate the Task runtime launch authority before Worker Loader admission.`,
+    ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: queryCallbackPath,
+      text: `
+        import {
+          TaskComputeProvider,
+          type TaskComputeExecutionIdV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([
+      `${queryCallbackPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: providerPath,

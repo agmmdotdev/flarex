@@ -47,6 +47,8 @@ import {
   TASK_WORKER_SESSION_SETTLEMENT_VERSION_V1,
   type TaskWorkerSessionStartRequestV1,
 } from "flarex-protocol/internal/task-worker-session-v1";
+import type { ApplicationTaskQueryCallbackCapabilityV1 } from
+  "flarex-protocol/internal/application-task-query-callback-v1";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -225,6 +227,10 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     });
     expect(allocations).toBe(1);
     expect(loader.sessionDisposals).toBe(1);
+    await expect(loader.queryCapabilities[0]!.invoke({})).resolves.toMatchObject({
+      kind: "failure",
+      reason: "interrupted",
+    });
   });
 
   it("treats the configured dispatch bound as a provider-scope admission limit", async () => {
@@ -286,6 +292,8 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     );
     expect(timeout).toBeInstanceOf(TaskComputeDispatchUncertainError);
     expect(timeoutLoader.starts).toBe(1);
+    await expect(timeoutLoader.queryCapabilities[0]!.invoke({})).resolves
+      .toMatchObject({ kind: "failure", reason: "interrupted" });
   });
 
   it("delegates one accepted session and observes the exact supervisor failure", async () => {
@@ -347,6 +355,11 @@ async function runWithProvider<Success, Failure>(
   );
   const options = {
     applicationHostPolicy: applicationHostPolicy(),
+    applicationQueryAuthority: Object.freeze({
+      bindLaunch: () => Result.succeed(Object.freeze({
+        runQuery: () => Effect.succeed(Object.freeze({})),
+      })),
+    }),
     legacyHostPolicy: legacyHostPolicy(),
     maximumScopedDispatches,
     handshakeMilliseconds,
@@ -619,6 +632,7 @@ class FakeWorkerLoader implements WorkerLoader {
   readonly executionIds: string[] = [];
   readonly payloads: unknown[] = [];
   readonly sessions: FakeWorkerSession[] = [];
+  readonly queryCapabilities: ApplicationTaskQueryCallbackCapabilityV1[] = [];
   starts = 0;
   interruptions = 0;
   sessionDisposals = 0;
@@ -638,10 +652,19 @@ class FakeWorkerLoader implements WorkerLoader {
     throw new Error(`Unexpected WorkerLoader.get: ${String(getCode)}`);
   }
 
-  async start(request: TaskWorkerSessionStartRequestV1, capability: unknown) {
+  async start(
+    request: TaskWorkerSessionStartRequestV1,
+    capability: unknown,
+    queryCapability?: unknown,
+  ) {
     this.starts += 1;
     this.generations.push(request.generation);
     this.executionIds.push(request.executionId);
+    if (request.generation === "application_v1") {
+      this.queryCapabilities.push(
+        queryCapability as ApplicationTaskQueryCallbackCapabilityV1,
+      );
+    }
     if (this.behavior.neverStart === true) return await new Promise<never>(() => {});
     const read = Reflect.get(capability as object, "read");
     this.payloads.push(await Reflect.apply(read, capability, []));
@@ -661,8 +684,11 @@ class FakeWorkerStub implements WorkerStub {
 
   getEntrypoint<T extends Rpc.WorkerEntrypointBranded | undefined>(): Fetcher<T> {
     return {
-      start: (request: TaskWorkerSessionStartRequestV1, capability: unknown) =>
-        this.owner.start(request, capability),
+      start: (
+        request: TaskWorkerSessionStartRequestV1,
+        capability: unknown,
+        queryCapability?: unknown,
+      ) => this.owner.start(request, capability, queryCapability),
     } as unknown as Fetcher<T>;
   }
 

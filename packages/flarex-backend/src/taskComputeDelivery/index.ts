@@ -6,3 +6,4 @@ export * from "./TrustedDirectory.js";
 export * from "./TaskWorkerTerminalCompletion.js";
 export * from "./TaskAttemptSupervisor.js";
 export * from "./WorkerLoaderTaskComputeProvider.js";
+export * from "./ApplicationTaskQueryCallback.js";

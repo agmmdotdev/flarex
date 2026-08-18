@@ -18,6 +18,8 @@ import {
 } from "flarex-protocol/internal/task-worker-session-v1";
 import type { ApplicationTaskWorkerInputCapabilityV1 } from
   "flarex-protocol/internal/application-task-worker-v1";
+import type { ApplicationTaskQueryCallbackCapabilityV1 } from
+  "flarex-protocol/internal/application-task-query-callback-v1";
 import type { LegacyTaskWorkerInputCapabilityV1 } from
   "flarex-protocol/internal/legacy-task-worker-v1";
 
@@ -62,6 +64,7 @@ type ApplicationStartInput = Readonly<{
   readonly definition: ApplicationTaskWorkerDefinition;
   readonly request: unknown;
   readonly capability: ApplicationTaskWorkerInputCapabilityV1;
+  readonly queryCapability: ApplicationTaskQueryCallbackCapabilityV1;
   readonly executionId: string;
 }>;
 
@@ -112,6 +115,7 @@ interface TaskWorkerSessionEntrypoint extends Rpc.WorkerEntrypointBranded {
   readonly start: (
     request: TaskWorkerSessionStartRequestV1,
     capability: unknown,
+    queryCapability?: unknown,
   ) => PromiseLike<unknown>;
 }
 
@@ -154,7 +158,13 @@ export function makeTaskWorkerSessionHost(
     return yield* Effect.gen(function* () {
       const rawSession = yield* restore(Effect.tryPromise({
         try: signal => awaitRpcTarget(
-          () => entrypoint.start(startRequest, input.capability),
+          () => entrypoint.start(
+            startRequest,
+            input.capability,
+            input.generation === "application_v1"
+              ? input.queryCapability
+              : undefined,
+          ),
           signal,
           lease,
         ),

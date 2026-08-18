@@ -26,6 +26,8 @@ const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
   "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
 const flarexBackendWorkerLoaderTaskComputeProviderPath =
   "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
+const flarexBackendApplicationTaskQueryCallbackPath =
+  "packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskQueryCallback.ts";
 const flarexBackendTaskWorkerTerminalCompletionPath =
   "packages/flarex-backend/src/taskComputeDelivery/TaskWorkerTerminalCompletion.ts";
 const flarexBackendTaskAttemptSupervisorPath =
@@ -346,6 +348,12 @@ const admittedWorkerLoaderLaunchModelImports = new Map([
   ["TaskRuntimeLaunchValidationError", "value"],
   ["CurrentTaskRuntimeLaunchSubject", "type"],
   ["TaskRuntimeInputSource", "type"],
+]);
+const admittedApplicationTaskQueryCallbackLaunchModelImports = new Map([
+  ["ApplicationTaskRuntimeLaunchSubject", "type"],
+]);
+const admittedApplicationTaskQueryCallbackComputeProviderImports = new Map([
+  ["TaskComputeExecutionIdV1", "type"],
 ]);
 const admittedApplicationTaskComputeDeliveryImports = new Map([
   ["TaskComputeDeliveryCandidateRunnerLive", "value"],
@@ -1584,6 +1592,13 @@ function isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
     matchesRepositoryModule(resolved, flarexBackendTaskRuntimeLaunchModelPath)) {
     return hasExactNamedImportModes(node, admittedLegacyWorkerLaunchModelImports);
   }
+  if (relativePath === flarexBackendApplicationTaskQueryCallbackPath &&
+    matchesRepositoryModule(resolved, flarexBackendTaskRuntimeLaunchModelPath)) {
+    return hasExactNamedImportModes(
+      node,
+      admittedApplicationTaskQueryCallbackLaunchModelImports,
+    );
+  }
   if (relativePath !== flarexBackendWorkerLoaderTaskComputeProviderPath) {
     return false;
   }
@@ -1839,6 +1854,15 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
+  if (
+    relativePath === flarexBackendApplicationTaskQueryCallbackPath &&
+    specifier === "@flarex/durable-task/internal/compute-provider-v1"
+  ) {
+    return hasExactNamedImportModes(
+      node,
+      admittedApplicationTaskQueryCallbackComputeProviderImports,
+    );
+  }
   if (
     relativePath === flarexBackendTaskExecutionPrincipalStorePath
     && specifier === "@flarex/durable-task/internal/run-creation-v1"

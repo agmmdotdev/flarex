@@ -15,6 +15,8 @@ import {
   type TaskRuntimeLaunchDirectory,
 } from "flarex-backend/internal/task-runtime-launch";
 import { Layer } from "effect";
+import type { ApplicationTaskQueryAuthority } from
+  "./ApplicationTaskQueryAuthority";
 
 export interface ApplicationTaskComputeDeliveryLive {
   readonly controlTarget: Parameters<
@@ -27,7 +29,11 @@ export interface ApplicationTaskComputeDeliveryLive {
   readonly launchDirectory: TaskRuntimeLaunchDirectory;
   readonly launchAuthority: TaskRuntimeLaunchAuthorityOptions;
   readonly workerLoader: WorkerLoader;
-  readonly provider: WorkerLoaderTaskComputeProviderOptions;
+  readonly provider: Omit<
+    WorkerLoaderTaskComputeProviderOptions,
+    "applicationQueryAuthority"
+  >;
+  readonly queryAuthority: ApplicationTaskQueryAuthority;
   readonly supervision: Readonly<{
     readonly supervisor: TaskAttemptSupervisor;
     readonly exitObserver: TaskAttemptSupervisionExitObserver;
@@ -50,7 +56,10 @@ export function makeApplicationTaskComputeDeliveryLayer(
   );
   const provider = makeSupervisedWorkerLoaderTaskComputeProviderLayer(
     live.workerLoader,
-    live.provider,
+    Object.freeze({
+      ...live.provider,
+      applicationQueryAuthority: live.queryAuthority,
+    }),
     live.supervision.supervisor,
     live.supervision.exitObserver,
   ).pipe(Layer.provide(launchAuthority));

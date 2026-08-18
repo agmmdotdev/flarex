@@ -620,10 +620,14 @@ files remain candidates:
      suppression. Its cancel/complete proof records exact acknowledgement when
      cancellation wins and `superseded_by_completion` when success wins.
      DTE06-F0A first converges the shared Application Worker runtime substrate
-     and adds authenticated Task query/mutation/outbound/scheduler capabilities
-     without creating a universal provider. Its authenticated-user principal
-     is now scope-bound, immutably published, persisted, and reconstructed at
-     launch; the Worker query capability is still pending. F1 then adds a
+     and adds individually admitted authenticated Task capabilities without
+     creating a universal provider. Its authenticated-user principal is
+     scope-bound, immutably published, persisted, and reconstructed at launch.
+     The current Application Task Worker receives only a query RPC target;
+     `task(ctx, payload)` can call the existing selection-bound query core via
+     `ctx.runQuery`, with the launch-bound user and per-call active-selection
+     revalidation. Mutation, outbound, and scheduling context members remain
+     deferred. F1 then adds a
      production-compatible test host and fresh-host recovery proof around those
      current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public

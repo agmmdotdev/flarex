@@ -335,14 +335,17 @@ or invent an anonymous default. A scheduled or system Task principal requires
 its own separately approved identity contract rather than reuse of anonymous
 request identity.
 
-Worker RPC projection, interruption/deadline bridging, and connected-system
-proof remain pending, so `ctx.runQuery` is not yet available to Task user code.
 New Application Task creation now uses a scope-local issuer to publish an exact
 authenticated-user principal object and persist its reference. Compute
 preparation carries that stored reference, and launch verifies and reconstructs
-the owned user identity under approved Preflight 43. Session capability
-projection and the capability-only Worker query callback remain pending, so
-F0A has not yet crossed the Worker callback boundary.
+the owned user identity under approved Preflight 43. The Application Task
+Worker now receives a separate query-only RPC target and invokes current task
+handlers as `task(ctx, payload)`. `ctx.runQuery` uses a bounded exact envelope,
+host-allocated call identity and deadline, per-call selection revalidation,
+session interruption, and late-result disposal. Genuine Worker connected proof
+reaches the existing selection-bound query core with the launch-bound user
+identity. Mutation, outbound, nested scheduling, and production host work
+remain outside this query checkpoint, so F0A remains in progress.
 
 - inventory the exact shared and distinct mechanics in
   `ApplicationExecutionHost`, `TaskWorkerSessionHost`, Worker definition

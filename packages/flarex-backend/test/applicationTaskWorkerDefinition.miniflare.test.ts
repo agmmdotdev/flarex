@@ -23,6 +23,7 @@ import {
 import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "../src/artifactRuntime/ApplicationRuntimeMaterializer";
 import {
+  APPLICATION_TASK_WORKER_ENTRYPOINT,
   makeApplicationTaskWorkerDefinition,
   type ApplicationTaskWorkerDefinition,
   type ApplicationTaskWorkerHostPolicy,
@@ -153,7 +154,7 @@ describe("Application task Worker definition", () => {
       requestFor(definition),
     );
     expect(receipt).toEqual({
-      disposals: 2,
+      disposals: 4,
       secondName: "ApplicationTaskWorkerInvalidRequestV1Error",
     });
   }, 20_000);
@@ -162,7 +163,7 @@ describe("Application task Worker definition", () => {
     const fixture = taskFixture([
       "const importedNow = Date.now();",
       "const importedRandom = Math.random();",
-      "export function run(payload) {",
+      "export function run(_ctx, payload) {",
       "  return { payload, importedNow, importedRandom, now: Date.now(), random: Math.random(), performance: performance.now() };",
       "}",
       "export function ignored() { throw new Error('wrong export'); }",
@@ -187,9 +188,28 @@ describe("Application task Worker definition", () => {
     expect(first).toHaveProperty("disposals", 1);
   }, 20_000);
 
+  it("exposes only a query callback context to the genuine Application task Worker", async () => {
+    const fixture = taskFixture([
+      "export async function run(ctx, payload) {",
+      "  return await ctx.runQuery('users:get', payload);",
+      "}",
+    ].join("\n"));
+    const definition = await buildDefinition(fixture);
+
+    await expect(executeDefinition(
+      definition,
+      requestFor(definition),
+      { orderId: "order-query" },
+      true,
+    )).resolves.toMatchObject({
+      value: { orderId: "order-query" },
+      queryPath: "users:get",
+    });
+  }, 20_000);
+
   it("rejects payload and output validator violations", async () => {
     const fixture = taskFixture(
-      "export function run(payload) { return payload.name.length; }",
+      "export function run(_ctx, payload) { return payload.name.length; }",
       { type: "object", value: {
         name: { fieldType: { type: "string" }, optional: false },
       } },
@@ -218,7 +238,7 @@ describe("Application task Worker definition", () => {
 
   it("classifies returned payload disposal failure at the input boundary", async () => {
     const fixture = taskFixture(
-      "export function run(payload) { return payload; }",
+      "export function run(_ctx, payload) { return payload; }",
     );
     const definition = await buildDefinition(fixture);
     for (const invalidPayload of [false, true]) {
@@ -252,6 +272,50 @@ describe("Application task Worker definition", () => {
       .toContain("const definition = Object.freeze(JSON.parse(");
   });
 
+  it("disposes the input duplicate when query-capability duplication fails", async () => {
+    const definition = await buildDefinition(taskFixture(
+      "export function run() { return null; }",
+    ));
+    const entrypoint = definition.modules[definition.mainModule];
+    expect(entrypoint).toBeTypeOf("object");
+    const Entrypoint = evaluateGeneratedEntrypoint(
+      (entrypoint as { readonly js: string }).js,
+    );
+    const queryFailure = new Error("query duplication failed");
+    let inputDisposals = 0;
+    const input = { dup: () => ({
+      [Symbol.dispose]: () => { inputDisposals += 1; },
+    }) };
+    const query = { dup: () => { throw queryFailure; } };
+
+    await expect(new Entrypoint().start({}, input, query)).rejects.toBe(queryFailure);
+    expect(inputDisposals).toBe(1);
+  });
+
+  it("preserves duplication and cleanup causes when both operations fail", async () => {
+    const definition = await buildDefinition(taskFixture(
+      "export function run() { return null; }",
+    ));
+    const entrypoint = definition.modules[definition.mainModule];
+    expect(entrypoint).toBeTypeOf("object");
+    const Entrypoint = evaluateGeneratedEntrypoint(
+      (entrypoint as { readonly js: string }).js,
+    );
+    const queryFailure = new Error("query duplication failed");
+    const cleanupFailure = new Error("input cleanup failed");
+    const input = { dup: () => ({
+      [Symbol.dispose]: () => { throw cleanupFailure; },
+    }) };
+    const query = { dup: () => { throw queryFailure; } };
+
+    await expect(new Entrypoint().start({}, input, query)).rejects.toMatchObject({
+      cause: {
+        queryCapabilityFailure: queryFailure,
+        inputCapabilityCleanupFailure: cleanupFailure,
+      },
+    });
+  });
+
   it("fails closed on forbidden import-time capability use", async () => {
     const fixture = taskFixture([
       "try { crypto.randomUUID(); } catch {}",
@@ -265,7 +329,7 @@ describe("Application task Worker definition", () => {
 
   it("rejects an oversized output under the task result ceiling", async () => {
     const fixture = taskFixture(
-      "export function run(payload) { return 'x'.repeat(payload.size); }",
+      "export function run(_ctx, payload) { return 'x'.repeat(payload.size); }",
     );
     const definition = await buildDefinition(fixture);
     await expect(executeDefinition(
@@ -618,6 +682,7 @@ async function executeDefinition(
   definition: ApplicationTaskWorkerDefinition,
   requestValue: unknown,
   payload: unknown,
+  enableQuery = false,
 ): Promise<unknown> {
   const encoded = JSON.stringify({ request: requestValue, payload },
     (_key, value: unknown) => {
@@ -647,15 +712,39 @@ class InputCapability extends RpcTarget {
   read() { return JSON.parse(JSON.stringify(input.payload)); }
   [Symbol.dispose]() { globalThis.capabilityDisposals += 1; }
 }
+class QueryCapability extends RpcTarget {
+  invoke(request) {
+    if (!${JSON.stringify(enableQuery)}) {
+      throw new Error("query callback was not expected");
+    }
+    globalThis.queryPath = request.functionPath;
+    return {
+      format: "flarex.application-task-query-callback",
+      version: 1,
+      kind: "success",
+      callId: "task-worker-test:query:1",
+      deadlineMs: Date.now() + 1_000,
+      value: request.arguments,
+      valueSemanticBytes: request.argumentSemanticBytes,
+    };
+  }
+}
 globalThis.capabilityDisposals = 0;
+globalThis.queryPath = null;
 export default {
   async fetch(_request, env) {
     try {
       const worker = env.LOADER.load(workerCode);
       const stub = worker.getEntrypoint(${JSON.stringify(definition.entrypoint)});
-      const result = await stub.run(input.request, new InputCapability());
+      const result = await stub.run(
+        input.request,
+        new InputCapability(),
+        new QueryCapability(),
+      );
       try {
-        const projection = { ...structuredClone(result), disposals: globalThis.capabilityDisposals };
+        const projection = { ...structuredClone(result),
+          disposals: globalThis.capabilityDisposals,
+          queryPath: globalThis.queryPath };
         return new Response(JSON.stringify(projection, (_key, value) =>
           typeof value === "bigint" ? { __bigint: String(value) } : value
         ), { headers: { "content-type": "application/json" } });
@@ -719,11 +808,13 @@ class Payload extends RpcTarget {
 class Input extends RpcTarget {
   async read() { await scheduler.wait(50); return new Payload(); }
 }
+class Query extends RpcTarget { invoke() { throw new Error("unexpected query"); } }
 export default { async fetch(_request, env) {
   const worker = env.LOADER.load(code);
   const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
     .start({ format: "flarex.task-worker-session-start", version: 1,
-      generation: "application_v1", executionId: "execution-1", request }, new Input());
+      generation: "application_v1", executionId: "execution-1", request },
+      new Input(), new Query());
   try {
     const acceptance = await session.acceptance();
     await scheduler.wait(10);
@@ -782,12 +873,13 @@ const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
     : value && typeof value === "object" && typeof value.__bigint === "string"
     ? BigInt(value.__bigint) : value);
 class Input extends RpcTarget { read() { return structuredClone(input.payload); } }
+class Query extends RpcTarget { invoke() { throw new Error("unexpected query"); } }
 export default { async fetch(_request, env) {
   const worker = env.LOADER.load(code);
   const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
     .start({ format: "flarex.task-worker-session-start", version: 1,
       generation: "application_v1", executionId: "execution-1",
-      request: input.requestValue }, new Input());
+      request: input.requestValue }, new Input(), new Query());
   try {
     const settlement = await session.settlement();
     return new Response(JSON.stringify(structuredClone(settlement), (_key, value) =>
@@ -848,8 +940,11 @@ export default {
             };
           },
         },
+        queryCapability: {
+          invoke() { throw new Error("unexpected query"); },
+        },
         definition,
-        loadExecution: async () => ({ run(payload) { return payload; } }),
+        loadExecution: async () => ({ run(_ctx, payload) { return payload; } }),
       });
       return Response.json({ name: "must-not-succeed" });
     } catch (error) {
@@ -906,6 +1001,7 @@ export default {
         read() { return null; },
         [Symbol.dispose]() { throw new Error("input capability dispose failed"); },
       },
+      queryCapability: { invoke() { throw new Error("unexpected query"); } },
       definition,
       loadExecution: async () => ({ run() {
         ${handlerFails ? 'throw new Error("handler failed");' : "return null;"}
@@ -968,6 +1064,7 @@ export default { async fetch() {
     startRequest: { format: "flarex.task-worker-session-start", version: 1,
       generation: "application_v1", executionId: "execution-1", request },
     capability: { read() { return null; } },
+    queryCapability: { invoke() { throw new Error("unexpected query"); } },
     definition,
     loadExecution: async () => ({ run() { return null; } }),
   });
@@ -1014,16 +1111,20 @@ const definition = { handlerExportName: "run",
 let disposals = 0;
 const capability = () => ({ read() { return null; },
   [Symbol.dispose]() { disposals += 1; } });
+const queryCapability = () => ({ invoke() { throw new Error("unexpected query"); },
+  [Symbol.dispose]() { disposals += 1; } });
 const loadExecution = async () => ({ run() { return null; } });
 export default { async fetch() {
   const first = await startApplicationTaskWorkerSessionV1({
-    startRequest, capability: capability(), definition, loadExecution,
+    startRequest, capability: capability(), queryCapability: queryCapability(),
+    definition, loadExecution,
   });
   await first.terminal;
   let secondName;
   try {
     await startApplicationTaskWorkerSessionV1({
-      startRequest, capability: capability(), definition, loadExecution,
+      startRequest, capability: capability(), queryCapability: queryCapability(),
+      definition, loadExecution,
     });
   } catch (error) { secondName = error?.name; }
   return Response.json({ disposals, secondName });
@@ -1039,4 +1140,46 @@ export default { async fetch() {
   instances.push(runtime);
   const response = await runtime.dispatchFetch("https://duplicate-session.test/");
   return await response.json();
+}
+
+interface EvaluatedApplicationTaskEntrypoint {
+  readonly start: (
+    startRequest: unknown,
+    inputCapability: unknown,
+    queryCapability: unknown,
+  ) => Promise<unknown>;
+}
+
+function evaluateGeneratedEntrypoint(source: string): new () =>
+  EvaluatedApplicationTaskEntrypoint {
+  const executable = source.split("\n")
+    .filter(line => !line.startsWith("import "))
+    .join("\n")
+    .replace(
+      `export class ${APPLICATION_TASK_WORKER_ENTRYPOINT}`,
+      `class ${APPLICATION_TASK_WORKER_ENTRYPOINT}`,
+    ) + `\nreturn ${APPLICATION_TASK_WORKER_ENTRYPOINT};`;
+  class TestRpcTarget {}
+  class TestWorkerEntrypoint {
+    readonly ctx = Object.freeze({ waitUntil: (_pending: Promise<unknown>) => {} });
+  }
+  const factory = Function(
+    "RpcTarget",
+    "WorkerEntrypoint",
+    "executeApplicationTaskWorkerV1",
+    "startApplicationTaskWorkerSessionV1",
+    executable,
+  );
+  const evaluated: unknown = factory(
+    TestRpcTarget,
+    TestWorkerEntrypoint,
+    () => undefined,
+    () => undefined,
+  );
+  if (typeof evaluated !== "function") {
+    throw new Error("Generated Application Task entrypoint did not evaluate.");
+  }
+  // SAFETY: the exact generated class is checked as callable above and the
+  // tests invoke only its declared start method before any imported operation.
+  return evaluated as new () => EvaluatedApplicationTaskEntrypoint;
 }

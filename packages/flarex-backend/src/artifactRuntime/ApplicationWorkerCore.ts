@@ -27,6 +27,12 @@ import {
   type ApplicationTaskWorkerResultV1,
 } from "flarex-protocol/internal/application-task-worker-v1";
 import {
+  APPLICATION_TASK_QUERY_CALLBACK_FORMAT_V1,
+  APPLICATION_TASK_QUERY_CALLBACK_VERSION_V1,
+  decodeApplicationTaskQueryCallbackResultV1,
+  normalizeApplicationTaskQueryCallbackValueV1,
+} from "flarex-protocol/internal/application-task-query-callback-v1";
+import {
   LEGACY_TASK_WORKER_RESULT_FORMAT_V1,
   LEGACY_TASK_WORKER_RESULT_VERSION_V1,
   LegacyTaskWorkerContractV1Error,
@@ -207,6 +213,7 @@ export interface ApplicationTaskWorkerDefinitionV1 {
 export interface ApplicationTaskWorkerExecutionInputV1 {
   readonly request: unknown;
   readonly capability: unknown;
+  readonly queryCapability: unknown;
   readonly definition: ApplicationTaskWorkerDefinitionV1;
   readonly loadExecution: () => Promise<unknown>;
   readonly admittedRequest?: ApplicationTaskWorkerRequestV1;
@@ -288,6 +295,11 @@ interface CallbackCapability {
 interface TaskInputCapability {
   readonly receiver: object;
   readonly read: () => unknown | PromiseLike<unknown>;
+}
+
+interface TaskQueryCapability {
+  readonly receiver: object;
+  readonly invoke: (request: unknown) => unknown | PromiseLike<unknown>;
 }
 
 type BoundaryKind = "read" | "journal";
@@ -468,6 +480,10 @@ export async function executeApplicationTaskWorkerV1(
       input.capability,
       "ApplicationTaskWorkerInputBoundaryV1Error",
     );
+    const queryCapability = taskQueryCapability(
+      input.queryCapability,
+      "ApplicationTaskWorkerQueryBoundaryV1Error",
+    );
     let rawPayload: unknown;
     try {
       rawPayload = await invokeTaskInputCapability(
@@ -523,10 +539,19 @@ export async function executeApplicationTaskWorkerV1(
       input.definition.handlerExportName,
       "ApplicationTaskWorkerDefinitionV1Error",
     );
+    const context = OBJECT_FREEZE({
+      runQuery: (functionPath: string, argumentsValue?: unknown) =>
+        invokeApplicationTaskQuery(
+          queryCapability,
+          functionPath,
+          argumentsValue === undefined ? OBJECT_FREEZE({}) : argumentsValue,
+          input.interruption,
+        ),
+    });
     let rawResult: unknown;
     try {
       const execution = PROMISE.resolve(REFLECT_APPLY(
-        handler, undefined, [payload.value],
+        handler, undefined, [context, payload.value],
       ));
       rawResult = input.interruption === undefined
         ? await execution
@@ -568,15 +593,11 @@ export async function executeApplicationTaskWorkerV1(
     );
     throw settledFailure;
   } finally {
-    try {
-      disposeReceivedCapability(input.capability);
-    } catch (cause) {
-      throw taskWorkerCleanupError(
-        "ApplicationTaskWorkerCleanupV1Error",
-        settledFailure,
-        cause,
-      );
-    }
+    disposeApplicationTaskCapabilities(
+      settledFailure,
+      input.queryCapability,
+      input.capability,
+    );
   }
 }
 
@@ -585,7 +606,7 @@ export async function startApplicationTaskWorkerSessionV1(
     readonly startRequest: unknown;
   }>,
 ): Promise<TaskWorkerSessionExecutionV1<ApplicationTaskWorkerResultV1>> {
-  let capabilityTransferred = false;
+  let capabilitiesTransferred = false;
   try {
     admitSingleRun("ApplicationTaskWorkerInvalidRequestV1Error");
     const startRequest = decodeTaskWorkerSessionStartRequestV1(input.startRequest).pipe(
@@ -629,10 +650,16 @@ export async function startApplicationTaskWorkerSessionV1(
       interruption,
       "ApplicationTaskWorkerInvalidRequestV1Error",
     );
-    capabilityTransferred = true;
+    capabilitiesTransferred = true;
     return session;
   } finally {
-    if (!capabilityTransferred) disposeReceivedCapability(input.capability);
+    if (!capabilitiesTransferred) {
+      disposeApplicationTaskCapabilities(
+        undefined,
+        input.queryCapability,
+        input.capability,
+      );
+    }
   }
 }
 
@@ -1458,6 +1485,123 @@ function taskInputCapability(input: unknown, failureName: string): TaskInputCapa
   }
 }
 
+function taskQueryCapability(
+  input: unknown,
+  failureName: string,
+): TaskQueryCapability {
+  try {
+    const record = asObject(input);
+    const invoke = record === undefined ? undefined : method(record, "invoke");
+    if (record === undefined || invoke === undefined) {
+      throw namedError(failureName, input);
+    }
+    return OBJECT_FREEZE({ receiver: record, invoke });
+  } catch (cause) {
+    throw namedUnlessNamed(failureName, cause);
+  }
+}
+
+async function invokeApplicationTaskQuery(
+  capability: TaskQueryCapability,
+  functionPath: string,
+  argumentsValue: unknown,
+  interruption: TaskWorkerInterruptionStateV1 | undefined,
+): Promise<unknown> {
+  const normalized = normalizeApplicationTaskQueryCallbackValueV1(
+    argumentsValue,
+    "request",
+  ).pipe(Result.mapError(cause => namedError(
+    "ApplicationTaskWorkerQueryBoundaryV1Error",
+    cause,
+  )), Result.getOrThrow);
+  let rawResult: unknown;
+  let primaryFailure: Error | undefined;
+  try {
+    rawResult = await invokeTaskCapabilityWithInterruption(
+      capability.invoke,
+      capability.receiver,
+      [OBJECT_FREEZE({
+        format: APPLICATION_TASK_QUERY_CALLBACK_FORMAT_V1,
+        version: APPLICATION_TASK_QUERY_CALLBACK_VERSION_V1,
+        operation: "runQuery" as const,
+        functionPath,
+        arguments: normalized.value,
+        argumentSemanticBytes: normalized.semanticSizeBytes,
+      })],
+      interruption,
+    );
+    const result = decodeApplicationTaskQueryCallbackResultV1(
+      detachCapabilityValue(
+        rawResult,
+        "ApplicationTaskWorkerQueryBoundaryV1Error",
+      ),
+    ).pipe(Result.mapError(cause => namedError(
+      "ApplicationTaskWorkerQueryBoundaryV1Error",
+      cause,
+    )), Result.getOrThrow);
+    if (result.kind === "failure") {
+      throw namedError("ApplicationTaskWorkerQueryBoundaryV1Error", result);
+    }
+    return result.value;
+  } catch (cause) {
+    primaryFailure = namedUnlessNamed(
+      interruption?.interrupted() === true
+        ? "ApplicationTaskWorkerTerminalV1Error"
+        : "ApplicationTaskWorkerQueryBoundaryV1Error",
+      cause,
+    );
+    throw primaryFailure;
+  } finally {
+    try {
+      disposeReceivedCapability(rawResult);
+    } catch (cause) {
+      throw taskWorkerCleanupError(
+        "ApplicationTaskWorkerCleanupV1Error",
+        primaryFailure,
+        cause,
+      );
+    }
+  }
+}
+
+function invokeTaskCapabilityWithInterruption(
+  call: (...args: never[]) => unknown,
+  receiver: object,
+  argumentsValue: ReadonlyArray<unknown>,
+  interruption: TaskWorkerInterruptionStateV1 | undefined,
+): Promise<unknown> {
+  const pending = invokeCapability(
+    call as (...args: ReadonlyArray<unknown>) => unknown,
+    receiver,
+    argumentsValue,
+  );
+  if (interruption === undefined) return pending;
+  return new PROMISE((resolve, reject) => {
+    let settled = false;
+    pending.then(value => {
+      if (settled) {
+        try {
+          disposeReceivedCapability(value);
+        } catch {
+          // The interrupted execution has no remaining cleanup observer.
+        }
+        return;
+      }
+      settled = true;
+      resolve(value);
+    }, cause => {
+      if (settled) return;
+      settled = true;
+      reject(cause);
+    });
+    interruption.signal.then(undefined, cause => {
+      if (settled) return;
+      settled = true;
+      reject(cause);
+    });
+  });
+}
+
 function normalizeTaskValue(
   value: unknown,
   boundary: "request" | "result",
@@ -2022,6 +2166,29 @@ function taskWorkerCleanupError(
     primaryFailure: primaryFailure ?? null,
     cleanupFailure,
   }));
+}
+
+function disposeApplicationTaskCapabilities(
+  primaryFailure: Error | undefined,
+  queryCapability: unknown,
+  inputCapability: unknown,
+): void {
+  const cleanupFailures: unknown[] = [];
+  for (const capability of [queryCapability, inputCapability]) {
+    try {
+      disposeReceivedCapability(capability);
+    } catch (cause) {
+      cleanupFailures[cleanupFailures.length] = cause;
+    }
+  }
+  if (cleanupFailures.length === 0) return;
+  throw taskWorkerCleanupError(
+    "ApplicationTaskWorkerCleanupV1Error",
+    primaryFailure,
+    cleanupFailures.length === 1
+      ? cleanupFailures[0]
+      : OBJECT_FREEZE(cleanupFailures),
+  );
 }
 
 function disposeReceivedCapability(value: unknown): void {

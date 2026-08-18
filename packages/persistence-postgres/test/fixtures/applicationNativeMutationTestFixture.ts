@@ -133,6 +133,8 @@ import type { FlarexPersistence } from "../../src/index";
 import type { LocatedScopeClockReader } from
   "../../src/scopeAuthorityResolution";
 import { createPointCommitPublisherPortV1 } from "../../src/pointCommitTransaction";
+import { createPhysicalDefinitionLifecyclePort } from
+  "../../src/physicalDefinitionLifecycle";
 import {
   isLocatedReadCommittedAttemptTargetV1,
 } from "../../src/transactionSessionAttemptKernel";
@@ -530,6 +532,10 @@ async function createApplicationNativeMutationFixture<
       candidateValidation,
     ),
     pointCommit,
+    physicalDefinitionLifecycle: createPhysicalDefinitionLifecyclePort({
+      controlDb: control.drizzle,
+      authority: authorityPorts,
+    }),
     cold: {
       runtimeHostIdentity: options.runtimeHostIdentity,
       compatibilityDate: options.compatibilityDate,
@@ -1149,7 +1155,10 @@ async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBu
     "export async function notify(_ctx, args) {",
     "  return { delivered: args.message };",
     "}",
-    "export async function task(payload) {",
+    "export async function task(ctx, payload) {",
+    "  if (payload?.__fixtureTaskQuery === true) {",
+    "    return await ctx.runQuery('users:get', { id: payload.id });",
+    "  }",
     "  if (payload?.__fixtureTaskFailure === true) {",
     "    throw new Error('fixture task failure');",
     "  }",
@@ -1289,7 +1298,10 @@ function taskPreparedDefinition() {
         roles: ["function", "execution"],
         sourceBytes: new TextEncoder().encode([
           "export const create = () => null;",
-          "export const task = async (payload) => {",
+          "export const task = async (ctx, payload) => {",
+          "  if (payload?.__fixtureTaskQuery === true) {",
+          "    return await ctx.runQuery('users:get', { id: payload.id });",
+          "  }",
           "  if (payload?.__fixtureTaskFailure === true) {",
           "    throw new Error('fixture task failure');",
           "  }",
