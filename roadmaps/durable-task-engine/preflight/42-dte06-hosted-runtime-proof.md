@@ -152,9 +152,11 @@ F0A therefore orders the context work as follows:
 1. add a read-only `ctx.runQuery` callback only after the host can revalidate
    the launch subject's exact Application activation/revision evidence and
    invoke the existing selection-bound query port;
-2. preflight one Task-owned durable callback/effect contract for mutation,
-   outbound, and nested Task scheduling, including stable keys, ordinal
-   persistence, retry/replay, cancellation, and lost-response behavior;
+2. preflight each side-effecting capability separately, beginning with the
+   mutation/replay boundary in
+   [`44-dte06-task-mutation-callback-and-replay.md`](./44-dte06-task-mutation-callback-and-replay.md),
+   including stable keys, durable intent, retry/replay, cancellation, and
+   lost-response behavior;
 3. project only the individually admitted operations into the Worker context;
    and
 4. keep every unimplemented member absent rather than routing it through
@@ -346,6 +348,14 @@ session interruption, and late-result disposal. Genuine Worker connected proof
 reaches the existing selection-bound query core with the launch-bound user
 identity. Mutation, outbound, nested scheduling, and production host work
 remain outside this query checkpoint, so F0A remains in progress.
+
+The next proposed F0A checkpoint is Preflight 44. It does not create another
+mutation engine: it extends the already-admitted `durable_task_attempt` branch
+of the shared external-effect evidence contract and routes the callback through
+the existing `ApplicationMutationSystem`. The stable Application mutation
+request key is run-and-ordinal scoped across attempts, while exact callee,
+arguments, runtime target, and principal remain committed conflict evidence.
+Outbound and scheduling operations remain later, separate gates.
 
 - inventory the exact shared and distinct mechanics in
   `ApplicationExecutionHost`, `TaskWorkerSessionHost`, Worker definition

@@ -436,7 +436,11 @@ lease, retry, cancellation, or terminal-transition authority.
 The exact shared-subject and no-duplication receipt is
 [`../47-aav-a1-direct-action-and-shared-effect-authority.md`](../47-aav-a1-direct-action-and-shared-effect-authority.md).
 Its first implementation admits only the direct-action parent; task host
-integration remains separately gated.
+integration remains separately gated by
+[`preflight/44-dte06-task-mutation-callback-and-replay.md`](./preflight/44-dte06-task-mutation-callback-and-replay.md).
+That gate reuses the same external-effect table and the existing
+`ApplicationMutationSystem`; it does not add child mutation to the Task
+lifecycle requested-effect union.
 
 ### 8. Observability Has Separate State, Trace, And Stream Lanes
 
@@ -626,8 +630,11 @@ files remain candidates:
      The current Application Task Worker receives only a query RPC target;
      `task(ctx, payload)` can call the existing selection-bound query core via
      `ctx.runQuery`, with the launch-bound user and per-call active-selection
-     revalidation. Mutation, outbound, and scheduling context members remain
-     deferred. F1 then adds a
+     revalidation. The next proposed F0A checkpoint is the separately gated
+     Task mutation callback: a run-and-ordinal stable request key, Task-attempt
+     external-effect evidence, exact principal-bound Application mutation
+     replay, and conservative lost-response handling. Outbound and scheduling
+     context members remain deferred. F1 then adds a
      production-compatible test host and fresh-host recovery proof around those
      current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public

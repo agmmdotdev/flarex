@@ -132,6 +132,11 @@ interruption and disposes any late RPC result.
 
 Mutation, outbound, and scheduling callbacks require a Task-owned durable
 effect/ordinal/replay contract and cannot reuse foreground Action callbacks.
+The first such contract is proposed separately in
+[`44-dte06-task-mutation-callback-and-replay.md`](./44-dte06-task-mutation-callback-and-replay.md).
+It reuses the existing Application mutation/OCC owner and shared
+external-effect authority; it does not reinterpret this query-only callback or
+turn its ephemeral call identity into durable mutation identity.
 
 ## Required Proof Before Full Completion
 

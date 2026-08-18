@@ -647,6 +647,11 @@ lifecycle accepts the unchanged success and records the cancellation as
 - retain the implemented query-only Task Worker RPC target, exact bounded
   request/result envelope, host-allocated call identity and deadline, and
   per-call `ApplicationTaskQueryAuthority` selection revalidation;
+- implement `ctx.runMutation` only through the separately approved
+  [`preflight/44-dte06-task-mutation-callback-and-replay.md`](./preflight/44-dte06-task-mutation-callback-and-replay.md):
+  reuse the current Application mutation/OCC/replay owner and the shared
+  external-effect table's admitted Task subject, with a run-and-ordinal stable
+  request key across attempts and exact contradictory-replay rejection;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;
