@@ -489,6 +489,77 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the scope-bound Task execution principal issue and launch owners", () => {
+    const storePath =
+      "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts";
+    const taskSystemPath =
+      "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
+    const launchAuthorityPath =
+      "packages/flarex-backend/src/taskRuntimeLaunch/Authority.ts";
+    const connectedHarnessPath =
+      "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: storePath,
+      text: `
+        import {
+          decodeTaskExecutionPrincipalReferenceV1,
+          makeTaskExecutionPrincipalReferenceV1,
+          MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+          type TaskExecutionPrincipalReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import { makeImmutableR2ByteStore } from
+          "../immutableR2/ImmutableR2ByteStore.js";
+      `,
+    }, {
+      relativePath: taskSystemPath,
+      text: `
+        import type {
+          TaskExecutionPrincipalIdentity,
+          TaskExecutionPrincipalIssuer,
+          TaskExecutionPrincipalStoreError,
+        } from "flarex-backend/internal/task-execution-principal-store";
+      `,
+    }, {
+      relativePath: launchAuthorityPath,
+      text: `
+        import { decodeTaskExecutionPrincipalReferenceV1 } from
+          "@flarex/durable-task/internal/run-creation-v1";
+        import { decodeTaskExecutionPrincipalObjectV1 } from
+          "../taskExecutionPrincipal/TaskExecutionPrincipalStore.js";
+      `,
+    }, {
+      relativePath: connectedHarnessPath,
+      text: `
+        import { makeTaskExecutionPrincipalStore } from
+          "flarex-backend/internal/task-execution-principal-store";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { makeTaskExecutionPrincipalStore } from
+          "flarex-backend/internal/task-execution-principal-store";
+      `,
+    }, {
+      relativePath: taskSystemPath,
+      text: `
+        import { makeTaskExecutionPrincipalStore } from
+          "flarex-backend/internal/task-execution-principal-store";
+      `,
+    }, {
+      relativePath: launchAuthorityPath,
+      text: `
+        import { makeTaskExecutionPrincipalStore } from
+          "../taskExecutionPrincipal/TaskExecutionPrincipalStore.js";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not consume the Task execution principal store outside admitted issue and launch owners.",
+      `${taskSystemPath}:2 production source must not consume the Task execution principal store outside admitted issue and launch owners.`,
+      `${launchAuthorityPath}:2 production source must not consume the Task execution principal store outside admitted issue and launch owners.`,
+    ]);
+  });
+
   it("admits only the private DTE06-D3b.iii Worker Loader provider chain", () => {
     const providerPath =
       "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
@@ -1104,7 +1175,6 @@ describe("Trigger compatibility boundary checker", () => {
         } from "@flarex/durable-task/internal/run-attempt-v1";
         import {
           decodeTaskRunCreationRequestKeyV1,
-          makeTaskExecutionPrincipalReferenceV1,
           makeTaskInputReferenceV1,
         } from "@flarex/durable-task/internal/run-creation-v1";
         import {

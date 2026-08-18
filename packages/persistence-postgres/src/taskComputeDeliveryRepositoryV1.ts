@@ -22,7 +22,9 @@ import {
   validateTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
+  decodeTaskExecutionPrincipalReferenceV1,
   decodeTaskInputReferenceV1,
+  type TaskExecutionPrincipalReferenceV1,
   type TaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -492,6 +494,7 @@ export type TaskComputeDeliveryRepositoryCorruptionReasonV1 =
   | "definition_invalid"
   | "creation_authority_invalid"
   | "input_invalid"
+  | "principal_invalid"
   | "checkpoint_invalid"
   | "pending_membership_invalid"
   | "database_clock_invalid";
@@ -4416,6 +4419,7 @@ type ImmutablePreparation =
       readonly manifest: CanonicalTaskManifestV1;
       readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
       readonly inputReference: TaskInputReferenceV1;
+      readonly principalReference: TaskExecutionPrincipalReferenceV1;
     }>;
 
 async function loadApplicationImmutablePreparation(
@@ -4618,6 +4622,7 @@ async function loadApplicationImmutablePreparation(
     manifest,
     creationAuthority,
     inputReference: decodeInputReference(run, operation),
+    principalReference: decodePrincipalReference(run, operation),
   });
 }
 
@@ -4733,6 +4738,38 @@ function decodeInputReference(
     sha256: new Uint8Array(run.inputSha256),
     retention: { kind: run.inputRetention },
   }), () => rollback(corruption(operation, run.runId, "input_invalid")));
+}
+
+function decodePrincipalReference(
+  run: RunRow,
+  operation: TaskComputeDeliveryRepositoryOperationV1,
+): TaskExecutionPrincipalReferenceV1 {
+  const byteLength = run.executionPrincipalByteLength === null
+    ? Number.NaN
+    : Number(run.executionPrincipalByteLength);
+  if (
+    run.executionPrincipalGeneration !== "present_v1"
+    || run.executionPrincipalKind === null
+    || run.executionPrincipalCodec === null
+    || run.executionPrincipalStore === null
+    || run.executionPrincipalValueCodec === null
+    || run.executionPrincipalObjectKey === null
+    || run.executionPrincipalSha256 === null
+    || run.executionPrincipalRetention === null
+    || !Number.isSafeInteger(byteLength)
+  ) {
+    throw rollback(corruption(operation, run.runId, "principal_invalid"));
+  }
+  return Result.getOrThrowWith(decodeTaskExecutionPrincipalReferenceV1({
+    principalKind: run.executionPrincipalKind,
+    codec: run.executionPrincipalCodec,
+    store: run.executionPrincipalStore,
+    valueCodec: run.executionPrincipalValueCodec,
+    objectKey: run.executionPrincipalObjectKey,
+    byteLength,
+    sha256: new Uint8Array(run.executionPrincipalSha256),
+    retention: { kind: run.executionPrincipalRetention },
+  }), () => rollback(corruption(operation, run.runId, "principal_invalid")));
 }
 
 function definitionMatchesCommitment(
@@ -4862,6 +4899,7 @@ function capturePreparedExecution(
       manifest: immutable.manifest,
       creationAuthority: immutable.creationAuthority,
       inputReference: immutable.inputReference,
+      principalReference: immutable.principalReference,
     });
   }
   throw new TypeError("Task compute preparation generation mismatch.");

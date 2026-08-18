@@ -1,7 +1,8 @@
 # Preflight 43: Task Context Principal And Query Callback
 
-Status: Approved; persisted principal reference and run binding implemented,
-launch reconstruction and the Worker query callback remain pending.
+Status: Approved; authenticated-user principal issuance, immutable publication,
+persisted run binding, and launch reconstruction implemented. The capability-
+only Worker query callback remains pending.
 
 This preflight owns the next DTE06-F0A core-runtime checkpoint. It does not
 authorize observability APIs, UI work, mutation callbacks, outbound I/O,
@@ -12,9 +13,10 @@ resource mutation.
 
 The shared Application query execution core and the backend-private
 `ApplicationTaskQueryAuthority` now exist. The remaining Task-to-query path is
-not merely an RPC adapter. This checkpoint has added the authenticated-user
-principal reference to new Application Task creation requests and run rows,
-but launch does not yet reconstruct it and the Worker receives no callback.
+not merely an RPC adapter. This checkpoint now issues a scope-bound immutable
+authenticated-user principal object, includes its exact reference in new
+Application Task creation requests and run rows, and reconstructs an owned
+identity at launch. The Worker still receives no callback.
 
 Before this checkpoint, Application Task run creation contained only:
 
@@ -24,24 +26,29 @@ Before this checkpoint, Application Task run creation contained only:
 
 The creation authority already authenticated the active Application head and
 runtime target. New Application Task requests now also hash and persist one
-`authenticated_user` principal reference. Pre-existing private Application
-runs are marked `legacy_absent` and must fail closed at the future launch gate;
-Legacy Task rows remain `not_applicable`. The requested effect, compute
-dispatch, launch subject, and Worker session do not yet reconstruct this
-reference. The current Application Task Worker still invokes the task handler
-with `task(payload)` and projects no context callback.
+`authenticated_user` principal reference. The scope-local issuer accepts an
+authenticated user identity rather than a caller-supplied reference, publishes
+the canonical scope-bound object through the immutable R2 owner, and supplies
+the resulting reference to run creation. Pre-existing private Application runs
+marked `legacy_absent` fail closed during compute preparation; Legacy Task rows
+remain `not_applicable`. Compute preparation carries the persisted reference,
+and launch verifies its key, length, digest, canonical codec, user kind, and
+scope before returning an owned frozen identity. The Worker session does not
+receive that identity. The current Application Task Worker still invokes the
+task handler with `task(payload)` and projects no context callback.
 
-Therefore the host cannot truthfully construct authenticated `ctx.runQuery`
-from current persisted evidence. Provider execution identity, run ID, scope,
-request key, and compute-dispatch identity are not substitutes. Anonymous
-request identity is explicitly forbidden.
+The host now has the authenticated launch identity needed to construct
+`ctx.runQuery`, but the capability-only session and Worker RPC contract do not
+yet exist. Provider execution identity, run ID, scope, request key, and compute-
+dispatch identity remain invalid substitutes. Anonymous request identity is
+explicitly forbidden.
 
 ## Accepted Direction To Approve
 
-The durable Task owner has added one immutable, authenticated execution-
-principal reference to Application Task run creation. The reference, not raw
-caller input, is part of the hashed creation request and replay contract.
-At minimum it must bind:
+The durable Task owner uses one immutable, authenticated execution-principal
+reference in Application Task run creation. The reference, not raw caller
+input, is part of the hashed creation request and replay contract. Its current
+compatibility object binds:
 
 - a concrete principal kind;
 - a canonical codec and immutable object-store reference;
@@ -114,10 +121,10 @@ approved and tested. No compatibility fallback may invoke both signatures.
 Mutation, outbound, and scheduling callbacks require a Task-owned durable
 effect/ordinal/replay contract and cannot reuse foreground Action callbacks.
 
-## Required Proof Before Completion
+## Required Proof Before Full Completion
 
 1. anonymous, malformed, forged, cross-scope, and digest-mismatched principal
-   references fail before Worker start;
+   identities, objects, and references fail before Worker start;
 2. exact run-creation replay returns the same principal reference and a
    conflicting principal fails as an idempotency conflict;
 3. retry, lease takeover, and fresh-host recovery reconstruct the same owned
@@ -139,5 +146,6 @@ effect/ordinal/replay contract and cannot reuse foreground Action callbacks.
 
 Approval of this preflight authorizes only the persisted Task-principal
 contract, its exact launch reconstruction, the read-only query callback ABI,
-and private connected proof. It would not authorize the deferred capabilities
-or any production activation.
+and private connected proof. The implementation currently stops after launch
+reconstruction. It does not authorize the deferred capabilities or any
+production activation.

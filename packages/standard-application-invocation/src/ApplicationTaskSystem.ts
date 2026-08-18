@@ -10,7 +10,12 @@ import type {
   ApplicationTaskSystemRunCreationStore,
 } from
   "@flarex/persistence-postgres/internal/application-task-system-run-creation";
-import { Context, Effect, Layer } from "effect";
+import type {
+  TaskExecutionPrincipalIdentity,
+  TaskExecutionPrincipalIssuer,
+  TaskExecutionPrincipalStoreError,
+} from "flarex-backend/internal/task-execution-principal-store";
+import { Context, Data, Effect, Layer } from "effect";
 
 type ApplicationTaskRunCreationRequest = Parameters<
   ApplicationTaskSystemRunCreationStore["createSelectedRun"]
@@ -20,8 +25,10 @@ type ApplicationTaskRunCreationReceipt = Effect.Success<
 >;
 export type ApplicationTaskRunRequest = Omit<
   ApplicationTaskRunCreationRequest,
-  "applicationTaskRuntimeTargetSha256"
->;
+  "applicationTaskRuntimeTargetSha256" | "principal"
+> & Readonly<{
+  readonly executionIdentity: TaskExecutionPrincipalIdentity;
+}>;
 
 export interface ApplicationTaskSystemLive {
   readonly activation: Pick<
@@ -30,6 +37,7 @@ export interface ApplicationTaskSystemLive {
   >;
   readonly selection: ApplicationTaskSelectionContext;
   readonly creation: ApplicationTaskSystemRunCreationStore;
+  readonly principalIssuer: TaskExecutionPrincipalIssuer;
 }
 
 type ActivationReadError = Effect.Error<
@@ -39,7 +47,13 @@ type ActivationReadError = Effect.Error<
 export type CreateApplicationTaskRunError =
   | ActivationReadError
   | SelectApplicationTaskError
-  | ApplicationTaskSystemRunCreationError;
+  | ApplicationTaskSystemRunCreationError
+  | TaskExecutionPrincipalStoreError
+  | ApplicationTaskSystemCompositionError;
+
+export class ApplicationTaskSystemCompositionError extends Data.TaggedError(
+  "ApplicationTaskSystemCompositionError",
+)<{ readonly reason: "principalScopeMismatch" }> {}
 
 export interface ApplicationTaskSystemApi {
   readonly createRun: (
@@ -79,7 +93,18 @@ export function makeApplicationTaskSystemLayer(
     ApplicationTaskSystem.of({
       createRun: Effect.fn("ApplicationTaskSystem.createRunLive")(
         function* (taskId, request) {
-          const replay = yield* captured.creation.replayRun(taskId, request);
+          const principal = yield* captured.principalIssuer
+            .issueAuthenticatedUser(request.executionIdentity);
+          const persistedRequest = Object.freeze({
+            version: request.version,
+            requestKey: request.requestKey,
+            input: request.input,
+            principal,
+          });
+          const replay = yield* captured.creation.replayRun(
+            taskId,
+            persistedRequest,
+          );
           if (replay !== null) return replay;
           const active = yield* captured.activation.readActive();
           const selected = yield* selectApplicationTask(
@@ -87,9 +112,17 @@ export function makeApplicationTaskSystemLayer(
             taskId,
             captured.selection,
           );
+          if (
+            selected.metadata.basis.authority.scopeId !==
+              captured.principalIssuer.scopeId
+          ) {
+            return yield* new ApplicationTaskSystemCompositionError({
+              reason: "principalScopeMismatch",
+            });
+          }
           return yield* captured.creation.createSelectedRun(
             selected.selection,
-            request,
+            persistedRequest,
           );
         },
       ),
@@ -98,8 +131,24 @@ export function makeApplicationTaskSystemLayer(
 }
 
 function captureLive(live: ApplicationTaskSystemLive): ApplicationTaskSystemLive {
+  const activationOwner = live.activation;
+  const creationOwner = live.creation;
+  const principalIssuerOwner = live.principalIssuer;
+  const readActive: ApplicationTaskSystemLive["activation"]["readActive"] =
+    () => activationOwner.readActive();
+  const replayRun: ApplicationTaskSystemRunCreationStore["replayRun"] =
+    (taskId, request) => creationOwner.replayRun(taskId, request);
+  const createRun: ApplicationTaskSystemRunCreationStore["createRun"] =
+    (taskId, request) => creationOwner.createRun(taskId, request);
+  const createSelectedRun:
+    ApplicationTaskSystemRunCreationStore["createSelectedRun"] =
+      (selection, request) =>
+        creationOwner.createSelectedRun(selection, request);
+  const issueAuthenticatedUser:
+    TaskExecutionPrincipalIssuer["issueAuthenticatedUser"] = identity =>
+      principalIssuerOwner.issueAuthenticatedUser(identity);
   return Object.freeze({
-    activation: Object.freeze({ readActive: live.activation.readActive }),
+    activation: Object.freeze({ readActive }),
     selection: Object.freeze({
       deploymentId: live.selection.deploymentId,
       runtimeHostIdentity: live.selection.runtimeHostIdentity,
@@ -111,9 +160,13 @@ function captureLive(live: ApplicationTaskSystemLive): ApplicationTaskSystemLive
       }),
     }),
     creation: Object.freeze({
-      replayRun: live.creation.replayRun,
-      createRun: live.creation.createRun,
-      createSelectedRun: live.creation.createSelectedRun,
+      replayRun,
+      createRun,
+      createSelectedRun,
+    }),
+    principalIssuer: Object.freeze({
+      scopeId: principalIssuerOwner.scopeId,
+      issueAuthenticatedUser,
     }),
   });
 }

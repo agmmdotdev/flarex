@@ -17,6 +17,8 @@ const persistencePostgresManifestPath =
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
 const standardApplicationTaskComputeDeliveryPath =
   "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";
+const standardApplicationTaskSystemPath =
+  "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
 const systemTestManifestPath = "packages/system-test/package.json";
 const systemTestApplicationTaskSystemConnectedHarnessPath =
   "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
@@ -42,6 +44,8 @@ const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
 const flarexBackendTaskResultStorePath =
   "packages/flarex-backend/src/taskResult/TaskResultStore.ts";
+const flarexBackendTaskExecutionPrincipalStorePath =
+  "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts";
 const flarexBackendImmutableR2SourcePrefix =
   "packages/flarex-backend/src/immutableR2/";
 const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
@@ -169,7 +173,9 @@ const admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier =
       "validateTaskComputeDispatchRequestV1",
     ])],
     ["@flarex/durable-task/internal/run-creation-v1", new Set([
+      "TaskExecutionPrincipalReferenceV1",
       "TaskInputReferenceV1",
+      "decodeTaskExecutionPrincipalReferenceV1",
       "decodeTaskInputReferenceV1",
     ])],
     ["@flarex/durable-task/internal/run-attempt-v1", new Set([
@@ -203,7 +209,9 @@ const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
       "validateTaskComputeDispatchRequestV1",
     ])],
     ["@flarex/durable-task/internal/run-creation-v1", new Set([
+      "TaskExecutionPrincipalReferenceV1",
       "TaskInputReferenceV1",
+      "decodeTaskExecutionPrincipalReferenceV1",
       "decodeTaskInputReferenceV1",
     ])],
     ["@flarex/durable-task/internal/run-attempt-v1", new Set([
@@ -250,13 +258,23 @@ const admittedFlarexBackendTaskRuntimeLaunchSymbolsBySpecifier = new Map([
     "validateTaskComputeDispatchRequestV1",
   ])],
   ["@flarex/durable-task/internal/run-creation-v1", new Set([
+    "TaskExecutionPrincipalReferenceV1",
     "TaskInputReferenceV1",
     "decodeTaskInputReferenceV1",
   ])],
 ]);
+const admittedFlarexBackendTaskExecutionPrincipalStoreSymbols = new Set([
+  "MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1",
+  "TaskExecutionPrincipalReferenceV1",
+  "decodeTaskExecutionPrincipalReferenceV1",
+  "makeTaskExecutionPrincipalReferenceV1",
+]);
 const admittedFlarexBackendTaskRuntimeLaunchAuthoritySymbolsBySpecifier = new Map([
   ["@flarex/durable-task/internal/compute-provider-v1", new Set([
     "validateTaskComputeDispatchRequestV1",
+  ])],
+  ["@flarex/durable-task/internal/run-creation-v1", new Set([
+    "decodeTaskExecutionPrincipalReferenceV1",
   ])],
 ]);
 const admittedFlarexBackendWorkerLoaderProviderSymbols = new Set([
@@ -371,8 +389,18 @@ const admittedSystemTestConnectedHarnessRunAttemptImports = new Map([
 ]);
 const admittedSystemTestConnectedHarnessRunCreationImports = new Map([
   ["decodeTaskRunCreationRequestKeyV1", "value"],
-  ["makeTaskExecutionPrincipalReferenceV1", "value"],
   ["makeTaskInputReferenceV1", "value"],
+]);
+const admittedApplicationTaskSystemPrincipalStoreImports = new Map([
+  ["TaskExecutionPrincipalIdentity", "type"],
+  ["TaskExecutionPrincipalIssuer", "type"],
+  ["TaskExecutionPrincipalStoreError", "type"],
+]);
+const admittedSystemTestConnectedHarnessPrincipalStoreImports = new Map([
+  ["makeTaskExecutionPrincipalStore", "value"],
+]);
+const admittedTaskRuntimeLaunchAuthorityPrincipalStoreImports = new Map([
+  ["decodeTaskExecutionPrincipalObjectV1", "value"],
 ]);
 const admittedSystemTestConnectedHarnessTaskResultImports = new Map([
   ["makeTaskResultStore", "value"],
@@ -949,6 +977,25 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       if (
         specifier !== undefined
         && isProductionSource(relativePath)
+        && isFlarexBackendTaskExecutionPrincipalStoreSpecifier(
+          specifier,
+          relativePath,
+        )
+        && relativePath !== flarexBackendTaskExecutionPrincipalStorePath
+        && !isAdmittedFlarexBackendTaskExecutionPrincipalStoreConsumer(
+          relativePath,
+          specifier,
+          node,
+        )
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not consume the Task execution principal store outside admitted issue and launch owners.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
         && isFlarexBackendTaskResultStoreSpecifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskResultStorePath
         && !(relativePath === flarexBackendTaskAttemptSupervisorPath
@@ -984,6 +1031,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isFlarexBackendImmutableR2Specifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRuntimeObjectStorePath
         && relativePath !== flarexBackendTaskResultStorePath
+        && relativePath !== flarexBackendTaskExecutionPrincipalStorePath
         && relativePath !== flarexBackendDeclarativeV2RuntimeArtifactStorePath
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
@@ -1586,6 +1634,42 @@ function isFlarexBackendTaskResultStoreSpecifier(specifier, relativePath) {
 }
 
 /** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskExecutionPrincipalStoreSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-execution-principal-store"
+    || matchesRepositoryModule(
+      resolved,
+      flarexBackendTaskExecutionPrincipalStorePath,
+    );
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedFlarexBackendTaskExecutionPrincipalStoreConsumer(
+  relativePath,
+  specifier,
+  node,
+) {
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const expected = relativePath === standardApplicationTaskSystemPath
+    ? admittedApplicationTaskSystemPrincipalStoreImports
+    : relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+    ? admittedSystemTestConnectedHarnessPrincipalStoreImports
+    : relativePath === flarexBackendTaskRuntimeLaunchAuthorityPath
+      && matchesRepositoryModule(
+        resolved,
+        flarexBackendTaskExecutionPrincipalStorePath,
+      )
+    ? admittedTaskRuntimeLaunchAuthorityPrincipalStoreImports
+    : undefined;
+  return expected !== undefined && hasExactNamedImportModes(node, expected);
+}
+
+/** @param {string} specifier @param {string} relativePath */
 function isFlarexBackendImmutableR2Specifier(specifier, relativePath) {
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   return resolved.startsWith(flarexBackendImmutableR2SourcePrefix);
@@ -1755,6 +1839,25 @@ function isAdmittedFlarexBackendTaskComputeDeliveryImport(
   specifier,
   node,
 ) {
+  if (
+    relativePath === flarexBackendTaskExecutionPrincipalStorePath
+    && specifier === "@flarex/durable-task/internal/run-creation-v1"
+    && ts.isImportDeclaration(node)
+  ) {
+    const clause = node.importClause;
+    if (
+      clause === undefined || clause.name !== undefined
+      || clause.namedBindings === undefined
+      || !ts.isNamedImports(clause.namedBindings)
+      || clause.namedBindings.elements.length === 0
+    ) return false;
+    return clause.namedBindings.elements.every((element) => {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      return admittedFlarexBackendTaskExecutionPrincipalStoreSymbols.has(
+        importedName,
+      );
+    });
+  }
   if (
     relativePath === flarexBackendTaskAttemptSupervisorPath
     && ts.isImportDeclaration(node)

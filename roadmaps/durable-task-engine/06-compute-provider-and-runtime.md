@@ -641,6 +641,9 @@ lifecycle accepts the unchanged success and records the cancellation as
 - add an authenticated Task context for `runQuery`, `runMutation`, controlled
   outbound I/O, and Task scheduling/enqueue while keeping every capability
   operation-specific and policy-gated;
+- retain the implemented scope-bound authenticated-user principal publication,
+  persisted reference, and exact launch reconstruction as the only identity
+  source for the first `runQuery` capability;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;

@@ -28,7 +28,9 @@ import {
   type ApplicationTaskRuntimeTargetV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import {
+  decodeTaskExecutionPrincipalReferenceV1,
   decodeTaskInputReferenceV1,
+  type TaskExecutionPrincipalReferenceV1,
   type TaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -119,7 +121,8 @@ export class InvalidTaskComputePreparedExecutionV1Error extends Data.TaggedError
     | "invalid_runtime_target"
     | "invalid_manifest"
     | "invalid_creation_authority"
-    | "invalid_input_reference";
+    | "invalid_input_reference"
+    | "invalid_principal_reference";
 }> {}
 
 export class TaskComputeProfileStorageV1Error<
@@ -158,6 +161,7 @@ export interface ApplicationTaskComputePreparedExecutionV1 {
   readonly manifest: CanonicalTaskManifestV1;
   readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
   readonly inputReference: TaskInputReferenceV1;
+  readonly principalReference: TaskExecutionPrincipalReferenceV1;
 }
 
 type CurrentLegacyTaskComputePreparedExecutionV1 =
@@ -653,6 +657,7 @@ export function decodeApplicationTaskComputePreparedExecutionV1(
     "manifest",
     "creationAuthority",
     "inputReference",
+    "principalReference",
   ]);
   if (outer === undefined || outer.generation !== "application_v1" ||
     outer.version !== TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1) {
@@ -680,6 +685,11 @@ export function decodeApplicationTaskComputePreparedExecutionV1(
     const inputReference = yield* decodeTaskInputReferenceV1(
       outer.inputReference,
     ).pipe(Result.mapError(() => preparedFailure("invalid_input_reference")));
+    const principalReference = yield* decodeTaskExecutionPrincipalReferenceV1(
+      outer.principalReference,
+    ).pipe(Result.mapError(() =>
+      preparedFailure("invalid_principal_reference")
+    ));
     return Object.freeze({
       version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
       generation: "application_v1" as const,
@@ -688,6 +698,7 @@ export function decodeApplicationTaskComputePreparedExecutionV1(
       manifest,
       creationAuthority,
       inputReference,
+      principalReference,
     });
   });
 }

@@ -621,7 +621,9 @@ files remain candidates:
      cancellation wins and `superseded_by_completion` when success wins.
      DTE06-F0A first converges the shared Application Worker runtime substrate
      and adds authenticated Task query/mutation/outbound/scheduler capabilities
-     without creating a universal provider. F1 then adds a
+     without creating a universal provider. Its authenticated-user principal
+     is now scope-bound, immutably published, persisted, and reconstructed at
+     launch; the Worker query capability is still pending. F1 then adds a
      production-compatible test host and fresh-host recovery proof around those
      current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public

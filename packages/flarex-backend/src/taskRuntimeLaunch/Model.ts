@@ -5,6 +5,7 @@ import {
   validateCurrentTaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
+  type TaskExecutionPrincipalReferenceV1,
   type TaskInputReferenceV1,
   decodeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
@@ -18,6 +19,7 @@ import type {
   TaskRuntimeObjectReferenceV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { Data, Effect, Result } from "effect";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type {
   ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
@@ -29,13 +31,17 @@ export type TaskRuntimeLaunchPortOperation =
   | "read_evidence"
   | "read_runtime_object"
   | "read_application_source"
+  | "read_principal"
   | "read_input";
 
 export type TaskRuntimeLaunchPortFailureReason<
   Operation extends TaskRuntimeLaunchPortOperation,
 > = Operation extends "resolve_source"
   ? "authority_unavailable" | "resource_failure"
-  : Operation extends "read_evidence" | "read_application_source"
+  : Operation extends
+      | "read_evidence"
+      | "read_application_source"
+      | "read_principal"
     ? "not_found" | "corrupt" | "resource_failure"
     : "not_found" | "resource_failure";
 
@@ -66,6 +72,7 @@ export type TaskRuntimeLaunchValidationReason<
     | "runtime_object_invalid"
     | "application_authority_mismatch"
     | "application_source_invalid"
+    | "principal_invalid"
   : "input_invalid";
 
 export class TaskRuntimeLaunchValidationError<
@@ -156,6 +163,9 @@ export interface TaskRuntimeLaunchLocatedSource {
     unknown,
     TaskRuntimeLaunchPortError<"read_application_source">
   >;
+  readonly readPrincipal?: (
+    reference: TaskExecutionPrincipalReferenceV1,
+  ) => Effect.Effect<unknown, TaskRuntimeLaunchPortError<"read_principal">>;
 }
 
 export interface TaskRuntimeLaunchDirectory {
@@ -213,6 +223,10 @@ export interface ApplicationTaskRuntimeLaunchSubject {
   readonly runtimeTarget: ApplicationTaskRuntimeTargetV1;
   readonly manifest: CanonicalTaskManifestV1;
   readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
+  readonly executionIdentity: Extract<
+    ExecutionIdentity,
+    { readonly kind: "user" }
+  >;
   readonly source: ApplicationAnalysisSourceBundle;
   readonly input: TaskRuntimeInputSource;
 }
@@ -226,6 +240,7 @@ export type TaskRuntimeLaunchAuthorityError =
   | TaskRuntimeLaunchPortError<"read_evidence">
   | TaskRuntimeLaunchPortError<"read_runtime_object">
   | TaskRuntimeLaunchPortError<"read_application_source">
+  | TaskRuntimeLaunchPortError<"read_principal">
   | TaskRuntimeLaunchValidationError<"resolve">
   | TaskRuntimeLaunchHashError;
 

@@ -401,6 +401,14 @@ function applicationSubject(
       maximumDurationInSeconds: request.maximumDurationMs / 1_000,
     }) as ApplicationTaskRuntimeLaunchSubject["manifest"],
     creationAuthority: Object.freeze({}) as ApplicationTaskRuntimeLaunchSubject["creationAuthority"],
+    executionIdentity: Object.freeze({
+      kind: "user",
+      user: Object.freeze({
+        tokenIdentifier: "worker-loader-test",
+        subject: "worker-loader-user",
+        issuer: "https://worker-loader.flarex.invalid",
+      }),
+    }),
     source: Object.freeze({
       sourceArtifact: Object.freeze({
         rootSha256: "a".repeat(64),

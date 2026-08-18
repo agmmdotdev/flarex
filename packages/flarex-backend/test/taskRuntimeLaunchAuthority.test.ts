@@ -9,6 +9,7 @@ import {
   type TaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
+  makeTaskExecutionPrincipalReferenceV1,
   makeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -127,10 +128,12 @@ describe("DTE06-D1 task runtime launch authority", () => {
     let runtimeObjectReads = 0;
     let sourceReads = 0;
     let inputReads = 0;
+    let principalReads = 0;
     const directory = applicationDirectoryFor(fixture, {
       runtimeObjectRead: () => { runtimeObjectReads += 1; },
       sourceRead: () => { sourceReads += 1; },
       inputRead: () => { inputReads += 1; },
+      principalRead: () => { principalReads += 1; },
     });
 
     const subject = await runCurrentResolve(directory, fixture.request);
@@ -142,9 +145,14 @@ describe("DTE06-D1 task runtime launch authority", () => {
     expect(runtimeObjectReads).toBe(0);
     expect(sourceReads).toBe(1);
     expect(inputReads).toBe(0);
+    expect(principalReads).toBe(1);
     expect(subject.runtimeTarget).toEqual(fixture.runtimeTarget);
     expect(subject.manifest).toEqual(fixture.manifest);
     expect(subject.creationAuthority).toEqual(fixture.creationAuthority);
+    expect(subject.executionIdentity).toEqual(
+      fixture.principalObject.executionIdentity,
+    );
+    expect(Object.isFrozen(subject.executionIdentity.user)).toBe(true);
     expect(subject.source).toEqual(fixture.source);
     expect(Object.isFrozen(subject)).toBe(true);
     expect(Object.isFrozen(subject.source.modules)).toBe(true);
@@ -252,6 +260,155 @@ describe("DTE06-D1 task runtime launch authority", () => {
       _tag: "TaskRuntimeLaunchValidationError",
       reason: "application_source_invalid",
       path: "source.readApplicationSource",
+    });
+  });
+
+  it("requires the Application principal reader before source or Worker preparation", async () => {
+    const fixture = await makeApplicationFixture();
+    let sourceReads = 0;
+    const failure = await runFailure(
+      applicationDirectoryFor(
+        fixture,
+        { sourceRead: () => { sourceReads += 1; } },
+        true,
+        false,
+      ),
+      fixture.request,
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "principal_invalid",
+      path: "source.readPrincipal",
+    });
+    expect(sourceReads).toBe(0);
+  });
+
+  it("rejects digest-mismatched and cross-scope principal objects before source access", async () => {
+    const fixture = await makeApplicationFixture();
+    let sourceReads = 0;
+    const digestMismatch = copyBytes(fixture.principalBytes);
+    digestMismatch[digestMismatch.byteLength - 1] ^= 1;
+    const digestFailure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        principal: digestMismatch,
+        sourceRead: () => { sourceReads += 1; },
+      }),
+      fixture.request,
+    );
+    expect(digestFailure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "principal_invalid",
+      path: "principal.canonicalBytes",
+    });
+
+    const crossScope = await canonicalizeFlarexValueV1({
+      ...fixture.principalObject,
+      scopeId: "scope_97000000-0000-4000-8000-000000000099",
+    });
+    const crossReference = success(makeTaskExecutionPrincipalReferenceV1(
+      crossScope.sha256,
+      crossScope.canonicalBytes.byteLength,
+    ));
+    const crossPrepared = success(
+      decodeApplicationTaskComputePreparedExecutionV1({
+        ...fixture.preparedExecution,
+        principalReference: crossReference,
+      }),
+    );
+    const crossFailure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        principal: crossScope.canonicalBytes,
+        sourceRead: () => { sourceReads += 1; },
+        evidence: Object.freeze({
+          generation: "application_v1" as const,
+          preparedExecution: crossPrepared,
+        }),
+      }),
+      fixture.request,
+    );
+    expect(crossFailure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "principal_invalid",
+      path: "principal.scopeId",
+    });
+    expect(sourceReads).toBe(0);
+  });
+
+  it("does not let the principal reader retarget the authoritative digest", async () => {
+    const fixture = await makeApplicationFixture();
+    const attacker = await canonicalizeFlarexValueV1({
+      ...fixture.principalObject,
+      executionIdentity: {
+        ...fixture.principalObject.executionIdentity,
+        user: {
+          ...fixture.principalObject.executionIdentity.user,
+          subject: "application-launch-useq",
+        },
+      },
+    });
+    expect(attacker.canonicalBytes.byteLength).toBe(
+      fixture.principalReference.byteLength,
+    );
+
+    const failure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        principalReader: reference => Effect.sync(() => {
+          reference.sha256.set(attacker.sha256);
+          return attacker.canonicalBytes;
+        }),
+      }),
+      fixture.request,
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "principal_invalid",
+      path: "principal.canonicalBytes",
+    });
+  });
+
+  it("preserves transient principal-store failure and rejects anonymous principal objects", async () => {
+    const fixture = await makeApplicationFixture();
+    const expected = new TaskRuntimeLaunchPortError<"read_principal">({
+      operation: "read_principal",
+      reason: "resource_failure",
+      cause: new Error("principal store unavailable"),
+    });
+    expect(await runFailure(
+      applicationDirectoryFor(fixture, { principalFailure: expected }),
+      fixture.request,
+    )).toBe(expected);
+
+    const anonymous = await canonicalizeFlarexValueV1({
+      version: 1,
+      scopeId: fixture.request.identity.scopeId,
+      executionIdentity: { kind: "anonymous" },
+    });
+    const anonymousReference = success(makeTaskExecutionPrincipalReferenceV1(
+      anonymous.sha256,
+      anonymous.canonicalBytes.byteLength,
+    ));
+    const anonymousPrepared = success(
+      decodeApplicationTaskComputePreparedExecutionV1({
+        ...fixture.preparedExecution,
+        principalReference: anonymousReference,
+      }),
+    );
+    const failure = await runFailure(
+      applicationDirectoryFor(fixture, {
+        principal: anonymous.canonicalBytes,
+        evidence: Object.freeze({
+          generation: "application_v1" as const,
+          preparedExecution: anonymousPrepared,
+        }),
+      }),
+      fixture.request,
+    );
+    expect(failure).toMatchObject({
+      _tag: "TaskRuntimeLaunchValidationError",
+      reason: "principal_invalid",
+      path: "principal.object",
     });
   });
 
@@ -1017,6 +1174,24 @@ async function makeApplicationFixture() {
     inputCanonical.sha256,
     inputBytes.byteLength,
   ));
+  const principalObject = {
+    version: 1 as const,
+    scopeId: request.identity.scopeId,
+    executionIdentity: {
+      kind: "user" as const,
+      user: {
+        tokenIdentifier: "application-launch-token",
+        subject: "application-launch-user",
+        issuer: "https://application-launch.flarex.invalid",
+        roles: ["reader"],
+      },
+    },
+  };
+  const principalCanonical = await canonicalizeFlarexValueV1(principalObject);
+  const principalReference = success(makeTaskExecutionPrincipalReferenceV1(
+    principalCanonical.sha256,
+    principalCanonical.canonicalBytes.byteLength,
+  ));
   const preparedExecution = success(
     decodeApplicationTaskComputePreparedExecutionV1({
       version: TASK_COMPUTE_PREPARED_EXECUTION_VERSION_V1,
@@ -1026,6 +1201,7 @@ async function makeApplicationFixture() {
       manifest,
       creationAuthority,
       inputReference,
+      principalReference,
     }),
   );
   const evidence: ApplicationTaskRuntimeLaunchEvidence = Object.freeze({
@@ -1039,6 +1215,9 @@ async function makeApplicationFixture() {
     creationAuthority,
     inputBytes,
     inputReference,
+    principalObject,
+    principalBytes: copyBytes(principalCanonical.canonicalBytes),
+    principalReference,
     source,
     evidence,
     preparedExecution,
@@ -1051,11 +1230,18 @@ function applicationDirectoryFor(
     readonly runtimeObjectRead?: () => void;
     readonly sourceRead?: () => void;
     readonly inputRead?: () => void;
+    readonly principalRead?: () => void;
     readonly evidence?: CurrentTaskRuntimeLaunchEvidence;
     readonly source?: unknown;
     readonly sourceFailure?: TaskRuntimeLaunchPortError<"read_application_source">;
+    readonly principal?: unknown;
+    readonly principalReader?: NonNullable<
+      TaskRuntimeLaunchLocatedSource["readPrincipal"]
+    >;
+    readonly principalFailure?: TaskRuntimeLaunchPortError<"read_principal">;
   }> = {},
   includeSourceReader = true,
+  includePrincipalReader = true,
 ): TaskRuntimeLaunchDirectory {
   return {
     resolve: () => Effect.succeed({
@@ -1074,6 +1260,19 @@ function applicationDirectoryFor(
         observations.inputRead?.();
         return Effect.succeed(fixture.inputBytes);
       },
+      ...(includePrincipalReader
+        ? {
+          readPrincipal: observations.principalReader ?? (() => {
+            observations.principalRead?.();
+            if (observations.principalFailure !== undefined) {
+              return Effect.fail(observations.principalFailure);
+            }
+            return Effect.succeed(
+              observations.principal ?? fixture.principalBytes,
+            );
+          }),
+        }
+        : {}),
       ...(includeSourceReader
         ? {
           readApplicationSource: (rootSha256: string) => {

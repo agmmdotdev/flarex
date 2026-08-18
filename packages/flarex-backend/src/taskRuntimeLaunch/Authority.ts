@@ -19,6 +19,8 @@ import {
 } from "@flarex/persistence-postgres/internal/task-compute-delivery-evidence-v1";
 import { validateTaskComputeDispatchRequestV1 } from
   "@flarex/durable-task/internal/compute-provider-v1";
+import { decodeTaskExecutionPrincipalReferenceV1 } from
+  "@flarex/durable-task/internal/run-creation-v1";
 import {
   encodeApplicationTaskRuntimeTargetPreimageV1,
   type ApplicationTaskRunCreationAuthorityV1,
@@ -42,9 +44,13 @@ import {
 } from "flarex-protocol/storage-authority";
 import {
   decodeCanonicalFlarexValueEvidenceV1,
+  decodeCanonicalFlarexValueEvidenceV1Effect,
   FlarexValueCodecV1Error,
   FlarexValueEvidenceV1Error,
 } from "flarex-protocol/value";
+import {
+  decodeTaskExecutionPrincipalObjectV1,
+} from "../taskExecutionPrincipal/TaskExecutionPrincipalStore.js";
 
 import {
   TaskRuntimeLaunchConfigurationError,
@@ -55,6 +61,7 @@ import {
   TaskRuntimeLaunchHashError,
   TaskRuntimeLaunchHashInvariantDefect,
   type TaskRuntimeLaunchLocatedSource,
+  type TaskRuntimeLaunchPortError,
   type TaskRuntimeLaunchObject,
   type TaskRuntimeLaunchObjectValidator,
   type TaskRuntimeLaunchSha256,
@@ -105,6 +112,9 @@ interface CapturedLocatedSource {
   readonly readInput: TaskRuntimeLaunchLocatedSource["readInput"];
   readonly readApplicationSource:
     | TaskRuntimeLaunchLocatedSource["readApplicationSource"]
+    | undefined;
+  readonly readPrincipal:
+    | TaskRuntimeLaunchLocatedSource["readPrincipal"]
     | undefined;
 }
 
@@ -471,6 +481,11 @@ const resolveApplicationLaunchSubject = Effect.fn(
     "preparedExecution",
   );
 
+  const executionIdentity = yield* readTaskExecutionPrincipal(
+    prepared,
+    source,
+  );
+
   const readApplicationSource = source.readApplicationSource;
   if (readApplicationSource === undefined) {
     return yield* validationFailure(
@@ -499,9 +514,79 @@ const resolveApplicationLaunchSubject = Effect.fn(
     runtimeTarget: prepared.runtimeTarget,
     manifest: prepared.manifest,
     creationAuthority: prepared.creationAuthority,
+    executionIdentity,
     source: sourceBundle,
     input,
   });
+});
+
+const readTaskExecutionPrincipal = Effect.fn(
+  "TaskRuntimeLaunchAuthority.readTaskExecutionPrincipal",
+)(function* (
+  prepared: ApplicationTaskComputePreparedExecutionV1,
+  source: CapturedLocatedSource,
+): Effect.fn.Return<
+  ApplicationTaskRuntimeLaunchSubject["executionIdentity"],
+  | TaskRuntimeLaunchPortError<"read_principal">
+  | TaskRuntimeLaunchValidationError<"resolve">
+> {
+  const readPrincipal = source.readPrincipal;
+  if (readPrincipal === undefined) {
+    return yield* validationFailure(
+      "principal_invalid",
+      "source.readPrincipal",
+    );
+  }
+  const authoritativeReference = yield* Effect.fromResult(
+    decodeTaskExecutionPrincipalReferenceV1(prepared.principalReference),
+  ).pipe(Effect.mapError(cause => validation(
+    "principal_invalid",
+    "principal.reference",
+    cause,
+  )));
+  const expectedByteLength = authoritativeReference.byteLength;
+  const expectedSha256 = copyBytes(authoritativeReference.sha256);
+  const readerReference = yield* Effect.fromResult(
+    decodeTaskExecutionPrincipalReferenceV1(authoritativeReference),
+  ).pipe(Effect.mapError(cause => validation(
+    "principal_invalid",
+    "principal.reference",
+    cause,
+  )));
+  const suppliedBytes = yield* readPrincipal(readerReference);
+  if (
+    uint8ArrayByteLength(suppliedBytes) !== expectedByteLength
+  ) {
+    return yield* validationFailure(
+      "principal_invalid",
+      "principal.byteLength",
+    );
+  }
+  const bytes = copyBytes(suppliedBytes as Uint8Array);
+  const canonical = yield* decodeCanonicalFlarexValueEvidenceV1Effect({
+    canonicalBytes: bytes,
+    sha256: expectedSha256,
+  }).pipe(Effect.mapError((cause:
+    | FlarexValueCodecV1Error
+    | FlarexValueEvidenceV1Error) => validation(
+      "principal_invalid",
+      "principal.canonicalBytes",
+      cause,
+    )));
+  const principal = yield* Effect.fromResult(
+    decodeTaskExecutionPrincipalObjectV1(canonical.value),
+  ).pipe(Effect.mapError(cause => validation(
+    "principal_invalid",
+    "principal.object",
+    cause,
+  )));
+  if (principal.scopeId !== prepared.dispatchRequest.identity.scopeId) {
+    return yield* validationFailure(
+      "principal_invalid",
+      "principal.scopeId",
+    );
+  }
+  return principal.executionIdentity;
 });
 
 function applicationRuntimeTargetsEqual(
@@ -1012,6 +1097,7 @@ function captureLocatedSource(
           readRuntimeObject: input.readRuntimeObject,
           readInput: input.readInput,
           readApplicationSource: input.readApplicationSource,
+          readPrincipal: input.readPrincipal,
         });
       },
       catch: (cause) => validation("invalid_source", "source", cause),
@@ -1023,6 +1109,7 @@ function captureLocatedSource(
       readRuntimeObject,
       readInput,
       readApplicationSource,
+      readPrincipal,
     } = captured;
       if (
         typeof readEvidence !== "function"
@@ -1030,6 +1117,7 @@ function captureLocatedSource(
         || typeof readInput !== "function"
         || readApplicationSource !== undefined &&
           typeof readApplicationSource !== "function"
+        || readPrincipal !== undefined && typeof readPrincipal !== "function"
       ) {
         return yield* Result.fail(validation("invalid_source", "source"));
       }
@@ -1052,12 +1140,18 @@ function captureLocatedSource(
         ? undefined
         : (rootSha256: string) =>
           readApplicationSource.call(sourceOwner, rootSha256);
+      const capturedReadPrincipal = readPrincipal === undefined
+        ? undefined
+        : (reference: Parameters<NonNullable<
+          TaskRuntimeLaunchLocatedSource["readPrincipal"]
+        >>[0]) => readPrincipal.call(sourceOwner, reference);
       return Object.freeze({
         scopeId: decodedScopeId,
         readEvidence: capturedReadEvidence,
         readRuntimeObject: capturedReadRuntimeObject,
         readInput: capturedReadInput,
         readApplicationSource: capturedReadApplicationSource,
+        readPrincipal: capturedReadPrincipal,
       });
   });
 }

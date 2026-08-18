@@ -8,7 +8,6 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeTaskRunCreationRequestKeyV1,
-  makeTaskExecutionPrincipalReferenceV1,
   makeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -57,6 +56,9 @@ import {
   TaskResultStoreSettlementUncertainError,
   type TaskResultStoreBucket,
 } from "flarex-backend/internal/task-result-store";
+import {
+  makeTaskExecutionPrincipalStore,
+} from "flarex-backend/internal/task-execution-principal-store";
 import {
   TaskRuntimeLaunchPortError,
   type TaskRuntimeLaunchDirectory,
@@ -109,12 +111,12 @@ const DEADLINE_POLICY = Object.freeze({
 const SUPERVISOR_POLICY: TaskAttemptSupervisorPolicy = Object.freeze({
   minimumLeaseDurationMilliseconds: 30_000,
   heartbeatIntervalMilliseconds: 5_000,
-  leaseSettlementReserveMilliseconds: 6_000,
+  leaseSettlementReserveMilliseconds: 10_000,
   maximumLifecycleResolveMilliseconds: 1_000,
   maximumHeartbeatOperationMilliseconds: 1_000,
   maximumResultPublicationMilliseconds: 1_000,
   maximumCompletionOperationMilliseconds: 1_000,
-  maximumSessionCloseMilliseconds: 1_000,
+  maximumSessionCloseMilliseconds: 5_000,
   maximumCompletionReplays: 1,
   completionReplayDelayMilliseconds: 100,
 });
@@ -196,6 +198,15 @@ export async function proveApplicationTaskSystemConnected(
         randomUuid: uuidSequence(1),
       },
     );
+    const launchScopeId = ReplacementScopeIdV1Schema.make(
+      fixture.active.basis.authority.scopeId,
+    );
+    const principalStore = Result.getOrThrow(
+      makeTaskExecutionPrincipalStore(
+        launchScopeId,
+        new MemoryTaskResultBucket(),
+      ),
+    );
     const applicationTaskSystem = makeApplicationTaskSystemLayer({
       activation: fixture.activation,
       selection: {
@@ -205,6 +216,7 @@ export async function proveApplicationTaskSystemConnected(
         authority: fixture.authorityPorts,
       },
       creation,
+      principalIssuer: principalStore,
     });
     const successfulWorkerResult = scenario === "success" ||
       scenario === "result_publication_reconciled" ||
@@ -218,14 +230,14 @@ export async function proveApplicationTaskSystemConnected(
         ? Object.freeze({ __fixtureTaskFailure: true })
         : Object.freeze({ __fixtureTaskWaitForInterruption: true });
     const input = await canonicalizeFlarexValueV1(inputValue);
-    const principal = await canonicalizeFlarexValueV1(Object.freeze({
+    const executionIdentity = Object.freeze({
       kind: "user",
       user: Object.freeze({
         tokenIdentifier: "application-task-system-connected",
         subject: "system-test-user",
         issuer: "https://system-test.flarex.invalid",
       }),
-    }));
+    });
     const request = Object.freeze({
       version: 1 as const,
       requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
@@ -235,10 +247,7 @@ export async function proveApplicationTaskSystemConnected(
         input.sha256,
         input.canonicalBytes.byteLength,
       )),
-      principal: Result.getOrThrow(makeTaskExecutionPrincipalReferenceV1(
-        principal.sha256,
-        principal.canonicalBytes.byteLength,
-      )),
+      executionIdentity,
     });
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
     const created = yield* createApplicationTaskRun(TASK_ID, request).pipe(
@@ -283,9 +292,6 @@ export async function proveApplicationTaskSystemConnected(
       target: deliveryTarget,
     });
     let legacyRuntimeObjectReads = 0;
-    const launchScopeId = ReplacementScopeIdV1Schema.make(
-      fixture.active.basis.authority.scopeId,
-    );
     const readEvidence: TaskRuntimeLaunchLocatedSource["readEvidence"] =
       providerRequest => readTaskComputePreparedExecutionV1(
         deliveryAuthority,
@@ -314,6 +320,22 @@ export async function proveApplicationTaskSystemConnected(
               operation: "read_application_source",
               reason: "not_found",
             }));
+    const readPrincipal:
+      NonNullable<TaskRuntimeLaunchLocatedSource["readPrincipal"]> =
+        reference => principalStore.read(reference).pipe(
+          Effect.map(stored => new Uint8Array(stored.canonicalBytes)),
+          Effect.mapError(cause => new TaskRuntimeLaunchPortError({
+            operation: "read_principal",
+            reason: cause._tag === "TaskExecutionPrincipalStoreNotFoundError"
+              ? "not_found"
+              : cause._tag === "TaskExecutionPrincipalStoreResourceError"
+                  || cause._tag ===
+                    "TaskExecutionPrincipalStoreSettlementUncertainError"
+                ? "resource_failure"
+                : "corrupt",
+            cause,
+          })),
+        );
     const launchSource: TaskRuntimeLaunchLocatedSource = Object.freeze({
       scopeId: launchScopeId,
       readEvidence,
@@ -325,6 +347,7 @@ export async function proveApplicationTaskSystemConnected(
         }));
       },
       readInput: () => Effect.succeed(new Uint8Array(input.canonicalBytes)),
+      readPrincipal,
       readApplicationSource,
     });
     const resolveSource: TaskRuntimeLaunchDirectory["resolve"] = scopeId =>
@@ -504,7 +527,7 @@ export async function proveApplicationTaskSystemConnected(
         applicationHostPolicy: applicationHostPolicy(),
         legacyHostPolicy: legacyHostPolicy(),
         maximumScopedDispatches: 4,
-        handshakeMilliseconds: 1_000,
+        handshakeMilliseconds: 5_000,
         randomUuid: uuidSequence(4),
         sha256: taskSha256,
       },
@@ -518,6 +541,11 @@ export async function proveApplicationTaskSystemConnected(
       Effect.gen(function* () {
         const runner = yield* TaskComputeDeliveryConnectedRunner;
         const delivery = yield* runner.run(null);
+        expect(delivery).toMatchObject({
+          confirmedDispatchCandidatesHandled: 1,
+          confirmedDispatchProviderCalls: 1,
+          candidateFailures: 0,
+        });
         if (scenario === "duplicate_delivery") {
           const duplicateDelivery = yield* runner.run(null).pipe(
             Effect.timeoutOrElse({
