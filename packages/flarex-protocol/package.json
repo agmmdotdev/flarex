@@ -20,6 +20,7 @@
     "./internal/application-worker-v1": "./src/application-worker-v1.ts",
     "./internal/application-task-worker-v1": "./src/application-task-worker-v1.ts",
     "./internal/application-task-query-callback-v1": "./src/application-task-query-callback-v1.ts",
+    "./internal/application-task-mutation-callback-v1": "./src/application-task-mutation-callback-v1.ts",
     "./internal/legacy-task-worker-v1": "./src/legacy-task-worker-v1.ts",
     "./internal/task-worker-session-v1": "./src/task-worker-session-v1.ts",
     "./internal/application-action-authority-v1": "./src/application-action-authority-v1.ts",

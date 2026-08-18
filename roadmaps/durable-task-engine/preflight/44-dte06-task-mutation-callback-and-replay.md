@@ -2,9 +2,11 @@
 
 ## Status And Decision
 
-**Status:** Proposed implementation boundary. The source audit and ownership
-decision are complete; executable work remains blocked until this exact
-boundary is approved.
+**Status:** In progress privately. The source audit and ownership decision are
+approved. Slice 1 owns the strict private callback contract plus the
+domain-separated stable-key and exact-request preimages. Slice 2, the Task
+external-effect authority over the existing table, is next. No Worker/session
+wiring or production activation exists yet.
 
 The first side-effecting Task context capability will be `ctx.runMutation`.
 It will not create another mutation engine, another OCC/commit path, another
@@ -225,12 +227,12 @@ and no ambient Application service container inside the Worker.
 
 ## Required Implementation Slices
 
-1. **Contract and pure identity**
+1. **Contract and pure identity — complete privately**
    - add the strict mutation callback ABI;
    - add domain-separated stable-key and exact-request commitment helpers;
    - prove canonical capture, byte bounds, hostile input rejection, and
      same-run/same-ordinal conflict behavior.
-2. **Task external-effect authority**
+2. **Task external-effect authority — next**
    - mint an opaque capability from current Task launch/attempt evidence;
    - adapt the existing external-effect transition mechanics to the Task
      parent without changing direct-action behavior;

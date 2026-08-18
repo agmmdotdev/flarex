@@ -630,11 +630,13 @@ files remain candidates:
      The current Application Task Worker receives only a query RPC target;
      `task(ctx, payload)` can call the existing selection-bound query core via
      `ctx.runQuery`, with the launch-bound user and per-call active-selection
-     revalidation. The next proposed F0A checkpoint is the separately gated
-     Task mutation callback: a run-and-ordinal stable request key, Task-attempt
-     external-effect evidence, exact principal-bound Application mutation
-     replay, and conservative lost-response handling. Outbound and scheduling
-     context members remain deferred. F1 then adds a
+     revalidation. The separately gated Task mutation checkpoint now owns its
+     strict private callback contract and the run-and-ordinal stable key plus
+     exact-request commitment. Its next slice adds Task-attempt external-effect
+     authority over the existing shared table; principal-bound Application
+     mutation replay, Worker composition, and conservative lost-response
+     handling remain pending. Outbound and scheduling context members remain
+     deferred. F1 then adds a
      production-compatible test host and fresh-host recovery proof around those
      current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public
