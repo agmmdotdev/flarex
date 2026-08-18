@@ -320,10 +320,23 @@ identity. Each call re-reads and claims the opaque active Application selection,
 rejects any activation/head/readiness/revision/candidate/catalog/runtime-policy
 drift, and only then delegates through a read-only Effect-native selection query
 port. It does not import the backend Task launch authority, accept per-callback
-caller-selected identity, or reuse the foreground Action callback bundle. The
-live query-core adapter, Worker RPC projection, interruption/deadline bridge,
-and connected-system proof remain pending, so `ctx.runQuery` is not yet
-available to Task user code.
+caller-selected identity, or reuse the foreground Action callback bundle.
+
+The live selection-query adapter now extracts and reuses the existing
+Application query snapshot, source-reading, request-construction, and
+transaction-Worker execution core. The public `ApplicationQuerySystem`
+delegates through the same adapter after resolving its active selection. The
+adapter accepts one issuer-owned opaque selection and exposes only
+`runTransaction`; it has no activation-choice, mutation, or foreground Action
+capability. The Task authority owns the per-call Scope and requires an exact
+authenticated user execution identity from the trusted post-launch
+composition; neither the Task authority nor the selection adapter may accept
+or invent an anonymous default. A scheduled or system Task principal requires
+its own separately approved identity contract rather than reuse of anonymous
+request identity.
+
+Worker RPC projection, interruption/deadline bridging, and connected-system
+proof remain pending, so `ctx.runQuery` is not yet available to Task user code.
 
 - inventory the exact shared and distinct mechanics in
   `ApplicationExecutionHost`, `TaskWorkerSessionHost`, Worker definition

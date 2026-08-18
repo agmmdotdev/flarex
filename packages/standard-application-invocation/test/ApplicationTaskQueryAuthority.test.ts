@@ -14,6 +14,7 @@ import { createApplicationNativeMutationPGliteFixture } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Effect, Result } from "effect";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { normalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
@@ -50,6 +51,37 @@ const RUNTIME_TARGET_DRIFT_FIELDS = [
 ] as const;
 
 describe("Application Task query authority", () => {
+  it.each([
+    ["anonymous", { kind: "anonymous" }],
+    ["malformed", {
+      kind: "user",
+      user: { subject: "missing-token-and-issuer" },
+    }],
+  ])("rejects %s launch identity before creating a query session", (
+    _label,
+    executionIdentity,
+  ) => {
+    const fixture = authorityFixture();
+    const authority = makeApplicationTaskQueryAuthority({
+      activation: {
+        readActive: () => Effect.die("must not read activation"),
+      },
+      query: {
+        runQuery: () => Effect.die("must not run query"),
+      },
+    });
+
+    const result = Reflect.apply(authority.bindLaunch, authority, [{
+      ...fixture.subject,
+      executionIdentity,
+    }]);
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "invalidInput" },
+    });
+  });
+
   it("correlates the exact active Application selection with the launch subject", () => {
     const fixture = authorityFixture();
 
@@ -171,10 +203,23 @@ describe("Application Task query authority", () => {
         selection: ApplicationActiveSelection,
         functionPath: string,
         argumentsValue: unknown,
+        identity: ExecutionIdentity,
       ) {
         expect(this).toBe(query);
         expect(functionPath).toBe("users:get");
         expect(argumentsValue).toEqual({ id: "document-1" });
+        if (identity.kind !== "user") {
+          return Effect.die("Task query identity must be authenticated");
+        }
+        expect(identity).toEqual(TASK_EXECUTION_IDENTITY);
+        if (selections.length === 0) {
+          expect(Reflect.set(identity.user, "subject", "adapter-mutated"))
+            .toBe(false);
+          const tenant = identity.user.tenant;
+          if (typeof tenant === "object" && tenant !== null) {
+            expect(Reflect.set(tenant, "role", "admin")).toBe(false);
+          }
+        }
         selections.push(selection);
         return queryMode === "failure"
           ? Effect.fail("query offline")
@@ -188,6 +233,7 @@ describe("Application Task query authority", () => {
 
     launch.creationAuthority.activeHeadSha256[0] ^= 0xff;
     launch.runtimeTarget.taskCatalogSha256[0] ^= 0xff;
+    launch.executionIdentity.user.subject = "attacker-mutated";
     const result = await Effect.runPromise(session.runQuery(
       "users:get",
       normalizeFlarexValueV1({ id: "document-1" }).value,
@@ -257,7 +303,11 @@ function authorityFixture() {
     }),
   );
   return Object.freeze({
-    subject: Object.freeze({ creationAuthority, runtimeTarget: target }),
+    subject: Object.freeze({
+      creationAuthority,
+      runtimeTarget: target,
+      executionIdentity: TASK_EXECUTION_IDENTITY,
+    }),
     basis: Object.freeze({
       authority: Object.freeze({ scopeId: ScopeIdSchema.make(target.scopeId) }),
       activationSequence: creationAuthority.activationSequence,
@@ -316,8 +366,31 @@ function launchEvidenceForBasis(basis: ApplicationActiveSelectionBasis) {
       applicationTaskRuntimeTargetSha256: digest(0x93),
     }),
   );
-  return Object.freeze({ creationAuthority, runtimeTarget });
+  const executionIdentity = {
+    kind: "user" as const,
+    user: {
+      tokenIdentifier: String(TASK_EXECUTION_IDENTITY.user.tokenIdentifier),
+      subject: String(TASK_EXECUTION_IDENTITY.user.subject),
+      issuer: String(TASK_EXECUTION_IDENTITY.user.issuer),
+      tenant: { ...TASK_EXECUTION_IDENTITY.user.tenant },
+    },
+  };
+  return Object.freeze({
+    creationAuthority,
+    runtimeTarget,
+    executionIdentity,
+  });
 }
+
+const TASK_EXECUTION_IDENTITY = Object.freeze({
+  kind: "user" as const,
+  user: Object.freeze({
+    tokenIdentifier: "task-query-user",
+    subject: "user-1",
+    issuer: "https://issuer.example",
+    tenant: Object.freeze({ role: "member" }),
+  }),
+});
 
 function driftSelectionBasis(
   basis: ApplicationTaskQuerySelectionBasis,

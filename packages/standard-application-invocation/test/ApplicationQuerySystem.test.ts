@@ -6,6 +6,8 @@ import type {
   ApplicationActiveSelection,
   CoherentActiveApplication,
 } from "@flarex/persistence-postgres/internal/application-activation";
+import { ScopeExecutionLive } from
+  "@flarex/persistence-postgres/internal/scope-execution";
 import { Effect, Result } from "effect";
 import {
   canonicalizeApplicationRuntimeTargetV1,
@@ -44,13 +46,111 @@ vi.mock(
 );
 
 import {
+  makeApplicationSelectionQueryPort,
   makeApplicationQuerySystemLayer,
   invokeApplicationQuery,
   type ApplicationQuerySystemLive,
+  type ApplicationSelectionQueryLive,
 } from "../src/ApplicationQuerySystem";
 import { invokeStandardApplicationPointQueryV1 } from "../src/v1";
 
 describe("Application query system", () => {
+  it("reuses the query core against one supplied opaque selection", async () => {
+    const manifest = applicationManifest();
+    const selection = Object.freeze({}) as ApplicationActiveSelection;
+    const basis = activeBasis(manifest);
+    const snapshot = Object.freeze({});
+    operations.open.mockReturnValue(Effect.succeed({
+      snapshot,
+      metadata: Object.freeze({
+        basis,
+        function: Object.freeze({
+          ...manifest.functions[0]!,
+          kind: "query" as const,
+          visibility: "public" as const,
+          entrySha256: "a".repeat(64),
+        }),
+        tables: Object.freeze([]),
+        snapshotToken: Object.freeze({
+          scopeId: "scope_query",
+          epoch: "epoch-query",
+          commitSeq: 7n,
+        }),
+        budget: queryBudget(),
+      }),
+    }));
+    const source = {
+      read(rootSha256: string) {
+        expect(this).toBe(source);
+        expect(rootSha256).toBe("1".repeat(64));
+        return Effect.succeed({
+          sourceArtifact: manifest.sourceArtifact,
+          modules: Object.freeze([{
+            path: "_flarex/application.js",
+            roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+            sourceSha256: "c".repeat(64),
+            sourceByteLength: 65,
+            source: "export const get = query(() => ({ ok: true }));\n",
+          }]),
+        });
+      },
+    };
+    const host = {
+      runTransaction(input: Parameters<
+        ApplicationSelectionQueryLive["host"]["runTransaction"]
+      >[0]) {
+        expect(this).toBe(host);
+        expect(input.request).toMatchObject({
+          auth: {
+            kind: "user",
+            user: { tokenIdentifier: "task-query-user" },
+          },
+          arguments: { value: 1 },
+          context: { mode: "query", snapshotCommitSeq: 7n },
+        });
+        return Effect.succeed({ reused: true });
+      },
+    };
+    const live = {
+      snapshot: {} as ApplicationSelectionQueryLive["snapshot"],
+      snapshotBudget: queryBudget(),
+      source,
+      host,
+      executionContextFactory: () => ({
+        executionId: "selection-query",
+        executionTime: 1_800_000_000_000,
+        randomSeed: new Uint8Array(32).fill(6),
+      }),
+    } satisfies ApplicationSelectionQueryLive;
+    const port = await Effect.runPromise(
+      makeApplicationSelectionQueryPort(live).pipe(
+        Effect.provide(ScopeExecutionLive),
+      ),
+    );
+
+    const result = await Effect.runPromise(Effect.scoped(port.runQuery(
+      selection,
+      "users:get",
+      { value: 1 },
+      {
+        kind: "user",
+        user: {
+          tokenIdentifier: "task-query-user",
+          subject: "user-1",
+          issuer: "https://issuer.example",
+        },
+      },
+    )));
+
+    expect(result).toEqual({ reused: true });
+    expect(operations.open).toHaveBeenCalledWith(
+      selection,
+      "users:get",
+      live.snapshotBudget,
+      live.snapshot,
+    );
+  });
+
   it("composes the active target, Source Artifact, snapshot capability, and fresh host request", async () => {
     const manifest = applicationManifest();
     const selection = Object.freeze({}) as ApplicationActiveSelection;
@@ -133,7 +233,7 @@ describe("Application query system", () => {
       snapshot: {} as ApplicationQuerySystemLive["snapshot"],
       snapshotBudget: queryBudget(),
       source: { read: sourceRead },
-      host: { runTransaction: hostRun, runAction: vi.fn() },
+      host: { runTransaction: hostRun },
       executionContextFactory: () => ({
         executionId: "execution-query",
         executionTime: 1_800_000_000_000,
@@ -231,7 +331,7 @@ describe("Application query system", () => {
           source: "export const get = query(() => ({ ok: true }));\n",
         }]),
       }) },
-      host: { runTransaction: hostRun, runAction: vi.fn() },
+      host: { runTransaction: hostRun },
       executionContextFactory: () => ({
         executionId: "execution-query-user",
         executionTime: 1_800_000_000_000,
@@ -298,7 +398,6 @@ describe("Application query system", () => {
       }) },
       host: {
         runTransaction: () => Effect.fail(readBoundaryError),
-        runAction: vi.fn(),
       },
       executionContextFactory: () => ({
         executionId: "execution-query-read-boundary",
@@ -333,7 +432,6 @@ describe("Application query system", () => {
       source: { read: () => Effect.die("must not read") },
       host: {
         runTransaction: () => Effect.die("must not run"),
-        runAction: () => Effect.die("must not run"),
       },
       executionContextFactory: () => ({
         executionId: "unused",
@@ -364,7 +462,6 @@ describe("Application query system", () => {
       source: { read: () => Effect.die("must not read") },
       host: {
         runTransaction: () => Effect.die("must not run"),
-        runAction: () => Effect.die("must not run"),
       },
       executionContextFactory: () => ({
         executionId: "unused",
@@ -397,7 +494,6 @@ describe("Application query system", () => {
       source: { read: () => Effect.die("must not read") },
       host: {
         runTransaction: () => Effect.die("must not run"),
-        runAction: () => Effect.die("must not run"),
       },
       executionContextFactory: () => ({
         executionId: "unused",
@@ -478,7 +574,7 @@ describe("Application query system", () => {
           source: "export const get = query(() => ({ ok: true }));\n",
         }]),
       }) },
-      host: { runTransaction: originalHost, runAction: vi.fn() },
+      host: { runTransaction: originalHost },
       executionContextFactory: () => ({
         executionId: "execution-query-captured",
         executionTime: 1_800_000_000_000,

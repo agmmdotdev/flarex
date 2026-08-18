@@ -1,5 +1,4 @@
 import type {
-  ApplicationActiveSelection,
   ApplicationActiveSelectionBasis,
   ApplicationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
@@ -13,15 +12,32 @@ import {
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { bytesEqualFullScan, encodeBytesToLowercaseHex } from
   "@flarex/utils/bytes";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
+import {
+  ExecutionIdentitySchema,
+  type ExecutionIdentity,
+} from "flarex-protocol/auth";
+import type { Json } from "flarex-protocol/json";
 import {
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
 } from "flarex-protocol/value";
 
+import type { ApplicationSelectionQueryPort } from "./ApplicationQuerySystem";
+
+const decodeExecutionIdentityResult = Schema.decodeUnknownResult(
+  ExecutionIdentitySchema,
+);
+
+export type ApplicationTaskQueryExecutionIdentity = Extract<
+  ExecutionIdentity,
+  { readonly kind: "user" }
+>;
+
 export interface ApplicationTaskQueryLaunchEvidence {
   readonly creationAuthority: ApplicationTaskRunCreationAuthorityV1;
   readonly runtimeTarget: ApplicationTaskRuntimeTargetV1;
+  readonly executionIdentity: ApplicationTaskQueryExecutionIdentity;
 }
 
 export type ApplicationTaskQuerySelectionBasis = Omit<Pick<
@@ -56,25 +72,12 @@ export class ApplicationTaskQueryAuthorityError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-/**
- * Selection-bound query execution seam. Its future live adapter reuses the
- * Application query execution core; it is deliberately not the foreground
- * Action callback bundle and exposes no mutation or action operation.
- */
-export interface ApplicationSelectionQueryPort<QueryFailure> {
-  readonly runQuery: (
-    selection: ApplicationActiveSelection,
-    functionPath: string,
-    argumentsValue: CanonicalFlarexRuntimeValueV1,
-  ) => Effect.Effect<unknown, QueryFailure>;
-}
-
 export interface ApplicationTaskQueryAuthorityLive<QueryFailure> {
   readonly activation: Pick<
     ApplicationActivationRepository<unknown, unknown>,
     "readActive"
   >;
-  readonly query: ApplicationSelectionQueryPort<QueryFailure>;
+  readonly query: ApplicationSelectionQueryPort<QueryFailure, unknown>;
 }
 
 export interface ApplicationTaskQuerySession {
@@ -134,11 +137,12 @@ export function makeApplicationTaskQueryAuthority<QueryFailure>(
           captured,
           basis,
         ));
-        const raw = yield* query.runQuery(
+        const raw = yield* Effect.scoped(query.runQuery(
           active.selection,
           functionPath,
           argumentsValue,
-        ).pipe(Effect.mapError(cause => queryErrorValue("queryFailed", cause)));
+          captured.executionIdentity,
+        )).pipe(Effect.mapError(cause => queryErrorValue("queryFailed", cause)));
         return yield* Effect.try({
           try: () => normalizeFlarexValueV1(raw).value,
           catch: cause => queryErrorValue("invalidResult", cause),
@@ -160,6 +164,7 @@ function captureLaunchEvidence(
       try: () => Object.freeze({
         creationAuthority: subject.creationAuthority,
         runtimeTarget: subject.runtimeTarget,
+        executionIdentity: structuredClone(subject.executionIdentity),
       }),
       catch: cause => queryErrorValue("invalidInput", cause),
     });
@@ -169,11 +174,43 @@ function captureLaunchEvidence(
     const runtimeTarget = yield* decodeApplicationTaskRuntimeTargetV1(
       direct.runtimeTarget,
     ).pipe(Result.mapError(cause => queryErrorValue("invalidInput", cause)));
+    const executionIdentity = yield* decodeExecutionIdentityResult(
+      direct.executionIdentity,
+    ).pipe(Result.mapError(cause => queryErrorValue("invalidInput", cause)));
+    if (executionIdentity.kind !== "user") {
+      return yield* Result.fail(queryErrorValue("invalidInput"));
+    }
     if (!runtimeTargetsEqual(creationAuthority.runtimeTarget, runtimeTarget)) {
       return yield* Result.fail(queryErrorValue("invalidComposition"));
     }
-    return Object.freeze({ creationAuthority, runtimeTarget });
+    return Object.freeze({
+      creationAuthority,
+      runtimeTarget,
+      executionIdentity: freezeTaskQueryExecutionIdentity(executionIdentity),
+    });
   });
+}
+
+function freezeTaskQueryExecutionIdentity(
+  identity: ApplicationTaskQueryExecutionIdentity,
+): ApplicationTaskQueryExecutionIdentity {
+  for (const value of Object.values(identity.user)) {
+    if (value !== undefined) freezeTaskQueryIdentityJson(value);
+  }
+  Object.freeze(identity.user);
+  return Object.freeze(identity);
+}
+
+function freezeTaskQueryIdentityJson(value: Json): void {
+  if (Array.isArray(value)) {
+    for (const member of value) freezeTaskQueryIdentityJson(member);
+    Object.freeze(value);
+  } else if (typeof value === "object" && value !== null) {
+    for (const member of Object.values(value)) {
+      freezeTaskQueryIdentityJson(member);
+    }
+    Object.freeze(value);
+  }
 }
 
 export function correlateApplicationTaskQuerySelection(

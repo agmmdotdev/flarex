@@ -51,6 +51,7 @@ import {
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
 import type {
+  ApplicationActiveSelection,
   ApplicationActivationRepository,
 } from "@flarex/persistence-postgres/internal/application-activation";
 import {
@@ -127,8 +128,34 @@ export interface ApplicationQuerySystemLive {
   readonly snapshot: ApplicationQuerySnapshotContext;
   readonly snapshotBudget: ApplicationQueryBudget;
   readonly source: ApplicationAnalysisSourceReader;
-  readonly host: ApplicationExecutionHost;
+  readonly host: Pick<ApplicationExecutionHost, "runTransaction">;
   readonly executionContextFactory: () => ApplicationQueryExecutionContext;
+}
+
+export interface ApplicationSelectionQueryLive {
+  readonly snapshot: ApplicationQuerySnapshotContext;
+  readonly snapshotBudget: ApplicationQueryBudget;
+  readonly source: ApplicationAnalysisSourceReader;
+  readonly host: Pick<ApplicationExecutionHost, "runTransaction">;
+  readonly executionContextFactory: () => ApplicationQueryExecutionContext;
+}
+
+/**
+ * Current selection-bound query execution core. It accepts one issuer-owned
+ * opaque selection and exposes no activation choice, mutation, or Action
+ * capability. Identity is required because this port does not own an
+ * authentication or anonymous-default policy.
+ */
+export interface ApplicationSelectionQueryPort<
+  QueryFailure,
+  QueryResult = CanonicalFlarexRuntimeValueV1,
+> {
+  readonly runQuery: (
+    selection: ApplicationActiveSelection,
+    functionRef: string,
+    argumentsValue: CanonicalFlarexRuntimeValueV1,
+    identity: ExecutionIdentity,
+  ) => Effect.Effect<QueryResult, QueryFailure, Scope.Scope>;
 }
 
 export class ApplicationQueryInputError extends Data.TaggedError(
@@ -151,6 +178,10 @@ export class ApplicationQueryCompositionError extends Data.TaggedError(
 
 export type InvokeApplicationQueryError =
   | Effect.Error<ReturnType<ApplicationQuerySystemLive["activation"]["readActive"]>>
+  | ApplicationQueryInputError
+  | InvokeApplicationSelectionQueryError;
+
+export type InvokeApplicationSelectionQueryError =
   | OpenApplicationQuerySnapshotError
   | ApplicationQueryInputError
   | ApplicationQueryCompositionError
@@ -195,33 +226,72 @@ export function makeApplicationQuerySystemLayer(
   return Layer.effect(
     ApplicationQuerySystem,
     Effect.gen(function* () {
-      const scopeExecution = yield* ScopeExecution;
-      const policy = yield* queryWorkerPolicy;
+      const selectionQuery = yield* makeApplicationSelectionQueryPort(captured);
       return ApplicationQuerySystem.of({
-        invoke: makeInvoke(captured, policy, scopeExecution),
+        invoke: makeInvoke(captured.activation, selectionQuery),
       });
     }),
   ).pipe(Layer.provide(ScopeExecutionLive));
 }
 
 function captureLive(live: ApplicationQuerySystemLive): ApplicationQuerySystemLive {
+  const activationOwner = live.activation;
+  const readActive = activationOwner.readActive;
+  const selectionLive = captureSelectionLive(live);
   return Object.freeze({
-    activation: Object.freeze({ readActive: live.activation.readActive }),
+    activation: Object.freeze({
+      readActive: () => readActive.call(activationOwner),
+    }),
+    ...selectionLive,
+  });
+}
+
+export const makeApplicationSelectionQueryPort = Effect.fn(
+  "ApplicationSelectionQueryPort.make",
+)(function* (live: ApplicationSelectionQueryLive) {
+  const captured = captureSelectionLive(live);
+  const scopeExecution = yield* ScopeExecution;
+  const policy = yield* queryWorkerPolicy;
+  return Object.freeze({
+    runQuery: makeSelectionInvoke(captured, policy, scopeExecution),
+  }) satisfies ApplicationSelectionQueryPort<InvokeApplicationSelectionQueryError>;
+});
+
+function captureSelectionLive(
+  live: ApplicationSelectionQueryLive,
+): ApplicationSelectionQueryLive {
+  const sourceOwner = live.source;
+  const sourceRead = sourceOwner.read;
+  const hostOwner = live.host;
+  const runTransaction = hostOwner.runTransaction;
+  const source: ApplicationSelectionQueryLive["source"] = Object.freeze({
+    read: (
+      rootSha256: Parameters<
+        ApplicationSelectionQueryLive["source"]["read"]
+      >[0],
+    ) => sourceRead.call(sourceOwner, rootSha256),
+  });
+  const host: ApplicationSelectionQueryLive["host"] = Object.freeze({
+    runTransaction: (
+      input: Parameters<
+        ApplicationSelectionQueryLive["host"]["runTransaction"]
+      >[0],
+    ) => runTransaction.call(hostOwner, input),
+  });
+  return Object.freeze({
     snapshot: live.snapshot,
     snapshotBudget: Object.freeze({ ...live.snapshotBudget }),
-    source: Object.freeze({ read: live.source.read }),
-    host: Object.freeze({
-      runTransaction: live.host.runTransaction,
-      runAction: live.host.runAction,
-    }),
+    source,
+    host,
     executionContextFactory: live.executionContextFactory,
   });
 }
 
 function makeInvoke(
-  live: ApplicationQuerySystemLive,
-  policy: QueryWorkerPolicy,
-  scopeExecution: ScopeExecutionApi,
+  activation: ApplicationQuerySystemLive["activation"],
+  selectionQuery: ApplicationSelectionQueryPort<
+    InvokeApplicationSelectionQueryError
+  >,
 ): ApplicationQuerySystemApi["invoke"] {
   return Effect.fn("ApplicationQuerySystem.invoke")(function* (
     functionRef,
@@ -243,9 +313,46 @@ function makeInvoke(
         cause,
       })),
     );
-    const active = yield* live.activation.readActive();
-    const opened = yield* openApplicationQuerySnapshot(
+    const active = yield* activation.readActive();
+    return yield* selectionQuery.runQuery(
       active.selection,
+      functionRef,
+      normalizedArguments.value,
+      auth,
+    );
+  });
+}
+
+function makeSelectionInvoke(
+  live: ApplicationSelectionQueryLive,
+  policy: QueryWorkerPolicy,
+  scopeExecution: ScopeExecutionApi,
+): ApplicationSelectionQueryPort<
+  InvokeApplicationSelectionQueryError
+>["runQuery"] {
+  return Effect.fn("ApplicationSelectionQueryPort.runQuery")(function* (
+    selection,
+    functionRef,
+    argumentsValue,
+    identity,
+  ) {
+    if (typeof functionRef !== "string" || functionRef.trim().length === 0) {
+      return yield* new ApplicationQueryInputError({ reason: "invalidFunction" });
+    }
+    const normalizedArguments = yield* normalizeApplicationQueryArgumentsV1Effect(
+      argumentsValue,
+    ).pipe(Effect.mapError(cause => new ApplicationQueryInputError({
+        reason: "invalidArguments",
+        cause,
+      })));
+    const auth = yield* decodeExecutionIdentityEffect(identity).pipe(
+      Effect.mapError(cause => new ApplicationQueryInputError({
+        reason: "invalidIdentity",
+        cause,
+      })),
+    );
+    const opened = yield* openApplicationQuerySnapshot(
+      selection,
       functionRef,
       live.snapshotBudget,
       live.snapshot,
