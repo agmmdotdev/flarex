@@ -7,7 +7,17 @@ import {
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
+import {
+  Array as EffectArray,
+  Cause,
+  Data,
+  Effect,
+  Exit,
+  Option,
+  Order,
+  Result,
+  Schema,
+} from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
   CatalogUniqueConstraintDefinitionIdSchema,
@@ -1119,8 +1129,10 @@ function uniqueEligibilityMatchesClosure(
     evidence.definitionCount !== closure.closure.definitionCount ||
     evidence.definitionSetSha256Hex !== closure.closure.definitionSetSha256Hex
   ) return false;
-  const tableIds = [...new Set(closure.members.map(member => member.tableId))]
-    .toSorted((left, right) => left - right);
+  const tableIds = EffectArray.sort(
+    new Set(closure.members.map(member => member.tableId)),
+    Order.Number,
+  );
   return tableIds.length === evidence.tableIds.length &&
     tableIds.every((tableId, index) => tableId === evidence.tableIds[index]);
 }
