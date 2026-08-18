@@ -6,7 +6,7 @@ import {
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Option, Result, Schema } from "effect";
 import {
   CatalogIndexDefinitionIdSchema,
@@ -33,6 +33,15 @@ import {
   getAppUniqueConstraintDefinitionByIdEffect,
   type ReadAppUniqueConstraintDefinitionV1Error,
 } from "./appUniqueConstraintDefinitions";
+import {
+  hasAppUniqueConstraintSetEligibilityEvidenceCompositionV1,
+  type AppUniqueConstraintSetEligibilityResultV1,
+} from "./appUniqueConstraintSetBuildV1";
+import {
+  readAppUniqueConstraintSetClosureV1Effect,
+  type LocatedAppUniqueConstraintSetClosureV1,
+  type ReadAppUniqueConstraintSetClosureV1Error,
+} from "./appUniqueConstraintSetClosureV1";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   lockScopeClockForShareInTransactionEffect,
@@ -50,7 +59,14 @@ import {
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
-import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
+import {
+  captureScopePhysicalLocator,
+  scopePhysicalLocatorsEqual,
+} from "./scopePhysicalLocator";
+import {
+  isPublishedPhysicalRequirementSnapshotV1,
+  type PublishedPhysicalRequirementSnapshotV1,
+} from "./indexBuildReconciliation";
 import {
   fxControlSchemaVersionIndexBindings,
   fxControlSchemaVersionUniqueConstraintBindings,
@@ -97,6 +113,9 @@ const portBrand: unique symbol = Symbol(
 const preparedBrand: unique symbol = Symbol(
   "FlarexDB/PreparedPhysicalDefinitionLifecycleSubject",
 );
+const readinessBrand: unique symbol = Symbol(
+  "FlarexDB/PreparedPhysicalDefinitionLifecycleReadiness",
+);
 
 export type PhysicalDefinitionLifecycleSubject =
   | Readonly<{
@@ -142,6 +161,10 @@ export interface PreparedPhysicalDefinitionLifecycleSubject {
   readonly [preparedBrand]: true;
 }
 
+export interface PreparedPhysicalDefinitionLifecycleReadiness {
+  readonly [readinessBrand]: true;
+}
+
 interface PreparedSubjectState {
   readonly port: PhysicalDefinitionLifecyclePort;
   readonly subject: PhysicalDefinitionLifecycleSubject;
@@ -153,6 +176,23 @@ interface PreparedSubjectState {
   >;
 }
 
+interface PhysicalDefinitionLifecycleReadinessRequirement {
+  readonly definitionKind: PhysicalDefinitionLifecycleKindV1;
+  readonly definitionId: number;
+  readonly physicalSpecSha256Hex: string;
+}
+
+interface PreparedReadinessState {
+  readonly port: PhysicalDefinitionLifecyclePort;
+  readonly deploymentId: string;
+  readonly schemaVersionId: PublishedPhysicalRequirementSnapshotV1["schemaVersionId"];
+  readonly located: LocatedTrustedScopeAuthority<
+    LocatedPhysicalDefinitionLifecycleTarget
+  >;
+  readonly requirements:
+    ReadonlyArray<PhysicalDefinitionLifecycleReadinessRequirement>;
+}
+
 const portStates = new WeakMap<
   PhysicalDefinitionLifecyclePort,
   Readonly<PhysicalDefinitionLifecyclePortDependencies>
@@ -160,6 +200,10 @@ const portStates = new WeakMap<
 const preparedStates = new WeakMap<
   PreparedPhysicalDefinitionLifecycleSubject,
   Readonly<PreparedSubjectState>
+>();
+const preparedReadinessStates = new WeakMap<
+  PreparedPhysicalDefinitionLifecycleReadiness,
+  Readonly<PreparedReadinessState>
 >();
 
 export class InvalidPhysicalDefinitionLifecycleInputError extends Data.TaggedError(
@@ -173,6 +217,11 @@ export class InvalidPhysicalDefinitionLifecyclePortError extends Data.TaggedErro
 export class InvalidPreparedPhysicalDefinitionLifecycleSubjectError
   extends Data.TaggedError(
     "InvalidPreparedPhysicalDefinitionLifecycleSubjectError",
+  )<{}> {}
+
+export class InvalidPreparedPhysicalDefinitionLifecycleReadinessError
+  extends Data.TaggedError(
+    "InvalidPreparedPhysicalDefinitionLifecycleReadinessError",
   )<{}> {}
 
 export class PhysicalDefinitionLifecycleDefinitionNotFoundError
@@ -251,6 +300,23 @@ export type TransitionPhysicalDefinitionLifecycleError =
   | PhysicalDefinitionLifecycleFaultError
   | PhysicalDefinitionLifecycleTransactionError;
 
+export type PreparePhysicalDefinitionLifecycleReadinessError =
+  | InvalidPhysicalDefinitionLifecycleInputError
+  | InvalidPhysicalDefinitionLifecyclePortError
+  | ReadAppUniqueConstraintSetClosureV1Error
+  | TrustedScopeAuthorityError;
+
+export type PhysicalDefinitionLifecycleUniqueEligibility = Exclude<
+  AppUniqueConstraintSetEligibilityResultV1,
+  { readonly status: "not_ready" }
+>;
+
+export type ValidatePhysicalDefinitionLifecycleReadinessError =
+  | InvalidPhysicalDefinitionLifecyclePortError
+  | InvalidPreparedPhysicalDefinitionLifecycleReadinessError
+  | PhysicalDefinitionLifecyclePersistenceError
+  | PhysicalDefinitionLifecycleConflictError;
+
 export interface StoredPhysicalDefinitionLifecycle {
   readonly scopeId: ScopeId;
   readonly deploymentId: string;
@@ -289,6 +355,27 @@ export interface PhysicalDefinitionLifecycleTransitionOptions {
   readonly faultAfterWrite?: () => void;
 }
 
+export interface PhysicalDefinitionLifecycleReadinessEntry {
+  readonly definitionKind: PhysicalDefinitionLifecycleKindV1;
+  readonly definitionId: number;
+  readonly physicalSpecSha256Hex: string;
+  readonly source: "implicit" | "persisted";
+  readonly lifecycle: "active";
+  readonly transitionFence: bigint;
+}
+
+export type PhysicalDefinitionLifecycleReadinessResult =
+  | Readonly<{
+      readonly status: "not_ready";
+      readonly definitionKind: PhysicalDefinitionLifecycleKindV1;
+      readonly definitionId: number;
+      readonly lifecycle: Exclude<PhysicalDefinitionLifecycleV1, "active">;
+    }>
+  | Readonly<{
+      readonly status: "ready";
+      readonly entries: ReadonlyArray<PhysicalDefinitionLifecycleReadinessEntry>;
+    }>;
+
 export function createPhysicalDefinitionLifecyclePort(
   dependencies: PhysicalDefinitionLifecyclePortDependencies,
 ): PhysicalDefinitionLifecyclePort {
@@ -300,6 +387,206 @@ export function createPhysicalDefinitionLifecyclePort(
   }
   return port;
 }
+
+export function hasPhysicalDefinitionLifecycleComposition(
+  port: unknown,
+  controlDb: FlarexMetadataDatabase,
+  authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >,
+): port is PhysicalDefinitionLifecyclePort {
+  if (typeof port !== "object" || port === null) return false;
+  // SAFETY: the cast is used only for a WeakMap identity lookup; an unknown
+  // object cannot acquire authority unless it is the exact registered key.
+  const state = portStates.get(port as PhysicalDefinitionLifecyclePort);
+  return state?.controlDb === controlDb && state.authority === authority;
+}
+
+export const preparePhysicalDefinitionLifecycleReadinessEffect = Effect.fn(
+  "PhysicalDefinitionLifecycle.prepareReadiness",
+)(function* (
+  port: PhysicalDefinitionLifecyclePort,
+  scopeId: ScopeId,
+  snapshot: PublishedPhysicalRequirementSnapshotV1,
+  uniqueEligibility: PhysicalDefinitionLifecycleUniqueEligibility,
+): Effect.fn.Return<
+  PreparedPhysicalDefinitionLifecycleReadiness,
+  PreparePhysicalDefinitionLifecycleReadinessError
+> {
+  const state = portStates.get(port);
+  if (state === undefined) {
+    return yield* Effect.fail(new InvalidPhysicalDefinitionLifecyclePortError());
+  }
+  if (!isPublishedPhysicalRequirementSnapshotV1(snapshot, state.controlDb)) {
+    return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({
+      field: "requirementSnapshot",
+    }));
+  }
+  const uniqueClosure = yield* readAppUniqueConstraintSetClosureV1Effect(
+    state.controlDb,
+    snapshot.deploymentId,
+    snapshot.schemaVersionId,
+  );
+  if (
+    uniqueClosure === null ||
+    !uniqueEligibilityMatchesClosure(
+      state,
+      scopeId,
+      snapshot,
+      uniqueEligibility,
+      uniqueClosure,
+    )
+  ) {
+    return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({
+      field: "uniqueConstraintEligibility",
+    }));
+  }
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    snapshot.deploymentId,
+    state.authority,
+  );
+  if (located.authority.scopeId !== scopeId) {
+    return yield* Effect.fail(new InvalidPhysicalDefinitionLifecycleInputError({
+      field: "scopeId",
+    }));
+  }
+  const requirements: PhysicalDefinitionLifecycleReadinessRequirement[] = [
+    ...snapshot.definitions.map(definition => Object.freeze({
+      definitionKind: "index" as const,
+      definitionId: definition.indexDefinitionId,
+      physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
+    })),
+    ...uniqueClosure.members.map(definition => Object.freeze({
+      definitionKind: "unique_constraint" as const,
+      definitionId: definition.uniqueConstraintDefinitionId,
+      physicalSpecSha256Hex: definition.physicalSpecSha256Hex,
+    })),
+  ];
+  requirements.sort(compareReadinessRequirement);
+  const prepared = Object.freeze({ [readinessBrand]: true as const });
+  preparedReadinessStates.set(prepared, Object.freeze({
+    port,
+    deploymentId: snapshot.deploymentId,
+    schemaVersionId: snapshot.schemaVersionId,
+    located,
+    requirements: Object.freeze(requirements),
+  }));
+  return prepared;
+});
+
+export const validatePhysicalDefinitionLifecycleReadinessInTransactionEffect =
+  Effect.fn("PhysicalDefinitionLifecycle.validateReadinessInTransaction")(
+    function* (
+      port: PhysicalDefinitionLifecyclePort,
+      prepared: PreparedPhysicalDefinitionLifecycleReadiness,
+      tx: AppRowTransaction,
+      authority: TrustedScopeAuthority,
+      clock: ScopeClockRecord,
+    ): Effect.fn.Return<
+      PhysicalDefinitionLifecycleReadinessResult,
+      ValidatePhysicalDefinitionLifecycleReadinessError
+    > {
+      if (!portStates.has(port)) {
+        return yield* Effect.fail(
+          new InvalidPhysicalDefinitionLifecyclePortError(),
+        );
+      }
+      const state = preparedReadinessStates.get(prepared);
+      if (state === undefined || state.port !== port) {
+        return yield* Effect.fail(
+          new InvalidPreparedPhysicalDefinitionLifecycleReadinessError(),
+        );
+      }
+      yield* Effect.fromResult(
+        requireReadinessAuthorityResult(state, authority, clock),
+      );
+      const indexIds = state.requirements.filter(
+        requirement => requirement.definitionKind === "index",
+      ).map(requirement => requirement.definitionId);
+      const uniqueIds = state.requirements.filter(
+        requirement => requirement.definitionKind === "unique_constraint",
+      ).map(requirement => requirement.definitionId);
+      const rows = [
+        ...(indexIds.length === 0 ? [] : yield* queryEffect(
+          "readLifecycle",
+          () => tx.select().from(fxSystemPhysicalDefinitionLifecycles).where(and(
+            eq(fxSystemPhysicalDefinitionLifecycles.scopeId, authority.scopeId),
+            eq(fxSystemPhysicalDefinitionLifecycles.definitionKind, "index"),
+            inArray(fxSystemPhysicalDefinitionLifecycles.definitionId, indexIds),
+          )).for("share"),
+        )),
+        ...(uniqueIds.length === 0 ? [] : yield* queryEffect(
+          "readLifecycle",
+          () => tx.select().from(fxSystemPhysicalDefinitionLifecycles).where(and(
+            eq(fxSystemPhysicalDefinitionLifecycles.scopeId, authority.scopeId),
+            eq(
+              fxSystemPhysicalDefinitionLifecycles.definitionKind,
+              "unique_constraint",
+            ),
+            inArray(fxSystemPhysicalDefinitionLifecycles.definitionId, uniqueIds),
+          )).for("share"),
+        )),
+      ];
+      const rowsByKey = new Map(rows.map(row => [
+        `${row.definitionKind}:${row.definitionId}`,
+        row,
+      ] as const));
+      if (rowsByKey.size !== rows.length) {
+        return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+          reason: "storedStateInvalid",
+        }));
+      }
+      const entries: PhysicalDefinitionLifecycleReadinessEntry[] = [];
+      for (const requirement of state.requirements) {
+        const row = rowsByKey.get(
+          `${requirement.definitionKind}:${requirement.definitionId}`,
+        );
+        if (row === undefined) {
+          entries.push(Object.freeze({
+            ...requirement,
+            source: "implicit" as const,
+            lifecycle: "active" as const,
+            transitionFence: 0n,
+          }));
+          continue;
+        }
+        const stored = yield* decodeLifecycleRowEffect(row, {
+          authority,
+          deploymentId: state.deploymentId,
+          definitionKind: requirement.definitionKind,
+          definitionId: requirement.definitionId,
+        });
+        if (
+          stored.physicalSpecSha256Hex !== requirement.physicalSpecSha256Hex ||
+          stored.storageGeneration !== authority.storageGeneration ||
+          stored.storageGenerationFence !== authority.storageGenerationFence ||
+          stored.epoch !== authority.epoch
+        ) {
+          return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+            reason: "storedStateInvalid",
+          }));
+        }
+        if (stored.lifecycle !== "active") {
+          return Object.freeze({
+            status: "not_ready" as const,
+            definitionKind: requirement.definitionKind,
+            definitionId: requirement.definitionId,
+            lifecycle: stored.lifecycle,
+          });
+        }
+        entries.push(Object.freeze({
+          ...requirement,
+          source: "persisted" as const,
+          lifecycle: "active" as const,
+          transitionFence: stored.transitionFence,
+        }));
+      }
+      return Object.freeze({
+        status: "ready" as const,
+        entries: Object.freeze(entries),
+      });
+    },
+  );
 
 export const preparePhysicalDefinitionLifecycleSubjectEffect = Effect.fn(
   "PhysicalDefinitionLifecycle.prepareSubject",
@@ -797,6 +1084,69 @@ function definitionId(subject: PhysicalDefinitionLifecycleSubject): number {
     : subject.uniqueConstraintDefinitionId;
 }
 
+function compareReadinessRequirement(
+  left: PhysicalDefinitionLifecycleReadinessRequirement,
+  right: PhysicalDefinitionLifecycleReadinessRequirement,
+): number {
+  const kindOrder = left.definitionKind.localeCompare(right.definitionKind);
+  return kindOrder === 0 ? left.definitionId - right.definitionId : kindOrder;
+}
+
+function uniqueEligibilityMatchesClosure(
+  state: Readonly<PhysicalDefinitionLifecyclePortDependencies>,
+  scopeId: ScopeId,
+  snapshot: PublishedPhysicalRequirementSnapshotV1,
+  eligibility: PhysicalDefinitionLifecycleUniqueEligibility,
+  closure: LocatedAppUniqueConstraintSetClosureV1,
+): boolean {
+  if (
+    closure.closure.deploymentId !== snapshot.deploymentId ||
+    closure.closure.schemaVersionId !== snapshot.schemaVersionId
+  ) return false;
+  if (eligibility.status === "not_required") {
+    return closure.members.length === 0 && closure.closure.definitionCount === 0;
+  }
+  const evidence = eligibility.evidence;
+  if (
+    !hasAppUniqueConstraintSetEligibilityEvidenceCompositionV1(
+      evidence,
+      state.controlDb,
+      state.authority,
+    ) ||
+    evidence.deploymentId !== snapshot.deploymentId ||
+    evidence.scopeId !== scopeId ||
+    evidence.schemaVersionId !== snapshot.schemaVersionId ||
+    evidence.definitionCount !== closure.closure.definitionCount ||
+    evidence.definitionSetSha256Hex !== closure.closure.definitionSetSha256Hex
+  ) return false;
+  const tableIds = [...new Set(closure.members.map(member => member.tableId))]
+    .toSorted((left, right) => left - right);
+  return tableIds.length === evidence.tableIds.length &&
+    tableIds.every((tableId, index) => tableId === evidence.tableIds[index]);
+}
+
+function requireReadinessAuthorityResult(
+  state: PreparedReadinessState,
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+): Result.Result<void, PhysicalDefinitionLifecycleConflictError> {
+  const prepared = state.located.authority;
+  return authority.deploymentId === state.deploymentId &&
+      authority.deploymentId === prepared.deploymentId &&
+      authority.scopeId === prepared.scopeId &&
+      scopePhysicalLocatorsEqual(
+        authority.physicalLocator,
+        prepared.physicalLocator,
+      ) &&
+      authority.storageGeneration === prepared.storageGeneration &&
+      authority.storageGenerationFence === prepared.storageGenerationFence &&
+      authority.epoch === prepared.epoch
+    ? requireAuthorityResult(authority, clock)
+    : Result.fail(new PhysicalDefinitionLifecycleConflictError({
+        reason: "authorityChanged",
+      }));
+}
+
 function requireAuthorityResult(
   authority: TrustedScopeAuthority,
   clock: ScopeClockRecord,
@@ -883,15 +1233,27 @@ function readLifecycleEffect(
   return queryEffect("readLifecycle", () => base.for(lock)).pipe(
     Effect.flatMap(rows => rows[0] === undefined
       ? Effect.succeed(null)
-      : decodeLifecycleRowEffect(rows[0], state)),
+      : decodeLifecycleRowEffect(rows[0], {
+          authority: state.located.authority,
+          deploymentId: state.subject.deploymentId,
+          definitionKind: state.subject.definitionKind,
+          definitionId: state.definitionId,
+        })),
   );
+}
+
+interface PhysicalDefinitionLifecycleRowExpectation {
+  readonly authority: TrustedScopeAuthority;
+  readonly deploymentId: string;
+  readonly definitionKind: PhysicalDefinitionLifecycleKindV1;
+  readonly definitionId: number;
 }
 
 const decodeLifecycleRowEffect = Effect.fn(
   "PhysicalDefinitionLifecycle.decodeStored",
 )(function* (
   row: typeof fxSystemPhysicalDefinitionLifecycles.$inferSelect,
-  state: PreparedSubjectState,
+  expected: PhysicalDefinitionLifecycleRowExpectation,
 ): Effect.fn.Return<
   StoredPhysicalDefinitionLifecycle,
   PhysicalDefinitionLifecycleConflictError
@@ -899,10 +1261,10 @@ const decodeLifecycleRowEffect = Effect.fn(
   const createdAt = copyFiniteDate(row.createdAt);
   const updatedAt = copyFiniteDate(row.updatedAt);
   if (
-    row.scopeId !== state.located.authority.scopeId ||
-    row.deploymentId !== state.subject.deploymentId ||
-    row.definitionKind !== state.subject.definitionKind ||
-    row.definitionId !== state.definitionId ||
+    row.scopeId !== expected.authority.scopeId ||
+    row.deploymentId !== expected.deploymentId ||
+    row.definitionKind !== expected.definitionKind ||
+    row.definitionId !== expected.definitionId ||
     !["active", "draining", "retired", "reactivating"].includes(row.lifecycle) ||
     row.transitionFence < 1n ||
     !isUint8ArrayWithByteLength(row.physicalSpecSha256, 32) ||

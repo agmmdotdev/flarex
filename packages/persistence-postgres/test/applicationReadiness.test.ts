@@ -226,6 +226,12 @@ import {
 } from "../src/intrinsicCreationTimeIndexBuildV1";
 import { createPointCommitPublisherPortV1 } from
   "../src/pointCommitTransaction";
+import {
+  beginPhysicalDefinitionDrainingEffect,
+  cancelPhysicalDefinitionDrainingEffect,
+  createPhysicalDefinitionLifecyclePort,
+  preparePhysicalDefinitionLifecycleSubjectEffect,
+} from "../src/physicalDefinitionLifecycle";
 import { createAppDeveloperIndexDefinitionPortV1 } from
   "../src/appDeveloperIndexCommitV1";
 import { getScopeAuthorityProvisioningReceipt } from
@@ -341,6 +347,29 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     )).toBe(0);
   });
 
+  it("rejects a structurally copied physical lifecycle capability", async () => {
+    const fixture = await readinessFixture();
+    const repository = makeApplicationReadinessRepository(Object.freeze({
+      ...fixture.readinessContext,
+      physicalDefinitionLifecycle: Object.freeze({
+        ...fixture.physicalDefinitionLifecycle,
+      }),
+    }));
+
+    const result = await runEffect(Effect.result(
+      repository.settle(fixture.input),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ reason: "invalidComposition" });
+    }
+    expect(await scalarCount(
+      fixture.control,
+      "fx_control_application_schema_authority_v1",
+    )).toBe(0);
+  });
+
   it("rolls back schema authority when atomic publication fails", async () => {
     const fixture = await readinessFixture({ failSchemaPublication: true });
 
@@ -394,10 +423,6 @@ describe("Application readiness", { timeout: 30_000 }, () => {
       fixture.target,
       "fx_system_application_readiness_function_v1",
     )).toBe(1);
-    expect(await scalarCount(
-      fixture.target,
-      "fx_system_declarative_v2_activation_head",
-    )).toBe(0);
   });
 
   it("converges concurrent identical settlement on one readiness receipt", async () => {
@@ -579,6 +604,79 @@ describe("Application readiness", { timeout: 30_000 }, () => {
     )).toBe(1);
   });
 
+  it("closes readiness and active selection while a required definition drains", async () => {
+    const fixture = await readinessFixture({ includeTable: true });
+    const schemaVersionId = await prepareReadinessAuthorities(fixture);
+    await enablePhysicalBuilds(fixture, schemaVersionId);
+    expect(await runEffect(fixture.repository.settle(fixture.input)))
+      .toMatchObject({ status: "ready", disposition: "inserted" });
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const requirements = await runEffect(
+      loadPublishedPhysicalRequirementSnapshotV1(
+        fixture.control.drizzle,
+        Object.freeze({
+          deploymentId: fixture.input.deploymentId,
+          schemaVersionId,
+        }),
+      ),
+    );
+    const definition = requirements?.definitions[0];
+    if (definition === undefined) {
+      throw new Error("Expected one required physical definition.");
+    }
+    const subject = await runEffect(
+      preparePhysicalDefinitionLifecycleSubjectEffect(
+        fixture.physicalDefinitionLifecycle,
+        Object.freeze({
+          definitionKind: "index",
+          deploymentId: fixture.input.deploymentId,
+          indexDefinitionId: definition.indexDefinitionId,
+        }),
+      ),
+    );
+    const draining = await runEffect(beginPhysicalDefinitionDrainingEffect(
+      subject,
+      Object.freeze({ expectedTransitionFence: 0n }),
+    ));
+    expect(draining.lifecycle).toMatchObject({
+      lifecycle: "draining",
+      transitionFence: 1n,
+    });
+    expect(await runEffect(fixture.repository.settle(fixture.input)))
+      .toMatchObject({
+        status: "not_ready",
+        reason: "physicalDefinitionNotActive",
+        detail: `index:${definition.indexDefinitionId}:draining`,
+      });
+    expect(await runEffect(fixture.repository.readReady(fixture.input)))
+      .toMatchObject({
+        status: "not_ready",
+        reason: "physicalDefinitionNotActive",
+      });
+    await expect(runEffect(activation.readActive())).rejects.toMatchObject({
+      operation: "read",
+      reason: "notReady",
+    });
+
+    await runEffect(cancelPhysicalDefinitionDrainingEffect(
+      subject,
+      Object.freeze({ expectedTransitionFence: 1n }),
+    ));
+    expect(await runEffect(fixture.repository.settle(fixture.input)))
+      .toMatchObject({ status: "ready", disposition: "replayed" });
+    await expect(runEffect(activation.readActive())).resolves.toMatchObject({
+      basis: { revisionId: fixture.input.revisionId },
+    });
+  });
+
   it("fails closed when enabled physical evidence starts after the scope frontier", async () => {
     const fixture = await readinessFixture({ includeTable: true });
     const schemaVersionId = await prepareReadinessAuthorities(fixture);
@@ -756,10 +854,6 @@ describe("Application activation", { timeout: 30_000 }, () => {
       fixture.target,
       "fx_system_application_active_head_v1",
     )).toBe(1);
-    expect(await scalarCount(
-      fixture.target,
-      "fx_system_declarative_v2_activation_head",
-    )).toBe(0);
 
     const active = await runEffect(activation.readActive());
     expect(active.expectedActiveHead).toEqual(first.expectedActiveHead);
@@ -3621,6 +3715,10 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
       },
     },
   }, { uniqueConstraints, uniqueConstraintEligibility });
+  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({
+    controlDb: control.drizzle,
+    authority: authorityPorts,
+  });
   let materializations = 0;
   const readinessContext = Object.freeze({
     controlDb: control.drizzle,
@@ -3638,6 +3736,7 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
       candidateValidation,
     ),
     pointCommit,
+    physicalDefinitionLifecycle,
     cold: {
       runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
       compatibilityDate: COMPATIBILITY_DATE,
@@ -3685,6 +3784,8 @@ async function readinessFixture(options: ReadinessFixtureOptions = {}) {
     authorityPorts,
     candidateValidation,
     pointCommit,
+    physicalDefinitionLifecycle,
+    readinessContext,
     repository,
     schema: readinessContext.schema,
     input: Object.freeze({

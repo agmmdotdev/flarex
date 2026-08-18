@@ -81,6 +81,15 @@ import type { ReadAppSchemaVersionIndexBindingError } from
   "./appIndexDefinitions";
 import type { ReadSchemaVersionArtifactError } from "./schemaVersionArtifacts";
 import {
+  hasPhysicalDefinitionLifecycleComposition,
+  preparePhysicalDefinitionLifecycleReadinessEffect,
+  validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
+  type PhysicalDefinitionLifecyclePort,
+  type PreparedPhysicalDefinitionLifecycleReadiness,
+  type PreparePhysicalDefinitionLifecycleReadinessError,
+  type ValidatePhysicalDefinitionLifecycleReadinessError,
+} from "./physicalDefinitionLifecycle";
+import {
   loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect,
   validatePointCommitUniqueConstraintEligibilityInTransactionV1Effect,
   type LoadPointCommitUniqueConstraintEligibilityV1Error,
@@ -148,6 +157,8 @@ export interface ApplicationReadinessContext<SchemaFailure, ColdFailure> {
   readonly candidateValidation: AppSchemaCandidateReadinessPort;
   /** Exact point-commit factory result; structural substitutes fail closed. */
   readonly pointCommit: unknown;
+  /** Exact scope-local physical-definition availability authority. */
+  readonly physicalDefinitionLifecycle: PhysicalDefinitionLifecyclePort;
   readonly cold: ApplicationReadinessColdMaterializationPort<ColdFailure>;
 }
 
@@ -161,6 +172,7 @@ export type ApplicationReadinessNotReadyReason =
   | "candidateValidationWrongSchema"
   | "physicalBuildMissing"
   | "physicalBuildNotEnabled"
+  | "physicalDefinitionNotActive"
   | "uniqueConstraintSetMissing"
   | "uniqueConstraintBuildMissing"
   | "uniqueConstraintBuildNotEnabled"
@@ -217,6 +229,8 @@ export type SettleApplicationReadinessError<SchemaFailure, ColdFailure> =
   | ValidateAppSchemaCandidateReadinessError
   | LoadPointCommitUniqueConstraintEligibilityV1Error
   | ValidatePointCommitUniqueConstraintEligibilityV1Error
+  | PreparePhysicalDefinitionLifecycleReadinessError
+  | ValidatePhysicalDefinitionLifecycleReadinessError
   | LockScopeClockForShareError
   | LockScopeClockForUpdateError;
 
@@ -229,6 +243,9 @@ export type ReadApplicationReadinessError =
   | ReadAppSchemaVersionIndexBindingError
   | IndexBuildReconciliationCatalogV1Error
   | TrustedScopeAuthorityError
+  | LoadPointCommitUniqueConstraintEligibilityV1Error
+  | PreparePhysicalDefinitionLifecycleReadinessError
+  | ValidatePhysicalDefinitionLifecycleReadinessError
   | LockScopeClockForShareError;
 
 export interface ApplicationReadinessRepository<SchemaFailure, ColdFailure> {
@@ -327,6 +344,8 @@ interface PreparedReadiness {
     { readonly status: "not_ready" }
   >;
   readonly uniqueConstraintEligibilitySha256: Uint8Array;
+  readonly physicalDefinitionLifecycle:
+    PreparedPhysicalDefinitionLifecycleReadiness;
 }
 
 interface ApplicationReadinessIssuerState {
@@ -347,6 +366,9 @@ interface StoredReadinessAuthority {
   readonly schemaVersion: CatalogSchemaVersion;
   readonly schema: ApplicationSchemaAuthority;
   readonly schemaBindingSha256: Uint8Array;
+  readonly requirements: PublishedPhysicalRequirementSnapshotV1;
+  readonly physicalDefinitionLifecycle:
+    PreparedPhysicalDefinitionLifecycleReadiness;
   readonly cold: PreparedColdEvidence;
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
@@ -384,6 +406,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
     taskCatalog: context.taskCatalog,
     candidateValidation: context.candidateValidation,
     pointCommit: context.pointCommit,
+    physicalDefinitionLifecycle: context.physicalDefinitionLifecycle,
     cold: context.cold,
   });
   const issuer = Object.freeze({});
@@ -395,7 +418,12 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
     ) && hasApplicationSchemaAuthorityComposition(
       capturedContext.schema,
       capturedContext.controlDb,
-    ) && isApplicationTaskCatalogSnapshotPort(capturedContext.taskCatalog);
+    ) && isApplicationTaskCatalogSnapshotPort(capturedContext.taskCatalog) &&
+    hasPhysicalDefinitionLifecycleComposition(
+      capturedContext.physicalDefinitionLifecycle,
+      capturedContext.controlDb,
+      capturedContext.authority,
+    );
   const settle = Effect.fn("ApplicationReadiness.settle")(
     function* (input: {
       readonly deploymentId: string;
@@ -497,6 +525,16 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
           uniqueConstraintEligibility.lifecycle,
         );
       }
+      // Unique-set closure must be observed first: once closed, its member set is
+      // immutable, so lifecycle preparation cannot omit a concurrently published
+      // required unique definition that the eligibility evidence admits.
+      const physicalDefinitionLifecycle = yield*
+        preparePhysicalDefinitionLifecycleReadinessEffect(
+          capturedContext.physicalDefinitionLifecycle,
+          reserved.authority.scopeId,
+          requirements,
+          uniqueConstraintEligibility,
+        );
       const preliminaryPhysical = yield* runLocatedTransaction(
         located.target,
         tx => Effect.gen(function* () {
@@ -504,10 +542,12 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
             tx,
             reserved.authority.scopeId,
           );
-          return yield* loadPhysicalBuildRows(
+          return yield* loadPhysicalReadiness(
             tx,
             reserved.authority,
             requirements,
+            capturedContext.physicalDefinitionLifecycle,
+            physicalDefinitionLifecycle,
             clock,
           );
         }),
@@ -545,6 +585,7 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
           candidateValidation: candidateValidation.evidence,
           uniqueConstraintEligibility,
           uniqueConstraintEligibilitySha256,
+          physicalDefinitionLifecycle,
         }, capturedContext, issuer),
       );
     },
@@ -609,23 +650,73 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
         requirements.definitions.length > MAX_PHYSICAL_DEFINITIONS) {
         return yield* readinessFailure("storedState");
       }
+      const uniqueConstraintEligibility = yield*
+        loadPointCommitUniqueConstraintEligibilityForReadinessV1Effect(
+          capturedContext.pointCommit,
+          Object.freeze({
+            deploymentId: reserved.deploymentId,
+            scopeId: reserved.authority.scopeId,
+            schemaVersionId: schema.schemaVersionId,
+          }),
+          capturedContext.controlDb,
+          capturedContext.authority,
+        );
+      if (uniqueConstraintEligibility.status === "not_ready") {
+        return notReady(
+          reserved.revision.revisionId,
+          uniqueNotReadyReason(uniqueConstraintEligibility.reason),
+          uniqueConstraintEligibility.lifecycle,
+        );
+      }
+      const physicalDefinitionLifecycle = yield*
+        preparePhysicalDefinitionLifecycleReadinessEffect(
+          capturedContext.physicalDefinitionLifecycle,
+          reserved.authority.scopeId,
+          requirements,
+          uniqueConstraintEligibility,
+        );
       const schemaBindingSha256 = yield* runTransaction(
         capturedContext.controlDb,
         tx => readSchemaBinding(tx, reserved, schemaVersion, schema),
       );
       const stored = yield* runLocatedTransaction(
         located.target,
-        tx => loadStoredReadinessAuthority(
-          tx,
-          reserved,
-          schemaVersion,
-          schema,
-          schemaBindingSha256,
-          capturedContext.cold,
-        ),
+        tx => Effect.gen(function* () {
+          const clock = yield* lockScopeClockForShareInTransactionEffect(
+            tx,
+            reserved.authority.scopeId,
+          );
+          const physical = yield* loadPhysicalReadiness(
+            tx,
+            reserved.authority,
+            requirements,
+            capturedContext.physicalDefinitionLifecycle,
+            physicalDefinitionLifecycle,
+            clock,
+          );
+          if (physical.status === "not_ready") return physical;
+          const storedAuthority = yield* loadStoredReadinessAuthority(
+            tx,
+            reserved,
+            schemaVersion,
+            schema,
+            schemaBindingSha256,
+            requirements,
+            physicalDefinitionLifecycle,
+            physical.physicalReadinessSha256,
+            capturedContext.cold,
+          );
+          return storedAuthority === null
+            ? yield* readinessFailure("storedState")
+            : storedAuthority;
+        }),
       );
-      return stored === null
-        ? yield* readinessFailure("storedState")
+      return "status" in stored
+        ? notReady(
+            reserved.revision.revisionId,
+            stored.reason,
+            stored.detail,
+          )
         : storedReadyProjection(stored, issuer);
     },
   );
@@ -666,7 +757,12 @@ export function hasApplicationReadinessPlanningComposition(
   if (typeof repository !== "object" || repository === null) return false;
   const context = readinessRepositoryStates.get(repository)?.context;
   return context !== undefined && context.controlDb === controlDb &&
-    context.schema === schema && context.authority === authority;
+    context.schema === schema && context.authority === authority &&
+    hasPhysicalDefinitionLifecycleComposition(
+      context.physicalDefinitionLifecycle,
+      controlDb,
+      authority,
+    );
 }
 
 export const validateApplicationReadinessForActivationInTransaction =
@@ -682,6 +778,7 @@ export const validateApplicationReadinessForActivationInTransaction =
       | ApplicationTaskCatalogSnapshotError
       | ValidateAppSchemaCandidateReadinessError
       | ValidatePointCommitUniqueConstraintEligibilityV1Error
+      | ValidatePhysicalDefinitionLifecycleReadinessError
       | LockScopeClockForShareError
       | LockScopeClockForUpdateError
     > {
@@ -732,6 +829,7 @@ export const validateStoredApplicationReadinessForActivationInTransaction =
       StoredApplicationReadinessActivationValidation,
       | ApplicationReadinessError
       | ApplicationTaskCatalogSnapshotError
+      | ValidatePhysicalDefinitionLifecycleReadinessError
       | LockScopeClockForShareError
     > {
       if (typeof repository !== "object" || repository === null ||
@@ -764,6 +862,7 @@ const validateStoredIssuedReadiness = Effect.fn(
   StoredApplicationReadinessActivationValidation,
   | ApplicationReadinessError
   | ApplicationTaskCatalogSnapshotError
+  | ValidatePhysicalDefinitionLifecycleReadinessError
   | LockScopeClockForShareError
 > {
   const currentBundle = yield* reserveBundle(
@@ -780,12 +879,30 @@ const validateStoredIssuedReadiness = Effect.fn(
     !storedBundlesEqual(currentBundle, issuedState.stored.bundle)) {
     return yield* readinessFailure("authorityChanged");
   }
+  const clock = yield* lockScopeClockForShareInTransactionEffect(
+    tx,
+    currentBundle.authority.scopeId,
+  );
+  const physical = yield* loadPhysicalReadiness(
+    tx,
+    currentBundle.authority,
+    issuedState.stored.requirements,
+    repositoryState.context.physicalDefinitionLifecycle,
+    issuedState.stored.physicalDefinitionLifecycle,
+    clock,
+  );
+  if (physical.status === "not_ready") {
+    return yield* readinessFailure("authorityChanged");
+  }
   const replay = yield* loadStoredReadinessAuthority(
     tx,
     currentBundle,
     issuedState.stored.schemaVersion,
     issuedState.stored.schema,
     issuedState.stored.schemaBindingSha256,
+    issuedState.stored.requirements,
+    issuedState.stored.physicalDefinitionLifecycle,
+    physical.physicalReadinessSha256,
     repositoryState.context.cold,
   );
   if (replay === null ||
@@ -1317,6 +1434,10 @@ const loadStoredReadinessAuthority = Effect.fn(
   schemaVersion: CatalogSchemaVersion,
   schema: ApplicationSchemaAuthority,
   schemaBindingSha256: Uint8Array,
+  requirements: PublishedPhysicalRequirementSnapshotV1,
+  physicalDefinitionLifecycle:
+    PreparedPhysicalDefinitionLifecycleReadiness,
+  physicalReadinessSha256: Uint8Array,
   coldPort: ApplicationReadinessColdMaterializationPort<Failure>,
 ): Effect.fn.Return<
   StoredReadinessAuthority | null,
@@ -1370,7 +1491,7 @@ const loadStoredReadinessAuthority = Effect.fn(
     uniqueConstraintStatus: row.uniqueConstraintStatus,
     uniqueConstraintEligibilitySha256:
       row.uniqueConstraintEligibilitySha256,
-    physicalReadinessSha256: row.physicalReadinessSha256,
+    physicalReadinessSha256,
     cold: cold.entries,
   }, readyAt);
   const readinessSha256 = yield* sha256(readinessBytes);
@@ -1410,6 +1531,10 @@ const loadStoredReadinessAuthority = Effect.fn(
       bundle.task.taskCatalogBindingSha256,
     ) ||
     !bytesEqualFullScan(row.coldReceiptSetSha256, coldReceiptSetSha256) ||
+    !bytesEqualFullScan(
+      row.physicalReadinessSha256,
+      physicalReadinessSha256,
+    ) ||
     !bytesEqualFullScan(row.readinessSha256, readinessSha256) ||
     !bytesEqualFullScan(row.readinessBytes, readinessBytes)) {
     return yield* readinessFailure("storedState");
@@ -1419,6 +1544,8 @@ const loadStoredReadinessAuthority = Effect.fn(
     schemaVersion,
     schema,
     schemaBindingSha256: copyBytes(schemaBindingSha256),
+    requirements,
+    physicalDefinitionLifecycle,
     cold,
     readinessSha256: copyBytes(readinessSha256),
     readinessBytes: copyBytes(readinessBytes),
@@ -1512,6 +1639,7 @@ function* <SchemaFailure, ColdFailure>(
   ApplicationTaskCatalogSnapshotError |
   ValidateAppSchemaCandidateReadinessError |
   ValidatePointCommitUniqueConstraintEligibilityV1Error |
+  ValidatePhysicalDefinitionLifecycleReadinessError |
   LockScopeClockForShareError |
   LockScopeClockForUpdateError
 > {
@@ -1575,10 +1703,12 @@ function* <SchemaFailure, ColdFailure>(
         prepared.uniqueConstraintEligibilitySha256,
       )) return yield* readinessFailure("authorityChanged");
     }
-    const physical = yield* loadPhysicalBuildRows(
+    const physical = yield* loadPhysicalReadiness(
       tx,
       prepared.bundle.authority,
       prepared.requirements,
+      context.physicalDefinitionLifecycle,
+      prepared.physicalDefinitionLifecycle,
       clock,
     );
     if (physical.status === "not_ready") {
@@ -1588,32 +1718,7 @@ function* <SchemaFailure, ColdFailure>(
         physical.detail,
       );
     }
-    const buildRows = physical.rows;
-    const physicalReadinessSha256 = yield* digestCanonicalJson({
-      format: "flarex.application-physical-readiness",
-      version: 1,
-      scopeId: prepared.bundle.authority.scopeId,
-      storageGeneration: clock.storageGeneration,
-      storageGenerationFence: clock.storageGenerationFence.toString(),
-      epoch: clock.epoch,
-      schemaVersionId: prepared.schema.schemaVersionId,
-      schemaManifestSha256: prepared.schema.schemaManifestSha256,
-      requirementCount: prepared.requirements.definitions.length,
-      indexes: buildRows.map((build, index) => {
-        const requirement = prepared.requirements.definitions[index];
-        if (requirement === undefined) {
-          throw new Error("Application readiness physical definition vanished.");
-        }
-        return {
-          indexDefinitionId: build.indexDefinitionId,
-          physicalSpecCodecVersion: requirement.physicalSpecCodecVersion,
-          physicalSpecSha256Hex: requirement.physicalSpecSha256Hex,
-          lifecycle: build.lifecycle,
-          startCommitSeq: build.startCommitSeq.toString(),
-          attemptFence: build.attemptFence.toString(),
-        };
-      }),
-    });
+    const physicalReadinessSha256 = physical.physicalReadinessSha256;
     const schemaManifestSha256 = decodeSha256(
       prepared.schema.schemaManifestSha256,
     );
@@ -1761,6 +1866,95 @@ type PhysicalBuildRowsResult =
       readonly status: "ready";
       readonly rows: ReadonlyArray<IndexBuildStateRecord>;
     }>;
+
+type PhysicalReadinessResult =
+  | Readonly<{
+      readonly status: "not_ready";
+      readonly reason:
+        | "physicalBuildMissing"
+        | "physicalBuildNotEnabled"
+        | "physicalDefinitionNotActive";
+      readonly detail: string;
+    }>
+  | Readonly<{
+      readonly status: "ready";
+      readonly physicalReadinessSha256: Uint8Array;
+    }>;
+
+const loadPhysicalReadiness = Effect.fn(
+  "ApplicationReadiness.loadPhysicalReadiness",
+)(function* (
+  tx: AppRowTransaction,
+  authority: ApplicationReadinessAuthority,
+  requirements: PublishedPhysicalRequirementSnapshotV1,
+  lifecyclePort: PhysicalDefinitionLifecyclePort,
+  lifecycleReadiness: PreparedPhysicalDefinitionLifecycleReadiness,
+  clock: ScopeClockRecord,
+): Effect.fn.Return<
+  PhysicalReadinessResult,
+  ApplicationReadinessError |
+    ValidatePhysicalDefinitionLifecycleReadinessError
+> {
+  const physicalBuilds = yield* loadPhysicalBuildRows(
+    tx,
+    authority,
+    requirements,
+    clock,
+  );
+  if (physicalBuilds.status === "not_ready") return physicalBuilds;
+  const lifecycle = yield*
+    validatePhysicalDefinitionLifecycleReadinessInTransactionEffect(
+      lifecyclePort,
+      lifecycleReadiness,
+      tx,
+      authority,
+      clock,
+    );
+  if (lifecycle.status === "not_ready") {
+    return Object.freeze({
+      status: "not_ready" as const,
+      reason: "physicalDefinitionNotActive" as const,
+      detail:
+        `${lifecycle.definitionKind}:${lifecycle.definitionId}:${lifecycle.lifecycle}`,
+    });
+  }
+  const physicalReadinessSha256 = yield* digestCanonicalJson({
+    format: "flarex.application-physical-readiness",
+    version: 1,
+    scopeId: authority.scopeId,
+    storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence.toString(),
+    epoch: clock.epoch,
+    schemaVersionId: requirements.schemaVersionId,
+    schemaManifestSha256:
+      encodeBytesToLowercaseHex(requirements.manifestSha256),
+    requirementCount: requirements.definitions.length,
+    indexes: physicalBuilds.rows.map((build, index) => {
+      const requirement = requirements.definitions[index];
+      if (requirement === undefined) {
+        throw new Error("Application readiness physical definition vanished.");
+      }
+      return {
+        indexDefinitionId: build.indexDefinitionId,
+        physicalSpecCodecVersion: requirement.physicalSpecCodecVersion,
+        physicalSpecSha256Hex: requirement.physicalSpecSha256Hex,
+        lifecycle: build.lifecycle,
+        startCommitSeq: build.startCommitSeq.toString(),
+        attemptFence: build.attemptFence.toString(),
+      };
+    }),
+    definitionLifecycles: lifecycle.entries.map(entry => ({
+      definitionKind: entry.definitionKind,
+      definitionId: entry.definitionId,
+      physicalSpecSha256Hex: entry.physicalSpecSha256Hex,
+      lifecycle: entry.lifecycle,
+    })),
+  });
+  return Object.freeze({
+    status: "ready" as const,
+    physicalReadinessSha256,
+  });
+});
 
 const loadPhysicalBuildRows = Effect.fn(
   "ApplicationReadiness.loadPhysicalBuildRows",

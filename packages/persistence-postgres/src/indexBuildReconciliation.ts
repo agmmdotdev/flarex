@@ -249,6 +249,20 @@ export interface PublishedPhysicalRequirementSnapshotV1 {
   readonly definitions: ReadonlyArray<PhysicalDefinitionRequirementV1>;
 }
 
+const publishedPhysicalRequirementSnapshots = new WeakMap<
+  object,
+  FlarexMetadataDatabase
+>();
+
+/** Exact process-local provenance check for a verified control-catalog read. */
+export function isPublishedPhysicalRequirementSnapshotV1(
+  value: unknown,
+  db: FlarexMetadataDatabase,
+): value is PublishedPhysicalRequirementSnapshotV1 {
+  return typeof value === "object" && value !== null &&
+    publishedPhysicalRequirementSnapshots.get(value) === db;
+}
+
 interface TransactionProjectionV1 {
   readonly createdCount: number;
   readonly replayedCount: number;
@@ -448,13 +462,15 @@ export const loadPublishedPhysicalRequirementSnapshotV1 = Effect.fn(
       bindings,
     ),
   );
-  return Object.freeze({
+  const snapshot = Object.freeze({
     deploymentId: input.deploymentId,
     schemaVersionId: input.schemaVersionId,
     manifestSha256: artifact.manifestSha256,
     manifest: snapshotSchemaManifestValue(manifest),
     definitions: projectedDefinitions,
   });
+  publishedPhysicalRequirementSnapshots.set(snapshot, db);
+  return snapshot;
 });
 
 function projectExactRequirementsResult(

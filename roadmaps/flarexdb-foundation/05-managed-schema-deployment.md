@@ -1162,7 +1162,7 @@ The ordered implementation path is:
    opaque exact-definition preparation, fenced transitions, and read-only
    inspection. It remains private, unwired from readiness/runtime admission,
    and performs no physical deletion.
-2. `M05-B2` - prove that mutation, action, and durable-task admissions already
+2. `M05-B2` - **complete and private**: prove that mutation, action, and durable-task admissions already
    share the coherent active-selection fence; make readiness/reactivation
    consume the retirement lifecycle, and correct only an evidenced admission
    gap at its owning boundary.
@@ -1175,6 +1175,28 @@ The ordered implementation path is:
    cold-replayable recheck. No timer, cron, queue, route, or automatic trigger is
    required; a future wake source may call the same coordinator without owning
    retirement policy.
+
+`M05-B2` is complete and remains private. Its accepted
+boundary is one private, opaque lifecycle-readiness claim prepared from the
+already authenticated published index requirements plus the closed unique-
+constraint binding set. The index requirement snapshot is bound to its exact
+issuing control database, and the unique requirement set must match the exact
+issuer-composed eligibility evidence by deployment, scope, schema version,
+member count, set digest, and table set. Application readiness validates that claim inside its
+existing scope-clock transaction. Absence and a valid persisted `active` row
+are eligible; `draining`, `retired`, and `reactivating` are not ready. The
+exact required definition set and active-eligibility policy are folded into
+the existing physical-readiness digest, while every fresh or stored activation
+revalidates the live lifecycle rows under the scope-clock share lock. An
+explicit cancellation back to `active` therefore restores the same readiness
+identity without rewriting its immutable receipt.
+
+This checkpoint does not add retirement checks to mutation, action, or durable-
+task code. Those owners already authenticate the coherent active Application
+selection, and M05-B2 records connected regression evidence for that shared
+fence. It adds no `draining -> retired` transition, pin inspector, deletion,
+timer, cron, queue, route, or public API. Reactivation remains representable
+but unreachable until its later build/readiness authority is approved.
 
 `M05-C` remains a later, separately approved dependency-ordered, bounded,
 resumable physical purge. It still requires explicit immutable-evidence and R2
@@ -1255,8 +1277,16 @@ These are separate later goals, not one giant deployment goal:
 13. `M05-B1-P` - **complete docs-only storage preflight; no DDL**: correct
     retirement from deployment-global coordination to one scope-local physical-
     availability lifecycle, define the bounded current-row/opaque-claim/locking
-    contract, and preserve explicit validated reactivation. `M05-B1` is the
-    next implementation-bearing slice and requires approval.
+    contract, and preserve explicit validated reactivation.
+14. `M05-B1` - **complete and private; production-unwired**: add the scope-local
+    lifecycle row, opaque exact-definition preparation, inspection, and the
+    reversible `active -> draining -> active` operations.
+15. `M05-B2` - **complete and private**: compose lifecycle eligibility into
+    readiness/activation and prove the existing mutation, action, and durable-
+    task active-selection fence. Final retirement and cleanup remain later.
+16. `M05-B3` - **next, not started**: add bounded exact pin inspectors and the
+    proof-bearing `draining -> retired` finalization gate. It remains manual and
+    private; no scheduler, timer, route, deletion, or physical purge is implied.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema

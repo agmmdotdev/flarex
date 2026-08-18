@@ -492,6 +492,22 @@ export function hasAppUniqueConstraintSetEligibilityEvidenceV1(
     eligibilityEvidencePorts.has(value);
 }
 
+/** Exact issuer composition for consumers that combine eligibility evidence. */
+export function hasAppUniqueConstraintSetEligibilityEvidenceCompositionV1(
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+  authority: TrustedScopeAuthorityResolutionPorts,
+): value is AppUniqueConstraintSetEligibilityEvidenceV1 {
+  if (typeof value !== "object" || value === null) return false;
+  const port = eligibilityEvidencePorts.get(value);
+  return port !== undefined &&
+    hasAppUniqueConstraintSetEligibilityCompositionV1(
+      port,
+      controlDb,
+      authority,
+    );
+}
+
 export const loadAppUniqueConstraintSetEligibilityV1Effect = Effect.fn(
   "AppUniqueConstraintSetBuild.loadEligibility",
 )(function* (

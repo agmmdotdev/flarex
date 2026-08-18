@@ -75,6 +75,12 @@ import {
 } from "../src/postgres";
 import { createPointCommitPublisherPortV1 } from
   "../src/pointCommitTransaction";
+import {
+  beginPhysicalDefinitionDrainingEffect,
+  cancelPhysicalDefinitionDrainingEffect,
+  createPhysicalDefinitionLifecyclePort,
+  preparePhysicalDefinitionLifecycleSubjectEffect,
+} from "../src/physicalDefinitionLifecycle";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
 import type { SplitScopePhysicalLocator } from
@@ -241,10 +247,44 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
         target,
         "fx_system_application_readiness_v1",
       )).toBe(1);
-      expect(await scalarCount(
-        target,
-        "fx_system_declarative_v2_activation_head",
-      )).toBe(0);
+      const requirements = await runEffect(
+        loadPublishedPhysicalRequirementSnapshotV1(
+          control.drizzle,
+          Object.freeze({
+            deploymentId: fixture.input.deploymentId,
+            schemaVersionId,
+          }),
+        ),
+      );
+      const definition = requirements?.definitions[0];
+      if (definition === undefined) {
+        throw new Error("Expected PostgreSQL physical definition.");
+      }
+      const subject = await runEffect(
+        preparePhysicalDefinitionLifecycleSubjectEffect(
+          fixture.physicalDefinitionLifecycle,
+          Object.freeze({
+            definitionKind: "index",
+            deploymentId: fixture.input.deploymentId,
+            indexDefinitionId: definition.indexDefinitionId,
+          }),
+        ),
+      );
+      await runEffect(beginPhysicalDefinitionDrainingEffect(
+        subject,
+        Object.freeze({ expectedTransitionFence: 0n }),
+      ));
+      expect(await runEffect(fixture.repository.readReady(fixture.input)))
+        .toMatchObject({
+          status: "not_ready",
+          reason: "physicalDefinitionNotActive",
+        });
+      await runEffect(cancelPhysicalDefinitionDrainingEffect(
+        subject,
+        Object.freeze({ expectedTransitionFence: 1n }),
+      ));
+      expect(await runEffect(fixture.repository.settle(fixture.input)))
+        .toMatchObject({ status: "ready", disposition: "replayed" });
     });
   }, 240_000);
 
@@ -304,10 +344,6 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
           target,
           "fx_system_application_active_head_v1",
         )).toBe(1);
-        expect(await scalarCount(
-          target,
-          "fx_system_declarative_v2_activation_head",
-        )).toBe(0);
 
         await blocker.query("begin");
         await blocker.query(
@@ -448,6 +484,10 @@ async function readinessFixture(
       },
     },
   }, { uniqueConstraints, uniqueConstraintEligibility });
+  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({
+    controlDb: control.drizzle,
+    authority: authorityPorts,
+  });
   const repository = makeApplicationReadinessRepository({
     controlDb: control.drizzle,
     authority: authorityPorts,
@@ -460,6 +500,7 @@ async function readinessFixture(
       candidateValidation,
     ),
     pointCommit,
+    physicalDefinitionLifecycle,
     cold: {
       runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
       compatibilityDate: COMPATIBILITY_DATE,
@@ -474,6 +515,7 @@ async function readinessFixture(
     authority,
     authorityPorts,
     candidateValidation,
+    physicalDefinitionLifecycle,
     repository,
     input: Object.freeze({
       deploymentId,

@@ -5,6 +5,10 @@ import {
   canonicalizeAppUniqueConstraintPhysicalSpecV1,
 } from "flarex-protocol/app-unique-constraint-definition";
 import {
+  appUniqueConstraintSetSha256HexV1ToBytes,
+  canonicalizeAppUniqueConstraintSetV1,
+} from "flarex-protocol/internal/app-unique-constraint-set-v1";
+import {
   decodeCatalogIndexDefinitionId,
   decodeCatalogUniqueConstraintDefinitionId,
 } from "flarex-protocol/catalog";
@@ -22,9 +26,16 @@ import {
   cancelPhysicalDefinitionDrainingEffect,
   createPhysicalDefinitionLifecyclePort,
   inspectPhysicalDefinitionLifecycleEffect,
+  preparePhysicalDefinitionLifecycleReadinessEffect,
   preparePhysicalDefinitionLifecycleSubjectEffect,
+  validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
   type PreparedPhysicalDefinitionLifecycleSubject,
 } from "../src/physicalDefinitionLifecycle";
+import { loadPublishedPhysicalRequirementSnapshotV1 } from
+  "../src/indexBuildReconciliation";
+import { loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from
+  "../src/appUniqueConstraintSetBuildV1";
+import { lockScopeClockForShareInTransactionEffect } from "../src/scopeClock";
 import {
   createApplicationNativeMutationPGliteFixture,
 } from "./fixtures/applicationNativeMutationTestFixture";
@@ -304,6 +315,54 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         fixture.active.basis.schemaVersionId,
       ],
     );
+    const uniqueSet = await canonicalizeAppUniqueConstraintSetV1([{
+      logicalUniqueConstraintId: 9_001,
+      uniqueConstraintDefinitionId,
+      tableId: 1,
+      physicalSpecSha256Hex: canonical.sha256Hex,
+    }]);
+    await fixture.control.query(
+      `update fx_control_schema_unique_constraint_set
+          set definition_count = 1,
+              definition_set_sha256 = $3
+        where deployment_id = $1
+          and schema_version_id = $2`,
+      [
+        fixture.deploymentId,
+        fixture.active.basis.schemaVersionId,
+        appUniqueConstraintSetSha256HexV1ToBytes(uniqueSet.sha256Hex),
+      ],
+    );
+    await fixture.target.query(
+      `insert into fx_system_unique_constraint_set_build
+         (scope_id, schema_version_id, set_codec_version, definition_count,
+          definition_set_sha256, storage_generation,
+          storage_generation_fence, epoch, start_commit_seq, lifecycle,
+          cursor_codec_version, cursor_definition_id, cursor_row_id,
+          attempt_fence)
+       values ($1, $2, 1, 1, $3, 'flarexdb_v1', $4, $5, 0,
+               'enabled', 1, null, null, 1)`,
+      [
+        fixture.authority.scopeId,
+        fixture.active.basis.schemaVersionId,
+        appUniqueConstraintSetSha256HexV1ToBytes(uniqueSet.sha256Hex),
+        fixture.authority.storageGenerationFence,
+        fixture.authority.epoch,
+      ],
+    );
+    const uniqueEligibility = await runEffect(
+      loadAppUniqueConstraintSetEligibilityForReadinessV1Effect(
+        fixture.uniqueConstraintEligibility,
+        Object.freeze({
+          deploymentId: fixture.deploymentId,
+          scopeId: fixture.authority.scopeId,
+          schemaVersionId: fixture.active.basis.schemaVersionId,
+        }),
+      ),
+    );
+    if (uniqueEligibility.status !== "eligible") {
+      throw new Error("Expected exact unique-set eligibility.");
+    }
     const port = createPhysicalDefinitionLifecyclePort({
       controlDb: fixture.control.drizzle,
       authority: fixture.authorityPorts,
@@ -326,5 +385,114 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         lifecycle: "draining",
       },
     });
+    const requirements = await runEffect(
+      loadPublishedPhysicalRequirementSnapshotV1(
+        fixture.control.drizzle,
+        Object.freeze({
+          deploymentId: fixture.deploymentId,
+          schemaVersionId: fixture.active.basis.schemaVersionId,
+        }),
+      ),
+    );
+    if (requirements === null) {
+      throw new Error("Expected published physical requirements.");
+    }
+    const foreignControlFixture =
+      await createApplicationNativeMutationPGliteFixture({
+        runtimeHostIdentity: "flarex.test/m05-b2-foreign-control-runtime-host",
+        compatibilityDate: "2026-08-18",
+      });
+    const foreignControlPort = createPhysicalDefinitionLifecyclePort({
+      controlDb: foreignControlFixture.control.drizzle,
+      authority: fixture.authorityPorts,
+    });
+    await expect(runEffectFailure(
+      preparePhysicalDefinitionLifecycleReadinessEffect(
+        foreignControlPort,
+        fixture.authority.scopeId,
+        requirements,
+        uniqueEligibility,
+      ),
+    )).resolves.toMatchObject({ field: "requirementSnapshot" });
+    await expect(runEffectFailure(
+      preparePhysicalDefinitionLifecycleReadinessEffect(
+        port,
+        fixture.authority.scopeId,
+        Object.freeze({ ...requirements }),
+        uniqueEligibility,
+      ),
+    )).resolves.toMatchObject({ field: "requirementSnapshot" });
+    // SAFETY: this deliberately constructs a structurally valid but unauthentic
+    // evidence object to prove process-local issuer identity is required.
+    const copiedEligibility = Object.freeze({
+      status: "eligible" as const,
+      evidence: Object.freeze({ ...uniqueEligibility.evidence }),
+    }) as typeof uniqueEligibility;
+    await expect(runEffectFailure(
+      preparePhysicalDefinitionLifecycleReadinessEffect(
+        port,
+        fixture.authority.scopeId,
+        requirements,
+        copiedEligibility,
+      ),
+    )).resolves.toMatchObject({ field: "uniqueConstraintEligibility" });
+    const readiness = await runEffect(
+      preparePhysicalDefinitionLifecycleReadinessEffect(
+        port,
+        fixture.authority.scopeId,
+        requirements,
+        uniqueEligibility,
+      ),
+    );
+    const eligibility = await fixture.target.drizzle.transaction(tx =>
+      runEffect(Effect.gen(function* () {
+        const clock = yield* lockScopeClockForShareInTransactionEffect(
+          tx,
+          fixture.authority.scopeId,
+        );
+        return yield*
+          validatePhysicalDefinitionLifecycleReadinessInTransactionEffect(
+            port,
+            readiness,
+            tx,
+            fixture.active.basis.authority,
+            clock,
+          );
+      })),
+    );
+    expect(eligibility).toEqual({
+      status: "not_ready",
+      definitionKind: "unique_constraint",
+      definitionId: uniqueConstraintDefinitionId,
+      lifecycle: "draining",
+    });
+
+    const emptyUniqueSet = await canonicalizeAppUniqueConstraintSetV1([]);
+    await fixture.control.query(
+      `delete from fx_control_schema_version_unique_constraint_binding
+        where deployment_id = $1
+          and schema_version_id = $2`,
+      [fixture.deploymentId, fixture.active.basis.schemaVersionId],
+    );
+    await fixture.control.query(
+      `update fx_control_schema_unique_constraint_set
+          set definition_count = 0,
+              definition_set_sha256 = $3
+        where deployment_id = $1
+          and schema_version_id = $2`,
+      [
+        fixture.deploymentId,
+        fixture.active.basis.schemaVersionId,
+        appUniqueConstraintSetSha256HexV1ToBytes(emptyUniqueSet.sha256Hex),
+      ],
+    );
+    await expect(runEffectFailure(
+      preparePhysicalDefinitionLifecycleReadinessEffect(
+        port,
+        fixture.authority.scopeId,
+        requirements,
+        uniqueEligibility,
+      ),
+    )).resolves.toMatchObject({ field: "uniqueConstraintEligibility" });
   });
 });
