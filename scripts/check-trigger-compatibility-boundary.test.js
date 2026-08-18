@@ -1038,6 +1038,116 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the E5 private Application supervision composition", () => {
+    const applicationComposition =
+      "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";
+    const connectedHarness =
+      "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
+    expect(analyzeTriggerCompatibilityBoundary([{
+      relativePath: "packages/system-test/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }], [{
+      relativePath: applicationComposition,
+      text: `
+        import {
+          TaskComputeDeliveryCandidateRunnerLive,
+          makeTaskComputeDeliveryConnectedRunnerLayer,
+          makeTaskComputeDeliveryTrustedDirectoryLayer,
+          makeSupervisedWorkerLoaderTaskComputeProviderLayer,
+          type TaskAttemptSupervisionExitObserver,
+          type TaskAttemptSupervisor,
+          type TaskComputeDeliveryConnectedRunnerOptions,
+          type TaskComputeDeliveryTrustedDirectoryOptions,
+          type WorkerLoaderTaskComputeProviderOptions,
+        } from "flarex-backend/internal/task-compute-delivery";
+        import {
+          makeTaskRuntimeLaunchAuthorityLayer,
+          type TaskRuntimeLaunchAuthorityOptions,
+          type TaskRuntimeLaunchDirectory,
+        } from "flarex-backend/internal/task-runtime-launch";
+      `,
+    }, {
+      relativePath: connectedHarness,
+      text: `
+        import {
+          decideApplicationRequestCancellationV1,
+          decideApplicationStartAttemptV1,
+          decodeTaskDurationMsV1,
+          decodeTaskRetryJitterV1,
+          decodeTaskRunVersionV1,
+          encodeApplicationTaskRunAttemptAggregateJsonV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import {
+          decodeTaskRunCreationRequestKeyV1,
+          makeTaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import {
+          makeTaskAttemptSupervisor,
+          TaskComputeDeliveryConnectedRunner,
+          type TaskAttemptSupervisionExitObserver,
+          type TaskAttemptSupervisorError,
+          type TaskAttemptSupervisorLifecycleResolver,
+          type TaskAttemptSupervisorOutcome,
+          type TaskAttemptSupervisorPolicy,
+          type TaskComputeDeliveryConnectedRunnerReceipt,
+          type TaskComputeDeliveryConnectedRunnerOptions,
+        } from "flarex-backend/internal/task-compute-delivery";
+        import {
+          TaskRuntimeLaunchPortError,
+          type TaskRuntimeLaunchDirectory,
+          type TaskRuntimeLaunchLocatedSource,
+        } from "flarex-backend/internal/task-runtime-launch";
+        import {
+          makeTaskResultStore,
+          TaskResultStoreSettlementUncertainError,
+          type TaskResultStoreBucket,
+        } from "flarex-backend/internal/task-result-store";
+        import { createTaskAttemptLifecycleGateway } from
+          "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
+        import type { TaskComputeDeliveryControlDirectoryTarget } from
+          "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory";
+        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from
+          "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: applicationComposition,
+      text: `
+        import { makeWorkerLoaderTaskComputeProviderLayer } from
+          "flarex-backend/internal/task-compute-delivery";
+      `,
+    }, {
+      relativePath: connectedHarness,
+      text: `
+        import { taskResultStoreResourceCause } from
+          "flarex-backend/internal/task-result-store";
+      `,
+    }, {
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { createTaskAttemptLifecycleGateway } from
+          "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
+      `,
+    }, {
+      relativePath: "packages/system-test/support/otherHarness.ts",
+      text: `
+        import { decideApplicationRequestCancellationV1 } from
+          "@flarex/durable-task/internal/run-attempt-v1";
+        import type { TaskComputeDeliveryConnectedRunnerReceipt } from
+          "flarex-backend/internal/task-compute-delivery";
+      `,
+    }]).errors).toEqual([
+      `${applicationComposition}:2 production source must not activate the connected Task compute-delivery runtime before host admission.`,
+      `${connectedHarness}:2 production source must not activate the Task result store before connected host admission.`,
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
+      "packages/system-test/support/otherHarness.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/system-test/support/otherHarness.ts:4 production source must not activate the connected Task compute-delivery runtime before host admission.",
+    ]);
+  });
+
   it("keeps the Task wake scheduler directory production-inert", () => {
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: "apps/executor/src/taskSchedulerDirectory.ts",

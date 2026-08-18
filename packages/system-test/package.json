@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/durable-task": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/function-runtime": "workspace:*",

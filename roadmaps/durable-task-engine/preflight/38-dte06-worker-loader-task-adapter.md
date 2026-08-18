@@ -675,8 +675,18 @@ storage, hosted platform parity, or production readiness.
 DTE06-E's approved durable supervision and settlement topology is recorded
 in
 [`41-dte06-attempt-supervision-and-settlement.md`](./41-dte06-attempt-supervision-and-settlement.md).
-E1's terminal contract and pure disposition are complete privately; E2 through
-E5 remain pending in that ordered preflight. DTE06-F then owns the private end-
-to-end hosted proof.
+E1 through E5 are complete privately: the connected
+Application success/no-false-durability, real handler-failure/retry, and exact
+cancellation-delivery/acknowledgement and maximum-duration terminal-timeout
+proofs are implemented. Its real lifecycle gateway also proves stale-fence and
+database-time lease-loss stop behavior, and its existing immutable result store
+proves both exact lost-create-response reconciliation and unresolved R2
+recovery handoff. Exact completion replay after a committed PostgreSQL response
+is lost is also implemented through the existing lifecycle settlement owner.
+Duplicate connected delivery is suppressed through the persisted dispatch
+checkpoint before a second provider call. The final cancel/complete proof
+preserves success and lets the existing lifecycle record
+`superseded_by_completion` when completion wins.
+DTE06-F now owns the private end-to-end hosted proof.
 Only after those gates may DTE05-E3 consider a scheduled Worker host and
 activation.

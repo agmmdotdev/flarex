@@ -15,6 +15,11 @@ const standardApplicationDefinitionManifestPath =
 const persistencePostgresManifestPath =
   "packages/persistence-postgres/package.json";
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
+const standardApplicationTaskComputeDeliveryPath =
+  "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";
+const systemTestManifestPath = "packages/system-test/package.json";
+const systemTestApplicationTaskSystemConnectedHarnessPath =
+  "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
 const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
   "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
 const flarexBackendWorkerLoaderTaskComputeProviderPath =
@@ -155,6 +160,7 @@ const admittedPersistenceTaskComputeDeliveryEvidenceSymbolsBySpecifier =
       "encodeTaskComputeDispatchAcceptanceV1",
       "encodeTaskComputeDispatchRequestV1",
       "validateApplicationTaskComputeDispatchRequestV1",
+      "validateCurrentTaskComputeDispatchRequestV1",
       "validateTaskComputeCancellationReceiptV1",
       "validateTaskComputeCancellationRequestV1",
       "validateTaskComputeDispatchAcceptanceV1",
@@ -188,6 +194,7 @@ const admittedPersistenceTaskComputeDeliveryRepositorySymbolsBySpecifier =
       "ApplicationTaskComputeDispatchRequestV1",
       "CurrentTaskComputeDispatchRequestV1",
       "validateApplicationTaskComputeDispatchRequestV1",
+      "validateCurrentTaskComputeDispatchRequestV1",
       "validateTaskComputeCancellationReceiptV1",
       "validateTaskComputeCancellationRequestV1",
       "validateTaskComputeDispatchAcceptanceV1",
@@ -319,6 +326,68 @@ const admittedWorkerLoaderLaunchModelImports = new Map([
   ["TaskRuntimeLaunchValidationError", "value"],
   ["CurrentTaskRuntimeLaunchSubject", "type"],
   ["TaskRuntimeInputSource", "type"],
+]);
+const admittedApplicationTaskComputeDeliveryImports = new Map([
+  ["TaskComputeDeliveryCandidateRunnerLive", "value"],
+  ["makeTaskComputeDeliveryConnectedRunnerLayer", "value"],
+  ["makeTaskComputeDeliveryTrustedDirectoryLayer", "value"],
+  ["makeSupervisedWorkerLoaderTaskComputeProviderLayer", "value"],
+  ["TaskAttemptSupervisionExitObserver", "type"],
+  ["TaskAttemptSupervisor", "type"],
+  ["TaskComputeDeliveryConnectedRunnerOptions", "type"],
+  ["TaskComputeDeliveryTrustedDirectoryOptions", "type"],
+  ["WorkerLoaderTaskComputeProviderOptions", "type"],
+]);
+const admittedApplicationTaskRuntimeLaunchImports = new Map([
+  ["makeTaskRuntimeLaunchAuthorityLayer", "value"],
+  ["TaskRuntimeLaunchAuthorityOptions", "type"],
+  ["TaskRuntimeLaunchDirectory", "type"],
+]);
+const admittedSystemTestConnectedHarnessTaskComputeImports = new Map([
+  ["makeTaskAttemptSupervisor", "value"],
+  ["TaskComputeDeliveryConnectedRunner", "value"],
+  ["TaskAttemptSupervisionExitObserver", "type"],
+  ["TaskAttemptSupervisorError", "type"],
+  ["TaskAttemptSupervisorLifecycleResolver", "type"],
+  ["TaskAttemptSupervisorOutcome", "type"],
+  ["TaskAttemptSupervisorPolicy", "type"],
+  ["TaskComputeDeliveryConnectedRunnerReceipt", "type"],
+  ["TaskComputeDeliveryConnectedRunnerOptions", "type"],
+]);
+const admittedSystemTestConnectedHarnessTaskRuntimeLaunchImports = new Map([
+  ["TaskRuntimeLaunchPortError", "value"],
+  ["TaskRuntimeLaunchDirectory", "type"],
+  ["TaskRuntimeLaunchLocatedSource", "type"],
+]);
+const admittedSystemTestConnectedHarnessRunAttemptImports = new Map([
+  ["decideApplicationRequestCancellationV1", "value"],
+  ["decideApplicationStartAttemptV1", "value"],
+  ["decodeTaskDurationMsV1", "value"],
+  ["decodeTaskRetryJitterV1", "value"],
+  ["decodeTaskRunVersionV1", "value"],
+  ["encodeApplicationTaskRunAttemptAggregateJsonV1", "value"],
+]);
+const admittedSystemTestConnectedHarnessRunCreationImports = new Map([
+  ["decodeTaskRunCreationRequestKeyV1", "value"],
+  ["makeTaskInputReferenceV1", "value"],
+]);
+const admittedSystemTestConnectedHarnessTaskResultImports = new Map([
+  ["makeTaskResultStore", "value"],
+  ["TaskResultStoreSettlementUncertainError", "value"],
+  ["TaskResultStoreBucket", "type"],
+]);
+const admittedTaskAttemptSupervisorResultStoreImports = new Map([
+  ["TaskResultStore", "type"],
+  ["TaskResultStoreError", "type"],
+]);
+const admittedSystemTestConnectedHarnessLifecycleGatewayImports = new Map([
+  ["createTaskAttemptLifecycleGateway", "value"],
+]);
+const admittedSystemTestConnectedHarnessControlTargetImports = new Map([
+  ["TaskComputeDeliveryControlDirectoryTarget", "type"],
+]);
+const admittedSystemTestConnectedHarnessControlFactoryImports = new Map([
+  ["createTaskComputeDeliveryControlDirectoryTargetForSystemTest", "value"],
 ]);
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "ApplicationPersistedTaskRequestedEffectV1",
@@ -723,6 +792,11 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && relativePath !== persistencePostgresTaskAttemptLifecycleGatewayPath
         && !(relativePath === flarexBackendTaskAttemptSupervisorPath
           && isTypeOnlyImportDeclaration(node))
+        && !(relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+          && hasExactNamedImportModes(
+            node,
+            admittedSystemTestConnectedHarnessLifecycleGatewayImports,
+          ))
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -822,6 +896,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && !isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
           relativePath,
           specifier,
+          node,
         )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
@@ -838,6 +913,10 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         )
         && !relativePath.startsWith(
           flarexBackendTaskComputeDeliverySourcePrefix,
+        )
+        && !isAdmittedFlarexBackendTaskComputeDeliveryConsumer(
+          relativePath,
+          node,
         )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
@@ -862,6 +941,27 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task runtime launch authority before Worker Loader admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isFlarexBackendTaskResultStoreSpecifier(specifier, relativePath)
+        && relativePath !== flarexBackendTaskResultStorePath
+        && !(relativePath === flarexBackendTaskAttemptSupervisorPath
+          && hasExactNamedImportModes(
+            node,
+            admittedTaskAttemptSupervisorResultStoreImports,
+          ))
+        && !(relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+          && hasExactNamedImportModes(
+            node,
+            admittedSystemTestConnectedHarnessTaskResultImports,
+          ))
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task result store before connected host admission.`);
       }
       if (
         specifier !== undefined
@@ -1384,6 +1484,19 @@ function isFlarexBackendTaskComputeDeliverySpecifier(specifier, relativePath) {
     || resolved.startsWith(flarexBackendTaskComputeDeliverySourcePrefix);
 }
 
+/** @param {string} relativePath @param {ts.Node} node */
+function isAdmittedFlarexBackendTaskComputeDeliveryConsumer(
+  relativePath,
+  node,
+) {
+  const expected = relativePath === standardApplicationTaskComputeDeliveryPath
+    ? admittedApplicationTaskComputeDeliveryImports
+    : relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+    ? admittedSystemTestConnectedHarnessTaskComputeImports
+    : undefined;
+  return expected !== undefined && hasExactNamedImportModes(node, expected);
+}
+
 /** @param {string} specifier @param {string} relativePath */
 function isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
@@ -1403,6 +1516,18 @@ function isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
   node,
 ) {
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  if (relativePath === standardApplicationTaskComputeDeliveryPath) {
+    return hasExactNamedImportModes(
+      node,
+      admittedApplicationTaskRuntimeLaunchImports,
+    );
+  }
+  if (relativePath === systemTestApplicationTaskSystemConnectedHarnessPath) {
+    return hasExactNamedImportModes(
+      node,
+      admittedSystemTestConnectedHarnessTaskRuntimeLaunchImports,
+    );
+  }
   if (relativePath === flarexBackendLegacyTaskWorkerDefinitionPath &&
     matchesRepositoryModule(resolved, flarexBackendTaskRuntimeLaunchModelPath)) {
     return hasExactNamedImportModes(node, admittedLegacyWorkerLaunchModelImports);
@@ -1449,6 +1574,14 @@ function isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath)
 }
 
 /** @param {string} specifier @param {string} relativePath */
+function isFlarexBackendTaskResultStoreSpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  return normalized === "flarex-backend/internal/task-result-store"
+    || matchesRepositoryModule(resolved, flarexBackendTaskResultStorePath);
+}
+
+/** @param {string} specifier @param {string} relativePath */
 function isFlarexBackendImmutableR2Specifier(specifier, relativePath) {
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   return resolved.startsWith(flarexBackendImmutableR2SourcePrefix);
@@ -1478,10 +1611,11 @@ function isTaskComputeDeliveryControlDirectorySpecifier(specifier, relativePath)
     });
 }
 
-/** @param {string} relativePath @param {string} specifier */
+/** @param {string} relativePath @param {string} specifier @param {ts.Node} node */
 function isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
   relativePath,
   specifier,
+  node,
 ) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
@@ -1491,6 +1625,20 @@ function isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
       || matchesRepositoryModule(
         resolved,
         persistencePostgresTaskComputeDeliveryControlDirectoryPath,
+      );
+  }
+  if (relativePath === systemTestApplicationTaskSystemConnectedHarnessPath) {
+    return normalized ===
+        "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory"
+      ? hasExactNamedImportModes(
+        node,
+        admittedSystemTestConnectedHarnessControlTargetImports,
+      )
+      : normalized ===
+          "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory"
+      && hasExactNamedImportModes(
+        node,
+        admittedSystemTestConnectedHarnessControlFactoryImports,
       );
   }
   if (
@@ -1540,6 +1688,7 @@ function isAdmittedDurableTaskConsumerDependency(
     relativePath === standardApplicationDefinitionManifestPath
     || relativePath === persistencePostgresManifestPath
     || relativePath === flarexBackendManifestPath
+    || relativePath === systemTestManifestPath
   )
     && name === expectedTargetPackage
     && value === "workspace:*";
@@ -1560,7 +1709,32 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
       relativePath,
       specifier,
       node,
+    ) || isAdmittedSystemTestConnectedHarnessTaskImport(
+      relativePath,
+      specifier,
+      node,
     );
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedSystemTestConnectedHarnessTaskImport(
+  relativePath,
+  specifier,
+  node,
+) {
+  if (relativePath !== systemTestApplicationTaskSystemConnectedHarnessPath) {
+    return false;
+  }
+  const expected = specifier === "@flarex/durable-task/internal/run-attempt-v1"
+    ? admittedSystemTestConnectedHarnessRunAttemptImports
+    : specifier === "@flarex/durable-task/internal/run-creation-v1"
+    ? admittedSystemTestConnectedHarnessRunCreationImports
+    : undefined;
+  return expected !== undefined && hasExactNamedImportModes(node, expected);
 }
 
 /**

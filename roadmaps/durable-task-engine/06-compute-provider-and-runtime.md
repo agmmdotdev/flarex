@@ -12,7 +12,9 @@ composition. DTE06-D now owns the trusted launch authority, authenticated
 runtime-object/input reads, private Worker ABI/runtime core, exhaustive Legacy
 and Application launch subjects, generation-specific Worker definitions,
 shared accepted-start session, and the real private
-`WorkerLoaderTaskComputeProvider`.
+`WorkerLoaderTaskComputeProvider`. DTE06-E now owns the completed private
+heartbeat, cancellation acknowledgement, terminal result publication,
+retry/settlement, lost-session supervision, and connected race matrix.
 
 The unversioned private `ApplicationTaskSystem` and
 `ApplicationTaskComputeDelivery` composition now connect authentic active
@@ -20,10 +22,10 @@ Application selection through run creation, the shared lifecycle, compute
 discovery, preparation, Source Artifact V2 loading, and one accepted
 Application Worker start. Exact replay remains pinned after later activation,
 retained compositions remain `legacy_only`, and no fallback, comparison
-provider, or second scheduler exists. Provider acceptance is not durable Task
-completion: DTE06-E still owns heartbeat, cancellation acknowledgement,
-terminal result publication, retry/settlement, and lost-session supervision;
-DTE06-F still owns the hosted end-to-end recovery proof. No scheduled host,
+provider, or second scheduler exists. Provider acceptance alone is not durable
+Task completion; the completed DTE06-E composition now connects it to the
+existing lifecycle and immutable result owner. DTE06-F still owns the hosted
+end-to-end recovery proof. No scheduled host,
 route, binding, public API, or production activation is authorized.
 
 The provider contract and DTE06-B implementation receipt live in
@@ -42,7 +44,7 @@ The approved Worker Loader task-adapter boundary, trusted launch-subject
 resolution, private runtime ABI, and DTE06-D implementation order are recorded
 in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md).
-The proposed production-inert supervision, terminal-outcome, result-store,
+The completed production-inert supervision, terminal-outcome, result-store,
 heartbeat, cancellation-acknowledgement, and fenced-settlement boundary is
 recorded in
 [`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
@@ -83,8 +85,8 @@ Prove one private, production-inert execution vertical:
    loss, lease expiry, cancellation races, and a lost completion response.
 
 The first vertical remains private and production-unwired. Its path through
-Worker start acceptance is composed; durable supervision and settlement remain
-DTE06-E, and hosted recovery proof remains DTE06-F. The completed connected
+Worker start acceptance, durable supervision, and settlement is composed;
+hosted recovery proof remains DTE06-F. The completed connected
 source map records which Trigger dispatch, delivery, supervision, heartbeat,
 cancellation, settlement, and recovery control flow is retained. Existing
 Flarex provider, persistence, and runtime owners are necessary integration
@@ -546,11 +548,11 @@ Application Worker launch with zero Legacy runtime-object reads.
 Dispatch acceptance still means only that the exact Worker runtime accepted the
 same Task/provider identity. It is not heartbeat, completion, cancellation
 acknowledgement, result durability, or durable supervision. Terminal Worker
-evidence remains process-local until DTE06-E connects it to the existing fenced
-Task lifecycle. No route, deployment binding, scheduled host, public API,
+evidence remained process-local at the DTE06-D stop; DTE06-E now connects it to
+the existing fenced Task lifecycle. No route, deployment binding, scheduled host, public API,
 fallback, comparison execution, or production activation is part of DTE06-D.
 
-### DTE06-E: Attempt Supervision And Settlement — E4 Complete Privately
+### DTE06-E: Attempt Supervision And Settlement — Complete Privately
 
 Preflight 41 owns the approved implementation boundary. E1 corrects the
 current private Worker session atomically: successful canonical values, bounded
@@ -576,14 +578,45 @@ only identical completion evidence, reports the full supervisor exit through a
 required private observer, preserves interruption/cleanup causes, and leaves
 host shutdown unconfirmed. Because provider dispatch intentionally carries no
 deployment identity, the real scope-aware lifecycle resolver and delivery
-composition remain E5-owned.
+composition remain E5-owned. The current E5 slices now make the sole private
+Application delivery composition require the supervised Worker Loader and
+connect authentic accepted Application sessions through the real scope-aware
+lifecycle gateway and immutable result store. Its held-settlement proof
+distinguishes provider acceptance from durable completion, then proves
+successful result publication and fenced terminal settlement. A second
+connected scenario executes a real throwing Application task handler, retains
+`handler_failed` as Worker terminal evidence, submits the existing failed
+completion, schedules the bound retry, and publishes no result object. The
+third scenario requests durable cancellation after provider acceptance, lets
+the connected runner deliver the exact generation to the same live Worker
+session, and proves matching interruption evidence, lifecycle acknowledgement,
+terminal cancellation, and zero result writes. The fourth scenario lets an
+accepted Worker reach its exact maximum duration, delivers the host-owned
+interruption, preserves terminal settlement through the bounded post-deadline
+handshake window, and proves `maximum_duration_exceeded` reaches the existing
+non-retryable terminal timeout policy with zero result writes. The remaining E5
+proofs also stop and close the real Worker when the scope-bound lifecycle
+returns either `current/stale_fence` or database-time `current/lease_expired`,
+without renewing, completing, publishing a result, or changing the accepted
+aggregate. The same connected composition now proves exact reconciliation when
+an R2 create commits but its response is lost, and typed recovery handoff with
+no lifecycle mutation when both create and reconciliation remain uncertain. It
+also proves exact completion replay after a committed response is lost: the
+same encoded completion receives the existing idempotent lifecycle receipt and
+the result is not republished. A second connected delivery cycle while that
+Worker remains live is suppressed by the existing persisted dispatch
+checkpoint before another provider call, leaving one session, one result, and
+one completion. The final E5 case holds a completed Worker settlement while a
+durable cancellation is requested and delivered, then proves the existing
+lifecycle accepts the unchanged success and records the cancellation as
+`superseded_by_completion`.
 
 - connect accepted compute to fenced heartbeat, completion, result publication,
   and cancellation operations;
 - bound CPU/wall time, heartbeat cadence, result bytes, retries, and settlement
   reserves;
-- prove stale fence, lease loss, cancel/complete races, worker loss, result
-  publication uncertainty, and lost completion response; and
+- prove cancel/complete races, worker loss, duplicate delivery, and lost
+  completion response; and
 - emit only privacy-safe aggregate operational receipts.
 
 ### DTE06-F: Private End-To-End Runtime Proof — Pending
@@ -657,15 +690,13 @@ publication/readiness, exact launch authority, private Worker ABI/runtime,
 shared accepted-start session, real Worker Loader provider, and the private
 Application Task selection/run-creation/delivery composition.
 
-The current stop is DTE06-E5 under
+The current stop is the completed, production-inert DTE06-E matrix under
 [`Preflight 41`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
 No existing provider acceptance, local terminal Worker outcome, E1 pure
 disposition, isolated E2 result publication, E3 lifecycle capability, E4
 isolated supervisor, AA-R7 private launch proof, or persisted delivery
-checkpoint may be described as a connected deployed supervision path. E5 must
-compose the real scope-aware resolver and prove terminal runtime evidence
-reaches the fenced Task lifecycle before DTE06-E is complete.
-DTE06-F must then prove
+checkpoint may be described as a connected deployed supervision path. DTE06-F
+must now prove
 hosted recovery and cleanup before DTE05-E3 may add a scheduled host. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.

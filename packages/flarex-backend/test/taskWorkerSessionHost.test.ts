@@ -334,7 +334,75 @@ describe("Task Worker session host", () => {
     expect(expired.reason).toBe("timedOut");
   });
 
-  it("reports timeout when expiry interrupts an in-flight settlement", async () => {
+  it("observes the exact maximum-duration settlement after expiry delivery", async () => {
+    const input = startInput("application_v1", 20);
+    const terminal = deferred<unknown>();
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start,
+      terminal.promise,
+      request => {
+        const interruption = request as {
+          readonly cancellationGeneration: bigint;
+          readonly reason: "maximum_duration";
+        };
+        terminal.resolve(interruptedSettlementFor(
+          acceptanceFor(start),
+          interruption.cancellationGeneration,
+          interruption.reason,
+        ));
+        return interruptionFor(
+          start,
+          interruption.cancellationGeneration,
+          true,
+          interruption.reason,
+        );
+      },
+    ));
+    const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader, {
+      handshakeMilliseconds: 100,
+    }).start(input));
+
+    await expect(Effect.runPromise(session.settlement)).resolves.toMatchObject({
+      outcome: {
+        kind: "interrupted",
+        interruption: {
+          cancellationGeneration: 1n,
+          reason: "maximum_duration",
+        },
+      },
+    });
+    await Effect.runPromise(session.close);
+    expect(loader.sessionDisposals).toBe(1);
+  });
+
+  it("does not accept a non-interrupted settlement observed after the deadline", async () => {
+    const input = startInput("application_v1", 20);
+    const terminal = deferred<unknown>();
+    const loader = new FakeWorkerLoader(start => remoteSession(
+      start,
+      terminal.promise,
+      request => {
+        terminal.resolve(settlementForAcceptance(start));
+        return interruptionFor(
+          start,
+          (request as { readonly cancellationGeneration: bigint })
+            .cancellationGeneration,
+          true,
+          "maximum_duration",
+        );
+      },
+    ));
+    const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader, {
+      handshakeMilliseconds: 100,
+    }).start(input));
+
+    const failure = await Effect.runPromise(session.settlement.pipe(Effect.flip));
+    expect(failure).toMatchObject({ operation: "settlement", reason: "timedOut" });
+    await Effect.runPromise(session.close);
+    expect(loader.sessionDisposals).toBe(1);
+  });
+
+  it("bounds a missing settlement after expiry interruption", async () => {
     const input = startInput("application_v1", 20);
     const expirySent = deferred<void>();
     const loader = new FakeWorkerLoader(start => remoteSession(

@@ -255,6 +255,10 @@ function makeSession(
   deadline: number,
 ): Effect.Effect<TaskWorkerSession, TaskWorkerSessionHostError> {
   return Effect.gen(function* () {
+  const settlementDeadline = Math.min(
+    Number.MAX_SAFE_INTEGER,
+    deadline + handshakeMilliseconds,
+  );
   let closed = false;
   let closeReason: "sessionLost" | "timedOut" = "sessionLost";
   let acceptedCancellationGeneration = acceptance.cancellationGeneration;
@@ -342,6 +346,34 @@ function makeSession(
     ),
     () => Effect.sync(endOperation),
   );
+  const withSettlementOperation = <Success>(
+    effect: Effect.Effect<Success, TaskWorkerSessionHostError>,
+  ): Effect.Effect<Success, TaskWorkerSessionHostError> => Effect.acquireUseRelease(
+    Effect.try({
+      try: () => {
+        if (disposed || closed && closeReason !== "timedOut") {
+          throw hostError("settlement", closeReason, cleanupCause ?? backgroundCause);
+        }
+        inFlight += 1;
+      },
+      catch: cause => cause instanceof TaskWorkerSessionHostError
+        ? cause
+        : hostError("settlement", "sessionLost", cause),
+    }),
+    () => Effect.raceFirst(
+      effect,
+      Deferred.await(closeStarted).pipe(Effect.andThen(Effect.suspend(() =>
+        closeReason === "timedOut"
+          ? Effect.never
+          : Effect.fail(hostError(
+              "settlement",
+              closeReason,
+              cleanupCause ?? backgroundCause,
+            ))
+      ))),
+    ),
+    () => Effect.sync(endOperation),
+  );
   const requestInterruption: TaskWorkerSession["requestInterruption"] = Effect.fn(
     "TaskWorkerSession.requestInterruption",
   )(input => withOperation("requestInterruption", Effect.gen(function* () {
@@ -402,9 +434,9 @@ function makeSession(
     return receipt;
   })));
   const settlement = Effect.fn("TaskWorkerSession.settlement")(() =>
-    withOperation("settlement", Effect.gen(function* () {
+    withSettlementOperation(Effect.gen(function* () {
     const wallMilliseconds = yield* remainingWallMilliseconds(
-      deadline,
+      settlementDeadline,
       "settlement",
     );
     const raw = yield* callOwnedWorkerRpc({
@@ -417,6 +449,7 @@ function makeSession(
     }).pipe(Effect.tapError(error => isTerminalWorkerFailure(error)
       ? Effect.sync(() => { terminalObserved = true; })
       : Effect.void));
+    const observedAt = yield* Clock.currentTimeMillis;
     const receipt = yield* Effect.fromResult(decodeTaskWorkerSessionSettlementV1(raw)).pipe(
       Effect.mapError(cause => hostError("settlement", "invalidResponse", cause)),
     );
@@ -424,6 +457,9 @@ function makeSession(
       receipt.executionId !== acceptance.executionId ||
       !taskWorkerSessionIdentitiesEqualV1(receipt.identity, acceptance.identity)) {
       return yield* hostError("settlement", "invalidResponse");
+    }
+    if (observedAt >= deadline && receipt.outcome.kind !== "interrupted") {
+      return yield* hostError("settlement", "timedOut");
     }
     if (
       receipt.outcome.kind === "interrupted" &&

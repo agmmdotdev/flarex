@@ -1,9 +1,10 @@
-import { TaskComputeDeliveryCandidateRunnerLive } from
-  "flarex-backend/internal/task-compute-delivery";
 import {
+  TaskComputeDeliveryCandidateRunnerLive,
   makeTaskComputeDeliveryConnectedRunnerLayer,
   makeTaskComputeDeliveryTrustedDirectoryLayer,
-  makeWorkerLoaderTaskComputeProviderLayer,
+  makeSupervisedWorkerLoaderTaskComputeProviderLayer,
+  type TaskAttemptSupervisionExitObserver,
+  type TaskAttemptSupervisor,
   type TaskComputeDeliveryConnectedRunnerOptions,
   type TaskComputeDeliveryTrustedDirectoryOptions,
   type WorkerLoaderTaskComputeProviderOptions,
@@ -27,6 +28,10 @@ export interface ApplicationTaskComputeDeliveryLive {
   readonly launchAuthority: TaskRuntimeLaunchAuthorityOptions;
   readonly workerLoader: WorkerLoader;
   readonly provider: WorkerLoaderTaskComputeProviderOptions;
+  readonly supervision: Readonly<{
+    readonly supervisor: TaskAttemptSupervisor;
+    readonly exitObserver: TaskAttemptSupervisionExitObserver;
+  }>;
   readonly runner: TaskComputeDeliveryConnectedRunnerOptions;
 }
 
@@ -43,9 +48,11 @@ export function makeApplicationTaskComputeDeliveryLayer(
     live.launchDirectory,
     live.launchAuthority,
   );
-  const provider = makeWorkerLoaderTaskComputeProviderLayer(
+  const provider = makeSupervisedWorkerLoaderTaskComputeProviderLayer(
     live.workerLoader,
     live.provider,
+    live.supervision.supervisor,
+    live.supervision.exitObserver,
   ).pipe(Layer.provide(launchAuthority));
   const candidateRunner = TaskComputeDeliveryCandidateRunnerLive.pipe(
     Layer.provide(provider),

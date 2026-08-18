@@ -164,6 +164,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly runtimeHostIdentity: string;
   readonly compatibilityDate: string;
   readonly includeTask?: boolean;
+  readonly taskMaximumDurationInSeconds?: number;
   readonly analysis?: Readonly<ApplicationNativeMutationAnalysis>;
 }
 
@@ -724,7 +725,9 @@ async function createApplicationNativeMutationFixture<
     );
     const nextCatalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
       version: 1,
-      tasks: options.includeTask === true ? [applicationTaskManifest()] : [],
+      tasks: options.includeTask === true
+        ? [applicationTaskManifest(options.taskMaximumDurationInSeconds)]
+        : [],
     }, taskSha256));
     const nextBindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
       definition: options.includeTask === true
@@ -1093,7 +1096,9 @@ async function registerFixtureTaskBindings(
 ): Promise<void> {
   const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
     version: 1,
-    tasks: options.includeTask === true ? [applicationTaskManifest()] : [],
+    tasks: options.includeTask === true
+      ? [applicationTaskManifest(options.taskMaximumDurationInSeconds)]
+      : [],
   }, taskSha256));
   const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
     definition: options.includeTask === true
@@ -1144,7 +1149,13 @@ async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBu
     "export async function notify(_ctx, args) {",
     "  return { delivered: args.message };",
     "}",
-    "export async function task(_ctx, payload) {",
+    "export async function task(payload) {",
+    "  if (payload?.__fixtureTaskFailure === true) {",
+    "    throw new Error('fixture task failure');",
+    "  }",
+    "  if (payload?.__fixtureTaskWaitForInterruption === true) {",
+    "    return await new Promise(() => {});",
+    "  }",
     "  return { accepted: payload };",
     "}",
     "",
@@ -1278,7 +1289,15 @@ function taskPreparedDefinition() {
         roles: ["function", "execution"],
         sourceBytes: new TextEncoder().encode([
           "export const create = () => null;",
-          "export const task = (_ctx, payload) => ({ accepted: payload });",
+          "export const task = async (payload) => {",
+          "  if (payload?.__fixtureTaskFailure === true) {",
+          "    throw new Error('fixture task failure');",
+          "  }",
+          "  if (payload?.__fixtureTaskWaitForInterruption === true) {",
+          "    return await new Promise(() => {});",
+          "  }",
+          "  return { accepted: payload };",
+          "};",
           "",
         ].join("\n")),
         sourceMapBytes: null,
@@ -1294,7 +1313,7 @@ function taskPreparedDefinition() {
   }));
 }
 
-function applicationTaskManifest() {
+function applicationTaskManifest(maximumDurationInSeconds = 30) {
   return Object.freeze({
     version: 1 as const,
     taskId: "tasks.users.task",
@@ -1316,7 +1335,7 @@ function applicationTaskManifest() {
       }),
       outOfMemory: Object.freeze({ kind: "disabled" as const }),
     }),
-    maximumDurationInSeconds: 30,
+    maximumDurationInSeconds,
     computeProfile: "standard-1x",
     queue: Object.freeze({ kind: "default" as const }),
   });

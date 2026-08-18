@@ -112,17 +112,35 @@ core, exhaustive Legacy and Application launch authority, generation-specific
 Worker definitions, the shared accepted-start session, and the real
 `WorkerLoaderTaskComputeProvider` now exist. The provider remains
 provider-neutral and returns only after the exact Worker accepts the correlated
-execution identity; terminal Worker evidence remains process-local and is not
-Task lifecycle completion.
+execution identity. Provider acceptance alone is not Task lifecycle
+completion. The current E5 connected slices now supervise the Application
+composition after that acceptance boundary and prove durable success,
+task-failure retry, exact cancellation acknowledgement, maximum-duration
+terminal timeout, authoritative stale-fence/lease-loss stops, and both
+reconciled and unresolved R2 publication outcomes; retained compositions remain
+separately gated.
 The current private `ApplicationTaskSystem` now owns active Application task
 selection and exact run creation/replay, while
 `ApplicationTaskComputeDelivery` is the only composition that admits
 Application compute discovery together with the real Worker Loader provider.
-Its connected PGlite and genuine-PostgreSQL private proofs reach one fresh
-Application Worker start with zero Legacy runtime-object reads. Retained
-compositions remain explicitly `legacy_only`; no fallback, comparison provider,
-second scheduler, public caller, route, binding, or production activation was
-added. The ordered DTE06-D boundary remains recorded in
+Its connected PGlite private proof now holds settlement after one fresh
+Application Worker start, proves acceptance alone is non-terminal, then reaches
+immutable result publication plus fenced terminal completion, a real handler
+failure plus the existing durable retry policy, exact durable cancellation
+delivery and acknowledgement, exact maximum-duration interruption followed by
+terminal timeout policy, or stale-fence/database-time lease-loss closure with
+no lifecycle mutation. A lost R2 create response is verified before durable
+success, while unresolved publication leaves the lifecycle unchanged. A lost
+completion response replays the same owned completion to an idempotent
+lifecycle receipt without a second result publication. The six nonsuccess
+paths publish no confirmed result, a duplicate connected wake makes no second
+provider call, a completion-first cancellation race records
+`superseded_by_completion`, and all eleven paths read zero
+Legacy runtime objects. The same harness remains the
+genuine-PostgreSQL E5 gate. Retained compositions remain explicitly
+`legacy_only`; no fallback,
+comparison provider, second scheduler, public caller, route, binding, or
+production activation was added. The ordered DTE06-D boundary remains recorded in
 [`preflight/38-dte06-worker-loader-task-adapter.md`](./preflight/38-dte06-worker-loader-task-adapter.md),
 and the publication chain remains recorded in
 [`preflight/39-standard-application-task-runtime-publication.md`](./preflight/39-standard-application-task-runtime-publication.md)
@@ -130,7 +148,8 @@ and
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 The approved DTE06-E supervision and settlement boundary is recorded in
 [`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
-E1 through E4 are complete privately. The current session preserves exact terminal
+E1 through E5 are complete privately. The current
+session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
 claim durable success before result publication. The backend-private Task
 result store now canonicalizes and bounds successful values, publishes them
@@ -142,9 +161,24 @@ backend-private supervisor now owns bounded heartbeats, result-before-completion
 ordering, deadline-bounded identical completion replay, exact cancellation
 acknowledgement, observed supervision exits, and structured session close while
 preserving interruption. Terminal Worker evidence stops heartbeat renewal
-before result or completion I/O. Its scope-aware
-resolver is still injected: real delivery/gateway composition and connected
-proof remain E5, and the hosted end-to-end proof remains DTE06-F.
+before result or completion I/O. The current E5 slices now bind the real
+scope-aware gateway and result store into the sole private Application delivery
+composition and prove connected success, no false durability, real Worker
+`handler_failed` evidence flowing through failed completion into
+`retry_scheduled`, and exact generation-correlated cancellation flowing through
+the live Worker session into `terminal_cancelled`, plus exact
+`maximum_duration` evidence flowing through `maximum_duration_exceeded` into
+`terminal_failed`. Stale-fence and database-time lease-loss receipts also close
+the Worker without lifecycle mutation or result publication. Exact R2
+reconciliation proceeds to success; unresolved R2 settlement preserves the
+typed cause and leaves lifecycle recovery authoritative. A completion whose
+committed response is lost is replayed byte-for-byte to the existing idempotent
+lifecycle contract without republishing its result. A duplicate connected wake
+is suppressed by the persisted dispatch checkpoint while the accepted Worker
+remains live. A Worker success held at the supervisor boundary while durable
+cancellation is requested is submitted unchanged, and the existing lifecycle
+records that cancellation as `superseded_by_completion`. The hosted end-to-end
+proof remains DTE06-F.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -238,10 +272,17 @@ Its current run-engine construction also mixes that behavior with:
 lifecycle, and `@flarex/persistence-postgres` owns its scope-bound lifecycle,
 run-creation, discovery, delivery-checkpoint, and repair adapters. The private
 Application Task composition connects active selection, run creation, shared
-lifecycle, compute discovery, trusted launch resolution, and Worker Loader
-start acceptance. It does not yet connect terminal Worker evidence to durable
-heartbeat/completion/result settlement, and no imported Trigger package or
-private Task composition is production-routed.
+lifecycle, compute discovery, trusted launch resolution, Worker Loader start
+acceptance, and the E4 supervisor. The current E5 checkpoint proves real
+Application delivery through bounded heartbeat, result publication, lifecycle
+completion, cancellation, maximum-duration settlement, and authoritative
+stale-fence/lease-loss shutdown. R2 lost-response reconciliation and unresolved
+publication recovery handoff are also proven, as is exact completion replay
+after a committed PostgreSQL response is lost. Duplicate connected delivery is
+also suppressed before another provider call. The cancel/complete race is
+proven in both directions by exact cancellation acknowledgement when
+cancellation wins and `superseded_by_completion` when Worker success wins.
+No imported Trigger package or private Task composition is production-routed.
 
 The admitted run-attempt source map contains 29 explicit decisions: 13
 seam-adapted entries, 12 adapter-translated entries, and four discarded entries;
@@ -527,8 +568,7 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A through DTE06-D and DTE06-E1/E2/E3/E4 complete privately;
-     DTE06-E5 and DTE06-F pending:** the
+   - **active; DTE06-A through DTE06-E complete privately; DTE06-F pending:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -546,11 +586,19 @@ files remain candidates:
      fenced-settlement topology without changing the provider-neutral API.
      E1 implements the exact terminal contract and pure disposition; E2 adds
      the isolated immutable Task-result store; E3 adds the scope-bound
-     Legacy/Application lifecycle gateway without supervision wiring. The
-     remaining topology is not implemented yet. Hosted end-to-end recovery proof
-     remains DTE06-F. No scheduled host, public API, route, binding, fallback, dual
-     execution, or production activation exists;
-7. `07-observability-live-apis-and-ui.md`
+     Legacy/Application lifecycle gateway; and E4 adds an isolated bounded
+     attempt supervisor. The current E5 slices now connect that supervisor
+     in the real private Application delivery composition and prove successful
+     durable settlement, real handler-failure retry settlement, exact
+     cancellation delivery/acknowledgement, maximum-duration terminal timeout,
+     authoritative stale-fence/lease-loss stops, and reconciled/unresolved R2
+     settlement, exact lost-completion-response replay, and duplicate-delivery
+     suppression. Its cancel/complete proof records exact acknowledgement when
+     cancellation wins and `superseded_by_completion` when success wins.
+     Hosted end-to-end recovery proof remains DTE06-F. No scheduled host, public
+     API, route, binding, fallback, dual execution, or production activation
+     exists;
+7. [`07-observability-live-apis-and-ui.md`](./07-observability-live-apis-and-ui.md)
    - run/attempt read models, traces/logs, cursors, live invalidation, streams,
      authorization, retention, privacy, and dashboard consumption;
 8. `08-trigger-compatibility-and-parity.md`

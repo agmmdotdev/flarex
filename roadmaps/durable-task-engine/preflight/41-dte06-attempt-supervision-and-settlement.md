@@ -2,9 +2,17 @@
 
 ## Status
 
-**Decision:** Approved as the implementation-ready, production-inert DTE06-E
-boundary. DTE06-E1 through DTE06-E4 are complete privately. DTE06-E5 remains
-pending. This document does not authorize a scheduled host,
+**Decision:** Approved and complete as the production-inert DTE06-E boundary.
+DTE06-E1 through DTE06-E5 are complete privately: connected Application
+success/no-false-durability, real
+handler-failure/retry, exact cancellation-delivery/acknowledgement,
+maximum-duration terminal-timeout, stale-fence stop, and database-time
+lease-loss proofs are implemented. Exact R2 lost-response reconciliation,
+unresolved publication recovery handoff, and exact completion lost-response
+replay are also proven. A duplicate connected delivery is suppressed before a
+second provider call, and success racing a persisted cancellation is submitted
+unchanged so the durable lifecycle records `superseded_by_completion`.
+This document does not authorize a scheduled host,
 Queue consumer, Cron Trigger, route, binding, deployment, public API,
 observability feed, or production activation.
 
@@ -74,8 +82,11 @@ Its corrected settlement envelope owns a strict generation-specific completed
 result, bounded failure code with a deliberately null safe message, or exact
 interruption generation and reason. RPC loss, malformed replies, cleanup
 failure, and defects remain failures rather than terminal data. The real
-`WorkerLoaderTaskComputeProvider` still observes and closes the session in a
-detached provider-scoped fiber, then retains only a local `settled` marker.
+`WorkerLoaderTaskComputeProvider` owns the session in a detached provider-scoped
+fiber and retains only a local `settled` marker. Retained compositions may
+still use its unsupervised form, but the private Application delivery
+composition now requires the supervised form and has no unsupervised
+Application fallback.
 
 Therefore current settlement preserves terminal evidence but proves neither
 result durability nor Task completion. The E1 pure mapper returns a
@@ -450,7 +461,7 @@ must not clear that record merely because lifecycle completion was accepted.
 
 This stop was enforced: E1 wrote neither lifecycle state nor R2. E2 owns only
 immutable result publication and reads. E3 and E4 are complete privately; E5
-is next.
+follows below and is now complete privately.
 
 ### DTE06-E2: Immutable Task Result Store — Complete Privately
 
@@ -527,16 +538,122 @@ exit observer and reports the complete supervisor `Exit` before it changes the
 process-local dispatch marker to settled; it does not widen
 `TaskComputeProvider` or silently erase supervision causes.
 
-### DTE06-E5: Private Connected Proof
+### DTE06-E5: Private Connected Proof — Complete
 
 - extend only the private Application/Legacy system-test composition;
 - prove success, task failure/retry, exact cancellation acknowledgement,
   maximum duration, stale fence, lease loss, R2 uncertainty, PostgreSQL
-  completion uncertainty, duplicate delivery, and lost response;
+  completion uncertainty, duplicate delivery, cancel/complete ordering, and
+  lost response;
 - prove zero raw result bytes in Task System rows and zero lifecycle writes from
   provider acceptance alone; and
 - remain absent from routes, scheduled hosts, Queue/Cron configuration, and
   production deployment graphs.
+
+The first E5 slice changes the sole private
+`ApplicationTaskComputeDelivery` composition from the unsupervised Worker
+Loader Layer to the existing supervised Layer. Its system-test composition
+binds the real scope-authority lifecycle gateway, immutable Task-result store,
+validated supervisor policy, and full-`Exit` observer without changing
+`TaskComputeProvider`. A held Worker settlement proves provider acceptance
+alone leaves the run non-terminal and writes no result object. Releasing that
+same settlement then proves exactly one observed successful supervision exit,
+content-addressed result publication, fenced `terminal_succeeded` lifecycle
+completion, exact stored-value correlation, and absence of raw result content
+from the persisted aggregate representation. The PGlite lane is implemented;
+the same harness remains the genuine-PostgreSQL gate when its required URL is
+available.
+
+The second E5 slice runs the generated Application Worker against a real task
+handler that throws for an explicit fixture input. The Worker settles
+`handler_failed`; the supervisor emits the existing failed completion with the
+bound retry directive; and the Application lifecycle accepts
+`retry_scheduled` with the exact failure evidence. The connected proof also
+holds settlement after provider acceptance and establishes that this failure
+path publishes no result object and stores no raw input in the run aggregate.
+
+The third E5 slice keeps the accepted generated Application Worker session live
+inside one Miniflare request context, requests cancellation through the existing
+Application lifecycle decision, discovers and delivers that exact generation
+through the unchanged provider-neutral cancellation contract, and proves the
+Worker's matching interruption evidence becomes acknowledged
+`terminal_cancelled` lifecycle state. Provider acceptance remains non-terminal,
+the cancellation path publishes no result object, and no raw fixture input is
+stored in the run aggregate.
+
+#### Shared-owner maximum-duration settlement correction
+
+The connected maximum-duration scenario exposed and, after separate approval,
+corrected a defect in the shared D3b.ii `TaskWorkerSessionHost`. Ordinary RPC
+operations still close at the exact execution deadline. Only an already-running
+or immediately requested terminal-settlement observation may continue through
+the host's advertised handshake reserve. During that bounded post-deadline
+window the host accepts only an interrupted settlement correlated to an admitted
+interruption candidate; a natural success/failure observed after the deadline
+is rejected as `timedOut`, and a missing settlement remains bounded. The remote
+session is drained and disposed before the advertised close bound completes.
+
+The fourth E5 slice runs a generated Application task that remains pending,
+binds a one-second maximum duration into its authentic catalog and dispatch,
+and proves the shared host delivers generation-correlated `maximum_duration`
+interruption. The Worker settlement becomes the existing
+`maximum_duration_exceeded` timed-out completion; the current bound policy
+classifies that failure as non-retryable and reaches `terminal_failed`. The path
+publishes no result object, stores no raw fixture input, and uses no synthetic
+timeout completion or duplicated session logic.
+
+The fifth E5 slice keeps the generated Application Worker and shared supervisor
+path real while exercising two authoritative heartbeat stops. A stale-fence
+fault at the lifecycle capability sends the wrong fence through the real
+scope-bound gateway and receives `current/stale_fence`. A delayed first
+heartbeat crosses a shortened four-second database lease and receives
+`current/lease_expired` from the real lifecycle transaction. Both outcomes
+close the Worker, publish no result, submit no completion, and leave the stored
+aggregate identical to the accepted-attempt state so later lease-expiry
+recovery remains the only authority.
+
+The sixth E5 slice uses the existing immutable Task-result store without adding
+supervisor-owned storage logic. When conditional create writes the exact object
+but its response is lost, the store reads back and verifies the same key,
+length, digest, and bytes before lifecycle success is submitted. When both the
+create settlement and reconciliation read remain unknowable, the exact
+`TaskResultStoreSettlementUncertainError` reaches the supervision observer, the
+session closes, no completion is submitted, and the accepted aggregate remains
+unchanged for lease recovery. Neither path deletes a possibly referenced or
+orphaned object.
+
+The next E5 slice proves the supervisor's exact completion replay against the
+existing lifecycle settlement owners. The first completion commits and its
+response is hidden after settlement; the supervisor then submits the same owned
+encoded completion object, receives the lifecycle's `idempotent` receipt, and
+does not republish the result. The PGlite lane supplies the established
+decision-uncertain adapter proof, while the genuine-PostgreSQL lane uses the
+existing connected-client release fault seam so the first response is lost only
+after the real transaction has committed and the unsafe client is quarantined.
+The isolated lifecycle PostgreSQL proof remains the exact no-rewrite and safe
+connection-reuse evidence for this same store contract.
+
+The following E5 slice runs a second connected delivery cycle while the first
+accepted Worker session is still live. The existing persisted dispatch
+checkpoint makes the duplicate cycle perform zero provider calls; the shared
+provider therefore retains one execution/session, one supervision observer,
+one result publication, and one fenced completion. This is duplicate-wakeup
+suppression through the real discovery and repository composition, while the
+provider owner's focused concurrent exact-dispatch tests remain the proof that
+two same-identity provider calls share one start and acceptance.
+
+The final E5 slice holds the already-produced successful Worker settlement at
+the supervisor boundary, persists a cancellation request, and lets the
+connected cancellation path call the same provider before releasing success.
+The provider does not manufacture interruption evidence after the Worker has
+settled. The supervisor then publishes the one successful result and submits
+the unchanged success completion; the existing lifecycle reaches
+`terminal_succeeded` and resolves the exact cancellation generation as
+`superseded_by_completion`. Together with the cancellation-first slice above,
+this proves both terminal orderings without adding a race policy outside the
+durable lifecycle.
+
+E5 is complete privately. DTE06-F is the next implementation gate.
 
 Every significant code slice requires the two standing project reviewers
 against the final diff. Any newly discovered schema/migration, lifecycle-policy,
@@ -596,11 +713,11 @@ be supervised into the existing durable lifecycle with bounded heartbeats,
 exact cancellation acknowledgement, typed failure/retry settlement, and
 content-addressed successful results.
 
-It does not prove that the real delivery composition always supplies the
-scope-aware resolver, that a deployed host will always run the supervisor,
-redeliver after process loss, expose public status/results, or satisfy hosted
-Cloudflare/PostgreSQL operational behavior. DTE06-E5 remains the next gate for
-private connected proof; DTE06-F then owns hosted end-to-end recovery.
+The private Application delivery composition now supplies the scope-aware
+resolver and supervisor, but no deployed host is required to run it. E5 does
+not prove redelivery after process loss, public status/results, or hosted
+Cloudflare/PostgreSQL operational behavior. DTE06-F now owns hosted end-to-end
+recovery.
 DTE05-E3 may consider a scheduled
 Worker/Cron host only after DTE06-F closes and receives separate deployment
 approval.
