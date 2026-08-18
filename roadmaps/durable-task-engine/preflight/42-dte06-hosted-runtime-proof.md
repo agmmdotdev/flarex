@@ -337,6 +337,10 @@ request identity.
 
 Worker RPC projection, interruption/deadline bridging, and connected-system
 proof remain pending, so `ctx.runQuery` is not yet available to Task user code.
+The current run-creation request, creation authority, run row, dispatch, and
+launch subject contain no authenticated principal. Preflight 43 records the
+required persisted principal and query-callback gate; it requires separate
+approval before F0A can cross that durable contract boundary.
 
 - inventory the exact shared and distinct mechanics in
   `ApplicationExecutionHost`, `TaskWorkerSessionHost`, Worker definition
