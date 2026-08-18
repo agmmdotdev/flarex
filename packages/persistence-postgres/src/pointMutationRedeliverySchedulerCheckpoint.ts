@@ -325,10 +325,12 @@ type TransactionAcquireResultV1 =
 export interface FencedSingletonSchedulerStoragePolicyV1 {
   readonly operationNamePrefix:
     | "PointMutationRedeliverySchedulerCheckpoint"
-    | "TaskRepairSchedulerCheckpoint";
+    | "TaskRepairSchedulerCheckpoint"
+    | "RetainedHistorySchedulerCheckpoint";
   readonly tableName:
     | "fx_system_point_mutation_redelivery_scheduler"
-    | "fx_system_durable_task_repair_scheduler_v1";
+    | "fx_system_durable_task_repair_scheduler_v1"
+    | "fx_system_retained_history_scheduler";
   readonly schedulerKey: string;
   readonly continuationCodecVersion: 1;
   readonly maximumContinuationBytes: number;

@@ -50,9 +50,10 @@ O11's implementation preflight is complete: nonzero-floor consumer closure,
 read-only candidate observation, logical floor publication, bounded owner-local
 compaction, host-neutral coordination, and production liveness remain separate
 checkpoints. `O11-A` through `O11-E` are implemented as private capabilities.
-`O11-F0` now records the production-liveness design, but no durable O11
-checkpoint, scheduler run, scheduled export, Wrangler trigger, or production
-activation is implemented.
+`O11-F0` records the production-liveness design and `O11-F1` implements its
+private durable continuation codec and isolated checkpoint repository. No O11
+scheduler run, scheduled export, Wrangler trigger, or production activation is
+implemented.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -1944,7 +1945,7 @@ preflight rather than opportunistic DDL.
    exact generic lease/checkpoint, directory-pagination, and scheduled-event
    lifecycle mechanics; do not reuse another scheduler's row, continuation,
    opaque run handle, error family, or domain authority.
-7. [ ] `O11-F1` — add the private durable O11 continuation codec and its own
+7. [x] `O11-F1` — add the private durable O11 continuation codec and its own
    singleton fenced checkpoint repository through a new additive migration.
    Keep it inert and prove fresh, upgrade, rollback, corruption, fencing,
    interruption, and committed-but-uncertain recovery in PGlite and genuine
@@ -2062,8 +2063,9 @@ Genuine PostgreSQL proof exercises the 128-row page against 4,396 populated
 revisions, inventories all four incoming FK owners, and confirms the existing
 app-row primary key serves identity, anchor, candidate, and exact deletion
 plans. O11-D is now complete; no cross-owner loop, scheduler, trigger, or
-production composition is introduced. O11-E now owns only their private,
-host-neutral composition; O11-F1 remains the next implementation checkpoint.
+production composition is introduced. O11-E owns only their private,
+host-neutral composition; O11-F1 owns only durable restart evidence and an
+isolated fenced checkpoint. O11-F2 remains the next implementation checkpoint.
 
 `O11-E` composes only those three exact private page owners in dependency order:
 commit/change-feed history, ordered-index revisions, then app-row revisions.
@@ -2152,13 +2154,30 @@ policy and requires its own later checkpoint rather than being inferred from
 logs or platform retry. Structured receipts, logs, metrics, and traces are
 projections only and never substitute for the checkpoint row.
 
-The new table and persisted continuation are real schema/protocol work, so this
-preflight does not authorize their implementation. `O11-F1` is the next
-smallest slice and must first pin exact names, byte ceilings, canonical vectors,
-row constraints, migration behavior, and whether the shared checkpoint engine
-needs a neutral package-internal policy type. No scheduled export, Wrangler
-trigger, routing change, queue, production cadence, or activation may enter
-F1 or F2.
+`O11-F1` pins the scheduler key `retained_history_maintenance_v1`, codec
+version `1`, and a 65,536-byte canonical continuation ceiling. Its continuation
+binds the replacement-scope directory snapshot and position, the active
+deployment/scope, and—when one exists—the exact O11-E retained floor,
+authority pins, owner phase, and cursor. Strict correlation rejects directory
+or cross-scope splicing. Opaque O11-E continuations can be exported to this
+bounded evidence and restored only by an authentic reconstructed maintenance
+port; every resumed owner still revalidates current floor and authority before
+deletion.
+
+Migration `0065_omniscient_prism.sql` adds only the dedicated singleton table
+`fx_system_retained_history_scheduler` and its exact idle row. The O11 wrapper
+reuses the package-internal fenced checkpoint transaction mechanics but owns
+its table, key, continuation contract, opaque run handles, errors, and recovery
+classification. Fresh installation, prior-schema upgrade, transactional
+rollback, invalid-row refusal, scheduler isolation, fencing, interruption,
+corruption, exact rollback retry, and committed-but-uncertain cold recovery are
+covered in PGlite and genuine PostgreSQL where the property depends on the
+database engine.
+
+The capability remains inert. `O11-F2` is the next smallest slice: it may build
+the host-neutral bounded multi-scope run on this checkpoint and O11-E, but it
+must add no scheduled export, Wrangler trigger, routing change, queue,
+production cadence, or activation. Those remain F3/F4 work.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,

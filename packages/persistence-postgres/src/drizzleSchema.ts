@@ -59,6 +59,7 @@ export {
   fxSystemIndexBuildStates,
   fxSystemOutbox,
   fxSystemPointMutationRedeliveryScheduler,
+  fxSystemRetainedHistoryScheduler,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,

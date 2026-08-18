@@ -1,7 +1,11 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Clock, Data, Effect, Result } from "effect";
-import type { CommitSeq, ScopeId } from
-  "flarex-protocol/storage-authority";
+import { Clock, Data, Effect, Result, Schema } from "effect";
+import {
+  CommitSeqSchema,
+  StorageGenerationFenceSchema,
+  type CommitSeq,
+  type ScopeId,
+} from "flarex-protocol/storage-authority";
 
 import {
   compactRetainedAppRowHistoryPageEffect,
@@ -41,6 +45,9 @@ import {
   captureScopePhysicalLocator,
   scopePhysicalLocatorsEqual,
 } from "./scopePhysicalLocator";
+import {
+  type RetainedHistoryMaintenanceContinuationEvidenceV1,
+} from "./retainedHistoryMaintenanceContinuationEvidenceV1";
 
 export const MAX_RETAINED_HISTORY_MAINTENANCE_PAGES_PER_RUN = 1_024;
 export const MAX_RETAINED_HISTORY_MAINTENANCE_ELAPSED_MILLISECONDS = 60_000;
@@ -91,6 +98,40 @@ export interface RetainedHistoryMaintenanceContinuation {
   readonly phase: RetainedHistoryMaintenancePhase["kind"];
 }
 
+export const inspectRetainedHistoryMaintenanceContinuationEffect = Effect.fn(
+  "RetainedHistoryMaintenance.inspectContinuation",
+)(function* (
+  port: RetainedHistoryMaintenancePort,
+  continuation: RetainedHistoryMaintenanceContinuation,
+): Effect.fn.Return<
+  RetainedHistoryMaintenanceContinuationEvidenceV1,
+  RetainedHistoryMaintenanceError
+> {
+  const state = yield* captureContinuationEffect(
+    port,
+    continuation.deploymentId,
+    continuation,
+  );
+  if (state === null) {
+    return yield* new RetainedHistoryMaintenanceError({
+      reason: "invalidContinuation",
+      deploymentId: continuation.deploymentId,
+      scopeId: continuation.scopeId,
+    });
+  }
+  return continuationEvidence(state);
+});
+
+export const restoreRetainedHistoryMaintenanceContinuationEffect = Effect.fn(
+  "RetainedHistoryMaintenance.restoreContinuation",
+)((
+  port: RetainedHistoryMaintenancePort,
+  evidence: RetainedHistoryMaintenanceContinuationEvidenceV1,
+): Effect.Effect<
+  RetainedHistoryMaintenanceContinuation,
+  RetainedHistoryMaintenanceError
+> => Effect.fromResult(restoreContinuationResult(port, evidence)));
+
 interface RetainedHistoryMaintenancePortState {
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedRetainedHistoryFloorTarget
@@ -123,6 +164,13 @@ const continuationStates = new WeakMap<
   RetainedHistoryMaintenanceContinuation,
   RetainedHistoryMaintenanceContinuationState
 >();
+
+const decodeEvidenceCommitSeqResult = Schema.decodeUnknownResult(
+  CommitSeqSchema,
+);
+const decodeEvidenceStorageGenerationFenceResult = Schema.decodeUnknownResult(
+  StorageGenerationFenceSchema,
+);
 
 /**
  * Creates one private, lifecycle-free O11-E maintenance operation. The three
@@ -713,6 +761,106 @@ function makeContinuation(
     phase: capturedPhase,
   }));
   return continuation;
+}
+
+function continuationEvidence(
+  state: RetainedHistoryMaintenanceContinuationState,
+): RetainedHistoryMaintenanceContinuationEvidenceV1 {
+  return Object.freeze({
+    version: "flarex.retained-history-maintenance-continuation.v1",
+    deploymentId: state.deploymentId,
+    scopeId: state.scopeId,
+    retainedFloor: state.retainedFloor.toString(),
+    authority: Object.freeze({
+      physicalLocator: captureScopePhysicalLocator(
+        state.authority.physicalLocator,
+      ),
+      storageGeneration: state.authority.storageGeneration,
+      storageGenerationFence: state.authority.storageGenerationFence.toString(),
+      epoch: state.authority.epoch,
+    }),
+    phase: phaseEvidence(state.phase),
+  });
+}
+
+function restoreContinuationResult(
+  port: RetainedHistoryMaintenancePort,
+  evidence: RetainedHistoryMaintenanceContinuationEvidenceV1,
+): Result.Result<
+  RetainedHistoryMaintenanceContinuation,
+  RetainedHistoryMaintenanceError
+> {
+  return Result.gen(function* () {
+    if (!portStates.has(port)) {
+      return yield* Result.fail(new RetainedHistoryMaintenanceError({
+        reason: "invalidPort",
+        deploymentId: evidence.deploymentId,
+        scopeId: evidence.scopeId,
+      }));
+    }
+    const retainedFloor = yield* decodeEvidenceCommitSeqResult(
+      evidence.retainedFloor,
+    ).pipe(Result.mapError(() => new RetainedHistoryMaintenanceError({
+      reason: "invalidContinuation",
+      deploymentId: evidence.deploymentId,
+      scopeId: evidence.scopeId,
+    })));
+    const storageGenerationFence = yield*
+      decodeEvidenceStorageGenerationFenceResult(
+        evidence.authority.storageGenerationFence,
+      ).pipe(Result.mapError(() => new RetainedHistoryMaintenanceError({
+        reason: "invalidContinuation",
+        deploymentId: evidence.deploymentId,
+        scopeId: evidence.scopeId,
+      })));
+    return makeContinuation(
+      port,
+      evidence.deploymentId,
+      Object.freeze({ scopeId: evidence.scopeId, retainedFloor }),
+      phaseFromEvidence(evidence.phase),
+      Object.freeze({
+        scopeId: evidence.scopeId,
+        physicalLocator: captureScopePhysicalLocator(
+          evidence.authority.physicalLocator,
+        ),
+        storageGeneration: evidence.authority.storageGeneration,
+        storageGenerationFence,
+        epoch: evidence.authority.epoch,
+      }),
+    );
+  });
+}
+
+function phaseEvidence(
+  phase: RetainedHistoryMaintenancePhase,
+): RetainedHistoryMaintenanceContinuationEvidenceV1["phase"] {
+  switch (phase.kind) {
+    case "commitHistory":
+      return Object.freeze({ kind: "commitHistory" });
+    case "indexHistory":
+      return Object.freeze({
+        kind: "indexHistory",
+        cursor: captureIndexCursor(phase.cursor),
+      });
+    case "appRowHistory":
+      return Object.freeze({
+        kind: "appRowHistory",
+        cursor: captureAppRowCursor(phase.cursor),
+      });
+  }
+}
+
+function phaseFromEvidence(
+  phase: RetainedHistoryMaintenanceContinuationEvidenceV1["phase"],
+): RetainedHistoryMaintenancePhase {
+  switch (phase.kind) {
+    case "commitHistory":
+      return commitPhase();
+    case "indexHistory":
+      return indexPhase(captureIndexCursor(phase.cursor));
+    case "appRowHistory":
+      return appRowPhase(captureAppRowCursor(phase.cursor));
+  }
 }
 
 function emptyCounters(): Counters {

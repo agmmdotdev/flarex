@@ -15,6 +15,8 @@ import {
 } from "../src/retainedHistoryFloorObservation";
 import {
   createRetainedHistoryMaintenancePort,
+  inspectRetainedHistoryMaintenanceContinuationEffect,
+  restoreRetainedHistoryMaintenanceContinuationEffect,
   runRetainedHistoryMaintenanceEffect,
   type RetainedHistoryMaintenanceContinuation,
   type RetainedHistoryMaintenancePolicy,
@@ -188,6 +190,62 @@ describe("O11-E retained-history maintenance", () => {
     ]);
     await expect(readConnectedHistory(persistence, context.scopeId)).resolves
       .toEqual({ commits: ["3"], changes: [], indexes: ["3"], appRows: ["1", "3"] });
+  });
+
+  it("exports and restores owned continuation evidence across port reconstruction", async () => {
+    const context = await provision("durable_continuation");
+    await seedConnectedHistory(persistence, context.scopeId);
+    const firstPort = maintenance({
+      policy: { maximumPages: 1, maximumElapsedMilliseconds: 30_000 },
+    });
+    const first = await runEffect(runRetainedHistoryMaintenanceEffect(
+      firstPort,
+      context.deploymentId,
+      null,
+    ));
+    if (first.continuation === null) {
+      throw new Error("Expected a paused retained-history continuation.");
+    }
+    const evidence = await runEffect(
+      inspectRetainedHistoryMaintenanceContinuationEffect(
+        firstPort,
+        first.continuation,
+      ),
+    );
+    expect(evidence).toMatchObject({
+      version: "flarex.retained-history-maintenance-continuation.v1",
+      deploymentId: context.deploymentId,
+      scopeId: context.scopeId,
+      retainedFloor: "3",
+      phase: { kind: "commitHistory" },
+    });
+    expect(Object.isFrozen(evidence)).toBe(true);
+    expect(Object.isFrozen(evidence.authority)).toBe(true);
+
+    const reconstructedPort = maintenance({
+      policy: { maximumPages: 1, maximumElapsedMilliseconds: 30_000 },
+    });
+    const restored = await runEffect(
+      restoreRetainedHistoryMaintenanceContinuationEffect(
+        reconstructedPort,
+        structuredClone(evidence),
+      ),
+    );
+    expect(restored).not.toBe(first.continuation);
+    expect(restored).toMatchObject({
+      deploymentId: context.deploymentId,
+      scopeId: context.scopeId,
+      retainedFloor: 3n,
+      phase: "commitHistory",
+    });
+    await expect(runEffect(runRetainedHistoryMaintenanceEffect(
+      reconstructedPort,
+      context.deploymentId,
+      restored,
+    ))).resolves.toMatchObject({
+      status: "maintenancePaused",
+      continuation: { phase: "indexHistory" },
+    });
   });
 
   it("rejects invalid configuration and copied or foreign continuations", async () => {

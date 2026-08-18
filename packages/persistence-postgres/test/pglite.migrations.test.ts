@@ -100,6 +100,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_index_build_state",
       "fx_system_outbox",
       "fx_system_point_mutation_redelivery_scheduler",
+      "fx_system_retained_history_scheduler",
       "fx_system_scope_clock",
       "fx_system_snapshot_lease",
       "fx_system_tx_execution_claim",
@@ -2872,6 +2873,113 @@ describe("createPGlitePersistence", () => {
         table_count: "2",
         receipts: await currentMigrationReceiptCount(),
       }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  it("installs 0065 atomically without changing existing scheduler state", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-o11-f1-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournalPath = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const copiedMigrationPath = resolve(
+      migrationsFolder,
+      "0065_omniscient_prism.sql",
+    );
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournalPath, "utf8");
+      await writeFile(
+        copiedJournalPath,
+        migrationJournalBefore(journalText, 65),
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await previous.query(`
+        update fx_system_point_mutation_redelivery_scheduler
+        set run_fence = 7
+      `);
+
+      await writeFile(copiedJournalPath, journalText, "utf8");
+      const migrationText = await readFile(copiedMigrationPath, "utf8");
+      await writeFile(
+        copiedMigrationPath,
+        `${migrationText}\n--> statement-breakpoint\nselect * from fx_o11_f1_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failing = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(failing.migrate()).rejects.toThrow(
+        /fx_o11_f1_deliberate_missing_table/,
+      );
+      const rolledBack = await failing.query<{
+        table_count: string;
+        point_fence: string;
+        receipts: string;
+      }>(`
+        select
+          (select count(*)::text from information_schema.tables
+            where table_schema = current_schema()
+              and table_name = 'fx_system_retained_history_scheduler')
+            as table_count,
+          (select run_fence::text
+            from fx_system_point_mutation_redelivery_scheduler) as point_fence,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(rolledBack.rows).toEqual([{
+        table_count: "0",
+        point_fence: "7",
+        receipts: "65",
+      }]);
+
+      await writeFile(copiedMigrationPath, migrationText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      await current.migrate();
+      const installed = await current.query<{
+        scheduler_key: string;
+        scheduler_state: string;
+        run_fence: string;
+        checkpoint_sequence: string;
+        point_fence: string;
+        receipts: string;
+      }>(`
+        select scheduler_key, scheduler_state, run_fence::text,
+          checkpoint_sequence::text,
+          (select run_fence::text
+            from fx_system_point_mutation_redelivery_scheduler) as point_fence,
+          (select count(*)::text from drizzle.__drizzle_migrations) as receipts
+        from fx_system_retained_history_scheduler
+      `);
+      expect(installed.rows).toEqual([{
+        scheduler_key: "retained_history_maintenance_v1",
+        scheduler_state: "idle",
+        run_fence: "0",
+        checkpoint_sequence: "0",
+        point_fence: "7",
+        receipts: await currentMigrationReceiptCount(),
+      }]);
+      await expect(current.query(`
+        insert into fx_system_retained_history_scheduler
+          (scheduler_key, scheduler_state, run_fence, checkpoint_sequence)
+        values ('wrong_key', 'idle', 0, 0)
+      `)).rejects.toThrow();
+      const unchanged = await current.query<{ count: string }>(`
+        select count(*)::text as count
+        from fx_system_retained_history_scheduler
+      `);
+      expect(unchanged.rows).toEqual([{ count: "1" }]);
     } finally {
       try {
         await db.close();

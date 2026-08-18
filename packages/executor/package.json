@@ -24,6 +24,7 @@
     "./internal/task-repair-sweep-v1": "./src/taskRepairSweepV1.ts",
     "./internal/task-repair-sweep-continuation-codec-v1": "./src/taskRepairSweepContinuationCodecV1.ts",
     "./internal/task-repair-scheduler-run-v1": "./src/taskRepairSchedulerRunV1.ts",
+    "./internal/retained-history-scheduler-continuation-codec-v1": "./src/retainedHistorySchedulerContinuationCodecV1.ts",
     "./transaction-grant": "./src/transactionGrant.ts"
   },
   "scripts": {
