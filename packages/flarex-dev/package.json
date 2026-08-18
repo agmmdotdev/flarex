@@ -13,6 +13,7 @@
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
     "./internal/managed-schema": "./src/managedSchema.ts",
+    "./internal/retained-history-maintenance": "./src/retainedHistoryMaintenance.ts",
     "./internal/declarative-materializer-v1": "./src/declarativeMaterializerV1.ts",
     "./internal/declarative-program-v1": "./src/declarativeProgramV1.ts",
     "./vite": "./src/vite.ts"

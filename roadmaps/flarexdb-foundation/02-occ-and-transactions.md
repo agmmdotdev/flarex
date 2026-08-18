@@ -51,9 +51,10 @@ read-only candidate observation, logical floor publication, bounded owner-local
 compaction, host-neutral coordination, and production liveness remain separate
 checkpoints. `O11-A` through `O11-E` are implemented as private capabilities.
 `O11-F0` records the production-liveness design and `O11-F1` implements its
-private durable continuation codec and isolated checkpoint repository. No O11
-scheduler run, scheduled export, Wrangler trigger, or production activation is
-implemented.
+private durable continuation codec and isolated checkpoint repository.
+`O11-F2` now adds the host-neutral scheduler run, and `O11-F3a` adds its private
+explicit manual invocation adapter. Scheduled-event composition, a Wrangler
+trigger, and production activation remain later checkpoints.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -1950,16 +1951,20 @@ preflight rather than opportunistic DDL.
    Keep it inert and prove fresh, upgrade, rollback, corruption, fencing,
    interruption, and committed-but-uncertain recovery in PGlite and genuine
    PostgreSQL.
-8. [ ] `O11-F2` — add the host-neutral bounded multi-scope scheduler run. It
+8. [x] `O11-F2` — add the host-neutral bounded multi-scope scheduler run. It
    reuses the O11-E maintenance owner, checkpoints only settled progress,
    renews with settlement headroom, and proves cold resume, scope fairness,
    floor/authority reset, duplicate wake, and dependency order. Add no platform
    handler or trigger.
-9. [ ] `O11-F3` — compose O11 into the single executor scheduled-event resource
-   boundary. Generalize that host's leaf run contract without changing either
-   O11 or redelivery authority, keep client lifetime event-scoped, and leave the
-   default Worker Fetch-only.
-10. [ ] `O11-F4` — activate the scheduled export and Wrangler cron only after
+9. [x] `O11-F3a` — expose one private manual invocation adapter over the exact
+   O11-F2 runner. It executes one bounded run, returns its structured result,
+   accepts no caller-owned cursor or scope-selection authority, and adds no
+   HTTP route, queue, alarm, cron, or background fiber.
+10. [ ] `O11-F3b` — compose that same runner into the single executor
+    scheduled-event resource boundary. Generalize that host's leaf run contract
+    without changing either O11 or redelivery authority, keep client lifetime
+    event-scoped, and leave the default Worker Fetch-only.
+11. [ ] `O11-F4` — activate the scheduled export and Wrangler cron only after
     deployed-shape PostgreSQL, duplicate-event, cleanup, observability, and
     operational-cadence evidence passes. A platform wake is only a hint; the
     database checkpoint remains restart truth.
@@ -2139,7 +2144,10 @@ The accepted O11-F shape is:
   confirmed rollback may receive one bounded retry; decision uncertainty,
   interruption, stale ownership, or cleanup failure never guesses progress;
   and
-- eventual composition through the existing executor scheduled-event resource
+- replaceable wake adapters over the same runner. The first is a private manual
+  invocation that runs one bounded cycle and returns its structured result; it
+  accepts no cursor, tenant, or deletion-authority input. A later adapter may
+  compose the runner through the existing executor scheduled-event resource
   boundary, not a second Worker scheduler surface. That host may be generalized
   from its current redelivery-named leaf contract, but it continues to own only
   Hyperdrive client acquisition/cleanup and full event-Promise settlement.
@@ -2174,10 +2182,32 @@ corruption, exact rollback retry, and committed-but-uncertain cold recovery are
 covered in PGlite and genuine PostgreSQL where the property depends on the
 database engine.
 
-The capability remains inert. `O11-F2` is the next smallest slice: it may build
-the host-neutral bounded multi-scope run on this checkpoint and O11-E, but it
-must add no scheduled export, Wrangler trigger, routing change, queue,
-production cadence, or activation. Those remain F3/F4 work.
+`O11-F2` adds one host-neutral scheduler operation over the O11-owned directory,
+O11-E maintenance, canonical continuation, and fenced checkpoint. Each
+invocation reserves its admitted directory and maintenance-page ceilings before
+work, checkpoints every settled successor before renewal or later work, renews
+only with both operation and settlement headroom, and never hard-times-out an
+in-flight O11-E page. Candidate-local missing or inconsistent authority
+evidence can advance within the fixed high-water sweep and is counted in the
+receipt; authority-port/infrastructure failure propagates before a successor
+checkpoint. Maintenance, checkpoint, uncertainty, interruption, or contract
+failure never guesses progress. Construction snapshots every capability method
+and policy scalar once, and renewal requires both settlement headroom on the
+current lease and a complete next-operation-plus-settlement window on the run
+deadline. Cold reconstruction resumes the durable hint, and duplicate wakes
+are serialized by the database lease. Focused
+PGlite and genuine-PostgreSQL evidence covers two-scope cold resume, fixed
+directory order, durable checkpointing, and the busy duplicate-wake result.
+
+`O11-F3a` adds only the private `flarex-dev` manual adapter. The adapter accepts
+an already composed authentic O11-F2 runner, invokes it exactly once, and
+returns a bounded JSON projection of `not_due`, `busy`, or `completed`, with
+completed results retaining aggregate scope-visit and failed-scope counts. It has
+no cursor, deployment, scope, tenant, or cleanup-policy input and therefore
+cannot become a parallel deletion-authority surface. No CLI command, HTTP
+route, queue, alarm, background fiber, scheduled export, Wrangler trigger,
+production cadence, or activation is added. Scheduled-event composition
+remains `O11-F3b`, and cron activation remains `O11-F4`.
 
 `M05-B` logical definition retirement remains blocked after O11 itself until
 roadmap 21 reconnect retention, rollback/application-revision retention,
