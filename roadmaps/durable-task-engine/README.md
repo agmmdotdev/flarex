@@ -148,6 +148,9 @@ and
 [`preflight/40-standard-application-task-runtime-persistence.md`](./preflight/40-standard-application-task-runtime-persistence.md).
 The approved DTE06-E supervision and settlement boundary is recorded in
 [`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
+The approved DTE06-F hosted-runtime proof, event-scope ownership, fresh-host
+recovery order, and separately gated Cloudflare topology are recorded in
+[`preflight/42-dte06-hosted-runtime-proof.md`](./preflight/42-dte06-hosted-runtime-proof.md).
 E1 through E5 are complete privately. The current
 session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
@@ -177,8 +180,9 @@ lifecycle contract without republishing its result. A duplicate connected wake
 is suppressed by the persisted dispatch checkpoint while the accepted Worker
 remains live. A Worker success held at the supervisor boundary while durable
 cancellation is requested is submitted unchanged, and the existing lifecycle
-records that cancellation as `superseded_by_completion`. The hosted end-to-end
-proof remains DTE06-F.
+records that cancellation as `superseded_by_completion`. The DTE06-F preflight
+is approved; its F0A runtime/provider convergence correction is in progress,
+before the F1 production-compatible private host.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -356,6 +360,14 @@ run/attempt lifecycle.
 `TaskIdV1`, not function path, is the logical task identity across application
 revisions.
 
+Durable Tasks are the sole engine for background, queued, delayed, retryable,
+and scheduled work. The current direct `ApplicationActionSystem` remains only
+a foreground request/response external-I/O contract. It is not a scheduler
+target and must not be nested inside a Task attempt. A later action-removal
+decision requires its own consumer inventory and migration gate; until then,
+foreground Action and background Task are distinct public semantics over a
+converging runtime substrate.
+
 ### 5. Task State Lives Behind A Private FlarexDB Task System API
 
 Durable run state is reserved platform state, not arbitrary developer app data.
@@ -402,6 +414,17 @@ invokable edge-action runtime. That reuse does not make a task an action alias:
 the task keeps its stable task ID, `durable_task` target/profile, task context,
 run/attempt authority, and eventual-result semantics, while a direct edge action
 keeps its function identity and request/response contract.
+
+The shared substrate is not one universal query/mutation/action/task provider.
+`ApplicationQuerySystem`, `ApplicationMutationSystem`,
+`ApplicationActionSystem`, and `TaskComputeProvider` retain operation-specific
+authority. DTE06-F0A instead converges their exact Worker Loader,
+materialization, host-policy, RPC, cleanup, and callback mechanics. The Task
+runtime then receives only an authenticated context capability whose admitted
+members route `runQuery` and `runMutation` through the existing Application
+systems and route scheduler/enqueue operations through Task System creation;
+it never receives ambient services, raw database authority, or a nested Action
+lifecycle.
 
 Sequenced `flarex.task-requested-effect.v1` values are task-orchestration
 instructions such as dispatch, wakeup, cancellation, event publication, and
@@ -568,7 +591,8 @@ files remain candidates:
      semantics/checkpointing, optional alarm acceleration, and fail-closed
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
-   - **active; DTE06-A through DTE06-E complete privately; DTE06-F pending:** the
+   - **active; DTE06-A through DTE06-E complete privately; DTE06-F preflight
+     approved and F0A in progress:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -595,7 +619,12 @@ files remain candidates:
      settlement, exact lost-completion-response replay, and duplicate-delivery
      suppression. Its cancel/complete proof records exact acknowledgement when
      cancellation wins and `superseded_by_completion` when success wins.
-     Hosted end-to-end recovery proof remains DTE06-F. No scheduled host, public
+     DTE06-F0A first converges the shared Application Worker runtime substrate
+     and adds authenticated Task query/mutation/outbound/scheduler capabilities
+     without creating a universal provider. F1 then adds a
+     production-compatible test host and fresh-host recovery proof around those
+     current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
+     remains a separately approved later subgate. No scheduled host, public
      API, route, binding, fallback, dual execution, or production activation
      exists;
 7. [`07-observability-live-apis-and-ui.md`](./07-observability-live-apis-and-ui.md)

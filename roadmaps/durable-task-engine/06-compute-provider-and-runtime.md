@@ -48,6 +48,10 @@ The completed production-inert supervision, terminal-outcome, result-store,
 heartbeat, cancellation-acknowledgement, and fenced-settlement boundary is
 recorded in
 [`preflight/41-dte06-attempt-supervision-and-settlement.md`](./preflight/41-dte06-attempt-supervision-and-settlement.md).
+The approved DTE06-F hosted-runtime proof boundary, corrected fresh-Worker
+terminology, event-scope ownership, fresh-host recovery order, isolated
+Cloudflare topology, and external-mutation gate are recorded in
+[`preflight/42-dte06-hosted-runtime-proof.md`](./preflight/42-dte06-hosted-runtime-proof.md).
 The detailed C0-C3 evidence, repository, discovery, deadline, restart,
 lost-receipt, two-host, multi-scope, PGlite, and genuine-PostgreSQL proofs remain
 the admitted foundation for the current private Worker Loader composition.
@@ -132,11 +136,15 @@ Those owners now provide a private durable-task start/interruption ABI and one
 shared Task Worker session host for the retained Legacy and current Application
 launch subjects. The real private Worker Loader provider correlates Task
 attempt identity, execution fence, provider execution identity, accepted start,
-and cancellation generation. Its terminal Worker result remains process-local,
-however: there is still no durable heartbeat, cancellation acknowledgement,
-result-object publication, or Task completion callback from the Worker session
-into the Task System. The public production invocation route does not compose
-this private Task path.
+and cancellation generation. DTE06-E now connects its terminal Worker evidence
+through bounded supervision, heartbeat, cancellation acknowledgement,
+immutable result publication, and fenced Task completion/retry. The remaining
+runtime gap is different: the Task handler is still payload-only and the
+transaction/action and Task hosts have not yet converged their identical
+Worker Loader, materialization, RPC, cleanup, and callback mechanics behind one
+Application-owned substrate. DTE06-F0A owns that correction before the hosted
+proof. The public production invocation route still does not compose this
+private Task path.
 
 ### Existing Prototype Evidence Is Not Task Authority
 
@@ -146,6 +154,12 @@ direct-action owner with durable request/outcome and external-effect
 uncertainty, but it still does not own task identity, retry policy, attempt
 state, task context, result durability, or scheduling. A task must never be
 encoded as `kind: "action"` to reach that separate runtime.
+
+That direct action is a foreground request/response contract only. Durable
+Tasks are the sole background, queued, delayed, retryable, and scheduled
+execution engine. A scheduler does not target `ApplicationActionSystem`, and a
+Task attempt does not invoke it as a nested lifecycle. The two may reuse exact
+runtime and external-effect mechanics without sharing durable authority.
 
 ## Ownership And Dependency Direction
 
@@ -619,15 +633,28 @@ lifecycle accepts the unchanged success and records the cancellation as
   completion response; and
 - emit only privacy-safe aggregate operational receipts.
 
-### DTE06-F: Private End-To-End Runtime Proof — Pending
+### DTE06-F: Private End-To-End Runtime Proof — Preflight Approved; F0A In Progress
 
-- compose real Standard Application task binding, R2 objects, Worker Loader,
-  executor capabilities, Task System Postgres, and one private invocation;
-- prove cold and warm materialization, success, typed failure/retry,
-  cancellation, duplicate dispatch, restart/takeover, and cleanup;
+- first converge the Application runtime substrate used by query, mutation,
+  foreground action, and Task adapters without creating one universal
+  provider;
+- add an authenticated Task context for `runQuery`, `runMutation`, controlled
+  outbound I/O, and Task scheduling/enqueue while keeping every capability
+  operation-specific and policy-gated;
+- then add a production-compatible but test-only private host that keeps its
+  provider Layer alive through every accepted session and uses real current
+  Application, R2, Worker Loader, supervisor, and Task System owners;
+- prove cold and repeat immutable-object paths while retaining a fresh
+  `WorkerLoader.load` task Worker for every execution;
+- prove success, typed failure/retry, cancellation, duplicate dispatch,
+  fresh-host restart/takeover, stale old-host rejection, and cleanup;
 - run real Cloudflare/Hyperdrive/PostgreSQL evidence where platform behavior is
   part of the claim; and
 - remain behind an explicit disabled-by-default host/deployment gate.
+
+F0A, F1, and F2 are local/genuine-PostgreSQL implementation gates. F3/F4 may
+create an isolated Cloudflare/Hyperdrive/R2 probe only after separate explicit
+approval; passing local tests does not authorize external resources.
 
 After DTE06-F closes the minimum safe compute path, DTE05-E3 may add the
 scheduled Worker host and Cron Trigger through its own exact deployment
@@ -696,7 +723,8 @@ No existing provider acceptance, local terminal Worker outcome, E1 pure
 disposition, isolated E2 result publication, E3 lifecycle capability, E4
 isolated supervisor, AA-R7 private launch proof, or persisted delivery
 checkpoint may be described as a connected deployed supervision path. DTE06-F
-must now prove
-hosted recovery and cleanup before DTE05-E3 may add a scheduled host. Public APIs,
-observability/live streams, routes, bindings, deployment, fallback, dual
-execution, and production activation remain unauthorized.
+must first close F0A's runtime/provider convergence and authenticated Task
+context, then prove hosted recovery and cleanup before DTE05-E3 may add a
+scheduled host. Public APIs, observability/live streams, routes, bindings,
+deployment, fallback, dual execution, and production activation remain
+unauthorized.

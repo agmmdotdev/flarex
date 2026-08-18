@@ -45,9 +45,10 @@ describe("Task Worker session host", () => {
           );
         },
       ));
-      const session = await Effect.runPromise(makeTaskWorkerSessionHost(loader).start(
-        startInput(generation),
-      ));
+      const input = startInput(generation);
+      const session = await Effect.runPromise(
+        makeTaskWorkerSessionHost(loader).start(input),
+      );
 
       expect(session.acceptance).toMatchObject({
         kind: "accepted",
@@ -56,6 +57,17 @@ describe("Task Worker session host", () => {
       });
       expect(loader.loaded).toHaveLength(1);
       expect(loader.loaded[0]?.globalOutbound).toBeNull();
+      if (input.generation === "legacy_dynamic_worker_v1") {
+        expect(loader.loaded[0]?.compatibilityFlags).toEqual([
+          "nodejs_compat",
+          "nodejs_compat_populate_process_env",
+        ]);
+        expect(loader.loaded[0]?.compatibilityFlags).not.toBe(
+          input.definition.compatibilityFlags,
+        );
+      } else {
+        expect(loader.loaded[0]?.compatibilityFlags).toBeUndefined();
+      }
       let settled = false;
       const waiting = Effect.runPromise(session.settlement).then(value => {
         settled = true;
@@ -72,6 +84,33 @@ describe("Task Worker session host", () => {
       expect(lost.reason).toBe("sessionLost");
     },
   );
+
+  it("maps fresh Worker entrypoint acquisition failure before session start", async () => {
+    const cause = new Error("entrypoint unavailable");
+    let loadCalls = 0;
+    const loader = {
+      get(): WorkerStub {
+        throw new Error("cached loading is forbidden");
+      },
+      load(): WorkerStub {
+        loadCalls += 1;
+        return new FailingEntrypointWorkerStub(cause);
+      },
+    } satisfies WorkerLoader;
+
+    const error = await Effect.runPromise(
+      makeTaskWorkerSessionHost(loader).start(
+        startInput("application_v1"),
+      ).pipe(Effect.flip),
+    );
+
+    expect(error).toMatchObject({
+      operation: "start",
+      reason: "workerLoadFailed",
+    });
+    expect(error.cause).toBe(cause);
+    expect(loadCalls).toBe(1);
+  });
 
   it("correlates interruption receipts and maps stale cancellation distinctly", async () => {
     let interruptionCalls = 0;
@@ -684,7 +723,10 @@ function legacyDefinition(wallMilliseconds = 30_000): LegacyTaskWorkerDefinition
     taskDefinitionRevisionId: "taskdef_00000000-0000-4000-8000-000000000004",
     computeProfile: "standard-1x",
     compatibilityDate: "2026-06-14",
-    compatibilityFlags: Object.freeze([]),
+    compatibilityFlags: Object.freeze([
+      "nodejs_compat",
+      "nodejs_compat_populate_process_env",
+    ]),
     wallMilliseconds,
     limits: Object.freeze({ cpuMs: 10_000, subRequests: 0 }),
     mainModule: "application.js",
@@ -783,6 +825,19 @@ class FakeWorkerStub implements WorkerStub {
     };
     return entrypoint as unknown as Fetcher<T>;
   }
+  getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>():
+    DurableObjectClass<T> {
+    throw new Error("Durable Objects forbidden");
+  }
+}
+
+class FailingEntrypointWorkerStub implements WorkerStub {
+  constructor(private readonly cause: Error) {}
+
+  getEntrypoint<T extends Rpc.WorkerEntrypointBranded | undefined>(): Fetcher<T> {
+    throw this.cause;
+  }
+
   getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>():
     DurableObjectClass<T> {
     throw new Error("Durable Objects forbidden");

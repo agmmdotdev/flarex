@@ -17,6 +17,11 @@ import {
   APPLICATION_TRANSACTION_WORKER_ENTRYPOINT,
   type ApplicationWorkerDefinition,
 } from "./ApplicationWorkerDefinition";
+import {
+  applicationWorkerCode,
+  makeApplicationWorkerRuntime,
+  type ApplicationWorkerRuntime,
+} from "./ApplicationWorkerRuntime";
 import { callOwnedWorkerRpc } from "./WorkerRpcResult";
 
 export type ApplicationExecutionHostFailureReason =
@@ -87,6 +92,7 @@ interface ApplicationActionEntrypoint extends Rpc.WorkerEntrypointBranded {
 export function makeApplicationExecutionHost(
   loader: WorkerLoader,
 ): ApplicationExecutionHost {
+  const runtime = makeApplicationWorkerRuntime(loader);
   const runTransaction: ApplicationExecutionHost["runTransaction"] = Effect.fn(
     "ApplicationExecutionHost.runTransaction",
   )(function* (input) {
@@ -102,13 +108,13 @@ export function makeApplicationExecutionHost(
       request.target,
       input.definition,
     );
-    return yield* runWorker(
+    return yield* runWorker<ApplicationTransactionEntrypoint>(
       "transaction",
-      loader,
+      runtime,
       transactionWorkerCode(input.definition),
       APPLICATION_TRANSACTION_WORKER_ENTRYPOINT,
       input.definition.transactionWallMilliseconds,
-      stub => (stub as ApplicationTransactionEntrypoint).run(
+      stub => stub.run(
         request,
         input.capability,
       ),
@@ -139,13 +145,13 @@ export function makeApplicationExecutionHost(
       input.definition.actionWallMilliseconds,
       Math.max(1, Math.floor(remaining)),
     );
-    return yield* runWorker(
+    return yield* runWorker<ApplicationActionEntrypoint>(
       "action",
-      loader,
+      runtime,
       actionWorkerCode(input.definition, input.outbound),
       APPLICATION_ACTION_WORKER_ENTRYPOINT,
       wallMilliseconds,
-      stub => (stub as ApplicationActionEntrypoint).run(
+      stub => stub.run(
         request,
         input.callback,
       ),
@@ -169,22 +175,24 @@ function requireTarget(
   );
 }
 
-function runWorker(
+function runWorker<Entrypoint extends Rpc.WorkerEntrypointBranded>(
   operation: ApplicationExecutionHostError["operation"],
-  loader: WorkerLoader,
+  runtime: ApplicationWorkerRuntime,
   code: WorkerLoaderWorkerCode,
   entrypointName: string,
   wallMilliseconds: number,
-  invoke: (entrypoint: Rpc.WorkerEntrypointBranded) => PromiseLike<unknown>,
+  invoke: (entrypoint: Fetcher<Entrypoint>) => PromiseLike<unknown>,
 ): Effect.Effect<
   CanonicalFlarexRuntimeValueV1,
   ApplicationExecutionHostError
 > {
-  return Effect.try({
-      try: () => loader.load(code).getEntrypoint<
-        Rpc.WorkerEntrypointBranded
-      >(entrypointName),
-      catch: cause => hostError(operation, "workerLoadFailed", cause),
+  return runtime.loadEntrypoint<Fetcher<Entrypoint>,
+    ApplicationExecutionHostError>({
+      code,
+      entrypointName,
+      selectEntrypoint: (worker, name) =>
+        worker.getEntrypoint<Entrypoint>(name),
+      onFailure: cause => hostError(operation, "workerLoadFailed", cause),
     }).pipe(Effect.flatMap(entrypoint => callWorker(
       operation,
       entrypoint,
@@ -193,11 +201,11 @@ function runWorker(
     )));
 }
 
-function callWorker(
+function callWorker<Entrypoint extends Rpc.WorkerEntrypointBranded>(
   operation: ApplicationExecutionHostError["operation"],
-  entrypoint: Rpc.WorkerEntrypointBranded,
+  entrypoint: Fetcher<Entrypoint>,
   wallMilliseconds: number,
-  invoke: (entrypoint: Rpc.WorkerEntrypointBranded) => PromiseLike<unknown>,
+  invoke: (entrypoint: Fetcher<Entrypoint>) => PromiseLike<unknown>,
 ): Effect.Effect<
   CanonicalFlarexRuntimeValueV1,
   ApplicationExecutionHostError
@@ -231,28 +239,28 @@ function callWorker(
 function transactionWorkerCode(
   definition: ApplicationWorkerDefinition,
 ): WorkerLoaderWorkerCode {
-  return {
+  return applicationWorkerCode({
     compatibilityDate: definition.compatibilityDate,
     mainModule: definition.mainModule,
     modules: definition.modules,
     env: definition.env,
     limits: definition.transactionLimits,
     globalOutbound: null,
-  };
+  });
 }
 
 function actionWorkerCode(
   definition: ApplicationWorkerDefinition,
   outbound: Fetcher,
 ): WorkerLoaderWorkerCode {
-  return {
+  return applicationWorkerCode({
     compatibilityDate: definition.compatibilityDate,
     mainModule: definition.mainModule,
     modules: definition.modules,
     env: definition.env,
     limits: definition.actionLimits,
     globalOutbound: outbound,
-  };
+  });
 }
 
 function expectedWorkerFailureReason(

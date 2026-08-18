@@ -29,6 +29,10 @@ import {
   LEGACY_TASK_WORKER_ENTRYPOINT,
   type LegacyTaskWorkerDefinition,
 } from "./LegacyTaskWorkerDefinition";
+import {
+  applicationWorkerCode,
+  makeApplicationWorkerRuntime,
+} from "./ApplicationWorkerRuntime";
 import { callOwnedWorkerRpc } from "./WorkerRpcResult";
 
 const DEFAULT_HANDSHAKE_MILLISECONDS = 10_000;
@@ -120,6 +124,7 @@ export function makeTaskWorkerSessionHost(
   if (!Number.isSafeInteger(handshakeMilliseconds) || handshakeMilliseconds <= 0) {
     throw new Error("Task Worker session handshake duration must be a positive safe integer.");
   }
+  const runtime = makeApplicationWorkerRuntime(loader);
   const start: TaskWorkerSessionHost["start"] = Effect.fn(
     "TaskWorkerSessionHost.start",
   )(input => Effect.uninterruptibleMask(restore => Effect.gen(function* () {
@@ -127,13 +132,17 @@ export function makeTaskWorkerSessionHost(
     const startedAt = yield* Clock.currentTimeMillis;
     const deadline = startedAt + startRequest.request.dispatch.maximumDurationMs;
     const code = workerCode(input);
-    const entrypoint = yield* Effect.try({
-      try: () => loader.load(code).getEntrypoint<TaskWorkerSessionEntrypoint>(
-        input.generation === "application_v1"
-          ? APPLICATION_TASK_WORKER_ENTRYPOINT
-          : LEGACY_TASK_WORKER_ENTRYPOINT,
-      ),
-      catch: cause => hostError("start", "workerLoadFailed", cause),
+    const entrypoint = yield* runtime.loadEntrypoint<
+      TaskWorkerSessionEntrypoint,
+      TaskWorkerSessionHostError
+    >({
+      code,
+      entrypointName: input.generation === "application_v1"
+        ? APPLICATION_TASK_WORKER_ENTRYPOINT
+        : LEGACY_TASK_WORKER_ENTRYPOINT,
+      selectEntrypoint: (worker, name) =>
+        worker.getEntrypoint<TaskWorkerSessionEntrypoint>(name),
+      onFailure: cause => hostError("start", "workerLoadFailed", cause),
     });
     const startWallMilliseconds = yield* remainingWallMilliseconds(
       deadline,
@@ -234,17 +243,17 @@ function definitionMatchesStart(
 }
 
 function workerCode(input: TaskWorkerSessionHostStartInput): WorkerLoaderWorkerCode {
-  const shared = {
+  return applicationWorkerCode({
     compatibilityDate: input.definition.compatibilityDate,
+    ...(input.generation === "legacy_dynamic_worker_v1"
+      ? { compatibilityFlags: input.definition.compatibilityFlags }
+      : {}),
     mainModule: input.definition.mainModule,
     modules: input.definition.modules,
     env: input.definition.env,
     limits: input.definition.limits,
     globalOutbound: null,
-  };
-  return input.generation === "application_v1"
-    ? shared
-    : { ...shared, compatibilityFlags: [...input.definition.compatibilityFlags] };
+  });
 }
 
 function makeSession(
