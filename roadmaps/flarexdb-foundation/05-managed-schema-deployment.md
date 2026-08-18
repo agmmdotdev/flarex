@@ -14,12 +14,15 @@ and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
 checkpoint is complete. `M04-C` now provides the private `flarex-dev` adapter
 and shared detached JSON projection, with the same connected schema-B proof in
 PGlite and genuine PostgreSQL. `M05-P`, private `M05-A`, private `M05-A2`,
-and the docs-only `M05-B0` are complete: the accepted retirement boundary is
+the docs-only `M05-B0`, and the docs-only `M05-B1-P` storage preflight are
+complete: the accepted retirement boundary is
 explicit, one exact non-enabled unique-set build workspace can be reclaimed
 without retiring physical authority, and authenticated candidate supersession
-now performs that narrow reclamation atomically. `M05-B0` has also reconciled
-logical-retirement gates with the current Application mutation, action,
-durable-task, and O11 owners; it adds no retirement authority or storage.
+now performs that narrow reclamation atomically. `M05-B0` reconciled logical-
+retirement gates with the current Application mutation, action, durable-task,
+and O11 owners. `M05-B1-P` corrects the retirement authority to a scope-local
+physical-availability lifecycle and freezes its minimal additive storage shape.
+Neither preflight adds retirement authority or storage.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, enabled-definition retirement, physical/evidence purge, or
 production generation cut is authorized by this roadmap.
@@ -1041,15 +1044,20 @@ artifact, readiness receipt, activation record, and cold-materialization body.
 It is therefore not physical cleanup and does not require an evidence-deletion
 policy.
 
-Physical definitions are deployment-wide, while execution and snapshot pins
-are scope-local. A safe retirement cannot perform an unbounded cross-scope scan
-and flip one flag. The accepted later shape is a private, explicit, two-phase
-state machine:
+Physical definitions and their schema-version bindings are immutable,
+deployment-wide control-catalog evidence. Their enabled builds, sidecars,
+claims, active Application head, and execution pins are scope-local target
+state. `M05-B1-P` therefore rejects a deployment-global retirement flag and an
+unbounded cross-scope drain. The retireable subject is one scope's physical
+availability for one exact catalog definition. Different tenants may migrate
+at different times while continuing to share the immutable definition record.
+The accepted later shape is a private, explicit, per-scope state machine:
 
-1. `active -> draining` closes new schema bindings and new runtime admissions
-   that would depend on the exact physical definition;
-2. a bounded, resumable fixed-high-water scope-directory pass proves that all
-   currently supported pin owners have drained; and
+1. `active -> draining` closes scope-local readiness/activation for revisions
+   that require the definition and, through the existing current-selection
+   fence, closes new runtime admissions to the displaced revision;
+2. bounded indexed existence checks prove that the current scope's supported
+   pin owners have drained; and
 3. `draining -> retired` rechecks the unchanged closure and the completed drain
    evidence before making retirement final.
 
@@ -1067,36 +1075,97 @@ The current pin matrix is:
 | Other adapters | Only currently supported persisted resumable consumers belong in the drain catalog. A future adapter is not a permanent blocker, but it must register an exact transactional retirement pin before it can activate. |
 | Immutable artifacts and audit evidence | Retain unchanged. Their deletion policy is an `M05-C` prerequisite, not an `M05-B` prerequisite. |
 
-The cross-scope race is closed by the `draining` barrier, not by hoping a scan
-finishes before a new session appears. Schema publication, application
-readiness/activation, mutation-session admission, action admission, and durable-
-task run creation must each refuse a newly draining definition before the final
-drain proof can be trusted. Adding those checks changes the corresponding owner
-and therefore requires separately approved bounded slices; this preflight does
-not authorize incidental edits to them.
+The primary admission barrier is the existing coherent active-Application
+selection. Retirement may begin only after both the active head and current
+candidate stop requiring the subject. A new mutation session, direct action, or
+durable-task run should then be unable to bind the displaced revision because
+each current Application admission owner must authenticate the current active
+selection. `M05-B2` must prove that shared property across all three owners
+before adding any retirement-specific hook. If one owner can admit a displaced
+revision, that is a separately recorded core defect; the fix belongs at its
+active-selection boundary rather than as duplicated retirement glue.
+
+Already admitted work remains valid during `draining`. The enabled build and
+all sidecars/claims remain unchanged so old mutation sessions, actions, tasks,
+and live snapshots can finish. Final `retired` state is allowed only after the
+bounded pin inspectors report no resumable work. Retirement does not rewrite a
+build lifecycle, disable an in-flight reader, or delete physical data.
 
 The current catalogs have immutable physical definitions and schema bindings,
-but no shared definition-retirement authority. The developer-index build's
-`retiring` lifecycle is build state only, and the unique-set build has no
-equivalent; neither can be reused as deployment-wide definition retirement.
-`M05-B` therefore requires additive, separately preflighted storage rather than
-overloading a build row or rewriting migration history.
+but no shared scope-local definition-retirement authority. The developer-index
+build's `retiring` lifecycle is build state only, and the unique-set build has
+no equivalent; neither can represent both index and unique-constraint
+availability. `M05-B` therefore requires additive, separately approved storage
+rather than overloading a build row or rewriting migration history.
+
+#### M05-B1-P Additive Storage Preflight
+
+`M05-B1-P` is complete as a docs-only storage preflight. The smallest accepted
+state is one current target-local row per
+`(scope_id, definition_kind, definition_id)`, where `definition_kind`
+distinguishes an index definition from a unique-constraint definition. Absence
+means the subject has never entered retirement and is active. A present row
+carries:
+
+- `active | draining | retired | reactivating` lifecycle and a positive
+  transition fence;
+- the exact physical-spec digest plus the storage generation, generation fence,
+  and scope epoch that authenticated the transition;
+- the latest canonical request digest needed for exact replay/conflict
+  detection; and
+- database-owned creation/update timestamps.
+
+This is deliberately one bounded current-authority row, not an accumulating
+event log, copied session/action/task pin registry, scope-directory checkpoint,
+or evidence-body store. Existing immutable schema, readiness, activation, and
+runtime records remain the evidence owners. A later measured audit requirement
+may justify separate transition history, but it is not part of M05-B1.
+
+The row lives beside the scope clock and build state in the target database.
+Every transition takes the scope-clock update lock first and then the exact
+retirement row, preserving the established scope transaction order. Because
+the immutable definition lives in the possibly separate control database, no
+cross-database foreign key or duplicated definition body is allowed. A
+control-side preparation step must authenticate the exact deployment,
+definition kind/ID, physical-spec digest, and current schema bindings into an
+opaque process-local claim; the target transaction rechecks the claim's scope
+authority pins before mutation. Callers never choose an unauthenticated numeric
+definition ID.
+
+Content-addressed catalog definitions may be reused by a later schema, so
+`retired` cannot mean permanently forbidden. Reuse must enter
+`reactivating`, run the existing build/backfill/validation owners against the
+retained rows, and return to `active` only after exact readiness succeeds.
+Deleting the lifecycle row, treating absence as successful reactivation, or
+silently clearing `retired` is forbidden. Cancelling `draining` back to
+`active` is an explicit fenced transition and is safe only because M05-B
+deletes nothing.
+
+The migration remains unapproved implementation work. At implementation time it
+must use the then-next migration number, add only this target-local current
+authority and its exact constraints/indexes, preserve populated upgrades, and
+prove fresh install, upgrade, replay, corruption refusal, rollback, concurrent
+transition, split control/target composition, and non-public-schema behavior on
+PGlite and genuine PostgreSQL. This preflight does not reserve a migration
+number and does not modify the concurrently evolving task-runtime schema.
 
 The ordered implementation path is:
 
-1. `M05-B1` - freeze the monotonic retirement contract and add an additive,
-   authenticated deployment-wide `active | draining | retired` authority plus
-   bounded fixed-high-water drain progress. It remains private and performs no
-   physical deletion.
-2. `M05-B2` - close new schema/application bindings and each current runtime
-   admission owner against `draining`, one explicitly approved owner at a time,
-   with concurrency and rollback proof.
-3. `M05-B3` - add the bounded read-only per-scope pin inspectors for active/
+1. `M05-B1` - implement only the additive scope-local current lifecycle,
+   opaque exact-definition preparation, fenced transitions, and read-only
+   inspection. It remains private, unwired from readiness/runtime admission,
+   and performs no physical deletion.
+2. `M05-B2` - prove that mutation, action, and durable-task admissions already
+   share the coherent active-selection fence; make readiness/reactivation
+   consume the retirement lifecycle, and correct only an evidenced admission
+   gap at its owning boundary.
+3. `M05-B3` - add bounded indexed per-scope pin inspectors for active/
    candidate selection, mutation sessions, actions, durable tasks, O11 leases,
-   and any then-supported resumable adapter.
+   and any then-supported resumable adapter, then finalize only when every
+   inspector is clear.
 4. `M05-B4` - compose one manual private coordinator that begins draining,
-   checkpoints the fixed directory, and finalizes only after an exact cold-
-   replayable recheck. No timer, cron, queue, route, or automatic trigger is
+   performs one bounded scope-local step, and finalizes only after an exact
+   cold-replayable recheck. No timer, cron, queue, route, or automatic trigger is
    required; a future wake source may call the same coordinator without owning
    retirement policy.
 
@@ -1174,9 +1243,13 @@ These are separate later goals, not one giant deployment goal:
 12. `M05-B0` - **complete docs-only preflight; no retirement authority**:
     replace the broad future-feature blocker list with the exact current pin
     matrix, add Application actions and durable tasks, separate logical
-    retirement from evidence purge, and freeze the later two-phase manual
-    draining shape. `M05-B1` is the next implementation-bearing slice and
-    requires its own additive-storage preflight and approval.
+    retirement from evidence purge, and freeze a later two-phase manual
+    draining shape.
+13. `M05-B1-P` - **complete docs-only storage preflight; no DDL**: correct
+    retirement from deployment-global coordination to one scope-local physical-
+    availability lifecycle, define the bounded current-row/opaque-claim/locking
+    contract, and preserve explicit validated reactivation. `M05-B1` is the
+    next implementation-bearing slice and requires approval.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema

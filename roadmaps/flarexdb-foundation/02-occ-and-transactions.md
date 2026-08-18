@@ -2217,9 +2217,11 @@ remains `O11-F3b`, and cron activation remains `O11-F4`.
 O11 is sufficient for a later explicit M05-B retirement attempt to consume an
 exact persisted floor and live-lease evidence through the completed manual
 runner; scheduled-event and cron activation are operability choices, not
-retirement authority. M05-B must still use its own deployment-wide `draining`
-barrier and bounded cross-scope proof for current Application mutation, action,
-durable-task, active/candidate, and supported resumable-adapter pins. Future
+retirement authority. M05-B uses one scope-local physical-availability
+`draining` barrier and bounded indexed proof for that scope's current
+Application mutation, action, durable-task, active/candidate, and supported
+resumable-adapter pins. The immutable control-catalog definition remains shared
+and is not globally retired merely because one tenant finishes migration. Future
 reconnect, rollback, or adapter features must register their pins before those
 features activate rather than blocking retirement merely because they may
 exist later. Immutable evidence remains retained by M05-B. `M05-C` physical
