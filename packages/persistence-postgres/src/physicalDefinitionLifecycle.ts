@@ -1,4 +1,5 @@
 import {
+  bytesEqualFullScan,
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
@@ -24,10 +25,16 @@ import {
   type CatalogIndexDefinitionId,
   type CatalogUniqueConstraintDefinitionId,
 } from "flarex-protocol/catalog";
+import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import { appUniqueConstraintSpecSha256HexV1ToBytes } from
   "flarex-protocol/app-unique-constraint-definition";
 import { appIndexPhysicalSpecSha256HexV1ToBytes } from
   "flarex-protocol/index-definition";
+import {
+  inspectPhysicalDefinitionRetirementPinsInTransactionEffect,
+  type InspectPhysicalDefinitionRetirementPinsError,
+  type PhysicalDefinitionRetirementPin,
+} from "./physicalDefinitionRetirementPins";
 import {
   FlarexDbV1StorageGenerationSchema,
   type ScopeId,
@@ -35,6 +42,8 @@ import {
 
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runEffectTransaction } from "./effectTransaction";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   getAppIndexDefinitionByIdEffect,
   type ReadAppIndexDefinitionError,
@@ -78,6 +87,7 @@ import {
   type PublishedPhysicalRequirementSnapshotV1,
 } from "./indexBuildReconciliation";
 import {
+  deployments,
   fxControlSchemaVersionIndexBindings,
   fxControlSchemaVersionUniqueConstraintBindings,
   fxSystemPhysicalDefinitionLifecycles,
@@ -181,6 +191,10 @@ interface PreparedSubjectState {
   readonly definitionId: number;
   readonly physicalSpecSha256: Uint8Array;
   readonly bindingSetSha256: Uint8Array;
+  readonly schemaVersionIds: ReadonlyArray<CatalogSchemaVersionId>;
+  readonly accessKind: LoadedDefinition["accessKind"];
+  readonly retireable: boolean;
+  readonly controlDb: FlarexMetadataDatabase;
   readonly located: LocatedTrustedScopeAuthority<
     LocatedPhysicalDefinitionLifecycleTarget
   >;
@@ -282,6 +296,18 @@ export class PhysicalDefinitionLifecycleFaultError extends Data.TaggedError(
   "PhysicalDefinitionLifecycleFaultError",
 )<{ readonly cause: unknown }> {}
 
+export class PhysicalDefinitionLifecyclePinnedError extends Data.TaggedError(
+  "PhysicalDefinitionLifecyclePinnedError",
+)<{ readonly pin: PhysicalDefinitionRetirementPin }> {}
+
+export class PhysicalDefinitionLifecycleDefinitionNotRetireableError
+  extends Data.TaggedError(
+    "PhysicalDefinitionLifecycleDefinitionNotRetireableError",
+  )<{
+    readonly definitionKind: PhysicalDefinitionLifecycleKindV1;
+    readonly definitionId: number;
+  }> {}
+
 export type PreparePhysicalDefinitionLifecycleSubjectError =
   | InvalidPhysicalDefinitionLifecycleInputError
   | InvalidPhysicalDefinitionLifecyclePortError
@@ -309,6 +335,13 @@ export type TransitionPhysicalDefinitionLifecycleError =
   | PhysicalDefinitionLifecycleConflictError
   | PhysicalDefinitionLifecycleFaultError
   | PhysicalDefinitionLifecycleTransactionError;
+
+export type FinalizePhysicalDefinitionRetirementError =
+  | TransitionPhysicalDefinitionLifecycleError
+  | PhysicalDefinitionLifecycleBindingLimitError
+  | PhysicalDefinitionLifecyclePinnedError
+  | PhysicalDefinitionLifecycleDefinitionNotRetireableError
+  | InspectPhysicalDefinitionRetirementPinsError;
 
 export type PreparePhysicalDefinitionLifecycleReadinessError =
   | InvalidPhysicalDefinitionLifecycleInputError
@@ -613,7 +646,7 @@ export const preparePhysicalDefinitionLifecycleSubjectEffect = Effect.fn(
   }
   const subject = yield* Effect.fromResult(captureSubjectResult(input));
   const definition = yield* loadDefinitionEffect(state.controlDb, subject);
-  const bindingSetSha256 = yield* loadBindingSetSha256Effect(
+  const bindingSet = yield* loadBindingSetEffect(
     state.controlDb,
     subject,
     definition.accessKind,
@@ -628,7 +661,11 @@ export const preparePhysicalDefinitionLifecycleSubjectEffect = Effect.fn(
     subject,
     definitionId: definition.definitionId,
     physicalSpecSha256: copyBytes(definition.physicalSpecSha256),
-    bindingSetSha256: copyBytes(bindingSetSha256),
+    bindingSetSha256: copyBytes(bindingSet.sha256),
+    schemaVersionIds: bindingSet.schemaVersionIds,
+    accessKind: definition.accessKind,
+    retireable: definition.accessKind !== "by_creation_time",
+    controlDb: state.controlDb,
     located,
   }));
   return prepared;
@@ -678,6 +715,53 @@ export const cancelPhysicalDefinitionDrainingEffect = Effect.fn(
   TransitionPhysicalDefinitionLifecycleError
 > {
   return yield* transitionEffect(prepared, input, "cancel_draining", options);
+});
+
+export const finalizePhysicalDefinitionRetirementEffect = Effect.fn(
+  "PhysicalDefinitionLifecycle.finalizeRetirement",
+)(function* (
+  prepared: PreparedPhysicalDefinitionLifecycleSubject,
+  input: PhysicalDefinitionLifecycleTransitionInput,
+  options: PhysicalDefinitionLifecycleTransitionOptions = {},
+): Effect.fn.Return<
+  PhysicalDefinitionLifecycleTransitionResult,
+  FinalizePhysicalDefinitionRetirementError
+> {
+  const state = preparedStates.get(prepared);
+  if (state === undefined) {
+    return yield* Effect.fail(
+      new InvalidPreparedPhysicalDefinitionLifecycleSubjectError(),
+    );
+  }
+  if (!state.retireable) {
+    return yield* Effect.fail(
+      new PhysicalDefinitionLifecycleDefinitionNotRetireableError({
+        definitionKind: state.subject.definitionKind,
+        definitionId: state.definitionId,
+      }),
+    );
+  }
+  const expectedFence = yield* Effect.fromResult(captureExpectedFenceResult(input));
+  const requestSha256 = yield* requestDigestEffect(
+    state,
+    "finalize_retirement",
+    expectedFence,
+  );
+  return yield* withCurrentBindingSetLockedEffect(
+    state,
+    bindingSet => runLocatedTransaction(
+      state.located.target,
+      tx => finalizeRetirementInTransactionEffect(
+        tx,
+        state,
+        bindingSet.schemaVersionIds,
+        bindingSet.matchesPrepared,
+        expectedFence,
+        requestSha256,
+        options,
+      ),
+    ),
+  );
 });
 
 const transitionEffect = Effect.fn(
@@ -861,6 +945,122 @@ const transitionInTransaction = Effect.fn(
   });
 });
 
+const finalizeRetirementInTransactionEffect = Effect.fn(
+  "PhysicalDefinitionLifecycle.finalizeRetirementInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  state: PreparedSubjectState,
+  schemaVersionIds: ReadonlyArray<CatalogSchemaVersionId>,
+  bindingSetMatchesPrepared: boolean,
+  expectedFence: bigint,
+  requestSha256: Uint8Array,
+  options: PhysicalDefinitionLifecycleTransitionOptions,
+): Effect.fn.Return<
+  PhysicalDefinitionLifecycleTransitionResult,
+  LockScopeClockForUpdateError |
+    PhysicalDefinitionLifecyclePersistenceError |
+    PhysicalDefinitionLifecycleConflictError |
+    PhysicalDefinitionLifecyclePinnedError |
+    PhysicalDefinitionLifecycleFaultError |
+    InspectPhysicalDefinitionRetirementPinsError
+> {
+  const authority = state.located.authority;
+  const clock = yield* lockScopeClockForUpdateInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* Effect.fromResult(requireAuthorityResult(authority, clock));
+  const existing = yield* readLifecycleEffect(tx, state, "update");
+  if (existing === null) {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "transitionInvalid",
+    }));
+  }
+  yield* Effect.fromResult(requireStoredAuthorityResult(existing, state));
+  if (existing.requestSha256Hex === encodeBytesToLowercaseHex(requestSha256)) {
+    if (
+      existing.lifecycle !== "retired" ||
+      existing.transitionFence !== expectedFence + 1n
+    ) {
+      return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+        reason: "storedStateInvalid",
+      }));
+    }
+    return Object.freeze({ disposition: "replayed" as const, lifecycle: existing });
+  }
+  if (!bindingSetMatchesPrepared) {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "storedStateInvalid",
+    }));
+  }
+  if (existing.transitionFence !== expectedFence) {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "expectedFenceMismatch",
+    }));
+  }
+  if (existing.lifecycle !== "draining") {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "transitionInvalid",
+    }));
+  }
+  const pins = yield* inspectPhysicalDefinitionRetirementPinsInTransactionEffect(
+    tx,
+    authority,
+    state.subject.deploymentId,
+    schemaVersionIds,
+  );
+  if (pins.status === "pinned") {
+    return yield* Effect.fail(new PhysicalDefinitionLifecyclePinnedError({
+      pin: pins.pin,
+    }));
+  }
+  const nextFence = existing.transitionFence + 1n;
+  if (nextFence > MAX_POSTGRES_BIGINT) {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "storedStateInvalid",
+    }));
+  }
+  const updated = yield* queryEffect("writeLifecycle", () =>
+    tx.update(fxSystemPhysicalDefinitionLifecycles).set({
+      lifecycle: "retired",
+      transitionFence: nextFence,
+      requestCodecVersion: REQUEST_CODEC_VERSION,
+      requestSha256,
+      updatedAt: sql`clock_timestamp()`,
+    }).where(and(
+      eq(fxSystemPhysicalDefinitionLifecycles.scopeId, authority.scopeId),
+      eq(
+        fxSystemPhysicalDefinitionLifecycles.definitionKind,
+        state.subject.definitionKind,
+      ),
+      eq(fxSystemPhysicalDefinitionLifecycles.definitionId, state.definitionId),
+      eq(
+        fxSystemPhysicalDefinitionLifecycles.transitionFence,
+        existing.transitionFence,
+      ),
+      eq(fxSystemPhysicalDefinitionLifecycles.lifecycle, "draining"),
+    )).returning({ scopeId: fxSystemPhysicalDefinitionLifecycles.scopeId })
+  );
+  if (updated.length !== 1) {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "expectedFenceMismatch",
+    }));
+  }
+  if (options.faultAfterWrite !== undefined) {
+    yield* Effect.try({
+      try: options.faultAfterWrite,
+      catch: cause => new PhysicalDefinitionLifecycleFaultError({ cause }),
+    });
+  }
+  const lifecycle = yield* readLifecycleEffect(tx, state, "update");
+  if (lifecycle === null || lifecycle.lifecycle !== "retired") {
+    return yield* Effect.fail(new PhysicalDefinitionLifecycleConflictError({
+      reason: "storedStateInvalid",
+    }));
+  }
+  return Object.freeze({ disposition: "transitioned" as const, lifecycle });
+});
+
 interface LoadedDefinition {
   readonly definitionId: number;
   readonly accessKind: "developer" | "by_creation_time" | null;
@@ -926,14 +1126,19 @@ const loadDefinitionEffect = Effect.fn(
   });
 });
 
-const loadBindingSetSha256Effect = Effect.fn(
+interface LoadedBindingSet {
+  readonly sha256: Uint8Array;
+  readonly schemaVersionIds: ReadonlyArray<CatalogSchemaVersionId>;
+}
+
+const loadBindingSetEffect = Effect.fn(
   "PhysicalDefinitionLifecycle.loadBindingSet",
 )(function* (
   db: FlarexMetadataDatabase,
   subject: PhysicalDefinitionLifecycleSubject,
   accessKind: LoadedDefinition["accessKind"],
 ): Effect.fn.Return<
-  Uint8Array,
+  LoadedBindingSet,
   PhysicalDefinitionLifecycleBindingLimitError |
     PhysicalDefinitionLifecyclePersistenceError |
     PhysicalDefinitionLifecycleCryptoError
@@ -981,7 +1186,11 @@ const loadBindingSetSha256Effect = Effect.fn(
     schemaVersionIds: rows.map(row => row.schemaVersionId),
     version: 1,
   });
-  return yield* sha256Effect(TEXT_ENCODER.encode(canonical));
+  const sha256 = yield* sha256Effect(TEXT_ENCODER.encode(canonical));
+  return Object.freeze({
+    sha256,
+    schemaVersionIds: Object.freeze(rows.map(row => row.schemaVersionId)),
+  });
 });
 
 function captureSubjectResult(
@@ -1194,7 +1403,7 @@ const requestDigestEffect = Effect.fn(
   "PhysicalDefinitionLifecycle.requestDigest",
 )(function* (
   state: PreparedSubjectState,
-  operation: "begin_draining" | "cancel_draining",
+  operation: "begin_draining" | "cancel_draining" | "finalize_retirement",
   expectedTransitionFence: bigint,
 ): Effect.fn.Return<Uint8Array, PhysicalDefinitionLifecycleCryptoError> {
   const canonical = JSON.stringify({
@@ -1324,6 +1533,87 @@ function queryEffect<Row>(
       cause,
     }),
   }));
+}
+
+interface LockedPhysicalDefinitionBindingSet {
+  readonly matchesPrepared: boolean;
+  readonly schemaVersionIds: ReadonlyArray<CatalogSchemaVersionId>;
+}
+
+function withCurrentBindingSetLockedEffect<Value, Failure>(
+  state: PreparedSubjectState,
+  work: (
+    bindingSet: LockedPhysicalDefinitionBindingSet,
+  ) => Effect.Effect<Value, Failure>,
+): Effect.Effect<
+  Value,
+  Failure |
+    PhysicalDefinitionLifecyclePersistenceError |
+    PhysicalDefinitionLifecycleBindingLimitError |
+    PhysicalDefinitionLifecycleCryptoError |
+    PhysicalDefinitionLifecycleConflictError |
+    PhysicalDefinitionLifecycleTransactionError
+> {
+  return runControlBindingTransactionEffect(state.controlDb, tx =>
+    Effect.gen(function* () {
+      const deploymentRows = yield* queryEffect("readBindings", () =>
+        tx.select({ deploymentId: deployments.deploymentId })
+          .from(deployments)
+          .where(eq(deployments.deploymentId, state.subject.deploymentId))
+          .limit(1)
+          .for("update")
+      );
+      if (deploymentRows[0] === undefined) {
+        return yield* Effect.fail(
+          new PhysicalDefinitionLifecycleConflictError({
+            reason: "storedStateInvalid",
+          }),
+        );
+      }
+      const bindingSet = yield* loadBindingSetEffect(
+        tx,
+        state.subject,
+        state.accessKind,
+      );
+      const matchesPrepared =
+        bytesEqualFullScan(bindingSet.sha256, state.bindingSetSha256) &&
+        sameSchemaVersionIds(
+          bindingSet.schemaVersionIds,
+          state.schemaVersionIds,
+        );
+      return yield* work(Object.freeze({
+        matchesPrepared,
+        schemaVersionIds: bindingSet.schemaVersionIds,
+      }));
+    })
+  );
+}
+
+function sameSchemaVersionIds(
+  left: ReadonlyArray<CatalogSchemaVersionId>,
+  right: ReadonlyArray<CatalogSchemaVersionId>,
+): boolean {
+  return left.length === right.length && left.every(
+    (schemaVersionId, index) => schemaVersionId === right[index],
+  );
+}
+
+function runControlBindingTransactionEffect<Value, Failure>(
+  db: FlarexMetadataDatabase,
+  work: (tx: FlarexMetadataTransaction) => Effect.Effect<Value, Failure>,
+): Effect.Effect<
+  Value,
+  Failure | PhysicalDefinitionLifecycleTransactionError
+> {
+  return runEffectTransaction(
+    callback => db.transaction(callback),
+    "Physical-definition control binding lock rolled back.",
+    work,
+    cause => new PhysicalDefinitionLifecycleTransactionError({
+      disposition: "decisionUncertain",
+      cause,
+    }),
+  );
 }
 
 interface StartedLocatedTransaction<Value, Failure> {

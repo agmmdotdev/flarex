@@ -99,6 +99,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_idempotency",
       "fx_system_index_build_state",
       "fx_system_outbox",
+      "fx_system_physical_definition_lifecycle",
       "fx_system_point_mutation_redelivery_scheduler",
       "fx_system_retained_history_scheduler",
       "fx_system_scope_clock",
@@ -263,15 +264,38 @@ describe("createPGlitePersistence", () => {
       );
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      await seedTaskComputeDeliverySchemaV1(previous, undefined, {
+      const seeded = await seedTaskComputeDeliverySchemaV1(previous, undefined, {
         principalSchema: false,
       });
+      await previous.query("set session_replication_role = replica");
+      try {
+        await previous.query(`
+          insert into fx_system_application_revision_schema_v1
+            (scope_id, revision_id, deployment_id,
+             application_schema_sha256, schema_version_id, schema_version,
+             schema_manifest_sha256, schema_binding_sha256)
+          values
+            ($1, 'apprev_task_store_v1', $2,
+             decode(repeat('61', 32), 'hex'), 'schema_task_store_v1', 1,
+             decode(repeat('62', 32), 'hex'), decode(repeat('63', 32), 'hex'))
+        `, [seeded.scopeId, seeded.deploymentId]);
+      } finally {
+        await previous.query("set session_replication_role = origin");
+      }
       await previous.query(`
         update fx_system_durable_task_run_v1
         set definition_generation = 'application_v1',
             task_definition_revision_id = null,
             application_task_runtime_target_sha256 =
-              decode(repeat('ab', 32), 'hex')
+              decode(repeat('ab', 32), 'hex'),
+            creation_authority_bytes = convert_to(
+              '{"authority":{"runtimeTarget":{"revisionId":"apprev_task_store_v1"}}}',
+              'UTF8'
+            ),
+            creation_authority_byte_length = octet_length(convert_to(
+              '{"authority":{"runtimeTarget":{"revisionId":"apprev_task_store_v1"}}}',
+              'UTF8'
+            ))
       `);
       await previous.query(`
         update fx_system_durable_task_compute_dispatch_v1
@@ -286,16 +310,19 @@ describe("createPGlitePersistence", () => {
       await current.migrate();
       await current.migrate();
       const upgraded = await current.query<{
+        application_revision_id: string | null;
         generation: string;
         codec: string | null;
         digest: Uint8Array | null;
       }>(`
-        select execution_principal_generation as generation,
+        select application_revision_id,
+               execution_principal_generation as generation,
                execution_principal_codec as codec,
                execution_principal_sha256 as digest
         from fx_system_durable_task_run_v1
       `);
       expect(upgraded.rows).toEqual([{
+        application_revision_id: "apprev_task_store_v1",
         generation: "legacy_absent",
         codec: null,
         digest: null,

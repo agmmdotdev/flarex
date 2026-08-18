@@ -21,16 +21,19 @@ import { describe, expect, it } from "vitest";
 import {
   InvalidPreparedPhysicalDefinitionLifecycleSubjectError,
   PhysicalDefinitionLifecycleConflictError,
+  PhysicalDefinitionLifecycleDefinitionNotRetireableError,
   PhysicalDefinitionLifecycleFaultError,
   beginPhysicalDefinitionDrainingEffect,
   cancelPhysicalDefinitionDrainingEffect,
   createPhysicalDefinitionLifecyclePort,
+  finalizePhysicalDefinitionRetirementEffect,
   inspectPhysicalDefinitionLifecycleEffect,
   preparePhysicalDefinitionLifecycleReadinessEffect,
   preparePhysicalDefinitionLifecycleSubjectEffect,
   validatePhysicalDefinitionLifecycleReadinessInTransactionEffect,
   type PreparedPhysicalDefinitionLifecycleSubject,
 } from "../src/physicalDefinitionLifecycle";
+import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { loadPublishedPhysicalRequirementSnapshotV1 } from
   "../src/indexBuildReconciliation";
 import { loadAppUniqueConstraintSetEligibilityForReadinessV1Effect } from
@@ -132,6 +135,12 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       result.lifecycle.transitionFence === 3n
     )).toBe(true);
     const persisted = concurrent[0]!.lifecycle;
+    await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
+      prepared,
+      { expectedTransitionFence: 3n },
+    ))).resolves.toBeInstanceOf(
+      PhysicalDefinitionLifecycleDefinitionNotRetireableError,
+    );
 
     await fixture.target.query(
       `update fx_system_physical_definition_lifecycle
@@ -385,6 +394,30 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
         lifecycle: "draining",
       },
     });
+    await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
+      prepared,
+      { expectedTransitionFence: 1n },
+    ))).resolves.toMatchObject({
+      _tag: "PhysicalDefinitionLifecyclePinnedError",
+      pin: {
+        owner: "active_application",
+        schemaVersionId: fixture.active.basis.schemaVersionId,
+      },
+    });
+    await fixture.target.query(
+      `delete from fx_system_application_active_head_v1 where scope_id = $1`,
+      [fixture.authority.scopeId],
+    );
+    await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
+      prepared,
+      { expectedTransitionFence: 1n },
+    ))).resolves.toMatchObject({
+      _tag: "PhysicalDefinitionLifecyclePinnedError",
+      pin: {
+        owner: "candidate_validation",
+        schemaVersionId: fixture.active.basis.schemaVersionId,
+      },
+    });
     const requirements = await runEffect(
       loadPublishedPhysicalRequirementSnapshotV1(
         fixture.control.drizzle,
@@ -466,6 +499,132 @@ describe("M05-B1 physical-definition lifecycle", { timeout: 180_000 }, () => {
       definitionId: uniqueConstraintDefinitionId,
       lifecycle: "draining",
     });
+
+    await fixture.target.query(
+      `delete from fx_system_app_schema_candidate_validation where scope_id = $1`,
+      [fixture.authority.scopeId],
+    );
+    await fixture.control.query(
+      `insert into fx_control_schema_version
+         (deployment_id, schema_version_id, version, manifest_codec_version,
+          manifest_json, manifest_bytes, manifest_sha256)
+       select deployment_id, 'schema_m05_b3_stale_binding', version + 1000,
+              manifest_codec_version, manifest_json, manifest_bytes,
+              manifest_sha256
+         from fx_control_schema_version
+        where deployment_id = $1 and schema_version_id = $2`,
+      [fixture.deploymentId, fixture.active.basis.schemaVersionId],
+    );
+    await fixture.control.query(
+      `insert into fx_control_schema_version_unique_constraint_binding
+         (deployment_id, schema_version_id, logical_unique_constraint_id,
+          unique_constraint_definition_id, required_for_activation)
+       values ($1, 'schema_m05_b3_stale_binding', 9001, $2, true)`,
+      [fixture.deploymentId, uniqueConstraintDefinitionId],
+    );
+    await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
+      prepared,
+      { expectedTransitionFence: 1n },
+    ))).resolves.toMatchObject({
+      _tag: "PhysicalDefinitionLifecycleConflictError",
+      reason: "storedStateInvalid",
+    });
+    await expect(runEffect(inspectPhysicalDefinitionLifecycleEffect(prepared)))
+      .resolves.toMatchObject({
+        status: "persisted",
+        lifecycle: { lifecycle: "draining", transitionFence: 1n },
+      });
+    await fixture.control.query(
+      `delete from fx_control_schema_version_unique_constraint_binding
+        where deployment_id = $1
+          and schema_version_id = 'schema_m05_b3_stale_binding'`,
+      [fixture.deploymentId],
+    );
+    await fixture.control.query(
+      `delete from fx_control_schema_version
+        where deployment_id = $1
+          and schema_version_id = 'schema_m05_b3_stale_binding'`,
+      [fixture.deploymentId],
+    );
+    await expect(runEffect(finalizePhysicalDefinitionRetirementEffect(
+      prepared,
+      { expectedTransitionFence: 1n },
+      { faultAfterWrite: () => { throw new Error("rollback M05-B3"); } },
+    ))).rejects.toBeInstanceOf(PhysicalDefinitionLifecycleFaultError);
+    await expect(runEffect(inspectPhysicalDefinitionLifecycleEffect(prepared)))
+      .resolves.toMatchObject({
+        status: "persisted",
+        lifecycle: { lifecycle: "draining", transitionFence: 1n },
+      });
+    const originalControlTransaction =
+      fixture.control.drizzle.transaction.bind(fixture.control.drizzle);
+    const lostSettlementTransaction = <Value>(
+      callback: (tx: FlarexMetadataTransaction) => Promise<Value>,
+    ) => originalControlTransaction(callback).then(() => {
+      throw new Error("lost M05-B3 control transaction response");
+    });
+    Reflect.set(
+      fixture.control.drizzle,
+      "transaction",
+      lostSettlementTransaction,
+    );
+    try {
+      await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(
+        prepared,
+        { expectedTransitionFence: 1n },
+      ))).resolves.toMatchObject({
+        _tag: "PhysicalDefinitionLifecycleTransactionError",
+        disposition: "decisionUncertain",
+      });
+    } finally {
+      Reflect.set(
+        fixture.control.drizzle,
+        "transaction",
+        originalControlTransaction,
+      );
+    }
+    await expect(runEffect(inspectPhysicalDefinitionLifecycleEffect(prepared)))
+      .resolves.toMatchObject({
+        status: "persisted",
+        lifecycle: { lifecycle: "retired", transitionFence: 2n },
+      });
+    await fixture.control.query(
+      `insert into fx_control_schema_version
+         (deployment_id, schema_version_id, version, manifest_codec_version,
+          manifest_json, manifest_bytes, manifest_sha256)
+       select deployment_id, 'schema_m05_b3_stale_binding', version + 1000,
+              manifest_codec_version, manifest_json, manifest_bytes,
+              manifest_sha256
+         from fx_control_schema_version
+        where deployment_id = $1 and schema_version_id = $2`,
+      [fixture.deploymentId, fixture.active.basis.schemaVersionId],
+    );
+    await fixture.control.query(
+      `insert into fx_control_schema_version_unique_constraint_binding
+         (deployment_id, schema_version_id, logical_unique_constraint_id,
+          unique_constraint_definition_id, required_for_activation)
+       values ($1, 'schema_m05_b3_stale_binding', 9001, $2, true)`,
+      [fixture.deploymentId, uniqueConstraintDefinitionId],
+    );
+    await expect(runEffect(finalizePhysicalDefinitionRetirementEffect(
+      prepared,
+      { expectedTransitionFence: 1n },
+    ))).resolves.toMatchObject({
+      disposition: "replayed",
+      lifecycle: { lifecycle: "retired", transitionFence: 2n },
+    });
+    await fixture.control.query(
+      `delete from fx_control_schema_version_unique_constraint_binding
+        where deployment_id = $1
+          and schema_version_id = 'schema_m05_b3_stale_binding'`,
+      [fixture.deploymentId],
+    );
+    await fixture.control.query(
+      `delete from fx_control_schema_version
+        where deployment_id = $1
+          and schema_version_id = 'schema_m05_b3_stale_binding'`,
+      [fixture.deploymentId],
+    );
 
     const emptyUniqueSet = await canonicalizeAppUniqueConstraintSetV1([]);
     await fixture.control.query(

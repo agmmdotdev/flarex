@@ -20,10 +20,27 @@ describePostgres("DTE06-F0 Task execution principal schema - PostgreSQL", () => 
       `, [seeded.scopeId, TASK_RUN_ID]);
       expect(legacy.rows).toEqual([{ generation: "not_applicable" }]);
 
+      await persistence.query("set session_replication_role = replica");
+      try {
+        await persistence.query(`
+          insert into fx_system_application_revision_schema_v1
+            (scope_id, revision_id, deployment_id, application_schema_sha256,
+             schema_version_id, schema_version, schema_manifest_sha256,
+             schema_binding_sha256)
+          values
+            ($1, 'apprev_task_principal_v1', $2,
+             decode(repeat('61', 32), 'hex'), 'schema_task_principal_v1', 1,
+             decode(repeat('62', 32), 'hex'),
+             decode(repeat('63', 32), 'hex'))
+        `, [seeded.scopeId, seeded.deploymentId]);
+      } finally {
+        await persistence.query("set session_replication_role = origin");
+      }
       await persistence.query(`
         update fx_system_durable_task_run_v1
         set definition_generation = 'application_v1',
             task_definition_revision_id = null,
+            application_revision_id = 'apprev_task_principal_v1',
             application_task_runtime_target_sha256 =
               decode(repeat('ab', 32), 'hex'),
             execution_principal_generation = 'legacy_absent'

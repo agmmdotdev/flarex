@@ -23,10 +23,12 @@ retirement gates with the current Application mutation, action, durable-task,
 and O11 owners. `M05-B1-P` corrects the retirement authority to a scope-local
 physical-availability lifecycle and freezes its minimal additive storage shape.
 The preflights add no authority. `M05-B1` adds only the production-unwired
-scope-local current authority and its reversible draining operations.
+scope-local current authority and its reversible draining operations. Private
+`M05-B2` composes that lifecycle into readiness/admission, and private
+`M05-B3` adds exact current-pin inspection plus fenced finalization.
 It remains private and production-inert: no public route, CLI, deployment
-caller, trigger, enabled-definition retirement, physical/evidence purge, or
-production generation cut is authorized by this roadmap.
+caller, or trigger executes retirement in production, and no physical/evidence
+purge or production generation cut is authorized by this roadmap.
 
 ## Decision
 
@@ -1123,8 +1125,9 @@ runtime records remain the evidence owners. A later measured audit requirement
 may justify separate transition history, but it is not part of M05-B1.
 
 The row lives beside the scope clock and build state in the target database.
-Every transition takes the scope-clock update lock first and then the exact
-retirement row, preserving the established scope transaction order. Because
+Every target-side transition takes the scope-clock update lock first and then
+the exact retirement row, preserving the established scope transaction order.
+Because
 the immutable definition lives in the possibly separate control database, no
 cross-database foreign key or duplicated definition body is allowed. A
 control-side preparation step must authenticate the exact deployment,
@@ -1132,6 +1135,17 @@ definition kind/ID, physical-spec digest, and current schema bindings into an
 opaque process-local claim; the target transaction rechecks the claim's scope
 authority pins before mutation. Callers never choose an unauthenticated numeric
 definition ID.
+
+Final retirement also freezes the definition's control-side binding set. It
+first takes the control deployment update lock used by schema-binding writers,
+then takes the target scope-clock update lock and lifecycle row. No M05-B3 path
+takes those locks in the reverse order. A binding-set change makes the prepared
+subject stale and refuses every new finalization transition; cancellation
+followed by fresh preparation/draining is the explicit recovery. The target
+transaction checks an exact stored-request replay before that current-set
+comparison, so a retirement that committed but lost its outer control-
+transaction response remains recoverable even if a later binding writer
+legitimately changes the deployment-wide set.
 
 Content-addressed catalog definitions may be reused by a later schema, so
 `retired` cannot mean permanently forbidden. Reuse must enter
@@ -1166,10 +1180,29 @@ The ordered implementation path is:
    share the coherent active-selection fence; make readiness/reactivation
    consume the retirement lifecycle, and correct only an evidenced admission
    gap at its owning boundary.
-3. `M05-B3` - add bounded indexed per-scope pin inspectors for active/
-   candidate selection, mutation sessions, actions, durable tasks, O11 leases,
-   and any then-supported resumable adapter, then finalize only when every
-   inspector is clear.
+3. `M05-B3` - **complete and private**: add bounded indexed
+   per-scope pin inspectors for active/candidate selection, mutation sessions,
+   actions, durable tasks, and O11 leases, then finalize only when every
+   inspector is clear. The finalizer is one private operation on the existing
+   lifecycle owner; it takes the scope-clock update lock, reauthenticates the
+   exact draining row, consumes the exact prepared immutable binding set, runs
+   the inspectors, and only then performs the fenced `draining -> retired`
+   write in that transaction.
+   Developer-index and unique-constraint definitions are eligible. The
+   intrinsic creation-time index is table-runtime infrastructure rather than a
+   removable schema declaration and therefore fails closed as non-retireable.
+   Every in-process Application query database operation takes the scope-clock
+   share lock and revalidates its active selection. The finalizer's update lock
+   therefore waits for an active database operation; an idle snapshot holds no
+   database lock and its next operation must fail revalidation after retirement.
+   This preserves the existing query owner without inventing another lease
+   registry. Migration `0068` adds the owner-local Application revision
+   projection missing from durable-task
+   run rows plus only the supporting indexes needed to make each
+   persisted existence check bounded. The projection must be backfilled and
+   correlated with the run's canonical creation authority; they are not a copied
+   retirement registry. The migration may not add separate pin state or a
+   second authority owner.
 4. `M05-B4` - compose one manual private coordinator that begins draining,
    performs one bounded scope-local step, and finalizes only after an exact
    cold-replayable recheck. No timer, cron, queue, route, or automatic trigger is
@@ -1197,6 +1230,30 @@ selection, and M05-B2 records connected regression evidence for that shared
 fence. It adds no `draining -> retired` transition, pin inspector, deletion,
 timer, cron, queue, route, or public API. Reactivation remains representable
 but unreachable until its later build/readiness authority is approved.
+
+`M05-B3` treats the current persisted owner set as closed for this
+checkpoint. A mutation session is a pin only while its Application generation
+is nonterminal and its authenticated schema version binds the subject. A
+direct action is a pin only while its Application invocation is `admitted` or
+`executing`. An Application durable-task run is a pin until its authoritative
+aggregate reaches `terminal`; the bounded task directory is keyed by that
+canonical aggregate phase rather than its mutable scheduling projection, and
+every missing or unrecognized aggregate phase enters the bounded decoder and
+fails closed as corruption rather than being mistaken for terminal. A
+live O11 snapshot lease is checked through its
+owning Application mutation session; a canonically valid legacy-session lease
+does not pin an Application physical definition. The active Application head
+and current candidate-validation head remain unconditional selection pins when their
+schema binds the subject. Terminal rows and immutable readiness, activation,
+task, action, and commit evidence remain retained but do not pin execution.
+Any stored identity/canonical-evidence disagreement encountered by an
+inspector is corruption and refuses retirement; every directory query returns
+at most 33 indexed candidates, validates no more than the admitted 32 per
+owner, and refuses above that ceiling rather than silently skipping work.
+Populated upgrade and malformed-row
+rollback are proved in PGlite and genuine PostgreSQL, and the finalizer proves
+pin refusal, rollback, exact replay, and the successful fenced transition. No
+scheduler, coordinator, deletion, or purge is part of this slice.
 
 `M05-C` remains a later, separately approved dependency-ordered, bounded,
 resumable physical purge. It still requires explicit immutable-evidence and R2
@@ -1284,9 +1341,10 @@ These are separate later goals, not one giant deployment goal:
 15. `M05-B2` - **complete and private**: compose lifecycle eligibility into
     readiness/activation and prove the existing mutation, action, and durable-
     task active-selection fence. Final retirement and cleanup remain later.
-16. `M05-B3` - **next, not started**: add bounded exact pin inspectors and the
-    proof-bearing `draining -> retired` finalization gate. It remains manual and
-    private; no scheduler, timer, route, deletion, or physical purge is implied.
+16. `M05-B3` - **complete and private**: bounded exact pin inspectors and the
+    proof-bearing `draining -> retired` finalization gate are implemented. It
+    remains manual and private; no scheduler, timer, route, deletion, or
+    physical purge is implied.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema

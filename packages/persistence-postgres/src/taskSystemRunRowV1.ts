@@ -48,6 +48,7 @@ export function decodeAndCorrelateTaskSystemRunRowV1(
   return Result.gen(function* () {
     if (
       row.taskDefinitionRevisionId === null
+      || row.applicationRevisionId !== null
       || row.applicationTaskRuntimeTargetSha256 !== null
     ) return yield* Result.fail("binding_reference_invalid" as const);
     const aggregate = yield* decodePersistedTaskRunAttemptAggregateJsonV1(
@@ -96,6 +97,7 @@ function decodeAndCorrelateApplicationRunRow(
     const projection = projectApplicationTaskRunAttemptPersistenceV1(aggregate);
     if (
       row.taskDefinitionRevisionId !== null
+      || row.applicationRevisionId === null
       || row.applicationTaskRuntimeTargetSha256 === null
       || row.aggregateByteLength !== encodedJsonByteLength(encoded)
       || aggregate.runId !== row.runId

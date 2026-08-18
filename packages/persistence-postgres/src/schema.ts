@@ -2032,6 +2032,10 @@ export const fxSystemTransactionSessions = pgTable(
         table.attemptFence,
       )
       .where(sql`${table.lifecycle} = 'finishing'`),
+    index("fx_system_tx_session_application_retirement_pin_idx")
+      .on(table.scopeUuid, table.sessionId)
+      .where(sql`${table.executionAuthorityGeneration} = 'application_v1'
+        and ${table.lifecycle} in ('created', 'running', 'finishing', 'committing', 'retrying')`),
     check(
       "fx_system_tx_session_generation_check",
       sql`${table.storageGeneration} = 'flarexdb_v1'`,
@@ -2204,6 +2208,11 @@ export const fxSystemSnapshotLeases = pgTable(
       table.leaseExpiresAt,
     ),
     index("fx_system_snapshot_lease_expiry_idx").on(table.leaseExpiresAt),
+    index("fx_system_snapshot_lease_retirement_pin_idx").on(
+      table.scopeUuid,
+      table.leaseExpiresAt,
+      table.sessionId,
+    ),
     check(
       "fx_system_snapshot_lease_attempt_fence_check",
       sql`${table.attemptFence} >= 1`,
@@ -6708,6 +6717,13 @@ export const fxSystemApplicationActionInvocationsV1 = pgTable(
       table.scopeUuid,
       table.invocationId,
     ),
+    index("fx_action_invocation_v1_application_retirement_pin_idx")
+      .on(
+        table.scopeId,
+        table.requestKey,
+      )
+      .where(sql`${table.executionAuthorityGeneration} = 'application_v1'
+        and ${table.lifecycle} in ('admitted', 'executing')`),
     foreignKey({
       name: "fx_action_invocation_v1_scope_fk",
       columns: [table.scopeId],
@@ -7133,6 +7149,7 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
       .notNull(),
     taskDefinitionRevisionId: text("task_definition_revision_id")
       .$type<TaskDefinitionRevisionIdV1>(),
+    applicationRevisionId: text("application_revision_id"),
     applicationTaskRuntimeTargetSha256: bytea(
       "application_task_runtime_target_sha256",
     ).$type<ApplicationTaskRuntimeTargetSha256V1>(),
@@ -7213,18 +7230,32 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
         fxSystemDurableTaskDefinitionRevisionsV1.taskDefinitionRevisionId,
       ],
     }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_task_run_v1_application_revision_fk",
+      columns: [table.scopeId, table.applicationRevisionId],
+      foreignColumns: [
+        fxSystemApplicationRevisionSchemasV1.scopeId,
+        fxSystemApplicationRevisionSchemasV1.revisionId,
+      ],
+    }).onDelete("restrict"),
     index("fx_task_run_v1_due_discovery_idx").on(
       table.scopeId,
       table.dueKind,
       table.dueAtMs,
       table.runId,
     ).where(sql`${table.dueKind} is not null`),
+    index("fx_task_run_v1_application_retirement_pin_idx")
+      .on(table.scopeId, table.runId)
+      .where(sql`${table.definitionGeneration} = 'application_v1'
+        and (${table.aggregateJson} #>> '{aggregate,phase}')
+          is distinct from 'terminal'`),
     check(
       "fx_task_run_v1_identity_check",
       sql`${table.runId} ~ '^run_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
         and ((${table.definitionGeneration} = 'legacy_definition_v1'
               and ${table.taskDefinitionRevisionId} is not null
               and ${table.taskDefinitionRevisionId} ~ '^taskdef_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+              and ${table.applicationRevisionId} is null
               and ${table.applicationTaskRuntimeTargetSha256} is null
               and ${table.executionPrincipalGeneration} = 'not_applicable'
               and ${table.executionPrincipalKind} is null
@@ -7237,6 +7268,9 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
               and ${table.executionPrincipalRetention} is null)
           or (${table.definitionGeneration} = 'application_v1'
               and ${table.taskDefinitionRevisionId} is null
+              and ${table.applicationRevisionId} is not null
+              and ${nonBlankText(table.applicationRevisionId)}
+              and octet_length(convert_to(${table.applicationRevisionId}, 'UTF8')) <= 2048
               and ${table.applicationTaskRuntimeTargetSha256} is not null
               and octet_length(${table.applicationTaskRuntimeTargetSha256}) = 32
               and ((${table.executionPrincipalGeneration} = 'legacy_absent'

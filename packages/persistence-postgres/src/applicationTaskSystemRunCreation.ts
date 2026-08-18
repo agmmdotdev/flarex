@@ -597,6 +597,7 @@ async function transactApplicationCreation(
     runId,
     definitionGeneration: "application_v1",
     taskDefinitionRevisionId: null,
+    applicationRevisionId: metadata.target.revisionId,
     applicationTaskRuntimeTargetSha256: runtimeTargetDigest(
       copyBytes(metadata.runtimeTargetSha256),
     ),
@@ -717,6 +718,7 @@ async function replayCreation(
   );
   if (authority.scopeId !== scopeId
     || authority.runtimeTarget.scopeId !== scopeId
+    || run.applicationRevisionId !== authority.runtimeTarget.revisionId
     || !bytesEqual(
       authority.applicationTaskRuntimeTargetSha256,
       prepared.request.applicationTaskRuntimeTargetSha256,
@@ -793,6 +795,7 @@ function runMatches(run: RunRow, prepared: PreparedCreationEvidence): boolean {
   const principal = prepared.request.principal;
   return run.definitionGeneration === "application_v1"
     && run.taskDefinitionRevisionId === null
+    && run.applicationRevisionId !== null
     && run.applicationTaskRuntimeTargetSha256 !== null
     && bytesEqual(
       run.applicationTaskRuntimeTargetSha256,

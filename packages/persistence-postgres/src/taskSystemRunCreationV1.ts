@@ -505,6 +505,7 @@ async function transactCreationOnce(
     runId,
     definitionGeneration: "legacy_definition_v1",
     taskDefinitionRevisionId: prepared.request.taskDefinitionRevisionId,
+    applicationRevisionId: null,
     applicationTaskRuntimeTargetSha256: null,
     createdAtMs: BigInt(createdAtMs),
     inputCodec: prepared.request.input.codec,
