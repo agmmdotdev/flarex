@@ -57,6 +57,7 @@ export {
   fxSystemExternalEffectAttemptsV1,
   fxSystemIdempotency,
   fxSystemIndexBuildStates,
+  fxSystemPhysicalDefinitionLifecycles,
   fxSystemOutbox,
   fxSystemPointMutationRedeliveryScheduler,
   fxSystemRetainedHistoryScheduler,

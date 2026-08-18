@@ -597,6 +597,11 @@ export const fxControlSchemaVersionIndexBindings = pgTable(
         table.logicalIndexId,
       ],
     }),
+    index("fx_control_schema_index_binding_definition_lookup_idx").on(
+      table.deploymentId,
+      table.indexDefinitionId,
+      table.schemaVersionId,
+    ),
     foreignKey({
       name: "fx_control_schema_index_binding_schema_fk",
       columns: [table.deploymentId, table.schemaVersionId],
@@ -832,6 +837,13 @@ export const fxControlSchemaVersionUniqueConstraintBindings = pgTable(
         table.logicalUniqueConstraintId,
       ],
     }),
+    index(
+      "fx_control_schema_unique_binding_definition_lookup_idx",
+    ).on(
+      table.deploymentId,
+      table.uniqueConstraintDefinitionId,
+      table.schemaVersionId,
+    ),
     foreignKey({
       name: "fx_control_schema_unique_constraint_binding_schema_fk",
       columns: [table.deploymentId, table.schemaVersionId],
@@ -3497,6 +3509,106 @@ export const fxSystemIndexBuildStates = pgTable(
     check(
       "fx_system_index_build_timestamp_order_check",
       sql`${table.updatedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+export type PhysicalDefinitionLifecycleKindV1 =
+  | "index"
+  | "unique_constraint";
+export type PhysicalDefinitionLifecycleV1 =
+  | "active"
+  | "draining"
+  | "retired"
+  | "reactivating";
+
+/**
+ * Scope-local availability authority for one immutable control definition.
+ *
+ * Absence means the subject has never entered retirement and remains active.
+ * The immutable definition body and schema bindings stay in the control
+ * catalog, so this target-local row intentionally has no cross-database FK.
+ */
+export const fxSystemPhysicalDefinitionLifecycles = pgTable(
+  "fx_system_physical_definition_lifecycle",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    deploymentId: text("deployment_id").notNull(),
+    definitionKind: text("definition_kind")
+      .$type<PhysicalDefinitionLifecycleKindV1>()
+      .notNull(),
+    definitionId: integer("definition_id").notNull(),
+    lifecycle: text("lifecycle")
+      .$type<PhysicalDefinitionLifecycleV1>()
+      .notNull(),
+    transitionFence: bigint("transition_fence", { mode: "bigint" }).notNull(),
+    physicalSpecSha256: bytea("physical_spec_sha256").notNull(),
+    requestCodecVersion: integer("request_codec_version").notNull(),
+    requestSha256: bytea("request_sha256").notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_physical_definition_lifecycle_pk",
+      columns: [table.scopeId, table.definitionKind, table.definitionId],
+    }),
+    foreignKey({
+      name: "fx_system_physical_definition_lifecycle_scope_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    check(
+      "fx_system_physical_definition_lifecycle_scope_check",
+      nonBlankText(table.scopeId),
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_deployment_check",
+      nonBlankText(table.deploymentId),
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_kind_check",
+      sql`${table.definitionKind} in ('index', 'unique_constraint')`,
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_definition_check",
+      sql`${table.definitionId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_state_check",
+      sql`${table.lifecycle} in ('active', 'draining', 'retired', 'reactivating')`,
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_fence_check",
+      sql`${table.transitionFence} >= 1`,
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_digest_check",
+      sql`octet_length(${table.physicalSpecSha256}) = 32
+        and ${table.requestCodecVersion} = 1
+        and octet_length(${table.requestSha256}) = 32`,
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_authority_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'
+        and ${table.storageGenerationFence} >= 1
+        and ${nonBlankText(table.epoch)}`,
+    ),
+    check(
+      "fx_system_physical_definition_lifecycle_time_check",
+      sql`isfinite(${table.createdAt}) and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}`,
     ),
   ],
 );
@@ -8099,6 +8211,7 @@ export const flarexSchema = {
   fxSystemDurableTaskRunRequestsV1,
   fxSystemDurableTaskRunsV1,
   fxSystemIndexBuildStates,
+  fxSystemPhysicalDefinitionLifecycles,
   fxSystemAppSchemaCandidateValidations,
   fxSystemUniqueConstraintSetBuilds,
   fxSystemExternalEffectAttemptsV1,

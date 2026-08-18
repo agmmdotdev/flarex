@@ -237,6 +237,28 @@ export type ReadAppUniqueConstraintDefinitionV1Error =
   | AppUniqueConstraintCatalogCorruptionError
   | AppUniqueConstraintCatalogPersistenceError;
 
+/** Read and fully verify one immutable physical definition by exact ID. */
+export const getAppUniqueConstraintDefinitionByIdEffect = Effect.fn(
+  "AppUniqueConstraintDefinitions.getById",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  uniqueConstraintDefinitionId: CatalogUniqueConstraintDefinitionId,
+): Effect.fn.Return<
+  AppUniqueConstraintDefinitionRecordV1 | null,
+  ReadAppUniqueConstraintDefinitionV1Error
+> {
+  const rows = yield* queryEffect("readDefinitionById", () =>
+    db.select().from(fxControlUniqueConstraintDefinitions).where(and(
+      eq(fxControlUniqueConstraintDefinitions.deploymentId, deploymentId),
+      eq(
+        fxControlUniqueConstraintDefinitions.uniqueConstraintDefinitionId,
+        uniqueConstraintDefinitionId,
+      ),
+    )).limit(1));
+  return rows[0] === undefined ? null : yield* decodeDefinitionRow(rows[0]);
+});
+
 /** Verified canonical members of one schema version's current binding set. */
 export const listAppUniqueConstraintDefinitionSetMembersV1Effect = Effect.fn(
   "AppUniqueConstraintDefinitions.listSetMembers",
@@ -880,11 +902,12 @@ function decodeIdentityRow(row: typeof fxControlUniqueConstraints.$inferSelect) 
   });
 }
 
-function decodeDefinitionRow(
+const decodeDefinitionRow = Effect.fn(
+  "AppUniqueConstraintDefinitions.decodeDefinitionRow",
+)(function* (
   row: typeof fxControlUniqueConstraintDefinitions.$inferSelect,
   expected?: CanonicalAppUniqueConstraintPhysicalSpecV1,
 ) {
-  return Effect.gen(function* () {
     const uniqueConstraintDefinitionId = yield* Effect.fromResult(
       decodeDefinitionIdResult(row.uniqueConstraintDefinitionId).pipe(
         Result.mapError((cause) => corruption("invalid definition ID", cause)),
@@ -936,8 +959,7 @@ function decodeDefinitionRow(
       physicalSpecSha256Hex: canonical.sha256Hex,
       createdAt,
     } satisfies AppUniqueConstraintDefinitionRecordV1);
-  });
-}
+});
 
 function markLocatedDefinition(
   scopeId: ScopeId,

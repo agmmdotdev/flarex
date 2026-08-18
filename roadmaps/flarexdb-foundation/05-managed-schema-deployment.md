@@ -14,15 +14,16 @@ and matching PGlite plus genuine-PostgreSQL schema-B proofs, so the private
 checkpoint is complete. `M04-C` now provides the private `flarex-dev` adapter
 and shared detached JSON projection, with the same connected schema-B proof in
 PGlite and genuine PostgreSQL. `M05-P`, private `M05-A`, private `M05-A2`,
-the docs-only `M05-B0`, and the docs-only `M05-B1-P` storage preflight are
-complete: the accepted retirement boundary is
+the docs-only `M05-B0`, the docs-only `M05-B1-P` storage preflight, and private
+`M05-B1` storage authority are complete: the accepted retirement boundary is
 explicit, one exact non-enabled unique-set build workspace can be reclaimed
 without retiring physical authority, and authenticated candidate supersession
 now performs that narrow reclamation atomically. `M05-B0` reconciled logical-
 retirement gates with the current Application mutation, action, durable-task,
 and O11 owners. `M05-B1-P` corrects the retirement authority to a scope-local
 physical-availability lifecycle and freezes its minimal additive storage shape.
-Neither preflight adds retirement authority or storage.
+The preflights add no authority. `M05-B1` adds only the production-unwired
+scope-local current authority and its reversible draining operations.
 It remains private and production-inert: no public route, CLI, deployment
 caller, trigger, enabled-definition retirement, physical/evidence purge, or
 production generation cut is authorized by this roadmap.
@@ -1141,17 +1142,23 @@ silently clearing `retired` is forbidden. Cancelling `draining` back to
 `active` is an explicit fenced transition and is safe only because M05-B
 deletes nothing.
 
-The migration remains unapproved implementation work. At implementation time it
-must use the then-next migration number, add only this target-local current
-authority and its exact constraints/indexes, preserve populated upgrades, and
-prove fresh install, upgrade, replay, corruption refusal, rollback, concurrent
-transition, split control/target composition, and non-public-schema behavior on
-PGlite and genuine PostgreSQL. This preflight does not reserve a migration
-number and does not modify the concurrently evolving task-runtime schema.
+`M05-B1` implements this storage in additive migration `0067`. The private
+persistence owner authenticates the complete immutable physical-definition
+evidence, the bounded current schema-binding set, and exact located scope
+authority into an opaque process-local subject. It exposes read-only inspection
+plus only `active -> draining` and `draining -> active`; `retired` and
+`reactivating` are representable storage states but remain unreachable without
+the later proof-bearing `M05-B2`/`M05-B3` authorities. Exact requests bind the
+subject, binding-set commitment, scope, operation, and expected transition
+fence. PGlite and genuine PostgreSQL coverage proves fresh and populated
+upgrade, replay, corruption refusal, rollback, concurrent transition, split
+control/target composition, non-public-schema behavior, and index-backed
+bounded binding enumeration for both definition kinds. No task-runtime
+schema, readiness/runtime consumer, cleanup, trigger, or route is changed.
 
 The ordered implementation path is:
 
-1. `M05-B1` - implement only the additive scope-local current lifecycle,
+1. `M05-B1` - **complete and production-unwired**: implement only the additive scope-local current lifecycle,
    opaque exact-definition preparation, fenced transitions, and read-only
    inspection. It remains private, unwired from readiness/runtime admission,
    and performs no physical deletion.
