@@ -1,6 +1,7 @@
 # Preflight 43: Task Context Principal And Query Callback
 
-Status: Draft; approval required before implementation.
+Status: Approved; persisted principal reference and run binding implemented,
+launch reconstruction and the Worker query callback remain pending.
 
 This preflight owns the next DTE06-F0A core-runtime checkpoint. It does not
 authorize observability APIs, UI work, mutation callbacks, outbound I/O,
@@ -11,21 +12,24 @@ resource mutation.
 
 The shared Application query execution core and the backend-private
 `ApplicationTaskQueryAuthority` now exist. The remaining Task-to-query path is
-not merely an RPC adapter, because the current durable run chain has no
-authenticated execution principal to bind across retry and takeover.
+not merely an RPC adapter. This checkpoint has added the authenticated-user
+principal reference to new Application Task creation requests and run rows,
+but launch does not yet reconstruct it and the Worker receives no callback.
 
-Current Application Task run creation contains only:
+Before this checkpoint, Application Task run creation contained only:
 
 - the idempotent request key;
 - the Application runtime-target digest; and
 - the immutable Task input reference.
 
-The creation authority authenticates the active Application head and runtime
-target. The run row, requested effect, compute dispatch, launch subject, and
-Worker session preserve Task/run/attempt/fence/cancellation identity, but none
-of them owns an authenticated user or system principal. The current
-Application Task Worker invokes the task handler with `task(payload)` and
-projects no context callback.
+The creation authority already authenticated the active Application head and
+runtime target. New Application Task requests now also hash and persist one
+`authenticated_user` principal reference. Pre-existing private Application
+runs are marked `legacy_absent` and must fail closed at the future launch gate;
+Legacy Task rows remain `not_applicable`. The requested effect, compute
+dispatch, launch subject, and Worker session do not yet reconstruct this
+reference. The current Application Task Worker still invokes the task handler
+with `task(payload)` and projects no context callback.
 
 Therefore the host cannot truthfully construct authenticated `ctx.runQuery`
 from current persisted evidence. Provider execution identity, run ID, scope,
@@ -34,9 +38,9 @@ request identity is explicitly forbidden.
 
 ## Accepted Direction To Approve
 
-The durable Task owner should add one immutable, authenticated execution-
+The durable Task owner has added one immutable, authenticated execution-
 principal reference to Application Task run creation. The reference, not raw
-caller input, becomes part of the hashed creation request and replay contract.
+caller input, is part of the hashed creation request and replay contract.
 At minimum it must bind:
 
 - a concrete principal kind;
@@ -133,7 +137,7 @@ effect/ordinal/replay contract and cannot reuse foreground Action callbacks.
 
 ## Stop Boundary
 
-Approval of this preflight would authorize only the persisted Task-principal
+Approval of this preflight authorizes only the persisted Task-principal
 contract, its exact launch reconstruction, the read-only query callback ABI,
 and private connected proof. It would not authorize the deferred capabilities
 or any production activation.

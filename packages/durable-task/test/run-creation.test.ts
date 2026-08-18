@@ -15,8 +15,11 @@ import { makeTaskRunCreationInitialAggregateV1 } from
   "../src/runCreation/InitialAggregate.js";
 import {
   MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+  MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+  TASK_EXECUTION_PRINCIPAL_OBJECT_KEY_PREFIX_V1,
   TASK_INPUT_OBJECT_KEY_PREFIX_V1,
   type ApplicationTaskRunCreationRequestV1,
+  type TaskExecutionPrincipalReferenceV1,
   type TaskInputReferenceV1,
   type TaskRunCreationRequestKeyV1,
   type TaskRunCreationRequestV1,
@@ -25,11 +28,13 @@ import {
   decodeApplicationTaskRunCreationReceiptV1,
   decodeApplicationTaskRunCreationRequestV1,
   decodeTaskDefinitionReference,
+  decodeTaskExecutionPrincipalReferenceV1,
   decodeTaskInputReferenceV1,
   decodeTaskRunCreationReceiptV1,
   decodeTaskRunCreationRequestKeyV1,
   decodeTaskRunCreationRequestV1,
   makeTaskInputReferenceV1,
+  makeTaskExecutionPrincipalReferenceV1,
 } from "../src/runCreation/Schema.js";
 import {
   COMPUTE_SMALL,
@@ -112,6 +117,49 @@ describe("durable task run creation V1", () => {
       ...reference,
       bucket: "caller-selected",
     }))).toMatchObject({ reason: "invalid_input_reference" });
+  });
+
+  it("derives and owns an authenticated Task principal reference", () => {
+    const callerDigest = digest(0x3a);
+    const reference = success(
+      makeTaskExecutionPrincipalReferenceV1(callerDigest, 321),
+    );
+
+    expectTypeOf(reference).toEqualTypeOf<
+      TaskExecutionPrincipalReferenceV1
+    >();
+    expect(reference).toEqual({
+      principalKind: "authenticated_user",
+      codec: "flarex.task-execution-principal-reference.v1",
+      store: "flarex.task-execution-principal-object-store.v1",
+      valueCodec: "flarex-value/v1",
+      objectKey: `${TASK_EXECUTION_PRINCIPAL_OBJECT_KEY_PREFIX_V1}${
+        "3a".repeat(32)
+      }`,
+      byteLength: 321,
+      sha256: digest(0x3a),
+      retention: { kind: "run_lifetime" },
+    });
+    expect(Object.isFrozen(reference)).toBe(true);
+    expect(Object.isFrozen(reference.retention)).toBe(true);
+    expect(reference.sha256).not.toBe(callerDigest);
+
+    callerDigest.fill(0xff);
+    expect(reference.sha256).toEqual(digest(0x3a));
+    expect(failure(makeTaskExecutionPrincipalReferenceV1(
+      digest(1),
+      MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1 + 1,
+    ))).toMatchObject({ reason: "invalid_principal_reference" });
+    expect(failure(decodeTaskExecutionPrincipalReferenceV1({
+      ...reference,
+      objectKey: `${TASK_EXECUTION_PRINCIPAL_OBJECT_KEY_PREFIX_V1}${
+        "4a".repeat(32)
+      }`,
+    }))).toMatchObject({ reason: "invalid_principal_reference" });
+    expect(failure(decodeTaskExecutionPrincipalReferenceV1({
+      ...reference,
+      principalKind: "anonymous",
+    }))).toMatchObject({ reason: "invalid_principal_reference" });
   });
 
   it("ignores caller-dispatchable byte-copy and iteration overrides", () => {
@@ -284,20 +332,27 @@ describe("durable task run creation V1", () => {
   it("owns and canonically frames an Application creation request", () => {
     const callerTarget = digest(0x41);
     const input = success(makeTaskInputReferenceV1(digest(0x42), 19));
+    const principal = success(
+      makeTaskExecutionPrincipalReferenceV1(digest(0x43), 23),
+    );
     const request = success(decodeApplicationTaskRunCreationRequestV1({
       version: 1,
       requestKey: "application/create/1",
       applicationTaskRuntimeTargetSha256: callerTarget,
       input,
+      principal,
     }));
 
     expectTypeOf(request).toEqualTypeOf<ApplicationTaskRunCreationRequestV1>();
     expect(request.applicationTaskRuntimeTargetSha256).not.toBe(callerTarget);
     expect(request.input).not.toBe(input);
+    expect(request.principal).not.toBe(principal);
     callerTarget.fill(0xff);
     input.sha256.fill(0xff);
+    principal.sha256.fill(0xff);
     expect(request.applicationTaskRuntimeTargetSha256).toEqual(digest(0x41));
     expect(request.input.sha256).toEqual(digest(0x42));
+    expect(request.principal.sha256).toEqual(digest(0x43));
 
     const bytes = success(
       encodeApplicationTaskRunCreationRequestPreimageV1(request),
@@ -308,6 +363,7 @@ describe("durable task run creation V1", () => {
     );
     expect(text).toContain("41".repeat(32));
     expect(text).toContain("42".repeat(32));
+    expect(text).toContain("43".repeat(32));
     expect(text).not.toContain("taskDefinitionRevisionId");
     expect(success(encodeApplicationTaskRunCreationRequestPreimageV1(request)))
       .toEqual(bytes);
@@ -323,6 +379,10 @@ describe("durable task run creation V1", () => {
       operation: "decode_application_request",
       reason: "invalid_request_key",
     });
+    expect(failure(decodeApplicationTaskRunCreationRequestV1({
+      ...request,
+      principal: undefined,
+    }))).toMatchObject({ reason: "invalid_principal_reference" });
   });
 
   it("decodes a detached Application replay receipt without Legacy identity", () => {

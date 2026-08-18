@@ -243,6 +243,96 @@ describe("createPGlitePersistence", () => {
     }
   }, 30_000);
 
+  it("backfills pre-principal Application runs and enforces exact principal evidence", async () => {
+    const testRoot = await mkdtemp(resolve(
+      tmpdir(),
+      "flarex-task-principal-upgrade-",
+    ));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const journalPath = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const currentJournalText = await readFile(journalPath, "utf8");
+      await writeFile(
+        journalPath,
+        migrationJournalBefore(currentJournalText, 66),
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await seedTaskComputeDeliverySchemaV1(previous, undefined, {
+        principalSchema: false,
+      });
+      await previous.query(`
+        update fx_system_durable_task_run_v1
+        set definition_generation = 'application_v1',
+            task_definition_revision_id = null,
+            application_task_runtime_target_sha256 =
+              decode(repeat('ab', 32), 'hex')
+      `);
+      await previous.query(`
+        update fx_system_durable_task_compute_dispatch_v1
+        set definition_generation = 'application_v1',
+            task_definition_revision_id = null,
+            application_task_runtime_target_sha256 =
+              decode(repeat('ab', 32), 'hex')
+      `);
+
+      await writeFile(journalPath, currentJournalText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await current.migrate();
+      await current.migrate();
+      const upgraded = await current.query<{
+        generation: string;
+        codec: string | null;
+        digest: Uint8Array | null;
+      }>(`
+        select execution_principal_generation as generation,
+               execution_principal_codec as codec,
+               execution_principal_sha256 as digest
+        from fx_system_durable_task_run_v1
+      `);
+      expect(upgraded.rows).toEqual([{
+        generation: "legacy_absent",
+        codec: null,
+        digest: null,
+      }]);
+      await expect(current.query(`
+        update fx_system_durable_task_run_v1
+        set execution_principal_generation = 'present_v1'
+      `)).rejects.toThrow(/fx_task_run_v1_identity_check/);
+      await current.query(`
+        update fx_system_durable_task_run_v1
+        set execution_principal_generation = 'present_v1',
+            execution_principal_kind = 'authenticated_user',
+            execution_principal_codec =
+              'flarex.task-execution-principal-reference.v1',
+            execution_principal_store =
+              'flarex.task-execution-principal-object-store.v1',
+            execution_principal_value_codec = 'flarex-value/v1',
+            execution_principal_object_key =
+              'durable-task-principal/v1/sha256/' || repeat('cd', 32),
+            execution_principal_byte_length = 23,
+            execution_principal_sha256 = decode(repeat('cd', 32), 'hex'),
+            execution_principal_retention = 'run_lifetime'
+      `);
+      await expect(current.query(`
+        update fx_system_durable_task_run_v1
+        set execution_principal_object_key =
+          'durable-task-principal/v1/sha256/' || repeat('ef', 32)
+      `)).rejects.toThrow(/fx_task_run_v1_identity_check/);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
   it("upgrades a pre-0060 legacy transaction session without changing its authority", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-aa-r6-upgrade-"));
     const migrationsFolder = resolve(testRoot, "drizzle");

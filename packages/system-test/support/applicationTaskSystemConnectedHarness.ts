@@ -8,6 +8,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeTaskRunCreationRequestKeyV1,
+  makeTaskExecutionPrincipalReferenceV1,
   makeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -217,6 +218,14 @@ export async function proveApplicationTaskSystemConnected(
         ? Object.freeze({ __fixtureTaskFailure: true })
         : Object.freeze({ __fixtureTaskWaitForInterruption: true });
     const input = await canonicalizeFlarexValueV1(inputValue);
+    const principal = await canonicalizeFlarexValueV1(Object.freeze({
+      kind: "user",
+      user: Object.freeze({
+        tokenIdentifier: "application-task-system-connected",
+        subject: "system-test-user",
+        issuer: "https://system-test.flarex.invalid",
+      }),
+    }));
     const request = Object.freeze({
       version: 1 as const,
       requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
@@ -225,6 +234,10 @@ export async function proveApplicationTaskSystemConnected(
       input: Result.getOrThrow(makeTaskInputReferenceV1(
         input.sha256,
         input.canonicalBytes.byteLength,
+      )),
+      principal: Result.getOrThrow(makeTaskExecutionPrincipalReferenceV1(
+        principal.sha256,
+        principal.canonicalBytes.byteLength,
       )),
     });
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {

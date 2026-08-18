@@ -107,6 +107,7 @@ export async function seedTaskSystemRunAttemptStoreV1(
     readonly aggregate?: TaskRunAttemptAggregateV1;
     readonly parent?: TaskSystemRunAttemptParentV1;
     readonly legacySchema?: boolean;
+    readonly principalSchema?: boolean;
   }> = {},
 ): Promise<Readonly<{ readonly scopeId: string; readonly deploymentId: string }>> {
   const aggregate = options.aggregate ?? readyTaskRunAggregateV1();
@@ -202,6 +203,9 @@ export async function seedTaskSystemRunAttemptStoreV1(
       task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
+      ${options.legacySchema === true || options.principalSchema === false
+        ? ""
+        : "execution_principal_generation,"}
       creation_authority_codec_version, creation_authority_byte_length,
       creation_authority_sha256, creation_authority_bytes,
       aggregate_codec_version, aggregate_byte_length, aggregate_json,
@@ -217,6 +221,9 @@ export async function seedTaskSystemRunAttemptStoreV1(
       'flarex.task-input-object-store.v1', 'flarex-value/v1',
       'durable-task-input/v1/sha256/' || repeat('51', 32),
       1, decode(repeat('51', 32), 'hex'), 'run_lifetime',
+      ${options.legacySchema === true || options.principalSchema === false
+        ? ""
+        : "'not_applicable',"}
       1, 1, decode(repeat('52', 32), 'hex'), decode('01', 'hex'),
       1, ${aggregateByteLength}, $1::jsonb, ${projection.runVersion},
       '${projection.phase}', ${sqlText(projection.dueKind)},
@@ -253,6 +260,7 @@ export async function seedAdditionalTaskSystemRunV1(
       scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
       input_codec, input_store, input_value_codec, input_object_key,
       input_byte_length, input_sha256, input_retention,
+      execution_principal_generation,
       creation_authority_codec_version, creation_authority_byte_length,
       creation_authority_sha256, creation_authority_bytes,
       aggregate_codec_version, aggregate_byte_length, aggregate_json,
@@ -264,6 +272,7 @@ export async function seedAdditionalTaskSystemRunV1(
     select scope_id, '${additionalRunId}', definition_generation, task_definition_revision_id,
       created_at_ms, input_codec, input_store, input_value_codec,
       input_object_key, input_byte_length, input_sha256, input_retention,
+      execution_principal_generation,
       creation_authority_codec_version, creation_authority_byte_length,
       creation_authority_sha256, creation_authority_bytes,
       1, ${aggregateByteLength}, $1::jsonb, ${projection.runVersion},

@@ -57,6 +57,16 @@ export function encodeApplicationTaskRunCreationRequestPreimageV1(
         store: request.input.store,
         valueCodec: request.input.valueCodec,
       },
+      principal: {
+        byteLength: request.principal.byteLength,
+        codec: request.principal.codec,
+        objectKey: request.principal.objectKey,
+        principalKind: request.principal.principalKind,
+        retention: { kind: request.principal.retention.kind },
+        sha256: encodeBytesToLowercaseHex(request.principal.sha256),
+        store: request.principal.store,
+        valueCodec: request.principal.valueCodec,
+      },
       applicationTaskRuntimeTargetSha256: encodeBytesToLowercaseHex(
         request.applicationTaskRuntimeTargetSha256,
       ),

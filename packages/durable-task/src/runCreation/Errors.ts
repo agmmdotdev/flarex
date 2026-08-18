@@ -6,6 +6,8 @@ export type TaskRunCreationValidationOperationV1 =
   | "decode_request_key"
   | "make_input_reference"
   | "decode_input_reference"
+  | "make_principal_reference"
+  | "decode_principal_reference"
   | "decode_request"
   | "decode_application_request"
   | "decode_receipt"
@@ -22,6 +24,7 @@ export class InvalidTaskRunCreationRequestError extends Data.TaggedError(
   readonly reason:
     | "invalid_request_key"
     | "invalid_input_reference"
+    | "invalid_principal_reference"
     | "invalid_definition_revision"
     | "invalid_run_id"
     | "invalid_database_time"

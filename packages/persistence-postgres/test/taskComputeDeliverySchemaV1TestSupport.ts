@@ -34,13 +34,17 @@ import {
 export async function seedTaskComputeDeliverySchemaV1(
   persistence: Pick<FlarexSqlClient, "query">,
   parent?: TaskSystemRunAttemptParentV1,
-  options: Readonly<{ readonly legacySchema?: boolean }> = {},
+  options: Readonly<{
+    readonly legacySchema?: boolean;
+    readonly principalSchema?: boolean;
+  }> = {},
 ) {
   const seeded = await seedTaskSystemRunAttemptStoreV1(
     persistence,
     {
       ...(parent === undefined ? {} : { parent }),
       ...(options.legacySchema === true ? { legacySchema: true } : {}),
+      ...(options.principalSchema === false ? { principalSchema: false } : {}),
     },
   );
   const evidence = await makeCanonicalTaskComputeDeliveryEvidenceV1(

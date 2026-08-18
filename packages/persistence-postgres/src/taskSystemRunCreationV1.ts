@@ -514,6 +514,7 @@ async function transactCreationOnce(
     inputByteLength: BigInt(prepared.request.input.byteLength),
     inputSha256: inputDigest(copyBytes(prepared.request.input.sha256)),
     inputRetention: prepared.request.input.retention.kind,
+    executionPrincipalGeneration: "not_applicable",
     creationAuthorityCodecVersion: 1,
     creationAuthorityByteLength: BigInt(prepared.authorityBytes.byteLength),
     creationAuthoritySha256: creationAuthorityDigest(

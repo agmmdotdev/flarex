@@ -37,6 +37,8 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+  MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+  type TaskExecutionPrincipalSha256V1,
   type TaskInputSha256V1,
   type TaskRunCreationAuthoritySha256V1,
   type ApplicationTaskRuntimeTargetSha256V1,
@@ -7031,6 +7033,20 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
       .notNull(),
     inputSha256: bytea("input_sha256").$type<TaskInputSha256V1>().notNull(),
     inputRetention: text("input_retention").notNull(),
+    executionPrincipalGeneration: text("execution_principal_generation")
+      .$type<"not_applicable" | "legacy_absent" | "present_v1">()
+      .notNull(),
+    executionPrincipalKind: text("execution_principal_kind"),
+    executionPrincipalCodec: text("execution_principal_codec"),
+    executionPrincipalStore: text("execution_principal_store"),
+    executionPrincipalValueCodec: text("execution_principal_value_codec"),
+    executionPrincipalObjectKey: text("execution_principal_object_key"),
+    executionPrincipalByteLength: bigint("execution_principal_byte_length", {
+      mode: "bigint",
+    }),
+    executionPrincipalSha256: bytea("execution_principal_sha256")
+      .$type<TaskExecutionPrincipalSha256V1>(),
+    executionPrincipalRetention: text("execution_principal_retention"),
     creationAuthorityCodecVersion: integer(
       "creation_authority_codec_version",
     ).notNull(),
@@ -7097,11 +7113,50 @@ export const fxSystemDurableTaskRunsV1 = pgTable(
         and ((${table.definitionGeneration} = 'legacy_definition_v1'
               and ${table.taskDefinitionRevisionId} is not null
               and ${table.taskDefinitionRevisionId} ~ '^taskdef_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-              and ${table.applicationTaskRuntimeTargetSha256} is null)
+              and ${table.applicationTaskRuntimeTargetSha256} is null
+              and ${table.executionPrincipalGeneration} = 'not_applicable'
+              and ${table.executionPrincipalKind} is null
+              and ${table.executionPrincipalCodec} is null
+              and ${table.executionPrincipalStore} is null
+              and ${table.executionPrincipalValueCodec} is null
+              and ${table.executionPrincipalObjectKey} is null
+              and ${table.executionPrincipalByteLength} is null
+              and ${table.executionPrincipalSha256} is null
+              and ${table.executionPrincipalRetention} is null)
           or (${table.definitionGeneration} = 'application_v1'
               and ${table.taskDefinitionRevisionId} is null
               and ${table.applicationTaskRuntimeTargetSha256} is not null
-              and octet_length(${table.applicationTaskRuntimeTargetSha256}) = 32))
+              and octet_length(${table.applicationTaskRuntimeTargetSha256}) = 32
+              and ((${table.executionPrincipalGeneration} = 'legacy_absent'
+                    and ${table.executionPrincipalKind} is null
+                    and ${table.executionPrincipalCodec} is null
+                    and ${table.executionPrincipalStore} is null
+                    and ${table.executionPrincipalValueCodec} is null
+                    and ${table.executionPrincipalObjectKey} is null
+                    and ${table.executionPrincipalByteLength} is null
+                    and ${table.executionPrincipalSha256} is null
+                    and ${table.executionPrincipalRetention} is null)
+                or (${table.executionPrincipalGeneration} = 'present_v1'
+                    and ${table.executionPrincipalKind} is not null
+                    and ${table.executionPrincipalCodec} is not null
+                    and ${table.executionPrincipalStore} is not null
+                    and ${table.executionPrincipalValueCodec} is not null
+                    and ${table.executionPrincipalObjectKey} is not null
+                    and ${table.executionPrincipalByteLength} is not null
+                    and ${table.executionPrincipalSha256} is not null
+                    and ${table.executionPrincipalRetention} is not null
+                    and ${table.executionPrincipalKind} = 'authenticated_user'
+                    and ${table.executionPrincipalCodec} = 'flarex.task-execution-principal-reference.v1'
+                    and ${table.executionPrincipalStore} = 'flarex.task-execution-principal-object-store.v1'
+                    and ${table.executionPrincipalValueCodec} = 'flarex-value/v1'
+                    and ${table.executionPrincipalObjectKey} ~ '^durable-task-principal/v1/sha256/[0-9a-f]{64}$'
+                    and ${table.executionPrincipalByteLength} between 1 and ${sql.raw(
+                      String(MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1),
+                    )}
+                    and octet_length(${table.executionPrincipalSha256}) = 32
+                    and right(${table.executionPrincipalObjectKey}, 64) =
+                      encode(${table.executionPrincipalSha256}, 'hex')
+                    and ${table.executionPrincipalRetention} = 'run_lifetime'))))
         and ${table.createdAtMs} between 0 and 9007199254740991`,
     ),
     check(

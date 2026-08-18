@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 
 import {
   decodeApplicationTaskRunCreationRequestV1,
+  makeTaskExecutionPrincipalReferenceV1,
   makeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -934,6 +935,10 @@ describe("Application activation", { timeout: 30_000 }, () => {
         new Uint8Array(32).fill(0x71),
         19,
       )),
+      principal: Result.getOrThrow(makeTaskExecutionPrincipalReferenceV1(
+        new Uint8Array(32).fill(0x73),
+        23,
+      )),
     }));
     const foreignLocator = Object.freeze({
       ...active.basis.authority.physicalLocator,
@@ -971,6 +976,39 @@ describe("Application activation", { timeout: 30_000 }, () => {
       "fx_system_durable_task_run_v1",
     )).toBe(0);
     const created = await runEffect(store.createRun(selected.selection, request));
+    const storedPrincipal = await fixture.target.query<{
+      execution_principal_generation: string;
+      execution_principal_kind: string | null;
+      execution_principal_codec: string | null;
+      execution_principal_store: string | null;
+      execution_principal_value_codec: string | null;
+      execution_principal_object_key: string | null;
+      execution_principal_byte_length: bigint | null;
+      execution_principal_sha256: Uint8Array | null;
+      execution_principal_retention: string | null;
+    }>(`
+      select execution_principal_generation, execution_principal_kind,
+             execution_principal_codec,
+             execution_principal_store, execution_principal_value_codec,
+             execution_principal_object_key, execution_principal_byte_length,
+             execution_principal_sha256, execution_principal_retention
+        from fx_system_durable_task_run_v1
+       where scope_id = $1 and run_id = $2
+    `, [fixture.authority.scopeId, created.runId]);
+    expect(storedPrincipal.rows).toHaveLength(1);
+    expect(storedPrincipal.rows[0]).toMatchObject({
+      execution_principal_generation: "present_v1",
+      execution_principal_kind: request.principal.principalKind,
+      execution_principal_codec: request.principal.codec,
+      execution_principal_store: request.principal.store,
+      execution_principal_value_codec: request.principal.valueCodec,
+      execution_principal_object_key: request.principal.objectKey,
+      execution_principal_byte_length: request.principal.byteLength,
+      execution_principal_retention: request.principal.retention.kind,
+    });
+    expect(Array.from(
+      storedPrincipal.rows[0]?.execution_principal_sha256 ?? [],
+    )).toEqual(Array.from(request.principal.sha256));
     mutableCreationOptions.sha256 = () => Effect.succeed(
       new Uint8Array(32).fill(0xdd),
     );
@@ -1007,6 +1045,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       version: request.version,
       requestKey: request.requestKey,
       input: request.input,
+      principal: request.principal,
     });
     expect(await runEffect(store.replayRun(
       "tasks.users.get",
@@ -1024,6 +1063,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
         version: missingRequest.version,
         requestKey: missingRequest.requestKey,
         input: missingRequest.input,
+        principal: missingRequest.principal,
       }),
     ))).toBeNull();
     const replayed = await runEffect(store.createRun(selected.selection, request));
@@ -1059,6 +1099,25 @@ describe("Application activation", { timeout: 30_000 }, () => {
     expect(Result.isFailure(conflict)).toBe(true);
     if (Result.isFailure(conflict)) {
       expect(conflict.failure).toMatchObject({
+        _tag: "TaskRunCreationIdempotencyConflictError",
+        reason: "request_digest_mismatch",
+      });
+    }
+    const principalConflictRequest = Result.getOrThrow(
+      decodeApplicationTaskRunCreationRequestV1({
+        ...request,
+        principal: Result.getOrThrow(makeTaskExecutionPrincipalReferenceV1(
+          new Uint8Array(32).fill(0x74),
+          23,
+        )),
+      }),
+    );
+    const principalConflict = await runEffect(Effect.result(
+      store.createRun(selected.selection, principalConflictRequest),
+    ));
+    expect(Result.isFailure(principalConflict)).toBe(true);
+    if (Result.isFailure(principalConflict)) {
+      expect(principalConflict.failure).toMatchObject({
         _tag: "TaskRunCreationIdempotencyConflictError",
         reason: "request_digest_mismatch",
       });

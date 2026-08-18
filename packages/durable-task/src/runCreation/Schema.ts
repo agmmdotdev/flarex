@@ -13,12 +13,21 @@ import {
 import { InvalidTaskRunCreationRequestError } from "./Errors.js";
 import {
   MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+  MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
   MAX_TASK_RUN_CREATION_REQUEST_KEY_UTF8_BYTES_V1,
   TASK_INPUT_OBJECT_KEY_PREFIX_V1,
   TASK_INPUT_OBJECT_STORE_V1,
   TASK_INPUT_REFERENCE_CODEC_V1,
   TASK_INPUT_RETENTION_V1,
   TASK_INPUT_VALUE_CODEC_V1,
+  TASK_EXECUTION_PRINCIPAL_OBJECT_KEY_PREFIX_V1,
+  TASK_EXECUTION_PRINCIPAL_KIND_V1,
+  TASK_EXECUTION_PRINCIPAL_OBJECT_STORE_V1,
+  TASK_EXECUTION_PRINCIPAL_REFERENCE_CODEC_V1,
+  TASK_EXECUTION_PRINCIPAL_RETENTION_V1,
+  TASK_EXECUTION_PRINCIPAL_VALUE_CODEC_V1,
+  type TaskExecutionPrincipalReferenceV1,
+  type TaskExecutionPrincipalSha256V1,
   type TaskInputReferenceV1,
   type TaskInputSha256V1,
   type TaskRunCreationAuthoritySha256V1,
@@ -80,6 +89,9 @@ const Sha256BytesSchema = Schema.Uint8Array.check(
 const TaskInputSha256V1Schema = Sha256BytesSchema.pipe(
   Schema.brand("FlarexDurableTask/TaskInputSha256V1"),
 );
+const TaskExecutionPrincipalSha256V1Schema = Sha256BytesSchema.pipe(
+  Schema.brand("FlarexDurableTask/TaskExecutionPrincipalSha256V1"),
+);
 const TaskRunCreationRequestKeySha256V1Schema = Sha256BytesSchema.pipe(
   Schema.brand("FlarexDurableTask/TaskRunCreationRequestKeySha256V1"),
 );
@@ -114,6 +126,30 @@ const TaskInputReferenceShapeV1Schema = Schema.Struct({
 
 const TaskInputReferenceV1Schema = TaskInputReferenceShapeV1Schema;
 
+const TaskExecutionPrincipalReferenceShapeV1Schema = Schema.Struct({
+  principalKind: Schema.Literal(TASK_EXECUTION_PRINCIPAL_KIND_V1),
+  codec: Schema.Literal(TASK_EXECUTION_PRINCIPAL_REFERENCE_CODEC_V1),
+  store: Schema.Literal(TASK_EXECUTION_PRINCIPAL_OBJECT_STORE_V1),
+  valueCodec: Schema.Literal(TASK_EXECUTION_PRINCIPAL_VALUE_CODEC_V1),
+  objectKey: Schema.String,
+  byteLength: Schema.Number.check(
+    Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= 1 &&
+        value <= MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1
+      ? undefined
+      : "Expected a positive Task principal byte length within the V1 ceiling"),
+  ),
+  sha256: TaskExecutionPrincipalSha256V1Schema,
+  retention: Schema.Struct({
+    kind: Schema.Literal(TASK_EXECUTION_PRINCIPAL_RETENTION_V1),
+  }).annotate(STRICT_STRUCT_OPTIONS),
+}).annotate(STRICT_STRUCT_OPTIONS).check(
+  Schema.makeFilter((reference) =>
+    reference.objectKey === taskExecutionPrincipalObjectKeyV1(reference.sha256)
+      ? undefined
+      : "Expected the Task principal object key derived from its SHA-256 digest"
+  ),
+);
+
 const TaskRunCreationRequestShapeV1Schema = Schema.Struct({
   version: Schema.Literal(1),
   requestKey: TaskRunCreationRequestKeyV1Schema,
@@ -144,6 +180,7 @@ const ApplicationTaskRunCreationRequestShapeV1Schema = Schema.Struct({
   applicationTaskRuntimeTargetSha256:
     ApplicationTaskRuntimeTargetSha256V1Schema,
   input: TaskInputReferenceV1Schema,
+  principal: TaskExecutionPrincipalReferenceShapeV1Schema,
 }).annotate(STRICT_STRUCT_OPTIONS);
 const ApplicationTaskRunCreationReceiptShapeV1Schema = Schema.Struct({
   status: Schema.Literal("created"),
@@ -171,6 +208,14 @@ const decodeRequestKey = Schema.decodeUnknownResult(
 );
 const decodeInputReference = Schema.decodeUnknownResult(
   TaskInputReferenceV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const decodePrincipalReference = Schema.decodeUnknownResult(
+  TaskExecutionPrincipalReferenceShapeV1Schema,
+  STRICT_PARSE_OPTIONS,
+);
+const decodePrincipalDigest = Schema.decodeUnknownResult(
+  TaskExecutionPrincipalSha256V1Schema,
   STRICT_PARSE_OPTIONS,
 );
 const decodeRequest = Schema.decodeUnknownResult(
@@ -212,6 +257,14 @@ const decodeCreationAuthorityDigest = Schema.decodeUnknownResult(
 
 export function taskInputObjectKeyV1(sha256: TaskInputSha256V1): string {
   return `${TASK_INPUT_OBJECT_KEY_PREFIX_V1}${
+    encodeBytesToLowercaseHex(sha256)
+  }`;
+}
+
+export function taskExecutionPrincipalObjectKeyV1(
+  sha256: TaskExecutionPrincipalSha256V1,
+): string {
+  return `${TASK_EXECUTION_PRINCIPAL_OBJECT_KEY_PREFIX_V1}${
     encodeBytesToLowercaseHex(sha256)
   }`;
 }
@@ -269,6 +322,61 @@ export function decodeTaskInputReferenceV1(
     Result.mapError(() =>
       invalid("decode_input_reference", "invalid_input_reference"),
     ),
+  );
+}
+
+export function makeTaskExecutionPrincipalReferenceV1(
+  sha256: unknown,
+  byteLength: unknown,
+): Result.Result<
+  TaskExecutionPrincipalReferenceV1,
+  InvalidTaskRunCreationRequestError
+> {
+  const capturedDigest = captureSha256(sha256);
+  if (capturedDigest === undefined) {
+    return Result.fail(invalid("make_principal_reference", "invalid_digest"));
+  }
+  return Result.gen(function* () {
+    const decodedDigest = yield* decodePrincipalDigest(capturedDigest).pipe(
+      Result.mapError(() =>
+        invalid("make_principal_reference", "invalid_digest")
+      ),
+    );
+    return yield* decodeTaskExecutionPrincipalReferenceV1({
+      principalKind: TASK_EXECUTION_PRINCIPAL_KIND_V1,
+      codec: TASK_EXECUTION_PRINCIPAL_REFERENCE_CODEC_V1,
+      store: TASK_EXECUTION_PRINCIPAL_OBJECT_STORE_V1,
+      valueCodec: TASK_EXECUTION_PRINCIPAL_VALUE_CODEC_V1,
+      objectKey: taskExecutionPrincipalObjectKeyV1(decodedDigest),
+      byteLength,
+      sha256: decodedDigest,
+      retention: { kind: TASK_EXECUTION_PRINCIPAL_RETENTION_V1 },
+    }).pipe(Result.mapError(() => invalid(
+      "make_principal_reference",
+      "invalid_principal_reference",
+    )));
+  });
+}
+
+export function decodeTaskExecutionPrincipalReferenceV1(
+  input: unknown,
+): Result.Result<
+  TaskExecutionPrincipalReferenceV1,
+  InvalidTaskRunCreationRequestError
+> {
+  const candidate = captureTaskExecutionPrincipalReferenceCandidateV1(input);
+  if (candidate === undefined) {
+    return Result.fail(invalid(
+      "decode_principal_reference",
+      "invalid_principal_reference",
+    ));
+  }
+  return decodePrincipalReference(candidate).pipe(
+    Result.map(snapshotTaskExecutionPrincipalReferenceV1),
+    Result.mapError(() => invalid(
+      "decode_principal_reference",
+      "invalid_principal_reference",
+    )),
   );
 }
 
@@ -420,6 +528,7 @@ export function decodeApplicationTaskRunCreationRequestV1(
     "requestKey",
     "applicationTaskRuntimeTargetSha256",
     "input",
+    "principal",
   ]);
   if (outer?.version !== 1) {
     return Result.fail(invalid("decode_application_request", "invalid_shape"));
@@ -439,11 +548,20 @@ export function decodeApplicationTaskRunCreationRequestV1(
       invalid("decode_application_request", "invalid_input_reference"),
     );
   }
+  const capturedPrincipal = captureTaskExecutionPrincipalReferenceCandidateV1(
+    outer.principal,
+  );
+  if (capturedPrincipal === undefined) {
+    return Result.fail(
+      invalid("decode_application_request", "invalid_principal_reference"),
+    );
+  }
   return decodeApplicationRequest({
     version: 1,
     requestKey: outer.requestKey,
     applicationTaskRuntimeTargetSha256: digest,
     input: capturedInput,
+    principal: capturedPrincipal,
   }).pipe(
     Result.map(request => Object.freeze({
       ...request,
@@ -451,6 +569,7 @@ export function decodeApplicationTaskRunCreationRequestV1(
         request.applicationTaskRuntimeTargetSha256,
       ) as ApplicationTaskRuntimeTargetSha256V1,
       input: snapshotTaskInputReferenceV1(request.input),
+      principal: snapshotTaskExecutionPrincipalReferenceV1(request.principal),
     })),
     Result.mapError(() => invalid("decode_application_request", "invalid_shape")),
   );
@@ -512,7 +631,21 @@ export function decodeApplicationTaskRunCreationReceiptV1(
 function captureTaskInputReferenceCandidateV1(
   input: unknown,
 ): Readonly<Record<string, unknown>> | undefined {
+  return captureTaskContentReferenceCandidateV1(input);
+}
+
+function captureTaskExecutionPrincipalReferenceCandidateV1(
+  input: unknown,
+): Readonly<Record<string, unknown>> | undefined {
+  return captureTaskContentReferenceCandidateV1(input, true);
+}
+
+function captureTaskContentReferenceCandidateV1(
+  input: unknown,
+  includePrincipalKind = false,
+): Readonly<Record<string, unknown>> | undefined {
   const outer = captureExactDataRecord(input, [
+    ...(includePrincipalKind ? ["principalKind"] : []),
     "codec",
     "store",
     "valueCodec",
@@ -526,6 +659,9 @@ function captureTaskInputReferenceCandidateV1(
   const sha256 = captureSha256(outer.sha256);
   if (retention === undefined || sha256 === undefined) return undefined;
   return {
+    ...(includePrincipalKind
+      ? { principalKind: outer.principalKind }
+      : {}),
     codec: outer.codec,
     store: outer.store,
     valueCodec: outer.valueCodec,
@@ -609,6 +745,16 @@ function snapshotTaskInputReferenceV1(
   return Object.freeze({
     ...reference,
     sha256: copyBytes(reference.sha256) as TaskInputSha256V1,
+    retention: Object.freeze({ ...reference.retention }),
+  });
+}
+
+function snapshotTaskExecutionPrincipalReferenceV1(
+  reference: typeof TaskExecutionPrincipalReferenceShapeV1Schema.Type,
+): TaskExecutionPrincipalReferenceV1 {
+  return Object.freeze({
+    ...reference,
+    sha256: copyBytes(reference.sha256) as TaskExecutionPrincipalSha256V1,
     retention: Object.freeze({ ...reference.retention }),
   });
 }

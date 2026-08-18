@@ -133,7 +133,9 @@ const admittedPersistenceDurableTaskSymbolsBySpecifier = new Map([
   ])],
   ["@flarex/durable-task/internal/run-creation-v1", new Set([
     "MAX_TASK_INPUT_CANONICAL_BYTES_V1",
+    "MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1",
     "TaskInputSha256V1",
+    "TaskExecutionPrincipalSha256V1",
     "ApplicationTaskRuntimeTargetSha256V1",
     "TaskRunCreationAuthoritySha256V1",
     "TaskRunCreationRequestKeySha256V1",
@@ -369,6 +371,7 @@ const admittedSystemTestConnectedHarnessRunAttemptImports = new Map([
 ]);
 const admittedSystemTestConnectedHarnessRunCreationImports = new Map([
   ["decodeTaskRunCreationRequestKeyV1", "value"],
+  ["makeTaskExecutionPrincipalReferenceV1", "value"],
   ["makeTaskInputReferenceV1", "value"],
 ]);
 const admittedSystemTestConnectedHarnessTaskResultImports = new Map([
@@ -547,6 +550,7 @@ const admittedPersistenceApplicationTaskRunCreationSymbolsBySpecifier =
       "ApplicationTaskRunCreationReceiptV1",
       "ApplicationTaskRunCreationRequestV1",
       "ApplicationTaskRuntimeTargetSha256V1",
+      "TaskExecutionPrincipalSha256V1",
       "TaskInputSha256V1",
       "TaskRunCreationAuthoritySha256V1",
       "TaskRunCreationIdempotencyConflictError",

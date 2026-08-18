@@ -18,6 +18,16 @@ export const TASK_INPUT_RETENTION_V1 = "run_lifetime" as const;
 export const TASK_INPUT_OBJECT_KEY_PREFIX_V1 =
   "durable-task-input/v1/sha256/" as const;
 export const MAX_TASK_INPUT_CANONICAL_BYTES_V1 = 32 * 1_048_576;
+export const TASK_EXECUTION_PRINCIPAL_REFERENCE_CODEC_V1 =
+  "flarex.task-execution-principal-reference.v1" as const;
+export const TASK_EXECUTION_PRINCIPAL_OBJECT_STORE_V1 =
+  "flarex.task-execution-principal-object-store.v1" as const;
+export const TASK_EXECUTION_PRINCIPAL_VALUE_CODEC_V1 = "flarex-value/v1" as const;
+export const TASK_EXECUTION_PRINCIPAL_KIND_V1 = "authenticated_user" as const;
+export const TASK_EXECUTION_PRINCIPAL_RETENTION_V1 = "run_lifetime" as const;
+export const TASK_EXECUTION_PRINCIPAL_OBJECT_KEY_PREFIX_V1 =
+  "durable-task-principal/v1/sha256/" as const;
+export const MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1 = 256 * 1_024;
 export const MAX_TASK_RUN_CREATION_REQUEST_KEY_UTF8_BYTES_V1 = 255;
 
 export const TASK_RUN_CREATION_REQUEST_KEY_PREIMAGE_CODEC_V1 =
@@ -30,6 +40,10 @@ export const APPLICATION_TASK_RUN_CREATION_REQUEST_PREIMAGE_CODEC_V1 =
 export type TaskInputSha256V1 = Brand.Branded<
   Uint8Array,
   "FlarexDurableTask/TaskInputSha256V1"
+>;
+export type TaskExecutionPrincipalSha256V1 = Brand.Branded<
+  Uint8Array,
+  "FlarexDurableTask/TaskExecutionPrincipalSha256V1"
 >;
 export type TaskRunCreationRequestKeyV1 = Brand.Branded<
   string,
@@ -76,6 +90,19 @@ export interface TaskInputReferenceV1 {
   };
 }
 
+export interface TaskExecutionPrincipalReferenceV1 {
+  readonly principalKind: typeof TASK_EXECUTION_PRINCIPAL_KIND_V1;
+  readonly codec: typeof TASK_EXECUTION_PRINCIPAL_REFERENCE_CODEC_V1;
+  readonly store: typeof TASK_EXECUTION_PRINCIPAL_OBJECT_STORE_V1;
+  readonly valueCodec: typeof TASK_EXECUTION_PRINCIPAL_VALUE_CODEC_V1;
+  readonly objectKey: string;
+  readonly byteLength: number;
+  readonly sha256: TaskExecutionPrincipalSha256V1;
+  readonly retention: {
+    readonly kind: typeof TASK_EXECUTION_PRINCIPAL_RETENTION_V1;
+  };
+}
+
 export interface TaskRunCreationRequestV1 {
   readonly version: 1;
   readonly requestKey: TaskRunCreationRequestKeyV1;
@@ -89,6 +116,7 @@ export interface ApplicationTaskRunCreationRequestV1 {
   readonly applicationTaskRuntimeTargetSha256:
     ApplicationTaskRuntimeTargetSha256V1;
   readonly input: TaskInputReferenceV1;
+  readonly principal: TaskExecutionPrincipalReferenceV1;
 }
 
 /**

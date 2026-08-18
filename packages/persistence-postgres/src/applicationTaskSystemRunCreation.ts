@@ -9,6 +9,7 @@ import {
   type ApplicationTaskRunCreationRequestV1,
   type ApplicationTaskRuntimeTargetSha256V1,
   type TaskInputSha256V1,
+  type TaskExecutionPrincipalSha256V1,
   type TaskRunCreationAuthoritySha256V1,
   type TaskRunCreationRequestKeySha256V1,
   type TaskRunCreationRequestSha256V1,
@@ -85,6 +86,7 @@ const requestKeyDigest = Brand.nominal<TaskRunCreationRequestKeySha256V1>();
 const requestDigest = Brand.nominal<TaskRunCreationRequestSha256V1>();
 const authorityDigest = Brand.nominal<TaskRunCreationAuthoritySha256V1>();
 const inputDigest = Brand.nominal<TaskInputSha256V1>();
+const principalDigest = Brand.nominal<TaskExecutionPrincipalSha256V1>();
 const runtimeTargetDigest = Brand.nominal<ApplicationTaskRuntimeTargetSha256V1>();
 
 type RunRequestRow = typeof fxSystemDurableTaskRunRequestsV1.$inferSelect;
@@ -606,6 +608,17 @@ async function transactApplicationCreation(
     inputByteLength: BigInt(prepared.request.input.byteLength),
     inputSha256: inputDigest(copyBytes(prepared.request.input.sha256)),
     inputRetention: prepared.request.input.retention.kind,
+    executionPrincipalGeneration: "present_v1",
+    executionPrincipalKind: prepared.request.principal.principalKind,
+    executionPrincipalCodec: prepared.request.principal.codec,
+    executionPrincipalStore: prepared.request.principal.store,
+    executionPrincipalValueCodec: prepared.request.principal.valueCodec,
+    executionPrincipalObjectKey: prepared.request.principal.objectKey,
+    executionPrincipalByteLength: BigInt(prepared.request.principal.byteLength),
+    executionPrincipalSha256: principalDigest(
+      copyBytes(prepared.request.principal.sha256),
+    ),
+    executionPrincipalRetention: prepared.request.principal.retention.kind,
     creationAuthorityCodecVersion: 1,
     creationAuthorityByteLength: BigInt(authorityBytes.byteLength),
     creationAuthoritySha256,
@@ -777,6 +790,7 @@ async function loadRun(
 
 function runMatches(run: RunRow, prepared: PreparedCreationEvidence): boolean {
   const input = prepared.request.input;
+  const principal = prepared.request.principal;
   return run.definitionGeneration === "application_v1"
     && run.taskDefinitionRevisionId === null
     && run.applicationTaskRuntimeTargetSha256 !== null
@@ -790,7 +804,17 @@ function runMatches(run: RunRow, prepared: PreparedCreationEvidence): boolean {
     && run.inputObjectKey === input.objectKey
     && run.inputByteLength === BigInt(input.byteLength)
     && bytesEqual(run.inputSha256, input.sha256)
-    && run.inputRetention === input.retention.kind;
+    && run.inputRetention === input.retention.kind
+    && run.executionPrincipalGeneration === "present_v1"
+    && run.executionPrincipalKind === principal.principalKind
+    && run.executionPrincipalCodec === principal.codec
+    && run.executionPrincipalStore === principal.store
+    && run.executionPrincipalValueCodec === principal.valueCodec
+    && run.executionPrincipalObjectKey === principal.objectKey
+    && run.executionPrincipalByteLength === BigInt(principal.byteLength)
+    && run.executionPrincipalSha256 !== null
+    && bytesEqual(run.executionPrincipalSha256, principal.sha256)
+    && run.executionPrincipalRetention === principal.retention.kind;
 }
 
 async function readDatabaseNow(

@@ -14,6 +14,7 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeApplicationTaskRunCreationRequestV1,
+  makeTaskExecutionPrincipalReferenceV1,
   makeTaskInputReferenceV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
@@ -314,6 +315,10 @@ describe("DTE06-E3 scope-bound lifecycle gateway", () => {
         input: Result.getOrThrow(makeTaskInputReferenceV1(
           new Uint8Array(32).fill(0x73),
           19,
+        )),
+        principal: Result.getOrThrow(makeTaskExecutionPrincipalReferenceV1(
+          new Uint8Array(32).fill(0x74),
+          23,
         )),
       })),
     ));

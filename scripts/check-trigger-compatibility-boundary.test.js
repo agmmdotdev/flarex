@@ -581,10 +581,33 @@ describe("Trigger compatibility boundary checker", () => {
         } from "@flarex/durable-task/internal/run-attempt-v1";
         import {
           MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+          MAX_TASK_EXECUTION_PRINCIPAL_CANONICAL_BYTES_V1,
+          type TaskExecutionPrincipalSha256V1,
           type TaskInputSha256V1,
         } from "@flarex/durable-task/internal/run-creation-v1";
       `,
     }]).errors).toEqual([]);
+
+    const applicationCreationPath =
+      "packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: applicationCreationPath,
+      text: `
+        import {
+          type ApplicationTaskRunCreationRequestV1,
+          type TaskExecutionPrincipalSha256V1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: applicationCreationPath,
+      text: `
+        import { makeTaskExecutionPrincipalReferenceV1 }
+          from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }]).errors).toEqual([
+      `${applicationCreationPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath:
@@ -1081,6 +1104,7 @@ describe("Trigger compatibility boundary checker", () => {
         } from "@flarex/durable-task/internal/run-attempt-v1";
         import {
           decodeTaskRunCreationRequestKeyV1,
+          makeTaskExecutionPrincipalReferenceV1,
           makeTaskInputReferenceV1,
         } from "@flarex/durable-task/internal/run-creation-v1";
         import {
