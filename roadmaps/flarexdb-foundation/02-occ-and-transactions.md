@@ -2069,8 +2069,9 @@ revisions, inventories all four incoming FK owners, and confirms the existing
 app-row primary key serves identity, anchor, candidate, and exact deletion
 plans. O11-D is now complete; no cross-owner loop, scheduler, trigger, or
 production composition is introduced. O11-E owns only their private,
-host-neutral composition; O11-F1 owns only durable restart evidence and an
-isolated fenced checkpoint. O11-F2 remains the next implementation checkpoint.
+host-neutral composition; O11-F1 owns durable restart evidence and an isolated
+fenced checkpoint, O11-F2 owns the bounded runner, and O11-F3a owns the private
+manual adapter. Scheduled-event and cron activation remain deferred.
 
 `O11-E` composes only those three exact private page owners in dependency order:
 commit/change-feed history, ordered-index revisions, then app-row revisions.
@@ -2101,8 +2102,12 @@ dependency ordering through real foreign keys, count and cooperative-time
 stops, exact resume and structural-copy rejection, floor-advance reset,
 authority-change cursor rejection, floor-regression failure,
 failure/uncertainty replay without guessed progress, empty exhaustion, and a
-genuine-PostgreSQL connected run. O11-F remains the only owner allowed to
-preflight durable checkpointing or a production trigger.
+genuine-PostgreSQL connected run. O11-F remains the only owner allowed to own
+durable checkpointing or a production trigger. O11-F1 and O11-F2 now own the
+durable checkpoint and host-neutral runner, and O11-F3a owns the private manual
+adapter. Under the accepted manual-only operating boundary, O11-F3b scheduled-
+event composition and O11-F4 cron activation remain deliberately deferred
+rather than becoming the next automatic implementation step.
 
 `O11-F0` rejects both tempting shortcuts. The point-mutation redelivery
 checkpoint is constrained to its own scheduler key and continuation codec, and
