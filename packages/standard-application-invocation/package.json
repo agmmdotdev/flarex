@@ -17,6 +17,7 @@
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
+    "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
     "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
     "./internal/system-test/system-v1": "./src/systemV1.ts",
@@ -26,12 +27,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:dte06-f0a": "vitest run test/ApplicationTaskQueryAuthority.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/standard-application-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex-backend": "workspace:*",

@@ -165,6 +165,33 @@ kind, manifest generation, or compatibility fallback. Any such contract change
 must be recorded and approved at its existing Task or Standard Application
 owner before implementation.
 
+The read-only query slice has this exact correlation order:
+
+1. bind one backend-private query capability to the authenticated
+   `ApplicationTaskRuntimeLaunchSubject`; never accept a caller-selected scope,
+   revision, candidate, or activation;
+2. capture and bound the function path and arguments inside the Task Worker
+   before crossing RPC;
+3. re-read the active Application selection and claim its opaque selection
+   basis through the existing activation owner;
+4. compare scope, activation sequence, active-head digest, readiness digest,
+   revision, candidate, analysis, source root, publication, task catalog,
+   runtime-host identity, and compatibility date with the launch creation
+   authority/runtime target;
+5. invoke the Effect-native, selection-bound query port only after every facet
+   matches; its live adapter must reuse the existing Application query
+   execution core rather than the foreground Action callback bundle;
+6. normalize and bound the result before returning it to user code; and
+7. stop query delivery on Task interruption or callback deadline without
+   creating a mutation journal, Task lifecycle transition, or requested-effect
+   row.
+
+An active-head movement is a typed stale-launch failure for this attempt. It is
+not permission to silently execute the old Task against the newly active
+revision, nor to fabricate an `ApplicationActiveSelection` from persisted
+digest fields. The first implementation remains provider-private and
+production-inert.
+
 Durable Tasks are the sole engine for background, queued, delayed, retryable,
 and scheduled work. `ApplicationActionSystem` remains only the current
 foreground request/response external-I/O contract. It is not a scheduler
@@ -285,6 +312,18 @@ and the Task host still owns accepted session lifetime, cancellation,
 settlement, and close. Runtime-object materialization, callback mechanics, and
 the authenticated Task context remain to be converged; this checkpoint does
 not complete F0A.
+
+The next foundation now adds `ApplicationTaskQueryAuthority`. Its post-launch
+composition binds the already-authenticated launch creation authority and
+runtime target once, then exposes a session whose query calls accept no launch
+identity. Each call re-reads and claims the opaque active Application selection,
+rejects any activation/head/readiness/revision/candidate/catalog/runtime-policy
+drift, and only then delegates through a read-only Effect-native selection query
+port. It does not import the backend Task launch authority, accept per-callback
+caller-selected identity, or reuse the foreground Action callback bundle. The
+live query-core adapter, Worker RPC projection, interruption/deadline bridge,
+and connected-system proof remain pending, so `ctx.runQuery` is not yet
+available to Task user code.
 
 - inventory the exact shared and distinct mechanics in
   `ApplicationExecutionHost`, `TaskWorkerSessionHost`, Worker definition
