@@ -429,15 +429,15 @@ export function createPointMutationJournalV1(
       function* (index, input) {
         const state = yield* Effect.try({
           try: () => {
-            const state = typeof index === "object" && index !== null
+            const indexState = typeof index === "object" && index !== null
               ? indexStates.get(index)
               : undefined;
-            if (state === undefined) {
+            if (indexState === undefined) {
               throw new InvalidPointMutationJournalCapabilityV1Error({
                 capability: "index",
               });
             }
-            return state;
+            return indexState;
           },
           catch: mapPersistenceFailure,
         });

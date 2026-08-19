@@ -472,12 +472,12 @@ const createApplicationRun = Effect.fn(
     });
     if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
       if (cause.issue.kind === "callbackRolledBack") {
-        const rollback = cause.issue.callbackCause;
-        if (rollback instanceof ApplicationCreationRollback) {
-          return yield* Effect.fail(rollback.error);
+        const callbackRollback = cause.issue.callbackCause;
+        if (callbackRollback instanceof ApplicationCreationRollback) {
+          return yield* Effect.fail(callbackRollback.error);
         }
-        if (rollback instanceof ApplicationCreationCauseRollback) {
-          return yield* Effect.failCause(rollback.cause);
+        if (callbackRollback instanceof ApplicationCreationCauseRollback) {
+          return yield* Effect.failCause(callbackRollback.cause);
         }
         if (execution < MAX_TRANSACTION_EXECUTIONS && isRetryable(cause.issue.callbackCause)) {
           continue;

@@ -226,7 +226,9 @@ export const publishCandidateRuntimeArtifactsV1 = Effect.fn(
           "runtime-projection-module",
           projection.moduleFrameSha256[ordinal]!,
           projection.moduleFrameBytes[ordinal]!,
-        ).pipe(Effect.map(reference => Object.freeze({ frame, reference })))
+        ).pipe(Effect.map((moduleReference) =>
+          Object.freeze({ frame, reference: moduleReference })
+        ))
       ),
       { concurrency: PUBLICATION_CONCURRENCY },
     );

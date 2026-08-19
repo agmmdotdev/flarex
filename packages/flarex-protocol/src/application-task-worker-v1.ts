@@ -159,10 +159,10 @@ export function decodeApplicationTaskWorkerRequestV1(
   }
   return decodeDispatch(dispatch).pipe(
     Result.mapError(cause => failure("request", "invalid_shape", "dispatch", cause)),
-    Result.map(dispatch => Object.freeze({
+    Result.map((decodedDispatch) => Object.freeze({
       format: APPLICATION_TASK_WORKER_REQUEST_FORMAT_V1,
       version: APPLICATION_TASK_WORKER_REQUEST_VERSION_V1,
-      dispatch: snapshotDispatch(dispatch),
+      dispatch: snapshotDispatch(decodedDispatch),
     })),
   );
 }

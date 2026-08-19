@@ -5321,13 +5321,13 @@ async function lockAttemptMetadata(
     decodeDeclarativeV2VerifierAttemptMetadataRowV2(metadata),
     operation,
   );
-  const databaseNowMilliseconds = parseNonNegativeSafeIntegerText(
+  const parsedDatabaseNowMilliseconds = parseNonNegativeSafeIntegerText(
     databaseNowMillisecondsText,
   );
-  if (databaseNowMilliseconds === undefined) {
+  if (parsedDatabaseNowMilliseconds === undefined) {
     throw corruption(operation, "invalidMetadata");
   }
-  const databaseNow = new Date(databaseNowMilliseconds);
+  const databaseNow = new Date(parsedDatabaseNowMilliseconds);
   return Object.freeze({ ...decoded, databaseNow: copyDate(databaseNow) });
 }
 

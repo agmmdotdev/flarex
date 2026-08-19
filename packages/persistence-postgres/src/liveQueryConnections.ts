@@ -276,14 +276,14 @@ export async function listExpiredLiveQueryConnectionDeployments(
 
   const hasMore = rows.length > input.limit;
   const page = rows.slice(0, input.limit).map((row) => {
-    const oldestExpiredAt = dateField(
+    const parsedOldestExpiredAt = dateField(
       row.oldestExpiredAt,
       `oldestExpiredAt for ${row.deploymentId}`,
     );
     return {
       deploymentId: row.deploymentId,
       projectId: row.projectId,
-      oldestExpiredAt,
+      oldestExpiredAt: parsedOldestExpiredAt,
       expiredConnections: row.expiredConnections,
     };
   });

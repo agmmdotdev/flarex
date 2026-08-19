@@ -723,14 +723,14 @@ export function decodeDeclarativeV2ArtifactUploadResponseV1(
       );
     }
     const bytes = copyBytes(input);
-    const text = yield* decodeUtf8(
+    const responseText = yield* decodeUtf8(
       "decodeResponse",
       bytes,
       "response",
     );
     const parsed = yield* parseJson(
       "decodeResponse",
-      text,
+      responseText,
       "response",
     );
     const response = yield* captureResponse("decodeResponse", parsed);
@@ -2965,16 +2965,16 @@ function operationFitsLifecycle(
 
 function sourceOperationFitsCurrentModule(
   operation: DeclarativeV2ArtifactUploadOperationV1,
-  currentModule: DeclarativeV2SourceUploadCurrentModuleCheckpointV1 | null,
+  moduleCheckpoint: DeclarativeV2SourceUploadCurrentModuleCheckpointV1 | null,
 ): boolean {
   switch (operation) {
     case "begin":
     case "closeModule":
     case "finalize":
-      return currentModule === null;
+      return moduleCheckpoint === null;
     case "beginModule":
     case "appendBlock":
-      return currentModule !== null;
+      return moduleCheckpoint !== null;
     case "observe":
     case "abandon":
       return true;

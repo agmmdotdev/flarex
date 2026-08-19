@@ -474,8 +474,8 @@ function decodeArguments(
     boundary,
     "invalidArguments",
     "arguments",
-  ).pipe(Effect.flatMap(captured => normalizeOwnedValueEffect(
-    captured,
+  ).pipe(Effect.flatMap((capturedValue) => normalizeOwnedValueEffect(
+    capturedValue,
     boundary,
     "invalidArguments",
     "arguments",
@@ -512,7 +512,7 @@ function captureValueWithinBudget(
   maximumSemanticBytes: number,
 ): Result.Result<unknown, unknown> {
   try {
-    const captured = captureValueNode(
+    const capturedNode = captureValueNode(
       value,
       maximumSemanticBytes,
       0,
@@ -523,9 +523,9 @@ function captureValueWithinBudget(
           MAX_APPLICATION_WORKER_MEMBER_INSPECTIONS_V1,
       },
     );
-    return captured === VALUE_BUDGET_EXCEEDED
+    return capturedNode === VALUE_BUDGET_EXCEEDED
       ? Result.fail(VALUE_BUDGET_EXCEEDED)
-      : Result.succeed(captured.value);
+      : Result.succeed(capturedNode.value);
   } catch (cause) {
     return Result.fail(cause);
   }

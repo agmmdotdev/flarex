@@ -1920,9 +1920,9 @@ function runFault<E>(
       });
 }
 
-function query<Row>(query: PromiseLike<ReadonlyArray<Row>>) {
+function query<Row>(rows: PromiseLike<ReadonlyArray<Row>>) {
   return Effect.uninterruptible(Effect.tryPromise({
-    try: () => query,
+    try: () => rows,
     catch: cause => new ApplicationRevisionReadinessIntegrationV1Error({
       phase: "targetTransaction",
       retryable: true,

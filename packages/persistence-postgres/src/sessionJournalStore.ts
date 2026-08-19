@@ -4550,7 +4550,7 @@ const decodeStoredEvidenceEffect = Effect.fn((
   attempt: SessionJournalAttemptStateV1,
   reason: "latestReceiptEvidenceInvalid" | "logicalWriteEventInvalid",
   canonicalBytes: unknown,
-  sha256: unknown,
+  valueSha256: unknown,
 ): Effect.Effect<
   CanonicalFlarexValueV1,
   SessionJournalStorageCorruptionV1Error
@@ -4558,7 +4558,7 @@ const decodeStoredEvidenceEffect = Effect.fn((
   Effect.tryPromise({
     try: () => decodeCanonicalFlarexValueEvidenceV1({
       canonicalBytes,
-      sha256,
+      sha256: valueSha256,
     }),
     catch: (cause): unknown => cause,
   }).pipe(

@@ -374,11 +374,11 @@ function writesField(
       const id = yield* (entry.id === undefined
         ? Result.succeed(undefined)
         : nonEmptyStringProperty(entry, `${path}.id`));
-      const value = yield* jsonProperty(entry, `${path}.value`);
+      const writeValue = yield* jsonProperty(entry, `${path}.value`);
       writes.push({
         tableId,
         ...(id === undefined ? {} : { id }),
-        value,
+        value: writeValue,
       });
     }
     return writes;

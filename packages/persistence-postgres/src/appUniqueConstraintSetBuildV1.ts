@@ -2415,7 +2415,7 @@ const ensureValidationClaimDimensions = Effect.fn(
     )`),
     sql`, `,
   );
-  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+  const driverResult = yield* Effect.uninterruptible(Effect.tryPromise({
     try: () => tx.execute(sql`
       with definition(definition_id, table_id) as (
         values ${definitionValues}
@@ -2470,7 +2470,7 @@ const ensureValidationClaimDimensions = Effect.fn(
     "storedStateInvalid",
   );
   const rows = yield* Effect.try({
-    try: () => rowsFromDriverExecuteResult(result, () => {
+    try: () => rowsFromDriverExecuteResult(driverResult, () => {
       throw invalidDriverResult;
     }),
     catch: (cause) => cause === invalidDriverResult
@@ -2721,7 +2721,7 @@ const loadValidationCandidates = Effect.fn(
     order by definition.definition_id asc, candidate.row_id asc
     limit ${pageSize + 1}
   `;
-  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+  const driverResult = yield* Effect.uninterruptible(Effect.tryPromise({
     try: () => tx.execute(statement),
     catch: (cause) => new AppUniqueConstraintSetBuildIntegrationV1Error({
       phase: "targetTransaction",
@@ -2735,7 +2735,7 @@ const loadValidationCandidates = Effect.fn(
     "storedStateInvalid",
   );
   const rawRows = yield* Effect.try({
-    try: () => rowsFromDriverExecuteResult(result, () => {
+    try: () => rowsFromDriverExecuteResult(driverResult, () => {
       throw invalidDriverResult;
     }),
     catch: (cause) => cause === invalidDriverResult
@@ -2865,7 +2865,7 @@ const loadBackfillCandidates = Effect.fn(
     order by definition.definition_id asc, candidate.row_id asc
     limit ${pageSize + 1}
   `;
-  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+  const driverResult = yield* Effect.uninterruptible(Effect.tryPromise({
     try: () => tx.execute(statement),
     catch: (cause) => new AppUniqueConstraintSetBuildIntegrationV1Error({
       phase: "targetTransaction",
@@ -2879,7 +2879,7 @@ const loadBackfillCandidates = Effect.fn(
     "storedStateInvalid",
   );
   const rawRows = yield* Effect.try({
-    try: () => rowsFromDriverExecuteResult(result, () => {
+    try: () => rowsFromDriverExecuteResult(driverResult, () => {
       throw invalidDriverResult;
     }),
     catch: (cause) => cause === invalidDriverResult
