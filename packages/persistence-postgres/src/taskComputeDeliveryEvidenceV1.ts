@@ -978,7 +978,7 @@ function decodeCanonicalDomainEvidenceResult<
   try {
     parsed = JSON.parse(
       FATAL_UTF8_DECODER.decode(evidence.canonicalBytes),
-    ) as unknown;
+    );
   } catch (cause) {
     return Result.fail(evidenceFailure(
       operation,

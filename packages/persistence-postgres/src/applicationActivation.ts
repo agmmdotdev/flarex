@@ -911,7 +911,7 @@ function parseFrame(
   revisionId?: string,
 ): Effect.Effect<unknown, ApplicationActivationError> {
   return Effect.try({
-    try: () => JSON.parse(UTF8_FATAL.decode(bytes)) as unknown,
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(bytes)),
     catch: cause => activationError(
       operation,
       "storedState",

@@ -352,7 +352,7 @@ export async function decodeCanonicalFlarexValueEvidenceV1(
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text) as unknown;
+    parsed = JSON.parse(text);
   } catch {
     throw new FlarexValueEvidenceV1Error({
       issue: {

@@ -285,11 +285,12 @@ export {
 export async function createPGlitePersistence(
   options: PGlitePersistenceOptions = {},
 ): Promise<PGliteFlarexPersistence> {
-  const db: PGliteLike =
-    options.db ?? (new PGlite(options.dataDir) as unknown as PGliteLike);
+  const db: PGliteLike = options.db ?? new PGlite(options.dataDir);
   const migrationsFolder = options.migrationsFolder ?? defaultMigrationsFolder();
   const drizzleDb = drizzle({
-    client: db as unknown as PGlite,
+    // SAFETY: Drizzle types its PGlite driver client as the concrete PGlite
+    // class; PGliteLike implements the exec/query protocol drizzle actually calls.
+    client: db as PGlite,
     schema: flarexSchema,
   });
   const runtime = createFlarexRuntimePersistence({
@@ -305,10 +306,10 @@ export async function createPGlitePersistence(
     },
     transaction: (run) =>
       db.transaction((tx) => {
-        // Drizzle narrows its PGlite client to the concrete class even though
-        // PGlite's transaction object implements the same query protocol.
+        // SAFETY: Drizzle types its PGlite driver client as the concrete PGlite
+        // class; a PGlite transaction object implements the same exec/query protocol.
         const txDrizzle = drizzle({
-          client: tx as unknown as PGlite,
+          client: tx as PGlite,
           schema: flarexSchema,
         });
         return run(createFlarexRuntimePersistenceTransaction(

@@ -1601,29 +1601,31 @@ function prepareRuntimeTarget(
   ))));
 }
 
-function decodeStoredColdReceipt(
+const decodeStoredColdReceipt = Effect.fn(
+  "ApplicationReadiness.decodeStoredColdReceipt",
+)(function* (
   bytes: Uint8Array,
-): Effect.Effect<CanonicalApplicationRuntimeColdReceiptV1,
-  ApplicationReadinessError> {
-  return Effect.gen(function* () {
-    const parsed = yield* Effect.try({
-      try: () => JSON.parse(UTF8_FATAL.decode(bytes)) as unknown,
-      catch: cause => readinessFailureValue("conflictingReplay", false, cause),
-    });
-    const canonical = yield* Effect.fromResult(
-      canonicalizeApplicationRuntimeColdReceiptV1(parsed).pipe(
-        Result.mapError(cause => readinessFailureValue(
-          "conflictingReplay",
-          false,
-          cause,
-        )),
-      ),
-    );
-    return bytesEqualFullScan(bytes, canonical.canonicalBytes)
-      ? canonical
-      : yield* readinessFailure("conflictingReplay");
+): Effect.fn.Return<
+  CanonicalApplicationRuntimeColdReceiptV1,
+  ApplicationReadinessError
+> {
+  const parsed = yield* Effect.try({
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(bytes)),
+    catch: cause => readinessFailureValue("conflictingReplay", false, cause),
   });
-}
+  const canonical = yield* Effect.fromResult(
+    canonicalizeApplicationRuntimeColdReceiptV1(parsed).pipe(
+      Result.mapError(cause => readinessFailureValue(
+        "conflictingReplay",
+        false,
+        cause,
+      )),
+    ),
+  );
+  return bytesEqualFullScan(bytes, canonical.canonicalBytes)
+    ? canonical
+    : yield* readinessFailure("conflictingReplay");
+});
 
 const settleReadiness = Effect.fn("ApplicationReadiness.settleTransaction")(
 function* <SchemaFailure, ColdFailure>(
@@ -2239,33 +2241,33 @@ function validateStoredFunctions(
   });
 }
 
-function decodeStoredManifest(
+const decodeStoredManifest = Effect.fn(
+  "ApplicationReadiness.decodeStoredManifest",
+)(function* (
   bytes: Uint8Array,
   expectedSha256: Uint8Array,
-): Effect.Effect<ApplicationManifestV1, ApplicationReadinessError> {
-  return Effect.gen(function* () {
-    if (!bytesEqualFullScan(yield* sha256(bytes), expectedSha256)) {
-      return yield* readinessFailure("storedState");
-    }
-    const value = yield* Effect.try({
-      try: () => JSON.parse(UTF8_FATAL.decode(bytes)) as unknown,
-      catch: cause => readinessFailureValue("storedState", false, cause),
-    });
-    const canonical = yield* Effect.fromResult(
-      canonicalizeApplicationManifestV1(value).pipe(
-        Result.mapError(cause => readinessFailureValue(
-          "storedState",
-          false,
-          cause,
-        )),
-      ),
-    );
-    if (!bytesEqualFullScan(canonical.canonicalBytes, bytes)) {
-      return yield* readinessFailure("storedState");
-    }
-    return canonical.manifest;
+): Effect.fn.Return<ApplicationManifestV1, ApplicationReadinessError> {
+  if (!bytesEqualFullScan(yield* sha256(bytes), expectedSha256)) {
+    return yield* readinessFailure("storedState");
+  }
+  const value = yield* Effect.try({
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(bytes)),
+    catch: cause => readinessFailureValue("storedState", false, cause),
   });
-}
+  const canonical = yield* Effect.fromResult(
+    canonicalizeApplicationManifestV1(value).pipe(
+      Result.mapError(cause => readinessFailureValue(
+        "storedState",
+        false,
+        cause,
+      )),
+    ),
+  );
+  if (!bytesEqualFullScan(canonical.canonicalBytes, bytes)) {
+    return yield* readinessFailure("storedState");
+  }
+  return canonical.manifest;
+});
 
 function requireExactAuthority(
   authority: ApplicationReadinessAuthority,

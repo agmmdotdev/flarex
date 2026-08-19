@@ -1036,7 +1036,7 @@ function parseJson(
     });
   }
   try {
-    return JSON.parse(text) as unknown;
+    return JSON.parse(text);
   } catch {
     throw new TransactionGrantProtocolV1Error({
       issue: { reason: "invalidJson", field },

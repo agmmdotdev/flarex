@@ -9,7 +9,9 @@ import type { Json, JsonObject } from "flarex-protocol/json";
 export function snapshotApplicationExecutionAuthorityJson(
   value: JsonObject | ApplicationMutationExecutionAuthorityV1,
 ): JsonObject {
-  const snapshot = structuredClone(value) as unknown as JsonObject;
+  // SAFETY: structuredClone detaches this already-decoded JSON/authority tree
+  // into an owned plain snapshot; freezeOwnedJson then recursively freezes it.
+  const snapshot = structuredClone(value) as JsonObject;
   freezeOwnedJson(snapshot);
   return snapshot;
 }

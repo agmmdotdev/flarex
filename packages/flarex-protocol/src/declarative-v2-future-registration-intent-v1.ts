@@ -209,6 +209,9 @@ function captureIntent(
   if (snapshot === undefined) {
     return Result.fail(intentError(operation, "invalidInput", "intent"));
   }
+  const digests: Partial<Record<DigestField, Uint8Array>> = {};
+  let linkSequence: bigint | undefined;
+  let registrationSequence: bigint | undefined;
   for (const field of FIELD_NAMES) {
     const value = snapshot[field];
     if (field === "linkSequence" || field === "registrationSequence") {
@@ -219,23 +222,69 @@ function captureIntent(
       ) {
         return Result.fail(intentError(operation, "invalidInput", field));
       }
+      if (field === "linkSequence") {
+        linkSequence = value;
+      } else {
+        registrationSequence = value;
+      }
       continue;
     }
     if (!isUint8ArrayWithByteLength(value, DIGEST_BYTES)) {
       return Result.fail(intentError(operation, "invalidInput", field));
     }
+    digests[field] = value;
   }
+  const attemptSha256 = digests.attemptSha256;
+  const candidateSha256 = digests.candidateSha256;
+  const linkReservationSha256 = digests.linkReservationSha256;
+  const registrationCurrentProgressSha256 =
+    digests.registrationCurrentProgressSha256;
+  const registrationCommandBudgetSha256 =
+    digests.registrationCommandBudgetSha256;
+  const registrationCommandInputSha256 =
+    digests.registrationCommandInputSha256;
+  const freshAuthenticatedInputSha256 = digests.freshAuthenticatedInputSha256;
+  const parsePagesRootSha256 = digests.parsePagesRootSha256;
+  const analyzerReleaseSha256 = digests.analyzerReleaseSha256;
+  const analyzerIdentitySha256 = digests.analyzerIdentitySha256;
+  const verifierIdentitySha256 = digests.verifierIdentitySha256;
   if (
-    (snapshot.registrationSequence as bigint) !==
-      (snapshot.linkSequence as bigint) + 1n
+    attemptSha256 === undefined ||
+    candidateSha256 === undefined ||
+    linkReservationSha256 === undefined ||
+    linkSequence === undefined ||
+    registrationSequence === undefined ||
+    registrationCurrentProgressSha256 === undefined ||
+    registrationCommandBudgetSha256 === undefined ||
+    registrationCommandInputSha256 === undefined ||
+    freshAuthenticatedInputSha256 === undefined ||
+    parsePagesRootSha256 === undefined ||
+    analyzerReleaseSha256 === undefined ||
+    analyzerIdentitySha256 === undefined ||
+    verifierIdentitySha256 === undefined
   ) {
+    return Result.fail(intentError(operation, "invalidInput", "intent"));
+  }
+  if (registrationSequence !== linkSequence + 1n) {
     return Result.fail(
       intentError(operation, "invalidInput", "registrationSequence"),
     );
   }
-  return Result.succeed(copyIntent(
-    snapshot as unknown as DeclarativeV2FutureRegistrationIntentV1,
-  ));
+  return Result.succeed(copyIntent({
+    attemptSha256,
+    candidateSha256,
+    linkReservationSha256,
+    linkSequence,
+    registrationSequence,
+    registrationCurrentProgressSha256,
+    registrationCommandBudgetSha256,
+    registrationCommandInputSha256,
+    freshAuthenticatedInputSha256,
+    parsePagesRootSha256,
+    analyzerReleaseSha256,
+    analyzerIdentitySha256,
+    verifierIdentitySha256,
+  }));
 }
 
 function snapshotOwnDataProperties(
@@ -263,17 +312,24 @@ function snapshotOwnDataProperties(
 function copyIntent(
   input: DeclarativeV2FutureRegistrationIntentV1,
 ): DeclarativeV2FutureRegistrationIntentV1 {
-  const digests = Object.fromEntries(
-    FIELD_NAMES
-      .filter((field): field is DigestField =>
-        field !== "linkSequence" && field !== "registrationSequence"
-      )
-      .map(field => [field, new Uint8Array(input[field])]),
-  ) as Readonly<Record<DigestField, Uint8Array>>;
   return Object.freeze({
-    ...digests,
+    attemptSha256: new Uint8Array(input.attemptSha256),
+    candidateSha256: new Uint8Array(input.candidateSha256),
+    linkReservationSha256: new Uint8Array(input.linkReservationSha256),
     linkSequence: input.linkSequence,
     registrationSequence: input.registrationSequence,
+    registrationCurrentProgressSha256:
+      new Uint8Array(input.registrationCurrentProgressSha256),
+    registrationCommandBudgetSha256:
+      new Uint8Array(input.registrationCommandBudgetSha256),
+    registrationCommandInputSha256:
+      new Uint8Array(input.registrationCommandInputSha256),
+    freshAuthenticatedInputSha256:
+      new Uint8Array(input.freshAuthenticatedInputSha256),
+    parsePagesRootSha256: new Uint8Array(input.parsePagesRootSha256),
+    analyzerReleaseSha256: new Uint8Array(input.analyzerReleaseSha256),
+    analyzerIdentitySha256: new Uint8Array(input.analyzerIdentitySha256),
+    verifierIdentitySha256: new Uint8Array(input.verifierIdentitySha256),
   });
 }
 

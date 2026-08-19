@@ -963,9 +963,9 @@ function decodeCanonicalManifestJsonResult(
   manifestBytes: CanonicalSchemaManifestBytes,
 ): Result.Result<SchemaManifestJson, SchemaVersionArtifactCorruptionError> {
   return Result.try({
-    try: () => JSON.parse(
+    try: (): unknown => JSON.parse(
       canonicalSchemaManifestTextDecoder.decode(manifestBytes),
-    ) as unknown,
+    ),
     catch: (cause) => new SchemaVersionArtifactCorruptionError(
       deploymentId,
       "canonical manifest bytes are invalid",

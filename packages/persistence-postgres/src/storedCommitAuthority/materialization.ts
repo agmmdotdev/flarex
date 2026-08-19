@@ -1057,7 +1057,7 @@ const materializeApplicationGraphEffect = Effect.fn(
     return yield* Effect.fail("applicationGraphInvalid" as const);
   }
   const manifestValue = yield* Effect.try({
-    try: () => JSON.parse(UTF8_FATAL.decode(manifestBytes)) as unknown,
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(manifestBytes)),
     catch: () => "applicationGraphInvalid" as const,
   });
   const manifest = yield* Effect.fromResult(

@@ -467,7 +467,7 @@ const decodeConnectionSocketMessageEffect = Effect.fn(
   }
   return yield* Effect.try({
     // Deliberate JSON bridge: WebSocket text frames decode to protocol schemas.
-    try: () => JSON.parse(message) as unknown,
+    try: (): unknown => JSON.parse(message),
     catch: cause => connectionClientMessageError(cause),
   });
 });

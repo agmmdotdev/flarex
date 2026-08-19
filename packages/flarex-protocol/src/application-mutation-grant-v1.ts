@@ -857,31 +857,31 @@ const decodeCanonicalProtectedHeader = Effect.fn(
   return freezeOwnedProtocolProjection(header);
 });
 
-function parseJsonBytes(
+const parseJsonBytes = Effect.fn(
+  "ApplicationMutationGrant.parseJsonBytes",
+)(function* (
   bytes: Uint8Array,
   field: "protected" | "payload",
-): Effect.Effect<unknown, ApplicationMutationGrantV1Error> {
-  return Effect.gen(function* () {
-    const text = yield* Effect.try({
-      try: () => UTF8_FATAL.decode(bytes),
-      catch: cause => new ApplicationMutationGrantV1Error({
-        operation: "decode",
-        reason: "invalidUtf8",
-        field,
-        cause,
-      }),
-    });
-    return yield* Effect.try({
-      try: () => JSON.parse(text) as unknown,
-      catch: cause => new ApplicationMutationGrantV1Error({
-        operation: "decode",
-        reason: "invalidJson",
-        field,
-        cause,
-      }),
-    });
+): Effect.fn.Return<unknown, ApplicationMutationGrantV1Error> {
+  const text = yield* Effect.try({
+    try: () => UTF8_FATAL.decode(bytes),
+    catch: cause => new ApplicationMutationGrantV1Error({
+      operation: "decode",
+      reason: "invalidUtf8",
+      field,
+      cause,
+    }),
   });
-}
+  return yield* Effect.try({
+    try: (): unknown => JSON.parse(text),
+    catch: cause => new ApplicationMutationGrantV1Error({
+      operation: "decode",
+      reason: "invalidJson",
+      field,
+      cause,
+    }),
+  });
+});
 
 function canonicalizeValue(
   input: unknown,

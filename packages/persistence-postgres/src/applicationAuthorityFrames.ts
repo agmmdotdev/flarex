@@ -146,35 +146,35 @@ export function applicationColdReceiptSetFrameBytes(
   });
 }
 
-export function validateCanonicalFrame(
+export const validateCanonicalFrame = Effect.fn(
+  "ApplicationAuthorityFrames.validateCanonicalFrame",
+)(function* (
   bytes: Uint8Array,
   expectedSha256: Uint8Array,
-): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    if (bytes.byteLength < 1 || bytes.byteLength > MAX_FRAME_BYTES) {
-      return yield* Effect.fail(new Error("Application frame size invalid."));
-    }
-    const actualSha256 = yield* sha256(bytes);
-    if (!bytesEqualFullScan(actualSha256, expectedSha256)) {
-      return yield* Effect.fail(new Error("Application frame digest mismatch."));
-    }
-    const value = yield* Effect.try({
-      try: () => JSON.parse(UTF8_FATAL.decode(bytes)) as unknown,
-      catch: cause => new Error("Application frame JSON invalid.", { cause }),
-    });
-    const canonical = yield* Effect.fromResult(canonicalFrame(value));
-    if (!bytesEqualFullScan(canonical, bytes)) {
-      return yield* Effect.fail(new Error("Application frame is noncanonical."));
-    }
+): Effect.fn.Return<void, Error> {
+  if (bytes.byteLength < 1 || bytes.byteLength > MAX_FRAME_BYTES) {
+    return yield* Effect.fail(new Error("Application frame size invalid."));
+  }
+  const actualSha256 = yield* sha256(bytes);
+  if (!bytesEqualFullScan(actualSha256, expectedSha256)) {
+    return yield* Effect.fail(new Error("Application frame digest mismatch."));
+  }
+  const value = yield* Effect.try({
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(bytes)),
+    catch: cause => new Error("Application frame JSON invalid.", { cause }),
   });
-}
+  const canonical = yield* Effect.fromResult(canonicalFrame(value));
+  if (!bytesEqualFullScan(canonical, bytes)) {
+    return yield* Effect.fail(new Error("Application frame is noncanonical."));
+  }
+});
 
 export function decodeApplicationReadinessFrame(
   bytes: Uint8Array,
 ): Result.Result<ApplicationReadinessFrameProjection, Error> {
   return Result.try({
     try: () => {
-      const value = JSON.parse(UTF8_FATAL.decode(bytes)) as unknown;
+      const value: unknown = JSON.parse(UTF8_FATAL.decode(bytes));
       if (value === null || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("Application readiness frame is not a record.");
       }

@@ -127,9 +127,8 @@ function decodeJsonEffect<Value, CodecVersion extends number, Failure>(
   options: CanonicalContinuationCodecOptions<Value, CodecVersion, Failure>,
 ): Effect.Effect<unknown, Failure> {
   return Effect.try({
-    try: () =>
-      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as
-        unknown,
+    try: (): unknown =>
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
     catch: (cause) =>
       options.failure(
         "decode",
