@@ -937,16 +937,6 @@ function valueJsonEncodingInvariantFailure(
   throw new Error(VALUE_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason]);
 }
 
-function encodeInt64(value: bigint): string {
-  let unsigned = value < 0 ? value + (1n << 64n) : value;
-  const bytes = new Uint8Array(8);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number(unsigned & 0xffn);
-    unsigned >>= 8n;
-  }
-  return encodeBase64(bytes);
-}
-
 function decodeInt64(bytes: Uint8Array): bigint {
   let unsigned = 0n;
   for (let index = bytes.length - 1; index >= 0; index -= 1) {
@@ -955,12 +945,6 @@ function decodeInt64(bytes: Uint8Array): bigint {
     unsigned = (unsigned << 8n) | BigInt(byte);
   }
   return unsigned > MAX_FLAREX_INT64_V1 ? unsigned - (1n << 64n) : unsigned;
-}
-
-function encodeFloat64(value: number): string {
-  const buffer = new ArrayBuffer(8);
-  new DataView(buffer).setFloat64(0, value, true);
-  return encodeBase64(new Uint8Array(buffer));
 }
 
 function decodeFloat64(bytes: Uint8Array): number {
@@ -973,36 +957,6 @@ function decodeFloat64(bytes: Uint8Array): number {
 
 function isSpecialFloat(value: number): boolean {
   return Number.isNaN(value) || !Number.isFinite(value) || Object.is(value, -0);
-}
-
-function encodeBase64(bytes: Uint8Array): string {
-  let output = "";
-  let index = 0;
-  while (index + 2 < bytes.length) {
-    const first = requiredByte(bytes, index);
-    const second = requiredByte(bytes, index + 1);
-    const third = requiredByte(bytes, index + 2);
-    output += base64Character(first >> 2);
-    output += base64Character(((first & 0x03) << 4) | (second >> 4));
-    output += base64Character(((second & 0x0f) << 2) | (third >> 6));
-    output += base64Character(third & 0x3f);
-    index += 3;
-  }
-  const remaining = bytes.length - index;
-  if (remaining === 1) {
-    const first = requiredByte(bytes, index);
-    output += base64Character(first >> 2);
-    output += base64Character((first & 0x03) << 4);
-    output += "==";
-  } else if (remaining === 2) {
-    const first = requiredByte(bytes, index);
-    const second = requiredByte(bytes, index + 1);
-    output += base64Character(first >> 2);
-    output += base64Character(((first & 0x03) << 4) | (second >> 4));
-    output += base64Character((second & 0x0f) << 2);
-    output += "=";
-  }
-  return output;
 }
 
 function decodeCanonicalBase64(
@@ -1086,16 +1040,6 @@ function base64Value(code: number): number {
   if (code === 0x2b) return 62;
   if (code === 0x2f) return 63;
   return -1;
-}
-
-function base64Character(index: number): string {
-  return BASE64_ALPHABET.charAt(index);
-}
-
-function requiredByte(bytes: Uint8Array, index: number): number {
-  const value = bytes[index];
-  if (value === undefined) throw new Error("Byte array lost an item during base64 encoding.");
-  return value;
 }
 
 function evidenceBytes(
@@ -1183,6 +1127,4 @@ function invalidTag(
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 const NUL = "\u0000";
-const BASE64_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const ENCODED_FLOAT64_BASE64_LENGTH = 12;

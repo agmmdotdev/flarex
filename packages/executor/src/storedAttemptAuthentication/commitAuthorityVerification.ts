@@ -93,9 +93,6 @@ const PinnedPointMutationFunctionMetadataSnapshotV1Schema = Schema.Struct({
   functionMetadata: PointMutationTargetFunctionMetadataV1Schema,
 }).annotate(StrictStructOptions);
 
-type PinnedPointMutationFunctionMetadataSnapshotV1 =
-  typeof PinnedPointMutationFunctionMetadataSnapshotV1Schema.Type;
-
 const decodePinnedPointMutationFunctionMetadataSnapshotV1 =
   Schema.decodeUnknownSync(PinnedPointMutationFunctionMetadataSnapshotV1Schema, {
     onExcessProperty: "error",

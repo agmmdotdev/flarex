@@ -988,7 +988,7 @@ function query<Row>(
 
 function sha256(
   bytes: Uint8Array,
-  operation: ApplicationQuerySnapshotError["operation"],
+  _operation: ApplicationQuerySnapshotError["operation"],
 ) {
   return Effect.promise(
     () => crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(bytes)),

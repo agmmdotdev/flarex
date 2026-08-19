@@ -358,7 +358,7 @@ function decodeInputResult(
     }
     const schemaVersionId = yield* decodeSchemaVersionIdResult(
       input.schemaVersionId,
-    ).pipe(Result.mapError((cause) =>
+    ).pipe(Result.mapError((_cause) =>
       new InvalidIndexBuildReconciliationInputV1Error({
         reason: "invalidSchemaVersionId",
       })

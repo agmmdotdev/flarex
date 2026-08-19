@@ -2462,15 +2462,6 @@ function captureAllowance(
     : Result.fail(error(operation, "invalidInput", "allowance"));
 }
 
-function captureDigest(input: unknown): Uint8Array | undefined {
-  if (!isUint8ArrayWithByteLength(input, SHA256_BYTES)) return undefined;
-  try {
-    return new Uint8Array(input);
-  } catch {
-    return undefined;
-  }
-}
-
 function captureU64(input: unknown, positive: boolean): bigint | undefined {
   return typeof input === "bigint" &&
       input >= (positive ? 1n : 0n) &&

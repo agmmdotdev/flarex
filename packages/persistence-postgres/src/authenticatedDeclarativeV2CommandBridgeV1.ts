@@ -488,7 +488,7 @@ export function makeAuthenticatedDeclarativeV2CommandBridgeV1<
     ] = Effect.fn(
       "AuthenticatedDeclarativeV2CommandBridgeV1.prepareReservation",
     )(function* (session, proposal, preparedAuthority) {
-      const sessionState = yield* lookupSession(
+      yield* lookupSession(
         sessions,
         session,
         "prepareReservation",

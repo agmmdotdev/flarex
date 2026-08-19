@@ -554,7 +554,7 @@ async function transactApplicationCreation(
   };
   const authorityBytes = Result.getOrThrowWith(
     encodeApplicationTaskRunCreationAuthorityPreimageV1(creationAuthority),
-    cause => rollback(new TaskSystemRunCreationCorruptionError({
+    _cause => rollback(new TaskSystemRunCreationCorruptionError({
       operation: "create_run",
       reason: "creation_authority_invalid",
     })),
@@ -566,7 +566,7 @@ async function transactApplicationCreation(
   const createdAtMs = await readDatabaseNow(tx, authority.scopeId);
   const maximumDurationMs = Result.getOrThrowWith(
     decodeTaskDurationMsV1(metadata.manifest.maximumDurationInSeconds * 1_000),
-    cause => rollback(new TaskSystemRunCreationCorruptionError({
+    _cause => rollback(new TaskSystemRunCreationCorruptionError({
       operation: "create_run", reason: "run_row_invalid",
     })),
   );
@@ -587,7 +587,7 @@ async function transactApplicationCreation(
   );
   const aggregateJson = Result.getOrThrowWith(
     encodeApplicationTaskRunAttemptAggregateJsonV1(aggregate),
-    cause => rollback(new TaskSystemRunCreationCorruptionError({
+    _cause => rollback(new TaskSystemRunCreationCorruptionError({
       operation: "create_run", reason: "run_row_invalid",
     })),
   );
@@ -700,7 +700,7 @@ async function replayCreation(
     decodeApplicationTaskRunCreationAuthorityPreimageV1(
       run.creationAuthorityBytes,
     ),
-    cause => rollback(new TaskSystemRunCreationCorruptionError({
+    _cause => rollback(new TaskSystemRunCreationCorruptionError({
       operation: "create_run", reason: "creation_authority_invalid",
     })),
   );

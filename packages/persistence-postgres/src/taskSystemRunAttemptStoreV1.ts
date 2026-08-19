@@ -281,7 +281,7 @@ const transactApplicationRunAttempt = Effect.fn(
 
 const transactGeneration = Effect.fn(
   "TaskSystemRunAttemptStore.transactGeneration",
-)(function* <Outcome, Request extends Readonly<{
+)(function* <_Outcome, Request extends Readonly<{
   readonly operation: RunAttemptOperationV1;
   readonly runId: TaskRunIdV1;
 }>, Receipt>(
@@ -1272,7 +1272,7 @@ function requireAcceptedAttemptIdentity<Outcome>(
   return candidate;
 }
 
-function isStoredAcceptanceReplay<Outcome>(
+function isStoredAcceptanceReplay<_Outcome>(
   current: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
   replay: unknown,
 ): boolean {

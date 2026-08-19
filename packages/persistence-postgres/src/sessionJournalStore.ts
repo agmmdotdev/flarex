@@ -1062,9 +1062,6 @@ const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
 const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogSchemaVersionIdSchema),
 );
-const decodeCatalogIndexIdResult = Schema.decodeUnknownResult(
-  Schema.toType(CatalogIndexIdSchema),
-);
 const decodeOrderedIndexBoundHexV1Result = Schema.decodeUnknownResult(
   Schema.toType(OrderedIndexBoundHexV1Schema),
 );
@@ -1736,7 +1733,6 @@ function captureStoredRequestResult(
       invalidPointOperation(operation.kind, cause)
     ));
     const capturedOperation = yield* capturePointOperationInputResult(operation);
-    const operationKind = capturedOperation.kind;
     switch (capturedOperation.kind) {
       case "get": {
         const documentId = yield* readPointOperationInput(
