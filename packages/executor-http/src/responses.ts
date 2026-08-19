@@ -41,7 +41,6 @@ import {
   type ElysiaSet,
   ExecutorHttpBodyValidationError,
   ExecutorHttpJsonBodyError,
-  ExecutorHttpOperationError,
   type ExecutorHttpRouteError,
   ExecutorHttpRoutePreconditionError,
   ExecutorHttpUnauthorizedError,

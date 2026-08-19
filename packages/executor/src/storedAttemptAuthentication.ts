@@ -38,7 +38,6 @@ import type { PointMutationExecutionClaimLivenessV1 } from
   "@flarex/persistence-postgres/transaction-execution-claim-liveness";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
-import type { AppDocumentIdV1 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   type CommitFinalSyscallSequenceV1,

@@ -17,7 +17,6 @@ import {
   type DeclarativeV2VerifierCommandOutputManifestFrameV2,
   type DeclarativeV2VerifierCommandReceiptFrameV2,
   type DeclarativeV2VerifierCommandReservationFrameV2,
-  type DeclarativeV2VerifierEncodedFrameV2,
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierFrameBudgetV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,

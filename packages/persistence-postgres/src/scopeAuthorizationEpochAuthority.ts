@@ -27,7 +27,6 @@ import {
   type ScopeAuthorizationRevocationEpochReadError,
   ScopeAuthorizationRevocationEpochPersistenceError,
   ScopeClockCorruptionError,
-  ScopeClockNotFoundError,
 } from "./scopeClock";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";

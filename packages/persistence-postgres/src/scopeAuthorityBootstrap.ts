@@ -6,7 +6,6 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { and, asc, desc, gt, lte, sql } from "drizzle-orm";
 
 import {
-  type DeploymentMetadataRecord,
   type FlarexMetadataDatabase,
 } from "./deployments";
 import {

@@ -3,8 +3,6 @@ import { Data, Result } from "effect";
 import {
   validateValidatorValueIssueV1,
   type ValidateValidatorValueV1Options,
-  type ValidatorIdPolicyV1,
-  type ValidatorValueExpectedV1,
   type ValidatorValueIssueV1,
 } from "./validator-engine-core";
 import type { CanonicalFlarexRuntimeValueV1 } from "./value";

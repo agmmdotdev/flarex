@@ -1,4 +1,4 @@
-import { bytesEqual, copyBytes, isUint8Array } from "@flarex/utils/bytes";
+import { bytesEqual, isUint8Array } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
@@ -20,7 +20,6 @@ import {
 import {
   APP_UNIQUE_CONSTRAINT_SET_BUILD_CURSOR_CODEC_VERSION_V1,
   APP_UNIQUE_CONSTRAINT_SET_CODEC_VERSION_V1,
-  MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   AppUniqueConstraintSetBuildAttemptFenceV1Schema,
   MAX_APP_UNIQUE_CONSTRAINT_SET_BUILD_ATTEMPT_FENCE_V1,
   appUniqueConstraintSetSha256HexV1ToBytes,
@@ -100,8 +99,6 @@ import {
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
-  fxAppRowCurrent,
-  fxAppUniqueKeys,
   fxSystemUniqueConstraintSetBuilds,
 } from "./schema";
 import {

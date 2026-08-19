@@ -20,7 +20,6 @@ import {
 } from "flarex-protocol/app-document";
 import {
   AppRowIdHexV1Schema,
-  appDocumentIdV1FromRowIdentity,
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1,
@@ -103,7 +102,6 @@ import {
   type TransactionAuthorizationRevocationEpoch,
   type TransactionExecutionModuleV1,
   type TransactionFunctionPathV1,
-  type TransactionIdentityAccessPolicySha256V1,
   type TransactionPackageIdV1,
   type TransactionPolicyVersionV1,
   type TransactionRequestKeyV1,
@@ -242,10 +240,7 @@ import {
   type TrustedScopeAuthorityError,
 } from "./scopeAuthorityResolution";
 import {
-  fxAppRowCurrent,
-  fxAppRowRevisions,
   fxAppIndexEntryRevisions,
-  fxAppUniqueKeys,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemIdempotency,

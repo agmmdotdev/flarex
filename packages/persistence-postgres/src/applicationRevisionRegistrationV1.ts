@@ -79,7 +79,6 @@ import {
   type DeclarativeV2Sha256V1Error,
 } from "./declarativeV2Sha256";
 import {
-  type FunctionMetadataCodecV1Error,
   type FunctionMetadataOperationBudgetV1,
 } from "./functionMetadataCodec";
 import type { FunctionMetadataSha256V1Error } from "./functionMetadataSha256";
@@ -108,7 +107,6 @@ import {
 } from "./schemaVersionArtifacts";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
-  type LocatedScopeClockReader,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,

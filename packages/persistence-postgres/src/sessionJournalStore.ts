@@ -77,15 +77,12 @@ import {
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
-  AppIndexPhysicalSpecSha256HexV1Schema,
   appIndexPhysicalSpecSha256HexV1FromBytes,
   appIndexPhysicalSpecSha256HexV1ToBytes,
 } from "flarex-protocol/index-definition";
 import {
   ORDERED_INDEX_KEY_CODEC_VERSION_V1,
   OrderedIndexBoundHexV1Schema,
-  OrderedIndexKeyBytesHexV1Schema,
-  OrderedIndexRowIdHexV1Schema,
   orderedIndexBoundHexV1ToBytes,
   orderedIndexBoundHexV1FromBytes,
   orderedIndexKeyBytesHexV1FromBytes,
@@ -233,7 +230,6 @@ import {
 import {
   RUN_EXACT_RUNNING_POINT_MUTATION_READ_SYSCALL_EFFECT_V1,
   isLocatedExactRunningAttemptReadSyscallKernelV1,
-  type LocatedExactRunningAttemptReadSyscallKernelV1,
 } from "./transactionSessionReadSyscallKernel";
 import {
   decodeTransactionExecutionClaimFenceV1,

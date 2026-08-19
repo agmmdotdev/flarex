@@ -12,7 +12,6 @@ import {
   type TaskComputeDispatchAcceptanceV1,
   type TaskComputeDispatchIdentityV1,
   type TaskComputeDispatchRequestV1,
-  type ApplicationTaskComputeDispatchRequestV1,
   type CurrentTaskComputeDispatchRequestV1,
   validateApplicationTaskComputeDispatchRequestV1,
   validateCurrentTaskComputeDispatchRequestV1,
@@ -39,15 +38,12 @@ import {
   type TaskRunAttemptAggregateV1,
   type ApplicationTaskRunAttemptAggregateV1,
   type ApplicationPersistedTaskRequestedEffectV1,
-  type CurrentTaskRunAttemptAggregate,
-  type CurrentPersistedTaskRequestedEffect,
   type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   decodeApplicationTaskCatalogBindingV1,
   decodeApplicationTaskDefinitionBindingV1,
   decodeApplicationTaskRunCreationAuthorityPreimageV1,
-  decodeApplicationTaskRuntimeTargetV1,
   encodeApplicationTaskCatalogBindingPreimageV1,
   encodeApplicationTaskDefinitionBindingPreimageV1,
   encodeApplicationTaskRuntimeTargetPreimageV1,
@@ -106,7 +102,6 @@ import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import {
   decodeTaskComputeDispatchAcceptanceEvidenceWithObservedSha256V1,
-  decodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   decodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   decodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
   decodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
@@ -117,9 +112,7 @@ import {
   encodeTaskComputeCancellationReceiptEvidenceWithObservedSha256V1,
   encodeTaskComputeCancellationRequestCanonicalBytesV1,
   encodeTaskComputeCancellationRequestEvidenceWithObservedSha256V1,
-  encodeTaskComputeDispatchRequestCanonicalBytesV1,
   encodeCurrentTaskComputeDispatchRequestCanonicalBytesV1,
-  encodeTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   encodeCurrentTaskComputeDispatchRequestEvidenceWithObservedSha256V1,
   encodeTaskComputeProfileStorageBytesV1,
   TASK_COMPUTE_DELIVERY_EVIDENCE_CODEC_V1,
@@ -127,8 +120,6 @@ import {
   TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
   TaskComputeDeliveryEvidenceV1Error,
   type TaskComputeDeliveryEvidenceV1,
-  type TaskComputePreparedExecutionV1,
-  type ApplicationTaskComputePreparedExecutionV1,
   type CurrentTaskComputePreparedExecutionV1,
 } from "./taskComputeDeliveryEvidenceV1";
 import {

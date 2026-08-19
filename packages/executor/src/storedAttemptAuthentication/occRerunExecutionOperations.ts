@@ -48,7 +48,6 @@ import {
 } from "./attemptReplacementOperations";
 import type {
   AuthorizedPointMutationOccRerunStateV1,
-  PreparedPointCommitCapabilityStateV1,
 } from "./capabilityState";
 import type {
   CommitAuthorityVerificationStateV1,

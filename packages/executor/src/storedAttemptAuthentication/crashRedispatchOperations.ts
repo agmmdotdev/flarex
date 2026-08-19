@@ -72,10 +72,8 @@ import type {
 } from "./attemptReplacementOperations";
 import type {
   CommitAuthorityVerificationStateV1,
-  VerifiedCommitAuthorityEvidenceV1,
 } from "./commitAuthorityVerification";
 import type {
-  StoredCommitAuthorityEvidencePortV1,
   StoredCommitAuthoritySessionEvidencePortV1,
 } from "./commitAuthorityModel";
 import {

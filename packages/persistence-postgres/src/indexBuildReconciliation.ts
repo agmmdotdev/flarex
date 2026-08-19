@@ -53,7 +53,6 @@ import {
 } from "./scopeClock";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
-  type LocatedScopeClockReader,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,

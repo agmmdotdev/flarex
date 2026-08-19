@@ -35,8 +35,6 @@ import type {
   RemoveLiveQuerySubscriptionInput,
   RemoveLiveQuerySubscriptionsForConnectionInput,
   RunInvokeSessionMaintenanceInput,
-  RerunStaleLiveQuerySubscriptionsInput,
-  RunLiveQueryDeliveryBatchInput,
   TouchLiveQueryConnectionInput,
 } from "@flarex/executor";
 import {

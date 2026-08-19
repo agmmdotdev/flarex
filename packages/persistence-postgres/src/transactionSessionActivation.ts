@@ -45,7 +45,6 @@ import {
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
   ReplacementScopeIdV1Schema,
-  decodeReplacementScopeEpochV1,
   decodeReplacementScopeIdV1,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,

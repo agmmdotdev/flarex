@@ -9,7 +9,7 @@ import {
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, asc, eq, gt, or, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Cause, Clock, Data, Effect, Encoding, Exit, Result, Schema } from "effect";
 import {
   AppCreationTimeV1Schema,
@@ -105,7 +105,6 @@ import {
   scopePhysicalLocatorsEqual,
 } from "./scopePhysicalLocator";
 import {
-  fxAppRowCurrent,
   fxSystemAppSchemaCandidateValidations,
 } from "./schema";
 import {

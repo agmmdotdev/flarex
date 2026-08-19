@@ -18,7 +18,6 @@ import {
 } from "flarex-protocol/commit-protocol";
 
 import type {
-  CommitInputAuthorityPinsV1,
   VerifiedCommitInputStateV1,
   VerifiedCommitPointV1,
   VerifiedSuccessfulResultV1,

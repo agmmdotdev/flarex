@@ -1,6 +1,6 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { asNonArrayRecord, isNonArrayRecord } from "@flarex/utils/records";
+import { asNonArrayRecord } from "@flarex/utils/records";
 import {
   isLowercaseUuidText,
   isNonBlankString,

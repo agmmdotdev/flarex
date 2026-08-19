@@ -31,7 +31,6 @@ import {
   ScopeIdSchema,
   ScopeUuidV1Schema,
   SnapshotTokenSchema,
-  decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
   projectScopeEpochUuidV1,
   projectScopeIdUuidV1,

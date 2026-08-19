@@ -37,7 +37,6 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   TransactionRequestKeyV1Schema,
-  TransactionSessionIdV1Schema,
   type TransactionRequestKeyV1,
 } from
   "flarex-protocol/transaction-session";

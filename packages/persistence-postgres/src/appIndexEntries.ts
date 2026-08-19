@@ -3,7 +3,6 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { Effect, Result, Schema } from "effect";
 import {
-  appRowIdHexV1ToBytes,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {

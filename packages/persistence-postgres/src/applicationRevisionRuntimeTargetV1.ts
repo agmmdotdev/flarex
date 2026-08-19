@@ -1,5 +1,5 @@
 import { bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect } from "effect";
 import type {
   DeclarativeV2CandidateFrameV1,
   DeclarativeV2FunctionGroupEntryFrameV1,

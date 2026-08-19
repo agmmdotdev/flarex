@@ -9,12 +9,9 @@ import { Data, Effect, Schema } from "effect";
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
   encodeCanonicalJson,
-  isJsonArray,
-  isJsonObject,
   isJsonObjectFromUnknown,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
-  type JsonObject,
 } from "./json";
 import {
   canonicalFlarexRuntimeValueToJsonV1,
@@ -25,9 +22,7 @@ import {
   MAX_FLAREX_INT64_V1,
   MAX_FLAREX_VALUE_OBJECT_FIELD_BYTES_V1,
   normalizeFlarexRuntimeValueV1,
-  type CanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
-  type FlarexValue,
   type FlarexValueCodecV1Issue,
   type FlarexValueLimitsV1,
   type FlarexValueProfileV1,

@@ -20,7 +20,6 @@ import {
 import {
   MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1,
   MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
-  type ApplicationTaskRunAttemptPersistenceProjectionV1,
   type TaskAttemptIdV1,
   type TaskAttemptNumberV1,
   type TaskCancellationGenerationV1,

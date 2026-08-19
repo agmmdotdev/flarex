@@ -7,7 +7,6 @@ import type {
   "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
-import type { SnapshotToken } from "flarex-protocol/storage-authority";
 
 import type {
   PointMutationExecutionClaimV1,

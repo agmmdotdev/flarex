@@ -15,7 +15,6 @@ import {
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
-  type DeclarativeV2VerifierProgressFrameV2,
   type DeclarativeV2VerifierProgressFrameWorkV2,
   type DeclarativeV2VerifierProgressV2Error,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";

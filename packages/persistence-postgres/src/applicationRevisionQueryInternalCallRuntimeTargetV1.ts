@@ -1,5 +1,5 @@
 import { bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
-import { Data, Effect, Result } from "effect";
+import { Data, Effect } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
   DeclarativeV2CandidateFrameV1,

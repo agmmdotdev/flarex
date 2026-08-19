@@ -37,7 +37,6 @@ import {
 } from "./liveQueryDeliveries";
 import {
   findStaleLiveQuerySubscriptions,
-  fingerprintJson,
   listExpiredLiveQueryConnectionDeployments,
   recordLiveQuerySubscription,
   removeExpiredLiveQuerySubscriptions,

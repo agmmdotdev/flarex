@@ -10,13 +10,10 @@ import {
 import type { PointMutationTargetFunctionMetadataV1 } from
   "flarex-protocol/point-mutation-start";
 
-import type { PointMutationExecutionScopeV1 } from
-  "../pointMutationExecutionClaim";
 import type {
   AuthenticatedCommitAuthorityStateV1,
   AuthenticatedStoredAttemptStateV1,
   StoredAttemptAuthenticationV1,
-  StoredAttemptSessionScalarsPortV1,
   StoredPointCommitPlanningV1,
 } from "../storedAttemptAuthentication";
 import type { TransactionGrantVerificationKernelV1 } from

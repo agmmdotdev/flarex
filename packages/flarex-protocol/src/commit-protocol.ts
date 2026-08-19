@@ -27,7 +27,6 @@ import {
 import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import {
   encodeCanonicalJson,
-  isJsonArray,
   isJsonObject,
   JsonValue,
   type CanonicalJsonEncodingInvariantIssue,
@@ -44,7 +43,7 @@ import {
   CanonicalNonNegativePostgresBigIntFromString,
   CanonicalPositivePostgresBigIntFromString,
 } from "./postgres-bigint";
-import { CommitSeqSchema, type CommitSeq } from "./storage-authority";
+import { CommitSeqSchema } from "./storage-authority";
 import {
   StrictParseOptions,
   StrictStructOptions,
@@ -53,9 +52,6 @@ import {
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
   TransactionSessionProtocolVersionV1Schema,
-  type TransactionAttemptFence,
-  type TransactionSessionIdV1,
-  type TransactionSessionProtocolVersionV1,
 } from "./transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
@@ -71,7 +67,6 @@ import {
   canonicalizeFlarexValueV1,
   normalizeFlarexValueJsonV1,
   type CanonicalFlarexValueV1,
-  type FlarexValueCodecVersion,
   type FlarexValueProfileV1,
   type NormalizedFlarexValueV1,
 } from "./value";

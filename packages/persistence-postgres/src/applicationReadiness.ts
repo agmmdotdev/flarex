@@ -31,7 +31,6 @@ import { appSchemaCandidateManifestSha256HexV1FromBytes } from
   "flarex-protocol/internal/app-schema-candidate-validation-v1";
 import { encodeCanonicalJson, isJson, type Json } from "flarex-protocol/json";
 import {
-  CatalogSchemaVersionIdSchema,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";

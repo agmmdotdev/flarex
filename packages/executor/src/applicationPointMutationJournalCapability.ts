@@ -13,7 +13,6 @@ import {
 
 import {
   InvalidPointMutationJournalCapabilityV1Error,
-  type PointMutationJournalBoundaryV1Error,
   type PointMutationJournalIndexedQueryLogicalOutcomeV1,
   type PointMutationJournalLogicalOutcomeV1,
 } from "./pointMutationJournal";
