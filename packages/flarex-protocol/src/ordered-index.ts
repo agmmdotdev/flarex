@@ -1755,7 +1755,7 @@ function orderedIndexValueFromCanonicalFlarexValueV1(
     });
   }
   const entries: OrderedIndexObjectEntryV1[] = [];
-  for (const field of Object.keys(value).sort(compareAsciiStrings)) {
+  for (const field of Object.keys(value).toSorted(compareAsciiStrings)) {
     const member = value[field];
     if (member === undefined) {
       throw invalidValue(

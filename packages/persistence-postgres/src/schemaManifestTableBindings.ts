@@ -192,7 +192,7 @@ export const prepareSchemaManifestAppTableBindingsV1Effect = Effect.fn(
   const declarations = yield* Effect.fromResult(
     decodeDeclarationsResult(input.tables),
   );
-  const sortedDeclarations = [...declarations].sort(compareDeclarationsByName);
+  const sortedDeclarations = [...declarations].toSorted(compareDeclarationsByName);
 
   yield* readSchemaManifestBindingDeploymentEffect(db, deploymentId);
   const observedBindings = yield* readSchemaManifestAppTableBindingsEffect(
@@ -615,7 +615,7 @@ function assembleSectionResult(
         definition,
       });
     }
-    return tables.sort((left, right) => left.tableId - right.tableId);
+    return tables.toSorted((left, right) => left.tableId - right.tableId);
   });
   return tablesResult.pipe(Result.flatMap((tables) =>
     decodeSchemaManifestTableDefinitionsV1Result({

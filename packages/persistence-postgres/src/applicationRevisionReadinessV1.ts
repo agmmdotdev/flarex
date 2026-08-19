@@ -1353,7 +1353,7 @@ const validateColdReceipts = Effect.fn(
       detail: "cold materialization did not return one receipt per execution group",
     });
   }
-  const ordered = [...receipts].sort((left, right) =>
+  const ordered = [...receipts].toSorted((left, right) =>
     left.group === right.group ? 0 : left.group === "transaction" ? -1 : 1
   );
   const groups = new Set<string>();

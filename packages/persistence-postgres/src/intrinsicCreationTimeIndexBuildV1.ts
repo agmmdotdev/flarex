@@ -950,7 +950,7 @@ const validateAndEnable = Effect.fn(
       })
     )));
   }
-  const mergedRowIds = [...new Set(observedRowIds)].sort();
+  const mergedRowIds = [...new Set(observedRowIds)].toSorted();
   const page = mergedRowIds.slice(0, pageSize);
   let lastRowId: OrderedIndexRowIdHexV1 | null = cursor;
   for (let index = 0; index < page.length; index += 1) {

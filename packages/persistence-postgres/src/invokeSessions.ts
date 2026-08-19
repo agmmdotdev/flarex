@@ -204,7 +204,7 @@ export async function abortStaleInvokeSessionsMetadata(
     .returning();
 
   return {
-    sessions: sessions.sort(
+    sessions: sessions.toSorted(
       (left, right) =>
         left.createdAt.getTime() - right.createdAt.getTime() ||
         left.sessionId.localeCompare(right.sessionId),

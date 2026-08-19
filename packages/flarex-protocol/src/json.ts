@@ -157,7 +157,7 @@ export function encodeCanonicalJson(
   }
   if (isJsonObject(value)) {
     const fields: string[] = [];
-    for (const key of Object.keys(value).sort(compareUtf16Strings)) {
+    for (const key of Object.keys(value).toSorted(compareUtf16Strings)) {
       const item = value[key];
       if (item === undefined) {
         return onInvariantViolation({ reason: "missingObjectProperty", key });

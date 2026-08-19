@@ -318,7 +318,7 @@ function stableIdentityJson(value: unknown): string {
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
     .filter(key => record[key] !== undefined)
-    .sort()
+    .toSorted()
     .map(key => `${JSON.stringify(key)}:${stableIdentityJson(record[key])}`)
     .join(",")}}`;
 }

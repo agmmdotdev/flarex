@@ -805,7 +805,7 @@ export const advanceAppUniqueConstraintSetBackfillV1Effect = Effect.fn(
   const snapshot = buildSnapshot(decoded, locatedClosure);
   const tableIds = [...new Set(
     locatedClosure.members.map((member) => member.tableId),
-  )].sort((left, right) => left - right);
+  )].toSorted((left, right) => left - right);
   const definitions = yield* locateAppUniqueConstraintDefinitionsForSchemaEffect(
     ports.controlDb,
     decoded.deploymentId,
@@ -1046,7 +1046,7 @@ function uniqueConstraintTableIds(
 ): ReadonlyArray<CatalogTableId> {
   return Object.freeze([...new Set(
     closure.members.map((member) => member.tableId),
-  )].sort((left, right) => left - right));
+  )].toSorted((left, right) => left - right));
 }
 
 const runEligibilityTransaction = Effect.fn(

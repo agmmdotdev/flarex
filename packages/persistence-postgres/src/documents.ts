@@ -132,7 +132,7 @@ export async function listDocumentsInTableAtTs(
 
   const visible = Array.from(latest.values())
     .filter((document) => !document.deleted)
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .toSorted((left, right) => left.id.localeCompare(right.id));
 
   return limit === undefined ? visible : visible.slice(0, limit);
 }

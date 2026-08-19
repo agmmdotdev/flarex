@@ -947,7 +947,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     ...mergedIndexedDependencies,
   ];
 
-  const orderedWrites = [...journal.writes].sort((left, right) =>
+  const orderedWrites = [...journal.writes].toSorted((left, right) =>
     left.syscallSequence < right.syscallSequence
       ? -1
       : left.syscallSequence > right.syscallSequence
@@ -1015,7 +1015,7 @@ export function normalizeLogicalIndexRangeReadDependenciesV1Result(
   ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
   CommitProtocolV1Error
 > {
-  const indexedDependencies = [...input].sort(compareIndexRangeDependenciesV1);
+  const indexedDependencies = [...input].toSorted(compareIndexRangeDependenciesV1);
   const merged: LogicalIndexRangeReadDependencyV1[] = [];
   for (const dependency of indexedDependencies) {
     if (!isValidIndexRangeDependencyV1(dependency)) {
@@ -1166,7 +1166,7 @@ const normalizeLogicalAppWriteV1Effect = Effect.fn(function* (
         write.changes.length,
         MAX_FLAREX_VALUE_OBJECT_FIELDS_V1,
       );
-      const orderedChanges = [...write.changes].sort((left, right) =>
+      const orderedChanges = [...write.changes].toSorted((left, right) =>
         compareUtf16Strings(left.field, right.field)
       );
       const seenFields = new Set<string>();

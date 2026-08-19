@@ -438,8 +438,8 @@ function requireExactKeys(
   value: Record<string, unknown>,
   expected: readonly string[],
 ): void {
-  const actual = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
+  const actual = Object.keys(value).toSorted();
+  const sortedExpected = [...expected].toSorted();
   if (
     actual.length !== sortedExpected.length ||
     actual.some((key, index) => key !== sortedExpected[index])

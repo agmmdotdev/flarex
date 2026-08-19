@@ -6455,7 +6455,7 @@ function uniquePointCommitUniqueKeyOwnerPositions(
       position.rowId,
     ), position);
   }
-  return Object.freeze([...positions.values()].sort((left, right) =>
+  return Object.freeze([...positions.values()].toSorted((left, right) =>
     left.definitionId - right.definitionId ||
     left.tableId - right.tableId ||
     left.rowId.localeCompare(right.rowId)
@@ -6710,7 +6710,7 @@ function uniqueDeveloperIndexPositions(
       }));
     }
   }
-  return Object.freeze([...positions.values()].sort((left, right) =>
+  return Object.freeze([...positions.values()].toSorted((left, right) =>
     left.definitionId - right.definitionId ||
     left.encodedKey.localeCompare(right.encodedKey) ||
     left.rowId.localeCompare(right.rowId)

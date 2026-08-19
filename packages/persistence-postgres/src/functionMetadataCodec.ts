@@ -315,7 +315,7 @@ export function decodeCanonicalFunctionMetadataSetV1(
       parsed.push(parsedFunction);
     }
 
-    const expectedOrder = [...parsed].sort((left, right) =>
+    const expectedOrder = [...parsed].toSorted((left, right) =>
       compareUtf16Strings(
         left.metadata.functionPath,
         right.metadata.functionPath,
@@ -1557,7 +1557,7 @@ function encodeCanonicalJsonIteratively(value: Json): string {
     }
     if (isJsonObject(current)) {
       pieces.push("{");
-      const keys = Object.keys(current).sort(compareUtf16Strings);
+      const keys = Object.keys(current).toSorted(compareUtf16Strings);
       stack.push({ kind: "raw", value: "}" });
       for (let index = keys.length - 1; index >= 0; index -= 1) {
         const key = keys[index];

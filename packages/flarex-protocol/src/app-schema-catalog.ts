@@ -127,8 +127,8 @@ export async function compileAppSchemaCatalogRequirementsV1(
   value: unknown,
 ): Promise<CompiledAppSchemaCatalogRequirementsV1> {
   const manifest = decodeAndSnapshotManifest(value);
-  const tables = [...manifest.tableDefinitions.tables].sort(compareTables);
-  const indexes = [...manifest.indexBindings.indexes].sort(compareIndexes);
+  const tables = [...manifest.tableDefinitions.tables].toSorted(compareTables);
+  const indexes = [...manifest.indexBindings.indexes].toSorted(compareIndexes);
   const tablesById = new Map(
     tables.map((table) => [table.tableId, table] as const),
   );
@@ -242,7 +242,7 @@ function verifyValidatorIdTargets(
       );
       return;
     case "object": {
-      const fieldNames = Object.keys(validator.value).sort(compareUtf16Strings);
+      const fieldNames = Object.keys(validator.value).toSorted(compareUtf16Strings);
       for (const fieldName of fieldNames) {
         const field = validator.value[fieldName];
         if (field === undefined) {

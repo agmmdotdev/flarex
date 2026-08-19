@@ -516,8 +516,8 @@ function hasExactKeys(
   value: Readonly<Record<string, unknown>>,
   expected: readonly string[],
 ): boolean {
-  const keys = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
+  const keys = Object.keys(value).toSorted();
+  const sortedExpected = [...expected].toSorted();
   return keys.length === sortedExpected.length &&
     keys.every((key, index) => key === sortedExpected[index]);
 }

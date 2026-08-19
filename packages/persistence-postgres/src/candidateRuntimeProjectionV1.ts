@@ -459,7 +459,7 @@ export const prepareCandidateRuntimePublicationV1 = Effect.fn(
       }
       modulePaths.add(artifactModule);
     }
-    const orderedPaths = [...modulePaths].sort(compareUtf16Strings);
+    const orderedPaths = [...modulePaths].toSorted(compareUtf16Strings);
     if (orderedPaths.length === 0) {
       return yield* new CandidateRuntimeProjectionV1Error({
         reason: "emptyProjection",

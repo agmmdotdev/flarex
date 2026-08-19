@@ -141,7 +141,7 @@ export async function canonicalizeAppUniqueConstraintSetV1(
   value: unknown,
 ): Promise<CanonicalAppUniqueConstraintSetV1> {
   const decoded = Result.getOrThrow(decodeMembersResult(value));
-  const members = Array.from(decoded, snapshotMember).sort(compareMembers);
+  const members = Array.from(decoded, snapshotMember).toSorted(compareMembers);
   const canonicalText =
     `{"format":"flarexdb-app-unique-constraint-set",` +
     `"members":[${members.map(encodeMember).join(",")}],` +

@@ -2775,8 +2775,8 @@ function requireExactKeys(
   keys: readonly string[],
   field: string,
 ): Result.Result<void, DeclarativeV2ArtifactUploadCodecV1Error> {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
+  const actual = Object.keys(value).toSorted();
+  const expected = [...keys].toSorted();
   if (
     actual.length !== expected.length ||
     actual.some((key, index) => key !== expected[index])

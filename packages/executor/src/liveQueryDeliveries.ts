@@ -287,7 +287,7 @@ function uniqueSortedConnectionIds(
   deliveries: Array<{ connectionId: string }>,
 ): string[] {
   return Array.from(new Set(deliveries.map(delivery => delivery.connectionId)))
-    .sort();
+    .toSorted();
 }
 
 function liveQueryDeliveryLimit(limit: number | undefined): number {

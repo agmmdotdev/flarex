@@ -281,7 +281,7 @@ export async function claimLiveQueryDeliveries(
     )
     .returning();
 
-  const deliveries = rows.sort(compareDeliveryRecords);
+  const deliveries = rows.toSorted(compareDeliveryRecords);
   return claimLiveQueryDeliveriesResult(deliveries, hasMore, nextCursor);
 }
 

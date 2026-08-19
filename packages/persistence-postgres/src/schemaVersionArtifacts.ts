@@ -1145,8 +1145,8 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
     );
   }
   if (!isNonArrayRecord(left) || !isNonArrayRecord(right)) return false;
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
+  const leftKeys = Object.keys(left).toSorted();
+  const rightKeys = Object.keys(right).toSorted();
   if (leftKeys.length !== rightKeys.length) return false;
   for (const [index, key] of leftKeys.entries()) {
     if (key !== rightKeys[index] || !Object.hasOwn(right, key)) return false;

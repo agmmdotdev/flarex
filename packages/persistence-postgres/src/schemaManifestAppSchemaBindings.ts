@@ -683,7 +683,7 @@ function assembleManifestResult(
               fields: index.fields,
             },
           }))
-          .sort((left, right) =>
+          .toSorted((left, right) =>
             left.logicalIndexId - right.logicalIndexId
           ),
       },

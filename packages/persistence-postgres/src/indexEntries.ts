@@ -152,7 +152,7 @@ export async function listDocumentsInIndexAtTs(
 
   const visible = Array.from(latestByKey.values())
     .filter((row) => row.deleted !== true)
-    .sort((left, right) => {
+    .toSorted((left, right) => {
       const leftKey = toHex(Array.from(left.keyPrefix));
       const rightKey = toHex(Array.from(right.keyPrefix));
       return order === "asc"
@@ -417,7 +417,7 @@ function encodeValue(value: PersistenceJson | undefined): number[] {
   if (typeof value === "string") return [0x10, ...escapeBytes(textEncoder.encode(value))];
   if (Array.isArray(value)) return [0x12, ...value.flatMap(encodeValue), 0x00];
 
-  const entries = Object.entries(value).sort(([left], [right]) =>
+  const entries = Object.entries(value).toSorted(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );
   return [

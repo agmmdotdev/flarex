@@ -378,8 +378,8 @@ function persistedValueEqualAtDepth(
     return true;
   }
   if (!isNonArrayRecord(left) || !isNonArrayRecord(right)) return false;
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
+  const leftKeys = Object.keys(left).toSorted();
+  const rightKeys = Object.keys(right).toSorted();
   if (leftKeys.length !== rightKeys.length) return false;
   for (let index = 0; index < leftKeys.length; index += 1) {
     const key = leftKeys[index];

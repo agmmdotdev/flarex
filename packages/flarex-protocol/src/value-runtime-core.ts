@@ -304,7 +304,7 @@ function normalizeRuntimeObject(
     const normalized: Record<string, CanonicalFlarexRuntimeValueV1> = {};
     let semanticSizeBytes = 2;
     let childDepth = 0;
-    for (const entry of defined.sort(compareDataProperties)) {
+    for (const entry of defined.toSorted(compareDataProperties)) {
       validateObjectField(entry.key, path);
       const child = normalizeRuntimeNode(
         entry.value,

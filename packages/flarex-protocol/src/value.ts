@@ -411,7 +411,7 @@ export function isFlarexValueEnvelopeV1(
     return false;
   }
   const record = value;
-  const keys = Object.keys(record).sort(compareUtf16Strings);
+  const keys = Object.keys(record).toSorted(compareUtf16Strings);
   return (
     keys.length === 3 &&
     keys[0] === "format" &&
@@ -569,7 +569,7 @@ function normalizeJsonObject(
     const jsonObject: Record<string, Json> = {};
     let semanticSizeBytes = 2;
     let childDepth = 0;
-    for (const entry of descriptors.sort(compareDataProperties)) {
+    for (const entry of descriptors.toSorted(compareDataProperties)) {
       validateObjectField(entry.key, path);
       const child = normalizeJsonNode(
         entry.value,

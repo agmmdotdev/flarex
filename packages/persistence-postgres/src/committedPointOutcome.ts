@@ -556,7 +556,7 @@ function validateAndCaptureInput(
     !isNonArrayRecord(input) ||
     (prototype !== Object.prototype && prototype !== null) ||
     Object.getOwnPropertySymbols(input).length !== 0 ||
-    Object.getOwnPropertyNames(input).sort().join("\u0000") !==
+    Object.getOwnPropertyNames(input).toSorted().join("\u0000") !==
       LOOKUP_INPUT_KEYS.join("\u0000") ||
     LOOKUP_INPUT_KEYS.some((key) =>
       dataPropertyValue(input, key) === INVALID_DATA_PROPERTY

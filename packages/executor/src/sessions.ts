@@ -565,7 +565,7 @@ export async function abortStaleInvokeSessions(
 
   return {
     aborted: aborted.sessions.length,
-    sessions: aborted.sessions.map((session) => session.sessionId).sort(),
+    sessions: aborted.sessions.map((session) => session.sessionId).toSorted(),
     hasMore: aborted.hasMore,
   };
 }
@@ -731,7 +731,7 @@ async function tableDocumentsAtTransactionView(
     applyStagedWriteToTableView(visible, write, baseDocuments);
   }
 
-  const sorted = Array.from(visible.values()).sort((left, right) =>
+  const sorted = Array.from(visible.values()).toSorted((left, right) =>
     order === "desc"
       ? right.id.localeCompare(left.id)
       : left.id.localeCompare(right.id),
@@ -795,7 +795,7 @@ async function indexDocumentsAtTransactionView(
 
   const sorted = Array.from(visible.values())
     .filter((entry) => cursorAllows(entry.key, cursor, order))
-    .sort((left, right) =>
+    .toSorted((left, right) =>
       order === "desc"
         ? right.key.localeCompare(left.key)
         : left.key.localeCompare(right.key),

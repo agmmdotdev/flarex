@@ -221,7 +221,7 @@ export const deriveSystemExecutionArtifactSha256V1 = Effect.fn(
       "executionPath",
     );
   }
-  const bindings = [...input.moduleBindings].sort((left, right) =>
+  const bindings = [...input.moduleBindings].toSorted((left, right) =>
     compareUtf16Strings(left.logicalModulePath, right.logicalModulePath) ||
     compareUtf16Strings(left.artifactModulePath, right.artifactModulePath)
   );
