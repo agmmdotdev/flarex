@@ -1623,11 +1623,11 @@ export function createPointMutationAttemptReplacementPortV1(
   }
   const randomExecutionClaimOwner = options.randomExecutionClaimOwner ??
     (() => crypto.randomUUID());
-  const proofOptions: PointCommitTransactionProofOptionsV1 = Object.freeze({
-    ...(options.observeQuery === undefined
+  const proofOptions: PointCommitTransactionProofOptionsV1 = Object.freeze(
+    options.observeQuery === undefined
       ? {}
-      : { observeQuery: options.observeQuery }),
-  });
+      : { observeQuery: options.observeQuery },
+  );
 
   const replace: PointMutationAttemptReplacementPortV1["replace"] = Effect.fn(
     "PointMutationAttemptReplacement.replace",
@@ -3725,11 +3725,11 @@ async function observeReplacedPointMutationAttempt(
   const databaseNowMilliseconds = await readPointCommitDatabaseTime(
     tx,
     command.authorityPins.scopeId,
-    Object.freeze({
-      ...(options.observeQuery === undefined
+    Object.freeze(
+      options.observeQuery === undefined
         ? {}
-        : { observeQuery: options.observeQuery }),
-    }),
+        : { observeQuery: options.observeQuery },
+    ),
   );
   if (session.updatedAtMilliseconds > databaseNowMilliseconds) {
     throw replacementCorruption("replacementConvergenceInvalid");
@@ -6490,13 +6490,18 @@ function uniqueKeyOwnerPosition(
   return `${definitionId}:${tableId}:${rowId}`;
 }
 
+function pointCommitUniqueKeyPhaseRank(
+  phase: PointCommitUniqueKeyActionV1["phase"],
+): number {
+  return phase === "release" ? 0 : phase === "advance" ? 1 : 2;
+}
+
 function comparePointCommitUniqueKeyActions(
   left: PointCommitUniqueKeyActionV1,
   right: PointCommitUniqueKeyActionV1,
 ): number {
-  const phaseRank = (phase: PointCommitUniqueKeyActionV1["phase"]) =>
-    phase === "release" ? 0 : phase === "advance" ? 1 : 2;
-  return phaseRank(left.phase) - phaseRank(right.phase) ||
+  return pointCommitUniqueKeyPhaseRank(left.phase) -
+      pointCommitUniqueKeyPhaseRank(right.phase) ||
     left.definition.uniqueConstraintDefinitionId -
       right.definition.uniqueConstraintDefinitionId ||
     left.sortKey.localeCompare(right.sortKey) ||

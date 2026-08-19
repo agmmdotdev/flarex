@@ -76,15 +76,15 @@ class FunctionMetadataSha256ForeignV1Error extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-class FunctionMetadataSha256UnavailableV1 {}
-
 class FunctionMetadataSha256LiveResolutionV1Defect extends Data.TaggedError(
   "FunctionMetadataSha256LiveResolutionV1Defect",
 )<{
   readonly cause: unknown;
 }> {}
 
-const UNAVAILABLE = new FunctionMetadataSha256UnavailableV1();
+const UNAVAILABLE = Object.freeze({
+  tag: "FunctionMetadataSha256UnavailableV1" as const,
+});
 const NATIVE_RESOURCE_CAUSES = new WeakMap<
   FunctionMetadataSha256ResourceV1Error,
   DOMException

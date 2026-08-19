@@ -32,7 +32,7 @@ import type { StableTableCatalogCorruptionError } from
   "./stableTableCatalogError";
 import { deployments, fxControlTables } from "./schema";
 
-const APP_TABLE_NAMESPACE: "app" = "app";
+const APP_TABLE_NAMESPACE = "app" as const;
 
 const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
   CatalogTableIdSchema,

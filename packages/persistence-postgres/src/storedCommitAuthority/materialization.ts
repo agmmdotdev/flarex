@@ -1358,12 +1358,13 @@ function projectApplicationSchemaBindingResult(
     : Result.fail("applicationGraphInvalid");
 }
 
+function canonicalJsonInvariant(issue: { readonly reason: string }): never {
+  throw new Error(`Application schema invariant: ${issue.reason}`);
+}
+
 function canonicalJsonEqual(left: Json, right: Json): boolean {
-  const invariant = (issue: { readonly reason: string }): never => {
-    throw new Error(`Application schema invariant: ${issue.reason}`);
-  };
-  return encodeCanonicalJson(left, invariant) ===
-    encodeCanonicalJson(right, invariant);
+  return encodeCanonicalJson(left, canonicalJsonInvariant) ===
+    encodeCanonicalJson(right, canonicalJsonInvariant);
 }
 
 function materializationCorrupt(

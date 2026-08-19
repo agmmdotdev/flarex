@@ -343,6 +343,21 @@ export interface StoredPointCommitExecutionPublicationOperationsV1 {
   ) => PointCommitPublicationResultV1;
 }
 
+function publicationResultFromCommittedOutcome(
+  outcome: Exclude<
+    CommittedPointOutcomeResolutionV1,
+    { readonly kind: "missing" }
+  >,
+): PointCommitPublicationResultV1 {
+  return outcome.kind === "expired"
+    ? Object.freeze({ kind: "expired", token: outcome.token })
+    : Object.freeze({
+        kind: "replayed",
+        token: outcome.token,
+        successfulResult: outcome.successfulResult,
+      });
+}
+
 export function makeStoredPointCommitExecutionPublicationOperationsV1(
   dependencies: StoredPointCommitExecutionPublicationDependenciesV1,
 ): StoredPointCommitExecutionPublicationOperationsV1 {
@@ -362,20 +377,6 @@ export function makeStoredPointCommitExecutionPublicationOperationsV1(
     capturePublicationCommand,
     publicationCommandsEqual,
   } = dependencies;
-
-  const publicationResultFromCommittedOutcome = (
-    outcome: Exclude<
-      CommittedPointOutcomeResolutionV1,
-      { readonly kind: "missing" }
-    >,
-  ): PointCommitPublicationResultV1 =>
-    outcome.kind === "expired"
-      ? Object.freeze({ kind: "expired", token: outcome.token })
-      : Object.freeze({
-          kind: "replayed",
-          token: outcome.token,
-          successfulResult: outcome.successfulResult,
-        });
 
   const resolvePointCommitOutcomeFromStoredSession:
     ResolvePointCommitOutcomeFromStoredSessionV1 = Effect.fn(

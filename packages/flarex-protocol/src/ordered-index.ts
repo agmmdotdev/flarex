@@ -1285,7 +1285,7 @@ function writeInt64(
   );
   const modulus = 1n << BigInt(byteLength * 8);
   let encoded = value < 0n ? modulus + value : value;
-  const bytes = new Array<number>(byteLength);
+  const bytes = Array.from({ length: byteLength }, () => 0);
   for (let index = byteLength - 1; index >= 0; index -= 1) {
     bytes[index] = Number(encoded & 0xffn);
     encoded >>= 8n;

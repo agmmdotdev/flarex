@@ -2411,9 +2411,10 @@ function newIncrementalStructuralState(): IncrementalStructuralStateV1 {
     reservationHasPredecessor: false,
     reservationSequenceNonZero: false,
     reservationSequence: 0n,
-    commandBudgetValues: new Array<bigint>(
-      COMMAND_BUDGET_FIELD_COUNT,
-    ).fill(0n),
+    commandBudgetValues: Array.from(
+      { length: COMMAND_BUDGET_FIELD_COUNT },
+      () => 0n,
+    ),
     modulePathLength: 0,
     framePayloadLength: 0,
     frameU64A: 0n,
@@ -4715,7 +4716,7 @@ function captureArray(
   if (ownKeyCount !== admittedLength + 1) {
     return Result.fail(commandError(operation, "invalidInput", path));
   }
-  const output = new Array<unknown>(admittedLength);
+  const output = Array.from<unknown>({ length: admittedLength });
   for (let index = 0; index < admittedLength; index += 1) {
     const key = String(index);
     let descriptor: PropertyDescriptor | undefined;

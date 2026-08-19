@@ -260,11 +260,11 @@ export function makeStoredPointCommitPlanningOperationsV1(
             reason: "notSameFactory",
           }));
         }
-        const baseCapabilities: PointCommitPlannerCapabilitiesV1 = Object.freeze({
-          ...(developerIndexMaintenance
+        const baseCapabilities: PointCommitPlannerCapabilitiesV1 = Object.freeze(
+          developerIndexMaintenance
             ? { developerIndexMaintenance: "c08-a-v1" as const }
-            : {}),
-        });
+            : {},
+        );
         let planned: PreparedPointCommitStateV1;
         if (!uniqueConstraintMaintenance) {
           planned = yield* Effect.fromResult(

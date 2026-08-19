@@ -1136,7 +1136,7 @@ function encodeUtf16CodeUnits(value: string): Uint8Array {
 }
 
 function decodeUtf16CodeUnits(bytes: Uint8Array): string {
-  const codeUnits = new Array<number>(bytes.byteLength / 2);
+  const codeUnits = Array.from({ length: bytes.byteLength / 2 }, () => 0);
   for (let index = 0; index < codeUnits.length; index += 1) {
     codeUnits[index] = (bytes[index * 2] ?? 0) << 8
       | (bytes[index * 2 + 1] ?? 0);

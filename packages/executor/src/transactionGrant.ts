@@ -486,7 +486,7 @@ export function createTransactionGrantVerificationKeyNamespaceV1(
 ): TransactionGrantVerificationKeyNamespaceV1 {
   const keysById = new Map<string, StoredTransactionGrantVerificationKeyV1>();
   let activeKeyCount = 0;
-  for (const key of [...input.keys]) {
+  for (const key of input.keys) {
     if (keysById.has(key.kid)) {
       throw new TransactionGrantAuthorityConfigurationV1Error(
         "duplicateKeyId",

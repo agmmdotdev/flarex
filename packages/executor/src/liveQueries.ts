@@ -94,9 +94,10 @@ export async function recordLiveQuerySubscription(
   input: RecordLiveQuerySubscriptionInput,
 ): Promise<RecordLiveQuerySubscriptionResult> {
   await assertLiveQueryDeploymentProject(persistence, input);
-  const lease = liveQueryConnectionLease(clock, {
-    ...(input.updatedAt === undefined ? {} : { now: input.updatedAt }),
-  });
+  const lease = liveQueryConnectionLease(
+    clock,
+    input.updatedAt === undefined ? {} : { now: input.updatedAt },
+  );
   const readSet = readSetToFreshnessReadSet(input.readSet, input.beginTs);
   const resultHash = fingerprintJson(input.resultJson);
   const subscription = await persistence.upsertLiveQuerySubscriptionWithLease({
