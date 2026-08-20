@@ -204,7 +204,8 @@ function projectApplicationAuth(
         kind: "user",
         user: Object.freeze({
           ...structuredClone(auth.claims),
-          tokenIdentifier: `${auth.issuer}|${auth.subject}`,
+          tokenIdentifier: auth.tokenIdentifier ??
+            `${auth.issuer}|${auth.subject}`,
           subject: auth.subject,
           issuer: auth.issuer,
         }),

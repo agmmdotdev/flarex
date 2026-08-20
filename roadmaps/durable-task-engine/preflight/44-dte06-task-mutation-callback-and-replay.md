@@ -6,9 +6,10 @@
 approved. Slice 1 owns the strict private callback contract plus the
 domain-separated stable-key and exact-request preimages. Slice 2 now owns the
 opaque Application Task subject and the Task child-mutation transitions over
-the existing shared external-effect table. Slice 3, identity-aware entry into
-the existing Application mutation owner, is next. No Worker/session wiring or
-production activation exists yet.
+the existing shared external-effect table. Slice 3 now adds an opaque,
+principal-bound entry into the existing Application mutation owner while
+retaining its anonymous foreground entry. Slice 4, Worker/session composition,
+is next. No Worker/session mutation wiring or production activation exists yet.
 
 The first side-effecting Task context capability will be `ctx.runMutation`.
 It will not create another mutation engine, another OCC/commit path, another
@@ -76,10 +77,11 @@ evidence and is rejected.
 - Direct-action evidence allocates an ordinal from the action parent. A Task
   retry instead needs the Worker operation ordinal to reset deterministically
   and correlate with the same run-level mutation request identity.
-- `ApplicationMutationSystem` currently constructs an anonymous identity
-  policy. The Task callback must invoke the same system with the exact
-  launch-bound authenticated user; it may not silently downgrade to anonymous
-  or accept a caller-selected identity per callback.
+- `ApplicationMutationSystem` now retains its anonymous foreground entry and
+  also admits an opaque authenticated-identity capability prepared from one
+  canonical user identity. The Task callback must receive that capability from
+  launch composition; it may not silently downgrade to anonymous or accept a
+  caller-selected identity per callback.
 - The query-only Worker RPC has no mutation request/result envelope, durable
   request key, effect disposition, or drain contract.
 
@@ -258,11 +260,16 @@ and no ambient Application service container inside the Worker.
      transitions and reject contradictory reuse; and
    - preserve rollback at every Task external-effect transition through the
      shared located transaction bridge.
-3. **Identity-aware mutation invocation — next**
+3. **Identity-aware mutation invocation — complete privately**
    - extend the current mutation owner with an operation-specific authenticated
      identity input while retaining the existing anonymous foreground default;
+   - reject anonymous identities and forged capabilities, preserve the exact
+     launch-bound user token identifier through the backward-compatible
+     verified-bearer grant field, and reject caller mutation after preparation;
+   - expose only the owned identity-policy digest needed by the Task exact
+     request commitment; and
    - preserve the same validation, OCC, journal, commit, and replay path.
-4. **Worker/session composition**
+4. **Worker/session composition — next**
    - add `ctx.runMutation` only to the Application Task Worker;
    - compose the callback with current launch, supervisor, deadline,
      cancellation, and close/drain owners;

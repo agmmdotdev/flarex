@@ -633,7 +633,7 @@ lifecycle accepts the unchanged success and records the cancellation as
   completion response; and
 - emit only privacy-safe aggregate operational receipts.
 
-### DTE06-F: Private End-To-End Runtime Proof — Preflight Approved; F0A In Progress
+### DTE06-F: Private End-To-End Runtime Proof — Preflight Approved; F0B In Progress
 
 - first converge the Application runtime substrate used by query, mutation,
   foreground action, and Task adapters without creating one universal
@@ -652,10 +652,12 @@ lifecycle accepts the unchanged success and records the cancellation as
   retain its implemented private callback, run-and-ordinal stable/exact
   request commitment, and opaque Task-attempt external-effect authority over
   the existing shared table, including database-time lease admission for new
-  preparation/dispatch and same-attempt-only post-expiry reconciliation; next
-  enter the current Application
-  mutation/OCC/replay owner with the launch-bound principal, stable request key
-  across attempts, and exact contradictory-replay rejection;
+  preparation/dispatch and same-attempt-only post-expiry reconciliation; retain
+  the now-implemented opaque principal-bound entry into the current Application
+  mutation/OCC/replay owner, which shares the foreground mutation core while
+  preserving its anonymous default; next compose that entry into the Task
+  Worker/session with the authority-derived stable request key across attempts
+  and exact contradictory-replay rejection;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;

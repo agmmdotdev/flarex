@@ -315,6 +315,7 @@ const TransactionGrantVerifiedBearerAuthV1Schema = Schema.Struct({
   kind: Schema.Literal("verifiedBearer"),
   issuer: BoundedGrantText,
   subject: BoundedGrantText,
+  tokenIdentifier: Schema.optional(BoundedGrantText),
   claims: TransactionGrantClaimsV1Schema,
 }).annotate(StrictStructOptions);
 

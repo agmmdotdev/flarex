@@ -84,6 +84,10 @@ import {
 import type { ApplicationMutationGrantIssuer } from
   "flarex-backend/internal/application-mutation-grant-issuer";
 import { Context, Data, Effect, Layer, Result, Schema, Scope } from "effect";
+import {
+  decodeExecutionIdentityEffect,
+  type ExecutionIdentity,
+} from "flarex-protocol/auth";
 import { requireAppDocumentIdentityV1ForTable } from
   "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -106,6 +110,8 @@ import {
   TransactionGrantIdentityAccessPolicySha256HexV1Schema,
   TransactionGrantRequestSha256HexV1Schema,
   transactionGrantRequestSha256BytesV1FromHex,
+  type CanonicalTransactionGrantIdentityAccessPolicyV1,
+  type TransactionGrantInertAuthV1,
   type TransactionGrantDeploymentIdV1,
 } from "flarex-protocol/transaction-grant";
 import {
@@ -170,7 +176,7 @@ export interface ApplicationMutationSystemLive {
 export class ApplicationMutationInputError extends Data.TaggedError(
   "ApplicationMutationInputError",
 )<{
-  readonly field: "functionRef" | "requestKey" | "arguments";
+  readonly field: "functionRef" | "requestKey" | "arguments" | "identity";
   readonly cause?: unknown;
 }> {}
 
@@ -231,7 +237,35 @@ export interface ApplicationMutationSystemApi {
     InvokeApplicationMutationError,
     Scope.Scope
   >;
+  readonly invokeAuthenticated: (
+    functionRef: TransactionFunctionPathV1,
+    args: unknown,
+    requestKey: TransactionRequestKeyV1,
+    identity: ApplicationMutationAuthenticatedIdentity,
+  ) => Effect.Effect<
+    AuthoritativeCommittedApplicationMutationOutcome,
+    InvokeApplicationMutationError,
+    Scope.Scope
+  >;
 }
+
+export interface ApplicationMutationAuthenticatedIdentity {
+  readonly _ApplicationMutationAuthenticatedIdentity: unique symbol;
+}
+
+export interface ApplicationMutationAuthenticatedIdentityEvidence {
+  readonly identityAccessPolicySha256: Uint8Array;
+}
+
+interface ApplicationMutationAuthenticatedIdentityState {
+  readonly identityAccessPolicy:
+    CanonicalTransactionGrantIdentityAccessPolicyV1;
+}
+
+const authenticatedIdentityStates = new WeakMap<
+  object,
+  ApplicationMutationAuthenticatedIdentityState
+>();
 
 export class ApplicationMutationSystem extends Context.Service<
   ApplicationMutationSystem,
@@ -253,14 +287,115 @@ export const invokeApplicationMutation = Effect.fn(
   return yield* system.invoke(functionRef, args, requestKey);
 });
 
+export const invokeAuthenticatedApplicationMutation = Effect.fn(
+  "ApplicationMutation.invokeAuthenticated",
+)(function* (
+  functionRef: TransactionFunctionPathV1,
+  args: unknown,
+  requestKey: TransactionRequestKeyV1,
+  identity: ApplicationMutationAuthenticatedIdentity,
+): Effect.fn.Return<
+  AuthoritativeCommittedApplicationMutationOutcome,
+  InvokeApplicationMutationError,
+  ApplicationMutationSystem | Scope.Scope
+> {
+  const system = yield* ApplicationMutationSystem;
+  return yield* system.invokeAuthenticated(
+    functionRef,
+    args,
+    requestKey,
+    identity,
+  );
+});
+
+export const prepareApplicationMutationAuthenticatedIdentity = Effect.fn(
+  "ApplicationMutation.prepareAuthenticatedIdentity",
+)(function* (
+  input: unknown,
+): Effect.fn.Return<
+  ApplicationMutationAuthenticatedIdentity,
+  ApplicationMutationInputError |
+    TransactionGrantIdentityAccessPolicyV1Error
+> {
+  const captured = yield* Effect.try({
+    try: () => structuredClone(input),
+    catch: cause => new ApplicationMutationInputError({
+      field: "identity",
+      cause,
+    }),
+  });
+  const identity = yield* decodeExecutionIdentityEffect(captured).pipe(
+    Effect.mapError(cause => new ApplicationMutationInputError({
+      field: "identity",
+      cause,
+    })),
+  );
+  if (identity.kind !== "user") {
+    return yield* new ApplicationMutationInputError({ field: "identity" });
+  }
+  const auth = transactionGrantAuthFromExecutionIdentity(identity);
+  const identityAccessPolicy = yield*
+    canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      auth,
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    });
+  // SAFETY: structural shape carries no authority. The module-private WeakMap
+  // below is the only source accepted by authenticated mutation invocation.
+  const prepared = Object.freeze({}) as
+    ApplicationMutationAuthenticatedIdentity;
+  authenticatedIdentityStates.set(prepared, Object.freeze({
+    identityAccessPolicy,
+  }));
+  return prepared;
+});
+
+export function inspectApplicationMutationAuthenticatedIdentity(
+  identity: unknown,
+): Result.Result<
+  ApplicationMutationAuthenticatedIdentityEvidence,
+  ApplicationMutationInputError
+> {
+  return claimApplicationMutationAuthenticatedIdentity(identity).pipe(
+    Result.map(state => Object.freeze({
+      identityAccessPolicySha256:
+        transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
+          state.identityAccessPolicy.sha256Hex,
+        ),
+    })),
+  );
+}
+
 export function makeApplicationMutationSystemLayer(
   live: ApplicationMutationSystemLive,
 ): Layer.Layer<ApplicationMutationSystem> {
   const captured = captureLive(live);
   preflightApplicationMutationSystemConfiguration(captured);
+  const invokeCore = makeInvoke(captured);
   return Layer.succeed(
     ApplicationMutationSystem,
-    ApplicationMutationSystem.of({ invoke: makeInvoke(captured) }),
+    ApplicationMutationSystem.of({
+      invoke: Effect.fn("ApplicationMutationSystem.invoke")(function* (
+        functionRef,
+        args,
+        requestKey,
+      ) {
+        return yield* invokeCore(functionRef, args, requestKey);
+      }),
+      invokeAuthenticated: Effect.fn(
+        "ApplicationMutationSystem.invokeAuthenticated",
+      )(function* (functionRef, args, requestKey, identity) {
+        const prepared = yield* Effect.fromResult(
+          claimApplicationMutationAuthenticatedIdentity(identity),
+        );
+        return yield* invokeCore(
+          functionRef,
+          args,
+          requestKey,
+          prepared.identityAccessPolicy,
+        );
+      }),
+    }),
   );
 }
 
@@ -286,9 +421,7 @@ export function preflightApplicationMutationSystemConfiguration(
   }
 }
 
-function makeInvoke(
-  live: ApplicationMutationSystemLive,
-): ApplicationMutationSystemApi["invoke"] {
+function makeInvoke(live: ApplicationMutationSystemLive) {
   const applicationRunner = makeApplicationPointMutationRunner(
     live.applicationRunner,
   );
@@ -353,10 +486,12 @@ function makeInvoke(
       },
     ),
   );
-  return Effect.fn("ApplicationMutationSystem.invoke")(function* (
+  return Effect.fn("ApplicationMutationSystem.invokeCore")(function* (
     functionRefInput,
     args,
     requestKeyInput,
+    preparedIdentityAccessPolicy?:
+      CanonicalTransactionGrantIdentityAccessPolicyV1,
   ) {
     const functionRef = yield* decodeInput(
       decodeFunctionPath,
@@ -450,12 +585,13 @@ function makeInvoke(
         retryable: true,
       });
     }
-    const identityAccessPolicy = yield*
-      canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
+    const identityAccessPolicy = preparedIdentityAccessPolicy === undefined
+      ? yield* canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
         policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
         auth: { kind: "anonymous" },
         capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
-      });
+      })
+      : preparedIdentityAccessPolicy;
     const verifiedGrant = yield* live.grantIssuer.issue({
       deploymentId: live.deploymentId,
       executionAuthority: admission.executionAuthority,
@@ -619,6 +755,65 @@ function decodeInput<A>(
       cause,
     })),
   );
+}
+
+function claimApplicationMutationAuthenticatedIdentity(
+  input: unknown,
+): Result.Result<
+  ApplicationMutationAuthenticatedIdentityState,
+  ApplicationMutationInputError
+> {
+  if (typeof input !== "object" || input === null) {
+    return Result.fail(new ApplicationMutationInputError({
+      field: "identity",
+    }));
+  }
+  const state = authenticatedIdentityStates.get(input);
+  return state === undefined
+    ? Result.fail(new ApplicationMutationInputError({ field: "identity" }))
+    : Result.succeed(state);
+}
+
+function transactionGrantAuthFromExecutionIdentity(
+  identity: Extract<ExecutionIdentity, { readonly kind: "user" }>,
+): TransactionGrantInertAuthV1 {
+  const user = identity.user;
+  const claims: Record<string, Json> = {};
+  for (const [key, value] of Object.entries(user)) {
+    if (
+      key === "tokenIdentifier" ||
+      key === "issuer" ||
+      key === "subject" ||
+      value === undefined
+    ) continue;
+    Object.defineProperty(claims, key, {
+      configurable: false,
+      enumerable: true,
+      writable: false,
+      value: freezeOwnedIdentityJson(value),
+    });
+  }
+  return Object.freeze({
+    kind: "verifiedBearer" as const,
+    issuer: user.issuer,
+    subject: user.subject,
+    tokenIdentifier: user.tokenIdentifier,
+    claims: Object.freeze(claims),
+  });
+}
+
+function freezeOwnedIdentityJson(value: Json): Json {
+  if (Array.isArray(value)) {
+    for (const member of value) freezeOwnedIdentityJson(member);
+    return Object.freeze(value);
+  }
+  if (typeof value === "object" && value !== null) {
+    for (const member of Object.values(value)) {
+      freezeOwnedIdentityJson(member);
+    }
+    return Object.freeze(value);
+  }
+  return value;
 }
 
 const decodeFunctionPath = Schema.decodeUnknownResult(

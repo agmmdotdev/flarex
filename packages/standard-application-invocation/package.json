@@ -28,7 +28,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:dte06-f0a": "vitest run test/ApplicationTaskQueryAuthority.test.ts --no-file-parallelism"
+    "test:dte06-f0a": "vitest run test/ApplicationTaskQueryAuthority.test.ts --no-file-parallelism",
+    "test:dte06-f0b:identity": "vitest run test/ApplicationMutationSystem.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

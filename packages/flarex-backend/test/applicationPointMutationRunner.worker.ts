@@ -102,6 +102,9 @@ export default {
     const applicationError = await Effect.runPromiseExit(
       runner.run(runnerInput(fixture)),
     );
+    const legacyBearer = await Effect.runPromise(
+      runner.run(runnerInput(fixture, false)),
+    );
     const mismatchedInput = runnerInput(fixture);
     const runtimeHostMismatch = await Effect.runPromiseExit(runner.run({
       ...mismatchedInput,
@@ -117,6 +120,7 @@ export default {
     return Response.json({
       first,
       second,
+      legacyBearer,
       sourceReads,
       hostCalls,
       observed,
@@ -131,6 +135,7 @@ export default {
 
 function runnerInput(
   fixture: ReturnType<typeof applicationFixture>,
+  includeTokenIdentifier = true,
 ): Extract<PointMutationOccRuntimeNeutralRunnerInputV1, {
   readonly executionAuthorityGeneration: "application_v1";
 }> {
@@ -149,6 +154,9 @@ function runnerInput(
             kind: "verifiedBearer",
             issuer: "https://issuer.example",
             subject: "user-1",
+            ...(includeTokenIdentifier
+              ? { tokenIdentifier: "opaque-runner-user-1" }
+              : {}),
             claims: Object.freeze({ name: "Ada" }),
           }),
         }),

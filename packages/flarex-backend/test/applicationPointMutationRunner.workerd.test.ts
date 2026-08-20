@@ -33,8 +33,9 @@ describe("Application point-mutation runner", () => {
     expect(result).toMatchObject({
       first: { hostCall: 1 },
       second: { hostCall: 2 },
-      sourceReads: 3,
-      hostCalls: 3,
+      legacyBearer: { hostCall: 4 },
+      sourceReads: 4,
+      hostCalls: 4,
       legacyTag: "ApplicationPointMutationRunnerHostV1Error",
       applicationError: {
         tag: "PointMutationOccApplicationErrorV1",
@@ -47,14 +48,14 @@ describe("Application point-mutation runner", () => {
     });
     expect(result).toHaveProperty("observed");
     const observed = Reflect.get(result as object, "observed");
-    expect(observed).toHaveLength(3);
+    expect(observed).toHaveLength(4);
     expect(observed[0]).toMatchObject({
         format: "flarex.application-transaction-worker-request",
         version: 1,
         auth: {
           kind: "user",
           user: {
-            tokenIdentifier: "https://issuer.example|user-1",
+            tokenIdentifier: "opaque-runner-user-1",
             issuer: "https://issuer.example",
             subject: "user-1",
             name: "Ada",
@@ -69,6 +70,17 @@ describe("Application point-mutation runner", () => {
           executionTime: 1_800_000_000_000,
           initialCreationTimeCursor: 1_800_000_000_000,
         },
+    });
+    expect(observed[3]).toMatchObject({
+      auth: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "https://issuer.example|user-1",
+          issuer: "https://issuer.example",
+          subject: "user-1",
+          name: "Ada",
+        },
+      },
     });
   });
 });

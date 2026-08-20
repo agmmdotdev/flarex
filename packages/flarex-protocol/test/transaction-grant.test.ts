@@ -476,6 +476,7 @@ describe("transaction-grant protocol", () => {
         kind: "verifiedBearer",
         issuer: "https://identity.example.test",
         subject: "user_123",
+        tokenIdentifier: "opaque-user-token-123",
         claims,
       },
     });
@@ -490,6 +491,9 @@ describe("transaction-grant protocol", () => {
     }
     expect(Object.isFrozen(canonical.payload.auth.claims)).toBe(true);
     expect(Object.isFrozen(canonical.payload.auth.claims.teams)).toBe(true);
+    expect(canonical.payload.auth.tokenIdentifier).toBe(
+      "opaque-user-token-123",
+    );
 
     claims.role = "admin";
     teams.push("administrators");

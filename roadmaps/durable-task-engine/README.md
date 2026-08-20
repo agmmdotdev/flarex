@@ -638,10 +638,12 @@ files remain candidates:
      replay, and conflict transitions in the existing shared table. New
      issuance, preparation, and dispatch declaration require the authoritative
      database-time lease to remain live; post-dispatch reconciliation may run
-     after expiry only while the same attempt and fence remain current. The next
-     slice adds principal-bound entry into the existing Application mutation
-     replay owner; Worker composition and conservative lost-response handling
-     remain pending. Outbound and scheduling context members remain deferred.
+     after expiry only while the same attempt and fence remain current. The
+     existing Application mutation replay owner now also has an opaque
+     principal-bound entry while retaining anonymous foreground invocation;
+     both paths reuse its validation, grant, OCC, journal, commit, and replay
+     core. Worker composition and conservative lost-response handling are next.
+     Outbound and scheduling context members remain deferred.
      F1 then adds a
      production-compatible test host and fresh-host recovery proof around those
      current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
