@@ -1373,8 +1373,9 @@ function captureBoundedIntrinsicBytes(
 > {
   let visibleLength = 0;
   try {
-    for (const _byte of Uint8Array.prototype.values.call(input)) {
+    for (const byte of Uint8Array.prototype.values.call(input)) {
       visibleLength += 1;
+      void byte;
       if (visibleLength > maximum) {
         return Result.fail(new FunctionMetadataOperationBudgetV1Error({
           dimension: "canonicalUtf8BytesMaterialized",

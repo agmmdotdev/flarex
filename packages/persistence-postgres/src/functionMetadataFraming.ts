@@ -469,8 +469,9 @@ function readableByteLength(
   }
   try {
     let byteLength = 0;
-    for (const _byte of Uint8Array.prototype.values.call(input)) {
+    for (const byte of Uint8Array.prototype.values.call(input)) {
       byteLength += 1;
+      void byte;
     }
     return Result.succeed(byteLength);
   } catch (cause) {

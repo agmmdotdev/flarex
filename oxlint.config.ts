@@ -52,5 +52,9 @@ export default defineConfig({
     "flarex/prefer-option-constructors": "error",
     "flarex/require-effect-review-justification": "error",
     "flarex/require-safety-comment-for-type-assertion": "warn",
+    // Convex document system fields and Effect tagged discriminants.
+    "no-underscore-dangle": ["warn", {
+      allow: ["_id", "_creationTime", "_tag"],
+    }],
   },
 });
