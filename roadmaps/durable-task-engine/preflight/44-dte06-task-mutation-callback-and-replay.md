@@ -2,8 +2,9 @@
 
 ## Status And Decision
 
-**Status:** In progress privately. The source audit and ownership decision are
-approved. Slice 1 owns the strict private callback contract plus the
+**Status:** In progress privately and blocked at the persistence settlement
+boundary. The source audit and ownership decision are approved. Slice 1 owns
+the strict private callback contract plus the
 domain-separated stable-key and exact-request preimages. Slice 2 now owns the
 opaque Application Task subject and the Task child-mutation transitions over
 the existing shared external-effect table. Slice 3 now adds an opaque,
@@ -11,9 +12,13 @@ principal-bound entry into the existing Application mutation owner while
 retaining its anonymous foreground entry. Slice 4A now wires the strict mutation
 RPC through the Application Task Worker, Worker definition, session host,
 supervised Worker Loader provider, absolute deadline, cancellation, and
-close/drain lifetime. Slice 4B, the concrete launch-bound composition of that
-RPC with the Task external-effect authority and current Application mutation
-owner, is next. No production activation exists.
+close/drain lifetime. A Slice 4B coordinator draft exposed that the current
+external-effect transitions cannot authoritatively reconcile commit-response
+loss or prove a bounded Postgres settlement before subject revocation. That
+owner expansion is proposed separately in
+[`45-dte06-task-mutation-settlement-reconciliation.md`](./45-dte06-task-mutation-settlement-reconciliation.md)
+and requires approval before Slice 4B can complete. No production activation
+exists.
 
 The first side-effecting Task context capability will be `ctx.runMutation`.
 It will not create another mutation engine, another OCC/commit path, another
@@ -273,7 +278,7 @@ and no ambient Application service container inside the Worker.
    - expose only the owned identity-policy digest needed by the Task exact
      request commitment; and
    - preserve the same validation, OCC, journal, commit, and replay path.
-4. **Worker/session composition — in progress privately**
+4. **Worker/session composition — Slice 4A complete; Slice 4B blocked**
    - Slice 4A adds `ctx.runMutation` only to the Application Task Worker and
      carries a distinct mutation RPC target through the generated Worker
      definition, accepted session host, and supervised Worker Loader provider;
@@ -288,22 +293,54 @@ and no ambient Application service container inside the Worker.
      the supervisor, advertises the larger Worker/callback close bound, and
      closes both owners even when either cleanup fails;
    - Slice 4B must supply the concrete Application-owned mutation authority
-     through the already-carried exact dispatch request. That authority issues
-     the opaque current-attempt subject, revalidates the active
-     launch, derives and correlates the stable and exact request commitments,
-     drives the existing external-effect transitions, and invokes the existing
-     authenticated Application mutation entry. Its bind failures must retain
-     the owning distinction between stale/invalid non-retryable evidence and
-     retryable integration failure; and
+     through the already-carried exact dispatch request. The coordinator must
+     own launch/request snapshots, issue the opaque current-attempt subject,
+     derive and correlate the stable and exact request commitments, and invoke
+     the existing authenticated Application mutation entry. The mutation owner
+     must revalidate the same launch against its active selection before
+     mutation work. Completion is blocked until the persistence owner supplies
+     authoritative disposition reconciliation and a proven settlement bound as
+     specified by Preflight 45; and
    - keep Legacy, outbound, scheduling, routes, and production activation
      unchanged.
-5. **Connected proof**
+5. **Connected proof — after Slice 4B**
    - prove publish, exact replay after lost response, contradictory ordinal,
      stale fence, principal propagation, cancellation, timeout, and cleanup in
      genuine Worker plus PGlite;
    - prove transaction/concurrency/lock behavior on genuine PostgreSQL.
 
 Each slice remains private and production-inert.
+
+## Current Blocking Owner Finding
+
+The Slice 4B draft produced the following reproducible persistence-owner
+finding:
+
+- **Scenario:** a prepare, dispatch declaration, or confirmation transaction
+  reaches PostgreSQL and the caller loses or cannot classify the settlement
+  response while callback close concurrently aborts the admitted mutation.
+- **Expected:** one persistence-owned reconciliation transaction reads the
+  exact stored child-mutation row under lock, preserves exact request/outcome
+  identity, settles `prepared` as failed-before-dispatch, settles
+  `dispatching` as uncertain or exact-confirmed, accepts exact already-terminal
+  replay, and finishes within an advertised database-owned deadline before the
+  opaque subject is revoked.
+- **Actual:** the available APIs expose separate phase-specific transitions.
+  Caller-local phase guesses cannot distinguish a rolled-back declaration from
+  a committed declaration whose response was lost. The shared located Effect
+  transaction waits uninterruptibly for the driver promise and supplies no
+  statement/lock/transaction settlement bound to the callback authority.
+- **Affected owner:** Task external-effect persistence plus its located
+  PostgreSQL transaction/deadline capability. This is not authority to change
+  Application mutation OCC, commit, journals, Task lifecycle, or Worker session
+  contracts.
+- **Evidence:** the reproducible cases are interruption after prepare, definite
+  declaration failure, post-dispatch interruption, and confirmation response
+  loss; the missing proof is authoritative post-transaction state resolution
+  and bounded genuine-PostgreSQL settlement.
+- **Disposition:** blocked pending explicit approval of Preflight 45. Do not
+  activate, merge a retry/fallback guess, or claim Slice 4B complete before that
+  gate passes.
 
 ## Required Negative And Recovery Proof
 
