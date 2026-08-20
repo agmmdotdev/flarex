@@ -649,10 +649,13 @@ lifecycle accepts the unchanged success and records the cancellation as
   per-call `ApplicationTaskQueryAuthority` selection revalidation;
 - continue `ctx.runMutation` only through the separately approved
   [`preflight/44-dte06-task-mutation-callback-and-replay.md`](./preflight/44-dte06-task-mutation-callback-and-replay.md):
-  retain its implemented private callback and run-and-ordinal stable/exact
-  request commitment, then reuse the current Application mutation/OCC/replay
-  owner and the shared external-effect table's admitted Task subject, with a
-  stable request key across attempts and exact contradictory-replay rejection;
+  retain its implemented private callback, run-and-ordinal stable/exact
+  request commitment, and opaque Task-attempt external-effect authority over
+  the existing shared table, including database-time lease admission for new
+  preparation/dispatch and same-attempt-only post-expiry reconciliation; next
+  enter the current Application
+  mutation/OCC/replay owner with the launch-bound principal, stable request key
+  across attempts, and exact contradictory-replay rejection;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;

@@ -632,11 +632,17 @@ files remain candidates:
      `ctx.runQuery`, with the launch-bound user and per-call active-selection
      revalidation. The separately gated Task mutation checkpoint now owns its
      strict private callback contract and the run-and-ordinal stable key plus
-     exact-request commitment. Its next slice adds Task-attempt external-effect
-     authority over the existing shared table; principal-bound Application
-     mutation replay, Worker composition, and conservative lost-response
-     handling remain pending. Outbound and scheduling context members remain
-     deferred. F1 then adds a
+     exact-request commitment. Its Task-attempt external-effect authority now
+     derives that stable key under an opaque current-attempt capability and
+     owns prepared, dispatching, failed-before-dispatch, confirmed, uncertain,
+     replay, and conflict transitions in the existing shared table. New
+     issuance, preparation, and dispatch declaration require the authoritative
+     database-time lease to remain live; post-dispatch reconciliation may run
+     after expiry only while the same attempt and fence remain current. The next
+     slice adds principal-bound entry into the existing Application mutation
+     replay owner; Worker composition and conservative lost-response handling
+     remain pending. Outbound and scheduling context members remain deferred.
+     F1 then adds a
      production-compatible test host and fresh-host recovery proof around those
      current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public

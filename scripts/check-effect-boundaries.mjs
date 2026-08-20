@@ -91,7 +91,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/persistence-postgres/src/appUniqueConstraintSetBuildV1.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/applicationRevisionReadinessV1.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/applicationRevisionActivationV1.ts", "startLocatedEffectTransaction"), 1],
-  [siteKey("packages/persistence-postgres/src/applicationActionAuthorityV1.ts", "startLocatedEffectTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/locatedEffectTransaction.ts", "startLocatedEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/applicationPointQuerySnapshotV1.ts", "startReadTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/intrinsicCreationTimeIndexBuildV1.ts", "startAppOrderedIndexBuildTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/physicalDefinitionLifecycle.ts", "startLocatedTransaction"), 1],

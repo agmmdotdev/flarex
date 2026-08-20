@@ -10,7 +10,7 @@ import {
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
-import { Cause, Data, Effect, Exit, Result } from "effect";
+import { Data, Effect, Result } from "effect";
 import {
   decodeApplicationActionInvocationRequestV1,
   decodeApplicationActionInvocationRequestV2,
@@ -38,6 +38,10 @@ import {
 import type { AppRowTransaction } from "./appRows";
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
+  runLocatedEffectQuery,
+  runLocatedEffectTransaction,
+} from "./locatedEffectTransaction";
+import {
   getScopeClock,
   lockScopeClockForUpdateInTransactionEffect,
   type ScopeClockRecord,
@@ -55,7 +59,6 @@ import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
 import {
-  LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
@@ -2197,16 +2200,12 @@ function corruption(detail: string) {
 }
 
 function query<Row>(queryValue: PromiseLike<ReadonlyArray<Row>>): Effect.Effect<ReadonlyArray<Row>, ApplicationActionAuthorityIntegrationV1Error> {
-  return Effect.uninterruptible(Effect.tryPromise({
-    try: () => queryValue,
-    catch: cause => new ApplicationActionAuthorityIntegrationV1Error({ operation: "query", cause }),
-  }));
-}
-
-interface StartedTransaction<Value, Failure> {
-  readonly promise: Promise<Value>;
-  readonly rollbackSignal: Error;
-  readonly callbackCause: () => Cause.Cause<Failure> | undefined;
+  return runLocatedEffectQuery(
+    queryValue,
+    "query",
+    (operation, cause) =>
+      new ApplicationActionAuthorityIntegrationV1Error({ operation, cause }),
+  );
 }
 
 function runTransaction<Value, Failure>(
@@ -2214,68 +2213,15 @@ function runTransaction<Value, Failure>(
   operation: string,
   work: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
 ): Effect.Effect<Value, Failure | ApplicationActionAuthorityIntegrationV1Error> {
-  return Effect.uninterruptibleMask(() => Effect.gen(function* () {
-    const started = startLocatedEffectTransaction(target, work);
-    const settled = yield* Effect.tryPromise({
-      try: () => started.promise,
-      catch: cause => cause,
-    }).pipe(Effect.exit);
-    if (Exit.isSuccess(settled)) return settled.value;
-    const error = Cause.findErrorOption(settled.cause);
-    if (error._tag === "None") {
-      return yield* Effect.failCause(Cause.map(
-        settled.cause,
-        cause => new ApplicationActionAuthorityIntegrationV1Error({
-          operation,
-          cause,
-        }),
-      ));
-    }
-    const cause = error.value;
-    const callbackCause = started.callbackCause();
-    if (
-      cause instanceof LocatedReadCommittedTransactionFailureV1 &&
-      cause.issue.kind === "callbackRolledBack" &&
-      cause.issue.callbackCause === started.rollbackSignal &&
-      callbackCause !== undefined
-    ) {
-      return yield* Effect.failCause(callbackCause);
-    }
-    if (
-      cause instanceof LocatedReadCommittedTransactionFailureV1 &&
-      cause.issue.kind === "callbackCleanupFailed" &&
-      callbackCause !== undefined
-    ) {
-      return yield* Effect.failCause(Cause.combine(
-        callbackCause,
-        Cause.die(new ApplicationActionAuthorityIntegrationV1Error({
-          operation,
-          cause,
-        })),
-      ));
-    }
-    return yield* new ApplicationActionAuthorityIntegrationV1Error({ operation, cause });
-  }));
-}
-
-/** The single audited Effect runtime bridge for the Drizzle callback owner. */
-function startLocatedEffectTransaction<Value, Failure>(
-  target: LocatedApplicationActionAuthorityTargetV1,
-  work: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
-): StartedTransaction<Value, Failure> {
-  let callbackCause: Cause.Cause<Failure> | undefined;
-  const rollbackSignal = new Error("AAV-A1 transaction rolled back.");
-  const promise = target[RUN_LOCATED_READ_COMMITTED_V1](async tx => {
-    const exit = await Effect.runPromise(Effect.exit(work(tx)));
-    if (Exit.isFailure(exit)) {
-      callbackCause = exit.cause;
-      throw rollbackSignal;
-    }
-    return exit.value;
-  });
-  return Object.freeze({
-    promise,
-    rollbackSignal,
-    callbackCause: () => callbackCause,
-  });
+  return runLocatedEffectTransaction(
+    target,
+    operation,
+    work,
+    (failureOperation, cause) =>
+      new ApplicationActionAuthorityIntegrationV1Error({
+        operation: failureOperation,
+        cause,
+      }),
+    "AAV-A1 transaction rolled back.",
+  );
 }

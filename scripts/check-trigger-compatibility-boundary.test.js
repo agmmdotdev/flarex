@@ -1167,6 +1167,69 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the Task external-effect authority dispatch contract", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath:
+        "packages/persistence-postgres/src/taskExternalEffectAuthority.ts",
+      text: `
+        import {
+          type ApplicationTaskComputeDispatchRequestV1,
+          validateApplicationTaskComputeDispatchRequestV1,
+        } from "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/taskExternalEffectAuthority.ts",
+      text: `
+        import { TaskComputeProvider } from
+          "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }, {
+      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      text: `
+        import { validateApplicationTaskComputeDispatchRequestV1 } from
+          "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([
+      "packages/persistence-postgres/src/taskExternalEffectAuthority.ts:2 production source must not activate @flarex/durable-task before host admission.",
+      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate @flarex/durable-task before host admission.",
+    ]);
+  });
+
+  it("keeps the Task external-effect authority production-inert", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/flarex-backend/src/worker.ts",
+      text: `
+        import { prepareTaskChildMutationEffect } from
+          "@flarex/persistence-postgres/internal/task-external-effect-authority";
+      `,
+    }, {
+      relativePath:
+        "packages/standard-application-invocation/src/ApplicationMutationSystem.ts",
+      text: `
+        import type { ApplicationTaskExternalEffectSubject } from
+          "@flarex/persistence-postgres/internal/task-external-effect-authority";
+      `,
+    }, {
+      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      text: `
+        import { issueApplicationTaskExternalEffectSubject } from
+          "./taskExternalEffectAuthority.js";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/test/taskExternalEffectAuthority.test.ts",
+      text: `
+        import { prepareTaskChildMutationEffect } from
+          "../src/taskExternalEffectAuthority";
+      `,
+    }]).errors).toEqual([
+      "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/standard-application-invocation/src/ApplicationMutationSystem.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+    ]);
+  });
+
   it("admits only the E5 private Application supervision composition", () => {
     const applicationComposition =
       "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";

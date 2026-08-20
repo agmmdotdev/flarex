@@ -58,6 +58,8 @@ const persistencePostgresTaskRunAttemptStorePath =
   "packages/persistence-postgres/src/taskSystemRunAttemptStoreV1.ts";
 const persistencePostgresTaskAttemptLifecycleGatewayPath =
   "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts";
+const persistencePostgresTaskExternalEffectAuthorityPath =
+  "packages/persistence-postgres/src/taskExternalEffectAuthority.ts";
 const persistencePostgresTaskLifecycleLedgerCorrelationPath =
   "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts";
 const persistencePostgresTaskRunCreationPath =
@@ -517,6 +519,10 @@ const admittedPersistenceTaskAttemptLifecycleGatewaySymbolsBySpecifier =
       "validateCurrentTaskComputeDispatchRequestV1",
     ])],
   ]);
+const admittedPersistenceTaskExternalEffectAuthoritySymbols = new Set([
+  "ApplicationTaskComputeDispatchRequestV1",
+  "validateApplicationTaskComputeDispatchRequestV1",
+]);
 const admittedPersistenceTaskLifecycleLedgerCorrelationSymbols = new Set([
   "ApplicationTaskRunAttemptAggregateV1",
   "CurrentPersistedTaskRequestedEffect",
@@ -842,6 +848,16 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
           node.getStart(sourceFile),
         ).line + 1;
         errors.push(`${relativePath}:${line} production source must not activate the Task attempt lifecycle gateway before supervisor admission.`);
+      }
+      if (
+        specifier !== undefined
+        && isProductionSource(relativePath)
+        && isTaskExternalEffectAuthoritySpecifier(specifier, relativePath)
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(
+          node.getStart(sourceFile),
+        ).line + 1;
+        errors.push(`${relativePath}:${line} production source must not activate the Task external-effect authority before mutation-host admission.`);
       }
       if (
         specifier !== undefined
@@ -1460,6 +1476,19 @@ function isTaskAttemptLifecycleGatewaySpecifier(specifier, relativePath) {
     || resolved === `${targetWithoutExtension}.js`;
 }
 
+/** @param {string} specifier @param {string} relativePath */
+function isTaskExternalEffectAuthoritySpecifier(specifier, relativePath) {
+  const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
+  const resolved = resolveRepositorySpecifier(specifier, relativePath);
+  const targetWithoutExtension =
+    persistencePostgresTaskExternalEffectAuthorityPath.slice(0, -3);
+  return normalized ===
+      "@flarex/persistence-postgres/internal/task-external-effect-authority"
+    || resolved === persistencePostgresTaskExternalEffectAuthorityPath
+    || resolved === targetWithoutExtension
+    || resolved === `${targetWithoutExtension}.js`;
+}
+
 /** @param {ts.Node} node */
 function isTypeOnlyImportDeclaration(node) {
   return ts.isImportDeclaration(node)
@@ -2054,6 +2083,9 @@ function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
     ? admittedPersistenceTaskAttemptLifecycleGatewaySymbolsBySpecifier.get(
       specifier,
     )
+    : relativePath === persistencePostgresTaskExternalEffectAuthorityPath
+      && specifier === "@flarex/durable-task/internal/compute-provider-v1"
+    ? admittedPersistenceTaskExternalEffectAuthoritySymbols
     : relativePath === persistencePostgresTaskLifecycleLedgerCorrelationPath
       && specifier === "@flarex/durable-task/internal/run-attempt-v1"
     ? admittedPersistenceTaskLifecycleLedgerCorrelationSymbols

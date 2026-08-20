@@ -4,9 +4,11 @@
 
 **Status:** In progress privately. The source audit and ownership decision are
 approved. Slice 1 owns the strict private callback contract plus the
-domain-separated stable-key and exact-request preimages. Slice 2, the Task
-external-effect authority over the existing table, is next. No Worker/session
-wiring or production activation exists yet.
+domain-separated stable-key and exact-request preimages. Slice 2 now owns the
+opaque Application Task subject and the Task child-mutation transitions over
+the existing shared external-effect table. Slice 3, identity-aware entry into
+the existing Application mutation owner, is next. No Worker/session wiring or
+production activation exists yet.
 
 The first side-effecting Task context capability will be `ctx.runMutation`.
 It will not create another mutation engine, another OCC/commit path, another
@@ -98,6 +100,13 @@ The host mints an opaque Task external-effect subject capability from those
 facts. User code, the Worker, and callback input cannot supply or change the
 subject digest, scope, run, attempt, fence, runtime-target digest, principal,
 stable key, or mutation request key.
+
+The persistence owner derives the stable mutation request key itself from the
+capability's current scope and run plus the admitted positive ordinal, using
+the Slice 1 canonical preimage and SHA-256 projection. The prepare caller
+supplies only the exact request commitment, function path, argument digest,
+and ordinal. Its receipt returns the derived key for the mutation owner; an
+adapter cannot substitute a second key for the same run ordinal.
 
 Every prepare/dispatch/confirm/uncertain transition reacquires the located
 scope authority and verifies that the same run, attempt, and execution fence
@@ -215,9 +224,9 @@ redrive scheduler, checkpoint interpreter, or background mutation dispatcher.
 | --- | --- |
 | `flarex-protocol` | exact private mutation callback request/result wire contract and external-effect compatibility contracts |
 | `@flarex/durable-task` | existing run/attempt/fence, retry, cancellation, and terminal lifecycle only |
-| `@flarex/persistence-postgres` | Task-subject validation and external-effect transitions using the existing table; no mutation execution |
+| `@flarex/persistence-postgres` | Task-subject validation, stable key derivation, and external-effect transitions using the existing table; no mutation execution |
 | `@flarex/standard-application-invocation` | identity-aware entry into the existing `ApplicationMutationSystem`; no Task lifecycle logic |
-| `flarex-backend` | launch-bound mutation session, stable key derivation, RPC target, budgets, close/drain, and composition |
+| `flarex-backend` | launch-bound mutation session, ordinal and exact-request input, consumption of the authority-derived key, RPC target, budgets, close/drain, and composition |
 | `@flarex/system-test` | connected PGlite, genuine PostgreSQL, and genuine Worker proof only |
 
 The task mutation capability is injected beside the query capability. Neither
@@ -232,13 +241,24 @@ and no ambient Application service container inside the Worker.
    - add domain-separated stable-key and exact-request commitment helpers;
    - prove canonical capture, byte bounds, hostile input rejection, and
      same-run/same-ordinal conflict behavior.
-2. **Task external-effect authority — next**
+2. **Task external-effect authority — complete privately**
    - mint an opaque capability from current Task launch/attempt evidence;
    - adapt the existing external-effect transition mechanics to the Task
      parent without changing direct-action behavior;
-   - prove stale scope, attempt, and fence rejection plus exact duplicate
-     reconciliation.
-3. **Identity-aware mutation invocation**
+   - derive the stable mutation request key inside the persistence authority;
+   - reject stale scope, attempt, fence, runtime target, phase, or
+     post-lock database-time lease before issuing a capability, preparing an
+     effect, or declaring dispatch; lease equality is expired and a transaction
+     that waited across expiry cannot reuse its transaction-start timestamp;
+   - allow failed-before-dispatch, uncertain, and confirmation reconciliation
+     after lease expiry only for the same still-current attempt and fence,
+     because those operations record cleanup or an already-possible dispatch
+     and cannot authorize a new child mutation;
+   - reconcile exact duplicate prepare/dispatch/failure/uncertain/confirmation
+     transitions and reject contradictory reuse; and
+   - preserve rollback at every Task external-effect transition through the
+     shared located transaction bridge.
+3. **Identity-aware mutation invocation — next**
    - extend the current mutation owner with an operation-specific authenticated
      identity input while retaining the existing anonymous foreground default;
    - preserve the same validation, OCC, journal, commit, and replay path.
