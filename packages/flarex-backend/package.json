@@ -94,6 +94,7 @@
     "test:dte06-d3b-i": "vitest run test/legacyTaskWorkerDefinition.miniflare.test.ts test/legacyTaskExecutionHost.test.ts --no-file-parallelism",
     "test:dte06-d3b-iii": "vitest run test/workerLoaderTaskComputeProvider.test.ts --no-file-parallelism",
     "test:dte06-f0a": "vitest run test/applicationExecutionHost.test.ts test/taskWorkerSessionHost.test.ts --no-file-parallelism",
+    "test:dte06-f0b:worker-bridge": "vitest run test/applicationTaskMutationCallback.test.ts test/applicationTaskQueryCallback.test.ts test/applicationTaskWorkerDefinition.miniflare.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts --no-file-parallelism",
     "test:dte06-e4": "vitest run test/taskAttemptSupervisor.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts test/taskWorkerTerminalCompletion.test.ts test/taskResultStore.test.ts --no-file-parallelism"
   },
   "dependencies": {

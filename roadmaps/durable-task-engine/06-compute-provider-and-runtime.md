@@ -644,7 +644,7 @@ lifecycle accepts the unchanged success and records the cancellation as
 - retain the implemented scope-bound authenticated-user principal publication,
   persisted reference, and exact launch reconstruction as the only identity
   source for the first `runQuery` capability;
-- retain the implemented query-only Task Worker RPC target, exact bounded
+- retain the implemented Task query RPC target, exact bounded
   request/result envelope, host-allocated call identity and deadline, and
   per-call `ApplicationTaskQueryAuthority` selection revalidation;
 - continue `ctx.runMutation` only through the separately approved
@@ -655,9 +655,16 @@ lifecycle accepts the unchanged success and records the cancellation as
   preparation/dispatch and same-attempt-only post-expiry reconciliation; retain
   the now-implemented opaque principal-bound entry into the current Application
   mutation/OCC/replay owner, which shares the foreground mutation core while
-  preserving its anonymous default; next compose that entry into the Task
-  Worker/session with the authority-derived stable request key across attempts
-  and exact contradictory-replay rejection;
+  preserving its anonymous default; retain the now-implemented Slice 4A
+  Application Worker/session bridge with exact sequential ordinals, distinct
+  mutation RPC capability, absolute deadline, cancellation, Worker-owned
+  pending-mutation drain before terminal settlement, independently gated host
+  callback drain, and an honest combined close bound; next supply its concrete
+  Application-owned authority from the exact current dispatch request so
+  it issues the opaque current-attempt subject, drives the existing persisted
+  external-effect transitions, and invokes the existing authenticated mutation
+  entry with the authority-derived stable request key across attempts and exact
+  contradictory-replay rejection;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;

@@ -589,6 +589,7 @@ function startInput(
         request: applicationRequest(maximumDurationMs),
         capability: Object.freeze({ read: async () => null }),
         queryCapability: Object.freeze({ invoke: async () => null }),
+        mutationCapability: Object.freeze({ invoke: async () => null }),
         executionId: "execution-1",
       }
     : {

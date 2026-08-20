@@ -154,7 +154,7 @@ describe("Application task Worker definition", () => {
       requestFor(definition),
     );
     expect(receipt).toEqual({
-      disposals: 4,
+      disposals: 6,
       secondName: "ApplicationTaskWorkerInvalidRequestV1Error",
     });
   }, 20_000);
@@ -205,6 +205,71 @@ describe("Application task Worker definition", () => {
       value: { orderId: "order-query" },
       queryPath: "users:get",
     });
+  }, 20_000);
+
+  it("exposes a sequential mutation callback only to the Application task Worker", async () => {
+    const fixture = taskFixture([
+      "export async function run(ctx, payload) {",
+      "  const first = await ctx.runMutation('orders:update', payload);",
+      "  return await ctx.runMutation('orders:audit', first);",
+      "}",
+    ].join("\n"));
+    const definition = await buildDefinition(fixture);
+
+    await expect(executeDefinition(
+      definition,
+      requestFor(definition),
+      { orderId: "order-mutation" },
+      false,
+      true,
+    )).resolves.toMatchObject({
+      value: { orderId: "order-mutation" },
+      mutationCalls: [
+        { ordinal: { __bigint: "1" }, path: "orders:update" },
+        { ordinal: { __bigint: "2" }, path: "orders:audit" },
+      ],
+    });
+  }, 20_000);
+
+  it("does not consume a mutation ordinal for a locally invalid request", async () => {
+    const fixture = taskFixture([
+      "export async function run(ctx, payload) {",
+      "  try { await ctx.runMutation('', payload); } catch {}",
+      "  return await ctx.runMutation('orders:update', payload);",
+      "}",
+    ].join("\n"));
+    const definition = await buildDefinition(fixture);
+
+    await expect(executeDefinition(
+      definition,
+      requestFor(definition),
+      { orderId: "order-valid-after-local-rejection" },
+      false,
+      true,
+    )).resolves.toMatchObject({
+      mutationCalls: [
+        { ordinal: { __bigint: "1" }, path: "orders:update" },
+      ],
+    });
+  }, 20_000);
+
+  it("drains a fire-and-forget mutation before reporting Task completion", async () => {
+    const fixture = taskFixture([
+      "export function run(ctx, payload) {",
+      "  void ctx.runMutation('orders:update', payload);",
+      "  return payload;",
+      "}",
+    ].join("\n"));
+    const definition = await buildDefinition(fixture);
+
+    await expect(executeDefinition(
+      definition,
+      requestFor(definition),
+      { orderId: "order-fire-and-forget" },
+      false,
+      true,
+      "delayed_failure",
+    )).rejects.toThrow("ApplicationTaskWorkerMutationBoundaryV1Error");
   }, 20_000);
 
   it("rejects payload and output validator violations", async () => {
@@ -288,7 +353,7 @@ describe("Application task Worker definition", () => {
     }) };
     const query = { dup: () => { throw queryFailure; } };
 
-    await expect(new Entrypoint().start({}, input, query)).rejects.toBe(queryFailure);
+    await expect(new Entrypoint().start({}, input, query, {})).rejects.toBe(queryFailure);
     expect(inputDisposals).toBe(1);
   });
 
@@ -308,12 +373,36 @@ describe("Application task Worker definition", () => {
     }) };
     const query = { dup: () => { throw queryFailure; } };
 
-    await expect(new Entrypoint().start({}, input, query)).rejects.toMatchObject({
+    await expect(new Entrypoint().start({}, input, query, {})).rejects.toMatchObject({
       cause: {
         queryCapabilityFailure: queryFailure,
         inputCapabilityCleanupFailure: cleanupFailure,
       },
     });
+  });
+
+  it("disposes earlier duplicates when mutation-capability duplication fails", async () => {
+    const definition = await buildDefinition(taskFixture(
+      "export function run() { return null; }",
+    ));
+    const entrypoint = definition.modules[definition.mainModule];
+    expect(entrypoint).toBeTypeOf("object");
+    const Entrypoint = evaluateGeneratedEntrypoint(
+      (entrypoint as { readonly js: string }).js,
+    );
+    const mutationFailure = new Error("mutation duplication failed");
+    const disposals: string[] = [];
+    const input = { dup: () => ({
+      [Symbol.dispose]: () => { disposals.push("input"); },
+    }) };
+    const query = { dup: () => ({
+      [Symbol.dispose]: () => { disposals.push("query"); },
+    }) };
+    const mutation = { dup: () => { throw mutationFailure; } };
+
+    await expect(new Entrypoint().start({}, input, query, mutation)).rejects
+      .toBe(mutationFailure);
+    expect(disposals).toEqual(["query", "input"]);
   });
 
   it("fails closed on forbidden import-time capability use", async () => {
@@ -683,6 +772,8 @@ async function executeDefinition(
   requestValue: unknown,
   payload: unknown,
   enableQuery = false,
+  enableMutation = false,
+  mutationBehavior: "success" | "delayed_failure" = "success",
 ): Promise<unknown> {
   const encoded = JSON.stringify({ request: requestValue, payload },
     (_key, value: unknown) => {
@@ -729,8 +820,37 @@ class QueryCapability extends RpcTarget {
     };
   }
 }
+class MutationCapability extends RpcTarget {
+  async invoke(request) {
+    if (!${JSON.stringify(enableMutation)}) {
+      throw new Error("mutation callback was not expected");
+    }
+    globalThis.mutationCalls.push({ ordinal: request.ordinal, path: request.functionPath });
+    if (${JSON.stringify(mutationBehavior)} === "delayed_failure") {
+      await scheduler.wait(25);
+      return {
+        format: "flarex.application-task-mutation-callback",
+        version: 1,
+        kind: "failure",
+        callId: "task-worker-test:mutation:" + String(request.ordinal),
+        deadlineMs: Date.now() + 1_000,
+        reason: "outcome_uncertain",
+      };
+    }
+    return {
+      format: "flarex.application-task-mutation-callback",
+      version: 1,
+      kind: "success",
+      callId: "task-worker-test:mutation:" + String(request.ordinal),
+      deadlineMs: Date.now() + 1_000,
+      value: request.arguments,
+      valueSemanticBytes: request.argumentSemanticBytes,
+    };
+  }
+}
 globalThis.capabilityDisposals = 0;
 globalThis.queryPath = null;
+globalThis.mutationCalls = [];
 export default {
   async fetch(_request, env) {
     try {
@@ -740,11 +860,13 @@ export default {
         input.request,
         new InputCapability(),
         new QueryCapability(),
+        new MutationCapability(),
       );
       try {
         const projection = { ...structuredClone(result),
           disposals: globalThis.capabilityDisposals,
-          queryPath: globalThis.queryPath };
+          queryPath: globalThis.queryPath,
+          mutationCalls: globalThis.mutationCalls };
         return new Response(JSON.stringify(projection, (_key, value) =>
           typeof value === "bigint" ? { __bigint: String(value) } : value
         ), { headers: { "content-type": "application/json" } });
@@ -809,12 +931,13 @@ class Input extends RpcTarget {
   async read() { await scheduler.wait(50); return new Payload(); }
 }
 class Query extends RpcTarget { invoke() { throw new Error("unexpected query"); } }
+class Mutation extends RpcTarget { invoke() { throw new Error("unexpected mutation"); } }
 export default { async fetch(_request, env) {
   const worker = env.LOADER.load(code);
   const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
     .start({ format: "flarex.task-worker-session-start", version: 1,
       generation: "application_v1", executionId: "execution-1", request },
-      new Input(), new Query());
+      new Input(), new Query(), new Mutation());
   try {
     const acceptance = await session.acceptance();
     await scheduler.wait(10);
@@ -874,12 +997,13 @@ const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
     ? BigInt(value.__bigint) : value);
 class Input extends RpcTarget { read() { return structuredClone(input.payload); } }
 class Query extends RpcTarget { invoke() { throw new Error("unexpected query"); } }
+class Mutation extends RpcTarget { invoke() { throw new Error("unexpected mutation"); } }
 export default { async fetch(_request, env) {
   const worker = env.LOADER.load(code);
   const session = await worker.getEntrypoint(${JSON.stringify(definition.entrypoint)})
     .start({ format: "flarex.task-worker-session-start", version: 1,
       generation: "application_v1", executionId: "execution-1",
-      request: input.requestValue }, new Input(), new Query());
+      request: input.requestValue }, new Input(), new Query(), new Mutation());
   try {
     const settlement = await session.settlement();
     return new Response(JSON.stringify(structuredClone(settlement), (_key, value) =>
@@ -943,6 +1067,9 @@ export default {
         queryCapability: {
           invoke() { throw new Error("unexpected query"); },
         },
+        mutationCapability: {
+          invoke() { throw new Error("unexpected mutation"); },
+        },
         definition,
         loadExecution: async () => ({ run(_ctx, payload) { return payload; } }),
       });
@@ -1002,6 +1129,7 @@ export default {
         [Symbol.dispose]() { throw new Error("input capability dispose failed"); },
       },
       queryCapability: { invoke() { throw new Error("unexpected query"); } },
+      mutationCapability: { invoke() { throw new Error("unexpected mutation"); } },
       definition,
       loadExecution: async () => ({ run() {
         ${handlerFails ? 'throw new Error("handler failed");' : "return null;"}
@@ -1065,6 +1193,7 @@ export default { async fetch() {
       generation: "application_v1", executionId: "execution-1", request },
     capability: { read() { return null; } },
     queryCapability: { invoke() { throw new Error("unexpected query"); } },
+    mutationCapability: { invoke() { throw new Error("unexpected mutation"); } },
     definition,
     loadExecution: async () => ({ run() { return null; } }),
   });
@@ -1113,10 +1242,13 @@ const capability = () => ({ read() { return null; },
   [Symbol.dispose]() { disposals += 1; } });
 const queryCapability = () => ({ invoke() { throw new Error("unexpected query"); },
   [Symbol.dispose]() { disposals += 1; } });
+const mutationCapability = () => ({ invoke() { throw new Error("unexpected mutation"); },
+  [Symbol.dispose]() { disposals += 1; } });
 const loadExecution = async () => ({ run() { return null; } });
 export default { async fetch() {
   const first = await startApplicationTaskWorkerSessionV1({
     startRequest, capability: capability(), queryCapability: queryCapability(),
+    mutationCapability: mutationCapability(),
     definition, loadExecution,
   });
   await first.terminal;
@@ -1124,6 +1256,7 @@ export default { async fetch() {
   try {
     await startApplicationTaskWorkerSessionV1({
       startRequest, capability: capability(), queryCapability: queryCapability(),
+      mutationCapability: mutationCapability(),
       definition, loadExecution,
     });
   } catch (error) { secondName = error?.name; }
@@ -1147,6 +1280,7 @@ interface EvaluatedApplicationTaskEntrypoint {
     startRequest: unknown,
     inputCapability: unknown,
     queryCapability: unknown,
+    mutationCapability: unknown,
   ) => Promise<unknown>;
 }
 

@@ -530,6 +530,15 @@ export async function proveApplicationTaskSystemConnected(
           }),
       },
     });
+    const mutationAuthority = Object.freeze({
+      bindLaunch: () => Effect.succeed(Object.freeze({
+        maximumCloseMilliseconds: 1_000,
+        runMutation: () => Effect.fail(Object.freeze({
+          reason: "invalidInput" as const,
+        })),
+        close: Effect.void,
+      })),
+    });
     const layer = makeApplicationTaskComputeDeliveryLayer({
       controlTarget: control.target,
       directory: {
@@ -569,6 +578,7 @@ export async function proveApplicationTaskSystemConnected(
         sha256: taskSha256,
       },
       queryAuthority,
+      mutationAuthority,
       supervision: {
         supervisor,
         exitObserver: supervision,
@@ -1252,6 +1262,7 @@ class MiniflareWorkerLoader implements WorkerLoader {
     request: TaskWorkerSessionStartRequestV1,
     capability: unknown,
     queryCapability: unknown,
+    mutationCapability: unknown,
   ) {
     this.starts += 1;
     this.generations.push(request.generation);
@@ -1264,6 +1275,7 @@ class MiniflareWorkerLoader implements WorkerLoader {
       request,
       payload,
       queryCapability,
+      mutationCapability,
     );
     this.sessions.add(session);
     let settlement: Promise<TaskWorkerSessionSettlementV1> | undefined;
@@ -1313,7 +1325,15 @@ class MiniflareWorkerStub implements WorkerStub {
         request: TaskWorkerSessionStartRequestV1,
         capability: unknown,
         queryCapability: unknown,
-      ) => this.owner.start(this.code, name, request, capability, queryCapability),
+        mutationCapability: unknown,
+      ) => this.owner.start(
+        this.code,
+        name,
+        request,
+        capability,
+        queryCapability,
+        mutationCapability,
+      ),
     } as unknown as Fetcher<T>;
   }
 
@@ -1342,6 +1362,7 @@ class LiveGeneratedTaskSession {
     request: TaskWorkerSessionStartRequestV1,
     payload: unknown,
     queryCapability: unknown,
+    mutationCapability: unknown,
   ): Promise<LiveGeneratedTaskSession> {
     if (entrypoint === undefined) {
       throw new Error("Application Task Worker entrypoint was not selected.");
@@ -1399,10 +1420,26 @@ export default {
           return decode(text);
         }
       }
+      class MutationCapability extends RpcTarget {
+        async invoke(request) {
+          const response = await env.CONTROL.fetch(
+            "https://task-control.test/mutation",
+            { method: "POST", body: encode(request) },
+          );
+          const text = await response.text();
+          if (!response.ok) throw new Error(text);
+          return decode(text);
+        }
+      }
       const worker = env.LOADER.load(code);
       session = await worker
         .getEntrypoint(${JSON.stringify(entrypoint)})
-        .start(input.request, new InputCapability(), new QueryCapability());
+        .start(
+          input.request,
+          new InputCapability(),
+          new QueryCapability(),
+          new MutationCapability(),
+        );
       const acceptance = await session.acceptance();
       await env.CONTROL.fetch("https://task-control.test/accepted", {
         method: "POST",
@@ -1434,7 +1471,10 @@ export default {
     }
   },
 };`;
-    const control = new LiveTaskSessionControl(queryCapability);
+    const control = new LiveTaskSessionControl(
+      queryCapability,
+      mutationCapability,
+    );
     const runtime = new Miniflare({
       compatibilityDate: COMPATIBILITY_DATE,
       modules: true,
@@ -1484,6 +1524,8 @@ export default {
 class LiveTaskSessionControl {
   private readonly queryReceiver: object;
   private readonly queryInvoke: (request: unknown) => unknown;
+  private readonly mutationReceiver: object;
+  private readonly mutationInvoke: (request: unknown) => unknown;
   private readonly acceptance: Promise<TaskWorkerSessionAcceptanceV1>;
   private resolveAcceptance: ((value: TaskWorkerSessionAcceptanceV1) => void) |
     undefined;
@@ -1501,7 +1543,7 @@ class LiveTaskSessionControl {
   ) => void) | undefined;
   private interruptionRequested = false;
 
-  constructor(queryCapability: unknown) {
+  constructor(queryCapability: unknown, mutationCapability: unknown) {
     if (queryCapability === null ||
       (typeof queryCapability !== "object" &&
         typeof queryCapability !== "function")) {
@@ -1513,6 +1555,17 @@ class LiveTaskSessionControl {
     }
     this.queryReceiver = queryCapability;
     this.queryInvoke = queryInvoke;
+    if (mutationCapability === null ||
+      (typeof mutationCapability !== "object" &&
+        typeof mutationCapability !== "function")) {
+      throw new Error("Application Task mutation capability is unavailable.");
+    }
+    const mutationInvoke = Reflect.get(mutationCapability, "invoke");
+    if (typeof mutationInvoke !== "function") {
+      throw new Error("Application Task mutation capability is unavailable.");
+    }
+    this.mutationReceiver = mutationCapability;
+    this.mutationInvoke = mutationInvoke;
     this.acceptance = new Promise(resolve => {
       this.resolveAcceptance = resolve;
     });
@@ -1554,6 +1607,29 @@ class LiveTaskSessionControl {
           this.queryInvoke,
           this.queryReceiver,
           [queryRequest],
+        );
+        try {
+          return new Response(JSON.stringify(result, encodeRpcValue), {
+            headers: { "content-type": "application/json" },
+          });
+        } finally {
+          if (result !== null &&
+            (typeof result === "object" || typeof result === "function")) {
+            const dispose = Reflect.get(result, Symbol.dispose);
+            if (typeof dispose === "function") Reflect.apply(dispose, result, []);
+          }
+        }
+      } catch (cause) {
+        return new Response(String(cause), { status: 500 });
+      }
+    }
+    if (pathname === "/mutation") {
+      try {
+        const mutationRequest = JSON.parse(await request.text(), decodeRpcValue);
+        const result = await Reflect.apply(
+          this.mutationInvoke,
+          this.mutationReceiver,
+          [mutationRequest],
         );
         try {
           return new Response(JSON.stringify(result, encodeRpcValue), {

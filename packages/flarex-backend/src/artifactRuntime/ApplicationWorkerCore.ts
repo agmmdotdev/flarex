@@ -33,6 +33,14 @@ import {
   normalizeApplicationTaskQueryCallbackValueV1,
 } from "flarex-protocol/internal/application-task-query-callback-v1";
 import {
+  APPLICATION_TASK_MUTATION_CALLBACK_FORMAT_V1,
+  APPLICATION_TASK_MUTATION_CALLBACK_VERSION_V1,
+  decodeApplicationTaskMutationCallbackRequestV1,
+  decodeApplicationTaskMutationCallbackResultV1,
+  normalizeApplicationTaskMutationCallbackValueV1,
+  type ApplicationTaskMutationCallbackRequestV1,
+} from "flarex-protocol/internal/application-task-mutation-callback-v1";
+import {
   LEGACY_TASK_WORKER_RESULT_FORMAT_V1,
   LEGACY_TASK_WORKER_RESULT_VERSION_V1,
   LegacyTaskWorkerContractV1Error,
@@ -214,6 +222,7 @@ export interface ApplicationTaskWorkerExecutionInputV1 {
   readonly request: unknown;
   readonly capability: unknown;
   readonly queryCapability: unknown;
+  readonly mutationCapability: unknown;
   readonly definition: ApplicationTaskWorkerDefinitionV1;
   readonly loadExecution: () => Promise<unknown>;
   readonly admittedRequest?: ApplicationTaskWorkerRequestV1;
@@ -484,6 +493,10 @@ export async function executeApplicationTaskWorkerV1(
       input.queryCapability,
       "ApplicationTaskWorkerQueryBoundaryV1Error",
     );
+    const mutationCapability = taskQueryCapability(
+      input.mutationCapability,
+      "ApplicationTaskWorkerMutationBoundaryV1Error",
+    );
     let rawPayload: unknown;
     try {
       rawPayload = await invokeTaskInputCapability(
@@ -539,6 +552,8 @@ export async function executeApplicationTaskWorkerV1(
       input.definition.handlerExportName,
       "ApplicationTaskWorkerDefinitionV1Error",
     );
+    const mutationSequence = { ordinal: 0n };
+    const mutationBoundary: BoundaryState = { open: true, pending: new SET() };
     const context = OBJECT_FREEZE({
       runQuery: (functionPath: string, argumentsValue?: unknown) =>
         invokeApplicationTaskQuery(
@@ -547,8 +562,24 @@ export async function executeApplicationTaskWorkerV1(
           argumentsValue === undefined ? OBJECT_FREEZE({}) : argumentsValue,
           input.interruption,
         ),
+      runMutation: (functionPath: string, argumentsValue?: unknown) => {
+        const mutationRequest = prepareApplicationTaskMutation(
+          mutationSequence,
+          functionPath,
+          argumentsValue === undefined ? OBJECT_FREEZE({}) : argumentsValue,
+        );
+        return trackApplicationTaskMutation(
+          mutationBoundary,
+          () => invokeApplicationTaskMutation(
+            mutationCapability,
+            mutationRequest,
+            input.interruption,
+          ),
+        );
+      },
     });
     let rawResult: unknown;
+    let executionFailure: Error | undefined;
     try {
       const execution = PROMISE.resolve(REFLECT_APPLY(
         handler, undefined, [context, payload.value],
@@ -557,10 +588,27 @@ export async function executeApplicationTaskWorkerV1(
         ? await execution
         : await PROMISE_RACE.call(PROMISE, [execution, input.interruption.signal]);
     } catch (cause) {
-      if (input.interruption?.interrupted() === true) {
-        throw namedError("ApplicationTaskWorkerTerminalV1Error", cause);
+      executionFailure = namedUnlessNamed(
+        input.interruption?.interrupted() === true
+          ? "ApplicationTaskWorkerTerminalV1Error"
+          : "ApplicationTaskWorkerHandlerV1Error",
+        cause,
+      );
+      throw executionFailure;
+    } finally {
+      mutationBoundary.open = false;
+      await PROMISE_ALL_SETTLED.call(
+        PROMISE,
+        ARRAY_FROM(mutationBoundary.pending),
+      );
+      if (mutationBoundary.failure !== undefined) {
+        if (executionFailure === undefined) throw mutationBoundary.failure;
+        throw taskWorkerCleanupError(
+          "ApplicationTaskWorkerCleanupV1Error",
+          executionFailure,
+          mutationBoundary.failure,
+        );
       }
-      throw namedError("ApplicationTaskWorkerHandlerV1Error", cause);
     }
     const output = normalizeTaskValue(
       rawResult,
@@ -595,6 +643,7 @@ export async function executeApplicationTaskWorkerV1(
   } finally {
     disposeApplicationTaskCapabilities(
       settledFailure,
+      input.mutationCapability,
       input.queryCapability,
       input.capability,
     );
@@ -656,6 +705,7 @@ export async function startApplicationTaskWorkerSessionV1(
     if (!capabilitiesTransferred) {
       disposeApplicationTaskCapabilities(
         undefined,
+        input.mutationCapability,
         input.queryCapability,
         input.capability,
       );
@@ -1564,6 +1614,111 @@ async function invokeApplicationTaskQuery(
   }
 }
 
+function prepareApplicationTaskMutation(
+  sequence: { ordinal: bigint },
+  functionPath: string,
+  argumentsValue: unknown,
+): ApplicationTaskMutationCallbackRequestV1 {
+  const normalized = normalizeApplicationTaskMutationCallbackValueV1(
+    argumentsValue,
+    "request",
+  ).pipe(Result.mapError(cause => namedError(
+    "ApplicationTaskWorkerMutationBoundaryV1Error",
+    cause,
+  )), Result.getOrThrow);
+  const ordinal = sequence.ordinal + 1n;
+  const request = decodeApplicationTaskMutationCallbackRequestV1({
+    format: APPLICATION_TASK_MUTATION_CALLBACK_FORMAT_V1,
+    version: APPLICATION_TASK_MUTATION_CALLBACK_VERSION_V1,
+    operation: "runMutation",
+    ordinal,
+    functionPath,
+    arguments: normalized.value,
+    argumentSemanticBytes: normalized.semanticSizeBytes,
+  }).pipe(Result.mapError(cause => namedError(
+    "ApplicationTaskWorkerMutationBoundaryV1Error",
+    cause,
+  )), Result.getOrThrow);
+  sequence.ordinal = ordinal;
+  return request;
+}
+
+async function invokeApplicationTaskMutation(
+  capability: TaskQueryCapability,
+  request: ApplicationTaskMutationCallbackRequestV1,
+  interruption: TaskWorkerInterruptionStateV1 | undefined,
+): Promise<unknown> {
+  let rawResult: unknown;
+  let primaryFailure: Error | undefined;
+  try {
+    rawResult = await invokeTaskCapabilityWithInterruption(
+      capability.invoke,
+      capability.receiver,
+      [request],
+      interruption,
+    );
+    const result = decodeApplicationTaskMutationCallbackResultV1(
+      detachCapabilityValue(
+        rawResult,
+        "ApplicationTaskWorkerMutationBoundaryV1Error",
+      ),
+    ).pipe(Result.mapError(cause => namedError(
+      "ApplicationTaskWorkerMutationBoundaryV1Error",
+      cause,
+    )), Result.getOrThrow);
+    if (result.kind === "failure") {
+      throw namedError("ApplicationTaskWorkerMutationBoundaryV1Error", result);
+    }
+    return result.value;
+  } catch (cause) {
+    primaryFailure = namedUnlessNamed(
+      interruption?.interrupted() === true
+        ? "ApplicationTaskWorkerTerminalV1Error"
+        : "ApplicationTaskWorkerMutationBoundaryV1Error",
+      cause,
+    );
+    throw primaryFailure;
+  } finally {
+    try {
+      disposeReceivedCapability(rawResult);
+    } catch (cause) {
+      throw taskWorkerCleanupError(
+        "ApplicationTaskWorkerCleanupV1Error",
+        primaryFailure,
+        cause,
+      );
+    }
+  }
+}
+
+function trackApplicationTaskMutation<Value>(
+  state: BoundaryState,
+  operation: () => Promise<Value>,
+): Promise<Value> {
+  if (!state.open) {
+    const failure = namedError(
+      "ApplicationTaskWorkerMutationBoundaryV1Error",
+      new ERROR("Application Task mutation boundary is closed."),
+    );
+    state.failure ??= failure;
+    const rejected = PROMISE.reject(failure);
+    void rejected.catch(() => undefined);
+    return rejected;
+  }
+  const pending = PROMISE.resolve().then(operation).catch(cause => {
+    const failure = namedUnlessNamed(
+      "ApplicationTaskWorkerMutationBoundaryV1Error",
+      cause,
+    );
+    state.failure ??= failure;
+    throw failure;
+  });
+  state.pending.add(pending);
+  const cleanup = () => state.pending.delete(pending);
+  void pending.then(cleanup, cleanup);
+  return pending;
+}
+
 function invokeTaskCapabilityWithInterruption(
   call: (...args: never[]) => unknown,
   receiver: object,
@@ -2170,11 +2325,16 @@ function taskWorkerCleanupError(
 
 function disposeApplicationTaskCapabilities(
   primaryFailure: Error | undefined,
+  mutationCapability: unknown,
   queryCapability: unknown,
   inputCapability: unknown,
 ): void {
   const cleanupFailures: unknown[] = [];
-  for (const capability of [queryCapability, inputCapability]) {
+  for (const capability of [
+    mutationCapability,
+    queryCapability,
+    inputCapability,
+  ]) {
     try {
       disposeReceivedCapability(capability);
     } catch (cause) {

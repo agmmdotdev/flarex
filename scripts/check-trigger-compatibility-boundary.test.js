@@ -565,6 +565,8 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/flarex-backend/src/taskComputeDelivery/WorkerLoaderTaskComputeProvider.ts";
     const queryCallbackPath =
       "packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskQueryCallback.ts";
+    const mutationCallbackPath =
+      "packages/flarex-backend/src/taskComputeDelivery/ApplicationTaskMutationCallback.ts";
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: providerPath,
       text: `
@@ -594,6 +596,24 @@ describe("Trigger compatibility boundary checker", () => {
         import type { TaskRuntimeLaunchSubject } from "../taskRuntimeLaunch/Model";
       `,
     }]).errors).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: mutationCallbackPath,
+      text: `
+        import type { ApplicationTaskRuntimeLaunchSubject } from
+          "../taskRuntimeLaunch/Model";
+        import type { TaskComputeExecutionIdV1 } from
+          "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([]);
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: mutationCallbackPath,
+      text: `
+        import { TaskComputeProvider } from
+          "@flarex/durable-task/internal/compute-provider-v1";
+      `,
+    }]).errors).toEqual([
+      `${mutationCallbackPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
 
     expect(analyzeTriggerCompatibilityBoundary([], [{
       relativePath: queryCallbackPath,
@@ -1252,6 +1272,7 @@ describe("Trigger compatibility boundary checker", () => {
           type TaskAttemptSupervisor,
           type TaskComputeDeliveryConnectedRunnerOptions,
           type TaskComputeDeliveryTrustedDirectoryOptions,
+          type ApplicationTaskMutationCallbackAuthority,
           type WorkerLoaderTaskComputeProviderOptions,
         } from "flarex-backend/internal/task-compute-delivery";
         import {

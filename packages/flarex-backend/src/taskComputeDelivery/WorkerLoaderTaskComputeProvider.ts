@@ -107,6 +107,11 @@ import {
   makeApplicationTaskQueryCallbackCapability,
   type ApplicationTaskQueryCallbackAuthority,
 } from "./ApplicationTaskQueryCallback.js";
+import {
+  makeApplicationTaskMutationCallbackCapability,
+  type ApplicationTaskMutationCallbackAuthority,
+  type ApplicationTaskMutationCallbackLease,
+} from "./ApplicationTaskMutationCallback.js";
 
 export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME =
   "flarex-worker-loader" as const;
@@ -126,6 +131,7 @@ export class WorkerLoaderTaskComputeProviderConfigurationError
 export interface WorkerLoaderTaskComputeProviderOptions {
   readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
   readonly applicationQueryAuthority: ApplicationTaskQueryCallbackAuthority;
+  readonly applicationMutationAuthority: ApplicationTaskMutationCallbackAuthority;
   readonly legacyHostPolicy: LegacyTaskWorkerHostPolicy;
   /** Hard admission ceiling for the lifetime of this private provider Layer. */
   readonly maximumScopedDispatches?: number;
@@ -138,6 +144,7 @@ interface CapturedOptions {
   readonly descriptor: TaskComputeProviderDescriptorV1;
   readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
   readonly applicationQueryAuthority: ApplicationTaskQueryCallbackAuthority;
+  readonly applicationMutationAuthority: ApplicationTaskMutationCallbackAuthority;
   readonly legacyHostPolicy: LegacyTaskWorkerHostPolicy;
   readonly maximumScopedDispatches: number;
   readonly randomUuid: () => string;
@@ -522,6 +529,15 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
     const capability = new TaskWorkerInputCapabilityTarget(subject.input);
     const session = subject.generation === "application_v1"
       ? yield* Effect.gen(function* () {
+          const definition = yield* makeApplicationTaskWorkerDefinition({
+            source: subject.source,
+            target: subject.runtimeTarget,
+            runtimeTargetSha256:
+              subject.request.applicationTaskRuntimeTargetSha256,
+            manifest: subject.manifest,
+            hostPolicy: options.applicationHostPolicy,
+            sha256: options.sha256,
+          }).pipe(Effect.mapError(cause => mapDefinitionFailure(request, cause)));
           const querySession = yield* Effect.fromResult(
             options.applicationQueryAuthority.bindLaunch({
               creationAuthority: subject.creationAuthority,
@@ -533,15 +549,17 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
             retryable: false,
             cause,
           })));
-          const definition = yield* makeApplicationTaskWorkerDefinition({
-            source: subject.source,
-            target: subject.runtimeTarget,
-            runtimeTargetSha256:
-              subject.request.applicationTaskRuntimeTargetSha256,
-            manifest: subject.manifest,
-            hostPolicy: options.applicationHostPolicy,
-            sha256: options.sha256,
-          }).pipe(Effect.mapError(cause => mapDefinitionFailure(request, cause)));
+          const mutationSession = yield*
+            options.applicationMutationAuthority.bindLaunch({
+              request: subject.request,
+              creationAuthority: subject.creationAuthority,
+              runtimeTarget: subject.runtimeTarget,
+              executionIdentity: subject.executionIdentity,
+            }).pipe(Effect.mapError(cause => new TaskComputeDispatchTransportError({
+              operation: "dispatch",
+              retryable: cause.reason === "integrationFailure",
+              cause,
+            })));
           const startedAt = yield* Clock.currentTimeMillis;
           const queryCapabilityLease = makeApplicationTaskQueryCallbackCapability(
             querySession,
@@ -553,6 +571,17 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
               ),
             },
           );
+          const mutationCapabilityLease =
+            makeApplicationTaskMutationCallbackCapability(
+              mutationSession,
+              {
+                executionId,
+                absoluteTaskDeadlineMs: Math.min(
+                  Number.MAX_SAFE_INTEGER,
+                  startedAt + request.maximumDurationMs,
+                ),
+              },
+            );
           const startedSession = yield* Effect.acquireRelease(
             host.start({
               generation: "application_v1",
@@ -564,22 +593,33 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
               }),
               capability,
               queryCapability: queryCapabilityLease.capability,
+              mutationCapability: mutationCapabilityLease.capability,
               executionId,
             }).pipe(
               Effect.mapError(cause => mapStartFailure(request, cause)),
               Effect.onExit(exit => Exit.isFailure(exit)
-                ? Effect.sync(() => queryCapabilityLease.close())
+                ? closeApplicationCallbackLeasesWithinDeadline(
+                  queryCapabilityLease,
+                  mutationCapabilityLease,
+                ).pipe(Effect.mapError(cause => mapStartFailure(request, cause)))
                 : Effect.void),
             ),
-            session => Effect.sync(() => queryCapabilityLease.close()).pipe(
-              Effect.andThen(Effect.exit(session.close)),
+            session => closeBothApplicationSessionOwners(
+              closeApplicationCallbackLeasesWithinDeadline(
+                queryCapabilityLease,
+                mutationCapabilityLease,
+              ),
+              session.close,
+            ).pipe(
+              Effect.exit,
               Effect.asVoid,
             ),
             { interruptible: true },
           );
-          return withApplicationQueryCapability(
+          return withApplicationCallbackCapabilities(
             startedSession,
             queryCapabilityLease,
+            mutationCapabilityLease,
           );
         })
       : yield* Effect.gen(function* () {
@@ -669,15 +709,89 @@ function superviseSession(
   );
 }
 
-function withApplicationQueryCapability(
+function withApplicationCallbackCapabilities(
   session: TaskWorkerSession,
-  capability: Readonly<{ readonly close: () => void }>,
+  queryCapability: Readonly<{ readonly close: () => void }>,
+  mutationCapability: ApplicationTaskMutationCallbackLease,
 ): TaskWorkerSession {
+  const closeCallbacks = closeApplicationCallbackLeasesWithinDeadline(
+    queryCapability,
+    mutationCapability,
+  );
   return Object.freeze({
     ...session,
-    close: Effect.sync(() => capability.close()).pipe(
-      Effect.andThen(session.close),
+    maximumCloseMilliseconds: Math.max(
+      session.maximumCloseMilliseconds,
+      mutationCapability.maximumCloseMilliseconds,
     ),
+    settlement: session.settlement.pipe(Effect.tap(() => closeCallbacks)),
+    close: closeBothApplicationSessionOwners(closeCallbacks, session.close),
+  });
+}
+
+function closeApplicationCallbackLeasesWithinDeadline(
+  queryCapability: Readonly<{ readonly close: () => void }>,
+  mutationCapability: ApplicationTaskMutationCallbackLease,
+): Effect.Effect<void, TaskWorkerSessionHostError> {
+  return closeApplicationCallbackLeases(
+    queryCapability,
+    mutationCapability,
+  ).pipe(Effect.timeoutOrElse({
+    duration: `${mutationCapability.maximumCloseMilliseconds} millis`,
+    orElse: () => Effect.fail(new TaskWorkerSessionHostError({
+      operation: "close",
+      reason: "timedOut",
+    })),
+  }));
+}
+
+function closeApplicationCallbackLeases(
+  queryCapability: Readonly<{ readonly close: () => void }>,
+  mutationCapability: ApplicationTaskMutationCallbackLease,
+): Effect.Effect<void, TaskWorkerSessionHostError> {
+  return Effect.all([
+    Effect.exit(mutationCapability.close.pipe(Effect.mapError(cause =>
+      new TaskWorkerSessionHostError({
+        operation: "close",
+        reason: "cleanupFailed",
+        cause,
+      })
+    ))),
+    Effect.exit(Effect.sync(() => queryCapability.close())),
+  ], { concurrency: "unbounded" }).pipe(
+    Effect.flatMap(([mutation, query]) => mergeCleanupExits(mutation, query)),
+  );
+}
+
+function closeBothApplicationSessionOwners(
+  callbacks: Effect.Effect<void, TaskWorkerSessionHostError>,
+  session: TaskWorkerSession["close"],
+): TaskWorkerSession["close"] {
+  return Effect.all([
+    Effect.exit(callbacks),
+    Effect.exit(session),
+  ], { concurrency: "unbounded" }).pipe(
+    Effect.flatMap(([callbackExit, sessionExit]) =>
+      mergeCleanupExits(callbackExit, sessionExit)
+    ),
+  );
+}
+
+function mergeCleanupExits<LeftFailure, RightFailure>(
+  left: Exit.Exit<void, LeftFailure>,
+  right: Exit.Exit<void, RightFailure>,
+): Effect.Effect<void, LeftFailure | RightFailure> {
+  return Exit.match(left, {
+    onSuccess: () => Exit.match(right, {
+      onSuccess: () => Effect.void,
+      onFailure: Effect.failCause,
+    }),
+    onFailure: leftCause => Exit.match(right, {
+      onSuccess: () => Effect.failCause(leftCause),
+      onFailure: rightCause => Effect.failCause(
+        Cause.combine(leftCause, rightCause),
+      ),
+    }),
   });
 }
 
@@ -955,6 +1069,7 @@ function captureOptions(
     const outer = yield* captureProperties(input, [
       "applicationHostPolicy",
       "applicationQueryAuthority",
+      "applicationMutationAuthority",
       "legacyHostPolicy",
       "maximumScopedDispatches",
       "handshakeMilliseconds",
@@ -970,6 +1085,9 @@ function captureOptions(
     );
     const applicationQueryAuthority = yield* captureApplicationQueryAuthority(
       outer.applicationQueryAuthority,
+    );
+    const applicationMutationAuthority = yield* captureApplicationMutationAuthority(
+      outer.applicationMutationAuthority,
     );
     const legacyHostPolicy = yield* captureLegacyPolicy(outer.legacyHostPolicy);
     const maximumScopedDispatches = outer.maximumScopedDispatches ??
@@ -997,12 +1115,42 @@ function captureOptions(
       descriptor,
       applicationHostPolicy,
       applicationQueryAuthority,
+      applicationMutationAuthority,
       legacyHostPolicy,
       maximumScopedDispatches,
       randomUuid,
       sha256,
       handshakeMilliseconds,
     });
+  });
+}
+
+function captureApplicationMutationAuthority(
+  input: unknown,
+): Result.Result<
+  ApplicationTaskMutationCallbackAuthority,
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.try({
+    try: () => {
+      if (input === null || typeof input !== "object") {
+        throw new Error("Application Task mutation authority is unavailable.");
+      }
+      const bindLaunch = Reflect.get(input, "bindLaunch");
+      if (typeof bindLaunch !== "function") {
+        throw new Error("Application Task mutation authority is unavailable.");
+      }
+      // SAFETY: this is a typed private composition port; the runtime check
+      // above proves its callable member while its Effect contract remains
+      // owned by the supplying Application composition.
+      const ownedBindLaunch = bindLaunch as ApplicationTaskMutationCallbackAuthority["bindLaunch"];
+      return Object.freeze({
+        bindLaunch: (subject: Parameters<
+          ApplicationTaskMutationCallbackAuthority["bindLaunch"]
+        >[0]) => Reflect.apply(ownedBindLaunch, input, [subject]),
+      });
+    },
+    catch: configurationError,
   });
 }
 

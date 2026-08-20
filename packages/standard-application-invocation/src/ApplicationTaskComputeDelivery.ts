@@ -7,6 +7,7 @@ import {
   type TaskAttemptSupervisor,
   type TaskComputeDeliveryConnectedRunnerOptions,
   type TaskComputeDeliveryTrustedDirectoryOptions,
+  type ApplicationTaskMutationCallbackAuthority,
   type WorkerLoaderTaskComputeProviderOptions,
 } from "flarex-backend/internal/task-compute-delivery";
 import {
@@ -31,9 +32,10 @@ export interface ApplicationTaskComputeDeliveryLive {
   readonly workerLoader: WorkerLoader;
   readonly provider: Omit<
     WorkerLoaderTaskComputeProviderOptions,
-    "applicationQueryAuthority"
+    "applicationQueryAuthority" | "applicationMutationAuthority"
   >;
   readonly queryAuthority: ApplicationTaskQueryAuthority;
+  readonly mutationAuthority: ApplicationTaskMutationCallbackAuthority;
   readonly supervision: Readonly<{
     readonly supervisor: TaskAttemptSupervisor;
     readonly exitObserver: TaskAttemptSupervisionExitObserver;
@@ -59,6 +61,7 @@ export function makeApplicationTaskComputeDeliveryLayer(
     Object.freeze({
       ...live.provider,
       applicationQueryAuthority: live.queryAuthority,
+      applicationMutationAuthority: live.mutationAuthority,
     }),
     live.supervision.supervisor,
     live.supervision.exitObserver,

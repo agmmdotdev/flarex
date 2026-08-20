@@ -8,8 +8,12 @@ domain-separated stable-key and exact-request preimages. Slice 2 now owns the
 opaque Application Task subject and the Task child-mutation transitions over
 the existing shared external-effect table. Slice 3 now adds an opaque,
 principal-bound entry into the existing Application mutation owner while
-retaining its anonymous foreground entry. Slice 4, Worker/session composition,
-is next. No Worker/session mutation wiring or production activation exists yet.
+retaining its anonymous foreground entry. Slice 4A now wires the strict mutation
+RPC through the Application Task Worker, Worker definition, session host,
+supervised Worker Loader provider, absolute deadline, cancellation, and
+close/drain lifetime. Slice 4B, the concrete launch-bound composition of that
+RPC with the Task external-effect authority and current Application mutation
+owner, is next. No production activation exists.
 
 The first side-effecting Task context capability will be `ctx.runMutation`.
 It will not create another mutation engine, another OCC/commit path, another
@@ -269,10 +273,28 @@ and no ambient Application service container inside the Worker.
    - expose only the owned identity-policy digest needed by the Task exact
      request commitment; and
    - preserve the same validation, OCC, journal, commit, and replay path.
-4. **Worker/session composition — next**
-   - add `ctx.runMutation` only to the Application Task Worker;
-   - compose the callback with current launch, supervisor, deadline,
-     cancellation, and close/drain owners;
+4. **Worker/session composition — in progress privately**
+   - Slice 4A adds `ctx.runMutation` only to the Application Task Worker and
+     carries a distinct mutation RPC target through the generated Worker
+     definition, accepted session host, and supervised Worker Loader provider;
+   - Slice 4A validates the complete callback request before consuming its
+     Worker-local ordinal, enforces exact sequential ordinals, call/concurrency
+     ceilings, the absolute Task deadline, cancellation interruption, and
+     bounded callback close/drain. The Worker owns a pending-mutation boundary,
+     rejects new calls after handler settlement begins, and drains every
+     admitted call before emitting terminal settlement, so an unawaited
+     `ctx.runMutation` cannot outlive Task completion. The host independently
+     revokes and drains callback authority before exposing that settlement to
+     the supervisor, advertises the larger Worker/callback close bound, and
+     closes both owners even when either cleanup fails;
+   - Slice 4B must supply the concrete Application-owned mutation authority
+     through the already-carried exact dispatch request. That authority issues
+     the opaque current-attempt subject, revalidates the active
+     launch, derives and correlates the stable and exact request commitments,
+     drives the existing external-effect transitions, and invokes the existing
+     authenticated Application mutation entry. Its bind failures must retain
+     the owning distinction between stale/invalid non-retryable evidence and
+     retryable integration failure; and
    - keep Legacy, outbound, scheduling, routes, and production activation
      unchanged.
 5. **Connected proof**

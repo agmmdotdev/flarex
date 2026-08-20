@@ -5,6 +5,7 @@ import {
   TaskComputeCancellationStaleError,
   TaskComputeDispatchConflictError,
   TaskComputeDispatchRejectedError,
+  TaskComputeDispatchTransportError,
   TaskComputeDispatchUncertainError,
   TaskComputeProvider,
   validateApplicationTaskComputeDispatchRequestV1,
@@ -19,6 +20,8 @@ import {
   ApplicationTaskWorkerDefinitionError,
   type ApplicationTaskWorkerDefinition,
 } from "../src/artifactRuntime/ApplicationTaskWorkerDefinition";
+import { TaskWorkerSessionHostError } from
+  "../src/artifactRuntime/TaskWorkerSessionHost";
 import {
   TaskRuntimeLaunchAuthority,
 } from "../src/taskRuntimeLaunch/Authority";
@@ -27,6 +30,10 @@ import type {
   CurrentTaskRuntimeLaunchSubject,
   TaskRuntimeLaunchSubject,
 } from "../src/taskRuntimeLaunch/Model";
+import {
+  ApplicationTaskMutationCallbackBindError,
+  type ApplicationTaskMutationCallbackAuthority,
+} from "../src/taskComputeDelivery/ApplicationTaskMutationCallback";
 import {
   makeWorkerLoaderTaskComputeProviderLayer,
   makeSupervisedWorkerLoaderTaskComputeProviderLayer,
@@ -37,7 +44,7 @@ import {
   type TaskAttemptSupervisor,
   type TaskAttemptSupervisorInput,
 } from "../src/taskComputeDelivery/TaskAttemptSupervisor";
-import { Deferred, Effect, Exit, Layer, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Layer, Option, Result } from "effect";
 import {
   TASK_WORKER_SESSION_ACCEPTANCE_FORMAT_V1,
   TASK_WORKER_SESSION_ACCEPTANCE_VERSION_V1,
@@ -49,6 +56,8 @@ import {
 } from "flarex-protocol/internal/task-worker-session-v1";
 import type { ApplicationTaskQueryCallbackCapabilityV1 } from
   "flarex-protocol/internal/application-task-query-callback-v1";
+import type { ApplicationTaskMutationCallbackCapabilityV1 } from
+  "flarex-protocol/internal/application-task-mutation-callback-v1";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -205,6 +214,46 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     }));
   });
 
+  it("preserves exact mutation-bind evidence and retry classification", async () => {
+    const input = await canonicalizeFlarexValueV1(null);
+    const request = applicationRequest();
+    const authority = new FakeLaunchAuthority(input, request);
+
+    for (const [reason, retryable] of [
+      ["staleLaunch", false],
+      ["integrationFailure", true],
+    ] as const) {
+      const observed: unknown[] = [];
+      const mutationAuthority: ApplicationTaskMutationCallbackAuthority =
+        Object.freeze({
+          bindLaunch: (subject: Parameters<
+            ApplicationTaskMutationCallbackAuthority["bindLaunch"]
+          >[0]) => Effect.sync(() => {
+            observed.push(subject);
+          }).pipe(Effect.andThen(Effect.fail(
+            new ApplicationTaskMutationCallbackBindError({ reason }),
+          ))),
+        });
+      const failure = await runWithProvider(
+        new FakeWorkerLoader(),
+        authority,
+        Effect.gen(function* () {
+          const provider = yield* TaskComputeProvider;
+          return yield* provider.dispatch(request).pipe(Effect.flip);
+        }),
+        undefined,
+        100,
+        32,
+        undefined,
+        mutationAuthority,
+      );
+      expect(failure).toBeInstanceOf(TaskComputeDispatchTransportError);
+      expect(failure).toMatchObject({ retryable });
+      expect(observed).toHaveLength(1);
+      expect(observed[0]).toMatchObject({ request });
+    }
+  });
+
   it("keeps an unknown start response sticky without a second Worker", async () => {
     const input = await canonicalizeFlarexValueV1(null);
     const request = applicationRequest();
@@ -228,6 +277,10 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     expect(allocations).toBe(1);
     expect(loader.sessionDisposals).toBe(1);
     await expect(loader.queryCapabilities[0]!.invoke({})).resolves.toMatchObject({
+      kind: "failure",
+      reason: "interrupted",
+    });
+    await expect(loader.mutationCapabilities[0]!.invoke({})).resolves.toMatchObject({
       kind: "failure",
       reason: "interrupted",
     });
@@ -294,6 +347,8 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     expect(timeoutLoader.starts).toBe(1);
     await expect(timeoutLoader.queryCapabilities[0]!.invoke({})).resolves
       .toMatchObject({ kind: "failure", reason: "interrupted" });
+    await expect(timeoutLoader.mutationCapabilities[0]!.invoke({})).resolves
+      .toMatchObject({ kind: "failure", reason: "interrupted" });
   });
 
   it("delegates one accepted session and observes the exact supervisor failure", async () => {
@@ -335,6 +390,64 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     expect(loader.starts).toBe(1);
     expect(loader.sessionDisposals).toBe(1);
   });
+
+  it("advertises callback close time and closes the Worker after callback cleanup failure", async () => {
+    const input = await canonicalizeFlarexValueV1(null);
+    const request = applicationRequest();
+    const authority = new FakeLaunchAuthority(input, request);
+    const loader = new FakeWorkerLoader();
+    const closeObserved = Deferred.makeUnsafe<
+      TaskWorkerSessionHostError | undefined
+    >();
+    const supervise: TaskAttemptSupervisor["supervise"] = sessionInput =>
+      Effect.gen(function* () {
+        expect(sessionInput.session.maximumCloseMilliseconds).toBe(250);
+        const closeExit = yield* Effect.exit(sessionInput.session.close);
+        Deferred.doneUnsafe(
+          closeObserved,
+          Effect.succeed(Exit.isFailure(closeExit)
+            ? Option.getOrUndefined(Cause.findErrorOption(closeExit.cause))
+            : undefined),
+        );
+        return yield* new TaskAttemptSupervisorContractError({
+          reason: "lifecycle_identity_mismatch",
+        });
+      });
+    const supervisor: TaskAttemptSupervisor = Object.freeze({ supervise });
+    const mutationAuthority: ApplicationTaskMutationCallbackAuthority =
+      Object.freeze({
+        bindLaunch: () => Effect.succeed(Object.freeze({
+          maximumCloseMilliseconds: 250,
+          runMutation: () => Effect.succeed(Object.freeze({})),
+          close: Effect.fail(Object.freeze({
+            reason: "outcomeUncertain" as const,
+          })),
+        })),
+      });
+
+    await runWithProvider(
+      loader,
+      authority,
+      Effect.gen(function* () {
+        const provider = yield* TaskComputeProvider;
+        yield* provider.dispatch(request);
+        expect(yield* Deferred.await(closeObserved)).toMatchObject({
+          operation: "close",
+          reason: "cleanupFailed",
+          cause: { reason: "outcomeUncertain" },
+        });
+      }),
+      undefined,
+      100,
+      32,
+      {
+        supervisor,
+        observer: Object.freeze({ observe: () => {} }),
+      },
+      mutationAuthority,
+    );
+    expect(loader.sessionDisposals).toBe(1);
+  });
 });
 
 async function runWithProvider<Success, Failure>(
@@ -348,6 +461,8 @@ async function runWithProvider<Success, Failure>(
     readonly supervisor: TaskAttemptSupervisor;
     readonly observer: TaskAttemptSupervisionExitObserver;
   }> | undefined = undefined,
+  applicationMutationAuthority: ApplicationTaskMutationCallbackAuthority =
+    defaultApplicationMutationAuthority(),
 ): Promise<Success> {
   const authorityLayer = Layer.succeed(
     TaskRuntimeLaunchAuthority,
@@ -360,6 +475,7 @@ async function runWithProvider<Success, Failure>(
         runQuery: () => Effect.succeed(Object.freeze({})),
       })),
     }),
+    applicationMutationAuthority,
     legacyHostPolicy: legacyHostPolicy(),
     maximumScopedDispatches,
     handshakeMilliseconds,
@@ -375,6 +491,16 @@ async function runWithProvider<Success, Failure>(
         supervision.observer,
       )).pipe(Layer.provide(authorityLayer));
   return Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(providerLayer))));
+}
+
+function defaultApplicationMutationAuthority(): ApplicationTaskMutationCallbackAuthority {
+  return Object.freeze({
+    bindLaunch: () => Effect.succeed(Object.freeze({
+      maximumCloseMilliseconds: 100,
+      runMutation: () => Effect.succeed(Object.freeze({})),
+      close: Effect.void,
+    })),
+  });
 }
 
 class FakeLaunchAuthority {
@@ -633,6 +759,7 @@ class FakeWorkerLoader implements WorkerLoader {
   readonly payloads: unknown[] = [];
   readonly sessions: FakeWorkerSession[] = [];
   readonly queryCapabilities: ApplicationTaskQueryCallbackCapabilityV1[] = [];
+  readonly mutationCapabilities: ApplicationTaskMutationCallbackCapabilityV1[] = [];
   starts = 0;
   interruptions = 0;
   sessionDisposals = 0;
@@ -656,6 +783,7 @@ class FakeWorkerLoader implements WorkerLoader {
     request: TaskWorkerSessionStartRequestV1,
     capability: unknown,
     queryCapability?: unknown,
+    mutationCapability?: unknown,
   ) {
     this.starts += 1;
     this.generations.push(request.generation);
@@ -663,6 +791,9 @@ class FakeWorkerLoader implements WorkerLoader {
     if (request.generation === "application_v1") {
       this.queryCapabilities.push(
         queryCapability as ApplicationTaskQueryCallbackCapabilityV1,
+      );
+      this.mutationCapabilities.push(
+        mutationCapability as ApplicationTaskMutationCallbackCapabilityV1,
       );
     }
     if (this.behavior.neverStart === true) return await new Promise<never>(() => {});
@@ -688,7 +819,13 @@ class FakeWorkerStub implements WorkerStub {
         request: TaskWorkerSessionStartRequestV1,
         capability: unknown,
         queryCapability?: unknown,
-      ) => this.owner.start(request, capability, queryCapability),
+        mutationCapability?: unknown,
+      ) => this.owner.start(
+        request,
+        capability,
+        queryCapability,
+        mutationCapability,
+      ),
     } as unknown as Fetcher<T>;
   }
 

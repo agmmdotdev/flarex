@@ -627,10 +627,17 @@ files remain candidates:
      and adds individually admitted authenticated Task capabilities without
      creating a universal provider. Its authenticated-user principal is
      scope-bound, immutably published, persisted, and reconstructed at launch.
-     The current Application Task Worker receives only a query RPC target;
-     `task(ctx, payload)` can call the existing selection-bound query core via
-     `ctx.runQuery`, with the launch-bound user and per-call active-selection
-     revalidation. The separately gated Task mutation checkpoint now owns its
+     The current Application Task Worker receives distinct query and mutation
+     RPC targets. `task(ctx, payload)` can call the existing selection-bound
+     query core via `ctx.runQuery`, with the launch-bound user and per-call
+     active-selection revalidation. Its private `ctx.runMutation` bridge now
+     carries exact sequential ordinals through the generated Worker, accepted
+     session host, supervised Worker Loader provider, absolute deadline,
+     cancellation, and callback close/drain lifetime. The Worker drains even
+     unawaited admitted mutation calls before terminal settlement; the host
+     independently gates that settlement on callback revocation/drain and
+     advertises the combined close bound. The separately gated Task
+     mutation checkpoint also owns its
      strict private callback contract and the run-and-ordinal stable key plus
      exact-request commitment. Its Task-attempt external-effect authority now
      derives that stable key under an opaque current-attempt capability and
@@ -642,7 +649,11 @@ files remain candidates:
      existing Application mutation replay owner now also has an opaque
      principal-bound entry while retaining anonymous foreground invocation;
      both paths reuse its validation, grant, OCC, journal, commit, and replay
-     core. Worker composition and conservative lost-response handling are next.
+     core. The concrete mutation callback authority that joins those existing
+     owners remains next; the current connected query harness supplies an
+     explicit fail-closed mutation authority and does not simulate mutation
+     success. Conservative lost-response handling remains part of that next
+     composition.
      Outbound and scheduling context members remain deferred.
      F1 then adds a
      production-compatible test host and fresh-host recovery proof around those

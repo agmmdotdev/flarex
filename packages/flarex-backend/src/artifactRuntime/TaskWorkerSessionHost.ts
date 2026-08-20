@@ -20,6 +20,8 @@ import type { ApplicationTaskWorkerInputCapabilityV1 } from
   "flarex-protocol/internal/application-task-worker-v1";
 import type { ApplicationTaskQueryCallbackCapabilityV1 } from
   "flarex-protocol/internal/application-task-query-callback-v1";
+import type { ApplicationTaskMutationCallbackCapabilityV1 } from
+  "flarex-protocol/internal/application-task-mutation-callback-v1";
 import type { LegacyTaskWorkerInputCapabilityV1 } from
   "flarex-protocol/internal/legacy-task-worker-v1";
 
@@ -65,6 +67,7 @@ type ApplicationStartInput = Readonly<{
   readonly request: unknown;
   readonly capability: ApplicationTaskWorkerInputCapabilityV1;
   readonly queryCapability: ApplicationTaskQueryCallbackCapabilityV1;
+  readonly mutationCapability: ApplicationTaskMutationCallbackCapabilityV1;
   readonly executionId: string;
 }>;
 
@@ -116,6 +119,7 @@ interface TaskWorkerSessionEntrypoint extends Rpc.WorkerEntrypointBranded {
     request: TaskWorkerSessionStartRequestV1,
     capability: unknown,
     queryCapability?: unknown,
+    mutationCapability?: unknown,
   ) => PromiseLike<unknown>;
 }
 
@@ -163,6 +167,9 @@ export function makeTaskWorkerSessionHost(
             input.capability,
             input.generation === "application_v1"
               ? input.queryCapability
+              : undefined,
+            input.generation === "application_v1"
+              ? input.mutationCapability
               : undefined,
           ),
           signal,
