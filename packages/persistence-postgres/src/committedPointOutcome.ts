@@ -491,6 +491,7 @@ export function createCommittedPointOutcomeResolverV1(
     observeOutcomeQuery(query, options.observeQuery);
     const capturedRows = yield* executeStatement(query);
     if (options.afterStatement !== undefined) {
+      // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: lifecycle - optional observer hook is absent or void; a rejecting hook is an invariant defect
       yield* Effect.promise(() => Promise.resolve(options.afterStatement?.()));
     }
     const rows = detachOutcomeRows(capturedRows);

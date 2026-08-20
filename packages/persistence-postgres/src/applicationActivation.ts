@@ -968,6 +968,7 @@ function databaseTime(
 }
 
 function sha256(bytes: Uint8Array): Effect.Effect<Uint8Array> {
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: host - SHA-256 of an owned ArrayBuffer copy is treated as a non-rejecting WebCrypto digest
   return Effect.promise(() =>
     globalThis.crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(bytes))
       .then(value => new Uint8Array(value))

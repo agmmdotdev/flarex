@@ -389,6 +389,7 @@ Effect.fn("AppIndexEntries.appendBackfilledLiveInTransaction")(function* (
   AppendAppIndexEntryRevisionV1Error
 > {
   const revision = yield* decodeBackfilledAppendInputEffect(tx, input);
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: transaction - Drizzle write rejections stay defects until AppendAppIndexEntryRevisionV1Error gains a persistence variant
   const appended = yield* Effect.promise(() =>
     appendDecodedAppIndexEntryRevisionResult(tx, revision)
   );
@@ -850,6 +851,7 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
     });
   });
   const value = yield* Effect.fromResult(captured);
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: transaction - Result helper types authority mismatch; Drizzle rejection stays a defect because ReadPersistenceError is outside this operation's error channel
   const currentScope = yield* Effect.promise(() =>
     requireScopeUuidResult(
       tx,
@@ -858,12 +860,14 @@ const decodeBackfilledAppendInputEffect = Effect.fn(
     )
   );
   yield* Effect.fromResult(currentScope);
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: invariant - helper catches hashing failures into Result before this Effect boundary
   const canonicalPhysicalSpecResult = yield* Effect.promise(() =>
     canonicalizePhysicalSpecResult(value.physicalSpec)
   );
   const canonicalPhysicalSpec = yield* Effect.fromResult(
     canonicalPhysicalSpecResult,
   );
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: invariant - helper catches hashing failures into Result before this Effect boundary
   const keySha256Result = yield* Effect.promise(() =>
     sha256Result(value.keyBytes, "append")
   );

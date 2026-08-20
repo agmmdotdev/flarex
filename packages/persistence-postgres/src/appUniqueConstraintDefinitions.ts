@@ -454,9 +454,10 @@ export const prepareAppUniqueConstraintDefinitionBindingV1Effect = Effect.fn(
       deploymentId: decoded.deploymentId,
     }));
   }
-  const canonical = yield* Effect.promise(() =>
-    canonicalizeAppUniqueConstraintPhysicalSpecV1(decoded.physicalSpec)
-  );
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeAppUniqueConstraintPhysicalSpecV1(decoded.physicalSpec),
+    catch: (cause) => corruption("canonical physical spec failed", cause),
+  });
   const token = Object.freeze({
     deploymentId: decoded.deploymentId,
     schemaVersionId: decoded.schemaVersionId,
@@ -929,9 +930,10 @@ const decodeDefinitionRow = Effect.fn(
         Result.mapError((cause) => corruption("invalid physical spec", cause)),
       ),
     );
-    const canonical = yield* Effect.promise(() =>
-      canonicalizeAppUniqueConstraintPhysicalSpecV1(physicalSpec)
-    );
+    const canonical = yield* Effect.tryPromise({
+      try: () => canonicalizeAppUniqueConstraintPhysicalSpecV1(physicalSpec),
+      catch: (cause) => corruption("canonical physical spec failed", cause),
+    });
     const expectedBytes = canonicalAppUniqueConstraintSpecBytesHexV1ToBytes(
       canonical.canonicalBytesHex,
     );

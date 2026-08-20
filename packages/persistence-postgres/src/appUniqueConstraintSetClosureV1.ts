@@ -188,9 +188,10 @@ export const readAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     schemaVersionId,
     MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   );
-  const canonical = yield* Effect.promise(() =>
-    canonicalizeAppUniqueConstraintSetV1(members)
-  );
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeAppUniqueConstraintSetV1(members),
+    catch: (cause) => corruption("canonical unique-constraint set failed", cause),
+  });
   if (
     canonical.memberCount !== closure.definitionCount ||
     canonical.sha256Hex !== closure.definitionSetSha256Hex
@@ -227,6 +228,7 @@ export const prepareAppUniqueConstraintSetClosureV1Effect = Effect.fn(
     decoded.schemaVersionId,
     MAX_APP_UNIQUE_CONSTRAINT_SET_MEMBERS_V1,
   );
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: invariant - set members are already decoded; canonicalize throwing is an invariant defect because PrepareAppUniqueConstraintSetClosureV1Error has no corruption variant
   const canonical = yield* Effect.promise(() =>
     canonicalizeAppUniqueConstraintSetV1(members)
   );

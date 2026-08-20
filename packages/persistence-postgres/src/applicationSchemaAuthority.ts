@@ -540,43 +540,44 @@ export function hasApplicationSchemaAuthorityComposition(
   return applicationSchemaPublisherControlDatabases.get(publisher) === controlDb;
 }
 
-function verifyPublicationArtifact(
+const verifyPublicationArtifact = Effect.fn(
+  "ApplicationSchemaAuthority.verifyPublicationArtifact",
+)(function* (
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
   schemaVersion: CatalogSchemaVersion,
   publication: PublishAppSchemaV1Result,
-): Effect.Effect<void, ApplicationSchemaAuthorityError> {
-  return Effect.gen(function* () {
-    if (publication.artifact.deploymentId !== deploymentId ||
-      publication.artifact.schemaVersionId !== schemaVersionId ||
-      publication.artifact.version !== schemaVersion) {
-      return yield* authorityFailure("projectionMismatch");
-    }
-    const manifest = yield* Effect.fromResult(
-      decodeSchemaManifestAppSchemaV1Result(publication.manifest).pipe(
-        Result.mapError(cause => authorityFailureValue(
-          "projectionMismatch",
-          cause,
-        )),
-      ),
-    );
-    const canonical = yield* Effect.promise(
-      () => canonicalizeSchemaManifestV1(manifest),
-    );
-    if (publication.artifact.manifestCodecVersion !== canonical.codecVersion ||
-      !canonicalJsonEqual(
-        publication.artifact.manifestJson,
-        canonical.manifestJson,
-      ) ||
-      !bytesEqualFullScan(
-        publication.artifact.manifestBytes,
-        canonical.canonicalBytes,
-      ) ||
-      !bytesEqualFullScan(publication.artifact.manifestSha256, canonical.sha256)) {
-      return yield* authorityFailure("projectionMismatch");
-    }
+): Effect.fn.Return<void, ApplicationSchemaAuthorityError> {
+  if (publication.artifact.deploymentId !== deploymentId ||
+    publication.artifact.schemaVersionId !== schemaVersionId ||
+    publication.artifact.version !== schemaVersion) {
+    return yield* authorityFailure("projectionMismatch");
+  }
+  const manifest = yield* Effect.fromResult(
+    decodeSchemaManifestAppSchemaV1Result(publication.manifest).pipe(
+      Result.mapError(cause => authorityFailureValue(
+        "projectionMismatch",
+        cause,
+      )),
+    ),
+  );
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeSchemaManifestV1(manifest),
+    catch: cause => authorityFailureValue("projectionMismatch", cause),
   });
-}
+  if (publication.artifact.manifestCodecVersion !== canonical.codecVersion ||
+    !canonicalJsonEqual(
+      publication.artifact.manifestJson,
+      canonical.manifestJson,
+    ) ||
+    !bytesEqualFullScan(
+      publication.artifact.manifestBytes,
+      canonical.canonicalBytes,
+    ) ||
+    !bytesEqualFullScan(publication.artifact.manifestSha256, canonical.sha256)) {
+    return yield* authorityFailure("projectionMismatch");
+  }
+});
 
 function schemaPublicationInput(
   deploymentId: string,

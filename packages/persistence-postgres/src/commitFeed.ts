@@ -225,6 +225,7 @@ export function createCommitFeedRepositoryV1(
     const input = yield* Effect.fromResult(validateListAfterInput(rawInput));
     const captured = yield* captureRows(input);
     if (options.afterRepeatableRead !== undefined) {
+      // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: lifecycle - optional observer hook is absent or void; a rejecting hook is an invariant defect
       yield* Effect.promise(() => Promise.resolve(options.afterRepeatableRead?.()));
     }
     return yield* Effect.fromResult(materializeCommitFeedPage(input, captured));

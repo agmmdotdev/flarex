@@ -85,6 +85,7 @@ export function makeApplicationPointMutationJournalCapabilitySessionV1(
   return Object.freeze({
     target: new ApplicationPointMutationJournalCapabilityTarget(state),
     closeAndDrain: Effect.uninterruptible(
+      // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: lifecycle - session tail promises settle with then(void, void) and cannot reject
       Effect.promise(() => state.closeAndDrain()).pipe(
         Effect.flatMap(() => {
           const cause = state.firstCause();

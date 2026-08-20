@@ -2296,9 +2296,10 @@ const prepareLogicalWriteEventEffect = Effect.fn(
       new Error("Logical write encoder returned a non-object."),
     );
   }
-  const evidence = yield* Effect.promise(() =>
-    canonicalizeFlarexValueJsonV1(encoded)
-  );
+  const evidence = yield* Effect.tryPromise({
+    try: () => canonicalizeFlarexValueJsonV1(encoded),
+    catch: mapRunPointOperationFailure,
+  });
   if (!isJsonObject(evidence.valueJson)) {
     return yield* Effect.die(
       new Error("Canonical logical write evidence returned a non-object."),

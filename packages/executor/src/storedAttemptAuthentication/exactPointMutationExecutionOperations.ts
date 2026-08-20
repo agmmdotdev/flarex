@@ -234,7 +234,8 @@ export function makeExactPointMutationExecutionOperationsV1(
           }),
         );
       }
-      const canonicalRequest = yield* Effect.promise(() =>
+      const canonicalRequest = yield* Effect.tryPromise({
+        try: () =>
         canonicalizePointMutationRequestV1({
           deploymentId: input.verificationState.authority.deploymentId,
           functionPath: TransactionFunctionPathV1Schema.make(
@@ -246,8 +247,13 @@ export function makeExactPointMutationExecutionOperationsV1(
           requestKey: TransactionRequestKeyV1Schema.make(
             input.verificationState.session.requestKey,
           ),
-        })
-      );
+        }),
+        catch: (cause) =>
+          new PointMutationOccExecutionAuthorityCorruptionV1Error({
+            reason: "requestEvidenceInvalid",
+            cause,
+          }),
+      });
       if (
         !bytesEqual(
           canonicalRequest.sha256,

@@ -1927,7 +1927,9 @@ function awaitPointCommitPublicationSettlement(
       try: () => transaction,
       catch: mapPublicationTransactionFailure,
     })).pipe(
-      Effect.onInterrupt(() => Effect.promise(() =>
+      Effect.onInterrupt(() =>
+        // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: lifecycle - interrupt drain maps fulfillment and rejection to void so the waiter cannot reject
+        Effect.promise(() =>
         transaction.then(
           () => undefined,
           () => undefined,

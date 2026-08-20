@@ -990,6 +990,7 @@ function sha256(
   bytes: Uint8Array,
   _operation: ApplicationQuerySnapshotError["operation"],
 ) {
+  // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: host - SHA-256 of an owned ArrayBuffer copy is treated as a non-rejecting WebCrypto digest
   return Effect.promise(
     () => crypto.subtle.digest("SHA-256", copyBytesToArrayBuffer(bytes)),
   ).pipe(Effect.map(buffer => new Uint8Array(buffer)));

@@ -818,9 +818,14 @@ const decodeSchemaVersionArtifactRowEffect = Effect.fn(
     decodeStoredSchemaVersionArtifactRowResult(row),
   );
   yield* corroborateStoredManifestJsonEffect(db, operation, stored);
-  const canonical = yield* Effect.promise(() =>
-    canonicalizeSchemaManifestV1(stored.manifestJson)
-  );
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeSchemaManifestV1(stored.manifestJson),
+    catch: (cause) => new SchemaVersionArtifactCorruptionError(
+      stored.deploymentId,
+      "canonical manifest could not be reconstructed",
+      { cause },
+    ),
+  });
   if (stored.manifestCodecVersion !== canonical.codecVersion) {
     return yield* Effect.fail(new SchemaVersionArtifactCorruptionError(
       stored.deploymentId,
