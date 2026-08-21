@@ -181,8 +181,9 @@ is suppressed by the persisted dispatch checkpoint while the accepted Worker
 remains live. A Worker success held at the supervisor boundary while durable
 cancellation is requested is submitted unchanged, and the existing lifecycle
 records that cancellation as `superseded_by_completion`. The DTE06-F preflight
-is approved; its F0A runtime/provider convergence correction is in progress,
-before the F1 production-compatible private host.
+is approved; F0A runtime/provider convergence and F0B authenticated Task
+query/mutation plus PostgreSQL settlement are complete privately. F1's
+production-compatible private host is next.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -596,7 +597,7 @@ files remain candidates:
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
    - **active; DTE06-A through DTE06-E complete privately; DTE06-F preflight
-     approved and F0A in progress:** the
+     approved, F0A/F0B complete privately, and F1 next:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -655,10 +656,10 @@ files remain candidates:
      database deadlines, advertises the settlement budget, and is rejected when
      that budget exceeds callback close.
      [Preflight 45](./preflight/45-dte06-task-mutation-settlement-reconciliation.md)
-     owns the approved persistence reconciliation and deadline gate. Genuine
-     PostgreSQL settlement acceptance and the genuine connected Worker mutation
-     proof remain open; the current connected query harness therefore continues
-     to supply an explicit fail-closed mutation authority.
+     owns the completed private persistence reconciliation and deadline gate.
+     Genuine PostgreSQL settlement acceptance and the genuine connected Worker
+     mutation proof now pass, closing DTE06-F0B privately. This composition
+     remains test-only and production-inert.
      Outbound and scheduling context members remain deferred.
      F1 then adds a
      production-compatible test host and fresh-host recovery proof around those

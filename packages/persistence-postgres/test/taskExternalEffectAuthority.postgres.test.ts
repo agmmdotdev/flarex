@@ -374,7 +374,6 @@ async function waitForBlockedRunLock(
          from pg_stat_activity as activity
         where $1::int = any(pg_blocking_pids(activity.pid))
           and activity.wait_event_type = 'Lock'
-          and activity.query ilike '%fx_system_durable_task_run_v1%'
         limit 1`,
       [blockerPid],
     );

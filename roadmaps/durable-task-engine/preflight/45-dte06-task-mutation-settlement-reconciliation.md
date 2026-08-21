@@ -2,13 +2,13 @@
 
 ## Status And Decision
 
-**Status:** Approved and in progress privately. The persistence owner now has
+**Status:** Complete privately and production-inert. The persistence owner has
 one exact terminal reconciliation operation plus a deadline-owned PostgreSQL
 target/resource. The Application-owned coordinator consumes that operation
 instead of process-local phase guesses and construction-checks the advertised
-settlement budget against callback close. Completion remains gated on the
-genuine PostgreSQL deadline/cleanup acceptance lane and the final validation
-matrix. The focused connected genuine Worker proof now commits a real
+settlement budget against callback close. The genuine PostgreSQL
+deadline/cleanup lane and final validation matrix now pass. The connected
+genuine Worker proof commits a real
 `ctx.runMutation(...)` through `ApplicationMutationSystem` and observes exact
 confirmed external-effect evidence. This approval does not authorize production
 activation, routes, Queue/Cron wiring, new mutation/OCC logic, or a change to
@@ -183,17 +183,29 @@ The approval gate must include:
 
 - the PGlite reconciliation/state/identity matrix passes all nine cases;
 - the Application mutation coordinator and task-launch identity suites pass all
-  fifteen cases;
+  eighteen cases;
 - the isolated connected PGlite lane passes all thirteen genuine Worker and
   supervision scenarios, including a real `ctx.runMutation(...)` commit and
   exact confirmed external-effect evidence;
+- the isolated PostgreSQL 18.3 persistence lane passes both dedicated cases:
+  a transaction that begins before lease expiry but acquires the run lock after
+  expiry is rejected from database time, and a server lock timeout settles,
+  releases its client, and safely reuses the bounded pool;
+- the connected PostgreSQL 18.3 lane passes all thirteen genuine Worker,
+  supervision, uncertainty, cancellation, retry, lease-loss, duplicate-delivery,
+  result-publication, completion-replay, and child-mutation scenarios;
+  its fourteen-test receipt includes the separate required-database-URL
+  environment check;
+- real PostgreSQL acceptance corrected four harness-only assumptions without
+  changing product authority: lock observation no longer depends on truncated
+  `pg_stat_activity.query` text, the fixture imports the backend-owned runtime
+  identity and compatibility date, connection/lifecycle-resolution budgets
+  allow genuine Worker startup and database acquisition, and the unresolved
+  result-publication baseline waits for the required first heartbeat before
+  asserting that publication failure adds no durable transition;
 - the Trigger compatibility boundary tests pass all sixty-six cases, and its
   live scan has no finding in this slice (the unrelated existing
   `physicalDefinitionRetirementPins.ts` finding remains outside this owner);
 - `@flarex/standard-application-invocation` typechecks; persistence and
   system-test package typechecks reach the unrelated existing Analyzer import
-  failure for `@flarex/standard-application-definition/v1`; and
-- genuine PostgreSQL acceptance is still open: the dedicated persistence tests
-  skip and the connected acceptance harness fails closed when
-  `FLAREX_POSTGRES_DATABASE_URL` is absent. No PostgreSQL deadline, rollback,
-  release, or pool-reuse claim is accepted from the PGlite receipts.
+  failure for `@flarex/standard-application-definition/v1`.

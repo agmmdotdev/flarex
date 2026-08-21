@@ -338,9 +338,9 @@ finding:
 - **Current disposition:** Preflight 45 is approved. The persistence owner now
   locks and reconciles missing, prepared, dispatching, and terminal evidence,
   while the Task-specific target installs database deadlines and advertises its
-  settlement budget. Remaining acceptance is the genuine PostgreSQL
-  lock/rollback/release/pool-reuse proof plus the connected genuine Worker path.
-  Do not activate or claim the full Slice 4B gate complete before those proofs.
+  settlement budget. The genuine PostgreSQL
+  lock/rollback/release/pool-reuse proof and connected genuine Worker mutation
+  path now pass, so Slice 4B is complete privately and remains production-inert.
 
 ## Required Negative And Recovery Proof
 

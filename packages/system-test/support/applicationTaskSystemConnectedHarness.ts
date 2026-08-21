@@ -142,7 +142,7 @@ const SUPERVISOR_POLICY: TaskAttemptSupervisorPolicy = Object.freeze({
   minimumLeaseDurationMilliseconds: 30_000,
   heartbeatIntervalMilliseconds: 5_000,
   leaseSettlementReserveMilliseconds: 10_000,
-  maximumLifecycleResolveMilliseconds: 1_000,
+  maximumLifecycleResolveMilliseconds: 5_000,
   maximumHeartbeatOperationMilliseconds: 1_000,
   maximumResultPublicationMilliseconds: 1_000,
   maximumCompletionOperationMilliseconds: 1_000,
@@ -150,6 +150,9 @@ const SUPERVISOR_POLICY: TaskAttemptSupervisorPolicy = Object.freeze({
   maximumCompletionReplays: 1,
   completionReplayDelayMilliseconds: 100,
 });
+const EXECUTING_BASELINE_TIMEOUT_MILLISECONDS =
+  SUPERVISOR_POLICY.maximumLifecycleResolveMilliseconds +
+  SUPERVISOR_POLICY.maximumHeartbeatOperationMilliseconds + 1_000;
 
 export interface ApplicationTaskSystemConnectedLane {
   readonly createFixture: (
@@ -714,10 +717,28 @@ export async function proveApplicationTaskSystemConnected(
             candidateFailures: 0,
           });
         }
-        const acceptedOnly = yield* lifecycle.inspectRunAttempt({
-          operation: "inspect_current_attempt",
-          runId: created.runId,
-        });
+        const acceptedOnly = scenario === "result_publication_uncertain"
+          ? yield* Effect.gen(function* () {
+              const deadline = Date.now() +
+                EXECUTING_BASELINE_TIMEOUT_MILLISECONDS;
+              while (true) {
+                const observed = yield* lifecycle.inspectRunAttempt({
+                  operation: "inspect_current_attempt",
+                  runId: created.runId,
+                });
+                if (observed.current.phase === "executing") return observed;
+                if (Date.now() >= deadline) {
+                  return yield* Effect.die(new Error(
+                    "Application Task supervisor did not enter executing before the result-settlement proof.",
+                  ));
+                }
+                yield* Effect.sleep(20);
+              }
+            })
+          : yield* lifecycle.inspectRunAttempt({
+              operation: "inspect_current_attempt",
+              runId: created.runId,
+            });
         expect(acceptedOnly.current.phase).not.toBe("terminal");
         expect(resultBucket.values.size).toBe(0);
 

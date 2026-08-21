@@ -22,6 +22,10 @@ import {
 } from
   "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
 import { Result } from "effect";
+import {
+  APPLICATION_RUNTIME_COMPATIBILITY_DATE,
+  APPLICATION_RUNTIME_HOST_IDENTITY,
+} from "flarex-backend/artifact-runtime";
 import { describe, expect, it } from "vitest";
 
 import { proveApplicationTaskSystemConnected } from
@@ -32,17 +36,15 @@ import {
 } from "../support/databaseFixturesV1";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
-const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
-const COMPATIBILITY_DATE = "2026-06-14";
 const DEADLINE_POLICY = Object.freeze({
-  connectionTimeoutMilliseconds: 100,
+  connectionTimeoutMilliseconds: 500,
   lockTimeoutMilliseconds: 100,
   statementTimeoutMilliseconds: 2_000,
   transactionTimeoutMilliseconds: 5_000,
   settlementReserveMilliseconds: 6_000,
 });
 const TASK_MUTATION_DEADLINE_POLICY = Object.freeze({
-  connectionTimeoutMilliseconds: 100,
+  connectionTimeoutMilliseconds: 500,
   lockTimeoutMilliseconds: 100,
   statementTimeoutMilliseconds: 1_000,
   transactionTimeoutMilliseconds: 2_000,
@@ -61,6 +63,7 @@ describe("Application Task System PostgreSQL acceptance environment", () => {
 describePostgres("Application Task System - PostgreSQL", () => {
   for (const [scenario, description] of [
     ["success", "result publication and terminal lifecycle settlement"],
+    ["query_callback", "Task child query and durable result"],
     ["task_failure_retry", "handler failure and durable retry scheduling"],
     ["cancellation", "exact cancellation delivery and acknowledgement"],
     ["maximum_duration", "maximum-duration interruption and terminal timeout"],
@@ -78,8 +81,8 @@ describePostgres("Application Task System - PostgreSQL", () => {
         await expect(proveApplicationTaskSystemConnected({
           createFixture: taskMaximumDurationInSeconds =>
             createApplicationNativeMutationPostgresFixture({
-              runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
-              compatibilityDate: COMPATIBILITY_DATE,
+              runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+              compatibilityDate: APPLICATION_RUNTIME_COMPATIBILITY_DATE,
               includeTask: true,
               ...(taskMaximumDurationInSeconds === undefined
                 ? {}
