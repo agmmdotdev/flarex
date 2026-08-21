@@ -260,6 +260,8 @@ function snapshotIdentity(
 }
 
 function isSemanticSize(value: unknown): value is number {
+  // SAFETY: Number.isSafeInteger proved value is a number before the
+  // range comparisons.
   return Number.isSafeInteger(value) && (value as number) >= 0 &&
     (value as number) <= MAX_APPLICATION_TASK_WORKER_VALUE_SEMANTIC_BYTES_V1;
 }

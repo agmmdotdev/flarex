@@ -545,9 +545,15 @@ async function transactApplicationCreation(
     version: 1,
     scopeId: authority.scopeId,
     activationSequence: metadata.basis.activationSequence,
+    // SAFETY: the basis digest fields are validated 32-byte task
+    // definition digests by the metadata decoder.
     activeHeadSha256: copyBytes(metadata.basis.headSha256) as TaskDefinitionSha256V1,
+    // SAFETY: the readiness digest is a validated 32-byte task definition
+    // digest.
     readinessSha256: copyBytes(metadata.basis.readinessSha256) as TaskDefinitionSha256V1,
     runtimeTarget: metadata.target,
+    // SAFETY: the runtime-target digest is a validated 32-byte task
+    // definition digest.
     applicationTaskRuntimeTargetSha256: copyBytes(
       metadata.runtimeTargetSha256,
     ) as TaskDefinitionSha256V1,

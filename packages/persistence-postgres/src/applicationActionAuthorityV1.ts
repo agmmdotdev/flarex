@@ -719,6 +719,8 @@ export const claimDirectActionExecutionV1 = Effect.fn(
         subjectIdentitySha256: copyBytes(subjectIdentitySha256),
       });
     }));
+    // SAFETY: the subject is an inert identity token; all state lives in
+    // the module-local WeakMap keyed by this object identity.
     const subject = Object.freeze({}) as DirectActionExecutionSubjectCapabilityV1;
     subjectStates.set(subject, Object.freeze({
       scopeId: claimed.projection.scopeId,
@@ -828,6 +830,8 @@ export const claimApplicationAuthorityActionExecution = Effect.fn(
         });
       }),
     );
+    // SAFETY: the subject is an inert identity token; all state lives in
+    // the module-local WeakMap keyed by this object identity.
     const subject = Object.freeze({}) as DirectActionExecutionSubjectCapabilityV1;
     subjectStates.set(subject, Object.freeze({
       scopeId: claimed.projection.scopeId,
@@ -1915,6 +1919,8 @@ function claimSubject(
   if (typeof value !== "object" || value === null) {
     return Effect.fail(new InvalidDirectActionExecutionSubjectV1Error({ reason: "notIssued" }));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = subjectStates.get(value as DirectActionExecutionSubjectCapabilityV1);
   if (state === undefined) return Effect.fail(new InvalidDirectActionExecutionSubjectV1Error({ reason: "revoked" }));
   return state.scopeId === scopeId

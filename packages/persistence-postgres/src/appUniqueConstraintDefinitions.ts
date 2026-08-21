@@ -968,6 +968,8 @@ function markLocatedDefinition(
   schemaVersionId: CatalogSchemaVersionId,
   definition: AppUniqueConstraintDefinitionRecordV1,
 ): LocatedAppUniqueConstraintDefinitionV1 {
+  // SAFETY: the copy carries every record field plus the scope and schema
+  // version, and the non-enumerable brand property is installed below.
   const located = {
     ...definition,
     scopeId,

@@ -29,6 +29,8 @@ const COMMAND_KIND_ID = Object.freeze({
 const COMMAND_KIND_BY_ID = new Map(
   Object.entries(COMMAND_KIND_ID).map(([kind, id]) => [
     id,
+    // SAFETY: kind is a key of COMMAND_KIND_ID, whose keys are exactly the
+    // durable command kind union.
     kind as DeclarativeV2VerifierDurableCommandKindV2,
   ]),
 );
@@ -241,6 +243,8 @@ function captureProof(
   ) {
     return Result.fail(error(operation, "invalidInput", "authorityKind"));
   }
+  // SAFETY: snapshot.commandKind is a plain unknown value; the cast only
+  // narrows it to a PropertyKey for the ownership check below.
   if (!Object.hasOwn(COMMAND_KIND_ID, snapshot.commandKind as PropertyKey)) {
     return Result.fail(error(operation, "invalidInput", "commandKind"));
   }
@@ -272,6 +276,8 @@ function captureProof(
   if (authority === undefined || actual === undefined) {
     return Result.fail(error(operation, "invalidInput", "usage"));
   }
+  // SAFETY: the Object.hasOwn check above proved commandKind is a key of
+  // COMMAND_KIND_ID, whose keys are the durable command kind union.
   const commandKind =
     snapshot.commandKind as DeclarativeV2VerifierDurableCommandKindV2;
   const expectsIntent =
@@ -286,6 +292,8 @@ function captureProof(
       return Result.fail(error(operation, "invalidInput", `actual.${dimension}`));
     }
   }
+  // SAFETY: every field was validated above against the proof contract, so
+  // the assembled object satisfies the terminal authority proof brand.
   return Result.succeed(copyProof({
     authorityKind: snapshot.authorityKind,
     commandKind,
@@ -319,6 +327,8 @@ function captureVector(
     }
     output[dimension] = amount;
   }
+  // SAFETY: every budget dimension was validated as a u64 above, so the
+  // record satisfies the terminal authority vector brand.
   return Object.freeze(output) as DeclarativeV2TerminalAuthorityVectorV1;
 }
 
@@ -347,6 +357,8 @@ function snapshotOwnDataProperties(
 function copyProof(
   proof: DeclarativeV2TerminalAuthorityProofV1,
 ): DeclarativeV2TerminalAuthorityProofV1 {
+  // SAFETY: the spread fields below reproduce the validated proof shape
+  // exactly, so the copy satisfies the proof brand.
   return Object.freeze({
     authorityKind: proof.authorityKind,
     commandKind: proof.commandKind,
@@ -387,6 +399,8 @@ function readVector(
     output[dimension] = readU64(bytes, offset);
     offset += 8;
   }
+  // SAFETY: every budget dimension was read as a u64 above, so the record
+  // satisfies the terminal authority vector brand.
   return Object.freeze(output) as DeclarativeV2TerminalAuthorityVectorV1;
 }
 

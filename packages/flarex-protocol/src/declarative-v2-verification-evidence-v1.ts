@@ -772,6 +772,8 @@ function parseEvidence(
     : kind === "registration"
     ? { kind, registrationOrdinal: first, frameSha256 }
     : { kind, diagnosticOrdinal: first, frameSha256 };
+  // SAFETY: the kind-discriminated branches above build exactly the page
+  // evidence key variants for the decoded kind.
   return Object.freeze({
     evidence: Object.freeze(evidence) as DeclarativeV2PageEvidenceKeyV1,
     nextOffset: offset + 32,

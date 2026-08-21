@@ -729,6 +729,9 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
   );
   const repository = Object.freeze({ settle, readReady });
   readinessRepositoryStates.set(repository, Object.freeze({
+    // SAFETY: the captured context is erased to unknown at this internal
+    // state boundary; the generic parameters are recovered by the typed
+    // settle/readReady wrappers above.
     context: capturedContext as ApplicationReadinessContext<unknown, unknown>,
     issuer,
   }));

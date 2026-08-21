@@ -283,6 +283,8 @@ export function decodeTaskWorkerSessionStartRequestV1(
         format: TASK_WORKER_SESSION_START_FORMAT_V1,
         version: TASK_WORKER_SESSION_START_VERSION_V1,
         generation: "legacy_dynamic_worker_v1" as const,
+        // SAFETY: the guard above validated executionId as a string
+        // matching the execution-id grammar.
         executionId: record.executionId as string,
         request,
       })),
@@ -295,6 +297,8 @@ export function decodeTaskWorkerSessionStartRequestV1(
         format: TASK_WORKER_SESSION_START_FORMAT_V1,
         version: TASK_WORKER_SESSION_START_VERSION_V1,
         generation: "application_v1" as const,
+        // SAFETY: the guard above validated executionId as a string
+        // matching the execution-id grammar.
         executionId: record.executionId as string,
         request,
       })),

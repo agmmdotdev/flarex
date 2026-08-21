@@ -87,6 +87,9 @@ export function issueScopedTransaction(
   transaction: AppRowTransaction,
   context: ScopedTransactionContext,
 ): ScopedTransaction {
+  // SAFETY: the capability is an inert identity token; all state lives in
+  // the module-local WeakMap keyed by this object identity, so the brand
+  // carries no behavioral claims.
   const capability = Object.freeze({}) as ScopedTransaction;
   transactionStates.set(capability, {
     open: true,
@@ -149,6 +152,9 @@ export function runScopedTransactionOperationEffect<Input, Value, Failure>(
     ) {
       return Effect.die(new ScopedTransactionCapabilityError("invalid"));
     }
+    // SAFETY: the run signature is the same operation contract stored at
+    // registration; the pipe only re-asserts the original Value/Failure
+    // pair after the transaction-leak check.
     return operationState.run(
       transactionState.transaction,
       transactionState.context,
@@ -176,6 +182,8 @@ function defineScopedOperation<
     capability: ScopedTransaction,
   ) => Effect.Effect<Value, Failure>,
 ): ScopedTransactionOperation<Mode, Input, Value, Failure> {
+  // SAFETY: the operation is an inert identity token; its run function and
+  // mode live in the module-local WeakMap keyed by this object identity.
   const operation = Object.freeze({}) as ScopedTransactionOperation<
     Mode,
     Input,
@@ -190,6 +198,8 @@ function defineScopedOperation<
       input: unknown,
       capability: ScopedTransaction,
     ) =>
+      // SAFETY: the stored input was supplied through this operation's own
+      // typed runScopedTransactionOperation call site.
       run(transaction, context, input as Input, capability),
   }));
   return operation;

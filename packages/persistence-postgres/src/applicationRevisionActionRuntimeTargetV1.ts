@@ -205,12 +205,16 @@ export const claimApplicationRevisionActionRuntimeTargetAuthorityV1 = Effect.fn(
       visibility: "public" as const,
       argsValidator: metadata.metadata.argsValidator,
       returnsValidator: metadata.metadata.returnsValidator,
+      // SAFETY: the action runtime target only admits public edge-action
+      // entries, so the frame satisfies the narrowed brand.
       entry: entryAuthority.frame as typeof entryAuthority.frame & {
         readonly handlerKind: "action";
         readonly visibility: "public";
         readonly group: "edge_action";
       },
       entryReference: entryAuthority.reference,
+      // SAFETY: the action runtime target only admits edge-action group
+      // projections, so the frame satisfies the narrowed brand.
       projection: projectionAuthority.frame as typeof projectionAuthority.frame & {
         readonly group: "edge_action";
       },

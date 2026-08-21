@@ -109,6 +109,8 @@ const portStates = new WeakMap<ApplicationManagedSchemaPlanningPort, PortState>(
 export function createApplicationManagedSchemaPlanningPort(
   dependencies: ApplicationManagedSchemaPlanningPortDependencies,
 ): ApplicationManagedSchemaPlanningPort {
+  // SAFETY: the port is an inert identity token; all state lives in the
+  // module-local WeakMap keyed by this object identity.
   const port = Object.freeze({}) as ApplicationManagedSchemaPlanningPort;
   portStates.set(port, Object.freeze({
     deploymentId: dependencies.deploymentId,
@@ -133,6 +135,8 @@ export function hasApplicationManagedSchemaPlanningApplicationComposition(
   }>,
 ): port is ApplicationManagedSchemaPlanningPort {
   if (typeof port !== "object" || port === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   const state = portStates.get(port as ApplicationManagedSchemaPlanningPort);
   return state !== undefined &&
     state.deploymentId === dependencies.deploymentId &&

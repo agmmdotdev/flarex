@@ -363,6 +363,8 @@ const prepareCreation = Effect.fn("TaskSystemRunCreation.prepareCreation")(
       requestKeySha256,
       requestSha256,
       bindingBytes: copyBytes(bindingBytes),
+      // SAFETY: bindingSha256 is a validated 32-byte task definition
+      // digest.
       bindingSha256: copyBytes(bindingSha256) as TaskDefinitionSha256V1,
       authorityBytes: copyBytes(authorityBytes),
       authoritySha256: creationAuthorityDigest(

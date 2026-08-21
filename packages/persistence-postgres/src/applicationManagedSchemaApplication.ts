@@ -224,6 +224,8 @@ export function hasApplicationManagedSchemaApplicationForPlanningPort(
   planning: ApplicationManagedSchemaPlanningPort,
 ): application is ApplicationManagedSchemaApplicationPort {
   if (typeof application !== "object" || application === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   return portStates.get(application as ApplicationManagedSchemaApplicationPort)
     ?.planning === planning;
 }

@@ -61,6 +61,8 @@ export function issueActiveApplicationRevisionSelectionV1(
   schemaManifest: SchemaManifestAppSchemaV1,
   runtimeTarget: ActiveApplicationRevisionRuntimeTargetBasisV1,
 ): AuthenticatedActiveApplicationRevisionSelectionV1 {
+  // SAFETY: the selection is an inert identity token; all state lives in
+  // the module-local WeakMap keyed by this object identity.
   const selection = Object.freeze({}) as
     AuthenticatedActiveApplicationRevisionSelectionV1;
   states.set(selection, Object.freeze({
@@ -100,6 +102,8 @@ export function claimActiveApplicationRevisionSyscallValidatorBasisV1(
       reason: "notIssued",
     }));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = states.get(
     selection as AuthenticatedActiveApplicationRevisionSelectionV1,
   );
@@ -125,6 +129,8 @@ export function claimActiveApplicationRevisionRuntimeTargetStateV1(
       reason: "notIssued",
     }));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = states.get(
     selection as AuthenticatedActiveApplicationRevisionSelectionV1,
   );

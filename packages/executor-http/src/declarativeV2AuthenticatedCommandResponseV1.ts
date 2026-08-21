@@ -476,6 +476,9 @@ export function makeDeclarativeV2AuthenticatedCommandResponseFactoryV1():
         if (Result.isFailure(transitioned)) {
           return Result.fail(transitioned.failure);
         }
+        // SAFETY: the handle is an inert identity token; all encoder state
+        // lives in the factory-local map keyed by this object identity, so
+        // the brand carries no behavioral claims.
         const handle = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandResponseEncoderV1",
         }) as DeclarativeV2AuthenticatedCommandResponseEncoderV1;
@@ -564,6 +567,9 @@ export function makeDeclarativeV2AuthenticatedCommandResponseFactoryV1():
           }));
         }
         if (!resumingPayload && captured.success.frame.kind === "payload") {
+          // SAFETY: captureFrame validated the raw frame as a non-null
+          // non-array object; it is retained only for identity comparison
+          // on resume.
           stateResult.success.pendingPayloadFrame = Object.freeze({
             input: rawFrame as object,
             captured: captured.success,
@@ -729,6 +735,9 @@ export function makeDeclarativeV2AuthenticatedCommandResponseFactoryV1():
             budget.success.maximumAllocationBytes,
           ));
         }
+        // SAFETY: the handle is an inert identity token; all decoder state
+        // lives in the factory-local map keyed by this object identity, so
+        // the brand carries no behavioral claims.
         const handle = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandResponseDecoderV1",
         }) as DeclarativeV2AuthenticatedCommandResponseDecoderV1;
@@ -968,10 +977,15 @@ export function makeDeclarativeV2AuthenticatedCommandResponseFactoryV1():
         }
         Object.assign(state.success.usage, candidate);
         state.success.cursorOpened = true;
+        // SAFETY: the handle is an inert identity token; all cursor state
+        // lives in the factory-local map keyed by this object identity, so
+        // the brand carries no behavioral claims.
         const handle = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandResponseCursorV1",
         }) as DeclarativeV2AuthenticatedCommandResponseCursorV1;
         cursors.set(handle, {
+          // SAFETY: resultState resolved this raw result to live state, so
+          // it is the registered result handle object.
           owner: rawResult as DeclarativeV2AuthenticatedCommandResponseResultV1,
           chunkIndex: 0,
           chunkOffset: 0,
@@ -1325,6 +1339,8 @@ function captureFrame(
         encoded.failure,
       ));
     }
+    // SAFETY: ownDataRecord proved the input is a non-null non-array
+    // object; it is retained only for identity comparison on resume.
     state.pendingProgressFrame = Object.freeze({
       input: input as object,
       kind,
@@ -1497,6 +1513,8 @@ function resumePendingProgressFrame(
   if (verified.success.frame.kind !== expectedKind) {
     return Result.fail(error("append", "invalidGrammar", pending.kind));
   }
+  // SAFETY: the verified frame kind was checked against expectedKind above,
+  // so the transport kind and verified frame pair satisfy the frame union.
   const frame = Object.freeze({
     kind: pending.kind,
     frame: verified.success.frame,
@@ -1990,6 +2008,9 @@ function finalizeResult(
     }
     Object.assign(usage, candidate);
   }
+  // SAFETY: the handle is an inert identity token; all result state lives
+  // in the factory-local map keyed by this object identity, so the brand
+  // carries no behavioral claims.
   const handle = Object.freeze({
     _tag: "DeclarativeV2AuthenticatedCommandResponseResultV1",
   }) as DeclarativeV2AuthenticatedCommandResponseResultV1;
@@ -2264,6 +2285,9 @@ function decodeCapturedFrame(
       "next_progress",
       "page_manifest",
     ] as const;
+    // SAFETY: the decoded frame kind was checked against the expected kind
+    // for this tag above, so the transport kind and verified frame pair
+    // satisfy the frame union.
     const frame = Object.freeze({
       kind: kinds[tag - 2]!,
       frame: decoded.success.frame,
@@ -2374,6 +2398,8 @@ function captureBudget(
       return Result.fail(error(operation, "invalidBudget", key));
     }
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so the numeric comparisons and projections are sound.
   if (
     (record.success.maximumBodyBytes as number) > U32_MAX ||
     (record.success.maximumFrames as number) >
@@ -2381,6 +2407,8 @@ function captureBudget(
   ) {
     return Result.fail(error(operation, "invalidBudget", "budget"));
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so these projections are sound.
   return Result.succeed(Object.freeze({
     maximumBodyBytes: record.success.maximumBodyBytes as number,
     maximumCanonicalBytes: record.success.maximumCanonicalBytes as number,
@@ -2410,6 +2438,8 @@ function ownDataRecord<const Keys extends readonly string[]>(
   ) {
     return Result.fail(error(operation, "invalidInput", "record"));
   }
+  // SAFETY: the exact-key check above proved the loose record carries
+  // exactly the requested keys.
   return Result.succeed(loose.success as Readonly<Record<Keys[number], unknown>>);
 }
 
@@ -2429,6 +2459,9 @@ function ownDataRecordLoose(
     if (keys.length > 64) {
       return Result.fail(error(operation, "invalidInput", path));
     }
+    // SAFETY: a freshly created null-prototype object is used as a mutable
+    // string-keyed record; only validated own enumerable value properties
+    // are copied into it.
     const output: Record<string, unknown> = Object.create(null) as Record<
       string,
       unknown
@@ -2490,6 +2523,8 @@ function charge(
   path: string,
 ): Result.Result<void, DeclarativeV2AuthenticatedCommandResponseV1Error> {
   const next = usage[dimension] + amount;
+  // SAFETY: every usage dimension has a matching `maximum<Capitalized>`
+  // budget key by naming convention.
   const budgetKey = `maximum${dimension[0]!.toUpperCase()}${dimension.slice(1)}` as
     keyof DeclarativeV2AuthenticatedCommandResponseBudgetV1;
   const maximum = budget[budgetKey];
@@ -2500,6 +2535,8 @@ function charge(
   ) {
     return Result.fail(error(
       operation,
+      // SAFETY: every usage dimension has a matching `<dimension>Exceeded`
+      // error reason by naming convention.
       `${dimension}Exceeded` as DeclarativeV2AuthenticatedCommandResponseV1Error["reason"],
       path,
       next,

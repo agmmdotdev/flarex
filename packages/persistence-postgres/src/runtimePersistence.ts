@@ -298,5 +298,7 @@ export function rowsFromDriver<
   // FlarexSqlClient's existing generic row type is caller-declared, like
   // pg.query<Row>. No runtime row schema exists at this low-level boundary, so
   // keep the unavoidable trust assertion here rather than in every adapter.
+  // SAFETY: rows come from the driver result helper and each caller owns
+  // the row contract for its generic Row parameter.
   return rows as Row[];
 }

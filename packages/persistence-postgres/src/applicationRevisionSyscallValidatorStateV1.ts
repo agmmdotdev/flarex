@@ -53,6 +53,8 @@ const states = new WeakMap<
 export function issueApplicationRevisionSyscallValidatorStateV1(
   state: SyscallValidatorStateV1,
 ): ApplicationRevisionSyscallValidatorV1 {
+  // SAFETY: the capability is an inert identity token; all state lives in
+  // the module-local WeakMap keyed by this object identity.
   const capability = Object.freeze({}) as
     ApplicationRevisionSyscallValidatorV1;
   states.set(capability, state);
@@ -71,6 +73,8 @@ export function readApplicationRevisionSyscallValidatorStateV1(
   if (typeof capability !== "object" || capability === null) {
     return Result.fail(undefined);
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = states.get(capability as ApplicationRevisionSyscallValidatorV1);
   return state === undefined ? Result.fail(undefined) : Result.succeed(state);
 }

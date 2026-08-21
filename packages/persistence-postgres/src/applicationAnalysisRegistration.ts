@@ -894,6 +894,8 @@ function issueIdentities<K extends string>(
 ): Effect.Effect<Readonly<Record<K, string>>, ApplicationAnalysisPersistenceError> {
   return Effect.try({
     try: () => {
+      // SAFETY: the loop below assigns exactly one entry per requested
+      // kind, so the record carries every K key.
       const identities = {} as Record<K, string>;
       for (const kind of kinds) {
         const uuid = randomUuid();

@@ -612,6 +612,8 @@ function captureDigests<Keys extends readonly string[]>(
   return Result.gen(function* () {
     const output: Record<string, Uint8Array> = {};
     for (const key of keys) output[key] = yield* digest(value[key], key);
+    // SAFETY: the loop above populated exactly the requested keys with
+    // validated digest values.
     return Object.freeze(output) as Readonly<Record<Keys[number], Uint8Array>>;
   });
 }
@@ -705,6 +707,8 @@ function exactRecord<Keys extends readonly string[]>(
     ) return fail("invalidInput", `${path}.${key}`);
     output[key] = descriptor.value;
   }
+  // SAFETY: the exact-key check above proved output carries exactly the
+  // requested keys, each from a validated own enumerable value descriptor.
   return Result.succeed(output as Readonly<Record<Keys[number], unknown>>);
 }
 

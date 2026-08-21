@@ -85,6 +85,8 @@ export function hasAppDeveloperIndexDefinitionAuthorityForControlDbV1(
   controlDb: FlarexMetadataDatabase,
 ): value is AppDeveloperIndexDefinitionPortV1 {
   return typeof value === "object" && value !== null &&
+    // SAFETY: the typeof guard above proved the value is a non-null
+    // object; the cast only narrows it to the WeakMap's registered brand.
     appDeveloperIndexDefinitionControlDbsV1.get(
       value as AppDeveloperIndexDefinitionPortV1,
     ) === controlDb;

@@ -868,12 +868,16 @@ function requireExactDefinitions(
 }
 
 function issue(state: State): ApplicationQuerySnapshot {
+  // SAFETY: the snapshot is an inert identity token; all state lives in
+  // the module-local WeakMap keyed by this object identity.
   const snapshot = Object.freeze({}) as ApplicationQuerySnapshot;
   states.set(snapshot, state);
   return snapshot;
 }
 
 function claim(snapshot: unknown, operation: ApplicationQuerySnapshotError["operation"]) {
+  // SAFETY: the typeof guard below proves the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = typeof snapshot === "object" && snapshot !== null
     ? states.get(snapshot as ApplicationQuerySnapshot)
     : undefined;

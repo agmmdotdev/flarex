@@ -315,6 +315,8 @@ function captureFrame(
     ) {
       return Result.fail(error(operation, "invalidInput", `coldMaterializationReceipts.${index}`));
     }
+    // SAFETY: receipt.group was proven to be a GROUP_ID key above; the
+    // cast only narrows it to the execution-group union.
     const group = receipt.group as DeclarativeV2RuntimeExecutionGroupV1;
     if (GROUP_ID[group] <= previousGroup) {
       return Result.fail(error(operation, "invalidInput", `coldMaterializationReceipts.${index}.group`));
@@ -332,12 +334,16 @@ function captureFrame(
       decodedFrame === null ||
       decodedFrame.kind !== "cold_materialization_receipt" ||
       decodedFrame.group !== group ||
+      // SAFETY: the DIGEST_FIELDS loop validated every snapshot digest as
+      // a fixed-length Uint8Array.
       !bytesEqualFullScan(
         decodedFrame.candidateSha256,
         snapshot.candidateSha256 as Uint8Array,
       ) ||
       !bytesEqualFullScan(
         decodedFrame.functionGroupManifestSha256,
+        // SAFETY: the DIGEST_FIELDS loop validated this snapshot digest as
+        // a fixed-length Uint8Array.
         snapshot.functionGroupManifestSha256 as Uint8Array,
       )
     ) {
@@ -347,13 +353,19 @@ function captureFrame(
       codecIdentity:
         DECLARATIVE_V2_COLD_MATERIALIZATION_RECEIPT_CODEC_IDENTITY_V1,
       group,
+      // SAFETY: the receipt guard above validated sha256 as a Uint8Array
+      // with bounded length.
       sha256: copyBytes(receipt.sha256 as Uint8Array),
+      // SAFETY: the receipt guard above validated canonicalBytes as a
+      // Uint8Array with bounded length.
       canonicalBytes: copyBytes(receipt.canonicalBytes as Uint8Array),
     }));
   }
   if (typeof snapshot.readyAt !== "string" || !isCanonicalIsoTimestamp(snapshot.readyAt)) {
     return Result.fail(error(operation, "invalidInput", "readyAt"));
   }
+  // SAFETY: every field was validated above against the frame contract, so
+  // the assembled object satisfies the readiness receipt frame brand.
   return Result.succeed(Object.freeze({
     kind: "application_revision_readiness_receipt",
     revisionId: snapshot.revisionId as string,

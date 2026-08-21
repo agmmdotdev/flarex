@@ -1218,6 +1218,8 @@ function markLocatedAppIndexDefinition(
   scopeId: ScopeId,
   definition: AppIndexDefinitionRecord,
 ): LocatedAppIndexDefinitionV1 {
+  // SAFETY: the copy carries every record field plus the scope, and the
+  // non-enumerable brand property is installed immediately below.
   const located = { ...definition, scopeId } as LocatedAppIndexDefinitionV1;
   Object.defineProperty(located, locatedAppIndexDefinitionBrand, {
     value: true,

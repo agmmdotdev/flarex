@@ -189,6 +189,8 @@ export function claimApplicationActiveSelection(
   if (typeof selection !== "object" || selection === null) {
     return Result.fail(activationError("validateSelection", "invalidComposition"));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = selectionStates.get(selection as ApplicationActiveSelection);
   return state === undefined
     ? Result.fail(activationError("validateSelection", "invalidComposition"))
@@ -286,6 +288,8 @@ export function makeApplicationActivationRepository<SchemaFailure, ColdFailure>(
           readiness,
         ),
       );
+      // SAFETY: the selection is an inert identity token; all state lives
+      // in the module-local WeakMap keyed by this object identity.
       const selection = Object.freeze({}) as ApplicationActiveSelection;
       selectionStates.set(selection, Object.freeze({
         basis: copySelectionBasis(state.basis),
@@ -959,6 +963,8 @@ function databaseTime(
     operation,
     revisionId,
   ).pipe(Effect.flatMap(rows => {
+    // SAFETY: rows is the driver's generic row array; the first row is a
+    // string-keyed record when the query returned one.
     const first = rows[0] as Readonly<Record<string, unknown>> | undefined;
     const value = first === undefined ? null : databaseTimestampFromUnknown(first.now);
     return value === null

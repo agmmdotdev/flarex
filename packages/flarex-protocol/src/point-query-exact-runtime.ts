@@ -156,7 +156,10 @@ export const decodePointQueryExactRuntimeRequestV1Effect = Effect.fn(
     ids.add(Number(table.tableId));
     names.add(String(table.logicalName));
     tables.push(Object.freeze({
+      // SAFETY: the guard above validated tableId as a positive safe
+      // integer.
       tableId: table.tableId as CatalogTableId,
+      // SAFETY: the guard above validated logicalName as bounded text.
       logicalName: table.logicalName as string,
     }));
   }

@@ -183,6 +183,8 @@ export function decodeApplicationRevisionRegistrationRequestKeyV1(
       maximumUtf8Bytes: 1_024,
     }));
   }
+  // SAFETY: the checks above prove the string is nonblank, NUL-free, and
+  // bounded, which is exactly the request-key brand contract.
   return Result.succeed(input as ApplicationRevisionRegistrationRequestKeyV1);
 }
 
@@ -290,7 +292,10 @@ export const deriveSystemFunctionIdentityV1 = Effect.fn(
         executionModule: item.executionModule,
         kind: item.kind,
         visibility: item.visibility,
+        // SAFETY: function metadata route and partition fields are
+        // protocol-validated JSON values.
         route: item.route as Json,
+        // SAFETY: the partition field is a protocol-validated JSON value.
         partition: item.partition as Json,
       } satisfies JsonObject)
     )),
@@ -301,7 +306,10 @@ export const deriveSystemFunctionIdentityV1 = Effect.fn(
     validators: Object.freeze(metadata.functions.map(({ metadata: item }) =>
       Object.freeze({
         functionPath: item.functionPath,
+        // SAFETY: function metadata validator fields are protocol-validated
+        // JSON values.
         argsValidator: item.argsValidator as Json,
+        // SAFETY: the returns validator is a protocol-validated JSON value.
         returnsValidator: item.returnsValidator as Json,
       } satisfies JsonObject)
     )),

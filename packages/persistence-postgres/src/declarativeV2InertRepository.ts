@@ -849,6 +849,8 @@ function runTransaction<ResultValue>(
 > {
   return Effect.tryPromise({
     try: () =>
+      // SAFETY: the located-read target resolves the work callback's
+      // promised result unchanged, so the rejection carries ResultValue.
       target[RUN_LOCATED_READ_COMMITTED_V1](work) as Promise<ResultValue>,
     catch: (cause): DeclarativeV2InertRepositoryV1Error => {
       if (cause instanceof LocatedReadCommittedTransactionFailureV1) {

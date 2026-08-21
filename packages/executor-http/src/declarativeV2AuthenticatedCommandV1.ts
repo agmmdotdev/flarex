@@ -641,6 +641,8 @@ export function captureDeclarativeV2AuthenticatedCommandTransportBudgetV1(
       return Result.fail(commandError("encode", "invalidBudget", key));
     }
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so the numeric comparisons and projections are sound.
   if (
     (values.maximumBodyBytes as number) > U32_MAX ||
     (values.maximumCanonicalBytes as number) > U32_MAX ||
@@ -651,6 +653,8 @@ export function captureDeclarativeV2AuthenticatedCommandTransportBudgetV1(
   ) {
     return Result.fail(commandError("encode", "invalidBudget", "budget"));
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so these projections are sound.
   return Result.succeed(Object.freeze({
     maximumBodyBytes: values.maximumBodyBytes as number,
     maximumCanonicalBytes: values.maximumCanonicalBytes as number,
@@ -797,6 +801,9 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
             budget.maximumAllocationBytes,
           ));
         }
+        // SAFETY: the handle is an inert identity token; all decoder state
+        // lives in the factory-local map keyed by this object identity, so
+        // the brand carries no behavioral claims.
         const handle = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandIncrementalDecoderV1",
         }) as DeclarativeV2AuthenticatedCommandIncrementalDecoderV1;
@@ -1068,6 +1075,9 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
             receipt: incrementalReceipt(before, state.usage, transitions),
           }));
         }
+        // SAFETY: the capability is an inert identity token; all decoded
+        // state lives in the factory-local map keyed by this object
+        // identity, so the brand carries no behavioral claims.
         const capability = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandDecodedCapabilityV1",
         }) as DeclarativeV2AuthenticatedCommandDecodedCapabilityV1;
@@ -1075,6 +1085,8 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
         const canonicalByteLength = state.canonical.byteLength;
         const frames = state.structural.canonicalFrames;
         capabilities.set(capability, {
+          // SAFETY: incrementalDecoderState resolved this raw decoder to
+          // live state, so it is an object key of the map.
           decoder: rawDecoder as object,
           canonical: state.canonical,
           frames,
@@ -1144,9 +1156,15 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
           closeIncrementalCapability(capability);
           return Result.fail(transitioned.failure);
         }
+        // SAFETY: the view is an inert identity token; all state lives in
+        // a factory-local map keyed by this object identity, so the brand
+        // carries no behavioral claims.
         const view = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandAdmittedViewV1",
         }) as DeclarativeV2AuthenticatedCommandAdmittedViewV1;
+        // SAFETY: the cursor is an inert identity token; all state lives
+        // in a factory-local map keyed by this object identity, so the
+        // brand carries no behavioral claims.
         const cursor = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandAdmittedCursorV1",
         }) as DeclarativeV2AuthenticatedCommandAdmittedCursorV1;
@@ -1359,6 +1377,8 @@ function captureIncrementalCreateInput(
     ));
   }
   const budget = capturedBudget.success;
+  // SAFETY: bodyByteLength was validated as a non-negative safe integer
+  // above.
   const bodyByteLength = record.success.bodyByteLength as number;
   if (bodyByteLength > U32_MAX) {
     return Result.fail(incrementalError(
@@ -1463,6 +1483,8 @@ function captureIncrementalBudget(
       ));
     }
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so the numeric comparisons and projections are sound.
   if (
     (budgetRecord.success.maximumBodyBytes as number) > U32_MAX ||
     (budgetRecord.success.maximumCanonicalBytes as number) > U32_MAX ||
@@ -1477,6 +1499,8 @@ function captureIncrementalBudget(
       "budget",
     ));
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so these projections are sound.
   return Result.succeed(Object.freeze({
     maximumBodyBytes: budgetRecord.success.maximumBodyBytes as number,
     maximumCanonicalBytes:
@@ -1523,6 +1547,8 @@ function incrementalReceipt(
   transitionCount: number,
 ): DeclarativeV2AuthenticatedCommandIncrementalReceiptV1 {
   const delta = zeroIncrementalUsage();
+  // SAFETY: Object.keys of a value typed as IncrementalMutableUsageV1
+  // yields exactly its own numeric usage keys.
   for (
     const key of Object.keys(delta) as readonly (
       keyof IncrementalMutableUsageV1
@@ -3800,6 +3826,8 @@ function captureHeaderFrame(
         ),
       );
     }
+    // SAFETY: both encoded frames were kind-checked above, so the frame
+    // members satisfy their specific frame brands.
     return Object.freeze({
       kind: "command_header",
       reservation:
@@ -3843,6 +3871,7 @@ function captureModuleMetadataFrame(
       record.kind !== "module_metadata" ||
       !isU64(record.moduleOrdinal) ||
       !isNonNegativeSafeInteger(record.roles) ||
+      // SAFETY: roles was validated as a non-negative safe integer above.
       (record.roles as number) > U32_MAX ||
       !isU64(record.sourceByteLength)
     ) {
@@ -3868,6 +3897,8 @@ function captureModuleMetadataFrame(
       operation,
       `frames.${index}.sourceSha256`,
     );
+    // SAFETY: moduleOrdinal, roles, and sourceByteLength were validated
+    // above, so they hold the projected types.
     return Object.freeze({
       kind: "module_metadata",
       moduleOrdinal: record.moduleOrdinal as bigint,
@@ -3911,6 +3942,7 @@ function captureSourceBytesFrame(
       1,
       DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_PAYLOAD_QUANTUM_BYTES_V1,
     );
+    // SAFETY: moduleOrdinal and offset were validated as u64 above.
     return Object.freeze({
       kind: "source_bytes",
       moduleOrdinal: record.moduleOrdinal as bigint,
@@ -3950,6 +3982,7 @@ function captureSemanticBytesFrame(
       1,
       DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_PAYLOAD_QUANTUM_BYTES_V1,
     );
+    // SAFETY: offset was validated as u64 above.
     return Object.freeze({
       kind: "semantic_bytes",
       offset: record.offset as bigint,
@@ -3992,6 +4025,7 @@ function captureTerminalFrame(
         commandError(operation, "invalidInput", `frames.${index}`),
       );
     }
+    // SAFETY: every terminal counter was validated as u64 above.
     return Object.freeze({
       kind: "command_terminal",
       firstModuleOrdinal: record.firstModuleOrdinal as bigint,
@@ -4076,6 +4110,8 @@ function parseFrame(
           commandError("decode", "malformed", `frames.${index}`),
         );
       }
+      // SAFETY: both decoded frames were kind-checked above, so the frame
+      // members satisfy their specific frame brands.
       return Object.freeze({
         kind: "command_header",
         reservation:
@@ -4237,7 +4273,11 @@ function validateGrammar(
     ) {
       return yield* grammarFailure(operation, "frames");
     }
+    // SAFETY: the first frame was kind-checked above, so it satisfies the
+    // header frame brand.
     const header = frames[0] as CapturedHeaderFrameV1;
+    // SAFETY: the last frame was kind-checked above, so it satisfies the
+    // terminal frame brand.
     const terminal =
       frames[frames.length - 1] as
         DeclarativeV2AuthenticatedCommandTerminalFrameV1;
@@ -4640,6 +4680,8 @@ function captureOwnDataRecord<const Keys extends readonly string[]>(
     }
     output[key] = descriptor.value;
   }
+  // SAFETY: output was populated with exactly the requested keys, each from
+  // a validated own value descriptor.
   return Result.succeed(Object.freeze(output) as Readonly<
     Record<Keys[number], unknown>
   >);
@@ -4697,6 +4739,7 @@ function captureArray(
   ) {
     return Result.fail(commandError(operation, "invalidInput", path));
   }
+  // SAFETY: length was validated as a non-negative safe integer above.
   const admittedLength = length as number;
   if (admittedLength > maximumLength) {
     return Result.fail(commandError(
@@ -4709,6 +4752,7 @@ function captureArray(
   }
   let ownKeyCount: number;
   try {
+    // SAFETY: input was proven to be an array by Array.isArray above.
     ownKeyCount = Reflect.ownKeys(input as object).length;
   } catch {
     return Result.fail(commandError(operation, "invalidInput", path));
@@ -4922,6 +4966,8 @@ function isU64(input: unknown): input is bigint {
 function intrinsicByteLength(input: Uint8Array): number | undefined {
   if (UINT8_ARRAY_BYTE_LENGTH_GETTER === undefined) return undefined;
   try {
+    // SAFETY: the intrinsic Uint8Array.prototype byteLength getter returns
+    // a number when applied to a Uint8Array receiver.
     return Reflect.apply(
       UINT8_ARRAY_BYTE_LENGTH_GETTER,
       input,

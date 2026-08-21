@@ -3041,6 +3041,8 @@ function captureCreateInput(
     return Object.freeze({
       scopeId,
       candidateSha256: new Uint8Array(record.candidateSha256),
+      // SAFETY: captureExactRecord plus the caller's frame-kind validation
+      // proved ceilings is an attempt_ceilings budget frame.
       ceilings: record.ceilings as DeclarativeV2VerifierBudgetFrameV2 & {
         readonly kind: "attempt_ceilings";
       },
@@ -3124,9 +3126,13 @@ function captureCommandDecisionSelector(
       sequence: record.sequence,
       reservationSha256: new Uint8Array(record.reservationSha256),
       ...(hasTerminalProof
-        ? { terminalProofBytes: new Uint8Array(
-          record.terminalProofBytes as Uint8Array,
-        ) }
+        ? {
+          terminalProofBytes: new Uint8Array(
+            // SAFETY: the guard above validated terminalProofBytes as a
+            // Uint8Array whenever hasTerminalProof holds.
+            record.terminalProofBytes as Uint8Array,
+          ),
+        }
         : {}),
     });
   });
@@ -3640,6 +3646,8 @@ function captureFrame<
       maximumInputBytes: encoded.canonicalBytes.byteLength,
     });
     return Object.freeze({
+      // SAFETY: the kind check above proved the encoded frame matches the
+      // requested frame kind.
       frame: encoded.frame as Extract<
         DeclarativeV2VerifierProgressFrameV2,
         { readonly kind: Kind }
@@ -3881,6 +3889,8 @@ function captureReadSettledEvidencePageBatchInput(
 function zeroBudgetFrame(
   kind: "attempt_usage",
 ): DeclarativeV2VerifierBudgetFrameV2 & { readonly kind: "attempt_usage" } {
+  // SAFETY: every budget dimension is set to 0n below, so the record
+  // satisfies the attempt_usage budget frame brand.
   return Object.freeze({
     kind,
     ...Object.fromEntries(
@@ -3932,6 +3942,8 @@ function addBudgetFrames(
     }
     result[dimension] = observed;
   }
+  // SAFETY: every budget dimension was summed and bounds-checked above, so
+  // the record satisfies the attempt_usage budget frame brand.
   return Result.succeed(Object.freeze({
     kind: "attempt_usage",
     ...result,
@@ -6871,6 +6883,8 @@ function pageSelector(
     ),
     eq(
       fxSystemDeclarativeV2VerifierEvidencePagesV2.commandKind,
+      // SAFETY: evidence-page work only carries the restart command kinds
+      // accepted by this repository.
       work.commandKind as "parse_module" | "link_page",
     ),
   )!;
@@ -7740,6 +7754,8 @@ function copyAttemptIdentity(
 function copyBudgetFrame<Frame extends DeclarativeV2VerifierBudgetFrameV2>(
   value: Frame,
 ): Frame {
+  // SAFETY: the copy reproduces the input frame's kind and every budget
+  // dimension, so it satisfies the same frame brand.
   return Object.freeze({
     kind: value.kind,
     ...Object.fromEntries(

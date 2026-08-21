@@ -1494,6 +1494,8 @@ function capturePlainData(
     ancestors.delete(input);
     return output;
   }
+  // SAFETY: a freshly created null-prototype object is used as a mutable
+  // string-keyed record; only validated JSON values are assigned into it.
   const output = Object.create(null) as Record<string, Json>;
   for (const key of ownKeys) {
     if (typeof key !== "string") {

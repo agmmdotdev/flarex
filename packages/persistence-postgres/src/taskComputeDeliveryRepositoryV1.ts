@@ -3668,6 +3668,8 @@ function captureConfiguration(
     claimDurationMilliseconds,
     retryDelayMilliseconds: Object.freeze(retryDelayMilliseconds),
     maximumDeliveryAttempts,
+    // SAFETY: the typeof check above proved randomUuid is a function; the
+    // cast declares its zero-argument string-returning contract.
     randomUuid: record.randomUuid as () => string,
   }));
 }
@@ -3676,6 +3678,7 @@ function captureAcquireRequest<
   Operation extends "acquire_dispatch" | "acquire_cancellation",
 >(
   input: TaskComputeDispatchAcquireRequestV1,
+  // SAFETY: the default value is a member of the caller's operation union.
   operation: Operation = "acquire_dispatch" as Operation,
 ): Result.Result<
   CapturedAcquireRequestV1,

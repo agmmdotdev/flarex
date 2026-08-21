@@ -51,6 +51,8 @@ export const runLocatedReadCommittedEffect = Effect.fn(
       if (Exit.isSuccess(exit)) return Effect.succeed(exit.value);
       const error = Cause.findErrorOption(exit.cause);
       if (error._tag === "None") {
+        // SAFETY: exit.cause is the original failure channel of the wrapped
+        // body, which this effect already declares as its failure type.
         return Effect.failCause(exit.cause as Cause.Cause<
           Failure | LocatedReadCommittedTransactionFailureV1
         >);

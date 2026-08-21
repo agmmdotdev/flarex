@@ -675,6 +675,8 @@ export function makeApplicationRevisionRegistrationContextV1(
       state.registrationFramesBytes =
         encodeRegistrationFrames(analysis.result.registrationFrames);
       state.correlation = "correlated";
+      // SAFETY: the assignments above completed every correlated-state
+      // field, so the state satisfies the correlated variant.
       const correlated = state as CorrelatedRegistrationStateV1;
       analyses.set(analysis, correlated);
     }).pipe(
@@ -982,6 +984,8 @@ async function selectSchemaVersion(
       cause: new RangeError("Schema version allocation exhausted."),
     });
   }
+  // SAFETY: next is a positive integer within the catalog's schema-version
+  // range, which is exactly the CatalogSchemaVersion brand.
   return next as CatalogSchemaVersion;
 }
 
@@ -1019,6 +1023,8 @@ function prepareSchemaPublication(
       }),
     });
     const schemaVersionId =
+      // SAFETY: the lowercase-hex digest spelling is exactly the catalog
+      // schema-version identifier contract.
       `dv2_schema_${encodeBytesToLowercaseHex(canonical.sha256)}` as
         CatalogSchemaVersionId;
     const version = yield* Effect.tryPromise({

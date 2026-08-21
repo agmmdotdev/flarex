@@ -122,10 +122,14 @@ export function claimApplicationPublicationPlanningEvidenceResult(
   if (typeof publication !== "object" || publication === null) {
     return Result.fail(failureValue("invalidInput"));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const evidence = applicationPublicationPlanningEvidence.get(
     publication as ApplicationPublication,
   );
   const database = applicationPublicationDatabases.get(
+    // SAFETY: the same typeof guard proved this value is a non-null
+    // object; the cast only narrows it to the WeakMap's registered brand.
     publication as ApplicationPublication,
   );
   return evidence === undefined || database === undefined

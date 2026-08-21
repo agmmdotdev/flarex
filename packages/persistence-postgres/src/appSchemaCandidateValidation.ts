@@ -316,6 +316,8 @@ export function hasAppSchemaCandidateValidationComposition(
   >,
 ): port is AppSchemaCandidateValidationPort {
   if (typeof port !== "object" || port === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   const state = portStates.get(port as AppSchemaCandidateValidationPort);
   return state !== undefined &&
     state.controlDb === controlDb &&
@@ -416,6 +418,8 @@ export function hasAppSchemaCandidateReadinessComposition(
   authority: TrustedScopeAuthorityResolutionPorts,
 ): port is AppSchemaCandidateReadinessPort {
   if (typeof port !== "object" || port === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   const state = candidateReadinessPortStates.get(
     port as AppSchemaCandidateReadinessPort,
   );
@@ -746,6 +750,8 @@ export function hasAppSchemaCandidateWriteGuardComposition(
   pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
 ): guard is AppSchemaCandidateWriteGuardPort {
   if (typeof guard !== "object" || guard === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   return candidateWriteGuardStates.get(guard as AppSchemaCandidateWriteGuardPort)
     ?.pointCommitAuthority === pointCommitAuthority;
 }

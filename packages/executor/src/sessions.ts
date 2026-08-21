@@ -254,7 +254,9 @@ export async function invokeSyscall(
         isDone: true,
         continueCursor: String(
           typeof page.at(-1) === "object" && page.at(-1) !== null
-            ? (page.at(-1) as { _id?: unknown })._id ?? ""
+            ? // SAFETY: page values are document values, whose JSON objects
+              // carry the Flarex `_id` field.
+              (page.at(-1) as { _id?: unknown })._id ?? ""
             : "",
         ),
       },
@@ -662,6 +664,8 @@ async function documentAtTransactionView(
 
   if (staged.op === "insert") {
     return {
+      // SAFETY: staged insert rows store a validated persistence JSON
+      // document value.
       value: staged.valueJson as PersistenceJson,
       observedTs: base?.ts ?? null,
       recordRead: false,
@@ -678,6 +682,8 @@ async function documentAtTransactionView(
 
   if (staged.op === "replace") {
     return {
+      // SAFETY: staged replace rows store a validated persistence JSON
+      // document value.
       value: staged.valueJson as PersistenceJson,
       observedTs: base?.ts ?? null,
       recordRead: true,
@@ -825,6 +831,8 @@ async function applyStagedWriteToIndexView(
     return;
   }
 
+  // SAFETY: non-patch staged rows store a validated persistence JSON
+  // document value.
   const value =
     write.op === "patch"
       ? await patchedIndexDocumentValue(appDataEngine, session, write)
@@ -887,6 +895,8 @@ function applyStagedWriteToTableView(
   if (write.op === "insert") {
     visible.set(write.documentId, {
       id: write.documentId,
+      // SAFETY: staged insert rows store a validated persistence JSON
+      // document value.
       value: write.valueJson as PersistenceJson,
     });
     return;
@@ -900,6 +910,8 @@ function applyStagedWriteToTableView(
   if (write.op === "replace") {
     visible.set(write.documentId, {
       id: write.documentId,
+      // SAFETY: staged replace rows store a validated persistence JSON
+      // document value.
       value: write.valueJson as PersistenceJson,
     });
     return;
@@ -1089,6 +1101,8 @@ function queryRange(value: PersistenceJson | undefined): IndexRangeExpression[] 
     return {
       op: expression.op,
       field: expression.field,
+      // SAFETY: range expression values arrive from the syscall boundary,
+      // which constrains them to persistence JSON.
       value: expression.value as PersistenceJson,
     };
   });

@@ -426,6 +426,8 @@ export function inspectApplicationPointQuerySnapshotTablesV1(
 function issueSnapshot(
   state: ApplicationPointQuerySnapshotStateV1,
 ): AuthenticatedApplicationPointQuerySnapshotV1 {
+  // SAFETY: the capability is an inert identity token; all state lives in
+  // the module-local WeakMap keyed by this object identity.
   const capability = Object.freeze({}) as
     AuthenticatedApplicationPointQuerySnapshotV1;
   states.set(capability, state);
@@ -443,6 +445,8 @@ function claimSnapshot(
       reason: "notIssued",
     }));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = states.get(
     capability as AuthenticatedApplicationPointQuerySnapshotV1,
   );

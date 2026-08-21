@@ -75,6 +75,8 @@ const routeExecutorHttpDecodedBody = Effect.fn("ExecutorHttp.routeDecodedBody")(
     validateInput?: (input: A) => Effect.Effect<void, ExecutorHttpRoutePreconditionError>,
   ) {
     yield* authorizeExecutorRequestEffect(request, capabilityToken);
+    // SAFETY: routes without a preflight callback never read the preflight
+    // value, so the absent value is never observed as P.
     const preflightResult = preflight === undefined
       ? undefined as P
       : yield* preflight();

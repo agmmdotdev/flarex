@@ -191,6 +191,8 @@ export async function commitInvokeSessionWritesInTransaction(
           write.documentId,
         );
       }
+      // SAFETY: insert and replace staged writes store a validated
+      // persistence JSON document value.
       const value = write.valueJson as PersistenceJson;
       validateDocumentValue(
         tableValidators,
@@ -267,6 +269,8 @@ export async function commitInvokeSessionWritesInTransaction(
           "document does not exist",
         );
       }
+      // SAFETY: insert and replace staged writes store a validated
+      // persistence JSON document value.
       const value = write.valueJson as PersistenceJson;
       validateDocumentValue(
         tableValidators,

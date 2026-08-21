@@ -183,6 +183,8 @@ function encodeJson(value: PersistenceJson): Uint8Array {
 
 function decodeJson(value: Uint8Array): PersistenceJson {
   // Deliberate JSON bridge: persisted bytes decode to the PersistenceJson tree.
+  // SAFETY: persisted document bytes were written by encodeJson from
+  // validated persistence JSON, so the parse result satisfies the brand.
   return JSON.parse(decodeString(value)) as PersistenceJson;
 }
 

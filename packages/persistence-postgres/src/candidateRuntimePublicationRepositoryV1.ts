@@ -758,7 +758,11 @@ function validateLoaded(
           functionPath: row.functionPath,
           executionModule: row.executionModule,
           exportName: row.exportName,
+          // SAFETY: persisted handler-kind and visibility columns are
+          // constrained to these enum spellings at write time.
           handlerKind: row.handlerKind as "query" | "mutation" | "workflowMutation" | "action",
+          // SAFETY: the visibility column is constrained to public or
+          // internal at write time.
           visibility: row.visibility as "public" | "internal",
           group: row.executionGroup,
           projectionSha256: new Uint8Array(row.projectionSha256),
@@ -837,8 +841,12 @@ function referenceFromRow(
     reason: "corruption",
     path: `${kind}:reference`,
   })))).pipe(Effect.flatMap(reference => referenceEqual(reference, {
+    // SAFETY: persisted store-identity and codec-identity columns are
+    // constrained to the reference enum spellings at write time.
     storeIdentity: row.objectStoreIdentity as DeclarativeV2RuntimeArtifactObjectReferenceV1["storeIdentity"],
     kind,
+    // SAFETY: the codec-identity column is constrained to the reference
+    // enum spellings at write time.
     codecIdentity: row.objectCodecIdentity as DeclarativeV2RuntimeArtifactObjectReferenceV1["codecIdentity"],
     objectKey: row.objectKey,
     byteLength: row.objectByteLength,

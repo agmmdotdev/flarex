@@ -785,6 +785,8 @@ function exactRecord<Keys extends readonly string[]>(
     }
     output[key] = descriptor.value;
   }
+  // SAFETY: the exact-key check above proved output carries exactly the
+  // requested keys, each from a validated own enumerable value descriptor.
   return Result.succeed(output as Readonly<Record<Keys[number], unknown>>);
 }
 

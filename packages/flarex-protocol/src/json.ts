@@ -480,6 +480,8 @@ export function isJson(value: unknown): value is Json {
         frames.push({
           kind: "object",
           value: current,
+          // SAFETY: the guards above proved current is a plain object, so
+          // it is a string-keyed record.
           values: Object.values(current as Record<string, unknown>),
           index: 0,
         });

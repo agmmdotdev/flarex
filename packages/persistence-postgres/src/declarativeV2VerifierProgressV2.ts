@@ -843,6 +843,8 @@ export function decodeDeclarativeV2VerifierStoredFrameV2<
     if (decoded.success.frame.kind !== expectedKind) {
       return yield* fail("decodeFrame", "normalizedMismatch", "kind");
     }
+    // SAFETY: the kind check above proved the decoded frame matches the
+    // requested frame kind.
     return Object.freeze({
       frame: decoded.success.frame as Extract<
         DeclarativeV2VerifierProgressFrameV2,

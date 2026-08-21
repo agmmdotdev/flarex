@@ -613,6 +613,9 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
             "createEncoder",
             "prefix",
           );
+          // SAFETY: the handle is an inert identity token; all encoder
+          // state lives in the factory-local map keyed by this object
+          // identity, so the brand carries no behavioral claims.
           const handle = Object.freeze({
             _tag: "DeclarativeV2AuthenticatedCommandRestartInputEncoderV1",
           }) as DeclarativeV2AuthenticatedCommandRestartInputEncoderV1;
@@ -725,6 +728,9 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
             ),
           }));
         }
+        // SAFETY: the source is an inert identity token; all source state
+        // lives in the factory-local map keyed by this object identity, so
+        // the brand carries no behavioral claims.
         const source = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
         }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
@@ -779,6 +785,9 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
             "createDecoder",
             "body",
           );
+          // SAFETY: the handle is an inert identity token; all decoder
+          // state lives in the factory-local map keyed by this object
+          // identity, so the brand carries no behavioral claims.
           const handle = Object.freeze({
             _tag: "DeclarativeV2AuthenticatedCommandRestartInputDecoderV1",
           }) as DeclarativeV2AuthenticatedCommandRestartInputDecoderV1;
@@ -976,6 +985,9 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
             ),
           }));
         }
+        // SAFETY: the source is an inert identity token; all source state
+        // lives in the factory-local map keyed by this object identity, so
+        // the brand carries no behavioral claims.
         const source = Object.freeze({
           _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
         }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
@@ -1044,6 +1056,9 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
           );
           const claim = yield* captureClaim(rawClaim);
           yield* compareClaim(state, claim);
+          // SAFETY: the claimed source is an inert identity token; all
+          // state lives in the factory-local map keyed by this object
+          // identity, so the brand carries no behavioral claims.
           const claimedSource = Object.freeze({
             _tag:
               "DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1",
@@ -1407,6 +1422,8 @@ function captureEncoderFrame(
         ? Result.succeed(null)
         : Result.fail(protocolOrTransportFailure("append", kind, encoded.failure));
     }
+    // SAFETY: ownDataRecordLoose proved the input is a non-null non-array
+    // object; it is retained only for identity comparison on resume.
     state.pendingProtocolFrame = Object.freeze({
       input: input as object,
       kind,
@@ -1798,6 +1815,9 @@ function resumePendingProtocolFrame(
     );
     if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     const digest = sha256(pending.verified.canonicalBytes);
+    // SAFETY: pending.kind is one of the verified protocol frame kinds and
+    // pending.verified.frame passed progress-frame verification, so the
+    // pair satisfies the captured-frame union.
     const frame = Object.freeze({
       kind: pending.kind,
       frame: pending.verified.frame,
@@ -2454,6 +2474,9 @@ function parsePendingDecoderMetadata(
     );
     if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     const verified = state.pendingVerifiedProtocolFrame;
+    // SAFETY: transportKind is one of the verified protocol frame kinds and
+    // verified.frame passed progress-frame verification, so the pair
+    // satisfies the captured-frame union.
     const captured = Object.freeze({
       frame: Object.freeze({
         kind: transportKind,
@@ -2903,6 +2926,8 @@ function captureBudget(
       return Result.fail(transportError(operation, "invalidBudget", key));
     }
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so the numeric comparisons and projections are sound.
   if (
     (record.success.maximumBodyBytes as number) > U32_MAX ||
     (record.success.maximumFrames as number) >
@@ -2912,6 +2937,8 @@ function captureBudget(
   ) {
     return Result.fail(transportError(operation, "invalidBudget", "budget"));
   }
+  // SAFETY: every budget value was validated as a non-negative safe
+  // integer above, so these projections are sound.
   return Result.succeed(Object.freeze({
     maximumBodyBytes: record.success.maximumBodyBytes as number,
     maximumCanonicalBytes: record.success.maximumCanonicalBytes as number,
@@ -2944,6 +2971,8 @@ function ownDataRecord<const Keys extends readonly string[]>(
   ) {
     return Result.fail(transportError(operation, "invalidInput", "record"));
   }
+  // SAFETY: the exact-key check above proved the loose record carries
+  // exactly the requested keys.
   return Result.succeed(
     loose.success as Readonly<Record<Keys[number], unknown>>,
   );
@@ -2965,6 +2994,9 @@ function ownDataRecordLoose(
     if (keys.length > 64) {
       return Result.fail(transportError(operation, "invalidInput", path));
     }
+    // SAFETY: a freshly created null-prototype object is used as a mutable
+    // string-keyed record; only validated own enumerable value properties
+    // are copied into it.
     const output: Record<string, unknown> = Object.create(null) as Record<
       string,
       unknown
@@ -3250,12 +3282,16 @@ function charge(
     return Result.fail(transportError(operation, "invalidInput", path));
   }
   const next = usage[dimension] + amount;
+  // SAFETY: every usage dimension has a matching `maximum<Capitalized>`
+  // budget key by naming convention.
   const budgetKey = `maximum${dimension[0]!.toUpperCase()}${dimension.slice(1)}` as
     keyof DeclarativeV2AuthenticatedCommandRestartInputBudgetV1;
   const maximum = budget[budgetKey];
   if (!Number.isSafeInteger(next) || next > maximum) {
     return Result.fail(transportError(
       operation,
+      // SAFETY: every usage dimension has a matching `<dimension>Exceeded`
+      // error reason by naming convention.
       `${dimension}Exceeded` as
         DeclarativeV2AuthenticatedCommandRestartInputV1Error["reason"],
       path,
@@ -3389,6 +3425,8 @@ function sourceState<const Mode extends SourceState["mode"]>(
     }
     return Result.fail(transportError(operation, "staleAuthority"));
   }
+  // SAFETY: the mode equality check above narrows the state union to the
+  // variant whose mode matches the requested mode.
   return Result.succeed(
     state as Extract<SourceState, { readonly mode: Mode }>,
   );
@@ -3605,6 +3643,8 @@ function captureU64(input: unknown, positive: boolean): bigint | undefined {
 function intrinsicByteLength(value: Uint8Array): number | undefined {
   if (UINT8_ARRAY_BYTE_LENGTH_GETTER === undefined) return undefined;
   try {
+    // SAFETY: the intrinsic Uint8Array.prototype byteLength getter returns
+    // a number when applied to a Uint8Array receiver.
     return Reflect.apply(UINT8_ARRAY_BYTE_LENGTH_GETTER, value, []) as number;
   } catch {
     return undefined;
@@ -3617,6 +3657,8 @@ function copyDigest(
   input: unknown,
 ): void {
   try {
+    // SAFETY: every caller validated this value as a digest Uint8Array
+    // before delegating the copy here.
     output.set(input as Uint8Array, offset);
   } catch {
     throw new Error("A1b2c0b2c1a validated digest copy failed.");

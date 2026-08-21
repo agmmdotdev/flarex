@@ -205,11 +205,15 @@ export const claimApplicationRevisionRuntimeTargetAuthorityV1 = Effect.fn(
       visibility: entryAuthority.frame.visibility,
       argsValidator: metadata.metadata.argsValidator,
       returnsValidator: metadata.metadata.returnsValidator,
+      // SAFETY: the mutation runtime target only admits transaction-group
+      // mutation entries, so the frame satisfies the narrowed brand.
       entry: entryAuthority.frame as typeof entryAuthority.frame & {
         readonly handlerKind: "mutation";
         readonly group: "transaction";
       },
       entryReference: entryAuthority.reference,
+      // SAFETY: the mutation runtime target only admits transaction-group
+      // projections, so the frame satisfies the narrowed brand.
       projection: projectionAuthority.frame as typeof projectionAuthority.frame & {
         readonly group: "transaction";
       },

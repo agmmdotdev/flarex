@@ -190,9 +190,13 @@ export function decodeApplicationReadinessFrame(
         "uniqueConstraintEligibilitySha256", "physicalReadinessSha256",
         "coldReceipts", "readyAt",
       ] as const;
+      // SAFETY: the guard above proved the parsed value is a non-null
+      // non-array object, so it is a string-keyed record.
       const record = value as Record<string, unknown>;
       const keys = Reflect.ownKeys(record);
       if (keys.length !== expected.length || keys.some(key =>
+        // SAFETY: each key is proven to be a plain string before the
+        // membership test; the cast only narrows it to the expected union.
         typeof key !== "string" || !expected.includes(
           key as typeof expected[number],
         ))) throw new Error("Application readiness frame keys are invalid.");
@@ -214,6 +218,7 @@ export function decodeApplicationReadinessFrame(
         record.version !== 1 || record.status !== "ready" ||
         textFields.some(field => typeof record[field] !== "string") ||
         shaFields.some(field => typeof record[field] !== "string" ||
+          // SAFETY: the typeof check above proved the field is a string.
           !/^[0-9a-f]{64}$/.test(record[field] as string)) ||
         (record.uniqueConstraintStatus !== "not_required" &&
           record.uniqueConstraintStatus !== "eligible") ||
@@ -224,6 +229,8 @@ export function decodeApplicationReadinessFrame(
         if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
           throw new Error("Application readiness cold receipt is invalid.");
         }
+        // SAFETY: the guard above proved the entry is a non-null non-array
+        // object, so it is a string-keyed record.
         const item = entry as Record<string, unknown>;
         const itemKeys = Reflect.ownKeys(item);
         if (itemKeys.length !== 3 ||

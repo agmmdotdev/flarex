@@ -1272,6 +1272,8 @@ export function createPointMutationExecutionClaimAcquisitionV1(
         }),
       );
     }
+    // SAFETY: the Reflect.get check above proved the candidate carries the
+    // acquisition method, so it satisfies the located target brand.
     const target = candidate as LocatedPointMutationExecutionClaimAcquisitionTargetV1;
     return yield* target[ACQUIRE_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]({
       selector,

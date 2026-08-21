@@ -252,6 +252,8 @@ export function decodeDeclarativeV2SemanticArtifactFrameV1(
         capturedBudget.maximumFrameBytes,
       );
     }
+    // SAFETY: the intrinsic byte-length check above proved input is a
+    // Uint8Array with a visible, bounded length.
     const bytes = copyBytes(input as Uint8Array);
     const decoded = yield* parseFrame(bytes, capturedBudget.maximumCanonicalBytes);
     const reencoded = encodeCapturedFrame(decoded.frame);
@@ -361,6 +363,8 @@ function captureFrame(
         }
         return Object.freeze({
           kind: "semantic_tree" as const,
+          // SAFETY: captureTreeChild validated both children above, so the
+          // pair satisfies the two-child tuple contract.
           children: Object.freeze([first, second]) as readonly [
             DeclarativeV2SemanticArtifactTreeChildV1,
             DeclarativeV2SemanticArtifactTreeChildV1,
@@ -894,6 +898,8 @@ function captureBytes(
   if (minimumFrameBytes > maximumFrameBytes) {
     return failBudget("frameBytesExceeded", minimumFrameBytes, maximumFrameBytes);
   }
+  // SAFETY: the intrinsic byte-length check above proved value is a
+  // Uint8Array with a visible, bounded length.
   return Result.succeed(copyBytes(value as Uint8Array));
 }
 

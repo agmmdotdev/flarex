@@ -554,6 +554,8 @@ export function encodeDeclarativeV2VerifierProgressFrameV2(
     ownedFrame.success,
   );
   assertExactSuccessfulWork(work, actual);
+  // SAFETY: captureFrame validated the input against the frame schema, so the
+  // success member is a captured frame that satisfies the public frame brand.
   return Result.succeed(Object.freeze({
     frame: ownedFrame.success as DeclarativeV2VerifierProgressFrameV2,
     canonicalBytes,
@@ -630,6 +632,9 @@ export function makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2():
         });
         const segments = frameEncodingSegments(frame);
         assertExactEncodingSegments(frame, exactLength, segments);
+        // SAFETY: the cursor object is an inert identity token; all real
+        // cursor state lives in the factory-local WeakMap keyed by this
+        // object identity, so the brand carries no behavioral claims.
         const cursor = Object.freeze({
           _tag: "DeclarativeV2VerifierProgressFrameEncoderCursorV2",
         }) as DeclarativeV2VerifierProgressFrameEncoderCursorV2;
@@ -686,6 +691,8 @@ export function makeDeclarativeV2VerifierProgressFrameEncoderFactoryV2():
           if (identity !== null) ACTIVE_ADMISSION_INPUTS.delete(identity);
         }
         if (
+          // SAFETY: progressFrameEncoderCursorState already resolved this
+          // raw cursor to live state, so it is an object key of the map.
           cursors.get(rawCursor as object) !== state ||
           state.phase !== "admitting"
         ) {
@@ -968,6 +975,8 @@ export function verifyOwnedDeclarativeV2VerifierProgressFrameV2<E>(
       reason: "reencodeFailed",
     });
   }
+  // SAFETY: parseOwnedFrame succeeded, so the success member is a captured
+  // frame that satisfies the public frame brand.
   return Result.succeed(Object.freeze({
     frame: parsed.success as DeclarativeV2VerifierProgressFrameV2,
     canonicalBytes: input,
@@ -1046,6 +1055,8 @@ export function decodeDeclarativeV2VerifierProgressFrameV2(
     if (!bytesEqualFullScan(owned, encoded.success.canonicalBytes)) {
       return yield* Result.fail(progressError("decode", "nonCanonical"));
     }
+    // SAFETY: parseOwnedFrame succeeded, so parsed is a captured frame that
+    // satisfies the public frame brand.
     return Object.freeze({
       frame: parsed as DeclarativeV2VerifierProgressFrameV2,
       canonicalBytes: owned,
@@ -1108,6 +1119,9 @@ export function validateDeclarativeV2VerifierEvidencePageTransitionV2(
       !isDigest(previousPageSha256Input) ||
       current.reservationSha256 === null ||
       current.predecessorPageSha256 === null ||
+      // SAFETY: captureFrame validated both frames as evidence_page_manifest
+      // manifests whose digest and u64 counter fields hold the cast types;
+      // nullable members were excluded by the guards above.
       !bytesEqualFullScan(
         previous.reservationSha256 as Uint8Array,
         current.reservationSha256 as Uint8Array,
@@ -1115,13 +1129,21 @@ export function validateDeclarativeV2VerifierEvidencePageTransitionV2(
       previous.commandKind !== current.commandKind ||
       previous.sequence !== current.sequence ||
       previous.pageOrdinal === DECLARATIVE_V2_MAX_SIGNED_INT64_V1 ||
+      // SAFETY: captureFrame validated the ordinal and count fields of both
+      // evidence_page_manifest frames as u64 bigints, so they are non-null.
       current.pageOrdinal !== (previous.pageOrdinal as bigint) + 1n ||
       current.firstEvidenceOrdinal !==
+        // SAFETY: captureFrame validated the ordinal and count fields of
+        // both evidence_page_manifest frames as u64 bigints.
         (previous.firstEvidenceOrdinal as bigint) +
           (previous.evidenceCount as bigint) ||
       current.firstDiagnosticOrdinal !==
+        // SAFETY: captureFrame validated these counter fields as u64
+        // bigints.
         (previous.firstDiagnosticOrdinal as bigint) +
           (previous.diagnosticCount as bigint) ||
+      // SAFETY: predecessorPageSha256 was proven non-null above and holds a
+      // validated digest value.
       !bytesEqualFullScan(
         current.predecessorPageSha256 as Uint8Array,
         previousPageSha256Input,
@@ -1149,20 +1171,31 @@ export function validateDeclarativeV2VerifierFinalEvidencePageV2(
       finalPage.kind !== "evidence_page_manifest" ||
       output.kind !== "command_output_manifest" ||
       !isDigest(finalPageSha256Input) ||
+      // SAFETY: captureFrame validated both frames against their kind
+      // schemas, so digest fields hold Uint8Array and counter fields hold
+      // non-null u64 bigints.
       !bytesEqualFullScan(
         finalPage.reservationSha256 as Uint8Array,
         output.reservationSha256 as Uint8Array,
       ) ||
       finalPage.commandKind !== output.commandKind ||
       finalPage.sequence !== output.sequence ||
+      // SAFETY: captureFrame validated the ordinal and count fields of
+      // both frames as non-null u64 bigints.
       (finalPage.firstEvidenceOrdinal as bigint) +
           (finalPage.evidenceCount as bigint) !== output.evidenceCount ||
+      // SAFETY: captureFrame validated these counter fields as non-null
+      // u64 bigints.
       (finalPage.firstDiagnosticOrdinal as bigint) +
           (finalPage.diagnosticCount as bigint) !== output.diagnosticCount ||
+      // SAFETY: captureFrame validated evidenceRootSha256 as a digest
+      // Uint8Array.
       !bytesEqualFullScan(
         finalPageSha256Input,
         output.evidenceRootSha256 as Uint8Array,
       ) ||
+      // SAFETY: captureFrame validated cumulativeDiagnosticsRootSha256 as
+      // a digest Uint8Array.
       !bytesEqualFullScan(
         finalPage.cumulativeDiagnosticsRootSha256 as Uint8Array,
         output.diagnosticsRootSha256 as Uint8Array,
@@ -1216,9 +1249,13 @@ function captureFrame(
     return Result.fail(progressError(operation, "invalidInput"));
   }
   const rawKind = captured.kind;
+  // SAFETY: rawKind is proven to be a plain string before the membership
+  // test; the cast only narrows it to the set's element type.
   if (typeof rawKind !== "string" || !FRAME_KINDS.has(rawKind as FrameKind)) {
     return Result.fail(progressError(operation, "invalidInput", "kind"));
   }
+  // SAFETY: the membership test above proved rawKind is a known frame
+  // kind.
   const kind = rawKind as FrameKind;
   const fields = FRAME_FIELDS[kind];
   if (!hasExactCapturedKeys(captured, ["kind", ...fields])) {
@@ -1241,6 +1278,8 @@ function captureFrame(
       }
       result[dimension] = value;
     }
+    // SAFETY: every dimension was validated as a u64 above and the record
+    // carries the validated kind, so it satisfies CapturedFrame.
     return Result.succeed(Object.freeze(result) as CapturedFrame);
   }
   if (kind === "attempt_identity") {
@@ -1293,6 +1332,8 @@ function captureFrame(
   const pageOrdinal = captured.pageOrdinal;
   const previousReceiptSha256 = captured.previousReceiptSha256;
   if (
+    // SAFETY: phase is proven to be a plain string before the membership
+    // test; the cast only narrows it to the set's element type.
     typeof phase !== "string" ||
     !PHASES.has(phase as DeclarativeV2VerifierPhaseV1) ||
     !isU64(settledSequence) ||
@@ -1554,27 +1595,37 @@ function frameEncodingSegments(
     frame.kind === "command_budget"
   ) {
     for (const dimension of DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2) {
+      // SAFETY: captureFrame validated every budget dimension as a u64.
       u64(frame[dimension] as bigint);
     }
     return Object.freeze(segments);
   }
   if (frame.kind === "attempt_identity") {
+    // SAFETY: captureFrame validated candidateSha256 as a digest.
     bytes(frame.candidateSha256 as Uint8Array);
     u32(PROGRESS_PROTOCOL_IDENTITY_BYTES.byteLength);
     bytes(PROGRESS_PROTOCOL_IDENTITY_BYTES);
     u32(BUDGET_PROTOCOL_IDENTITY_BYTES.byteLength);
     bytes(BUDGET_PROTOCOL_IDENTITY_BYTES);
+    // SAFETY: captureFrame validated ceilingsSha256 as a digest.
     bytes(frame.ceilingsSha256 as Uint8Array);
     return Object.freeze(segments);
   }
   if (frame.kind === "command_reservation") {
+    // SAFETY: captureFrame validated attemptSha256 as a digest.
     bytes(frame.attemptSha256 as Uint8Array);
+    // SAFETY: captureFrame validated candidateSha256 as a digest.
     bytes(frame.candidateSha256 as Uint8Array);
+    // SAFETY: captureFrame validated commandKind as a durable kind.
     byte(durableCommandKindTag(
       frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
     ));
+    // SAFETY: captureFrame validated sequence as a non-null u64 bigint.
     u64(frame.sequence as bigint);
+    // SAFETY: captureFrame validated currentProgressSha256 as a digest.
     bytes(frame.currentProgressSha256 as Uint8Array);
+    // SAFETY: captureFrame validated predecessorReceiptSha256 as a digest
+    // or null.
     const predecessorReceiptSha256 = frame.predecessorReceiptSha256 as
       | Uint8Array
       | null;
@@ -1588,20 +1639,32 @@ function frameEncodingSegments(
       "verifierIdentitySha256",
       "rangeAndPredecessorTailsSha256",
     ] as const) {
+      // SAFETY: captureFrame validated these command_reservation digest
+      // fields as Uint8Array.
       bytes(frame[field] as Uint8Array);
     }
     return Object.freeze(segments);
   }
   if (frame.kind === "command_output_manifest") {
+    // SAFETY: captureFrame validated reservationSha256 as a digest.
     bytes(frame.reservationSha256 as Uint8Array);
+    // SAFETY: captureFrame validated commandKind as a durable kind.
     byte(durableCommandKindTag(
       frame.commandKind as DeclarativeV2VerifierDurableCommandKindV2,
     ));
+    // SAFETY: captureFrame validated sequence as a non-null u64 bigint.
     u64(frame.sequence as bigint);
+    // SAFETY: captureFrame validated evidenceRootSha256 as a digest.
     bytes(frame.evidenceRootSha256 as Uint8Array);
+    // SAFETY: captureFrame validated evidenceCount as a non-null u64
+    // bigint.
     u64(frame.evidenceCount as bigint);
+    // SAFETY: captureFrame validated diagnosticsRootSha256 as a digest.
     bytes(frame.diagnosticsRootSha256 as Uint8Array);
+    // SAFETY: captureFrame validated diagnosticCount as a non-null u64
+    // bigint.
     u64(frame.diagnosticCount as bigint);
+    // SAFETY: captureFrame validated nextProgressSha256 as a digest.
     bytes(frame.nextProgressSha256 as Uint8Array);
     return Object.freeze(segments);
   }
@@ -1613,12 +1676,16 @@ function frameEncodingSegments(
       "outputManifestSha256",
       "nextProgressSha256",
     ] as const) {
+      // SAFETY: captureFrame validated these command_receipt digest fields
+      // as Uint8Array.
       bytes(frame[field] as Uint8Array);
     }
     return Object.freeze(segments);
   }
   if (frame.kind === "evidence_page_manifest") {
+    // SAFETY: captureFrame validated reservationSha256 as a digest.
     bytes(frame.reservationSha256 as Uint8Array);
+    // SAFETY: captureFrame validated commandKind as a restart kind.
     byte(restartCommandKindTag(
       frame.commandKind as DeclarativeV2VerifierRestartCommandKindV2,
     ));
@@ -1630,18 +1697,27 @@ function frameEncodingSegments(
       "firstDiagnosticOrdinal",
       "diagnosticCount",
     ] as const) {
+      // SAFETY: captureFrame validated this counter as a u64 bigint.
       u64(frame[field] as bigint);
     }
+    // SAFETY: captureFrame validated predecessorPageSha256 as a digest or
+    // null.
     const predecessorPageSha256 = frame.predecessorPageSha256 as
       | Uint8Array
       | null;
     byte(predecessorPageSha256 === null ? 0 : 1);
     if (predecessorPageSha256 !== null) bytes(predecessorPageSha256);
+    // SAFETY: captureFrame validated payloadByteLength as a non-null u64
+    // bigint.
     u64(frame.payloadByteLength as bigint);
+    // SAFETY: captureFrame validated payloadSha256 as a digest.
     bytes(frame.payloadSha256 as Uint8Array);
+    // SAFETY: captureFrame validated cumulativeDiagnosticsRootSha256 as a
+    // digest.
     bytes(frame.cumulativeDiagnosticsRootSha256 as Uint8Array);
     return Object.freeze(segments);
   }
+  // SAFETY: captureFrame validated phase as a known verifier phase.
   byte(phaseTag(frame.phase as DeclarativeV2VerifierPhaseV1));
   for (const field of [
     "settledSequence",
@@ -1649,8 +1725,11 @@ function frameEncodingSegments(
     "edgeOrdinal",
     "pageOrdinal",
   ] as const) {
+    // SAFETY: captureFrame validated this counter as a u64 bigint.
     u64(frame[field] as bigint);
   }
+  // SAFETY: captureFrame validated previousReceiptSha256 as a digest or
+  // null.
   const previousReceiptSha256 = frame.previousReceiptSha256 as
     | Uint8Array
     | null;
@@ -2131,6 +2210,8 @@ function parseOwnedFrame(
       if (offset !== input.byteLength) {
         return yield* Result.fail(progressError("decode", "malformed", "trailing"));
       }
+      // SAFETY: every budget dimension was decoded as a u64 above and the
+      // record carries the validated kind, so it satisfies CapturedFrame.
       return Object.freeze(values) as CapturedFrame;
     }
     if (kind === "attempt_identity") {
@@ -2367,6 +2448,8 @@ function parseOwnedFrame(
           progressError("decode", "malformed", "trailing"),
         );
       }
+      // SAFETY: every command_receipt digest was decoded above and the
+      // record carries the validated kind, so it satisfies CapturedFrame.
       return Object.freeze(values) as CapturedFrame;
     }
     if (kind === "evidence_page_manifest") {
@@ -2531,9 +2614,13 @@ function readDomain(
     return Result.fail(progressError("decode", "unsupportedVersion", "domain"));
   }
   const rawKind = domain.slice(prefix.length, -suffix.length);
+  // SAFETY: rawKind is a plain string from the decoded domain; the cast
+  // only narrows it to the set's element type.
   if (!FRAME_KINDS.has(rawKind as FrameKind)) {
     return Result.fail(progressError("decode", "malformed", "domain"));
   }
+  // SAFETY: the membership test above proved rawKind is a known frame
+  // kind.
   return Result.succeed(Object.freeze({
     kind: rawKind as FrameKind,
     offset: nul + 1,
@@ -2573,6 +2660,9 @@ function captureOwnDataRecord(
     if (!isNonArrayRecord(input)) return undefined;
     const keys = Reflect.ownKeys(input);
     if (keys.length > MAX_CAPTURED_OWN_KEYS) return undefined;
+    // SAFETY: a freshly created null-prototype object is used as a mutable
+    // string-keyed record; only validated own enumerable value properties
+    // are copied into it.
     const captured: Record<string, unknown> = Object.create(null) as Record<
       string,
       unknown
@@ -2617,6 +2707,8 @@ function isPositiveU64(value: unknown): value is bigint {
 function isDurableCommandKind(
   value: unknown,
 ): value is DeclarativeV2VerifierDurableCommandKindV2 {
+  // SAFETY: value is proven to be a plain string before the membership
+  // test; the cast only narrows it to the set's element type.
   return typeof value === "string" &&
     DURABLE_COMMAND_KINDS.has(
       value as DeclarativeV2VerifierDurableCommandKindV2,
@@ -2626,6 +2718,8 @@ function isDurableCommandKind(
 function isRestartCommandKind(
   value: unknown,
 ): value is DeclarativeV2VerifierRestartCommandKindV2 {
+  // SAFETY: value is proven to be a plain string before the membership
+  // test; the cast only narrows it to the set's element type.
   return typeof value === "string" &&
     RESTART_COMMAND_KINDS.has(
       value as DeclarativeV2VerifierRestartCommandKindV2,

@@ -118,6 +118,8 @@ export function makeDeclarativeV2RuntimeArtifactObjectReferenceV1(
       codecIdentity: declarativeV2RuntimeArtifactCodecIdentityV1(kind),
       objectKey,
       byteLength: BigInt(byteLength),
+      // SAFETY: the object-key derivation above validated digest as a
+      // 32-byte SHA-256 value.
       sha256: copyBytes(digest as Uint8Array),
     });
   });

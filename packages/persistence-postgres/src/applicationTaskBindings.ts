@@ -319,6 +319,8 @@ export function isApplicationTaskCatalogSnapshotPort(
   value: unknown,
 ): value is ApplicationTaskCatalogSnapshotPort {
   return typeof value === "object" && value !== null &&
+    // SAFETY: the typeof guard above proved the value is a non-null
+    // object; the cast only narrows it to the WeakSet's registered brand.
     taskCatalogSnapshotPorts.has(value as ApplicationTaskCatalogSnapshotPort);
 }
 

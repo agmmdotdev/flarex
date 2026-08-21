@@ -109,6 +109,8 @@ export async function recordLiveQuerySubscription(
     identityJson: input.identity ?? { kind: "anonymous" },
     partitionKey: input.partitionKey ?? null,
     beginTs: input.beginTs,
+    // SAFETY: readSetToFreshnessReadSet returns a plain JSON-object read
+    // set, which is what the persistence JSON column accepts.
     readSetJson: readSet as Record<string, unknown>,
     resultJson: input.resultJson,
     resultHash,
@@ -202,6 +204,8 @@ export async function findStaleLiveQuerySubscriptions(
     const freshness = await checkReadSetFreshness({
       store: input.freshnessStore,
       deploymentId: input.deploymentId,
+      // SAFETY: this module persisted readSetJson from a validated
+      // FreshnessReadSet produced by readSetToFreshnessReadSet.
       readSet: subscription.readSetJson as FreshnessReadSet,
     });
     const entry = { subscription, freshness };
@@ -234,6 +238,8 @@ export async function rerunLiveQuerySubscription(
       connectionId: input.subscription.connectionId,
       queryId: input.subscription.queryId,
       functionPath: input.subscription.functionPath,
+      // SAFETY: subscription.argsJson is stored validated JSON per the
+      // live-query subscription contract.
       argsJson: input.subscription.argsJson as Json,
       identityFingerprint,
       previousResultHash,
@@ -276,6 +282,8 @@ export async function rerunLiveQuerySubscription(
     connectionId: input.subscription.connectionId,
     queryId: input.subscription.queryId,
     functionPath: input.subscription.functionPath,
+    // SAFETY: subscription.argsJson is stored validated JSON per the
+    // live-query subscription contract.
     argsJson: input.subscription.argsJson as Json,
     identityFingerprint,
     resultJson: rerun.value,
@@ -287,10 +295,14 @@ export async function rerunLiveQuerySubscription(
     connectionId: input.subscription.connectionId,
     queryId: input.subscription.queryId,
     functionPath: input.subscription.functionPath,
+    // SAFETY: subscription.argsJson is stored validated JSON per the
+    // live-query subscription contract.
     argsJson: input.subscription.argsJson as Json,
     identityJson: input.subscription.identityJson,
     partitionKey: input.subscription.partitionKey,
     beginTs: rerun.beginTs,
+    // SAFETY: readSetToFreshnessReadSet returns a plain JSON-object read
+    // set, which is what the persistence JSON column accepts.
     readSetJson: readSet as Record<string, unknown>,
     resultJson: rerun.value,
     resultHash,
@@ -422,6 +434,8 @@ export async function runLiveQuerySubscriptionWithInvoke(
       projectId: deployment.projectId,
       path: subscription.functionPath,
       kind: "query",
+      // SAFETY: subscription.argsJson is stored validated JSON per the
+      // live-query subscription contract.
       args: subscription.argsJson as Json,
       identity: subscription.identityJson,
       partitionKey: subscription.partitionKey,
@@ -453,6 +467,8 @@ function liveQueryChangeFromRerun(
       connectionId: rerun.subscription.connectionId,
       queryId: rerun.subscription.queryId,
       functionPath: rerun.subscription.functionPath,
+      // SAFETY: subscription.argsJson is stored validated JSON per the
+      // live-query subscription contract.
       argsJson: rerun.subscription.argsJson as Json,
       identityFingerprint: executionIdentityFingerprint(rerun.subscription.identityJson),
       previousResultHash: rerun.previousResultHash,
@@ -466,8 +482,12 @@ function liveQueryChangeFromRerun(
     connectionId: rerun.subscription.connectionId,
     queryId: rerun.subscription.queryId,
     functionPath: rerun.subscription.functionPath,
+    // SAFETY: subscription.argsJson and resultJson are stored validated
+    // JSON per the live-query subscription contract.
     argsJson: rerun.subscription.argsJson as Json,
     identityFingerprint: executionIdentityFingerprint(rerun.subscription.identityJson),
+    // SAFETY: subscription.resultJson is stored validated JSON per the
+    // live-query subscription contract.
     resultJson: rerun.subscription.resultJson as Json,
     previousResultHash: rerun.previousResultHash,
     resultHash: rerun.resultHash,

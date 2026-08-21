@@ -152,6 +152,8 @@ export const selectApplicationTask = Effect.fn(
       taskId,
     ),
   );
+  // SAFETY: the selection is an inert identity token; all state lives in
+  // the module-local WeakMap keyed by this object identity.
   const selection = Object.freeze({}) as ApplicationTaskSelection;
   states.set(selection, Object.freeze({
     applicationSelection,
@@ -170,6 +172,8 @@ export function claimApplicationTaskSelection(
   if (typeof selection !== "object" || selection === null) {
     return Result.fail(failureValue("claim", "invalidComposition", false));
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered brand.
   const state = states.get(selection as ApplicationTaskSelection);
   return state === undefined
     ? Result.fail(failureValue("claim", "invalidComposition", false))

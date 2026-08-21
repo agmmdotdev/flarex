@@ -6434,6 +6434,8 @@ async function loadPointCommitUniqueKeyOwners(
     }
     owners.set(ownerPosition, Object.freeze({
       commitSeq,
+      // SAFETY: row.encodedKey stores the canonical lowercase hex spelling
+      // of an ordered index key.
       encodedKey: encodeBytesToLowercaseHex(row.encodedKey) as
         OrderedIndexKeyHexV1,
     }));
@@ -6821,6 +6823,8 @@ async function loadPointCommitDeveloperIndexEntryHeads(
       ),
       Object.freeze({
         commitSeq: latestCommitSeq,
+        // SAFETY: latestIsTombstone is a boolean persistence column and is
+        // only read here when a latest commit exists.
         isTombstone: latestCommitSeq === null
           ? null
           : raw.latestIsTombstone as boolean,

@@ -454,6 +454,8 @@ export function hasAppUniqueConstraintSetEligibilityForDefinitionPortV1(
   uniqueConstraints: unknown,
 ): eligibility is AppUniqueConstraintSetEligibilityPortV1 {
   if (typeof eligibility !== "object" || eligibility === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   const state = eligibilityPortStates.get(
     eligibility as AppUniqueConstraintSetEligibilityPortV1,
   );
@@ -467,6 +469,8 @@ export function hasAppUniqueConstraintSetEligibilityCompositionV1(
   authority: TrustedScopeAuthorityResolutionPorts,
 ): eligibility is AppUniqueConstraintSetEligibilityPortV1 {
   if (typeof eligibility !== "object" || eligibility === null) return false;
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered port brand.
   const state = eligibilityPortStates.get(
     eligibility as AppUniqueConstraintSetEligibilityPortV1,
   );
@@ -479,6 +483,8 @@ export function hasAppUniqueConstraintSetEligibilityPortV1(
   value: unknown,
 ): value is AppUniqueConstraintSetEligibilityPortV1 {
   return typeof value === "object" && value !== null &&
+    // SAFETY: the typeof guard above proved the value is a non-null
+    // object; the cast only narrows it to the WeakMap's registered brand.
     eligibilityPortStates.has(value as AppUniqueConstraintSetEligibilityPortV1);
 }
 
@@ -3337,6 +3343,8 @@ function decodeBuildStateEffect(
       storageGeneration: row.storageGeneration,
       storageGenerationFence: row.storageGenerationFence,
       epoch: row.epoch,
+      // SAFETY: the persisted lifecycle column is constrained to the
+      // build-state lifecycle spellings at write time.
       lifecycle: row.lifecycle as BuildState["lifecycle"],
       cursorDefinitionId: row.cursorDefinitionId,
       cursorRowId: row.cursorRowId === null

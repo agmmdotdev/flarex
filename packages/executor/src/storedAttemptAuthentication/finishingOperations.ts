@@ -762,6 +762,8 @@ export function makeStoredPointCommitFinishingTransitionOperationsV1(
       }));
     }
     return Result.succeed(Object.freeze({
+      // SAFETY: the membership check above proved input is a registered
+      // finishing prepared-commit handle.
       finishing: input as FinishingPreparedPointCommitV1,
       prepared,
     }));

@@ -315,6 +315,8 @@ function isRecord(
 function stableIdentityJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableIdentityJson).join(",")}]`;
+  // SAFETY: the guards above proved value is a non-null, non-array object,
+  // so it is a string-keyed record.
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
     .filter(key => record[key] !== undefined)

@@ -336,6 +336,8 @@ function snapshotOwnDataProperties<Keys extends readonly string[]>(
     }
     result[key] = descriptor.value;
   }
+  // SAFETY: the loop above populated exactly the requested keys, each from
+  // a validated own enumerable value descriptor.
   return Result.succeed(result as Readonly<Record<Keys[number], unknown>>);
 }
 

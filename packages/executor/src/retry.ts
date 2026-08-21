@@ -163,6 +163,8 @@ async function abortAttempt(
 function asErrorRecord(
   error: unknown,
 ): { name?: unknown; code?: unknown } | null {
+  // SAFETY: the guard below proves the value is a non-null object; the
+  // cast only declares the optional diagnostic fields read by callers.
   return typeof error === "object" && error !== null
     ? (error as { name?: unknown; code?: unknown })
     : null;

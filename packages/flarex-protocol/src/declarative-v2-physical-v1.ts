@@ -875,6 +875,8 @@ interface PhysicalFrameEncoderCursorState {
   stringByteLength: number;
 }
 
+// SAFETY: the record is built from exactly the keys of FRAME_SCHEMAS, so
+// it carries one entry per FrameKind.
 const PHYSICAL_DOMAIN_BYTES = Object.freeze(
   Object.fromEntries(
     (Object.keys(FRAME_SCHEMAS) as readonly FrameKind[]).map(kind => [
@@ -977,6 +979,9 @@ export function makeDeclarativeV2PhysicalFrameEncoderFactoryV1():
             captured.capturedByteStorageLength,
           ),
         });
+        // SAFETY: the cursor object is an inert identity token; all real
+        // cursor state lives in the factory-local WeakMap keyed by this
+        // object identity, so the brand carries no behavioral claims.
         const cursor = Object.freeze({
           _tag: "DeclarativeV2PhysicalFrameEncoderCursorV1",
         }) as DeclarativeV2PhysicalFrameEncoderCursorV1;
@@ -1053,6 +1058,8 @@ export function makeDeclarativeV2PhysicalFrameEncoderFactoryV1():
           }
         }
         if (
+          // SAFETY: physicalFrameEncoderCursorState already resolved this
+          // raw cursor to live state, so it is an object key of the map.
           cursors.get(rawCursor as object) !== state ||
           state.phase !== "admitting"
         ) {
@@ -1227,6 +1234,8 @@ export function makeDeclarativeV2PhysicalFrameEncoderFactoryV1():
           revokePhysicalFrameEncoderCursor(cursors, rawCursor);
           throw defect;
         }
+        // SAFETY: state.frame was validated against its frame schema, so it
+        // satisfies the public physical-frame brand.
         const written = Object.freeze({
           frame: state.frame as DeclarativeV2PhysicalFrameV1,
           range,
@@ -1300,6 +1309,8 @@ export function decodeDeclarativeV2PhysicalFrameV1(
     if (!bytesEqualFullScan(owned, reencoded.success.canonicalBytes)) {
       return yield* Result.fail(frameError("decode", "nonCanonical"));
     }
+    // SAFETY: parseOwnedFrame succeeded, so parsed is a captured frame that
+    // satisfies the public physical-frame brand.
     return Object.freeze({
       frame: parsed as DeclarativeV2PhysicalFrameV1,
       canonicalBytes: owned,
@@ -1363,6 +1374,8 @@ function captureFrameEncodingInput(
     ) {
       return yield* Result.fail(frameError(operation, "invalidInput", "kind"));
     }
+    // SAFETY: kindValue was proven to be a FRAME_SCHEMAS key by the
+    // Object.hasOwn check above.
     const kind = kindValue as FrameKind;
     const schema = FRAME_SCHEMAS[kind];
     const keys = ownEnumerableStringKeys(input);
@@ -1429,6 +1442,8 @@ function captureFrameEncodingInput(
         maximum: budget.maximumCanonicalBytes,
       }));
     }
+    // SAFETY: every schema field was captured above and the record carries
+    // the validated kind, so it satisfies CapturedFrame.
     const borrowedFrame = Object.freeze(borrowed) as CapturedFrame;
     yield* validateCrossFieldRules(borrowedFrame, operation);
     const owned: Record<string, CapturedScalar> = { kind };
@@ -1436,6 +1451,8 @@ function captureFrameEncodingInput(
       owned[field] = captureOwnedScalar(borrowedFrame[field] ?? null);
     }
     return Object.freeze({
+      // SAFETY: every schema field was copied above and the record carries
+      // the validated kind, so it satisfies CapturedFrame.
       frame: Object.freeze(owned) as CapturedFrame,
       borrowedFrame,
       usage: Object.freeze({
@@ -1617,11 +1634,14 @@ function measureScalar(
   switch (schema.type) {
     case "string":
     case "enum": {
+      // SAFETY: captureScalar validated string and enum values as strings.
       const length = utf8ByteLength(value as string);
       return { frameBytes: 4 + length, canonicalBytes: 0 };
     }
     case "nullableString": {
       if (value === null) return { frameBytes: 1, canonicalBytes: 0 };
+      // SAFETY: captureScalar validated non-null nullableString values as
+      // strings.
       const length = utf8ByteLength(value as string);
       return { frameBytes: 5 + length, canonicalBytes: 0 };
     }
@@ -1701,6 +1721,8 @@ function physicalFrameEncodingSegments(
     switch (scalar.type) {
       case "string":
       case "enum":
+        // SAFETY: captureFrameEncodingInput validated string and enum
+        // fields as strings.
         string(field, value as string);
         break;
       case "nullableString":
@@ -1708,6 +1730,8 @@ function physicalFrameEncodingSegments(
         if (typeof value === "string") string(field, value);
         break;
       case "u64":
+        // SAFETY: captureFrameEncodingInput validated u64 fields as
+        // bigints.
         u64(value as bigint);
         break;
       case "nullableU64":
@@ -1715,6 +1739,8 @@ function physicalFrameEncodingSegments(
         if (typeof value === "bigint") u64(value);
         break;
       case "digest":
+        // SAFETY: captureFrameEncodingInput validated digest fields as
+        // Uint8Array values.
         bytes(value as Uint8Array);
         break;
       case "nullableDigest":
@@ -1722,6 +1748,8 @@ function physicalFrameEncodingSegments(
         if (isUint8Array(value)) bytes(value);
         break;
       case "bytes": {
+        // SAFETY: captureFrameEncodingInput validated bytes fields as
+        // Uint8Array values.
         const valueBytes = value as Uint8Array;
         const length = intrinsicUint8ArrayByteLength(valueBytes);
         if (length === undefined) {
@@ -1891,6 +1919,8 @@ function parseOwnedFrame(
     if (offset !== input.byteLength) {
       return yield* Result.fail(frameError("decode", "malformed", "trailing"));
     }
+    // SAFETY: every schema field was decoded above and the record carries
+    // the validated kind, so it satisfies CapturedFrame.
     const frozen = Object.freeze(captured) as CapturedFrame;
     yield* validateCrossFieldRules(frozen, "decode");
     return frozen;
@@ -2546,6 +2576,8 @@ function frameKindFromDomain(domain: string): FrameKind | null {
     return null;
   }
   const kind = domain.slice(DOMAIN_PREFIX.length, -DOMAIN_SUFFIX.length);
+  // SAFETY: kind is a plain string from the decoded domain; the cast only
+  // narrows it after the Object.hasOwn schema-key check.
   return Object.hasOwn(FRAME_SCHEMAS, kind) ? kind as FrameKind : null;
 }
 

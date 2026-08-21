@@ -128,6 +128,8 @@ export function encodeEdgeActionHostPolicyV1(
       frame.allowedOrigins,
       ...NUMERIC_FIELDS.map(field => frame[field]),
       ...Object.keys(BOOLEAN_POLICY).map(
+        // SAFETY: Object.keys of the BOOLEAN_POLICY record yields exactly
+        // its own policy keys, which are frame fields.
         key => frame[key as keyof typeof BOOLEAN_POLICY],
       ),
     ];

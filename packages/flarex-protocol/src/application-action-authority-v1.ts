@@ -146,9 +146,14 @@ function captureAuthority(
       if (
         keys.length !== expected.length ||
         keys.some(key => typeof key !== "string" || !expected.includes(
+          // SAFETY: each key is proven to be a plain string before the
+          // membership test; the cast only narrows it to the expected
+          // union.
           key as typeof expected[number],
         ))
       ) throw new Error("keys");
+      // SAFETY: a freshly created null-prototype object is used as a
+      // mutable string-keyed record for validated descriptor values.
       const values = Object.create(null) as Record<string, unknown>;
       for (const key of expected) {
         const descriptor = Object.getOwnPropertyDescriptor(input, key);

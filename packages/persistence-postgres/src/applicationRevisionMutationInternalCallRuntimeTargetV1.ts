@@ -252,6 +252,9 @@ export const claimApplicationRevisionMutationInternalCallRuntimeTargetAuthorityV
       visibility: "internal" as const,
       argsValidator: internalArgs,
       returnsValidator: internalMetadata.metadata.returnsValidator,
+      // SAFETY: the internal-call runtime target only admits internal
+      // transaction-group query/mutation entries, so the frame satisfies
+      // the narrowed brand.
       entry: internalEntry.frame as typeof internalEntry.frame & {
         readonly handlerKind: "query" | "mutation";
         readonly visibility: "internal";
@@ -297,12 +300,16 @@ export const claimApplicationRevisionMutationInternalCallRuntimeTargetAuthorityV
       visibility: "public" as const,
       argsValidator,
       returnsValidator: metadata.metadata.returnsValidator,
+      // SAFETY: the mutation runtime target only admits public transaction-
+      // group mutation entries, so the frame satisfies the narrowed brand.
       entry: entryAuthority.frame as typeof entryAuthority.frame & {
         readonly handlerKind: "mutation";
         readonly visibility: "public";
         readonly group: "transaction";
       },
       entryReference: entryAuthority.reference,
+      // SAFETY: the mutation runtime target only admits transaction-group
+      // projections, so the frame satisfies the narrowed brand.
       projection: projectionAuthority.frame as typeof projectionAuthority.frame & {
         readonly group: "transaction";
       },

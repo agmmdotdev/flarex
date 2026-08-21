@@ -450,6 +450,8 @@ export function inspectVerifiedApplicationMutationGrantV1(
   if (typeof value !== "object" || value === null) {
     throw new InvalidVerifiedApplicationMutationGrantV1Error();
   }
+  // SAFETY: the typeof guard above proved the value is a non-null object;
+  // the cast only narrows it to the WeakMap's registered handle brand.
   const evidence = verifiedGrantEvidenceByHandle.get(
     value as VerifiedApplicationMutationGrantV1,
   );

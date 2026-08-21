@@ -132,6 +132,8 @@ function normalizePartitionSchemaCachePayload(
   if (!isRecord(value)) {
     return partitionRoutePayloadValidationFailure("schema-cache request body must be an object.");
   }
+  // SAFETY: the schema-cache request contract is exactly a record body;
+  // isRecord proved the value satisfies it.
   return Result.succeed(value as PartitionSchemaCacheRequest);
 }
 
@@ -393,6 +395,8 @@ function jsonProperty(
   if (!isJson(property)) {
     return partitionRoutePayloadValidationFailure(`${field} must be a JSON value.`);
   }
+  // SAFETY: isJson proved the property satisfies the full Flarex JSON
+  // contract, which is exactly the PartitionJson brand.
   return Result.succeed(property as PartitionJson);
 }
 

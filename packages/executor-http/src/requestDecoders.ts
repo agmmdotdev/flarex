@@ -70,6 +70,8 @@ export function readExecutorHttpJsonBody(
 ): Effect.Effect<unknown, ExecutorHttpJsonBodyError> {
   return Effect.tryPromise({
     // Deliberate JSON bridge: Request.json is the HTTP host boundary.
+    // SAFETY: the promise resolves to the parsed JSON body, which this
+    // boundary intentionally leaves unknown for domain decoders to own.
     try: () => request.json() as Promise<unknown>,
     catch: cause => new ExecutorHttpJsonBodyError({
       message: "Request body must be valid JSON.",

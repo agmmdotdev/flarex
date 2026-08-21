@@ -299,6 +299,9 @@ export const claimApplicationRevisionQueryInternalCallRuntimeTargetAuthorityV1 =
       visibility: "internal" as const,
       argsValidator: internalArgs,
       returnsValidator: internalMetadata.metadata.returnsValidator,
+      // SAFETY: the internal-query runtime target only admits internal
+      // transaction-group query entries, so the frame satisfies the
+      // narrowed brand.
       entry: internalEntry.frame as typeof internalEntry.frame & {
         readonly handlerKind: "query";
         readonly visibility: "internal";
@@ -345,12 +348,16 @@ export const claimApplicationRevisionQueryInternalCallRuntimeTargetAuthorityV1 =
       visibility: "public" as const,
       argsValidator,
       returnsValidator: metadata.metadata.returnsValidator,
+      // SAFETY: the query runtime target only admits public transaction-
+      // group query entries, so the frame satisfies the narrowed brand.
       entry: entryAuthority.frame as typeof entryAuthority.frame & {
         readonly handlerKind: "query";
         readonly visibility: "public";
         readonly group: "transaction";
       },
       entryReference: entryAuthority.reference,
+      // SAFETY: the query runtime target only admits transaction-group
+      // projections, so the frame satisfies the narrowed brand.
       projection: projectionAuthority.frame as typeof projectionAuthority.frame & {
         readonly group: "transaction";
       },

@@ -572,10 +572,14 @@ async function captureRows(
   const applicationGraphPayloadRows =
       scopeApplicationGraphPayloadRows.length === 1 &&
       schemaAuthorityPayloadRows.length === 1
-    ? Object.freeze([Object.freeze({
-        ...scopeApplicationGraphPayloadRows[0],
-        schemaAuthority: schemaAuthorityPayloadRows[0],
-      }) as ApplicationGraphPayloadRow])
+    ? Object.freeze([
+        // SAFETY: the length checks above proved both row arrays hold
+        // exactly one validated row.
+        Object.freeze({
+          ...scopeApplicationGraphPayloadRows[0],
+          schemaAuthority: schemaAuthorityPayloadRows[0],
+        }) as ApplicationGraphPayloadRow,
+      ])
     : Object.freeze([]);
   const bindingStatement = sql`
     select
