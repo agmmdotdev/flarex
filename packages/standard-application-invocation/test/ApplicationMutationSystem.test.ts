@@ -48,6 +48,7 @@ describe("Application mutation System", () => {
       ApplicationMutationSystem.of({
         invoke,
         invokeAuthenticated: vi.fn(),
+        invokeAuthenticatedAtTaskLaunch: vi.fn(),
       }),
     );
 
@@ -150,7 +151,11 @@ describe("Application mutation System", () => {
     const invokeAuthenticated = vi.fn(() => Effect.succeed(outcome));
     const layer = Layer.succeed(
       ApplicationMutationSystem,
-      ApplicationMutationSystem.of({ invoke, invokeAuthenticated }),
+      ApplicationMutationSystem.of({
+        invoke,
+        invokeAuthenticated,
+        invokeAuthenticatedAtTaskLaunch: vi.fn(),
+      }),
     );
     const functionRef = TransactionFunctionPathV1Schema.make("recipes:update");
     const requestKey = TransactionRequestKeyV1Schema.make(

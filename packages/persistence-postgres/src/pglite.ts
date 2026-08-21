@@ -53,6 +53,11 @@ import {
   type LocatedTaskSystemRunAttemptTargetV1,
 } from "./taskSystemRunAttemptStoreV1";
 import {
+  createLocatedTaskExternalEffectAuthorityTarget,
+  type LocatedTaskExternalEffectAuthorityTarget,
+  type TaskExternalEffectAuthorityConfigurationError,
+} from "./taskExternalEffectAuthority";
+import {
   createTaskComputeDeliveryControlDirectoryTargetInternal,
   type TaskComputeDeliveryControlDirectoryConfigurationError,
   type TaskComputeDeliveryControlDirectoryTarget,
@@ -204,6 +209,21 @@ export function createPGliteTaskComputeDeliveryControlDirectoryTarget(
     createDefaultLocatedReadCommittedTransactionRunnerV1(
       persistence.drizzle,
     ),
+    deadlineInput,
+  );
+}
+
+export function createPGliteLocatedTaskExternalEffectAuthorityTarget(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+  deadlineInput: TaskRepairPostgresDeadlinePolicyInputV1,
+): Result.Result<
+  LocatedTaskExternalEffectAuthorityTarget,
+  TaskExternalEffectAuthorityConfigurationError<"invalid_deadline_policy">
+> {
+  return createLocatedTaskExternalEffectAuthorityTarget(
+    persistence.drizzle,
+    physicalLocator,
     deadlineInput,
   );
 }

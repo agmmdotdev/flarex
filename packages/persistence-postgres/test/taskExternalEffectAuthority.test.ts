@@ -21,6 +21,7 @@ import {
 import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import {
   applicationTaskMutationRequestKeyV1FromDigest,
@@ -33,7 +34,11 @@ import { describe, expect, it } from "vitest";
 import {
   makeApplicationTaskSystemRunCreationStore,
 } from "../src/applicationTaskSystemRunCreation";
+import {
+  createPostgresTaskExternalEffectAuthorityResource,
+} from "../src/postgresTaskExternalEffectAuthority";
 import { selectApplicationTask } from "../src/applicationTaskSelection";
+import { fxSystemExternalEffectAttemptsV1 } from "../src/schema";
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
 } from "../src/pglite";
@@ -47,11 +52,15 @@ import {
   issueApplicationTaskExternalEffectSubject,
   markTaskChildMutationUncertain,
   prepareTaskChildMutationEffect,
+  reconcileTaskChildMutationDisposition,
   revokeApplicationTaskExternalEffectSubject,
   type ApplicationTaskExternalEffectSubject,
   type TaskExternalEffectAuthorityHashContext,
   type TaskExternalEffectAuthorityTransactionStep,
 } from "../src/taskExternalEffectAuthority";
+import {
+  createDefaultLocatedReadCommittedTransactionRunnerV1,
+} from "../src/transactionSessionActivation";
 import {
   makeApplicationTaskSystemRunAttemptStoreV1,
 } from "../src/taskSystemRunAttemptStoreV1";
@@ -60,7 +69,36 @@ import {
   createApplicationNativeMutationPGliteFixture,
 } from "./fixtures/applicationNativeMutationTestFixture";
 
+const DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 250,
+  lockTimeoutMilliseconds: 500,
+  statementTimeoutMilliseconds: 1_000,
+  transactionTimeoutMilliseconds: 2_000,
+  settlementReserveMilliseconds: 3_000,
+});
+
 describe("DTE06-F0b Task external-effect authority", () => {
+  it("rejects competing pool deadline configuration", () => {
+    const result = createPostgresTaskExternalEffectAuthorityResource(
+      { connectionTimeoutMillis: 1 },
+      Object.freeze({
+        kind: "shared_database" as const,
+        databaseKey: "task-external-effect-test",
+        schemaName: "public",
+      }),
+      DEADLINE_POLICY,
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isSuccess(result)) {
+      throw new Error("expected invalid pool configuration");
+    }
+    expect(result.failure).toMatchObject({
+      _tag: "TaskExternalEffectAuthorityConfigurationError",
+      reason: "invalid_pool_configuration",
+    });
+  });
+
   it("owns exact child-mutation sequencing, replay, and lifecycle transitions", {
     timeout: 180_000,
   }, async () => {
@@ -223,17 +261,57 @@ describe("DTE06-F0b Task external-effect authority", () => {
     ]));
   });
 
-  it("fails closed for unissued, revoked, stale, and pre-execution subjects", {
+  it("admits live-lease work before heartbeat and rejects stale subjects", {
     timeout: 180_000,
   }, async () => {
     const setup = await makeApplicationTask(false);
-    await expect(runEffectFailure(prepareTaskChildMutationEffect(
+    await expect(runEffect(prepareTaskChildMutationEffect(
       setup.subject,
       effectInput(1n, 0x31),
       setup.context,
     ))).resolves.toMatchObject({
-      _tag: "TaskExternalEffectAuthorityStaleError",
-      reason: "phase",
+      disposition: "applied",
+      effect: { state: "prepared" },
+    });
+    await expect(runEffect(declareTaskChildMutationDispatch(
+      setup.subject,
+      1n,
+      setup.context,
+    ))).resolves.toMatchObject({
+      disposition: "applied",
+      effect: { state: "dispatching" },
+    });
+    const firstOutcome = digest(0x39);
+    await expect(runEffect(confirmTaskChildMutationEffect(
+      setup.subject,
+      1n,
+      firstOutcome,
+      setup.context,
+    ))).resolves.toMatchObject({
+      disposition: "applied",
+      effect: { state: "confirmed", outcomeSha256: firstOutcome },
+    });
+
+    const second = effectInput(2n, 0x32);
+    const secondOutcome = digest(0x3a);
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      second,
+      setup.context,
+    ));
+    await runEffect(declareTaskChildMutationDispatch(
+      setup.subject,
+      2n,
+      setup.context,
+    ));
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, second, secondOutcome),
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      disposition: "applied",
+      effect: { state: "confirmed", outcomeSha256: secondOutcome },
     });
     await expect(runEffectFailure(issueApplicationTaskExternalEffectSubject(
       {
@@ -512,6 +590,232 @@ describe("DTE06-F0b Task external-effect authority", () => {
       effect: { state: "confirmed" },
     });
   });
+
+  it("reconciles every stored state without guessing or creating missing work", {
+    timeout: 180_000,
+  }, async () => {
+    const setup = await makeExecutingApplicationTask();
+    const first = effectInput(1n, 0xa1);
+    const firstReconcile = await reconcileInput(setup, first, null);
+
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      firstReconcile,
+      setup.context,
+    ))).resolves.toEqual({ kind: "missing" });
+
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      first,
+      setup.context,
+    ));
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      firstReconcile,
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      disposition: "applied",
+      effect: {
+        state: "failed_before_dispatch",
+        terminalCode: "task_mutation_failed_before_dispatch",
+      },
+    });
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      firstReconcile,
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      disposition: "replayed",
+      effect: { state: "failed_before_dispatch" },
+    });
+
+    const second = effectInput(2n, 0xb1);
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      second,
+      setup.context,
+    ));
+    await runEffect(declareTaskChildMutationDispatch(
+      setup.subject,
+      2n,
+      setup.context,
+    ));
+    const secondReconcile = await reconcileInput(setup, second, null);
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      secondReconcile,
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      effect: {
+        state: "uncertain",
+        terminalCode: "task_mutation_dispatch_outcome_uncertain",
+      },
+    });
+
+    const third = effectInput(3n, 0xc1);
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      third,
+      setup.context,
+    ));
+    await runEffect(declareTaskChildMutationDispatch(
+      setup.subject,
+      3n,
+      setup.context,
+    ));
+    const thirdOutcome = digest(0xc3);
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, third, thirdOutcome),
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      disposition: "applied",
+      effect: { state: "confirmed", outcomeSha256: thirdOutcome },
+    });
+    await expect(runEffectFailure(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, third, digest(0xff)),
+      setup.context,
+    ))).resolves.toMatchObject({
+      _tag: "TaskExternalEffectRequestConflictError",
+      field: "outcomeSha256",
+    });
+    await expect(runEffectFailure(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      { ...third, stableRequestKey: firstReconcile.stableRequestKey,
+        outcomeSha256: thirdOutcome },
+      setup.context,
+    ))).resolves.toMatchObject({
+      _tag: "TaskExternalEffectRequestConflictError",
+      field: "stableRequestKey",
+    });
+  });
+
+  it("rejects a missing earlier ordinal when later effect evidence exists", {
+    timeout: 180_000,
+  }, async () => {
+    const setup = await makeExecutingApplicationTask();
+    const first = effectInput(1n, 0xc4);
+    const second = effectInput(2n, 0xc6);
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      first,
+      setup.context,
+    ));
+    await runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, first, null),
+      setup.context,
+    ));
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      second,
+      setup.context,
+    ));
+    await setup.fixture.target.drizzle.delete(
+      fxSystemExternalEffectAttemptsV1,
+    ).where(eq(fxSystemExternalEffectAttemptsV1.effectOrdinal, 1n));
+
+    await expect(runEffectFailure(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, first, null),
+      setup.context,
+    ))).resolves.toMatchObject({
+      _tag: "TaskExternalEffectAuthorityCorruptionError",
+      detail: "Task external-effect sequence contains a missing earlier ordinal",
+    });
+  });
+
+  it("recovers exact terminal evidence after committed transition responses are lost", {
+    timeout: 180_000,
+  }, async () => {
+    const setup = await makeExecutingApplicationTask();
+
+    const first = effectInput(1n, 0xd1);
+    setup.loseNextCommittedResponse();
+    await expect(runEffectFailure(prepareTaskChildMutationEffect(
+      setup.subject,
+      first,
+      setup.context,
+    ))).resolves.toMatchObject({
+      _tag: "TaskExternalEffectAuthorityIntegrationError",
+      cause: expect.objectContaining({
+        message: "injected committed response loss",
+      }),
+    });
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, first, null),
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      effect: { state: "failed_before_dispatch" },
+    });
+
+    const second = effectInput(2n, 0xe1);
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      second,
+      setup.context,
+    ));
+    setup.loseNextCommittedResponse();
+    await expect(runEffectFailure(declareTaskChildMutationDispatch(
+      setup.subject,
+      2n,
+      setup.context,
+    ))).resolves.toMatchObject({
+      _tag: "TaskExternalEffectAuthorityIntegrationError",
+      cause: expect.objectContaining({
+        message: "injected committed response loss",
+      }),
+    });
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, second, null),
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      effect: { state: "uncertain" },
+    });
+
+    const third = effectInput(3n, 0xf1);
+    const outcome = digest(0xf3);
+    await runEffect(prepareTaskChildMutationEffect(
+      setup.subject,
+      third,
+      setup.context,
+    ));
+    await runEffect(declareTaskChildMutationDispatch(
+      setup.subject,
+      3n,
+      setup.context,
+    ));
+    setup.loseNextCommittedResponse();
+    await expect(runEffectFailure(confirmTaskChildMutationEffect(
+      setup.subject,
+      3n,
+      outcome,
+      setup.context,
+    ))).resolves.toMatchObject({
+      _tag: "TaskExternalEffectAuthorityIntegrationError",
+      cause: expect.objectContaining({
+        message: "injected committed response loss",
+      }),
+    });
+    await expect(runEffect(reconcileTaskChildMutationDisposition(
+      setup.subject,
+      await reconcileInput(setup, third, outcome),
+      setup.context,
+    ))).resolves.toMatchObject({
+      kind: "terminal",
+      disposition: "replayed",
+      effect: { state: "confirmed", outcomeSha256: outcome },
+    });
+  });
 });
 
 async function makeExecutingApplicationTask() {
@@ -584,11 +888,28 @@ async function makeApplicationTask(enterExecuting: boolean) {
     started.outcome.grant,
     fixture.active.basis.authority.scopeId,
   );
+  const baseRunReadCommitted =
+    createDefaultLocatedReadCommittedTransactionRunnerV1(
+      fixture.target.drizzle,
+    );
+  let loseCommittedResponse = false;
+  const runReadCommitted = async <Value>(
+    work: Parameters<typeof baseRunReadCommitted<Value>>[0],
+  ): Promise<Value> => {
+    const result = await baseRunReadCommitted(work);
+    if (loseCommittedResponse) {
+      loseCommittedResponse = false;
+      throw new Error("injected committed response loss");
+    }
+    return result;
+  };
   const context = Object.freeze({
-    target: createLocatedTaskExternalEffectAuthorityTarget(
+    target: Result.getOrThrow(createLocatedTaskExternalEffectAuthorityTarget(
       fixture.target.drizzle,
       fixture.active.basis.authority.physicalLocator,
-    ),
+      DEADLINE_POLICY,
+      runReadCommitted,
+    )),
     authority: fixture.active.basis.authority,
     sha256: Object.freeze({
       hash: (bytes: Uint8Array) => Effect.promise(async () =>
@@ -618,7 +939,15 @@ async function makeApplicationTask(enterExecuting: boolean) {
     }
     await runEffect(lifecycle.heartbeat(1));
   }
-  return Object.freeze({ fixture, dispatch, context, subject });
+  return Object.freeze({
+    fixture,
+    dispatch,
+    context,
+    subject,
+    loseNextCommittedResponse: () => {
+      loseCommittedResponse = true;
+    },
+  });
 }
 
 function applicationDispatch(
@@ -680,6 +1009,22 @@ async function expectedStableRequestKey(
     preimage.canonicalBytes.slice().buffer,
   ));
   return Result.getOrThrow(applicationTaskMutationRequestKeyV1FromDigest(sha256));
+}
+
+async function reconcileInput(
+  setup: Awaited<ReturnType<typeof makeExecutingApplicationTask>>,
+  input: ReturnType<typeof effectInput>,
+  outcomeSha256: Uint8Array | null,
+) {
+  return Object.freeze({
+    ...input,
+    stableRequestKey: await expectedStableRequestKey(
+      setup.context.authority.scopeId,
+      setup.dispatch.identity.runId,
+      input.effectOrdinal,
+    ),
+    outcomeSha256,
+  });
 }
 
 function uuidSequence(offset: number): () => string {

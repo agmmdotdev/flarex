@@ -30,6 +30,10 @@ import {
   type ApplicationNativeMutationPersistence,
 } from "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
+  createLocatedTaskExternalEffectAuthorityTarget,
+  type LocatedTaskExternalEffectAuthorityTarget,
+} from "@flarex/persistence-postgres/internal/task-external-effect-authority";
+import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import {
@@ -37,6 +41,15 @@ import {
   createApplicationTaskRun,
   makeApplicationTaskSystemLayer,
 } from "@flarex/standard-application-invocation/internal/application-task-system";
+import {
+  ApplicationMutationSystem,
+} from
+  "@flarex/standard-application-invocation/internal/application-mutation-system";
+import {
+  makeApplicationTaskMutationAuthority,
+  makeApplicationTaskMutationExternalEffectAuthority,
+} from
+  "@flarex/standard-application-invocation/internal/application-task-mutation-authority";
 import {
   makeApplicationTaskComputeDeliveryLayer,
 } from "@flarex/standard-application-invocation/internal/application-task-compute-delivery";
@@ -61,6 +74,8 @@ import {
 import {
   makeTaskExecutionPrincipalStore,
 } from "flarex-backend/internal/task-execution-principal-store";
+import { APPLICATION_RUNTIME_HOST_IDENTITY } from
+  "flarex-backend/artifact-runtime";
 import {
   TaskRuntimeLaunchPortError,
   type TaskRuntimeLaunchDirectory,
@@ -99,8 +114,14 @@ import {
   type RunLocatedReadCommittedTransactionV1,
 } from
   "@flarex/persistence-postgres/internal/system-test/transactionSessionAttemptKernel";
+import {
+  makeApplicationNativeMutationTestLayer,
+} from "./applicationNativeMutationHarness";
+import {
+  MiniflareApplicationWorkerLoader,
+} from "./applicationNativeQueryHarness";
 
-const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
+const RUNTIME_HOST_IDENTITY = APPLICATION_RUNTIME_HOST_IDENTITY;
 const COMPATIBILITY_DATE = "2026-06-14";
 const TASK_ID = "tasks.users.task";
 const DEADLINE_POLICY = Object.freeze({
@@ -109,6 +130,13 @@ const DEADLINE_POLICY = Object.freeze({
   statementTimeoutMilliseconds: 2_000,
   transactionTimeoutMilliseconds: 5_000,
   settlementReserveMilliseconds: 6_000,
+});
+const TASK_MUTATION_DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 100,
+  lockTimeoutMilliseconds: 100,
+  statementTimeoutMilliseconds: 1_000,
+  transactionTimeoutMilliseconds: 2_000,
+  settlementReserveMilliseconds: 3_000,
 });
 const SUPERVISOR_POLICY: TaskAttemptSupervisorPolicy = Object.freeze({
   minimumLeaseDurationMilliseconds: 30_000,
@@ -149,6 +177,15 @@ export interface ApplicationTaskSystemConnectedLane {
     readonly target: TaskComputeDeliveryControlDirectoryTarget;
     readonly close: () => Promise<void>;
   }>>;
+  readonly createExternalEffectTarget: (
+    fixture: ApplicationNativeMutationFixture<
+      ApplicationNativeMutationPersistence
+    >,
+    physicalLocator: ScopePhysicalLocator,
+  ) => Promise<Readonly<{
+    readonly target: LocatedTaskExternalEffectAuthorityTarget;
+    readonly close: () => Promise<void>;
+  }>>;
 }
 
 export type ApplicationTaskSystemConnectedScenario =
@@ -163,6 +200,7 @@ export type ApplicationTaskSystemConnectedScenario =
   | "completion_response_lost"
   | "duplicate_delivery"
   | "query_callback"
+  | "mutation_callback"
   | "cancel_complete_race";
 
 export async function proveApplicationTaskSystemConnected(
@@ -180,6 +218,12 @@ export async function proveApplicationTaskSystemConnected(
       fixture.active.basis.authority.physicalLocator,
     );
     const control = await lane.createControlTarget(fixture);
+    const externalEffectResource = scenario === "mutation_callback"
+      ? await lane.createExternalEffectTarget(
+          fixture,
+          fixture.active.basis.authority.physicalLocator,
+        )
+      : null;
     try {
     const locatedRunAuthority = Object.freeze({
       authority: fixture.active.basis.authority,
@@ -188,6 +232,15 @@ export async function proveApplicationTaskSystemConnected(
     const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
       globalThis.crypto.subtle.digest("SHA-256", input)
     );
+    const taskExternalEffectSha256 = Object.freeze({
+      hash: (bytes: Uint8Array) => Effect.tryPromise({
+        try: async () => new Uint8Array(await globalThis.crypto.subtle.digest(
+          "SHA-256",
+          bytes.slice().buffer,
+        )),
+        catch: cause => cause,
+      }),
+    });
     const creation = makeApplicationTaskSystemRunCreationStore(
       locatedRunAuthority,
       {
@@ -227,12 +280,18 @@ export async function proveApplicationTaskSystemConnected(
       scenario === "completion_response_lost" ||
       scenario === "duplicate_delivery" ||
       scenario === "query_callback" ||
+      scenario === "mutation_callback" ||
       scenario === "cancel_complete_race";
     const inputValue = scenario === "query_callback"
       ? Object.freeze({
           __fixtureTaskQuery: true,
           id: "1:11111111-1111-1111-1111-111111111111",
         })
+      : scenario === "mutation_callback"
+        ? Object.freeze({
+            __fixtureTaskMutation: true,
+            name: "Task callback user",
+          })
       : successfulWorkerResult
       ? Object.freeze({ orderId: "order-1" })
       : scenario === "task_failure_retry"
@@ -266,7 +325,7 @@ export async function proveApplicationTaskSystemConnected(
         Effect.provide(applicationTaskSystem),
       );
     expect(exactReplay).toEqual(created);
-    if (scenario !== "query_callback") {
+    if (scenario !== "query_callback" && scenario !== "mutation_callback") {
       yield* Effect.promise(() => fixture.moveHead());
       const pinnedReplay = yield* createApplicationTaskRun(TASK_ID, request).pipe(
           Effect.provide(applicationTaskSystem),
@@ -530,15 +589,60 @@ export async function proveApplicationTaskSystemConnected(
           }),
       },
     });
-    const mutationAuthority = Object.freeze({
-      bindLaunch: () => Effect.succeed(Object.freeze({
-        maximumCloseMilliseconds: 1_000,
-        runMutation: () => Effect.fail(Object.freeze({
-          reason: "invalidInput" as const,
-        })),
-        close: Effect.void,
-      })),
-    });
+    const mutationAuthority = scenario === "mutation_callback"
+      ? yield* Effect.gen(function* () {
+          if (externalEffectResource === null) {
+            return yield* Effect.die(
+              new Error("Task mutation external-effect target is missing."),
+            );
+          }
+          const applicationWorkerLoader = yield* Effect.acquireRelease(
+            Effect.sync(() => new MiniflareApplicationWorkerLoader()),
+            owner => Effect.tryPromise({
+              try: () => owner.dispose(),
+              catch: cause => cause,
+            }).pipe(Effect.orDie),
+          );
+          const mutationLayer = yield* Effect.tryPromise({
+            try: () => makeApplicationNativeMutationTestLayer(
+              fixture,
+              applicationWorkerLoader,
+            ),
+            catch: cause => cause,
+          }).pipe(Effect.orDie);
+          const mutation = yield* ApplicationMutationSystem.pipe(
+            Effect.provide(mutationLayer),
+          );
+          const externalEffect =
+            makeApplicationTaskMutationExternalEffectAuthority({
+              deploymentId: fixture.deploymentId,
+              authority: Object.freeze({
+                scopeMetadata: fixture.authorityPorts.scopeMetadata,
+                provisioningReceipts:
+                  fixture.authorityPorts.provisioningReceipts,
+                scopeClockTargets: Object.freeze({
+                  resolve: async () => externalEffectResource.target,
+                }),
+              }),
+              sha256: taskExternalEffectSha256,
+            });
+          return makeApplicationTaskMutationAuthority({
+            externalEffect,
+            mutation,
+            sha256: taskExternalEffectSha256,
+            maximumCloseMilliseconds:
+              TASK_MUTATION_DEADLINE_POLICY.settlementReserveMilliseconds,
+          });
+        })
+      : Object.freeze({
+          bindLaunch: () => Effect.succeed(Object.freeze({
+            maximumCloseMilliseconds: 1_000,
+            runMutation: () => Effect.fail(Object.freeze({
+              reason: "invalidInput" as const,
+            })),
+            close: Effect.void,
+          })),
+        });
     const layer = makeApplicationTaskComputeDeliveryLayer({
       controlTarget: control.target,
       directory: {
@@ -721,6 +825,7 @@ export async function proveApplicationTaskSystemConnected(
           scenario === "completion_response_lost" ||
           scenario === "duplicate_delivery" ||
           scenario === "query_callback" ||
+          scenario === "mutation_callback" ||
           scenario === "cancel_complete_race"
         ) {
           if (
@@ -850,6 +955,7 @@ export async function proveApplicationTaskSystemConnected(
       connected.scenario === "completion_response_lost" ||
       connected.scenario === "duplicate_delivery" ||
       connected.scenario === "query_callback" ||
+      connected.scenario === "mutation_callback" ||
       connected.scenario === "cancel_complete_race"
     ) {
       expect(connected.supervisionExit.value).toMatchObject({
@@ -884,6 +990,27 @@ export async function proveApplicationTaskSystemConnected(
           queried: true,
           id: "1:11111111-1111-1111-1111-111111111111",
         });
+      }
+      if (connected.scenario === "mutation_callback") {
+        expect(storedResult.value).toMatch(
+          /^\d+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+        );
+        const effects = yield* Effect.tryPromise({
+          try: () => fixture.target.query<{
+            state: string;
+            has_outcome: boolean;
+          }>(
+            `select state,
+                    child_mutation_outcome_sha256 is not null as has_outcome
+               from fx_system_external_effect_attempt_v1
+              where effect_kind = 'child_mutation'`,
+          ),
+          catch: cause => cause,
+        }).pipe(Effect.orDie);
+        expect(effects.rows).toEqual([{
+          state: "confirmed",
+          has_outcome: true,
+        }]);
       }
       if (connected.scenario === "cancel_complete_race") {
         expect(connected.cancellationDelivery).not.toBeNull();
@@ -992,7 +1119,10 @@ export async function proveApplicationTaskSystemConnected(
     );
     })));
     } finally {
-      await control.close();
+      await Promise.all([
+        control.close(),
+        externalEffectResource?.close() ?? Promise.resolve(),
+      ]);
     }
 }
 
@@ -1042,6 +1172,21 @@ function pgliteLane(): ApplicationTaskSystemConnectedLane {
             fixture.control.drizzle,
           ),
           DEADLINE_POLICY,
+        ),
+      ),
+      close: () => Promise.resolve(),
+    }),
+    createExternalEffectTarget: async (
+      fixture: ApplicationNativeMutationFixture<
+        ApplicationNativeMutationPersistence
+      >,
+      physicalLocator: ScopePhysicalLocator,
+    ) => Object.freeze({
+      target: Result.getOrThrow(
+        createLocatedTaskExternalEffectAuthorityTarget(
+          fixture.target.drizzle,
+          physicalLocator,
+          TASK_MUTATION_DEADLINE_POLICY,
         ),
       ),
       close: () => Promise.resolve(),

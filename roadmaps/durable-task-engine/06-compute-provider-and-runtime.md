@@ -659,16 +659,14 @@ lifecycle accepts the unchanged success and records the cancellation as
   Application Worker/session bridge with exact sequential ordinals, distinct
   mutation RPC capability, absolute deadline, cancellation, Worker-owned
   pending-mutation drain before terminal settlement, independently gated host
-  callback drain, and an honest combined close bound; keep the concrete
-  Application-owned coordinator blocked until Preflight 45 supplies one
-  persistence-owned authoritative disposition reconciliation operation and a
-  database-owned settlement bound. Separate phase calls and process-local phase
-  guesses are not sufficient after prepare/dispatch/confirm response loss;
-  after that owner gate, compose the exact dispatch request, opaque
+  callback drain, and an honest combined close bound; retain the now-private
+  Application-owned coordinator, exact dispatch/request snapshots, opaque
   current-attempt subject, active-selection revalidation, existing authenticated
   mutation entry, authority-derived stable request key, and exact contradictory
-  replay rejection, then prove the whole path through the genuine connected
-  Worker/PGlite/PostgreSQL gate;
+  replay rejection. The coordinator uses Preflight 45's persistence-owned
+  terminal reconciliation and deadline-owned target rather than separate phase
+  guesses after prepare/dispatch/confirm response loss. Keep completion gated on
+  the genuine connected Worker and genuine PostgreSQL settlement proofs;
 - then add a production-compatible but test-only private host that keeps its
   provider Layer alive through every accepted session and uses real current
   Application, R2, Worker Loader, supervisor, and Task System owners;

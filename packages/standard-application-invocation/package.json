@@ -18,6 +18,7 @@
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
     "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",
+    "./internal/application-task-mutation-authority": "./src/ApplicationTaskMutationAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
     "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
     "./internal/system-test/system-v1": "./src/systemV1.ts",
@@ -29,7 +30,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:dte06-f0a": "vitest run test/ApplicationTaskQueryAuthority.test.ts --no-file-parallelism",
-    "test:dte06-f0b:identity": "vitest run test/ApplicationMutationSystem.test.ts --no-file-parallelism"
+    "test:dte06-f0b:identity": "vitest run test/ApplicationMutationSystem.test.ts test/ApplicationTaskMutationAuthority.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

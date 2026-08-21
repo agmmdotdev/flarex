@@ -649,15 +649,16 @@ files remain candidates:
      existing Application mutation replay owner now also has an opaque
      principal-bound entry while retaining anonymous foreground invocation;
      both paths reuse its validation, grant, OCC, journal, commit, and replay
-     core. The concrete mutation callback coordinator remains blocked: its
-     private draft proved that separate phase-specific external-effect calls
-     cannot safely infer prepare/dispatch/confirm settlement after a lost
-     PostgreSQL response, and the current located transaction bridge does not
-     advertise a hard settlement bound for callback close.
+     core. The private mutation callback coordinator now uses one
+     persistence-owned terminal reconciliation operation rather than separate
+     process-local phase guesses. Its Task-specific located target installs
+     database deadlines, advertises the settlement budget, and is rejected when
+     that budget exceeds callback close.
      [Preflight 45](./preflight/45-dte06-task-mutation-settlement-reconciliation.md)
-     owns the proposed persistence reconciliation and deadline gate. The current
-     connected query harness therefore continues to supply an explicit
-     fail-closed mutation authority and does not simulate mutation success.
+     owns the approved persistence reconciliation and deadline gate. Genuine
+     PostgreSQL settlement acceptance and the genuine connected Worker mutation
+     proof remain open; the current connected query harness therefore continues
+     to supply an explicit fail-closed mutation authority.
      Outbound and scheduling context members remain deferred.
      F1 then adds a
      production-compatible test host and fresh-host recovery proof around those

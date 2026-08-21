@@ -128,6 +128,12 @@ import type { TransactionGrantIdentityAccessPolicyV1Error } from
   "flarex-protocol/transaction-grant";
 import { ObjectValidatorJsonV1 } from "flarex-protocol/validator-json";
 
+import {
+  captureApplicationTaskLaunchEvidence,
+  correlateApplicationTaskQuerySelection,
+  type ApplicationTaskQueryLaunchEvidence,
+} from "./ApplicationTaskQueryAuthority";
+
 type OccContextFactory = StoredPointMutationOccRerunExecutionConfigV1[
   "pointMutationOccRerun"
 ]["contextFactory"];
@@ -203,6 +209,10 @@ export class ApplicationMutationAuthorityChangedError extends Data.TaggedError(
   readonly retryable: true;
 }> {}
 
+export class ApplicationTaskMutationLaunchError extends Data.TaggedError(
+  "ApplicationTaskMutationLaunchError",
+)<{ readonly reason: "invalidLaunch" | "staleLaunch"; readonly cause?: unknown }> {}
+
 export type InvokeApplicationMutationError =
   | Effect.Error<ReturnType<ApplicationMutationSystemLive["activation"]["readActive"]>>
   | SelectApplicationMutationAdmissionError
@@ -217,6 +227,10 @@ export type InvokeApplicationMutationError =
   | PointMutationInitialExecutionV1Error
   | PointCommitOutcomeResolutionV1Error
   | ApplicationMutationOutcomeUnavailableError;
+
+export type InvokeApplicationTaskMutationError =
+  | InvokeApplicationMutationError
+  | ApplicationTaskMutationLaunchError;
 
 export interface AuthoritativeCommittedApplicationMutationOutcome {
   readonly status: "committed";
@@ -245,6 +259,17 @@ export interface ApplicationMutationSystemApi {
   ) => Effect.Effect<
     AuthoritativeCommittedApplicationMutationOutcome,
     InvokeApplicationMutationError,
+    Scope.Scope
+  >;
+  readonly invokeAuthenticatedAtTaskLaunch: (
+    functionRef: TransactionFunctionPathV1,
+    args: unknown,
+    requestKey: TransactionRequestKeyV1,
+    identity: ApplicationMutationAuthenticatedIdentity,
+    launch: ApplicationTaskQueryLaunchEvidence,
+  ) => Effect.Effect<
+    AuthoritativeCommittedApplicationMutationOutcome,
+    InvokeApplicationTaskMutationError,
     Scope.Scope
   >;
 }
@@ -305,6 +330,29 @@ export const invokeAuthenticatedApplicationMutation = Effect.fn(
     args,
     requestKey,
     identity,
+  );
+});
+
+export const invokeAuthenticatedApplicationTaskMutation = Effect.fn(
+  "ApplicationMutation.invokeAuthenticatedAtTaskLaunch",
+)(function* (
+  functionRef: TransactionFunctionPathV1,
+  args: unknown,
+  requestKey: TransactionRequestKeyV1,
+  identity: ApplicationMutationAuthenticatedIdentity,
+  launch: ApplicationTaskQueryLaunchEvidence,
+): Effect.fn.Return<
+  AuthoritativeCommittedApplicationMutationOutcome,
+  InvokeApplicationTaskMutationError,
+  ApplicationMutationSystem | Scope.Scope
+> {
+  const system = yield* ApplicationMutationSystem;
+  return yield* system.invokeAuthenticatedAtTaskLaunch(
+    functionRef,
+    args,
+    requestKey,
+    identity,
+    launch,
   );
 });
 
@@ -380,7 +428,12 @@ export function makeApplicationMutationSystemLayer(
         args,
         requestKey,
       ) {
-        return yield* invokeCore(functionRef, args, requestKey);
+        return yield* invokeCore(functionRef, args, requestKey).pipe(
+          Effect.catchTag(
+            "ApplicationTaskMutationLaunchError",
+            Effect.die,
+          ),
+        );
       }),
       invokeAuthenticated: Effect.fn(
         "ApplicationMutationSystem.invokeAuthenticated",
@@ -393,6 +446,31 @@ export function makeApplicationMutationSystemLayer(
           args,
           requestKey,
           prepared.identityAccessPolicy,
+        ).pipe(Effect.catchTag(
+          "ApplicationTaskMutationLaunchError",
+          Effect.die,
+        ));
+      }),
+      invokeAuthenticatedAtTaskLaunch: Effect.fn(
+        "ApplicationMutationSystem.invokeAuthenticatedAtTaskLaunch",
+      )(function* (functionRef, args, requestKey, identity, launch) {
+        const prepared = yield* Effect.fromResult(
+          claimApplicationMutationAuthenticatedIdentity(identity),
+        );
+        const capturedLaunch = yield* Effect.fromResult(
+          captureApplicationTaskLaunchEvidence(launch).pipe(
+            Result.mapError(cause => new ApplicationTaskMutationLaunchError({
+              reason: "invalidLaunch",
+              cause,
+            })),
+          ),
+        );
+        return yield* invokeCore(
+          functionRef,
+          args,
+          requestKey,
+          prepared.identityAccessPolicy,
+          capturedLaunch,
         );
       }),
     }),
@@ -492,6 +570,7 @@ function makeInvoke(live: ApplicationMutationSystemLive) {
     requestKeyInput,
     preparedIdentityAccessPolicy?:
       CanonicalTransactionGrantIdentityAccessPolicyV1,
+    taskLaunch?: ApplicationTaskQueryLaunchEvidence,
   ) {
     const functionRef = yield* decodeInput(
       decodeFunctionPath,
@@ -509,6 +588,16 @@ function makeInvoke(live: ApplicationMutationSystemLive) {
       functionRef,
       live.admission,
     );
+    if (taskLaunch !== undefined) {
+      yield* Effect.fromResult(
+        correlateApplicationTaskQuerySelection(taskLaunch, admission.basis)
+          .pipe(Result.mapError(() =>
+            new ApplicationTaskMutationLaunchError({
+              reason: "staleLaunch",
+            })
+          )),
+      );
+    }
     const syscallValidator = yield* deriveApplicationSyscallValidator({
       scopeId: admission.basis.authority.scopeId,
       schemaVersionId: admission.basis.schemaVersionId,

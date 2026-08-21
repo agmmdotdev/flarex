@@ -50,6 +50,12 @@ import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from "./transactionSessionActivation";
 import {
+  configureTaskRepairPostgresTransactionDeadlinesV1,
+  createTaskRepairPostgresDeadlinePolicyV1,
+  type TaskRepairPostgresDeadlinePolicyInputV1,
+  type TaskRepairPostgresDeadlinePolicyV1,
+} from "./taskRepairPostgresDeadlinePolicyV1";
+import {
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
   type RunLocatedReadCommittedTransactionV1,
@@ -58,8 +64,15 @@ import {
 const TASK_EXTERNAL_EFFECT_TARGET_DB: unique symbol = Symbol(
   "FlarexDB/taskExternalEffectAuthorityTargetDb",
 );
+const TASK_EXTERNAL_EFFECT_TARGET_DEADLINE_POLICY: unique symbol = Symbol(
+  "FlarexDB/taskExternalEffectAuthorityTargetDeadlinePolicy",
+);
 const MAX_TEXT_BYTES = 2_048;
 const MAX_POSITIVE_INT64 = (1n << 63n) - 1n;
+const RECONCILED_FAILED_BEFORE_DISPATCH_CODE =
+  "task_mutation_failed_before_dispatch";
+const RECONCILED_UNCERTAIN_CODE =
+  "task_mutation_dispatch_outcome_uncertain";
 const UTF8 = new TextEncoder();
 const decodeTransactionFunctionPath = Schema.decodeUnknownResult(
   TransactionFunctionPathV1Schema,
@@ -70,22 +83,68 @@ const decodeTransactionRequestKey = Schema.decodeUnknownResult(
 
 export interface LocatedTaskExternalEffectAuthorityTarget
   extends LocatedReadCommittedAttemptTargetV1 {
+  readonly settlementBudgetMilliseconds: number;
   readonly [TASK_EXTERNAL_EFFECT_TARGET_DB]: FlarexMetadataDatabase;
+  readonly [TASK_EXTERNAL_EFFECT_TARGET_DEADLINE_POLICY]:
+    TaskRepairPostgresDeadlinePolicyV1;
 }
 
 export function createLocatedTaskExternalEffectAuthorityTarget(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
+  deadlineInput: TaskRepairPostgresDeadlinePolicyInputV1,
   runReadCommitted: RunLocatedReadCommittedTransactionV1 =
     createDefaultLocatedReadCommittedTransactionRunnerV1(db),
+): Result.Result<
+  LocatedTaskExternalEffectAuthorityTarget,
+  TaskExternalEffectAuthorityConfigurationError<"invalid_deadline_policy">
+> {
+  return createTaskRepairPostgresDeadlinePolicyV1(deadlineInput).pipe(
+    Result.mapError(cause =>
+      new TaskExternalEffectAuthorityConfigurationError({
+        reason: "invalid_deadline_policy",
+        cause,
+      })
+    ),
+    Result.map(deadlinePolicy =>
+      createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal(
+        db,
+        physicalLocator,
+        runReadCommitted,
+        deadlinePolicy,
+      )
+    ),
+  );
+}
+
+export function createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal(
+  db: FlarexMetadataDatabase,
+  physicalLocator: ScopePhysicalLocator,
+  runReadCommitted: RunLocatedReadCommittedTransactionV1,
+  deadlinePolicy: TaskRepairPostgresDeadlinePolicyV1,
 ): LocatedTaskExternalEffectAuthorityTarget {
   return Object.freeze({
     physicalLocator: captureScopePhysicalLocator(physicalLocator),
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    settlementBudgetMilliseconds:
+      deadlinePolicy.settlementReserveMilliseconds,
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [TASK_EXTERNAL_EFFECT_TARGET_DB]: db,
+    [TASK_EXTERNAL_EFFECT_TARGET_DEADLINE_POLICY]: deadlinePolicy,
   });
 }
+
+export type TaskExternalEffectAuthorityConfigurationErrorReason =
+  | "invalid_deadline_policy"
+  | "invalid_pool_configuration";
+
+export class TaskExternalEffectAuthorityConfigurationError<
+  Reason extends TaskExternalEffectAuthorityConfigurationErrorReason =
+    TaskExternalEffectAuthorityConfigurationErrorReason,
+> extends Data.TaggedError("TaskExternalEffectAuthorityConfigurationError")<{
+  readonly reason: Reason;
+  readonly cause?: unknown;
+}> {}
 
 export interface TaskExternalEffectAuthoritySha256<HashError> {
   readonly hash: (bytes: Uint8Array) => Effect.Effect<Uint8Array, HashError>;
@@ -134,6 +193,15 @@ export interface TaskChildMutationEffectInput {
   readonly argumentsSha256: Uint8Array;
 }
 
+export interface ReconcileTaskChildMutationDispositionInput {
+  readonly effectOrdinal: bigint;
+  readonly stableRequestKey: TransactionRequestKeyV1;
+  readonly requestIdentitySha256: Uint8Array;
+  readonly functionPath: TransactionFunctionPathV1;
+  readonly argumentsSha256: Uint8Array;
+  readonly outcomeSha256: Uint8Array | null;
+}
+
 interface PreparedTaskChildMutationEffectInput
   extends TaskChildMutationEffectInput {
   readonly stableRequestKey: TransactionRequestKeyV1;
@@ -168,13 +236,27 @@ export interface TaskExternalEffectOperationReceipt {
   readonly effect: TaskChildMutationEffectProjection;
 }
 
+export type TaskChildMutationTerminalEffectProjection =
+  TaskChildMutationEffectProjection & Readonly<{
+    readonly state: "failed_before_dispatch" | "confirmed" | "uncertain";
+  }>;
+
+export type ReconcileTaskChildMutationDispositionReceipt =
+  | Readonly<{ readonly kind: "missing" }>
+  | Readonly<{
+      readonly kind: "terminal";
+      readonly disposition: "applied" | "replayed";
+      readonly effect: TaskChildMutationTerminalEffectProjection;
+    }>;
+
 export type TaskExternalEffectAuthorityOperation =
   | "issue"
   | "prepare"
   | "declare_dispatch"
   | "fail_before_dispatch"
   | "mark_uncertain"
-  | "confirm";
+  | "confirm"
+  | "reconcile";
 
 export class TaskExternalEffectAuthorityInputError extends Data.TaggedError(
   "TaskExternalEffectAuthorityInputError",
@@ -266,6 +348,10 @@ export type DeclareTaskChildMutationDispatchError =
 export type ReconcileTaskChildMutationEffectError =
   | TaskChildMutationEffectTransitionBaseError
   | TaskExternalEffectRequestConflictError;
+
+export type ReconcileTaskChildMutationDispositionError<HashError> =
+  | ReconcileTaskChildMutationEffectError
+  | HashError;
 
 const subjectStates = new WeakMap<
   ApplicationTaskExternalEffectSubject,
@@ -547,7 +633,12 @@ export const confirmTaskChildMutationEffect = Effect.fn(
     "outcomeSha256",
   );
   return yield* runTransaction(context, "confirm", tx => Effect.gen(function* () {
-    yield* requireCurrentSubjectParent(tx, subject, context, "settlement");
+    yield* requireCurrentSubjectParent(
+      tx,
+      subject,
+      context,
+      "current_attempt_settlement",
+    );
     const current = yield* loadEffectForUpdate(
       tx,
       subject,
@@ -591,6 +682,193 @@ export const confirmTaskChildMutationEffect = Effect.fn(
       yield* decodeTaskEffectRow(rows[0]),
     );
   }));
+});
+
+export const reconcileTaskChildMutationDisposition = Effect.fn(
+  "TaskExternalEffectAuthority.reconcile",
+)(function* <HashError>(
+  suppliedSubject: ApplicationTaskExternalEffectSubject,
+  suppliedInput: unknown,
+  context: TaskExternalEffectAuthorityHashContext<HashError>,
+): Effect.fn.Return<
+  ReconcileTaskChildMutationDispositionReceipt,
+  ReconcileTaskChildMutationDispositionError<HashError>
+> {
+  const subject = yield* claimSubject(
+    suppliedSubject,
+    context.authority.scopeId,
+  );
+  const input = yield* captureReconcileInput(suppliedInput);
+  const expectedStableRequestKey = yield* deriveStableRequestKey(
+    subject,
+    input.effectOrdinal,
+    context.sha256,
+  );
+  if (input.stableRequestKey !== expectedStableRequestKey) {
+    return yield* requestConflict(input.effectOrdinal, "stableRequestKey");
+  }
+
+  return yield* runTransaction(context, "reconcile", tx =>
+    Effect.gen(function* () {
+      yield* requireCurrentSubjectParent(
+        tx,
+        subject,
+        context,
+        "current_attempt_settlement",
+      );
+      const current = yield* loadEffectIfPresentForUpdate(
+        tx,
+        subject,
+        input.effectOrdinal,
+      );
+      if (current === undefined) {
+        const lastEffectOrdinal = yield* loadLastEffectOrdinal(tx, subject);
+        if (
+          lastEffectOrdinal !== undefined &&
+          lastEffectOrdinal > input.effectOrdinal
+        ) {
+          return yield* corruption(
+            "Task external-effect sequence contains a missing earlier ordinal",
+          );
+        }
+        return Object.freeze({ kind: "missing" as const });
+      }
+      const projection = yield* decodeTaskEffectRow(current);
+      yield* requireEffectMatchesInput(projection, input);
+
+      switch (projection.state) {
+        case "prepared": {
+          if (input.outcomeSha256 !== null) {
+            return yield* requestConflict(
+              input.effectOrdinal,
+              "outcomeSha256",
+            );
+          }
+          return yield* settleReconciledTaskEffect(
+            tx,
+            subject,
+            input.effectOrdinal,
+            "prepared",
+            "failed_before_dispatch",
+            {
+              terminalCode: RECONCILED_FAILED_BEFORE_DISPATCH_CODE,
+            },
+            context,
+            "afterFailedBeforeDispatchUpdate",
+          );
+        }
+        case "dispatching":
+          return input.outcomeSha256 === null
+            ? yield* settleReconciledTaskEffect(
+                tx,
+                subject,
+                input.effectOrdinal,
+                "dispatching",
+                "uncertain",
+                { terminalCode: RECONCILED_UNCERTAIN_CODE },
+                context,
+                "afterUncertainUpdate",
+              )
+            : yield* settleReconciledTaskEffect(
+                tx,
+                subject,
+                input.effectOrdinal,
+                "dispatching",
+                "confirmed",
+                { outcomeSha256: input.outcomeSha256 },
+                context,
+                "afterConfirmationUpdate",
+              );
+        case "confirmed":
+          if (
+            input.outcomeSha256 === null ||
+            projection.outcomeSha256 === null ||
+            !bytesEqualFullScan(
+              projection.outcomeSha256,
+              input.outcomeSha256,
+            )
+          ) {
+            return yield* requestConflict(
+              input.effectOrdinal,
+              "outcomeSha256",
+            );
+          }
+          return yield* terminalReconciliationReceipt("replayed", projection);
+        case "failed_before_dispatch":
+          if (
+            input.outcomeSha256 !== null ||
+            projection.terminalCode !==
+              RECONCILED_FAILED_BEFORE_DISPATCH_CODE
+          ) {
+            return yield* requestConflict(
+              input.effectOrdinal,
+              input.outcomeSha256 !== null
+                ? "outcomeSha256"
+                : "terminalCode",
+            );
+          }
+          return yield* terminalReconciliationReceipt("replayed", projection);
+        case "uncertain":
+          if (
+            input.outcomeSha256 !== null ||
+            projection.terminalCode !== RECONCILED_UNCERTAIN_CODE
+          ) {
+            return yield* requestConflict(
+              input.effectOrdinal,
+              input.outcomeSha256 !== null
+                ? "outcomeSha256"
+                : "terminalCode",
+            );
+          }
+          return yield* terminalReconciliationReceipt("replayed", projection);
+      }
+    })
+  );
+});
+
+const settleReconciledTaskEffect = Effect.fn(
+  "TaskExternalEffectAuthority.settleReconciledEffect",
+)(function* (
+  tx: AppRowTransaction,
+  subject: ApplicationTaskExternalEffectSubjectState,
+  effectOrdinal: bigint,
+  expected: "prepared" | "dispatching",
+  next: "failed_before_dispatch" | "uncertain" | "confirmed",
+  settlement: Readonly<{
+    readonly terminalCode?: string;
+    readonly outcomeSha256?: Uint8Array;
+  }>,
+  context: TaskExternalEffectAuthorityContext,
+  step: TaskExternalEffectAuthorityTransactionStep,
+): Effect.fn.Return<
+  ReconcileTaskChildMutationDispositionReceipt,
+  TaskExternalEffectLifecycleConflictError |
+    TaskExternalEffectAuthorityCorruptionError |
+    TaskExternalEffectAuthorityIntegrationError
+> {
+  const rows = yield* query(
+    "reconcile_update",
+    tx.update(fxSystemExternalEffectAttemptsV1).set({
+      state: next,
+      settledAt: sql`current_timestamp`,
+      ...(settlement.terminalCode === undefined
+        ? {}
+        : { terminalCode: settlement.terminalCode }),
+      ...(settlement.outcomeSha256 === undefined
+        ? {}
+        : { childMutationOutcomeSha256: settlement.outcomeSha256 }),
+    }).where(effectWhere(subject, effectOrdinal, expected)).returning(),
+  );
+  if (rows[0] === undefined) {
+    return yield* lifecycleConflict(
+      "reconcile",
+      expected,
+      "concurrent_transition",
+    );
+  }
+  const effect = yield* decodeTaskEffectRow(rows[0]);
+  yield* proofStep(context, step);
+  return yield* terminalReconciliationReceipt("applied", effect);
 });
 
 function transitionTaskEffect<ReplayError>(
@@ -689,11 +967,18 @@ const requireCurrentSubjectParent = Effect.fn(
   tx: AppRowTransaction,
   subject: ApplicationTaskExternalEffectSubjectState,
   context: TaskExternalEffectAuthorityContext,
-  leaseRequirement: "live_lease" | "settlement",
+  leaseRequirement:
+    | "live_lease"
+    | "settlement"
+    | "current_attempt_settlement",
 ) {
   yield* requireCurrentAuthority(tx, context);
   const run = yield* loadRunForUpdate(tx, subject.scopeId, subject.runId);
-  yield* requireSubjectMatchesRun(subject, run);
+  yield* requireSubjectMatchesRun(
+    subject,
+    run,
+    leaseRequirement !== "settlement",
+  );
   if (leaseRequirement === "live_lease") yield* requireLiveLease(tx, run);
 });
 
@@ -791,6 +1076,7 @@ const requireSubjectMatchesRun = Effect.fn(
 )(function* (
   subject: ApplicationTaskExternalEffectSubjectState,
   row: RunRow,
+  allowAttemptGranted: boolean,
 ) {
   yield* decodeCorrelatedApplicationRun(row);
   if (row.definitionGeneration !== "application_v1") {
@@ -821,7 +1107,10 @@ const requireSubjectMatchesRun = Effect.fn(
       reason: "execution_fence",
     });
   }
-  if (row.phase !== "executing") {
+  if (
+    row.phase !== "executing" &&
+    !(allowAttemptGranted && row.phase === "attempt_granted")
+  ) {
     return yield* new TaskExternalEffectAuthorityStaleError({
       reason: "phase",
     });
@@ -1046,6 +1335,84 @@ function capturePrepareInput(
       requestIdentitySha256,
       functionPath,
       argumentsSha256,
+    });
+  }));
+}
+
+function captureReconcileInput(
+  supplied: unknown,
+): Effect.Effect<
+  ReconcileTaskChildMutationDispositionInput,
+  TaskExternalEffectAuthorityInputError
+> {
+  return Effect.fromResult(Result.gen(function* () {
+    const record = yield* captureExactRecord(supplied, [
+      "effectOrdinal",
+      "stableRequestKey",
+      "requestIdentitySha256",
+      "functionPath",
+      "argumentsSha256",
+      "outcomeSha256",
+    ], "reconcile");
+    const effectOrdinal = yield* captureOrdinalResult(
+      record.effectOrdinal,
+      "reconcile",
+    );
+    const stableRequestKeyText = yield* captureTextResult(
+      record.stableRequestKey,
+      "reconcile",
+      "stableRequestKey",
+    );
+    const stableRequestKey = yield* decodeTransactionRequestKey(
+      stableRequestKeyText,
+    ).pipe(Result.mapError(cause =>
+      new TaskExternalEffectAuthorityInputError({
+        operation: "reconcile",
+        field: "stableRequestKey",
+        cause,
+      })
+    ));
+    if (!/^task-mutation:v1:[0-9a-f]{64}$/.test(stableRequestKey)) {
+      return yield* inputFailure("reconcile", "stableRequestKey");
+    }
+    const requestIdentitySha256 = yield* captureDigestResult(
+      record.requestIdentitySha256,
+      "reconcile",
+      "requestIdentitySha256",
+    );
+    const functionPathText = yield* captureTextResult(
+      record.functionPath,
+      "reconcile",
+      "functionPath",
+    );
+    const functionPath = yield* decodeTransactionFunctionPath(
+      functionPathText,
+    ).pipe(Result.mapError(cause =>
+      new TaskExternalEffectAuthorityInputError({
+        operation: "reconcile",
+        field: "functionPath",
+        cause,
+      })
+    ));
+    const argumentsSha256 = yield* captureDigestResult(
+      record.argumentsSha256,
+      "reconcile",
+      "argumentsSha256",
+    );
+    const outcomeSha256 = record.outcomeSha256 === null
+      ? null
+      : yield* captureDigestResult(
+          record.outcomeSha256,
+          "reconcile",
+          "outcomeSha256",
+        );
+    return Object.freeze({
+      effectOrdinal,
+      stableRequestKey,
+      requestIdentitySha256,
+      functionPath,
+      argumentsSha256,
+      outcomeSha256,
     });
   }));
 }
@@ -1371,6 +1738,33 @@ function operationReceipt(
   return Object.freeze({ disposition, effect });
 }
 
+function terminalReconciliationReceipt(
+  disposition: "applied" | "replayed",
+  effect: TaskChildMutationEffectProjection,
+): Effect.Effect<
+  ReconcileTaskChildMutationDispositionReceipt,
+  TaskExternalEffectAuthorityCorruptionError
+> {
+  switch (effect.state) {
+    case "failed_before_dispatch":
+    case "confirmed":
+    case "uncertain": {
+      const terminalEffect: TaskChildMutationTerminalEffectProjection =
+        Object.freeze({ ...effect, state: effect.state });
+      return Effect.succeed(Object.freeze({
+        kind: "terminal" as const,
+        disposition,
+        effect: terminalEffect,
+      }));
+    }
+    case "prepared":
+    case "dispatching":
+      return corruption(
+        "Task external-effect reconciliation returned nonterminal evidence",
+      );
+  }
+}
+
 function proofStep(
   context: TaskExternalEffectAuthorityContext,
   step: TaskExternalEffectAuthorityTransactionStep,
@@ -1431,10 +1825,21 @@ function runTransaction<Value, Failure>(
   operation: string,
   work: (tx: AppRowTransaction) => Effect.Effect<Value, Failure>,
 ) {
+  const deadlinePolicy =
+    context.target[TASK_EXTERNAL_EFFECT_TARGET_DEADLINE_POLICY];
   return runLocatedEffectTransaction(
     context.target,
     operation,
-    work,
+    tx => Effect.tryPromise({
+      try: () => configureTaskRepairPostgresTransactionDeadlinesV1(
+        tx,
+        deadlinePolicy,
+      ),
+      catch: cause => new TaskExternalEffectAuthorityIntegrationError({
+        operation: `${operation}_configure_deadlines`,
+        cause,
+      }),
+    }).pipe(Effect.andThen(work(tx))),
     (failureOperation, cause) =>
       new TaskExternalEffectAuthorityIntegrationError({
         operation: failureOperation,

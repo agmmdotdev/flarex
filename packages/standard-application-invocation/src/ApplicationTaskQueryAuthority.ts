@@ -114,7 +114,7 @@ export function makeApplicationTaskQueryAuthority<QueryFailure>(
   const activation = live.activation;
   const query = live.query;
   const bindLaunch: ApplicationTaskQueryAuthority["bindLaunch"] = subject =>
-    captureLaunchEvidence(subject).pipe(Result.map(captured => {
+    captureApplicationTaskLaunchEvidence(subject).pipe(Result.map(captured => {
       const runQuery: ApplicationTaskQuerySession["runQuery"] = Effect.fn(
         "ApplicationTaskQuerySession.runQuery",
       )(function* (functionPath, argumentsValue) {
@@ -153,7 +153,7 @@ export function makeApplicationTaskQueryAuthority<QueryFailure>(
   return Object.freeze({ bindLaunch });
 }
 
-function captureLaunchEvidence(
+export function captureApplicationTaskLaunchEvidence(
   subject: ApplicationTaskQueryLaunchEvidence,
 ): Result.Result<
   ApplicationTaskQueryLaunchEvidence,

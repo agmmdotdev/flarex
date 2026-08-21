@@ -15,6 +15,13 @@ describe("DTE06-E5 Application Task supervision", () => {
     )).resolves.toBeUndefined();
   }, 120_000);
 
+  it("commits a mutation from the genuine Task Worker and confirms its external effect", async () => {
+    await expect(proveApplicationTaskSystemConnected(
+      undefined,
+      "mutation_callback",
+    )).resolves.toBeUndefined();
+  }, 120_000);
+
   it("maps a real Application Worker handler failure into the durable retry policy", async () => {
     await expect(proveApplicationTaskSystemConnected(
       undefined,

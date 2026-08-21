@@ -17,6 +17,8 @@ const persistencePostgresManifestPath =
 const flarexBackendManifestPath = "packages/flarex-backend/package.json";
 const standardApplicationTaskComputeDeliveryPath =
   "packages/standard-application-invocation/src/ApplicationTaskComputeDelivery.ts";
+const standardApplicationTaskMutationAuthorityPath =
+  "packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts";
 const standardApplicationTaskSystemPath =
   "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
 const systemTestManifestPath = "packages/system-test/package.json";
@@ -62,6 +64,8 @@ const persistencePostgresTaskAttemptLifecycleGatewayPath =
   "packages/persistence-postgres/src/taskAttemptLifecycleGateway.ts";
 const persistencePostgresTaskExternalEffectAuthorityPath =
   "packages/persistence-postgres/src/taskExternalEffectAuthority.ts";
+const persistencePostgresPostgresTaskExternalEffectAuthorityPath =
+  "packages/persistence-postgres/src/postgresTaskExternalEffectAuthority.ts";
 const persistencePostgresTaskLifecycleLedgerCorrelationPath =
   "packages/persistence-postgres/src/taskSystemLifecycleLedgerCorrelationV1.ts";
 const persistencePostgresTaskRunCreationPath =
@@ -377,6 +381,56 @@ const admittedApplicationTaskComputeDeliveryImports = new Map([
   ["ApplicationTaskMutationCallbackAuthority", "type"],
   ["WorkerLoaderTaskComputeProviderOptions", "type"],
 ]);
+const admittedApplicationTaskMutationAuthorityComputeDeliveryImports = new Map([
+  ["ApplicationTaskMutationCallbackBindError", "value"],
+  ["ApplicationTaskMutationCallbackAuthority", "type"],
+  ["ApplicationTaskMutationCallbackSession", "type"],
+  ["ApplicationTaskMutationCallbackSessionFailure", "type"],
+]);
+const admittedApplicationTaskMutationAuthorityLaunchImports = new Map([
+  ["decodeTaskRuntimeLaunchRequest", "value"],
+  ["ApplicationTaskRuntimeLaunchSubject", "type"],
+]);
+const admittedApplicationTaskMutationAuthorityExternalEffectImports = new Map([
+  ["confirmTaskChildMutationEffect", "value"],
+  ["declareTaskChildMutationDispatch", "value"],
+  ["issueApplicationTaskExternalEffectSubject", "value"],
+  ["prepareTaskChildMutationEffect", "value"],
+  ["reconcileTaskChildMutationDisposition", "value"],
+  ["revokeApplicationTaskExternalEffectSubject", "value"],
+  ["InvalidApplicationTaskExternalEffectSubjectError", "value"],
+  ["TaskExternalEffectAuthorityCorruptionError", "value"],
+  ["TaskExternalEffectAuthorityInputError", "value"],
+  ["TaskExternalEffectAuthorityStaleError", "value"],
+  ["TaskExternalEffectLifecycleConflictError", "value"],
+  ["TaskExternalEffectRequestConflictError", "value"],
+  ["TaskExternalEffectSequenceConflictError", "value"],
+  ["LocatedTaskExternalEffectAuthorityTarget", "type"],
+  ["ReconcileTaskChildMutationDispositionInput", "type"],
+  ["ReconcileTaskChildMutationDispositionReceipt", "type"],
+  ["TaskChildMutationEffectInput", "type"],
+  ["TaskChildMutationEffectProjection", "type"],
+  ["TaskExternalEffectAuthorityHashContext", "type"],
+  ["TaskExternalEffectAuthoritySha256", "type"],
+]);
+const admittedPGliteTaskExternalEffectAuthorityImports = new Map([
+  ["createLocatedTaskExternalEffectAuthorityTarget", "value"],
+  ["LocatedTaskExternalEffectAuthorityTarget", "type"],
+  ["TaskExternalEffectAuthorityConfigurationError", "type"],
+]);
+const admittedPostgresTaskExternalEffectAuthorityImports = new Map([
+  [
+    "createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal",
+    "value",
+  ],
+  ["TaskExternalEffectAuthorityConfigurationError", "value"],
+  ["LocatedTaskExternalEffectAuthorityTarget", "type"],
+]);
+const admittedSystemTestConnectedHarnessTaskExternalEffectAuthorityImports =
+  new Map([
+    ["createLocatedTaskExternalEffectAuthorityTarget", "value"],
+    ["LocatedTaskExternalEffectAuthorityTarget", "type"],
+  ]);
 const admittedApplicationTaskRuntimeLaunchImports = new Map([
   ["makeTaskRuntimeLaunchAuthorityLayer", "value"],
   ["TaskRuntimeLaunchAuthorityOptions", "type"],
@@ -862,6 +916,35 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         specifier !== undefined
         && isProductionSource(relativePath)
         && isTaskExternalEffectAuthoritySpecifier(specifier, relativePath)
+        && !(
+          relativePath === standardApplicationTaskMutationAuthorityPath
+          && hasExactNamedImportModes(
+            node,
+            admittedApplicationTaskMutationAuthorityExternalEffectImports,
+          )
+        )
+        && !(
+          relativePath === persistencePostgresPGlitePath
+          && hasExactNamedImportModes(
+            node,
+            admittedPGliteTaskExternalEffectAuthorityImports,
+          )
+        )
+        && !(
+          relativePath ===
+            persistencePostgresPostgresTaskExternalEffectAuthorityPath
+          && hasExactNamedImportModes(
+            node,
+            admittedPostgresTaskExternalEffectAuthorityImports,
+          )
+        )
+        && !(
+          relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+          && hasExactNamedImportModes(
+            node,
+            admittedSystemTestConnectedHarnessTaskExternalEffectAuthorityImports,
+          )
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1489,13 +1572,20 @@ function isTaskAttemptLifecycleGatewaySpecifier(specifier, relativePath) {
 function isTaskExternalEffectAuthoritySpecifier(specifier, relativePath) {
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
-  const targetWithoutExtension =
-    persistencePostgresTaskExternalEffectAuthorityPath.slice(0, -3);
+  const targets = [
+    persistencePostgresTaskExternalEffectAuthorityPath,
+    persistencePostgresPostgresTaskExternalEffectAuthorityPath,
+  ];
   return normalized ===
       "@flarex/persistence-postgres/internal/task-external-effect-authority"
-    || resolved === persistencePostgresTaskExternalEffectAuthorityPath
-    || resolved === targetWithoutExtension
-    || resolved === `${targetWithoutExtension}.js`;
+    || normalized ===
+      "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority"
+    || targets.some(target => {
+      const targetWithoutExtension = target.slice(0, -3);
+      return resolved === target
+        || resolved === targetWithoutExtension
+        || resolved === `${targetWithoutExtension}.js`;
+    });
 }
 
 /** @param {ts.Node} node */
@@ -1589,6 +1679,8 @@ function isAdmittedFlarexBackendTaskComputeDeliveryConsumer(
 ) {
   const expected = relativePath === standardApplicationTaskComputeDeliveryPath
     ? admittedApplicationTaskComputeDeliveryImports
+    : relativePath === standardApplicationTaskMutationAuthorityPath
+    ? admittedApplicationTaskMutationAuthorityComputeDeliveryImports
     : relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
     ? admittedSystemTestConnectedHarnessTaskComputeImports
     : undefined;
@@ -1618,6 +1710,12 @@ function isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
     return hasExactNamedImportModes(
       node,
       admittedApplicationTaskRuntimeLaunchImports,
+    );
+  }
+  if (relativePath === standardApplicationTaskMutationAuthorityPath) {
+    return hasExactNamedImportModes(
+      node,
+      admittedApplicationTaskMutationAuthorityLaunchImports,
     );
   }
   if (relativePath === systemTestApplicationTaskSystemConnectedHarnessPath) {

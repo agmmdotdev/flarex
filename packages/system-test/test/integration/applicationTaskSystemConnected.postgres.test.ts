@@ -17,6 +17,10 @@ import {
   createPostgresTaskComputeDeliveryControlDirectoryResource,
 } from
   "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory";
+import {
+  createPostgresTaskExternalEffectAuthorityResource,
+} from
+  "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -36,6 +40,13 @@ const DEADLINE_POLICY = Object.freeze({
   statementTimeoutMilliseconds: 2_000,
   transactionTimeoutMilliseconds: 5_000,
   settlementReserveMilliseconds: 6_000,
+});
+const TASK_MUTATION_DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 100,
+  lockTimeoutMilliseconds: 100,
+  statementTimeoutMilliseconds: 1_000,
+  transactionTimeoutMilliseconds: 2_000,
+  settlementReserveMilliseconds: 3_000,
 });
 
 describe("Application Task System PostgreSQL acceptance environment", () => {
@@ -59,6 +70,7 @@ describePostgres("Application Task System - PostgreSQL", () => {
     ["result_publication_uncertain", "unresolved R2 settlement recovery handoff"],
     ["completion_response_lost", "lost PostgreSQL completion response replay"],
     ["duplicate_delivery", "duplicate connected delivery suppression"],
+    ["mutation_callback", "Task child mutation commit and durable result"],
     ["cancel_complete_race", "success superseding a racing cancellation"],
   ] as const) {
     it(`connects Application launch through ${description}`, async () => {
@@ -104,6 +116,19 @@ describePostgres("Application Task System - PostgreSQL", () => {
               createPostgresTaskComputeDeliveryControlDirectoryResource(
                 persistence.control.pool.options,
                 DEADLINE_POLICY,
+              ),
+            );
+            return Object.freeze({
+              target: resource.target,
+              close: resource.close,
+            });
+          },
+          createExternalEffectTarget: async (_fixture, physicalLocator) => {
+            const resource = Result.getOrThrow(
+              createPostgresTaskExternalEffectAuthorityResource(
+                persistence.target.pool.options,
+                physicalLocator,
+                TASK_MUTATION_DEADLINE_POLICY,
               ),
             );
             return Object.freeze({

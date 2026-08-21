@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   decideApplicationStartAttemptV1,
   decodeTaskCancellationGenerationV1,
@@ -29,6 +30,9 @@ import { selectApplicationTask } from "../src/applicationTaskSelection";
 import {
   createPostgresLocatedTaskSystemRunAttemptTargetV1,
 } from "../src/postgres";
+import {
+  createPostgresTaskExternalEffectAuthorityResource,
+} from "../src/postgresTaskExternalEffectAuthority";
 import { createTaskAttemptLifecycleGateway } from
   "../src/taskAttemptLifecycleGateway";
 import {
@@ -50,6 +54,20 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+const DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 500,
+  lockTimeoutMilliseconds: 5_000,
+  statementTimeoutMilliseconds: 10_000,
+  transactionTimeoutMilliseconds: 20_000,
+  settlementReserveMilliseconds: 25_000,
+});
+const SETTLED_DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 250,
+  lockTimeoutMilliseconds: 150,
+  statementTimeoutMilliseconds: 500,
+  transactionTimeoutMilliseconds: 1_000,
+  settlementReserveMilliseconds: 1_500,
+});
 
 describePostgres(
   "DTE06-F0b Task external-effect lease lock race on PostgreSQL",
@@ -122,6 +140,88 @@ describePostgres(
             blocker.release();
           }
           if (operation !== undefined) await operation;
+        }
+      });
+    });
+
+    it("settles a server lock timeout, releases the client, and safely reuses the bounded pool", async () => {
+      await withTemporaryPostgresPersistencePair(async (control, target) => {
+        const setup = await makeExecutingApplicationTask(control, target);
+        const resource = Result.getOrThrow(
+          createPostgresTaskExternalEffectAuthorityResource(
+            {
+              connectionString: target.pool.options.connectionString,
+              options: target.pool.options.options,
+              max: 1,
+            },
+            setup.context.authority.physicalLocator,
+            SETTLED_DEADLINE_POLICY,
+          ),
+        );
+        const context = Object.freeze({
+          ...setup.context,
+          target: resource.target,
+        });
+        const subject = await runEffect(
+          issueApplicationTaskExternalEffectSubject(setup.dispatch, context),
+        );
+        const blocker = await target.pool.connect();
+        let blockerReleased = false;
+        try {
+          await blocker.query("begin");
+          await blocker.query(
+            `select 1 from fx_system_durable_task_run_v1
+              where scope_id = $1 and run_id = $2 for update`,
+            [context.authority.scopeId, setup.dispatch.identity.runId],
+          );
+
+          const startedAt = performance.now();
+          const failure = await runEffectFailure(
+            prepareTaskChildMutationEffect(
+              subject,
+              Object.freeze({
+                effectOrdinal: 1n,
+                requestIdentitySha256: digest(0xc1),
+                functionPath: "users:write",
+                argumentsSha256: digest(0xc2),
+              }),
+              context,
+            ),
+          );
+          expect(performance.now() - startedAt).toBeLessThan(
+            SETTLED_DEADLINE_POLICY.settlementReserveMilliseconds,
+          );
+          expect(postgresCode(failure)).toBe("55P03");
+          expect(resource.pool.waitingCount).toBe(0);
+          expect(resource.pool.totalCount).toBe(1);
+          expect(resource.pool.idleCount).toBe(1);
+
+          await blocker.query("rollback");
+          blocker.release();
+          blockerReleased = true;
+
+          await expect(runEffect(prepareTaskChildMutationEffect(
+            subject,
+            Object.freeze({
+              effectOrdinal: 1n,
+              requestIdentitySha256: digest(0xc1),
+              functionPath: "users:write",
+              argumentsSha256: digest(0xc2),
+            }),
+            context,
+          ))).resolves.toMatchObject({
+            disposition: "applied",
+            effect: { state: "prepared" },
+          });
+          expect(resource.pool.waitingCount).toBe(0);
+          expect(resource.pool.totalCount).toBe(1);
+          expect(resource.pool.idleCount).toBe(1);
+        } finally {
+          if (!blockerReleased) {
+            await blocker.query("rollback").catch(() => undefined);
+            blocker.release();
+          }
+          await resource.close();
         }
       });
     });
@@ -198,10 +298,11 @@ async function makeExecutingApplicationTask(
     fixture.active.basis.authority.scopeId,
   );
   const context = Object.freeze({
-    target: createLocatedTaskExternalEffectAuthorityTarget(
+    target: Result.getOrThrow(createLocatedTaskExternalEffectAuthorityTarget(
       target.drizzle,
       fixture.active.basis.authority.physicalLocator,
-    ),
+      DEADLINE_POLICY,
+    )),
     authority: fixture.active.basis.authority,
     sha256: Object.freeze({
       hash: (bytes: Uint8Array) => Effect.promise(async () =>
@@ -308,4 +409,17 @@ function uuidSequence(offset: number): () => string {
   let next = offset;
   return () =>
     `75000000-0000-4000-8000-${String(next++).padStart(12, "0")}`;
+}
+
+function postgresCode(cause: unknown): string | undefined {
+  const seen = new Set<unknown>();
+  let current = cause;
+  while (current !== null && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (!isNonArrayRecord(current)) return undefined;
+    const code = Reflect.get(current, "code");
+    if (typeof code === "string") return code;
+    current = Reflect.get(current, "cause");
+  }
+  return undefined;
 }

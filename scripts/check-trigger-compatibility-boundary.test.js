@@ -1237,6 +1237,18 @@ describe("Trigger compatibility boundary checker", () => {
           "./taskExternalEffectAuthority.js";
       `,
     }, {
+      relativePath: "apps/executor/src/taskMutationHost.ts",
+      text: `
+        import { createPostgresTaskExternalEffectAuthorityResource } from
+          "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
+      `,
+    }, {
+      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      text: `
+        import { createPostgresTaskExternalEffectAuthorityResource } from
+          "./postgresTaskExternalEffectAuthority.js";
+      `,
+    }, {
       relativePath:
         "packages/persistence-postgres/test/taskExternalEffectAuthority.test.ts",
       text: `
@@ -1246,6 +1258,112 @@ describe("Trigger compatibility boundary checker", () => {
     }]).errors).toEqual([
       "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
       "packages/standard-application-invocation/src/ApplicationMutationSystem.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "apps/executor/src/taskMutationHost.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+    ]);
+  });
+
+  it("admits only the exact Application Task mutation authority edges", () => {
+    const authority =
+      "packages/standard-application-invocation/src/ApplicationTaskMutationAuthority.ts";
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: authority,
+      text: `
+        import {
+          confirmTaskChildMutationEffect,
+          declareTaskChildMutationDispatch,
+          issueApplicationTaskExternalEffectSubject,
+          prepareTaskChildMutationEffect,
+          reconcileTaskChildMutationDisposition,
+          revokeApplicationTaskExternalEffectSubject,
+          InvalidApplicationTaskExternalEffectSubjectError,
+          TaskExternalEffectAuthorityCorruptionError,
+          TaskExternalEffectAuthorityInputError,
+          TaskExternalEffectAuthorityStaleError,
+          TaskExternalEffectLifecycleConflictError,
+          TaskExternalEffectRequestConflictError,
+          TaskExternalEffectSequenceConflictError,
+          type LocatedTaskExternalEffectAuthorityTarget,
+          type ReconcileTaskChildMutationDispositionInput,
+          type ReconcileTaskChildMutationDispositionReceipt,
+          type TaskChildMutationEffectInput,
+          type TaskChildMutationEffectProjection,
+          type TaskExternalEffectAuthorityHashContext,
+          type TaskExternalEffectAuthoritySha256,
+        } from "@flarex/persistence-postgres/internal/task-external-effect-authority";
+      `,
+    }, {
+      relativePath: authority,
+      text: `
+        import {
+          ApplicationTaskMutationCallbackBindError,
+          type ApplicationTaskMutationCallbackAuthority,
+          type ApplicationTaskMutationCallbackSession,
+          type ApplicationTaskMutationCallbackSessionFailure,
+        } from "flarex-backend/internal/task-compute-delivery";
+      `,
+    }, {
+      relativePath: authority,
+      text: `
+        import {
+          decodeTaskRuntimeLaunchRequest,
+          type ApplicationTaskRuntimeLaunchSubject,
+        } from "flarex-backend/internal/task-runtime-launch";
+      `,
+    }, {
+      relativePath:
+        "packages/standard-application-invocation/src/ApplicationMutationSystem.ts",
+      text: `
+        import { prepareTaskChildMutationEffect } from
+          "@flarex/persistence-postgres/internal/task-external-effect-authority";
+      `,
+    }, {
+      relativePath: authority,
+      text: `
+        import { TaskAttemptSupervisor } from
+          "flarex-backend/internal/task-compute-delivery";
+      `,
+    }, {
+      relativePath: authority,
+      text: `
+        import { makeTaskRuntimeLaunchAuthorityLayer } from
+          "flarex-backend/internal/task-runtime-launch";
+      `,
+    }]).errors).toEqual([
+      "packages/standard-application-invocation/src/ApplicationMutationSystem.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
+      `${authority}:2 production source must not activate the connected Task compute-delivery runtime before host admission.`,
+      `${authority}:2 production source must not activate the Task runtime launch authority before Worker Loader admission.`,
+    ]);
+  });
+
+  it("admits only the exact Task external-effect persistence adapters", () => {
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: "packages/persistence-postgres/src/pglite.ts",
+      text: `
+        import {
+          createLocatedTaskExternalEffectAuthorityTarget,
+          type LocatedTaskExternalEffectAuthorityTarget,
+          type TaskExternalEffectAuthorityConfigurationError,
+        } from "./taskExternalEffectAuthority";
+      `,
+    }, {
+      relativePath:
+        "packages/persistence-postgres/src/postgresTaskExternalEffectAuthority.ts",
+      text: `
+        import {
+          createLocatedTaskExternalEffectAuthorityTargetFromPolicyInternal,
+          TaskExternalEffectAuthorityConfigurationError,
+          type LocatedTaskExternalEffectAuthorityTarget,
+        } from "./taskExternalEffectAuthority";
+      `,
+    }, {
+      relativePath: "packages/persistence-postgres/src/postgres.ts",
+      text: `
+        import { createLocatedTaskExternalEffectAuthorityTarget } from
+          "./taskExternalEffectAuthority";
+      `,
+    }]).errors).toEqual([
       "packages/persistence-postgres/src/postgres.ts:2 production source must not activate the Task external-effect authority before mutation-host admission.",
     ]);
   });
@@ -1323,6 +1441,10 @@ describe("Trigger compatibility boundary checker", () => {
           "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory";
         import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from
           "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory";
+        import {
+          createLocatedTaskExternalEffectAuthorityTarget,
+          type LocatedTaskExternalEffectAuthorityTarget,
+        } from "@flarex/persistence-postgres/internal/task-external-effect-authority";
       `,
     }]).errors).toEqual([]);
 
@@ -1351,6 +1473,8 @@ describe("Trigger compatibility boundary checker", () => {
           "@flarex/durable-task/internal/run-attempt-v1";
         import type { TaskComputeDeliveryConnectedRunnerReceipt } from
           "flarex-backend/internal/task-compute-delivery";
+        import { createLocatedTaskExternalEffectAuthorityTarget } from
+          "@flarex/persistence-postgres/internal/task-external-effect-authority";
       `,
     }]).errors).toEqual([
       `${applicationComposition}:2 production source must not activate the connected Task compute-delivery runtime before host admission.`,
@@ -1358,6 +1482,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/flarex-backend/src/worker.ts:2 production source must not activate the Task attempt lifecycle gateway before supervisor admission.",
       "packages/system-test/support/otherHarness.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/system-test/support/otherHarness.ts:4 production source must not activate the connected Task compute-delivery runtime before host admission.",
+      "packages/system-test/support/otherHarness.ts:6 production source must not activate the Task external-effect authority before mutation-host admission.",
     ]);
   });
 

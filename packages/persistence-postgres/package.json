@@ -25,6 +25,7 @@
     "./internal/task-system-run-attempt-store-v1": "./src/taskSystemRunAttemptStoreV1.ts",
     "./internal/task-attempt-lifecycle-gateway": "./src/taskAttemptLifecycleGateway.ts",
     "./internal/task-external-effect-authority": "./src/taskExternalEffectAuthority.ts",
+    "./internal/system-test/postgres-task-external-effect-authority": "./src/postgresTaskExternalEffectAuthority.ts",
     "./internal/task-wake-scheduler-partition-v1": "./src/taskSystemWakeSchedulerPartitionV1.ts",
     "./internal/task-wake-scheduler-directory-v1": "./src/taskSystemWakeSchedulerDirectoryV1.ts",
     "./internal/task-wake-scheduler-repair-directory-v1": "./src/taskSystemWakeSchedulerRepairDirectoryV1.ts",
