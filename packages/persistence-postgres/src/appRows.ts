@@ -785,19 +785,7 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
           )
           .returning({ commitSeq: fxAppRowCurrent.commitSeq });
   if (advanced[0] === undefined) {
-    const deleted = await deleteInsertedRevisionInTransactionResult(tx, decoded);
-    if (Result.isFailure(deleted)) return Result.fail(deleted.failure);
-    const actual = await readCurrentPointerCommitSeqResult(
-      tx,
-      decoded.scopeUuid,
-      decoded.identity,
-    );
-    if (Result.isFailure(actual)) return Result.fail(actual.failure);
-    return Result.fail(new AppRowRevisionChainConflictError(
-      decoded.identity,
-      decoded.prevCommitSeq,
-      actual.success,
-    ));
+    return failAdvancedCurrentPointerConflict(tx, decoded);
   }
 
   return Result.succeed(decoded.kind === "live"
@@ -822,6 +810,32 @@ async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
         schemaVersionId: decoded.schemaVersionId,
         creationTime: decoded.creationTime,
       } satisfies TombstoneAppRowRevisionV1));
+}
+
+async function failAdvancedCurrentPointerConflict(
+  tx: AppRowTransaction,
+  decoded: DecodedAppendAppRowRevisionV1,
+): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
+  const deleted = await deleteInsertedRevisionInTransactionResult(tx, decoded);
+  if (Result.isFailure(deleted)) return Result.fail(deleted.failure);
+  return readActualPointerCommitSeqAndFail(tx, decoded);
+}
+
+async function readActualPointerCommitSeqAndFail(
+  tx: AppRowTransaction,
+  decoded: DecodedAppendAppRowRevisionV1,
+): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
+  const actual = await readCurrentPointerCommitSeqResult(
+    tx,
+    decoded.scopeUuid,
+    decoded.identity,
+  );
+  if (Result.isFailure(actual)) return Result.fail(actual.failure);
+  return Result.fail(new AppRowRevisionChainConflictError(
+    decoded.identity,
+    decoded.prevCommitSeq,
+    actual.success,
+  ));
 }
 
 async function deleteInsertedRevisionInTransactionResult(
@@ -1252,6 +1266,37 @@ async function decodeAppendInput(
   return Object.freeze({ ...base, kind: "live", document });
 }
 
+interface DecodedPreparedAppendScalars {
+  readonly commitSeq: CommitSeq;
+  readonly prevCommitSeq: CommitSeq | null;
+  readonly writeEpochUuid: ReturnType<
+    typeof projectScopeEpochUuidV1
+  >["epochUuid"];
+  readonly schemaVersionId: ReturnType<typeof decodeCatalogSchemaVersionId>;
+  readonly creationTime: ReturnType<typeof decodeAppCreationTimeV1>;
+}
+
+function decodePreparedAppendScalars(
+  input: AppendPreparedAppRowRevisionV1Input,
+): Result.Result<DecodedPreparedAppendScalars, AppendAppRowRevisionV1Error> {
+  return Result.gen(function* () {
+    const commitSeq = yield* requirePositiveCommitSeqResult(input.commitSeq);
+    const prevCommitSeq = yield* input.prevCommitSeq === null
+      ? Result.succeed<CommitSeq | null>(null)
+      : requirePreviousCommitSeqResult(input.prevCommitSeq, commitSeq);
+    const writeEpochUuid = projectScopeEpochUuidV1(input.writeEpoch).epochUuid;
+    const schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
+    const creationTime = decodeAppCreationTimeV1(input.creationTime);
+    return Object.freeze({
+      commitSeq,
+      prevCommitSeq,
+      writeEpochUuid,
+      schemaVersionId,
+      creationTime,
+    });
+  });
+}
+
 async function decodePreparedAppendInputResult(
   tx: AppRowTransaction,
   input: AppendPreparedAppRowRevisionV1Input,
@@ -1265,22 +1310,46 @@ async function decodePreparedAppendInputResult(
     identity.scopeId,
   );
   if (Result.isFailure(scopeUuid)) return Result.fail(scopeUuid.failure);
-  const commitSeq = requirePositiveCommitSeqResult(input.commitSeq);
-  if (Result.isFailure(commitSeq)) return Result.fail(commitSeq.failure);
-  const prevCommitSeq = input.prevCommitSeq === null
-    ? Result.succeed<CommitSeq | null>(null)
-    : requirePreviousCommitSeqResult(input.prevCommitSeq, commitSeq.success);
-  if (Result.isFailure(prevCommitSeq)) return Result.fail(prevCommitSeq.failure);
-  const writeEpochUuid = projectScopeEpochUuidV1(input.writeEpoch).epochUuid;
-  const schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
-  const creationTime = decodeAppCreationTimeV1(input.creationTime);
-  if (prevCommitSeq.success !== null) {
+  return decodePreparedAppendInputWithScope(tx, input, identity, scopeUuid.success);
+}
+
+async function decodePreparedAppendInputWithScope(
+  tx: AppRowTransaction,
+  input: AppendPreparedAppRowRevisionV1Input,
+  identity: AppRowIdentityV1,
+  scopeUuid: ScopeUuidV1,
+): Promise<Result.Result<
+  DecodedAppendAppRowRevisionV1,
+  AppendAppRowRevisionV1Error
+>> {
+  const scalars = decodePreparedAppendScalars(input);
+  if (Result.isFailure(scalars)) return Result.fail(scalars.failure);
+  return checkPreparedAppendImmutableCreationTime(
+    tx,
+    input,
+    identity,
+    scopeUuid,
+    scalars.success,
+  );
+}
+
+async function checkPreparedAppendImmutableCreationTime(
+  tx: AppRowTransaction,
+  input: AppendPreparedAppRowRevisionV1Input,
+  identity: AppRowIdentityV1,
+  scopeUuid: ScopeUuidV1,
+  scalars: DecodedPreparedAppendScalars,
+): Promise<Result.Result<
+  DecodedAppendAppRowRevisionV1,
+  AppendAppRowRevisionV1Error
+>> {
+  if (scalars.prevCommitSeq !== null) {
     const immutableCreationTime = await requireImmutableCreationTimeResult(
       tx,
       identity,
-      scopeUuid.success,
-      prevCommitSeq.success,
-      creationTime,
+      scopeUuid,
+      scalars.prevCommitSeq,
+      scalars.creationTime,
     );
     if (Result.isFailure(immutableCreationTime)) {
       return Result.fail(immutableCreationTime.failure);
@@ -1289,12 +1358,12 @@ async function decodePreparedAppendInputResult(
   const base = {
     ...input,
     identity,
-    scopeUuid: scopeUuid.success,
-    writeEpochUuid,
-    commitSeq: commitSeq.success,
-    prevCommitSeq: prevCommitSeq.success,
-    schemaVersionId,
-    creationTime,
+    scopeUuid,
+    commitSeq: scalars.commitSeq,
+    prevCommitSeq: scalars.prevCommitSeq,
+    writeEpochUuid: scalars.writeEpochUuid,
+    schemaVersionId: scalars.schemaVersionId,
+    creationTime: scalars.creationTime,
   };
   return Result.succeed(input.kind === "tombstone"
     ? Object.freeze({ ...base, kind: "tombstone" })

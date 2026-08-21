@@ -556,7 +556,18 @@ async function claimForCommitTransaction(
     await executeRows(tx, claimForCommitCaptureStatement(input)),
   );
   if (Result.isFailure(captured)) return Result.fail(captured.failure);
-  const selected = captured.success.wakes[0];
+  return claimSelectedCommitWake(tx, input, captured.success);
+}
+
+async function claimSelectedCommitWake(
+  tx: FlarexMetadataDatabase,
+  input: ValidatedClaimForCommitInputV1,
+  captured: CapturedCommitWakeSnapshotV1,
+): Promise<TransactionResult<
+  Option.Option<ClaimedCommitWakeV1>,
+  Exclude<CommitWakeClaimErrorV1, CommitWakeInputErrorV1 | CommitWakeSqlErrorV1>
+>> {
+  const selected = captured.wakes[0];
   if (selected === undefined) {
     return Result.fail(corruption(
       "claimForCommit",
@@ -572,13 +583,24 @@ async function claimForCommitTransaction(
   const claimed = await claimCapturedWakes(
     tx,
     "claimForCommit",
-    captured.success.clock,
+    captured.clock,
     [selected],
     input.claimOwner,
     input.leaseMilliseconds,
   );
   if (Result.isFailure(claimed)) return Result.fail(claimed.failure);
-  const wake = claimed.success[0];
+  return claimedCommitWakeOrRollback(input, selected, claimed.success);
+}
+
+function claimedCommitWakeOrRollback(
+  input: ValidatedClaimForCommitInputV1,
+  selected: CapturedCommitWakeV1,
+  claimed: readonly ClaimedCommitWakeV1[],
+): TransactionResult<
+  Option.Option<ClaimedCommitWakeV1>,
+  Exclude<CommitWakeClaimErrorV1, CommitWakeInputErrorV1 | CommitWakeSqlErrorV1>
+> {
+  const wake = claimed[0];
   if (wake === undefined) {
     throw new CommitWakeRollbackSignal(corruption(
       "claimForCommit",

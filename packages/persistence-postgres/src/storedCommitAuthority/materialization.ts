@@ -408,12 +408,13 @@ function materializeStoredAuthorityEffect(
     if (clockRow === undefined) {
       return materializationCorrupt(mode, "authorityProjectionInvalid");
     }
-    const decodedClock = decodeClockAuthorityResult(clockRow);
-    if (Result.isFailure(decodedClock)) {
-      return materializationCorrupt(mode, decodedClock.failure);
-    }
+    const clockAuthority = decodeOrMaterializationCorrupt(
+      mode,
+      decodeClockAuthorityResult(clockRow),
+    );
+    if ("corrupt" in clockAuthority) return clockAuthority.corrupt;
     const { clock, scopeUuid, epochUuid, revocationEpoch } =
-      decodedClock.success;
+      clockAuthority.value;
     if (
       scopeUuid !== projectScopeIdUuidV1(expected.scopeId).scopeUuid ||
       epochUuid !== projectScopeEpochUuidV1(clock.epoch).epochUuid ||
@@ -457,11 +458,12 @@ function materializeStoredAuthorityEffect(
     if (session === undefined) {
       return materializationCorrupt(mode, "sessionEvidenceMissingOrDuplicate");
     }
-    const sessionIdentity = decodeSessionIdentityResult(session);
-    if (Result.isFailure(sessionIdentity)) {
-      return materializationCorrupt(mode, sessionIdentity.failure);
-    }
-    const decodedSessionIdentity = sessionIdentity.success;
+    const sessionIdentity = decodeOrMaterializationCorrupt(
+      mode,
+      decodeSessionIdentityResult(session),
+    );
+    if ("corrupt" in sessionIdentity) return sessionIdentity.corrupt;
+    const decodedSessionIdentity = sessionIdentity.value;
     if (
       session.scopeUuid !== scopeUuid ||
       decodedSessionIdentity.sessionId !== expected.sessionId
@@ -535,11 +537,12 @@ function materializeStoredAuthorityEffect(
     if (lease === undefined) {
       return materializationCorrupt(mode, "snapshotLeaseMissingOrDuplicate");
     }
-    const leaseSnapshot = decodeLeaseSnapshotResult(expected, lease);
-    if (Result.isFailure(leaseSnapshot)) {
-      return materializationCorrupt(mode, leaseSnapshot.failure);
-    }
-    const decodedLeaseSnapshot = leaseSnapshot.success;
+    const leaseSnapshot = decodeOrMaterializationCorrupt(
+      mode,
+      decodeLeaseSnapshotResult(expected, lease),
+    );
+    if ("corrupt" in leaseSnapshot) return leaseSnapshot.corrupt;
+    const decodedLeaseSnapshot = leaseSnapshot.value;
     const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
       lease.leaseExpiresAt,
     );
@@ -1372,6 +1375,20 @@ function materializationCorrupt(
   reason: StoredCommitAuthorityCorruptionReasonV1,
 ) {
   return mode.kind === "sealed" ? corrupt(reason) : occExecutionCorrupt(reason);
+}
+
+/**
+ * Folds a projected-row decode into either its decoded value or the
+ * materialization corruption result, which is a success-channel load outcome
+ * rather than an Effect failure.
+ */
+function decodeOrMaterializationCorrupt<T>(
+  mode: StoredAuthorityMaterializationV1,
+  decoded: Result.Result<T, StoredCommitAuthorityCorruptionReasonV1>,
+): { readonly value: T } | { readonly corrupt: ReturnType<typeof materializationCorrupt> } {
+  return Result.isFailure(decoded)
+    ? { corrupt: materializationCorrupt(mode, decoded.failure) }
+    : { value: decoded.success };
 }
 
 interface ClockAuthorityProjectionRow {

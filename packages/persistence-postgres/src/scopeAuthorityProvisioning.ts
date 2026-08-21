@@ -419,25 +419,37 @@ async function ensureClockResult(
   ensuredScope: EnsureScopeResult,
   randomUuid: () => string,
 ): Promise<Result.Result<EnsureClockResult, EnsureSharedScopeClockError>> {
-  const existingResult = await getScopeClockResult(
+  const existing = await getScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
   );
-  if (Result.isFailure(existingResult)) {
-    return Result.fail(existingResult.failure);
-  }
-  const existing = existingResult.success;
-  if (existing !== null) {
-    if (ensuredScope.created) {
-      return Result.fail(new SharedScopeAuthorityConflictError({
-        reason: "clockPreexistedForNewScope",
-        deploymentId,
-        scopeId: ensuredScope.scope.scopeId,
-      }));
-    }
-    return Result.succeed({ clock: existing });
-  }
+  if (Result.isFailure(existing)) return Result.fail(existing.failure);
+  return existing.success !== null
+    ? ensureExistingScopeClock(deploymentId, ensuredScope, existing.success)
+    : initializeNewScopeClock(tx, deploymentId, ensuredScope, randomUuid);
+}
 
+function ensureExistingScopeClock(
+  deploymentId: string,
+  ensuredScope: EnsureScopeResult,
+  existing: ScopeClockRecord,
+): Result.Result<EnsureClockResult, EnsureSharedScopeClockError> {
+  if (ensuredScope.created) {
+    return Result.fail(new SharedScopeAuthorityConflictError({
+      reason: "clockPreexistedForNewScope",
+      deploymentId,
+      scopeId: ensuredScope.scope.scopeId,
+    }));
+  }
+  return Result.succeed({ clock: existing });
+}
+
+async function initializeNewScopeClock(
+  tx: FlarexMetadataDatabase,
+  deploymentId: string,
+  ensuredScope: EnsureScopeResult,
+  randomUuid: () => string,
+): Promise<Result.Result<EnsureClockResult, EnsureSharedScopeClockError>> {
   if (!ensuredScope.created) {
     return Result.fail(new SharedScopeAuthorityConflictError({
       reason: "clockMissingForExistingScope",
@@ -445,25 +457,20 @@ async function ensureClockResult(
       scopeId: ensuredScope.scope.scopeId,
     }));
   }
-
-  const initializedResult = await insertInitialScopeClockResult(
+  const initialized = await insertInitialScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
     randomUuid,
   );
-  if (Result.isFailure(initializedResult)) {
-    return Result.fail(initializedResult.failure);
-  }
-  const initialized = initializedResult.success;
-
-  if (!initialized.created) {
+  if (Result.isFailure(initialized)) return Result.fail(initialized.failure);
+  if (!initialized.success.created) {
     return Result.fail(new SharedScopeAuthorityConflictError({
       reason: "clockPreexistedForNewScope",
       deploymentId,
       scopeId: ensuredScope.scope.scopeId,
     }));
   }
-  return Result.succeed({ clock: initialized.clock });
+  return Result.succeed({ clock: initialized.success.clock });
 }
 
 async function ensureInitialBootstrapClockResult(
@@ -475,39 +482,22 @@ async function ensureInitialBootstrapClockResult(
   EnsureInitialBootstrapClockResult,
   EnsureSharedScopeClockError
 >> {
-  const existingResult = await getScopeClockResult(
+  const existing = await getScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
   );
-  if (Result.isFailure(existingResult)) {
-    return Result.fail(existingResult.failure);
-  }
-  const existing = existingResult.success;
-  if (existing !== null) {
-    if (ensuredScope.created) {
-      return Result.fail(new SharedScopeAuthorityConflictError({
-        reason: "clockPreexistedForNewScope",
-        deploymentId,
-        scopeId: ensuredScope.scope.scopeId,
-      }));
-    }
-    return Result.succeed({
-      clock: existing,
-      clockCreated: false,
-    });
-  }
+  if (Result.isFailure(existing)) return Result.fail(existing.failure);
+  return existing.success !== null
+    ? ensureExistingBootstrapScopeClock(deploymentId, ensuredScope, existing.success)
+    : initializeBootstrapScopeClock(tx, deploymentId, ensuredScope, randomUuid);
+}
 
-  const initializedResult = await insertInitialScopeClockResult(
-    tx,
-    ensuredScope.scope.scopeId,
-    randomUuid,
-  );
-  if (Result.isFailure(initializedResult)) {
-    return Result.fail(initializedResult.failure);
-  }
-  const initialized = initializedResult.success;
-
-  if (!initialized.created && ensuredScope.created) {
+function ensureExistingBootstrapScopeClock(
+  deploymentId: string,
+  ensuredScope: EnsureScopeResult,
+  existing: ScopeClockRecord,
+): Result.Result<EnsureInitialBootstrapClockResult, EnsureSharedScopeClockError> {
+  if (ensuredScope.created) {
     return Result.fail(new SharedScopeAuthorityConflictError({
       reason: "clockPreexistedForNewScope",
       deploymentId,
@@ -515,8 +505,33 @@ async function ensureInitialBootstrapClockResult(
     }));
   }
   return Result.succeed({
-    clock: initialized.clock,
-    clockCreated: initialized.created,
+    clock: existing,
+    clockCreated: false,
+  });
+}
+
+async function initializeBootstrapScopeClock(
+  tx: FlarexMetadataDatabase,
+  deploymentId: string,
+  ensuredScope: EnsureScopeResult,
+  randomUuid: () => string,
+): Promise<Result.Result<EnsureInitialBootstrapClockResult, EnsureSharedScopeClockError>> {
+  const initialized = await insertInitialScopeClockResult(
+    tx,
+    ensuredScope.scope.scopeId,
+    randomUuid,
+  );
+  if (Result.isFailure(initialized)) return Result.fail(initialized.failure);
+  if (!initialized.success.created && ensuredScope.created) {
+    return Result.fail(new SharedScopeAuthorityConflictError({
+      reason: "clockPreexistedForNewScope",
+      deploymentId,
+      scopeId: ensuredScope.scope.scopeId,
+    }));
+  }
+  return Result.succeed({
+    clock: initialized.success.clock,
+    clockCreated: initialized.success.created,
   });
 }
 

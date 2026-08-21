@@ -530,40 +530,40 @@ export function encodeDeclarativeV2VerifierProgressFrameV2(
   DeclarativeV2VerifierEncodedFrameV2,
   DeclarativeV2VerifierProgressV2Error
 > {
-  const budget = decodeFrameBudget(rawBudget, "encode");
-  if (Result.isFailure(budget)) return Result.fail(budget.failure);
-  const ownedFrame = captureFrame(input, "encode");
-  if (Result.isFailure(ownedFrame)) return Result.fail(ownedFrame.failure);
-  const exactLength = frameByteLength(ownedFrame.success);
-  if (exactLength > budget.success.maximumFrameBytes) {
-    return Result.fail(limitError(
-      "encode",
-      "frameBytesExceeded",
-      exactLength,
-      budget.success.maximumFrameBytes,
-    ));
-  }
-  const canonicalBytes = new Uint8Array(exactLength);
-  const work = encodingWork(ownedFrame.success, exactLength);
-  const actual = writeCapturedFrame(
-    Object.freeze({
-      bytes: canonicalBytes,
-      byteOffset: 0,
-      byteLength: exactLength,
-    }),
-    ownedFrame.success,
-  );
-  assertExactSuccessfulWork(work, actual);
-  // SAFETY: captureFrame validated the input against the frame schema, so the
-  // success member is a captured frame that satisfies the public frame brand.
-  return Result.succeed(Object.freeze({
-    frame: ownedFrame.success as DeclarativeV2VerifierProgressFrameV2,
-    canonicalBytes,
-    usage: Object.freeze({
-      frameBytes: exactLength,
-      canonicalBytes: 0,
-    }),
-  }));
+  return Result.gen(function* () {
+    const budget = yield* decodeFrameBudget(rawBudget, "encode");
+    const ownedFrame = yield* captureFrame(input, "encode");
+    const exactLength = frameByteLength(ownedFrame);
+    if (exactLength > budget.maximumFrameBytes) {
+      return yield* Result.fail(limitError(
+        "encode",
+        "frameBytesExceeded",
+        exactLength,
+        budget.maximumFrameBytes,
+      ));
+    }
+    const canonicalBytes = new Uint8Array(exactLength);
+    const work = encodingWork(ownedFrame, exactLength);
+    const actual = writeCapturedFrame(
+      Object.freeze({
+        bytes: canonicalBytes,
+        byteOffset: 0,
+        byteLength: exactLength,
+      }),
+      ownedFrame,
+    );
+    assertExactSuccessfulWork(work, actual);
+    // SAFETY: captureFrame validated the input against the frame schema, so
+    // ownedFrame satisfies the public frame brand.
+    return Object.freeze({
+      frame: ownedFrame as DeclarativeV2VerifierProgressFrameV2,
+      canonicalBytes,
+      usage: Object.freeze({
+        frameBytes: exactLength,
+        canonicalBytes: 0,
+      }),
+    });
+  });
 }
 
 /**
@@ -913,79 +913,74 @@ export function verifyOwnedDeclarativeV2VerifierProgressFrameV2<E>(
   DeclarativeV2VerifierProgressFrameVerifiedV2,
   DeclarativeV2VerifierProgressV2Error | E
 > {
-  const budget = decodeFrameBudget(rawBudget, "decode");
-  if (Result.isFailure(budget)) return Result.fail(budget.failure);
-  const capturedRange = captureByteRange(rawRange, "decode");
-  if (Result.isFailure(capturedRange)) {
-    return Result.fail(capturedRange.failure);
-  }
-  const range = capturedRange.success;
-  if (range.byteLength === 0) {
-    return Result.fail(progressError("decode", "invalidInput"));
-  }
-  if (range.byteLength > budget.success.maximumFrameBytes) {
-    return Result.fail(limitError(
-      "decode",
-      "frameBytesExceeded",
-      range.byteLength,
-      budget.success.maximumFrameBytes,
-    ));
-  }
-  const work = verificationWork(range.byteLength);
-  const plan = Object.freeze({
-    admittedByteLength: range.byteLength,
-    successfulWorkCeiling: work,
-  });
-  const admitted = admit(plan);
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
-  const visibleLengthAfterAdmission = intrinsicByteLength(range.bytes);
-  if (
-    visibleLengthAfterAdmission === undefined ||
-    range.byteOffset > visibleLengthAfterAdmission ||
-    range.byteLength > visibleLengthAfterAdmission - range.byteOffset
-  ) {
-    return Result.fail(
-      progressError("decode", "invalidInput", "admission.mutatedByteRange"),
-    );
-  }
-  const input = range.byteOffset === 0 &&
-      range.byteLength === visibleLengthAfterAdmission
-    ? range.bytes
-    : range.bytes.subarray(
-      range.byteOffset,
-      range.byteOffset + range.byteLength,
-    );
-  const parsed = parseOwnedFrame(input, false);
-  if (Result.isFailure(parsed)) return Result.fail(parsed.failure);
-  if (frameByteLength(parsed.success) !== input.byteLength) {
-    return Result.fail(progressError("decode", "nonCanonical"));
-  }
-  const comparison = compareCapturedFrame(input, parsed.success);
-  if (!comparison.matches) {
-    return Result.fail(progressError("decode", "nonCanonical"));
-  }
-  if (
-    comparison.work.byteStorageAllocationBytes !== 0 ||
-    comparison.work.byteCopyBytes !== 0 ||
-    comparison.work.byteWriteBytes !== 0 ||
-    comparison.work.byteScanBytes > work.byteScanBytes ||
-    comparison.work.primitiveTransitions > work.primitiveTransitions
-  ) {
-    throw new DeclarativeV2VerifierProgressV2InvariantDefect({
-      reason: "reencodeFailed",
+  return Result.gen(function* () {
+    const budget = yield* decodeFrameBudget(rawBudget, "decode");
+    const range = yield* captureByteRange(rawRange, "decode");
+    if (range.byteLength === 0) {
+      return yield* Result.fail(progressError("decode", "invalidInput"));
+    }
+    if (range.byteLength > budget.maximumFrameBytes) {
+      return yield* Result.fail(limitError(
+        "decode",
+        "frameBytesExceeded",
+        range.byteLength,
+        budget.maximumFrameBytes,
+      ));
+    }
+    const work = verificationWork(range.byteLength);
+    const plan = Object.freeze({
+      admittedByteLength: range.byteLength,
+      successfulWorkCeiling: work,
     });
-  }
-  // SAFETY: parseOwnedFrame succeeded, so the success member is a captured
-  // frame that satisfies the public frame brand.
-  return Result.succeed(Object.freeze({
-    frame: parsed.success as DeclarativeV2VerifierProgressFrameV2,
-    canonicalBytes: input,
-    usage: Object.freeze({
-      frameBytes: input.byteLength,
-      canonicalBytes: 0,
-    }),
-    work: comparison.work,
-  }));
+    yield* admit(plan);
+    const visibleLengthAfterAdmission = intrinsicByteLength(range.bytes);
+    if (
+      visibleLengthAfterAdmission === undefined ||
+      range.byteOffset > visibleLengthAfterAdmission ||
+      range.byteLength > visibleLengthAfterAdmission - range.byteOffset
+    ) {
+      return yield* Result.fail(
+        progressError("decode", "invalidInput", "admission.mutatedByteRange"),
+      );
+    }
+    const input = range.byteOffset === 0 &&
+        range.byteLength === visibleLengthAfterAdmission
+      ? range.bytes
+      : range.bytes.subarray(
+        range.byteOffset,
+        range.byteOffset + range.byteLength,
+      );
+    const parsed = yield* parseOwnedFrame(input, false);
+    if (frameByteLength(parsed) !== input.byteLength) {
+      return yield* Result.fail(progressError("decode", "nonCanonical"));
+    }
+    const comparison = compareCapturedFrame(input, parsed);
+    if (!comparison.matches) {
+      return yield* Result.fail(progressError("decode", "nonCanonical"));
+    }
+    if (
+      comparison.work.byteStorageAllocationBytes !== 0 ||
+      comparison.work.byteCopyBytes !== 0 ||
+      comparison.work.byteWriteBytes !== 0 ||
+      comparison.work.byteScanBytes > work.byteScanBytes ||
+      comparison.work.primitiveTransitions > work.primitiveTransitions
+    ) {
+      throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+        reason: "reencodeFailed",
+      });
+    }
+    // SAFETY: parseOwnedFrame succeeded, so parsed is a captured frame that
+    // satisfies the public frame brand.
+    return Object.freeze({
+      frame: parsed as DeclarativeV2VerifierProgressFrameV2,
+      canonicalBytes: input,
+      usage: Object.freeze({
+        frameBytes: input.byteLength,
+        canonicalBytes: 0,
+      }),
+      work: comparison.work,
+    });
+  });
 }
 
 interface EncodedAdmittedRangeV2 {

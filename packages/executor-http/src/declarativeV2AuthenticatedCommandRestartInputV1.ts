@@ -635,123 +635,131 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
 
   const append:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["append"] =
-      (rawEncoder, rawFrame, rawAllowance) => {
-        const stateResult = encoderState(encoders, rawEncoder, "append");
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "append");
-        if (Result.isFailure(allowance)) {
-          failEncoder(state);
-          return Result.fail(allowance.failure);
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            consumedBytes: 0,
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        const captured = state.pendingProtocolFrame === undefined
-          ? captureEncoderFrame(rawFrame, state, allowance.success)
-          : resumePendingProtocolFrame(rawFrame, state, allowance.success);
-        if (Result.isFailure(captured)) {
-          failEncoder(state);
-          return Result.fail(captured.failure);
-        }
-        if (captured.success === null) {
+      (rawEncoder, rawFrame, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* encoderState(encoders, rawEncoder, "append");
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "append"),
+            (failure) => {
+              failEncoder(state);
+              return failure;
+            },
+          );
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              consumedBytes: 0,
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          const captured = yield* Result.mapError(
+            state.pendingProtocolFrame === undefined
+              ? captureEncoderFrame(rawFrame, state, allowance)
+              : resumePendingProtocolFrame(rawFrame, state, allowance),
+            (failure) => {
+              failEncoder(state);
+              return failure;
+            },
+          );
+          if (captured === null) {
+            const transitions = state.usage.transitions - before.transitions;
+            return Object.freeze({
+              status: "pending",
+              consumedBytes: 0,
+              receipt: receipt(before, state.usage, transitions),
+            });
+          }
+          yield* Result.mapError(
+            acceptFrame(state.grammar, captured, "append"),
+            (failure) => {
+              failEncoder(state);
+              return failure;
+            },
+          );
+          const lengthBytes = frameLengthPrefix(captured.bytes.byteLength);
+          state.wireChunks.push(lengthBytes, captured.bytes);
           const transitions = state.usage.transitions - before.transitions;
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            consumedBytes: 0,
+          if (transitions > allowance) {
+            throw new Error("A1b2c0b2c1a append allowance invariant violated.");
+          }
+          return Object.freeze({
+            status: "accepted",
+            consumedBytes: captured.bytes.byteLength,
             receipt: receipt(before, state.usage, transitions),
-          }));
-        }
-        const accepted = acceptFrame(state.grammar, captured.success, "append");
-        if (Result.isFailure(accepted)) {
-          failEncoder(state);
-          return Result.fail(accepted.failure);
-        }
-        const lengthBytes = frameLengthPrefix(captured.success.bytes.byteLength);
-        state.wireChunks.push(lengthBytes, captured.success.bytes);
-        const transitions = state.usage.transitions - before.transitions;
-        if (transitions > allowance.success) {
-          throw new Error("A1b2c0b2c1a append allowance invariant violated.");
-        }
-        return Result.succeed(Object.freeze({
-          status: "accepted",
-          consumedBytes: captured.success.bytes.byteLength,
-          receipt: receipt(before, state.usage, transitions),
-        }));
-      };
+          });
+        });
 
   const finishEncoder:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["finishEncoder"] =
-      (rawEncoder, rawAllowance) => {
-        const stateResult = encoderState(
-          encoders,
-          rawEncoder,
-          "finishEncoder",
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "finishEncoder");
-        if (Result.isFailure(allowance)) {
-          failEncoder(state);
-          return Result.fail(allowance.failure);
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        const validated = validateFinish(
-          state.grammar,
-          state.usage,
-          state.budget,
-          allowance.success,
-          "finishEncoder",
-        );
-        if (Result.isFailure(validated)) {
-          failEncoder(state);
-          return Result.fail(validated.failure);
-        }
-        if (!validated.success) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(
-              before,
+      (rawEncoder, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* encoderState(
+            encoders,
+            rawEncoder,
+            "finishEncoder",
+          );
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "finishEncoder"),
+            (failure) => {
+              failEncoder(state);
+              return failure;
+            },
+          );
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          const validated = yield* Result.mapError(
+            validateFinish(
+              state.grammar,
               state.usage,
-              state.usage.transitions - before.transitions,
+              state.budget,
+              allowance,
+              "finishEncoder",
             ),
-          }));
-        }
-        // SAFETY: the source is an inert identity token; all source state
-        // lives in the factory-local map keyed by this object identity, so
-        // the brand carries no behavioral claims.
-        const source = Object.freeze({
-          _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
-        }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
-        sources.set(source, {
-          mode: "wire",
-          budget: state.budget,
-          usage: { ...state.usage },
-          chunks: state.wireChunks,
-          chunkIndex: 0,
-          outputOffset: 0,
-          closed: false,
+            (failure) => {
+              failEncoder(state);
+              return failure;
+            },
+          );
+          if (!validated) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(
+                before,
+                state.usage,
+                state.usage.transitions - before.transitions,
+              ),
+            });
+          }
+          // SAFETY: the source is an inert identity token; all source state
+          // lives in the factory-local map keyed by this object identity, so
+          // the brand carries no behavioral claims.
+          const source = Object.freeze({
+            _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
+          }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
+          sources.set(source, {
+            mode: "wire",
+            budget: state.budget,
+            usage: { ...state.usage },
+            chunks: state.wireChunks,
+            chunkIndex: 0,
+            outputOffset: 0,
+            closed: false,
+          });
+          state.terminal = "complete";
+          state.wireChunks = [];
+          clearGrammar(state.grammar);
+          return Object.freeze({
+            status: "complete",
+            source,
+            receipt: receipt(before, state.usage, 0),
+          });
         });
-        state.terminal = "complete";
-        state.wireChunks = [];
-        clearGrammar(state.grammar);
-        return Result.succeed(Object.freeze({
-          status: "complete",
-          source,
-          receipt: receipt(before, state.usage, 0),
-        }));
-      };
 
   const createDecoder:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["createDecoder"] =
@@ -820,396 +828,408 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
 
   const stepDecoder:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["stepDecoder"] =
-      (rawDecoder, rawBytes, rawAllowance) => {
-        const stateResult = decoderState(
-          decoders,
-          rawDecoder,
-          "stepDecoder",
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "stepDecoder");
-        if (Result.isFailure(allowance)) {
-          failDecoder(state);
-          return Result.fail(allowance.failure);
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            consumedBytes: 0,
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        if (!isUint8Array(rawBytes)) {
-          failDecoder(state);
-          return Result.fail(
-            transportError("stepDecoder", "invalidInput", "bytes"),
+      (rawDecoder, rawBytes, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* decoderState(
+            decoders,
+            rawDecoder,
+            "stepDecoder",
           );
-        }
-        const visibleLength = intrinsicByteLength(rawBytes);
-        if (visibleLength === undefined || visibleLength === 0) {
-          failDecoder(state);
-          return Result.fail(
-            transportError("stepDecoder", "invalidInput", "bytes"),
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "stepDecoder"),
+            (failure) => {
+              failDecoder(state);
+              return failure;
+            },
           );
-        }
-        let consumed = 0;
-        while (
-          consumed < visibleLength &&
-          state.usage.transitions - before.transitions < allowance.success
-        ) {
-          if (state.pendingMetadataFrame !== undefined) break;
-          if (state.inputOffset >= state.bodyByteLength) {
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              consumedBytes: 0,
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          const failStepBytes = () => {
             failDecoder(state);
-            return Result.fail(
-              transportError("stepDecoder", "malformed", "trailing"),
+            return transportError("stepDecoder", "invalidInput", "bytes");
+          };
+          if (!isUint8Array(rawBytes)) {
+            return yield* Result.fail(failStepBytes());
+          }
+          const visibleLength = intrinsicByteLength(rawBytes);
+          if (visibleLength === undefined || visibleLength === 0) {
+            return yield* Result.fail(failStepBytes());
+          }
+          let consumed = 0;
+          while (
+            consumed < visibleLength &&
+            state.usage.transitions - before.transitions < allowance
+          ) {
+            if (state.pendingMetadataFrame !== undefined) break;
+            if (state.inputOffset >= state.bodyByteLength) {
+              failDecoder(state);
+              return yield* Result.fail(
+                transportError("stepDecoder", "malformed", "trailing"),
+              );
+            }
+            const remainingAllowance = allowance -
+              (state.usage.transitions - before.transitions);
+            const advanced = yield* Result.mapError(
+              consumeDecoderByte(
+                state,
+                rawBytes,
+                consumed,
+                remainingAllowance,
+              ),
+              (failure) => {
+                failDecoder(state);
+                return failure;
+              },
             );
+            if (!advanced) break;
+            consumed += 1;
+            state.inputOffset += 1;
           }
-          const remainingAllowance = allowance.success -
-            (state.usage.transitions - before.transitions);
-          const advanced = consumeDecoderByte(
-            state,
-            rawBytes,
-            consumed,
-            remainingAllowance,
-          );
-          if (Result.isFailure(advanced)) {
-            failDecoder(state);
-            return Result.fail(advanced.failure);
+          if (state.inputOffset === state.bodyByteLength) {
+            state.terminal = "finish";
           }
-          if (!advanced.success) break;
-          consumed += 1;
-          state.inputOffset += 1;
-        }
-        if (state.inputOffset === state.bodyByteLength) {
-          state.terminal = "finish";
-        }
-        return Result.succeed(Object.freeze({
-          status: state.terminal === "finish" ? "accepted" : "pending",
-          consumedBytes: consumed,
-          receipt: receipt(
-            before,
-            state.usage,
-            state.usage.transitions - before.transitions,
-          ),
-        }));
-      };
+          return Object.freeze({
+            status: state.terminal === "finish" ? "accepted" : "pending",
+            consumedBytes: consumed,
+            receipt: receipt(
+              before,
+              state.usage,
+              state.usage.transitions - before.transitions,
+            ),
+          });
+        });
 
   const finishDecoder:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["finishDecoder"] =
-      (rawDecoder, rawAllowance) => {
-        const stateResult = decoderState(
-          decoders,
-          rawDecoder,
-          "finishDecoder",
-          true,
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "finishDecoder");
-        if (Result.isFailure(allowance)) {
-          failDecoder(state);
-          return Result.fail(allowance.failure);
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        if (state.pendingMetadataFrame !== undefined) {
-          const parsed = parsePendingDecoderMetadata(
-            state,
-            allowance.success,
+      (rawDecoder, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* decoderState(
+            decoders,
+            rawDecoder,
+            "finishDecoder",
+            true,
           );
-          if (Result.isFailure(parsed)) {
-            failDecoder(state);
-            return Result.fail(parsed.failure);
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "finishDecoder"),
+            (failure) => {
+              failDecoder(state);
+              return failure;
+            },
+          );
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(before, state.usage, 0),
+            });
           }
-          if (!parsed.success) {
-            return Result.succeed(Object.freeze({
+          if (state.pendingMetadataFrame !== undefined) {
+            const parsed = yield* Result.mapError(
+              parsePendingDecoderMetadata(state, allowance),
+              (failure) => {
+                failDecoder(state);
+                return failure;
+              },
+            );
+            if (!parsed) {
+              return Object.freeze({
+                status: "pending",
+                receipt: receipt(
+                  before,
+                  state.usage,
+                  state.usage.transitions - before.transitions,
+                ),
+              });
+            }
+          }
+          if (
+            state.terminal !== "finish" ||
+            state.frameLengthOffset !== 0 ||
+            state.frameLength !== undefined ||
+            state.metadataFrame !== undefined ||
+            state.payloadHeaderOffset !== 0 ||
+            state.payloadBodyLength !== 0
+          ) {
+            if (state.terminal === "finish") {
+              failDecoder(state);
+              return yield* Result.fail(
+                transportError("finishDecoder", "invalidGrammar", "truncated"),
+              );
+            }
+            return Object.freeze({
               status: "pending",
               receipt: receipt(
                 before,
                 state.usage,
                 state.usage.transitions - before.transitions,
               ),
-            }));
+            });
           }
-        }
-        if (
-          state.terminal !== "finish" ||
-          state.frameLengthOffset !== 0 ||
-          state.frameLength !== undefined ||
-          state.metadataFrame !== undefined ||
-          state.payloadHeaderOffset !== 0 ||
-          state.payloadBodyLength !== 0
-        ) {
-          if (state.terminal === "finish") {
-            failDecoder(state);
-            return Result.fail(
-              transportError("finishDecoder", "invalidGrammar", "truncated"),
-            );
+          const remainingAllowance = allowance -
+            (state.usage.transitions - before.transitions);
+          const validated = yield* Result.mapError(
+            validateFinish(
+              state.grammar,
+              state.usage,
+              state.budget,
+              remainingAllowance,
+              "finishDecoder",
+            ),
+            (failure) => {
+              failDecoder(state);
+              return failure;
+            },
+          );
+          if (!validated) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(
+                before,
+                state.usage,
+                state.usage.transitions - before.transitions,
+              ),
+            });
           }
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(
-              before,
-              state.usage,
-              state.usage.transitions - before.transitions,
-            ),
-          }));
-        }
-        const remainingAllowance = allowance.success -
-          (state.usage.transitions - before.transitions);
-        const validated = validateFinish(
-          state.grammar,
-          state.usage,
-          state.budget,
-          remainingAllowance,
-          "finishDecoder",
-        );
-        if (Result.isFailure(validated)) {
-          failDecoder(state);
-          return Result.fail(validated.failure);
-        }
-        if (!validated.success) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(
-              before,
-              state.usage,
-              state.usage.transitions - before.transitions,
-            ),
-          }));
-        }
-        // SAFETY: the source is an inert identity token; all source state
-        // lives in the factory-local map keyed by this object identity, so
-        // the brand carries no behavioral claims.
-        const source = Object.freeze({
-          _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
-        }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
-        const header = state.grammar.header!;
-        const terminal = state.grammar.terminal!;
-        const transferredPages = state.grammar.pages;
-        state.grammar.pages = [];
-        sources.set(source, {
-          mode: "rawPages",
-          budget: state.budget,
-          usage: { ...state.usage },
-          header,
-          terminal,
-          pages: transferredPages,
-          closed: false,
+          // SAFETY: the source is an inert identity token; all source state
+          // lives in the factory-local map keyed by this object identity, so
+          // the brand carries no behavioral claims.
+          const source = Object.freeze({
+            _tag: "DeclarativeV2AuthenticatedCommandRestartInputSourceV1",
+          }) as DeclarativeV2AuthenticatedCommandRestartInputSourceV1;
+          const header = state.grammar.header!;
+          const terminal = state.grammar.terminal!;
+          const transferredPages = state.grammar.pages;
+          state.grammar.pages = [];
+          sources.set(source, {
+            mode: "rawPages",
+            budget: state.budget,
+            usage: { ...state.usage },
+            header,
+            terminal,
+            pages: transferredPages,
+            closed: false,
+          });
+          state.terminal = "complete";
+          state.pendingMetadataFrame = undefined;
+          state.metadataFrame = undefined;
+          state.grammar.header = undefined;
+          state.grammar.output = undefined;
+          state.grammar.outputBytes = undefined;
+          state.grammar.terminal = undefined;
+          state.grammar.manifestSequenceHash.clear();
+          state.grammar.payloadHash.clear();
+          return Object.freeze({
+            status: "complete",
+            source,
+            receipt: receipt(before, state.usage, 0),
+          });
         });
-        state.terminal = "complete";
-        state.pendingMetadataFrame = undefined;
-        state.metadataFrame = undefined;
-        state.grammar.header = undefined;
-        state.grammar.output = undefined;
-        state.grammar.outputBytes = undefined;
-        state.grammar.terminal = undefined;
-        state.grammar.manifestSequenceHash.clear();
-        state.grammar.payloadHash.clear();
-        return Result.succeed(Object.freeze({
-          status: "complete",
-          source,
-          receipt: receipt(before, state.usage, 0),
-        }));
-      };
 
   const claimSource:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["claimSource"] =
-      (rawSource, rawClaim, rawAllowance) => {
-        const stateResult = sourceState(
-          sources,
-          rawSource,
-          "claimSource",
-          "rawPages",
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const claimed = Result.gen(function* () {
-          const allowance = yield* captureAllowance(
-            rawAllowance,
+      (rawSource, rawClaim, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* sourceState(
+            sources,
+            rawSource,
             "claimSource",
+            "rawPages",
           );
-          const before = snapshotUsage(state.usage);
-          if (allowance < CLAIM_TRANSITIONS) {
-            return Object.freeze({
-              status: "pending",
-              receipt: receipt(before, state.usage, 0),
-            }) satisfies DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1;
-          }
-          yield* chargeMany(
-            state.usage,
-            state.budget,
-            [
-              ["allocationBytes", CLAIMED_SOURCE_FIXED_STATE_ALLOCATION_BYTES],
-              ["scanBytes", CLAIM_SCAN_BYTES],
-              ["transitions", CLAIM_TRANSITIONS],
-            ],
-            "claimSource",
-            "claim",
+          return yield* Result.mapError(
+            Result.gen(function* () {
+              const allowance = yield* captureAllowance(
+                rawAllowance,
+                "claimSource",
+              );
+              const before = snapshotUsage(state.usage);
+              if (allowance < CLAIM_TRANSITIONS) {
+                return Object.freeze({
+                  status: "pending",
+                  receipt: receipt(before, state.usage, 0),
+                }) satisfies DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1;
+              }
+              yield* chargeMany(
+                state.usage,
+                state.budget,
+                [
+                  ["allocationBytes", CLAIMED_SOURCE_FIXED_STATE_ALLOCATION_BYTES],
+                  ["scanBytes", CLAIM_SCAN_BYTES],
+                  ["transitions", CLAIM_TRANSITIONS],
+                ],
+                "claimSource",
+                "claim",
+              );
+              const claim = yield* captureClaim(rawClaim);
+              yield* compareClaim(state, claim);
+              // SAFETY: the claimed source is an inert identity token; all
+              // state lives in the factory-local map keyed by this object
+              // identity, so the brand carries no behavioral claims.
+              const claimedSource = Object.freeze({
+                _tag:
+                  "DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1",
+              }) as DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1;
+              const pages = state.pages;
+              state.pages = [];
+              state.header = undefined;
+              state.terminal = undefined;
+              state.closed = true;
+              sources.set(claimedSource, {
+                mode: "claimedPages",
+                budget: state.budget,
+                usage: state.usage,
+                pages,
+                nextPageOrdinal: 0n,
+                phase: "metadata",
+                closed: false,
+              });
+              return Object.freeze({
+                status: "complete",
+                source: claimedSource,
+                receipt: receipt(before, state.usage, CLAIM_TRANSITIONS),
+              }) satisfies DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1;
+            }),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
           );
-          const claim = yield* captureClaim(rawClaim);
-          yield* compareClaim(state, claim);
-          // SAFETY: the claimed source is an inert identity token; all
-          // state lives in the factory-local map keyed by this object
-          // identity, so the brand carries no behavioral claims.
-          const claimedSource = Object.freeze({
-            _tag:
-              "DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1",
-          }) as DeclarativeV2AuthenticatedCommandRestartInputClaimedSourceV1;
-          const pages = state.pages;
-          state.pages = [];
-          state.header = undefined;
-          state.terminal = undefined;
-          state.closed = true;
-          sources.set(claimedSource, {
-            mode: "claimedPages",
-            budget: state.budget,
-            usage: state.usage,
-            pages,
-            nextPageOrdinal: 0n,
-            phase: "metadata",
-            closed: false,
-          });
-          return Object.freeze({
-            status: "complete",
-            source: claimedSource,
-            receipt: receipt(before, state.usage, CLAIM_TRANSITIONS),
-          }) satisfies DeclarativeV2AuthenticatedCommandRestartInputClaimStepV1;
         });
-        if (Result.isFailure(claimed)) closeSource(state);
-        return claimed;
-      };
 
   const stepWire:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["stepWire"] =
-      (rawSource, rawAllowance) => {
-        const stateResult = sourceState(
-          sources,
-          rawSource,
-          "stepWire",
-          "wire",
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "stepWire");
-        if (Result.isFailure(allowance)) {
-          closeSource(state);
-          return Result.fail(allowance.failure);
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        if (state.chunkIndex >= state.chunks.length) {
-          closeSource(state);
-          return Result.succeed(Object.freeze({
-            status: "complete",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        const charged = charge(
-          state.usage,
-          state.budget,
-          "transitions",
-          1,
-          "stepWire",
-          "chunk",
-        );
-        if (Result.isFailure(charged)) {
-          closeSource(state);
-          return Result.fail(charged.failure);
-        }
-        const index = state.chunkIndex;
-        const bytes = state.chunks[index]!;
-        state.chunks[index] = EMPTY_BYTES;
-        state.chunkIndex += 1;
-        const offset = state.outputOffset;
-        state.outputOffset += bytes.byteLength;
-        return Result.succeed(Object.freeze({
-          status: "chunk",
-          bytes,
-          offset,
-          receipt: receipt(before, state.usage, 1),
-        }));
-      };
+      (rawSource, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* sourceState(
+            sources,
+            rawSource,
+            "stepWire",
+            "wire",
+          );
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "stepWire"),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
+          );
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          if (state.chunkIndex >= state.chunks.length) {
+            closeSource(state);
+            return Object.freeze({
+              status: "complete",
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          yield* Result.mapError(
+            charge(
+              state.usage,
+              state.budget,
+              "transitions",
+              1,
+              "stepWire",
+              "chunk",
+            ),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
+          );
+          const index = state.chunkIndex;
+          const bytes = state.chunks[index]!;
+          state.chunks[index] = EMPTY_BYTES;
+          state.chunkIndex += 1;
+          const offset = state.outputOffset;
+          state.outputOffset += bytes.byteLength;
+          return Object.freeze({
+            status: "chunk",
+            bytes,
+            offset,
+            receipt: receipt(before, state.usage, 1),
+          });
+        });
 
   const metadata:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["metadata"] =
-      (rawSource, rawPageOrdinal, rawAllowance) => {
-        const stateResult = sourceState(
-          sources,
-          rawSource,
-          "metadata",
-          "claimedPages",
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "metadata");
-        if (Result.isFailure(allowance)) {
-          closeSource(state);
-          return Result.fail(allowance.failure);
-        }
-        const pageOrdinal = captureU64(rawPageOrdinal, false);
-        if (
-          pageOrdinal === undefined ||
-          pageOrdinal !== state.nextPageOrdinal ||
-          state.phase !== "metadata"
-        ) {
-          closeSource(state);
-          return Result.fail(
-            transportError("metadata", "staleAuthority", "pageOrdinal"),
+      (rawSource, rawPageOrdinal, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* sourceState(
+            sources,
+            rawSource,
+            "metadata",
+            "claimedPages",
           );
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        if (pageOrdinal === BigInt(state.pages.length)) {
-          closeSource(state);
-          return Result.succeed(Object.freeze({
-            status: "complete",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        const charged = charge(
-          state.usage,
-          state.budget,
-          "transitions",
-          1,
-          "metadata",
-          "metadata",
-        );
-        if (Result.isFailure(charged)) {
-          closeSource(state);
-          return Result.fail(charged.failure);
-        }
-        const page = state.pages[Number(pageOrdinal)]!;
-        const manifestBytes = page.manifestBytes;
-        const manifestSha256 = page.manifestSha256;
-        page.manifestBytes = EMPTY_BYTES;
-        page.manifestSha256 = EMPTY_BYTES;
-        page.manifest = undefined;
-        state.phase = "body";
-        return Result.succeed(Object.freeze({
-          status: "metadata",
-          manifestBytes,
-          manifestSha256,
-          receipt: receipt(before, state.usage, 1),
-        }));
-      };
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "metadata"),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
+          );
+          const pageOrdinal = captureU64(rawPageOrdinal, false);
+          if (
+            pageOrdinal === undefined ||
+            pageOrdinal !== state.nextPageOrdinal ||
+            state.phase !== "metadata"
+          ) {
+            closeSource(state);
+            return yield* Result.fail(
+              transportError("metadata", "staleAuthority", "pageOrdinal"),
+            );
+          }
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          if (pageOrdinal === BigInt(state.pages.length)) {
+            closeSource(state);
+            return Object.freeze({
+              status: "complete",
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          yield* Result.mapError(
+            charge(
+              state.usage,
+              state.budget,
+              "transitions",
+              1,
+              "metadata",
+              "metadata",
+            ),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
+          );
+          const page = state.pages[Number(pageOrdinal)]!;
+          const manifestBytes = page.manifestBytes;
+          const manifestSha256 = page.manifestSha256;
+          page.manifestBytes = EMPTY_BYTES;
+          page.manifestSha256 = EMPTY_BYTES;
+          page.manifest = undefined;
+          state.phase = "body";
+          return Object.freeze({
+            status: "metadata",
+            manifestBytes,
+            manifestSha256,
+            receipt: receipt(before, state.usage, 1),
+          });
+        });
 
   const body:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["body"] =
@@ -1218,68 +1238,71 @@ export function makeDeclarativeV2AuthenticatedCommandRestartInputFactoryV1():
         rawPageOrdinal,
         rawAdmittedByteLength,
         rawAllowance,
-      ) => {
-        const stateResult = sourceState(
-          sources,
-          rawSource,
-          "body",
-          "claimedPages",
-        );
-        if (Result.isFailure(stateResult)) return Result.fail(stateResult.failure);
-        const state = stateResult.success;
-        const allowance = captureAllowance(rawAllowance, "body");
-        if (Result.isFailure(allowance)) {
-          closeSource(state);
-          return Result.fail(allowance.failure);
-        }
-        const pageOrdinal = captureU64(rawPageOrdinal, false);
-        const admittedByteLength = captureU64(rawAdmittedByteLength, true);
-        const page = pageOrdinal === undefined
-          ? undefined
-          : state.pages[Number(pageOrdinal)];
-        if (
-          pageOrdinal === undefined ||
-          admittedByteLength === undefined ||
-          pageOrdinal !== state.nextPageOrdinal ||
-          state.phase !== "body" ||
-          page === undefined ||
-          admittedByteLength !== page.payloadByteLength ||
-          page.body === undefined
-        ) {
-          closeSource(state);
-          return Result.fail(
-            transportError("body", "staleAuthority", "pageOrdinal"),
+      ) =>
+        Result.gen(function* () {
+          const state = yield* sourceState(
+            sources,
+            rawSource,
+            "body",
+            "claimedPages",
           );
-        }
-        const before = snapshotUsage(state.usage);
-        if (allowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: receipt(before, state.usage, 0),
-          }));
-        }
-        const charged = charge(
-          state.usage,
-          state.budget,
-          "transitions",
-          1,
-          "body",
-          "body",
-        );
-        if (Result.isFailure(charged)) {
-          closeSource(state);
-          return Result.fail(charged.failure);
-        }
-        const bytes = page.body;
-        page.body = undefined;
-        state.nextPageOrdinal += 1n;
-        state.phase = "metadata";
-        return Result.succeed(Object.freeze({
-          status: "body",
-          bytes,
-          receipt: receipt(before, state.usage, 1),
-        }));
-      };
+          const allowance = yield* Result.mapError(
+            captureAllowance(rawAllowance, "body"),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
+          );
+          const pageOrdinal = captureU64(rawPageOrdinal, false);
+          const admittedByteLength = captureU64(rawAdmittedByteLength, true);
+          const page = pageOrdinal === undefined
+            ? undefined
+            : state.pages[Number(pageOrdinal)];
+          if (
+            pageOrdinal === undefined ||
+            admittedByteLength === undefined ||
+            pageOrdinal !== state.nextPageOrdinal ||
+            state.phase !== "body" ||
+            page === undefined ||
+            admittedByteLength !== page.payloadByteLength ||
+            page.body === undefined
+          ) {
+            closeSource(state);
+            return yield* Result.fail(
+              transportError("body", "staleAuthority", "pageOrdinal"),
+            );
+          }
+          const before = snapshotUsage(state.usage);
+          if (allowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: receipt(before, state.usage, 0),
+            });
+          }
+          yield* Result.mapError(
+            charge(
+              state.usage,
+              state.budget,
+              "transitions",
+              1,
+              "body",
+              "body",
+            ),
+            (failure) => {
+              closeSource(state);
+              return failure;
+            },
+          );
+          const bytes = page.body;
+          page.body = undefined;
+          state.nextPageOrdinal += 1n;
+          state.phase = "metadata";
+          return Object.freeze({
+            status: "body",
+            bytes,
+            receipt: receipt(before, state.usage, 1),
+          });
+        });
 
   const close:
     DeclarativeV2AuthenticatedCommandRestartInputFactoryV1["close"] =
@@ -1353,94 +1376,98 @@ function captureEncoderFrame(
   CapturedFrame | null,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
-  const record = ownDataRecordLoose(input, "append", "frame");
-  if (Result.isFailure(record)) return Result.fail(record.failure);
-  const kind = record.success.kind;
-  if (kind === "restart_header") {
-    return captureHeader(input, state, allowance);
-  }
-  if (kind === "source_output_manifest" || kind === "page_manifest") {
-    const exact = ownDataRecord(input, ["kind", "frame"], "append");
-    if (Result.isFailure(exact)) return Result.fail(exact.failure);
-    let wrapper: Uint8Array | undefined;
-    const encoded = encodeDeclarativeV2VerifierProgressFrameIntoV2<
-      DeclarativeV2AuthenticatedCommandRestartInputV1Error | AllowancePending
-    >(
-      exact.success.frame,
-      progressFrameBudget(state.budget),
-      plan => {
-        const frameByteLength = 5 + plan.canonicalByteLength;
-        const requiredTransitions = frameByteLength +
-          plan.successfulWork.primitiveTransitions;
-        if (
-          frameByteLength > 5 + MAX_PROTOCOL_FRAME_BYTES ||
-          requiredTransitions > allowance
-        ) {
-          return frameByteLength > 5 + MAX_PROTOCOL_FRAME_BYTES
-            ? Result.fail(transportError(
+  return Result.gen(function* () {
+    const record = yield* ownDataRecordLoose(input, "append", "frame");
+    const kind = record.kind;
+    if (kind === "restart_header") {
+      return yield* captureHeader(input, state, allowance);
+    }
+    if (kind === "source_output_manifest" || kind === "page_manifest") {
+      const exact = yield* ownDataRecord(input, ["kind", "frame"], "append");
+      let wrapper: Uint8Array | undefined;
+      const encoded = encodeDeclarativeV2VerifierProgressFrameIntoV2<
+        DeclarativeV2AuthenticatedCommandRestartInputV1Error | AllowancePending
+      >(
+        exact.frame,
+        progressFrameBudget(state.budget),
+        plan => {
+          const frameByteLength = 5 + plan.canonicalByteLength;
+          const requiredTransitions = frameByteLength +
+            plan.successfulWork.primitiveTransitions;
+          if (
+            frameByteLength > 5 + MAX_PROTOCOL_FRAME_BYTES ||
+            requiredTransitions > allowance
+          ) {
+            return frameByteLength > 5 + MAX_PROTOCOL_FRAME_BYTES
+              ? Result.fail(transportError(
+                "append",
+                "frameBytesExceeded",
+                kind,
+                frameByteLength,
+                5 + MAX_PROTOCOL_FRAME_BYTES,
+              ))
+              : Result.fail(ALLOWANCE_PENDING);
+          }
+          const admitted = prechargeEncoderFrame(
+            state,
+            frameByteLength,
+            0,
+            0,
+            plan.successfulWork,
+            0,
+            0,
+            kind === "page_manifest" ? 1 : 0,
+          );
+          if (Result.isFailure(admitted)) {
+            return Result.fail(admitted.failure);
+          }
+          try {
+            wrapper = new Uint8Array(frameByteLength);
+          } catch {
+            return Result.fail(transportError(
               "append",
-              "frameBytesExceeded",
+              "allocationBytesExceeded",
               kind,
               frameByteLength,
-              5 + MAX_PROTOCOL_FRAME_BYTES,
-            ))
-            : Result.fail(ALLOWANCE_PENDING);
-        }
-        const admitted = prechargeEncoderFrame(
-          state,
-          frameByteLength,
-          0,
-          0,
-          plan.successfulWork,
-          0,
-          0,
-          kind === "page_manifest" ? 1 : 0,
-        );
-        if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
-        try {
-          wrapper = new Uint8Array(frameByteLength);
-        } catch {
-          return Result.fail(transportError(
-            "append",
-            "allocationBytesExceeded",
-            kind,
-            frameByteLength,
-            state.budget.maximumAllocationBytes,
-          ));
-        }
-        wrapper[0] = kind === "source_output_manifest" ? 2 : 3;
-        writeU32(wrapper, 1, plan.canonicalByteLength);
-        return Result.succeed(Object.freeze({
-          bytes: wrapper,
-          byteOffset: 5,
-          byteLength: plan.canonicalByteLength,
-        }));
-      },
-    );
-    if (Result.isFailure(encoded)) {
-      return isAllowancePending(encoded.failure)
-        ? Result.succeed(null)
-        : Result.fail(protocolOrTransportFailure("append", kind, encoded.failure));
+              state.budget.maximumAllocationBytes,
+            ));
+          }
+          wrapper[0] = kind === "source_output_manifest" ? 2 : 3;
+          writeU32(wrapper, 1, plan.canonicalByteLength);
+          return Result.succeed(Object.freeze({
+            bytes: wrapper,
+            byteOffset: 5,
+            byteLength: plan.canonicalByteLength,
+          }));
+        },
+      );
+      if (Result.isFailure(encoded)) {
+        return isAllowancePending(encoded.failure)
+          ? null
+          : yield* Result.fail(
+            protocolOrTransportFailure("append", kind, encoded.failure),
+          );
+      }
+      // SAFETY: ownDataRecordLoose proved the input is a non-null non-array
+      // object; it is retained only for identity comparison on resume.
+      state.pendingProtocolFrame = Object.freeze({
+        input: input as object,
+        kind,
+        bytes: encoded.success.range.bytes,
+        verified: undefined,
+      });
+      return null;
     }
-    // SAFETY: ownDataRecordLoose proved the input is a non-null non-array
-    // object; it is retained only for identity comparison on resume.
-    state.pendingProtocolFrame = Object.freeze({
-      input: input as object,
-      kind,
-      bytes: encoded.success.range.bytes,
-      verified: undefined,
-    });
-    return Result.succeed(null);
-  }
-  if (kind === "restart_terminal") {
-    return captureTerminal(input, state, allowance);
-  }
-  if (kind === "payload") {
-    return capturePayload(input, state, allowance);
-  }
-  return Result.fail(
-    transportError("append", "invalidGrammar", "frame.kind"),
-  );
+    if (kind === "restart_terminal") {
+      return yield* captureTerminal(input, state, allowance);
+    }
+    if (kind === "payload") {
+      return yield* capturePayload(input, state, allowance);
+    }
+    return yield* Result.fail(
+      transportError("append", "invalidGrammar", "frame.kind"),
+    );
+  });
 }
 
 function captureHeader(
@@ -1451,19 +1478,19 @@ function captureHeader(
   CapturedFrame | null,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
-  const record = ownDataRecord(input, HEADER_KEYS, "append");
-  if (Result.isFailure(record)) return Result.fail(record.failure);
-  const targetCommandKind = captureCommandKind(record.success.targetCommandKind);
-  const sourceCommandKind = captureRestartKind(record.success.sourceCommandKind);
-  const targetSequence = captureU64(record.success.targetSequence, true);
-  const sourceSequence = captureU64(record.success.sourceSequence, true);
+  return Result.gen(function* () {
+  const record = yield* ownDataRecord(input, HEADER_KEYS, "append");
+  const targetCommandKind = captureCommandKind(record.targetCommandKind);
+  const sourceCommandKind = captureRestartKind(record.sourceCommandKind);
+  const targetSequence = captureU64(record.targetSequence, true);
+  const sourceSequence = captureU64(record.sourceSequence, true);
   if (
     targetCommandKind === undefined ||
     sourceCommandKind === undefined ||
     targetSequence === undefined ||
     sourceSequence === undefined
   ) {
-    return Result.fail(transportError("append", "invalidInput", "header"));
+    return yield* Result.fail(transportError("append", "invalidInput", "header"));
   }
   const digestKeys = [
     "targetRequestSha256",
@@ -1478,8 +1505,8 @@ function captureHeader(
     "sourceSettledReceiptSha256",
   ] as const;
   for (const key of digestKeys) {
-    if (!isUint8ArrayWithByteLength(record.success[key], SHA256_BYTES)) {
-      return Result.fail(transportError("append", "invalidInput", key));
+    if (!isUint8ArrayWithByteLength(record[key], SHA256_BYTES)) {
+      return yield* Result.fail(transportError("append", "invalidInput", key));
     }
   }
   const acceptanceTransitions = localAcceptanceTransitions(
@@ -1487,8 +1514,8 @@ function captureHeader(
     "restart_header",
   );
   const requiredTransitions = HEADER_FRAME_BYTES + acceptanceTransitions;
-  if (requiredTransitions > allowance) return Result.succeed(null);
-  const admitted = prechargeEncoderFrame(
+  if (requiredTransitions > allowance) return null;
+  yield* prechargeEncoderFrame(
     state,
     HEADER_FRAME_BYTES,
     0,
@@ -1499,13 +1526,12 @@ function captureHeader(
     0,
     acceptanceTransitions,
   );
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const bytes = new Uint8Array(HEADER_FRAME_BYTES);
   bytes[0] = 1;
   let offset = 1;
-  copyDigest(bytes, offset, record.success.targetRequestSha256);
+  copyDigest(bytes, offset, record.targetRequestSha256);
   const targetRequestSha256 = bytes.subarray(offset, offset += SHA256_BYTES);
-  copyDigest(bytes, offset, record.success.targetReservationSha256);
+  copyDigest(bytes, offset, record.targetReservationSha256);
   const targetReservationSha256 = bytes.subarray(
     offset,
     offset += SHA256_BYTES,
@@ -1513,18 +1539,18 @@ function captureHeader(
   bytes[offset++] = commandKindTag(targetCommandKind);
   writeU64(bytes, offset, targetSequence);
   offset += 8;
-  copyDigest(bytes, offset, record.success.analyzerReleaseSha256);
+  copyDigest(bytes, offset, record.analyzerReleaseSha256);
   const analyzerReleaseSha256 = bytes.subarray(offset, offset += SHA256_BYTES);
-  copyDigest(bytes, offset, record.success.analyzerIdentitySha256);
+  copyDigest(bytes, offset, record.analyzerIdentitySha256);
   const analyzerIdentitySha256 = bytes.subarray(offset, offset += SHA256_BYTES);
-  copyDigest(bytes, offset, record.success.verifierIdentitySha256);
+  copyDigest(bytes, offset, record.verifierIdentitySha256);
   const verifierIdentitySha256 = bytes.subarray(offset, offset += SHA256_BYTES);
-  copyDigest(bytes, offset, record.success.rangeAndPredecessorTailsSha256);
+  copyDigest(bytes, offset, record.rangeAndPredecessorTailsSha256);
   const rangeAndPredecessorTailsSha256 = bytes.subarray(
     offset,
     offset += SHA256_BYTES,
   );
-  copyDigest(bytes, offset, record.success.sourceReservationSha256);
+  copyDigest(bytes, offset, record.sourceReservationSha256);
   const sourceReservationSha256 = bytes.subarray(
     offset,
     offset += SHA256_BYTES,
@@ -1532,17 +1558,17 @@ function captureHeader(
   bytes[offset++] = commandKindTag(sourceCommandKind);
   writeU64(bytes, offset, sourceSequence);
   offset += 8;
-  copyDigest(bytes, offset, record.success.sourceAuthenticatedInputSha256);
+  copyDigest(bytes, offset, record.sourceAuthenticatedInputSha256);
   const sourceAuthenticatedInputSha256 = bytes.subarray(
     offset,
     offset += SHA256_BYTES,
   );
-  copyDigest(bytes, offset, record.success.sourceOutputManifestSha256);
+  copyDigest(bytes, offset, record.sourceOutputManifestSha256);
   const sourceOutputManifestSha256 = bytes.subarray(
     offset,
     offset += SHA256_BYTES,
   );
-  copyDigest(bytes, offset, record.success.sourceSettledReceiptSha256);
+  copyDigest(bytes, offset, record.sourceSettledReceiptSha256);
   const sourceSettledReceiptSha256 = bytes.subarray(
     offset,
     offset + SHA256_BYTES,
@@ -1564,11 +1590,12 @@ function captureHeader(
     sourceOutputManifestSha256,
     sourceSettledReceiptSha256,
   }) satisfies DeclarativeV2AuthenticatedCommandRestartInputHeaderV1;
-  return Result.succeed(Object.freeze({
+  return Object.freeze({
     frame,
     bytes,
     payloadBytes: 0,
-  }));
+  });
+  });
 }
 
 function captureTerminal(
@@ -1579,7 +1606,8 @@ function captureTerminal(
   CapturedFrame | null,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
-  const record = ownDataRecord(
+  return Result.gen(function* () {
+  const record = yield* ownDataRecord(
     input,
     [
       "kind",
@@ -1591,23 +1619,22 @@ function captureTerminal(
     ],
     "append",
   );
-  if (Result.isFailure(record)) return Result.fail(record.failure);
-  const pageCount = captureU64(record.success.pageCount, true);
+  const pageCount = captureU64(record.pageCount, true);
   const payloadByteLength = captureU64(
-    record.success.payloadByteLength,
+    record.payloadByteLength,
     true,
   );
   if (
     pageCount === undefined ||
     payloadByteLength === undefined ||
-    !isUint8ArrayWithByteLength(record.success.finalPageSha256, SHA256_BYTES) ||
+    !isUint8ArrayWithByteLength(record.finalPageSha256, SHA256_BYTES) ||
     !isUint8ArrayWithByteLength(
-      record.success.manifestSequenceSha256,
+      record.manifestSequenceSha256,
       SHA256_BYTES,
     ) ||
-    !isUint8ArrayWithByteLength(record.success.payloadSha256, SHA256_BYTES)
+    !isUint8ArrayWithByteLength(record.payloadSha256, SHA256_BYTES)
   ) {
-    return Result.fail(transportError("append", "invalidInput", "terminal"));
+    return yield* Result.fail(transportError("append", "invalidInput", "terminal"));
   }
   const acceptanceTransitions = localAcceptanceTransitions(
     state.grammar,
@@ -1615,8 +1642,8 @@ function captureTerminal(
   );
   if (
     TERMINAL_FRAME_BYTES + acceptanceTransitions > allowance
-  ) return Result.succeed(null);
-  const admitted = prechargeEncoderFrame(
+  ) return null;
+  yield* prechargeEncoderFrame(
     state,
     TERMINAL_FRAME_BYTES,
     0,
@@ -1627,14 +1654,13 @@ function captureTerminal(
     0,
     acceptanceTransitions,
   );
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const bytes = new Uint8Array(TERMINAL_FRAME_BYTES);
   bytes[0] = 4;
   writeU64(bytes, 1, pageCount);
   writeU64(bytes, 9, payloadByteLength);
-  copyDigest(bytes, 17, record.success.finalPageSha256);
-  copyDigest(bytes, 49, record.success.manifestSequenceSha256);
-  copyDigest(bytes, 81, record.success.payloadSha256);
+  copyDigest(bytes, 17, record.finalPageSha256);
+  copyDigest(bytes, 49, record.manifestSequenceSha256);
+  copyDigest(bytes, 81, record.payloadSha256);
   const frame = Object.freeze({
     kind: "restart_terminal",
     pageCount,
@@ -1643,11 +1669,12 @@ function captureTerminal(
     manifestSequenceSha256: bytes.subarray(49, 81),
     payloadSha256: bytes.subarray(81, 113),
   }) satisfies DeclarativeV2AuthenticatedCommandRestartInputTerminalV1;
-  return Result.succeed(Object.freeze({
+  return Object.freeze({
     frame,
     bytes,
     payloadBytes: 0,
-  }));
+  });
+  });
 }
 
 function capturePayload(
@@ -1658,29 +1685,29 @@ function capturePayload(
   CapturedFrame | null,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
-  const record = ownDataRecord(
+  return Result.gen(function* () {
+  const record = yield* ownDataRecord(
     input,
     ["kind", "pageOrdinal", "offset", "bytes"],
     "append",
   );
-  if (Result.isFailure(record)) return Result.fail(record.failure);
-  const pageOrdinal = captureU64(record.success.pageOrdinal, false);
-  const offset = captureU64(record.success.offset, false);
+  const pageOrdinal = captureU64(record.pageOrdinal, false);
+  const offset = captureU64(record.offset, false);
   if (
     pageOrdinal === undefined ||
     offset === undefined ||
-    !isUint8Array(record.success.bytes)
+    !isUint8Array(record.bytes)
   ) {
-    return Result.fail(transportError("append", "invalidInput", "payload"));
+    return yield* Result.fail(transportError("append", "invalidInput", "payload"));
   }
-  const payloadLength = intrinsicByteLength(record.success.bytes);
+  const payloadLength = intrinsicByteLength(record.bytes);
   if (
     payloadLength === undefined ||
     payloadLength === 0 ||
     payloadLength >
       DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_PAYLOAD_QUANTUM_BYTES_V1
   ) {
-    return Result.fail(transportError(
+    return yield* Result.fail(transportError(
       "append",
       "payloadBytesExceeded",
       "payload.bytes",
@@ -1696,8 +1723,8 @@ function capturePayload(
   const requiredTransitions = frameByteLength +
     (payloadLength * 2) +
     acceptanceTransitions;
-  if (requiredTransitions > allowance) return Result.succeed(null);
-  const admitted = prechargeEncoderFrame(
+  if (requiredTransitions > allowance) return null;
+  yield* prechargeEncoderFrame(
     state,
     frameByteLength,
     payloadLength,
@@ -1708,16 +1735,15 @@ function capturePayload(
     0,
     acceptanceTransitions,
   );
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const bytes = new Uint8Array(frameByteLength);
   bytes[0] = 5;
   writeU64(bytes, 1, pageOrdinal);
   writeU64(bytes, 9, offset);
   writeU32(bytes, 17, payloadLength);
   try {
-    bytes.set(record.success.bytes, PAYLOAD_HEADER_BYTES);
+    bytes.set(record.bytes, PAYLOAD_HEADER_BYTES);
   } catch {
-    return Result.fail(
+    return yield* Result.fail(
       transportError("append", "invalidInput", "payload.bytes"),
     );
   }
@@ -1728,11 +1754,12 @@ function capturePayload(
     offset,
     bytes: owned,
   }) satisfies DeclarativeV2AuthenticatedCommandRestartInputPayloadV1;
-  return Result.succeed(Object.freeze({
+  return Object.freeze({
     frame,
     bytes,
     payloadBytes: payloadLength,
-  }));
+  });
+  });
 }
 
 function protocolAcceptanceWork(
@@ -1784,12 +1811,13 @@ function resumePendingProtocolFrame(
   CapturedFrame | null,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
+  return Result.gen(function* () {
   const pending = state.pendingProtocolFrame;
   if (pending === undefined) {
     throw new Error("Missing A1b2c0b2c1a pending protocol frame.");
   }
   if (input !== pending.input) {
-    return Result.fail(
+    return yield* Result.fail(
       transportError("append", "invalidInput", "frame.pendingIdentity"),
     );
   }
@@ -1800,8 +1828,8 @@ function resumePendingProtocolFrame(
       pending.kind,
       canonicalByteLength,
     );
-    if (acceptanceWork.transitions > allowance) return Result.succeed(null);
-    const admitted = chargeMany(
+    if (acceptanceWork.transitions > allowance) return null;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [
@@ -1813,7 +1841,6 @@ function resumePendingProtocolFrame(
       "append",
       pending.kind,
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     const digest = sha256(pending.verified.canonicalBytes);
     // SAFETY: pending.kind is one of the verified protocol frame kinds and
     // pending.verified.frame passed progress-frame verification, so the
@@ -1823,13 +1850,13 @@ function resumePendingProtocolFrame(
       frame: pending.verified.frame,
     }) as DeclarativeV2AuthenticatedCommandRestartInputFrameV1;
     state.pendingProtocolFrame = undefined;
-    return Result.succeed(Object.freeze({
+    return Object.freeze({
       frame,
       bytes: pending.bytes,
       canonicalProtocolBytes: pending.verified.canonicalBytes,
       canonicalProtocolSha256: digest,
       payloadBytes: 0,
-    }));
+    });
   }
   const verified = verifyOwnedDeclarativeV2VerifierProgressFrameV2<
     DeclarativeV2AuthenticatedCommandRestartInputV1Error | AllowancePending
@@ -1858,12 +1885,12 @@ function resumePendingProtocolFrame(
   );
   if (Result.isFailure(verified)) {
     return isAllowancePending(verified.failure)
-      ? Result.succeed(null)
-      : Result.fail(
+      ? null
+      : (yield* Result.fail(
         protocolOrTransportFailure("append", pending.kind, verified.failure),
-      );
+      ));
   }
-  const settled = settleWork(
+  yield* settleWork(
     state.usage,
     state.budget,
     verified.success.work,
@@ -1873,12 +1900,11 @@ function resumePendingProtocolFrame(
     "append",
     pending.kind,
   );
-  if (Result.isFailure(settled)) return Result.fail(settled.failure);
   const expectedKind = pending.kind === "source_output_manifest"
     ? "command_output_manifest"
     : "evidence_page_manifest";
   if (verified.success.frame.kind !== expectedKind) {
-    return Result.fail(
+    return yield* Result.fail(
       transportError("append", "invalidGrammar", pending.kind),
     );
   }
@@ -1889,7 +1915,8 @@ function resumePendingProtocolFrame(
       canonicalBytes: verified.success.canonicalBytes,
     }),
   });
-  return Result.succeed(null);
+  return null;
+  });
 }
 
 function acceptFrame(
@@ -2077,26 +2104,26 @@ function consumeDecoderByte(
   boolean,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
+  return Result.gen(function* () {
   if (state.prefixOffset < PREFIX_BYTES) {
-    if (remainingAllowance < 1) return Result.succeed(false);
-    const admitted = chargeMany(
+    if (remainingAllowance < 1) return false;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [["scanBytes", 1], ["transitions", 1]],
       "stepDecoder",
       "prefix",
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     let byte: number;
     try {
       byte = input[inputIndex]!;
     } catch {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("stepDecoder", "invalidInput", "bytes"),
       );
     }
     if (byte !== PREFIX[state.prefixOffset]) {
-      return Result.fail(transportError(
+      return yield* Result.fail(transportError(
         "stepDecoder",
         state.prefixOffset >= 4 + DOMAIN_BYTES.byteLength
           ? "unsupportedVersion"
@@ -2105,7 +2132,7 @@ function consumeDecoderByte(
       ));
     }
     state.prefixOffset += 1;
-    return Result.succeed(true);
+    return true;
   }
   if (state.frameLength === undefined) {
     if (
@@ -2117,23 +2144,22 @@ function consumeDecoderByte(
       state.grammar.payloadByteLength ===
         state.grammar.terminal.payloadByteLength
     ) {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("stepDecoder", "malformed", "trailing"),
       );
     }
-    if (remainingAllowance < 1) return Result.succeed(false);
-    const admitted = chargeMany(
+    if (remainingAllowance < 1) return false;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [["copyBytes", 1], ["transitions", 1]],
       "stepDecoder",
       "frameLength",
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     try {
       state.frameLengthBytes[state.frameLengthOffset] = input[inputIndex]!;
     } catch {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("stepDecoder", "invalidInput", "bytes"),
       );
     }
@@ -2141,34 +2167,33 @@ function consumeDecoderByte(
     if (state.frameLengthOffset === FRAME_LENGTH_BYTES) {
       const length = readU32(state.frameLengthBytes, 0);
       if (length === undefined || length === 0 || length > U32_MAX) {
-        return Result.fail(
+        return yield* Result.fail(
           transportError("stepDecoder", "malformed", "frameLength"),
         );
       }
       state.frameLength = length;
       state.frameLengthOffset = 0;
     }
-    return Result.succeed(true);
+    return true;
   }
   if (state.frameTag === undefined) {
-    if (remainingAllowance < 1) return Result.succeed(false);
-    const admitted = chargeMany(
+    if (remainingAllowance < 1) return false;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [["copyBytes", 1], ["transitions", 1]],
       "stepDecoder",
       "frameTag",
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     let tag: number;
     try {
       tag = input[inputIndex]!;
     } catch {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("stepDecoder", "invalidInput", "bytes"),
       );
     }
-      const frameAdmission = chargeMany(
+      yield* chargeMany(
         state.usage,
         state.budget,
         [
@@ -2179,9 +2204,6 @@ function consumeDecoderByte(
       "stepDecoder",
       "frame",
     );
-    if (Result.isFailure(frameAdmission)) {
-      return Result.fail(frameAdmission.failure);
-    }
     state.frameTag = tag;
     if (tag === 5) {
       if (
@@ -2191,7 +2213,7 @@ function consumeDecoderByte(
           PAYLOAD_HEADER_BYTES +
             DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_PAYLOAD_QUANTUM_BYTES_V1
       ) {
-        return Result.fail(
+        return yield* Result.fail(
           transportError("stepDecoder", "invalidGrammar", "payload"),
         );
       }
@@ -2199,11 +2221,11 @@ function consumeDecoderByte(
       state.payloadHeaderOffset = 1;
     } else {
       if (state.grammar.phase === "payload") {
-        return Result.fail(
+        return yield* Result.fail(
           transportError("stepDecoder", "invalidGrammar", "metadata"),
         );
       }
-      const allocated = charge(
+      yield* charge(
         state.usage,
         state.budget,
         "allocationBytes",
@@ -2211,11 +2233,10 @@ function consumeDecoderByte(
         "stepDecoder",
         "metadataFrame",
       );
-      if (Result.isFailure(allocated)) return Result.fail(allocated.failure);
       try {
         state.metadataFrame = new Uint8Array(state.frameLength);
       } catch {
-        return Result.fail(transportError(
+        return yield* Result.fail(transportError(
           "stepDecoder",
           "allocationBytesExceeded",
           "metadataFrame",
@@ -2231,22 +2252,21 @@ function consumeDecoderByte(
         resetDecoderFrame(state);
       }
     }
-    return Result.succeed(true);
+    return true;
   }
   if (state.frameTag !== 5) {
-    if (remainingAllowance < 1) return Result.succeed(false);
-    const admitted = chargeMany(
+    if (remainingAllowance < 1) return false;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [["copyBytes", 1], ["transitions", 1]],
       "stepDecoder",
       "metadataFrame",
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     try {
       state.metadataFrame![state.metadataOffset] = input[inputIndex]!;
     } catch {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("stepDecoder", "invalidInput", "bytes"),
       );
     }
@@ -2257,7 +2277,7 @@ function consumeDecoderByte(
       state.metadataOffset = 0;
       resetDecoderFrame(state);
     }
-    return Result.succeed(true);
+    return true;
   }
   if (state.payloadHeaderOffset < PAYLOAD_HEADER_BYTES) {
     const completesHeader =
@@ -2265,31 +2285,29 @@ function consumeDecoderByte(
     const requiredTransitions = completesHeader
       ? 1 + localAcceptanceTransitions(state.grammar, "payload")
       : 1;
-    if (remainingAllowance < requiredTransitions) return Result.succeed(false);
-    const admitted = chargeMany(
+    if (remainingAllowance < requiredTransitions) return false;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [["copyBytes", 1], ["transitions", requiredTransitions]],
       "stepDecoder",
       "payloadHeader",
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     try {
       state.payloadHeader[state.payloadHeaderOffset] = input[inputIndex]!;
     } catch {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("stepDecoder", "invalidInput", "bytes"),
       );
     }
     state.payloadHeaderOffset += 1;
     if (state.payloadHeaderOffset === PAYLOAD_HEADER_BYTES) {
-      const prepared = prepareDecoderPayload(state);
-      if (Result.isFailure(prepared)) return Result.fail(prepared.failure);
+      yield* prepareDecoderPayload(state);
     }
-    return Result.succeed(true);
+    return true;
   }
-  if (remainingAllowance < 3) return Result.succeed(false);
-  const admitted = chargeMany(
+  if (remainingAllowance < 3) return false;
+  yield* chargeMany(
     state.usage,
     state.budget,
     [
@@ -2300,7 +2318,6 @@ function consumeDecoderByte(
     "stepDecoder",
     "payload",
   );
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
   const pageOrdinal = readU64(state.payloadHeader, 1)!;
   const page = state.grammar.pages[Number(pageOrdinal)]!;
   let byte: number;
@@ -2308,7 +2325,7 @@ function consumeDecoderByte(
     byte = input[inputIndex]!;
     page.body![page.bodyOffset] = byte;
   } catch {
-    return Result.fail(
+    return yield* Result.fail(
       transportError("stepDecoder", "invalidInput", "bytes"),
     );
   }
@@ -2329,7 +2346,8 @@ function consumeDecoderByte(
     }
     resetDecoderFrame(state);
   }
-  return Result.succeed(true);
+  return true;
+  });
 }
 
 function prepareDecoderPayload(
@@ -2377,8 +2395,9 @@ function parsePendingDecoderMetadata(
   state: DecoderState,
   allowance: number,
 ): Result.Result<boolean, DeclarativeV2AuthenticatedCommandRestartInputV1Error> {
+  return Result.gen(function* () {
   const bytes = state.pendingMetadataFrame;
-  if (bytes === undefined) return Result.succeed(true);
+  if (bytes === undefined) return true;
   const tag = bytes[0];
   if (tag === 2 || tag === 3) {
     const transportKind = tag === 2
@@ -2390,7 +2409,7 @@ function parsePendingDecoderMetadata(
       protocolLength !== bytes.byteLength - 5 ||
       protocolLength === 0
     ) {
-      return Result.fail(
+      return yield* Result.fail(
         transportError("finishDecoder", "malformed", "protocolFrame"),
       );
     }
@@ -2422,14 +2441,14 @@ function parsePendingDecoderMetadata(
       );
       if (Result.isFailure(verified)) {
         return isAllowancePending(verified.failure)
-          ? Result.succeed(false)
-          : Result.fail(protocolOrTransportFailure(
+          ? false
+          : (yield* Result.fail(protocolOrTransportFailure(
             "finishDecoder",
             transportKind,
             verified.failure,
-          ));
+          )));
       }
-      const settled = settleWork(
+      yield* settleWork(
         state.usage,
         state.budget,
         verified.success.work,
@@ -2439,12 +2458,11 @@ function parsePendingDecoderMetadata(
         "finishDecoder",
         transportKind,
       );
-      if (Result.isFailure(settled)) return Result.fail(settled.failure);
       const expectedKind = tag === 2
         ? "command_output_manifest"
         : "evidence_page_manifest";
       if (verified.success.frame.kind !== expectedKind) {
-        return Result.fail(
+        return yield* Result.fail(
           transportError("finishDecoder", "invalidGrammar", expectedKind),
         );
       }
@@ -2452,15 +2470,15 @@ function parsePendingDecoderMetadata(
         frame: verified.success.frame,
         canonicalBytes: verified.success.canonicalBytes,
       });
-      return Result.succeed(false);
+      return false;
     }
     const acceptanceWork = protocolAcceptanceWork(
       state.grammar,
       transportKind,
       protocolLength,
     );
-    if (acceptanceWork.transitions > allowance) return Result.succeed(false);
-    const admitted = chargeMany(
+    if (acceptanceWork.transitions > allowance) return false;
+    yield* chargeMany(
       state.usage,
       state.budget,
       [
@@ -2472,7 +2490,6 @@ function parsePendingDecoderMetadata(
       "finishDecoder",
       transportKind,
     );
-    if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
     const verified = state.pendingVerifiedProtocolFrame;
     // SAFETY: transportKind is one of the verified protocol frame kinds and
     // verified.frame passed progress-frame verification, so the pair
@@ -2487,11 +2504,10 @@ function parsePendingDecoderMetadata(
       canonicalProtocolSha256: sha256(verified.canonicalBytes),
       payloadBytes: 0,
     });
-    const accepted = acceptFrame(state.grammar, captured, "finishDecoder");
-    if (Result.isFailure(accepted)) return Result.fail(accepted.failure);
+    yield* acceptFrame(state.grammar, captured, "finishDecoder");
     state.pendingVerifiedProtocolFrame = undefined;
     state.pendingMetadataFrame = undefined;
-    return Result.succeed(true);
+    return true;
   }
   const acceptanceTransitions = tag === 1
     ? localAcceptanceTransitions(state.grammar, "restart_header")
@@ -2499,8 +2515,8 @@ function parsePendingDecoderMetadata(
     ? localAcceptanceTransitions(state.grammar, "restart_terminal")
     : 0;
   const requiredTransitions = bytes.byteLength + acceptanceTransitions;
-  if (requiredTransitions > allowance) return Result.succeed(false);
-  const scanned = chargeMany(
+  if (requiredTransitions > allowance) return false;
+  yield* chargeMany(
     state.usage,
     state.budget,
     [
@@ -2510,27 +2526,24 @@ function parsePendingDecoderMetadata(
     "finishDecoder",
     tag === 1 ? "header" : "terminal",
   );
-  if (Result.isFailure(scanned)) return Result.fail(scanned.failure);
-  const captured = tag === 1
+  const captured = yield* (tag === 1
     ? decodeHeader(bytes)
     : tag === 4
     ? decodeTerminal(bytes)
     : Result.fail(
       transportError("finishDecoder", "invalidGrammar", "metadata"),
-    );
-  if (Result.isFailure(captured)) return Result.fail(captured.failure);
-  const accepted = acceptFrame(
+    ));
+  yield* acceptFrame(
     state.grammar,
-    captured.success,
+    captured,
     "finishDecoder",
   );
-  if (Result.isFailure(accepted)) return Result.fail(accepted.failure);
   if (tag === 4) {
-    const allocated = allocateDecoderPageBodies(state);
-    if (Result.isFailure(allocated)) return Result.fail(allocated.failure);
+    yield* allocateDecoderPageBodies(state);
   }
   state.pendingMetadataFrame = undefined;
-  return Result.succeed(true);
+  return true;
+  });
 }
 
 function decodeHeader(

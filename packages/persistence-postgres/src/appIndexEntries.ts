@@ -31,6 +31,7 @@ import {
 import {
   appIndexPhysicalSpecSha256HexV1ToBytes,
   canonicalizeAppIndexPhysicalSpecV1,
+  type CanonicalAppIndexPhysicalSpecV1,
 } from "flarex-protocol/index-definition";
 import {
   CommitSeqSchema,
@@ -44,6 +45,7 @@ import {
   type ScopeEpoch,
   type ScopeEpochUuidV1,
   type ScopeId,
+  type ScopeIdUuidProjectionV1,
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 
@@ -418,6 +420,20 @@ async function appendDecodedAppIndexEntryRevisionResult(
       actualHeadCommitSeq,
     ));
   }
+  return appendVerifiedParentAndAdvanceCurrent(
+    tx,
+    revision,
+    chainHead.success?.isTombstone === true,
+  );
+}
+
+async function appendVerifiedParentAndAdvanceCurrent(
+  tx: AppIndexEntryTransaction,
+  revision: DecodedAppendAppIndexEntryRevisionV1,
+  headIsTombstone: boolean,
+): Promise<
+  Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
+> {
   const parent = await requireParentRevisionResult(tx, revision);
   if (Result.isFailure(parent)) return Result.fail(parent.failure);
   const inserted = await tx
@@ -463,7 +479,7 @@ async function appendDecodedAppIndexEntryRevisionResult(
           ),
         ))
         .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq })
-    : revision.prevCommitSeq === null || chainHead.success?.isTombstone === true
+    : revision.prevCommitSeq === null || headIsTombstone
     ? await tx
         .insert(fxAppIndexEntryCurrent)
         .values({
@@ -490,18 +506,32 @@ async function appendDecodedAppIndexEntryRevisionResult(
         ))
         .returning({ commitSeq: fxAppIndexEntryCurrent.commitSeq });
   if (advanced[0] === undefined) {
-    const cleanup = await deleteRejectedRevisionResult(tx, revision);
-    if (Result.isFailure(cleanup)) return Result.fail(cleanup.failure);
-    const actual = await readChainHeadResult(tx, revision);
-    if (Result.isFailure(actual)) return Result.fail(actual.failure);
-    return Result.fail(new AppIndexEntryRevisionChainConflictError(
-      revision.identity,
-      revision.prevCommitSeq,
-      actual.success?.commitSeq ?? null,
-    ));
+    return failAdvancedCurrentPointerConflict(tx, revision);
   }
 
   return Result.succeed(projectRevision(revision));
+}
+
+async function failAdvancedCurrentPointerConflict(
+  tx: AppIndexEntryTransaction,
+  revision: DecodedAppendAppIndexEntryRevisionV1,
+): Promise<Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>> {
+  const cleanup = await deleteRejectedRevisionResult(tx, revision);
+  if (Result.isFailure(cleanup)) return Result.fail(cleanup.failure);
+  return readActualChainHeadAndFail(tx, revision);
+}
+
+async function readActualChainHeadAndFail(
+  tx: AppIndexEntryTransaction,
+  revision: DecodedAppendAppIndexEntryRevisionV1,
+): Promise<Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>> {
+  const actual = await readChainHeadResult(tx, revision);
+  if (Result.isFailure(actual)) return Result.fail(actual.failure);
+  return Result.fail(new AppIndexEntryRevisionChainConflictError(
+    revision.identity,
+    revision.prevCommitSeq,
+    actual.success?.commitSeq ?? null,
+  ));
 }
 
 export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
@@ -719,32 +749,79 @@ async function decodeAppendInputResult(
     });
   });
   if (Result.isFailure(captured)) return Result.fail(captured.failure);
+  return decodeAppendInputWithCapture(tx, captured.success);
+}
+
+interface DecodedAppendAppIndexEntryCapture {
+  readonly kind: "live" | "tombstone";
+  readonly identity: AppIndexEntryIdentityV1;
+  readonly scopeProjection: ScopeIdUuidProjectionV1;
+  readonly writeEpochUuid: ScopeEpochUuidV1;
+  readonly commitSeq: CommitSeq;
+  readonly prevCommitSeq: CommitSeq | null;
+  readonly physicalSpec: AppOrderedIndexPhysicalSpecV1;
+  readonly keyBytes: Uint8Array;
+}
+
+async function decodeAppendInputWithCapture(
+  tx: AppIndexEntryTransaction,
+  captured: DecodedAppendAppIndexEntryCapture,
+): Promise<Result.Result<
+  DecodedAppendAppIndexEntryRevisionV1,
+  InvalidAppIndexEntryInputError | AppIndexEntryScopeAuthorityUnavailableError |
+    AppIndexEntryHashError
+>> {
   const canonicalPhysicalSpec = await canonicalizePhysicalSpecResult(
-    captured.success.physicalSpec,
+    captured.physicalSpec,
   );
   if (Result.isFailure(canonicalPhysicalSpec)) {
     return Result.fail(canonicalPhysicalSpec.failure);
   }
+  return decodeAppendInputWithSpec(tx, captured, canonicalPhysicalSpec.success);
+}
+
+async function decodeAppendInputWithSpec(
+  tx: AppIndexEntryTransaction,
+  captured: DecodedAppendAppIndexEntryCapture,
+  canonicalPhysicalSpec: CanonicalAppIndexPhysicalSpecV1,
+): Promise<Result.Result<
+  DecodedAppendAppIndexEntryRevisionV1,
+  InvalidAppIndexEntryInputError | AppIndexEntryScopeAuthorityUnavailableError |
+    AppIndexEntryHashError
+>> {
   const scopeUuid = await requireScopeUuidResult(
     tx,
-    captured.success.identity.scopeId,
-    captured.success.scopeProjection,
+    captured.identity.scopeId,
+    captured.scopeProjection,
   );
   if (Result.isFailure(scopeUuid)) return Result.fail(scopeUuid.failure);
-  const keySha256 = await sha256Result(captured.success.keyBytes, "append");
+  return decodeAppendInputWithScope(tx, captured, scopeUuid.success, canonicalPhysicalSpec);
+}
+
+async function decodeAppendInputWithScope(
+  tx: AppIndexEntryTransaction,
+  captured: DecodedAppendAppIndexEntryCapture,
+  scopeUuid: ScopeUuidV1,
+  canonicalPhysicalSpec: CanonicalAppIndexPhysicalSpecV1,
+): Promise<Result.Result<
+  DecodedAppendAppIndexEntryRevisionV1,
+  InvalidAppIndexEntryInputError | AppIndexEntryScopeAuthorityUnavailableError |
+    AppIndexEntryHashError
+>> {
+  const keySha256 = await sha256Result(captured.keyBytes, "append");
   if (Result.isFailure(keySha256)) return Result.fail(keySha256.failure);
   return Result.succeed(Object.freeze({
-    kind: captured.success.kind,
-    identity: captured.success.identity,
-    scopeUuid: scopeUuid.success,
-    writeEpochUuid: captured.success.writeEpochUuid,
-    commitSeq: captured.success.commitSeq,
-    prevCommitSeq: captured.success.prevCommitSeq,
-    physicalSpec: captured.success.physicalSpec,
+    kind: captured.kind,
+    identity: captured.identity,
+    scopeUuid,
+    writeEpochUuid: captured.writeEpochUuid,
+    commitSeq: captured.commitSeq,
+    prevCommitSeq: captured.prevCommitSeq,
+    physicalSpec: captured.physicalSpec,
     physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
-      canonicalPhysicalSpec.success.sha256Hex,
+      canonicalPhysicalSpec.sha256Hex,
     ),
-    keyBytes: captured.success.keyBytes,
+    keyBytes: captured.keyBytes,
     keySha256: keySha256.success,
   }));
 }

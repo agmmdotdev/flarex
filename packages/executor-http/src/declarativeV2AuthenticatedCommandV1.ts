@@ -759,506 +759,452 @@ export function makeDeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1
 
   const create:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["create"] =
-      input => {
-        const captured = captureIncrementalCreateInput(input);
-        if (Result.isFailure(captured)) return Result.fail(captured.failure);
-        const { bodyByteLength, budget } = captured.success;
-        const usage = zeroIncrementalUsage();
-        const admitted = chargeIncremental(
-          usage,
-          budget,
-          "allocationBytes",
-          (bodyByteLength * 2) + CANONICAL_FIXED_STATE_ALLOCATION_BYTES,
-          "create",
-        );
-        if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
-        const transitioned = chargeIncremental(
-          usage,
-          budget,
-          "transitions",
-          1,
-          "create",
-        );
-        if (Result.isFailure(transitioned)) {
-          return Result.fail(transitioned.failure);
-        }
-        let body: Uint8Array;
-        let canonical: Uint8Array;
-        try {
-          const storage = new ArrayBuffer(bodyByteLength * 2);
-          body = new Uint8Array(storage, 0, bodyByteLength);
-          canonical = new Uint8Array(
-            storage,
-            bodyByteLength,
-            bodyByteLength,
+      input =>
+        Result.gen(function* () {
+          const { bodyByteLength, budget } = yield* captureIncrementalCreateInput(
+            input,
           );
-        } catch {
-          return Result.fail(incrementalError(
-            "create",
-            "allocationBytesExceeded",
-            "bodyByteLength",
-            bodyByteLength,
-            budget.maximumAllocationBytes,
-          ));
-        }
-        // SAFETY: the handle is an inert identity token; all decoder state
-        // lives in the factory-local map keyed by this object identity, so
-        // the brand carries no behavioral claims.
-        const handle = Object.freeze({
-          _tag: "DeclarativeV2AuthenticatedCommandIncrementalDecoderV1",
-        }) as DeclarativeV2AuthenticatedCommandIncrementalDecoderV1;
-        decoders.set(handle, {
-          budget,
-          body,
-          canonical,
-          usage,
-          inputOffset: 0,
-          validationOffset: 0,
-          canonicalOffset: 0,
-          canonicalFrameIndex: 0,
-          structural: newIncrementalStructuralState(),
-          phase: bodyByteLength === 0 ? "validate" : "input",
-          closed: false,
-        });
-        return Result.succeed(Object.freeze({
-          decoder: handle,
-          receipt: incrementalReceipt(
-            zeroIncrementalUsage(),
+          const usage = zeroIncrementalUsage();
+          yield* chargeIncremental(
             usage,
+            budget,
+            "allocationBytes",
+            (bodyByteLength * 2) + CANONICAL_FIXED_STATE_ALLOCATION_BYTES,
+            "create",
+          );
+          yield* chargeIncremental(
+            usage,
+            budget,
+            "transitions",
             1,
-          ),
-        }));
-      };
+            "create",
+          );
+          let body: Uint8Array;
+          let canonical: Uint8Array;
+          try {
+            const storage = new ArrayBuffer(bodyByteLength * 2);
+            body = new Uint8Array(storage, 0, bodyByteLength);
+            canonical = new Uint8Array(
+              storage,
+              bodyByteLength,
+              bodyByteLength,
+            );
+          } catch {
+            return yield* Result.fail(incrementalError(
+              "create",
+              "allocationBytesExceeded",
+              "bodyByteLength",
+              bodyByteLength,
+              budget.maximumAllocationBytes,
+            ));
+          }
+          // SAFETY: the handle is an inert identity token; all decoder state
+          // lives in the factory-local map keyed by this object identity, so
+          // the brand carries no behavioral claims.
+          const handle = Object.freeze({
+            _tag: "DeclarativeV2AuthenticatedCommandIncrementalDecoderV1",
+          }) as DeclarativeV2AuthenticatedCommandIncrementalDecoderV1;
+          decoders.set(handle, {
+            budget,
+            body,
+            canonical,
+            usage,
+            inputOffset: 0,
+            validationOffset: 0,
+            canonicalOffset: 0,
+            canonicalFrameIndex: 0,
+            structural: newIncrementalStructuralState(),
+            phase: bodyByteLength === 0 ? "validate" : "input",
+            closed: false,
+          });
+          return Object.freeze({
+            decoder: handle,
+            receipt: incrementalReceipt(
+              zeroIncrementalUsage(),
+              usage,
+              1,
+            ),
+          });
+        });
 
   const step:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["step"] =
-      (rawDecoder, rawInput, rawAllowance) => {
-        const state = incrementalDecoderState(decoders, rawDecoder, "step");
-        if (Result.isFailure(state)) return Result.fail(state.failure);
-        const admittedAllowance = incrementalAllowance(rawAllowance, "step");
-        if (Result.isFailure(admittedAllowance)) {
-          failIncremental(state.success);
-          return Result.fail(admittedAllowance.failure);
-        }
-        const before = snapshotIncrementalUsage(state.success.usage);
-        if (admittedAllowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: state.success.phase === "input" ? "pending" : "ready",
-            consumedBytes: 0,
-            receipt: incrementalReceipt(before, state.success.usage, 0),
-          }));
-        }
-        if (!isUint8Array(rawInput)) {
-          failIncremental(state.success);
-          return Result.fail(incrementalError(
-            "step",
-            "invalidInput",
-            "input",
-          ));
-        }
-        const inputLength = intrinsicByteLength(rawInput);
-        if (inputLength === undefined || inputLength === 0) {
-          failIncremental(state.success);
-          return Result.fail(incrementalError(
-            "step",
-            "invalidInput",
-            "input",
-          ));
-        }
-        if (state.success.phase !== "input") {
-          failIncremental(state.success);
-          return Result.fail(incrementalError(
-            "step",
-            "malformed",
-            "trailing",
-            inputLength,
-            0,
-          ));
-        }
-        const remaining = state.success.body.byteLength -
-          state.success.inputOffset;
-        if (inputLength > remaining) {
-          failIncremental(state.success);
-          return Result.fail(incrementalError(
-            "step",
-            "malformed",
-            "trailing",
-            inputLength,
-            remaining,
-          ));
-        }
-        let consumedBytes = 0;
-        let transitions = 0;
-        while (
-          transitions < admittedAllowance.success &&
-          consumedBytes < inputLength &&
-          state.success.inputOffset < state.success.body.byteLength
-        ) {
-          const copied = chargeIncremental(
-            state.success.usage,
-            state.success.budget,
-            "copyBytes",
-            1,
+      (rawDecoder, rawInput, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* incrementalDecoderState(
+            decoders,
+            rawDecoder,
             "step",
           );
-          if (Result.isFailure(copied)) {
-            failIncremental(state.success);
-            return Result.fail(copied.failure);
-          }
-          const body = chargeIncremental(
-            state.success.usage,
-            state.success.budget,
-            "bodyBytes",
-            1,
-            "step",
+          const admittedAllowance = yield* Result.mapError(
+            incrementalAllowance(rawAllowance, "step"),
+            (failure) => {
+              failIncremental(state);
+              return failure;
+            },
           );
-          if (Result.isFailure(body)) {
-            failIncremental(state.success);
-            return Result.fail(body.failure);
+          const before = snapshotIncrementalUsage(state.usage);
+          if (admittedAllowance === 0) {
+            return Object.freeze({
+              status: state.phase === "input" ? "pending" : "ready",
+              consumedBytes: 0,
+              receipt: incrementalReceipt(before, state.usage, 0),
+            });
           }
-          const transition = chargeIncremental(
-            state.success.usage,
-            state.success.budget,
-            "transitions",
-            1,
-            "step",
-          );
-          if (Result.isFailure(transition)) {
-            failIncremental(state.success);
-            return Result.fail(transition.failure);
+          const failStepInput = () => {
+            failIncremental(state);
+            return incrementalError("step", "invalidInput", "input");
+          };
+          if (!isUint8Array(rawInput)) {
+            return yield* Result.fail(failStepInput());
           }
-          const byte = rawInput[consumedBytes];
-          if (byte === undefined) {
-            failIncremental(state.success);
-            return Result.fail(incrementalError(
+          const inputLength = intrinsicByteLength(rawInput);
+          if (inputLength === undefined || inputLength === 0) {
+            return yield* Result.fail(failStepInput());
+          }
+          if (state.phase !== "input") {
+            failIncremental(state);
+            return yield* Result.fail(incrementalError(
               "step",
-              "invalidInput",
-              "input",
+              "malformed",
+              "trailing",
+              inputLength,
+              0,
             ));
           }
-          state.success.body[state.success.inputOffset] = byte;
-          state.success.inputOffset += 1;
-          consumedBytes += 1;
-          transitions += 1;
-        }
-        if (state.success.inputOffset === state.success.body.byteLength) {
-          state.success.phase = "validate";
-        }
-        return Result.succeed(Object.freeze({
-          status: state.success.phase === "input" ? "pending" : "ready",
-          consumedBytes,
-          receipt: incrementalReceipt(
-            before,
-            state.success.usage,
-            transitions,
-          ),
-        }));
-      };
+          const remaining = state.body.byteLength - state.inputOffset;
+          if (inputLength > remaining) {
+            failIncremental(state);
+            return yield* Result.fail(incrementalError(
+              "step",
+              "malformed",
+              "trailing",
+              inputLength,
+              remaining,
+            ));
+          }
+          let consumedBytes = 0;
+          let transitions = 0;
+          const chargeStep = (
+            dimension: Parameters<
+              typeof chargeIncremental
+            >[2],
+            amount: number,
+          ): Result.Result<void, DeclarativeV2AuthenticatedCommandIncrementalV1Error> =>
+            Result.mapError(
+              chargeIncremental(state.usage, state.budget, dimension, amount, "step"),
+              (failure) => {
+                failIncremental(state);
+                return failure;
+              },
+            );
+          while (
+            transitions < admittedAllowance &&
+            consumedBytes < inputLength &&
+            state.inputOffset < state.body.byteLength
+          ) {
+            yield* chargeStep("copyBytes", 1);
+            yield* chargeStep("bodyBytes", 1);
+            yield* chargeStep("transitions", 1);
+            const byte = rawInput[consumedBytes];
+            if (byte === undefined) {
+              return yield* Result.fail(failStepInput());
+            }
+            state.body[state.inputOffset] = byte;
+            state.inputOffset += 1;
+            consumedBytes += 1;
+            transitions += 1;
+          }
+          if (state.inputOffset === state.body.byteLength) {
+            state.phase = "validate";
+          }
+          return Object.freeze({
+            status: state.phase === "input" ? "pending" : "ready",
+            consumedBytes,
+            receipt: incrementalReceipt(before, state.usage, transitions),
+          });
+        });
 
   const finish:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["finish"] =
-      (rawDecoder, rawAllowance) => {
-        const stateResult = incrementalDecoderState(
-          decoders,
-          rawDecoder,
-          "finish",
-        );
-        if (Result.isFailure(stateResult)) {
-          return Result.fail(stateResult.failure);
-        }
-        const state = stateResult.success;
-        const admittedAllowance = incrementalAllowance(rawAllowance, "finish");
-        if (Result.isFailure(admittedAllowance)) {
-          failIncremental(state);
-          return Result.fail(admittedAllowance.failure);
-        }
-        const before = snapshotIncrementalUsage(state.usage);
-        if (admittedAllowance.success === 0) {
-          return Result.succeed(Object.freeze({
-            status: "pending",
-            receipt: incrementalReceipt(before, state.usage, 0),
-          }));
-        }
-        let transitions = 0;
-        while (
-          transitions < admittedAllowance.success &&
-          state.phase !== "complete" &&
-          state.phase !== "failed"
-        ) {
-          if (state.phase === "input") {
-            failIncremental(state);
-            return Result.fail(incrementalError(
-              "finish",
-              "malformed",
-              "bodyByteLength",
-              state.inputOffset,
-              state.body.byteLength,
-            ));
-          }
-          const transitioned = chargeIncremental(
-            state.usage,
-            state.budget,
-            "transitions",
-            1,
+      (rawDecoder, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* incrementalDecoderState(
+            decoders,
+            rawDecoder,
             "finish",
           );
-          if (Result.isFailure(transitioned)) {
-            failIncremental(state);
-            return Result.fail(transitioned.failure);
-          }
-          transitions += 1;
-          if (state.phase === "validate") {
-            const advanced = advanceIncrementalStructure(state);
-            if (Result.isFailure(advanced)) {
+          const admittedAllowance = yield* Result.mapError(
+            incrementalAllowance(rawAllowance, "finish"),
+            (failure) => {
               failIncremental(state);
-              return Result.fail(advanced.failure);
-            }
-            if (state.structural.mode === "done") {
-              state.phase = "canonical";
-            }
-            continue;
+              return failure;
+            },
+          );
+          const before = snapshotIncrementalUsage(state.usage);
+          if (admittedAllowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: incrementalReceipt(before, state.usage, 0),
+            });
           }
-          if (state.phase === "canonical") {
-            if (state.canonicalOffset >= state.body.byteLength) {
+          const chargeFinish = (
+            dimension: Parameters<typeof chargeIncremental>[2],
+            amount: number,
+          ): Result.Result<void, DeclarativeV2AuthenticatedCommandIncrementalV1Error> =>
+            Result.mapError(
+              chargeIncremental(state.usage, state.budget, dimension, amount, "finish"),
+              (failure) => {
+                failIncremental(state);
+                return failure;
+              },
+            );
+          let transitions = 0;
+          while (
+            transitions < admittedAllowance &&
+            state.phase !== "complete" &&
+            state.phase !== "failed"
+          ) {
+            if (state.phase === "input") {
               failIncremental(state);
-              return Result.fail(incrementalError(
+              return yield* Result.fail(incrementalError(
                 "finish",
                 "malformed",
-                "canonicalBytes",
+                "bodyByteLength",
+                state.inputOffset,
+                state.body.byteLength,
               ));
             }
-            const canonical = chargeIncremental(
-              state.usage,
-              state.budget,
-              "canonicalBytes",
-              1,
-              "finish",
-            );
-            if (Result.isFailure(canonical)) {
-              failIncremental(state);
-              return Result.fail(canonical.failure);
+            yield* chargeFinish("transitions", 1);
+            transitions += 1;
+            if (state.phase === "validate") {
+              const advanced = yield* Result.mapError(
+                advanceIncrementalStructure(state),
+                (failure) => {
+                  failIncremental(state);
+                  return failure;
+                },
+              );
+              if (state.structural.mode === "done") {
+                state.phase = "canonical";
+              }
+              continue;
             }
-            const copied = chargeIncremental(
-              state.usage,
-              state.budget,
-              "copyBytes",
-              1,
-              "finish",
-            );
-            if (Result.isFailure(copied)) {
-              failIncremental(state);
-              return Result.fail(copied.failure);
-            }
-            const expected = expectedIncrementalCanonicalByte(state);
-            if (Result.isFailure(expected)) {
-              failIncremental(state);
-              return Result.fail(expected.failure);
-            }
-            if (expected.success !== state.body[state.canonicalOffset]) {
-              failIncremental(state);
-              return Result.fail(incrementalError(
-                "finish",
-                "nonCanonical",
-                "canonicalBytes",
-              ));
-            }
-            state.canonical[state.canonicalOffset] = expected.success;
-            state.canonicalOffset += 1;
-            if (state.canonicalOffset === state.body.byteLength) {
-              state.phase = "complete";
+            if (state.phase === "canonical") {
+              if (state.canonicalOffset >= state.body.byteLength) {
+                failIncremental(state);
+                return yield* Result.fail(incrementalError(
+                  "finish",
+                  "malformed",
+                  "canonicalBytes",
+                ));
+              }
+              yield* chargeFinish("canonicalBytes", 1);
+              yield* chargeFinish("copyBytes", 1);
+              const expected = yield* Result.mapError(
+                expectedIncrementalCanonicalByte(state),
+                (failure) => {
+                  failIncremental(state);
+                  return failure;
+                },
+              );
+              if (expected !== state.body[state.canonicalOffset]) {
+                failIncremental(state);
+                return yield* Result.fail(incrementalError(
+                  "finish",
+                  "nonCanonical",
+                  "canonicalBytes",
+                ));
+              }
+              state.canonical[state.canonicalOffset] = expected;
+              state.canonicalOffset += 1;
+              if (state.canonicalOffset === state.body.byteLength) {
+                state.phase = "complete";
+              }
             }
           }
-        }
-        if (state.phase !== "complete") {
-          return Result.succeed(Object.freeze({
-            status: "pending",
+          if (state.phase !== "complete") {
+            return Object.freeze({
+              status: "pending",
+              receipt: incrementalReceipt(before, state.usage, transitions),
+            });
+          }
+          // SAFETY: the capability is an inert identity token; all decoded
+          // state lives in the factory-local map keyed by this object
+          // identity, so the brand carries no behavioral claims.
+          const capability = Object.freeze({
+            _tag: "DeclarativeV2AuthenticatedCommandDecodedCapabilityV1",
+          }) as DeclarativeV2AuthenticatedCommandDecodedCapabilityV1;
+          const bodyByteLength = state.body.byteLength;
+          const canonicalByteLength = state.canonical.byteLength;
+          const frames = state.structural.canonicalFrames;
+          capabilities.set(capability, {
+            // SAFETY: incrementalDecoderState resolved this raw decoder to
+            // live state, so it is an object key of the map.
+            decoder: rawDecoder as object,
+            canonical: state.canonical,
+            frames,
+            closed: false,
+          });
+          state.closed = true;
+          state.body = EMPTY_COMMAND_BYTES;
+          state.canonical = EMPTY_COMMAND_BYTES;
+          state.structural.canonicalFrames = EMPTY_CANONICAL_FRAME_PLANS;
+          const transportUsage = Object.freeze({
+            bodyBytes: bodyByteLength,
+            canonicalBytes: canonicalByteLength,
+            frameBytes: state.usage.frameBytes,
+            payloadBytes: state.usage.payloadBytes,
+            frames: state.usage.frames,
+            transitions: bodyByteLength + state.usage.frames,
+          });
+          return Object.freeze({
+            status: "complete",
+            capability,
+            usage: transportUsage,
             receipt: incrementalReceipt(before, state.usage, transitions),
-          }));
-        }
-        // SAFETY: the capability is an inert identity token; all decoded
-        // state lives in the factory-local map keyed by this object
-        // identity, so the brand carries no behavioral claims.
-        const capability = Object.freeze({
-          _tag: "DeclarativeV2AuthenticatedCommandDecodedCapabilityV1",
-        }) as DeclarativeV2AuthenticatedCommandDecodedCapabilityV1;
-        const bodyByteLength = state.body.byteLength;
-        const canonicalByteLength = state.canonical.byteLength;
-        const frames = state.structural.canonicalFrames;
-        capabilities.set(capability, {
-          // SAFETY: incrementalDecoderState resolved this raw decoder to
-          // live state, so it is an object key of the map.
-          decoder: rawDecoder as object,
-          canonical: state.canonical,
-          frames,
-          closed: false,
+          });
         });
-        state.closed = true;
-        state.body = EMPTY_COMMAND_BYTES;
-        state.canonical = EMPTY_COMMAND_BYTES;
-        state.structural.canonicalFrames = EMPTY_CANONICAL_FRAME_PLANS;
-        const transportUsage = Object.freeze({
-          bodyBytes: bodyByteLength,
-          canonicalBytes: canonicalByteLength,
-          frameBytes: state.usage.frameBytes,
-          payloadBytes: state.usage.payloadBytes,
-          frames: state.usage.frames,
-          transitions: bodyByteLength + state.usage.frames,
-        });
-        return Result.succeed(Object.freeze({
-          status: "complete",
-          capability,
-          usage: transportUsage,
-          receipt: incrementalReceipt(before, state.usage, transitions),
-        }));
-      };
 
   const openView:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["openView"] =
-      rawInput => {
-        const captured = captureIncrementalOpenViewInput(rawInput);
-        if (Result.isFailure(captured)) return Result.fail(captured.failure);
-        const capability = capabilities.get(captured.success.capability);
-        if (capability === undefined) {
-          return Result.fail(incrementalError(
-            "openView",
-            "staleAuthority",
-            "capability",
-          ));
-        }
-        if (capability.closed) {
-          return Result.fail(incrementalError(
-            "openView",
-            "closed",
-            "capability",
-          ));
-        }
-        const usage = zeroIncrementalUsage();
-        const before = snapshotIncrementalUsage(usage);
-        const allocated = chargeIncremental(
-          usage,
-          captured.success.budget,
-          "allocationBytes",
-          ADMITTED_VIEW_FIXED_STATE_ALLOCATION_BYTES,
-          "openView",
-        );
-        if (Result.isFailure(allocated)) {
+      rawInput =>
+        Result.gen(function* () {
+          const captured = yield* captureIncrementalOpenViewInput(rawInput);
+          const capability = capabilities.get(captured.capability);
+          if (capability === undefined) {
+            return yield* Result.fail(incrementalError(
+              "openView",
+              "staleAuthority",
+              "capability",
+            ));
+          }
+          if (capability.closed) {
+            return yield* Result.fail(incrementalError(
+              "openView",
+              "closed",
+              "capability",
+            ));
+          }
+          const usage = zeroIncrementalUsage();
+          const before = snapshotIncrementalUsage(usage);
+          const chargeOpenView = (
+            dimension: Parameters<typeof chargeIncremental>[2],
+            amount: number,
+          ): Result.Result<void, DeclarativeV2AuthenticatedCommandIncrementalV1Error> =>
+            Result.mapError(
+              chargeIncremental(usage, captured.budget, dimension, amount, "openView"),
+              (failure) => {
+                closeIncrementalCapability(capability);
+                return failure;
+              },
+            );
+          yield* chargeOpenView(
+            "allocationBytes",
+            ADMITTED_VIEW_FIXED_STATE_ALLOCATION_BYTES,
+          );
+          yield* chargeOpenView("transitions", 1);
+          // SAFETY: the view is an inert identity token; all state lives in
+          // a factory-local map keyed by this object identity, so the brand
+          // carries no behavioral claims.
+          const view = Object.freeze({
+            _tag: "DeclarativeV2AuthenticatedCommandAdmittedViewV1",
+          }) as DeclarativeV2AuthenticatedCommandAdmittedViewV1;
+          // SAFETY: the cursor is an inert identity token; all state lives
+          // in a factory-local map keyed by this object identity, so the
+          // brand carries no behavioral claims.
+          const cursor = Object.freeze({
+            _tag: "DeclarativeV2AuthenticatedCommandAdmittedCursorV1",
+          }) as DeclarativeV2AuthenticatedCommandAdmittedCursorV1;
+          views.set(view, {
+            budget: captured.budget,
+            usage,
+            canonical: capability.canonical,
+            frames: capability.frames,
+            frameIndex: 0,
+            phase: "metadata",
+            segmentIndex: 0,
+            segmentRole: "reservation",
+            segmentStart: 0,
+            segmentLength: 0,
+            segmentOffset: 0,
+            segmentCountsAsPayload: false,
+            chunk: EMPTY_COMMAND_BYTES,
+            chunkStartOffset: 0,
+            chunkOffset: 0,
+            terminal: "open",
+          });
+          cursors.set(cursor, { view });
           closeIncrementalCapability(capability);
-          return Result.fail(allocated.failure);
-        }
-        const transitioned = chargeIncremental(
-          usage,
-          captured.success.budget,
-          "transitions",
-          1,
-          "openView",
-        );
-        if (Result.isFailure(transitioned)) {
-          closeIncrementalCapability(capability);
-          return Result.fail(transitioned.failure);
-        }
-        // SAFETY: the view is an inert identity token; all state lives in
-        // a factory-local map keyed by this object identity, so the brand
-        // carries no behavioral claims.
-        const view = Object.freeze({
-          _tag: "DeclarativeV2AuthenticatedCommandAdmittedViewV1",
-        }) as DeclarativeV2AuthenticatedCommandAdmittedViewV1;
-        // SAFETY: the cursor is an inert identity token; all state lives
-        // in a factory-local map keyed by this object identity, so the
-        // brand carries no behavioral claims.
-        const cursor = Object.freeze({
-          _tag: "DeclarativeV2AuthenticatedCommandAdmittedCursorV1",
-        }) as DeclarativeV2AuthenticatedCommandAdmittedCursorV1;
-        views.set(view, {
-          budget: captured.success.budget,
-          usage,
-          canonical: capability.canonical,
-          frames: capability.frames,
-          frameIndex: 0,
-          phase: "metadata",
-          segmentIndex: 0,
-          segmentRole: "reservation",
-          segmentStart: 0,
-          segmentLength: 0,
-          segmentOffset: 0,
-          segmentCountsAsPayload: false,
-          chunk: EMPTY_COMMAND_BYTES,
-          chunkStartOffset: 0,
-          chunkOffset: 0,
-          terminal: "open",
+          return Object.freeze({
+            view,
+            cursor,
+            receipt: incrementalReceipt(before, usage, 1),
+          });
         });
-        cursors.set(cursor, { view });
-        closeIncrementalCapability(capability);
-        return Result.succeed(Object.freeze({
-          view,
-          cursor,
-          receipt: incrementalReceipt(before, usage, 1),
-        }));
-      };
 
   const stepView:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["stepView"] =
-      (rawView, rawCursor, rawAllowance) => {
-        const stateResult = incrementalAdmittedViewState(
-          views,
-          cursors,
-          rawView,
-          rawCursor,
-          "stepView",
-        );
-        if (Result.isFailure(stateResult)) {
-          return Result.fail(stateResult.failure);
-        }
-        const state = stateResult.success;
-        const admittedAllowance = incrementalAllowance(
-          rawAllowance,
-          "stepView",
-        );
-        if (Result.isFailure(admittedAllowance)) {
-          closeIncrementalAdmittedView(state, "closed");
-          return Result.fail(admittedAllowance.failure);
-        }
-        const before = snapshotIncrementalUsage(state.usage);
-        if (admittedAllowance.success === 0) {
-          return Result.succeed(Object.freeze({
+      (rawView, rawCursor, rawAllowance) =>
+        Result.gen(function* () {
+          const state = yield* incrementalAdmittedViewState(
+            views,
+            cursors,
+            rawView,
+            rawCursor,
+            "stepView",
+          );
+          const admittedAllowance = yield* Result.mapError(
+            incrementalAllowance(rawAllowance, "stepView"),
+            (failure) => {
+              closeIncrementalAdmittedView(state, "closed");
+              return failure;
+            },
+          );
+          const before = snapshotIncrementalUsage(state.usage);
+          if (admittedAllowance === 0) {
+            return Object.freeze({
+              status: "pending",
+              receipt: incrementalReceipt(before, state.usage, 0),
+            });
+          }
+          let transitions = 0;
+          while (transitions < admittedAllowance) {
+            const advanced = yield* Result.mapError(
+              advanceIncrementalAdmittedView(state),
+              (failure) => {
+                closeIncrementalAdmittedView(state, "closed");
+                return failure;
+              },
+            );
+            transitions += 1;
+            if (advanced.status === "event") {
+              return Object.freeze({
+                status: "event",
+                event: advanced.event,
+                receipt: incrementalReceipt(
+                  before,
+                  state.usage,
+                  transitions,
+                ),
+              });
+            }
+            if (advanced.status === "complete") {
+              return Object.freeze({
+                status: "complete",
+                receipt: incrementalReceipt(
+                  before,
+                  state.usage,
+                  transitions,
+                ),
+              });
+            }
+          }
+          return Object.freeze({
             status: "pending",
-            receipt: incrementalReceipt(before, state.usage, 0),
-          }));
-        }
-        let transitions = 0;
-        while (transitions < admittedAllowance.success) {
-          const advanced = advanceIncrementalAdmittedView(state);
-          if (Result.isFailure(advanced)) {
-            closeIncrementalAdmittedView(state, "closed");
-            return Result.fail(advanced.failure);
-          }
-          transitions += 1;
-          if (advanced.success.status === "event") {
-            return Result.succeed(Object.freeze({
-              status: "event",
-              event: advanced.success.event,
-              receipt: incrementalReceipt(
-                before,
-                state.usage,
-                transitions,
-              ),
-            }));
-          }
-          if (advanced.success.status === "complete") {
-            return Result.succeed(Object.freeze({
-              status: "complete",
-              receipt: incrementalReceipt(
-                before,
-                state.usage,
-                transitions,
-              ),
-            }));
-          }
-        }
-        return Result.succeed(Object.freeze({
-          status: "pending",
-          receipt: incrementalReceipt(before, state.usage, transitions),
-        }));
-      };
+            receipt: incrementalReceipt(before, state.usage, transitions),
+          });
+        });
 
   const close:
     DeclarativeV2AuthenticatedCommandIncrementalDecoderFactoryV1["close"] =
@@ -1353,61 +1299,56 @@ function captureIncrementalCreateInput(
   }>,
   DeclarativeV2AuthenticatedCommandIncrementalV1Error
 > {
-  const record = captureOwnDataRecord(
-    input,
-    ["bodyByteLength", "budget"] as const,
-    "decode",
-    "create",
-  );
-  if (Result.isFailure(record)) {
-    return Result.fail(incrementalError("create", "invalidInput", "create"));
-  }
-  const capturedBudget = captureIncrementalBudget(
-    record.success.budget,
-    "create",
-  );
-  if (Result.isFailure(capturedBudget)) {
-    return Result.fail(capturedBudget.failure);
-  }
-  if (!isNonNegativeSafeInteger(record.success.bodyByteLength)) {
-    return Result.fail(incrementalError(
-      "create",
-      "invalidInput",
-      "bodyByteLength",
-    ));
-  }
-  const budget = capturedBudget.success;
-  // SAFETY: bodyByteLength was validated as a non-negative safe integer
-  // above.
-  const bodyByteLength = record.success.bodyByteLength as number;
-  if (bodyByteLength > U32_MAX) {
-    return Result.fail(incrementalError(
-      "create",
-      "invalidInput",
-      "bodyByteLength",
-      bodyByteLength,
-      U32_MAX,
-    ));
-  }
-  if (bodyByteLength > budget.maximumBodyBytes) {
-    return Result.fail(incrementalError(
-      "create",
-      "bodyBytesExceeded",
-      "bodyByteLength",
-      bodyByteLength,
-      budget.maximumBodyBytes,
-    ));
-  }
-  if (bodyByteLength > budget.maximumCanonicalBytes) {
-    return Result.fail(incrementalError(
-      "create",
-      "canonicalBytesExceeded",
-      "bodyByteLength",
-      bodyByteLength,
-      budget.maximumCanonicalBytes,
-    ));
-  }
-  return Result.succeed(Object.freeze({ bodyByteLength, budget }));
+  return Result.gen(function* () {
+    const record = yield* Result.mapError(
+      captureOwnDataRecord(
+        input,
+        ["bodyByteLength", "budget"] as const,
+        "decode",
+        "create",
+      ),
+      () => incrementalError("create", "invalidInput", "create"),
+    );
+    const budget = yield* captureIncrementalBudget(record.budget, "create");
+    if (!isNonNegativeSafeInteger(record.bodyByteLength)) {
+      return yield* Result.fail(incrementalError(
+        "create",
+        "invalidInput",
+        "bodyByteLength",
+      ));
+    }
+    // SAFETY: bodyByteLength was validated as a non-negative safe integer
+    // above.
+    const bodyByteLength = record.bodyByteLength as number;
+    if (bodyByteLength > U32_MAX) {
+      return yield* Result.fail(incrementalError(
+        "create",
+        "invalidInput",
+        "bodyByteLength",
+        bodyByteLength,
+        U32_MAX,
+      ));
+    }
+    if (bodyByteLength > budget.maximumBodyBytes) {
+      return yield* Result.fail(incrementalError(
+        "create",
+        "bodyBytesExceeded",
+        "bodyByteLength",
+        bodyByteLength,
+        budget.maximumBodyBytes,
+      ));
+    }
+    if (bodyByteLength > budget.maximumCanonicalBytes) {
+      return yield* Result.fail(incrementalError(
+        "create",
+        "canonicalBytesExceeded",
+        "bodyByteLength",
+        bodyByteLength,
+        budget.maximumCanonicalBytes,
+      ));
+    }
+    return Object.freeze({ bodyByteLength, budget });
+  });
 }
 
 function captureIncrementalOpenViewInput(
@@ -2619,25 +2560,25 @@ function advanceIncrementalDomain(
 function admitIncrementalFrame(
   state: IncrementalDecoderStateV1,
 ): Result.Result<void, DeclarativeV2AuthenticatedCommandIncrementalV1Error> {
-  const structural = state.structural;
-  const frameBytes = chargeIncremental(
-    state.usage,
-    state.budget,
-    "frameBytes",
-    FRAME_LENGTH_PREFIX_BYTES + structural.frameLength,
-    "finish",
-  );
-  if (Result.isFailure(frameBytes)) return frameBytes;
-  const frames = chargeIncremental(
-    state.usage,
-    state.budget,
-    "frames",
-    1,
-    "finish",
-  );
-  if (Result.isFailure(frames)) return frames;
-  structural.mode = "frameBody";
-  return Result.succeed(undefined);
+  return Result.gen(function* () {
+    const structural = state.structural;
+    yield* chargeIncremental(
+      state.usage,
+      state.budget,
+      "frameBytes",
+      FRAME_LENGTH_PREFIX_BYTES + structural.frameLength,
+      "finish",
+    );
+    yield* chargeIncremental(
+      state.usage,
+      state.budget,
+      "frames",
+      1,
+      "finish",
+    );
+    structural.mode = "frameBody";
+    return undefined;
+  });
 }
 
 function advanceIncrementalFrameBody(
