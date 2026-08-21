@@ -3,9 +3,9 @@
 ## Status And Decision
 
 **Decision:** approved as the implementation-ready boundary for the
-production-inert DTE06-F proof. The first implementation is the runtime and
-provider convergence correction recorded below; the private host composition
-and local/genuine-PostgreSQL proof follow only after that correction closes.
+production-inert DTE06-F proof. Runtime/provider convergence and the connected
+PGlite/genuine-PostgreSQL acceptance matrix are complete. The active checkpoint
+is the private event-lifetime host kernel recorded under F1 below.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -303,17 +303,17 @@ existing scheduled handler.
 - retain the current Trigger source map and current Flarex owners; and
 - prohibit deployment work until the local host contract is proven.
 
-### DTE06-F0A: Runtime And Provider Convergence — In Progress
+### DTE06-F0A/F0B: Runtime Convergence And Database Acceptance — Complete
 
-The first bounded implementation checkpoint now gives
+The first bounded implementation checkpoint gives
 `ApplicationExecutionHost` and `TaskWorkerSessionHost` one backend-private
 `ApplicationWorkerRuntime` owner for fresh `WorkerLoader.load` entrypoint
 acquisition, exact Worker Loader code projection, and caller-specific typed
 failure mapping. The transaction/action host still owns one-shot RPC execution
 and the Task host still owns accepted session lifetime, cancellation,
-settlement, and close. Runtime-object materialization, callback mechanics, and
-the authenticated Task context remain to be converged; this checkpoint does
-not complete F0A.
+settlement, and close. Runtime-object materialization and authenticated Task
+callback mechanics now share those existing owners rather than creating a
+second action/runtime system.
 
 The next foundation now adds `ApplicationTaskQueryAuthority`. Its post-launch
 composition binds the already-authenticated launch creation authority and
@@ -346,11 +346,9 @@ handlers as `task(ctx, payload)`. `ctx.runQuery` uses a bounded exact envelope,
 host-allocated call identity and deadline, per-call selection revalidation,
 session interruption, and late-result disposal. Genuine Worker connected proof
 reaches the existing selection-bound query core with the launch-bound user
-identity. Mutation, outbound, nested scheduling, and production host work
-remain outside this query checkpoint, so F0A remains in progress.
-
-The next proposed F0A checkpoint is Preflight 44. It does not create another
-mutation engine: it extends the already-admitted `durable_task_attempt` branch
+identity. Mutation now follows the separately approved Preflight 44 boundary.
+It does not create another mutation engine: it extends the already-admitted
+`durable_task_attempt` branch
 of the shared external-effect evidence contract and routes the callback through
 the existing `ApplicationMutationSystem`. The stable Application mutation
 request key is run-and-ordinal scoped across attempts, while exact callee,
@@ -374,12 +372,18 @@ Outbound and scheduling operations remain later, separate gates.
   admits it.
 
 F0A began with this bounded owner/contract preflight over the existing code.
-Its implementation may extract only mechanics proven identical. It must not
+Its implementation extracted only mechanics proven identical. It did not
 change query snapshot semantics, mutation OCC/commit semantics, action
 settlement semantics, or Task lifecycle decisions merely to make the runtime
 surface uniform.
 
-### DTE06-F1: Production-Compatible Private Host — Pending
+F0B then proved the connected Application Task path against both PGlite and an
+ordinary-role genuine PostgreSQL 18 instance while retaining genuine Worker
+execution. The dedicated persistence acceptance matrix passed 2/2, the
+connected PostgreSQL matrix passed 14/14, and the corresponding PGlite matrices
+passed 9/9 and 13/13. Those receipts do not activate production hosting.
+
+### DTE06-F1: Production-Compatible Private Host — In Progress
 
 - depend on the completed F0A runtime and Task-context boundary;
 - add one backend-private host composition around the current
@@ -392,6 +396,40 @@ surface uniform.
   control/located resource boundaries; and
 - prove configuration capture, receiver ownership, interruption, full-Cause
   observation, scope release, and zero production imports.
+
+The first F1 checkpoint is deliberately smaller than the full hosted-resource
+matrix but substantial enough to establish the event-lifetime invariant. It
+adds one backend-private, test-only host around a freshly constructed
+`ApplicationTaskComputeDelivery` Layer. One host invocation runs exactly one
+connected delivery cycle. The supervised provider emits a distinct admission
+signal only after a new accepted session is retained and its supervisor is
+installed; the host never infers admission from connected-runner outcome
+counters. After the runner exits, a private provider control stops new
+admissions and waits for every in-flight start to be classified before the host
+seals the exact admission count. The Layer scope remains open until every
+admitted session has one observed supervisor `Exit` or the single bounded
+quiescence-and-drain deadline expires. The observer and control are accounting
+evidence only; they cannot decide lifecycle, settlement, retry, cancellation,
+or completion.
+
+The host's redacted receipt may retain only an explicit projection of bounded
+connected-runner counters and aggregate expected/observed/succeeded/failed
+supervision counts. The encoded continuation is handed back separately as
+private resume control state and is not part of that receipt. The receipt must
+not retain or return dispatch identity, tenant/scope identity, arguments,
+results, source, acceptance objects, raw failures, or raw `Cause`. Invalid host
+policy, observer/count disagreement, and drain expiry are typed host failures.
+A non-interrupted runner failure still quiesces and drains, then re-emits its
+original full `Cause`; if that drain itself fails, the host drain failure takes
+precedence because event-lifetime safety was not proved. External interruption
+remains interruption, closes the event scope immediately, and is never
+flattened into an ordinary host error. Application directory, launch, provider,
+and runner policy records are snapped at host construction while capability
+receiver ownership is retained.
+
+This kernel does not yet complete F1. Subsequent F1 checkpoints still own the
+immutable object-store adapter composition and the private PGlite/ordinary-role
+PostgreSQL hosted matrix over this lifetime boundary.
 
 F1 must not add a Worker entrypoint, Wrangler binding, route, Queue, Cron, or
 external resource.
@@ -517,11 +555,12 @@ DTE06-F does not authorize:
 
 ## Stop Boundary And Next Gate
 
-The active authorized implementation is DTE06-F0A only. It ends with the shared
-runtime-substrate boundary, operation-specific adapters, and authenticated Task
-context capability while leaving every lifecycle and production entrypoint
-unchanged. F1 then owns the production-compatible test-only host and
-local/genuine-PostgreSQL proof. F2 owns fresh-host recovery. F3/F4 require
+The first DTE06-F1 event-lifetime host checkpoint described above is complete
+privately. F0A/F0B remain complete. The next active F1 checkpoint owns
+resource-adapter composition over this host while keeping the backend-private
+host, bounded redacted receipt, lifecycle owners, and every production
+entrypoint unchanged. Later F1 checkpoints own the connected hosted matrix;
+F2 owns fresh-host recovery. F3/F4 require
 separate approval before any external mutation.
 
 After DTE06-F closes, DTE05-E3 may separately preflight a real scheduled event

@@ -8,3 +8,4 @@ export * from "./TaskAttemptSupervisor.js";
 export * from "./WorkerLoaderTaskComputeProvider.js";
 export * from "./ApplicationTaskQueryCallback.js";
 export * from "./ApplicationTaskMutationCallback.js";
+export * from "./TaskComputeDeliveryEventHost.js";

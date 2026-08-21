@@ -3,7 +3,7 @@ import {
   makeTaskComputeDeliveryConnectedRunnerLayer,
   makeTaskComputeDeliveryTrustedDirectoryLayer,
   makeSupervisedWorkerLoaderTaskComputeProviderLayer,
-  type TaskAttemptSupervisionExitObserver,
+  type TaskAttemptSupervisionObserver,
   type TaskAttemptSupervisor,
   type TaskComputeDeliveryConnectedRunnerOptions,
   type TaskComputeDeliveryTrustedDirectoryOptions,
@@ -38,7 +38,7 @@ export interface ApplicationTaskComputeDeliveryLive {
   readonly mutationAuthority: ApplicationTaskMutationCallbackAuthority;
   readonly supervision: Readonly<{
     readonly supervisor: TaskAttemptSupervisor;
-    readonly exitObserver: TaskAttemptSupervisionExitObserver;
+    readonly observer: TaskAttemptSupervisionObserver;
   }>;
   readonly runner: TaskComputeDeliveryConnectedRunnerOptions;
 }
@@ -64,10 +64,10 @@ export function makeApplicationTaskComputeDeliveryLayer(
       applicationMutationAuthority: live.mutationAuthority,
     }),
     live.supervision.supervisor,
-    live.supervision.exitObserver,
+    live.supervision.observer,
   ).pipe(Layer.provide(launchAuthority));
   const candidateRunner = TaskComputeDeliveryCandidateRunnerLive.pipe(
-    Layer.provide(provider),
+    Layer.provideMerge(provider),
   );
   const directory = makeTaskComputeDeliveryTrustedDirectoryLayer(
     live.controlTarget,
@@ -81,6 +81,6 @@ export function makeApplicationTaskComputeDeliveryLayer(
     },
   );
   return makeTaskComputeDeliveryConnectedRunnerLayer(live.runner).pipe(
-    Layer.provide(Layer.merge(directory, candidateRunner)),
+    Layer.provideMerge(Layer.merge(directory, candidateRunner)),
   );
 }

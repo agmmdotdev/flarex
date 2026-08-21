@@ -20,6 +20,7 @@
     "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",
     "./internal/application-task-mutation-authority": "./src/ApplicationTaskMutationAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
+    "./internal/system-test/application-task-delivery-event-host": "./src/ApplicationTaskDeliveryEventHost.ts",
     "./internal/application-action-host-composition": "./src/ApplicationActionHostComposition.ts",
     "./internal/system-test/system-v1": "./src/systemV1.ts",
     "./internal/system-test/legacy-active-revision-reader-v1": "./src/LegacyStandardApplicationActiveRevisionReaderV1.ts",

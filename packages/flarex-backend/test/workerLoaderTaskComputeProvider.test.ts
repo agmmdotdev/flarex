@@ -37,14 +37,15 @@ import {
 import {
   makeWorkerLoaderTaskComputeProviderLayer,
   makeSupervisedWorkerLoaderTaskComputeProviderLayer,
-  type TaskAttemptSupervisionExitObserver,
+  type TaskAttemptSupervisionObserver,
+  TaskComputeDeliverySupervisionControl,
 } from "../src/taskComputeDelivery/WorkerLoaderTaskComputeProvider";
 import {
   TaskAttemptSupervisorContractError,
   type TaskAttemptSupervisor,
   type TaskAttemptSupervisorInput,
 } from "../src/taskComputeDelivery/TaskAttemptSupervisor";
-import { Cause, Deferred, Effect, Exit, Layer, Option, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Result } from "effect";
 import {
   TASK_WORKER_SESSION_ACCEPTANCE_FORMAT_V1,
   TASK_WORKER_SESSION_ACCEPTANCE_VERSION_V1,
@@ -357,8 +358,9 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     const authority = new FakeLaunchAuthority(input, request);
     const loader = new FakeWorkerLoader();
     const supervised: TaskAttemptSupervisorInput[] = [];
+    let admissions = 0;
     const observed = Deferred.makeUnsafe<Parameters<
-      TaskAttemptSupervisionExitObserver["observe"]
+      TaskAttemptSupervisionObserver["observe"]
     >[1]>();
     const supervise: TaskAttemptSupervisor["supervise"] = sessionInput =>
       Effect.gen(function* () {
@@ -368,11 +370,14 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
         });
       }).pipe(Effect.ensuring(Effect.exit(sessionInput.session.close)));
     const supervisor: TaskAttemptSupervisor = Object.freeze({ supervise });
-    const observe: TaskAttemptSupervisionExitObserver["observe"] =
+    const observe: TaskAttemptSupervisionObserver["observe"] =
       (_sessionInput, exit) => {
         Deferred.doneUnsafe(observed, Effect.succeed(exit));
       };
-    const observer: TaskAttemptSupervisionExitObserver = Object.freeze({
+    const observer: TaskAttemptSupervisionObserver = Object.freeze({
+      admit: () => {
+        admissions += 1;
+      },
       observe,
     });
 
@@ -386,9 +391,106 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
       expect(supervised[0]?.session.acceptance.identity).toEqual(
         request.identity,
       );
+      expect(admissions).toBe(1);
     }), undefined, 100, 32, { supervisor, observer });
     expect(loader.starts).toBe(1);
     expect(loader.sessionDisposals).toBe(1);
+  });
+
+  it("quiesces new admissions after every in-flight start is classified", async () => {
+    const input = await canonicalizeFlarexValueV1(null);
+    const request = applicationRequest();
+    const authority = new FakeLaunchAuthority(input, request);
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>(resolve => {
+      releaseStart = resolve;
+    });
+    const loader = new FakeWorkerLoader({ startGate });
+    let admissions = 0;
+    let exits = 0;
+    const exitObserved = Deferred.makeUnsafe<void>();
+    const supervise: TaskAttemptSupervisor["supervise"] = sessionInput =>
+      Effect.succeed(Object.freeze({
+        kind: "unconfirmed" as const,
+        reason: "host_shutdown" as const,
+      })).pipe(Effect.ensuring(Effect.exit(sessionInput.session.close)));
+    const supervisor: TaskAttemptSupervisor = Object.freeze({ supervise });
+    const observer: TaskAttemptSupervisionObserver = Object.freeze({
+      admit: () => {
+        admissions += 1;
+      },
+      observe: () => {
+        exits += 1;
+        Deferred.doneUnsafe(exitObserved, Effect.void);
+      },
+    });
+
+    await runWithProvider(loader, authority, Effect.gen(function* () {
+      const provider = yield* TaskComputeProvider;
+      const control = yield* TaskComputeDeliverySupervisionControl;
+      const dispatchFiber = yield* provider.dispatch(request).pipe(
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      let quiesced = false;
+      const quiesceFiber = yield* control.quiesce().pipe(
+        Effect.tap(() => Effect.sync(() => {
+          quiesced = true;
+        })),
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      expect(admissions).toBe(0);
+      expect(quiesced).toBe(false);
+      releaseStart();
+      yield* Fiber.join(dispatchFiber);
+      yield* Fiber.join(quiesceFiber);
+      expect(admissions).toBe(1);
+      yield* Deferred.await(exitObserved);
+      expect(exits).toBe(1);
+      const rejected = yield* provider.dispatch(applicationRequest(2n)).pipe(
+        Effect.flip,
+      );
+      expect(rejected).toMatchObject({ reason: "provider_disabled" });
+    }), undefined, 100, 32, { supervisor, observer });
+  });
+
+  it("keeps a retained session quiesce-visible until admission is classified", async () => {
+    const input = await canonicalizeFlarexValueV1(null);
+    const request = applicationRequest();
+    const authority = new FakeLaunchAuthority(input, request);
+    const loader = new FakeWorkerLoader();
+    const quiesceCompleted = Deferred.makeUnsafe<void>();
+    let quiesce: (() => Effect.Effect<void>) | undefined;
+    let completedInsideAdmission = false;
+    const supervise: TaskAttemptSupervisor["supervise"] = sessionInput =>
+      Effect.succeed(Object.freeze({
+        kind: "unconfirmed" as const,
+        reason: "host_shutdown" as const,
+      })).pipe(Effect.ensuring(Effect.exit(sessionInput.session.close)));
+    const supervisor: TaskAttemptSupervisor = Object.freeze({ supervise });
+    const observer: TaskAttemptSupervisionObserver = Object.freeze({
+      admit: () => {
+        const currentQuiesce = quiesce;
+        expect(currentQuiesce).toBeDefined();
+        if (currentQuiesce === undefined) return;
+        Effect.runFork(currentQuiesce().pipe(Effect.tap(() => Effect.sync(() => {
+          completedInsideAdmission = true;
+          Deferred.doneUnsafe(quiesceCompleted, Effect.void);
+        }))));
+        expect(completedInsideAdmission).toBe(false);
+      },
+      observe: () => undefined,
+    });
+
+    await runWithProvider(loader, authority, Effect.gen(function* () {
+      const provider = yield* TaskComputeProvider;
+      const control = yield* TaskComputeDeliverySupervisionControl;
+      quiesce = control.quiesce;
+      yield* provider.dispatch(request);
+      yield* Deferred.await(quiesceCompleted);
+      expect(completedInsideAdmission).toBe(true);
+    }), undefined, 100, 32, { supervisor, observer });
   });
 
   it("advertises callback close time and closes the Worker after callback cleanup failure", async () => {
@@ -442,7 +544,7 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
       32,
       {
         supervisor,
-        observer: Object.freeze({ observe: () => {} }),
+        observer: Object.freeze({ admit: () => {}, observe: () => {} }),
       },
       mutationAuthority,
     );
@@ -453,13 +555,17 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
 async function runWithProvider<Success, Failure>(
   loader: WorkerLoader,
   authority: FakeLaunchAuthority,
-  effect: Effect.Effect<Success, Failure, TaskComputeProvider>,
+  effect: Effect.Effect<
+    Success,
+    Failure,
+    TaskComputeProvider | TaskComputeDeliverySupervisionControl
+  >,
   randomUuid: (() => string) | undefined = undefined,
   handshakeMilliseconds = 100,
   maximumScopedDispatches = 32,
   supervision: Readonly<{
     readonly supervisor: TaskAttemptSupervisor;
-    readonly observer: TaskAttemptSupervisionExitObserver;
+    readonly observer: TaskAttemptSupervisionObserver;
   }> | undefined = undefined,
   applicationMutationAuthority: ApplicationTaskMutationCallbackAuthority =
     defaultApplicationMutationAuthority(),
@@ -767,6 +873,7 @@ class FakeWorkerLoader implements WorkerLoader {
   constructor(private readonly behavior: Readonly<{
     readonly invalidFirstAcceptance?: boolean;
     readonly neverStart?: boolean;
+    readonly startGate?: Promise<void>;
   }> = {}) {}
 
   load(code: WorkerLoaderWorkerCode): WorkerStub {
@@ -797,6 +904,9 @@ class FakeWorkerLoader implements WorkerLoader {
       );
     }
     if (this.behavior.neverStart === true) return await new Promise<never>(() => {});
+    if (this.behavior.startGate !== undefined) {
+      await this.behavior.startGate;
+    }
     const read = Reflect.get(capability as object, "read");
     this.payloads.push(await Reflect.apply(read, capability, []));
     const session = new FakeWorkerSession(

@@ -41,6 +41,7 @@ import { RpcTarget } from "cloudflare:workers";
 import {
   Cause,
   Clock,
+  Context,
   Data,
   Deferred,
   Effect,
@@ -154,12 +155,13 @@ interface CapturedOptions {
 
 interface CapturedProviderOptions extends CapturedOptions {
   readonly sessionSupervisor: TaskAttemptSupervisor | undefined;
-  readonly supervisionExitObserver:
-    | TaskAttemptSupervisionExitObserver
+  readonly supervisionObserver:
+    | TaskAttemptSupervisionObserver
     | undefined;
 }
 
-export interface TaskAttemptSupervisionExitObserver {
+export interface TaskAttemptSupervisionObserver {
+  readonly admit: () => void;
   readonly observe: (
     observation: Readonly<{
       readonly dispatch: TaskAttemptSupervisorInput["dispatch"];
@@ -171,6 +173,16 @@ export interface TaskAttemptSupervisionExitObserver {
     >,
   ) => void;
 }
+
+export interface TaskComputeDeliverySupervisionControlShape {
+  readonly quiesce: () => Effect.Effect<void>;
+}
+
+export class TaskComputeDeliverySupervisionControl
+  extends Context.Service<
+    TaskComputeDeliverySupervisionControl,
+    TaskComputeDeliverySupervisionControlShape
+  >()("flarex-backend/taskComputeDelivery/SupervisionControl") {}
 
 interface StartingDispatch {
   readonly phase: "starting";
@@ -217,7 +229,14 @@ type DispatchState =
 
 interface ProviderState {
   readonly closing: boolean;
+  readonly acceptingDispatches: boolean;
   readonly dispatches: ReadonlyMap<string, DispatchState>;
+  readonly inFlightClassifications: ReadonlySet<StartingDispatch["completion"]>;
+}
+
+interface ProviderBundle {
+  readonly provider: TaskComputeProviderShape;
+  readonly supervisionControl: TaskComputeDeliverySupervisionControlShape;
 }
 
 type DispatchClaim =
@@ -234,7 +253,7 @@ export function makeWorkerLoaderTaskComputeProviderLayer(
   loader: WorkerLoader,
   options: WorkerLoaderTaskComputeProviderOptions,
 ): Layer.Layer<
-  TaskComputeProvider,
+  TaskComputeProvider | TaskComputeDeliverySupervisionControl,
   WorkerLoaderTaskComputeProviderConfigurationError,
   TaskRuntimeLaunchAuthority
 > {
@@ -254,9 +273,9 @@ export function makeSupervisedWorkerLoaderTaskComputeProviderLayer(
   loader: WorkerLoader,
   options: WorkerLoaderTaskComputeProviderOptions,
   supervisor: TaskAttemptSupervisor,
-  supervisionExitObserver: TaskAttemptSupervisionExitObserver,
+  supervisionObserver: TaskAttemptSupervisionObserver,
 ): Layer.Layer<
-  TaskComputeProvider,
+  TaskComputeProvider | TaskComputeDeliverySupervisionControl,
   WorkerLoaderTaskComputeProviderConfigurationError,
   TaskRuntimeLaunchAuthority
 > {
@@ -264,7 +283,7 @@ export function makeSupervisedWorkerLoaderTaskComputeProviderLayer(
     loader,
     options,
     supervisor,
-    supervisionExitObserver,
+    supervisionObserver,
   );
 }
 
@@ -272,21 +291,20 @@ function makeWorkerLoaderTaskComputeProviderLayerInternal(
   loader: WorkerLoader,
   options: WorkerLoaderTaskComputeProviderOptions,
   supervisor: TaskAttemptSupervisor | undefined,
-  supervisionExitObserver: TaskAttemptSupervisionExitObserver | undefined,
+  supervisionObserver: TaskAttemptSupervisionObserver | undefined,
 ): Layer.Layer<
-  TaskComputeProvider,
+  TaskComputeProvider | TaskComputeDeliverySupervisionControl,
   WorkerLoaderTaskComputeProviderConfigurationError,
   TaskRuntimeLaunchAuthority
 > {
-  return Layer.effect(
-    TaskComputeProvider,
+  return Layer.effectContext(
     Effect.gen(function* () {
       const authority = yield* TaskRuntimeLaunchAuthority;
       const capturedOptions = yield* Effect.fromResult(captureOptions(options));
       const captured: CapturedProviderOptions = Object.freeze({
         ...capturedOptions,
         sessionSupervisor: supervisor,
-        supervisionExitObserver,
+        supervisionObserver,
       });
       const host = yield* Effect.try({
         try: () => makeTaskWorkerSessionHost(
@@ -297,12 +315,17 @@ function makeWorkerLoaderTaskComputeProviderLayerInternal(
         ),
         catch: cause => configurationError(cause),
       });
-      const provider = yield* makeWorkerLoaderTaskComputeProvider(
+      const bundle = yield* makeWorkerLoaderTaskComputeProvider(
         authority,
         host,
         captured,
       );
-      return TaskComputeProvider.of(provider);
+      return Context.make(TaskComputeProvider, bundle.provider).pipe(
+        Context.add(
+          TaskComputeDeliverySupervisionControl,
+          bundle.supervisionControl,
+        ),
+      );
     }),
   );
 }
@@ -313,17 +336,21 @@ const makeWorkerLoaderTaskComputeProvider = Effect.fn(
   authority: TaskRuntimeLaunchAuthorityShape,
   host: TaskWorkerSessionHost,
   options: CapturedProviderOptions,
-): Effect.fn.Return<TaskComputeProviderShape, never, Scope.Scope> {
+): Effect.fn.Return<ProviderBundle, never, Scope.Scope> {
   const providerScope = yield* Scope.Scope;
   const stateRef = yield* Ref.make<ProviderState>(Object.freeze({
     closing: false,
+    acceptingDispatches: true,
     dispatches: new Map(),
+    inFlightClassifications: new Set<StartingDispatch["completion"]>(),
   }));
 
   yield* Effect.addFinalizer(() => Effect.gen(function* () {
     const previous = yield* Ref.getAndSet(stateRef, Object.freeze({
       closing: true,
+      acceptingDispatches: false,
       dispatches: new Map(),
+      inFlightClassifications: new Set<StartingDispatch["completion"]>(),
     }));
     const active = [...previous.dispatches.values()].filter(
       (state): state is ActiveDispatch => state.phase === "active",
@@ -375,7 +402,32 @@ const makeWorkerLoaderTaskComputeProvider = Effect.fn(
       );
     })),
   });
-  return makeTaskComputeProviderV1(implementation);
+  const quiesce = Effect.fn(
+    "WorkerLoaderTaskComputeProvider.quiesceSupervision",
+  )(function* () {
+    const completions = yield* Ref.modify(stateRef, state => {
+      const classifications = [...state.inFlightClassifications];
+      return [classifications, state.acceptingDispatches
+        ? Object.freeze({
+            closing: state.closing,
+            acceptingDispatches: false,
+            dispatches: state.dispatches,
+            inFlightClassifications: state.inFlightClassifications,
+          })
+        : state] as const;
+    });
+    yield* Effect.forEach(
+      completions,
+      completion => Effect.exit(Deferred.await(completion)),
+      { concurrency: 16, discard: true },
+    );
+  });
+  return Object.freeze({
+    provider: makeTaskComputeProviderV1(implementation),
+    supervisionControl: TaskComputeDeliverySupervisionControl.of(Object.freeze({
+      quiesce,
+    })),
+  });
 });
 
 function claimDispatch(
@@ -386,7 +438,7 @@ function claimDispatch(
   Result.Result<DispatchClaim, TaskComputeDispatchErrorV1>,
   ProviderState,
 ] {
-  if (state.closing) {
+  if (state.closing || !state.acceptingDispatches) {
     return [Result.fail(new TaskComputeDispatchRejectedError({
       operation: "dispatch",
       reason: "provider_disabled",
@@ -439,21 +491,21 @@ function claimDispatch(
       });
       return [
         Result.succeed(Object.freeze({ kind: "start" as const, state: starting })),
-        setDispatchState(state, key, starting),
+        addStartingDispatchState(state, key, starting),
       ] as const;
     },
   });
 }
 
 const completeStart = Effect.fn("WorkerLoaderTaskComputeProvider.completeStart")(
-  function* (
+  (
     stateRef: Ref.Ref<ProviderState>,
     authority: TaskRuntimeLaunchAuthorityShape,
     host: TaskWorkerSessionHost,
     options: CapturedProviderOptions,
     providerScope: Scope.Scope,
     starting: StartingDispatch,
-  ) {
+  ) => Effect.gen(function* () {
     const started = yield* Effect.exit(startDispatch(
       authority,
       host,
@@ -482,11 +534,12 @@ const completeStart = Effect.fn("WorkerLoaderTaskComputeProvider.completeStart")
           stateRef,
           active,
           options.sessionSupervisor,
-          options.supervisionExitObserver,
+          options.supervisionObserver,
         ),
         providerScope,
         { startImmediately: true },
       );
+      options.supervisionObserver?.admit();
       yield* Deferred.done(starting.completion, Exit.succeed(active.acceptance));
       return;
     }
@@ -508,7 +561,9 @@ const completeStart = Effect.fn("WorkerLoaderTaskComputeProvider.completeStart")
         : state);
     }
     yield* Deferred.done(starting.completion, Exit.failCause(started.cause));
-  },
+  }).pipe(Effect.ensuring(
+    Ref.update(stateRef, state => removeInFlightClassification(state, starting)),
+  )),
 );
 
 const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")(
@@ -672,7 +727,7 @@ function superviseSession(
   stateRef: Ref.Ref<ProviderState>,
   active: ActiveDispatch,
   supervisor: TaskAttemptSupervisor | undefined,
-  exitObserver: TaskAttemptSupervisionExitObserver | undefined,
+  exitObserver: TaskAttemptSupervisionObserver | undefined,
 ): Effect.Effect<void> {
   const supervision = supervisor === undefined || exitObserver === undefined
     ? Effect.exit(active.session.settlement).pipe(
@@ -929,7 +984,12 @@ function setDispatchState(
 ): ProviderState {
   const dispatches = new Map(state.dispatches);
   dispatches.set(key, dispatch);
-  return Object.freeze({ closing: state.closing, dispatches });
+  return Object.freeze({
+    closing: state.closing,
+    acceptingDispatches: state.acceptingDispatches,
+    dispatches,
+    inFlightClassifications: state.inFlightClassifications,
+  });
 }
 
 function deleteDispatchState(
@@ -938,7 +998,44 @@ function deleteDispatchState(
 ): ProviderState {
   const dispatches = new Map(state.dispatches);
   dispatches.delete(key);
-  return Object.freeze({ closing: state.closing, dispatches });
+  return Object.freeze({
+    closing: state.closing,
+    acceptingDispatches: state.acceptingDispatches,
+    dispatches,
+    inFlightClassifications: state.inFlightClassifications,
+  });
+}
+
+function addStartingDispatchState(
+  state: ProviderState,
+  key: string,
+  dispatch: StartingDispatch,
+): ProviderState {
+  const dispatches = new Map(state.dispatches);
+  dispatches.set(key, dispatch);
+  const inFlightClassifications = new Set(state.inFlightClassifications);
+  inFlightClassifications.add(dispatch.completion);
+  return Object.freeze({
+    closing: state.closing,
+    acceptingDispatches: state.acceptingDispatches,
+    dispatches,
+    inFlightClassifications,
+  });
+}
+
+function removeInFlightClassification(
+  state: ProviderState,
+  dispatch: StartingDispatch,
+): ProviderState {
+  if (!state.inFlightClassifications.has(dispatch.completion)) return state;
+  const inFlightClassifications = new Set(state.inFlightClassifications);
+  inFlightClassifications.delete(dispatch.completion);
+  return Object.freeze({
+    closing: state.closing,
+    acceptingDispatches: state.acceptingDispatches,
+    dispatches: state.dispatches,
+    inFlightClassifications,
+  });
 }
 
 function allocateExecutionId(

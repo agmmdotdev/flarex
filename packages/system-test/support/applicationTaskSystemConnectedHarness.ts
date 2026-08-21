@@ -58,7 +58,7 @@ import { makeApplicationTaskQueryAuthority } from
 import {
   makeTaskAttemptSupervisor,
   TaskComputeDeliveryConnectedRunner,
-  type TaskAttemptSupervisionExitObserver,
+  type TaskAttemptSupervisionObserver,
   type TaskAttemptSupervisorError,
   type TaskAttemptSupervisorLifecycleResolver,
   type TaskAttemptSupervisorOutcome,
@@ -688,7 +688,7 @@ export async function proveApplicationTaskSystemConnected(
       mutationAuthority,
       supervision: {
         supervisor,
-        exitObserver: supervision,
+        observer: supervision,
       },
       runner: oneCandidatePolicy(),
     });
@@ -966,6 +966,7 @@ export async function proveApplicationTaskSystemConnected(
     );
     expect(legacyRuntimeObjectReads).toBe(0);
     expect(supervision.observations).toBe(1);
+    expect(supervision.admissions).toBe(1);
     expect(Exit.isSuccess(connected.supervisionExit)).toBe(
       scenario !== "result_publication_uncertain",
     );
@@ -1280,7 +1281,7 @@ function oneCandidatePolicy(): TaskComputeDeliveryConnectedRunnerOptions {
   });
 }
 
-class SupervisionExitProbe implements TaskAttemptSupervisionExitObserver {
+class SupervisionExitProbe implements TaskAttemptSupervisionObserver {
   private readonly completion: Promise<Exit.Exit<
     TaskAttemptSupervisorOutcome,
     TaskAttemptSupervisorError
@@ -1291,6 +1292,7 @@ class SupervisionExitProbe implements TaskAttemptSupervisionExitObserver {
   >) => void) | undefined;
   private observed = false;
   observations = 0;
+  admissions = 0;
 
   constructor() {
     this.completion = new Promise(resolve => {
@@ -1298,8 +1300,12 @@ class SupervisionExitProbe implements TaskAttemptSupervisionExitObserver {
     });
   }
 
+  admit(): void {
+    this.admissions += 1;
+  }
+
   observe(
-    _observation: Parameters<TaskAttemptSupervisionExitObserver["observe"]>[0],
+    _observation: Parameters<TaskAttemptSupervisionObserver["observe"]>[0],
     exit: Exit.Exit<TaskAttemptSupervisorOutcome, TaskAttemptSupervisorError>,
   ): void {
     this.observations += 1;
