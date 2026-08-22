@@ -393,6 +393,11 @@ export interface PhysicalDefinitionLifecycleTransitionResult {
   readonly lifecycle: StoredPhysicalDefinitionLifecycle;
 }
 
+export interface PhysicalDefinitionLifecycleRetirementResult {
+  readonly disposition: "transitioned" | "replayed";
+  readonly lifecycle: StoredPhysicalDefinitionLifecycle;
+}
+
 export interface PhysicalDefinitionLifecycleTransitionOptions {
   /** Persistence-owned deterministic rollback seam for direct adapter tests. */
   readonly faultAfterWrite?: () => void;
@@ -724,7 +729,7 @@ export const finalizePhysicalDefinitionRetirementEffect = Effect.fn(
   input: PhysicalDefinitionLifecycleTransitionInput,
   options: PhysicalDefinitionLifecycleTransitionOptions = {},
 ): Effect.fn.Return<
-  PhysicalDefinitionLifecycleTransitionResult,
+  PhysicalDefinitionLifecycleRetirementResult,
   FinalizePhysicalDefinitionRetirementError
 > {
   const state = preparedStates.get(prepared);
@@ -956,7 +961,7 @@ const finalizeRetirementInTransactionEffect = Effect.fn(
   requestSha256: Uint8Array,
   options: PhysicalDefinitionLifecycleTransitionOptions,
 ): Effect.fn.Return<
-  PhysicalDefinitionLifecycleTransitionResult,
+  PhysicalDefinitionLifecycleRetirementResult,
   LockScopeClockForUpdateError |
     PhysicalDefinitionLifecyclePersistenceError |
     PhysicalDefinitionLifecycleConflictError |

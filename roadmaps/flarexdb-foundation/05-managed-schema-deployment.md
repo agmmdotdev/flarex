@@ -26,6 +26,7 @@ The preflights add no authority. `M05-B1` adds only the production-unwired
 scope-local current authority and its reversible draining operations. Private
 `M05-B2` composes that lifecycle into readiness/admission, and private
 `M05-B3` adds exact current-pin inspection plus fenced finalization.
+Private `M05-B4` adds the explicit one-step coordinator and exact cold replay.
 It remains private and production-inert: no public route, CLI, deployment
 caller, or trigger executes retirement in production, and no physical/evidence
 purge or production generation cut is authorized by this roadmap.
@@ -1203,10 +1204,10 @@ The ordered implementation path is:
    correlated with the run's canonical creation authority; they are not a copied
    retirement registry. The migration may not add separate pin state or a
    second authority owner.
-4. `M05-B4` - compose one manual private coordinator that begins draining,
+4. `M05-B4` - **complete and private**: one manual coordinator begins draining,
    performs one bounded scope-local step, and finalizes only after an exact
-   cold-replayable recheck. No timer, cron, queue, route, or automatic trigger is
-   required; a future wake source may call the same coordinator without owning
+   cold-replayable recheck. No timer, cron, queue, route, or automatic trigger
+   exists; a future wake source may call the same coordinator without owning
    retirement policy.
 
 `M05-B2` is complete and remains private. Its accepted
@@ -1254,6 +1255,21 @@ Populated upgrade and malformed-row
 rollback are proved in PGlite and genuine PostgreSQL, and the finalizer proves
 pin refusal, rollback, exact replay, and the successful fenced transition. No
 scheduler, coordinator, deletion, or purge is part of this slice.
+
+`M05-B4` is the production-unwired manual composition over that lifecycle. Each
+explicit invocation prepares the subject from current control and scope
+authority, inspects the durable lifecycle row, and performs at most the next
+retirement transition. An active subject enters `draining` and returns without
+trying to retire in the same invocation. A later invocation that observes
+`draining` must first exact-replay the original begin request; the existing
+request digest thereby reauthenticates the same immutable definition and
+schema-binding set across a cold restart before the current pin inspectors and
+finalizer run. A pin is projected as bounded `waiting` state, while every other
+typed failure remains a failure. An invocation that observes `retired` exact-
+replays finalization before reporting completion, and `reactivating` remains
+inert. Concurrent races remain fenced by the lifecycle owner and are retried
+only by another explicit caller invocation. The coordinator owns no loop,
+cursor, timer, queue, cron, route, scheduler, deletion, or purge authority.
 
 `M05-C` remains a later, separately approved dependency-ordered, bounded,
 resumable physical purge. It still requires explicit immutable-evidence and R2
@@ -1345,6 +1361,10 @@ These are separate later goals, not one giant deployment goal:
     proof-bearing `draining -> retired` finalization gate are implemented. It
     remains manual and private; no scheduler, timer, route, deletion, or
     physical purge is implied.
+17. `M05-B4` - **complete and private**: the explicit one-step coordinator
+    begins draining, cold-replays the exact prior transition before finalizing
+    or reporting completion, and returns bounded pin-wait state. It adds no
+    automatic wake source, public caller, deletion, or purge.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
