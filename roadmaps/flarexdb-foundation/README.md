@@ -184,7 +184,7 @@ floor stays fixed at zero.
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, scoped-execution `S02-E0`–`S02-E2`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete; bypass closure `S02-E3` is next |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, O09 multi-row plus unique/developer-sidecar contention proof, and O11-A through O11-F3a retained-floor observation/publication, dependency-ordered cleanup, durable checkpointing, bounded runner, and private manual adapter are complete; O11 scheduled-event and cron activation remain deliberately deferred, while the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
-| Managed schema | Private `M01-A` through `M04-C`, retirement preflight `M05-P`, exact workspace recovery `M05-A`, atomic supersession reclamation `M05-A2`, docs-only retirement gate reconciliation `M05-B0`, docs-only scope-local storage preflight `M05-B1-P`, private scope-local lifecycle authority `M05-B1`, private readiness/admission composition `M05-B2`, bounded current-pin finalization `M05-B3`, the explicit cold-replayable manual coordinator `M05-B4`, docs-only physical-purge boundary preflight `M05-C0`, and docs-only dedicated purge-progress storage preflight `M05-C1-P` are complete and production-inert; storage implementation, reactivation, physical sidecar purge, and immutable-evidence retention remain separate |
+| Managed schema | Private `M01-A` through `M04-C`, retirement preflight `M05-P`, exact workspace recovery `M05-A`, atomic supersession reclamation `M05-A2`, docs-only retirement gate reconciliation `M05-B0`, docs-only scope-local storage preflight `M05-B1-P`, private scope-local lifecycle authority `M05-B1`, private readiness/admission composition `M05-B2`, bounded current-pin finalization `M05-B3`, the explicit cold-replayable manual coordinator `M05-B4`, docs-only physical-purge boundary preflight `M05-C0`, conditional purge-progress design `M05-C1-P`, and Convex-aligned direction reconciliation `M05-X0` are complete and production-inert; logical retirement plus retained physical state is the default, and purge storage, reactivation, physical incarnation, sidecar deletion, and immutable-evidence retention remain demand-triggered separate work |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `S02-E3`, `H05-B`, and later replacement correctness gates |
 
@@ -2092,13 +2092,14 @@ purge: the lifecycle row has no purge phase or cursor, O11 owns ordered-index
 and app-row history semantics, unique-set build authority is schema-version-
 wide rather than definition-local, and immutable Application/Source Artifact/
 R2 evidence can be shared beyond one retired scope-local definition. The next
-possible storage shape is now frozen by the docs-only `M05-C1-P` preflight as
-one dedicated target-local row per scope and definition, bound to the exact
-retired lifecycle fence. It keeps lifecycle availability separate from bounded
-purge phase/continuation evidence, carries no scheduler lease, and cannot accept
-a caller-owned cursor. `M05-C1` is the next implementation-bearing slice and
-may add only the empty additive table plus private preparation, inspection, and
-replay/conflict authority. A separately proven reactivation contract remains a
-prerequisite to any destructive sidecar page. Developer-index sidecars, unique
-claims, and immutable evidence remain distinct later owners; no deletion or
-automatic trigger is authorized.
+conditional purge storage shape is recorded by the docs-only `M05-C1-P`
+preflight as one dedicated target-local row per scope and definition, bound to
+the exact retired lifecycle fence. `M05-X0` reconciles that contingency with
+current Convex behavior and makes it conditional rather than next: logical
+retirement plus retained physical state is the default, while O11 continues
+only generic historical compaction. A fresh physical incarnation is not a
+bounded M05 refactor because current sidecar, unique-claim, readiness, journal,
+point-commit, and OCC identities are definition-keyed. `M05-C1`, reactivation,
+incarnation keys, developer-index sidecar deletion, unique-claim cleanup, and
+immutable-evidence retention now require concrete demand and separately
+approved owner preflights. No deletion or automatic trigger is authorized.

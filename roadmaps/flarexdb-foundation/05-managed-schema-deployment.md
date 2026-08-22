@@ -27,13 +27,16 @@ scope-local current authority and its reversible draining operations. Private
 `M05-B2` composes that lifecycle into readiness/admission, and private
 `M05-B3` adds exact current-pin inspection plus fenced finalization.
 Private `M05-B4` adds the explicit one-step coordinator and exact cold replay.
-The docs-only `M05-C0` physical-purge boundary preflight and `M05-C1-P`
-purge-progress storage preflight are also complete. They reject one combined
-definition/evidence purge and freeze a dedicated target-local checkpoint rather
-than overloading lifecycle authority. Everything remains private and
-production-inert: no public route, CLI, deployment caller, or trigger executes
-retirement in production, and no physical/evidence purge or production
-generation cut is authorized by this roadmap.
+The docs-only `M05-C0` physical-purge boundary preflight, conditional
+`M05-C1-P` purge-progress storage design, and `M05-X0` Convex-alignment
+reconciliation are also complete. They reject one combined definition/evidence
+purge and make logical retirement plus retained physical state the default.
+`M05-C1` is no longer the next implementation slice: a dedicated purge
+checkpoint remains only a conditional design if measured storage or foreign-key
+pressure later proves it necessary. Everything remains private and production-
+inert: no public route, CLI, deployment caller, or trigger executes retirement
+in production, and no physical/evidence purge, physical-incarnation refactor,
+or production generation cut is authorized by this roadmap.
 
 ## Decision
 
@@ -1301,10 +1304,10 @@ This inventory freezes five consequences:
 1. A resumable destructive operation needs durable target-local purge progress.
    The current lifecycle row cannot safely encode `retired-with-sidecars`, an
    in-progress dependency phase, a bounded continuation, and `purged`. The
-   completed `M05-C1-P` preflight therefore selects a dedicated purge
-   checkpoint rather than a lifecycle extension and proves the required replay,
-   fencing, restart, migration, and rollback contract before its later
-   implementation or any destructive page exists.
+   completed `M05-C1-P` preflight therefore records a dedicated purge checkpoint
+   rather than a lifecycle extension if such reclamation is later justified.
+   `M05-X0` makes that implementation conditional rather than the next step;
+   logical retirement and retained physical state are safe without it.
 2. Reactivation is a prerequisite, not post-purge cleanup. `M05-R-P` must first
    freeze the exact `retired -> reactivating -> active` rebuild path and
    distinguish retained from purged sidecars. It must reuse the existing
@@ -1341,8 +1344,9 @@ implementation-bearing slice.
 
 #### M05-C1-P Additive Purge-Progress Storage Preflight
 
-`M05-C1-P` is complete as a docs-only storage preflight. It authorizes no DDL,
-row creation, deletion, phase transition, reactivation, scheduler, or trigger.
+`M05-C1-P` is complete as a docs-only, conditional storage design. It is not an
+implementation queue item and authorizes no DDL, row creation, deletion, phase
+transition, reactivation, scheduler, or trigger.
 The accepted shape is a dedicated target-local
 `fx_system_physical_definition_purge` row per
 `(scope_id, definition_kind, definition_id)`. It is not an extension of
@@ -1409,22 +1413,92 @@ retirement cycle. A later reactivation changes the lifecycle fence, making the
 old row inapplicable; only a later exact retirement may reinitialize it with a
 higher purge fence, and never while the prior row is incomplete.
 
-`M05-C1` is the next implementation-bearing checkpoint. It may add only the
-empty additive table plus private preparation/inspection and exact replay/
-conflict authority. It must not expose a generic phase setter or callback-based
-deletion transaction, mark a subject complete, delete any row, modify the
-lifecycle contract, or wire a caller. Later index and unique page owners retain
-their own SQL, cursor decoding, error families, and atomic checkpoint update;
-they may reuse exact package-local checkpoint mechanics but not O11's table,
-scheduler key, continuation, lease, or deletion authority.
+`M05-C1` is conditional and unapproved after `M05-X0`. If measured evidence
+later reopens it, it may add only the empty additive table plus private
+preparation/inspection and exact replay/conflict authority. It must not expose a
+generic phase setter or callback-based deletion transaction, mark a subject
+complete, delete any row, modify the lifecycle contract, or wire a caller.
+Later index and unique page owners retain their own SQL, cursor decoding, error
+families, and atomic checkpoint update; they may reuse exact package-local
+checkpoint mechanics but not O11's table, scheduler key, continuation, lease,
+or deletion authority.
 
-The `M05-C1` proof gate requires PGlite and genuine-PostgreSQL fresh install,
-upgrade from the immediately prior populated schema, rollback on migration and
-repository failure, empty-table/no-backfill proof, exact create/replay/conflict,
-stale lifecycle and authority refusal, malformed-row refusal, concurrent-create
-serialization, and lifecycle/readiness/O11 regression coverage. The migration
-uses the next available number at implementation time and may not rewrite an
-existing migration.
+Any reopened `M05-C1` proof gate requires PGlite and genuine-PostgreSQL fresh
+install, upgrade from the immediately prior populated schema, rollback on
+migration and repository failure, empty-table/no-backfill proof, exact create/
+replay/conflict, stale lifecycle and authority refusal, malformed-row refusal,
+concurrent-create serialization, and lifecycle/readiness/O11 regression
+coverage. Its migration would use the next available number at implementation
+time and may not rewrite an existing migration.
+
+#### M05-X0 Convex-Aligned Retirement Direction Reconciliation
+
+`M05-X0` is complete as a docs-only direction preflight. It inspected the
+checked-in upstream Convex source at `84fbb0e70b4e857913673871cb847ad11a55f3d5`,
+including:
+
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`;
+- `crates/database/src/bootstrap_model/index.rs`;
+- `crates/database/src/bootstrap_model/index_backfills/{types.rs,mod.rs}`;
+- `crates/database/src/database_index_workers/mod.rs`;
+- `crates/application/src/schema_worker/mod.rs`;
+- `crates/model/src/config/mod.rs`; and
+- `crates/database/src/retention.rs`.
+
+Convex makes a removed ordinary index unavailable by deleting its `_index`
+metadata during the final configuration transaction. A later declaration gets
+a new metadata identity and a fresh persisted backfill. Its general timestamp-
+retention worker separately reclaims expired index-entry revisions in bounded
+chunks. The inspected path has durable schema-validation and index-backfill
+progress, but no ordinary-index equivalent of Flarex's per-definition
+`active -> draining -> retired -> purging -> purged` checkpoint. This is the
+product policy Flarex adopts: logical removal and rebuild correctness are on the
+deployment path; complete byte reclamation is not.
+
+Flarex cannot copy Convex's physical identity mechanic as a bounded M05 change.
+Current control definitions are deduplicated by deployment, logical owner, and
+physical-spec digest. Target index current/revision primary keys, index build
+state, unique-claim primary keys, unique-set build membership, readiness
+digests, point-commit lowering, and persisted transaction-journal dependencies
+all use the physical definition ID directly. Neither index entries nor unique
+claims carry a separate physical-incarnation identity. The current build
+attempt fence fences one rebuild attempt; it does not namespace stored sidecars
+and therefore cannot be reinterpreted as an incarnation.
+
+Adding an incarnation column would change authoritative read/write keys and
+persisted commit/OCC dependencies. Allocating a new definition ID for an exact
+same-spec replay would instead change control-catalog identity, idempotency, and
+schema-binding contracts. Either option crosses the index, unique-constraint,
+readiness, transaction-journal, point-commit, and O11 owners. It requires a
+separate explicit cross-owner preflight and approval; M05 may not introduce it
+incidentally.
+
+The accepted current direction is therefore:
+
+1. Keep private M05-B logical draining and retirement. It is Flarex's stronger
+   admission barrier for persisted Application mutations, actions, durable
+   tasks, snapshots, and split control/target authority; it is not cleanup
+   overhead to remove.
+2. After `retired`, retain definition metadata, build state, sidecars, claims,
+   lifecycle evidence, and immutable Application/R2 evidence by default. O11
+   continues only its existing generic historical compaction and does not infer
+   definition deletion.
+3. Do not implement `M05-C1`, destructive pages, or a physical-incarnation key
+   without measured storage growth, quota pressure, or a demonstrated foreign-
+   key/history blockage that retained state actually causes.
+4. Do not silently reactivate a retired definition. If a real consumer requires
+   same-spec reuse, a docs-only `M05-R0` must first choose between an in-place
+   destructive reset/rebuild and a fresh physical incarnation. The first depends
+   on the conditional purge owner; the second requires separately approved
+   index/OCC and unique-claim contract migrations. Until then, reuse fails
+   closed.
+5. A future cleanup wake remains an operability hint over its own approved
+   owner. Logical retirement, O11, and evidence retention do not gain a timer,
+   queue, cron, or automatic trigger from this reconciliation.
+
+There is no next implementation-bearing M05 cleanup slice after `M05-X0`.
+`M05-C1`, `M05-R0`, and a physical-incarnation preflight are demand-triggered,
+not assumed sequential work.
 
 ## Ordered Turn Sequence
 
@@ -1517,12 +1591,20 @@ These are separate later goals, not one giant deployment goal:
     and-evidence purge, and split durable purge progress, reactivation,
     developer-index sidecars, unique claims, and immutable evidence retention
     into separately approved checkpoints.
-19. `M05-C1-P` - **complete docs-only storage preflight; no DDL**: select one
+19. `M05-C1-P` - **complete conditional docs-only storage design; no DDL**:
+    select one
     dedicated scope/definition purge checkpoint bound to the exact retired
     lifecycle fence, freeze its bounded phase/continuation and lock contract,
     and keep availability, scheduling, O11 history, and evidence retention with
-    their existing owners. `M05-C1` is the next implementation-bearing slice;
-    it adds storage authority only and cannot delete or complete a purge.
+    their existing owners. `M05-X0` makes its implementation conditional rather
+    than next; no purge storage or deletion is authorized.
+20. `M05-X0` - **complete docs-only direction reconciliation; no code**: adopt
+    Convex's logical-removal-first and generic-retention policy while retaining
+    Flarex's stronger drain barrier. Reject an incidental physical-incarnation
+    refactor because current sidecar, claim, journal, readiness, point-commit,
+    and OCC identities are definition-keyed. No further M05 cleanup
+    implementation proceeds without concrete retention or reuse demand and its
+    separately approved owner preflight.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema

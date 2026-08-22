@@ -807,8 +807,13 @@ How Flarex differs:
 
 - Convex's logical identity is the ordered table/descriptor name and physical
   incarnations are `_index` metadata documents. Flarex maps that logical name
-  to a compact numeric ID; S05-A now freezes its codec, while C3 still chooses
-  physical definition identity/DDL.
+  to a compact numeric ID and currently deduplicates immutable physical
+  definitions by deployment, logical owner, and physical-spec digest. Target
+  sidecars, build state, readiness, transaction journals, and point commits use
+  that definition ID directly; there is no separate target-local incarnation
+  key. `M05-X0` therefore adopts Convex's logical-removal-first policy but
+  rejects adding fresh-incarnation plumbing as an incidental cleanup change.
+  Such a change requires its own index/OCC and unique-claim contract preflight.
 - Convex persists `by_id` and `by_creation_time` metadata automatically.
   Flarex v1 keeps both intrinsic; C2 writes no rows and consumes no logical IDs
   for them. C2 keeps developer fields logical; S05-A now owns their separate
