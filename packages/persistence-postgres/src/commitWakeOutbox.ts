@@ -1170,7 +1170,13 @@ function materializeClaimSnapshot(
       wake,
       headerEpoch,
     );
-    if (Result.isFailure(correlation)) return Result.fail(correlation.failure);
+    if (Result.isFailure(correlation)) {
+      // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+      return correlation as Result.Result<
+        CapturedCommitWakeSnapshotV1,
+        CommitWakeCorruptionErrorV1 | CommitWakeScopeNotFoundErrorV1
+      >;
+    }
     wakes.push(Object.freeze({
       wake,
       retainedHeaderEpochUuid: headerEpoch,

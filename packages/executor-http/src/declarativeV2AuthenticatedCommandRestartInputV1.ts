@@ -13,6 +13,7 @@ import {
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressFrameWorkV2,
+  type DeclarativeV2VerifierProgressFrameByteRangeV2,
   type DeclarativeV2VerifierProgressV2Error,
   type DeclarativeV2VerifierRestartCommandKindV2,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
@@ -1419,7 +1420,13 @@ function captureEncoderFrame(
             kind === "page_manifest" ? 1 : 0,
           );
           if (Result.isFailure(admitted)) {
-            return Result.fail(admitted.failure);
+            // SAFETY: the guard proved the failure channel; only the success
+            // phantom needs widening.
+            return admitted as Result.Result<
+              DeclarativeV2VerifierProgressFrameByteRangeV2,
+              DeclarativeV2AuthenticatedCommandRestartInputV1Error |
+                AllowancePending
+            >;
           }
           try {
             wrapper = new Uint8Array(frameByteLength);
@@ -2401,7 +2408,7 @@ function prepareDecoderPayload(
     "stepDecoder",
     "payload",
   );
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
+  if (Result.isFailure(admitted)) return admitted;
   state.payloadBodyLength = payloadByteLength;
   state.payloadBodyOffset = 0;
   return Result.succeed(undefined);
@@ -2701,7 +2708,7 @@ function allocateDecoderPageBodies(
     "finishDecoder",
     "pageBodies",
   );
-  if (Result.isFailure(admitted)) return Result.fail(admitted.failure);
+  if (Result.isFailure(admitted)) return admitted;
   try {
     for (const page of state.grammar.pages) {
       page.body = new Uint8Array(Number(page.payloadByteLength));
@@ -2757,8 +2764,13 @@ function validateFinish(
       operation,
       "payloadSha256",
     );
-    if (Result.isFailure(charged)) return Result.fail(charged.failure);
-    const page = state.pages[state.validationIndex]!;
+    if (Result.isFailure(charged)) {
+      // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+      return charged as Result.Result<
+        boolean,
+        DeclarativeV2AuthenticatedCommandRestartInputV1Error
+      >;
+    }    const page = state.pages[state.validationIndex]!;
     if (
       page.payloadHash.byteLength !== Number(page.payloadByteLength) ||
       !bytesEqualFullScan(
@@ -2789,8 +2801,13 @@ function validateFinish(
       operation,
       "terminal",
     );
-    if (Result.isFailure(charged)) return Result.fail(charged.failure);
-    const finalPage = state.pages.at(-1)!;
+    if (Result.isFailure(charged)) {
+      // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+      return charged as Result.Result<
+        boolean,
+        DeclarativeV2AuthenticatedCommandRestartInputV1Error
+      >;
+    }    const finalPage = state.pages.at(-1)!;
     const finalValidation = validateDeclarativeV2VerifierFinalEvidencePageV2(
       finalPage.manifest!,
       finalPage.manifestSha256,
@@ -2862,7 +2879,7 @@ function prechargeEncoderFrame(
     "append",
     "frame",
   );
-  if (Result.isFailure(charged)) return Result.fail(charged.failure);
+  if (Result.isFailure(charged)) return charged;
   Object.assign(state.usage, nextUsage);
   return Result.succeed(undefined);
 }
@@ -2910,7 +2927,7 @@ function settleWork(
     operation,
     path,
   );
-  if (Result.isFailure(settled)) return Result.fail(settled.failure);
+  if (Result.isFailure(settled)) return settled;
   Object.assign(usage, nextUsage);
   return Result.succeed(undefined);
 }
@@ -3312,7 +3329,7 @@ function chargeMany(
       operation,
       path,
     );
-    if (Result.isFailure(charged)) return Result.fail(charged.failure);
+    if (Result.isFailure(charged)) return charged;
   }
   Object.assign(usage, nextUsage);
   return Result.succeed(undefined);

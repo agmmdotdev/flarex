@@ -15,6 +15,7 @@ import {
   type DeclarativeV2VerifierDurableCommandKindV2,
   type DeclarativeV2VerifierEvidencePageManifestFrameV2,
   type DeclarativeV2VerifierProgressCursorFrameV2,
+  type DeclarativeV2VerifierProgressFrameByteRangeV2,
   type DeclarativeV2VerifierProgressFrameWorkV2,
   type DeclarativeV2VerifierProgressV2Error,
 } from "flarex-protocol/internal/declarative-v2-verifier-progress-v2";
@@ -1242,7 +1243,12 @@ function captureFrame(
           plan.successfulWork,
         );
         if (Result.isFailure(admitted)) {
-          return Result.fail(admitted.failure);
+          // SAFETY: the guard proved the failure channel; only the success
+          // phantom needs widening.
+          return admitted as Result.Result<
+            DeclarativeV2VerifierProgressFrameByteRangeV2,
+            DeclarativeV2AuthenticatedCommandResponseV1Error | AllowancePending
+          >;
         }
         try {
           wrapperBytes = new Uint8Array(byteLength);
@@ -1496,7 +1502,13 @@ function resumePendingPayloadFrame(
     "append",
     "payloadHash",
   );
-  if (Result.isFailure(charged)) return Result.fail(charged.failure);
+  if (Result.isFailure(charged)) {
+    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+    return charged as Result.Result<
+      CapturedFrame | null,
+      DeclarativeV2AuthenticatedCommandResponseV1Error
+    >;
+  }
   state.pendingPayloadFrame = undefined;
   return Result.succeed(pending.captured);
 }

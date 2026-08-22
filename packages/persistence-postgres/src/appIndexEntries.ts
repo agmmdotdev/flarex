@@ -442,7 +442,13 @@ async function appendVerifiedParentAndAdvanceCurrent(
   Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
 > {
   const parent = await requireParentRevisionResult(tx, revision);
-  if (Result.isFailure(parent)) return Result.fail(parent.failure);
+  if (Result.isFailure(parent)) {
+    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+    return parent as Result.Result<
+      AppIndexEntryRevisionV1,
+      AppendAppIndexEntryRevisionV1Error
+    >;
+  }
   const inserted = await tx
     .insert(fxAppIndexEntryRevisions)
     .values({
@@ -524,7 +530,13 @@ async function failAdvancedCurrentPointerConflict(
   revision: DecodedAppendAppIndexEntryRevisionV1,
 ): Promise<Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>> {
   const cleanup = await deleteRejectedRevisionResult(tx, revision);
-  if (Result.isFailure(cleanup)) return Result.fail(cleanup.failure);
+  if (Result.isFailure(cleanup)) {
+    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+    return cleanup as Result.Result<
+      AppIndexEntryRevisionV1,
+      AppendAppIndexEntryRevisionV1Error
+    >;
+  }
   return readActualChainHeadAndFail(tx, revision);
 }
 

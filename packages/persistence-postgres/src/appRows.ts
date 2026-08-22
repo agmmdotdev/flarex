@@ -820,7 +820,10 @@ async function failAdvancedCurrentPointerConflict(
   decoded: DecodedAppendAppRowRevisionV1,
 ): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
   const deleted = await deleteInsertedRevisionInTransactionResult(tx, decoded);
-  if (Result.isFailure(deleted)) return Result.fail(deleted.failure);
+  if (Result.isFailure(deleted)) {
+    // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+    return deleted as Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>;
+  }
   return readActualPointerCommitSeqAndFail(tx, decoded);
 }
 
@@ -1361,7 +1364,12 @@ async function checkPreparedAppendImmutableCreationTime(
       scalars.creationTime,
     );
     if (Result.isFailure(immutableCreationTime)) {
-      return Result.fail(immutableCreationTime.failure);
+      // SAFETY: the guard proved the failure channel; only the success phantom
+      // needs widening.
+      return immutableCreationTime as Result.Result<
+        DecodedAppendAppRowRevisionV1,
+        AppendAppRowRevisionV1Error
+      >;
     }
   }
   const base = {

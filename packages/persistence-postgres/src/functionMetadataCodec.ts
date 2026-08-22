@@ -986,7 +986,10 @@ function parseValidator(
       throw new Error("Function Metadata V1 validator action stack underflowed.");
     }
     const step = action();
-    if (Result.isFailure(step)) return Result.fail(step.failure);
+    if (Result.isFailure(step)) {
+      // SAFETY: the guard proved the failure channel; only the success phantom needs widening.
+      return step as Result.Result<ParsedValidator, FunctionMetadataCodecV1Error>;
+    }
   }
   if (parsedRoot === undefined) {
     throw new Error("Function Metadata V1 validator parsing lost its result.");
