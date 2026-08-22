@@ -11,6 +11,8 @@ import {
 import {
   decodeTaskDatabaseTimeMsV1,
   decodeTaskRequestedEffectSequenceV1,
+  type ApplicationTaskRunAttemptAggregateV1,
+  type PersistedTaskRunAttemptAggregate,
   type TaskRunAttemptAggregateV1,
   type TaskRunIdV1,
   type TaskRequestedEffectPersistenceCursorV1,
@@ -162,6 +164,26 @@ export function makeTaskSystemDueDiscoveryV1(
   located: LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>,
   options: TaskSystemRunReadOptionsV1 = {},
 ): TaskSystemDueDiscoveryShapeV1 {
+  return makeGenerationDueDiscoveryV1(
+    "legacy_definition_v1",
+    located,
+    options,
+  );
+}
+
+/** Constructs the Application-generation scope-bound due source. */
+export function makeApplicationTaskSystemDueDiscoveryV1(
+  located: LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>,
+  options: TaskSystemRunReadOptionsV1 = {},
+): TaskSystemDueDiscoveryShapeV1 {
+  return makeGenerationDueDiscoveryV1("application_v1", located, options);
+}
+
+function makeGenerationDueDiscoveryV1(
+  generation: PersistedTaskRunAttemptAggregate["generation"],
+  located: LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>,
+  options: TaskSystemRunReadOptionsV1,
+): TaskSystemDueDiscoveryShapeV1 {
   const authority = captureTaskSystemTrustedScopeAuthorityV1(located.authority);
   const target = located.target;
   const observer = options.observeQuery;
@@ -169,6 +191,7 @@ export function makeTaskSystemDueDiscoveryV1(
     discoverDueRuns: (request: unknown) => discoverDueRuns(
       authority,
       target,
+      generation,
       observer,
       request,
     ),
@@ -198,6 +221,7 @@ const discoverDueRuns = Effect.fn("TaskSystemRunRead.discoverDueRuns")(
   function* (
     authority: TrustedScopeAuthority,
     target: LocatedReadCommittedAttemptTargetV1,
+    generation: PersistedTaskRunAttemptAggregate["generation"],
     observer: TaskSystemRunReadQueryObserverV1 | undefined,
     rawRequest: unknown,
   ): Effect.fn.Return<TaskDueDiscoveryPageV1, TaskSystemDueDiscoveryErrorV1> {
@@ -206,7 +230,14 @@ const discoverDueRuns = Effect.fn("TaskSystemRunRead.discoverDueRuns")(
     );
     return yield* runReadTransaction(
       target,
-      tx => discoverDueRunsOnce(tx, authority, target, observer, request),
+      tx => discoverDueRunsOnce(
+        tx,
+        authority,
+        target,
+        generation,
+        observer,
+        request,
+      ),
       DUE_DISCOVERY_FAILURE_POLICY,
     );
   },
@@ -237,6 +268,7 @@ async function discoverDueRunsOnce(
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
   target: LocatedReadCommittedAttemptTargetV1,
+  generation: PersistedTaskRunAttemptAggregate["generation"],
   observer: TaskSystemRunReadQueryObserverV1 | undefined,
   request: TaskDueDiscoveryRequestV1,
 ): Promise<TaskDueDiscoveryPageV1> {
@@ -265,7 +297,7 @@ async function discoverDueRunsOnce(
       );
   const query = tx.select().from(fxSystemDurableTaskRunsV1).where(and(
     eq(fxSystemDurableTaskRunsV1.scopeId, authority.scopeId),
-    eq(fxSystemDurableTaskRunsV1.definitionGeneration, "legacy_definition_v1"),
+    eq(fxSystemDurableTaskRunsV1.definitionGeneration, generation),
     eq(fxSystemDurableTaskRunsV1.dueKind, request.dueKind),
     lte(fxSystemDurableTaskRunsV1.dueAtMs, BigInt(throughMs)),
     cursorPredicate,
@@ -284,7 +316,7 @@ async function discoverDueRunsOnce(
       "run_row_invalid",
       )),
     );
-    if (decodedRow.generation !== "legacy_definition_v1") {
+    if (decodedRow.generation !== generation) {
       throw readRollback(corruption(
         "discover_due_runs",
         row.runId,
@@ -471,7 +503,7 @@ async function readRequestedEffectsOnce(
 
 function dueCandidate(
   dueKind: TaskDueDiscoveryRequestV1["dueKind"],
-  aggregate: TaskRunAttemptAggregateV1,
+  aggregate: TaskRunAttemptAggregateV1 | ApplicationTaskRunAttemptAggregateV1,
 ): TaskDueDiscoveryCandidateV1 {
   if (dueKind === "start_attempt") {
     if (aggregate.phase !== "ready" && aggregate.phase !== "retry_waiting") {

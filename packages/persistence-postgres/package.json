@@ -147,6 +147,8 @@
     "test:dte04-e:postgres": "vitest run test/taskSystemRunAttemptStore.postgres.test.ts test/taskSystemRunRead.postgres.test.ts test/taskSystemRunCreation.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:dte05-c1:pglite": "vitest run test/taskSystemWakeSchedulerPartition.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte05-c1:postgres": "vitest run test/taskSystemWakeSchedulerPartition.postgres.test.ts --no-file-parallelism --testTimeout=120000",
+    "test:dte05-c3:pglite": "vitest run test/taskSystemWakeSchedulerApplicationPartition.test.ts test/taskSystemWakeSchedulerPartition.test.ts --no-file-parallelism --testTimeout=180000",
+    "test:dte05-c3:postgres": "vitest run test/taskSystemWakeSchedulerApplicationPartition.postgres.test.ts test/taskSystemWakeSchedulerPartition.postgres.test.ts --no-file-parallelism --testTimeout=180000",
     "test:dte05-c2:pglite": "vitest run test/pointMutationRedeliveryScopeDiscovery.test.ts test/taskSystemWakeSchedulerDirectory.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte05-c2:postgres": "vitest run test/pointMutationRedeliveryScopeDiscovery.postgres.test.ts test/taskSystemWakeSchedulerDirectory.postgres.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte05-d:pglite": "vitest run test/taskSystemWakeSchedulerResolver.test.ts --no-file-parallelism --testTimeout=120000",

@@ -13,15 +13,15 @@ resolver. No Cloudflare binding, cross-scope scheduler host, deployment
 configuration, or production activation is authorized. DTE05-E1 completes the
 unwired host-neutral repair sweep and repair-tolerant directory, and DTE05-E2
 completes its durable checkpoint, connected runner, and hard PostgreSQL
-deadline/settlement proof. DTE05-E3 remains DTE06-F-gated before a durable or
-Cloudflare-hosted cron repair system exists. The DTE06-F2 preflight exposed a
-generation gap in the otherwise completed C1 composition: current due
-discovery and lifecycle composition remain Legacy-only and cannot advance an
-`application_v1` retry. DTE05-C3 is therefore recorded and awaiting separate
-approval in
+deadline/settlement proof. DTE05-C3 now completes private Application
+scheduling parity through the same due-discovery, handler, and scheduler
+semantics as Legacy. DTE05-E3 remains DTE06-F-gated before a durable or
+Cloudflare-hosted cron repair system exists. The DTE05-C3 boundary and evidence
+are recorded in
 [`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
-DTE06-F also depends on the connected-runtime reuse audit in Preflight 37; no
-host work may bypass either gate.
+DTE06-F2 is the next active checkpoint after C3. DTE06-F also
+depends on the connected-runtime reuse audit in Preflight 37; no host work may
+bypass either gate.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -279,18 +279,20 @@ Completion evidence on 2026-08-06:
   Standard Application boundary, and all 57 script tests passed. No production
   package consumes the new private directory subpath.
 
-#### DTE05-C3: Application Scheduling Parity — Blocked Pending Approval
+#### DTE05-C3: Application Scheduling Parity — Complete Privately
 
 The owning preflight is
 [`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
 
-The existing scheduler core remains valid, but its Postgres due source and
-lifecycle composition admit only `legacy_definition_v1`. DTE06-F2 requires the
-same persisted, database-clock-authoritative path for `application_v1`. The
-bounded correction must share the scheduler semantics, preserve exact
-generation-specific decoding and lifecycle types, and prove both generations
-without adding a second scheduler, state machine, host, or activation path.
-No implementation is authorized by this blocker record.
+The existing scheduler core, candidate contract, database-time authority, and
+transaction owner remain unchanged. Private generation adapters now admit
+`application_v1` due discovery and lifecycle settlement through that same
+kernel while preserving the exact Legacy factory. PGlite and genuine
+PostgreSQL prove both generations plus Application expiry, retry,
+reconstruction, concurrency, rollback/first-failure, and stale authority. No
+host, wake publisher for Application, route, binding, or activation path was
+added. DTE06-F2 fresh-host recovery and takeover is now the next active
+checkpoint.
 
 ### DTE05-D: Queue Wake Hints — Complete
 

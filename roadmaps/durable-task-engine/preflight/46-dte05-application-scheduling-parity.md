@@ -1,6 +1,6 @@
 # DTE05-C3 Application Scheduling Parity Preflight
 
-Status: blocker recorded; implementation requires separate approval.
+Status: DTE05-C3 complete privately.
 
 Evidence snapshot: 2026-08-22 current repository state after DTE06-F1.
 
@@ -70,10 +70,48 @@ or a generation-parameterized internal kernel. Either shape must expose one
 scheduler semantics owner and must not weaken the compile-time distinction
 between Legacy and Application persisted aggregates.
 
+## Implemented Boundary
+
+The approved correction keeps one scheduling algorithm and adds only
+generation-specific private adapters:
+
+- `makeTaskSystemDueDiscoveryV1` retains the exact Legacy API while both
+  persisted generations now use one database-time and paging kernel;
+- `makeApplicationRunAttemptLifecycleV1` binds the existing shared Application
+  decisions to the existing Application transaction store;
+- `makeApplicationRunAttemptDueCandidateHandlerV1` projects Application
+  receipts through the existing due-candidate handler semantics; and
+- `makeApplicationTaskSystemWakeSchedulerPartitionV1` composes those adapters
+  without a host trigger, wake publisher, fallback, or production route.
+
+Validation evidence on 2026-08-22:
+
+- the DTE05-C3 PGlite lane passed all three tests across the new Application
+  parity scenario and unchanged Legacy scheduler regression;
+- the genuine PostgreSQL 18 lane passed all four environment, Application,
+  and Legacy tests against isolated temporary schemas;
+- the shared Application scenario proved no write before database-time lease
+  expiry, exactly one accepted concurrent expiry recovery, persisted retry
+  delay, fresh scheduler reconstruction and second grant, pre-write
+  first-failure short-circuiting, late attempt-identity conflict rollback after
+  the aggregate update, and stale-scope rejection;
+- all 110 durable-task tests passed, including the unchanged scheduler kernel
+  and Legacy wake-publication behavior; and
+- `pnpm lint:core` and `pnpm lint:diff` passed. The durable-task TypeScript
+  project also passed with an ES2023 library override for the current shared
+  `toSorted` baseline.
+  The wider persistence TypeScript project remains independently blocked in
+  `apps/analyzer` by its pre-existing undeclared
+  `@flarex/standard-application-definition/v1` import; the compiler reached no
+  DTE05-C3 diagnostic.
+- both mandatory exact-final reviewers reported no findings. The systems
+  review specifically confirmed that the late attempt-identity conflict occurs
+  after the aggregate update and proves full transaction rollback with bounded
+  retry; the TypeScript review found no contract or Effect correction.
+
 ## Stop Boundary
 
-This record authorizes no code change. After explicit approval, DTE05-C3 is one
-implementation-bearing capability and one commit. DTE06-F2 resumes only after
-that commit passes both mandatory reviewers and its PGlite/genuine-PostgreSQL
-matrix. Standard Task APIs, DTE05-E3, DTE06-F3/F4, public APIs, observability,
-and production activation remain closed.
+DTE05-C3 remains one implementation-bearing capability and one commit.
+DTE06-F2 fresh-host recovery and takeover is the next active checkpoint.
+Standard Task APIs, DTE05-E3, DTE06-F3/F4, public APIs,
+observability, and production activation remain closed.

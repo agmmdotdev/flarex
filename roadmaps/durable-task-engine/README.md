@@ -184,8 +184,9 @@ records that cancellation as `superseded_by_completion`. The DTE06-F preflight
 is approved; F0A runtime/provider convergence and F0B authenticated Task
 query/mutation plus PostgreSQL settlement are complete privately. F1's
 production-compatible private host is also complete through hosted PGlite and
-ordinary-role PostgreSQL. F2 fresh-host recovery and takeover is blocked on
-the separately approved DTE05-C3 Application scheduling-parity correction.
+ordinary-role PostgreSQL. DTE05-C3 Application scheduling parity is
+complete privately; F2 fresh-host recovery and takeover is the next active
+checkpoint.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -591,8 +592,8 @@ files remain candidates:
      boundedness, and final-review admission. Delivery, host integration, and
      runtime activation remain closed;
 5. [`05-cloudflare-wake-and-scheduling.md`](./05-cloudflare-wake-and-scheduling.md)
-   - **active; DTE05-A through DTE05-D and DTE05-E1/E2 complete; C3 is blocked
-     pending approval and E3 remains DTE06-F-gated:** standard scope-bound
+   - **active; DTE05-A through DTE05-D, DTE05-E1/E2, and C3 complete privately;
+     E3 remains DTE06-F-gated:** standard scope-bound
      scheduler contracts, host-neutral
      bounded recovery, deterministic memory adapters, located-scope Postgres
      composition, trusted partition discovery, Queue hints, durable cron-repair
@@ -600,7 +601,7 @@ files remain candidates:
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
    - **active; DTE06-A through DTE06-E complete privately; DTE06-F preflight
-     approved, F0A/F0B/F1 complete privately, and F2 blocked on DTE05-C3:** the
+     approved, F0A/F0B/F1 complete privately, and F2 is next:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -665,12 +666,12 @@ files remain candidates:
      remains test-only and production-inert.
      Outbound and scheduling context members remain deferred. F1 now provides the
      production-compatible private event host, hosted PGlite proof, and
-     ordinary-role PostgreSQL counterpart around those current owners. F2 next
-     proves fresh-host recovery and takeover without shared process state, but
-     its preflight found that due discovery and scheduler composition remain
-     Legacy-only and cannot advance an `application_v1` retry. Preflight 46
-     records the bounded DTE05-C3 correction and prohibited harness
-     workarounds. Real
+     ordinary-role PostgreSQL counterpart around those current owners. C3 now
+     provides private Application due discovery and lifecycle composition
+     through the existing scheduler kernel, with PGlite and genuine PostgreSQL
+     parity evidence. With C3 complete privately, F2 next proves
+     fresh-host recovery and takeover without shared process state. Preflight
+     46 records the correction and prohibited harness workarounds. Real
      Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public
      API, route, binding, fallback, dual execution, or production activation

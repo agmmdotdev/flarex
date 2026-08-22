@@ -19,8 +19,6 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
-import { seedRegisteredTaskSystemParentV1 } from
-  "./taskSystemPostgresTestSupport";
 import {
   TASK_LOCATOR,
   TASK_RUN_ID,
@@ -46,14 +44,7 @@ describe("DTE05-C1 PostgreSQL acceptance environment", () => {
 describePostgres("DTE05-C1 located-scope scheduler composition - PostgreSQL", () => {
   it("resumes a durable page after reconstructing the scope-bound scheduler", async () => {
     await withTemporaryPostgresPersistence(async persistence => {
-      const parent = await seedRegisteredTaskSystemParentV1(
-        persistence,
-        "dte05-c1:task-scheduler-parent",
-      );
-      const seeded = await seedTaskSystemRunAttemptStoreV1(
-        persistence,
-        { parent },
-      );
+      const seeded = await seedTaskSystemRunAttemptStoreV1(persistence);
       await seedAdditionalTaskSystemRunV1(
         persistence,
         LATE_RUN_ID,
@@ -111,7 +102,7 @@ describePostgres("DTE05-C1 located-scope scheduler composition - PostgreSQL", ()
         attempts: 3,
         effects: 12,
       });
-    }, { historicalApplicationAnalysis: true });
+    });
   });
 });
 

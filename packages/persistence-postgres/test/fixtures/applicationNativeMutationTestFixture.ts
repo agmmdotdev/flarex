@@ -167,6 +167,7 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly compatibilityDate: string;
   readonly includeTask?: boolean;
   readonly taskMaximumDurationInSeconds?: number;
+  readonly taskRetryMinimumTimeoutInMs?: number;
   readonly analysis?: Readonly<ApplicationNativeMutationAnalysis>;
 }
 
@@ -732,7 +733,7 @@ async function createApplicationNativeMutationFixture<
     const nextCatalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
       version: 1,
       tasks: options.includeTask === true
-        ? [applicationTaskManifest(options.taskMaximumDurationInSeconds)]
+        ? [applicationTaskManifest(options)]
         : [],
     }, taskSha256));
     const nextBindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
@@ -1103,7 +1104,7 @@ async function registerFixtureTaskBindings(
   const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
     version: 1,
     tasks: options.includeTask === true
-      ? [applicationTaskManifest(options.taskMaximumDurationInSeconds)]
+      ? [applicationTaskManifest(options)]
       : [],
   }, taskSha256));
   const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
@@ -1331,7 +1332,9 @@ function taskPreparedDefinition() {
   }));
 }
 
-function applicationTaskManifest(maximumDurationInSeconds = 30) {
+function applicationTaskManifest(options: ApplicationNativeMutationFixtureOptions) {
+  const maximumDurationInSeconds = options.taskMaximumDurationInSeconds ?? 30;
+  const retryMinimumTimeoutInMs = options.taskRetryMinimumTimeoutInMs ?? 1_000;
   return Object.freeze({
     version: 1 as const,
     taskId: "tasks.users.task",
@@ -1347,7 +1350,7 @@ function applicationTaskManifest(maximumDurationInSeconds = 30) {
       retry: Object.freeze({
         maxAttempts: 3,
         factor: 2,
-        minTimeoutInMs: 1_000,
+        minTimeoutInMs: retryMinimumTimeoutInMs,
         maxTimeoutInMs: 60_000,
         randomize: true,
       }),

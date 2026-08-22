@@ -86,10 +86,12 @@ import {
 } from "../Schema.js";
 import {
   RunAttemptLifecycle,
+  type ApplicationRunAttemptLifecycleShapeV1,
   type RunAttemptLifecycleShape,
 } from "../Services/RunAttemptLifecycle.js";
 import {
   TaskSystemRunAttemptStore,
+  type ApplicationTaskSystemRunAttemptStoreShape,
   type TaskSystemRunAttemptStoreShape,
 } from "../Services/TaskSystemRunAttemptStore.js";
 
@@ -1289,6 +1291,53 @@ export function makeRunAttemptLifecycleV1(
         return projectRunAttemptInspectionV1(snapshot.observedAtMs, snapshot.current);
       },
     ),
+  });
+}
+
+/**
+ * Binds the shared lifecycle decisions to one scope-bound Application store.
+ * This remains an explicit value because several tenant scopes may coexist.
+ */
+export function makeApplicationRunAttemptLifecycleV1(
+  store: ApplicationTaskSystemRunAttemptStoreShape,
+): ApplicationRunAttemptLifecycleShapeV1 {
+  const transactRunAttempt = store.transactRunAttempt;
+  return Object.freeze({
+    startAttempt: Effect.fn("ApplicationRunAttemptLifecycle.startAttempt")(
+      command => transactRunAttempt({
+        operation: "start_attempt",
+        runId: command.runId,
+        decide: input => decideApplicationStartAttemptV1(command, input),
+      }),
+    ),
+    heartbeatAttempt: Effect.fn("ApplicationRunAttemptLifecycle.heartbeatAttempt")(
+      command => transactRunAttempt({
+        operation: "heartbeat_attempt",
+        runId: command.runId,
+        decide: input => decideApplicationHeartbeatAttemptV1(command, input),
+      }),
+    ),
+    completeAttempt: Effect.fn("ApplicationRunAttemptLifecycle.completeAttempt")(
+      command => transactRunAttempt({
+        operation: "complete_attempt",
+        runId: command.runId,
+        decide: input => decideApplicationCompleteAttemptV1(command, input),
+      }),
+    ),
+    requestCancellation: Effect.fn(
+      "ApplicationRunAttemptLifecycle.requestCancellation",
+    )(command => transactRunAttempt({
+      operation: "request_cancellation",
+      runId: command.runId,
+      decide: input => decideApplicationRequestCancellationV1(command, input),
+    })),
+    handleLeaseExpiry: Effect.fn(
+      "ApplicationRunAttemptLifecycle.handleLeaseExpiry",
+    )(command => transactRunAttempt({
+      operation: "handle_lease_expiry",
+      runId: command.runId,
+      decide: input => decideApplicationHandleLeaseExpiryV1(command, input),
+    })),
   });
 }
 

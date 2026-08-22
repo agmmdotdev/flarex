@@ -1,8 +1,10 @@
 import {
+  makeApplicationRunAttemptLifecycleV1,
   makeRunAttemptLifecycleV1,
   type RunAttemptLifecycleErrorV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
 import {
+  makeApplicationRunAttemptDueCandidateHandlerV1,
   makeRunAttemptDueCandidateHandlerV1,
   makeWakePublishingRunAttemptDueCandidateHandlerV1,
   makeTaskWakeSchedulerV1,
@@ -17,11 +19,13 @@ import type { Result } from "effect";
 
 import type { LocatedTrustedScopeAuthority } from "./scopeAuthorityResolution";
 import {
+  makeApplicationTaskSystemRunAttemptStoreV1,
   makeTaskSystemRunAttemptStoreV1,
   type LocatedTaskSystemRunAttemptTargetV1,
   type TaskSystemRunAttemptStoreOptionsV1,
 } from "./taskSystemRunAttemptStoreV1";
 import {
+  makeApplicationTaskSystemDueDiscoveryV1,
   makeTaskSystemDueDiscoveryV1,
   type TaskSystemDueDiscoveryErrorV1,
   type TaskSystemRunReadOptionsV1,
@@ -35,6 +39,12 @@ export type TaskSystemWakeSchedulerPartitionV1 = TaskWakeSchedulerV1<
   TaskSystemDueDiscoveryErrorV1,
   TaskSystemWakeSchedulerPartitionHandlerErrorV1
 >;
+
+export type ApplicationTaskSystemWakeSchedulerPartitionV1 =
+  TaskWakeSchedulerV1<
+    TaskSystemDueDiscoveryErrorV1,
+    TaskSystemWakeSchedulerPartitionHandlerErrorV1
+  >;
 
 export type TaskSystemWakePublishingSchedulerPartitionHandlerErrorV1<
   PublishFailure,
@@ -79,6 +89,33 @@ export function makeTaskSystemWakeSchedulerPartitionV1(
     retryJitter,
   );
   return makeTaskWakeSchedulerV1(source, handler, schedulerOptions);
+}
+
+/**
+ * Composes the same production-inert scheduler semantics over Application-
+ * generation persisted runs. No host trigger or wake publication is added.
+ */
+export function makeApplicationTaskSystemWakeSchedulerPartitionV1(
+  located: LocatedTrustedScopeAuthority<LocatedTaskSystemRunAttemptTargetV1>,
+  options: TaskSystemWakeSchedulerPartitionOptionsV1,
+): Result.Result<
+  ApplicationTaskSystemWakeSchedulerPartitionV1,
+  InvalidTaskWakeSchedulerConfigurationError
+> {
+  const source = makeApplicationTaskSystemDueDiscoveryV1(
+    located,
+    options.runRead,
+  );
+  const store = makeApplicationTaskSystemRunAttemptStoreV1(
+    located,
+    options.runAttemptStore,
+  );
+  const lifecycle = makeApplicationRunAttemptLifecycleV1(store);
+  const handler = makeApplicationRunAttemptDueCandidateHandlerV1(
+    lifecycle,
+    options.retryJitter,
+  );
+  return makeTaskWakeSchedulerV1(source, handler, options.scheduler);
 }
 
 /**

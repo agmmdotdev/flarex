@@ -1,12 +1,17 @@
 import { Effect, Result } from "effect";
 import type { RunAttemptLifecycleErrorV1 } from "../runAttempt/Errors.js";
 import type {
+  ApplicationHandleLeaseExpiryOutcomeV1,
+  ApplicationStartAttemptOutcomeV1,
   HandleLeaseExpiryOutcomeV1,
   PersistedTaskRequestedEffectV1,
   RunAttemptServiceReceiptV1,
   StartAttemptOutcomeV1,
 } from "../runAttempt/Model.js";
-import type { RunAttemptLifecycleShape } from "../runAttempt/Services/RunAttemptLifecycle.js";
+import type {
+  ApplicationRunAttemptLifecycleShapeV1,
+  RunAttemptLifecycleShape,
+} from "../runAttempt/Services/RunAttemptLifecycle.js";
 import type { TaskDueDiscoveryCandidateV1 } from "../runRead/Model.js";
 import { TaskDueCandidateLifecycleContractError } from "./Errors.js";
 import type { TaskDueCandidateHandlingReceiptV1 } from "./Model.js";
@@ -24,6 +29,19 @@ import type {
 export function makeRunAttemptDueCandidateHandlerV1(
   lifecycle: Pick<
     RunAttemptLifecycleShape,
+    "startAttempt" | "handleLeaseExpiry"
+  >,
+  jitter: TaskRetryJitterSourceV1,
+): TaskDueCandidateHandlerV1<
+  RunAttemptLifecycleErrorV1 | TaskDueCandidateLifecycleContractError
+> {
+  return makeCandidateHandler(lifecycle, jitter, undefined);
+}
+
+/** Binds Application-generation lifecycle receipts to the shared handler. */
+export function makeApplicationRunAttemptDueCandidateHandlerV1(
+  lifecycle: Pick<
+    ApplicationRunAttemptLifecycleShapeV1,
     "startAttempt" | "handleLeaseExpiry"
   >,
   jitter: TaskRetryJitterSourceV1,
@@ -51,16 +69,41 @@ export function makeWakePublishingRunAttemptDueCandidateHandlerV1<
   | TaskDueCandidateLifecycleContractError
   | PublishFailure
 > {
-  return makeCandidateHandler(lifecycle, jitter, publisher);
+  return makeCandidateHandler(lifecycle, jitter, legacyWakePublisher(publisher));
 }
 
-function makeCandidateHandler<PublishFailure>(
-  lifecycle: Pick<
-    RunAttemptLifecycleShape,
-    "startAttempt" | "handleLeaseExpiry"
-  >,
+type DueLifecycleReceiptV1<Outcome, RequestedEffect> = Readonly<{
+  readonly disposition: "accepted" | "idempotent" | "current";
+  readonly observedAtMs: RunAttemptServiceReceiptV1<unknown>["observedAtMs"];
+  readonly runVersion: RunAttemptServiceReceiptV1<unknown>["runVersion"];
+  readonly outcome: Outcome;
+  readonly requestedEffects: readonly RequestedEffect[];
+}>;
+
+interface DueLifecycleShapeV1<StartOutcome, ExpiryOutcome, RequestedEffect> {
+  readonly startAttempt: (
+    command: Parameters<RunAttemptLifecycleShape["startAttempt"]>[0],
+  ) => Effect.Effect<
+    DueLifecycleReceiptV1<StartOutcome, RequestedEffect>,
+    RunAttemptLifecycleErrorV1
+  >;
+  readonly handleLeaseExpiry: (
+    command: Parameters<RunAttemptLifecycleShape["handleLeaseExpiry"]>[0],
+  ) => Effect.Effect<
+    DueLifecycleReceiptV1<ExpiryOutcome, RequestedEffect>,
+    RunAttemptLifecycleErrorV1
+  >;
+}
+
+function makeCandidateHandler<
+  StartOutcome extends StartAttemptOutcomeShape,
+  ExpiryOutcome extends LeaseExpiryOutcomeShape,
+  RequestedEffect,
+  PublishFailure,
+>(
+  lifecycle: DueLifecycleShapeV1<StartOutcome, ExpiryOutcome, RequestedEffect>,
   jitter: TaskRetryJitterSourceV1,
-  publisher: TaskWakeHintPublisherV1<PublishFailure> | undefined,
+  publisher: RequestedEffectsPublisher<RequestedEffect, PublishFailure> | undefined,
 ): TaskDueCandidateHandlerV1<
   | RunAttemptLifecycleErrorV1
   | TaskDueCandidateLifecycleContractError
@@ -69,10 +112,13 @@ function makeCandidateHandler<PublishFailure>(
   const lifecycleOwner = lifecycle;
   const startAttemptMethod = lifecycleOwner.startAttempt;
   const handleLeaseExpiryMethod = lifecycleOwner.handleLeaseExpiry;
-  const startAttempt: RunAttemptLifecycleShape["startAttempt"] = (command) =>
+  const startAttempt = (command: Parameters<
+    RunAttemptLifecycleShape["startAttempt"]
+  >[0]) =>
     startAttemptMethod.call(lifecycleOwner, command);
-  const handleLeaseExpiry: RunAttemptLifecycleShape["handleLeaseExpiry"] =
-    (command) => handleLeaseExpiryMethod.call(lifecycleOwner, command);
+  const handleLeaseExpiry = (command: Parameters<
+    RunAttemptLifecycleShape["handleLeaseExpiry"]
+  >[0]) => handleLeaseExpiryMethod.call(lifecycleOwner, command);
   const jitterOwner = jitter;
   const nextRetryJitterMethod = jitterOwner.nextRetryJitter;
   const nextRetryJitter: TaskRetryJitterSourceV1["nextRetryJitter"] = (runId) =>
@@ -81,8 +127,8 @@ function makeCandidateHandler<PublishFailure>(
   const publishMethod = publisherOwner?.publish;
   const publish = publisherOwner === undefined || publishMethod === undefined
     ? undefined
-    : (requested: TaskWakeRequestedEffectV1) =>
-      publishMethod.call(publisherOwner, requested);
+    : (requestedEffects: readonly RequestedEffect[]) =>
+      publishMethod.call(publisherOwner, requestedEffects);
   const handle: TaskDueCandidateHandlerV1<
     | RunAttemptLifecycleErrorV1
     | TaskDueCandidateLifecycleContractError
@@ -102,7 +148,7 @@ function makeCandidateHandler<PublishFailure>(
             startHandlingReceipt(candidate, receipt),
           );
           if (publish !== undefined) {
-            yield* publishRequestedWakes(receipt.requestedEffects, publish);
+            yield* publish(receipt.requestedEffects);
           }
           return handlingReceipt;
         }
@@ -118,7 +164,7 @@ function makeCandidateHandler<PublishFailure>(
             expiryHandlingReceipt(candidate, receipt),
           );
           if (publish !== undefined) {
-            yield* publishRequestedWakes(receipt.requestedEffects, publish);
+            yield* publish(receipt.requestedEffects);
           }
           return handlingReceipt;
         }
@@ -127,6 +173,12 @@ function makeCandidateHandler<PublishFailure>(
 
   return Object.freeze({ handle });
 }
+
+type RequestedEffectsPublisher<RequestedEffect, PublishFailure> = Readonly<{
+  readonly publish: (
+    requestedEffects: readonly RequestedEffect[],
+  ) => Effect.Effect<void, PublishFailure>;
+}>;
 
 const publishRequestedWakes = Effect.fn(
   "TaskDueCandidateHandler.publishWakeHints",
@@ -139,6 +191,19 @@ const publishRequestedWakes = Effect.fn(
     yield* publish(requested);
   }
 });
+
+function legacyWakePublisher<PublishFailure>(
+  publisher: TaskWakeHintPublisherV1<PublishFailure>,
+): RequestedEffectsPublisher<PersistedTaskRequestedEffectV1, PublishFailure> {
+  const publisherOwner = publisher;
+  const publishMethod = publisherOwner.publish;
+  return Object.freeze({
+    publish: requestedEffects => publishRequestedWakes(
+      requestedEffects,
+      requested => publishMethod.call(publisherOwner, requested),
+    ),
+  });
+}
 
 function isWakeRequestedEffect(
   requested: PersistedTaskRequestedEffectV1,
@@ -159,7 +224,7 @@ type LeaseExpiryDueCandidateV1 = Extract<
 
 function startHandlingReceipt(
   candidate: StartAttemptDueCandidateV1,
-  receipt: RunAttemptServiceReceiptV1<StartAttemptOutcomeV1>,
+  receipt: DueLifecycleReceiptV1<StartAttemptOutcomeShape, unknown>,
 ): Result.Result<
   TaskDueCandidateHandlingReceiptV1,
   TaskDueCandidateLifecycleContractError
@@ -194,7 +259,7 @@ function startHandlingReceipt(
 
 function expiryHandlingReceipt(
   candidate: LeaseExpiryDueCandidateV1,
-  receipt: RunAttemptServiceReceiptV1<HandleLeaseExpiryOutcomeV1>,
+  receipt: DueLifecycleReceiptV1<LeaseExpiryOutcomeShape, unknown>,
 ): Result.Result<
   TaskDueCandidateHandlingReceiptV1,
   TaskDueCandidateLifecycleContractError
@@ -226,6 +291,14 @@ function expiryHandlingReceipt(
         outcomeKind: receipt.outcome.kind,
       }));
 }
+
+type StartAttemptOutcomeShape =
+  | StartAttemptOutcomeV1
+  | ApplicationStartAttemptOutcomeV1;
+
+type LeaseExpiryOutcomeShape =
+  | HandleLeaseExpiryOutcomeV1
+  | ApplicationHandleLeaseExpiryOutcomeV1;
 
 function lifecycleContractError(
   candidate: TaskDueDiscoveryCandidateV1,
