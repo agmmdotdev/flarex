@@ -27,9 +27,12 @@ scope-local current authority and its reversible draining operations. Private
 `M05-B2` composes that lifecycle into readiness/admission, and private
 `M05-B3` adds exact current-pin inspection plus fenced finalization.
 Private `M05-B4` adds the explicit one-step coordinator and exact cold replay.
-It remains private and production-inert: no public route, CLI, deployment
-caller, or trigger executes retirement in production, and no physical/evidence
-purge or production generation cut is authorized by this roadmap.
+The docs-only `M05-C0` physical-purge boundary preflight is also complete. It
+rejects one combined definition/evidence purge and freezes the smaller owner-
+preserving sequence below. Everything remains private and production-inert: no
+public route, CLI, deployment caller, or trigger executes retirement in
+production, and no physical/evidence purge or production generation cut is
+authorized by this roadmap.
 
 ## Decision
 
@@ -1077,7 +1080,7 @@ The current pin matrix is:
 | Application rollback | The current Application activation repository exposes activation and coherent active reads, not an inactive-revision rollback selector. Immutable activation history alone is not current selectability. Any future rollback feature must register its selectable revision window as a retirement pin before activation. |
 | Reconnect | Roadmap 21 has not activated reconnectable sessions. Its absence does not block current logical retirement. Before reconnect is enabled, that owner must add its authenticated lease/floor pin and compose it into both O11 and M05-B admission. |
 | Other adapters | Only currently supported persisted resumable consumers belong in the drain catalog. A future adapter is not a permanent blocker, but it must register an exact transactional retirement pin before it can activate. |
-| Immutable artifacts and audit evidence | Retain unchanged. Their deletion policy is an `M05-C` prerequisite, not an `M05-B` prerequisite. |
+| Immutable artifacts and audit evidence | Retain unchanged. Their deletion belongs to the separate `M05-D` retention-policy preflight, not `M05-B` or definition-local physical purge. |
 
 The primary admission barrier is the existing coherent active-Application
 selection. Retirement may begin only after both the active head and current
@@ -1271,13 +1274,69 @@ inert. Concurrent races remain fenced by the lifecycle owner and are retried
 only by another explicit caller invocation. The coordinator owns no loop,
 cursor, timer, queue, cron, route, scheduler, deletion, or purge authority.
 
-`M05-C` remains a later, separately approved dependency-ordered, bounded,
-resumable physical purge. It still requires explicit immutable-evidence and R2
-retention policy, exact foreign-key/dependency ordering, O11 physical-history
-safety, and populated migration/rollback evidence. Neither M05-B nor M05-C may
-use foreign-key cascades, reinterpret compacted history as absence, silently
-reactivate a retired definition, or combine audit-evidence deletion with
-sidecar compaction.
+### M05-C0 Physical Purge Boundary Preflight
+
+`M05-C0` is complete as a docs-only preflight. It authorizes no deletion, DDL,
+purge checkpoint, reactivation transition, route, scheduler, or production
+trigger. The preflight rejects the earlier idea of one broad `M05-C` operation:
+a retired scope-local definition ID is not sufficient authority to delete every
+row that happens to mention it.
+
+The current storage ownership is deliberately asymmetric:
+
+| Retained state | Current authority and purge consequence |
+| --- | --- |
+| `fx_system_physical_definition_lifecycle` | One scope-local availability row. `retired` does not distinguish retained physical sidecars from a partially or fully purged subject, and the row has no purge phase, cursor, or completion fact. Deleting it is forbidden because absence means implicitly active. |
+| `fx_app_index_entry_current` | Definition-local current pointers whose restrictive foreign key targets ordered-index revisions. A future index-sidecar purge must remove these pointers before their referenced revisions. |
+| `fx_app_index_entry_rev` | Definition-local engine history whose anchor and floor semantics are owned by O11. The completed private O11 pipeline compacts only strictly pre-floor history and deliberately retains current pointers, the inclusive anchor, and later revisions; M05 may not reinterpret that compaction as complete definition removal or create a parallel history owner. |
+| `fx_system_index_build_state` | Definition-local build/backfill authority. It may be reclaimed only after the same retired subject, physical specification, generation, and rebuild contract are revalidated. |
+| `fx_app_unique_key` | Definition-local current claims with restrictive references to authoritative app-row revisions. Claim deletion must be bounded and must precede any app-row history reclamation that those claims currently block. |
+| `fx_system_unique_constraint_set_build` | Schema-version-wide closed-set build/readiness authority identified by member count and set digest, not one definition-local workspace. Retiring one member cannot authorize deleting or rewriting this aggregate row. |
+| App-row revisions and current pointers | Shared authoritative application data and O11 engine history. They are not owned by one index or unique definition and are never a definition-local purge target. |
+| Control-catalog definitions and bindings, Application analysis/publication/readiness/activation evidence, and Source Artifact/R2 identities and bodies | Immutable or shared evidence. A scope-local retired definition does not prove that another scope, revision, replay, rollback, audit, or content-addressed body no longer needs them. They remain retained. |
+
+This inventory freezes five consequences:
+
+1. A resumable destructive operation needs durable target-local purge progress.
+   The current lifecycle row cannot safely encode `retired-with-sidecars`, an
+   in-progress dependency phase, a bounded continuation, and `purged`. The next
+   storage-bearing work must therefore be a separate additive preflight,
+   `M05-C1-P`, which chooses between a dedicated purge checkpoint and a
+   lifecycle extension and proves exact replay, fencing, restart, migration,
+   and rollback behavior before any destructive page exists.
+2. Reactivation is a prerequisite, not post-purge cleanup. `M05-R-P` must first
+   freeze the exact `retired -> reactivating -> active` rebuild path and
+   distinguish retained from purged sidecars. It must reuse the existing
+   build/backfill/validation/readiness owners; deleting a lifecycle row,
+   clearing a flag, accepting an absent sidecar, or silently rebuilding on a
+   read path remains forbidden. The first destructive page stays blocked until
+   that contract is implemented and proven.
+3. Developer-index cleanup is its own later slice. It must authenticate one
+   exact retired scope/definition/generation, run bounded pages in restrictive-
+   foreign-key order—current pointers, definition-local revision history, then
+   build state—and preserve the lifecycle/purge checkpoint. Its revision phase
+   must compose with O11's published floor and retained-history invariants; it
+   may not call compacted absence complete, remove app-row history, or introduce
+   another floor, OCC, commit, or generic callback owner. Intrinsic indexes such
+   as `by_creation_time` are outside this definition-local path.
+4. Unique-constraint cleanup is a separate later slice. It may delete only
+   bounded claims for one exact retired definition after the reactivation proof
+   exists. The schema-set build row remains retained unless a separate owner
+   proves that the entire exact set is reclaimable; one retired member is not
+   such proof.
+5. Immutable catalog, Application, audit, and R2 evidence deletion moves to a
+   separate `M05-D` retention-policy preflight. It is not a tail phase of
+   sidecar purge and is not authorized by logical retirement, O11 compaction,
+   foreign-key reachability, age, or content-addressed identity alone.
+
+Every later destructive page must remain explicit, manual, bounded,
+dependency-ordered, resumable, exact-replayable, and fail closed on authority
+drift, rows outside its authenticated subject, foreign-key blockers, malformed
+progress, or uncertain settlement. No page may use `CASCADE`, a guessed age or
+oldest-definition policy, dual writes, fallbacks, an automatic trigger, or an
+unbounded scope scan. PGlite and genuine-PostgreSQL populated success,
+refusal, rollback, cold-resume, and query-plan evidence are required for each
+implementation-bearing slice.
 
 ## Ordered Turn Sequence
 
@@ -1365,6 +1424,12 @@ These are separate later goals, not one giant deployment goal:
     begins draining, cold-replays the exact prior transition before finalizing
     or reporting completion, and returns bounded pin-wait state. It adds no
     automatic wake source, public caller, deletion, or purge.
+18. `M05-C0` - **complete docs-only preflight; no destructive authority**:
+    inventory the real storage/dependency owners, reject a combined physical-
+    and-evidence purge, and split durable purge progress, reactivation,
+    developer-index sidecars, unique claims, and immutable evidence retention
+    into separately approved checkpoints. `M05-C1-P` is the next possible
+    schema-design preflight; no deletion implementation is authorized.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
