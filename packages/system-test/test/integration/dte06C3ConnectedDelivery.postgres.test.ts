@@ -61,6 +61,7 @@ import {
   taskSystemCreationRetryJitterV1,
 } from "../../../persistence-postgres/test/taskSystemRunCreationTestSupport.js";
 import {
+  expectOrdinaryPostgres18,
   postgresUrl,
   withTemporaryPostgresSchema,
 } from "../support/databaseFixturesV1";
@@ -378,31 +379,6 @@ describePostgres("DTE06-C3 connected delivery - PostgreSQL", () => {
     });
   });
 });
-
-async function expectOrdinaryPostgres18(
-  persistence: PostgresFlarexPersistence,
-): Promise<void> {
-  const role = await persistence.query<{
-    is_superuser: boolean;
-    can_create_database: boolean;
-    can_create_role: boolean;
-  }>(`
-    select rolsuper as is_superuser,
-           rolcreatedb as can_create_database,
-           rolcreaterole as can_create_role
-    from pg_roles
-    where rolname = current_user
-  `);
-  expect(role.rows[0]).toMatchObject({
-    is_superuser: false,
-    can_create_database: false,
-    can_create_role: false,
-  });
-  const version = await persistence.query<{ server_version: string }>(
-    "show server_version",
-  );
-  expect(version.rows[0]?.server_version).toMatch(/^18\./);
-}
 
 async function createDeliveryFixture(
   persistence: PostgresFlarexPersistence,

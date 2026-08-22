@@ -225,8 +225,14 @@ export type ApplicationTaskSystemConnectedScenario =
 type ApplicationTaskSystemConnectedHosting = "connected" | "event_host";
 
 export function proveApplicationTaskSystemHostedPGlite(): Promise<void> {
+  return proveApplicationTaskSystemHosted(pgliteLane());
+}
+
+export function proveApplicationTaskSystemHosted(
+  lane: ApplicationTaskSystemConnectedLane,
+): Promise<void> {
   return proveApplicationTaskSystemConnectedWithHosting(
-    pgliteLane(),
+    lane,
     "success",
     "event_host",
   );

@@ -7,8 +7,9 @@ production-inert DTE06-F proof. Runtime/provider convergence and the connected
 PGlite/genuine-PostgreSQL acceptance matrix are complete. The private
 event-lifetime host kernel and its immutable launch-resource composition are
 complete as separate F1 checkpoints below. The first private hosted PGlite
-vertical over that composition is also complete. The active checkpoint is now
-its ordinary-role genuine-PostgreSQL counterpart.
+vertical and its ordinary-role genuine-PostgreSQL counterpart are also
+complete. DTE06-F1 is complete privately. The active checkpoint is now
+DTE06-F2 fresh-host recovery and takeover.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -386,7 +387,7 @@ execution. The dedicated persistence acceptance matrix passed 2/2, the
 connected PostgreSQL matrix passed 14/14, and the corresponding PGlite matrices
 passed 9/9 and 13/13. Those receipts do not activate production hosting.
 
-### DTE06-F1: Production-Compatible Private Host — In Progress
+### DTE06-F1: Production-Compatible Private Host — Complete
 
 - depend on the completed F0A runtime and Task-context boundary;
 - add one backend-private host composition around the current
@@ -487,8 +488,24 @@ The unchanged E5 PGlite suite remains green across all thirteen success,
 callback, failure, timeout, cancellation, stale-fence, lease-loss, uncertain
 publication, lost-response, duplicate-delivery, and race scenarios.
 
-F1 is still open: the same hosted success topology must pass through the
-ordinary-role genuine-PostgreSQL lane before fresh-host recovery begins.
+The fourth F1 checkpoint reuses that exact hosted success topology with the
+ordinary-role genuine-PostgreSQL lane. The test does not introduce a second
+host or PostgreSQL-specific orchestration path: the lane supplies the existing
+split control/located persistence resources to the same lane-agnostic hosted
+harness, and the same Miniflare R2 resource directory, genuine Worker Loader,
+event-lifetime admission/drain accounting, result publication, and redacted
+receipt remain in force. The active persistence connection now verifies
+PostgreSQL major version 18 and rejects a role with superuser, database-creation,
+or role-creation privileges before each scenario. The full PostgreSQL file
+passed 15/15 under that ordinary database-owner role: the acceptance-environment
+guard, all thirteen existing connected lifecycle/callback/failure/race
+scenarios, and the hosted event-path scenario. The dedicated hosted PGlite test
+remains green 1/1.
+
+This proves the private host composition can cross a real local PostgreSQL 18
+transaction/connection boundary without changing its runtime or resource
+owners. It does not prove Hyperdrive, deployed Cloudflare event lifetime, real
+R2, or crash recovery. Those claims remain with F2 through F4.
 
 F1 must not add a Worker entrypoint, Wrangler binding, route, Queue, Cron, or
 external resource.
@@ -614,13 +631,14 @@ DTE06-F does not authorize:
 
 ## Stop Boundary And Next Gate
 
-The DTE06-F1 event-lifetime host, immutable launch-resource composition, and
-first hosted PGlite vertical described above are complete privately. F0A/F0B
-remain complete. The next active F1 checkpoint repeats the hosted success
-topology through an ordinary-role genuine PostgreSQL connection. It keeps
-the backend-private host, bounded redacted receipt, lifecycle owners, and every
-production entrypoint unchanged. F2 owns fresh-host recovery. F3/F4 require
-separate approval before any external mutation.
+The DTE06-F1 event-lifetime host, immutable launch-resource composition, hosted
+PGlite vertical, and ordinary-role genuine-PostgreSQL counterpart described
+above are complete privately. F0A/F0B remain complete. The next active
+checkpoint is DTE06-F2 fresh-host recovery: construct a new host scope with no
+shared process state and prove takeover only through existing persisted
+lifecycle and delivery authority. The backend-private host, bounded redacted
+receipt, lifecycle owners, and every production entrypoint remain unchanged.
+F3/F4 require separate approval before any external mutation.
 
 After DTE06-F closes, DTE05-E3 may separately preflight a real scheduled event
 host and Wrangler Cron binding. DTE06-G then owns final provenance, package,

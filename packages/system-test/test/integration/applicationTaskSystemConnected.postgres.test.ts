@@ -4,6 +4,7 @@ import {
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
   createPostgresLocatedTaskSystemRunAttemptTargetV1,
+  type PostgresFlarexPersistence,
 } from "@flarex/persistence-postgres/postgres";
 import {
   createLocatedTaskSystemRunAttemptTargetV1,
@@ -28,9 +29,14 @@ import {
 } from "flarex-backend/artifact-runtime";
 import { describe, expect, it } from "vitest";
 
-import { proveApplicationTaskSystemConnected } from
+import {
+  type ApplicationTaskSystemConnectedLane,
+  proveApplicationTaskSystemConnected,
+  proveApplicationTaskSystemHosted,
+} from
   "../../support/applicationTaskSystemConnectedHarness";
 import {
+  expectOrdinaryPostgres18,
   postgresUrl,
   withTemporarySplitPostgresPersistence,
 } from "../support/databaseFixturesV1";
@@ -55,7 +61,7 @@ describe("Application Task System PostgreSQL acceptance environment", () => {
   it("requires an authenticated genuine PostgreSQL URL", () => {
     expect(
       postgresUrl,
-      "Set FLAREX_POSTGRES_DATABASE_URL before accepting DTE06-E5.",
+      "Set FLAREX_POSTGRES_DATABASE_URL before accepting DTE06-E5/F1.",
     ).not.toBeNull();
   });
 });
@@ -78,69 +84,90 @@ describePostgres("Application Task System - PostgreSQL", () => {
   ] as const) {
     it(`connects Application launch through ${description}`, async () => {
       await withTemporarySplitPostgresPersistence(async persistence => {
-        await expect(proveApplicationTaskSystemConnected({
-          createFixture: taskMaximumDurationInSeconds =>
-            createApplicationNativeMutationPostgresFixture({
-              runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
-              compatibilityDate: APPLICATION_RUNTIME_COMPATIBILITY_DATE,
-              includeTask: true,
-              ...(taskMaximumDurationInSeconds === undefined
-                ? {}
-                : { taskMaximumDurationInSeconds }),
-            }, persistence),
-          locateRunTarget: (_fixture, physicalLocator) =>
-            createPostgresLocatedTaskSystemRunAttemptTargetV1(
-              persistence.target,
-              physicalLocator,
-            ),
-          locateCompletionResponseLostRunTarget: (_fixture, physicalLocator) => {
-            let releaseCalls = 0;
-            return createLocatedTaskSystemRunAttemptTargetV1(
-              persistence.target.drizzle,
-              physicalLocator,
-              createPostgresLocatedReadCommittedTransactionRunnerV1(
-                persistence.target.pool,
-                {
-                  release: (client, discardError) => {
-                    releaseCalls += 1;
-                    if (releaseCalls === 1 && discardError === undefined) {
-                      throw new Error(
-                        "hide the committed Application completion response",
-                      );
-                    }
-                    client.release(discardError);
-                  },
-                },
-              ),
-            );
-          },
-          createControlTarget: async () => {
-            const resource = Result.getOrThrow(
-              createPostgresTaskComputeDeliveryControlDirectoryResource(
-                persistence.control.pool.options,
-                DEADLINE_POLICY,
-              ),
-            );
-            return Object.freeze({
-              target: resource.target,
-              close: resource.close,
-            });
-          },
-          createExternalEffectTarget: async (_fixture, physicalLocator) => {
-            const resource = Result.getOrThrow(
-              createPostgresTaskExternalEffectAuthorityResource(
-                persistence.target.pool.options,
-                physicalLocator,
-                TASK_MUTATION_DEADLINE_POLICY,
-              ),
-            );
-            return Object.freeze({
-              target: resource.target,
-              close: resource.close,
-            });
-          },
-        }, scenario)).resolves.toBeUndefined();
+        await expectOrdinaryPostgres18(persistence.target);
+        await expect(proveApplicationTaskSystemConnected(
+          postgresLane(persistence),
+          scenario,
+        )).resolves.toBeUndefined();
       });
     }, 120_000);
   }
+
+  it("drains one R2-backed Application Worker through the private event host", async () => {
+    await withTemporarySplitPostgresPersistence(async persistence => {
+      await expectOrdinaryPostgres18(persistence.target);
+      await expect(proveApplicationTaskSystemHosted(postgresLane(persistence)))
+        .resolves.toBeUndefined();
+    });
+  }, 120_000);
 });
+
+function postgresLane(
+  persistence: Readonly<{
+    readonly control: PostgresFlarexPersistence;
+    readonly target: PostgresFlarexPersistence;
+  }>,
+): ApplicationTaskSystemConnectedLane {
+  return Object.freeze<ApplicationTaskSystemConnectedLane>({
+    createFixture: taskMaximumDurationInSeconds =>
+      createApplicationNativeMutationPostgresFixture({
+        runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+        compatibilityDate: APPLICATION_RUNTIME_COMPATIBILITY_DATE,
+        includeTask: true,
+        ...(taskMaximumDurationInSeconds === undefined
+          ? {}
+          : { taskMaximumDurationInSeconds }),
+      }, persistence),
+    locateRunTarget: (_fixture, physicalLocator) =>
+      createPostgresLocatedTaskSystemRunAttemptTargetV1(
+        persistence.target,
+        physicalLocator,
+      ),
+    locateCompletionResponseLostRunTarget: (_fixture, physicalLocator) => {
+      let releaseCalls = 0;
+      return createLocatedTaskSystemRunAttemptTargetV1(
+        persistence.target.drizzle,
+        physicalLocator,
+        createPostgresLocatedReadCommittedTransactionRunnerV1(
+          persistence.target.pool,
+          {
+            release: (client, discardError) => {
+              releaseCalls += 1;
+              if (releaseCalls === 1 && discardError === undefined) {
+                throw new Error(
+                  "hide the committed Application completion response",
+                );
+              }
+              client.release(discardError);
+            },
+          },
+        ),
+      );
+    },
+    createControlTarget: async () => {
+      const resource = Result.getOrThrow(
+        createPostgresTaskComputeDeliveryControlDirectoryResource(
+          persistence.control.pool.options,
+          DEADLINE_POLICY,
+        ),
+      );
+      return Object.freeze({
+        target: resource.target,
+        close: resource.close,
+      });
+    },
+    createExternalEffectTarget: async (_fixture, physicalLocator) => {
+      const resource = Result.getOrThrow(
+        createPostgresTaskExternalEffectAuthorityResource(
+          persistence.target.pool.options,
+          physicalLocator,
+          TASK_MUTATION_DEADLINE_POLICY,
+        ),
+      );
+      return Object.freeze({
+        target: resource.target,
+        close: resource.close,
+      });
+    },
+  });
+}
