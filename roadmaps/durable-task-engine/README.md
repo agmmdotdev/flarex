@@ -185,8 +185,8 @@ is approved; F0A runtime/provider convergence and F0B authenticated Task
 query/mutation plus PostgreSQL settlement are complete privately. F1's
 production-compatible private host is also complete through hosted PGlite and
 ordinary-role PostgreSQL. DTE05-C3 Application scheduling parity is
-complete privately; F2 fresh-host recovery and takeover is the next active
-checkpoint.
+complete privately; F2 fresh-host recovery and takeover has completed its
+implementation preflight and is the next bounded proof.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -601,7 +601,8 @@ files remain candidates:
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
    - **active; DTE06-A through DTE06-E complete privately; DTE06-F preflight
-     approved, F0A/F0B/F1 complete privately, and F2 is next:** the
+     approved, F0A/F0B/F1 complete privately, and F2 implementation preflight
+     complete:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.

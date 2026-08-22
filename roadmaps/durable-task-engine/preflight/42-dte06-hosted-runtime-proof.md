@@ -9,8 +9,9 @@ event-lifetime host kernel and its immutable launch-resource composition are
 complete as separate F1 checkpoints below. The first private hosted PGlite
 vertical and its ordinary-role genuine-PostgreSQL counterpart are also
 complete. DTE06-F1 is complete privately. The DTE05-C3 Application scheduling
-parity correction is complete privately; DTE06-F2 fresh-host recovery and
-takeover is the next active checkpoint.
+parity correction is complete privately. DTE06-F2 fresh-host recovery and
+takeover has completed its implementation preflight and is the next bounded
+production-inert proof.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -543,6 +544,70 @@ correction candidate are recorded in
 [`46-dte05-application-scheduling-parity.md`](./46-dte05-application-scheduling-parity.md).
 F2 implementation is now the next active checkpoint after DTE05-C3 completed
 its final reviewer gate.
+
+#### 2026-08-23 Implementation Preflight Decision
+
+Current code evidence changes the shape of F2 from a runtime feature into a
+connected proof. No new host, lifecycle, delivery, lease, retry, or takeover
+owner is required:
+
+- `ApplicationTaskDeliveryEventHost` already creates a fresh Application
+  delivery Layer and Effect scope for every event run;
+- the delivery repository already uses database time, expiring claim fences,
+  persisted dispatch checkpoints, and exact uncertain-replay decisions;
+- the Application lifecycle gateway binds every heartbeat and completion to
+  the persisted attempt ID and execution fence, so an old capability can only
+  receive a current/stale outcome after takeover; and
+- DTE05-C3 now supplies the previously missing Application lease-expiry and
+  retry-grant path through the shared persisted scheduler.
+
+The accepted F2 implementation is therefore one system-test capability with
+one commit. It must:
+
+1. start host A with a deliberately bounded test lease, withhold Worker
+   settlement, wait until the persisted attempt is executing, and interrupt
+   A's exact event scope;
+2. retain only an old attempt-scoped lifecycle capability as hostile late-host
+   evidence; host B must not receive A's Layer, loader, supervisor, delivery
+   handle, continuation, fiber, or mutable fixture state;
+3. construct host B from newly created ports over the same durable database
+   and immutable Miniflare object resources, call `run(null)` before lease
+   expiry, and prove zero replay and zero Worker load/start;
+4. after database-time expiry, use the C3 Application scheduler first to
+   accept exactly one lease-expiry transition and then to grant exactly one
+   retry attempt after its persisted `notBefore` time;
+5. while host B's new Worker settlement is withheld, submit an old-A heartbeat
+   and completion through the real lifecycle gateway and prove exact
+   `current` / `stale_attempt` receipts plus byte-for-byte unchanged winner
+   state;
+6. release only host B, prove one fresh Worker Loader load/start and terminal
+   success, and prove no Legacy runtime-object fallback; and
+7. execute the same scenario against PGlite and an ordinary-role genuine
+   PostgreSQL 18 instance. The existing connected matrix and delivery
+   repository recovery suites remain the regression authority for duplicate
+   delivery, provider-response uncertainty, result-create response loss, and
+   completion-response loss.
+
+"No shared process state" is a construction rule, not a claim that the local
+test launches a second operating-system process. Host B receives newly
+constructed host, Layer, loader, supervisor, lifecycle gateway, directory, and
+resource-port objects. Only persisted PostgreSQL/PGlite rows and immutable R2
+objects cross the boundary. The Miniflare fast lane may address the same
+emulated buckets through new adapters; it must not reuse host A's adapter
+objects. A real deployed Worker restart remains F3/F4 evidence.
+
+The bounded test may shorten lease and retry durations through existing policy
+configuration so the proof remains deterministic. It must not alter production
+defaults or weaken lease-margin validation. The test must wait on persisted
+database timestamps rather than treating the JavaScript clock as authority.
+
+Implementation should remain under `@flarex/system-test`, with a dedicated
+fresh-host takeover support module and separate PGlite/PostgreSQL test files.
+Test-only extraction from the existing connected harness is allowed only to
+share exact host/resource construction mechanics. Any required change to
+`@flarex/durable-task`, `flarex-backend`, persistence transaction behavior, or
+Standard Application runtime behavior is a newly discovered core defect: record
+it with the reproducible evidence and stop for separate approval.
 
 ### DTE06-F3: Isolated Cloudflare/Hyperdrive/R2 Probe — Separately Gated
 

@@ -635,7 +635,7 @@ lifecycle accepts the unchanged success and records the cancellation as
   completion response; and
 - emit only privacy-safe aggregate operational receipts.
 
-### DTE06-F: Private End-To-End Runtime Proof — F1 Complete; F2 Next
+### DTE06-F: Private End-To-End Runtime Proof — F1 Complete; F2 Preflight Complete
 
 - first converge the Application runtime substrate used by query, mutation,
   foreground action, and Task adapters without creating one universal
@@ -697,8 +697,10 @@ the existing Application store and decisions through generation-specific
 adapters to the same scheduler kernel, with PGlite and genuine PostgreSQL
 recovery proofs. The correction and its stop boundary are recorded in
 [`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
-F2 is now the next active checkpoint; it must reuse this
-persisted scheduler path rather than introduce host-local lifecycle logic.
+F2 has completed its implementation preflight and is the next bounded
+production-inert proof. It must reuse this persisted scheduler path rather than
+introduce host-local lifecycle logic. The exact two-host construction and stop
+boundary are recorded in Preflight 42.
 
 ### DTE06-G: Final Admission — Pending
 
@@ -763,8 +765,8 @@ The current stop is the completed, production-inert DTE06-F1 host matrix under
 F1 proves the private event host with PGlite, ordinary-role PostgreSQL, genuine
 Worker Loader execution, and immutable Miniflare R2 adapters; it does not prove
 crash recovery or a deployed Cloudflare topology. The DTE05-C3 Application
-scheduling-parity correction is complete privately and F2 is the next active
-checkpoint. The separately gated F3/F4 hosted work and
+scheduling-parity correction is complete privately and F2 has completed its
+implementation preflight. The separately gated F3/F4 hosted work and
 DTE05-E3 scheduled host remain closed. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.
