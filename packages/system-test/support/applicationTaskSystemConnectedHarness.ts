@@ -53,6 +53,9 @@ import {
 import {
   makeApplicationTaskComputeDeliveryLayer,
 } from "@flarex/standard-application-invocation/internal/application-task-compute-delivery";
+import {
+  makeApplicationTaskDeliveryResourceEventHost,
+} from "@flarex/standard-application-invocation/internal/system-test/application-task-delivery-event-host";
 import { makeApplicationTaskQueryAuthority } from
   "@flarex/standard-application-invocation/internal/application-task-query-authority";
 import {
@@ -74,14 +77,27 @@ import {
 import {
   makeTaskExecutionPrincipalStore,
 } from "flarex-backend/internal/task-execution-principal-store";
+import {
+  makeTaskInputStore,
+  type TaskInputStoreBucket,
+} from "flarex-backend/internal/task-input-store";
+import {
+  makeTaskRuntimeObjectStore,
+  type TaskRuntimeObjectStoreBucket,
+} from "flarex-backend/internal/task-runtime-object-store";
+import {
+  ApplicationAnalysisSourceReadError,
+  type ApplicationAnalysisSourceReader,
+} from "flarex-backend/internal/application-analysis-source-reader";
 import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "flarex-backend/artifact-runtime";
 import {
   TaskRuntimeLaunchPortError,
   type TaskRuntimeLaunchDirectory,
   type TaskRuntimeLaunchLocatedSource,
+  type TaskRuntimeLaunchResourceDirectory,
 } from "flarex-backend/internal/task-runtime-launch";
-import { Cause, Effect, Exit, Option, Result } from "effect";
+import { Cause, Effect, Exit, Fiber, Option, Result } from "effect";
 import { Miniflare } from "miniflare";
 import {
   TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
@@ -206,10 +222,35 @@ export type ApplicationTaskSystemConnectedScenario =
   | "mutation_callback"
   | "cancel_complete_race";
 
-export async function proveApplicationTaskSystemConnected(
+type ApplicationTaskSystemConnectedHosting = "connected" | "event_host";
+
+export function proveApplicationTaskSystemHostedPGlite(): Promise<void> {
+  return proveApplicationTaskSystemConnectedWithHosting(
+    pgliteLane(),
+    "success",
+    "event_host",
+  );
+}
+
+export function proveApplicationTaskSystemConnected(
   lane: ApplicationTaskSystemConnectedLane = pgliteLane(),
   scenario: ApplicationTaskSystemConnectedScenario = "success",
 ): Promise<void> {
+  return proveApplicationTaskSystemConnectedWithHosting(
+    lane,
+    scenario,
+    "connected",
+  );
+}
+
+async function proveApplicationTaskSystemConnectedWithHosting(
+  lane: ApplicationTaskSystemConnectedLane,
+  scenario: ApplicationTaskSystemConnectedScenario,
+  hosting: ApplicationTaskSystemConnectedHosting = "connected",
+): Promise<void> {
+    if (hosting === "event_host" && scenario !== "success") {
+      throw new Error("The F1 event host lane currently admits only success.");
+    }
     const leaseDurationMilliseconds = scenario === "lease_loss"
       ? 4_000
       : 30_000;
@@ -227,7 +268,11 @@ export async function proveApplicationTaskSystemConnected(
           fixture.active.basis.authority.physicalLocator,
         )
       : null;
+    let hostedResources: HostedTaskResourceFixture | null = null;
     try {
+    hostedResources = hosting === "event_host"
+      ? await createHostedTaskResourceFixture()
+      : null;
     const locatedRunAuthority = Object.freeze({
       authority: fixture.active.basis.authority,
       target: locatedRunTarget,
@@ -263,7 +308,7 @@ export async function proveApplicationTaskSystemConnected(
     const principalStore = Result.getOrThrow(
       makeTaskExecutionPrincipalStore(
         launchScopeId,
-        new MemoryTaskResultBucket(),
+        hostedResources?.principals ?? new MemoryTaskResultBucket(),
       ),
     );
     const applicationTaskSystem = makeApplicationTaskSystemLayer({
@@ -301,6 +346,15 @@ export async function proveApplicationTaskSystemConnected(
         ? Object.freeze({ __fixtureTaskFailure: true })
         : Object.freeze({ __fixtureTaskWaitForInterruption: true });
     const input = await canonicalizeFlarexValueV1(inputValue);
+    const inputStore = hostedResources === null
+      ? null
+      : makeTaskInputStore(hostedResources.inputs);
+    const inputReference = inputStore === null
+      ? Result.getOrThrow(makeTaskInputReferenceV1(
+          input.sha256,
+          input.canonicalBytes.byteLength,
+        ))
+      : await Effect.runPromise(inputStore.publish(inputValue));
     const executionIdentity = Object.freeze({
       kind: "user",
       user: Object.freeze({
@@ -314,10 +368,7 @@ export async function proveApplicationTaskSystemConnected(
       requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
         `application-task-system-connected-${scenario}`,
       )),
-      input: Result.getOrThrow(makeTaskInputReferenceV1(
-        input.sha256,
-        input.canonicalBytes.byteLength,
-      )),
+      input: inputReference,
       executionIdentity,
     });
     await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
@@ -433,6 +484,40 @@ export async function proveApplicationTaskSystemConnected(
     const launchDirectory: TaskRuntimeLaunchDirectory = Object.freeze({
       resolve: resolveSource,
     });
+    const applicationSource: ApplicationAnalysisSourceReader = Object.freeze({
+      read: (rootSha256: string) => rootSha256 ===
+          fixture.source.sourceArtifact.rootSha256
+        ? Effect.succeed(fixture.source)
+        : Effect.fail(new ApplicationAnalysisSourceReadError({
+            operation: "read",
+            reason: "notFound",
+          })),
+    });
+    const capturedHostedResources = hostedResources;
+    const launchResources: TaskRuntimeLaunchResourceDirectory | null =
+      capturedHostedResources === null || inputStore === null
+        ? null
+        : Object.freeze({
+            resolve: (
+              scopeId: Parameters<
+                TaskRuntimeLaunchResourceDirectory["resolve"]
+              >[0],
+            ) => scopeId === launchScopeId
+              ? Effect.succeed(Object.freeze({
+                  scopeId: launchScopeId,
+                  readEvidence,
+                  runtimeObjects: makeTaskRuntimeObjectStore(
+                    capturedHostedResources.runtimeObjects,
+                  ),
+                  inputs: inputStore,
+                  applicationSource,
+                  principals: principalStore,
+                }))
+              : Effect.fail(new TaskRuntimeLaunchPortError({
+                  operation: "resolve_source",
+                  reason: "authority_unavailable",
+                })),
+          });
     const loader = yield* Effect.acquireRelease(
       Effect.sync(() => new MiniflareWorkerLoader()),
       owner => Effect.tryPromise({
@@ -440,13 +525,15 @@ export async function proveApplicationTaskSystemConnected(
         catch: cause => cause,
       }).pipe(Effect.orDie),
     );
-    const resultBucket = new MemoryTaskResultBucket(
-      scenario === "result_publication_reconciled"
-        ? "reject_after_write"
-        : scenario === "result_publication_uncertain"
-          ? "unresolved"
-          : "none",
-    );
+    const resultBucket = hostedResources === null
+      ? new MemoryTaskResultBucket(
+          scenario === "result_publication_reconciled"
+            ? "reject_after_write"
+            : scenario === "result_publication_uncertain"
+              ? "unresolved"
+              : "none",
+        )
+      : hostedResources.results;
     const resultStore = makeTaskResultStore(resultBucket);
     const lifecycleGateway = createTaskAttemptLifecycleGateway({
       scopeMetadata: fixture.authorityPorts.scopeMetadata,
@@ -646,7 +733,7 @@ export async function proveApplicationTaskSystemConnected(
             close: Effect.void,
           })),
         });
-    const layer = makeApplicationTaskComputeDeliveryLayer({
+    const deliveryLive = Object.freeze({
       controlTarget: control.target,
       directory: {
         authority: Object.freeze({
@@ -669,7 +756,6 @@ export async function proveApplicationTaskSystemConnected(
         discoveryDeadline: DEADLINE_POLICY,
         resolutionTimeoutMilliseconds: 1_000,
       },
-      launchDirectory,
       launchAuthority: {
         maximumRuntimeObjectBytes: 1_048_576,
         maximumTotalRuntimeObjectBytes: 2_000_000,
@@ -686,11 +772,102 @@ export async function proveApplicationTaskSystemConnected(
       },
       queryAuthority,
       mutationAuthority,
+      runner: oneCandidatePolicy(),
+    });
+    if (launchResources !== null) {
+      const host = Result.getOrThrow(
+        makeApplicationTaskDeliveryResourceEventHost(
+          Object.freeze({
+            ...deliveryLive,
+            launchResources,
+            supervision: Object.freeze({ supervisor }),
+          }),
+          Object.freeze({
+            maximumDrainMilliseconds: 15_000,
+            maximumSupervisionExits: 4,
+          }),
+        ),
+      );
+      const running = yield* host.run(null).pipe(Effect.forkChild);
+      yield* Effect.promise(() => loader.awaitAcceptedStart()).pipe(
+        Effect.timeout("10 seconds"),
+      );
+      const accepted = yield* lifecycle.inspectRunAttempt({
+        operation: "inspect_current_attempt",
+        runId: created.runId,
+      });
+      expect(accepted.current.phase).not.toBe("terminal");
+      loader.releaseSettlement();
+      const hosted = yield* Fiber.join(running);
+      expect(hosted.receipt).toMatchObject({
+        runner: {
+          confirmedDispatchCandidatesHandled: 1,
+          confirmedDispatchProviderCalls: 1,
+          candidateFailures: 0,
+        },
+        supervision: {
+          expected: 1,
+          observed: 1,
+          succeeded: 1,
+          failed: 0,
+        },
+      });
+      const settled = yield* lifecycle.inspectRunAttempt({
+        operation: "inspect_current_attempt",
+        runId: created.runId,
+      });
+      if (
+        settled.current.phase !== "terminal" ||
+        settled.current.terminal.kind !== "succeeded" ||
+        settled.current.terminal.result === null
+      ) {
+        return yield* Effect.die(
+          new Error("Hosted Application Task did not settle successfully."),
+        );
+      }
+      const storedResult = yield* resultStore.read(
+        settled.current.terminal.result,
+      );
+      expect(storedResult.value).toEqual({
+        accepted: { orderId: "order-1" },
+      });
+      expect(loader.loads).toBe(1);
+      expect(loader.starts).toBe(1);
+      expect(loader.generations).toEqual(["application_v1"]);
+      expect(loader.payloads).toEqual([inputValue]);
+      expect(loader.workerInputReads).toBe(1);
+      expect(loader.workerSettlements).toBe(1);
+      expect(legacyRuntimeObjectReads).toBe(0);
+      expect(hostedResources).not.toBeNull();
+      if (hostedResources !== null) {
+        expect(hostedResources.inputs.putKeys).toEqual([
+          inputReference.objectKey,
+        ]);
+        expect(hostedResources.inputs.getKeys).toContain(
+          inputReference.objectKey,
+        );
+        expect(hostedResources.principals.putCalls).toBeGreaterThanOrEqual(1);
+        expect(new Set(hostedResources.principals.putKeys).size).toBe(1);
+        expect(hostedResources.principals.getCalls)
+          .toBeGreaterThanOrEqual(1);
+        expect(hostedResources.results.putCalls).toBe(1);
+        expect(hostedResources.results.getCalls).toBeGreaterThanOrEqual(1);
+        expect(hostedResources.runtimeObjects.putCalls).toBe(0);
+        expect(hostedResources.runtimeObjects.getCalls).toBe(0);
+        const redactedReceipt = JSON.stringify(hosted.receipt);
+        expect(redactedReceipt).not.toContain("order-1");
+        expect(redactedReceipt).not.toContain(created.runId);
+        expect(redactedReceipt).not.toContain(launchScopeId);
+      }
+      return;
+    }
+    const layer = makeApplicationTaskComputeDeliveryLayer({
+      ...deliveryLive,
+      launchDirectory,
       supervision: {
         supervisor,
         observer: supervision,
       },
-      runner: oneCandidatePolicy(),
     });
     const connected = yield* Effect.scoped(
       Effect.gen(function* () {
@@ -1144,6 +1321,7 @@ export async function proveApplicationTaskSystemConnected(
       await Promise.all([
         control.close(),
         externalEffectResource?.close() ?? Promise.resolve(),
+        hostedResources?.dispose() ?? Promise.resolve(),
       ]);
     }
 }
@@ -1322,6 +1500,99 @@ class SupervisionExitProbe implements TaskAttemptSupervisionObserver {
   }
 }
 
+interface HostedTaskResourceFixture {
+  readonly inputs: MiniflareTaskResourceBucket;
+  readonly principals: MiniflareTaskResourceBucket;
+  readonly runtimeObjects: MiniflareTaskResourceBucket;
+  readonly results: MiniflareTaskResourceBucket;
+  readonly dispose: () => Promise<void>;
+}
+
+async function createHostedTaskResourceFixture(): Promise<
+  HostedTaskResourceFixture
+> {
+  const runtime = new Miniflare({
+    modules: true,
+    script: "export default { fetch() { return new Response('ok') } }",
+    r2Buckets: [
+      "TASK_INPUTS",
+      "TASK_PRINCIPALS",
+      "TASK_RUNTIME_OBJECTS",
+      "TASK_RESULTS",
+    ],
+  });
+  try {
+    const [inputs, principals, runtimeObjects, results] = await Promise.all([
+      makeMiniflareTaskResourceBucket(runtime, "TASK_INPUTS"),
+      makeMiniflareTaskResourceBucket(runtime, "TASK_PRINCIPALS"),
+      makeMiniflareTaskResourceBucket(runtime, "TASK_RUNTIME_OBJECTS"),
+      makeMiniflareTaskResourceBucket(runtime, "TASK_RESULTS"),
+    ]);
+    let disposed = false;
+    return Object.freeze({
+      inputs,
+      principals,
+      runtimeObjects,
+      results,
+      dispose: async () => {
+        if (disposed) return;
+        disposed = true;
+        await runtime.dispose();
+      },
+    });
+  } catch (cause) {
+    await runtime.dispose();
+    throw cause;
+  }
+}
+
+async function makeMiniflareTaskResourceBucket(
+  runtime: Miniflare,
+  binding: string,
+): Promise<MiniflareTaskResourceBucket> {
+  const bucket = await runtime.getR2Bucket(binding);
+  return new MiniflareTaskResourceBucket(
+    bucket as unknown as TaskInputStoreBucket,
+  );
+}
+
+class MiniflareTaskResourceBucket
+  implements TaskInputStoreBucket, TaskRuntimeObjectStoreBucket,
+    TaskResultStoreBucket {
+  readonly values = new Map<string, Uint8Array>();
+  readonly putKeys: string[] = [];
+  readonly getKeys: string[] = [];
+  putCalls = 0;
+  getCalls = 0;
+
+  constructor(private readonly owner: TaskInputStoreBucket) {}
+
+  async put(
+    key: string,
+    value: ArrayBuffer,
+    options: Readonly<{
+      readonly onlyIf: Readonly<{ readonly etagDoesNotMatch: "*" }>;
+    }>,
+  ): Promise<unknown> {
+    this.putCalls += 1;
+    this.putKeys.push(key);
+    const result = await Reflect.apply(this.owner.put, this.owner, [
+      key,
+      value,
+      options,
+    ]);
+    this.values.set(key, new Uint8Array(value.slice(0)));
+    return result;
+  }
+
+  get(key: string): PromiseLike<unknown> {
+    this.getCalls += 1;
+    this.getKeys.push(key);
+    return Reflect.apply(this.owner.get, this.owner, [key]) as
+      PromiseLike<unknown>;
+  }
+}
+
 class MemoryTaskResultBucket implements TaskResultStoreBucket {
   readonly values = new Map<string, Uint8Array>();
   putCalls = 0;
@@ -1383,6 +1654,8 @@ class MiniflareWorkerLoader implements WorkerLoader {
   readonly settlements: TaskWorkerSessionSettlementV1[] = [];
   private readonly settlementGate: Promise<void>;
   private releaseSettlementGate: (() => void) | undefined;
+  private readonly acceptedStart: Promise<void>;
+  private resolveAcceptedStart: (() => void) | undefined;
   private readonly sessions = new Set<LiveGeneratedTaskSession>();
   private readonly disposals = new Set<Promise<void>>();
 
@@ -1390,6 +1663,13 @@ class MiniflareWorkerLoader implements WorkerLoader {
     this.settlementGate = new Promise(resolve => {
       this.releaseSettlementGate = resolve;
     });
+    this.acceptedStart = new Promise(resolve => {
+      this.resolveAcceptedStart = resolve;
+    });
+  }
+
+  awaitAcceptedStart(): Promise<void> {
+    return this.acceptedStart;
   }
 
   releaseSettlement(): void {
@@ -1450,6 +1730,8 @@ class MiniflareWorkerLoader implements WorkerLoader {
       mutationCapability,
     );
     this.sessions.add(session);
+    this.resolveAcceptedStart?.();
+    this.resolveAcceptedStart = undefined;
     let settlement: Promise<TaskWorkerSessionSettlementV1> | undefined;
     const remote = {
       acceptance: () => owned(session.acceptance),

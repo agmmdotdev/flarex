@@ -6,8 +6,9 @@
 production-inert DTE06-F proof. Runtime/provider convergence and the connected
 PGlite/genuine-PostgreSQL acceptance matrix are complete. The private
 event-lifetime host kernel and its immutable launch-resource composition are
-complete as separate F1 checkpoints below. The active checkpoint is now the
-private hosted PGlite matrix over that composition.
+complete as separate F1 checkpoints below. The first private hosted PGlite
+vertical over that composition is also complete. The active checkpoint is now
+its ordinary-role genuine-PostgreSQL counterpart.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -460,8 +461,34 @@ arrays, receiver ownership, absence/corruption/resource separation, and no
 adapter-local cache. Existing launch-authority, event-lifetime,
 runtime-object, principal, and result-store suites remain green.
 
-These checkpoints do not yet complete F1. The private PGlite and ordinary-role
-PostgreSQL hosted matrix over this exact event/resource composition remains.
+Those first two checkpoints did not complete F1 because no real database and
+Worker execution had yet entered through the composed event/resource host.
+
+The third F1 checkpoint adds the first private hosted PGlite vertical without
+duplicating the E5 semantic harness. One dedicated success lane reuses the real
+PGlite run/lifecycle repositories and genuine Miniflare Worker Loader execution,
+but enters through `ApplicationTaskDeliveryResourceEventHost` instead of
+resolving the connected runner directly. Four distinct Miniflare R2 bindings
+back Task input, execution principals, legacy runtime objects, and Task results.
+The exact input reference is published before run creation, principal issue and
+read use the principal binding, successful settlement publishes and reads the
+result binding, and the Application generation proves zero legacy
+runtime-object reads. The event host observes one admission and one successful
+supervisor exit before closing its Layer scope, and its bounded receipt contains
+neither input data nor run/scope identity.
+
+This PGlite vertical deliberately retains the fixture-owned
+`ApplicationAnalysisSourceReader`; it does not claim that the fixture's
+historical synthetic source root was republished as a finalized Source Artifact
+V2 R2 graph. That separate source-publication topology must not be invented in
+the Task host. Existing Source Artifact R2 readers remain the production adapter
+accepted by the resource directory when a real finalized artifact is supplied.
+The unchanged E5 PGlite suite remains green across all thirteen success,
+callback, failure, timeout, cancellation, stale-fence, lease-loss, uncertain
+publication, lost-response, duplicate-delivery, and race scenarios.
+
+F1 is still open: the same hosted success topology must pass through the
+ordinary-role genuine-PostgreSQL lane before fresh-host recovery begins.
 
 F1 must not add a Worker entrypoint, Wrangler binding, route, Queue, Cron, or
 external resource.
@@ -587,11 +614,10 @@ DTE06-F does not authorize:
 
 ## Stop Boundary And Next Gate
 
-The DTE06-F1 event-lifetime host and immutable launch-resource composition
-checkpoints described above are complete privately. F0A/F0B remain complete.
-The next active F1 checkpoint owns a private PGlite hosted matrix that uses
-this exact event host and resource directory; the following checkpoint repeats
-the matrix through an ordinary-role genuine PostgreSQL connection. Both keep
+The DTE06-F1 event-lifetime host, immutable launch-resource composition, and
+first hosted PGlite vertical described above are complete privately. F0A/F0B
+remain complete. The next active F1 checkpoint repeats the hosted success
+topology through an ordinary-role genuine PostgreSQL connection. It keeps
 the backend-private host, bounded redacted receipt, lifecycle owners, and every
 production entrypoint unchanged. F2 owns fresh-host recovery. F3/F4 require
 separate approval before any external mutation.
