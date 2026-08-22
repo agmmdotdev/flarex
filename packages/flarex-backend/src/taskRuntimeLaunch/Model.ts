@@ -37,11 +37,14 @@ export type TaskRuntimeLaunchPortOperation =
 export type TaskRuntimeLaunchPortFailureReason<
   Operation extends TaskRuntimeLaunchPortOperation,
 > = Operation extends "resolve_source"
-  ? "authority_unavailable" | "resource_failure"
+  ? "authority_unavailable" | "invalid_configuration" | "resource_failure"
+  : Operation extends "read_application_source"
+    ? "not_found" | "corrupt" | "invariant_failure" | "resource_failure"
   : Operation extends
       | "read_evidence"
-      | "read_application_source"
+      | "read_runtime_object"
       | "read_principal"
+      | "read_input"
     ? "not_found" | "corrupt" | "resource_failure"
     : "not_found" | "resource_failure";
 

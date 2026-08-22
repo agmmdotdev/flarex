@@ -59,6 +59,7 @@ export class ApplicationAnalysisSourceReadError extends Data.TaggedError(
   readonly reason:
     | "invalidRoot"
     | "limitExceeded"
+    | "notFound"
     | "invalidSourceArtifact"
     | "unsupportedAuth"
     | "invalidSourceText"
@@ -298,9 +299,10 @@ function sourceReadFailureReason(
       return "limitExceeded";
     case "SourceArtifactV2FinalizedContentCorruptionError":
     case "DeclarativeV2ArtifactModulePathV1Error":
-    case "SourceArtifactV2R2NotFoundError":
     case "SourceArtifactV2R2CorruptionError":
       return "invalidSourceArtifact";
+    case "SourceArtifactV2R2NotFoundError":
+      return "notFound";
     case "SourceArtifactV2R2InputError":
       return "internalFailure";
     case "SourceArtifactV2Sha256InputError":

@@ -4,8 +4,10 @@
 
 **Decision:** approved as the implementation-ready boundary for the
 production-inert DTE06-F proof. Runtime/provider convergence and the connected
-PGlite/genuine-PostgreSQL acceptance matrix are complete. The active checkpoint
-is the private event-lifetime host kernel recorded under F1 below.
+PGlite/genuine-PostgreSQL acceptance matrix are complete. The private
+event-lifetime host kernel and its immutable launch-resource composition are
+complete as separate F1 checkpoints below. The active checkpoint is now the
+private hosted PGlite matrix over that composition.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -427,9 +429,39 @@ flattened into an ordinary host error. Application directory, launch, provider,
 and runner policy records are snapped at host construction while capability
 receiver ownership is retained.
 
-This kernel does not yet complete F1. Subsequent F1 checkpoints still own the
-immutable object-store adapter composition and the private PGlite/ordinary-role
-PostgreSQL hosted matrix over this lifetime boundary.
+The second F1 checkpoint composes immutable launch resources without creating a
+parallel loader or changing Task lifecycle authority. It adds the previously
+missing concrete Task-input object-store adapter over the existing shared
+immutable-R2 byte-store mechanics. Publication canonicalizes the Flarex value,
+enforces the durable input-reference byte budget, conditionally creates the
+content-addressed object, and preserves lost-response reconciliation and
+uncertain settlement. Reads validate the exact durable reference before I/O,
+then verify object key, byte length, digest, and canonical Flarex value while
+returning owned bytes.
+
+One backend-private resource directory now adapts located database evidence,
+legacy runtime objects, Task input, Application source artifacts, and execution
+principals into the existing `TaskRuntimeLaunchAuthority` directory. It owns no
+cache, lifecycle decision, object-key derivation, or fallback. Missing,
+corrupt, and resource failures remain distinct at each launch port, including
+the corrected missing-source classification. Malformed located host resources
+are a non-retryable configuration failure rather than a retryable resource
+outage, and source-reader internal invariants are not mislabeled as corrupt
+application content. The Application resource event
+host constructs that directory and delegates to the same event-lifetime host;
+it does not create another event or session owner. Immutable task-result
+publication remains the existing `TaskAttemptSupervisor` dependency and needs
+no second host wrapper.
+
+Focused memory and genuine Miniflare R2 tests prove conditional no-replace
+publication, lost-create reconciliation, unresolved settlement, hostile
+reference rejection before I/O, cold and repeated reads with fresh owned byte
+arrays, receiver ownership, absence/corruption/resource separation, and no
+adapter-local cache. Existing launch-authority, event-lifetime,
+runtime-object, principal, and result-store suites remain green.
+
+These checkpoints do not yet complete F1. The private PGlite and ordinary-role
+PostgreSQL hosted matrix over this exact event/resource composition remains.
 
 F1 must not add a Worker entrypoint, Wrangler binding, route, Queue, Cron, or
 external resource.
@@ -555,12 +587,13 @@ DTE06-F does not authorize:
 
 ## Stop Boundary And Next Gate
 
-The first DTE06-F1 event-lifetime host checkpoint described above is complete
-privately. F0A/F0B remain complete. The next active F1 checkpoint owns
-resource-adapter composition over this host while keeping the backend-private
-host, bounded redacted receipt, lifecycle owners, and every production
-entrypoint unchanged. Later F1 checkpoints own the connected hosted matrix;
-F2 owns fresh-host recovery. F3/F4 require
+The DTE06-F1 event-lifetime host and immutable launch-resource composition
+checkpoints described above are complete privately. F0A/F0B remain complete.
+The next active F1 checkpoint owns a private PGlite hosted matrix that uses
+this exact event host and resource directory; the following checkpoint repeats
+the matrix through an ordinary-role genuine PostgreSQL connection. Both keep
+the backend-private host, bounded redacted receipt, lifecycle owners, and every
+production entrypoint unchanged. F2 owns fresh-host recovery. F3/F4 require
 separate approval before any external mutation.
 
 After DTE06-F closes, DTE05-E3 may separately preflight a real scheduled event

@@ -1,4 +1,8 @@
 import {
+  makeTaskRuntimeLaunchDirectoryFromResources,
+  type TaskRuntimeLaunchResourceDirectory,
+} from "flarex-backend/internal/task-runtime-launch";
+import {
   makeTaskComputeDeliveryEventHost,
   type TaskAttemptSupervisionObserver,
   type TaskComputeDeliveryEventHostConfigurationError,
@@ -18,6 +22,11 @@ export interface ApplicationTaskDeliveryEventHostLive
     readonly supervisor:
       ApplicationTaskComputeDeliveryLive["supervision"]["supervisor"];
   }>;
+}
+
+export interface ApplicationTaskDeliveryResourceEventHostLive
+  extends Omit<ApplicationTaskDeliveryEventHostLive, "launchDirectory"> {
+  readonly launchResources: TaskRuntimeLaunchResourceDirectory;
 }
 
 export type ApplicationTaskDeliveryEventHostLayerError = Layer.Error<
@@ -81,6 +90,66 @@ export function makeApplicationTaskDeliveryEventHost(
       },
     }, policy)
   ));
+}
+
+/**
+ * Resource-backed F1 composition. Immutable stores are adapted into the
+ * existing launch authority before the same event-lifetime host is built.
+ */
+export function makeApplicationTaskDeliveryResourceEventHost(
+  live: ApplicationTaskDeliveryResourceEventHostLive,
+  policy: TaskComputeDeliveryEventHostPolicy,
+): Result.Result<
+  ApplicationTaskDeliveryEventHost,
+  | TaskComputeDeliveryEventHostConfigurationError
+  | ApplicationTaskDeliveryEventHostConfigurationError
+> {
+  return captureResourceLive(live).pipe(Result.flatMap(captured =>
+    makeTaskRuntimeLaunchDirectoryFromResources(captured.launchResources).pipe(
+      Result.mapError(cause =>
+        new ApplicationTaskDeliveryEventHostConfigurationError({
+          reason: "invalid_live_configuration",
+          cause,
+        })
+      ),
+      Result.flatMap(launchDirectory => makeApplicationTaskDeliveryEventHost(
+        Object.freeze({
+          controlTarget: captured.controlTarget,
+          directory: captured.directory,
+          launchDirectory,
+          launchAuthority: captured.launchAuthority,
+          workerLoader: captured.workerLoader,
+          provider: captured.provider,
+          queryAuthority: captured.queryAuthority,
+          mutationAuthority: captured.mutationAuthority,
+          supervision: captured.supervision,
+          runner: captured.runner,
+        }),
+        policy,
+      )),
+    )
+  ));
+}
+
+function captureResourceLive(live: ApplicationTaskDeliveryResourceEventHostLive) {
+  return Result.try({
+    try: () => Object.freeze({
+      controlTarget: live.controlTarget,
+      directory: live.directory,
+      launchResources: live.launchResources,
+      launchAuthority: live.launchAuthority,
+      workerLoader: live.workerLoader,
+      provider: live.provider,
+      queryAuthority: live.queryAuthority,
+      mutationAuthority: live.mutationAuthority,
+      supervision: live.supervision,
+      runner: live.runner,
+    }),
+    catch: cause => new ApplicationTaskDeliveryEventHostConfigurationError({
+      reason: "invalid_live_configuration",
+      cause,
+    }),
+  });
 }
 
 function captureLive(live: ApplicationTaskDeliveryEventHostLive) {

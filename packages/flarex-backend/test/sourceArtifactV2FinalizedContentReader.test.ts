@@ -162,7 +162,7 @@ describe("Source Artifact V2 finalized content reader", () => {
     if (Exit.isFailure(missingExit)) {
       expect(Cause.findErrorOption(missingExit.cause)).toMatchObject({
         _tag: "Some",
-        value: { reason: "invalidSourceArtifact" },
+        value: { reason: "notFound" },
       });
     }
 
