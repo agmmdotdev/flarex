@@ -704,11 +704,14 @@ export async function appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction
   input: AppendPreparedAppRowRevisionV1Input,
 ): Promise<Result.Result<AppRowRevisionV1, AppendAppRowRevisionV1Error>> {
   const decoded = await decodePreparedAppendInputResult(tx, input);
-  if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
-  return appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
-    tx,
-    decoded.success,
-  );
+  return await Result.match(decoded, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (decodedRevision) =>
+      appendDecodedAppRowRevisionAndAdvanceCurrentInTransactionResult(
+        tx,
+        decodedRevision,
+      ),
+  });
 }
 
 type DecodedAppendAppRowRevisionV1 =
@@ -830,12 +833,12 @@ async function readActualPointerCommitSeqAndFail(
     decoded.scopeUuid,
     decoded.identity,
   );
-  if (Result.isFailure(actual)) return Result.fail(actual.failure);
-  return Result.fail(new AppRowRevisionChainConflictError(
-    decoded.identity,
-    decoded.prevCommitSeq,
-    actual.success,
-  ));
+  return Result.flatMap(actual, (headCommitSeq) =>
+    Result.fail(new AppRowRevisionChainConflictError(
+      decoded.identity,
+      decoded.prevCommitSeq,
+      headCommitSeq,
+    )));
 }
 
 async function deleteInsertedRevisionInTransactionResult(
@@ -1309,8 +1312,11 @@ async function decodePreparedAppendInputResult(
     tx,
     identity.scopeId,
   );
-  if (Result.isFailure(scopeUuid)) return Result.fail(scopeUuid.failure);
-  return decodePreparedAppendInputWithScope(tx, input, identity, scopeUuid.success);
+  return await Result.match(scopeUuid, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (scopeUuidValue) =>
+      decodePreparedAppendInputWithScope(tx, input, identity, scopeUuidValue),
+  });
 }
 
 async function decodePreparedAppendInputWithScope(
@@ -1323,14 +1329,17 @@ async function decodePreparedAppendInputWithScope(
   AppendAppRowRevisionV1Error
 >> {
   const scalars = decodePreparedAppendScalars(input);
-  if (Result.isFailure(scalars)) return Result.fail(scalars.failure);
-  return checkPreparedAppendImmutableCreationTime(
-    tx,
-    input,
-    identity,
-    scopeUuid,
-    scalars.success,
-  );
+  return await Result.match(scalars, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (decodedScalars) =>
+      checkPreparedAppendImmutableCreationTime(
+        tx,
+        input,
+        identity,
+        scopeUuid,
+        decodedScalars,
+      ),
+  });
 }
 
 async function checkPreparedAppendImmutableCreationTime(
@@ -1417,12 +1426,12 @@ async function requireImmutableCreationTimeResult(
       scopeUuid,
       identity,
     );
-    if (Result.isFailure(actual)) return Result.fail(actual.failure);
-    return Result.fail(new AppRowRevisionChainConflictError(
-      identity,
-      prevCommitSeq,
-      actual.success,
-    ));
+    return Result.flatMap(actual, (headCommitSeq) =>
+      Result.fail(new AppRowRevisionChainConflictError(
+        identity,
+        prevCommitSeq,
+        headCommitSeq,
+      )));
   }
   const expectedCreationTime = decodeAppCreationTimeV1(
     predecessor.creationTime,
