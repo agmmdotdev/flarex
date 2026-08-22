@@ -729,9 +729,14 @@ function parseFrame(
     }
     cursor.eof();
     const captured = captureFrame(frame, bytes.byteLength);
-    if (Result.isFailure(captured)) throw new ParseFailure();
+    const capturedFrame = Result.match(captured, {
+      onSuccess: (capturedFrameValue) => capturedFrameValue,
+      onFailure: () => {
+        throw new ParseFailure();
+      },
+    });
     return Result.succeed({
-      frame: captured.success,
+      frame: capturedFrame,
       canonicalBytes: cursor.canonicalBytes,
     });
   } catch (cause) {

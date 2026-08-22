@@ -1301,12 +1301,15 @@ export function decodeDeclarativeV2PhysicalFrameV1(
     }
     const parsed = yield* parseOwnedFrame(owned, limits);
     const reencoded = encodeDeclarativeV2PhysicalFrameV1(parsed, limits);
-    if (Result.isFailure(reencoded)) {
-      throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
-        reason: "reencodeFailed",
-      });
-    }
-    if (!bytesEqualFullScan(owned, reencoded.success.canonicalBytes)) {
+    const canonical = Result.match(reencoded, {
+      onSuccess: (frame) => frame.canonicalBytes,
+      onFailure: () => {
+        throw new DeclarativeV2PhysicalFrameV1InvariantDefect({
+          reason: "reencodeFailed",
+        });
+      },
+    });
+    if (!bytesEqualFullScan(owned, canonical)) {
       return yield* Result.fail(frameError("decode", "nonCanonical"));
     }
     // SAFETY: parseOwnedFrame succeeded, so parsed is a captured frame that

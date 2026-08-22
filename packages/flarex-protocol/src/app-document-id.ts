@@ -123,25 +123,26 @@ function decodeAppDocumentIdPartsV1Result(
       issue: { reason: "invalidTableId", value: tableText },
     }));
   }
-  const tableIdResult = decodeCatalogTableIdResult(tableNumber);
-  if (Result.isFailure(tableIdResult)) {
-    return Result.fail(new AppDocumentIdV1Error({
-      issue: { reason: "invalidTableId", value: tableText },
-    }));
-  }
-  const tableId = tableIdResult.success;
-
-  const uuid = value.slice(separator + 1);
-  if (!isCanonicalUuidTextV1(uuid)) {
-    return Result.fail(new AppDocumentIdV1Error({
-      issue: { reason: "invalidRowId", value: uuid },
-    }));
-  }
-  return Result.succeed(Object.freeze({
-    id: value,
-    tableId,
-    uuid,
-  } satisfies AppDocumentIdPartsV1));
+  return Result.flatMap(
+    Result.mapError(
+      decodeCatalogTableIdResult(tableNumber),
+      () => new AppDocumentIdV1Error({
+        issue: { reason: "invalidTableId", value: tableText },
+      }),
+    ),
+    (tableId) => {
+    const uuid = value.slice(separator + 1);
+    if (!isCanonicalUuidTextV1(uuid)) {
+      return Result.fail(new AppDocumentIdV1Error({
+        issue: { reason: "invalidRowId", value: uuid },
+      }));
+    }
+    return Result.succeed(Object.freeze({
+      id: value,
+      tableId,
+      uuid,
+    } satisfies AppDocumentIdPartsV1));
+  });
 }
 
 export function appDocumentIdV1FromRowIdentity(input: {

@@ -243,9 +243,13 @@ class ApplicationPointMutationJournalCapabilityStateV1 {
   }
 
   tableNameForDocument(documentId: string): string {
-    const identity = decodeAppDocumentIdentityV1Result(documentId);
-    if (Result.isFailure(identity)) throw identity.failure;
-    const logicalName = this.#logicalNamesByTableId.get(identity.success.tableId);
+    const tableId = Result.match(decodeAppDocumentIdentityV1Result(documentId), {
+      onSuccess: (identity) => identity.tableId,
+      onFailure: (failure) => {
+        throw failure;
+      },
+    });
+    const logicalName = this.#logicalNamesByTableId.get(tableId);
     if (logicalName === undefined) throw invalidCapabilityResult();
     return logicalName;
   }

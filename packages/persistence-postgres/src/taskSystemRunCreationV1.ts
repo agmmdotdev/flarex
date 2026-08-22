@@ -267,14 +267,17 @@ const createRun = Effect.fn("TaskSystemRunCreation.createRun")(
           ),
         );
       }
-      const failure = Cause.findError(settled.cause);
-      if (Result.isFailure(failure)) {
-        return yield* Effect.failCause(failure.failure);
+      const outcome = Result.match(Cause.findError(settled.cause), {
+        onFailure: (cause) => ({ tag: "cause" as const, cause }),
+        onSuccess: (error) => ({
+          tag: "classified" as const,
+          classified: classifyTransactionFailure(error, execution),
+        }),
+      });
+      if (outcome.tag === "cause") {
+        return yield* Effect.failCause(outcome.cause);
       }
-      const classified = classifyTransactionFailure(
-        failure.success,
-        execution,
-      );
+      const classified = outcome.classified;
       if (classified.kind === "retry") continue;
       if (classified.kind === "fail") return yield* classified.error;
       if (classified.kind === "cleanup") {

@@ -199,20 +199,23 @@ export function decodeDeclarativeV2StaticVerificationCompletionV1(
     const owned = yield* captureInputBytes(input, budget, "decodeCompletion");
     const frame = yield* parseCompletion(owned);
     const encoded = encodeCompletion(frame, budget, "decodeCompletion");
-    if (Result.isFailure(encoded)) {
-      throw new DeclarativeV2StaticFinalizationV1InvariantDefect({
-        reason: "reencodeFailed",
-      });
-    }
-    if (!bytesEqualFullScan(owned, encoded.success.canonicalBytes)) {
+    const encodedFrame = Result.match(encoded, {
+      onSuccess: (encodedFrameValue) => encodedFrameValue,
+      onFailure: () => {
+        throw new DeclarativeV2StaticFinalizationV1InvariantDefect({
+          reason: "reencodeFailed",
+        });
+      },
+    });
+    if (!bytesEqualFullScan(owned, encodedFrame.canonicalBytes)) {
       return yield* Result.fail(
         staticError("decodeCompletion", "nonCanonical"),
       );
     }
     return Object.freeze({
-      frame: encoded.success.frame,
+      frame: encodedFrame.frame,
       canonicalBytes: owned,
-      usage: encoded.success.usage,
+      usage: encodedFrame.usage,
     });
   });
 }
@@ -251,20 +254,23 @@ export function decodeDeclarativeV2StaticFinalizationV1(
       budget,
       "decodeStaticFinalization",
     );
-    if (Result.isFailure(encoded)) {
-      throw new DeclarativeV2StaticFinalizationV1InvariantDefect({
-        reason: "reencodeFailed",
-      });
-    }
-    if (!bytesEqualFullScan(owned, encoded.success.canonicalBytes)) {
+    const encodedFrame = Result.match(encoded, {
+      onSuccess: (encodedFrameValue) => encodedFrameValue,
+      onFailure: () => {
+        throw new DeclarativeV2StaticFinalizationV1InvariantDefect({
+          reason: "reencodeFailed",
+        });
+      },
+    });
+    if (!bytesEqualFullScan(owned, encodedFrame.canonicalBytes)) {
       return yield* Result.fail(
         staticError("decodeStaticFinalization", "nonCanonical"),
       );
     }
     return Object.freeze({
-      frame: encoded.success.frame,
+      frame: encodedFrame.frame,
       canonicalBytes: owned,
-      usage: encoded.success.usage,
+      usage: encodedFrame.usage,
     });
   });
 }

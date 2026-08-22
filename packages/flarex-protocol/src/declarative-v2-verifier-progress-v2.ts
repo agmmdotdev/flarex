@@ -1042,12 +1042,15 @@ export function decodeDeclarativeV2VerifierProgressFrameV2(
     }
     const parsed = yield* parseOwnedFrame(owned);
     const encoded = encodeDeclarativeV2VerifierProgressFrameV2(parsed, budget);
-    if (Result.isFailure(encoded)) {
-      throw new DeclarativeV2VerifierProgressV2InvariantDefect({
-        reason: "reencodeFailed",
-      });
-    }
-    if (!bytesEqualFullScan(owned, encoded.success.canonicalBytes)) {
+    const canonical = Result.match(encoded, {
+      onSuccess: (frame) => frame.canonicalBytes,
+      onFailure: () => {
+        throw new DeclarativeV2VerifierProgressV2InvariantDefect({
+          reason: "reencodeFailed",
+        });
+      },
+    });
+    if (!bytesEqualFullScan(owned, canonical)) {
       return yield* Result.fail(progressError("decode", "nonCanonical"));
     }
     // SAFETY: parseOwnedFrame succeeded, so parsed is a captured frame that
