@@ -452,6 +452,14 @@ replace a release-level license/NOTICE audit across every published package.
     Standard capability is implemented, replacement developer tooling must
     delegate to it rather than maintain a parallel canonical/materialization,
     analysis, registration, or invocation sequence.
+17. **Public Task ergonomics follow the private Task contract.** A future
+    developer `task(...)`, generated Task reference, invocation, cancellation,
+    scheduling, or result API may be designed only after roadmap 42's private
+    Standard Task gate and the Durable Task hosted/recovery gates close. It must
+    lower into the canonical Task catalog and `ApplicationTaskSystem`, not
+    expose durable-run stores, attempts, leases, providers, object stores, or
+    host controls. Current private Task modules do not freeze public syntax or
+    compatibility.
 
 ## Decisions And Rationale
 

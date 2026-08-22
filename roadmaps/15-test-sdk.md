@@ -321,6 +321,16 @@ Unsupported capabilities stay absent from the public type surface; a public
 method must not be added merely because the canonical definition can describe
 that function kind.
 
+Durable Tasks follow the same rule. Roadmap 42's `SAP08-A` must first establish
+the shared private Standard Task reference and run-creation/replay contract,
+and roadmap 41's `SAC01-F2t` must then prove the unified internal system-test
+producer over DTE06-F2 fresh-host recovery. Only after those gates and the
+public developer Task-reference contract exist may `flarex-test` consider a
+Task helper. The public test surface must not expose harness fault injection,
+delivery controls, lifecycle stores, attempt fences, provider handles, R2
+bindings, database locators, or scheduler authority, and the current
+specialized Task harness is not a public compatibility commitment.
+
 The private real-system harness is also not a reusable implementation hidden
 inside `flarex-test`. Package dependency points from `flarex-test` toward
 approved stable private or production-domain APIs only after a separate

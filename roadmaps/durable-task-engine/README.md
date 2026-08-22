@@ -183,7 +183,8 @@ cancellation is requested is submitted unchanged, and the existing lifecycle
 records that cancellation as `superseded_by_completion`. The DTE06-F preflight
 is approved; F0A runtime/provider convergence and F0B authenticated Task
 query/mutation plus PostgreSQL settlement are complete privately. F1's
-production-compatible private host is next.
+production-compatible private host is also complete through hosted PGlite and
+ordinary-role PostgreSQL. F2 fresh-host recovery and takeover is next.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -198,7 +199,7 @@ and the C2 contract and receipt in
 [`preflight/35-dte06-scope-bound-fenced-repository.md`](./preflight/35-dte06-scope-bound-fenced-repository.md).
 The real provider is wired only inside the private Application compute
 composition and its system-test/AA-R7 proof. Cloudflare task deployment
-bindings, a scheduled Worker host, public APIs, durable Worker settlement,
+bindings, a scheduled Worker host, public APIs, production Worker settlement,
 production compute delivery, and production activation do not exist yet.
 
 This folder will own the focused execution roadmaps for a Flarex-native durable
@@ -597,7 +598,7 @@ files remain candidates:
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
    - **active; DTE06-A through DTE06-E complete privately; DTE06-F preflight
-     approved, F0A/F0B complete privately, and F1 next:** the
+     approved, F0A/F0B/F1 complete privately, and F2 next:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -660,10 +661,11 @@ files remain candidates:
      Genuine PostgreSQL settlement acceptance and the genuine connected Worker
      mutation proof now pass, closing DTE06-F0B privately. This composition
      remains test-only and production-inert.
-     Outbound and scheduling context members remain deferred.
-     F1 then adds a
-     production-compatible test host and fresh-host recovery proof around those
-     current owners. Real Cloudflare, Hyperdrive, and R2 resource mutation
+     Outbound and scheduling context members remain deferred. F1 now provides the
+     production-compatible private event host, hosted PGlite proof, and
+     ordinary-role PostgreSQL counterpart around those current owners. F2 next
+     proves fresh-host recovery and takeover without shared process state. Real
+     Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public
      API, route, binding, fallback, dual execution, or production activation
      exists;

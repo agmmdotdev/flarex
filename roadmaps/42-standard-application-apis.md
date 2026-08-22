@@ -22,6 +22,14 @@ frame, immutable task-definition runtime binding, separate creation-authority
 receipt, and their canonical SHA-256 operations. The original `./v1` behavior
 is unchanged, and no registration, activation, runtime, persistence, route, or
 public SDK surface is enabled.
+The docs-only `SAP08-P` Task API layering reconciliation is also complete. The
+current unversioned private `ApplicationTaskSystem`, authenticated Task query
+and mutation authorities, compute-delivery composition, and F1 event host are
+implementation-bearing foundations, but they are not yet one stable
+multi-producer Standard Task API. DTE06-F1 is complete privately; DTE06-F2
+fresh-host recovery remains the entry gate for `SAP08-A` and the later unified
+system-test Task producer. No public Task authoring, public test helper,
+scheduled host, route, or production activation is implied.
 The former `@flarex/standard-application-analysis/v1` and
 `@flarex/standard-application-registration/v1` surfaces completed SAP02/SAP03
 over the then-accepted static verifier. Application Analysis migration roadmap
@@ -299,6 +307,53 @@ internal-call, and action facades are a separate primitive layer owned by
 [`40-host-neutral-function-runtime.md`](./40-host-neutral-function-runtime.md).
 Both producers may author normal `ctx.*` handlers, but neither owns the private
 `flarex:platform` ABI or may introduce another runtime implementation.
+
+### Task API Layering And Admission
+
+`SAP08-P` is complete as a docs-only ownership reconciliation. It changes no
+export, implementation, schema, migration, route, trigger, or production
+behavior. Durable Tasks follow the same producer layering as queries,
+mutations, and actions, but their lifecycle and host responsibilities stay with
+their existing owners:
+
+```text
+public developer Task producer / private system-test Task producer
+  -> private Standard Task definition and invocation APIs
+  -> ApplicationTaskSystem selection and exact run creation/replay
+  -> durable-task run/attempt, lease, retry, cancellation, and settlement owners
+  -> ApplicationTaskComputeDelivery and the approved event host
+  -> Worker Loader, immutable object stores, and PostgreSQL adapters
+```
+
+The current implementation proves the lower portion of this chain. The
+canonical Task catalog and binding contracts exist behind
+`@flarex/standard-application-definition/internal/task-definition-v1`.
+`ApplicationTaskSystem` selects one active task and creates or replays its run;
+the Task query and mutation authorities reuse the existing Application query,
+mutation, OCC, journal, commit, and replay owners; and DTE06-F1 proves the
+production-compatible private event host through PGlite and ordinary-role
+PostgreSQL. Those modules remain private implementation surfaces. Code presence
+and one specialized harness do not by themselves stabilize a shared Standard
+producer contract.
+
+`SAP08-A` is pending DTE06-F2. Its first bounded contract may expose only the
+typed canonical Task identity/reference and the narrow active-selection run-
+creation/replay operation that both an internal test producer and a later
+developer producer genuinely need. It must delegate to the current
+`ApplicationTaskSystem` and preserve its typed errors, authenticated execution
+identity, request-key idempotency, input ownership, and durable creation
+receipt. It must not expose a run-attempt store, SQL or transaction handle,
+scope locator, lifecycle phase setter, provider, R2 bucket, host drain control,
+fault plan, scheduler, or raw callback capability.
+
+After `SAP08-A`, roadmap 41 may add a private system-test Task producer over the
+same Standard contract and the existing F2-proven host. Test-only delivery,
+restart, cancellation, and fault controls remain with the harness rather than
+entering the Standard API. Roadmaps 09 and 15 may consider public developer and
+public test ergonomics only after the private producer is proven and DTE06-F
+closes its separately approved hosted gates. This sequence does not freeze
+public `task(...)`, generated-reference, start/await, cancellation, scheduling,
+or result-observation syntax.
 
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
@@ -719,6 +774,8 @@ checker in roadmap 16. It must not mark that broader gate complete.
 | `AAV-A1` | **Accepted and complete privately:** direct edge-action request/outcome plus shared external-effect uncertainty evidence | Four private identities, R2-only body ownership, exactly two new tables, short transactions, crash/replay/cancellation rules, distinct direct-action/task-attempt subjects, and no duplication of Task System run/attempt/orchestration state |
 | `AAV-A2` | **Accepted and complete privately:** candidate-bound exact `action-edge` runtime and authenticated outbound/query/mutation callback bridge | Separate target/profile/syscall ABI, canonical host policy, verified R2 materialization, fresh Worker Loader execution, controlled egress, and AAV-A1-backed child-mutation evidence are implemented without widening query/mutation identities or implementing SAP07 |
 | `SAP07` | **Accepted and complete privately:** one route-independent public Standard edge action | Existing active selection, AAV-A1 request/outcome and expiry-recovery authority, AAV-A2 opaque host dispatch, and R2 result replay compose through `ApplicationActionSystemV1` plus a thin Standard consumer; no FSV07 route, internal action, `runAction`, schedule, Node host, or public SDK is implied |
+| `SAP08-P` | **Complete docs-only:** reconcile core, Standard, private system-test, public developer, and public test ownership for Durable Tasks | DTE06-F1 is complete privately; no code, export, schema, route, trigger, or public syntax is authorized |
+| `SAP08-A` | **Pending DTE06-F2:** first shared private Standard Task definition/reference and exact run-creation/replay contract | Reuse `ApplicationTaskSystem`; serve the internal Task producer while preserving the separately owned later developer producer, without exposing lifecycle, persistence, provider, host, scheduler, observability, or test-fault authority |
 | Later separately gated operations | Add workflow and schedule operations individually | each capability has an implemented owner contract and focused preflight; query-to-mutation and query/mutation-to-action remain forbidden |
 
 Stop and amend this roadmap before implementation if a slice would create a
