@@ -27,12 +27,13 @@ scope-local current authority and its reversible draining operations. Private
 `M05-B2` composes that lifecycle into readiness/admission, and private
 `M05-B3` adds exact current-pin inspection plus fenced finalization.
 Private `M05-B4` adds the explicit one-step coordinator and exact cold replay.
-The docs-only `M05-C0` physical-purge boundary preflight is also complete. It
-rejects one combined definition/evidence purge and freezes the smaller owner-
-preserving sequence below. Everything remains private and production-inert: no
-public route, CLI, deployment caller, or trigger executes retirement in
-production, and no physical/evidence purge or production generation cut is
-authorized by this roadmap.
+The docs-only `M05-C0` physical-purge boundary preflight and `M05-C1-P`
+purge-progress storage preflight are also complete. They reject one combined
+definition/evidence purge and freeze a dedicated target-local checkpoint rather
+than overloading lifecycle authority. Everything remains private and
+production-inert: no public route, CLI, deployment caller, or trigger executes
+retirement in production, and no physical/evidence purge or production
+generation cut is authorized by this roadmap.
 
 ## Decision
 
@@ -1299,11 +1300,11 @@ This inventory freezes five consequences:
 
 1. A resumable destructive operation needs durable target-local purge progress.
    The current lifecycle row cannot safely encode `retired-with-sidecars`, an
-   in-progress dependency phase, a bounded continuation, and `purged`. The next
-   storage-bearing work must therefore be a separate additive preflight,
-   `M05-C1-P`, which chooses between a dedicated purge checkpoint and a
-   lifecycle extension and proves exact replay, fencing, restart, migration,
-   and rollback behavior before any destructive page exists.
+   in-progress dependency phase, a bounded continuation, and `purged`. The
+   completed `M05-C1-P` preflight therefore selects a dedicated purge
+   checkpoint rather than a lifecycle extension and proves the required replay,
+   fencing, restart, migration, and rollback contract before its later
+   implementation or any destructive page exists.
 2. Reactivation is a prerequisite, not post-purge cleanup. `M05-R-P` must first
    freeze the exact `retired -> reactivating -> active` rebuild path and
    distinguish retained from purged sidecars. It must reuse the existing
@@ -1337,6 +1338,93 @@ oldest-definition policy, dual writes, fallbacks, an automatic trigger, or an
 unbounded scope scan. PGlite and genuine-PostgreSQL populated success,
 refusal, rollback, cold-resume, and query-plan evidence are required for each
 implementation-bearing slice.
+
+#### M05-C1-P Additive Purge-Progress Storage Preflight
+
+`M05-C1-P` is complete as a docs-only storage preflight. It authorizes no DDL,
+row creation, deletion, phase transition, reactivation, scheduler, or trigger.
+The accepted shape is a dedicated target-local
+`fx_system_physical_definition_purge` row per
+`(scope_id, definition_kind, definition_id)`. It is not an extension of
+`fx_system_physical_definition_lifecycle`:
+
+- lifecycle is synchronous availability authority read by readiness and
+  admission, while purge progress is restart evidence for bounded maintenance;
+- lifecycle absence must continue to mean implicitly active, and its compact
+  row must not acquire phase-specific cursors or destructive completion
+  semantics; and
+- a separate row lets reactivation distinguish retained sidecars, an incomplete
+  purge, and a completed purge without deleting or reinterpreting lifecycle
+  authority.
+
+The purge row has a restrictive target-local foreign key to the lifecycle
+identity, so neither lifecycle nor scope authority can disappear underneath
+progress. The mutable lifecycle transition fence is stored and revalidated but
+is deliberately not part of that foreign key: reactivation may advance the
+lifecycle only through its later policy gate rather than being made physically
+impossible by old completed purge evidence. No control-database foreign key or
+copied definition body is added.
+
+Absence of a purge row means no purge has started for the lifecycle row's
+current retired transition fence; the physical sidecars therefore remain
+retained. A present purge row carries only:
+
+- the exact deployment, scope, definition kind/ID, lifecycle transition fence,
+  physical-spec digest, storage generation, storage-generation fence, and epoch
+  that authenticated the retired subject;
+- a positive purge fence, non-negative checkpoint sequence, canonical purge-
+  request codec/version and digest, and database-owned creation/update times;
+- one phase from `prepared`, `index_current`, `index_revisions`, `index_build`,
+  `unique_claims`, or `complete`; and
+- for a paged phase only, a persisted canonical continuation with codec version,
+  bytes, and SHA-256 digest. The byte payload has an 8,192-byte hard ceiling,
+  sufficient for the largest current 2,048-byte ordered-index key plus its
+  exact row/commit identity without admitting scheduler-sized arbitrary state.
+
+Database checks keep kind and phase coherent. An index subject may progress
+only `prepared -> index_current -> index_revisions -> index_build -> complete`;
+a unique-constraint subject may progress only
+`prepared -> unique_claims -> complete`. `prepared`, `index_build`, and
+`complete` have no continuation. The other phases use only their own exact
+cursor shape. A cursor never contains SQL, caller-selected scope or definition
+authority, app-row bodies, R2 bodies, or an unbounded discovered directory.
+
+The purge row is current restart truth, not an event log or scheduler lease.
+Each later page receives no caller-owned cursor: under the target scope-clock
+update lock it rechecks the exact `retired` lifecycle row, then locks the purge
+row, derives the next bounded work from the stored phase/continuation, performs
+one page, and stores the settled successor in the same transaction. This lock
+order serializes the page with lifecycle/readiness operations and O11's scope-
+clock share lane without creating another OCC, commit, retained-floor, or
+history owner. A lost response is resolved by rereading the checkpoint; an
+uncertain transaction is never advanced by inference.
+
+Checkpoint creation additionally reuses current definition preparation and the
+M05-B3 pin inspectors. It refuses a non-`retired` lifecycle, a changed lifecycle
+fence, current active/candidate reachability, a live execution or snapshot pin,
+definition/spec disagreement, copied control/target authority, and generation
+or epoch drift. An exact request replays the same row; a different request for
+the same retired fence conflicts. A completed row remains evidence for that
+retirement cycle. A later reactivation changes the lifecycle fence, making the
+old row inapplicable; only a later exact retirement may reinitialize it with a
+higher purge fence, and never while the prior row is incomplete.
+
+`M05-C1` is the next implementation-bearing checkpoint. It may add only the
+empty additive table plus private preparation/inspection and exact replay/
+conflict authority. It must not expose a generic phase setter or callback-based
+deletion transaction, mark a subject complete, delete any row, modify the
+lifecycle contract, or wire a caller. Later index and unique page owners retain
+their own SQL, cursor decoding, error families, and atomic checkpoint update;
+they may reuse exact package-local checkpoint mechanics but not O11's table,
+scheduler key, continuation, lease, or deletion authority.
+
+The `M05-C1` proof gate requires PGlite and genuine-PostgreSQL fresh install,
+upgrade from the immediately prior populated schema, rollback on migration and
+repository failure, empty-table/no-backfill proof, exact create/replay/conflict,
+stale lifecycle and authority refusal, malformed-row refusal, concurrent-create
+serialization, and lifecycle/readiness/O11 regression coverage. The migration
+uses the next available number at implementation time and may not rewrite an
+existing migration.
 
 ## Ordered Turn Sequence
 
@@ -1428,8 +1516,13 @@ These are separate later goals, not one giant deployment goal:
     inventory the real storage/dependency owners, reject a combined physical-
     and-evidence purge, and split durable purge progress, reactivation,
     developer-index sidecars, unique claims, and immutable evidence retention
-    into separately approved checkpoints. `M05-C1-P` is the next possible
-    schema-design preflight; no deletion implementation is authorized.
+    into separately approved checkpoints.
+19. `M05-C1-P` - **complete docs-only storage preflight; no DDL**: select one
+    dedicated scope/definition purge checkpoint bound to the exact retired
+    lifecycle fence, freeze its bounded phase/continuation and lock contract,
+    and keep availability, scheduling, O11 history, and evidence retention with
+    their existing owners. `M05-C1` is the next implementation-bearing slice;
+    it adds storage authority only and cannot delete or complete a purge.
 
 The current FlarexDB foundation continues in its existing narrow order. These
 goals do not authorize public CLI work, cloud deployment, or destructive schema
