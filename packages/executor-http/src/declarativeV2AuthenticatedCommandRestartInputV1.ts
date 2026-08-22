@@ -3067,15 +3067,23 @@ function captureClaim(
   DeclarativeV2AuthenticatedCommandRestartInputClaimV1,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
-  const record = ownDataRecord(input, CLAIM_KEYS, "claimSource");
-  if (Result.isFailure(record)) return Result.fail(record.failure);
-  const targetCommandKind = captureCommandKind(record.success.targetCommandKind);
-  const targetSequence = captureU64(record.success.targetSequence, true);
-  const sourceCommandKind = captureRestartKind(record.success.sourceCommandKind);
-  const sourceSequence = captureU64(record.success.sourceSequence, true);
-  const pageCount = captureU64(record.success.pageCount, true);
+  const claimOutcome = Result.match(
+    ownDataRecord(input, CLAIM_KEYS, "claimSource"),
+    {
+      onSuccess: (recordValue) => ({ ok: true as const, recordValue }),
+      onFailure: (failure) => ({ ok: false as const, failure }),
+    },
+  );
+  if (!claimOutcome.ok) {
+    return Result.fail(claimOutcome.failure);
+  }
+  const targetCommandKind = captureCommandKind(claimOutcome.recordValue.targetCommandKind);
+  const targetSequence = captureU64(claimOutcome.recordValue.targetSequence, true);
+  const sourceCommandKind = captureRestartKind(claimOutcome.recordValue.sourceCommandKind);
+  const sourceSequence = captureU64(claimOutcome.recordValue.sourceSequence, true);
+  const pageCount = captureU64(claimOutcome.recordValue.pageCount, true);
   const payloadByteLength = captureU64(
-    record.success.payloadByteLength,
+    claimOutcome.recordValue.payloadByteLength,
     true,
   );
   if (
@@ -3091,40 +3099,40 @@ function captureClaim(
     );
   }
   const targetRequestSha256 = captureSha256(
-    record.success.targetRequestSha256,
+    claimOutcome.recordValue.targetRequestSha256,
   );
   const targetReservationSha256 = captureSha256(
-    record.success.targetReservationSha256,
+    claimOutcome.recordValue.targetReservationSha256,
   );
   const analyzerReleaseSha256 = captureSha256(
-    record.success.analyzerReleaseSha256,
+    claimOutcome.recordValue.analyzerReleaseSha256,
   );
   const analyzerIdentitySha256 = captureSha256(
-    record.success.analyzerIdentitySha256,
+    claimOutcome.recordValue.analyzerIdentitySha256,
   );
   const verifierIdentitySha256 = captureSha256(
-    record.success.verifierIdentitySha256,
+    claimOutcome.recordValue.verifierIdentitySha256,
   );
   const rangeAndPredecessorTailsSha256 = captureSha256(
-    record.success.rangeAndPredecessorTailsSha256,
+    claimOutcome.recordValue.rangeAndPredecessorTailsSha256,
   );
   const sourceReservationSha256 = captureSha256(
-    record.success.sourceReservationSha256,
+    claimOutcome.recordValue.sourceReservationSha256,
   );
   const sourceAuthenticatedInputSha256 = captureSha256(
-    record.success.sourceAuthenticatedInputSha256,
+    claimOutcome.recordValue.sourceAuthenticatedInputSha256,
   );
   const sourceOutputManifestSha256 = captureSha256(
-    record.success.sourceOutputManifestSha256,
+    claimOutcome.recordValue.sourceOutputManifestSha256,
   );
   const sourceSettledReceiptSha256 = captureSha256(
-    record.success.sourceSettledReceiptSha256,
+    claimOutcome.recordValue.sourceSettledReceiptSha256,
   );
-  const finalPageSha256 = captureSha256(record.success.finalPageSha256);
+  const finalPageSha256 = captureSha256(claimOutcome.recordValue.finalPageSha256);
   const manifestSequenceSha256 = captureSha256(
-    record.success.manifestSequenceSha256,
+    claimOutcome.recordValue.manifestSequenceSha256,
   );
-  const payloadSha256 = captureSha256(record.success.payloadSha256);
+  const payloadSha256 = captureSha256(claimOutcome.recordValue.payloadSha256);
   if (
     targetRequestSha256 === undefined ||
     targetReservationSha256 === undefined ||

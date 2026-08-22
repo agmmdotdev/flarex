@@ -712,7 +712,8 @@ function materializeStoredAuthorityEffect(
       ) {
         return occExecutionCorrupt("journalChildrenPresent");
       }
-      creationTimeSeed = expectedFacet.success.journalRoot.creationTimeSeed;
+      creationTimeSeed =
+        journalRootOutcome.journalRoot.creationTimeSeed;
     }
 
     if (captured.sessionPayloadRows.length !== 1) {
@@ -1650,7 +1651,11 @@ function captureSessionScalars(
   const authorityJson = decodeJsonObjectTextResult(
     payload.applicationExecutionAuthorityJsonText,
   );
+  const authorityCanonicalBytes =
+    payload.applicationExecutionAuthorityCanonicalBytes;
+  const authoritySha256 = session.applicationExecutionAuthoritySha256;
   return Result.match(authorityJson, {
+    onFailure: () => undefined,
     onSuccess: (authority) =>
       Object.freeze({
         executionAuthorityGeneration: "application_v1",
@@ -1659,10 +1664,10 @@ function captureSessionScalars(
             authority,
           ),
         applicationExecutionAuthorityCanonicalBytes: copyBytes(
-          payload.applicationExecutionAuthorityCanonicalBytes,
+          authorityCanonicalBytes,
         ),
         applicationExecutionAuthoritySha256: copyBytes(
-          session.applicationExecutionAuthoritySha256,
+          authoritySha256,
         ),
         ...common,
       }),

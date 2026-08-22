@@ -3007,8 +3007,12 @@ function configurationOrThrow(
     DeclarativeV2VerifierProgressRepositoryConfigurationV2Error
   >,
 ): Readonly<{ readonly claimDurationMilliseconds: number }> {
-  if (Result.isFailure(configuration)) throw configuration.failure;
-  return configuration.success;
+  return Result.match(configuration, {
+    onSuccess: (configurationValue) => configurationValue,
+    onFailure: (failure) => {
+      throw failure;
+    },
+  });
 }
 
 function captureOwnerId(
@@ -4017,7 +4021,9 @@ function captureReserveInput(
   });
 }
 
-function captureCommandAuthority(
+const captureCommandAuthority = Effect.fn(
+  "DeclarativeV2.verifierProgressV2.captureCommandAuthority",
+)(function* (
   operation: "reserveCommand" | "resumePending",
   input: unknown,
   capturedReservation:
@@ -4025,11 +4031,7 @@ function captureCommandAuthority(
   budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
   usage: MutableOperationUsageV2,
   sha256: DeclarativeV2Sha256V1,
-): Effect.Effect<
-  CapturedCommandAuthorityV1,
-  DeclarativeV2VerifierProgressRepositoryV2Error
-> {
-  return Effect.gen(function* () {
+) {
     const reservation = capturedReservation.frame;
     const record = yield* Effect.fromResult(captureExactRecord(
       operation,
@@ -4049,18 +4051,24 @@ function captureCommandAuthority(
     if (!isUint8Array(rawBytes)) {
       return yield* inputError(operation, "invalidInput");
     }
-    const decoded = decodeDeclarativeV2FutureRegistrationIntentV1(rawBytes);
-    if (Result.isFailure(decoded)) {
+    const decodedOutcome = Result.match(
+      decodeDeclarativeV2FutureRegistrationIntentV1(rawBytes),
+      {
+        onSuccess: (intent) => ({ ok: true as const, intent }),
+        onFailure: () => ({ ok: false as const }),
+      },
+    );
+    if (!decodedOutcome.ok) {
       return yield* inputError(operation, "commandMismatch");
     }
-    const bytes = new Uint8Array(decoded.success.canonicalBytes);
+    const bytes = new Uint8Array(decodedOutcome.intent.canonicalBytes);
     chargeOrThrow(operation, budget, usage, "frameBytes", bytes.byteLength);
     chargeOrThrow(operation, budget, usage, "canonicalBytes", bytes.byteLength);
     chargeOrThrow(operation, budget, usage, "hashBytes", bytes.byteLength);
     const intentSha256 = yield* sha256(bytes, {
       maximumInputBytes: bytes.byteLength,
     });
-    const intent = decoded.success.intent;
+    const intent = decodedOutcome.intent.intent;
     const commonMatches =
       bytesEqualFullScan(intent.attemptSha256, reservation.attemptSha256) &&
       bytesEqualFullScan(intent.candidateSha256, reservation.candidateSha256) &&
@@ -4106,8 +4114,8 @@ function captureCommandAuthority(
         sha256: new Uint8Array(intentSha256),
       }),
     });
-  });
-}
+},
+);
 
 const captureSettlementInput = Effect.fn(
   "DeclarativeV2.verifierProgressV2.captureSettlementInput",
@@ -4266,7 +4274,9 @@ const captureSettlementInput = Effect.fn(
   });
 });
 
-function captureTerminalAuthority(
+const captureTerminalAuthority = Effect.fn(
+  "DeclarativeV2.verifierProgressV2.captureTerminalAuthority",
+)(function* (
   input: unknown,
   runState: MutableRunStateV2,
   workState: MutableWorkStateV2,
@@ -4283,11 +4293,7 @@ function captureTerminalAuthority(
   budget: DeclarativeV2VerifierProgressRepositoryOperationBudgetV2,
   usage: MutableOperationUsageV2,
   sha256: DeclarativeV2Sha256V1,
-): Effect.Effect<
-  CapturedTerminalAuthorityV1,
-  DeclarativeV2VerifierProgressRepositoryV2Error
-> {
-  return Effect.gen(function* () {
+) {
     if (workState.authenticatedAuthority === null) {
       return yield* inputError("settleCommand", "commandMismatch");
     }
@@ -4299,13 +4305,19 @@ function captureTerminalAuthority(
     if (!isUint8Array(record.terminalProofBytes)) {
       return yield* inputError("settleCommand", "invalidInput");
     }
-    const decoded = decodeDeclarativeV2TerminalAuthorityProofV1(
-      record.terminalProofBytes,
+    const decodedOutcome = Result.match(
+      decodeDeclarativeV2TerminalAuthorityProofV1(
+        record.terminalProofBytes,
+      ),
+      {
+        onSuccess: (proof) => ({ ok: true as const, proof }),
+        onFailure: () => ({ ok: false as const }),
+      },
     );
-    if (Result.isFailure(decoded)) {
+    if (!decodedOutcome.ok) {
       return yield* inputError("settleCommand", "commandMismatch");
     }
-    const bytes = new Uint8Array(decoded.success.canonicalBytes);
+    const bytes = new Uint8Array(decodedOutcome.proof.canonicalBytes);
     chargeOrThrow("settleCommand", budget, usage, "frameBytes", bytes.byteLength);
     chargeOrThrow(
       "settleCommand",
@@ -4318,7 +4330,7 @@ function captureTerminalAuthority(
     const proofSha256 = yield* sha256(bytes, {
       maximumInputBytes: bytes.byteLength,
     });
-    const proof = decoded.success.proof;
+    const proof = decodedOutcome.proof.proof;
     const intent = workState.authenticatedAuthority.futureRegistrationIntent;
     const expectedIntent = intent === null ? null : intent.sha256;
     const expectedAuthorityKind = workState.commandKind === "source_page"
@@ -4403,8 +4415,8 @@ function captureTerminalAuthority(
       bytes,
       sha256: new Uint8Array(proofSha256),
     });
-  });
-}
+},
+);
 
 function budgetFrameWithin(
   actual: DeclarativeV2VerifierBudgetFrameV2,
@@ -7628,8 +7640,12 @@ function resultOrThrow<Value>(
   result: Result.Result<Value, DeclarativeV2VerifierProgressV2StoredRowError>,
   operation: DeclarativeV2VerifierProgressRepositoryOperationV2,
 ): Value {
-  if (Result.isFailure(result)) throw mapStoredError(operation, result.failure);
-  return result.success;
+  return Result.match(result, {
+    onSuccess: (value) => value,
+    onFailure: (failure) => {
+      throw mapStoredError(operation, failure);
+    },
+  });
 }
 
 function mapStoredError(

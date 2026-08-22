@@ -2196,20 +2196,23 @@ async function acquireExecutionClaimInTransaction(
     authorizationGrantExpiresAt: session.authorizationGrantExpiresAt,
     hardExpiresAt: session.hardExpiresAt,
   });
-  if (Result.isFailure(next)) {
-    throw next.failure === "authorityExpired"
-      ? new PointMutationExecutionClaimAcquisitionStaleV1Error({
-          reason: "authorizationExpired",
-        })
-      : new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
-          reason: "claimInvalid",
-        });
-  }
+  const renewedClaim = Result.match(next, {
+    onSuccess: (renewed) => renewed,
+    onFailure: (failure) => {
+      throw failure === "authorityExpired"
+        ? new PointMutationExecutionClaimAcquisitionStaleV1Error({
+            reason: "authorizationExpired",
+          })
+        : new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+            reason: "claimInvalid",
+          });
+    },
+  });
   const updated = await tx.update(fxSystemTransactionExecutionClaims).set({
-    claimFence: next.success.claimFence,
-    claimOwner: next.success.claimOwner,
-    claimedAt: next.success.claimedAt,
-    claimExpiresAt: next.success.claimExpiresAt,
+    claimFence: renewedClaim.claimFence,
+    claimOwner: renewedClaim.claimOwner,
+    claimedAt: renewedClaim.claimedAt,
+    claimExpiresAt: renewedClaim.claimExpiresAt,
   }).where(and(
     eq(fxSystemTransactionExecutionClaims.scopeUuid, clock.scopeUuid),
     eq(fxSystemTransactionExecutionClaims.sessionId, locked.sessionId),
@@ -2224,18 +2227,18 @@ async function acquireExecutionClaimInTransaction(
   });
   if (
     updated.length !== 1 ||
-    updated[0]?.claimFence !== next.success.claimFence ||
-    updated[0]?.claimOwner !== next.success.claimOwner
+    updated[0]?.claimFence !== renewedClaim.claimFence ||
+    updated[0]?.claimOwner !== renewedClaim.claimOwner
   ) {
     throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
       reason: "claimMutationInvalid",
     });
   }
   const observation = Object.freeze({
-    claimOwner: next.success.claimOwner,
-    claimFence: next.success.claimFence,
-    claimedAt: next.success.claimedAt.toISOString(),
-    claimExpiresAt: next.success.claimExpiresAt.toISOString(),
+    claimOwner: renewedClaim.claimOwner,
+    claimFence: renewedClaim.claimFence,
+    claimedAt: renewedClaim.claimedAt.toISOString(),
+    claimExpiresAt: renewedClaim.claimExpiresAt.toISOString(),
   });
   if (disposition.mode === "abortOnly") {
     return Object.freeze({
@@ -2695,13 +2698,16 @@ async function createSession(
     authorizationGrantExpiresAt: evidence.authorizationGrantExpiresAt,
     hardExpiresAt,
   });
-  if (Result.isFailure(executionClaim)) {
-    throw executionClaim.failure === "authorityExpired"
-      ? activationError({ reason: "authorizationGrantExpired" })
-      : corruptionError(input.prepared.scopeId, "sessionRecordInvalid");
-  }
+  const claimRow = Result.match(executionClaim, {
+    onSuccess: (claim) => claim,
+    onFailure: (failure) => {
+      throw failure === "authorityExpired"
+        ? activationError({ reason: "authorizationGrantExpired" })
+        : corruptionError(input.prepared.scopeId, "sessionRecordInvalid");
+    },
+  });
   await tx.insert(fxSystemTransactionExecutionClaims).values(
-    executionClaim.success,
+    claimRow,
   );
   await afterWrite?.("executionClaimInserted");
 
@@ -2723,10 +2729,10 @@ async function createSession(
     createdAt: databaseNow.toISOString(),
     updatedAt: databaseNow.toISOString(),
   }, Object.freeze({
-    claimOwner: executionClaim.success.claimOwner,
-    claimFence: executionClaim.success.claimFence,
-    claimedAt: executionClaim.success.claimedAt.toISOString(),
-    claimExpiresAt: executionClaim.success.claimExpiresAt.toISOString(),
+    claimOwner: claimRow.claimOwner,
+    claimFence: claimRow.claimFence,
+    claimedAt: claimRow.claimedAt.toISOString(),
+    claimExpiresAt: claimRow.claimExpiresAt.toISOString(),
   }));
 }
 
@@ -4521,20 +4527,23 @@ function projectExecutionClaimLivenessResult<Success>(
     | TransactionExecutionClaimStaleV1Error
   >,
 ): Success {
-  if (Result.isSuccess(result)) return result.success;
-  const failure = result.failure;
-  if (failure instanceof TransactionExecutionClaimStaleV1Error) {
-    const reason = failure.reason === "claimOwnerMismatch"
-      ? "claimOwnerChanged"
-      : failure.reason === "claimFenceMismatch"
-      ? "claimFenceChanged"
-      : "claimExpired";
-    throw new PointMutationExecutionClaimLivenessStaleV1Error({ reason });
-  }
-  if (failure instanceof TransactionExecutionClaimCorruptionV1Error) {
-    throw executionClaimLivenessCorruption("claimInvalid", failure);
-  }
-  throw failure;
+  return Result.match(result, {
+    onSuccess: (value) => value,
+    onFailure: (failure) => {
+      if (failure instanceof TransactionExecutionClaimStaleV1Error) {
+        const reason = failure.reason === "claimOwnerMismatch"
+          ? "claimOwnerChanged"
+          : failure.reason === "claimFenceMismatch"
+          ? "claimFenceChanged"
+          : "claimExpired";
+        throw new PointMutationExecutionClaimLivenessStaleV1Error({ reason });
+      }
+      if (failure instanceof TransactionExecutionClaimCorruptionV1Error) {
+        throw executionClaimLivenessCorruption("claimInvalid", failure);
+      }
+      throw failure;
+    },
+  });
 }
 
 function mapExecutionClaimRenewalIssue(
@@ -4698,8 +4707,14 @@ const generateExecutionClaimOwnerEffect = Effect.fn(
         cause,
       }),
   });
-  const decoded = decodeTransactionExecutionClaimOwnerV1(value);
-  if (Result.isFailure(decoded)) {
+  const decodedOutcome = Result.match(
+    decodeTransactionExecutionClaimOwnerV1(value),
+    {
+      onSuccess: (ownerValue) => ({ ok: true as const, ownerValue }),
+      onFailure: () => ({ ok: false as const }),
+    },
+  );
+  if (!decodedOutcome.ok) {
     return yield* Effect.fail(
       new PointMutationSessionActivationConfigurationV1Error({
         reason: "invalidGeneratedExecutionClaimOwner",
@@ -4707,7 +4722,7 @@ const generateExecutionClaimOwnerEffect = Effect.fn(
       }),
     );
   }
-  return decoded.success;
+  return decodedOutcome.ownerValue;
 });
 
 function mapActivationAuthorityError(

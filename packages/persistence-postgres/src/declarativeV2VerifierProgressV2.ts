@@ -830,27 +830,24 @@ export function decodeDeclarativeV2VerifierStoredFrameV2<
       maximumFrameBytes: budget.maximumFrameBytes,
       maximumCanonicalBytes: budget.maximumCanonicalBytes,
     });
-    if (Result.isFailure(decoded)) {
-      return yield* Result.fail(
-        new DeclarativeV2VerifierProgressV2StoredRowError({
-          operation: "decodeFrame",
-          reason: "invalidStoredBytes",
-          path: "canonicalFrame",
-          codecCause: decoded.failure,
-        }),
-      );
-    }
-    if (decoded.success.frame.kind !== expectedKind) {
+    const frame = yield* Result.mapError(decoded, (failure) =>
+      new DeclarativeV2VerifierProgressV2StoredRowError({
+        operation: "decodeFrame",
+        reason: "invalidStoredBytes",
+        path: "canonicalFrame",
+        codecCause: failure,
+      }));
+    if (frame.frame.kind !== expectedKind) {
       return yield* fail("decodeFrame", "normalizedMismatch", "kind");
     }
     // SAFETY: the kind check above proved the decoded frame matches the
     // requested frame kind.
     return Object.freeze({
-      frame: decoded.success.frame as Extract<
+      frame: frame.frame as Extract<
         DeclarativeV2VerifierProgressFrameV2,
         { readonly kind: Kind }
       >,
-      canonicalBytes: decoded.success.canonicalBytes,
+      canonicalBytes: frame.canonicalBytes,
       sha256: new Uint8Array(metadata.sha256),
     });
   });

@@ -1055,18 +1055,27 @@ function captureProjection(
   let value: DeploymentAnalysis | DeploymentCodegenAnalysis;
   let policy: boolean;
   if (kind === "analysis") {
-    const decoded = decodeDeploymentAnalysisResult(json);
-    if (Result.isFailure(decoded)) {
+    const decodedOutcome = Result.match(decodeDeploymentAnalysisResult(json), {
+      onSuccess: (decoded) => ({ ok: true as const, decoded }),
+      onFailure: () => ({ ok: false as const }),
+    });
+    if (!decodedOutcome.ok) {
       return Result.fail(staticError(operation, "invalidInput", kind));
     }
-    value = freezeOwnedProtocolProjection(decoded.success);
+    value = freezeOwnedProtocolProjection(decodedOutcome.decoded);
     policy = validateDeploymentAnalysisV2(value);
   } else {
-    const decoded = decodeDeploymentCodegenAnalysisResult(json);
-    if (Result.isFailure(decoded)) {
+    const decodedOutcome = Result.match(
+      decodeDeploymentCodegenAnalysisResult(json),
+      {
+        onSuccess: (decoded) => ({ ok: true as const, decoded }),
+        onFailure: () => ({ ok: false as const }),
+      },
+    );
+    if (!decodedOutcome.ok) {
       return Result.fail(staticError(operation, "invalidInput", kind));
     }
-    value = freezeOwnedProtocolProjection(decoded.success);
+    value = freezeOwnedProtocolProjection(decodedOutcome.decoded);
     policy = validateDeploymentCodegenAnalysisV2(value);
   }
   if (!policy) {
