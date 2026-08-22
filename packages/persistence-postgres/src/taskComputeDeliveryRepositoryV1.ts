@@ -6025,8 +6025,8 @@ function captureDataRecord(
   }
 }
 
-function captureOwnDataProperties(
-  input: object,
+function captureOwnDataProperties<T extends object>(
+  input: T,
   keys: ReadonlyArray<string>,
 ): Readonly<Record<string, unknown>> | undefined {
   try {

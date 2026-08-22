@@ -591,7 +591,9 @@ function captureValueNode(
   return { value, semanticSizeBytes: 0 };
 }
 
-function isIntrinsicArrayBuffer(value: object): value is ArrayBuffer {
+function isIntrinsicArrayBuffer<T extends object>(
+  value: T,
+): value is T & ArrayBuffer {
   if (ARRAY_BUFFER_BYTE_LENGTH_GETTER === undefined) {
     throw new ApplicationWorkerProtocolV1Defect(
       "ArrayBuffer byte-length intrinsic is unavailable.",
@@ -677,8 +679,8 @@ function captureArrayNode(
   }
 }
 
-function captureObjectNode(
-  value: object,
+function captureObjectNode<T extends object>(
+  value: T,
   remaining: number,
   parentNesting: number,
   ancestors: WeakSet<object>,
@@ -769,7 +771,9 @@ function captured(
     : VALUE_BUDGET_EXCEEDED;
 }
 
-function isCrossRealmObjectPrototype(value: object): boolean {
+function isCrossRealmObjectPrototype<T extends object>(
+  value: T,
+): boolean {
   const constructor = Object.getOwnPropertyDescriptor(value, "constructor");
   if (
     constructor === undefined || !("value" in constructor) ||

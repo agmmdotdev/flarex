@@ -176,8 +176,8 @@ function isObjectContainer(value: unknown): value is object {
   );
 }
 
-function ownValidatorDataProperty(
-  value: object,
+function ownValidatorDataProperty<T extends object>(
+  value: T,
   key: PropertyKey,
 ): unknown | typeof MISSING_VALIDATOR_PROPERTY | typeof MALFORMED_VALIDATOR_PROPERTY {
   const descriptor = Object.getOwnPropertyDescriptor(value, key);

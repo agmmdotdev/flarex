@@ -1229,8 +1229,8 @@ function encodeObject(
   });
 }
 
-function withAncestor(
-  value: object,
+function withAncestor<T extends object>(
+  value: T,
   path: string,
   ancestors: WeakSet<object>,
   run: () => void,

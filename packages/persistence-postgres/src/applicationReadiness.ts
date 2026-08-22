@@ -347,14 +347,21 @@ interface PreparedReadiness {
     PreparedPhysicalDefinitionLifecycleReadiness;
 }
 
+/** Internal identity token binding issued readiness results to their
+ * repository; WeakMap membership, not structure, is proof. The unguessable
+ * property key makes the type nominally distinct from caller objects. */
+type ApplicationReadinessRepositoryIssuerV1 = {
+  readonly __flarexApplicationReadinessRepositoryIssuerV1: "FlarexPersistence/ApplicationReadinessRepositoryIssuerV1";
+};
+
 interface ApplicationReadinessIssuerState {
   readonly context: ApplicationReadinessContext<unknown, unknown>;
-  readonly issuer: object;
+  readonly issuer: ApplicationReadinessRepositoryIssuerV1;
 }
 
 interface PreparedIssuedApplicationReadinessState {
   readonly kind: "prepared";
-  readonly issuer: object;
+  readonly issuer: ApplicationReadinessRepositoryIssuerV1;
   readonly prepared: PreparedReadiness;
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
@@ -376,7 +383,7 @@ interface StoredReadinessAuthority {
 
 interface StoredIssuedApplicationReadinessState {
   readonly kind: "stored";
-  readonly issuer: object;
+  readonly issuer: ApplicationReadinessRepositoryIssuerV1;
   readonly stored: StoredReadinessAuthority;
   readonly readinessSha256: Uint8Array;
   readonly readinessBytes: Uint8Array;
@@ -408,7 +415,11 @@ export function makeApplicationReadinessRepository<SchemaFailure, ColdFailure>(
     physicalDefinitionLifecycle: context.physicalDefinitionLifecycle,
     cold: context.cold,
   });
-  const issuer = Object.freeze({});
+  // SAFETY: the issuer is an internal identity token; only this module
+  // mints it, and WeakMap membership, not the brand property, carries proof.
+  const issuer = Object.freeze(
+    {},
+  ) as ApplicationReadinessRepositoryIssuerV1;
   const compositionIsExact = () =>
     hasAppSchemaCandidateReadinessComposition(
       capturedContext.candidateValidation,
@@ -1635,7 +1646,7 @@ function* <SchemaFailure, ColdFailure>(
   tx: AppRowTransaction,
   prepared: PreparedReadiness,
   context: ApplicationReadinessContext<SchemaFailure, ColdFailure>,
-  issuer: object,
+  issuer: ApplicationReadinessRepositoryIssuerV1,
   mode: "settle" | "validate" = "settle",
 ): Effect.fn.Return<
   ApplicationReadinessResult,
@@ -2336,7 +2347,7 @@ function readyProjection(
   readinessSha256: Uint8Array,
   readinessBytes: Uint8Array,
   readyAt: Date,
-  issuer: object,
+  issuer: ApplicationReadinessRepositoryIssuerV1,
 ): ApplicationReadinessResult {
   const result = Object.freeze({
     status: "ready",
@@ -2360,7 +2371,7 @@ function readyProjection(
 
 function storedReadyProjection(
   stored: StoredReadinessAuthority,
-  issuer: object,
+  issuer: ApplicationReadinessRepositoryIssuerV1,
 ): ApplicationReadinessResult {
   const result = Object.freeze({
     status: "ready",

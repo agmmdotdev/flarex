@@ -551,8 +551,8 @@ function normalizeJsonArray(
   });
 }
 
-function normalizeJsonObject(
-  value: object,
+function normalizeJsonObject<T extends object>(
+  value: T,
   path: string,
   parentNesting: number,
   context: CodecContext,
@@ -702,8 +702,8 @@ interface DataProperty {
   readonly value: unknown;
 }
 
-function enumerableDataProperties(
-  value: object,
+function enumerableDataProperties<T extends object>(
+  value: T,
   path: string,
 ): DataProperty[] {
   const properties: DataProperty[] = [];
@@ -745,7 +745,10 @@ function validateArrayShape(value: ReadonlyArray<unknown>, path: string): void {
   }
 }
 
-function validatePlainObject(value: object, path: string): void {
+function validatePlainObject<T extends object>(
+  value: T,
+  path: string,
+): void {
   const prototype = Object.getPrototypeOf(value);
   if (
     prototype === Object.prototype ||
@@ -755,7 +758,9 @@ function validatePlainObject(value: object, path: string): void {
   throw invalidContainer(path, "value object must be a plain object");
 }
 
-function isCrossRealmObjectPrototype(prototype: object): boolean {
+function isCrossRealmObjectPrototype<T extends object>(
+  prototype: T,
+): boolean {
   const constructor = Object.getOwnPropertyDescriptor(
     prototype,
     "constructor",
@@ -896,8 +901,8 @@ function primitiveNode(
   } satisfies NormalizedNode);
 }
 
-function withAncestor<T>(
-  value: object,
+function withAncestor<A extends object, T>(
+  value: A,
   path: string,
   context: CodecContext,
   operation: () => T,

@@ -876,8 +876,8 @@ function isPhase(value: unknown): value is DeclarativeV2VerifierPhaseV1 {
     value === "verdict";
 }
 
-function ownDataValueV2(
-  record: object,
+function ownDataValueV2<T extends object>(
+  record: T,
   key: PropertyKey,
 ): unknown {
   try {
@@ -892,8 +892,8 @@ function ownDataValueV2(
   }
 }
 
-function hasExactOwnEnumerableDataKeysV2(
-  record: object,
+function hasExactOwnEnumerableDataKeysV2<T extends object>(
+  record: T,
   expected: readonly string[],
 ): boolean {
   try {

@@ -243,8 +243,8 @@ function measureCanonicalJsonValue(
   }
 }
 
-function measureCanonicalJsonArray(
-  value: object,
+function measureCanonicalJsonArray<T extends object>(
+  value: T,
   ancestors: WeakSet<object>,
   maximumBytes: number,
 ): CanonicalJsonUtf8Measurement {
@@ -298,8 +298,8 @@ function measureCanonicalJsonArray(
   return { kind: "success", bytes: total };
 }
 
-function measureCanonicalJsonObject(
-  value: object,
+function measureCanonicalJsonObject<T extends object>(
+  value: T,
   ancestors: WeakSet<object>,
   maximumBytes: number,
 ): CanonicalJsonUtf8Measurement {

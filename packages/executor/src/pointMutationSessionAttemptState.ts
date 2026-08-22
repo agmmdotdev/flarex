@@ -6,6 +6,7 @@ import type { TransactionRequestKeyV1 } from
 
 import type {
   LoadedPointMutationSessionAttemptInspectionV1,
+  LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
 
 export interface LoadedPointMutationSessionAttemptOccRerunInspectionV1
@@ -22,12 +23,12 @@ interface LoadedPointMutationSessionAttemptStateV1 {
 }
 
 const loadedAttemptStateByHandle = new WeakMap<
-  object,
+  LoadedPointMutationSessionAttemptV1,
   LoadedPointMutationSessionAttemptStateV1
 >();
 
 export function registerLoadedPointMutationSessionAttemptStateV1(
-  handle: object,
+  handle: LoadedPointMutationSessionAttemptV1,
   publicInspection: LoadedPointMutationSessionAttemptInspectionV1,
   requestKey: TransactionRequestKeyV1,
   attemptFacet: PointMutationSessionAttemptFacetObservationV1,
@@ -43,13 +44,13 @@ export function registerLoadedPointMutationSessionAttemptStateV1(
 }
 
 export function getLoadedPointMutationSessionAttemptInspectionV1(
-  value: object,
+  value: LoadedPointMutationSessionAttemptV1,
 ): LoadedPointMutationSessionAttemptInspectionV1 | undefined {
   return loadedAttemptStateByHandle.get(value)?.publicInspection;
 }
 
 export function getLoadedPointMutationSessionAttemptOccRerunInspectionV1(
-  value: object,
+  value: LoadedPointMutationSessionAttemptV1,
 ): LoadedPointMutationSessionAttemptOccRerunInspectionV1 | undefined {
   return loadedAttemptStateByHandle.get(value)?.occRerunInspection;
 }

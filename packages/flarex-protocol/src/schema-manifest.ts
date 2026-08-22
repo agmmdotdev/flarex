@@ -954,11 +954,11 @@ function isCanonicalJsonArray(
   );
 }
 
-function isCanonicalJsonRecord(
-  value: object,
+function isCanonicalJsonRecord<T extends object>(
+  value: T,
   depth: number,
   ancestors: WeakSet<object>,
-): value is { readonly [key: string]: Json } {
+): value is T & { readonly [key: string]: Json } {
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
 

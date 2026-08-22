@@ -2060,7 +2060,7 @@ function semanticCompleted(
 function completionFitsLifecycle(
   operation: CodecOperation,
   lifecycle: DeclarativeV2ArtifactUploadLifecycleV1,
-  completed: object | null,
+  completed: DeclarativeV2SourceUploadCompletedCheckpointV1 | null,
 ): Result.Result<void, DeclarativeV2ArtifactUploadCodecV1Error> {
   const isFinalized = lifecycle === "finalized";
   return isFinalized === (completed !== null)

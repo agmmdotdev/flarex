@@ -11,6 +11,9 @@ import type {
 } from "flarex-protocol/internal/application-mutation-grant-v1";
 
 import type {
+  ActivatedPointMutationSessionV1,
+} from "./pointMutationSessionActivation";
+import type {
   PointMutationExecutionClaimV1,
 } from "./pointMutationExecutionClaim";
 
@@ -41,19 +44,19 @@ export interface ActivatedPointMutationSessionStateV1 {
 }
 
 const activatedSessionStateByHandle = new WeakMap<
-  object,
+  ActivatedPointMutationSessionV1,
   ActivatedPointMutationSessionStateV1
 >();
 
 export function registerActivatedPointMutationSessionStateV1(
-  handle: object,
+  handle: ActivatedPointMutationSessionV1,
   state: ActivatedPointMutationSessionStateV1,
 ): void {
   activatedSessionStateByHandle.set(handle, state);
 }
 
 export function getActivatedPointMutationSessionStateV1(
-  value: object,
+  value: ActivatedPointMutationSessionV1,
 ): ActivatedPointMutationSessionStateV1 | undefined {
   return activatedSessionStateByHandle.get(value);
 }

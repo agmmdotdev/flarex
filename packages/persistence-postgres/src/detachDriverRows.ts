@@ -125,8 +125,8 @@ function assertPlainArrayProperties(
   }
 }
 
-function assertEnumerableDataProperty(
-  owner: object,
+function assertEnumerableDataProperty<T extends object>(
+  owner: T,
   key: string,
   seen: WeakSet<object>,
 ): void {
@@ -143,7 +143,7 @@ function assertEnumerableDataProperty(
   assertPlainDriverValue(descriptor.value, seen);
 }
 
-function isIntrinsicDate(value: object): boolean {
+function isIntrinsicDate<T extends object>(value: T): boolean {
   try {
     Date.prototype.valueOf.call(value);
     return true;

@@ -397,8 +397,8 @@ function exactRuntimeValidatorAdmissionIssueV1(
     : validatorJsonAdmissionIssueV1(returnsValidator);
 }
 
-function ownExactRuntimeValidatorDataProperty(
-  value: object,
+function ownExactRuntimeValidatorDataProperty<T extends object>(
+  value: T,
   key: PropertyKey,
 ): unknown | typeof MISSING_EXACT_RUNTIME_VALIDATOR_PROPERTY {
   const descriptor = Object.getOwnPropertyDescriptor(value, key);

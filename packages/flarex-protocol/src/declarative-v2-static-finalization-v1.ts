@@ -1752,8 +1752,8 @@ function ownDataValue(
     : undefined;
 }
 
-function ownDescriptor(
-  input: object,
+function ownDescriptor<T extends object>(
+  input: T,
   key: PropertyKey,
 ): PropertyDescriptor | undefined {
   try {

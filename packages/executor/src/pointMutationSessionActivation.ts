@@ -421,7 +421,11 @@ export function inspectActivatedPointMutationSessionV1(
   if (typeof value !== "object" || value === null) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
-  const state = getActivatedPointMutationSessionStateV1(value);
+  // SAFETY: registry membership, not the brand property, proves a valid
+  // handle; a non-member yields undefined and is rejected below.
+  const state = getActivatedPointMutationSessionStateV1(
+    value as ActivatedPointMutationSessionV1,
+  );
   if (state === undefined) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
@@ -473,7 +477,11 @@ function inspectLoadedPointMutationSessionAttemptResultV1(
   if (typeof value !== "object" || value === null) {
     return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }
-  const inspection = getLoadedPointMutationSessionAttemptInspectionV1(value);
+  // SAFETY: registry membership, not the brand property, proves a valid
+  // handle; a non-member yields undefined and is rejected below.
+  const inspection = getLoadedPointMutationSessionAttemptInspectionV1(
+    value as LoadedPointMutationSessionAttemptV1,
+  );
   if (inspection === undefined) {
     return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }

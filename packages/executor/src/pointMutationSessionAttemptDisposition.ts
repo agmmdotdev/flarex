@@ -137,8 +137,12 @@ function inspectLoadedPointMutationSessionAttemptForDispositionResultV1(
   if (typeof value !== "object" || value === null) {
     return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }
+  // SAFETY: registry membership, not the brand property, proves a valid
+  // handle; a non-member yields undefined and is rejected below.
   const inspection =
-    getLoadedPointMutationSessionAttemptOccRerunInspectionV1(value);
+    getLoadedPointMutationSessionAttemptOccRerunInspectionV1(
+      value as LoadedPointMutationSessionAttemptV1,
+    );
   return inspection === undefined
     ? Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error())
     : Result.succeed(inspection);

@@ -2692,14 +2692,14 @@ const APPLICATION_EXECUTION_AUTHORITY_FIELDS = [
   "applicationExecutionAuthoritySha256",
 ] as const;
 
-function hasAnyOwn(
-  value: object,
+function hasAnyOwn<T extends object>(
+  value: T,
   fields: ReadonlyArray<PropertyKey>,
 ): boolean {
   return fields.some(field => hasOwn(value, field));
 }
 
-function hasOwn(value: object, field: PropertyKey): boolean {
+function hasOwn<T extends object>(value: T, field: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, field);
 }
 

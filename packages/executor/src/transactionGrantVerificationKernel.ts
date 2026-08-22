@@ -3,6 +3,9 @@ import { Data, Effect } from "effect";
 import type {
   GrantRetentionPolicyV1,
 } from "flarex-protocol/grant-retention-policy";
+import type {
+  TransactionGrantVerifierV1,
+} from "./transactionGrant";
 
 import type {
   PointMutationGrantLogicalPinsV1,
@@ -121,7 +124,7 @@ export interface TransactionGrantVerificationKernelV1 {
 }
 
 const kernelByPublicVerifier = new WeakMap<
-  object,
+  TransactionGrantVerifierV1,
   TransactionGrantVerificationKernelV1
 >();
 
@@ -218,14 +221,14 @@ export function createTransactionGrantVerificationKernelV1(
 }
 
 export function registerTransactionGrantVerificationKernelV1(
-  publicVerifier: object,
+  publicVerifier: TransactionGrantVerifierV1,
   kernel: TransactionGrantVerificationKernelV1,
 ): void {
   kernelByPublicVerifier.set(publicVerifier, kernel);
 }
 
 export function findTransactionGrantVerificationKernelV1(
-  publicVerifier: object,
+  publicVerifier: TransactionGrantVerifierV1,
 ): TransactionGrantVerificationKernelV1 | undefined {
   return kernelByPublicVerifier.get(publicVerifier);
 }
