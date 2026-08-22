@@ -555,8 +555,11 @@ async function claimForCommitTransaction(
     input.scopeUuid,
     await executeRows(tx, claimForCommitCaptureStatement(input)),
   );
-  if (Result.isFailure(captured)) return Result.fail(captured.failure);
-  return claimSelectedCommitWake(tx, input, captured.success);
+  return await Result.match(captured, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (snapshot) =>
+      claimSelectedCommitWake(tx, input, snapshot),
+  });
 }
 
 async function claimSelectedCommitWake(
@@ -588,8 +591,11 @@ async function claimSelectedCommitWake(
     input.claimOwner,
     input.leaseMilliseconds,
   );
-  if (Result.isFailure(claimed)) return Result.fail(claimed.failure);
-  return claimedCommitWakeOrRollback(input, selected, claimed.success);
+  return await Result.match(claimed, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (claimedWakes) =>
+      claimedCommitWakeOrRollback(input, selected, claimedWakes),
+  });
 }
 
 function claimedCommitWakeOrRollback(
@@ -625,15 +631,18 @@ async function claimReadyBatchTransaction(
     input.scopeUuid,
     await executeRows(tx, claimReadyBatchCaptureStatement(input)),
   );
-  if (Result.isFailure(captured)) return Result.fail(captured.failure);
-  return claimCapturedWakes(
-    tx,
-    "claimReadyBatch",
-    captured.success.clock,
-    captured.success.wakes,
-    input.claimOwner,
-    input.leaseMilliseconds,
-  );
+  return await Result.match(captured, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (snapshot) =>
+      claimCapturedWakes(
+        tx,
+        "claimReadyBatch",
+        snapshot.clock,
+        snapshot.wakes,
+        input.claimOwner,
+        input.leaseMilliseconds,
+      ),
+  });
 }
 
 async function claimCapturedWakes(
@@ -760,8 +769,21 @@ async function settleClaimTransaction(
     input.scopeUuid,
     await executeRows(tx, settleClaimCaptureStatement(input)),
   );
-  if (Result.isFailure(captured)) return Result.fail(captured.failure);
-  const selected = captured.success.wakes[0];
+  return await Result.match(captured, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (snapshot) => settleCapturedWake(tx, input, snapshot),
+  });
+}
+
+async function settleCapturedWake(
+  tx: FlarexMetadataDatabase,
+  input: ValidatedSettleClaimInputV1,
+  captured: CapturedCommitWakeSnapshotV1,
+): Promise<TransactionResult<
+  SettledCommitWakeV1,
+  Exclude<CommitWakeSettleErrorV1, CommitWakeInputErrorV1 | CommitWakeSqlErrorV1>
+>> {
+  const selected = captured.wakes[0];
   if (selected === undefined) {
     return Result.fail(new CommitWakeStaleClaimErrorV1({
       reason: "wakeMissing",

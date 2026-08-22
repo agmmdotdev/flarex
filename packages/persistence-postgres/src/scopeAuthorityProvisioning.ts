@@ -419,14 +419,17 @@ async function ensureClockResult(
   ensuredScope: EnsureScopeResult,
   randomUuid: () => string,
 ): Promise<Result.Result<EnsureClockResult, EnsureSharedScopeClockError>> {
-  const existing = await getScopeClockResult(
+  const existingResult = await getScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
   );
-  if (Result.isFailure(existing)) return Result.fail(existing.failure);
-  return existing.success !== null
-    ? ensureExistingScopeClock(deploymentId, ensuredScope, existing.success)
-    : initializeNewScopeClock(tx, deploymentId, ensuredScope, randomUuid);
+  return await Result.match(existingResult, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (existingClock) =>
+      existingClock !== null
+        ? ensureExistingScopeClock(deploymentId, ensuredScope, existingClock)
+        : initializeNewScopeClock(tx, deploymentId, ensuredScope, randomUuid),
+  });
 }
 
 function ensureExistingScopeClock(
@@ -462,15 +465,19 @@ async function initializeNewScopeClock(
     ensuredScope.scope.scopeId,
     randomUuid,
   );
-  if (Result.isFailure(initialized)) return Result.fail(initialized.failure);
-  if (!initialized.success.created) {
-    return Result.fail(new SharedScopeAuthorityConflictError({
-      reason: "clockPreexistedForNewScope",
-      deploymentId,
-      scopeId: ensuredScope.scope.scopeId,
-    }));
-  }
-  return Result.succeed({ clock: initialized.success.clock });
+  return await Result.match(initialized, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (clockState) => {
+      if (!clockState.created) {
+        return Result.fail(new SharedScopeAuthorityConflictError({
+          reason: "clockPreexistedForNewScope",
+          deploymentId,
+          scopeId: ensuredScope.scope.scopeId,
+        }));
+      }
+      return Result.succeed({ clock: clockState.clock });
+    },
+  });
 }
 
 async function ensureInitialBootstrapClockResult(
@@ -482,14 +489,17 @@ async function ensureInitialBootstrapClockResult(
   EnsureInitialBootstrapClockResult,
   EnsureSharedScopeClockError
 >> {
-  const existing = await getScopeClockResult(
+  const existingResult = await getScopeClockResult(
     tx,
     ensuredScope.scope.scopeId,
   );
-  if (Result.isFailure(existing)) return Result.fail(existing.failure);
-  return existing.success !== null
-    ? ensureExistingBootstrapScopeClock(deploymentId, ensuredScope, existing.success)
-    : initializeBootstrapScopeClock(tx, deploymentId, ensuredScope, randomUuid);
+  return await Result.match(existingResult, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (existingClock) =>
+      existingClock !== null
+        ? ensureExistingBootstrapScopeClock(deploymentId, ensuredScope, existingClock)
+        : initializeBootstrapScopeClock(tx, deploymentId, ensuredScope, randomUuid),
+  });
 }
 
 function ensureExistingBootstrapScopeClock(
@@ -521,17 +531,21 @@ async function initializeBootstrapScopeClock(
     ensuredScope.scope.scopeId,
     randomUuid,
   );
-  if (Result.isFailure(initialized)) return Result.fail(initialized.failure);
-  if (!initialized.success.created && ensuredScope.created) {
-    return Result.fail(new SharedScopeAuthorityConflictError({
-      reason: "clockPreexistedForNewScope",
-      deploymentId,
-      scopeId: ensuredScope.scope.scopeId,
-    }));
-  }
-  return Result.succeed({
-    clock: initialized.success.clock,
-    clockCreated: initialized.success.created,
+  return await Result.match(initialized, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (clockState) => {
+      if (!clockState.created && ensuredScope.created) {
+        return Result.fail(new SharedScopeAuthorityConflictError({
+          reason: "clockPreexistedForNewScope",
+          deploymentId,
+          scopeId: ensuredScope.scope.scopeId,
+        }));
+      }
+      return Result.succeed({
+        clock: clockState.clock,
+        clockCreated: clockState.created,
+      });
+    },
   });
 }
 
@@ -544,12 +558,13 @@ async function insertInitialScopeClockResult(
   InsertInitialScopeClockError | InvalidGeneratedScopeAuthorityIdError
 >> {
   const initialEpochResult = generateScopeAuthorityEpochResult(randomUuid);
-  if (Result.isFailure(initialEpochResult)) {
-    return Result.fail(initialEpochResult.failure);
-  }
-  return insertInitialScopeClockInTransactionResult(tx, {
-    scopeId,
-    initialEpoch: initialEpochResult.success,
+  return await Result.match(initialEpochResult, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (initialEpoch) =>
+      insertInitialScopeClockInTransactionResult(tx, {
+        scopeId,
+        initialEpoch,
+      }),
   });
 }
 

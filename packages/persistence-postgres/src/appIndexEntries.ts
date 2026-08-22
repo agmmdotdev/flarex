@@ -361,9 +361,12 @@ export async function appendAppIndexEntryRevisionAndAdvanceCurrentInTransactionR
 ): Promise<
   Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>
 > {
-  const decoded = await decodeAppendInputResult(tx, input);
-  if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
-  return appendDecodedAppIndexEntryRevisionResult(tx, decoded.success);
+  const decodedResult = await decodeAppendInputResult(tx, input);
+  return await Result.match(decodedResult, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (decodedRevision) =>
+      appendDecodedAppIndexEntryRevisionResult(tx, decodedRevision),
+  });
 }
 
 interface AppendBackfilledAppIndexEntryRevisionV1Input {
@@ -411,20 +414,24 @@ async function appendDecodedAppIndexEntryRevisionResult(
     ));
   }
   const chainHead = await readChainHeadResult(tx, revision);
-  if (Result.isFailure(chainHead)) return Result.fail(chainHead.failure);
-  const actualHeadCommitSeq = chainHead.success?.commitSeq ?? null;
-  if (actualHeadCommitSeq !== revision.prevCommitSeq) {
-    return Result.fail(new AppIndexEntryRevisionChainConflictError(
-      revision.identity,
-      revision.prevCommitSeq,
-      actualHeadCommitSeq,
-    ));
-  }
-  return appendVerifiedParentAndAdvanceCurrent(
-    tx,
-    revision,
-    chainHead.success?.isTombstone === true,
-  );
+  return await Result.match(chainHead, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (headRow) => {
+      const actualHeadCommitSeq = headRow?.commitSeq ?? null;
+      if (actualHeadCommitSeq !== revision.prevCommitSeq) {
+        return Result.fail(new AppIndexEntryRevisionChainConflictError(
+          revision.identity,
+          revision.prevCommitSeq,
+          actualHeadCommitSeq,
+        ));
+      }
+      return appendVerifiedParentAndAdvanceCurrent(
+        tx,
+        revision,
+        headRow?.isTombstone === true,
+      );
+    },
+  });
 }
 
 async function appendVerifiedParentAndAdvanceCurrent(
@@ -526,12 +533,12 @@ async function readActualChainHeadAndFail(
   revision: DecodedAppendAppIndexEntryRevisionV1,
 ): Promise<Result.Result<AppIndexEntryRevisionV1, AppendAppIndexEntryRevisionV1Error>> {
   const actual = await readChainHeadResult(tx, revision);
-  if (Result.isFailure(actual)) return Result.fail(actual.failure);
-  return Result.fail(new AppIndexEntryRevisionChainConflictError(
-    revision.identity,
-    revision.prevCommitSeq,
-    actual.success?.commitSeq ?? null,
-  ));
+  return Result.flatMap(actual, (headRow) =>
+    Result.fail(new AppIndexEntryRevisionChainConflictError(
+      revision.identity,
+      revision.prevCommitSeq,
+      headRow?.commitSeq ?? null,
+    )));
 }
 
 export const scanAppIndexAtSnapshotInTransactionEffect = Effect.fn(
@@ -748,8 +755,10 @@ async function decodeAppendInputResult(
       keyBytes: orderedIndexKeyBytesHexV1ToBytes(encodedKey),
     });
   });
-  if (Result.isFailure(captured)) return Result.fail(captured.failure);
-  return decodeAppendInputWithCapture(tx, captured.success);
+  return await Result.match(captured, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (capture) => decodeAppendInputWithCapture(tx, capture),
+  });
 }
 
 interface DecodedAppendAppIndexEntryCapture {
@@ -774,10 +783,11 @@ async function decodeAppendInputWithCapture(
   const canonicalPhysicalSpec = await canonicalizePhysicalSpecResult(
     captured.physicalSpec,
   );
-  if (Result.isFailure(canonicalPhysicalSpec)) {
-    return Result.fail(canonicalPhysicalSpec.failure);
-  }
-  return decodeAppendInputWithSpec(tx, captured, canonicalPhysicalSpec.success);
+  return await Result.match(canonicalPhysicalSpec, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (canonicalSpec) =>
+      decodeAppendInputWithSpec(tx, captured, canonicalSpec),
+  });
 }
 
 async function decodeAppendInputWithSpec(
@@ -794,8 +804,11 @@ async function decodeAppendInputWithSpec(
     captured.identity.scopeId,
     captured.scopeProjection,
   );
-  if (Result.isFailure(scopeUuid)) return Result.fail(scopeUuid.failure);
-  return decodeAppendInputWithScope(tx, captured, scopeUuid.success, canonicalPhysicalSpec);
+  return await Result.match(scopeUuid, {
+    onFailure: async (failure) => Result.fail(failure),
+    onSuccess: (scopeUuidValue) =>
+      decodeAppendInputWithScope(tx, captured, scopeUuidValue, canonicalPhysicalSpec),
+  });
 }
 
 async function decodeAppendInputWithScope(
@@ -809,8 +822,8 @@ async function decodeAppendInputWithScope(
     AppIndexEntryHashError
 >> {
   const keySha256 = await sha256Result(captured.keyBytes, "append");
-  if (Result.isFailure(keySha256)) return Result.fail(keySha256.failure);
-  return Result.succeed(Object.freeze({
+  return Result.map(keySha256, (keySha256Hex) =>
+    Object.freeze({
     kind: captured.kind,
     identity: captured.identity,
     scopeUuid,
@@ -822,7 +835,7 @@ async function decodeAppendInputWithScope(
       canonicalPhysicalSpec.sha256Hex,
     ),
     keyBytes: captured.keyBytes,
-    keySha256: keySha256.success,
+    keySha256: keySha256Hex,
   }));
 }
 

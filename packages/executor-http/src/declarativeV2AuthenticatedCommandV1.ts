@@ -626,43 +626,41 @@ export function captureDeclarativeV2AuthenticatedCommandTransportBudgetV1(
   Readonly<DeclarativeV2AuthenticatedCommandTransportBudgetV1>,
   DeclarativeV2AuthenticatedCommandV1Error
 > {
-  const captured = captureOwnDataRecord(
-    input,
-    BUDGET_KEYS,
-    "encode",
-    "budget",
+  return Result.flatMap(
+    Result.mapError(
+      captureOwnDataRecord(input, BUDGET_KEYS, "encode", "budget"),
+      () => commandError("encode", "invalidBudget", "budget"),
+    ),
+    (values) => {
+      for (const key of BUDGET_KEYS) {
+        if (!isNonNegativeSafeInteger(values[key])) {
+          return Result.fail(commandError("encode", "invalidBudget", key));
+        }
+      }
+      // SAFETY: every budget value was validated as a non-negative safe
+      // integer above, so the numeric comparisons and projections are sound.
+      if (
+        (values.maximumBodyBytes as number) > U32_MAX ||
+        (values.maximumCanonicalBytes as number) > U32_MAX ||
+        (values.maximumFrameBytes as number) > U32_MAX ||
+        (values.maximumPayloadBytes as number) > U32_MAX ||
+        (values.maximumFrames as number) >
+          DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1
+      ) {
+        return Result.fail(commandError("encode", "invalidBudget", "budget"));
+      }
+      // SAFETY: every budget value was validated as a non-negative safe
+      // integer above, so these projections are sound.
+      return Result.succeed(Object.freeze({
+        maximumBodyBytes: values.maximumBodyBytes as number,
+        maximumCanonicalBytes: values.maximumCanonicalBytes as number,
+        maximumFrameBytes: values.maximumFrameBytes as number,
+        maximumPayloadBytes: values.maximumPayloadBytes as number,
+        maximumFrames: values.maximumFrames as number,
+        maximumTransitions: values.maximumTransitions as number,
+      }));
+    },
   );
-  if (Result.isFailure(captured)) {
-    return Result.fail(commandError("encode", "invalidBudget", "budget"));
-  }
-  const values = captured.success;
-  for (const key of BUDGET_KEYS) {
-    if (!isNonNegativeSafeInteger(values[key])) {
-      return Result.fail(commandError("encode", "invalidBudget", key));
-    }
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so the numeric comparisons and projections are sound.
-  if (
-    (values.maximumBodyBytes as number) > U32_MAX ||
-    (values.maximumCanonicalBytes as number) > U32_MAX ||
-    (values.maximumFrameBytes as number) > U32_MAX ||
-    (values.maximumPayloadBytes as number) > U32_MAX ||
-    (values.maximumFrames as number) >
-      DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1
-  ) {
-    return Result.fail(commandError("encode", "invalidBudget", "budget"));
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so these projections are sound.
-  return Result.succeed(Object.freeze({
-    maximumBodyBytes: values.maximumBodyBytes as number,
-    maximumCanonicalBytes: values.maximumCanonicalBytes as number,
-    maximumFrameBytes: values.maximumFrameBytes as number,
-    maximumPayloadBytes: values.maximumPayloadBytes as number,
-    maximumFrames: values.maximumFrames as number,
-    maximumTransitions: values.maximumTransitions as number,
-  }));
 }
 
 export function encodeDeclarativeV2AuthenticatedCommandRequestV1(
@@ -1360,39 +1358,38 @@ function captureIncrementalOpenViewInput(
   }>,
   DeclarativeV2AuthenticatedCommandIncrementalV1Error
 > {
-  const record = captureOwnDataRecord(
-    input,
-    ["capability", "budget"] as const,
-    "decode",
-    "openView",
+  return Result.flatMap(
+    Result.mapError(
+      captureOwnDataRecord(
+        input,
+        ["capability", "budget"] as const,
+        "decode",
+        "openView",
+      ),
+      () => incrementalError("openView", "invalidInput", "openView"),
+    ),
+    (record) => {
+      if (
+        record.capability === null ||
+        typeof record.capability !== "object"
+      ) {
+        return Result.fail(incrementalError(
+          "openView",
+          "invalidInput",
+          "capability",
+        ));
+      }
+      const capability = record.capability;
+      return Result.map(
+        captureIncrementalBudget(record.budget, "openView"),
+        (budget) =>
+          Object.freeze({
+            capability,
+            budget,
+          }),
+      );
+    },
   );
-  if (Result.isFailure(record)) {
-    return Result.fail(incrementalError(
-      "openView",
-      "invalidInput",
-      "openView",
-    ));
-  }
-  if (
-    record.success.capability === null ||
-    typeof record.success.capability !== "object"
-  ) {
-    return Result.fail(incrementalError(
-      "openView",
-      "invalidInput",
-      "capability",
-    ));
-  }
-  const budget = captureIncrementalBudget(
-    record.success.budget,
-    "openView",
-  );
-  return Result.isFailure(budget)
-    ? Result.fail(budget.failure)
-    : Result.succeed(Object.freeze({
-      capability: record.success.capability,
-      budget: budget.success,
-    }));
 }
 
 function captureIncrementalBudget(
@@ -1402,58 +1399,51 @@ function captureIncrementalBudget(
   DeclarativeV2AuthenticatedCommandIncrementalBudgetV1,
   DeclarativeV2AuthenticatedCommandIncrementalV1Error
 > {
-  const budgetRecord = captureOwnDataRecord(
-    input,
-    INCREMENTAL_BUDGET_KEYS,
-    "decode",
-    "budget",
+  return Result.flatMap(
+    Result.mapError(
+      captureOwnDataRecord(input, INCREMENTAL_BUDGET_KEYS, "decode", "budget"),
+      () => incrementalError(operation, "invalidBudget", "budget"),
+    ),
+    (budgetRecord) => {
+      for (const key of INCREMENTAL_BUDGET_KEYS) {
+        if (!isNonNegativeSafeInteger(budgetRecord[key])) {
+          return Result.fail(incrementalError(
+            operation,
+            "invalidBudget",
+            `budget.${key}`,
+          ));
+        }
+      }
+      // SAFETY: every budget value was validated as a non-negative safe
+      // integer above, so the numeric comparisons and projections are sound.
+      if (
+        (budgetRecord.maximumBodyBytes as number) > U32_MAX ||
+        (budgetRecord.maximumCanonicalBytes as number) > U32_MAX ||
+        (budgetRecord.maximumFrameBytes as number) > U32_MAX ||
+        (budgetRecord.maximumPayloadBytes as number) > U32_MAX ||
+        (budgetRecord.maximumFrames as number) >
+          DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1
+      ) {
+        return Result.fail(incrementalError(
+          operation,
+          "invalidBudget",
+          "budget",
+        ));
+      }
+      // SAFETY: every budget value was validated as a non-negative safe
+      // integer above, so these projections are sound.
+      return Result.succeed(Object.freeze({
+        maximumBodyBytes: budgetRecord.maximumBodyBytes as number,
+        maximumCanonicalBytes: budgetRecord.maximumCanonicalBytes as number,
+        maximumFrameBytes: budgetRecord.maximumFrameBytes as number,
+        maximumPayloadBytes: budgetRecord.maximumPayloadBytes as number,
+        maximumFrames: budgetRecord.maximumFrames as number,
+        maximumTransitions: budgetRecord.maximumTransitions as number,
+        maximumAllocationBytes: budgetRecord.maximumAllocationBytes as number,
+        maximumCopyBytes: budgetRecord.maximumCopyBytes as number,
+      }));
+    },
   );
-  if (Result.isFailure(budgetRecord)) {
-    return Result.fail(incrementalError(
-      operation,
-      "invalidBudget",
-      "budget",
-    ));
-  }
-  for (const key of INCREMENTAL_BUDGET_KEYS) {
-    if (!isNonNegativeSafeInteger(budgetRecord.success[key])) {
-      return Result.fail(incrementalError(
-        operation,
-        "invalidBudget",
-        `budget.${key}`,
-      ));
-    }
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so the numeric comparisons and projections are sound.
-  if (
-    (budgetRecord.success.maximumBodyBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumCanonicalBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumFrameBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumPayloadBytes as number) > U32_MAX ||
-    (budgetRecord.success.maximumFrames as number) >
-      DECLARATIVE_V2_AUTHENTICATED_COMMAND_MAXIMUM_FRAMES_V1
-  ) {
-    return Result.fail(incrementalError(
-      operation,
-      "invalidBudget",
-      "budget",
-    ));
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so these projections are sound.
-  return Result.succeed(Object.freeze({
-    maximumBodyBytes: budgetRecord.success.maximumBodyBytes as number,
-    maximumCanonicalBytes:
-      budgetRecord.success.maximumCanonicalBytes as number,
-    maximumFrameBytes: budgetRecord.success.maximumFrameBytes as number,
-    maximumPayloadBytes: budgetRecord.success.maximumPayloadBytes as number,
-    maximumFrames: budgetRecord.success.maximumFrames as number,
-    maximumTransitions: budgetRecord.success.maximumTransitions as number,
-    maximumAllocationBytes:
-      budgetRecord.success.maximumAllocationBytes as number,
-    maximumCopyBytes: budgetRecord.success.maximumCopyBytes as number,
-  }));
 }
 
 function zeroIncrementalUsage():
@@ -2744,17 +2734,17 @@ function inspectIncrementalFrameByte(
   }
   if (structural.frameTag === FRAME_TAGS.module_metadata) {
     if (localOffset >= 1 && localOffset <= 8) {
-      const accumulated = accumulateIncrementalU64Value(
-        structural.frameU64A,
-        localOffset - 1,
-        byte,
-        `frames.${structural.frameIndex}.moduleOrdinal`,
+      return Result.map(
+        accumulateIncrementalU64Value(
+          structural.frameU64A,
+          localOffset - 1,
+          byte,
+          `frames.${structural.frameIndex}.moduleOrdinal`,
+        ),
+        (value) => {
+          structural.frameU64A = value;
+        },
       );
-      if (Result.isFailure(accumulated)) {
-        return Result.fail(accumulated.failure);
-      }
-      structural.frameU64A = accumulated.success;
-      return Result.succeed(undefined);
     }
     if (localOffset >= 9 && localOffset <= 12) {
       structural.frameU32A = localOffset === 9
@@ -2800,45 +2790,46 @@ function inspectIncrementalFrameByte(
     }
     const sourceLengthStart = structural.frameLength - 8;
     if (localOffset >= sourceLengthStart) {
-      const accumulated = accumulateIncrementalU64Value(
-        structural.frameU64B,
-        localOffset - sourceLengthStart,
-        byte,
-        `frames.${structural.frameIndex}.sourceByteLength`,
+      return Result.map(
+        accumulateIncrementalU64Value(
+          structural.frameU64B,
+          localOffset - sourceLengthStart,
+          byte,
+          `frames.${structural.frameIndex}.sourceByteLength`,
+        ),
+        (value) => {
+          structural.frameU64B = value;
+        },
       );
-      if (Result.isFailure(accumulated)) {
-        return Result.fail(accumulated.failure);
-      }
-      structural.frameU64B = accumulated.success;
     }
     return Result.succeed(undefined);
   }
   if (structural.frameTag === FRAME_TAGS.source_bytes) {
     if (localOffset >= 1 && localOffset <= 8) {
-      const accumulated = accumulateIncrementalU64Value(
-        structural.frameU64A,
-        localOffset - 1,
-        byte,
-        `frames.${structural.frameIndex}.moduleOrdinal`,
+      return Result.map(
+        accumulateIncrementalU64Value(
+          structural.frameU64A,
+          localOffset - 1,
+          byte,
+          `frames.${structural.frameIndex}.moduleOrdinal`,
+        ),
+        (value) => {
+          structural.frameU64A = value;
+        },
       );
-      if (Result.isFailure(accumulated)) {
-        return Result.fail(accumulated.failure);
-      }
-      structural.frameU64A = accumulated.success;
-      return Result.succeed(undefined);
     }
     if (localOffset >= 9 && localOffset <= 16) {
-      const accumulated = accumulateIncrementalU64Value(
-        structural.frameU64B,
-        localOffset - 9,
-        byte,
-        `frames.${structural.frameIndex}.offset`,
+      return Result.map(
+        accumulateIncrementalU64Value(
+          structural.frameU64B,
+          localOffset - 9,
+          byte,
+          `frames.${structural.frameIndex}.offset`,
+        ),
+        (value) => {
+          structural.frameU64B = value;
+        },
       );
-      if (Result.isFailure(accumulated)) {
-        return Result.fail(accumulated.failure);
-      }
-      structural.frameU64B = accumulated.success;
-      return Result.succeed(undefined);
     }
   }
   if (
@@ -2846,17 +2837,17 @@ function inspectIncrementalFrameByte(
     localOffset >= 1 &&
     localOffset <= 8
   ) {
-    const accumulated = accumulateIncrementalU64Value(
-      structural.frameU64A,
-      localOffset - 1,
-      byte,
-      `frames.${structural.frameIndex}.offset`,
+    return Result.map(
+      accumulateIncrementalU64Value(
+        structural.frameU64A,
+        localOffset - 1,
+        byte,
+        `frames.${structural.frameIndex}.offset`,
+      ),
+      (value) => {
+        structural.frameU64A = value;
+      },
     );
-    if (Result.isFailure(accumulated)) {
-      return Result.fail(accumulated.failure);
-    }
-    structural.frameU64A = accumulated.success;
-    return Result.succeed(undefined);
   }
   if (
     structural.frameTag === FRAME_TAGS.command_terminal &&
@@ -2880,15 +2871,13 @@ function inspectIncrementalFrameByte(
       byte,
       `frames.${structural.frameIndex}.terminal`,
     );
-    if (Result.isFailure(accumulated)) {
-      return Result.fail(accumulated.failure);
-    }
-    if (fieldIndex === 0) structural.frameU64A = accumulated.success;
-    else if (fieldIndex === 1) structural.frameU64B = accumulated.success;
-    else if (fieldIndex === 2) structural.frameU64C = accumulated.success;
-    else if (fieldIndex === 3) structural.frameU64D = accumulated.success;
-    else structural.frameU64E = accumulated.success;
-    return Result.succeed(undefined);
+    return Result.map(accumulated, (value) => {
+      if (fieldIndex === 0) structural.frameU64A = value;
+      else if (fieldIndex === 1) structural.frameU64B = value;
+      else if (fieldIndex === 2) structural.frameU64C = value;
+      else if (fieldIndex === 3) structural.frameU64D = value;
+      else structural.frameU64E = value;
+    });
   }
   const lengthStart = structural.frameTag === FRAME_TAGS.source_bytes
     ? 17
@@ -2973,12 +2962,10 @@ function validateIncrementalReservationByte(
       byte,
       `frames.${structural.frameIndex}.reservation.sequence`,
     );
-    if (Result.isFailure(accumulated)) {
-      return Result.fail(accumulated.failure);
-    }
-    structural.reservationSequence = accumulated.success;
-    if (byte !== 0) structural.reservationSequenceNonZero = true;
-    return Result.succeed(undefined);
+    return Result.map(accumulated, (value) => {
+      structural.reservationSequence = value;
+      if (byte !== 0) structural.reservationSequenceNonZero = true;
+    });
   }
   const predecessorTagOffset = sequenceStart + 8 + 32;
   if (offset === predecessorTagOffset) {
@@ -3017,17 +3004,17 @@ function validateIncrementalBudgetByte(
   const valueOffset = offset - domainLength - 4;
   const dimensionIndex = Math.floor(valueOffset / 8);
   const dimensionByteOffset = valueOffset % 8;
-  const accumulated = accumulateIncrementalU64Value(
-    structural.commandBudgetValues[dimensionIndex] ?? 0n,
-    dimensionByteOffset,
-    byte,
-    `frames.${structural.frameIndex}.commandBudget`,
+  return Result.map(
+    accumulateIncrementalU64Value(
+      structural.commandBudgetValues[dimensionIndex] ?? 0n,
+      dimensionByteOffset,
+      byte,
+      `frames.${structural.frameIndex}.commandBudget`,
+    ),
+    (value) => {
+      structural.commandBudgetValues[dimensionIndex] = value;
+    },
   );
-  if (Result.isFailure(accumulated)) {
-    return Result.fail(accumulated.failure);
-  }
-  structural.commandBudgetValues[dimensionIndex] = accumulated.success;
-  return Result.succeed(undefined);
 }
 
 function durableCommandKindFromIncrementalTag(
