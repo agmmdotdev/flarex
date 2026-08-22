@@ -8,8 +8,9 @@ PGlite/genuine-PostgreSQL acceptance matrix are complete. The private
 event-lifetime host kernel and its immutable launch-resource composition are
 complete as separate F1 checkpoints below. The first private hosted PGlite
 vertical and its ordinary-role genuine-PostgreSQL counterpart are also
-complete. DTE06-F1 is complete privately. The active checkpoint is now
-DTE06-F2 fresh-host recovery and takeover.
+complete. DTE06-F1 is complete privately. DTE06-F2 fresh-host recovery and
+takeover is blocked on the separately approved DTE05-C3 Application
+scheduling-parity correction recorded in Preflight 46.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -528,6 +529,22 @@ If the existing lifecycle/repair owners cannot produce the required
 post-expiry transition, record that blocker at their owner and stop. Do not add
 host-local retry, a second lease, or a synthetic completion.
 
+#### 2026-08-22 Blocker Evidence
+
+That stop condition is now met. The current Application lifecycle store and
+decisions support `application_v1`, but `taskSystemRunReadV1.ts` filters due
+discovery to `legacy_definition_v1`, and
+`taskSystemWakeSchedulerPartitionV1.ts` composes only the Legacy store and
+lifecycle facade. A fresh host can therefore observe that the first attempt is
+still live, but the persisted scheduler cannot discover its post-expiry
+Application candidate or grant its retry attempt.
+
+The reproducible scenario, expected and actual behavior, affected
+scheduling/persistence owners, prohibited harness workarounds, and smallest
+correction candidate are recorded in
+[`46-dte05-application-scheduling-parity.md`](./46-dte05-application-scheduling-parity.md).
+F2 implementation stops until DTE05-C3 is separately approved and completed.
+
 ### DTE06-F3: Isolated Cloudflare/Hyperdrive/R2 Probe — Separately Gated
 
 After F1 and F2 pass locally:
@@ -634,7 +651,8 @@ DTE06-F does not authorize:
 The DTE06-F1 event-lifetime host, immutable launch-resource composition, hosted
 PGlite vertical, and ordinary-role genuine-PostgreSQL counterpart described
 above are complete privately. F0A/F0B remain complete. The next active
-checkpoint is DTE06-F2 fresh-host recovery: construct a new host scope with no
+checkpoint is the separately approved DTE05-C3 Application scheduling-parity
+correction. After it completes, DTE06-F2 may construct a new host scope with no
 shared process state and prove takeover only through existing persisted
 lifecycle and delivery authority. The backend-private host, bounded redacted
 receipt, lifecycle owners, and every production entrypoint remain unchanged.

@@ -635,7 +635,7 @@ lifecycle accepts the unchanged success and records the cancellation as
   completion response; and
 - emit only privacy-safe aggregate operational receipts.
 
-### DTE06-F: Private End-To-End Runtime Proof — F1 Complete; F2 Next
+### DTE06-F: Private End-To-End Runtime Proof — F1 Complete; F2 Blocked
 
 - first converge the Application runtime substrate used by query, mutation,
   foreground action, and Task adapters without creating one universal
@@ -675,8 +675,9 @@ lifecycle accepts the unchanged success and records the cancellation as
   Application, R2, Worker Loader, supervisor, and Task System owners;
 - retain F1's hosted PGlite and ordinary-role PostgreSQL success proofs over
   immutable object resources and a fresh `WorkerLoader.load` Task Worker;
-- next prove F2 fresh-host restart/takeover, stale old-host rejection, duplicate
-  and lost-response decisions, and cleanup through persisted authority only;
+- after the separately approved DTE05-C3 correction, prove F2 fresh-host
+  restart/takeover, stale old-host rejection, duplicate and lost-response
+  decisions, and cleanup through persisted authority only;
 - run real Cloudflare/Hyperdrive/PostgreSQL evidence where platform behavior is
   part of the claim; and
 - remain behind an explicit disabled-by-default host/deployment gate.
@@ -689,6 +690,16 @@ After DTE06-F closes the minimum safe compute path, DTE05-E3 may add the
 scheduled Worker host and Cron Trigger through its own exact deployment
 preflight. Queue and cron activation still require an explicit rollout
 decision.
+
+F2 preflight evidence found that the existing due discovery and scheduler
+composition are hard-coded to `legacy_definition_v1`, even though the shared
+lifecycle decisions and persistence store already support `application_v1`.
+Consequently a newly constructed host cannot yet drive an expired Application
+attempt through the persisted retry/grant path. The reproducible mismatch,
+expected behavior, affected owners, prohibited harness workarounds, and bounded
+DTE05-C3 correction are recorded in
+[`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
+F2 stops there until that shared-owner correction is separately approved.
 
 ### DTE06-G: Final Admission — Pending
 
@@ -752,8 +763,9 @@ The current stop is the completed, production-inert DTE06-F1 host matrix under
 [`Preflight 45`](./preflight/45-dte06-task-mutation-settlement-reconciliation.md).
 F1 proves the private event host with PGlite, ordinary-role PostgreSQL, genuine
 Worker Loader execution, and immutable Miniflare R2 adapters; it does not prove
-crash recovery or a deployed Cloudflare topology. DTE06-F must next complete
-F2 fresh-host recovery and takeover before the separately gated F3/F4 hosted
+crash recovery or a deployed Cloudflare topology. DTE06-F2 is blocked on the
+separately approved DTE05-C3 Application scheduling-parity correction before
+the separately gated F3/F4 hosted
 work or DTE05-E3 scheduled host may proceed. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.

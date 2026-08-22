@@ -14,8 +14,14 @@ configuration, or production activation is authorized. DTE05-E1 completes the
 unwired host-neutral repair sweep and repair-tolerant directory, and DTE05-E2
 completes its durable checkpoint, connected runner, and hard PostgreSQL
 deadline/settlement proof. DTE05-E3 remains DTE06-F-gated before a durable or
-Cloudflare-hosted cron repair system exists. DTE06-F now also depends on the
-connected-runtime reuse audit in Preflight 37; no host work may bypass it.
+Cloudflare-hosted cron repair system exists. The DTE06-F2 preflight exposed a
+generation gap in the otherwise completed C1 composition: current due
+discovery and lifecycle composition remain Legacy-only and cannot advance an
+`application_v1` retry. DTE05-C3 is therefore recorded and awaiting separate
+approval in
+[`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
+DTE06-F also depends on the connected-runtime reuse audit in Preflight 37; no
+host work may bypass either gate.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -272,6 +278,19 @@ Completion evidence on 2026-08-06:
 - the 65-vector lifecycle gate, 29-entry source-map gate, Trigger boundary,
   Standard Application boundary, and all 57 script tests passed. No production
   package consumes the new private directory subpath.
+
+#### DTE05-C3: Application Scheduling Parity — Blocked Pending Approval
+
+The owning preflight is
+[`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
+
+The existing scheduler core remains valid, but its Postgres due source and
+lifecycle composition admit only `legacy_definition_v1`. DTE06-F2 requires the
+same persisted, database-clock-authoritative path for `application_v1`. The
+bounded correction must share the scheduler semantics, preserve exact
+generation-specific decoding and lifecycle types, and prove both generations
+without adding a second scheduler, state machine, host, or activation path.
+No implementation is authorized by this blocker record.
 
 ### DTE05-D: Queue Wake Hints — Complete
 
