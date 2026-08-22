@@ -237,25 +237,26 @@ export function createCommitFeedRepositoryV1(
 function validateListAfterInput(
   input: CommitFeedListAfterInputV1,
 ): Result.Result<ValidatedCommitFeedInputV1, CommitFeedInputErrorV1> {
-  const decodedScopeUuid = decodeScopeUuidV1Result(input.scopeUuid);
-  if (Result.isFailure(decodedScopeUuid)) {
-    return Result.fail(new CommitFeedInputErrorV1({
-      reason: "scopeUuidInvalid",
+  return Result.flatMap(
+    Result.mapError(
+      decodeScopeUuidV1Result(input.scopeUuid),
+      () => new CommitFeedInputErrorV1({ reason: "scopeUuidInvalid" }),
+    ),
+    (decodedScopeId) => {
+    if (
+      typeof input.exclusiveCommitSeq !== "bigint" ||
+      input.exclusiveCommitSeq < 0n ||
+      input.exclusiveCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1
+    ) {
+      return Result.fail(new CommitFeedInputErrorV1({
+        reason: "exclusiveCommitSeqInvalid",
+      }));
+    }
+    return Result.succeed(Object.freeze({
+      scopeUuid: decodedScopeId,
+      exclusiveCommitSeq: CommitSeqSchema.make(input.exclusiveCommitSeq),
     }));
-  }
-  if (
-    typeof input.exclusiveCommitSeq !== "bigint" ||
-    input.exclusiveCommitSeq < 0n ||
-    input.exclusiveCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1
-  ) {
-    return Result.fail(new CommitFeedInputErrorV1({
-      reason: "exclusiveCommitSeqInvalid",
-    }));
-  }
-  return Result.succeed(Object.freeze({
-    scopeUuid: decodedScopeUuid.success,
-    exclusiveCommitSeq: CommitSeqSchema.make(input.exclusiveCommitSeq),
-  }));
+  });
 }
 
 async function captureCommitFeedRows(
@@ -510,10 +511,14 @@ function materializeCommitFeedPage(
   }
 
   const headerValidation = validateCommitHeaders(input, clock, captured.headerRows);
-  if (Result.isFailure(headerValidation)) {
-    return Result.fail(headerValidation.failure);
+  const headersOutcome = Result.match(headerValidation, {
+    onSuccess: (headers) => ({ ok: true as const, headers }),
+    onFailure: (failure) => ({ ok: false as const, failure }),
+  });
+  if (!headersOutcome.ok) {
+    return Result.fail(headersOutcome.failure);
   }
-  const selectedHeaders = selectPageHeaders(headerValidation.success);
+  const selectedHeaders = selectPageHeaders(headersOutcome.headers);
   const expectedChangeCount = selectedHeaders.reduce(
     (total, header) => total + header.changeCount,
     0,
@@ -547,8 +552,14 @@ function materializeCommitFeedPage(
         ordinal,
         row,
       );
-      if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
-      appRowChanges.push(decoded.success);
+      const changeOutcome = Result.match(decoded, {
+        onSuccess: (change) => ({ ok: true as const, change }),
+        onFailure: (failure) => ({ ok: false as const, failure }),
+      });
+      if (!changeOutcome.ok) {
+        return Result.fail(changeOutcome.failure);
+      }
+      appRowChanges.push(changeOutcome.change);
       childIndex += 1;
     }
     commits.push(Object.freeze({

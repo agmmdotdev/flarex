@@ -1280,15 +1280,21 @@ function makeRepository(
               ? mintClaim(handles, settled.value)
               : captureAcquireOutcome(settled.value);
           }
-          const failure = Cause.findError(settled.cause);
-          if (Result.isFailure(failure)) {
-            return yield* Effect.failCause(failure.failure);
+          const outcome = Result.match(Cause.findError(settled.cause), {
+            onFailure: (cause) => ({ tag: "cause" as const, cause }),
+            onSuccess: (error) => ({
+              tag: "classified" as const,
+              classified: classifyTransactionFailure(
+                "acquire_dispatch",
+                error,
+                execution,
+              ),
+            }),
+          });
+          if (outcome.tag === "cause") {
+            return yield* Effect.failCause(outcome.cause);
           }
-          const classified = classifyTransactionFailure(
-            "acquire_dispatch",
-            failure.success,
-            execution,
-          );
+          const classified = outcome.classified;
           if (classified.kind === "retry") continue;
           if (classified.kind === "failure") return yield* classified.error;
           return yield* Effect.die(classified.cause);
@@ -1554,15 +1560,21 @@ function makeRepository(
             ? mintCancellationClaim(cancellationHandles, settled.value)
             : captureCancellationAcquireOutcome(settled.value);
         }
-        const failure = Cause.findError(settled.cause);
-        if (Result.isFailure(failure)) {
-          return yield* Effect.failCause(failure.failure);
+        const outcome = Result.match(Cause.findError(settled.cause), {
+          onFailure: (cause) => ({ tag: "cause" as const, cause }),
+          onSuccess: (error) => ({
+            tag: "classified" as const,
+            classified: classifyTransactionFailure(
+              "acquire_cancellation",
+              error,
+              execution,
+            ),
+          }),
+        });
+        if (outcome.tag === "cause") {
+          return yield* Effect.failCause(outcome.cause);
         }
-        const classified = classifyTransactionFailure(
-          "acquire_cancellation",
-          failure.success,
-          execution,
-        );
+        const classified = outcome.classified;
         if (classified.kind === "retry") continue;
         if (classified.kind === "failure") return yield* classified.error;
         return yield* Effect.die(classified.cause);
@@ -5687,15 +5699,21 @@ const runClaimOperation = Effect.fn(function* <
         awaitSettlement(transactionFactory()),
       );
       if (Exit.isSuccess(settled)) return settled.value;
-      const failure = Cause.findError(settled.cause);
-      if (Result.isFailure(failure)) {
-        return yield* Effect.failCause(failure.failure);
+      const outcome = Result.match(Cause.findError(settled.cause), {
+        onFailure: (cause) => ({ tag: "cause" as const, cause }),
+        onSuccess: (error) => ({
+          tag: "classified" as const,
+          classified: classifyTransactionFailure(
+            operation,
+            error,
+            execution,
+          ),
+        }),
+      });
+      if (outcome.tag === "cause") {
+        return yield* Effect.failCause(outcome.cause);
       }
-      const classified = classifyTransactionFailure(
-        operation,
-        failure.success,
-        execution,
-      );
+      const classified = outcome.classified;
       if (classified.kind === "retry") continue;
       if (classified.kind === "failure") return yield* classified.error;
       return yield* Effect.die(classified.cause);

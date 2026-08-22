@@ -664,7 +664,12 @@ function materializeStoredAuthorityEffect(
         leaseDurationMilliseconds:
           leaseExpiresAtMilliseconds - sessionTiming.updatedAtMilliseconds,
       });
-      if (Result.isFailure(expectedFacet)) {
+      const journalRootOutcome = Result.match(expectedFacet, {
+        onSuccess: (facet) =>
+          ({ ok: true as const, journalRoot: facet.journalRoot }),
+        onFailure: () => ({ ok: false as const }),
+      });
+      if (!journalRootOutcome.ok) {
         return occExecutionCorrupt("journalRootNotPristine");
       }
       const rootState = classifyOpenOccExecutionRoot(
@@ -677,7 +682,7 @@ function materializeStoredAuthorityEffect(
           sealedResultBytes:
             root.sealedResultByteLengthText === null ? null : new Uint8Array(0),
         }),
-        expectedFacet.success.journalRoot,
+        journalRootOutcome.journalRoot,
         databaseNowMilliseconds,
       );
       if (rootState === "corrupt") {
@@ -830,10 +835,9 @@ function materializeStoredAuthorityEffect(
       schemaSize,
       schemaRow,
     );
-    if (Result.isFailure(manifest)) {
-      return materializationCorrupt(mode, manifest.failure);
-    }
-    const decodedManifest = manifest.success;
+    const manifestOr = decodeOrMaterializationCorrupt(mode, manifest);
+    if ("corrupt" in manifestOr) return manifestOr.corrupt;
+    const decodedManifest = manifestOr.value;
     const stableBindings = materializeBindings(
       decodedManifest,
       captured.bindingRows,
@@ -1646,20 +1650,22 @@ function captureSessionScalars(
   const authorityJson = decodeJsonObjectTextResult(
     payload.applicationExecutionAuthorityJsonText,
   );
-  if (Result.isFailure(authorityJson)) return undefined;
-  return Object.freeze({
-    executionAuthorityGeneration: "application_v1",
-    applicationExecutionAuthorityJson:
-      snapshotApplicationExecutionAuthorityJson(
-        authorityJson.success,
-      ),
-    applicationExecutionAuthorityCanonicalBytes: copyBytes(
-      payload.applicationExecutionAuthorityCanonicalBytes,
-    ),
-    applicationExecutionAuthoritySha256: copyBytes(
-      session.applicationExecutionAuthoritySha256,
-    ),
-    ...common,
+  return Result.match(authorityJson, {
+    onSuccess: (authority) =>
+      Object.freeze({
+        executionAuthorityGeneration: "application_v1",
+        applicationExecutionAuthorityJson:
+          snapshotApplicationExecutionAuthorityJson(
+            authority,
+          ),
+        applicationExecutionAuthorityCanonicalBytes: copyBytes(
+          payload.applicationExecutionAuthorityCanonicalBytes,
+        ),
+        applicationExecutionAuthoritySha256: copyBytes(
+          session.applicationExecutionAuthoritySha256,
+        ),
+        ...common,
+      }),
   });
 }
 
