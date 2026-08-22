@@ -1270,20 +1270,24 @@ function captureFrame(
         }));
       },
     );
-    if (Result.isFailure(encoded)) {
-      if (isAllowancePending(encoded.failure)) return null;
-      return yield* Result.fail(protocolOrResponseFailure(
+    if (Result.isFailure(encoded) && isAllowancePending(encoded.failure)) {
+      return null;
+    }
+    const encodedRange = yield* Result.mapError(encoded, (failure) =>
+      protocolOrResponseFailure(
         "append",
         kind,
-        encoded.failure,
+        // SAFETY: allowance-pending failures returned null above, so only
+        // protocol or transport errors remain on this channel.
+        failure as DeclarativeV2AuthenticatedCommandResponseV1Error |
+          DeclarativeV2VerifierProgressV2Error,
       ));
-    }
     // SAFETY: ownDataRecord proved the input is a non-null non-array
     // object; it is retained only for identity comparison on resume.
     state.pendingProgressFrame = Object.freeze({
       input: input as object,
       kind,
-      bytes: encoded.success.range.bytes,
+      bytes: encodedRange.range.bytes,
     });
       return null;
   }
@@ -2340,36 +2344,40 @@ function captureBudget(
   Readonly<DeclarativeV2AuthenticatedCommandResponseBudgetV1>,
   DeclarativeV2AuthenticatedCommandResponseV1Error
 > {
-  const record = ownDataRecord(input, BUDGET_KEYS, operation);
-  if (Result.isFailure(record)) {
-    return Result.fail(error(operation, "invalidBudget", "budget"));
-  }
-  for (const key of BUDGET_KEYS) {
-    if (!isNonNegativeSafeInteger(record.success[key])) {
-      return Result.fail(error(operation, "invalidBudget", key));
+  return Result.flatMap(
+    Result.mapError(
+      ownDataRecord(input, BUDGET_KEYS, operation),
+      () => error(operation, "invalidBudget", "budget"),
+    ),
+    (record) => {
+    for (const key of BUDGET_KEYS) {
+      if (!isNonNegativeSafeInteger(record[key])) {
+        return Result.fail(error(operation, "invalidBudget", key));
+      }
     }
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so the numeric comparisons and projections are sound.
-  if (
-    (record.success.maximumBodyBytes as number) > U32_MAX ||
-    (record.success.maximumFrames as number) >
-      DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESPONSE_MAXIMUM_FRAMES_V1
-  ) {
-    return Result.fail(error(operation, "invalidBudget", "budget"));
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so these projections are sound.
-  return Result.succeed(Object.freeze({
-    maximumBodyBytes: record.success.maximumBodyBytes as number,
-    maximumCanonicalBytes: record.success.maximumCanonicalBytes as number,
-    maximumFrameBytes: record.success.maximumFrameBytes as number,
-    maximumPayloadBytes: record.success.maximumPayloadBytes as number,
-    maximumFrames: record.success.maximumFrames as number,
-    maximumAllocationBytes: record.success.maximumAllocationBytes as number,
-    maximumCopyBytes: record.success.maximumCopyBytes as number,
-    maximumTransitions: record.success.maximumTransitions as number,
-  }));
+      // SAFETY: every budget value was validated as a non-negative safe
+      // integer above, so the numeric comparisons and projections are sound.
+      if (
+        (record.maximumBodyBytes as number) > U32_MAX ||
+        (record.maximumFrames as number) >
+          DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESPONSE_MAXIMUM_FRAMES_V1
+      ) {
+        return Result.fail(error(operation, "invalidBudget", "budget"));
+      }
+      // SAFETY: every budget value was validated as a non-negative safe
+      // integer above, so these projections are sound.
+      return Result.succeed(Object.freeze({
+        maximumBodyBytes: record.maximumBodyBytes as number,
+        maximumCanonicalBytes: record.maximumCanonicalBytes as number,
+        maximumFrameBytes: record.maximumFrameBytes as number,
+        maximumPayloadBytes: record.maximumPayloadBytes as number,
+        maximumFrames: record.maximumFrames as number,
+        maximumAllocationBytes: record.maximumAllocationBytes as number,
+        maximumCopyBytes: record.maximumCopyBytes as number,
+        maximumTransitions: record.maximumTransitions as number,
+      }));
+    },
+  );
 }
 
 function ownDataRecord<const Keys extends readonly string[]>(
@@ -2381,17 +2389,20 @@ function ownDataRecord<const Keys extends readonly string[]>(
   DeclarativeV2AuthenticatedCommandResponseV1Error
 > {
   const loose = ownDataRecordLoose(input, operation, "record");
-  if (Result.isFailure(loose)) return loose;
-  const actual = Object.keys(loose.success);
-  if (
-    actual.length !== keys.length ||
-    actual.some(key => !keys.includes(key))
-  ) {
-    return Result.fail(error(operation, "invalidInput", "record"));
-  }
-  // SAFETY: the exact-key check above proved the loose record carries
-  // exactly the requested keys.
-  return Result.succeed(loose.success as Readonly<Record<Keys[number], unknown>>);
+  return Result.flatMap(loose, (looseRecord) => {
+    const actual = Object.keys(looseRecord);
+    if (
+      actual.length !== keys.length ||
+      actual.some(key => !keys.includes(key))
+    ) {
+      return Result.fail(error(operation, "invalidInput", "record"));
+    }
+    // SAFETY: the exact-key check above proved the loose record carries
+    // exactly the requested keys.
+    return Result.succeed(
+      looseRecord as Readonly<Record<Keys[number], unknown>>,
+    );
+  });
 }
 
 function ownDataRecordLoose(

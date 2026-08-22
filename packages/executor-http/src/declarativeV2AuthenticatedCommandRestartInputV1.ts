@@ -1441,19 +1441,27 @@ function captureEncoderFrame(
           }));
         },
       );
-      if (Result.isFailure(encoded)) {
-        return isAllowancePending(encoded.failure)
-          ? null
-          : yield* Result.fail(
-            protocolOrTransportFailure("append", kind, encoded.failure),
-          );
+      if (Result.isFailure(encoded) && isAllowancePending(encoded.failure)) {
+        return null;
       }
+      const encodedRange = yield* Result.mapError(
+        encoded,
+        (failure) =>
+          protocolOrTransportFailure(
+            "append",
+            kind,
+            // SAFETY: allowance-pending failures returned null above, so
+            // only protocol or transport errors remain on this channel.
+            failure as DeclarativeV2AuthenticatedCommandRestartInputV1Error |
+              DeclarativeV2VerifierProgressV2Error,
+          ),
+      );
       // SAFETY: ownDataRecordLoose proved the input is a non-null non-array
       // object; it is retained only for identity comparison on resume.
       state.pendingProtocolFrame = Object.freeze({
         input: input as object,
         kind,
-        bytes: encoded.success.range.bytes,
+        bytes: encodedRange.range.bytes,
         verified: undefined,
       });
       return null;
@@ -1883,17 +1891,25 @@ function resumePendingProtocolFrame(
       );
     },
   );
-  if (Result.isFailure(verified)) {
-    return isAllowancePending(verified.failure)
-      ? null
-      : (yield* Result.fail(
-        protocolOrTransportFailure("append", pending.kind, verified.failure),
-      ));
+  if (Result.isFailure(verified) && isAllowancePending(verified.failure)) {
+    return null;
   }
+  const resumed = yield* Result.mapError(
+    verified,
+    (failure) =>
+      protocolOrTransportFailure(
+        "append",
+        pending.kind,
+        // SAFETY: allowance-pending failures returned null above, so only
+        // protocol or transport errors remain on this channel.
+        failure as DeclarativeV2AuthenticatedCommandRestartInputV1Error |
+          DeclarativeV2VerifierProgressV2Error,
+      ),
+  );
   yield* settleWork(
     state.usage,
     state.budget,
-    verified.success.work,
+    resumed.work,
     0,
     0,
     0,
@@ -1903,7 +1919,7 @@ function resumePendingProtocolFrame(
   const expectedKind = pending.kind === "source_output_manifest"
     ? "command_output_manifest"
     : "evidence_page_manifest";
-  if (verified.success.frame.kind !== expectedKind) {
+  if (resumed.frame.kind !== expectedKind) {
     return yield* Result.fail(
       transportError("append", "invalidGrammar", pending.kind),
     );
@@ -1911,8 +1927,8 @@ function resumePendingProtocolFrame(
   state.pendingProtocolFrame = Object.freeze({
     ...pending,
     verified: Object.freeze({
-      frame: verified.success.frame,
-      canonicalBytes: verified.success.canonicalBytes,
+      frame: resumed.frame,
+      canonicalBytes: resumed.canonicalBytes,
     }),
   });
   return null;
@@ -2439,19 +2455,25 @@ function parsePendingDecoderMetadata(
           );
         },
       );
-      if (Result.isFailure(verified)) {
-        return isAllowancePending(verified.failure)
-          ? false
-          : (yield* Result.fail(protocolOrTransportFailure(
+      if (Result.isFailure(verified) && isAllowancePending(verified.failure)) {
+        return false;
+      }
+      const resumed = yield* Result.mapError(
+        verified,
+        (failure) =>
+          protocolOrTransportFailure(
             "finishDecoder",
             transportKind,
-            verified.failure,
-          )));
-      }
+            // SAFETY: allowance-pending failures returned false above, so
+            // only protocol or transport errors remain on this channel.
+            failure as DeclarativeV2AuthenticatedCommandRestartInputV1Error |
+              DeclarativeV2VerifierProgressV2Error,
+          ),
+      );
       yield* settleWork(
         state.usage,
         state.budget,
-        verified.success.work,
+        resumed.work,
         0,
         0,
         0,
@@ -2461,14 +2483,14 @@ function parsePendingDecoderMetadata(
       const expectedKind = tag === 2
         ? "command_output_manifest"
         : "evidence_page_manifest";
-      if (verified.success.frame.kind !== expectedKind) {
+      if (resumed.frame.kind !== expectedKind) {
         return yield* Result.fail(
           transportError("finishDecoder", "invalidGrammar", expectedKind),
         );
       }
       state.pendingVerifiedProtocolFrame = Object.freeze({
-        frame: verified.success.frame,
-        canonicalBytes: verified.success.canonicalBytes,
+        frame: resumed.frame,
+        canonicalBytes: resumed.canonicalBytes,
       });
       return false;
     }
@@ -2930,41 +2952,45 @@ function captureBudget(
   Readonly<DeclarativeV2AuthenticatedCommandRestartInputBudgetV1>,
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
-  const record = ownDataRecord(input, BUDGET_KEYS, operation);
-  if (Result.isFailure(record)) {
-    return Result.fail(transportError(operation, "invalidBudget", "budget"));
-  }
-  for (const key of BUDGET_KEYS) {
-    if (!isNonNegativeSafeInteger(record.success[key])) {
-      return Result.fail(transportError(operation, "invalidBudget", key));
+  return Result.flatMap(
+    Result.mapError(
+      ownDataRecord(input, BUDGET_KEYS, operation),
+      () => transportError(operation, "invalidBudget", "budget"),
+    ),
+    (record) => {
+    for (const key of BUDGET_KEYS) {
+      if (!isNonNegativeSafeInteger(record[key])) {
+        return Result.fail(transportError(operation, "invalidBudget", key));
+      }
     }
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so the numeric comparisons and projections are sound.
-  if (
-    (record.success.maximumBodyBytes as number) > U32_MAX ||
-    (record.success.maximumFrames as number) >
-      DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_MAXIMUM_FRAMES_V1 ||
-    (record.success.maximumPages as number) >
-      DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_MAXIMUM_PAGES_V1
-  ) {
-    return Result.fail(transportError(operation, "invalidBudget", "budget"));
-  }
-  // SAFETY: every budget value was validated as a non-negative safe
-  // integer above, so these projections are sound.
-  return Result.succeed(Object.freeze({
-    maximumBodyBytes: record.success.maximumBodyBytes as number,
-    maximumCanonicalBytes: record.success.maximumCanonicalBytes as number,
-    maximumFrameBytes: record.success.maximumFrameBytes as number,
-    maximumPayloadBytes: record.success.maximumPayloadBytes as number,
-    maximumFrames: record.success.maximumFrames as number,
-    maximumPages: record.success.maximumPages as number,
-    maximumAllocationBytes: record.success.maximumAllocationBytes as number,
-    maximumCopyBytes: record.success.maximumCopyBytes as number,
-    maximumScanBytes: record.success.maximumScanBytes as number,
-    maximumHashBytes: record.success.maximumHashBytes as number,
-    maximumTransitions: record.success.maximumTransitions as number,
-  }));
+    // SAFETY: every budget value was validated as a non-negative safe
+    // integer above, so the numeric comparisons and projections are sound.
+    if (
+      (record.maximumBodyBytes as number) > U32_MAX ||
+      (record.maximumFrames as number) >
+        DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_MAXIMUM_FRAMES_V1 ||
+      (record.maximumPages as number) >
+        DECLARATIVE_V2_AUTHENTICATED_COMMAND_RESTART_INPUT_MAXIMUM_PAGES_V1
+    ) {
+      return Result.fail(transportError(operation, "invalidBudget", "budget"));
+    }
+    // SAFETY: every budget value was validated as a non-negative safe
+    // integer above, so these projections are sound.
+    return Result.succeed(Object.freeze({
+      maximumBodyBytes: record.maximumBodyBytes as number,
+      maximumCanonicalBytes: record.maximumCanonicalBytes as number,
+      maximumFrameBytes: record.maximumFrameBytes as number,
+      maximumPayloadBytes: record.maximumPayloadBytes as number,
+      maximumFrames: record.maximumFrames as number,
+      maximumPages: record.maximumPages as number,
+      maximumAllocationBytes: record.maximumAllocationBytes as number,
+      maximumCopyBytes: record.maximumCopyBytes as number,
+      maximumScanBytes: record.maximumScanBytes as number,
+      maximumHashBytes: record.maximumHashBytes as number,
+      maximumTransitions: record.maximumTransitions as number,
+    }));
+  },
+  );
 }
 
 function ownDataRecord<const Keys extends readonly string[]>(
@@ -2976,19 +3002,20 @@ function ownDataRecord<const Keys extends readonly string[]>(
   DeclarativeV2AuthenticatedCommandRestartInputV1Error
 > {
   const loose = ownDataRecordLoose(input, operation, "record");
-  if (Result.isFailure(loose)) return Result.fail(loose.failure);
-  const actual = Object.keys(loose.success);
-  if (
-    actual.length !== keys.length ||
-    actual.some(key => !keys.includes(key))
-  ) {
-    return Result.fail(transportError(operation, "invalidInput", "record"));
-  }
-  // SAFETY: the exact-key check above proved the loose record carries
-  // exactly the requested keys.
-  return Result.succeed(
-    loose.success as Readonly<Record<Keys[number], unknown>>,
-  );
+  return Result.flatMap(loose, (looseRecord) => {
+    const actual = Object.keys(looseRecord);
+    if (
+      actual.length !== keys.length ||
+      actual.some(key => !keys.includes(key))
+    ) {
+      return Result.fail(transportError(operation, "invalidInput", "record"));
+    }
+    // SAFETY: the exact-key check above proved the loose record carries
+    // exactly the requested keys.
+    return Result.succeed(
+      looseRecord as Readonly<Record<Keys[number], unknown>>,
+    );
+  });
 }
 
 function ownDataRecordLoose(
