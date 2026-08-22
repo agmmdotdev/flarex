@@ -87,7 +87,6 @@ const PRIMARY_FIXTURE = Object.freeze({
   deploymentId: "deployment_task_store_v1",
   applicationRevisionId: "apprev_task_store_v1",
   candidateSha256Hex: "31".repeat(32),
-  schemaVersionId: "schema_task_store_v1",
   locator: TASK_LOCATOR,
   projectId: "project_dte06_c3_connected_postgres_primary",
   runUuid: TASK_SYSTEM_CREATION_RUN_UUID_A,
@@ -99,7 +98,6 @@ const SECONDARY_FIXTURE = Object.freeze({
   deploymentId: "deployment_task_store_v1_secondary",
   applicationRevisionId: "apprev_task_store_v1_secondary",
   candidateSha256Hex: "51".repeat(32),
-  schemaVersionId: "schema_task_store_v1_secondary",
   locator: Object.freeze({
     kind: "shared_database",
     databaseKey: "dte06-c3-postgres-secondary",
@@ -484,80 +482,6 @@ async function seedTaskParentAuthorityFixture(
     values ($1, 'flarexdb_v1',
       'epoch_72000000-0000-4000-8000-000000000016')
   `, [parent.scopeId]);
-  await persistence.query(`
-    insert into fx_system_declarative_v2_candidate (
-      scope_id, candidate_sha256, storage_generation,
-      storage_generation_fence, epoch, frame_codec_version,
-      frame_byte_length, frame_sha256, frame_bytes
-    ) values (
-      $1, decode($2, 'hex'), 'flarexdb_v1', 1,
-      'epoch_72000000-0000-4000-8000-000000000016',
-      1, 1, decode($2, 'hex'), decode('01', 'hex')
-    )
-  `, [parent.scopeId, parent.candidateSha256Hex]);
-  await persistence.query(`
-    insert into fx_system_declarative_v2_verifier_attempt_v2 (
-      scope_id, attempt_sha256, candidate_sha256, lifecycle,
-      identity_codec_version, identity_byte_length, identity_sha256,
-      identity_bytes, ceilings_codec_version, ceilings_byte_length,
-      ceilings_sha256, ceilings_bytes, usage_codec_version,
-      usage_byte_length, usage_sha256, usage_bytes, progress_codec_version,
-      progress_byte_length, progress_sha256, progress_bytes
-    ) values (
-      $1, decode(repeat('32', 32), 'hex'), decode($2, 'hex'), 'ready',
-      2, 1, decode(repeat('32', 32), 'hex'), decode('01', 'hex'),
-      2, 1, decode(repeat('33', 32), 'hex'), decode('01', 'hex'),
-      2, 1, decode(repeat('34', 32), 'hex'), decode('01', 'hex'),
-      2, 1, decode(repeat('35', 32), 'hex'), decode('01', 'hex')
-    )
-  `, [parent.scopeId, parent.candidateSha256Hex]);
-  await persistence.query(`
-    insert into fx_control_schema_version (
-      deployment_id, schema_version_id, version,
-      manifest_codec_version, manifest_json, manifest_bytes, manifest_sha256
-    ) values (
-      $1, $2, 1, 1, '{}'::jsonb, decode('01', 'hex'),
-      decode(repeat('37', 32), 'hex')
-    )
-  `, [parent.deploymentId, parent.schemaVersionId]);
-  await persistence.query(`
-    insert into fx_system_application_revision_v1 (
-      scope_id, candidate_sha256, revision_id, deployment_id,
-      attempt_sha256, registration_input_sha256,
-      semantic_attempt_identity_sha256, source_codec_identity,
-      package_sha256, artifact_runtime_identity, artifact_sha256,
-      schema_version_id, schema_version, manifest_codec_version,
-      manifest_byte_length, schema_artifact_sha256, schema_binding_sha256,
-      function_metadata_codec_version, function_metadata_byte_length,
-      function_metadata_sha256, function_metadata_bytes,
-      validator_root_sha256, declared_handler_set_sha256,
-      registration_root_sha256, registration_frame_count,
-      registration_frames_byte_length, registration_frames_bytes,
-      output_manifest_sha256, output_manifest_bytes, next_progress_sha256,
-      next_progress_bytes, receipt_sha256, receipt_bytes, status
-    ) values (
-      $1, decode($2, 'hex'), $3, $4,
-      decode(repeat('32', 32), 'hex'), decode(repeat('33', 32), 'hex'),
-      decode(repeat('34', 32), 'hex'),
-      'flarex.source-artifact-v2/codec-v1',
-      decode(repeat('35', 32), 'hex'), 'dynamic-worker',
-      decode(repeat('36', 32), 'hex'), $5,
-      1, 1, 1, decode(repeat('37', 32), 'hex'),
-      decode(repeat('38', 32), 'hex'), 1, 1,
-      decode(repeat('39', 32), 'hex'), decode('01', 'hex'),
-      decode(repeat('3a', 32), 'hex'), decode(repeat('3b', 32), 'hex'),
-      decode(repeat('3c', 32), 'hex'), 0, 0, decode('', 'hex'),
-      decode(repeat('3d', 32), 'hex'), decode('01', 'hex'),
-      decode(repeat('3e', 32), 'hex'), decode('01', 'hex'),
-      decode(repeat('3f', 32), 'hex'), decode('01', 'hex'), 'inactive'
-    )
-  `, [
-    parent.scopeId,
-    parent.candidateSha256Hex,
-    parent.applicationRevisionId,
-    parent.deploymentId,
-    parent.schemaVersionId,
-  ]);
 }
 
 async function requestCancellation(

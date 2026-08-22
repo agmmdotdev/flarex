@@ -36,6 +36,25 @@ Completed C2 commit `ff83e5bb` remains the base repository checkpoint, and
 correction commit `a1f2d296` adds only the exact connected outcome described
 below. Neither rewrites the Task lifecycle or the provider contract.
 
+### Post-AA-R8 Current-Schema Fixture Correction — Complete
+
+AA-R8 migration `0064_application_analysis_retirement.sql` intentionally
+retired the displaced Declarative V2 candidate/verifier and Application
+revision tables. The current-schema C3 PGlite and PostgreSQL fixtures still
+attempted to seed those removed relations even though C3 needs only the scope
+clock plus its retained Legacy task definition/run authority. That stale setup
+made the current C3 suites fail before connected delivery executed.
+
+The correction removes only those retired fixture writes, including the
+PGlite replication-role bypass that existed solely for the displaced
+Application revision row. It does not restore historical tables, cap the
+migration journal, change the retained Legacy task definition shape, or alter
+delivery, lifecycle, provider, transaction, or recovery behavior. The
+current-schema C3 matrix now passes 4/4 on PGlite and 3/3 on an ordinary-role
+PostgreSQL 18.3 instance. The current Application Task System PostgreSQL matrix
+also remains green 15/15, proving the correction did not disturb the
+Application generation or hosted event path.
+
 ## Question
 
 What is the smallest bounded runner that can discover persisted dispatch and
