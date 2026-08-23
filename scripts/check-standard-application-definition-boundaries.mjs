@@ -69,7 +69,26 @@ const taskDefinitionAllowedProductionImports = new Set([
   "@flarex/durable-task/internal/run-attempt-v1",
   "@flarex/utils/bytes",
   "flarex-protocol/json",
+  "flarex-protocol/internal/declarative-v2-physical-v1",
+  "flarex-protocol/internal/declarative-v2-source-artifact-v2",
   "flarex-protocol/validator-json",
+]);
+const taskAuthoringAllowedProductionImports = new Set([
+  "effect",
+]);
+const applicationSourceAllowedProductionImports = new Set([
+  ...shippedDefinitionAllowedProductionImports,
+  "@flarex/analysis/internal/application-analysis-module-path-policy",
+  "@flarex/utils/bytes",
+  "@flarex/utils/strings",
+  "flarex-protocol/internal/declarative-v2-source-artifact-v2",
+]);
+const applicationTaskBindingAllowedProductionImports = new Set([
+  ...shippedDefinitionAllowedProductionImports,
+  "@flarex/utils/bytes",
+  "@flarex/utils/records",
+  "flarex-protocol/internal/application-runtime-cold-receipt-v1",
+  "flarex-protocol/json",
 ]);
 const admittedDurableTaskDefinitionSymbols = new Set([
   "RunAttemptPolicyV1",
@@ -114,7 +133,7 @@ if (isCliEntrypoint()) {
   } else {
     console.log("Standard Application definition boundary check passed.");
     console.log(
-      "Allowed package exports: ./v1, ./internal/task-definition-v1",
+      "Allowed package exports: ./v1 plus four explicit owner subpaths.",
     );
     console.log(
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
@@ -218,22 +237,30 @@ export function collectProductionSourceFiles(
 function collectExportErrors(exportsValue, errors) {
   if (!isRecord(exportsValue)) {
     errors.push(
-      "Standard Application definition package must expose only the explicit ./v1 and ./internal/task-definition-v1 subpaths.",
+      "Standard Application definition package must expose only its explicit owner subpaths.",
     );
     return;
   }
 
   const exportNames = Object.keys(exportsValue).sort();
   if (
-    exportNames.length !== 2
-    || exportNames[0] !== "./internal/task-definition-v1"
-    || exportNames[1] !== "./v1"
+    exportNames.length !== 5
+    || exportNames[0] !== "./application-source"
+    || exportNames[1] !== "./internal/application-task-binding-v1"
+    || exportNames[2] !== "./internal/task-authoring-v1"
+    || exportNames[3] !== "./internal/task-definition-v1"
+    || exportNames[4] !== "./v1"
+    || exportsValue["./application-source"] !== "./src/applicationSource.ts"
+    || exportsValue["./internal/application-task-binding-v1"] !==
+      "./src/applicationTaskBinding/v1.ts"
+    || exportsValue["./internal/task-authoring-v1"] !==
+      "./src/taskAuthoringV1.ts"
     || exportsValue["./internal/task-definition-v1"] !==
       "./src/taskDefinition/v1.ts"
     || exportsValue["./v1"] !== "./src/v1.ts"
   ) {
     errors.push(
-      "Standard Application definition package must expose exactly ./v1 and ./internal/task-definition-v1 with no package root.",
+      "Standard Application definition package must expose exactly ./v1, ./application-source, and its three declared private owner subpaths with no package root.",
     );
   }
 }
@@ -587,10 +614,20 @@ function isAllowedProductionImport(specifier, relativePath) {
   }
   const normalizedSourcePath = relativePath.replaceAll("\\", "/");
   const allowedImports = normalizedSourcePath.startsWith(
-      `${standardApplicationDefinitionSourceRoot}/taskDefinition/`,
-    )
+    `${standardApplicationDefinitionSourceRoot}/taskDefinition/`,
+  )
     ? taskDefinitionAllowedProductionImports
-    : shippedDefinitionAllowedProductionImports;
+    : normalizedSourcePath ===
+        `${standardApplicationDefinitionSourceRoot}/taskAuthoringV1.ts`
+      ? taskAuthoringAllowedProductionImports
+      : normalizedSourcePath ===
+          `${standardApplicationDefinitionSourceRoot}/applicationSource.ts`
+        ? applicationSourceAllowedProductionImports
+        : normalizedSourcePath.startsWith(
+            `${standardApplicationDefinitionSourceRoot}/applicationTaskBinding/`,
+          )
+          ? applicationTaskBindingAllowedProductionImports
+          : shippedDefinitionAllowedProductionImports;
   if (allowedImports.has(specifier)) {
     return true;
   }

@@ -32,6 +32,31 @@ describe("Standard Application definition boundary checker", () => {
           import type { RunAttemptPolicyV1 } from "@flarex/durable-task/internal/run-attempt-v1";
           import { TaskComputeProfileRefV1Schema } from "@flarex/durable-task/internal/run-attempt-v1";
         `,
+      }, {
+        relativePath:
+          "packages/standard-application-definition/src/taskAuthoringV1.ts",
+        text: `
+          import { Result } from "effect";
+          import { localHelper } from "./authoringV1.js";
+        `,
+      }, {
+        relativePath:
+          "packages/standard-application-definition/src/applicationSource.ts",
+        text: `
+          import { policy } from "@flarex/analysis/internal/application-analysis-module-path-policy";
+          import { copyBytes } from "@flarex/utils/bytes";
+          import { compareUtf16Strings } from "@flarex/utils/strings";
+          import { source } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
+        `,
+      }, {
+        relativePath:
+          "packages/standard-application-definition/src/applicationTaskBinding/Canonical.ts",
+        text: `
+          import { copyBytes } from "@flarex/utils/bytes";
+          import { isNonArrayRecord } from "@flarex/utils/records";
+          import { receipt } from "flarex-protocol/internal/application-runtime-cold-receipt-v1";
+          import { encodeCanonicalJson } from "flarex-protocol/json";
+        `,
       }],
     );
 
@@ -65,6 +90,26 @@ describe("Standard Application definition boundary checker", () => {
       `${privatePath}:2 imports forbidden durable-task symbols from "@flarex/durable-task/internal/run-attempt-v1".`,
       `${privatePath}:3 imports forbidden durable-task symbols from "@flarex/durable-task/internal/run-attempt-v1".`,
       `${privatePath}:4 imports forbidden durable-task symbols from "@flarex/durable-task/internal/run-attempt-v1".`,
+    ]);
+  });
+
+  it("keeps Task authoring independent from declarative program owners", () => {
+    const privatePath =
+      "packages/standard-application-definition/src/taskAuthoringV1.ts";
+    const report = analyzeStandardApplicationDefinitionBoundary(
+      validManifest(),
+      [{
+        relativePath: privatePath,
+        text: `
+          import { materialize } from "@flarex/declarative-materializer/v1";
+          import type { CanonicalDeclarativeProgramV1 } from "@flarex/declarative-program/v1";
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${privatePath}:2 imports forbidden module "@flarex/declarative-materializer/v1".`,
+      `${privatePath}:3 imports forbidden module "@flarex/declarative-program/v1".`,
     ]);
   });
 
@@ -102,7 +147,7 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition package must expose exactly ./v1 and ./internal/task-definition-v1 with no package root.",
+      "Standard Application definition package must expose exactly ./v1, ./application-source, and its three declared private owner subpaths with no package root.",
     ]);
   });
 
@@ -338,6 +383,10 @@ function validManifest() {
   return {
     name: "@flarex/standard-application-definition",
     exports: {
+      "./application-source": "./src/applicationSource.ts",
+      "./internal/application-task-binding-v1":
+        "./src/applicationTaskBinding/v1.ts",
+      "./internal/task-authoring-v1": "./src/taskAuthoringV1.ts",
       "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
       "./v1": "./src/v1.ts",
     },

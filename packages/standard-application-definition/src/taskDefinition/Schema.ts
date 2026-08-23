@@ -45,6 +45,11 @@ import {
   type TaskRuntimeObjectRoleV1,
 } from "./Model.js";
 
+export type CanonicalTaskRunAttemptPolicyInputV1 =
+  typeof RunAttemptPolicyV1Schema.Encoded;
+export type CanonicalTaskComputeProfileInputV1 =
+  typeof TaskComputeProfileRefV1Schema.Encoded;
+
 const STRICT_PARSE_OPTIONS = { onExcessProperty: "error" } as const;
 const UTF8 = new TextEncoder();
 const POSTGRES_SIGNED_BIGINT_MAX = 9_223_372_036_854_775_807n;

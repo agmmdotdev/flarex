@@ -17,6 +17,7 @@
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
+    "./internal/standard-application-task-system": "./src/StandardApplicationTaskSystem.ts",
     "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",
     "./internal/application-task-mutation-authority": "./src/ApplicationTaskMutationAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",
