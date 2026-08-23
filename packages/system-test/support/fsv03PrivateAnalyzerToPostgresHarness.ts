@@ -47,6 +47,14 @@ import {
   decodeActivePointMutationTargetMetadataV1,
 } from "flarex-protocol/point-mutation-start";
 import {
+  POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+  POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1,
+} from "flarex-protocol/point-mutation-exact-runtime";
+import {
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+  POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
+} from "flarex-protocol/point-mutation-exact-runtime-host";
+import {
   decodeSchemaManifestAppSchemaV1,
 } from "flarex-protocol/schema-manifest";
 import {
@@ -1162,7 +1170,7 @@ function pointMutationRuntimeBinding(
                   const table = await journal.resolvePointTable("orders");
                   const patched = await table.runPointOperation({
                     kind: "patch",
-                    syscallSequence: "1",
+                    syscallSequence: 1n,
                     documentId,
                     patch,
                   });
@@ -1197,12 +1205,12 @@ function pointMutationRuntimeBinding(
         },
       );
       return {
-        format: "flarex.point-mutation-exact-runtime-host-response",
-        version: 1,
+        format: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_FORMAT_V2,
+        version: POINT_MUTATION_EXACT_RUNTIME_HOST_RESPONSE_VERSION_V2,
         kind: "success",
         result: {
-          format: "flarex.point-mutation-exact-runtime-result",
-          version: 1,
+          format: POINT_MUTATION_EXACT_RUNTIME_RESULT_FORMAT_V1,
+          version: POINT_MUTATION_EXACT_RUNTIME_RESULT_VERSION_V1,
           value: result,
         },
         [Symbol.dispose]: () => undefined,

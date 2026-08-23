@@ -123,7 +123,9 @@
     "./internal/system-test/application-revision-mutation-internal-query-runtime-target-v1": "./src/applicationRevisionMutationInternalQueryRuntimeTargetV1.ts",
     "./internal/system-test/application-revision-mutation-internal-call-runtime-target-v1": "./src/applicationRevisionMutationInternalCallRuntimeTargetV1.ts",
     "./internal/system-test/applicationActivation": "./src/applicationActivation.ts",
-      "./internal/system-test/application-native-mutation-fixture": "./test/fixtures/applicationNativeMutationTestFixture.ts",
+    "./internal/system-test/application-native-mutation-fixture": "./test/fixtures/applicationNativeMutationTestFixture.ts",
+    "./internal/system-test/task-system-run-attempt-fixture": "./test/taskSystemRunAttemptStoreTestSupport.ts",
+    "./internal/system-test/task-system-run-creation-fixture": "./test/taskSystemRunCreationTestSupport.ts",
     "./internal/system-test/applicationPointQuerySnapshotV1": "./src/applicationPointQuerySnapshotV1.ts"
   },
   "scripts": {

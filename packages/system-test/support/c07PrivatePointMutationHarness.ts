@@ -679,7 +679,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
       const table = await journal.resolvePointTable("users");
       const patched = await table.runPointOperation({
         kind: "patch",
-        syscallSequence: "1",
+        syscallSequence: 1n,
         documentId,
         patch: { name: `c07-${lane.name}-competing` },
       });
@@ -716,7 +716,7 @@ export async function proveC07PrivatePointMutationCorrectnessV1(
       const table = await journal.resolvePointTable("users");
       const patched = await table.runPointOperation({
         kind: "patch",
-        syscallSequence: "1",
+        syscallSequence: 1n,
         documentId,
         patch: { name: `c07-${lane.name}-${runtimeExecutions}` },
       });

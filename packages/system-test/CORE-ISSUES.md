@@ -228,25 +228,6 @@ fixture succeeds.
 - **Current disposition:** Fix only through that runtime-fixture owner. Do not
   add a fallback module or weaken the journal-boundary assertion.
 
-### `ST-CORE-017` - FSV03 fixture still emits Host Response V1
-
-- **Status:** Open; reproduced independently during the FSV04/FSV05 C08
-  readiness-fold regression run on 2026-08-10. No executor or host-response
-  owner was changed in that readiness slice.
-- **Reproduction:** Run the focused
-  `fsv03PrivateAnalyzerToPostgres.test.ts` PGlite lane. Its in-process runtime
-  returns `flarex.point-mutation-exact-runtime-host-response` version 1 with a
-  nested V1 result.
-- **Expected:** The fixture returns the current strict Host Response V2 shape
-  consumed by `PointMutationExactRuntimeRunner`.
-- **Actual:** The protocol decoder fails `invalidShape` with `Expected 2, got
-  1` at `version`, before the end-to-end mutation completes.
-- **Owner and trust boundary:** FSV03 test-owned in-process exact-runtime host
-  adapter and the current Host Response V2 protocol boundary.
-- **Current disposition:** Correct the fixture in a separately approved
-  bounded test-maintenance slice; do not reintroduce V1 acceptance or a dual
-  decoder.
-
 ### `ST-CORE-016` — the point commit planner admitted only one material row
 
 - **Status:** Resolved and accepted. PGlite core and real Standard cooking
@@ -304,44 +285,52 @@ fixture succeeds.
 
 ## Investigation Leads
 
-### `ST-CORE-027` - DTE06-C3 retained cross-package relative test imports
-
-- **Reproducible scenario:** Run `pnpm --filter @flarex/system-test exec
-  vitest run test/packageBoundary.test.ts --no-file-parallelism`.
-- **Expected behavior:** Every relative import in the private system-test package
-  remains inside the package root; dependencies on another package use an owned
-  exported subpath.
-- **Actual behavior:** The boundary guard reports ten escapes from the PGlite and
-  PostgreSQL DTE06-C3 tests into durable-task source and persistence test-support
-  files.
-- **Owner and trust boundary:** The retained specialized DTE06-C3 test harness
-  and the owning package export boundaries. This is not part of the unified
-  Standard Application Task producer.
-- **Current evidence:** The focused boundary test fails 1 of 13 cases while the
-  other boundary checks pass.
-- **Current disposition:** Open for a separate bounded package-boundary cleanup.
-  Do not add an allowlist exception or copy the imported owners into
-  `@flarex/system-test`.
-
-### `ST-CORE-028` - retained FSV03 bridge emits encoded syscall sequence text
-
-- **Reproducible scenario:** Run `pnpm --filter @flarex/system-test exec
-  vitest run test/integration/fsv03PrivateAnalyzerToPostgres.test.ts
-  --no-file-parallelism`.
-- **Expected behavior:** The in-process runtime bridge preserves the bigint
-  `syscallSequence` accepted by the point-mutation journal runtime boundary.
-- **Actual behavior:** The success case supplies the encoded string `"1"` and
-  fails with `UnsupportedPointMutationJournalOperationV1Error` / `invalidSequence`;
-  the digest-rejection case still passes.
-- **Owner and trust boundary:** The retained FSV03 test-owned runtime bridge.
-  The executor correction recorded by `ST-CORE-021` remains authoritative and
-  must not be weakened to accept encoded strings at runtime.
-- **Current evidence:** The focused FSV03 file fails 1 of 2 tests with `Expected
-  bigint, got "1"`.
-- **Current disposition:** Open for a separate test-fixture correction. It is not
-  authority to change the journal decoder or the F2t-B Task composition.
+None.
 
 ## Resolved Issues
+
+### `ST-CORE-028` - retained point-mutation bridges emitted encoded syscall sequence text
+
+- **Status:** Resolved in the bounded system-test maintenance slice.
+- **Root cause:** The C07 competing/current runtime adapters and the retained
+  FSV03 in-process runtime adapter still supplied the persisted decimal-string
+  representation `"1"` after the journal runtime boundary moved to the exact
+  bigint `CommitSyscallSequenceV1` type.
+- **Correction:** All three test-owned calls now supply `1n`. The executor
+  decoder remains bigint-only; no encoded-string compatibility path, coercion,
+  or fallback was added.
+- **Evidence:** The focused C07 PGlite gate passes 1/1 and the focused FSV03
+  PGlite gate passes 2/2 through the existing runtime, journal, OCC, commit, and
+  durable-reload owners.
+
+### `ST-CORE-027` - DTE06-C3 retained cross-package relative test imports
+
+- **Status:** Resolved in the bounded system-test package-boundary maintenance
+  slice.
+- **Root cause:** The original DTE06-C3 tests predated the strict private-package
+  graph guard and reached directly into Durable Task source and persistence test
+  files.
+- **Correction:** Durable Task imports now use its existing private package
+  subpaths. Persistence retains ownership of its SQL and authority fixtures and
+  exposes only those two exact test fixtures through explicit private
+  `internal/system-test` subpaths. No allowlist exception, fixture copy, or
+  production export was added.
+- **Evidence:** The system-test package-boundary suite passes 13/13 and the
+  connected DTE06-C3 PGlite composition passes 4/4.
+
+### `ST-CORE-017` - FSV03 fixture still emitted Host Response V1
+
+- **Status:** Resolved in the bounded system-test maintenance slice.
+- **Root cause:** The retained FSV03 in-process runtime returned raw Host
+  Response V1 literals after the runner adopted the strict Host Response V2
+  contract.
+- **Correction:** The fixture now constructs the V2 success envelope from the
+  protocol-owned format/version constants while retaining the nested exact
+  runtime Result V1 contract. The decoder remains strict; no V1 acceptance or
+  dual path was added.
+- **Evidence:** The focused FSV03 PGlite gate passes 2/2, including real analysis,
+  inactive registration, C07 mutation, durable reload, and digest mismatch
+  refusal.
 
 ### `ST-CORE-022` - durable Application mutation reload rejected equivalent function authority
 

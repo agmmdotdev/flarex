@@ -4,16 +4,16 @@ import {
   TaskComputeProvider,
   decodeTaskComputeProviderDescriptorV1,
   type TaskComputeProviderShape,
-} from "../../../durable-task/src/computeProvider/v1.js";
+} from "@flarex/durable-task/internal/compute-provider-v1";
 import {
   RunAttemptLifecycle,
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
   decodeTaskRunVersionV1,
-} from "../../../durable-task/src/runAttempt/v1.js";
+} from "@flarex/durable-task/internal/run-attempt-v1";
 import {
   makeInMemoryTaskComputeProviderV1,
-} from "../../../durable-task/src/computeProvider/testing-v1.js";
+} from "@flarex/durable-task/internal/compute-provider-testing-v1";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedScopeClockReader,
@@ -49,7 +49,8 @@ import {
   ACCEPTED_ATTEMPT_UUID,
   TASK_LOCATOR,
   seedTaskSystemRunAttemptStoreV1,
-} from "../../../persistence-postgres/test/taskSystemRunAttemptStoreTestSupport.js";
+} from
+  "@flarex/persistence-postgres/internal/system-test/task-system-run-attempt-fixture";
 import {
   TASK_SYSTEM_CREATION_RUN_UUID_A,
   TASK_SYSTEM_CREATION_RUN_UUID_B,
@@ -59,7 +60,8 @@ import {
   makeTaskSystemCreationRuntimeBindingV1,
   makeTaskSystemCreationStoreForTestV1,
   taskSystemCreationRetryJitterV1,
-} from "../../../persistence-postgres/test/taskSystemRunCreationTestSupport.js";
+} from
+  "@flarex/persistence-postgres/internal/system-test/task-system-run-creation-fixture";
 import {
   expectOrdinaryPostgres18,
   postgresUrl,
