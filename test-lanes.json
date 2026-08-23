@@ -1,5 +1,15 @@
 {
   "schemaVersion": 1,
+  "testFileGroups": {
+    "c08-b2-o09-b-pglite": [
+      "test/appUniqueKeys.test.ts",
+      "test/storedAttemptEvidence.test.ts"
+    ],
+    "c08-b2-o09-b-postgres": [
+      "test/appUniqueKeys.postgres.test.ts",
+      "test/pointCommitTransaction.postgres.test.ts"
+    ]
+  },
   "selectors": {
     "fast": [
       "fast-workspace"
@@ -27,6 +37,18 @@
     ],
     "dte05-e2c1-pglite": [
       "dte05-repair-checkpoint-pglite"
+    ],
+    "c08-b2-pglite": [
+      "c08-b2-pglite"
+    ],
+    "c08-b2-postgres": [
+      "c08-b2-postgres"
+    ],
+    "o09-b-pglite": [
+      "o09-b-pglite"
+    ],
+    "o09-b-postgres": [
+      "o09-b-postgres"
     ],
     "workerd": [
       "h04-workerd-postgres"
@@ -256,6 +278,108 @@
             "test/pointMutationRedeliverySchedulerCheckpoint.test.ts",
             "--no-file-parallelism",
             "--testTimeout=120000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c08-b2-pglite",
+      "category": "pglite",
+      "proof": "The C08-B2 unique-definition lowering proof plus the ordered PGlite unique-key and stored-attempt regression shared with O09-B.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-c08-b2-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/appUniqueConstraintDefinitions.test.ts",
+            {
+              "testFileGroup": "c08-b2-o09-b-pglite"
+            },
+            "--no-file-parallelism",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "o09-b-pglite",
+      "category": "pglite",
+      "proof": "The ordered O09-B PGlite unique-key and stored-attempt contention proof reused by the broader C08-B2 selector.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-o09-b-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "c08-b2-o09-b-pglite"
+            },
+            "--no-file-parallelism",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c08-b2-postgres",
+      "category": "postgres",
+      "proof": "The C08-B2 unique-definition lowering proof plus the ordered genuine-PostgreSQL unique-key and point-commit regression shared with O09-B.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-c08-b2-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/appUniqueConstraintDefinitions.postgres.test.ts",
+            {
+              "testFileGroup": "c08-b2-o09-b-postgres"
+            },
+            "--no-file-parallelism",
+            "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "o09-b-postgres",
+      "category": "postgres",
+      "proof": "The ordered O09-B genuine-PostgreSQL unique-key and point-commit contention proof reused by the broader C08-B2 selector.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-o09-b-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            {
+              "testFileGroup": "c08-b2-o09-b-postgres"
+            },
+            "--no-file-parallelism",
+            "--testTimeout=180000"
           ]
         }
       ]

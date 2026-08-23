@@ -35,6 +35,37 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   while C04C2 remains conditional and
   unapproved.
 
+## Open Validation Issue: C04A-VAL-001
+
+**Disposition (2026-08-23):** Open validation blocker; no shared-owner repair is
+authorized by test-quality work. The issue was exposed while validating the
+TQ-A2 O09-B ordered test-file-group pilot and reproduces through the former
+direct Vitest command, so it is not attributed to lane orchestration.
+
+- **Reproduction:** from `packages/persistence-postgres`, run
+  `pnpm exec vitest run test/storedAttemptEvidence.test.ts --no-file-parallelism --testTimeout=180000 -t "consumes O08-B1 once and publishes through the same-process runtime-neutral B2a path"`.
+- **Expected:** the stored attempt's insert operation decodes its authenticated
+  commit syscall sequence and the O08-B1/B2a publication scenario succeeds.
+- **Actual:** `@flarex/executor` `pointMutationJournal` rejects the insert as
+  `UnsupportedPointMutationJournalOperationV1Error` with reason
+  `invalidSequence`; the nested Schema error is `Expected bigint, got "1"`.
+  The full O09-B PGlite command currently reports three failures: the same
+  invalid-sequence error in two publication scenarios and one current-authority
+  case returning `journalRootInvalid` instead of `sessionEvidenceInvalid`.
+- **Affected owner and boundary:** the C03/C04A journal decode and stored-attempt
+  authentication path, including the `CommitSyscallSequenceV1` runtime/schema
+  agreement. Test-lane manifest code does not own this protocol or decoder.
+- **Evidence:** the manifest lane reached the exact former O09-B files and
+  options in one Vitest process, with inherited PostgreSQL activation removed;
+  the focused former direct command reproduced the bigint/string failure.
+  Active concurrent changes overlap adjacent protocol and persistence work, so
+  root-cause attribution remains unsettled.
+
+Until separately approved and corrected by this owner, TQ-A2 may validate
+manifest expansion and fail-closed reporting but must not claim a passing
+O09-B application proof, weaken these assertions, add a compatibility decoder,
+or reproduce journal logic in the test harness.
+
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
 SessionDO journal authoritative, does not compile arbitrary Payload or Medusa

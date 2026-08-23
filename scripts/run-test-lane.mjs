@@ -14,11 +14,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  */
 
 /**
+ * @typedef {string | {
+ *   readonly testFileGroup: string;
+ * }} TestLaneArgument
+ */
+
+/**
  * @typedef {{
  *   readonly id: string;
  *   readonly cwd: string;
  *   readonly command: "pnpm";
- *   readonly args: readonly string[];
+ *   readonly args: readonly TestLaneArgument[];
  * }} TestLaneStep
  */
 
@@ -35,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 /**
  * @typedef {{
  *   readonly schemaVersion: 1;
+ *   readonly testFileGroups: Readonly<Record<string, readonly string[]>>;
  *   readonly lanes: readonly TestLane[];
  *   readonly selectors: Readonly<Record<string, readonly string[]>>;
  * }} TestLaneManifest
@@ -144,6 +151,8 @@ export function analyzeTestLaneManifest(value, options = {}) {
   const errors = [];
   if (!isRecord(value)) return ["manifest must be an object."];
   if (value.schemaVersion !== 1) errors.push("schemaVersion must be 1.");
+  const testFileGroups = validateTestFileGroups(value.testFileGroups, errors);
+  const referencedTestFileGroups = new Set();
 
   const lanes = Array.isArray(value.lanes) ? value.lanes : [];
   if (!Array.isArray(value.lanes) || lanes.length === 0) {
@@ -176,7 +185,20 @@ export function analyzeTestLaneManifest(value, options = {}) {
       errors.push(`${label}.proof must be a nonblank string.`);
     }
     validatePrerequisites(lane.prerequisites, label, errors);
-    validateSteps(lane.steps, label, options, errors);
+    validateSteps(
+      lane.steps,
+      label,
+      testFileGroups,
+      referencedTestFileGroups,
+      options,
+      errors,
+    );
+  }
+
+  for (const groupId of testFileGroups.keys()) {
+    if (!referencedTestFileGroups.has(groupId)) {
+      errors.push(`testFileGroups.${groupId} is not referenced by any lane step.`);
+    }
   }
 
   if (!isRecord(value.selectors) || Object.keys(value.selectors).length === 0) {
@@ -204,6 +226,40 @@ export function analyzeTestLaneManifest(value, options = {}) {
     }
   }
   return errors;
+}
+
+/**
+ * @param {unknown} unknownGroups
+ * @param {string[]} errors
+ */
+function validateTestFileGroups(unknownGroups, errors) {
+  /** @type {Map<string, readonly string[]>} */
+  const groups = new Map();
+  if (!isRecord(unknownGroups)) {
+    errors.push("testFileGroups must be an object.");
+    return groups;
+  }
+  for (const [groupId, unknownFiles] of Object.entries(unknownGroups)) {
+    const label = `testFileGroups.${groupId}`;
+    if (!isIdentifier(groupId)) {
+      errors.push(`${label} must use a lowercase kebab identifier.`);
+      continue;
+    }
+    if (
+      !Array.isArray(unknownFiles)
+      || unknownFiles.length === 0
+      || unknownFiles.some((file) => typeof file !== "string" || !isExplicitTestFile(file))
+    ) {
+      errors.push(`${label} must be a nonempty explicit test-file array.`);
+      continue;
+    }
+    if (new Set(unknownFiles).size !== unknownFiles.length) {
+      errors.push(`${label} must not repeat a test file.`);
+      continue;
+    }
+    groups.set(groupId, unknownFiles);
+  }
+  return groups;
 }
 
 /**
@@ -245,13 +301,22 @@ function validatePrerequisites(unknownPrerequisites, laneLabel, errors) {
 /**
  * @param {unknown} unknownSteps
  * @param {string} laneLabel
+ * @param {ReadonlyMap<string, readonly string[]>} testFileGroups
+ * @param {Set<string>} referencedTestFileGroups
  * @param {{
  *   readonly directoryExists?: (relativePath: string) => boolean;
  *   readonly fileExists?: (relativeDirectory: string, relativePath: string) => boolean;
  * }} options
  * @param {string[]} errors
  */
-function validateSteps(unknownSteps, laneLabel, options, errors) {
+function validateSteps(
+  unknownSteps,
+  laneLabel,
+  testFileGroups,
+  referencedTestFileGroups,
+  options,
+  errors,
+) {
   if (!Array.isArray(unknownSteps) || unknownSteps.length === 0) {
     errors.push(`${laneLabel}.steps must be a nonempty array.`);
     return;
@@ -277,17 +342,29 @@ function validateSteps(unknownSteps, laneLabel, options, errors) {
     if (step.command !== "pnpm") {
       errors.push(`${label}.command must be pnpm.`);
     }
-    if (
-      !Array.isArray(step.args)
-      || step.args.length === 0
-      || step.args.some((argument) => typeof argument !== "string" || argument.length === 0)
-    ) {
-      errors.push(`${label}.args must be a nonempty string array.`);
-    } else if (step.args.some((argument) => !isSafeCommandArgument(argument))) {
+    const expandedArguments = expandTestLaneArguments(step.args, testFileGroups, {
+      onGroup(groupId) {
+        referencedTestFileGroups.add(groupId);
+      },
+      onError(detail) {
+        errors.push(`${label}.args ${detail}`);
+      },
+    });
+    if (expandedArguments === undefined) {
+      // The argument-specific diagnostic above is more actionable.
+    } else if (expandedArguments.some((argument) => !isSafeCommandArgument(argument))) {
       errors.push(`${label}.args must contain shell-safe non-whitespace tokens.`);
     } else if (typeof step.cwd === "string") {
       const referencedFiles = new Set();
-      for (const argument of step.args) {
+      for (const argument of expandedArguments) {
+        if (containsGlob(argument) && !isSafeTestFileGlob(argument)) {
+          errors.push(`${label}.args contains unsafe test file glob ${JSON.stringify(argument)}.`);
+          continue;
+        }
+        if (isTestFileLike(argument) && !containsGlob(argument) && !isExplicitTestFile(argument)) {
+          errors.push(`${label}.args contains unsafe test file path ${JSON.stringify(argument)}.`);
+          continue;
+        }
         if (!isExplicitTestFile(argument)) continue;
         if (referencedFiles.has(argument)) {
           errors.push(`${label}.args must not repeat test file ${argument}.`);
@@ -300,6 +377,45 @@ function validateSteps(unknownSteps, laneLabel, options, errors) {
       }
     }
   }
+}
+
+/**
+ * @param {unknown} unknownArguments
+ * @param {ReadonlyMap<string, readonly string[]>} testFileGroups
+ * @param {{ readonly onGroup?: (groupId: string) => void; readonly onError?: (detail: string) => void }} [options]
+ * @returns {readonly string[] | undefined}
+ */
+function expandTestLaneArguments(unknownArguments, testFileGroups, options = {}) {
+  if (!Array.isArray(unknownArguments) || unknownArguments.length === 0) {
+    options.onError?.("must be a nonempty array of strings or test-file-group references.");
+    return undefined;
+  }
+  /** @type {string[]} */
+  const expanded = [];
+  for (const argument of unknownArguments) {
+    if (typeof argument === "string" && argument.length > 0) {
+      expanded.push(argument);
+      continue;
+    }
+    if (
+      isRecord(argument)
+      && Object.keys(argument).length === 1
+      && typeof argument.testFileGroup === "string"
+      && isIdentifier(argument.testFileGroup)
+    ) {
+      const files = testFileGroups.get(argument.testFileGroup);
+      if (files === undefined) {
+        options.onError?.(`references unknown test-file group ${argument.testFileGroup}.`);
+        return undefined;
+      }
+      options.onGroup?.(argument.testFileGroup);
+      expanded.push(...files);
+      continue;
+    }
+    options.onError?.("must contain only nonempty strings or one-key test-file-group references.");
+    return undefined;
+  }
+  return expanded;
 }
 
 /**
@@ -349,7 +465,7 @@ export function inspectTestLaneAvailability(lane, environment) {
  * @param {string} selector
  * @param {{
  *   readonly environment: Readonly<Record<string, string | undefined>>;
- *   readonly runStep: (lane: TestLane, step: TestLaneStep) => { readonly exitCode: number; readonly detail?: string };
+ *   readonly runStep: (lane: TestLane, step: TestLaneStep, args: readonly string[]) => { readonly exitCode: number; readonly detail?: string };
  *   readonly now?: () => number;
  * }} options
  * @returns {TestLaneReport}
@@ -384,7 +500,7 @@ export function executeTestLaneSelection(manifest, selector, options) {
   const passed = [];
   for (const [laneIndex, lane] of lanes.entries()) {
     for (const step of lane.steps) {
-      const result = options.runStep(lane, step);
+      const result = options.runStep(lane, step, resolveTestLaneStepArguments(manifest, step));
       if (result.exitCode !== 0) {
         return {
           schemaVersion: 1,
@@ -424,10 +540,21 @@ export function executeTestLaneSelection(manifest, selector, options) {
   };
 }
 
-/** @param {TestLane} lane @param {TestLaneStep} step */
-export function runTestLaneStep(lane, step) {
-  console.log(`Running ${lane.id}/${step.id}: ${step.command} ${step.args.join(" ")}`);
-  const invocation = resolvePnpmInvocation(step.args);
+/**
+ * @param {TestLaneManifest} manifest
+ * @param {TestLaneStep} step
+ */
+export function resolveTestLaneStepArguments(manifest, step) {
+  const groups = new Map(Object.entries(manifest.testFileGroups));
+  const expanded = expandTestLaneArguments(step.args, groups);
+  if (expanded === undefined) throw new Error(`Invalid arguments in validated lane step ${step.id}.`);
+  return expanded;
+}
+
+/** @param {TestLane} lane @param {TestLaneStep} step @param {readonly string[]} args */
+export function runTestLaneStep(lane, step, args) {
+  console.log(`Running ${lane.id}/${step.id}: ${step.command} ${args.join(" ")}`);
+  const invocation = resolvePnpmInvocation(args);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: path.join(repositoryRoot, step.cwd),
     env: projectTestLaneEnvironment(lane, process.env),
@@ -471,6 +598,7 @@ function projectTestLaneCatalog(manifest) {
   return {
     schemaVersion: manifest.schemaVersion,
     resultScope: "lanes",
+    testFileGroups: manifest.testFileGroups,
     selectors: manifest.selectors,
     lanes: manifest.lanes.map((lane) => ({
       id: lane.id,
@@ -510,8 +638,30 @@ function isSafeRepositoryRelativeDirectory(value) {
 
 /** @param {string} value */
 function isExplicitTestFile(value) {
-  return !/[*?[\]{}]/u.test(value)
+  return !containsGlob(value)
+    && !value.includes("\\")
+    && !path.posix.isAbsolute(value)
+    && path.posix.normalize(value) === value
     && /^(?:test|tests|integration|scripts|tools)\/.+\.(?:test|spec)\.(?:js|ts|tsx)$/u.test(value);
+}
+
+/** @param {string} value */
+function isSafeTestFileGlob(value) {
+  return containsGlob(value)
+    && !value.includes("\\")
+    && !path.posix.isAbsolute(value)
+    && path.posix.normalize(value) === value
+    && /^(?:test|tests|integration|scripts|tools)\/.+\.(?:test|spec)\.(?:js|ts|tsx)$/u.test(value);
+}
+
+/** @param {string} value */
+function isTestFileLike(value) {
+  return /\.(?:test|spec)\.(?:js|ts|tsx)$/u.test(value);
+}
+
+/** @param {string} value */
+function containsGlob(value) {
+  return /[*?[\]{}]/u.test(value);
 }
 
 /** @param {string} value */

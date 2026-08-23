@@ -10,6 +10,7 @@ import {
   loadTestLaneManifest,
   projectTestLaneEnvironment,
   resolveTestLaneSelection,
+  resolveTestLaneStepArguments,
   runTestLaneStep,
 } from "./run-test-lane.mjs";
 
@@ -76,6 +77,123 @@ describe("test lane manifest and runner", () => {
       .toBe("node ../../scripts/run-test-lane.mjs dte05-e2c1-pglite");
   });
 
+  it("expands shared C08-B2 and O09-B files inside each original Vitest invocation", () => {
+    const manifest = loadTestLaneManifest();
+    const packageManifest = JSON.parse(
+      readFileSync("packages/persistence-postgres/package.json", "utf8"),
+    );
+    /** @type {readonly (readonly [string, readonly string[]])[]} */
+    const cases = [
+      [
+        "c08-b2-pglite",
+        [
+          "exec",
+          "vitest",
+          "run",
+          "test/appUniqueConstraintDefinitions.test.ts",
+          "test/appUniqueKeys.test.ts",
+          "test/storedAttemptEvidence.test.ts",
+          "--no-file-parallelism",
+          "--testTimeout=180000",
+        ],
+      ],
+      [
+        "o09-b-pglite",
+        [
+          "exec",
+          "vitest",
+          "run",
+          "test/appUniqueKeys.test.ts",
+          "test/storedAttemptEvidence.test.ts",
+          "--no-file-parallelism",
+          "--testTimeout=180000",
+        ],
+      ],
+      [
+        "c08-b2-postgres",
+        [
+          "exec",
+          "vitest",
+          "run",
+          "test/appUniqueConstraintDefinitions.postgres.test.ts",
+          "test/appUniqueKeys.postgres.test.ts",
+          "test/pointCommitTransaction.postgres.test.ts",
+          "--no-file-parallelism",
+          "--testTimeout=180000",
+        ],
+      ],
+      [
+        "o09-b-postgres",
+        [
+          "exec",
+          "vitest",
+          "run",
+          "test/appUniqueKeys.postgres.test.ts",
+          "test/pointCommitTransaction.postgres.test.ts",
+          "--no-file-parallelism",
+          "--testTimeout=180000",
+        ],
+      ],
+    ];
+
+    for (const [selector, expectedArguments] of cases) {
+      const lane = resolveTestLaneSelection(manifest, selector)[0];
+      expect(resolveTestLaneStepArguments(manifest, lane.steps[0])).toEqual(expectedArguments);
+    }
+    expect(packageManifest.scripts?.["test:c08-b2:pglite"])
+      .toBe("node ../../scripts/run-test-lane.mjs c08-b2-pglite");
+    expect(packageManifest.scripts?.["test:c08-b2:postgres"])
+      .toBe("node ../../scripts/run-test-lane.mjs c08-b2-postgres");
+    expect(packageManifest.scripts?.["test:o09-b:pglite"])
+      .toBe("node ../../scripts/run-test-lane.mjs o09-b-pglite");
+    expect(packageManifest.scripts?.["test:o09-b:postgres"])
+      .toBe("node ../../scripts/run-test-lane.mjs o09-b-postgres");
+  });
+
+  it("rejects unknown and unreferenced test-file groups", () => {
+    const manifest = JSON.parse(readFileSync("test-lanes.json", "utf8"));
+    manifest.testFileGroups["unused-group"] = ["test/unused.test.ts"];
+    manifest.lanes[0].steps[0].args = [{ testFileGroup: "missing-group" }];
+
+    expect(analyzeTestLaneManifest(manifest)).toEqual(expect.arrayContaining([
+      "lanes[0].steps[0].args references unknown test-file group missing-group.",
+      "testFileGroups.unused-group is not referenced by any lane step.",
+    ]));
+  });
+
+  it("rejects test-file groups and inline files that escape the package directory", () => {
+    const manifest = JSON.parse(readFileSync("test-lanes.json", "utf8"));
+    manifest.testFileGroups["unsafe-group"] = [
+      "test/../../../scripts/run-test-lane.test.js",
+    ];
+    manifest.lanes[0].steps[0].args = [
+      "exec",
+      "test/../../../scripts/run-test-lane.test.js",
+    ];
+    manifest.lanes[1].steps[0].args = [
+      "exec",
+      "../../**/*.test.ts",
+    ];
+
+    expect(analyzeTestLaneManifest(manifest)).toEqual(expect.arrayContaining([
+      "testFileGroups.unsafe-group must be a nonempty explicit test-file array.",
+      'lanes[0].steps[0].args contains unsafe test file path "test/../../../scripts/run-test-lane.test.js".',
+      'lanes[1].steps[0].args contains unsafe test file glob "../../**/*.test.ts".',
+    ]));
+
+    for (const unsafeGlob of [
+      "../../**/*.test.{js,ts}",
+      "../../**/*.{test,spec}.ts",
+      "../../**/*.test.[jt]s",
+    ]) {
+      const candidate = JSON.parse(readFileSync("test-lanes.json", "utf8"));
+      candidate.lanes[1].steps[0].args = ["exec", unsafeGlob];
+      expect(analyzeTestLaneManifest(candidate)).toContain(
+        `lanes[1].steps[0].args contains unsafe test file glob ${JSON.stringify(unsafeGlob)}.`,
+      );
+    }
+  });
+
   it("rejects unknown lanes, unsafe directories, duplicate prerequisites, and foreign commands", () => {
     const manifest = JSON.parse(readFileSync("test-lanes.json", "utf8"));
     manifest.lanes[0].steps[0].cwd = "../outside";
@@ -111,6 +229,7 @@ describe("test lane manifest and runner", () => {
         command: "pnpm",
         args: ["--version"],
       },
+      ["--version"],
     );
 
     expect(result).toEqual({ exitCode: 0 });

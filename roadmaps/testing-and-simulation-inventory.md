@@ -80,7 +80,7 @@ whose names begin with `test`:
 | Named test commands | 157 |
 | Names containing `pglite` | 64 |
 | Names containing `postgres` | 66 |
-| Explicit test-file references across package commands | 231 |
+| Explicit test-file references across package commands | 221 |
 | Unique explicitly referenced test files across package commands | 180 |
 
 Two manifests dominate the command catalog:
@@ -112,6 +112,22 @@ as compatibility aliases pending an explicit removal decision. They now resolve
 to one `dte05-repair-checkpoint-pglite` lane whose proof is deliberately narrow:
 E2B owns the checkpoint protocol, while E2C1 reuses that regression alongside
 its separate executor and genuine-PostgreSQL connected-runner proof.
+
+The command-overlap scan found one strong non-identical family. O09-B's two
+PGlite files are an exact ordered subset of C08-B2's three files, and its two
+PostgreSQL files are the corresponding ordered subset of C08-B2's three-file
+lane. All four commands are live. Ordered `testFileGroups` now expand the shared
+files inline inside each one-process Vitest command: C08-B2 retains its leading
+definition-lowering file, while O09-B remains the narrower contention proof.
+No command was split into multiple runner steps, and no fixture or process-
+lifetime equivalence is inferred from file overlap.
+
+The real expanded O09-B PGlite run selected the exact two former files and
+reported 95 passes plus three failures in `storedAttemptEvidence.test.ts`. A
+focused former direct Vitest invocation reproduces the primary
+`Expected bigint, got "1"` journal-decoder failure. This is tracked as open
+shared-owner issue `C04A-VAL-001` in the commit-compiler roadmap; TQ-A2 does not
+repair it or treat the failing lane as successful orchestration evidence.
 
 The root `test` command remains a recursive package sweep, not an aggregate
 correctness gate. Root integration, H04, H05, and explicitly required
@@ -242,9 +258,9 @@ exists, runtime-based pruning or fixture sharing is not authorized.
 
 1. **Continue `TQ-A2` milestone-alias convergence.** `TQ-A1` removed
    false-green stable PostgreSQL commands. The C08-B1a/B1b PostgreSQL and
-   DTE05-E2B/E2C1 PGlite pairs are now exact thin-selector pilots. Next audit
-   near-duplicate rather than byte-identical lists by invariant, and do not
-   merge them merely because they share files.
+   DTE05-E2B/E2C1 PGlite pairs are exact thin-selector pilots, and C08-B2/O09-B
+   is the ordered-subset pilot. The remaining alias work is consumer/removal
+   policy, not evidence that every overlapping list deserves a shared group.
 2. **`TQ-B` Application-native query contract pilot.** Small, completed,
    currently untouched pair; retain separate lane activation and PostgreSQL
    resource ownership while sharing only the exact scenario/assertion contract.
