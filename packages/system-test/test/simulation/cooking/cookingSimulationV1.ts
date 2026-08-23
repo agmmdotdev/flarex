@@ -892,6 +892,10 @@ const runCookingWorkloadV1 = Effect.fn(
     invalidReturnResult,
     "patch with invalid return value",
   );
+  let failedRuntimeInterleavingExecutions = 0;
+  yield* client.scheduleAfterNextMutationRuntime(() => Effect.sync(() => {
+    failedRuntimeInterleavingExecutions += 1;
+  }));
   const thrownMutationResult = yield* Effect.result(client.mutation(
     COOKING_PATCH_THEN_THROW,
     { id: setup.documentId },
@@ -901,6 +905,11 @@ const runCookingWorkloadV1 = Effect.fn(
     thrownMutationResult,
     "patch followed by a user-code throw",
   );
+  if (failedRuntimeInterleavingExecutions !== 1) {
+    return yield* Effect.die(new Error(
+      "The cooking failed-runtime interleaving did not run exactly once.",
+    ));
+  }
   const afterFailedMutations = yield* client.inspectAuthoritativeState();
   requireFailedMutationRollback(
     beforeFailedMutations,
@@ -1569,7 +1578,8 @@ function hasExpectedUserCodeFailureCause(
   failure: CookingUserCodeFailureV1,
 ): boolean {
   return failure.cause instanceof Error &&
-    failure.cause.message === "Exact point-mutation user code failed.";
+    failure.cause.name === "ApplicationWorkerUserCodeV1Error" &&
+    failure.cause.message === "ApplicationWorkerUserCodeV1Error";
 }
 
 function matchesExpectedArgumentIssue(

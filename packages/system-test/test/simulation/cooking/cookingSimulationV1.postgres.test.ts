@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  withTemporarySplitPostgresPersistence,
 } from "../../support/databaseFixturesV1";
 import {
   makePostgresStandardApplicationSystemTestLaneV1,
@@ -26,7 +26,7 @@ describe("cooking simulation genuine PostgreSQL environment", () => {
 
 describePostgres("cooking simulation - PostgreSQL", () => {
   it("preserves lifecycle and deterministic pantry OCC invariants", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withTemporarySplitPostgresPersistence(async persistence => {
       const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
         lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
         simulation: cookingSimulationV1,
@@ -133,7 +133,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
         ],
       });
-      const sidecarCounts = await persistence.query<{
+      const sidecarCounts = await persistence.target.query<{
         revisions: string;
         current_rows: string;
       }>(`select
@@ -143,7 +143,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         revisions: "41",
         current_rows: "13",
       });
-      const removedFieldEvidence = await persistence.query<{
+      const removedFieldEvidence = await persistence.target.query<{
         commit_seq: string;
         value_json: unknown;
       }>(`select revision.commit_seq::text,
@@ -162,7 +162,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
       expect(removedFieldEvidence.rows[0]?.value_json).not.toHaveProperty(
         "description",
       );
-      const optionalFieldSidecars = await persistence.query<{
+      const optionalFieldSidecars = await persistence.target.query<{
         commit_seq: string;
         current_count: string;
         revision_count: string;
@@ -192,7 +192,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         current_count: "3",
         revision_count: "3",
       }]);
-      const indexedDecisionEvidence = await persistence.query<{
+      const indexedDecisionEvidence = await persistence.target.query<{
         lifecycle: string;
         current_attempt_fence: string;
         journal_count: string;
@@ -221,7 +221,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         indexed_query_syscalls: "0",
         range_count: "0",
       }]);
-      const crossTableSidecars = await persistence.query<{
+      const crossTableSidecars = await persistence.target.query<{
         access_kind: string;
         table_id: string;
         row_id_hex: string;

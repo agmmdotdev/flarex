@@ -1,96 +1,45 @@
 import {
-  createPGliteLocatedPointMutationSessionActivationTargetV1,
-  createPGliteLocatedScopeAuthorizationEpochTarget,
-  type PGliteFlarexPersistence,
-} from "@flarex/persistence-postgres/pglite";
-import {
-  createPGliteLocatedApplicationRevisionActivationTargetV1,
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
-import {
-  createPostgresLocatedPointMutationSessionActivationTargetV1,
-  createPostgresLocatedScopeAuthorizationEpochTarget,
-  type PostgresFlarexPersistence,
-} from "@flarex/persistence-postgres/postgres";
-import {
-  createPostgresLocatedApplicationRevisionActivationTargetV1,
-  createPostgresLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
-import { FSV05_SUPPORTED_LOCATOR } from
-  "../../support/fsv05ApplicationRevisionActivationHarness";
+  type ApplicationNativeMutationFixtureOptions,
+  createApplicationNativeMutationPGliteFixtureWithPersistence,
+  createApplicationNativeMutationPostgresFixture,
+} from
+  "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
+import type { PGliteFlarexPersistence } from
+  "@flarex/persistence-postgres/pglite";
+import type { PostgresFlarexPersistence } from
+  "@flarex/persistence-postgres/postgres";
+
 import type {
   StandardApplicationSystemTestLaneV1,
 } from "../environment/standardApplicationEnvironmentV1";
 
-type PGliteRegistrationTargetV1 = ReturnType<
-  typeof createPGliteLocatedApplicationRevisionRegistrationTargetV1
->;
-
 export function makePGliteStandardApplicationSystemTestLaneV1(
-  persistence: PGliteFlarexPersistence,
-  registrationTarget: PGliteRegistrationTargetV1 =
-    createPGliteLocatedApplicationRevisionRegistrationTargetV1(
-      persistence,
-      FSV05_SUPPORTED_LOCATOR,
-    ),
+  persistence: Readonly<{
+    readonly control: PGliteFlarexPersistence;
+    readonly target: PGliteFlarexPersistence;
+  }>,
 ): StandardApplicationSystemTestLaneV1 {
-  return {
+  return Object.freeze({
     name: "pglite",
-    persistence,
-    registrationTarget,
-    makeActivationTarget: () =>
-      createPGliteLocatedApplicationRevisionActivationTargetV1(
+    ...persistence,
+    createFixture: (options: ApplicationNativeMutationFixtureOptions) =>
+      createApplicationNativeMutationPGliteFixtureWithPersistence(
+        options,
         persistence,
-        FSV05_SUPPORTED_LOCATOR,
       ),
-    makeDecisionUncertainTarget: () => {
-      throw new Error(
-        "The Standard Application system-test lane does not inject activation uncertainty.",
-      );
-    },
-    makeSessionTarget: () =>
-      createPGliteLocatedPointMutationSessionActivationTargetV1(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      ),
-    makeEpochTarget: () =>
-      createPGliteLocatedScopeAuthorizationEpochTarget(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      ),
-  };
+  });
 }
 
 export function makePostgresStandardApplicationSystemTestLaneV1(
-  persistence: PostgresFlarexPersistence,
+  persistence: Readonly<{
+    readonly control: PostgresFlarexPersistence;
+    readonly target: PostgresFlarexPersistence;
+  }>,
 ): StandardApplicationSystemTestLaneV1 {
-  return {
+  return Object.freeze({
     name: "postgres",
-    persistence,
-    registrationTarget:
-      createPostgresLocatedApplicationRevisionRegistrationTargetV1(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      ),
-    makeActivationTarget: () =>
-      createPostgresLocatedApplicationRevisionActivationTargetV1(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      ),
-    makeDecisionUncertainTarget: () => {
-      throw new Error(
-        "The Standard Application system-test lane does not inject activation uncertainty.",
-      );
-    },
-    makeSessionTarget: () =>
-      createPostgresLocatedPointMutationSessionActivationTargetV1(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      ),
-    makeEpochTarget: () =>
-      createPostgresLocatedScopeAuthorizationEpochTarget(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      ),
-  };
+    ...persistence,
+    createFixture: (options: ApplicationNativeMutationFixtureOptions) =>
+      createApplicationNativeMutationPostgresFixture(options, persistence),
+  });
 }

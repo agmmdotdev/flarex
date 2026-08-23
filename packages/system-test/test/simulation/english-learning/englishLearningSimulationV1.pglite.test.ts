@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
-import { createMigratedPGlitePersistence } from
+import { createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence } from
   "../../support/databaseFixturesV1";
 import {
   makePGliteStandardApplicationSystemTestLaneV1,

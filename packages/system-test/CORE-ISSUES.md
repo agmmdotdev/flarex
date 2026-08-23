@@ -14,6 +14,51 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-026` - analyzer scheduling is classified as an application import effect
+
+- **Status:** Resolved by giving only the analyzer-owned Effect runner a host
+  timer capability captured before the per-load import policy is installed.
+  Application code still observes the policy-patched global timer throughout
+  cold import and lazy registration reads.
+- **Reproduction:** Run the unchanged cooking simulation through current
+  Application Analysis in the PGlite lane. Both cold loads reject before
+  publication with `forbidden_import_effect`; the analyzer's bounded diagnostic
+  is `setTimeout is forbidden during application import.` The produced
+  application modules contain no `setTimeout`, replacing the two supported
+  `FlarexError` imports does not change the failure, and removing every optional
+  cooking function module still reproduces it. The smaller English-learning
+  simulation passes the same current Analysis path.
+- **Expected:** The import-time ambient-effect policy rejects a timer requested
+  by application module evaluation. Deterministic analyzer work performed after
+  both cold imports must not be attributed to the application merely because
+  its Effect computation crosses a scheduling yield.
+- **Actual:** `runApplicationAnalysisColdLoad` keeps the installed application
+  import policy active after `loadExecution()` and `loadSchema()` while it runs
+  `analyzeLoadedSourcePackageEffect`. The richer cooking schema crosses a path
+  that requests `setTimeout`; the sticky policy records that analyzer-owned
+  request and replaces an otherwise valid analysis result with
+  `forbidden_import_effect`.
+- **Owner and trust boundary:** Current Application Analysis cold-load phase
+  separation and the lifetime of `installApplicationImportPolicyV1`. This is
+  not owned by `@flarex/system-test`, Standard source production, persistence,
+  or application handlers. The harness must not remove cooking behavior,
+  permit timers globally, retry through a legacy analyzer, or reinterpret this
+  rejection as acceptance.
+- **Correction:** Preserve the sticky policy across all
+  application-controlled module evaluation, but prevent analyzer-owned
+  scheduling after the cold imports from mutating that verdict. One
+  `MixedScheduler` uses the captured host timer only for
+  `analyzeLoadedSourcePackageEffect` and manifest construction. No global
+  permission, fallback, second analysis path, or application capability was
+  added.
+- **Acceptance evidence:** Direct Workerd analyzer tests prove a genuine
+  top-level `setTimeout` remains `forbidden_import_effect`, while a 1,024-field
+  schema analyzes twice to one manifest. Existing cold-load policy tests remain
+  green. The unchanged rich cooking and English-learning simulations then pass
+  current analysis, publication, readiness, activation, Workerd execution,
+  replay, OCC/commit inspection, and optional-field deletion in PGlite and
+  ordinary-role PostgreSQL 18.3.
+
 ### `ST-CORE-025` - stale schema attempt can publish after replacement activation
 
 - **Status:** Resolved by an Application-generation publication fence in the

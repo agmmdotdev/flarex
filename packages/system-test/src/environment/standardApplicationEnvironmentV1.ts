@@ -1,4 +1,4 @@
-import { Data, Effect, Fiber, Layer, Scope } from "effect";
+import { Data, Effect, Fiber, Layer, Result, Scope } from "effect";
 import type {
   TransactionFunctionPathV1,
   TransactionRequestKeyV1,
@@ -23,43 +23,41 @@ import type {
   StandardApplicationDefinitionInputV1,
   StandardValidatorV1,
 } from "@flarex/standard-application-definition/v1";
+import { prepareStandardApplicationDefinitionV1 } from
+  "@flarex/standard-application-definition/v1";
 
 import {
-  ApplicationPointQuerySystemV1,
-  invokeApplicationPointQueryV1,
-  makeApplicationPointQuerySystemV1Layer,
-  type InvokeApplicationPointQueryV1Error,
-} from "@flarex/standard-application-invocation/internal/system-test/system-query-v1";
-import {
-  LegacyApplicationPointMutationSystemV1,
-  invokeLegacyApplicationPointMutationV1,
-  makeLegacyApplicationPointMutationSystemV1Layer,
-} from "@flarex/standard-application-invocation/internal/system-test/system-v1";
-import {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  invokeStandardApplicationPointMutationV1,
+  invokeStandardApplicationPointQueryV1,
+  type InvokeStandardApplicationPointMutationV1Error,
+  type InvokeStandardApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/v1";
 import {
-  makeLegacyStandardApplicationActiveRevisionReaderV1Layer,
-  LegacyStandardApplicationActiveRevisionReaderV1,
-} from "@flarex/standard-application-invocation/internal/system-test/legacy-active-revision-reader-v1";
+  ApplicationMutationSystem,
+} from "@flarex/standard-application-invocation/internal/application-mutation-system";
+import {
+  ApplicationQuerySystem,
+} from "@flarex/standard-application-invocation/internal/application-query-system";
 import type {
-  InvokeLegacyApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/internal/system-test/system-v1";
+  ApplicationNativeMutationFixture,
+  ApplicationNativeMutationFixtureOptions,
+  ApplicationNativeMutationPersistence,
+} from
+  "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
+import { APPLICATION_RUNTIME_HOST_IDENTITY } from
+  "flarex-backend/artifact-runtime";
+import { makeApplicationNativeMutationTestLayer } from
+  "../../support/applicationNativeMutationHarness";
 import {
-  activateApplicationRevisionV1,
-  type ActivateApplicationRevisionV1Error,
-  type ReadActiveApplicationRevisionV1Error,
-} from "@flarex/persistence-postgres/internal/system-test/application-revision-activation-v1";
+  makeApplicationNativeQueryTestLayer,
+  MiniflareApplicationWorkerLoader,
+} from "../../support/applicationNativeQueryHarness";
 import {
-  type Fsv06StandardPointMutationLaneV1 as PersistenceStandardApplicationSystemTestLaneV1,
-  makeFsv06StandardPointMutationSystemTestCompositionV1,
-} from "../../support/fsv06StandardPointMutationHarness";
-import { prepareFsv05ReadyRevisionFixtureEffectV1 } from
-  "../../support/fsv05ApplicationRevisionActivationHarness";
-import { makeMemoryRuntimeArtifactStoreV1 } from
-  "../../support/memoryRuntimeArtifactStoreV1";
-import { makeSap05StandardPointQuerySystemLiveForTestV1 } from
-  "../../support/sap05StandardPointQueryHarness";
+  makeStandardApplicationCurrentAnalysisV1,
+  MiniflareApplicationAnalysisWorkerLoader,
+  produceStandardApplicationCurrentSourceBundleV1,
+} from "../../support/standardApplicationCurrentAnalysisHarness";
 import {
   makeStandardApplicationSystemTestInspectorV1,
   type StandardApplicationAuthoritativeInspectionV1,
@@ -70,53 +68,14 @@ import type {
 } from "../simulation/standardApplicationSimulationV1";
 
 type ApplicationTestRequirementsV1 =
-  | LegacyApplicationPointMutationSystemV1
-  | ApplicationPointQuerySystemV1
-  | LegacyStandardApplicationActiveRevisionReaderV1
+  | ApplicationMutationSystem
+  | ApplicationQuerySystem
   | Scope.Scope;
 
 export type StandardApplicationLegacySimulationQueryErrorV1 =
-  | ReadActiveApplicationRevisionV1Error
-  | InvokeApplicationPointQueryV1Error;
+  InvokeStandardApplicationPointQueryV1Error;
 export type StandardApplicationLegacySimulationMutationErrorV1 =
-  | ReadActiveApplicationRevisionV1Error
-  | InvokeLegacyApplicationPointMutationV1Error;
-type InvokeStandardApplicationPointMutationV1Error =
-  StandardApplicationLegacySimulationMutationErrorV1;
-
-/**
- * This Application Revision V1 simulation remains legacy coverage until the
- * AA-R7 Application system proof replaces it. Keep its displaced query
- * authority local instead of routing through the migrated Standard consumer.
- */
-const invokeLegacySimulationPointQueryV1 = Effect.fn(
-  "StandardApplicationSimulation.invokeLegacyPointQueryV1",
-)(function* (functionPath: TransactionFunctionPathV1, args: unknown) {
-  const reader = yield* LegacyStandardApplicationActiveRevisionReaderV1;
-  const active = yield* reader.read;
-  return yield* invokeApplicationPointQueryV1(
-    active.selection,
-    functionPath,
-    args,
-  );
-});
-
-const invokeLegacySimulationPointMutationV1 = Effect.fn(
-  "StandardApplicationSimulation.invokeLegacyPointMutationV1",
-)(function* (
-  functionPath: TransactionFunctionPathV1,
-  args: unknown,
-  requestKey: TransactionRequestKeyV1,
-) {
-  const reader = yield* LegacyStandardApplicationActiveRevisionReaderV1;
-  const active = yield* reader.read;
-  return yield* invokeLegacyApplicationPointMutationV1(
-    active.selection,
-    functionPath,
-    args,
-    requestKey,
-  );
-});
+  InvokeStandardApplicationPointMutationV1Error;
 
 export interface StandardApplicationSystemTestSetupClientV1 {
   readonly mutation: <
@@ -233,9 +192,6 @@ export interface RunStandardApplicationSimulationV1Input<Setup, A, E> {
   readonly simulation: StandardApplicationSimulationV1<Setup, A, E>;
 }
 
-export type StandardApplicationSystemTestLaneV1 =
-  PersistenceStandardApplicationSystemTestLaneV1;
-
 export class StandardApplicationSimulationIntegrationV1Error
   extends Data.TaggedError(
     "StandardApplicationSimulationIntegrationV1Error",
@@ -247,9 +203,19 @@ export class StandardApplicationSimulationIntegrationV1Error
 
 export type RunStandardApplicationSimulationV1Error<E> =
   | E
-  | ActivateApplicationRevisionV1Error
   | StandardApplicationSimulationIntegrationV1Error
   | StandardApplicationSystemTestInspectionV1Error;
+
+export interface StandardApplicationSystemTestLaneV1 {
+  readonly name: "pglite" | "postgres";
+  readonly control: ApplicationNativeMutationPersistence;
+  readonly target: ApplicationNativeMutationPersistence;
+  readonly createFixture: (
+    options: ApplicationNativeMutationFixtureOptions,
+  ) => Promise<
+    ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
+  >;
+}
 
 /**
  * Private, test-owned composition root for one relation-free Standard
@@ -264,66 +230,94 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
   StandardApplicationSimulationRunReceiptV1<Setup, A>,
   RunStandardApplicationSimulationV1Error<E>
 > {
+  const analysisLoader = new MiniflareApplicationAnalysisWorkerLoader();
+  const runtimeLoader = new MiniflareApplicationWorkerLoader();
+  return yield* runStandardApplicationSimulationWithCurrentAuthorityV1(
+    input,
+    analysisLoader,
+    runtimeLoader,
+  ).pipe(Effect.ensuring(Effect.promise(async () => {
+    await Promise.all([analysisLoader.dispose(), runtimeLoader.dispose()]);
+  })));
+});
+
+const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
+  "StandardApplicationSimulation.runWithCurrentAuthorityV1",
+)(function* <Setup, A, E>(
+  input: RunStandardApplicationSimulationV1Input<Setup, A, E>,
+  analysisLoader: MiniflareApplicationAnalysisWorkerLoader,
+  runtimeLoader: MiniflareApplicationWorkerLoader,
+): Effect.fn.Return<
+  StandardApplicationSimulationRunReceiptV1<Setup, A>,
+  RunStandardApplicationSimulationV1Error<E>
+> {
   const { simulation } = input;
-  const artifacts = makeMemoryRuntimeArtifactStoreV1();
   const standardDefinitionInput = simulation.application.define();
   const registeredFunctionContracts = indexRegisteredFunctionContractsV1(
     standardDefinitionInput,
   );
-  const ready = yield* prepareFsv05ReadyRevisionFixtureEffectV1(
-      input.lane,
-      artifacts,
-      simulation.application.revisionName,
-      true,
-      standardDefinitionInput,
-    ).pipe(
-      Effect.uninterruptible,
-      Effect.mapError(cause =>
-        new StandardApplicationSimulationIntegrationV1Error({
-          phase: "prepareRevision",
-          applicationId: simulation.application.applicationId,
-          cause,
-        })
-      ),
-    );
-  yield* Effect.scoped(
-    activateApplicationRevisionV1(ready.revisionId, null, ready.context),
-  );
+  const fixture = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: async () => {
+      const definition = Result.getOrThrow(
+        prepareStandardApplicationDefinitionV1(standardDefinitionInput),
+      );
+      const source = await produceStandardApplicationCurrentSourceBundleV1(
+        definition,
+      );
+      return input.lane.createFixture({
+        runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+        compatibilityDate: "2026-06-14",
+        analysis: makeStandardApplicationCurrentAnalysisV1(
+          source,
+          analysisLoader,
+          simulation.application.applicationId,
+        ),
+      });
+    },
+    catch: cause => new StandardApplicationSimulationIntegrationV1Error({
+      phase: "prepareRevision",
+      applicationId: simulation.application.applicationId,
+      cause,
+    }),
+  }));
 
   let mutationRuntimeExecutions = 0;
   let queryRuntimeExecutions = 0;
-  let queryExecutionSequence = 0;
-  const mutationComposition =
-    makeFsv06StandardPointMutationSystemTestCompositionV1(
-    input.lane,
-    ready.deploymentId,
-    artifacts,
-    () => { mutationRuntimeExecutions += 1; },
-  );
-  const mutationSystem = mutationComposition.system;
-  const querySystem = makeSap05StandardPointQuerySystemLiveForTestV1(
-    ready,
-    artifacts,
+  let afterNextMutationRuntime: (() => Effect.Effect<void, never>) | undefined;
+  const mutationLayer = yield* Effect.tryPromise({
+    try: () => makeApplicationNativeMutationTestLayer(
+      fixture,
+      runtimeLoader,
+      {
+        onExecution: () => { mutationRuntimeExecutions += 1; },
+        afterRuntime: () => Effect.suspend(() => {
+          const operation = afterNextMutationRuntime;
+          if (operation === undefined) return Effect.void;
+          afterNextMutationRuntime = undefined;
+          return operation();
+        }),
+      },
+    ),
+    catch: cause => new StandardApplicationSimulationIntegrationV1Error({
+      phase: "prepareRevision",
+      applicationId: simulation.application.applicationId,
+      cause,
+    }),
+  });
+  const queryLayer = makeApplicationNativeQueryTestLayer(
+    fixture,
+    runtimeLoader,
     () => { queryRuntimeExecutions += 1; },
-    () => {
-      queryExecutionSequence += 1;
-      return {
-        executionId:
-          `${simulation.application.applicationId}-query-${queryExecutionSequence}`,
-        randomSeed: makeQueryRandomSeedV1(queryExecutionSequence),
-        executionTime: 1_780_100_000_000 + queryExecutionSequence,
-      };
-    },
   );
   const applicationLayer = Layer.mergeAll(
-    makeLegacyApplicationPointMutationSystemV1Layer(mutationSystem),
-    makeApplicationPointQuerySystemV1Layer(querySystem),
-    makeLegacyStandardApplicationActiveRevisionReaderV1Layer(ready.context),
+    mutationLayer,
+    queryLayer,
   );
   const inspector = yield* makeStandardApplicationSystemTestInspectorV1({
     applicationId: simulation.application.applicationId,
-    deploymentId: ready.deploymentId,
-    persistence: input.lane.persistence,
+    deploymentId: fixture.deploymentId,
+    controlPersistence: input.lane.control,
+    targetPersistence: input.lane.target,
     getMutationRuntimeExecutions: () => mutationRuntimeExecutions,
     getQueryRuntimeExecutions: () => queryRuntimeExecutions,
   });
@@ -382,7 +376,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             reference,
           ).pipe(Effect.flatMap(() => invokeApplication(
               invocationScope,
-              invokeLegacySimulationPointMutationV1(
+              invokeStandardApplicationPointMutationV1(
                 TransactionFunctionPathV1Schema.make(reference.path),
                 args,
                 requestKey,
@@ -398,7 +392,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         )((functionPath, args, requestKey) => invokeWhileSetupActive(() =>
           invokeApplication(
             invocationScope,
-            invokeLegacySimulationPointMutationV1(
+            invokeStandardApplicationPointMutationV1(
               functionPath,
               args,
               requestKey,
@@ -447,7 +441,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             reference,
           ).pipe(Effect.flatMap(() => invokeApplication(
               invocationScope,
-              invokeLegacySimulationPointMutationV1(
+              invokeStandardApplicationPointMutationV1(
                 TransactionFunctionPathV1Schema.make(reference.path),
                 args,
                 requestKey,
@@ -476,7 +470,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
             reference,
           ).pipe(Effect.flatMap(() => invokeApplication(
               invocationScope,
-              invokeLegacySimulationPointQueryV1(
+              invokeStandardApplicationPointQueryV1(
                 TransactionFunctionPathV1Schema.make(reference.path),
                 args,
               ).pipe(Effect.flatMap(value =>
@@ -491,7 +485,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         )((functionPath, args, requestKey) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
-            invokeLegacySimulationPointMutationV1(
+            invokeStandardApplicationPointMutationV1(
               functionPath,
               args,
               requestKey,
@@ -503,7 +497,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         )((functionPath, args) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
-            invokeLegacySimulationPointQueryV1(functionPath, args),
+            invokeStandardApplicationPointQueryV1(functionPath, args),
           )
         )),
         inspectAuthoritativeState: Effect.fn(
@@ -515,15 +509,26 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
         scheduleAfterNextMutationRuntime: Effect.fn(
           "StandardApplicationSystemTest.scheduleAfterNextMutationRuntimeV1",
         )(operation => invokeWhileActive(() => Effect.sync(() => {
-          mutationComposition.armAfterNextRuntime(operation());
+          if (afterNextMutationRuntime !== undefined) {
+            throw new Error(
+              "The Standard mutation test interleaver already has pending work.",
+            );
+          }
+          afterNextMutationRuntime = operation;
         }))),
       } satisfies StandardApplicationSystemTestClientV1);
       return Effect.suspend(() => simulation.workload(client, setupProof)).pipe(
         Effect.tap(() => Effect.sync(
-          mutationComposition.requireNoPendingInterleaving,
+          () => {
+            if (afterNextMutationRuntime !== undefined) {
+              throw new Error(
+                "The Standard mutation test interleaving was not consumed.",
+              );
+            }
+          },
         )),
         Effect.ensuring(Effect.sync(() => {
-          mutationComposition.clearPendingInterleaving();
+          afterNextMutationRuntime = undefined;
           clientActive = false;
         })),
       );
@@ -550,7 +555,7 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
     ? (yield* runUninterruptibleIntegrationPromiseV1(
         "inspectPostgresVersion",
         simulation.application.applicationId,
-        () => input.lane.persistence.query<{ version: string }>(
+        () => input.lane.target.query<{ version: string }>(
           "select version() as version",
         ),
       )).rows[0]?.version ?? null
@@ -571,15 +576,6 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
     postgresVersion,
   };
 });
-
-function makeQueryRandomSeedV1(sequence: number): Uint8Array {
-  if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 0xffff_ffff) {
-    throw new Error("The Standard Application system-test query sequence overflowed.");
-  }
-  const seed = new Uint8Array(32);
-  new DataView(seed.buffer).setUint32(28, sequence);
-  return seed;
-}
 
 type RegisteredFunctionContractV1 = Readonly<{
   readonly kind: string;

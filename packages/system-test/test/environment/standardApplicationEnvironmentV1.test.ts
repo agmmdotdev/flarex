@@ -14,14 +14,8 @@ import {
   type PGliteFlarexPersistence,
 } from "@flarex/persistence-postgres/pglite";
 import {
-  createPGliteLocatedApplicationRevisionRegistrationTargetV1,
-} from "@flarex/persistence-postgres/internal/system-test/application-revision-targets-v1";
-import {
-  createHistoricalApplicationAnalysisPGlitePersistence as
-    createMigratedPGlitePersistence,
+  createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence,
 } from "../support/databaseFixturesV1";
-import { FSV05_SUPPORTED_LOCATOR } from
-  "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
   type StandardApplicationSystemTestClientV1,
   type StandardApplicationSystemTestSetupClientV1,
@@ -75,8 +69,8 @@ function makeCookingDefinitionV1() {
 function makeDiagnosticCookingDefinitionV1() {
   const definition = makeCookingDefinitionV1();
   const source = new TextEncoder().encode(
-    'export function create(ctx,a){ctx.db.insert("recipes",a);' +
-      'throw new Error("injected")}',
+    'throw new Error("injected import-time effect");' +
+      'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
   );
   return {
     ...definition,
@@ -139,7 +133,7 @@ function defineTestSimulationV1<
 }
 
 describe("Standard Application system-test environment - PGlite", () => {
-  it("keeps diagnostic-bearing analysis outside registration, readiness, and activation", async () => {
+  it("keeps rejected analysis outside publication, readiness, and activation", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const failure = await Effect.runPromise(Effect.flip(
       runStandardApplicationSimulationV1({
@@ -162,18 +156,22 @@ describe("Standard Application system-test environment - PGlite", () => {
       StandardApplicationSimulationIntegrationV1Error,
     );
     expect(failure).toMatchObject({ phase: "prepareRevision" });
-    expect(containsErrorFacet(failure, "reason", "diagnosticsPresent")).toBe(
+    expect(containsErrorFacet(
+      failure,
+      "failureCode",
+      "module_import_failed",
+    )).toBe(
       true,
     );
-    const rows = await persistence.query<Record<string, unknown>>(`
+    const rows = await persistence.target.query<Record<string, unknown>>(`
       select
-        (select count(*)::text from fx_system_application_revision_v1) as revision_count,
-        (select count(*)::text from fx_system_declarative_v2_verdict) as readiness_count,
-        (select count(*)::text from fx_system_declarative_v2_activation_revision) as activation_count,
-        (select count(*)::text from fx_system_declarative_v2_activation_head) as active_head_count
+        (select count(*)::text from fx_system_application_publication_v1) as publication_count,
+        (select count(*)::text from fx_system_application_readiness_v1) as readiness_count,
+        (select count(*)::text from fx_system_application_activation_v1) as activation_count,
+        (select count(*)::text from fx_system_application_active_head_v1) as active_head_count
     `);
     expect(rows.rows).toEqual([{
-      revision_count: "0",
+      publication_count: "0",
       readiness_count: "0",
       activation_count: "0",
       active_head_count: "0",
@@ -185,10 +183,13 @@ describe("Standard Application system-test environment - PGlite", () => {
     let scopeAuditCount = 0;
     const firstReceipt = await Effect.runPromise(
       runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(makeInspectionScopeAuditPersistence(
-          persistence,
-          () => { scopeAuditCount += 1; },
-        )),
+        lane: makePGliteStandardApplicationSystemTestLaneV1({
+          control: persistence.control,
+          target: makeInspectionScopeAuditPersistence(
+            persistence.target,
+            () => { scopeAuditCount += 1; },
+          ),
+        }),
         simulation: defineTestSimulationV1(
           "inspection-evolution-a",
           client => publishRecipeForInspectionV1(
@@ -325,7 +326,7 @@ describe("Standard Application system-test environment - PGlite", () => {
       functionPath: "recipeCommands:create",
       detail: { reason: "contractMismatch", facet: "returns" },
     });
-    const durableCounts = await persistence.query<Record<string, unknown>>(`
+    const durableCounts = await persistence.target.query<Record<string, unknown>>(`
       select
         (select count(*)::text from fx_app_row_current) as current_count,
         (select count(*)::text from fx_app_row_rev) as revision_count,
@@ -528,20 +529,13 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("keeps preparation failures in the typed Test API error channel", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const expectedCause = new Error("injected registration clock failure");
-    const registrationTarget =
-      createPGliteLocatedApplicationRevisionRegistrationTargetV1(
-        persistence,
-        FSV05_SUPPORTED_LOCATOR,
-      );
+    const lane = makePGliteStandardApplicationSystemTestLaneV1(persistence);
     const failure = await Effect.runPromise(Effect.flip(
       runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(
-          persistence,
-          Object.freeze({
-            ...registrationTarget,
-            getCurrentClock: () => Promise.reject(expectedCause),
-          }),
-        ),
+        lane: Object.freeze({
+          ...lane,
+          createFixture: () => Promise.reject(expectedCause),
+        }),
         simulation: cookingSimulationV1,
       }),
     ));
@@ -557,22 +551,22 @@ describe("Standard Application system-test environment - PGlite", () => {
       throw new Error("The Test API returned an unexpected failure type.");
     }
     expect(failure.cause).toBeInstanceOf(Error);
-    expect((failure.cause as Error).message).toBe(
-      "FSV05 could not prepare revision sac01-cooking-app.",
-    );
+    expect(failure.cause).toBe(expectedCause);
   }, 480_000);
 
   it("keeps inspection query failures in a distinct typed error channel", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const expectedCause = new Error("injected inspection query failure");
+    const lane = makePGliteStandardApplicationSystemTestLaneV1(persistence);
     const failure = await Effect.runPromise(Effect.flip(
       runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(
-          makeInspectionFaultPersistence(
-            persistence,
+        lane: Object.freeze({
+          ...lane,
+          target: makeInspectionFaultPersistence(
+            persistence.target,
             { kind: "reject", cause: expectedCause },
           ),
-        ),
+        }),
         simulation: cookingSimulationV1,
       }),
     ));
@@ -590,11 +584,16 @@ describe("Standard Application system-test environment - PGlite", () => {
 
   it("rejects malformed authoritative inspection results", async () => {
     const persistence = await createMigratedPGlitePersistence();
+    const lane = makePGliteStandardApplicationSystemTestLaneV1(persistence);
     const failure = await Effect.runPromise(Effect.flip(
       runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(
-          makeInspectionFaultPersistence(persistence, { kind: "emptyResult" }),
-        ),
+        lane: Object.freeze({
+          ...lane,
+          target: makeInspectionFaultPersistence(
+            persistence.target,
+            { kind: "emptyResult" },
+          ),
+        }),
         simulation: cookingSimulationV1,
       }),
     ));
@@ -670,7 +669,7 @@ function makeInspectionScopeAuditPersistence(
             expect(params?.[0]).toMatch(
               /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
             );
-            expect(params?.[1]).toBe("deployment_fsv03_private");
+            expect(params?.[1]).toBe("deployment_application_native_mutation");
             onInspection();
           }
           return target.query(sql, params);

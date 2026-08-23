@@ -21,6 +21,11 @@ import { TransactionFunctionPathV1Schema } from
   "flarex-protocol/transaction-session";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Miniflare } from "miniflare";
+import {
+  decodeSystemTestStructuredCloneBridgeValueV1,
+  encodeSystemTestStructuredCloneBridgeValueV1,
+  SYSTEM_TEST_STRUCTURED_CLONE_BRIDGE_WORKER_SOURCE_V1,
+} from "./systemTestStructuredCloneBridgeV1";
 
 const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
 const COMPATIBILITY_DATE = "2026-06-14";
@@ -38,6 +43,49 @@ export interface ApplicationNativeQueryProof {
   readonly pointDocumentReads: 2;
   readonly sourceReads: 2;
   readonly headMovementSelectedNewRevision: true;
+}
+
+export function makeApplicationNativeQueryTestLayer(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  loader: WorkerLoader,
+  onExecution: () => void = () => undefined,
+) {
+  let executionSequence = 0;
+  return makeApplicationQuerySystemLayer({
+    activation: fixture.activation,
+    snapshot: {
+      deploymentId: fixture.deploymentId,
+      controlDb: fixture.control.drizzle,
+      authority: fixture.authorityPorts,
+      schema: fixture.schema,
+      developerIndexes: fixture.developerIndexes,
+    },
+    snapshotBudget: Object.freeze({
+      maximumPointReads: 16,
+      maximumIndexReads: 16,
+      maximumDocuments: 64,
+      maximumSemanticBytes: 1_048_576,
+    }),
+    source: Object.freeze({
+      read: (rootSha256: string) =>
+        rootSha256 === fixture.source.sourceArtifact.rootSha256
+          ? Effect.succeed(fixture.source)
+          : Effect.fail(new ApplicationAnalysisSourceReadError({
+            operation: "read",
+            reason: "invalidRoot",
+          })),
+    }),
+    host: makeApplicationExecutionHost(loader),
+    executionContextFactory: () => {
+      executionSequence += 1;
+      onExecution();
+      return Object.freeze({
+        executionId: `standard-application-query-${executionSequence}`,
+        randomSeed: new Uint8Array(32).fill(executionSequence),
+        executionTime: 1_800_000_000_000 + executionSequence,
+      });
+    },
+  });
 }
 
 export async function proveApplicationNativeQuery(
@@ -404,50 +452,16 @@ export default {
 };`;
 }
 
-const BRIDGE_CODEC_SOURCE = `
-function encodeBridgeValue(value) {
-  return JSON.parse(JSON.stringify(value, (_key, member) => {
-    if (typeof member === "bigint") return { __flarexBigInt: String(member) };
-    if (member instanceof Uint8Array) {
-      return { __flarexBytes: Array.from(member) };
-    }
-    return member;
-  }));
-}
-function decodeBridgeValue(value) {
-  return JSON.parse(JSON.stringify(value), (_key, member) => {
-    if (member && typeof member === "object" &&
-        typeof member.__flarexBigInt === "string") {
-      return BigInt(member.__flarexBigInt);
-    }
-    if (member && typeof member === "object" &&
-        Array.isArray(member.__flarexBytes)) {
-      return new Uint8Array(member.__flarexBytes);
-    }
-    return member;
-  });
-}`;
+const BRIDGE_CODEC_SOURCE = `${SYSTEM_TEST_STRUCTURED_CLONE_BRIDGE_WORKER_SOURCE_V1}
+const encodeBridgeValue = encodeStructuredCloneBridgeValue;
+const decodeBridgeValue = decodeStructuredCloneBridgeValue;`;
 
 function encodeBridgeValue(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value, (_key, member: unknown) => {
-    if (typeof member === "bigint") return { __flarexBigInt: String(member) };
-    if (member instanceof Uint8Array) {
-      return { __flarexBytes: Array.from(member) };
-    }
-    return member;
-  }));
+  return encodeSystemTestStructuredCloneBridgeValueV1(value);
 }
 
 function decodeBridgeValue(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value), (_key, member: unknown) => {
-    if (isRecord(member) && typeof member.__flarexBigInt === "string") {
-      return BigInt(member.__flarexBigInt);
-    }
-    if (isRecord(member) && Array.isArray(member.__flarexBytes)) {
-      return new Uint8Array(member.__flarexBytes);
-    }
-    return member;
-  });
+  return decodeSystemTestStructuredCloneBridgeValueV1(value);
 }
 
 function errorName(value: unknown): string {

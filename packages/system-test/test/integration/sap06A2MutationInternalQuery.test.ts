@@ -16,11 +16,12 @@ import {
 import { FSV05_SUPPORTED_LOCATOR } from
   "../../support/fsv05ApplicationRevisionActivationHarness";
 import {
-  decodeSystemTestStructuredCloneBridgeValueV1,
   pointMutationWorkerdDispatchModuleSourceForTest,
   proveSap06A2MutationInternalQueryV1,
 } from
   "../../support/fsv06StandardPointMutationHarness";
+import { decodeSystemTestStructuredCloneBridgeValueV1 } from
+  "../../support/systemTestStructuredCloneBridgeV1";
 import { createHistoricalApplicationAnalysisPGlitePersistence as createMigratedPGlitePersistence } from "../support/databaseFixturesV1";
 
 describe("SAP06-A2 mutation internal query - PGlite", () => {

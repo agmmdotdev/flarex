@@ -325,6 +325,35 @@ export async function createApplicationNativeMutationPGliteFixture(
   });
 }
 
+export function createApplicationNativeMutationPGliteFixtureWithPersistence(
+  options: ApplicationNativeMutationFixtureOptions,
+  persistence: Readonly<{
+    readonly control: PGliteFlarexPersistence;
+    readonly target: PGliteFlarexPersistence;
+  }>,
+): Promise<ApplicationNativeMutationPGliteFixture> {
+  return createApplicationNativeMutationFixture(options, {
+    ...persistence,
+    provision: provisionOptions =>
+      createPGliteSplitScopeAuthorityProvisioner(
+        persistence.control,
+        provisionOptions,
+      ),
+    locateClock: locator =>
+      createPGliteLocatedSplitScopeClockTarget(persistence.target, locator),
+    locateSession: locator =>
+      createPGliteLocatedPointMutationSessionActivationTargetV1(
+        persistence.target,
+        locator,
+      ),
+    locateEpoch: locator =>
+      createPGliteLocatedScopeAuthorizationEpochTarget(
+        persistence.target,
+        locator,
+      ),
+  });
+}
+
 export function createApplicationNativeMutationPostgresFixture(
   options: ApplicationNativeMutationFixtureOptions,
   persistence: Readonly<{

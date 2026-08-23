@@ -5,7 +5,7 @@ import {
   decodeSystemTestStructuredCloneBridgeValueV1,
   encodeSystemTestStructuredCloneBridgeValueV1,
   systemTestStructuredCloneBridgeEchoModuleSourceForTest,
-} from "../support/fsv06StandardPointMutationHarness";
+} from "../support/systemTestStructuredCloneBridgeV1";
 
 describe("FSV06 structured-clone RPC surrogate", () => {
   it("round-trips every supported scalar and container edge without collisions", () => {
@@ -13,6 +13,7 @@ describe("FSV06 structured-clone RPC surrogate", () => {
       absent: undefined,
       integer: 42n,
       bytes: Uint8Array.from([0, 1, 127, 255]).buffer,
+      byteView: Uint8Array.from([3, 5, 8]),
       numbers: [0, -0, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY],
       nested: { value: "recipe" },
     };
@@ -25,6 +26,7 @@ describe("FSV06 structured-clone RPC surrogate", () => {
     expect(decoded.absent).toBeUndefined();
     expect(decoded.integer).toBe(42n);
     expect(Array.from(new Uint8Array(decoded.bytes))).toEqual([0, 1, 127, 255]);
+    expect(decoded.byteView).toEqual(Uint8Array.from([3, 5, 8]));
     expect(Object.is(decoded.numbers[0], 0)).toBe(true);
     expect(Object.is(decoded.numbers[1], -0)).toBe(true);
     expect(Number.isNaN(decoded.numbers[2])).toBe(true);

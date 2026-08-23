@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
-import { createMigratedPGlitePersistence } from
+import { createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence } from
   "../../support/databaseFixturesV1";
 import {
   makePGliteStandardApplicationSystemTestLaneV1,
@@ -144,7 +144,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);
-  const sidecarCounts = await persistence.query<{
+  const sidecarCounts = await persistence.target.query<{
     revisions: string;
     current_rows: string;
   }>(`select
@@ -154,7 +154,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
     revisions: "41",
     current_rows: "13",
   });
-  const removedFieldEvidence = await persistence.query<{
+  const removedFieldEvidence = await persistence.target.query<{
     commit_seq: string;
     value_json: unknown;
   }>(`select revision.commit_seq::text,
@@ -173,7 +173,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
   expect(removedFieldEvidence.rows[0]?.value_json).not.toHaveProperty(
     "description",
   );
-  const optionalFieldSidecars = await persistence.query<{
+  const optionalFieldSidecars = await persistence.target.query<{
     commit_seq: string;
     current_count: string;
     revision_count: string;
@@ -203,7 +203,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
     current_count: "3",
     revision_count: "3",
   }]);
-  const indexedDecisionEvidence = await persistence.query<{
+  const indexedDecisionEvidence = await persistence.target.query<{
     lifecycle: string;
     current_attempt_fence: string;
     journal_count: string;
@@ -232,7 +232,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
     indexed_query_syscalls: "0",
     range_count: "0",
   }]);
-  const crossTableSidecars = await persistence.query<{
+  const crossTableSidecars = await persistence.target.query<{
     access_kind: string;
     table_id: string;
     row_id_hex: string;

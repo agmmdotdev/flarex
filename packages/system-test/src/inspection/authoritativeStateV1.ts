@@ -71,7 +71,8 @@ export interface StandardApplicationSystemTestInspectorV1 {
 export interface MakeStandardApplicationSystemTestInspectorV1Input {
   readonly applicationId: string;
   readonly deploymentId: string;
-  readonly persistence: FlarexPersistence;
+  readonly controlPersistence: FlarexPersistence;
+  readonly targetPersistence: FlarexPersistence;
   readonly getMutationRuntimeExecutions: () => number;
   readonly getQueryRuntimeExecutions: () => number;
 }
@@ -89,7 +90,7 @@ export const makeStandardApplicationSystemTestInspectorV1 = Effect.fn(
   StandardApplicationSystemTestInspectionV1Error
 > {
   const scopeMetadata = yield* Effect.uninterruptible(Effect.tryPromise({
-    try: () => input.persistence.getScopeMetadataByDeploymentId(
+    try: () => input.controlPersistence.getScopeMetadataByDeploymentId(
       input.deploymentId,
     ),
     catch: cause => inspectionError(
@@ -121,7 +122,7 @@ export const makeStandardApplicationSystemTestInspectorV1 = Effect.fn(
         "StandardApplicationSystemTest.inspectAuthoritativeStateV1",
       )(function* () {
         const result = yield* Effect.uninterruptible(Effect.tryPromise({
-          try: () => input.persistence.query<Record<string, unknown>>(
+          try: () => input.targetPersistence.query<Record<string, unknown>>(
             INSPECTION_SQL,
             [scopeProjection.scopeUuid, input.deploymentId],
           ),

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   postgresUrl,
-  withTemporaryPostgresPersistence,
+  withTemporarySplitPostgresPersistence,
 } from "../../support/databaseFixturesV1";
 import {
   makePostgresStandardApplicationSystemTestLaneV1,
@@ -27,7 +27,7 @@ describe("English-learning simulation genuine PostgreSQL environment", () => {
 
 describePostgres("English-learning simulation - PostgreSQL", () => {
   it("creates and reads one lesson", async () => {
-    await withTemporaryPostgresPersistence(async persistence => {
+    await withTemporarySplitPostgresPersistence(async persistence => {
       const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
         lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
         simulation: englishLearningSimulationV1,

@@ -13,7 +13,7 @@ import {
   ApplicationImportForbiddenEffectV1,
   installApplicationImportPolicyV1,
 } from "@flarex/analysis/internal/application-import-policy-v1";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Scheduler } from "effect";
 
 export * from "flarex/server";
 export * from "flarex/values";
@@ -22,6 +22,18 @@ const MAXIMUM_DIAGNOSTICS = 100;
 const MAXIMUM_DIAGNOSTIC_BYTES = 65_536;
 const MAXIMUM_DIAGNOSTIC_MESSAGE_BYTES = 2_048;
 const UTF8 = new TextEncoder();
+// Capture the host timer before a cold load installs the application import
+// policy. Only analyzer-owned Effect scheduling receives this capability;
+// application code continues to observe the policy-patched global timer.
+const ANALYZER_SET_TIMEOUT = globalThis.setTimeout.bind(globalThis);
+const ANALYZER_CLEAR_TIMEOUT = globalThis.clearTimeout.bind(globalThis);
+const APPLICATION_ANALYSIS_SCHEDULER = new Scheduler.MixedScheduler(
+  "async",
+  task => {
+    const handle = ANALYZER_SET_TIMEOUT(task, 0);
+    return () => ANALYZER_CLEAR_TIMEOUT(handle);
+  },
+);
 
 export interface ApplicationAnalysisColdLoadInput {
   readonly sourceArtifact: ApplicationManifestSourceArtifactV1Input;
@@ -114,15 +126,18 @@ export async function runApplicationAnalysisColdLoad(
         diagnostics,
       );
     }
-    const exit = await Effect.runPromiseExit(Effect.gen(function* () {
-      const analysis = yield* analyzeLoadedSourcePackageEffect({
-        executionModules,
-        schemaDefinition,
-        sourceMaps: {},
-        sourceMapFailure: "ignore",
-      });
-      return yield* makeApplicationManifestV1(analysis, input.sourceArtifact);
-    }));
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const analysis = yield* analyzeLoadedSourcePackageEffect({
+          executionModules,
+          schemaDefinition,
+          sourceMaps: {},
+          sourceMapFailure: "ignore",
+        });
+        return yield* makeApplicationManifestV1(analysis, input.sourceArtifact);
+      }),
+      { scheduler: APPLICATION_ANALYSIS_SCHEDULER },
+    );
     if (importPolicy.forbiddenAttempted()) {
       return rejected(
         ApplicationAnalysisRejectionCodeV1.forbiddenImportEffect,

@@ -410,6 +410,8 @@ export async function makeApplicationNativeMutationTestLayer(
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+    readonly onExecution?: () => void;
+    readonly afterRuntime?: () => Effect.Effect<void, never>;
   }> = {},
 ) {
   return makeApplicationMutationSystemLayer(
@@ -422,6 +424,8 @@ async function makeApplicationNativeMutationTestLive(
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
+    readonly onExecution?: () => void;
+    readonly afterRuntime?: () => Effect.Effect<void, never>;
   }> = {},
 ): Promise<ApplicationMutationSystemLive> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
@@ -505,7 +509,19 @@ async function makeApplicationNativeMutationTestLive(
     },
   )).canonicalBytes;
   const hostPolicySha256 = await sha256(policyBytes);
-  const host = makeApplicationExecutionHost(loader);
+  const baseHost = makeApplicationExecutionHost(loader);
+  const afterRuntime = options.afterRuntime;
+  const host: ApplicationMutationSystemLive["applicationRunner"]["host"] =
+    afterRuntime === undefined
+      ? baseHost
+      : Object.freeze({
+        runTransaction: (
+          input: Parameters<typeof baseHost.runTransaction>[0],
+        ) => baseHost.runTransaction(input).pipe(
+          Effect.ensuring(afterRuntime()),
+        ),
+        runAction: baseHost.runAction,
+      });
   let uuidSequence = 0;
   let executionSequence = 0;
   return Object.freeze({
@@ -551,6 +567,7 @@ async function makeApplicationNativeMutationTestLive(
     executionContextFactory: {
       make: () => Effect.sync(() => {
         executionSequence += 1;
+        options.onExecution?.();
         return Object.freeze({
           executionId: `application-native-execution-${executionSequence}`,
           logScopeId: `application-native-log-${executionSequence}`,

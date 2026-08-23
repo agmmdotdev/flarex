@@ -69,6 +69,19 @@ export async function createMigratedPGlitePersistence(): Promise<
   }
 }
 
+export async function createMigratedSplitPGlitePersistence(): Promise<
+  Readonly<{
+    readonly control: PGliteFlarexPersistence;
+    readonly target: PGliteFlarexPersistence;
+  }>
+> {
+  const [control, target] = await Promise.all([
+    createMigratedPGlitePersistence(),
+    createMigratedPGlitePersistence(),
+  ]);
+  return Object.freeze({ control, target });
+}
+
 export async function createHistoricalApplicationAnalysisPGlitePersistence(): Promise<
   PGliteFlarexPersistence
 > {

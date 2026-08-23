@@ -2,7 +2,6 @@
 
 import { Effect, Result, Scope } from "effect";
 import { eq } from "drizzle-orm";
-import { Miniflare } from "miniflare";
 import {
   claimPreparedApplicationManagedSchemaPlanResult,
   makeApplicationManagedSchemaApplicationLayer,
@@ -18,15 +17,6 @@ import {
   prepareFlarexManagedSchemaDeployment,
   type FlarexManagedSchemaApplyJson,
 } from "flarex-dev/internal/managed-schema";
-import {
-  makeApplicationAnalysisContext,
-} from "@flarex/source-analyzer-v2/internal/application-analysis-composition";
-import {
-  applicationAnalysisHostEffectWithCapabilities,
-} from "@flarex/source-analyzer-v2/internal/application-analysis-host";
-import {
-  produceStandardApplicationSource,
-} from "@flarex/standard-application-definition/application-source";
 import {
   prepareStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";
@@ -90,7 +80,6 @@ import {
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   ApplicationAnalysisSourceReadError,
@@ -114,6 +103,11 @@ import {
 import {
   MiniflareApplicationWorkerLoader,
 } from "./applicationNativeQueryHarness";
+import {
+  makeStandardApplicationCurrentAnalysisV1,
+  MiniflareApplicationAnalysisWorkerLoader,
+  produceStandardApplicationCurrentSourceBundleV1,
+} from "./standardApplicationCurrentAnalysisHarness";
 import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
 const COMPATIBILITY_DATE = "2026-06-14";
@@ -2169,7 +2163,7 @@ interface CookingScenario {
   readonly fixture: ApplicationNativeMutationFixture<
     ApplicationNativeMutationPersistence
   >;
-  readonly analysisLoader: MiniflareAnalysisWorkerLoader;
+  readonly analysisLoader: MiniflareApplicationAnalysisWorkerLoader;
   readonly runtimeLoader: MiniflareApplicationWorkerLoader;
   readonly sources: Map<string, ApplicationNativeMutationSourceBundle>;
   readonly mutation: <A, E>(effect: Effect.Effect<
@@ -2189,7 +2183,7 @@ async function withCookingScenario<A>(
   run: (scenario: CookingScenario) => Promise<A>,
 ): Promise<A> {
   const source = await cookingSourceBundle("A");
-  const analysisLoader = new MiniflareAnalysisWorkerLoader();
+  const analysisLoader = new MiniflareApplicationAnalysisWorkerLoader();
   const runtimeLoader = new MiniflareApplicationWorkerLoader();
   const sources = new Map([[source.sourceArtifact.rootSha256, source]]);
   const sourceReader = cookingSourceReader(sources);
@@ -2600,80 +2594,19 @@ async function cookingSourceBundle(
       authPath: null,
     },
   }));
-  const produced = Result.getOrThrow(produceStandardApplicationSource(prepared));
-  const modules = Object.freeze(await Promise.all(produced.modules.map(
-    async module => {
-      const sourceSha256 = await sha256Hex(module.sourceBytes);
-      return Object.freeze({
-        path: module.path,
-        roles: module.roles,
-        sourceSha256,
-        sourceByteLength: module.sourceBytes.byteLength,
-        source: new TextDecoder().decode(module.sourceBytes),
-      });
-    },
-  )));
-  const rootSha256 = await sha256Hex(new TextEncoder().encode(
-    modules.map(module => `${module.path}:${module.sourceSha256}`).join("\n"),
-  ));
-  return Object.freeze({
-    sourceArtifact: Object.freeze({
-      rootSha256,
-      executionModulePath: produced.executionPath,
-      schemaModulePath: produced.schemaPath,
-      modules: Object.freeze(modules.map(module => Object.freeze({
-        path: module.path,
-        roles: module.roles,
-        sourceSha256: module.sourceSha256,
-        sourceByteLength: module.sourceByteLength,
-      }))),
-    }),
-    modules,
-  });
+  return produceStandardApplicationCurrentSourceBundleV1(prepared);
 }
 
 function cookingAnalysis(
   source: ApplicationNativeMutationSourceBundle,
-  loader: MiniflareAnalysisWorkerLoader,
+  loader: MiniflareApplicationAnalysisWorkerLoader,
   label: string,
 ): ApplicationNativeMutationAnalysis {
-  const run: ApplicationNativeMutationAnalysis["run"] = async input => {
-    const context = makeApplicationAnalysisContext({
-      authority: input.authority,
-      repository: input.repository,
-      host: {
-        analyze: request => applicationAnalysisHostEffectWithCapabilities({
-          source: {
-            read: rootSha256 => rootSha256 ===
-                input.sourceArtifactRootSha256
-              ? Effect.succeed(
-                  source satisfies ApplicationAnalysisSourceBundle,
-                )
-              : Effect.fail(new ApplicationAnalysisSourceReadError({
-                operation: "read",
-                reason: "invalidRoot",
-              })),
-          },
-          loader,
-        }, request),
-      },
-    });
-    const analyzed = await Effect.runPromise(context.analyze({
-      requestKey: input.requestKey,
-      sourceArtifactRootSha256: input.sourceArtifactRootSha256,
-    }));
-    if (analyzed.kind !== "analyzed") {
-      throw new Error(`Cooking ${label} was rejected by Application Analysis.`);
-    }
-    return Effect.runPromise(input.repository.inspect(
-      input.authority,
-      analyzed.receipt.candidateId,
-    ));
-  };
-  return Object.freeze({
+  return makeStandardApplicationCurrentAnalysisV1(
     source,
-    run,
-  });
+    loader,
+    `cooking-${label}`,
+  );
 }
 
 function cookingSourceReader(
@@ -2942,96 +2875,6 @@ function failureIdentity(value: unknown): string {
   return `${String(value._tag)}:${String(value.reason)}`;
 }
 
-class MiniflareAnalysisWorkerLoader implements WorkerLoader {
-  loads = 0;
-  readonly #disposals: Array<Promise<void>> = [];
-  readonly #runtimes = new Set<Miniflare>();
-
-  get(): WorkerStub {
-    throw new Error("Cooking analysis forbids cached Worker loading.");
-  }
-
-  load(code: WorkerLoaderWorkerCode): WorkerStub {
-    this.loads += 1;
-    return new MiniflareAnalysisWorkerStub(this, code);
-  }
-
-  attach(runtime: Miniflare): void {
-    this.#runtimes.add(runtime);
-  }
-
-  release(runtime: Miniflare): void {
-    if (!this.#runtimes.delete(runtime)) return;
-    this.#disposals.push(runtime.dispose());
-  }
-
-  async dispose(): Promise<void> {
-    const runtimes = [...this.#runtimes];
-    this.#runtimes.clear();
-    await Promise.all([
-      ...this.#disposals.splice(0),
-      ...runtimes.map(runtime => runtime.dispose()),
-    ]);
-  }
-}
-
-class MiniflareAnalysisWorkerStub implements WorkerStub {
-  constructor(
-    private readonly owner: MiniflareAnalysisWorkerLoader,
-    private readonly code: WorkerLoaderWorkerCode,
-  ) {}
-
-  getEntrypoint<T extends Rpc.WorkerEntrypointBranded | undefined>(
-    name?: string,
-  ): Fetcher<T> {
-    const entrypoint = {
-      analyze: () => this.analyze(name),
-      fetch: async () => new Response(null, { status: 501 }),
-      connect: () => {
-        throw new Error("Cooking analysis forbids sockets.");
-      },
-    };
-    // SAFETY: the test adapter implements the exact analyze RPC used by the
-    // Application Analysis host plus Cloudflare's declared Fetcher surface.
-    return entrypoint as unknown as Fetcher<T>;
-  }
-
-  getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>():
-    DurableObjectClass<T> {
-    throw new Error("Cooking analysis forbids Durable Objects.");
-  }
-
-  private async analyze(name: string | undefined): Promise<unknown> {
-    if (name === undefined) {
-      throw new Error("Cooking analysis omitted its Worker entrypoint.");
-    }
-    const script = `export default {
-  async fetch(_request, env) {
-    const worker = env.LOADER.load(${JSON.stringify(this.code)});
-    const stub = worker.getEntrypoint(${JSON.stringify(name)});
-    const result = await stub.analyze();
-    try { return Response.json(result); }
-    finally { result?.[Symbol.dispose]?.(); }
-  },
-};`;
-    const runtime = new Miniflare({
-      compatibilityDate: COMPATIBILITY_DATE,
-      modules: true,
-      script,
-      workerLoaders: { LOADER: {} },
-    });
-    this.owner.attach(runtime);
-    try {
-      const response = await runtime.dispatchFetch(
-        "https://managed-schema-analysis.invalid/",
-      );
-      return await response.json();
-    } finally {
-      this.owner.release(runtime);
-    }
-  }
-}
-
 async function durableCounts(
   fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
 ) {
@@ -3153,13 +2996,4 @@ function isCookingRecipe(value: unknown): value is Readonly<{
       (isNonArrayRecord(details) &&
         typeof Reflect.get(details, "difficulty") === "string" &&
         typeof Reflect.get(details, "servings") === "number"));
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  return [...new Uint8Array(await crypto.subtle.digest(
-    "SHA-256",
-    copyBytesToArrayBuffer(bytes),
-  ))]
-    .map(value => value.toString(16).padStart(2, "0"))
-    .join("");
 }
