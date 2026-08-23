@@ -79,7 +79,7 @@ export interface ApplicationNativeMutationProof {
   readonly initialCommit: ApplicationNativeMutationInitialCommitObservation;
   readonly validationCatch: ApplicationNativeMutationValidationCatchObservation;
   readonly concurrentDuplicate: ApplicationNativeMutationConcurrentDuplicateObservation;
-  readonly occConflictReran: true;
+  readonly occConflict: ApplicationNativeMutationOccConflictObservation;
   readonly staleHeadRejected: true;
   readonly admittedHeadStayedPinned: true;
   readonly terminalJournalFailureDidNotCommit: true;
@@ -163,6 +163,27 @@ export interface ApplicationNativeMutationConcurrentDuplicateObservation {
   readonly workerLoadsBeforeRelease: number;
   readonly publication: ApplicationNativeMutationDuplicateCommitObservation;
   readonly replay: ApplicationNativeMutationDuplicateCommitObservation;
+}
+
+export interface ApplicationNativeMutationOccExecutionObservation {
+  readonly ordinal: number;
+  readonly revisionId: string;
+}
+
+export interface ApplicationNativeMutationOccCommitObservation {
+  readonly disposition: "published";
+  readonly commitSeq: bigint;
+  readonly workerLoads: number;
+}
+
+export interface ApplicationNativeMutationOccConflictObservation {
+  readonly admittedRevisionId: string;
+  readonly workerLoadsBeforeCompetitor: number;
+  readonly competitor: ApplicationNativeMutationOccCommitObservation;
+  readonly rerun: ApplicationNativeMutationOccCommitObservation;
+  readonly conflictReadCount: number;
+  readonly executions:
+    ReadonlyArray<ApplicationNativeMutationOccExecutionObservation>;
 }
 
 export type ApplicationNativeMutationConfigurationObservation =
@@ -399,6 +420,7 @@ export async function proveApplicationNativeMutation(
   loader.conflictDocumentId = published.value;
   loader.persistentConflictArgumentName = "Conflict winner";
   const conflictReceiptStart = loader.requestReceipts.length;
+  const conflictReadStart = loader.conflictReads;
   const conflictKey = TransactionRequestKeyV1Schema.make(
     "application-native:create:conflict",
   );
@@ -410,23 +432,38 @@ export async function proveApplicationNativeMutation(
   await conflictBlock.started;
   const loadsBeforeCompetitor = loader.loads;
   loader.mode = "patchDocument";
-  const competitor = await invoke(invokeStandardApplicationPointMutationV1(
-    create,
-    { name: "Competing commit" },
-    TransactionRequestKeyV1Schema.make(
-      "application-native:create:competitor",
-    ),
-  ));
+  let competitor: Awaited<typeof conflictAttempt>;
+  try {
+    competitor = await invoke(invokeStandardApplicationPointMutationV1(
+      create,
+      { name: "Competing commit" },
+      TransactionRequestKeyV1Schema.make(
+        "application-native:create:competitor",
+      ),
+    ));
+  } catch (cause: unknown) {
+    conflictBlock.release();
+    await Promise.allSettled([conflictAttempt]);
+    throw cause;
+  }
+  const workerLoadsAfterCompetitor = loader.loads;
   if (competitor.disposition !== "published") {
-    throw new Error("Application OCC competitor did not publish.");
+    conflictBlock.release();
+    await Promise.allSettled([conflictAttempt]);
+    throw new Error(
+      `Application OCC competitor did not publish: ${competitor.disposition}.`,
+    );
   }
   conflictBlock.release();
   const conflictPublished = await conflictAttempt;
+  const workerLoadsAfterRerun = loader.loads;
+  const conflictReadCount = loader.conflictReads - conflictReadStart;
   const conflictReceipts = loader.requestReceipts.slice(conflictReceiptStart)
     .filter(receipt => receipt.argumentName === "Conflict winner");
   const occConflictReran = conflictPublished.disposition === "published" &&
-    loader.loads === loadsBeforeCompetitor + 2 &&
-    loader.conflictReads === 2 &&
+    workerLoadsAfterCompetitor === loadsBeforeCompetitor + 1 &&
+    workerLoadsAfterRerun === workerLoadsAfterCompetitor + 1 &&
+    conflictReadCount === 2 &&
     conflictReceipts.length === 2 &&
     conflictReceipts.every(receipt =>
       receipt.revisionId === fixture.active.basis.revisionId
@@ -434,6 +471,28 @@ export async function proveApplicationNativeMutation(
   if (!occConflictReran) {
     throw new Error("Application OCC conflict did not rerun in a fresh Worker.");
   }
+  const occConflict: ApplicationNativeMutationOccConflictObservation =
+    Object.freeze({
+      admittedRevisionId: fixture.active.basis.revisionId,
+      workerLoadsBeforeCompetitor: loadsBeforeCompetitor,
+      competitor: Object.freeze({
+        disposition: competitor.disposition,
+        commitSeq: competitor.commitSeq,
+        workerLoads: workerLoadsAfterCompetitor,
+      }),
+      rerun: Object.freeze({
+        disposition: conflictPublished.disposition,
+        commitSeq: conflictPublished.commitSeq,
+        workerLoads: workerLoadsAfterRerun,
+      }),
+      conflictReadCount,
+      executions: Object.freeze(conflictReceipts.map((receipt, index) =>
+        Object.freeze({
+          ordinal: index + 1,
+          revisionId: receipt.revisionId,
+        })
+      )),
+    });
 
   const headBlock = loader.blockNextInvocation();
   const headLoadStart = loader.loads;
@@ -522,7 +581,7 @@ export async function proveApplicationNativeMutation(
     initialCommit,
     validationCatch,
     concurrentDuplicate,
-    occConflictReran: true,
+    occConflict,
     staleHeadRejected: true,
     admittedHeadStayedPinned: true,
     terminalJournalFailureDidNotCommit: true,

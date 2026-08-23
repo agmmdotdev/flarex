@@ -29,7 +29,12 @@ describe("Application-native Standard mutation - PGlite", () => {
         publication: { disposition: "published" },
         replay: { disposition: "replayed" },
       },
-      occConflictReran: true,
+      occConflict: {
+        competitor: { disposition: "published" },
+        rerun: { disposition: "published" },
+        conflictReadCount: 2,
+        executions: [{ ordinal: 1 }, { ordinal: 2 }],
+      },
       staleHeadRejected: true,
       admittedHeadStayedPinned: true,
       terminalJournalFailureDidNotCommit: true,
@@ -86,5 +91,24 @@ describe("Application-native Standard mutation - PGlite", () => {
     expect(proof.concurrentDuplicate.publication.workerLoads).toBe(
       proof.concurrentDuplicate.replay.workerLoads,
     );
+    expect(proof.occConflict.workerLoadsBeforeCompetitor).toBe(
+      proof.concurrentDuplicate.replay.workerLoads + 1,
+    );
+    expect(proof.occConflict.competitor.workerLoads).toBe(
+      proof.occConflict.workerLoadsBeforeCompetitor + 1,
+    );
+    expect(proof.occConflict.rerun.workerLoads).toBe(
+      proof.occConflict.competitor.workerLoads + 1,
+    );
+    expect(proof.occConflict.competitor.commitSeq).toBe(
+      proof.concurrentDuplicate.replay.commitSeq + 1n,
+    );
+    expect(proof.occConflict.rerun.commitSeq).toBe(
+      proof.occConflict.competitor.commitSeq + 1n,
+    );
+    expect(proof.occConflict.executions).toHaveLength(2);
+    expect(proof.occConflict.executions.every(execution =>
+      execution.revisionId === proof.occConflict.admittedRevisionId
+    )).toBe(true);
   }, 480_000);
 });

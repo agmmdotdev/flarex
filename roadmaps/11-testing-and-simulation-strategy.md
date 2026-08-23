@@ -540,8 +540,8 @@ are complete. The approved `TQ-B` Application-native query pilot is implemented,
 PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
 remains open. The approved `TQ-C` Application-native mutation localization work
 is in progress through bounded candidate-guard, initial-commit, and validation/
-concurrent-duplicate observation slices. Remaining `TQ-A`, later `TQ-C`, `TQ-D`,
-and `TQ-E` work requires separate
+concurrent-duplicate, and OCC conflict/rerun observation slices. Remaining
+`TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
 implementation approval. No test deletion, lane merger, fixture-lifetime change,
 or package extraction is authorized by this section alone.
 
@@ -725,7 +725,25 @@ The work proceeds in bounded gates:
    package typecheck pass with the same one-test, one-fixture lifecycle and
    scenario order. A single previous/current sample measured 11.94/12.14 seconds
    total and 6.66/6.32 seconds of test time, again insufficient to infer a
-   runtime change. OCC, head movement, and terminalization remain aggregate
+   runtime change.
+
+   The fourth bounded slice replaces `occConflictReran` with an `occConflict`
+   observation. It exposes the admitted revision, load count after the blocked
+   first execution starts, competing and rerun publication dispositions, commit
+   sequences and load snapshots, the conflict-read count, and the two execution
+   receipts. The wrappers assert consecutive competitor/rerun commits, one fresh
+   Worker load for each, two reads, two executions, and retention of the admitted
+   revision. The original block, competitor, release, rerun, and subsequent
+   scenario order remains unchanged. If the competitor fails or returns an
+   unexpected replay, the test fixture releases and settles the blocked attempt
+   before preserving the original failure or reporting the unexpected
+   disposition; this is test-local lifecycle safety, not a runtime OCC change.
+   The focused PGlite suite and package typecheck pass with the same one-test,
+   one-fixture lifecycle. With no PostgreSQL credential, that lane reports its
+   explicit environment failure and skips the aggregate scenario; genuine
+   PostgreSQL remains pending. A single previous/current sample measured
+   12.14/13.21 seconds total and 6.32/7.02 seconds of test time, insufficient to
+   infer a runtime change. Head movement and terminalization remain aggregate
    follow-up work. File size is a review signal, not a deletion rule; later
    slices must improve attribution without weakening ordering, concurrency,
    transaction, or fault evidence.
@@ -867,11 +885,12 @@ and stale non-authoritative caches without changing the Postgres oracle.
    preserve the implemented shared scenario/assertion contract and each lane's
    activation, fixture construction, and resource-lifetime ownership.
 4. **Continue bounded `TQ-C` localization.** Keep the candidate-guard, initial-
-   commit, validation-catch, and concurrent-duplicate observations, then localize
-   OCC conflict/rerun evidence without changing the shared fixture, sequential
-   state transitions, or lane-specific resource ownership. Head movement and
-   terminalization remain later separately bounded slices. Do not introduce
-   cross-lane contract reuse while `TQ-B` PostgreSQL acceptance remains open.
+   commit, validation-catch, concurrent-duplicate, and OCC conflict/rerun
+   observations, then localize stale-head rejection and admitted-head pinning
+   without changing the shared fixture, sequential state transitions, or lane-
+   specific resource ownership. Terminalization remains a later separately
+   bounded slice. Do not introduce cross-lane contract reuse while `TQ-B`
+   PostgreSQL acceptance remains open.
 5. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,
