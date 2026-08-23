@@ -538,9 +538,11 @@ Named Flarex differences are:
 **Status:** `TQ-P` inventory and the bounded `TQ-A1` lane-orchestration slice
 are complete. The approved `TQ-B` Application-native query pilot is implemented,
 PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
-remains open. Remaining `TQ-A`, `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
-implementation approval. No test deletion, lane merger, fixture-lifetime change,
-or package extraction is authorized by this section alone.
+remains open. The approved `TQ-C` Application-native mutation localization work
+is in progress through a bounded candidate-guard observation slice. Remaining
+`TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate implementation
+approval. No test deletion, lane merger, fixture-lifetime change, or package
+extraction is authorized by this section alone.
 
 The repository has accumulated substantial correctness evidence through
 roadmap checkpoints, but the executable shape has also accumulated milestone-
@@ -675,14 +677,27 @@ The work proceeds in bounded gates:
    lane reports its explicit environment failure and skips the contract rather
    than passing falsely. The focused package typecheck passes. Genuine
    PostgreSQL execution remains pending; do not widen the pattern until that
-   acceptance check is green. Application-native mutation first requires `TQ-C`
-   failure-localization work rather than a generic wrapper around its aggregate
-   proof.
-4. **`TQ-C` — monolith decomposition.** Split one oversized mixed-owner suite
-   by invariant/domain boundary while retaining one exact fixture owner. File
-   size is a review signal, not a deletion rule; the slice must show that
-   focused reruns and failure attribution improve without weakening ordering,
-   concurrency, transaction, or fault evidence.
+   acceptance check is green. Application-native mutation is proceeding through
+   `TQ-C` failure-localization work rather than a generic wrapper around its
+   aggregate proof.
+4. **`TQ-C` — monolith decomposition. In progress.** Split one oversized mixed-
+   owner suite by invariant/domain boundary while retaining one exact fixture
+   owner. The first bounded Application-native mutation slice replaces the four
+   candidate-schema write-guard `true` fields with one typed observation whose
+   exact, copied, foreign-authority, and missing cases retain their own
+   disposition, while rejected cases expose their error tag and reason. The
+   existing fixture, mutation ordering,
+   aggregate runtime, and PGlite/PostgreSQL wrappers remain intact; no contract-
+   suite reuse or test deletion is introduced. The touched Effect calls now use
+   the established system-test runtime boundary helper instead of local raw
+   runners. The focused PGlite suite and package typecheck pass. Without a
+   PostgreSQL credential, that lane reports its explicit environment failure and
+   skips the aggregate scenario. A single before/after sample measured
+   11.75/13.06 seconds total and 6.51/7.67 seconds of test time, which is not
+   sufficient to infer a runtime change. Replay, validation, concurrency, OCC,
+   head movement, and terminalization remain aggregate follow-up work. File size
+   is a review signal, not a deletion rule; later slices must improve attribution
+   without weakening ordering, concurrency, transaction, or fault evidence.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case
@@ -820,7 +835,12 @@ and stale non-authoritative caches without changing the Postgres oracle.
    contract against genuine PostgreSQL. The focused package typecheck is green;
    preserve the implemented shared scenario/assertion contract and each lane's
    activation, fixture construction, and resource-lifetime ownership.
-4. **Bind active foundation work to invariant tests.** D2d is closed by focused
+4. **Continue bounded `TQ-C` localization.** Keep the candidate-guard typed
+   observation, then separate the next independent Application-native mutation
+   invariant without changing the shared fixture, sequential state transitions,
+   or lane-specific resource ownership. Do not introduce cross-lane contract
+   reuse while `TQ-B` PostgreSQL acceptance remains open.
+5. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,
    concurrent replay, competing publication, separate table/index stale

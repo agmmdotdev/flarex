@@ -7,7 +7,8 @@ are complete. Historical alias convergence remains `TQ-A2`. The `TQ-B`
 Application-native query contract is implemented, PGlite-validated, and
 package-typechecked, with genuine PostgreSQL acceptance pending. Runtime timing
 and test-level skip attribution remain explicit telemetry gaps rather than
-inferred results.
+inferred results. `TQ-C` Application-native mutation localization is in progress
+through its first bounded candidate-guard observation slice.
 
 This file is the living operational inventory for
 [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md).
@@ -210,13 +211,14 @@ suffixes produces 126 multi-lane filename groups:
    environment and assertion patterns, but each schema gate owns different
    lifecycle evidence and the surrounding managed-schema plans remain active.
    Do not pilot here while those owners or manifests are changing.
-3. **Decomposition candidate, not the first contract pilot:
-   Application-native mutation.** Its PGlite/PostgreSQL wrappers repeat the
-   same aggregate receipt, but the shared harness internally checks many
-   independent replay, validation, concurrency, OCC, terminalization, and
-   capability-identity behaviors. First separate attributable scenario
-   observations and test names; wrapping the existing Boolean proof in a
-   generic suite would preserve the localization problem.
+3. **Active decomposition candidate: Application-native mutation.** Its
+   PGlite/PostgreSQL wrappers still repeat one aggregate receipt, but the first
+   bounded `TQ-C` slice replaces the four candidate-schema write-guard Boolean
+   fields with a typed observation for exact, copied, foreign-authority, and
+   missing cases. The fixture, mutation order, and lane-specific resource owner
+   are unchanged. Replay, validation, concurrency, OCC, head movement, and
+   terminalization remain aggregate and must be localized before considering a
+   generic cross-lane suite.
 
 ### Non-Candidates Without Further Proof
 
@@ -272,9 +274,11 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    shared contract through genuine PostgreSQL while retaining separate lane
    activation and PostgreSQL resource ownership; the focused package typecheck
    is green.
-3. **`TQ-C` Application-native mutation failure localization.** Replace the
-   one aggregate Boolean proof with named invariant scenarios or typed
-   attributable observations before considering cross-lane suite reuse.
+3. **Continue `TQ-C` Application-native mutation failure localization.** The
+   candidate-schema write-guard cases now return typed attributable observations.
+   Select the next independent invariant while preserving the shared fixture and
+   sequential mutation state; do not widen to a cross-lane contract suite while
+   `TQ-B` PostgreSQL acceptance remains open.
 4. **`TQ-C` stored-attempt evidence decomposition.** Highest line
    concentration and broadest owner interaction; begin only after the active
    persistence preflight work is complete and review every transaction,
@@ -285,5 +289,6 @@ exists, runtime-based pruning or fixture sharing is not authorized.
 
 `TQ-P` and `TQ-A1` are complete. `TQ-A2` has completed exact-duplicate and
 ordered-subset pilots, with consumer/removal policy still open. `TQ-B` is the
-first implemented harness-reuse pilot; its remaining acceptance gates do not
-authorize `TQ-C` or wider contract-suite extraction.
+first implemented harness-reuse pilot. Its remaining acceptance gate does not
+authorize wider contract-suite extraction. The approved first `TQ-C` slice is
+implemented; later localization slices remain separately bounded.

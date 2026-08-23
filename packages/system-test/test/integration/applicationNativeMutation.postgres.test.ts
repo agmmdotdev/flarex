@@ -45,10 +45,24 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
         admittedHeadStayedPinned: true,
         terminalJournalFailureDidNotCommit: true,
         terminalFailureDidNotCommit: true,
-        exactCandidateGuardComposed: true,
-        copiedCandidateGuardRejected: true,
-        foreignCandidateGuardAuthorityRejected: true,
-        missingCandidateGuardRejected: true,
+        candidateSchemaWriteGuard: {
+          exact: { disposition: "accepted" },
+          copied: {
+            disposition: "rejected",
+            errorTag: "ApplicationMutationSystemConfigurationError",
+            reason: "invalidCandidateSchemaWriteGuard",
+          },
+          foreignAuthority: {
+            disposition: "rejected",
+            errorTag: "ApplicationMutationSystemConfigurationError",
+            reason: "invalidCandidateSchemaWriteGuard",
+          },
+          missing: {
+            disposition: "rejected",
+            errorTag: "ApplicationMutationSystemConfigurationError",
+            reason: "invalidCandidateSchemaWriteGuard",
+          },
+        },
         freshWorkerLoads: 9,
         commitCount: 6,
         outcomeCount: 6,

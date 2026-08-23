@@ -65,6 +65,7 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
 const COMPATIBILITY_DATE = "2026-06-14";
 const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
@@ -85,15 +86,27 @@ export interface ApplicationNativeMutationProof {
   readonly admittedHeadStayedPinned: true;
   readonly terminalJournalFailureDidNotCommit: true;
   readonly terminalFailureDidNotCommit: true;
-  readonly exactCandidateGuardComposed: true;
-  readonly copiedCandidateGuardRejected: true;
-  readonly foreignCandidateGuardAuthorityRejected: true;
-  readonly missingCandidateGuardRejected: true;
+  readonly candidateSchemaWriteGuard: ApplicationNativeMutationCandidateSchemaWriteGuardObservation;
   readonly freshWorkerLoads: number;
   readonly commitCount: number;
   readonly outcomeCount: number;
   readonly feedCount: number;
   readonly outboxCount: number;
+}
+
+export type ApplicationNativeMutationConfigurationObservation =
+  | { readonly disposition: "accepted" }
+  | {
+    readonly disposition: "rejected";
+    readonly errorTag: "ApplicationMutationSystemConfigurationError";
+    readonly reason: ApplicationMutationSystemConfigurationError["reason"];
+  };
+
+export interface ApplicationNativeMutationCandidateSchemaWriteGuardObservation {
+  readonly exact: ApplicationNativeMutationConfigurationObservation;
+  readonly copied: ApplicationNativeMutationConfigurationObservation;
+  readonly foreignAuthority: ApplicationNativeMutationConfigurationObservation;
+  readonly missing: ApplicationNativeMutationConfigurationObservation;
 }
 
 export type ApplicationNativeMutationFixtureFactory = () => Promise<
@@ -116,53 +129,39 @@ export async function proveApplicationNativeMutation(
   const loader = new ApplicationNativeWorkerLoader();
   const live = await makeApplicationNativeMutationTestLive(fixture, loader);
   const layer = makeApplicationMutationSystemLayer(live);
-  let copiedCandidateGuardRejected = false;
-  try {
-    makeApplicationMutationSystemLayer(Object.freeze({
-      ...live,
-      candidateSchemaWriteGuard: Object.freeze({
-        ...live.candidateSchemaWriteGuard,
+  const candidateSchemaWriteGuard:
+    ApplicationNativeMutationCandidateSchemaWriteGuardObservation = Object.freeze({
+      exact: Object.freeze({ disposition: "accepted" }),
+      copied: observeApplicationMutationConfiguration(() =>
+        makeApplicationMutationSystemLayer(Object.freeze({
+          ...live,
+          candidateSchemaWriteGuard: Object.freeze({
+            ...live.candidateSchemaWriteGuard,
+          }),
+        }))
+      ),
+      foreignAuthority: observeApplicationMutationConfiguration(() =>
+        makeApplicationMutationSystemLayer(Object.freeze({
+          ...live,
+          sessionAuthority: Object.freeze({ ...live.sessionAuthority }),
+        }))
+      ),
+      missing: observeApplicationMutationConfiguration(() => {
+        const {
+          candidateSchemaWriteGuard: _omittedCandidateSchemaWriteGuard,
+          ...missingCandidateGuardLive
+        } = live;
+        // @ts-expect-error Deliberately exercise a missing required capability.
+        makeApplicationMutationSystemLayer(missingCandidateGuardLive);
       }),
-    }));
-  } catch (cause) {
-    copiedCandidateGuardRejected =
-      cause instanceof ApplicationMutationSystemConfigurationError &&
-      cause.reason === "invalidCandidateSchemaWriteGuard";
-  }
-  let foreignCandidateGuardAuthorityRejected = false;
-  try {
-    makeApplicationMutationSystemLayer(Object.freeze({
-      ...live,
-      sessionAuthority: Object.freeze({ ...live.sessionAuthority }),
-    }));
-  } catch (cause) {
-    foreignCandidateGuardAuthorityRejected =
-      cause instanceof ApplicationMutationSystemConfigurationError &&
-      cause.reason === "invalidCandidateSchemaWriteGuard";
-  }
-  const {
-    candidateSchemaWriteGuard: _omittedCandidateSchemaWriteGuard,
-    ...missingCandidateGuardLive
-  } = live;
-  let missingCandidateGuardRejected = false;
-  try {
-    // @ts-expect-error Deliberately exercise a missing required capability.
-    makeApplicationMutationSystemLayer(missingCandidateGuardLive);
-  } catch (cause) {
-    missingCandidateGuardRejected =
-      cause instanceof ApplicationMutationSystemConfigurationError &&
-      cause.reason === "invalidCandidateSchemaWriteGuard";
-  }
-  if (!copiedCandidateGuardRejected ||
-    !foreignCandidateGuardAuthorityRejected ||
-    !missingCandidateGuardRejected) {
-    throw new Error("Application mutation accepted an invalid candidate guard.");
-  }
+    });
   const invoke = <A, E>(effect: Effect.Effect<
     A,
     E,
     ApplicationMutationSystem | Scope.Scope
-  >) => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(layer))));
+  >) => runSystemTestEffectV1(
+    Effect.scoped(effect.pipe(Effect.provide(layer))),
+  );
   const create = TransactionFunctionPathV1Schema.make("users:create");
   const firstKey = TransactionRequestKeyV1Schema.make(
     "application-native:create:1",
@@ -315,7 +314,7 @@ export async function proveApplicationNativeMutation(
   }
   let staleHeadRejected = false;
   try {
-    await Effect.runPromise(selectApplicationMutationAdmission(
+    await runSystemTestEffectV1(selectApplicationMutationAdmission(
       fixture.active.selection,
       create,
       {
@@ -393,16 +392,31 @@ export async function proveApplicationNativeMutation(
     admittedHeadStayedPinned: true,
     terminalJournalFailureDidNotCommit: true,
     terminalFailureDidNotCommit: true,
-    exactCandidateGuardComposed: true,
-    copiedCandidateGuardRejected: true,
-    foreignCandidateGuardAuthorityRejected: true,
-    missingCandidateGuardRejected: true,
+    candidateSchemaWriteGuard,
     freshWorkerLoads: loader.loads,
     commitCount: afterFailure.commits,
     outcomeCount: afterFailure.outcomes,
     feedCount: afterFailure.feed,
     outboxCount: afterFailure.outbox,
   });
+}
+
+function observeApplicationMutationConfiguration(
+  configure: () => unknown,
+): ApplicationNativeMutationConfigurationObservation {
+  try {
+    configure();
+    return Object.freeze({ disposition: "accepted" });
+  } catch (cause: unknown) {
+    if (!(cause instanceof ApplicationMutationSystemConfigurationError)) {
+      throw cause;
+    }
+    return Object.freeze({
+      disposition: "rejected",
+      errorTag: cause._tag,
+      reason: cause.reason,
+    });
+  }
 }
 
 export async function makeApplicationNativeMutationTestLayer(
