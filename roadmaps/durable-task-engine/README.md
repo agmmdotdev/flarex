@@ -184,9 +184,11 @@ records that cancellation as `superseded_by_completion`. The DTE06-F preflight
 is approved; F0A runtime/provider convergence and F0B authenticated Task
 query/mutation plus PostgreSQL settlement are complete privately. F1's
 production-compatible private host is also complete through hosted PGlite and
-ordinary-role PostgreSQL. DTE05-C3 Application scheduling parity is
-complete privately; F2 fresh-host recovery and takeover has completed its
-implementation preflight and is the next bounded proof.
+ordinary-role PostgreSQL. DTE05-C3 Application scheduling parity and DTE06-F2
+fresh-host recovery and takeover are complete privately. F2 proves pre-expiry
+exclusion, persisted expiry/retry grant, old-host fencing, and one winning
+fresh Worker in PGlite and ordinary-role genuine PostgreSQL without a new
+runtime owner.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -601,8 +603,7 @@ files remain candidates:
      admission. No scheduled Worker host or Cron Trigger is active;
 6. [`06-compute-provider-and-runtime.md`](./06-compute-provider-and-runtime.md)
    - **active; DTE06-A through DTE06-E complete privately; DTE06-F preflight
-     approved, F0A/F0B/F1 complete privately, and F2 implementation preflight
-     complete:** the
+     approved, and F0A/F0B/F1/F2 complete privately:** the
      provider-neutral contract, delivery evidence, fenced
      repository, bounded discovery, trusted directory, continuation, recovery,
      multi-scope runner, and Postgres deadline owners remain production-inert.
@@ -670,9 +671,10 @@ files remain candidates:
      ordinary-role PostgreSQL counterpart around those current owners. C3 now
      provides private Application due discovery and lifecycle composition
      through the existing scheduler kernel, with PGlite and genuine PostgreSQL
-     parity evidence. With C3 complete privately, F2 next proves
-     fresh-host recovery and takeover without shared process state. Preflight
-     46 records the correction and prohibited harness workarounds. Real
+     parity evidence. F2 now proves fresh-host recovery and takeover without
+     shared process state through the persisted scheduler, lifecycle, and
+     delivery owners. Preflight 46 records the scheduling correction and
+     prohibited harness workarounds. Real
      Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public
      API, route, binding, fallback, dual execution, or production activation

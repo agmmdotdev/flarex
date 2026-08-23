@@ -142,10 +142,10 @@ immutable result publication, and fenced Task completion/retry. DTE06-F0A now
 converges the Application-owned runtime/provider substrate, and F0B gives the
 Task handler authenticated `runQuery` and `runMutation` capabilities with
 genuine PostgreSQL settlement proof. Controlled outbound and Task scheduling
-remain deferred. F1 now proves the production-compatible private host through
-PGlite and ordinary-role PostgreSQL. F2 next owns fresh-host recovery and
-takeover. The public production invocation route still does not compose this
-private Task path.
+remain deferred. F1 proves the production-compatible private host through
+PGlite and ordinary-role PostgreSQL. F2 now proves fresh-host recovery and
+takeover through persisted authority only. The public production invocation
+route still does not compose this private Task path.
 
 ### Existing Prototype Evidence Is Not Task Authority
 
@@ -170,7 +170,7 @@ runtime and external-effect mechanics without sharing durable authority.
 | Scope-bound rows, transactions, dispatch checkpoint DDL/SQL if admitted | `@flarex/persistence-postgres` |
 | Tenant/deployment/scope/revision resolution and provider composition | `flarex-backend` |
 | Canonical task definition and immutable runtime binding | Standard Application definition owners |
-| Private Standard Task definition/reference and run-creation composition | Roadmap 42 `SAP08-A`, pending DTE06-F2 and reusing `ApplicationTaskSystem` |
+| Private Standard Task definition/reference and run-creation composition | Roadmap 42 `SAP08-A`, after DTE06-F2 and reusing `ApplicationTaskSystem` |
 | Artifact loading, runtime projection, Worker construction, restricted host kit | Existing artifact-runtime owners |
 | Provider-neutral task dispatch/cancel contract and in-memory conformance adapter | `@flarex/durable-task` private compute-provider subpaths |
 | Effect delivery, trusted resolution, and provider composition | `flarex-backend` |
@@ -635,7 +635,7 @@ lifecycle accepts the unchanged success and records the cancellation as
   completion response; and
 - emit only privacy-safe aggregate operational receipts.
 
-### DTE06-F: Private End-To-End Runtime Proof — F1 Complete; F2 Preflight Complete
+### DTE06-F: Private End-To-End Runtime Proof — F1 And F2 Complete Privately
 
 - first converge the Application runtime substrate used by query, mutation,
   foreground action, and Task adapters without creating one universal
@@ -675,9 +675,9 @@ lifecycle accepts the unchanged success and records the cancellation as
   Application, R2, Worker Loader, supervisor, and Task System owners;
 - retain F1's hosted PGlite and ordinary-role PostgreSQL success proofs over
   immutable object resources and a fresh `WorkerLoader.load` Task Worker;
-- after the separately approved DTE05-C3 correction, prove F2 fresh-host
-  restart/takeover, stale old-host rejection, duplicate and lost-response
-  decisions, and cleanup through persisted authority only;
+- retain F2's fresh-host restart/takeover proof, stale old-host rejection, and
+  regression authority for duplicate and lost-response decisions through
+  persisted authority only;
 - run real Cloudflare/Hyperdrive/PostgreSQL evidence where platform behavior is
   part of the claim; and
 - remain behind an explicit disabled-by-default host/deployment gate.
@@ -697,10 +697,12 @@ the existing Application store and decisions through generation-specific
 adapters to the same scheduler kernel, with PGlite and genuine PostgreSQL
 recovery proofs. The correction and its stop boundary are recorded in
 [`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
-F2 has completed its implementation preflight and is the next bounded
-production-inert proof. It must reuse this persisted scheduler path rather than
-introduce host-local lifecycle logic. The exact two-host construction and stop
-boundary are recorded in Preflight 42.
+F2 now reuses this persisted scheduler path rather than introducing host-local
+lifecycle logic. Its PGlite and ordinary-role PostgreSQL proofs construct host
+B without host A's process-local host, Layer, loader, supervisor, lifecycle
+gateway, directory, continuation, fiber, or mutable adapter objects. The exact
+two-host construction, acceptance receipt, and stop boundary are recorded in
+Preflight 42.
 
 ### DTE06-G: Final Admission — Pending
 
@@ -758,15 +760,17 @@ publication/readiness, exact launch authority, private Worker ABI/runtime,
 shared accepted-start session, real Worker Loader provider, and the private
 Application Task selection/run-creation/delivery composition.
 
-The current stop is the completed, production-inert DTE06-F1 host matrix under
+The current stop is the completed, production-inert DTE06-F1/F2 host and
+fresh-host takeover matrix under
 [`Preflight 42`](./preflight/42-dte06-hosted-runtime-proof.md),
 [`Preflight 44`](./preflight/44-dte06-task-mutation-callback-and-replay.md), and
 [`Preflight 45`](./preflight/45-dte06-task-mutation-settlement-reconciliation.md).
 F1 proves the private event host with PGlite, ordinary-role PostgreSQL, genuine
-Worker Loader execution, and immutable Miniflare R2 adapters; it does not prove
-crash recovery or a deployed Cloudflare topology. The DTE05-C3 Application
-scheduling-parity correction is complete privately and F2 has completed its
-implementation preflight. The separately gated F3/F4 hosted work and
-DTE05-E3 scheduled host remain closed. Public APIs,
+Worker Loader execution, and immutable Miniflare R2 adapters. F2 proves
+fresh-host recovery, pre-expiry exclusion, persisted expiry/retry grant,
+old-host fencing, and one winning fresh Worker without shared host state. It
+does not prove a deployed Cloudflare topology. The DTE05-C3 Application
+scheduling-parity correction is complete privately. The separately gated F3/F4
+hosted work and DTE05-E3 scheduled host remain closed. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.

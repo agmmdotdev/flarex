@@ -10,8 +10,8 @@ complete as separate F1 checkpoints below. The first private hosted PGlite
 vertical and its ordinary-role genuine-PostgreSQL counterpart are also
 complete. DTE06-F1 is complete privately. The DTE05-C3 Application scheduling
 parity correction is complete privately. DTE06-F2 fresh-host recovery and
-takeover has completed its implementation preflight and is the next bounded
-production-inert proof.
+takeover is complete privately through the existing persisted scheduler,
+lifecycle, delivery, and Worker Loader owners.
 Any deployment to a real Cloudflare account, creation of R2 or Hyperdrive
 resources, secret write, or external database mutation remains a separate
 explicit approval gate.
@@ -512,7 +512,7 @@ R2, or crash recovery. Those claims remain with F2 through F4.
 F1 must not add a Worker entrypoint, Wrangler binding, route, Queue, Cron, or
 external resource.
 
-### DTE06-F2: Fresh-Host Recovery And Takeover — Pending
+### DTE06-F2: Fresh-Host Recovery And Takeover — Complete Privately
 
 - start host A, admit one exact dispatch, and stop A after an explicitly chosen
   persistence/Worker boundary;
@@ -542,8 +542,8 @@ The reproducible scenario, expected and actual behavior, affected
 scheduling/persistence owners, prohibited harness workarounds, and smallest
 correction candidate are recorded in
 [`46-dte05-application-scheduling-parity.md`](./46-dte05-application-scheduling-parity.md).
-F2 implementation is now the next active checkpoint after DTE05-C3 completed
-its final reviewer gate.
+F2 reuses that completed correction and is now complete privately under the
+bounded proof below.
 
 #### 2026-08-23 Implementation Preflight Decision
 
@@ -608,6 +608,15 @@ share exact host/resource construction mechanics. Any required change to
 `@flarex/durable-task`, `flarex-backend`, persistence transaction behavior, or
 Standard Application runtime behavior is a newly discovered core defect: record
 it with the reproducible evidence and stop for separate approval.
+
+F2 is complete privately. Its accepted proof constructs two independent
+event-host compositions over only the same persisted database and immutable
+object data. Host A loses its event scope while settlement is withheld. Host B
+uses newly constructed control, delivery, lifecycle, loader, supervisor,
+directory, and object-port adapters; waits only on database-authoritative
+scheduler decisions; fences the old attempt without changing the winner; and
+alone reaches terminal success. No production package, public API, route,
+binding, external resource, fallback, or activation is part of this completion.
 
 ### DTE06-F3: Isolated Cloudflare/Hyperdrive/R2 Probe — Separately Gated
 
@@ -715,12 +724,10 @@ DTE06-F does not authorize:
 The DTE06-F1 event-lifetime host, immutable launch-resource composition, hosted
 PGlite vertical, and ordinary-role genuine-PostgreSQL counterpart described
 above are complete privately. F0A/F0B remain complete. DTE05-C3 Application
-scheduling parity is complete privately. DTE06-F2 may now construct a new host
-scope with no
-shared process state and prove takeover only through existing persisted
-lifecycle and delivery authority. The backend-private host, bounded redacted
-receipt, lifecycle owners, and every production entrypoint remain unchanged.
-F3/F4 require separate approval before any external mutation.
+scheduling parity and DTE06-F2 fresh-host takeover are complete privately. The
+backend-private host, bounded redacted receipt, lifecycle owners, and every
+production entrypoint remain unchanged. F3/F4 require separate approval before
+any external mutation.
 
 After DTE06-F closes, DTE05-E3 may separately preflight a real scheduled event
 host and Wrangler Cron binding. DTE06-G then owns final provenance, package,

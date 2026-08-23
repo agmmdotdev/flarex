@@ -19,7 +19,11 @@ import {
   makeApplicationTaskSystemRunAttemptStoreV1,
 } from "@flarex/persistence-postgres/internal/task-system-run-attempt-store-v1";
 import {
+  makeApplicationTaskSystemWakeSchedulerPartitionV1,
+} from "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1";
+import {
   createTaskAttemptLifecycleGateway,
+  type ApplicationTaskAttemptLifecycleCapability,
 } from "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
 import {
   makeApplicationTaskSystemRunCreationStore,
@@ -36,6 +40,9 @@ import {
 import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
+  makeFixedTaskRetryJitterSourceV1,
+} from "@flarex/durable-task/internal/scheduling-testing-v1";
 import {
   ApplicationTaskSystem,
   createApplicationTaskRun,
@@ -97,7 +104,7 @@ import {
   type TaskRuntimeLaunchLocatedSource,
   type TaskRuntimeLaunchResourceDirectory,
 } from "flarex-backend/internal/task-runtime-launch";
-import { Cause, Effect, Exit, Fiber, Option, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
 import { Miniflare } from "miniflare";
 import {
   TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
@@ -136,6 +143,9 @@ import {
 import {
   MiniflareApplicationWorkerLoader,
 } from "./applicationNativeQueryHarness";
+import {
+  proveApplicationTaskSystemFreshHostTakeoverEffect,
+} from "./applicationTaskSystemFreshHostTakeoverHarness";
 
 const RUNTIME_HOST_IDENTITY = APPLICATION_RUNTIME_HOST_IDENTITY;
 const COMPATIBILITY_DATE = "2026-06-14";
@@ -222,7 +232,10 @@ export type ApplicationTaskSystemConnectedScenario =
   | "mutation_callback"
   | "cancel_complete_race";
 
-type ApplicationTaskSystemConnectedHosting = "connected" | "event_host";
+type ApplicationTaskSystemConnectedHosting =
+  | "connected"
+  | "event_host"
+  | "fresh_host";
 
 export function proveApplicationTaskSystemHostedPGlite(): Promise<void> {
   return proveApplicationTaskSystemHosted(pgliteLane());
@@ -235,6 +248,20 @@ export function proveApplicationTaskSystemHosted(
     lane,
     "success",
     "event_host",
+  );
+}
+
+export function proveApplicationTaskSystemFreshHostTakeoverPGlite(): Promise<void> {
+  return proveApplicationTaskSystemFreshHostTakeover(pgliteLane());
+}
+
+export function proveApplicationTaskSystemFreshHostTakeover(
+  lane: ApplicationTaskSystemConnectedLane,
+): Promise<void> {
+  return proveApplicationTaskSystemConnectedWithHosting(
+    lane,
+    "success",
+    "fresh_host",
   );
 }
 
@@ -254,8 +281,8 @@ async function proveApplicationTaskSystemConnectedWithHosting(
   scenario: ApplicationTaskSystemConnectedScenario,
   hosting: ApplicationTaskSystemConnectedHosting = "connected",
 ): Promise<void> {
-    if (hosting === "event_host" && scenario !== "success") {
-      throw new Error("The F1 event host lane currently admits only success.");
+    if (hosting !== "connected" && scenario !== "success") {
+      throw new Error("The hosted task lanes currently admit only success.");
     }
     const leaseDurationMilliseconds = scenario === "lease_loss"
       ? 4_000
@@ -276,7 +303,7 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       : null;
     let hostedResources: HostedTaskResourceFixture | null = null;
     try {
-    hostedResources = hosting === "event_host"
+    hostedResources = hosting === "event_host" || hosting === "fresh_host"
       ? await createHostedTaskResourceFixture()
       : null;
     const locatedRunAuthority = Object.freeze({
@@ -566,6 +593,9 @@ async function proveApplicationTaskSystemConnectedWithHosting(
           }),
         });
     const completionAttempts: unknown[] = [];
+    const hostALifecycle = yield* Deferred.make<
+      ApplicationTaskAttemptLifecycleCapability
+    >();
     const lifecycleOwner = lifecycleGateway;
     const resolveLifecycle = lifecycleOwner.resolve;
     const lifecycleResolver: TaskAttemptSupervisorLifecycleResolver =
@@ -584,6 +614,9 @@ async function proveApplicationTaskSystemConnectedWithHosting(
             return yield* Effect.die(
               "Application Task supervision resolved a Legacy lifecycle.",
             );
+          }
+          if (hosting === "fresh_host") {
+            yield* Deferred.succeed(hostALifecycle, current);
           }
           if (completionResponseLostGateway !== null) {
             const replayOwner = completionResponseLostGateway;
@@ -781,6 +814,248 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       runner: oneCandidatePolicy(),
     });
     if (launchResources !== null) {
+      if (hosting === "fresh_host") {
+        if (hostedResources === null) {
+          return yield* Effect.die(
+            new Error("Fresh-host proof requires durable object resources."),
+          );
+        }
+        const hostA = Result.getOrThrow(
+          makeApplicationTaskDeliveryResourceEventHost(
+            Object.freeze({
+              ...deliveryLive,
+              launchResources,
+              supervision: Object.freeze({ supervisor }),
+            }),
+            Object.freeze({
+              maximumDrainMilliseconds: 15_000,
+              maximumSupervisionExits: 4,
+            }),
+          ),
+        );
+        const hostBPorts = hostedResources.forkPorts();
+        const hostBControl = yield* Effect.acquireRelease(
+          Effect.tryPromise({
+            try: () => lane.createControlTarget(fixture),
+            catch: cause => cause,
+          }).pipe(Effect.orDie),
+          owner => Effect.tryPromise({
+            try: () => owner.close(),
+            catch: cause => cause,
+          }).pipe(Effect.orDie),
+        );
+        const hostBDeliveryTarget = createLocatedTaskComputeDeliveryTargetV1(
+          fixture.target.drizzle,
+          fixture.active.basis.authority.physicalLocator,
+        );
+        const hostBDeliveryAuthority = Object.freeze({
+          authority: fixture.active.basis.authority,
+          target: hostBDeliveryTarget,
+        });
+        const hostBReadEvidence: TaskRuntimeLaunchLocatedSource["readEvidence"] =
+          providerRequest => readTaskComputePreparedExecutionV1(
+            hostBDeliveryAuthority,
+            providerRequest,
+          ).pipe(
+            Effect.map(preparedExecution => Object.freeze({
+              generation: "application_v1" as const,
+              preparedExecution,
+            })),
+            Effect.mapError(cause => new TaskRuntimeLaunchPortError({
+              operation: "read_evidence",
+              reason: cause.reason === "not_found"
+                ? "not_found"
+                : cause.reason === "resource_failure"
+                  ? "resource_failure"
+                  : "corrupt",
+              cause,
+            })),
+          );
+        expect(hostBControl.target).not.toBe(control.target);
+        expect(hostBDeliveryTarget).not.toBe(deliveryTarget);
+        expect(hostBReadEvidence).not.toBe(readEvidence);
+        const hostBInputStore = makeTaskInputStore(hostBPorts.inputs);
+        const hostBPrincipalStore = Result.getOrThrow(
+          makeTaskExecutionPrincipalStore(
+            launchScopeId,
+            hostBPorts.principals,
+          ),
+        );
+        const hostBApplicationSource: ApplicationAnalysisSourceReader =
+          Object.freeze({
+            read: (rootSha256: string) => rootSha256 ===
+                fixture.source.sourceArtifact.rootSha256
+              ? Effect.succeed(fixture.source)
+              : Effect.fail(new ApplicationAnalysisSourceReadError({
+                  operation: "read",
+                  reason: "notFound",
+                })),
+          });
+        const hostBLaunchResources: TaskRuntimeLaunchResourceDirectory =
+          Object.freeze({
+            resolve: (
+              scopeId: Parameters<
+                TaskRuntimeLaunchResourceDirectory["resolve"]
+              >[0],
+            ) => scopeId === launchScopeId
+              ? Effect.succeed(Object.freeze({
+                  scopeId: launchScopeId,
+                  readEvidence: hostBReadEvidence,
+                  runtimeObjects: makeTaskRuntimeObjectStore(
+                    hostBPorts.runtimeObjects,
+                  ),
+                  inputs: hostBInputStore,
+                  applicationSource: hostBApplicationSource,
+                  principals: hostBPrincipalStore,
+                }))
+              : Effect.fail(new TaskRuntimeLaunchPortError({
+                  operation: "resolve_source",
+                  reason: "authority_unavailable",
+                })),
+          });
+        const loaderB = yield* Effect.acquireRelease(
+          Effect.sync(() => new MiniflareWorkerLoader()),
+          owner => Effect.tryPromise({
+            try: () => owner.disposeAll(),
+            catch: cause => cause,
+          }).pipe(Effect.orDie),
+        );
+        const resultStoreB = makeTaskResultStore(hostBPorts.results);
+        const lifecycleGatewayB = createTaskAttemptLifecycleGateway({
+          scopeMetadata: fixture.authorityPorts.scopeMetadata,
+          provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+          scopeClockTargets: Object.freeze({
+            resolve: async (physicalLocator: ScopePhysicalLocator) =>
+              lane.locateRunTarget(fixture, physicalLocator),
+          }),
+        });
+        const lifecycleResolverB: TaskAttemptSupervisorLifecycleResolver =
+          Object.freeze({
+            resolve: Effect.fn(
+              "ApplicationTaskSystemFreshHost.resolveLifecycle",
+            )(function* (dispatch) {
+              const current = yield* lifecycleGatewayB.resolve(
+                fixture.deploymentId,
+                dispatch,
+              );
+              return current.generation === "application_v1"
+                ? current
+                : yield* Effect.die(
+                    "Fresh Application host resolved a Legacy lifecycle.",
+                  );
+            }),
+          });
+        const supervisorB = yield* Effect.fromResult(makeTaskAttemptSupervisor(
+          lifecycleResolverB,
+          resultStoreB,
+          supervisorPolicy,
+        ));
+        const queryAuthorityB = makeApplicationTaskQueryAuthority({
+          activation: fixture.activation,
+          query: {
+            runQuery: () => Effect.die(
+              new Error("Fresh-host success unexpectedly invoked a query."),
+            ),
+          },
+        });
+        const mutationAuthorityB = Object.freeze({
+          bindLaunch: () => Effect.succeed(Object.freeze({
+            maximumCloseMilliseconds: 1_000,
+            runMutation: () => Effect.fail(Object.freeze({
+              reason: "invalidInput" as const,
+            })),
+            close: Effect.void,
+          })),
+        });
+        const hostBDirectoryAuthority = Object.freeze({
+          scopeMetadata: fixture.authorityPorts.scopeMetadata,
+          provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+          scopeClockTargets: Object.freeze({
+            resolve: async (physicalLocator: ScopePhysicalLocator) =>
+              createLocatedTaskComputeDeliveryTargetV1(
+                fixture.target.drizzle,
+                physicalLocator,
+              ),
+          }),
+        });
+        expect(hostBDirectoryAuthority).not.toBe(
+          deliveryLive.directory.authority,
+        );
+        const hostB = Result.getOrThrow(
+          makeApplicationTaskDeliveryResourceEventHost(
+            Object.freeze({
+              controlTarget: hostBControl.target,
+              directory: Object.freeze({
+                authority: hostBDirectoryAuthority,
+                repository: Object.freeze({
+                  claimDurationMilliseconds: 30_000,
+                  retryDelayMilliseconds: [1_000, 2_000],
+                  maximumDeliveryAttempts: 3,
+                  randomUuid: uuidSequence(30),
+                }),
+                discoveryDeadline: DEADLINE_POLICY,
+                resolutionTimeoutMilliseconds: 1_000,
+              }),
+              launchResources: hostBLaunchResources,
+              launchAuthority: Object.freeze({
+                maximumRuntimeObjectBytes: 1_048_576,
+                maximumTotalRuntimeObjectBytes: 2_000_000,
+                validateRuntimeObject: () => Effect.void,
+              }),
+              workerLoader: loaderB,
+              provider: Object.freeze({
+                applicationHostPolicy: applicationHostPolicy(),
+                legacyHostPolicy: legacyHostPolicy(),
+                maximumScopedDispatches: 4,
+                handshakeMilliseconds: 5_000,
+                randomUuid: uuidSequence(40),
+                sha256: taskSha256,
+              }),
+              queryAuthority: queryAuthorityB,
+              mutationAuthority: mutationAuthorityB,
+              runner: oneCandidatePolicy(),
+              supervision: Object.freeze({ supervisor: supervisorB }),
+            }),
+            Object.freeze({
+              maximumDrainMilliseconds: 15_000,
+              maximumSupervisionExits: 4,
+            }),
+          ),
+        );
+        const scheduler = Result.getOrThrow(
+          makeApplicationTaskSystemWakeSchedulerPartitionV1(
+            locatedRunAuthority,
+            {
+              scheduler: {
+                pageSize: 10,
+                maximumPages: 2,
+                maximumCandidates: 10,
+              },
+              retryJitter: makeFixedTaskRetryJitterSourceV1(
+                Result.getOrThrow(decodeTaskRetryJitterV1(0)),
+              ),
+              runAttemptStore: { randomUuid: uuidSequence(100) },
+            },
+          ),
+        );
+        yield* proveApplicationTaskSystemFreshHostTakeoverEffect({
+          runId: created.runId,
+          expectedInput: inputValue,
+          expectedResult: { accepted: { orderId: "order-1" } },
+          hostA,
+          hostB,
+          loaderA: loader,
+          loaderB,
+          lifecycle,
+          scheduler,
+          hostALifecycle: Deferred.await(hostALifecycle),
+          readResult: reference => resultStoreB.read(reference),
+        });
+        expect(legacyRuntimeObjectReads).toBe(0);
+        expect(hostBPorts.runtimeObjects.getCalls).toBe(0);
+        expect(hostBPorts.runtimeObjects.putCalls).toBe(0);
+        return;
+      }
       const host = Result.getOrThrow(
         makeApplicationTaskDeliveryResourceEventHost(
           Object.freeze({
@@ -1511,7 +1786,15 @@ interface HostedTaskResourceFixture {
   readonly principals: MiniflareTaskResourceBucket;
   readonly runtimeObjects: MiniflareTaskResourceBucket;
   readonly results: MiniflareTaskResourceBucket;
+  readonly forkPorts: () => HostedTaskResourcePorts;
   readonly dispose: () => Promise<void>;
+}
+
+interface HostedTaskResourcePorts {
+  readonly inputs: MiniflareTaskResourceBucket;
+  readonly principals: MiniflareTaskResourceBucket;
+  readonly runtimeObjects: MiniflareTaskResourceBucket;
+  readonly results: MiniflareTaskResourceBucket;
 }
 
 async function createHostedTaskResourceFixture(): Promise<
@@ -1540,6 +1823,12 @@ async function createHostedTaskResourceFixture(): Promise<
       principals,
       runtimeObjects,
       results,
+      forkPorts: () => Object.freeze({
+        inputs: inputs.fork(),
+        principals: principals.fork(),
+        runtimeObjects: runtimeObjects.fork(),
+        results: results.fork(),
+      }),
       dispose: async () => {
         if (disposed) return;
         disposed = true;
@@ -1572,6 +1861,10 @@ class MiniflareTaskResourceBucket
   getCalls = 0;
 
   constructor(private readonly owner: TaskInputStoreBucket) {}
+
+  fork(): MiniflareTaskResourceBucket {
+    return new MiniflareTaskResourceBucket(this.owner);
+  }
 
   async put(
     key: string,
