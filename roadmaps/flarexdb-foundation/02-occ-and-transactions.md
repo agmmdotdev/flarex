@@ -134,10 +134,11 @@ Convex-first implementation references:
 Dependency types are introduced just in time by the gates that can prove their
 semantics. Completed `O04` owns present and qualified-missing point
 dependencies, `O10` owns index ranges, and `O10-R` owns the first exact
-relation-adjacency dependency after stable logical and immutable relation
-identity exists. A conservative table-version fence is added only if its
-consuming gate demonstrates that it is necessary. Do not predeclare unsupported
-variants or allocate a second row-version authority beside `CommitSeq`.
+  relation-adjacency dependency after `R01-P` selects one physical snapshot
+  support and `R02` binds its immutable meaning. A conservative table-version
+fence is added only if its consuming gate demonstrates that it is necessary.
+Do not predeclare unsupported variants or allocate a second row-version
+authority beside `CommitSeq`.
 
 ## Turn Checklist
 
@@ -1723,51 +1724,69 @@ Exit gate:
 
 Prerequisites:
 
-- `R01`/`R02` have frozen logical, semantic-definition, and physical
-  edge-definition identity;
-- `S12` stores edge-definition-aware current edge occurrences; and
-- `C09` lowers and removes those occurrences atomically with row publication.
+- `R01` has frozen the same-scope, top-level, nonlocalized, monomorphic,
+  duplicate-free, reverse-many, target-live, `restrict` subset;
+- `R01-P` has selected one physical snapshot support/access plan and `R02` has
+  bound its logical, semantic-definition, physical-edge-definition, read-key,
+  and snapshot meaning through post-analysis app-schema publication, pinned to
+  the exact analyzed manifest;
+- `S12` stores current edges plus that selected snapshot support, and `C09`
+  maintains both atomically with row publication and the target-live/`restrict`
+  checks; and
+- `E01` has fully built, validated, and readied the selected edge definition for
+  the candidate relation-bearing revision. E01 readiness alone does not activate
+  that revision; O10-R remains a prerequisite to any active relation whose
+  reverse read and `restrict` enforcement must be available together.
 
 Outcome:
 
-- Implement one exact one-hop outgoing or incoming relation read keyed by
-  `(scope, immutable edge definition, direction, endpoint)`.
-- Return only the bounded ordered edge/endpoint identities and retained edge
-  metadata owned by that shape. Loading source or target documents remains a
-  separately composed point-read operation with its own O04 dependency.
-- Choose and document one snapshot authority: edge revision history, or current
-  edges plus an adjacency version atomically advanced by every matching edge
-  insert, delete, retarget, order change, locale/path move, and visibility
-  change, including managed backfill and repair publication.
-- For the current-edge option, read the adjacency version before the edge
-  query, require it not to exceed `SnapshotToken.commitSeq`, read the result,
-  reread and require the same version, register that version, and validate it
+- Implement one exact one-hop incoming reverse-many relation read keyed by
+  `(scope, immutable edge definition, target endpoint)` using the authority
+  already selected by `R01-P`; O10-R does not compare or choose storage again.
+- Return only the bounded, totally ordered occurrence and source-endpoint
+  identities plus retained edge metadata required to distinguish that shape.
+  It returns no source or target document and exposes no external cursor.
+  Document loading remains separate O04 point reads. The later relation-specific
+  `RQ01` gate first exposes this same identity page through the Standard query
+  owner and does not populate documents.
+- For edge-history authority, reconstruct the exact admitted snapshot through
+  the selected revision key and register the exact retained dependency. For
+  current-edge/adjacency-version authority, perform the selected version-before,
+  bounded-edge-read, version-after handshake, reject a version above
+  `SnapshotToken.commitSeq`, register that exact version, and validate it
   unchanged in the final commit transaction. A changed or post-snapshot version
-  enters the existing conflict/retry policy; it never returns a post-snapshot
-  result.
+  enters the existing conflict/retry policy; it never returns latest state as
+  the pinned snapshot.
 - Add a complete local read-your-writes overlay for the chosen relation shape.
   A relevant staged write that the overlay cannot represent remains a typed
   rejection.
-- Keep SQL/PGQ, multi-hop traversal, arbitrary predicates, unsupported
-  directions, relation pagination variants, and Payload population outside this
-  gate.
-- Compare adjacency-version contention/write amplification with edge-history
-  cost for high-fanout endpoints. Do not substitute an unbounded commit-feed
-  scan.
+- Keep outgoing relation syscalls, SQL/PGQ, multi-hop traversal, arbitrary
+  predicates, external pagination/cursors, Payload population, document loading,
+  and reverse-one outside this relation-only gate. Do not substitute an
+  unbounded commit-feed scan.
+- Reproduce the selected `R01-P` real-Postgres high-fanout/skew plans and
+  accepted write-amplification ceiling against the actual reader/writer. A
+  worse result reopens `R01-P`; it does not authorize the rejected representation
+  as a fallback.
 
 Exit gate:
 
-- inserts, deletes, retargets, repeated occurrences, reordering, endpoint
-  changes, locale/path moves, empty results, and a commit racing each query/
-  registration boundary pass on PGlite and real Postgres;
+- inserts, deletes, retargets, reordering, endpoint changes, empty results, and
+  a commit racing each query/registration boundary pass on PGlite and genuine
+  PostgreSQL for the admitted top-level subset;
+- duplicate occurrences and every deferred nested/localized/polymorphic,
+  reverse-one, outgoing-syscall, and non-`restrict` shape reject before edge I/O;
 - a change committed after `SnapshotToken.commitSeq` is never returned as if it
   belonged to the original snapshot;
 - a phantom committed after registration fails final validation;
 - read-your-writes and rollback preserve the exact supported result;
 - unsupported relation and graph shapes reject without scanning JSON or
   silently falling back to latest state; and
-- this gate does not claim historical relation reads, all relation shapes, or
-  a public graph API or populated target documents.
+- this gate does not claim arbitrary historical browsing, external pagination,
+  all relation shapes, a public graph API, Standard query composition, or
+  populated documents;
+- this gate does not activate a revision; `RA01` separately reuses the existing
+  Application activation owner after this proof closes.
 
 ### [ ] O11 — Enforce Retention Floors
 
@@ -1905,9 +1924,12 @@ preflight rather than opportunistic DDL.
   index revisions precede their referenced app-row revisions; headers follow
   their removable children. Every O11-D owner must inventory all incoming
   foreign keys and prove that a blocked retained reference stops the page.
-- Any later O10-R edge history must adopt the same anchor rule before joining
-  the global floor. Compacted absence must never be accepted as evidence of no
-  row, no index membership, or no conflict.
+- If `R01-P` selects edge history, `S12` must adopt the same anchor rule before
+  that history joins the global floor, and O10-R must consume that exact meaning.
+  Compacted absence must never be accepted as evidence of no row, no edge
+  occurrence, no index membership, or no conflict. If current edges plus an
+  adjacency version are selected, O11 must not invent or compact a second edge
+  history.
 - Foreign-key blockers, unexpected cardinality, corrupt chains, missing
   anchors, or owner disagreement stop the page without `CASCADE`, fallback, or
   floor reinterpretation.

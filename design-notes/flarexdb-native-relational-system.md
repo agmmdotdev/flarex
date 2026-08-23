@@ -2,7 +2,7 @@
 
 Status: accepted relation-specific architecture correction; implementation remains deferred behind the active FlarexDB foundation order
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-23
 
 This note defines the ownership, API layering, logical model, and correctness
 boundaries for relationships in FlarexDB. It is an addendum to
@@ -50,6 +50,9 @@ Flarex-owned app/CMS row body
 
 fx_app_edge_current
   = deterministic, rebuildable current adjacency sidecar
+
+selected exact-snapshot support
+  = edge history or endpoint adjacency versioning chosen before edge DDL
 
 stable relation catalog + immutable definitions
   = schema and physical interpretation authority
@@ -112,11 +115,45 @@ by the internal test producer and the later developer producer. They do not own
 Postgres placement, stable numeric identifiers, schema activation, edge rows,
 OCC, or commit authority.
 
+The current analysis generation, owned by
+[`../roadmaps/49-application-analysis-migration.md`](../roadmaps/49-application-analysis-migration.md),
+changes how that inert intent becomes trusted. The accepted authority direction
+is:
+
+```text
+Standard relation intent
+  -> generated executable function-registration and schema modules
+  -> authenticated Source Artifact V2
+  -> Application Analysis cold-loads both modules
+  -> one concrete Application Manifest contract generation
+  -> schema publication, stable catalog binding, readiness, and activation
+```
+
+For the private Application revision generation, the loaded registrations and
+schema are the analyzer's only acceptance inputs after authenticated Source
+Artifact V2 upload. Canonical Declarative Program may remain an upstream
+authoring/code-generation compatibility input, while Semantic Artifact remains
+historical evidence/decoding only; neither may be consulted after cold load by
+analysis, readiness, activation, or runtime as a second metadata authority. The
+current
+[`ApplicationManifestV1`](../packages/analysis/src/applicationAnalysisV1.ts)
+has a strict `schema` member containing only tables and indexes, while current
+[`SchemaManifestAppSchemaV1`](../packages/flarex-protocol/src/schema-manifest.ts)
+is likewise table/index-only. Relation work must
+inventory both consumer sets, freeze an explicit analyzed-manifest evolution for
+canonical relation declarations, and add a distinct post-analysis binding
+generation for stable catalog/physical IDs. It must not add `relations` to
+either V1 or reuse an old digest with new meaning.
+
+This is the current unversioned private authority, not a claim that production
+callers have cut over. Roadmap 49's `AA-R9-P` remains no-go, and relation work
+does not authorize a route, binding, production caller, or fallback.
+
 The Standard relation representation must be ordinary canonical data. An
 illustrative shape is:
 
 ```ts
-defineStandardRelationV1({
+defineStandardRelation({
   source: {
     table: "posts",
     path: [
@@ -221,28 +258,36 @@ host-neutral function runtime. It never receives relation IDs,
 edge-definition IDs, occurrence digests, SQL cursors, adjacency-version rows,
 or persistence repositories.
 
-The first relation read should be one bounded one-hop operation. A future
-runtime capability may be structurally similar to:
+The first relation read should be one bounded incoming one-hop operation. A
+private runtime capability may be structurally similar to:
 
 ```ts
-interface FunctionRuntimeRelationReaderV1<RelationRef, DocumentId, Cursor, Document> {
-  queryRelationAdjacency(args: {
+interface FunctionRuntimeIncomingRelationReader<
+  RelationRef,
+  RelationOccurrenceRef,
+  DocumentId,
+> {
+  takeIncomingRelationSources(args: {
     relation: RelationRef
-    direction: "outgoing" | "incoming"
-    endpoint: DocumentId
+    target: DocumentId
     limit: number
-    cursor?: Cursor
   }): Promise<{
-    documents: readonly Document[]
-    isDone: boolean
-    continueCursor?: Cursor
+    sources: ReadonlyArray<{
+      occurrence: RelationOccurrenceRef
+      sourceId: DocumentId
+    }>
+    exhausted: boolean
   }>
 }
 ```
 
-The exact first interface should be narrower if that produces a smaller proof.
-The durable boundary is logical input and validated logical output, never
-physical edge access.
+The exact exported spelling remains an implementation gate. The durable first
+boundary returns logical occurrence/endpoint identities, not populated
+documents, and has no caller-authored cursor. Source or target documents load
+through ordinary point reads with their own dependencies. Forward loading
+continues to read IDs from the authoritative source row. A later composition
+may return documents or expose external pagination only after its result,
+snapshot, cursor-binding, authorization, and dependency semantics are proved.
 
 ## Native Logical Relation Model
 
@@ -263,20 +308,25 @@ localized flag
 directional delete policy
 ```
 
-The first supported subset may be intentionally smaller, for example:
+The first supported subset is intentionally smaller:
 
 ```text
 same-scope Flarex app tables
 top-level nonlocalized source fields
 monomorphic one or many values
+duplicate targets forbidden
+reverse maximum cardinality many
 generated inverse metadata
+target must be live at final commit
 target-delete restrict
 source-delete derived-edge cleanup
 ```
 
-The canonical representation can reserve future fields, but schema analysis
-must reject an unsupported combination. Presence in the AST is not permission
-to execute it.
+Nested paths, localization, polymorphism, repeated targets, reverse-one,
+detach, cascade, cross-owner targets, and external pagination remain rejected
+first-generation inputs. The canonical representation can reserve future
+fields, but schema analysis must reject an unsupported combination. Presence in
+the AST is not permission to execute it.
 
 ### Cardinality
 
@@ -302,6 +352,8 @@ cardinality of `one` means that at most one source occurrence may point to one
 target. It requires an exact transactionally maintained incoming-endpoint
 claim. It does not imply that every target must have a source. Global minimum
 existence constraints remain unsupported until separately designed.
+Reverse-one is not admitted by the first relation slice and requires its own
+claim, build, contention, and schema-evolution gate.
 
 ### Pointer Relations And Association Tables
 
@@ -441,6 +493,14 @@ prior row + final row + pinned relation binding
 Those actions publish atomically with row revision/current, indexes, unique
 claims, result, commit/change feed, outbox, and idempotency outcome.
 
+The first relation contract is referential rather than a weak dangling
+reference. The final material row set must contain a live target for every
+admitted relation value. Under the existing scope-clock commit serialization,
+a relation insertion racing a target deletion must settle in one deterministic
+order: the later incompatible commit fails. Same-commit target insertion,
+replacement, or deletion is judged from the final material state, not SQL
+statement order or a foreign key to a current-row pointer.
+
 Physical foreign-key cascade on the edge sidecar is not a complete relation
 policy. Deleting an edge without rewriting an authoritative source row would
 leave the row containing a stale target ID.
@@ -459,30 +519,33 @@ commit.
 Current edges alone are sufficient for explicitly current-state trusted reads.
 They are not sufficient for a mutation pinned to an earlier snapshot.
 
-The first mutation relation read must prove one bounded outgoing or incoming
-adjacency shape with:
+The first mutation relation read must prove one bounded incoming adjacency
+shape with:
 
 - exact snapshot eligibility;
-- deterministic pagination;
+- deterministic internally owned page/frontier semantics;
 - complete transaction-local overlay;
 - phantom detection;
 - final commit-time dependency validation;
-- target document point dependencies for returned documents;
 - the existing OCC conflict replacement and user-code rerun owner.
 
-The first implementation should compare two explicit authorities:
+Before binding the first immutable physical edge definition or adding edge DDL,
+`R01-P` must compare two explicit exact-snapshot supports over current edges:
 
 1. edge revision history capable of reconstructing the requested snapshot; or
 2. current edges plus an atomically maintained adjacency
    `last_changed_commit_seq` keyed by scope, edge definition, direction, and
    endpoint.
 
-For the current-edge option, a mutation must read the adjacency version before
-and after the edge page, require both values to be equal and no newer than the
-snapshot, register that exact dependency, and validate it unchanged inside the
-final scope-clock transaction. A high-fanout endpoint may make that version a
-write hotspot, so the implementation gate must measure it against edge history.
-Commit-feed scanning is not an implicit fallback.
+For the adjacency-version option, a mutation must read the adjacency version
+before and after the edge page, require both values to be equal and no newer
+than the snapshot, register that exact dependency, and validate it unchanged
+inside the final scope-clock transaction. A high-fanout endpoint may make that
+version a write hotspot. The preflight must compare representative high-fanout
+endpoints, tenant skew, prepared-plan behavior, index size, write amplification,
+churn/vacuum behavior, and populated-history `EXPLAIN ANALYZE` results.
+Commit-feed scanning is not an implicit fallback, and O10-R implements the
+already selected support rather than making the storage decision after S12.
 
 Multi-hop traversal, arbitrary graph patterns, unbounded pagination, raw joins,
 post-edge filters, and variable-length paths remain rejected until each has
@@ -508,14 +571,27 @@ readiness-root participation
 activation only after required evidence is complete
 ```
 
+Relation intent may be analyzed and published on an inactive application
+revision while a build runs. A relation-bearing revision does not activate
+until every required edge definition is fully maintained, validated,
+reverse-readable, and restrict-ready. There is no active first-generation state
+in which a field is called a relation while reverse reads or its declared
+delete policy are silently disabled. Existing active revisions retain their
+previous non-relation semantics until the new revision activates.
+
 The existing ordered-index and unique-key build patterns should be generalized
 rather than replaced by an unrelated edge migration engine.
 
-Every edge insert, removal, retarget, or ordering change also produces typed
-adjacency change facts in the same authoritative commit. Those facts allow the
-sync engine to invalidate relation subscriptions and dependent live results
-without broadly invalidating every query for the source table. They are commit
-children, not a second edge commit stream.
+C09 first exposes deterministic adjacency actions inside the authoritative
+commit plan. R03 later projects every edge insert, removal, retarget, or ordering
+change into typed adjacency change facts in that same commit. Those facts allow
+the sync engine to invalidate relation subscriptions and dependent live results
+without broadly invalidating every query for the source table. Until R03 and the
+complete SV-R proof, relation-specific change feeds, subscriptions, and live
+observation remain disabled and unclaimed. The facts are commit children, not a
+second edge commit stream. R03 enables dependency registration at a fenced
+scope-commit baseline: prior changes are incorporated by a fresh snapshot, and
+every relevant later change has a typed fact.
 
 ## Framework Adapter Boundary
 
@@ -584,19 +660,30 @@ SQL/PGQ as a correctness or storage prerequisite
 
 The relation work should proceed through these bounded stages:
 
-1. freeze the native Standard relation semantics and canonical occurrence/path
-   codecs;
-2. bind stable logical relation identities, immutable semantic definitions, and
+1. rebase the relation producer and artifact path on authenticated executable
+   function-registration/schema modules, Application Analysis, and one explicit
+   manifest-contract evolution;
+2. freeze the narrow native Standard relation semantics and canonical
+   occurrence/path codecs;
+3. select edge-history or adjacency-version exact-snapshot support over current
+   edges through genuine-Postgres evidence;
+4. bind stable logical relation identities, immutable semantic definitions, and
    immutable physical edge definitions into the schema lifecycle;
-3. add private current-edge storage and access paths;
-4. lower authoritative final rows into edge actions in the existing commit
-   lane;
-5. build, validate, and enable edge definitions for existing rows;
-6. prove one exact one-hop relation read with OCC and read-your-writes;
-7. add typed adjacency commit facts and relation subscription invalidation;
-8. prove the complete path with the internal test producer;
-9. add developer ergonomics and generated relation references;
-10. implement Payload and other framework-adapter conformance over the proven
+5. add private current-edge storage plus the selected exact-snapshot support and
+   access paths;
+6. lower authoritative final rows, current edges, and the selected snapshot
+   support into the existing commit lane;
+7. build, validate, and enable edge definitions for existing rows;
+8. prove one exact incoming endpoint page with mutation OCC and
+   read-your-writes;
+9. activate one private relation-bearing revision through the existing
+   Application activation owner;
+10. compose the same logical read through the active read-only Application query
+    owner;
+11. add typed adjacency commit facts and relation subscription invalidation;
+12. prove the complete path with the internal test producer;
+13. add developer ergonomics and generated relation references;
+14. implement Payload and other framework-adapter conformance over the proven
     native system.
 
 The first implementation PR after this documentation checkpoint should start

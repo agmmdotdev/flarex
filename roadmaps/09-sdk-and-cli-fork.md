@@ -13,6 +13,9 @@ This roadmap owns:
 - generated `_generated` files and their authority;
 - `flarex-dev` CLI/codegen/deploy behavior;
 - client and React developer ergonomics;
+- later public relation authoring, generated-reference, and typed read
+  ergonomics, but only after the native foundation's internal `SV-R` gate is
+  green; no public relation syntax is selected by this roadmap yet;
 - npm package/export/tarball shape and licensing provenance; and
 - the boundary between Convex-compatible ergonomics and intentional Flarex
   extensions.
@@ -24,6 +27,16 @@ It does not own:
   [`42-standard-application-apis.md`](./42-standard-application-apis.md);
 - backend analysis and push authority, covered by
   [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md);
+- native relation semantics, identity, storage, commit lowering, OCC, private
+  Standard query composition, sync invalidation, and the internal relation
+  vertical, covered by
+  [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md);
+- Payload/Medusa adapter conformance or the distinct trusted framework
+  persistence/transaction SPI, recorded separately in the
+  [`Payload adapter design`](../design-notes/flarexdb-payload-relational-adapter.md)
+  and [`System APIs proposal`](../design-notes/flarexdb-system-apis-proposal.md);
+  public SDK ergonomics must not turn that private adapter proposal into a
+  universal database API;
 - local dev runtime composition, covered by
   [`14-local-dev-server.md`](./14-local-dev-server.md);
 - the test SDK's detailed lifecycle, covered by
@@ -90,10 +103,14 @@ analysis, registration, or runtime owners:
 
 ```text
 defineSchema / defineTable / query / mutation / action
-  -> flarex-dev SDK inspection, codegen, bundling, and producer policy
-  -> Standard Application definition API
-  -> canonical program and artifact materializer owners
-  -> later Standard analysis, registration, and invocation APIs
+  -> flarex-dev SDK inspection and codegen
+  -> Standard Application definition producer
+  -> executable function-registration and schema modules
+  -> authenticated Source Artifact V2
+  -> Application Analysis cold-loads both executable modules
+  -> concrete Application Manifest contract
+  -> current Application publication and readiness owners
+  -> Standard registration and invocation APIs
 ```
 
 Roadmap 42 owns the Standard layer. The SDK retains authoring ergonomics,
@@ -104,20 +121,45 @@ files, or source-package conventions downstream authority.
 
 The first Standard definition package is workspace-internal and is not
 re-exported from `flarex`. Publication and semver compatibility require a
-separate consumer and release preflight.
+separate consumer and release preflight. `ApplicationManifestV1.schema` is
+currently a strict tables-and-indexes-only contract, and the current
+`SchemaManifestAppSchemaV1` binding is likewise table/index-only. Native
+relation work must approve explicit analyzed-manifest and post-analysis binding
+generations rather than silently adding relation fields to either V1.
 
-The implemented Standard `SAA01` slice establishes shared pure typed
-validator/function-contract/reference lowering used first by system tests. A
-bounded `SAA02` developer-producer adapter delegates every exactly compatible
-validator and every function with a defined return contract to that same
-lowering after the existing canonical admission and budget pass succeeds. SDK
-inspection and SDK exporter failures remain analyzer-owned; canonical shape,
-budget, and first-failure policy remain canonical-program-owned. The public SDK
-package does not import the Standard package. Omitted return validators retain
-one explicit canonical `null` compatibility projection, and other public
-SDK-only semantics continue to fail through their existing owner instead of
-widening the protocol `ValidatorJsonV1` contract or maintaining a parallel
-Standard wire representation.
+The implemented `SAA01`/`SAA02` definition-lowering receipts remain useful
+authoring and compatibility evidence. Canonical Declarative Program V1 may
+remain upstream code-generation input, and Semantic Artifact V1 may remain
+historical evidence/decoding, but neither is current downstream analysis
+authority. Application Analysis observes the executable function-registration
+and schema modules and returns the concrete Application Manifest/receipt
+contracts. The public SDK package does not import the Standard package, and SDK
+inspection, producer policy, TypeScript inference, codegen, and developer
+diagnostics remain SDK/tooling concerns rather than analysis authority.
+This is the private Application revision generation; roadmap 49's production
+cutover remains no-go.
+
+### Deferred Public Relation Handoff
+
+The native relation foundation owns the ordered gates:
+
+```text
+current Application authority
+  -> REL-P0 (complete docs-only)
+  -> R01 -> R01-P -> R02 -> S12 -> C09 -> E01
+  -> O10-R -> RA01 -> RQ01 -> R03 -> SV-R
+  -> later public SDK relation ergonomics in this roadmap
+```
+
+`R01-P` chooses and measures snapshot support and physical access before DDL;
+`RA01` reuses the existing activation owner after `O10-R`, then `RQ01` composes
+one read-only private Standard relation query from the active selection. This
+handoff is roadmap-only and implements no
+relation API. Until `SV-R` proves the internal application in PGlite and genuine
+PostgreSQL, this roadmap must not freeze a developer DSL, generated relation
+reference, `ctx.db` helper, cursor contract, or client/React relation surface.
+Payload mapping and the trusted framework relational SPI remain separate
+adapter concerns and do not become public SDK contracts through this handoff.
 
 ## Public SDK Surface
 
@@ -460,6 +502,12 @@ replace a release-level license/NOTICE audit across every published package.
     expose durable-run stores, attempts, leases, providers, object stores, or
     host controls. Current private Task modules do not freeze public syntax or
     compatibility.
+18. **Public relation ergonomics follow the proven native relation vertical.**
+    The SDK may design its relation producer and typed read surface only after
+    `R01` through `SV-R` close. It must lower through the Standard relation
+    contract and current Application Analysis/publication path, never expose
+    physical edge definitions or snapshot support, and never double as the
+    trusted framework persistence/transaction SPI.
 
 ## Decisions And Rationale
 
@@ -532,9 +580,12 @@ Named Flarex divergences:
 - `codegen` and `deploy` CLI commands with structured deploy JSON output and
   candidate abandon behavior.
 - Vite integration and a test SDK backed by the real local runtime.
-- `flarex-dev` definition prebuilds enter the workspace-internal Standard
-  canonical-program and artifact-materialization stages while retaining SDK
-  inspection, source-package lowering, and developer-specific failures.
+- `flarex-dev` retains SDK inspection, source-package lowering, executable
+  schema/function modules, and developer-specific failures. Current downstream
+  authority is Application Analysis and its Application Manifest/receipt;
+  Canonical Declarative Program V1 remains upstream authoring compatibility and
+  Semantic Artifact V1 remains historical evidence; neither is current analysis
+  authority.
 - Tarballs for the internal package graph with export/bin/migration/license
   contents and rewritten dependency protocols.
 - Fresh packed-consumer installation, codegen, TypeScript, runtime import,
@@ -579,6 +630,9 @@ Named Flarex divergences:
 - The forward executor function argument/return validation gap in roadmap 10
   means generated types and compatibility-runtime validation cannot yet prove
   production safety.
+- No public native relation definition or read helper is implemented. The
+  foundation must close `R01` through `SV-R` before this roadmap can design or
+  claim that surface.
 
 ## Target Direction
 
@@ -589,7 +643,11 @@ developer model while exposing only proven Flarex differences:
 developer modules + generated types
   -> source-only codegen/deploy CLI
   -> Standard Application definition preparation
-  -> backend-controlled analysis
+  -> executable function-registration and schema modules
+  -> authenticated Source Artifact V2
+  -> backend-controlled Application Analysis
+  -> concrete Application Manifest
+  -> current publication and readiness
   -> final codegen and mandatory validation policy
   -> active managed execution artifact
   -> typed client/sync/React APIs
@@ -624,3 +682,7 @@ transaction routing remain platform internals.
 7. **Connect replacement schemas to codegen.** Generate from the exact immutable
    active FlarexDB schema/package artifacts and prove stale generation/fence
    metadata cannot produce runnable client/server output.
+8. **Design relation ergonomics only after `SV-R`.** Once the native sequence
+   through `RQ01`, `R03`, and `SV-R` is proven, preflight the smallest public
+   authoring and typed-read surface over the Standard relation contract. Do not
+   design it from Payload types or the trusted framework relational SPI.

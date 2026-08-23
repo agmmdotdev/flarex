@@ -2,7 +2,7 @@
 
 Status: accepted adapter-boundary correction; no Payload adapter is implemented by this note
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-23
 
 This note defines how a future Payload database adapter and Payload-backed CMS
 surface consume the native FlarexDB relational system. The native database
@@ -213,6 +213,7 @@ row revisions/current pointers
 ordered index sidecars
 unique claims
 current edge occurrences
+selected edge-history or adjacency-version snapshot-support actions
 scope-local commit/change facts
 outbox work
 result/outcome evidence where applicable
@@ -325,6 +326,25 @@ Both version bindings should run the same normalized behavioral suite. A
 framework version change that only alters TypeScript or adapter interface shape
 must not create a new physical relation meaning.
 
+### Separate Adapter-Core And Relation Gates
+
+Payload work has two distinct proofs:
+
+1. an adapter-core preflight pins the Payload version and inventories the exact
+   database-adapter methods, query shapes, schema/migration lifecycle,
+   repositories, request transaction IDs, nested Local API behavior, and error
+   mapping that the first release claims; it then proves a relation-free
+   collection CRUD/find/count/request-transaction matrix; and
+2. only after native `SV-R`, a relation-mapping gate lowers the admitted Payload
+   field shapes to native relation intent and composes bounded forward
+   population and reverse joins over the proven native identity read plus
+   ordinary document point reads.
+
+The second proof does not widen the first one's method matrix. An unsupported
+join filter, sort, count projection, fractional/orderable join, migration mode,
+or limit must reject during startup, analysis, or query planning before data
+access.
+
 ## Initial Truthful Adapter Cut
 
 The first Payload adapter claim should be narrow:
@@ -338,8 +358,12 @@ non-auth
 non-global
 top-level nonlocalized scalar fields
 top-level monomorphic one/many relationships
-bounded CRUD, find, count, transaction, and population behavior
+duplicate relationship targets rejected
+reverse maximum cardinality many
+relation-free adapter-core CRUD/find/count/request-transaction matrix proven
+bounded forward population and reverse-join composition
 reverse join only after native incoming adjacency is ready
+no join filter, sort, count projection, orderable join, or unbounded limit
 ```
 
 Later slices add:
@@ -362,7 +386,9 @@ JSON without relation, uniqueness, visibility, or transaction semantics.
 
 ## Conformance Requirements
 
-The adapter suite should compare observable behavior, including:
+The adapter suite should record whether each behavior is supported or rejected
+by the pinned version and current slice, then compare the claimed observable
+behavior, including:
 
 - create, update, replace, delete, and rollback;
 - one, many, polymorphic, nested, and localized value shapes;
@@ -401,14 +427,24 @@ exposing SQL, Postgres clients, edge IDs, or commit facts to Payload hooks
 
 Payload relational work begins only after the native system has:
 
-1. frozen the Standard relation and occurrence contracts;
-2. bound stable relation and immutable edge definitions;
-3. added current-edge storage and atomic row-to-edge lowering;
-4. built, validated, and enabled edge definitions for existing rows;
-5. proved the native outgoing/incoming relation read required by the adapter;
-6. added relation commit facts and reactive invalidation where the adapter
-   promises live behavior.
+1. rebased relation intent on authenticated executable function-registration/
+   schema modules, Application Analysis, and an explicit manifest contract
+   evolution;
+2. frozen the first Standard relation and occurrence contracts;
+3. selected the exact-snapshot support and physical access path before DDL;
+4. bound stable relation and immutable edge definitions;
+5. added current-edge plus selected snapshot-support storage and atomic
+   row-to-sidecar lowering;
+6. built, validated, and enabled edge definitions for existing rows;
+7. proved the native incoming relation read, activated one private relation
+   revision through the existing owner, and composed the read-only Standard
+   query required by the adapter;
+8. completed R03's fenced relation commit facts and native sync invalidation;
+9. completed the production-inert internal `SV-R` vertical.
 
 The adapter can then compile Payload relationship, upload, and join semantics
 onto the proven FlarexDB capabilities. Payload research informs conformance;
 it does not move ahead of the native database foundation.
+The first adapter may omit a live-subscription promise, but if it makes one it
+must consume R03's proven facts, registration fence, retention, reconnect, and
+resnapshot behavior rather than inventing an adapter-local invalidation path.

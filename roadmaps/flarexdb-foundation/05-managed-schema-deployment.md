@@ -44,9 +44,10 @@ Flarex developers declare desired schema state and deploy it. They do not write
 SQL migration files for ordinary app or Payload schema changes:
 
 ```text
-schema source
-  -> authoritative backend analysis
-  -> canonical immutable schema artifact
+executable function-registration and schema modules
+  -> authenticated Source Artifact V2
+  -> current Application Analysis cold-loads both modules
+  -> strict canonical immutable Application Manifest
   -> compare with active production schema and data
   -> deterministic deployment plan
   -> apply safe metadata changes or managed builds
@@ -108,6 +109,24 @@ stable table and logical-index identities, validate candidate rows at an exact
 frontier, guard active-valid writes against the pending candidate, require the
 exact validation receipt for readiness, and consume it through the existing
 activation CAS.
+
+For the private Application revision generation, current Application Analysis
+is the sole analysis authority. It cold-loads the real executable function-
+registration and schema modules from authenticated Source Artifact V2, and its
+strict Application Manifest is the only immutable schema input to planning,
+readiness, and activation for the current relation-free generation. Relation
+support requires the R01-frozen analyzed contract and R02 bound-publication
+generation together; neither artifact alone is sufficient. This does not change
+roadmap 49's no-go production-cutover decision. Canonical
+Declarative Program may remain an upstream authoring/code-generation
+compatibility input, while Semantic Artifact is
+historical evidence/decoding only; no managed-schema or future relation gate may
+consult either after cold load as another declaration, comparison, or fallback
+authority. Because current `ApplicationManifestV1.schema` and
+`SchemaManifestAppSchemaV1` have exact table/index-only shapes, `R01` must freeze
+an explicit Application-Analysis-owned manifest evolution and `R02` must add a
+distinct post-analysis binding generation before any relation-bearing revision
+can be registered.
 
 Roadmap 49 now records the complete one-way private consumer migration and
 retirement cut. Current Standard query, mutation, action, and Task consumers use
@@ -759,6 +778,7 @@ Because app-document object validators are strict:
 | Remove a populated table | Blocked while any live row remains; table deletion policy remains separate |
 | Rename a field/table | Blocked without explicit rename intent; first app-document slice does not invent stable field IDs |
 | Add/replace index or unique constraint | Uses the existing physical build/unique readiness owners in addition to row validation |
+| Add/replace an admitted relation | Physical readiness requires `R01`, `R01-P`, `R02`, `S12`, `C09`, and `E01`; private activation through `RA01` additionally requires `O10-R` so current edges, selected snapshot support, reverse reads, and `restrict` are available together; RQ01 then consumes only the active selection |
 
 The first implementation does not invent business values. A required-field or
 type-change remediation uses an ordinary bounded application/system mutation
@@ -776,7 +796,6 @@ Examples:
 
 - add a table;
 - add an optional field;
-- add a non-required relation whose target exists;
 - widen a validator while preserving existing values;
 - change presentation-only Payload metadata.
 
@@ -790,7 +809,9 @@ Examples:
 - add or replace a physical index;
 - add uniqueness;
 - add a required field with a deterministic accepted backfill;
-- enable an edge or hidden block projection;
+- add or replace an admitted relation/edge definition whose reverse-many read
+  and `restrict` enforcement require complete derived evidence;
+- enable a hidden block projection;
 - replace a physical edge definition whose extraction, endpoint identity
   representation, localization/ordering representation, occurrence codec,
   projected facts, or edge-read keys changed;
@@ -811,6 +832,8 @@ Examples:
 - add uniqueness while duplicate values exist;
 - change relation cardinality while current edges violate it;
 - delete a referenced table or change delete behavior without proving policy;
+- request nested, localized, polymorphic, reverse-one, `detach`, or `cascade`
+  relation semantics before their separate gates exist;
 - remove one name and add a similar name without explicit rename intent.
 
 These changes fail closed with counts, representative non-sensitive evidence,
@@ -837,6 +860,40 @@ Agents must never be required to answer an interactive prompt.
 
 ## Relation Definition Activation
 
+### [ ] E01 — Build, Validate, And Enable Relation Definitions
+
+Prerequisites: `R01` has frozen the admitted relation subset, `R01-P` has
+selected one physical snapshot support/access plan, `R02` has bound that exact
+meaning into a post-analysis app-schema publication pinned to the evolved
+Application Manifest, `S12` has added current edges plus only the selected
+snapshot support, and `C09` maintains them with target-live and `restrict`
+integrity inside the existing scope-clock commit transaction.
+
+Outcome:
+
+- add scope-fenced, bounded build/readiness state for each immutable physical
+  edge definition required by one candidate relation-bearing revision;
+- populate and repair current edges plus the selected edge-history or adjacency-
+  version support from authoritative rows through the same C09 lowerer;
+- revalidate target liveness, duplicate rejection, exact expected occurrences,
+  canonical evidence/collisions, and the selected snapshot/version state while
+  relevant concurrent commits advance the frontier;
+- settle one immutable fully-ready verdict and include every required relation
+  definition in the existing application-revision readiness and activation
+  checks; and
+- leave the old active revision and its exact semantic/physical bindings
+  authoritative until the final activation CAS succeeds.
+
+E01 closes the physical readiness prerequisite; it does not activate a relation
+by itself. The candidate remains non-active until O10-R has proved the incoming
+reverse-many dependency. After that roadmap proof closes, `RA01` invokes the
+existing activation owner only with the exact analyzed manifest, R02 bound
+publication, and persisted E01 readiness evidence. O10-R is not caller-authored
+activation input. Activation makes forward storage, reverse reads, and
+`restrict` enforcement available together. The later relation-specific `RQ01`
+Standard query gate must consume the resulting active selection; it may not add
+a candidate-selection bypass.
+
 A stable logical `relation_id` does not authorize reinterpretation of existing
 edges after a semantic change. R01 first classifies whether the new immutable
 semantic definition can reuse its existing physical edge definition or requires
@@ -847,33 +904,56 @@ bind the replacement semantic definition
   -> bind a proven-compatible existing edge definition
      or allocate a replacement physical edge definition
   -> retain the old active semantic/physical binding
-  -> when physical identity changed, populate replacement current edges from
-     authoritative rows
-  -> validate counts, canonical occurrence evidence, collisions, and policy
+  -> when physical identity changed, populate the replacement selected edge
+     authority from authoritative rows through C09
+  -> validate target liveness, duplicates, counts, canonical occurrence
+     evidence, collisions, snapshot/version state, and policy
   -> mark every required replacement build ready for each affected scope
   -> atomically switch the semantic and physical schema binding
   -> retain old semantic artifacts and replaced physical definitions until
      rollback, active-attempt, and dependency floors permit retirement
 ```
 
-Old and replacement edges may therefore coexist under different immutable
-physical identities. A backfill must not update old edge rows in place or let
-new mutations cross-delete occurrences owned by the other physical definition.
-The active schema binding selects the semantic definition and physical edge
-binding used by new reads and writes. Attempts already pinned to an older schema
-must never reinterpret themselves through the new binding. The first
-app-document cut requires stale attempts to fail/retry after activation;
-relation work may not weaken that rule merely because an old physical edge
-definition remains retained.
+Old and replacement edge authorities may therefore coexist under different
+immutable physical identities. A backfill must not update old edge rows or
+history in place, reuse the other definition's adjacency version, or let new
+mutations cross-delete occurrences owned by the other physical definition. The
+active schema binding selects the semantic definition, physical edge binding,
+and `R01-P` snapshot meaning used by new reads and writes. Attempts already
+pinned to an older schema must never reinterpret themselves through the new
+binding. The first app-document cut requires stale attempts to fail/retry after
+activation; relation work may not weaken that rule merely because an old
+physical edge definition remains retained.
 
-An additive relation is safe metadata activation only when it requires no
-derived edge population for already-valid rows and no new read/delete
-enforcement. Otherwise it is a managed build. Retargeting, cardinality,
-localization, ordering, occurrence-codec, on-delete, requiredness, and
-extraction-plan changes require explicit compatibility classification even when
-the developer-facing relation name and stable `relation_id` are preserved.
-Policy-only changes may reuse the physical edge definition after validation;
-physical extraction/read-key changes may not.
+For the admitted first subset, an additive relation is never metadata-only: its
+reverse-many result and `restrict` delete behavior require complete selected
+edge evidence even when the table is currently empty. A relation-bearing
+revision cannot activate until E01 proves every required physical edge
+definition fully ready for every affected scope. There is no intermediate
+active state in which forward relation values are accepted while reverse reads
+or `restrict` deletion are disabled. Retargeting, cardinality, ordering,
+occurrence-codec, requiredness, and extraction-plan changes require explicit
+compatibility classification even when the developer-facing relation name and
+stable `relation_id` are preserved. Localized, nested, polymorphic, reverse-one,
+`detach`, and `cascade` changes remain separate work rather than classification
+branches of E01. Policy-only changes may reuse a physical edge definition only
+after validation; physical extraction, read-key, or snapshot-meaning changes
+may not.
+
+Exit gates:
+
+- fixed-frontier build, concurrent insert/update/delete/retarget, restart,
+  supersession, replacement-definition coexistence, repair, rollback, and
+  corruption cases pass in PGlite and genuine PostgreSQL;
+- readiness proves every authoritative admitted source occurrence is present,
+  every target is live, no duplicate target exists, and no extra or
+  wrong-definition occurrence is accepted in current edges or the selected
+  snapshot support;
+- E01 emits an exact verdict that RA01 can later revalidate under the existing
+  activation CAS after O10-R closes; stale frontier, incomplete build, missing
+  evidence, or changed relation binding fails closed; and
+- RA01 cannot expose forward storage, reverse reads, or `restrict` enforcement
+  independently of the other two.
 
 ## App, Payload, And Medusa Boundaries
 
@@ -1664,10 +1744,14 @@ validator, readiness receipt, activation pointer, or commit path.
   no stable field catalog. The first classifier uses validator paths and
   explicit rename intent; it does not pretend a field rename already has a
   durable `field_id`.
-- Application Analysis migration may replace application-revision, readiness,
-  and activation contract generations. Candidate row validation must therefore
-  remain schema-version/scope authority and expose a narrow receipt consumer,
-  rather than foreign-keying its lifecycle to the displaced static-verifier
-  generation.
+- Current Application Analysis, Application readiness, and Application
+  activation are already the unversioned private authority. The strict
+  `ApplicationManifestV1.schema` has tables and indexes but no relations;
+  `R01` must freeze an explicit analysis-contract evolution and `R02` must bind
+  it through a distinct post-analysis app-schema publication generation rather
+  than append a field silently or recover relation meaning from displaced
+  metadata. Candidate row and relation validation remain schema-version/scope
+  authority with narrow receipt consumers, and production cutover remains
+  separately blocked.
 - Real Postgres remains mandatory for DDL locks, concurrent builds,
   constraints, isolation, activation, and rollback proofs.

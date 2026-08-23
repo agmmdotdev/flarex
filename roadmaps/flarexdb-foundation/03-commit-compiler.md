@@ -983,40 +983,87 @@ Exit gate:
 - tables declaring unsupported sidecar features remain inactive until O09
   closes real-Postgres contention, multi-row atomicity, and rollback.
 
-### [ ] C09 — Lower Stable Edge Occurrences
+### [ ] C09 — Lower Current Edges And Selected Snapshot Support
 
 Prerequisite:
 
-- `R01` has frozen relation/cardinality/delete/locale/order/nested-occurrence
-  and occurrence-codec semantics and `R02` has bound both the stable logical
-  relation, exact semantic definition, and physical edge definition into the
-  pinned manifest. The compiler does not infer any identity or binding from a
-  field name, Payload collection slug, target row value, or whichever schema is
-  active later.
+- `R01` has frozen the same-scope, top-level, nonlocalized, monomorphic,
+  duplicate-free, reverse-many, target-live, `restrict` subset and its
+  occurrence codec; `R01-P` has selected one physical snapshot support/access
+  plan; and `R02` has bound the stable logical relation, exact semantic
+  definition, physical edge definition, read key, and snapshot meaning into a
+  post-analysis app-schema publication pinned to the exact analyzed manifest.
+- Current Application Analysis and its cold-loaded modules solely produce the
+  manifest's canonical relation declarations and analysis-local ordinals. The
+  compiler consumes those declarations only through the exact R02 bound
+  publication and never treats an analyzer ordinal as a stable catalog ID. It
+  does not infer or supplement identity from upstream Canonical Declarative
+  Program code-generation input, historical Semantic Artifact evidence, a field
+  name, Payload collection slug, target row value, or whichever schema is active
+  later.
+- `S12` exposes transaction-only current-edge primitives plus exactly the
+  snapshot support selected by `R01-P`. C09 may not retain the rejected support
+  for comparison, fallback, or dual publication.
 
 Outcome:
 
-- Derive current edge occurrences from final row values and pinned catalog.
+- Derive the admitted top-level edge occurrences from complete final row values,
+  the exact analyzed declaration, and its pinned R02 bound publication. Reject
+  duplicate targets before any edge publication; list position remains ordering
+  only.
 - Include logical relation and immutable physical edge-definition identity,
-  source row, stable nested item/block identity, path, locale, codec version,
-  canonical occurrence evidence, and occurrence identity; treat list position
-  as ordering only.
-- Remove stale edges for the same immutable definition atomically with the row
-  update. Schema deployment/backfill owns parallel replacement-definition
-  population; the mutation compiler must not reinterpret an old definition in
-  place.
+  source row, top-level path, explicit absent locale, target row, codec version,
+  canonical occurrence evidence, and occurrence identity.
+- Maintain current occurrences and exactly the selected snapshot support
+  atomically with the row update: append required edge revisions/tombstones
+  when history was selected, or advance every affected adjacency version when
+  version support was selected. Schema deployment/backfill owns
+  parallel replacement-definition population through the same authority; the
+  mutation compiler must not reinterpret an old definition in place.
+- Inside the existing scope-clock commit transaction, validate each relation
+  target against the complete same-commit final-row set plus authoritative
+  stored state. A same-commit live target insert is valid; a same-commit target
+  delete, a stored tombstone, missing target, cross-scope target, or incomplete
+  proof fails closed before publication.
+- Enforce `restrict` deletion from the authoritative current-edge set plus the
+  same-commit final edge set. A target delete succeeds only when no admitted
+  incoming occurrence remains after all same-commit source removals/retargets.
+  Missing or unready edge evidence is an integrity failure, never permission to
+  delete.
+- Use the existing scope-clock lock/order so a concurrent relation insert and
+  target delete serialize through one commit authority. After the first commit,
+  the second rechecks target liveness and incoming occurrences and cannot commit
+  an orphan. C09 does not create a parallel lock, OCC, or commit system.
 - Detect and reject a digest/identity collision before edge publication rather
   than overwriting or conflating canonical occurrences.
+- Keep reverse-one claims, localized/nested/polymorphic lowering, and `detach`
+  or `cascade` behavior outside this relation gate. Reverse-one remains a
+  separate later work item with its own claim and race proof.
 
 Exit gate:
 
-- repeated targets, reordering, locale/path changes, nested moves, deletion,
-  and stale-edge cleanup pass;
+- insert/update/delete/retarget/reorder, top-level path change, source deletion,
+  and stale-edge cleanup pass; duplicate targets and every deferred relation
+  shape fail before sidecar writes;
+- same-commit target insert plus relation succeeds, while a final deleted,
+  tombstoned, missing, or cross-scope target fails without partial publication;
+- target delete plus removal/retarget of every incoming occurrence can commit,
+  while any remaining or newly staged incoming occurrence enforces `restrict`;
+- genuine PostgreSQL proves concurrent relation-insert versus target-delete in
+  both lock orders under the existing scope-clock transaction, with no committed
+  orphan or fail-open result;
 - old and replacement physical edge definitions can coexist without
   cross-deleting one another;
-- edge publication and rollback remain atomic with row revision/current,
-  commit/change, outbox, and idempotency outcome publication;
-- relation reads remain disabled until their separate OCC/overlay proof.
+- current edges plus the selected edge-history or adjacency-version support,
+  target-live and `restrict` decisions, rollback, row revision/current,
+  commit/change, outbox, and idempotency outcome publication remain one atomic
+  decision;
+- `E01` readiness alone cannot activate a relation-bearing revision: its
+  required definition must be fully ready, O10-R must close the separate
+  OCC/overlay proof, and `RA01` must reuse the existing activation owner.
+  Activation makes forward storage, reverse reads, and `restrict` enforcement
+  available together. The later relation-specific `RQ01` Standard query gate
+  consumes only that active selection; it does not add candidate access.
 
 ## Payload And Medusa Boundary
 

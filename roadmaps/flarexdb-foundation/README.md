@@ -169,6 +169,10 @@ B2b2b2b1b2b2b1's private bounded scheduler-run composition are complete;
 the production trigger/redelivery host and C06-B
 endpoint/response policy remain pending, and
 C04C2 remains conditional and unapproved.
+`O10-A`, production-inert `O10-B`, and production-inert Standard cooking
+`O10-C` are complete. They prove one bounded ascending developer-index query,
+its staged overlay and phantom validation, and one private Standard composition;
+they add no public query API, relation capability, or production route.
 O03-B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -182,7 +186,7 @@ floor stays fixed at zero.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, scoped-execution `S02-E0`–`S02-E2`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, O08-B2b1/C06-A's migration-0032 exact-attempt execution claim, O08-B2b2b1's migration-0033 discovery indexes, and O08-B2b2b2b1b2b2b0's migration-0034 fixed-key scheduler checkpoint complete; bypass closure `S02-E3` is next |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, O09 multi-row plus unique/developer-sidecar contention proof, and O11-A through O11-F3a retained-floor observation/publication, dependency-ordered cleanup, durable checkpointing, bounded runner, and private manual adapter are complete; O11 scheduled-event and cron activation remain deliberately deferred, while the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-B2b2a safe-state redispatch composition, O08-B2b2b1 bounded inert discovery, O08-B2b2b2a durable dirty/failed-attempt disposition, O08-B2b2b2b0a grant/retention policy coherence, O08-B2b2b2b0b atomic seal-time lease promotion, O08-B2b2b2b1a phase-aware execution-claim renewal, O08-B2b2b2b1b1 host-neutral structured liveness, O08-B2b2b2b1b2a bounded single-page redelivery, O08-B2b2b2b1b2b1 bounded inert scope enumeration, O08-B2b2b2b1b2b2a bounded multi-scope composition, O08-B2b2b2b1b2b2b0 inert checkpoint persistence, O08-B2b2b2b1b2b2b1 private bounded scheduler-run composition, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, O08-D bounded uncertainty recovery, O09 multi-row plus unique/developer-sidecar contention proof, `O10-A`, production-inert `O10-B`, production-inert Standard cooking `O10-C`, and O11-A through O11-F3a retained-floor observation/publication, dependency-ordered cleanup, durable checkpointing, bounded runner, and private manual adapter are complete; O11 scheduled-event and cron activation remain deliberately deferred, while the production trigger/redelivery host, C06-B endpoint/response policy, O03-B2b2 snapshot-lease renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Managed schema | Private `M01-A` through `M04-C`, retirement preflight `M05-P`, exact workspace recovery `M05-A`, atomic supersession reclamation `M05-A2`, docs-only retirement gate reconciliation `M05-B0`, docs-only scope-local storage preflight `M05-B1-P`, private scope-local lifecycle authority `M05-B1`, private readiness/admission composition `M05-B2`, bounded current-pin finalization `M05-B3`, the explicit cold-replayable manual coordinator `M05-B4`, docs-only physical-purge boundary preflight `M05-C0`, conditional purge-progress design `M05-C1-P`, and Convex-aligned direction reconciliation `M05-X0` are complete and production-inert; logical retirement plus retained physical state is the default, and purge storage, reactivation, physical incarnation, sidecar deletion, and immutable-evidence retention remain demand-triggered separate work |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -373,8 +377,10 @@ decision or a material blocker, not ordinary implementation sequencing.
    - Remaining: `S02-E3`, `H05-B`, and `S02-D2`.
 3. [ ] `S03`: minimal stable catalog.
    - Complete through `S03-D2d`, including interleaved `S05-A`.
-   - Completed: `S03-D3` in Wave 3.
-   - Deferred to its consumer: `S03-D4` in Wave 4.
+   - `S03-D3` is complete; its target schema/build mechanics are reused only
+     through current Application owners.
+   - `S03-D4` is a completed displaced-candidate readiness receipt, retained as
+     compatibility evidence rather than current Application authority.
 
 `S03-D2c` closes the package-internal atomic apply-and-verify boundary.
 `S03-D2d` closes publication with one input snapshot, typed-stale-only fresh
@@ -383,8 +389,8 @@ the current serial path, early conservative and exact canonical-byte checks,
 `publishAppSchemaV1`, and focused real-Postgres bounded-work and
 race/rollback proof. Neither gate activates a schema,
 reconciles physical builds, claims readiness, or routes replacement app data.
-The unchecked S03 stream remains open because D3 and D4 are deliberately
-deferred to their real consumers.
+Current relation analysis, publication, and readiness follow roadmap 49 and the
+relation gates below; they do not reopen the displaced `S03-D4`/`S04` chain.
 
 ### Wave 1 — First Row And Point-OCC Slice
 
@@ -413,7 +419,9 @@ types and ports are introduced by the gates that first consume them.
    accepted preflight boundary.
 9. `O03-A2c` (complete): located current-epoch admission plus schema-neutral
    two-sided point-mutation preparation. Production preparation stays deferred
-   to a roadmap-17 plus S03-D4/S04 coherent active-metadata snapshot/fence.
+   to current Application selection, publication/readiness, and the separately
+   owned roadmap-49 cutover gates. It must not consume a displaced
+   `S03-D4`/`S04` active-metadata snapshot.
    Checked revocation and private Worker/key adapters move to their first real
    operational and hosted-production consumers.
 10. `O03-B1` (complete): private atomic session/lease activation plus exact active-anchor
@@ -748,56 +756,81 @@ Dynamic Worker binding baseline before selecting it.
 9. `O09-B` (complete): unique conflicts and complete developer-index/unique
    sidecar ordering, contention, delete/reuse, and rollback are proven on
    PGlite and genuine PostgreSQL.
-10. `O10`: one exact ascending developer-index dependency, complete staged
-    read-your-writes overlay, consumed-frontier semantics, and phantom-conflict
-    proof. PF1/PF2 and the separate private `O10-P0` shared exact-attempt
-    read-admission prerequisite are complete in
-    [`06-indexed-range-occ.md`](./06-indexed-range-occ.md). The next gate is
-    explicitly approved `O10-A`, not an automatic continuation.
-11. `R01`: relation identity and semantics.
-12. `R02`: stable relation IDs, immutable semantic definitions, and reusable
-   physical edge definitions.
-13. `S12`: stable current edge occurrences; edge history remains deferred.
-14. `C09`: lower stable edge occurrences.
-15. `O10-R`: one exact relation adjacency dependency, snapshot-registration
-    race, read-your-writes, and phantom-conflict proof. SQL/PGQ remains later
-    and optional.
+10. `O10-A`/`O10-B`/`O10-C` (complete, private, and production-inert): one
+    exact ascending developer-index dependency, complete staged read-your-writes
+    overlay, consumed-frontier semantics, phantom-conflict proof, and one
+    Standard cooking composition. No public query API or production route is
+    active. The focused status is in
+    [`06-indexed-range-occ.md`](./06-indexed-range-occ.md).
+11. `REL-P0` (complete, docs-only): reconcile the current private Application
+    authority and the narrow first relation profile. Relation definitions must
+    enter the executable schema module within an authenticated Source Artifact
+    V2 whose function-registration and schema modules are cold-loaded by
+    Application Analysis into an explicitly evolved Application Manifest
+    contract, then flow through the current publication/readiness owners. The
+    strict tables-and-indexes-only
+    `ApplicationManifestV1.schema` is not silently widened. Canonical
+    Declarative Program V1 remains upstream authoring/code-generation
+    compatibility and Semantic Artifact V1 remains historical evidence/decoding;
+    neither is current relation-analysis authority. This records order and
+    ownership; it implements no relation capability and does not change the
+    no-go production-cutover decision.
+12. `R01`: freeze the admitted native relation semantics and codecs.
+13. `R01-P`: select and measure relation snapshot support and access paths,
+    including pagination order and genuine-PostgreSQL high-fanout plans, before
+    relation identity is bound or edge DDL is frozen.
+14. `R02`: map analyzer-local relation declarations/ordinals into stable relation
+    IDs, immutable semantic definitions, reusable physical edge definitions, and
+    selected snapshot/read-key meaning in a post-analysis bound publication.
+15. `S12`: add stable current edge occurrences, the preflight-selected snapshot
+    support, and the frozen physical access paths.
+16. `C09`: lower authoritative row changes into stable current edge occurrences
+    plus the selected snapshot support without creating a second commit system.
+17. `E01`: build, validate, and enable each required edge definition before
+    reverse reads or deletion policy depend on it.
+18. `O10-R`: prove one exact bounded relation adjacency dependency, including
+    snapshot-registration races, read-your-writes, pagination, and phantom
+    conflict. SQL/PGQ remains later and optional.
+19. `RA01`: activate one private relation-bearing revision through the existing
+    Application activation owner after E01/O10-R, with no route, production
+    caller, fallback, or candidate-query bypass.
+20. `RQ01`: compose that proven capability into one private, read-only Standard
+    relation query without adding public developer ergonomics or production
+    routing.
+21. `R03`: publish relation change facts through the existing scope commit and
+    prove fenced sync invalidation/reconnect semantics; relation subscriptions
+    remain absent before this gate.
+22. `SV-R`: prove one internal Standard relation vertical through definition,
+    analysis, publication, readiness, activation, commit, query, and
+    observation in PGlite and genuine PostgreSQL while production-inert.
 
-`R01`/`R02` are just-in-time prerequisites for `S12`/`C09`, not permission to
-start Payload feature parity. Their contract is in
+Only after `SV-R` is green may roadmap
+[`../09-sdk-and-cli-fork.md`](../09-sdk-and-cli-fork.md) design later public
+developer relation ergonomics. Payload mapping remains separate adapter
+conformance work, and the trusted framework persistence/transaction SPI remains
+a distinct private proposal; neither is part of `R01` through `SV-R`. The native
+contract and exact gate details are in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
 ### Wave 4 — Target Activation And Prototype Retirement
 
-1. Complete roadmap 17's staged atomic Declarative V2 vertical for the composed
-   shared `primary/public` target. V2 consumes prebuilt immutable ESM plus
-   canonical bounded NDJSON declarations, independently verifies generated
-   `FlarexDeclarativeExecutableCoreV1`, and derives the immutable candidate,
-   both analysis projections, minimal runtime projections, and the exact
-   function-to-execution-group manifest without evaluating runtime metadata.
-   The version-pinned prebuild normally runs in `flarex-dev` on a developer
-   machine or CI; an optional hosted builder remains non-authoritative. The
-   backend verifies the portable inputs and derives their identities, while
-   Worker Loader alone owns engine-specific runtime compilation and
-   materialization.
-   Source/semantic deployment evidence stays off the steady-state invoke path:
-   the artifact runtime receives only a coherent active group reference and
-   invocation data, checks its full projection/configuration/credential
-   materialization identity before R2, and singleflights a cold projection load
-   under that same identity. V1 remains dynamic, compatibility-only, and
-   PAM-ineligible.
-2. `S03-D4`: lock the located scope clock first, then derive target-native
-   readiness from the exact candidate/verifier evidence and real target rows,
-   indexes, uniqueness, edges, and adapter evidence. S03-D4 alone writes either
-   terminal ready or rejected verifier verdict and lifecycle. It may reject but
-   never discover/rewrite declarative metadata or mutate activation.
-3. `S04`: under the same scope-clock-first order, revalidate the complete
-   readiness evidence and CAS one target-local activation revision/head. The
-   coherent reader resolves one package/artifact/source/semantic/
-   function-validator/schema/runtime-projection/function-group-manifest
-   snapshot; it never falls back to DeploymentDO, legacy `prepareInvoke`,
-   `activePackageId`, `analysisJson`, the legacy schema pointer, or partition
-   routing.
+1. Continue only through roadmap 49's current private Application authority: the
+   exact executable function-registration and schema modules in authenticated
+   Source Artifact V2 are cold-loaded by Application Analysis and normalized
+   into the strict Application Manifest
+   contract, and consumed by the current application publication, readiness,
+   activation, and runtime-materialization owners. These private owners are
+   production-inert until their separately owned cutover prerequisites close.
+2. Evolve that concrete manifest/publication contract explicitly for any newly
+   admitted relation metadata. `ApplicationManifestV1.schema` remains the
+   strict tables-and-indexes-only contract until an approved compatibility/
+   migration cut says otherwise; a relation roadmap cannot silently reinterpret
+   it.
+3. Treat the displaced Declarative V2 candidate/verifier, Canonical Declarative
+   Program V1 analysis, Semantic Artifact V1, `S03-D4`, and `S04` activation
+   chain as compatibility or historical migration evidence only. No relation
+   gate may route through it, compare against it, or recreate it as a parallel
+   analysis, readiness, or activation authority.
 4. `O11`: implementation preflight and nonzero-floor consumer closure complete;
    next add read-only floor observation, logical floor publication, bounded
    owner-local compaction, host-neutral coordination, and only later a
@@ -830,8 +863,10 @@ request keys/cursors, or a supported external consumer.
 `C07A` is not an activation or retirement prerequisite when its predeclared
 threshold is not met.
 
-The S0 foundation and S1 durable verifier-progress stage are implemented but
-remain private, production-unreachable, and inert. Migration 0035 adds
+The following candidate/verifier receipts are historical compatibility
+inventory, not current Application authority. The S0 foundation and S1 durable
+verifier-progress stage were implemented but remained private, production-
+unreachable, and inert. Migration 0035 added
 target-local candidate, verifier-progress, evidence, verdict, activation
 revision, and activation head tables without creating a head row or composing
 production authority. Private canonical frames own semantics; normalized
@@ -858,19 +893,21 @@ authority. S10 now supplies private target-native index revision/current
 storage and exact ordered range reads. S11 now supplies private target-native
 unique claims tied to exact app-row revisions, including sparse/null/missing,
 locale, collision, release, and reuse semantics. Exact mutation replay remains
-owned by the existing outer point-commit idempotency/outcome path. S03-D3 now
-owns only deterministic cross-store declaration/replay and stale-attempt
-re-fencing; S03-D4 now settles the separate target-native readiness receipt.
+owned by the existing outer point-commit idempotency/outcome path. In that
+historical chain, S03-D3 owned only deterministic cross-store declaration/replay
+and stale-attempt re-fencing; S03-D4 settled the separate target-native
+readiness receipt.
 C08-I1 now supplies the relation-free intrinsic `by_creation_time` builder and
 same-commit maintenance evidence without changing S10 logical storage, C4
 lifecycle schema, or O07-B commit authority. Migration `0042` adds only the
 non-unique scope/definition/row supporting index used by bounded resumable
 validation, with populated-data upgrade and genuine-PostgreSQL planner proof.
-Developer-index lowering is now complete in C08-A; unique lowering and relation
-work remain open. The first relation-free vertical has completed S03-D4
-without treating those later capabilities as readiness prerequisites.
-S03-D4, under the scope-clock-first order, now exclusively owns the canonical
-V2-attempt and revision-bound readiness receipt before S04 activation CAS.
+Developer-index lowering is complete in C08-A; unique lowering and relation
+work remain open. The historical relation-free vertical completed S03-D4
+without treating those later capabilities as readiness prerequisites. At that
+checkpoint, S03-D4 exclusively owned the candidate-era V2-attempt and revision-
+bound readiness receipt before S04 activation CAS; current Application
+publication/readiness has displaced that authority.
 Migration `0043` directly replaces the empty dormant V1 verdict ownership and
 keeps activation rows untouched. Static verification beyond declaration, readiness,
 activation writes, coherent reads, ingress, dispatch, client cutover,
@@ -1960,36 +1997,15 @@ but does not change application OCC, commit compilation/execution, journals,
 idempotency outcomes, feeds, outbox behavior, or authoritative application-row
 semantics.
 
-The private Semantic Artifact V1 foundation now supplies immutable semantic
-byte provenance without changing target authority. DeploymentDO SQLite owns the
-semantic upload attempt, incarnation/source correlation, fences, cumulative
-budgets, root-last finalization verdict, and paired completed root/selector.
-The existing ARTIFACTS bucket stores immutable blocks, tree nodes, and the
-completed root under the distinct `semantic-artifact-v1/` namespace. A fresh
-backend A0a-to-R0a proof is request-bound, same-factory, opaque, and single-use;
-it is synchronously consumed before semantic IDs, hashing, R2, or SQLite work.
-Canonical attempt bytes remain the identity truth, while normalized SQLite
-columns exist only for metadata-first selection, source-row foreign-key
-correlation, CAS, and drift rejection. Reopen re-proves the exact
-`(projectId, deploymentId, deploymentCreatedAt)` incarnation and finalized
-source upload generation/fence/root/selector; no serialized proof, object key,
-digest, selector, C1 reference, or Durable Object name can substitute.
-Finalized reads expose an owned copy of that already-verified semantic-attempt
-identity digest so the later verifier can compare durable commitments. The
-digest is not a capability: cold restart or replay must reacquire a fresh
-backend-owned A0a-to-R0a proof and recompute the attempt/selector evidence
-before it can continue.
-Each command first bounds capture and the hashes that bind its reservation,
-then durably stores the full conservative R2/SQLite reconciliation reservation
-before immutable-object writes. Nested adapters receive only their reserved
-sub-budget; retry reconstructs the command digest and resumes without resetting
-or recharging the durable ceiling.
-
-This foundation does not parse NDJSON, prove semantic validity, run the static
-verifier, publish either analysis projection, write a verifier verdict, lock
-the scope clock, or activate a candidate. Those remain C3, C4, S03-D4, and S04
-responsibilities in that order. Retain all evidence initially; no fallback,
-shadowing, dual write, or dual authority is permitted.
+The Semantic Artifact V1 and resumable Declarative V2 material above are
+retained compatibility and migration evidence. They no longer supply current
+analysis, publication, readiness, activation, or runtime authority, and their
+historical implementation receipts are not a queue of current foundation
+gates. Current work cold-loads the executable schema module through Application
+Analysis, emits the concrete Application Manifest contract, and continues
+through the Application publication/readiness owners. No relation gate may
+revive the old semantic upload, static verifier, candidate, `S03-D4`, or `S04`
+path as a fallback, comparison, dual write, or second authority.
 
 ## Cross-Plan Invariants
 

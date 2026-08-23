@@ -160,8 +160,16 @@ These decisions are durable and are not re-opened by each implementation turn:
   pins, stable-ID-preserving rename intent, bounded non-sensitive evidence, and
   remediation/prerequisite data. Persistence, scanning, commit, readiness,
   activation, and every adapter remain separately gated.
-- The immutable manifest is the only versioned table-definition authority.
-  Names in normalized catalogs are verified assertions, not competing copies.
+- For the private Application revision generation, Application Analysis
+  cold-loads the executable function-registration and schema modules from
+  authenticated Source Artifact V2. Their loaded registrations and schema are
+  the only analyzer acceptance inputs, and the strict immutable Application
+  Manifest is the only analyzed table-definition authority. Canonical Declarative
+  Program may remain an upstream authoring/code-generation compatibility input,
+  while Semantic Artifact is historical evidence/decoding only; neither may be
+  consulted after cold load as a second acceptance input. Names in normalized
+  catalogs are verified assertions, not competing copies. This does not change
+  roadmap 49's no-go production-cutover decision.
 - Physical index definitions are normalized because runtime build identity and
   coexistence require them. Mutable build/readiness state remains separate.
 - Every ordered secondary index ends in a separate exact 16-byte row identity
@@ -201,9 +209,15 @@ These decisions are durable and are not re-opened by each implementation turn:
   strings because Postgres `jsonb` rejects raw `\u0000`. Missing is not stored,
   null is a value, undefined object fields are omitted, and patch deletion is a
   later journal/compiler concern.
-- Relation IDs are allocated only after `R01` freezes semantic identity and
-  `R02` binds the complete immutable definition. Field, constraint, and
-  relation-definition projections stay deferred until a proven consumer needs
+- Relation IDs are allocated only after `R01` freezes the admitted semantics,
+  `R01-P` selects one physical snapshot support/access plan, and `R02` binds the
+  complete immutable meaning through post-analysis app-schema publication. The
+  current strict `ApplicationManifestV1.schema` table/index shape must not gain
+  an undeclared relation field, and current `SchemaManifestAppSchemaV1` must not
+  gain undeclared relation bindings; `R01` owns an explicit analysis-contract
+  evolution for canonical relation declarations, while `R02` owns a distinct
+  post-analysis binding-contract evolution for stable catalog/physical IDs.
+  Field and constraint projections stay deferred until a proven consumer needs
   them.
 - Schema work is additive while the target proof is incomplete. Legacy tables
   are never reinterpreted as replacement tables. After equivalent target paths,
@@ -213,7 +227,10 @@ These decisions are durable and are not re-opened by each implementation turn:
 ## Explicitly Deferred
 
 - physical column, constraint-definition, and relation-definition catalogs;
-- `fx_app_edge_rev`;
+- `fx_app_edge_rev` unless `R01-P` selects edge-history support, and an
+  adjacency-version table unless `R01-P` selects version support; only `S12`
+  may introduce current-edge storage plus the one selected snapshot-support
+  representation, never both supports as parallel acceptance paths;
 - dedicated block tables unless declared indexes prove insufficient;
 - normalized transaction dependencies until planner evidence requires them;
 - a generic row-version abstraction unless adapter integration requires it;
@@ -1191,15 +1208,28 @@ Evidence:
 
 Outcome:
 
-- Freeze bidirectional cardinality, requiredness, allowed targets,
-  polymorphism, ordering, locale, nested occurrence identity, and directional
-  deletion in [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
+- Freeze only the first admitted native subset: same-scope, top-level,
+  nonlocalized, monomorphic relations; duplicate target occurrences are
+  rejected; inverse cardinality is reverse-many; every target must be live at
+  commit; and target deletion uses `restrict`.
+- Defer nested or localized occurrences, polymorphic targets, reverse-one,
+  `detach`, and `cascade` to separately approved relation gates. Their codecs,
+  claims, delete races, and activation rules are not inferred from the first
+  subset.
 - Separate stable logical `relation_id`, immutable semantic relation
   definition, and immutable physical edge definition. Classify every semantic
   change as API/policy-only, validation-only, or edge-set/read-key changing.
-- Freeze the canonical occurrence codec and version, including path, nested
-  identity, locale absence/empty handling, repeated targets, and any retained
-  collision evidence; position remains ordering only.
+- Freeze the first-subset canonical occurrence codec and version, including the
+  top-level source path, source/target identity, explicit locale absence, and
+  retained collision evidence. Position remains ordering only and cannot make a
+  duplicate target valid.
+- Treat the cold-loaded executable function-registration and schema modules and
+  the strict Application Manifest emitted by current Application Analysis as
+  the sole declaration and analysis authority after cold load. A generated
+  Standard input may use
+  Canonical Declarative Program as upstream code-generation input, but neither
+  its bytes nor Semantic Artifact evidence can validate or supplement the
+  loaded result.
 - Preserve one authoritative app/CMS row when Payload exposes an existing
   table.
 
@@ -1208,64 +1238,134 @@ Exit gates:
 - every supported relation has unambiguous semantic identity;
 - every lowering/read semantic states whether it preserves the existing
   physical edge definition or requires a replacement;
-- repeated/localized/nested occurrences remain distinguishable without using
-  mutable position as identity;
-- unsupported behavior fails schema validation;
+- duplicate targets and every deferred nested/localized/polymorphic/reverse-one
+  or non-`restrict` shape fail Application Analysis before publication;
+- the target-live and `restrict` meanings are exact enough for `C09` to prove
+  same-commit final-state and concurrent insert/delete behavior without a
+  fallback;
+- the strict Application Manifest contract has one explicit evolution path for
+  the admitted relation meaning rather than a silent field addition or second
+  declaration authority;
 - digest collisions cannot silently alias two canonical occurrences.
 
-### [ ] R02 — Bind Relations Into The Immutable Manifest
+### [ ] R01-P — Select Relation Snapshot Support And Access Plan
+
+Prerequisite: `R01` has frozen the first admitted semantic and occurrence
+contract. This preflight must finish before `R02` binds physical meaning or
+`S12` adds DDL.
+
+Outcome:
+
+- Keep current edge occurrences as the rebuildable present-state sidecar and
+  select exactly one physical exact-snapshot support: immutable edge-occurrence
+  history, or an adjacency version atomically advanced for every matching
+  current-edge change.
+- Freeze the current-edge outgoing/incoming access key and the selected
+  support's equality prefix, total order, covering columns, snapshot
+  reconstruction or validation rule, writer update obligations,
+  backfill/repair behavior, and any O11 retention/anchor contract.
+- Compare both candidates on genuine PostgreSQL with populated same-scope data,
+  high-fanout endpoints, tenant and endpoint skew, insert/delete/retarget/reorder
+  churn, concurrent writers, representative `EXPLAIN (ANALYZE, BUFFERS)` plans,
+  index size, write amplification, lock contention, and vacuum pressure. PGlite
+  remains useful for semantics but cannot select the physical authority.
+- Record why the rejected candidate loses and the evidence boundary under which
+  the decision must be reopened. O10-R later implements the selected support;
+  it does not choose again.
+
+Exit gates:
+
+- one candidate is selected and one rejected with reproducible real-Postgres
+  receipts under accepted ceilings and skew;
+- the selected key/version or history identity covers ordinary commits,
+  managed backfill, repair, stale-definition coexistence, and rollback without
+  an unbounded commit-feed scan;
+- edge-history selection includes retained-floor/anchor behavior, while
+  adjacency-version selection fixes its granularity and every event
+  that advances it; and
+- no DDL, compiler, reader, or activation gate may retain the rejected candidate
+  as a compatibility or fallback path.
+
+### [ ] R02 — Bind Analyzed Relations Into App-Schema Publication
+
+Prerequisites: `R01` and `R01-P` are complete for the admitted subset.
 
 Outcome:
 
 - Allocate stable relation IDs with optimistic stale-plan discipline.
-- Bind separately typed immutable semantic-relation and physical-edge
-  definition identities. Persist the complete version-pinned semantic
-  definition and its edge-definition binding once in the immutable manifest;
-  keep normalized definition tables deferred unless the chosen identity or
+- Consume the R01-frozen Application Manifest evolution through current
+  Application Analysis so it carries only canonical analyzed relation
+  declarations and analysis-local ordinals, never deployment-stable relation or
+  physical-edge IDs. Do not reinterpret `ApplicationManifestV1` or accept a
+  second relation declaration during migration.
+- From that exact manifest, bind separately typed immutable semantic-relation
+  and physical-edge definition identities through post-analysis app-schema
+  publication. Persist the stable IDs, complete version-pinned semantic
+  definition, edge-definition binding, and `R01-P`'s selected immutable read key
+  and snapshot meaning in one explicitly evolved bound publication contract.
+  Keep normalized definition tables deferred unless the chosen identity or
   build authority proves one necessary.
+- Pin the analyzed manifest digest and bound publication digest together. A
+  consumer must never infer that an analyzer ordinal is a catalog ID or accept
+  either artifact without the other.
 - Treat rename/retarget/cardinality/delete-policy changes as explicit schema
-  evolution decisions.
+  evolution decisions. For the admitted subset, polymorphism, localization,
+  reverse-one, `detach`, and `cascade` remain typed rejections rather than
+  evolution options.
 
 Exit gates:
 
-- exact replay preserves IDs and conflicts fail closed;
+- exact analysis replay preserves canonical declarations/ordinals, while exact
+  binding replay preserves stable IDs and conflicts fail closed;
 - logical relation, semantic definition, and physical edge definition
   identities cannot be interchanged;
 - a compatible new semantic definition can deliberately reuse one physical
   edge definition, while physically different definitions cannot alias;
 - old and replacement edge definitions can coexist and can be resolved by
   edges, plans, dependencies, and later build/readiness state;
-- the manifest carries every lowering-relevant semantic; and
+- the analyzed manifest carries every declaration semantic, while the bound
+  publication carries stable identities plus selected read-key/snapshot meaning;
+- C09 can pin and verify both artifacts without consulting mutable active state;
 - no second mutable definition authority exists.
 
-### [ ] S12 — Add Stable Current Edge Occurrences
+### [ ] S12 — Add Stable Current Edges And Selected Snapshot Support
 
-Prerequisite: `R01` and `R02` are complete for every accepted relation.
+Prerequisite: `R01`, `R01-P`, and `R02` are complete for every accepted
+relation.
 
 Outcome:
 
-- Add only current edges for v1.
+- Add current edge occurrences plus exactly the `R01-P`-selected snapshot
+  support: immutable edge-occurrence history or the selected adjacency-version
+  authority. Do not add the rejected support for comparison, fallback, or later
+  choice.
 - Key every edge to the stable logical relation and exact immutable physical
   edge definition that produced it.
 - Derive occurrence identity from the versioned canonical occurrence codec over
-  edge definition, source row, stable nested item, path, locale, and
-  occurrence identity; retain the evidence required to detect digest
-  collisions.
+  edge definition, source row, top-level path, absent locale, target row, and
+  occurrence identity; retain the evidence required to detect digest collisions
+  and reject duplicate targets.
 - Store list position only as ordering metadata.
 - Add edge-definition-aware outgoing and incoming access paths only after
-  their exact equality prefix, ordering, covering columns, and pagination
-  cursor semantics are frozen.
+  their exact equality prefix, ordering, covering columns, and bounded-read
+  semantics are frozen by `R01-P`/`R02`.
+- When history is selected, make edge revisions participate in the accepted
+  retained-floor and anchor rules. When adjacency versions are selected,
+  persist and transactionally advance their exact granularity for commits,
+  managed backfill, and repair.
 
 Exit gates:
 
-- repeated targets remain distinct;
+- duplicate targets fail closed before edge publication;
 - reorder preserves identity;
-- locale/path/nested changes and stale cleanup pass;
+- top-level path changes, source deletion, retarget, and stale cleanup pass;
 - collision fixtures fail closed without overwriting an edge;
-- missing locale, empty locale, nullable position, and total pagination order
-  match the R01 contract;
-- no nullable relation or physical edge-definition ID and no edge-history table
-  is introduced.
+- absent locale, nullable position, and total bounded order match the R01/R02
+  contract;
+- genuine PostgreSQL proves the selected high-fanout/skew access plans and
+  write path under the accepted ceilings, not merely empty-table index use;
+- no nullable relation or physical edge-definition ID is introduced; and
+- the rejected snapshot support remains absent.
 
 ### Conditional Shipped-State Migration Branch
 
