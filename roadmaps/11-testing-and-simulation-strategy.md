@@ -541,8 +541,9 @@ PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
 remains open. The approved `TQ-C` Application-native mutation localization work
 is complete through bounded candidate-guard, initial-commit, validation/
 concurrent-duplicate, OCC conflict/rerun, head-movement, and terminalization
-observation slices. Remaining `TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work
-requires separate
+observation slices. The separately approved stored-attempt `TQ-C` decomposition
+has begun with one test-local loader-boundary registrar slice. Remaining
+`TQ-A`, additional `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
 implementation approval. No test deletion, lane merger, fixture-lifetime change,
 or package extraction is authorized by this section alone.
 
@@ -789,6 +790,23 @@ The work proceeds in bounded gates:
    lane consolidation remains separately bounded. File size is a review signal,
    not a deletion rule; later work must not weaken ordering, concurrency,
    transaction, or fault evidence.
+
+   The first bounded stored-attempt slice moves the loader's existing public-
+   structural-seam proof and foreign-authority failure mapping proof into the
+   domain-named `storedAttemptEvidenceLoaderBoundarySuite` registrar. The
+   original `storedAttemptEvidence.test.ts` owner still creates and migrates the
+   one PGlite fixture, owns the UUID stream, creates scenarios, seals journals,
+   reads timestamps, and constructs the deliberately failing loader. The
+   registrar receives only those explicit capabilities and registers the same
+   two test names at the same position in the existing `describe`; it creates no
+   second Vitest file, persistence lifecycle, lane command, package export, or
+   production abstraction. Both focused invariants pass independently and the
+   persistence package typecheck is green. The full 92-test file still reaches
+   all tests and remains at the recorded `C04A-VAL-001` baseline of 89 passing
+   and three failing; this slice does not weaken those failures or repair the
+   journal owner. This is an extraction-seam pilot only. Remaining loader
+   lifecycle, interruption, and authority groups, plus the later publication,
+   OCC, and redelivery groups, require their own bounded review before moving.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case

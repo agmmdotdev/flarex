@@ -112,7 +112,6 @@ import {
   beforeAll,
   describe,
   expect,
-  expectTypeOf,
   it,
 } from "vitest";
 
@@ -169,14 +168,12 @@ import {
   PointMutationOccUserCodeV1Error,
   type PointMutationOccExecutionContextFactoryV1,
   type PointMutationOccRuntimeNeutralRunnerV1,
-  type StoredAttemptEvidenceLoaderPortV1,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
   createPointMutationStartAdmissionV1,
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
 } from "../../executor/src/transactionGrant";
-import * as persistenceRoot from "../src";
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
   type AppRowTransaction,
@@ -271,10 +268,8 @@ import {
 import { createStoredOccExecutionEvidenceLoaderV1 } from "../src/storedOccExecution";
 import {
   createStoredAttemptEvidenceLoaderV1,
-  StoredAttemptEvidencePersistenceV1Error,
   type StoredAttemptEvidenceAuthorityV1,
   type StoredAttemptEvidenceLoadResultV1,
-  type StoredAttemptEvidenceLoaderV1,
   type StoredAttemptFinishingEvidenceLoaderV1,
 } from "../src/storedAttemptEvidence";
 import {
@@ -357,6 +352,9 @@ import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
+import {
+  registerStoredAttemptEvidenceLoaderBoundaryTests,
+} from "./storedAttemptEvidenceLoaderBoundarySuite";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -388,64 +386,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     await persistence.migrate();
   });
 
-  it("loads running+sealed evidence through the test-only structural seam", async () => {
-    type RootLeak = Extract<
-      keyof typeof persistenceRoot,
-      "createStoredAttemptEvidenceLoaderV1" | "StoredAttemptEvidenceV1"
-    >;
-    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
-    expect("createStoredAttemptEvidenceLoaderV1" in persistenceRoot).toBe(
-      false,
-    );
-
-    let afterRepeatableRead = false;
-    const current = await scenario("running_sealed", {
-      afterRepeatableRead: () => {
-        afterRepeatableRead = true;
-      },
-    });
-    const envelope = await seal(current);
-    const before = await timestamps(current.anchor.sessionId);
-
-    const executorPort: StoredAttemptEvidenceLoaderPortV1 = current.loader;
-    expectTypeOf(executorPort).toMatchTypeOf<
-      StoredAttemptEvidenceLoaderPortV1
-    >();
-    const result = await runEffect(executorPort.loadEffect(current.authority));
-
-    expect(afterRepeatableRead).toBe(true);
-    expect(result.kind).toBe("loaded");
-    if (result.kind !== "loaded") throw new Error("Expected loaded evidence.");
-    expect(result.evidence.session.lifecycle).toBe("running");
-    expect(result.evidence.root.journalBytes.byteLength).toBeGreaterThan(0);
-    expect(bytesToHex(result.evidence.root.journalSha256)).toBe(
-      envelope.journalSha256Hex,
-    );
-    expect(result.evidence.root.sealedFinalSyscallSequence).toBe(0n);
-    expect(result.evidence.points).toEqual([]);
-    expect(await timestamps(current.anchor.sessionId)).toEqual(before);
-  });
-
-  it("maps foreign authority failures into the typed persistence channel", async () => {
-    const current = await scenario("typed_authority_failure");
-    const cause = new Error("stored-attempt metadata unavailable");
-    const basePorts = resolutionPorts(persistence);
-    const loader = createStoredAttemptEvidenceLoaderV1({
-      ...basePorts,
-      scopeMetadata: {
-        getScopeMetadataByDeploymentId: async () => {
-          throw cause;
+  registerStoredAttemptEvidenceLoaderBoundaryTests({
+    scenario,
+    seal,
+    timestamps,
+    createForeignAuthorityFailureLoader: (cause) => {
+      const basePorts = resolutionPorts(persistence);
+      return createStoredAttemptEvidenceLoaderV1({
+        ...basePorts,
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: async () => {
+            throw cause;
+          },
         },
-      },
-    });
-
-    const failure = await runFailure(loader.loadEffect(current.authority));
-    expect(failure).toBeInstanceOf(StoredAttemptEvidencePersistenceV1Error);
-    expect(failure).toMatchObject({
-      _tag: "StoredAttemptEvidencePersistenceV1Error",
-      operation: "scopeMetadataRead",
-      cause,
-    });
+      });
+    },
+    bytesToHex,
   });
 
   it.each(["running", "committed", "aborted"] as const)(
