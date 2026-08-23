@@ -63,8 +63,16 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
           conflictReadCount: 2,
           executions: [{ ordinal: 1 }, { ordinal: 2 }],
         },
-        staleHeadRejected: true,
-        admittedHeadStayedPinned: true,
+        headMovement: {
+          staleAdmission: {
+            disposition: "rejected",
+            errorTag: "ApplicationActivationError",
+            operation: "validateSelection",
+            reason: "concurrentHead",
+            retryable: false,
+          },
+          publication: { disposition: "published" },
+        },
         terminalJournalFailureDidNotCommit: true,
         terminalFailureDidNotCommit: true,
         candidateSchemaWriteGuard: {
@@ -138,6 +146,24 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
       expect(proof.occConflict.executions.every(execution =>
         execution.revisionId === proof.occConflict.admittedRevisionId
       )).toBe(true);
+      expect(proof.headMovement.movedRevisionId).not.toBe(
+        proof.headMovement.pinnedRevisionId,
+      );
+      expect(proof.headMovement.staleAdmission.revisionId).toBe(
+        proof.headMovement.pinnedRevisionId,
+      );
+      expect(proof.headMovement.workerLoadsBeforeRelease).toBe(
+        proof.occConflict.rerun.workerLoads + 1,
+      );
+      expect(proof.headMovement.publication.workerLoads).toBe(
+        proof.headMovement.workerLoadsBeforeRelease,
+      );
+      expect(proof.headMovement.publication.commitSeq).toBe(
+        proof.occConflict.rerun.commitSeq + 1n,
+      );
+      expect(proof.headMovement.executionRevisionIds).toEqual([
+        proof.headMovement.pinnedRevisionId,
+      ]);
     });
   }, 480_000);
 });

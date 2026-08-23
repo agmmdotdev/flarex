@@ -13,7 +13,10 @@ import {
   type ApplicationNativeMutationPersistence,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
-import { selectApplicationMutationAdmission } from
+import {
+  selectApplicationMutationAdmission,
+  type SelectApplicationMutationAdmissionError,
+} from
   "@flarex/persistence-postgres/internal/application-mutation-admission";
 import {
   ApplicationMutationSystemConfigurationError,
@@ -80,8 +83,7 @@ export interface ApplicationNativeMutationProof {
   readonly validationCatch: ApplicationNativeMutationValidationCatchObservation;
   readonly concurrentDuplicate: ApplicationNativeMutationConcurrentDuplicateObservation;
   readonly occConflict: ApplicationNativeMutationOccConflictObservation;
-  readonly staleHeadRejected: true;
-  readonly admittedHeadStayedPinned: true;
+  readonly headMovement: ApplicationNativeMutationHeadMovementObservation;
   readonly terminalJournalFailureDidNotCommit: true;
   readonly terminalFailureDidNotCommit: true;
   readonly candidateSchemaWriteGuard: ApplicationNativeMutationCandidateSchemaWriteGuardObservation;
@@ -184,6 +186,40 @@ export interface ApplicationNativeMutationOccConflictObservation {
   readonly conflictReadCount: number;
   readonly executions:
     ReadonlyArray<ApplicationNativeMutationOccExecutionObservation>;
+}
+
+type ApplicationNativeMutationActivationError = Extract<
+  SelectApplicationMutationAdmissionError,
+  { readonly _tag: "ApplicationActivationError" }
+>;
+
+export type ApplicationNativeMutationStaleAdmissionObservation =
+  | {
+    readonly disposition: "accepted";
+    readonly revisionId: string;
+  }
+  | {
+    readonly disposition: "rejected";
+    readonly errorTag: ApplicationNativeMutationActivationError["_tag"];
+    readonly operation: ApplicationNativeMutationActivationError["operation"];
+    readonly reason: ApplicationNativeMutationActivationError["reason"];
+    readonly revisionId: ApplicationNativeMutationActivationError["revisionId"];
+    readonly retryable: ApplicationNativeMutationActivationError["retryable"];
+  };
+
+export interface ApplicationNativeMutationPinnedHeadPublicationObservation {
+  readonly disposition: "published";
+  readonly commitSeq: bigint;
+  readonly workerLoads: number;
+}
+
+export interface ApplicationNativeMutationHeadMovementObservation {
+  readonly pinnedRevisionId: string;
+  readonly movedRevisionId: string;
+  readonly staleAdmission: ApplicationNativeMutationStaleAdmissionObservation;
+  readonly workerLoadsBeforeRelease: number;
+  readonly publication: ApplicationNativeMutationPinnedHeadPublicationObservation;
+  readonly executionRevisionIds: ReadonlyArray<string>;
 }
 
 export type ApplicationNativeMutationConfigurationObservation =
@@ -505,38 +541,93 @@ export async function proveApplicationNativeMutation(
     ),
   ));
   await headBlock.started;
-  const moved = await fixture.moveHead();
+  let moved: Awaited<ReturnType<typeof fixture.moveHead>>;
+  try {
+    moved = await fixture.moveHead();
+  } catch (cause: unknown) {
+    headBlock.release();
+    await Promise.allSettled([headAttempt]);
+    throw cause;
+  }
   if (moved.basis.revisionId === pinnedRevisionId) {
+    headBlock.release();
+    await Promise.allSettled([headAttempt]);
     throw new Error("Application-native fixture did not move the active head.");
   }
-  let staleHeadRejected = false;
+  let staleAdmission: ApplicationNativeMutationStaleAdmissionObservation;
   try {
-    await runSystemTestEffectV1(selectApplicationMutationAdmission(
-      fixture.active.selection,
-      create,
-      {
-        deploymentId,
-        controlDb: fixture.control.drizzle,
-        schema: fixture.schema,
-        authority: fixture.authorityPorts,
-      },
-    ));
-  } catch (cause) {
-    staleHeadRejected = failureTag(cause) === "ApplicationActivationError" &&
-      failureReason(cause) === "concurrentHead";
+    staleAdmission = await runSystemTestEffectV1(
+      selectApplicationMutationAdmission(
+        fixture.active.selection,
+        create,
+        {
+          deploymentId,
+          controlDb: fixture.control.drizzle,
+          schema: fixture.schema,
+          authority: fixture.authorityPorts,
+        },
+      ).pipe(
+        Effect.map(admission => Object.freeze({
+          disposition: "accepted" as const,
+          revisionId: admission.basis.revisionId,
+        })),
+        Effect.catchTag(
+          "ApplicationActivationError",
+          error => Effect.succeed(Object.freeze({
+            disposition: "rejected" as const,
+            errorTag: error._tag,
+            operation: error.operation,
+            reason: error.reason,
+            revisionId: error.revisionId,
+            retryable: error.retryable,
+          })),
+        ),
+      ),
+    );
+  } catch (cause: unknown) {
+    headBlock.release();
+    await Promise.allSettled([headAttempt]);
+    throw cause;
   }
-  if (!staleHeadRejected) {
-    throw new Error("Application admission accepted the stale active head.");
+  if (
+    staleAdmission.disposition !== "rejected" ||
+    staleAdmission.operation !== "validateSelection" ||
+    staleAdmission.reason !== "concurrentHead"
+  ) {
+    headBlock.release();
+    await Promise.allSettled([headAttempt]);
+    const staleAdmissionDetail = staleAdmission.disposition === "rejected"
+      ? `${staleAdmission.errorTag}/${staleAdmission.operation}/${staleAdmission.reason}`
+      : `accepted/${staleAdmission.revisionId}`;
+    throw new Error(
+      `Application admission accepted the stale active head: ${staleAdmissionDetail}.`,
+    );
   }
+  const workerLoadsBeforeHeadRelease = loader.loads;
   headBlock.release();
   const pinnedOutcome = await headAttempt;
+  const workerLoadsAfterPinnedPublication = loader.loads;
   const headRevisionIds = loader.revisionIds.slice(headLoadStart);
   const admittedHeadStayedPinned = pinnedOutcome.disposition === "published" &&
-    headRevisionIds.length >= 1 &&
+    workerLoadsAfterPinnedPublication === workerLoadsBeforeHeadRelease &&
+    headRevisionIds.length === 1 &&
     headRevisionIds.every(revisionId => revisionId === pinnedRevisionId);
   if (!admittedHeadStayedPinned) {
     throw new Error("Admitted Application execution followed the mutable head.");
   }
+  const headMovement: ApplicationNativeMutationHeadMovementObservation =
+    Object.freeze({
+      pinnedRevisionId,
+      movedRevisionId: moved.basis.revisionId,
+      staleAdmission,
+      workerLoadsBeforeRelease: workerLoadsBeforeHeadRelease,
+      publication: Object.freeze({
+        disposition: pinnedOutcome.disposition,
+        commitSeq: pinnedOutcome.commitSeq,
+        workerLoads: workerLoadsAfterPinnedPublication,
+      }),
+      executionRevisionIds: Object.freeze([...headRevisionIds]),
+    });
 
   const beforeJournalFailure = await durableCounts(fixture.target);
   loader.mode = "catchTerminalJournalFailure";
@@ -582,8 +673,7 @@ export async function proveApplicationNativeMutation(
     validationCatch,
     concurrentDuplicate,
     occConflict,
-    staleHeadRejected: true,
-    admittedHeadStayedPinned: true,
+    headMovement,
     terminalJournalFailureDidNotCommit: true,
     terminalFailureDidNotCommit: true,
     candidateSchemaWriteGuard,
@@ -1050,23 +1140,6 @@ async function durableCounts(persistence: ApplicationNativeMutationPersistence) 
     feed: Number(row.feed),
     outbox: Number(row.outbox),
   });
-}
-
-function failureTag(cause: unknown): string | undefined {
-  return cause !== null && typeof cause === "object" &&
-      typeof Reflect.get(cause, "_tag") === "string"
-    ? Reflect.get(cause, "_tag") as string
-    : undefined;
-}
-
-function failureReason(cause: unknown): string | undefined {
-  if (cause === null || typeof cause !== "object") return undefined;
-  const direct = Reflect.get(cause, "reason");
-  if (typeof direct === "string") return direct;
-  const issue = Reflect.get(cause, "issue");
-  if (issue === null || typeof issue !== "object") return undefined;
-  const nested = Reflect.get(issue, "reason");
-  return typeof nested === "string" ? nested : undefined;
 }
 
 interface Deferred<A> {

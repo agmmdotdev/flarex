@@ -540,8 +540,8 @@ are complete. The approved `TQ-B` Application-native query pilot is implemented,
 PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
 remains open. The approved `TQ-C` Application-native mutation localization work
 is in progress through bounded candidate-guard, initial-commit, and validation/
-concurrent-duplicate, and OCC conflict/rerun observation slices. Remaining
-`TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
+concurrent-duplicate, OCC conflict/rerun, and head-movement observation slices.
+Remaining `TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
 implementation approval. No test deletion, lane merger, fixture-lifetime change,
 or package extraction is authorized by this section alone.
 
@@ -743,10 +743,31 @@ The work proceeds in bounded gates:
    explicit environment failure and skips the aggregate scenario; genuine
    PostgreSQL remains pending. A single previous/current sample measured
    12.14/13.21 seconds total and 6.32/7.02 seconds of test time, insufficient to
-   infer a runtime change. Head movement and terminalization remain aggregate
-   follow-up work. File size is a review signal, not a deletion rule; later
-   slices must improve attribution without weakening ordering, concurrency,
-   transaction, or fault evidence.
+   infer a runtime change.
+
+   The fifth bounded slice replaces `staleHeadRejected` and
+   `admittedHeadStayedPinned` with a `headMovement` observation. It exposes the
+   pinned and moved revisions, the stale selection's activation-error tag,
+   operation, reason, revision and retryability, the load count before release,
+   the admitted mutation's publication commit/load snapshot, and its copied
+   execution-revision receipt. Only `ApplicationActivationError` becomes
+   observation data; other typed failures, defects, and interruption propagate
+   after test-owned cleanup. The wrappers assert `validateSelection` /
+   `concurrentHead`, a non-retryable rejection tied to the pinned revision, a
+   distinct moved revision, one admitted Worker load, one consecutive commit,
+   and execution solely on the pinned revision. A failed or ineffective head
+   move, an unexpected admission failure, or an incorrect activation outcome
+   releases and settles the blocked mutation before preserving the original
+   cause or reporting its exact disposition. The runtime admission, movement,
+   release, and publication order remains unchanged. The focused PGlite suite
+   and package typecheck pass with the same one-test, one-fixture lifecycle. With
+   no PostgreSQL credential, that lane reports its explicit environment failure
+   and skips the aggregate scenario; genuine PostgreSQL remains pending. A single
+   previous/current sample measured 13.21/13.43 seconds total and 7.02/6.71
+   seconds of test time, insufficient to infer a runtime change. Terminalization
+   remains aggregate follow-up work. File size is a review signal, not a deletion
+   rule; later slices must improve attribution without weakening ordering,
+   concurrency, transaction, or fault evidence.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case
@@ -886,11 +907,11 @@ and stale non-authoritative caches without changing the Postgres oracle.
    activation, fixture construction, and resource-lifetime ownership.
 4. **Continue bounded `TQ-C` localization.** Keep the candidate-guard, initial-
    commit, validation-catch, concurrent-duplicate, and OCC conflict/rerun
-   observations, then localize stale-head rejection and admitted-head pinning
-   without changing the shared fixture, sequential state transitions, or lane-
-   specific resource ownership. Terminalization remains a later separately
-   bounded slice. Do not introduce cross-lane contract reuse while `TQ-B`
-   PostgreSQL acceptance remains open.
+   observations plus head-movement evidence, then localize caught terminal-
+   journal and terminal user-code failure evidence without changing the shared
+   fixture, sequential state transitions, or lane-specific resource ownership.
+   Do not introduce cross-lane contract reuse while `TQ-B` PostgreSQL acceptance
+   remains open.
 5. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,
