@@ -1,6 +1,8 @@
 import { expect, expectTypeOf, it } from "vitest";
-import type { TransactionSessionLifecycleV1 } from
-  "flarex-protocol/transaction-session";
+import {
+  TransactionAttemptFenceSchema,
+  type TransactionSessionLifecycleV1,
+} from "flarex-protocol/transaction-session";
 
 import type { StoredAttemptEvidenceLoaderPortV1 } from
   "../../executor/src/storedAttemptAuthentication";
@@ -10,11 +12,14 @@ import type {
   PointCommitFinishingTransitionPortV1,
   PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
-import type { PointMutationSessionAnchorV1 } from
-  "../src/transactionSessionActivation";
+import type {
+  PointMutationSessionAnchorV1,
+  PointMutationSessionAttemptSelectorV1,
+} from "../src/transactionSessionActivation";
 import {
   StoredAttemptEvidencePersistenceV1Error,
   type StoredAttemptEvidenceAuthorityV1,
+  type StoredAttemptFinishingEvidenceLoaderV1,
   type StoredAttemptEvidenceLoaderV1,
 } from "../src/storedAttemptEvidence";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -251,4 +256,218 @@ function enterForgedFinishingCommand(
   // SAFETY: These tests deliberately exercise the port's runtime command
   // decoder with structurally invalid values that TypeScript cannot represent.
   return port.enterFinishing(command as PointCommitFinishingTransitionCommandV1);
+}
+
+export interface StoredAttemptEvidenceLoaderLeaseHarness<Scenario> {
+  readonly scenario: (label: string) => Promise<Scenario>;
+  readonly seal: (current: Scenario) => Promise<unknown>;
+  readonly shortenHardExpiryBeforeGrant: (
+    current: Scenario,
+  ) => Promise<number>;
+  readonly load: (
+    current: Scenario,
+  ) => ReturnType<StoredAttemptEvidenceLoaderV1["loadEffect"]>;
+}
+
+export function registerStoredAttemptEvidenceLoaderLeaseTests<Scenario>(
+  harness: StoredAttemptEvidenceLoaderLeaseHarness<Scenario>,
+): void {
+  it("loads a sealed lease promoted to a hard expiry below the grant", async () => {
+    const current = await harness.scenario("hard_before_grant");
+    const hardExpiresAtMilliseconds =
+      await harness.shortenHardExpiryBeforeGrant(current);
+    await harness.seal(current);
+
+    const result = await runEffect(harness.load(current));
+    if (result.kind !== "loaded") throw new Error("Expected loaded evidence.");
+    expect(result.evidence.lease.leaseExpiresAtMilliseconds).toBe(
+      hardExpiresAtMilliseconds,
+    );
+    expect(result.evidence.session.hardExpiresAtMilliseconds).toBe(
+      hardExpiresAtMilliseconds,
+    );
+    expect(
+      result.evidence.session.authorizationGrantExpiresAtMilliseconds,
+    ).toBeGreaterThan(hardExpiresAtMilliseconds);
+  });
+}
+
+export interface StoredAttemptEvidenceLoaderLifecycleScenario {
+  readonly loader: StoredAttemptFinishingEvidenceLoaderV1;
+  readonly authority: StoredAttemptEvidenceAuthorityV1;
+}
+
+export interface StoredAttemptEvidenceLoaderLifecycleHarness<
+  Scenario extends StoredAttemptEvidenceLoaderLifecycleScenario,
+> {
+  readonly scenario: (label: string) => Promise<Scenario>;
+  readonly seal: (current: Scenario) => Promise<unknown>;
+  readonly selector: (
+    current: Scenario,
+  ) => PointMutationSessionAttemptSelectorV1;
+  readonly createFinishingTransitionPort: () =>
+    PointCommitFinishingTransitionPortV1;
+  readonly setLifecycle: (
+    current: Scenario,
+    lifecycle: TransactionSessionLifecycleV1,
+  ) => Promise<void>;
+  readonly deleteLease: (current: Scenario) => Promise<void>;
+  readonly prepareRootState: (
+    current: Scenario,
+    lifecycle: "running" | "finishing",
+    rootState: "open" | "failed",
+  ) => Promise<void>;
+  readonly deleteRoot: (current: Scenario) => Promise<void>;
+  readonly shiftLeaseEarlier: (current: Scenario) => Promise<void>;
+  readonly expireLease: (current: Scenario) => Promise<void>;
+  readonly expireSessionAndLease: (current: Scenario) => Promise<void>;
+}
+
+export function registerStoredAttemptEvidenceLoaderLifecycleTests<
+  Scenario extends StoredAttemptEvidenceLoaderLifecycleScenario,
+>(
+  harness: StoredAttemptEvidenceLoaderLifecycleHarness<Scenario>,
+): void {
+  it("accepts finishing+sealed for reconstruction but rejects every other lifecycle", async () => {
+    const finishing = await harness.scenario("finishing_sealed");
+    await harness.seal(finishing);
+    const runningEvidence = await runEffect(
+      finishing.loader.loadEffect(finishing.authority),
+    );
+    if (runningEvidence.kind !== "loaded") {
+      throw new Error("Expected running evidence before C05-A transition.");
+    }
+    await runEffect(
+      harness.createFinishingTransitionPort().enterFinishing(
+        await pointCommitFinishingCommandFromStoredAttemptV1(
+          finishing.authority,
+          runningEvidence.evidence,
+        ),
+      ),
+    );
+    const finishingResult = await runEffect(
+      finishing.loader.loadFinishingEffect(harness.selector(finishing)),
+    );
+    expect(finishingResult).toMatchObject({
+      kind: "loaded",
+      evidence: { session: { lifecycle: "finishing" } },
+    });
+
+    const running = await harness.scenario("running_recovery_rejected");
+    await harness.seal(running);
+    await expect(runEffect(running.loader.loadFinishingEffect(
+      harness.selector(running),
+    ))).resolves.toMatchObject({
+      kind: "notPlannable",
+      reason: "lifecycle",
+      lifecycle: "running",
+    });
+
+    const committed = await harness.scenario("committed_observation");
+    await harness.seal(committed);
+    await harness.setLifecycle(committed, "committed");
+    await harness.deleteLease(committed);
+    await expect(runEffect(committed.loader.loadFinishingEffect(
+      harness.selector(committed),
+    ))).resolves.toMatchObject({ kind: "alreadyCommitted" });
+
+    const otherLifecycles: ReadonlyArray<TransactionSessionLifecycleV1> = [
+      "created",
+      "committing",
+      "retrying",
+      "aborted",
+      "expired",
+    ];
+    for (const lifecycle of otherLifecycles) {
+      const current = await harness.scenario(`lifecycle_${lifecycle}`);
+      await harness.seal(current);
+      await harness.setLifecycle(current, lifecycle);
+      await harness.deleteLease(current);
+      await expect(runEffect(current.loader.loadFinishingEffect(
+        harness.selector(current),
+      ))).resolves.toMatchObject({
+        kind: "notPlannable",
+        reason: "lifecycle",
+        lifecycle,
+      });
+    }
+  });
+
+  it("rejects every open/failed root for both accepted active lifecycles", async () => {
+    for (const lifecycle of ["running", "finishing"] as const) {
+      for (const rootState of ["open", "failed"] as const) {
+        const current = await harness.scenario(
+          `root_${lifecycle}_${rootState}`,
+        );
+        await harness.prepareRootState(current, lifecycle, rootState);
+        const load = lifecycle === "running"
+          ? current.loader.loadEffect(current.authority)
+          : current.loader.loadFinishingEffect(harness.selector(current));
+        await expect(runEffect(load)).resolves.toMatchObject({
+          kind: "notPlannable",
+          reason: "rootNotSealed",
+          rootState,
+        });
+      }
+    }
+  });
+
+  it("fails closed when an active sealed attempt loses its lease or root", async () => {
+    const missingLease = await harness.scenario("missing_lease");
+    await harness.seal(missingLease);
+    await harness.deleteLease(missingLease);
+    await expect(runEffect(
+      missingLease.loader.loadEffect(missingLease.authority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "snapshotLeaseMissingOrDuplicate",
+    });
+
+    const missingRoot = await harness.scenario("missing_root");
+    await harness.seal(missingRoot);
+    await harness.deleteRoot(missingRoot);
+    await expect(runEffect(
+      missingRoot.loader.loadEffect(missingRoot.authority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "journalRootMissingOrDuplicate",
+    });
+
+    const nonTargetLease = await harness.scenario("sealed_non_target_lease");
+    await harness.seal(nonTargetLease);
+    await harness.shiftLeaseEarlier(nonTargetLease);
+    await expect(runEffect(
+      nonTargetLease.loader.loadEffect(nonTargetLease.authority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "snapshotLeaseInvalid",
+    });
+    await harness.expireLease(nonTargetLease);
+    await expect(runEffect(
+      nonTargetLease.loader.loadEffect(nonTargetLease.authority),
+    )).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "snapshotLeaseInvalid",
+    });
+  });
+
+  it("uses database time and rejects expired or replaced exact attempts", async () => {
+    const expired = await harness.scenario("lease_expired");
+    await harness.seal(expired);
+    await harness.expireSessionAndLease(expired);
+    await expect(runEffect(expired.loader.loadEffect(expired.authority))).resolves
+      .toMatchObject({ kind: "notPlannable", reason: "expired" });
+
+    const replaced = await harness.scenario("attempt_replaced");
+    await harness.seal(replaced);
+    await expect(runEffect(replaced.loader.loadEffect({
+      ...replaced.authority,
+      attemptFence: TransactionAttemptFenceSchema.make(
+        replaced.authority.attemptFence + 1n,
+      ),
+    }))).resolves.toMatchObject({
+      kind: "authorityMismatch",
+      reason: "attemptReplaced",
+    });
+  });
 }

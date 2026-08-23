@@ -353,6 +353,8 @@ import {
 } from "./transactionSessionActivationTestSupport";
 import {
   registerStoredAttemptEvidenceLoaderBoundaryTests,
+  registerStoredAttemptEvidenceLoaderLeaseTests,
+  registerStoredAttemptEvidenceLoaderLifecycleTests,
 } from "./storedAttemptEvidenceLoaderBoundarySuite";
 
 const sharedLocator = Object.freeze({
@@ -410,34 +412,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     bytesToHex,
   });
 
-  it("loads a sealed lease promoted to a hard expiry below the grant", async () => {
-    const current = await scenario("hard_before_grant");
-    const updated = await persistence.query<{ hard_expires_at: Date }>(
-      `
-        update fx_system_tx_session
-        set hard_expires_at = clock_timestamp() + interval '30 minutes'
-        where session_id = $1
-        returning hard_expires_at
-      `,
-      [current.anchor.sessionId],
-    );
-    const hardExpiresAt = updated.rows[0]?.hard_expires_at;
-    if (hardExpiresAt === undefined) {
-      throw new Error("Expected the shortened hard expiry.");
-    }
-    await seal(current);
-
-    const result = await runEffect(current.loader.loadEffect(current.authority));
-    if (result.kind !== "loaded") throw new Error("Expected loaded evidence.");
-    expect(result.evidence.lease.leaseExpiresAtMilliseconds).toBe(
-      hardExpiresAt.getTime(),
-    );
-    expect(result.evidence.session.hardExpiresAtMilliseconds).toBe(
-      hardExpiresAt.getTime(),
-    );
-    expect(
-      result.evidence.session.authorizationGrantExpiresAtMilliseconds,
-    ).toBeGreaterThan(hardExpiresAt.getTime());
+  registerStoredAttemptEvidenceLoaderLeaseTests({
+    scenario,
+    seal,
+    shortenHardExpiryBeforeGrant,
+    load: (current) => current.loader.loadEffect(current.authority),
   });
 
   it("does not observe interruption until the repeatable-read edge settles", async () => {
@@ -473,217 +452,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
   });
 
-  it("accepts finishing+sealed for reconstruction but rejects every other lifecycle", async () => {
-    const finishing = await scenario("finishing_sealed");
-    await seal(finishing);
-    const runningEvidence = await runEffect(
-      finishing.loader.loadEffect(finishing.authority),
-    );
-    if (runningEvidence.kind !== "loaded") {
-      throw new Error("Expected running evidence before C05-A transition.");
-    }
-    await runEffect(
+  registerStoredAttemptEvidenceLoaderLifecycleTests({
+    scenario,
+    seal,
+    selector: (current) => selectorFromAnchor(current.anchor),
+    createFinishingTransitionPort: () =>
       createPointCommitFinishingTransitionPortV1(
         resolutionPorts(persistence),
-      ).enterFinishing(
-        await pointCommitFinishingCommandFromStoredAttemptV1(
-          finishing.authority,
-          runningEvidence.evidence,
-        ),
       ),
-    );
-    const finishingResult = await runEffect(
-      finishing.loader.loadFinishingEffect(
-        selectorFromAnchor(finishing.anchor),
-      ),
-    );
-    expect(finishingResult).toMatchObject({
-      kind: "loaded",
-      evidence: { session: { lifecycle: "finishing" } },
-    });
-
-    const running = await scenario("running_recovery_rejected");
-    await seal(running);
-    await expect(runEffect(running.loader.loadFinishingEffect(
-      selectorFromAnchor(running.anchor),
-    ))).resolves.toMatchObject({
-      kind: "notPlannable",
-      reason: "lifecycle",
-      lifecycle: "running",
-    });
-
-    const committed = await scenario("committed_observation");
-    await seal(committed);
-    await setLifecycle(committed.anchor.sessionId, "committed");
-    await persistence.query(
-      "delete from fx_system_snapshot_lease where session_id = $1",
-      [committed.anchor.sessionId],
-    );
-    await expect(runEffect(committed.loader.loadFinishingEffect(
-      selectorFromAnchor(committed.anchor),
-    ))).resolves
-      .toMatchObject({ kind: "alreadyCommitted" });
-
-    const otherLifecycles: ReadonlyArray<TransactionSessionLifecycleV1> = [
-      "created",
-      "committing",
-      "retrying",
-      "aborted",
-      "expired",
-    ];
-    for (const lifecycle of otherLifecycles) {
-      const current = await scenario(`lifecycle_${lifecycle}`);
-      await seal(current);
-      await setLifecycle(current.anchor.sessionId, lifecycle);
-      await persistence.query(
-        "delete from fx_system_snapshot_lease where session_id = $1",
-        [current.anchor.sessionId],
-      );
-      await expect(runEffect(current.loader.loadFinishingEffect(
-        selectorFromAnchor(current.anchor),
-      ))).resolves
-        .toMatchObject({
-          kind: "notPlannable",
-          reason: "lifecycle",
-          lifecycle,
-        });
-    }
-  });
-
-  it("rejects every open/failed root for both accepted active lifecycles", async () => {
-    for (const lifecycle of ["running", "finishing"] as const) {
-      for (const rootState of ["open", "failed"] as const) {
-        const current = await scenario(`root_${lifecycle}_${rootState}`);
-        if (lifecycle === "finishing") {
-          await setLifecycle(current.anchor.sessionId, lifecycle);
-          await persistence.query(
-            "delete from fx_system_tx_execution_claim where session_id = $1",
-            [current.anchor.sessionId],
-          );
-        }
-        if (rootState === "failed") {
-          await persistence.query(
-            `
-              update fx_system_tx_journal
-              set state = 'failed',
-                  failure_dimension = 'readDocuments',
-                  updated_at = clock_timestamp()
-              where session_id = $1
-            `,
-            [current.anchor.sessionId],
-          );
-        }
-        const load = lifecycle === "running"
-          ? current.loader.loadEffect(current.authority)
-          : current.loader.loadFinishingEffect(
-            selectorFromAnchor(current.anchor),
-          );
-        await expect(runEffect(load)).resolves
-          .toMatchObject({
-            kind: "notPlannable",
-            reason: "rootNotSealed",
-            rootState,
-          });
-      }
-    }
-  });
-
-  it("fails closed when an active sealed attempt loses its lease or root", async () => {
-    const missingLease = await scenario("missing_lease");
-    await seal(missingLease);
-    await persistence.query(
-      "delete from fx_system_snapshot_lease where session_id = $1",
-      [missingLease.anchor.sessionId],
-    );
-    await expect(runEffect(
-      missingLease.loader.loadEffect(missingLease.authority),
-    )).resolves
-      .toMatchObject({
-        kind: "corrupt",
-        reason: "snapshotLeaseMissingOrDuplicate",
-      });
-
-    const missingRoot = await scenario("missing_root");
-    await seal(missingRoot);
-    await persistence.query(
-      "delete from fx_system_tx_journal where session_id = $1",
-      [missingRoot.anchor.sessionId],
-    );
-    await expect(runEffect(
-      missingRoot.loader.loadEffect(missingRoot.authority),
-    )).resolves
-      .toMatchObject({
-        kind: "corrupt",
-        reason: "journalRootMissingOrDuplicate",
-      });
-
-    const nonTargetLease = await scenario("sealed_non_target_lease");
-    await seal(nonTargetLease);
-    await persistence.query(
-      `
-        update fx_system_snapshot_lease
-        set lease_expires_at = lease_expires_at - interval '1 second'
-        where session_id = $1
-      `,
-      [nonTargetLease.anchor.sessionId],
-    );
-    await expect(runEffect(
-      nonTargetLease.loader.loadEffect(nonTargetLease.authority),
-    )).resolves.toMatchObject({
-      kind: "corrupt",
-      reason: "snapshotLeaseInvalid",
-    });
-    await persistence.query(
-      `
-        update fx_system_snapshot_lease
-        set lease_expires_at = clock_timestamp() - interval '1 second'
-        where session_id = $1
-      `,
-      [nonTargetLease.anchor.sessionId],
-    );
-    await expect(runEffect(
-      nonTargetLease.loader.loadEffect(nonTargetLease.authority),
-    )).resolves.toMatchObject({
-      kind: "corrupt",
-      reason: "snapshotLeaseInvalid",
-    });
-  });
-
-  it("uses database time and rejects expired or replaced exact attempts", async () => {
-    const expired = await scenario("lease_expired");
-    await seal(expired);
-    await persistence.query(
-      `
-        update fx_system_tx_session
-        set created_at = '1999-01-01T00:00:00.000Z',
-            authorization_grant_expires_at = '2000-01-01T00:00:00.000Z',
-            hard_expires_at = '2000-01-01T00:00:00.000Z'
-        where session_id = $1
-      `,
-      [expired.anchor.sessionId],
-    );
-    await persistence.query(
-      `
-        update fx_system_snapshot_lease
-        set lease_expires_at = '2000-01-01T00:00:00.000Z'
-        where session_id = $1
-      `,
-      [expired.anchor.sessionId],
-    );
-    await expect(runEffect(expired.loader.loadEffect(expired.authority))).resolves
-      .toMatchObject({ kind: "notPlannable", reason: "expired" });
-
-    const replaced = await scenario("attempt_replaced");
-    await seal(replaced);
-    await expect(runEffect(replaced.loader.loadEffect({
-      ...replaced.authority,
-      attemptFence: TransactionAttemptFenceSchema.make(
-        replaced.authority.attemptFence + 1n,
-      ),
-    }))).resolves.toMatchObject({
-      kind: "authorityMismatch",
-      reason: "attemptReplaced",
-    });
+    setLifecycle: (current, lifecycle) =>
+      setLifecycle(current.anchor.sessionId, lifecycle),
+    deleteLease: deleteScenarioLease,
+    prepareRootState,
+    deleteRoot: deleteScenarioRoot,
+    shiftLeaseEarlier: shiftScenarioLeaseEarlier,
+    expireLease: expireScenarioLease,
+    expireSessionAndLease,
   });
 
   it("rejects stale generation, epoch, snapshot, schema, and revocation pins", async () => {
@@ -9188,6 +8972,108 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         where session_id = $1
       `,
       [sessionId, lifecycle],
+    );
+  }
+
+  async function shortenHardExpiryBeforeGrant(
+    current: Scenario,
+  ): Promise<number> {
+    const result = await persistence.query<{ readonly hard_expires_at: Date }>(
+      `
+        update fx_system_tx_session
+        set hard_expires_at = clock_timestamp() + interval '30 minutes'
+        where session_id = $1
+        returning hard_expires_at
+      `,
+      [current.anchor.sessionId],
+    );
+    const hardExpiresAt = result.rows[0]?.hard_expires_at;
+    if (hardExpiresAt === undefined) {
+      throw new Error("Expected a shortened hard expiry.");
+    }
+    return hardExpiresAt.getTime();
+  }
+
+  async function deleteScenarioLease(current: Scenario): Promise<void> {
+    await persistence.query(
+      "delete from fx_system_snapshot_lease where session_id = $1",
+      [current.anchor.sessionId],
+    );
+  }
+
+  async function prepareRootState(
+    current: Scenario,
+    lifecycle: "running" | "finishing",
+    rootState: "open" | "failed",
+  ): Promise<void> {
+    if (lifecycle === "finishing") {
+      await setLifecycle(current.anchor.sessionId, lifecycle);
+      await persistence.query(
+        "delete from fx_system_tx_execution_claim where session_id = $1",
+        [current.anchor.sessionId],
+      );
+    }
+    if (rootState === "failed") {
+      await persistence.query(
+        `
+          update fx_system_tx_journal
+          set state = 'failed',
+              failure_dimension = 'readDocuments',
+              updated_at = clock_timestamp()
+          where session_id = $1
+        `,
+        [current.anchor.sessionId],
+      );
+    }
+  }
+
+  async function deleteScenarioRoot(current: Scenario): Promise<void> {
+    await persistence.query(
+      "delete from fx_system_tx_journal where session_id = $1",
+      [current.anchor.sessionId],
+    );
+  }
+
+  async function shiftScenarioLeaseEarlier(current: Scenario): Promise<void> {
+    await persistence.query(
+      `
+        update fx_system_snapshot_lease
+        set lease_expires_at = lease_expires_at - interval '1 second'
+        where session_id = $1
+      `,
+      [current.anchor.sessionId],
+    );
+  }
+
+  async function expireScenarioLease(current: Scenario): Promise<void> {
+    await persistence.query(
+      `
+        update fx_system_snapshot_lease
+        set lease_expires_at = clock_timestamp() - interval '1 second'
+        where session_id = $1
+      `,
+      [current.anchor.sessionId],
+    );
+  }
+
+  async function expireSessionAndLease(current: Scenario): Promise<void> {
+    await persistence.query(
+      `
+        update fx_system_tx_session
+        set created_at = '1999-01-01T00:00:00.000Z',
+            authorization_grant_expires_at = '2000-01-01T00:00:00.000Z',
+            hard_expires_at = '2000-01-01T00:00:00.000Z'
+        where session_id = $1
+      `,
+      [current.anchor.sessionId],
+    );
+    await persistence.query(
+      `
+        update fx_system_snapshot_lease
+        set lease_expires_at = '2000-01-01T00:00:00.000Z'
+        where session_id = $1
+      `,
+      [current.anchor.sessionId],
     );
   }
 

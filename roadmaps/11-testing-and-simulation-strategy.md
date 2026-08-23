@@ -824,6 +824,22 @@ The work proceeds in bounded gates:
    full 92-test file remains at the recorded 89-pass/three-failure
    `C04A-VAL-001` baseline. Lease-time, interruption, and broader lifecycle
    coverage remain in the original file and outside this slice.
+
+   The third bounded stored-attempt slice separates the hard-expiry lease proof
+   and the ordinary lifecycle/integrity proofs into two registrar capabilities
+   around the unchanged repeatable-read interruption test. This preserves the
+   interruption proof physically in the original file and preserves its order:
+   boundary registrar, lease registrar, interruption test, lifecycle registrar,
+   then stale-pin coverage. The original PGlite owner retains every database
+   mutation through exact callbacks, including hard-expiry promotion, lifecycle
+   and execution-claim changes, journal state changes, lease/root deletion, and
+   database-time expiry. The registrar receives no persistence handle and does
+   not reproduce SQL or fixture construction. All 12 registrar-owned runtime
+   cases pass together, package typecheck is green, and the full 92-test file
+   remains at the recorded 89-pass/three-failure `C04A-VAL-001` baseline. The
+   monolith is now 9,375 lines and the registrar 473 lines; those counts are
+   review telemetry, not authority to move the adjacent interruption, stale-pin,
+   corruption, payload, publication, OCC, or redelivery groups.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case
