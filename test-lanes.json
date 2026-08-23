@@ -176,6 +176,7 @@
             "test/appRows.postgres.test.ts",
             "test/appIndexEntries.postgres.test.ts",
             "test/appUniqueKeys.postgres.test.ts",
+            "test/appRelationEdges.postgres.test.ts",
             "test/sessionAuthoritySchema.postgres.test.ts",
             "test/transactionSessionActivation.postgres.test.ts",
             "test/sessionJournalStore.postgres.test.ts",

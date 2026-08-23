@@ -20,8 +20,8 @@ exact abort/expiry terminalization is also complete; conditional renewal,
 checked revocation, and hosted Worker/key adapters are deferred to their first
 real consumers and do not affect schema-gate ordering.
 Private non-routing snapshot resolution `O02` is complete.
-Relational `R01`, `R01-P`, and `R02` are complete; `S12` is the next relational
-schema gate.
+Relational `R01`, `R01-P`, `R02`, and `S12` are complete; `C09` is the next
+relational gate.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
 activation, prototype-schema retirement, and any evidence-triggered migration
@@ -1430,13 +1430,12 @@ Completion receipt:
   evidence is recorded in
   [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
-### [ ] S12 — Add Stable Current Edges And Selected Snapshot Support
+### [x] S12 — Add Stable Current Edges And Selected Snapshot Support
 
 Prerequisite: `R01`, `R01-P`, and `R02` are complete for every accepted
 relation.
 
-Status: DDL/repository preflight completed and implementation started on
-2026-08-24.
+Status: completed on 2026-08-24.
 
 Outcome:
 
@@ -1504,6 +1503,31 @@ Exit gates:
   write path under the accepted ceilings, not merely empty-table index use;
 - no nullable relation or physical edge-definition ID is introduced; and
 - the rejected snapshot support remains absent.
+
+Completion receipt (2026-08-24):
+
+- Migration `0070_far_vengeance.sql` adds only `fx_app_edge_current` and
+  `fx_app_edge_adjacency_version`, with the selected primary keys, covering
+  incoming index, constraints, and target-local scope-clock foreign keys.
+- The package-private `appRelationEdges` aggregate validates the complete
+  bounded action set before publication, uses fixed-size read/write batches,
+  owns a savepoint inside the caller transaction, and advances coalesced
+  endpoint versions with the same atomic outcome.
+- Focused PGlite proof passed `45/45`, including retarget/reorder/removal,
+  collision and corruption classification, captured-failure atomicity,
+  transaction recovery after a late persistence error, pagination, rollback,
+  scope isolation, and cross-chunk batches.
+- Focused PostgreSQL `18.3` proof passed `4/4`. A populated 25,000-edge skew
+  proves the initial and resumed incoming paths, including automatic and
+  forced-generic index-only 129-row scans without a filter or sort. The exact
+  4,096-action ceiling produced 4,096 current edges and 4,097 endpoint versions
+  within the bounded-write regression guard. A triggered late version-write
+  failure also proved that the S12 savepoint removes only edge work while
+  preserving earlier caller-owned work in the same real transaction.
+- `db:check`, the test-lane manifest check, persistence typecheck,
+  `lint:core`, and `lint:diff` passed. C09 commit lowering, OCC registration,
+  runtime relation reads, activation, public APIs, and framework adapters were
+  not added.
 
 ### Conditional Shipped-State Migration Branch
 

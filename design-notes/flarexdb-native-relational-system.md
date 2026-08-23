@@ -2,7 +2,8 @@
 
 Status: accepted architecture; private semantic/codec/Application Analysis gate
 `R01` and physical snapshot/access preflight `R01-P` completed on 2026-08-23;
-stable relation/physical-definition binding `R02` completed on 2026-08-24
+stable relation/physical-definition binding `R02` and private current-edge
+storage `S12` completed on 2026-08-24
 
 Last reviewed: 2026-08-24
 
@@ -711,8 +712,8 @@ The relation work should proceed through these bounded stages:
 4. complete (`R02`): bind stable logical relation identities, immutable
    semantic definitions, and immutable physical edge definitions into the
    schema lifecycle;
-5. in progress (`S12`, storage/repository preflight complete): add private
-   current-edge storage plus the selected endpoint-adjacency-version support and
+5. complete (`S12`): add private current-edge storage plus the selected
+   endpoint-adjacency-version support, bounded transaction maintenance, and
    access paths;
 6. lower authoritative final rows, current edges, and the selected snapshot
    support into the existing commit lane;
@@ -729,8 +730,7 @@ The relation work should proceed through these bounded stages:
 14. implement Payload and other framework-adapter conformance over the proven
     native system.
 
-The first implementation checkpoint, physical preflight, and stable binding are
-complete at `R01`/`R01-P`/`R02`. S12's storage/repository preflight is complete
-and its private current-edge plus selected endpoint-version implementation is
-in progress. Do not start runtime reads or a Payload-shaped public API before
-their own gates.
+The first implementation checkpoint, physical preflight, stable binding, and
+private edge storage are complete at `R01`/`R01-P`/`R02`/`S12`. C09
+authoritative commit lowering is next. Do not start runtime reads or a
+Payload-shaped public API before their own gates.

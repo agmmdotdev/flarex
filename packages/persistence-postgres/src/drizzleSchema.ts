@@ -12,6 +12,8 @@ export {
   documentFreshnessVersions,
   documents,
   freshnessProcessedEvents,
+  fxAppEdgeAdjacencyVersions,
+  fxAppEdgeCurrent,
   fxAppIndexEntryCurrent,
   fxAppIndexEntryRevisions,
   fxAppRowCurrent,

@@ -491,6 +491,13 @@
       "when": 1787506059272,
       "tag": "0069_stale_landau",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1787512556680,
+      "tag": "0070_far_vengeance",
+      "breakpoints": true
     }
   ]
 }

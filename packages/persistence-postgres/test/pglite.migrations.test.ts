@@ -53,6 +53,8 @@ describe("createPGlitePersistence", () => {
       "document_freshness_versions",
       "documents",
       "freshness_processed_events",
+      "fx_app_edge_adjacency_version",
+      "fx_app_edge_current",
       "fx_app_index_entry_current",
       "fx_app_index_entry_rev",
       "fx_app_row_current",

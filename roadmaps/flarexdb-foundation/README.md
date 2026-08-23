@@ -791,11 +791,13 @@ Dynamic Worker binding baseline before selecting it.
     stable relation IDs, immutable semantic definitions, reusable physical edge
     definitions, and selected snapshot/read-key meaning in a post-analysis
     bound publication.
-15. `S12` (in progress; storage/repository preflight complete): add stable
-    current edge occurrences, the preflight-selected endpoint adjacency
-    versions, and the frozen physical access paths.
-16. `C09`: lower authoritative row changes into stable current edge occurrences
-    plus the selected snapshot support without creating a second commit system.
+15. `S12` (complete): stable current edge occurrences, the preflight-selected
+    endpoint adjacency versions, bounded transaction-only maintenance, and the
+    frozen physical access paths are implemented and proven in PGlite and
+    genuine PostgreSQL.
+16. `C09` (next): lower authoritative row changes into stable current edge
+    occurrences plus the selected snapshot support without creating a second
+    commit system.
 17. `E01`: build, validate, and enable each required edge definition before
     reverse reads or deletion policy depend on it.
 18. `O10-R`: prove one exact bounded relation adjacency dependency, including

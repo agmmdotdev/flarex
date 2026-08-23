@@ -1,10 +1,10 @@
 # FlarexDB Native Relational Foundation Contract
 
 Status: `R01` and the physical snapshot/access preflight `R01-P` completed on
-2026-08-23, and `R02` stable binding completed on 2026-08-24. Endpoint
-adjacency versions are selected and `S12` is next. No production edge/version
-table, commit lowering, relation read, activation, public developer API, or
-Payload adapter is implemented
+2026-08-23; `R02` stable binding and `S12` private edge storage completed on
+2026-08-24. `C09` commit lowering is next. No relation runtime read, OCC
+registration, activation, public developer API, or Payload adapter is
+implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1129,12 +1129,11 @@ Completion receipt (2026-08-24):
 - Located-scope publication, readiness, activation, runtime reads, edge/OCC
   storage, routes, fallbacks, and public APIs remain outside R02.
 
-### [ ] S12 — Add Stable Edge And Snapshot Storage
+### [x] S12 — Add Stable Edge And Snapshot Storage
 
 Prerequisite: R01, R01-P, and R02 are complete for the admitted subset.
 
-Status: storage/repository preflight completed and implementation started on
-2026-08-24.
+Status: completed on 2026-08-24.
 
 Outcome:
 
@@ -1201,6 +1200,21 @@ Exit gates:
 - hash collisions cannot overwrite or conflate occurrences;
 - every stored edge pins an exact physical definition;
 - PGlite and genuine Postgres prove constraints and access plans.
+
+Completion receipt:
+
+- Migration `0070_far_vengeance.sql` installs exactly the selected current-edge
+  and endpoint-version tables; no edge history or comparison path exists.
+- The private transaction aggregate owns complete-batch validation, fixed-size
+  set operations, savepoint rollback for captured typed failures, exact
+  occurrence evidence, coalesced versions, and the frozen 128-plus-lookahead
+  incoming page.
+- PGlite passed `45/45`; PostgreSQL `18.3` passed `4/4`, including a populated
+  25,000-edge skew, bounded automatic and forced-generic resumed-page plans,
+  scope-lock serialization, and the exact 4,096-occurrence write ceiling.
+- C09 remains the sole next owner for authenticated definition binding and
+  commit integration. S12 did not change OCC, journals, commit/change feeds,
+  outbox behavior, application-row authority, runtime reads, or public APIs.
 
 ### [ ] C09 — Lower Authoritative Rows Into Relation Sidecars
 
