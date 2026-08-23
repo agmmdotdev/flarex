@@ -425,12 +425,13 @@ export const readLiveAppRowsAtSnapshotInTransactionEffect = Effect.fn(
       ),
     }));
   }
-  if (input.rowIds.length === 0) return Object.freeze([]);
+  const [firstRowId] = input.rowIds;
+  if (firstRowId === undefined) return Object.freeze([]);
   const decodedIdentity = yield* Effect.fromResult(
     decodeReadIdentityResult({
       scopeId: input.scopeId,
       tableId: input.tableId,
-      rowId: input.rowIds[0],
+      rowId: firstRowId,
     }),
   );
   const rowIds = yield* Effect.all(

@@ -8,9 +8,10 @@ import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  ApplicationAnalysisSourceBundle,
-  ApplicationAnalysisSourceReader,
+import {
+  ApplicationAnalysisSourceReadError,
+  type ApplicationAnalysisSourceBundle,
+  type ApplicationAnalysisSourceReader,
 } from "flarex-backend/internal/application-analysis-source-reader";
 import {
   APPLICATION_ANALYSIS_ANALYZER_IDENTITY,
@@ -128,6 +129,33 @@ describe("Application Analysis trusted cold-load host", () => {
       kind: "rejected",
       failureCode: ApplicationAnalysisRejectionCodeV1.invalidSourceArtifact,
     });
+    expect(loader.loaded).toEqual([]);
+  });
+
+  it("keeps a missing authenticated source retryable as a host read failure", async () => {
+    const loader = new FakeWorkerLoader([]);
+    const result = await Effect.runPromise(Effect.result(
+      applicationAnalysisHostEffectWithCapabilities(
+        {
+          source: {
+            read: () => Effect.fail(new ApplicationAnalysisSourceReadError({
+              operation: "read",
+              reason: "notFound",
+            })),
+          },
+          loader,
+        },
+        request(),
+      ),
+    ));
+
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("sourceReadFailed");
+      expect(result.failure.cause).toBeInstanceOf(
+        ApplicationAnalysisSourceReadError,
+      );
+    }
     expect(loader.loaded).toEqual([]);
   });
 

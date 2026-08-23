@@ -1,7 +1,8 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
-import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Schema } from "effect";
+import { Array as EffectArray, Order, Schema } from "effect";
+
+const UTF16_STRING_ORDER = Order.String;
 
 export type JsonObject = { readonly [key: string]: Json };
 
@@ -157,7 +158,10 @@ export function encodeCanonicalJson(
   }
   if (isJsonObject(value)) {
     const fields: string[] = [];
-    for (const key of Object.keys(value).toSorted(compareUtf16Strings)) {
+    for (const key of EffectArray.sort(
+      Object.keys(value),
+      UTF16_STRING_ORDER,
+    )) {
       const item = value[key];
       if (item === undefined) {
         return onInvariantViolation({ reason: "missingObjectProperty", key });

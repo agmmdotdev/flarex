@@ -77,6 +77,9 @@ importers:
       '@flarex/standard-application-analysis':
         specifier: workspace:*
         version: link:../../packages/standard-application-analysis
+      '@flarex/standard-application-definition':
+        specifier: workspace:*
+        version: link:../../packages/standard-application-definition
       '@flarex/utils':
         specifier: workspace:*
         version: link:../../packages/utils
@@ -913,12 +916,12 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
-      flarex-dev:
-        specifier: workspace:*
-        version: link:../flarex-dev
       flarex-backend:
         specifier: workspace:*
         version: link:../flarex-backend
+      flarex-dev:
+        specifier: workspace:*
+        version: link:../flarex-dev
       flarex-protocol:
         specifier: workspace:*
         version: link:../flarex-protocol

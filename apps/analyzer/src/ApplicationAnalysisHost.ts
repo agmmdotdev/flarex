@@ -268,6 +268,7 @@ function projectSourceReadFailure(
         ApplicationAnalysisRejectionCodeV1.limitExceeded,
         "Application Analysis admitted limits were exceeded.",
       ));
+    case "notFound":
     case "sourceReadFailed":
       return Effect.fail(new ApplicationAnalysisHostError({
         reason: "sourceReadFailed",

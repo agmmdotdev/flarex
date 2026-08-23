@@ -487,13 +487,14 @@ const publishInTransaction = Effect.fn(
       ))
       .returning(),
   );
-  if (updatedRows.length !== 1) {
+  const [updatedRow] = updatedRows;
+  if (updatedRows.length !== 1 || updatedRow === undefined) {
     return yield* Effect.fail(observationError(
       authority,
       "storedEvidenceInvalid",
     ));
   }
-  const updated = yield* decodeScopeClockRecordResult(updatedRows[0]).pipe(
+  const updated = yield* decodeScopeClockRecordResult(updatedRow).pipe(
     Result.mapError(cause => observationError(
       authority,
       "storedEvidenceInvalid",
