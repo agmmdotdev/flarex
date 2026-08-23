@@ -542,7 +542,7 @@ remains open. The approved `TQ-C` Application-native mutation localization work
 is complete through bounded candidate-guard, initial-commit, validation/
 concurrent-duplicate, OCC conflict/rerun, head-movement, and terminalization
 observation slices. The separately approved stored-attempt `TQ-C` decomposition
-has begun with one test-local loader-boundary registrar slice. Remaining
+has begun with two bounded test-local loader-boundary registrar slices. Remaining
 `TQ-A`, additional `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
 implementation approval. No test deletion, lane merger, fixture-lifetime change,
 or package extraction is authorized by this section alone.
@@ -807,6 +807,23 @@ The work proceeds in bounded gates:
    journal owner. This is an extraction-seam pilot only. Remaining loader
    lifecycle, interruption, and authority groups, plus the later publication,
    OCC, and redelivery groups, require their own bounded review before moving.
+
+   The second bounded stored-attempt slice moves the adjacent Application-
+   authority corruption matrix, exact canonical-authority load, and exact
+   finishing-transition authority proof into the same registrar. The original
+   file still owns the SQL mutations and finishing-port construction through
+   exact callbacks; the registrar gains no raw persistence handle, migration,
+   UUID, or lifecycle ownership, while the injected production port retains
+   the transition transaction. The move preserves all three test names and
+   their original position before lease and interruption coverage.
+   One explicitly safety-justified invalid-command adapter now exercises the
+   transition port's runtime decoder, replacing four scattered direct/chained
+   assertions without weakening the malformed digest, mixed Legacy/Application,
+   unknown-pin, or unknown-session cases. The seven registrar-owned runtime
+   cases pass together, the persistence package typecheck is green, and the
+   full 92-test file remains at the recorded 89-pass/three-failure
+   `C04A-VAL-001` baseline. Lease-time, interruption, and broader lifecycle
+   coverage remain in the original file and outside this slice.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case

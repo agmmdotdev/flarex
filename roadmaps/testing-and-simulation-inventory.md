@@ -10,8 +10,9 @@ and test-level skip attribution remain explicit telemetry gaps rather than
 inferred results. `TQ-C` Application-native mutation localization is complete
 through bounded candidate-guard, initial-commit, and validation/concurrent-
 duplicate, OCC conflict/rerun, head-movement, and terminalization observation
-slices. Stored-attempt `TQ-C` decomposition has started with one test-local
-loader-boundary registrar while the original file retains fixture ownership.
+slices. Stored-attempt `TQ-C` decomposition has started with two bounded
+test-local loader-boundary registrar slices while the original file retains
+fixture ownership.
 
 This file is the living operational inventory for
 [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md).
@@ -266,6 +267,14 @@ suffixes produces 126 multi-lane filename groups:
    remains 89/92 on recorded shared-owner issue `C04A-VAL-001`, so the pilot
    establishes a decomposition seam without claiming a green aggregate or
    authorizing journal-decoder repair.
+   The second slice moves the adjacent invalid Application-authority matrix,
+   exact canonical-authority load, and exact finishing-transition authority
+   proof into that registrar. Exact fixture callbacks retain SQL mutation and
+   transition-port construction in the original file. A single deliberately
+   unsafe, safety-documented adapter now supplies malformed commands to the
+   runtime decoder instead of four scattered direct/chained assertions. All
+   seven registrar-owned runtime cases pass together; lease-time, interruption,
+   and broader lifecycle coverage remain with the original owner.
 
 ### Non-Candidates Without Further Proof
 
@@ -285,7 +294,7 @@ suffixes produces 126 multi-lane filename groups:
 
 | Surface | Lines | Initial action |
 | --- | ---: | --- |
-| [`storedAttemptEvidence.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.test.ts) | 9,608 | First loader-boundary registrar slice implemented; continue by exact C04A invariant boundary and do not infer duplicate coverage from its PostgreSQL peer |
+| [`storedAttemptEvidence.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.test.ts) | 9,489 | Boundary and Application-authority registrar slices implemented; continue by exact loader invariant boundary and do not infer duplicate coverage from its PostgreSQL peer |
 | [`sync.test.ts`](../packages/flarex-backend/test/sync.test.ts) | 7,883 | First separate retained Legacy, forward sync, projection, and delivery invariants |
 | [`storedAttemptAuthentication.test.ts`](../packages/executor/test/storedAttemptAuthentication.test.ts) | 6,550 | Compare executor authentication/recovery ownership with persistence stored-evidence coverage before moving fixtures |
 | [`storedAttemptEvidence.postgres.test.ts`](../packages/persistence-postgres/test/storedAttemptEvidence.postgres.test.ts) | 5,041 | Preserve genuine PostgreSQL authority and transaction evidence; coordinate with the PGlite decomposition only at exact fixture seams |
@@ -328,11 +337,12 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    to a cross-lane contract suite while `TQ-B` PostgreSQL acceptance remains
    open.
 4. **Continue `TQ-C` stored-attempt evidence decomposition.** The first
-   structural-seam/foreign-failure registrar pilot retains the original fixture
-   and passes its two focused invariants. Continue only through separately
-   bounded C04A invariant groups, and review every transaction, interruption,
-   and fixture-lifetime boundary. The recorded `C04A-VAL-001` aggregate failures
-   remain shared-owner blockers, not test-decomposition authority.
+   structural-seam/foreign-failure pilot and the second Application-authority
+   slice retain the original fixture and pass all seven registrar-owned runtime
+   cases. Continue only through separately bounded loader invariant groups, and
+   review every transaction, interruption, and fixture-lifetime boundary. The
+   recorded `C04A-VAL-001` aggregate failures remain shared-owner blockers, not
+   test-decomposition authority.
 5. **Public Test SDK local contract coverage.** Add package-local lifecycle,
    reset/dispose, invocation-error, and resource-ownership tests before relying
    further on example/root integration as the sole decisive surface.
@@ -342,5 +352,5 @@ ordered-subset pilots, with consumer/removal policy still open. `TQ-B` is the
 first implemented harness-reuse pilot. Its remaining acceptance gate does not
 authorize wider contract-suite extraction. All six approved Application-native
 mutation `TQ-C` slices are implemented; later `TQ-C` candidates remain separately
-bounded. Stored-attempt `TQ-C` has begun only through its first loader-boundary
-registrar pilot.
+bounded. Stored-attempt `TQ-C` has begun only through its boundary and
+Application-authority registrar slices.

@@ -1,8 +1,15 @@
 import { expect, expectTypeOf, it } from "vitest";
+import type { TransactionSessionLifecycleV1 } from
+  "flarex-protocol/transaction-session";
 
 import type { StoredAttemptEvidenceLoaderPortV1 } from
   "../../executor/src/storedAttemptAuthentication";
 import * as persistenceRoot from "../src";
+import type {
+  PointCommitFinishingTransitionCommandV1,
+  PointCommitFinishingTransitionPortV1,
+  PointCommitTransactionProofOptionsV1,
+} from "../src/pointCommitTransaction";
 import type { PointMutationSessionAnchorV1 } from
   "../src/transactionSessionActivation";
 import {
@@ -11,6 +18,8 @@ import {
   type StoredAttemptEvidenceLoaderV1,
 } from "../src/storedAttemptEvidence";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { pointCommitFinishingCommandFromStoredAttemptV1 } from
+  "./pointCommitTransactionTestSupport";
 
 export interface StoredAttemptEvidenceLoaderBoundaryScenario {
   readonly anchor: Readonly<{
@@ -38,6 +47,16 @@ export interface StoredAttemptEvidenceLoaderBoundaryHarness<
   readonly createForeignAuthorityFailureLoader: (
     cause: Error,
   ) => StoredAttemptEvidenceLoaderV1;
+  readonly replaceWithInvalidApplicationAuthority: (
+    current: Scenario,
+    lifecycle: TransactionSessionLifecycleV1,
+  ) => Promise<void>;
+  readonly installExactApplicationAuthority: (
+    current: Scenario,
+  ) => Promise<Readonly<{ readonly sha256: Uint8Array }>>;
+  readonly createFinishingTransitionPort: (
+    options?: PointCommitTransactionProofOptionsV1,
+  ) => PointCommitFinishingTransitionPortV1;
   readonly bytesToHex: (bytes: Uint8Array) => string;
 }
 
@@ -100,4 +119,136 @@ export function registerStoredAttemptEvidenceLoaderBoundaryTests<
     });
     expect(failure.cause).toBe(cause);
   });
+
+  it.each(["running", "committed", "aborted"] as const)(
+    "returns typed corruption for an Application-authority %s session",
+    async lifecycle => {
+      const current = await harness.scenario(
+        `application_authority_${lifecycle}`,
+      );
+      if (lifecycle === "running") await harness.seal(current);
+      await harness.replaceWithInvalidApplicationAuthority(current, lifecycle);
+      await expect(runEffect(current.loader.loadEffect(current.authority)))
+        .resolves.toMatchObject({
+          kind: "corrupt",
+          reason: "sessionRecordInvalid",
+        });
+    },
+  );
+
+  it("loads an exact canonical Application-authority session", async () => {
+    const current = await harness.scenario("application_authority_exact");
+    await harness.seal(current);
+    const installed = await harness.installExactApplicationAuthority(current);
+    const loaded = await runEffect(current.loader.loadEffect(current.authority));
+    expect(loaded.kind).toBe("loaded");
+    if (loaded.kind !== "loaded") throw new Error("Expected loaded evidence.");
+    expect(loaded.evidence.session.executionAuthorityGeneration).toBe(
+      "application_v1",
+    );
+    if (loaded.evidence.session.executionAuthorityGeneration !== "application_v1") {
+      throw new Error("Expected Application authority.");
+    }
+    expect(harness.bytesToHex(
+      loaded.evidence.session.applicationExecutionAuthoritySha256,
+    )).toBe(harness.bytesToHex(installed.sha256));
+    expect(Object.isFrozen(
+      loaded.evidence.session.applicationExecutionAuthorityJson,
+    )).toBe(true);
+    expect(Object.isFrozen(
+      loaded.evidence.session.applicationExecutionAuthorityJson.runtimeTarget,
+    )).toBe(true);
+  });
+
+  it("enters finishing only for the exact stored Application authority", async () => {
+    const current = await harness.scenario("application_authority_finishing");
+    await harness.seal(current);
+    await harness.installExactApplicationAuthority(current);
+    const loaded = await runEffect(current.loader.loadEffect(current.authority));
+    if (loaded.kind !== "loaded") throw new Error("Expected loaded evidence.");
+    const exact = await pointCommitFinishingCommandFromStoredAttemptV1(
+      current.authority,
+      loaded.evidence,
+    );
+    const port = harness.createFinishingTransitionPort();
+
+    const wrongDigest = Object.freeze({
+      ...exact,
+      authorityPins: Object.freeze({
+        ...exact.authorityPins,
+        applicationExecutionAuthoritySha256: new Uint8Array(32).fill(0xff),
+      }),
+    });
+    await expect(runEffectFailure(
+      enterForgedFinishingCommand(port, wrongDigest),
+    )).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const mixed = Object.freeze({
+      ...exact,
+      authorityPins: Object.freeze({
+        ...exact.authorityPins,
+        packageId: "legacy-substitution",
+      }),
+    });
+    await expect(runEffectFailure(
+      enterForgedFinishingCommand(port, mixed),
+    )).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const unknownPins = Object.freeze({
+      ...exact,
+      authorityPins: Object.freeze({
+        ...exact.authorityPins,
+        executionAuthorityGeneration: "unknown_v1",
+      }),
+    });
+    await expect(runEffectFailure(
+      enterForgedFinishingCommand(port, unknownPins),
+    )).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const unknownSession = Object.freeze({
+      ...exact,
+      session: Object.freeze({
+        ...exact.session,
+        executionAuthorityGeneration: "unknown_v1",
+      }),
+    });
+    await expect(runEffectFailure(
+      enterForgedFinishingCommand(port, unknownSession),
+    )).resolves.toMatchObject({
+      _tag: "PointCommitCorruptionV1Error",
+      reason: "commandInvalid",
+    });
+
+    const callerOwnedDigest =
+      exact.authorityPins.applicationExecutionAuthoritySha256;
+    if (callerOwnedDigest === undefined) {
+      throw new Error("Expected Application authority digest.");
+    }
+    const detachedPort = harness.createFinishingTransitionPort({
+      afterTransactionStep: async ({ step }) => {
+        if (step === "clockLocked") callerOwnedDigest.fill(0xee);
+      },
+    });
+    await expect(runEffect(detachedPort.enterFinishing(exact))).resolves
+      .toMatchObject({ kind: "transitioned" });
+    expect(callerOwnedDigest).toEqual(new Uint8Array(32).fill(0xee));
+  });
+}
+
+function enterForgedFinishingCommand(
+  port: PointCommitFinishingTransitionPortV1,
+  command: unknown,
+): ReturnType<PointCommitFinishingTransitionPortV1["enterFinishing"]> {
+  // SAFETY: These tests deliberately exercise the port's runtime command
+  // decoder with structurally invalid values that TypeScript cannot represent.
+  return port.enterFinishing(command as PointCommitFinishingTransitionCommandV1);
 }

@@ -323,7 +323,6 @@ import {
   type PointMutationAttemptReplacementOptionsV1,
   type PointCommitPublicationCommandV1,
   type PointCommitPublicationResultV1,
-  type PointCommitFinishingTransitionCommandV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
   type PointCommitTransactionProofStepV1,
@@ -401,187 +400,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       });
     },
+    replaceWithInvalidApplicationAuthority,
+    installExactApplicationAuthority,
+    createFinishingTransitionPort: (options) =>
+      createPointCommitFinishingTransitionPortV1(
+        resolutionPorts(persistence),
+        options,
+      ),
     bytesToHex,
-  });
-
-  it.each(["running", "committed", "aborted"] as const)(
-    "returns typed corruption for an Application-authority %s session",
-    async lifecycle => {
-    const current = await scenario(`application_authority_${lifecycle}`);
-    if (lifecycle === "running") await seal(current);
-    await persistence.query(
-      `update fx_system_tx_session
-          set execution_authority_generation = 'application_v1',
-              lifecycle = $1,
-              package_id = null,
-              artifact_runtime = null,
-              artifact_id = null,
-              source_package_hash = null,
-              execution_module = null,
-              application_execution_authority_json = '{}'::jsonb,
-              application_execution_authority_canonical_bytes = $2,
-              application_execution_authority_sha256 = $3
-        where session_id = $4`,
-      [lifecycle, new Uint8Array([1]), new Uint8Array(32), current.anchor.sessionId],
-    );
-    await expect(runEffect(current.loader.loadEffect(current.authority)))
-      .resolves.toMatchObject({
-        kind: "corrupt",
-        reason: "sessionRecordInvalid",
-      });
-    },
-  );
-
-  it("loads an exact canonical Application-authority session", async () => {
-    const current = await scenario("application_authority_exact");
-    await seal(current);
-    const authority = await applicationExecutionAuthority(
-      current.anchor.scopeId,
-      current.schemaVersionId,
-    );
-    await persistence.query(
-      `update fx_system_tx_session
-          set execution_authority_generation = 'application_v1',
-              package_id = null,
-              artifact_runtime = null,
-              artifact_id = null,
-              source_package_hash = null,
-              execution_module = null,
-              application_execution_authority_json = $1::jsonb,
-              application_execution_authority_canonical_bytes = $2,
-              application_execution_authority_sha256 = $3
-        where session_id = $4`,
-      [
-        JSON.stringify(authority.authorityJson),
-        authority.canonicalBytes,
-        authority.sha256,
-        current.anchor.sessionId,
-      ],
-    );
-    const loaded = await runEffect(current.loader.loadEffect(current.authority));
-    expect(loaded.kind).toBe("loaded");
-    if (loaded.kind !== "loaded") throw new Error("Expected loaded evidence.");
-    expect(loaded.evidence.session.executionAuthorityGeneration).toBe(
-      "application_v1",
-    );
-    if (loaded.evidence.session.executionAuthorityGeneration !== "application_v1") {
-      throw new Error("Expected Application authority.");
-    }
-    expect(bytesToHex(
-      loaded.evidence.session.applicationExecutionAuthoritySha256,
-    )).toBe(bytesToHex(authority.sha256));
-    expect(Object.isFrozen(
-      loaded.evidence.session.applicationExecutionAuthorityJson,
-    )).toBe(true);
-    expect(Object.isFrozen(
-      loaded.evidence.session.applicationExecutionAuthorityJson.runtimeTarget,
-    )).toBe(true);
-  });
-
-  it("enters finishing only for the exact stored Application authority", async () => {
-    const current = await scenario("application_authority_finishing");
-    await seal(current);
-    const authority = await applicationExecutionAuthority(
-      current.anchor.scopeId,
-      current.schemaVersionId,
-    );
-    await persistence.query(
-      `update fx_system_tx_session
-          set execution_authority_generation = 'application_v1',
-              package_id = null,
-              artifact_runtime = null,
-              artifact_id = null,
-              source_package_hash = null,
-              execution_module = null,
-              application_execution_authority_json = $1::jsonb,
-              application_execution_authority_canonical_bytes = $2,
-              application_execution_authority_sha256 = $3
-        where session_id = $4`,
-      [
-        JSON.stringify(authority.authorityJson),
-        authority.canonicalBytes,
-        authority.sha256,
-        current.anchor.sessionId,
-      ],
-    );
-    const loaded = await runEffect(current.loader.loadEffect(current.authority));
-    if (loaded.kind !== "loaded") throw new Error("Expected loaded evidence.");
-    const exact = await pointCommitFinishingCommandFromStoredAttemptV1(
-      current.authority,
-      loaded.evidence,
-    );
-    const port = createPointCommitFinishingTransitionPortV1(
-      resolutionPorts(persistence),
-    );
-
-    const wrongDigest = Object.freeze({
-      ...exact,
-      authorityPins: Object.freeze({
-        ...exact.authorityPins,
-        applicationExecutionAuthoritySha256: new Uint8Array(32).fill(0xff),
-      }),
-    }) as PointCommitFinishingTransitionCommandV1;
-    await expect(runFailure(port.enterFinishing(wrongDigest))).resolves
-      .toMatchObject({
-        _tag: "PointCommitCorruptionV1Error",
-        reason: "commandInvalid",
-      });
-
-    const mixed = Object.freeze({
-      ...exact,
-      authorityPins: Object.freeze({
-        ...exact.authorityPins,
-        packageId: "legacy-substitution",
-      }),
-    }) as unknown as PointCommitFinishingTransitionCommandV1;
-    await expect(runFailure(port.enterFinishing(mixed))).resolves
-      .toMatchObject({
-        _tag: "PointCommitCorruptionV1Error",
-        reason: "commandInvalid",
-      });
-
-    const unknownPins = Object.freeze({
-      ...exact,
-      authorityPins: Object.freeze({
-        ...exact.authorityPins,
-        executionAuthorityGeneration: "unknown_v1",
-      }),
-    }) as unknown as PointCommitFinishingTransitionCommandV1;
-    await expect(runFailure(port.enterFinishing(unknownPins))).resolves
-      .toMatchObject({
-        _tag: "PointCommitCorruptionV1Error",
-        reason: "commandInvalid",
-      });
-
-    const unknownSession = Object.freeze({
-      ...exact,
-      session: Object.freeze({
-        ...exact.session,
-        executionAuthorityGeneration: "unknown_v1",
-      }),
-    }) as unknown as PointCommitFinishingTransitionCommandV1;
-    await expect(runFailure(port.enterFinishing(unknownSession))).resolves
-      .toMatchObject({
-        _tag: "PointCommitCorruptionV1Error",
-        reason: "commandInvalid",
-      });
-
-    const callerOwnedDigest =
-      exact.authorityPins.applicationExecutionAuthoritySha256;
-    if (callerOwnedDigest === undefined) {
-      throw new Error("Expected Application authority digest.");
-    }
-    const detachedPort = createPointCommitFinishingTransitionPortV1(
-      resolutionPorts(persistence),
-      {
-        afterTransactionStep: async ({ step }) => {
-          if (step === "clockLocked") callerOwnedDigest.fill(0xee);
-        },
-      },
-    );
-    await expect(runEffect(detachedPort.enterFinishing(exact))).resolves
-      .toMatchObject({ kind: "transitioned" });
-    expect(callerOwnedDigest).toEqual(new Uint8Array(32).fill(0xee));
   });
 
   it("loads a sealed lease promoted to a hard expiry below the grant", async () => {
@@ -7027,6 +6853,61 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(overflowQueries).not.toContain("schemaPayload");
     expect(overflowQueries).not.toContain("stableBindings");
   }, 120_000);
+
+  async function replaceWithInvalidApplicationAuthority(
+    current: Scenario,
+    lifecycle: TransactionSessionLifecycleV1,
+  ): Promise<void> {
+    await persistence.query(
+      `update fx_system_tx_session
+          set execution_authority_generation = 'application_v1',
+              lifecycle = $1,
+              package_id = null,
+              artifact_runtime = null,
+              artifact_id = null,
+              source_package_hash = null,
+              execution_module = null,
+              application_execution_authority_json = '{}'::jsonb,
+              application_execution_authority_canonical_bytes = $2,
+              application_execution_authority_sha256 = $3
+        where session_id = $4`,
+      [
+        lifecycle,
+        new Uint8Array([1]),
+        new Uint8Array(32),
+        current.anchor.sessionId,
+      ],
+    );
+  }
+
+  async function installExactApplicationAuthority(
+    current: Scenario,
+  ): Promise<Readonly<{ readonly sha256: Uint8Array }>> {
+    const authority = await applicationExecutionAuthority(
+      current.anchor.scopeId,
+      current.schemaVersionId,
+    );
+    await persistence.query(
+      `update fx_system_tx_session
+          set execution_authority_generation = 'application_v1',
+              package_id = null,
+              artifact_runtime = null,
+              artifact_id = null,
+              source_package_hash = null,
+              execution_module = null,
+              application_execution_authority_json = $1::jsonb,
+              application_execution_authority_canonical_bytes = $2,
+              application_execution_authority_sha256 = $3
+        where session_id = $4`,
+      [
+        JSON.stringify(authority.authorityJson),
+        authority.canonicalBytes,
+        authority.sha256,
+        current.anchor.sessionId,
+      ],
+    );
+    return Object.freeze({ sha256: new Uint8Array(authority.sha256) });
+  }
 
   interface ScenarioOptions {
     readonly afterRepeatableRead?: () => void | Promise<void>;
