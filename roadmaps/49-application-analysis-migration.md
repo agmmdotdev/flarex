@@ -1898,8 +1898,13 @@ ceiling, so composition does not first allocate under the broader general Value
 limit. The Worker sees only the bounded RPC snapshot adapter. The Standard
 point-query compatibility entrypoint requires only this new service and Scope;
 it no longer reads Application Revision V1 or invokes the candidate-bound query
-System. Mutation and action still use the displaced reader pending their own
-approved authority checkpoints.
+System. A registry-authenticated root `FlarexError` is projected by the shared
+Application Worker only after read settlement and decoded by the host as the
+strict structured Application error; ordinary thrown values remain redacted
+user-code failures. The cooking simulation proves the exact code/message/data
+projection and unchanged rows, revisions, commits, outcomes, feeds, outbox, and
+mutation-runtime count. Mutation and action still use the displaced reader
+pending their own approved authority checkpoints.
 
 Focused proof covers canonical stored-function selection and corruption,
 foreign-control developer-index composition refusal, active-head and retained-

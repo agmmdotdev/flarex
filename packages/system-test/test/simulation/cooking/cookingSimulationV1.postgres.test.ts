@@ -53,6 +53,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           failedMutationStateUnchanged: true,
           applicationInvariantRejected: true,
           applicationErrorPreserved: true,
+          queryApplicationErrorPreserved: true,
           applicationInvariantFailureStateUnchanged: true,
           patchReplay: true,
           replaceReplay: true,
@@ -75,7 +76,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           competitorReservationReplay: true,
         },
         mutationRuntimeExecutions: 19,
-        queryRuntimeExecutions: 17,
+        queryRuntimeExecutions: 18,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,

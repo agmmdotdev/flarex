@@ -3479,12 +3479,18 @@ failure. This correction adds no public developer API, compatibility path,
 dual acceptance, persistence, OCC, commit, routing, activation, or production
 owner and does not reopen core extraction.
 
-The same claim is not yet valid for point queries. Their current Workerd
-dispatcher serializes only an error name and message, so it cannot preserve the
-authenticated application-error data and provenance needed for the same
-transport. That separate boundary is recorded as `ST-CORE-015` in
-`packages/system-test/CORE-ISSUES.md`; query transport must receive its own
-preflight rather than copying the mutation correction speculatively.
+That limitation applied to the displaced Application Revision V1 SAP05
+dispatcher, which remains only a legacy proof and still serializes thrown
+Worker failures as name/message diagnostics. It is not the current Standard
+query composition root. The Application Analysis consumer cut replaced it with
+the unversioned `ApplicationQuerySystem`, shared Application Worker, and
+`ApplicationExecutionHost`. That Worker projects a registry-authenticated
+`FlarexError` into the strict Application Worker `applicationError` result only
+after query read settlement; the host preserves its bounded code, message, and
+canonical data in the typed error channel. A real cooking query now proves that
+path and unchanged committed state. `ST-CORE-015` is therefore resolved without
+extending the legacy dispatcher, copying the mutation host response, adding
+name matching, or introducing a fallback or dual transport.
 
 ### Superseded Post-Extraction Decision Context
 

@@ -11,6 +11,8 @@ import {
   PointMutationOccUserCodeV1Error,
 } from
   "@flarex/executor/internal/stored-attempt-authentication-v1";
+import { ApplicationExecutionHostError } from
+  "flarex-backend/internal/application-execution-host";
 
 import {
   standardV1,
@@ -67,6 +69,7 @@ export interface CookingWorkloadProofV1 {
   readonly failedMutationStateUnchanged: true;
   readonly applicationInvariantRejected: true;
   readonly applicationErrorPreserved: true;
+  readonly queryApplicationErrorPreserved: true;
   readonly applicationInvariantFailureStateUnchanged: true;
   readonly patchReplay: true;
   readonly replaceReplay: true;
@@ -229,6 +232,10 @@ const COOKING_FUNCTION_SOURCES = {
   )),
   assessmentView: readFileSync(new URL(
     "./functions/recipeAssessmentView.js",
+    import.meta.url,
+  )),
+  publicationView: readFileSync(new URL(
+    "./functions/recipePublicationView.js",
     import.meta.url,
   )),
   publishInternal: readFileSync(new URL(
@@ -606,6 +613,15 @@ const COOKING_ASSESSMENT_VIEW_MODULE = standardV1.module("recipeViews", {
     returns: COOKING_ASSESSMENT_VIEW,
   }),
 });
+const COOKING_PUBLICATION_VIEW_MODULE = standardV1.module(
+  "recipePublicationView",
+  {
+    requirePublished: standardV1.publicQuery({
+      args: COOKING_ID_ARGS,
+      returns: standardV1.nullable(COOKING_DOCUMENT),
+    }),
+  },
+);
 const COOKING_MAINTENANCE_MODULE = standardV1.module("recipeMaintenance", {
   markPublished: standardV1.internalMutation({
     args: COOKING_ID_ARGS,
@@ -661,6 +677,8 @@ const COOKING_DELETE = COOKING_DELETE_MODULE.reference("remove");
 const COOKING_GET = COOKING_QUERY_MODULE.reference("get");
 const COOKING_ASSESSMENT_FUNCTION =
   COOKING_ASSESSMENT_VIEW_MODULE.reference("assessment");
+const COOKING_REQUIRE_PUBLISHED =
+  COOKING_PUBLICATION_VIEW_MODULE.reference("requirePublished");
 const COOKING_PUBLISH = COOKING_WORKFLOW_MODULE.reference("publish");
 const COOKING_PUBLISH_SMALLEST_BATCH =
   COOKING_INDEXED_DECISION_MODULE.reference("publishSmallestBatch");
@@ -853,6 +871,17 @@ const runCookingWorkloadV1 = Effect.fn(
     secondaryRead,
     secondaryDocumentId,
     COOKING_SECOND_RECIPE,
+  );
+  const beforeQueryApplicationError = yield* client.inspectAuthoritativeState();
+  const queryApplicationError = yield* Effect.result(client.query(
+    COOKING_REQUIRE_PUBLISHED,
+    { id: secondaryDocumentId },
+  ));
+  requireQueryApplicationFailure(queryApplicationError, secondaryDocumentId);
+  const afterQueryApplicationError = yield* client.inspectAuthoritativeState();
+  requireFailedQueryIsReadOnly(
+    beforeQueryApplicationError,
+    afterQueryApplicationError,
   );
 
   const beforeApplicationInvariant =
@@ -1355,6 +1384,7 @@ const runCookingWorkloadV1 = Effect.fn(
     failedMutationStateUnchanged: true,
     applicationInvariantRejected: true,
     applicationErrorPreserved: true,
+    queryApplicationErrorPreserved: true,
     applicationInvariantFailureStateUnchanged: true,
     patchReplay: true,
     replaceReplay: true,
@@ -1641,6 +1671,61 @@ function requireNoRejectedMutationSideEffects(
   }
 }
 
+function requireQueryApplicationFailure<Success, Failure>(
+  result: Result.Result<Success, Failure>,
+  recipeId: string,
+): void {
+  const observation = Result.match(result, {
+    onFailure: failure => ({
+      rejectedAsExpected:
+        failure instanceof ApplicationExecutionHostError &&
+        failure.operation === "transaction" &&
+        failure.reason === "applicationError" &&
+        failure.applicationError?.code === "RECIPE_NOT_PUBLISHED" &&
+        failure.applicationError.message === "Recipe is not published." &&
+        sameJsonValue(failure.applicationError.data, {
+          recipeId,
+          published: false,
+        }),
+      outcome: failureName(failure),
+    }),
+    onSuccess: () => ({
+      rejectedAsExpected: false,
+      outcome: "success",
+    }),
+  });
+  if (!observation.rejectedAsExpected) {
+    throw new Error(
+      `The cooking unpublished-recipe query produced ${observation.outcome} instead of the expected application error.`,
+    );
+  }
+}
+
+function requireFailedQueryIsReadOnly(
+  before: StandardApplicationAuthoritativeInspectionV1,
+  after: StandardApplicationAuthoritativeInspectionV1,
+): void {
+  if (
+    after.queryRuntimeExecutions !== before.queryRuntimeExecutions + 1 ||
+    after.mutationRuntimeExecutions !== before.mutationRuntimeExecutions ||
+    !sameCurrentRows(before.currentRows, after.currentRows) ||
+    after.currentRowCount !== before.currentRowCount ||
+    after.liveRowCount !== before.liveRowCount ||
+    after.revisionRowCount !== before.revisionRowCount ||
+    !sameStrings(before.commitSeqs, after.commitSeqs) ||
+    !sameStrings(
+      before.idempotencyOutcomeCommitSeqs,
+      after.idempotencyOutcomeCommitSeqs,
+    ) ||
+    !sameStrings(before.commitFeedCommitSeqs, after.commitFeedCommitSeqs) ||
+    !sameStrings(before.outboxCommitSeqs, after.outboxCommitSeqs)
+  ) {
+    throw new Error(
+      "The failed cooking query changed authoritative committed state.",
+    );
+  }
+}
+
 function requireFailedMutationRollback(
   before: StandardApplicationAuthoritativeInspectionV1,
   after: StandardApplicationAuthoritativeInspectionV1,
@@ -1870,6 +1955,10 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         artifactModulePath: "recipeAssessmentView",
         sourceBytes: COOKING_FUNCTION_SOURCES.assessmentView,
       }, {
+        module: COOKING_PUBLICATION_VIEW_MODULE,
+        artifactModulePath: "recipePublicationView",
+        sourceBytes: COOKING_FUNCTION_SOURCES.publicationView,
+      }, {
         module: COOKING_MAINTENANCE_MODULE,
         artifactModulePath: "recipePublishInternal",
         sourceBytes: COOKING_FUNCTION_SOURCES.publishInternal,
@@ -1914,6 +2003,6 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
     mutations: 19,
-    queries: 17,
+    queries: 18,
   },
 });

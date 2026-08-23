@@ -45,6 +45,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
       failedMutationStateUnchanged: true,
       applicationInvariantRejected: true,
       applicationErrorPreserved: true,
+      queryApplicationErrorPreserved: true,
       applicationInvariantFailureStateUnchanged: true,
       patchReplay: true,
       replaceReplay: true,
@@ -67,7 +68,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
       competitorReservationReplay: true,
     },
     mutationRuntimeExecutions: 19,
-    queryRuntimeExecutions: 17,
+    queryRuntimeExecutions: 18,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -140,7 +141,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
       "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
     ],
     mutationRuntimeExecutions: 19,
-    queryRuntimeExecutions: 17,
+    queryRuntimeExecutions: 18,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);

@@ -242,33 +242,36 @@ fixture succeeds.
   verifies exact mixed live/delete rollback. O09-B unique/developer-index work
   remains out of scope.
 
-### `ST-CORE-015` — root query application errors lack a structured host projection
-
-- **Status:** Open; identified by the query-parity audit performed while
-  resolving `ST-CORE-014`. No query owner was changed in that mutation slice.
-- **Observed boundary:** The Standard point-query route-independent dispatcher
-  receives the exact query Worker's settled failure through a host-owned
-  envelope containing only `name` and `message`.
-- **Reproduction:** A root query can throw an authenticated public
-  `FlarexError` after its read boundary settles. The current Workerd dispatcher
-  serializes only `error.name` and `error.message`; its classifier recognizes
-  exact-runtime infrastructure names but not application-error provenance or
-  canonical `data`, so the failure becomes an unknown Worker defect.
-- **Expected:** Query invocation should preserve the same bounded canonical
-  application code/message/data contract as mutation without weakening read
-  revalidation, cleanup precedence, or defect redaction.
-- **Owner and trust boundary:** Point-query host response/projection and the
-  Standard query dispatcher. Mutation Host Response V2 is evidence for the
-  desired distinction, not authority to reuse its transaction or protocol
-  owner mechanically.
-- **Current disposition:** Requires a separate query-specific preflight. Do not
-  add name matching, a test-only side channel, or mutation/query dual fallback.
-
 ## Investigation Leads
 
 None.
 
 ## Resolved Issues
+
+### `ST-CORE-015` — root query application errors lacked a structured host projection
+
+- **Status:** Resolved by the current Application Analysis consumer cut; the
+  displaced Application Revision V1 SAP05 dispatcher is not the Standard query
+  composition root.
+- **Root cause:** The retained SAP05 proof transported thrown Worker failures as
+  only `name` and `message`. Before the Application Analysis migration, that
+  legacy dispatcher was also the Standard query path and could not preserve
+  authenticated application-error provenance or canonical `data`.
+- **Correction:** The current unversioned `ApplicationQuerySystem` executes the
+  query through the shared Application Worker and `ApplicationExecutionHost`.
+  That Worker recognizes only registry-authenticated `FlarexError` values after
+  read settlement and returns the strict Application Worker `applicationError`
+  result; the host decodes it into the existing typed error channel. The legacy
+  dispatcher was not extended, and no name matching, fallback, dual transport,
+  read-boundary change, or mutation transaction contract was added.
+- **Evidence:** The cooking simulation now runs a real public query that reads
+  an unpublished recipe and throws `FlarexError`. Its PGlite lane preserves the
+  exact `RECIPE_NOT_PUBLISHED` code, message, and canonical data through current
+  analysis, generated Application Worker execution, read settlement, host
+  decoding, and Standard invocation. It also proves exactly one query runtime
+  execution and unchanged rows, revisions, commits, idempotency outcomes,
+  feeds, outbox, and mutation-runtime count. The matching genuine PostgreSQL
+  lane carries the same assertion and remains environment-gated.
 
 ### `ST-CORE-018` - SAP06-A2 fixture omitted the application-error platform module
 
