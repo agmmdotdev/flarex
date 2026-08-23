@@ -382,10 +382,9 @@ source, application Task binding, canonical Task definition, and typed Task
 authoring owners.
 
 Roadmap 41's `SAC01-F2t-B` now owns the private system-test Task producer over
-this same Standard contract. Its PGlite implementation publishes typed Tasks
-with the current Application revision and proves exact create-run replay without
-delivery; its matching genuine-PostgreSQL lane remains fail-closed and
-unaccepted until it runs with zero skips. Test-only delivery, restart,
+this same Standard contract. Its completed PGlite and authenticated ordinary-role
+PostgreSQL 18.3 proofs publish typed Tasks with the current Application revision
+and prove exact create-run replay without delivery. Test-only delivery, restart,
 cancellation, and fault controls remain with the harness rather than entering
 the Standard API and are separately gated by `SAC01-F2t-C`. Roadmaps 09 and 15
 may consider public developer and public test ergonomics only after the private
