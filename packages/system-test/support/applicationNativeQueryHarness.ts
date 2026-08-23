@@ -1,7 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import {
-  createApplicationNativeMutationPGliteFixture,
   type ApplicationNativeMutationFixture,
   type ApplicationNativeMutationPersistence,
 } from
@@ -26,9 +25,15 @@ import {
   encodeSystemTestStructuredCloneBridgeValueV1,
   SYSTEM_TEST_STRUCTURED_CLONE_BRIDGE_WORKER_SOURCE_V1,
 } from "./systemTestStructuredCloneBridgeV1";
+import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
 const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
 const COMPATIBILITY_DATE = "2026-06-14";
+
+export const APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS = Object.freeze({
+  runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+  compatibilityDate: COMPATIBILITY_DATE,
+});
 
 export type ApplicationNativeQueryFixtureFactory = () => Promise<
   ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
@@ -89,11 +94,7 @@ export function makeApplicationNativeQueryTestLayer(
 }
 
 export async function proveApplicationNativeQuery(
-  createFixture: ApplicationNativeQueryFixtureFactory = () =>
-    createApplicationNativeMutationPGliteFixture({
-      runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
-      compatibilityDate: COMPATIBILITY_DATE,
-    }),
+  createFixture: ApplicationNativeQueryFixtureFactory,
 ): Promise<ApplicationNativeQueryProof> {
   const fixture = await createFixture();
   const seeded = await fixture.seedUserDocument("Ada");
@@ -136,7 +137,7 @@ export async function proveApplicationNativeQuery(
       });
     },
   });
-  const invoke = () => Effect.runPromise(Effect.scoped(
+  const invoke = () => runSystemTestEffectV1(Effect.scoped(
     invokeStandardApplicationPointQueryV1(
       TransactionFunctionPathV1Schema.make("users:get"),
       { id: seeded.documentId },

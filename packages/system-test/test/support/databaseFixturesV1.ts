@@ -164,12 +164,12 @@ export async function withTemporaryPostgresPersistence(
   }
 }
 
-export async function withTemporarySplitPostgresPersistence(
+export async function withTemporarySplitPostgresPersistence<A>(
   run: (persistence: Readonly<{
     readonly control: PostgresFlarexPersistence;
     readonly target: PostgresFlarexPersistence;
-  }>) => Promise<void>,
-): Promise<void> {
+  }>) => Promise<A>,
+): Promise<A> {
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
   }
@@ -180,7 +180,7 @@ export async function withTemporarySplitPostgresPersistence(
   const adminPool = new Pool({ connectionString: postgresUrl });
   let control: PostgresFlarexPersistence | undefined;
   let target: PostgresFlarexPersistence | undefined;
-  let primaryCause: unknown;
+  let hasPrimaryCause = false;
   try {
     await adminPool.query(`create schema ${quoteIdentifierV1(controlSchema)}`);
     await adminPool.query(`create schema ${quoteIdentifierV1(targetSchema)}`);
@@ -198,9 +198,9 @@ export async function withTemporarySplitPostgresPersistence(
       poolConfig: { options: `-c search_path=${targetSchema}` },
     });
     await Promise.all([control.migrate(), target.migrate()]);
-    await run(Object.freeze({ control, target }));
+    return await run(Object.freeze({ control, target }));
   } catch (cause: unknown) {
-    primaryCause = cause;
+    hasPrimaryCause = true;
     throw cause;
   } finally {
     const cleanupCauses: unknown[] = [];
@@ -228,7 +228,7 @@ export async function withTemporarySplitPostgresPersistence(
       )
     );
     await captureCleanupV1(cleanupCauses, () => adminPool.end());
-    if (primaryCause === undefined && cleanupCauses.length > 0) {
+    if (!hasPrimaryCause && cleanupCauses.length > 0) {
       throw new Error(
         "Failed to clean up the split system-test PostgreSQL fixture.",
         { cause: cleanupCauses },

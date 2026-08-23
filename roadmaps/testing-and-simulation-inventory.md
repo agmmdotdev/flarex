@@ -3,9 +3,11 @@
 ## Status And Authority
 
 **Status:** Active inventory. `TQ-P` and the bounded `TQ-A1` stable-lane slice
-are complete. Historical alias convergence remains `TQ-A2`; runtime timing and
-test-level skip attribution remain explicit telemetry gaps rather than inferred
-results.
+are complete. Historical alias convergence remains `TQ-A2`. The `TQ-B`
+Application-native query contract is implemented, PGlite-validated, and
+package-typechecked, with genuine PostgreSQL acceptance pending. Runtime timing
+and test-level skip attribution remain explicit telemetry gaps rather than
+inferred results.
 
 This file is the living operational inventory for
 [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md).
@@ -191,14 +193,19 @@ suffixes produces 126 multi-lane filename groups:
 
 ### Reuse Candidates
 
-1. **Preferred `TQ-B` pilot: Application-native query.**
+1. **Selected `TQ-B` pilot: Application-native query.**
    [`applicationNativeQuery.test.ts`](../packages/system-test/test/integration/applicationNativeQuery.test.ts)
    and
    [`applicationNativeQuery.postgres.test.ts`](../packages/system-test/test/integration/applicationNativeQuery.postgres.test.ts)
-   run the same scenario and repeat the same result assertions. Their material
-   difference is lane activation and fixture construction. This is small enough
-   to test an exact contract-suite shape without simultaneously decomposing a
-   large proof harness.
+   now invoke one typed contract definition that owns the identical scenario
+   name and proof assertion. A generic `runScenario<A>` adapter makes invocation
+   and awaiting part of the type contract. The PGlite wrapper owns its fixture
+   factory; the PostgreSQL wrapper still owns environment activation, temporary
+   split-database provisioning, and cleanup. The focused PGlite suite passes;
+   without a PostgreSQL credential, the other lane reports its explicit
+   environment failure and skips the contract rather than passing falsely. The
+   focused package typecheck passes. Genuine PostgreSQL execution remains the
+   acceptance gate before this pattern may be widened.
 2. **Secondary candidates: managed-schema cooking A-G.** The wrappers share
    environment and assertion patterns, but each schema gate owns different
    lifecycle evidence and the surrounding managed-schema plans remain active.
@@ -261,9 +268,10 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    DTE05-E2B/E2C1 PGlite pairs are exact thin-selector pilots, and C08-B2/O09-B
    is the ordered-subset pilot. The remaining alias work is consumer/removal
    policy, not evidence that every overlapping list deserves a shared group.
-2. **`TQ-B` Application-native query contract pilot.** Small, completed,
-   currently untouched pair; retain separate lane activation and PostgreSQL
-   resource ownership while sharing only the exact scenario/assertion contract.
+2. **Finish `TQ-B` Application-native query acceptance.** Run the implemented
+   shared contract through genuine PostgreSQL while retaining separate lane
+   activation and PostgreSQL resource ownership; the focused package typecheck
+   is green.
 3. **`TQ-C` Application-native mutation failure localization.** Replace the
    one aggregate Boolean proof with named invariant scenarios or typed
    attributable observations before considering cross-lane suite reuse.
@@ -275,6 +283,7 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    reset/dispose, invocation-error, and resource-ownership tests before relying
    further on example/root integration as the sole decisive surface.
 
-`TQ-P` and `TQ-A1` are complete. `TQ-A2` is the next orchestration cleanup;
-`TQ-B` remains the first harness-reuse pilot. Neither is authorized merely by
-this inventory.
+`TQ-P` and `TQ-A1` are complete. `TQ-A2` has completed exact-duplicate and
+ordered-subset pilots, with consumer/removal policy still open. `TQ-B` is the
+first implemented harness-reuse pilot; its remaining acceptance gates do not
+authorize `TQ-C` or wider contract-suite extraction.

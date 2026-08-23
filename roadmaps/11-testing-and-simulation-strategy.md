@@ -8,8 +8,9 @@ packaging, real-Postgres, workerd/service-binding, and hosted-proof harnesses.
 manifest and fail-closed selectors. Milestone-alias convergence, test-level
 execution telemetry, live hosted H05 evidence, and a deterministic model
 simulator remain incomplete. The docs-only `TQ-P` inventory and bounded
-`TQ-A1` orchestration slice are complete; later `TQ-A` work and `TQ-B` through
-`TQ-E` remain separately gated.
+`TQ-A1` orchestration slice are complete. The `TQ-B` Application-native query
+pilot is implemented, PGlite-validated, and package-typechecked, with genuine
+PostgreSQL acceptance still pending; later work remains separately gated.
 
 This roadmap owns:
 
@@ -535,10 +536,11 @@ Named Flarex differences are:
 ## Test Quality Consolidation Preflight
 
 **Status:** `TQ-P` inventory and the bounded `TQ-A1` lane-orchestration slice
-are complete. Remaining `TQ-A` work and `TQ-B` through `TQ-E` require separate
-implementation approval. No test deletion, harness refactor, lane merger,
-fixture-lifetime change, or package extraction is authorized by this section
-alone.
+are complete. The approved `TQ-B` Application-native query pilot is implemented,
+PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
+remains open. Remaining `TQ-A`, `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
+implementation approval. No test deletion, lane merger, fixture-lifetime change,
+or package extraction is authorized by this section alone.
 
 The repository has accumulated substantial correctness evidence through
 roadmap checkpoints, but the executable shape has also accumulated milestone-
@@ -660,14 +662,22 @@ The work proceeds in bounded gates:
      [`03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md).
      The former direct Vitest command reproduces the failure, so TQ-A2 stops at
      that ownership boundary and does not weaken or repair the journal decoder.
-3. **`TQ-B` — one contract-suite pilot.** Select one completed, currently
-   untouched PGlite/PostgreSQL vertical with materially identical behavior.
-   Move only resource creation and exact shared scenario mechanics behind a
-   typed adapter contract, retain lane-specific activation and assertions, and
-   compare failure localization and runtime before widening the pattern. The
-   Application-native query pair is the preferred candidate, not an
-   authorization. Application-native mutation first requires `TQ-C` failure-
-   localization work rather than a generic wrapper around its aggregate proof.
+3. **`TQ-B` — one contract-suite pilot. Implemented; acceptance pending.** The
+   Application-native query pair now defines its identical scenario name and
+   proof assertion once behind a typed `runScenario<A>` adapter. The PGlite
+   wrapper retains its fixture factory, while the PostgreSQL wrapper retains
+   fail-closed environment activation plus temporary split-database provisioning
+   and cleanup. The underlying harness requires an explicit fixture factory and
+   crosses the Effect test boundary through the system-test runner helper. The
+   focused PGlite suite passes. A single before/after sample measured 9.12/10.24
+   seconds total and 4.16/4.32 seconds of test time, which is insufficient to
+   claim a runtime change. With the PostgreSQL credential absent, the focused
+   lane reports its explicit environment failure and skips the contract rather
+   than passing falsely. The focused package typecheck passes. Genuine
+   PostgreSQL execution remains pending; do not widen the pattern until that
+   acceptance check is green. Application-native mutation first requires `TQ-C`
+   failure-localization work rather than a generic wrapper around its aggregate
+   proof.
 4. **`TQ-C` — monolith decomposition.** Split one oversized mixed-owner suite
    by invariant/domain boundary while retaining one exact fixture owner. File
    size is a review signal, not a deletion rule; the slice must show that
@@ -806,10 +816,10 @@ and stale non-authoritative caches without changing the Postgres oracle.
    H04, H05, and release selectors are separate; do not silently add external
    mutation to `pnpm test`. Add test-level skip/timing attribution through
    `TQ-E` before making broader claims from a lane pass.
-3. **Run the bounded `TQ-B` pilot.** After stable lane activation, use the
-   Application-native query pair to prove the exact
-   contract-suite shape without changing scenario behavior, lane-specific
-   resource ownership, or assertions.
+3. **Finish bounded `TQ-B` acceptance.** Run the Application-native query
+   contract against genuine PostgreSQL. The focused package typecheck is green;
+   preserve the implemented shared scenario/assertion contract and each lane's
+   activation, fixture construction, and resource-lifetime ownership.
 4. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,

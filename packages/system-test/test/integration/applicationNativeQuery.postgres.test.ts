@@ -4,16 +4,16 @@ import {
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import { describe, expect, it } from "vitest";
 
-import { proveApplicationNativeQuery } from
+import { APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS } from
   "../../support/applicationNativeQueryHarness";
+import { defineApplicationNativeQueryContract } from
+  "../contracts/applicationNativeQueryContract";
 import {
   postgresUrl,
   withTemporarySplitPostgresPersistence,
 } from "../support/databaseFixturesV1";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
-const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
-const COMPATIBILITY_DATE = "2026-06-14";
 
 describe("Application-native query PostgreSQL acceptance environment", () => {
   it("requires an authenticated genuine PostgreSQL URL", () => {
@@ -25,21 +25,14 @@ describe("Application-native query PostgreSQL acceptance environment", () => {
 });
 
 describePostgres("Application-native Standard query - PostgreSQL", () => {
-  it("opens the active snapshot and executes one fresh Application Worker", async () => {
-    await withTemporarySplitPostgresPersistence(async persistence => {
-      await expect(proveApplicationNativeQuery(() =>
-        createApplicationNativeMutationPostgresFixture({
-          runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
-          compatibilityDate: COMPATIBILITY_DATE,
-        }, persistence)
-      )).resolves.toMatchObject({
-        result: { name: "Ada" },
-        freshWorkerLoads: 2,
-        snapshotRevalidations: 2,
-        pointDocumentReads: 2,
-        sourceReads: 2,
-        headMovementSelectedNewRevision: true,
-      });
-    });
-  }, 480_000);
+  defineApplicationNativeQueryContract({
+    runScenario: scenario => withTemporarySplitPostgresPersistence(
+      persistence => scenario(() =>
+        createApplicationNativeMutationPostgresFixture(
+          APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS,
+          persistence,
+        )
+      ),
+    ),
+  });
 });
