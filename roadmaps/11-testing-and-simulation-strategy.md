@@ -644,6 +644,11 @@ The work proceeds in bounded gates:
      `c08-b1-postgres` lane; their distinct PGlite commands remain unchanged.
      This exact duplicate removal does not authorize merging the milestones or
      assuming that other similarly named commands protect the same invariant.
+     The second bounded pilot likewise retains `DTE05-E2B` and `DTE05-E2C1`
+     PGlite command names but routes their identical checkpoint regression
+     through one `dte05-repair-checkpoint-pglite` lane. The lane is explicitly
+     E2B-owned lower-layer evidence reused by E2C1; E2C1's executor and genuine-
+     PostgreSQL connected-runner gates remain separate and decisive.
 3. **`TQ-B` — one contract-suite pilot.** Select one completed, currently
    untouched PGlite/PostgreSQL vertical with materially identical behavior.
    Move only resource creation and exact shared scenario mechanics behind a
@@ -780,10 +785,11 @@ and stale non-authoritative caches without changing the Postgres oracle.
 ## Next Correctness Gates
 
 1. **Continue retained-alias convergence through `TQ-A2`.** `TQ-A1` owns
-   stable fail-closed lane activation, and the exact C08-B1a/B1b PostgreSQL
-   duplicate is now the first thin-selector pilot. Inventory which remaining
-   historical aliases still have live consumers, preserve justified names, and
-   remove another duplicated file list only after exact evidence comparison.
+   stable fail-closed lane activation. The exact C08-B1a/B1b PostgreSQL and
+   DTE05-E2B/E2C1 PGlite duplicates are now thin-selector pilots with their
+   different semantic roles recorded. Inventory which remaining historical
+   aliases still have live consumers, preserve justified names, and remove a
+   repeated file list only after exact evidence comparison.
 2. **Keep aggregate commands explicit.** Fast, integration, real-Postgres,
    H04, H05, and release selectors are separate; do not silently add external
    mutation to `pnpm test`. Add test-level skip/timing attribution through

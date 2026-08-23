@@ -80,7 +80,7 @@ whose names begin with `test`:
 | Named test commands | 157 |
 | Names containing `pglite` | 64 |
 | Names containing `postgres` | 66 |
-| Explicit test-file references across package commands | 235 |
+| Explicit test-file references across package commands | 231 |
 | Unique explicitly referenced test files across package commands | 180 |
 
 Two manifests dominate the command catalog:
@@ -104,6 +104,14 @@ only `appUniqueConstraintSetBuildV1.postgres.test.ts` with identical runner
 options. Both names now resolve to one fail-closed `c08-b1-postgres` lane. The
 different B1a/B1b PGlite lists remain separate, so this is command-list
 deduplication rather than milestone or invariant merger.
+
+The second exact duplicate is the PGlite checkpoint regression named by both
+`test:dte05-e2b:pglite` and `test:dte05-e2c1:pglite`. No in-repository roadmap,
+script, or workflow invokes either command name directly, so both are retained
+as compatibility aliases pending an explicit removal decision. They now resolve
+to one `dte05-repair-checkpoint-pglite` lane whose proof is deliberately narrow:
+E2B owns the checkpoint protocol, while E2C1 reuses that regression alongside
+its separate executor and genuine-PostgreSQL connected-runner proof.
 
 The root `test` command remains a recursive package sweep, not an aggregate
 correctness gate. Root integration, H04, H05, and explicitly required
@@ -233,10 +241,10 @@ exists, runtime-based pruning or fixture sharing is not authorized.
 ## Ranked Next Gates
 
 1. **Continue `TQ-A2` milestone-alias convergence.** `TQ-A1` removed
-   false-green stable PostgreSQL commands, and the C08-B1a/B1b PostgreSQL pair
-   is the first exact thin-selector pilot. Next identify another live duplicate,
-   retain justified names, and prove exact evidence equivalence before removing
-   its repeated list.
+   false-green stable PostgreSQL commands. The C08-B1a/B1b PostgreSQL and
+   DTE05-E2B/E2C1 PGlite pairs are now exact thin-selector pilots. Next audit
+   near-duplicate rather than byte-identical lists by invariant, and do not
+   merge them merely because they share files.
 2. **`TQ-B` Application-native query contract pilot.** Small, completed,
    currently untouched pair; retain separate lane activation and PostgreSQL
    resource ownership while sharing only the exact scenario/assertion contract.

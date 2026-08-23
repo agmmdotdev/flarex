@@ -30,6 +30,10 @@ describe("test lane manifest and runner", () => {
       .toEqual(["c08-b1-postgres"]);
     expect(resolveTestLaneSelection(manifest, "c08-b1b-postgres").map((lane) => lane.id))
       .toEqual(["c08-b1-postgres"]);
+    expect(resolveTestLaneSelection(manifest, "dte05-e2b-pglite").map((lane) => lane.id))
+      .toEqual(["dte05-repair-checkpoint-pglite"]);
+    expect(resolveTestLaneSelection(manifest, "dte05-e2c1-pglite").map((lane) => lane.id))
+      .toEqual(["dte05-repair-checkpoint-pglite"]);
   });
 
   it("keeps stable package PostgreSQL commands delegated to the root manifest", () => {
@@ -61,6 +65,15 @@ describe("test lane manifest and runner", () => {
       .toBe("node ../../scripts/run-test-lane.mjs c08-b1a-postgres");
     expect(manifest.scripts?.["test:c08-b1b:postgres"])
       .toBe("node ../../scripts/run-test-lane.mjs c08-b1b-postgres");
+  });
+
+  it("keeps both DTE05 checkpoint aliases on one explicitly lower-layer PGlite proof", () => {
+    const manifest = JSON.parse(readFileSync("packages/persistence-postgres/package.json", "utf8"));
+
+    expect(manifest.scripts?.["test:dte05-e2b:pglite"])
+      .toBe("node ../../scripts/run-test-lane.mjs dte05-e2b-pglite");
+    expect(manifest.scripts?.["test:dte05-e2c1:pglite"])
+      .toBe("node ../../scripts/run-test-lane.mjs dte05-e2c1-pglite");
   });
 
   it("rejects unknown lanes, unsafe directories, duplicate prerequisites, and foreign commands", () => {

@@ -22,6 +22,12 @@
     "c08-b1b-postgres": [
       "c08-b1-postgres"
     ],
+    "dte05-e2b-pglite": [
+      "dte05-repair-checkpoint-pglite"
+    ],
+    "dte05-e2c1-pglite": [
+      "dte05-repair-checkpoint-pglite"
+    ],
     "workerd": [
       "h04-workerd-postgres"
     ],
@@ -228,6 +234,28 @@
             "test/appUniqueConstraintSetBuildV1.postgres.test.ts",
             "--no-file-parallelism",
             "--testTimeout=180000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dte05-repair-checkpoint-pglite",
+      "category": "pglite",
+      "proof": "The E2B-owned Task repair checkpoint and unchanged point-mutation checkpoint PGlite regression reused by the broader E2C1 gate; this is not the complete E2C1 proof.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-dte05-repair-checkpoint-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/taskRepairSchedulerCheckpointV1.test.ts",
+            "test/pointMutationRedeliverySchedulerCheckpoint.test.ts",
+            "--no-file-parallelism",
+            "--testTimeout=120000"
           ]
         }
       ]
