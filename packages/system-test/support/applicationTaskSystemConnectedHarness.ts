@@ -74,7 +74,6 @@ import {
   type TaskAttemptSupervisorOutcome,
   type TaskAttemptSupervisorPolicy,
   type TaskComputeDeliveryConnectedRunnerReceipt,
-  type TaskComputeDeliveryConnectedRunnerOptions,
 } from "flarex-backend/internal/task-compute-delivery";
 import {
   makeTaskResultStore,
@@ -86,18 +85,14 @@ import {
 } from "flarex-backend/internal/task-execution-principal-store";
 import {
   makeTaskInputStore,
-  type TaskInputStoreBucket,
 } from "flarex-backend/internal/task-input-store";
 import {
   makeTaskRuntimeObjectStore,
-  type TaskRuntimeObjectStoreBucket,
 } from "flarex-backend/internal/task-runtime-object-store";
 import {
   ApplicationAnalysisSourceReadError,
   type ApplicationAnalysisSourceReader,
 } from "flarex-backend/internal/application-analysis-source-reader";
-import { APPLICATION_RUNTIME_HOST_IDENTITY } from
-  "flarex-backend/artifact-runtime";
 import {
   TaskRuntimeLaunchPortError,
   type TaskRuntimeLaunchDirectory,
@@ -105,16 +100,6 @@ import {
   type TaskRuntimeLaunchResourceDirectory,
 } from "flarex-backend/internal/task-runtime-launch";
 import { Cause, Deferred, Effect, Exit, Fiber, Option, Result } from "effect";
-import { Miniflare } from "miniflare";
-import {
-  TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
-  TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
-  type TaskWorkerSessionAcceptanceV1,
-  type TaskWorkerSessionInterruptionAcceptanceV1,
-  type TaskWorkerSessionInterruptionRequestV1,
-  type TaskWorkerSessionStartRequestV1,
-  type TaskWorkerSessionSettlementV1,
-} from "flarex-protocol/internal/task-worker-session-v1";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { ReplacementScopeIdV1Schema } from
   "flarex-protocol/storage-authority";
@@ -146,9 +131,12 @@ import {
 import {
   proveApplicationTaskSystemFreshHostTakeoverEffect,
 } from "./applicationTaskSystemFreshHostTakeoverHarness";
+import {
+  acquireApplicationTaskHostedTestKit,
+  APPLICATION_TASK_HOSTED_COMPATIBILITY_DATE as COMPATIBILITY_DATE,
+  APPLICATION_TASK_HOSTED_RUNTIME_HOST_IDENTITY as RUNTIME_HOST_IDENTITY,
+} from "./applicationTaskHostedTestKit";
 
-const RUNTIME_HOST_IDENTITY = APPLICATION_RUNTIME_HOST_IDENTITY;
-const COMPATIBILITY_DATE = "2026-06-14";
 const TASK_ID = "tasks.users.task";
 const DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 100,
@@ -301,11 +289,14 @@ async function proveApplicationTaskSystemConnectedWithHosting(
           fixture.active.basis.authority.physicalLocator,
         )
       : null;
-    let hostedResources: HostedTaskResourceFixture | null = null;
     try {
-    hostedResources = hosting === "event_host" || hosting === "fresh_host"
-      ? await createHostedTaskResourceFixture()
-      : null;
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+    const hostedKit = yield* acquireApplicationTaskHostedTestKit({
+      resources: hosting === "event_host" || hosting === "fresh_host"
+        ? "r2"
+        : "none",
+    });
+    const hostedResources = hostedKit.resources;
     const locatedRunAuthority = Object.freeze({
       authority: fixture.active.basis.authority,
       target: locatedRunTarget,
@@ -378,7 +369,9 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       : scenario === "task_failure_retry"
         ? Object.freeze({ __fixtureTaskFailure: true })
         : Object.freeze({ __fixtureTaskWaitForInterruption: true });
-    const input = await canonicalizeFlarexValueV1(inputValue);
+    const input = yield* Effect.promise(() =>
+      canonicalizeFlarexValueV1(inputValue)
+    );
     const inputStore = hostedResources === null
       ? null
       : makeTaskInputStore(hostedResources.inputs);
@@ -387,7 +380,7 @@ async function proveApplicationTaskSystemConnectedWithHosting(
           input.sha256,
           input.canonicalBytes.byteLength,
         ))
-      : await Effect.runPromise(inputStore.publish(inputValue));
+      : yield* inputStore.publish(inputValue);
     const executionIdentity = Object.freeze({
       kind: "user",
       user: Object.freeze({
@@ -404,7 +397,6 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       input: inputReference,
       executionIdentity,
     });
-    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
     const created = yield* createApplicationTaskRun(TASK_ID, request).pipe(
         Effect.provide(applicationTaskSystem),
       );
@@ -551,13 +543,7 @@ async function proveApplicationTaskSystemConnectedWithHosting(
                   reason: "authority_unavailable",
                 })),
           });
-    const loader = yield* Effect.acquireRelease(
-      Effect.sync(() => new MiniflareWorkerLoader()),
-      owner => Effect.tryPromise({
-        try: () => owner.disposeAll(),
-        catch: cause => cause,
-      }).pipe(Effect.orDie),
-    );
+    const loader = yield* hostedKit.acquireWorkerLoader();
     const resultBucket = hostedResources === null
       ? new MemoryTaskResultBucket(
           scenario === "result_publication_reconciled"
@@ -802,8 +788,8 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       },
       workerLoader: loader,
       provider: {
-        applicationHostPolicy: applicationHostPolicy(),
-        legacyHostPolicy: legacyHostPolicy(),
+        applicationHostPolicy: hostedKit.makeApplicationHostPolicy(),
+        legacyHostPolicy: hostedKit.makeLegacyHostPolicy(),
         maximumScopedDispatches: 4,
         handshakeMilliseconds: 5_000,
         randomUuid: uuidSequence(4),
@@ -811,7 +797,7 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       },
       queryAuthority,
       mutationAuthority,
-      runner: oneCandidatePolicy(),
+      runner: hostedKit.makeOneCandidatePolicy(),
     });
     if (launchResources !== null) {
       if (hosting === "fresh_host") {
@@ -913,13 +899,7 @@ async function proveApplicationTaskSystemConnectedWithHosting(
                   reason: "authority_unavailable",
                 })),
           });
-        const loaderB = yield* Effect.acquireRelease(
-          Effect.sync(() => new MiniflareWorkerLoader()),
-          owner => Effect.tryPromise({
-            try: () => owner.disposeAll(),
-            catch: cause => cause,
-          }).pipe(Effect.orDie),
-        );
+        const loaderB = yield* hostedKit.acquireWorkerLoader();
         const resultStoreB = makeTaskResultStore(hostBPorts.results);
         const lifecycleGatewayB = createTaskAttemptLifecycleGateway({
           scopeMetadata: fixture.authorityPorts.scopeMetadata,
@@ -1004,8 +984,8 @@ async function proveApplicationTaskSystemConnectedWithHosting(
               }),
               workerLoader: loaderB,
               provider: Object.freeze({
-                applicationHostPolicy: applicationHostPolicy(),
-                legacyHostPolicy: legacyHostPolicy(),
+                applicationHostPolicy: hostedKit.makeApplicationHostPolicy(),
+                legacyHostPolicy: hostedKit.makeLegacyHostPolicy(),
                 maximumScopedDispatches: 4,
                 handshakeMilliseconds: 5_000,
                 randomUuid: uuidSequence(40),
@@ -1013,7 +993,7 @@ async function proveApplicationTaskSystemConnectedWithHosting(
               }),
               queryAuthority: queryAuthorityB,
               mutationAuthority: mutationAuthorityB,
-              runner: oneCandidatePolicy(),
+              runner: hostedKit.makeOneCandidatePolicy(),
               supervision: Object.freeze({ supervisor: supervisorB }),
             }),
             Object.freeze({
@@ -1602,7 +1582,6 @@ async function proveApplicationTaskSystemConnectedWithHosting(
       await Promise.all([
         control.close(),
         externalEffectResource?.close() ?? Promise.resolve(),
-        hostedResources?.dispose() ?? Promise.resolve(),
       ]);
     }
 }
@@ -1695,51 +1674,6 @@ function hideFirstCommittedTransactionResponse(
   return hiddenRunner;
 }
 
-function applicationHostPolicy() {
-  return Object.freeze({
-    runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
-    compatibilityDate: COMPATIBILITY_DATE,
-    computeProfiles: Object.freeze([Object.freeze({
-      computeProfile: "standard-1x",
-      cpuMilliseconds: 10_000,
-      maximumDurationMs: 60_000,
-    })]),
-  });
-}
-
-function legacyHostPolicy() {
-  return Object.freeze({
-    runtimeImplementationVersion: "worker-loader-2026.08.14",
-    admittedCompatibilityDate: COMPATIBILITY_DATE,
-    computeProfiles: Object.freeze([Object.freeze({
-      computeProfile: "standard-1x",
-      cpuMilliseconds: 10_000,
-      maximumDurationMs: 60_000,
-    })]),
-    admittedCompatibilityFlags: Object.freeze(["nodejs_compat"]),
-  });
-}
-
-function oneCandidatePolicy(): TaskComputeDeliveryConnectedRunnerOptions {
-  return Object.freeze({
-    maximumDirectoryPages: 2,
-    maximumScopeVisits: 2,
-    maximumDispatchPages: 2,
-    maximumCancellationPages: 2,
-    maximumDispatchCandidates: 1,
-    maximumCancellationCandidates: 1,
-    maximumDispatchProviderCalls: 1,
-    maximumCancellationProviderCalls: 1,
-    maximumTotalOperations: 1,
-    maximumDispatchPagesPerScope: 1,
-    maximumCancellationPagesPerScope: 1,
-    candidatesPerPage: 1,
-    maximumRunMilliseconds: 30_000,
-    maximumOperationMilliseconds: 15_000,
-    settlementReserveMilliseconds: 2_000,
-  });
-}
-
 class SupervisionExitProbe implements TaskAttemptSupervisionObserver {
   private readonly completion: Promise<Exit.Exit<
     TaskAttemptSupervisorOutcome,
@@ -1778,117 +1712,6 @@ class SupervisionExitProbe implements TaskAttemptSupervisionObserver {
     TaskAttemptSupervisorError
   >> {
     return this.completion;
-  }
-}
-
-interface HostedTaskResourceFixture {
-  readonly inputs: MiniflareTaskResourceBucket;
-  readonly principals: MiniflareTaskResourceBucket;
-  readonly runtimeObjects: MiniflareTaskResourceBucket;
-  readonly results: MiniflareTaskResourceBucket;
-  readonly forkPorts: () => HostedTaskResourcePorts;
-  readonly dispose: () => Promise<void>;
-}
-
-interface HostedTaskResourcePorts {
-  readonly inputs: MiniflareTaskResourceBucket;
-  readonly principals: MiniflareTaskResourceBucket;
-  readonly runtimeObjects: MiniflareTaskResourceBucket;
-  readonly results: MiniflareTaskResourceBucket;
-}
-
-async function createHostedTaskResourceFixture(): Promise<
-  HostedTaskResourceFixture
-> {
-  const runtime = new Miniflare({
-    modules: true,
-    script: "export default { fetch() { return new Response('ok') } }",
-    r2Buckets: [
-      "TASK_INPUTS",
-      "TASK_PRINCIPALS",
-      "TASK_RUNTIME_OBJECTS",
-      "TASK_RESULTS",
-    ],
-  });
-  try {
-    const [inputs, principals, runtimeObjects, results] = await Promise.all([
-      makeMiniflareTaskResourceBucket(runtime, "TASK_INPUTS"),
-      makeMiniflareTaskResourceBucket(runtime, "TASK_PRINCIPALS"),
-      makeMiniflareTaskResourceBucket(runtime, "TASK_RUNTIME_OBJECTS"),
-      makeMiniflareTaskResourceBucket(runtime, "TASK_RESULTS"),
-    ]);
-    let disposed = false;
-    return Object.freeze({
-      inputs,
-      principals,
-      runtimeObjects,
-      results,
-      forkPorts: () => Object.freeze({
-        inputs: inputs.fork(),
-        principals: principals.fork(),
-        runtimeObjects: runtimeObjects.fork(),
-        results: results.fork(),
-      }),
-      dispose: async () => {
-        if (disposed) return;
-        disposed = true;
-        await runtime.dispose();
-      },
-    });
-  } catch (cause) {
-    await runtime.dispose();
-    throw cause;
-  }
-}
-
-async function makeMiniflareTaskResourceBucket(
-  runtime: Miniflare,
-  binding: string,
-): Promise<MiniflareTaskResourceBucket> {
-  const bucket = await runtime.getR2Bucket(binding);
-  return new MiniflareTaskResourceBucket(
-    bucket as unknown as TaskInputStoreBucket,
-  );
-}
-
-class MiniflareTaskResourceBucket
-  implements TaskInputStoreBucket, TaskRuntimeObjectStoreBucket,
-    TaskResultStoreBucket {
-  readonly values = new Map<string, Uint8Array>();
-  readonly putKeys: string[] = [];
-  readonly getKeys: string[] = [];
-  putCalls = 0;
-  getCalls = 0;
-
-  constructor(private readonly owner: TaskInputStoreBucket) {}
-
-  fork(): MiniflareTaskResourceBucket {
-    return new MiniflareTaskResourceBucket(this.owner);
-  }
-
-  async put(
-    key: string,
-    value: ArrayBuffer,
-    options: Readonly<{
-      readonly onlyIf: Readonly<{ readonly etagDoesNotMatch: "*" }>;
-    }>,
-  ): Promise<unknown> {
-    this.putCalls += 1;
-    this.putKeys.push(key);
-    const result = await Reflect.apply(this.owner.put, this.owner, [
-      key,
-      value,
-      options,
-    ]);
-    this.values.set(key, new Uint8Array(value.slice(0)));
-    return result;
-  }
-
-  get(key: string): PromiseLike<unknown> {
-    this.getCalls += 1;
-    this.getKeys.push(key);
-    return Reflect.apply(this.owner.get, this.owner, [key]) as
-      PromiseLike<unknown>;
   }
 }
 
@@ -1941,535 +1764,6 @@ class MemoryTaskResultBucket implements TaskResultStoreBucket {
       }),
     };
   }
-}
-
-class MiniflareWorkerLoader implements WorkerLoader {
-  loads = 0;
-  starts = 0;
-  workerInputReads = 0;
-  workerSettlements = 0;
-  readonly generations: string[] = [];
-  readonly payloads: unknown[] = [];
-  readonly settlements: TaskWorkerSessionSettlementV1[] = [];
-  private readonly settlementGate: Promise<void>;
-  private releaseSettlementGate: (() => void) | undefined;
-  private readonly acceptedStart: Promise<void>;
-  private resolveAcceptedStart: (() => void) | undefined;
-  private readonly sessions = new Set<LiveGeneratedTaskSession>();
-  private readonly disposals = new Set<Promise<void>>();
-
-  constructor() {
-    this.settlementGate = new Promise(resolve => {
-      this.releaseSettlementGate = resolve;
-    });
-    this.acceptedStart = new Promise(resolve => {
-      this.resolveAcceptedStart = resolve;
-    });
-  }
-
-  awaitAcceptedStart(): Promise<void> {
-    return this.acceptedStart;
-  }
-
-  releaseSettlement(): void {
-    this.releaseSettlementGate?.();
-    this.releaseSettlementGate = undefined;
-  }
-
-  async awaitWorkerSettlement(): Promise<void> {
-    const sessions = [...this.sessions];
-    if (sessions.length !== 1 || sessions[0] === undefined) {
-      throw new Error(
-        "Expected exactly one live Application Task Worker session.",
-      );
-    }
-    await sessions[0].settlement();
-  }
-
-  async disposeAll(): Promise<void> {
-    for (const session of this.sessions) this.disposeSession(session);
-    const outcomes = await Promise.allSettled(this.disposals);
-    const failure = outcomes.find(
-      (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
-    );
-    if (failure !== undefined) throw failure.reason;
-  }
-
-  load(code: WorkerLoaderWorkerCode): WorkerStub {
-    this.loads += 1;
-    return new MiniflareWorkerStub(this, code);
-  }
-
-  get(
-    _name: string | null,
-    _getCode: () => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>,
-  ): WorkerStub {
-    throw new Error("WorkerLoader.get is forbidden for fresh task execution.");
-  }
-
-  async start(
-    code: WorkerLoaderWorkerCode,
-    entrypoint: string | undefined,
-    request: TaskWorkerSessionStartRequestV1,
-    capability: unknown,
-    queryCapability: unknown,
-    mutationCapability: unknown,
-  ) {
-    this.starts += 1;
-    this.generations.push(request.generation);
-    const read = Reflect.get(capability as object, "read");
-    const payload = await Reflect.apply(read, capability, []);
-    this.payloads.push(payload);
-    const session = await LiveGeneratedTaskSession.start(
-      code,
-      entrypoint,
-      request,
-      payload,
-      queryCapability,
-      mutationCapability,
-    );
-    this.sessions.add(session);
-    this.resolveAcceptedStart?.();
-    this.resolveAcceptedStart = undefined;
-    let settlement: Promise<TaskWorkerSessionSettlementV1> | undefined;
-    const remote = {
-      acceptance: () => owned(session.acceptance),
-      requestInterruption: async (
-        interruption: TaskWorkerSessionInterruptionRequestV1,
-      ) => owned(await session.requestInterruption(interruption)),
-      settlement: async () => {
-        settlement ??= (async () => {
-          await this.settlementGate;
-          const executed = await session.settlement();
-          this.workerInputReads += executed.inputReads;
-          this.workerSettlements += 1;
-          this.settlements.push(executed.settlement);
-          return executed.settlement;
-        })();
-        return owned(await settlement);
-      },
-    };
-    Object.defineProperty(remote, Symbol.dispose, {
-      configurable: true,
-      value: () => this.disposeSession(session),
-    });
-    return remote;
-  }
-
-  private disposeSession(session: LiveGeneratedTaskSession): void {
-    if (!this.sessions.delete(session)) return;
-    const disposal = session.dispose();
-    this.disposals.add(disposal);
-    void disposal.catch(() => undefined);
-  }
-}
-
-class MiniflareWorkerStub implements WorkerStub {
-  constructor(
-    private readonly owner: MiniflareWorkerLoader,
-    private readonly code: WorkerLoaderWorkerCode,
-  ) {}
-
-  getEntrypoint<T extends Rpc.WorkerEntrypointBranded | undefined>(
-    name?: string,
-  ): Fetcher<T> {
-    return {
-      start: (
-        request: TaskWorkerSessionStartRequestV1,
-        capability: unknown,
-        queryCapability: unknown,
-        mutationCapability: unknown,
-      ) => this.owner.start(
-        this.code,
-        name,
-        request,
-        capability,
-        queryCapability,
-        mutationCapability,
-      ),
-    } as unknown as Fetcher<T>;
-  }
-
-  getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>():
-    DurableObjectClass<T> {
-    throw new Error("Durable Objects are forbidden for task execution.");
-  }
-}
-
-class LiveGeneratedTaskSession {
-  private disposal: Promise<void> | undefined;
-
-  private constructor(
-    private readonly runtime: Miniflare,
-    private readonly control: LiveTaskSessionControl,
-    private readonly running: Promise<Readonly<{
-      readonly settlement: TaskWorkerSessionSettlementV1;
-      readonly inputReads: number;
-    }>>,
-    readonly acceptance: TaskWorkerSessionAcceptanceV1,
-  ) {}
-
-  static async start(
-    code: WorkerLoaderWorkerCode,
-    entrypoint: string | undefined,
-    request: TaskWorkerSessionStartRequestV1,
-    payload: unknown,
-    queryCapability: unknown,
-    mutationCapability: unknown,
-  ): Promise<LiveGeneratedTaskSession> {
-    if (entrypoint === undefined) {
-      throw new Error("Application Task Worker entrypoint was not selected.");
-    }
-    const encoded = JSON.stringify({ request, payload }, encodeRpcValue);
-    const waitsForInterruption = payload !== null && typeof payload === "object" &&
-      Reflect.get(payload, "__fixtureTaskWaitForInterruption") === true;
-    const outerSource = `
-import { RpcTarget } from "cloudflare:workers";
-const code = ${JSON.stringify(code)};
-const waitsForInterruption = ${JSON.stringify(waitsForInterruption)};
-const input = JSON.parse(${JSON.stringify(encoded)}, (_key, value) =>
-  value && typeof value === "object" && Array.isArray(value.__bytes)
-    ? new Uint8Array(value.__bytes)
-    : value && typeof value === "object" && typeof value.__bigint === "string"
-      ? BigInt(value.__bigint)
-      : value
-);
-globalThis.inputReads = 0;
-class InputCapability extends RpcTarget {
-  read() {
-    globalThis.inputReads += 1;
-    return structuredClone(input.payload);
-  }
-}
-const encode = (value) => JSON.stringify(value, (_key, member) =>
-  typeof member === "bigint"
-    ? { __bigint: String(member) }
-    : member instanceof Uint8Array
-      ? { __bytes: Array.from(member) }
-      : member
-);
-const decode = (text) => JSON.parse(text, (_key, member) =>
-  member && typeof member === "object" && Array.isArray(member.__bytes)
-    ? new Uint8Array(member.__bytes)
-    : member && typeof member === "object" && typeof member.__bigint === "string"
-      ? BigInt(member.__bigint)
-      : member
-);
-const response = (value) => new Response(encode(value), {
-  headers: { "content-type": "application/json" },
-});
-export default {
-  async fetch(_request, env) {
-    let session;
-    try {
-      class QueryCapability extends RpcTarget {
-        async invoke(request) {
-          const response = await env.CONTROL.fetch(
-            "https://task-control.test/query",
-            { method: "POST", body: encode(request) },
-          );
-          const text = await response.text();
-          if (!response.ok) throw new Error(text);
-          return decode(text);
-        }
-      }
-      class MutationCapability extends RpcTarget {
-        async invoke(request) {
-          const response = await env.CONTROL.fetch(
-            "https://task-control.test/mutation",
-            { method: "POST", body: encode(request) },
-          );
-          const text = await response.text();
-          if (!response.ok) throw new Error(text);
-          return decode(text);
-        }
-      }
-      const worker = env.LOADER.load(code);
-      session = await worker
-        .getEntrypoint(${JSON.stringify(entrypoint)})
-        .start(
-          input.request,
-          new InputCapability(),
-          new QueryCapability(),
-          new MutationCapability(),
-        );
-      const acceptance = await session.acceptance();
-      await env.CONTROL.fetch("https://task-control.test/accepted", {
-        method: "POST",
-        body: encode({ acceptance }),
-      });
-      if (waitsForInterruption) {
-        const interruptionResponse = await env.CONTROL.fetch(
-          "https://task-control.test/interruption",
-          { method: "POST" },
-        );
-        const interruption = decode(await interruptionResponse.text());
-        const interruptionAcceptance = await session.requestInterruption(
-          interruption,
-        );
-        await env.CONTROL.fetch(
-          "https://task-control.test/interruption-accepted",
-          {
-            method: "POST",
-            body: encode({ interruptionAcceptance }),
-          },
-        );
-      }
-      return response({
-        settlement: await session.settlement(),
-        inputReads: globalThis.inputReads,
-      });
-    } finally {
-      session?.[Symbol.dispose]?.();
-    }
-  },
-};`;
-    const control = new LiveTaskSessionControl(
-      queryCapability,
-      mutationCapability,
-    );
-    const runtime = new Miniflare({
-      compatibilityDate: COMPATIBILITY_DATE,
-      modules: true,
-      script: outerSource,
-      workerLoaders: { LOADER: {} },
-      serviceBindings: {
-        CONTROL: (requestValue: Request) => control.fetch(requestValue),
-      },
-    });
-    const running = callLiveTaskSession<Readonly<{
-      readonly settlement: TaskWorkerSessionSettlementV1;
-      readonly inputReads: number;
-    }>>(runtime);
-    try {
-      const acceptance = await control.awaitAcceptance(running);
-      return new LiveGeneratedTaskSession(
-        runtime,
-        control,
-        running,
-        acceptance,
-      );
-    } catch (cause) {
-      await runtime.dispose();
-      throw cause;
-    }
-  }
-
-  async requestInterruption(
-    interruption: TaskWorkerSessionInterruptionRequestV1,
-  ): Promise<TaskWorkerSessionInterruptionAcceptanceV1> {
-    return this.control.requestInterruption(interruption, this.running);
-  }
-
-  async settlement(): Promise<Readonly<{
-    readonly settlement: TaskWorkerSessionSettlementV1;
-    readonly inputReads: number;
-  }>> {
-    return this.running;
-  }
-
-  dispose(): Promise<void> {
-    this.disposal ??= this.runtime.dispose();
-    return this.disposal;
-  }
-}
-
-class LiveTaskSessionControl {
-  private readonly queryReceiver: object;
-  private readonly queryInvoke: (request: unknown) => unknown;
-  private readonly mutationReceiver: object;
-  private readonly mutationInvoke: (request: unknown) => unknown;
-  private readonly acceptance: Promise<TaskWorkerSessionAcceptanceV1>;
-  private resolveAcceptance: ((value: TaskWorkerSessionAcceptanceV1) => void) |
-    undefined;
-  private readonly interruptionRequest: Promise<
-    TaskWorkerSessionInterruptionRequestV1
-  >;
-  private resolveInterruptionRequest: ((
-    value: TaskWorkerSessionInterruptionRequestV1,
-  ) => void) | undefined;
-  private readonly interruptionAcceptance: Promise<
-    TaskWorkerSessionInterruptionAcceptanceV1
-  >;
-  private resolveInterruptionAcceptance: ((
-    value: TaskWorkerSessionInterruptionAcceptanceV1,
-  ) => void) | undefined;
-  private interruptionRequested = false;
-
-  constructor(queryCapability: unknown, mutationCapability: unknown) {
-    if (queryCapability === null ||
-      (typeof queryCapability !== "object" &&
-        typeof queryCapability !== "function")) {
-      throw new Error("Application Task query capability is unavailable.");
-    }
-    const queryInvoke = Reflect.get(queryCapability, "invoke");
-    if (typeof queryInvoke !== "function") {
-      throw new Error("Application Task query capability is unavailable.");
-    }
-    this.queryReceiver = queryCapability;
-    this.queryInvoke = queryInvoke;
-    if (mutationCapability === null ||
-      (typeof mutationCapability !== "object" &&
-        typeof mutationCapability !== "function")) {
-      throw new Error("Application Task mutation capability is unavailable.");
-    }
-    const mutationInvoke = Reflect.get(mutationCapability, "invoke");
-    if (typeof mutationInvoke !== "function") {
-      throw new Error("Application Task mutation capability is unavailable.");
-    }
-    this.mutationReceiver = mutationCapability;
-    this.mutationInvoke = mutationInvoke;
-    this.acceptance = new Promise(resolve => {
-      this.resolveAcceptance = resolve;
-    });
-    this.interruptionRequest = new Promise(resolve => {
-      this.resolveInterruptionRequest = resolve;
-    });
-    this.interruptionAcceptance = new Promise(resolve => {
-      this.resolveInterruptionAcceptance = resolve;
-    });
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const pathname = new URL(request.url).pathname;
-    if (pathname === "/accepted") {
-      const body = JSON.parse(await request.text(), decodeRpcValue) as Readonly<{
-        readonly acceptance: TaskWorkerSessionAcceptanceV1;
-      }>;
-      this.resolveAcceptance?.(body.acceptance);
-      return new Response(null, { status: 204 });
-    }
-    if (pathname === "/interruption") {
-      return new Response(JSON.stringify(
-        await this.interruptionRequest,
-        encodeRpcValue,
-      ), { headers: { "content-type": "application/json" } });
-    }
-    if (pathname === "/interruption-accepted") {
-      const body = JSON.parse(await request.text(), decodeRpcValue) as Readonly<{
-        readonly interruptionAcceptance:
-          TaskWorkerSessionInterruptionAcceptanceV1;
-      }>;
-      this.resolveInterruptionAcceptance?.(body.interruptionAcceptance);
-      return new Response(null, { status: 204 });
-    }
-    if (pathname === "/query") {
-      try {
-        const queryRequest = JSON.parse(await request.text(), decodeRpcValue);
-        const result = await Reflect.apply(
-          this.queryInvoke,
-          this.queryReceiver,
-          [queryRequest],
-        );
-        try {
-          return new Response(JSON.stringify(result, encodeRpcValue), {
-            headers: { "content-type": "application/json" },
-          });
-        } finally {
-          if (result !== null &&
-            (typeof result === "object" || typeof result === "function")) {
-            const dispose = Reflect.get(result, Symbol.dispose);
-            if (typeof dispose === "function") Reflect.apply(dispose, result, []);
-          }
-        }
-      } catch (cause) {
-        return new Response(String(cause), { status: 500 });
-      }
-    }
-    if (pathname === "/mutation") {
-      try {
-        const mutationRequest = JSON.parse(await request.text(), decodeRpcValue);
-        const result = await Reflect.apply(
-          this.mutationInvoke,
-          this.mutationReceiver,
-          [mutationRequest],
-        );
-        try {
-          return new Response(JSON.stringify(result, encodeRpcValue), {
-            headers: { "content-type": "application/json" },
-          });
-        } finally {
-          if (result !== null &&
-            (typeof result === "object" || typeof result === "function")) {
-            const dispose = Reflect.get(result, Symbol.dispose);
-            if (typeof dispose === "function") Reflect.apply(dispose, result, []);
-          }
-        }
-      } catch (cause) {
-        return new Response(String(cause), { status: 500 });
-      }
-    }
-    return new Response("not found", { status: 404 });
-  }
-
-  awaitAcceptance(
-    running: Promise<unknown>,
-  ): Promise<TaskWorkerSessionAcceptanceV1> {
-    return raceWithSessionRun(this.acceptance, running);
-  }
-
-  requestInterruption(
-    interruption: TaskWorkerSessionInterruptionRequestV1,
-    running: Promise<unknown>,
-  ): Promise<TaskWorkerSessionInterruptionAcceptanceV1> {
-    if (this.interruptionRequested) {
-      throw new Error("Application Task Worker interruption was requested twice.");
-    }
-    this.interruptionRequested = true;
-    this.resolveInterruptionRequest?.(interruption);
-    return raceWithSessionRun(this.interruptionAcceptance, running);
-  }
-}
-
-function raceWithSessionRun<Value>(
-  value: Promise<Value>,
-  running: Promise<unknown>,
-): Promise<Value> {
-  return Promise.race([
-    value,
-    running.then(
-      () => Promise.reject(new Error(
-        "Application Task Worker session ended before the requested evidence.",
-      )),
-      cause => Promise.reject(cause),
-    ),
-  ]);
-}
-
-async function callLiveTaskSession<Value>(
-  runtime: Miniflare,
-): Promise<Value> {
-  const response = await runtime.dispatchFetch("https://task-worker.test/run", {
-    method: "POST",
-  });
-  const responseText = await response.text();
-  if (!response.ok) {
-    throw new Error(`Application Task Worker session failed: ${responseText}`);
-  }
-  return JSON.parse(responseText, decodeRpcValue) as Value;
-}
-
-function encodeRpcValue(_key: string, value: unknown): unknown {
-  if (typeof value === "bigint") return { __bigint: String(value) };
-  if (value instanceof Uint8Array) return { __bytes: Array.from(value) };
-  return value;
-}
-
-function decodeRpcValue(_key: string, value: unknown): unknown {
-  if (
-    value !== null && typeof value === "object"
-    && "__bigint" in value
-    && typeof value.__bigint === "string"
-  ) return BigInt(value.__bigint);
-  return value;
-}
-
-function owned<Value extends object>(value: Value): Value {
-  Object.defineProperty(value, Symbol.dispose, {
-    configurable: true,
-    value: () => {},
-  });
-  return value;
 }
 
 function uuidSequence(...sequences: ReadonlyArray<number>): () => string {
