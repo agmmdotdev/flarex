@@ -1,7 +1,8 @@
 # FlarexDB Native Relational System
 
 Status: accepted architecture; private semantic/codec/Application Analysis gate
-`R01` completed on 2026-08-23, with physical planning gate `R01-P` next
+`R01` and physical snapshot/access preflight `R01-P` completed on 2026-08-23;
+stable relation/physical-definition binding `R02` is next
 
 Last reviewed: 2026-08-23
 
@@ -53,7 +54,7 @@ fx_app_edge_current
   = deterministic, rebuildable current adjacency sidecar
 
 selected exact-snapshot support
-  = edge history or endpoint adjacency versioning chosen before edge DDL
+  = atomically maintained endpoint adjacency last-changed versions
 
 stable relation catalog + immutable definitions
   = schema and physical interpretation authority
@@ -549,23 +550,43 @@ shape with:
 - final commit-time dependency validation;
 - the existing OCC conflict replacement and user-code rerun owner.
 
-Before binding the first immutable physical edge definition or adding edge DDL,
-`R01-P` must compare two explicit exact-snapshot supports over current edges:
+`R01-P` selected current edges plus an atomically maintained adjacency
+`last_changed_commit_seq` keyed by scope, physical edge definition, direction,
+and endpoint. Edge revision history is rejected for this generation and must
+not remain as a fallback or dual-write path.
 
-1. edge revision history capable of reconstructing the requested snapshot; or
-2. current edges plus an atomically maintained adjacency
-   `last_changed_commit_seq` keyed by scope, edge definition, direction, and
-   endpoint.
+A mutation reads the version before and after its bounded current-edge page,
+requires equality and a version no newer than the snapshot, registers that
+exact dependency, and validates it unchanged after locking the scope clock in
+the final commit. Absent is version `0`. Because every edge/version writer locks
+the same scope clock first, the final check also closes an absent-to-present
+registration race. A conflict uses the existing attempt replacement and
+deterministic rerun; there is no history or commit-feed reconstruction path.
 
-For the adjacency-version option, a mutation must read the adjacency version
-before and after the edge page, require both values to be equal and no newer
-than the snapshot, register that exact dependency, and validate it unchanged
-inside the final scope-clock transaction. A high-fanout endpoint may make that
-version a write hotspot. The preflight must compare representative high-fanout
-endpoints, tenant skew, prepared-plan behavior, index size, write amplification,
-churn/vacuum behavior, and populated-history `EXPLAIN ANALYZE` results.
-Commit-feed scanning is not an implicit fallback, and O10-R implements the
-already selected support rather than making the storage decision after S12.
+Current occurrence identity is `(scope, physical edge definition, source row,
+target row, duplicate ordinal)`; mutable position is not identity. Incoming
+pages use the `(scope, definition, target)` equality prefix and
+`(source, duplicate)` order. They return at most 128 logical identities, read
+at most 129 base rows for lookahead, retain only an internal frontier, and share
+a 4,096-occurrence transaction ceiling. Outgoing maintenance uses the matching
+source equality prefix and target/duplicate order.
+
+The genuine PostgreSQL `18.3` receipt used 33,179 current edges and a 20,000
+source hot endpoint. Both automatic and forced-generic plans used the intended
+indexes for distinct initial and resumed shapes without filtered rows, but the
+retained-history page scanned 16,385 revisions and 205 blocks to return its
+513-candidate ceiling while each selected current page read 129 rows and 5
+blocks. One-row-per-revision history required `12,402,688` bytes
+before churn and about `533` candidate-only WAL bytes per mixed mutation;
+adjacency versions required `5,160,960` bytes and about `515` bytes. Naked
+version-row contention was measurable, but with the already-required
+scope-clock-first lock both candidates completed the same 128-write workload
+in about 54-57 ms with about 7.5-9.3 ms p95. Final validation was observed blocking
+behind a writer's scope-clock lock and then rejecting the stale adjacency
+dependency. The full diagnostic receipt and
+reopen thresholds live in
+`roadmaps/flarexdb-foundation/04-payload-relational-contract.md`. Timing is
+local diagnostic evidence, not a product SLA.
 
 Multi-hop traversal, arbitrary graph patterns, unbounded pagination, raw joins,
 post-edge filters, and variable-length paths remain rejected until each has
@@ -685,10 +706,11 @@ The relation work should proceed through these bounded stages:
    Analysis, and one explicit manifest-contract evolution;
 2. complete (`R01`): freeze the narrow native Standard relation semantics and
    canonical occurrence/path codecs;
-3. next (`R01-P`): select edge-history or adjacency-version exact-snapshot
-   support over current edges through genuine-Postgres evidence;
-4. bind stable logical relation identities, immutable semantic definitions, and
-   immutable physical edge definitions into the schema lifecycle;
+3. complete (`R01-P`): select endpoint adjacency versions over edge history
+   through genuine-Postgres evidence and freeze the bounded access/page rule;
+4. next (`R02`): bind stable logical relation identities, immutable semantic
+   definitions, and immutable physical edge definitions into the schema
+   lifecycle;
 5. add private current-edge storage plus the selected exact-snapshot support and
    access paths;
 6. lower authoritative final rows, current edges, and the selected snapshot
@@ -706,7 +728,6 @@ The relation work should proceed through these bounded stages:
 14. implement Payload and other framework-adapter conformance over the proven
     native system.
 
-The first implementation checkpoint is complete at `R01`. Continue with the
-measured `R01-P` snapshot/access-path decision; do not start edge DDL, stable
-relation binding, runtime reads, or a Payload-shaped public API before their
-own gates.
+The first implementation checkpoint and its physical preflight are complete at
+`R01`/`R01-P`. Continue with `R02` binding; do not start edge DDL, runtime reads,
+or a Payload-shaped public API before their own gates.

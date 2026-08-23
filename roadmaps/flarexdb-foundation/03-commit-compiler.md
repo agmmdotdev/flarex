@@ -1014,12 +1014,11 @@ Outcome:
 - Include logical relation and immutable physical edge-definition identity,
   source row, top-level path, explicit absent locale, target row, codec version,
   canonical occurrence evidence, and occurrence identity.
-- Maintain current occurrences and exactly the selected snapshot support
-  atomically with the row update: append required edge revisions/tombstones
-  when history was selected, or advance every affected adjacency version when
-  version support was selected. Schema deployment/backfill owns
+- Maintain current occurrences and advance every affected endpoint adjacency
+  version atomically with the row update. Schema deployment/backfill owns
   parallel replacement-definition population through the same authority; the
-  mutation compiler must not reinterpret an old definition in place.
+  mutation compiler must not reinterpret an old definition in place or append
+  rejected edge history.
 - Inside the existing scope-clock commit transaction, validate each relation
   target against the complete same-commit final-row set plus authoritative
   stored state. A same-commit live target insert is valid; a same-commit target
@@ -1054,7 +1053,7 @@ Exit gate:
   orphan or fail-open result;
 - old and replacement physical edge definitions can coexist without
   cross-deleting one another;
-- current edges plus the selected edge-history or adjacency-version support,
+- current edges plus the selected endpoint adjacency-version support,
   target-live and `restrict` decisions, rollback, row revision/current,
   commit/change, outbox, and idempotency outcome publication remain one atomic
   decision;

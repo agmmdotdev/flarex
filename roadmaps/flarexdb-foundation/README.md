@@ -781,12 +781,16 @@ Dynamic Worker binding baseline before selecting it.
     generated-source cold-load proof. Concrete compatibility envelopes retain
     numeric versions; current semantic APIs do not. No persistence, runtime,
     activation, route, or public API changed.
-13. `R01-P` (next): select and measure relation snapshot support and access
-    paths, including pagination order and genuine-PostgreSQL high-fanout plans,
-    before relation identity is bound or edge DDL is frozen.
-14. `R02`: map analyzer-local relation declarations/ordinals into stable relation
-    IDs, immutable semantic definitions, reusable physical edge definitions, and
-    selected snapshot/read-key meaning in a post-analysis bound publication.
+13. `R01-P` (complete, physical preflight only): endpoint adjacency versions
+    selected over edge history through PGlite semantics and genuine-PostgreSQL
+    high-fanout, plan, size, WAL, contention, race, and vacuum evidence. The
+    frozen page returns at most 128 identities with one-row lookahead, an
+    internal source/duplicate frontier, and a 4,096-occurrence transaction
+    ceiling. No production DDL or reader was added.
+14. `R02` (next): map analyzer-local relation declarations/ordinals into stable
+    relation IDs, immutable semantic definitions, reusable physical edge
+    definitions, and selected snapshot/read-key meaning in a post-analysis bound
+    publication.
 15. `S12`: add stable current edge occurrences, the preflight-selected snapshot
     support, and the frozen physical access paths.
 16. `C09`: lower authoritative row changes into stable current edge occurrences

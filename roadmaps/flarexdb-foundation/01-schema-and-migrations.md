@@ -227,10 +227,10 @@ These decisions are durable and are not re-opened by each implementation turn:
 ## Explicitly Deferred
 
 - physical column, constraint-definition, and relation-definition catalogs;
-- `fx_app_edge_rev` unless `R01-P` selects edge-history support, and an
-  adjacency-version table unless `R01-P` selects version support; only `S12`
-  may introduce current-edge storage plus the one selected snapshot-support
-  representation, never both supports as parallel acceptance paths;
+- `fx_app_edge_rev` is rejected by R01-P and must not be introduced as a
+  compatibility, comparison, or fallback path; R01-P selected endpoint
+  adjacency versions, but only `S12` may introduce that table together with
+  current-edge storage and the frozen access paths;
 - dedicated block tables unless declared indexes prove insufficient;
 - normalized transaction dependencies until planner evidence requires them;
 - a generic row-version abstraction unless adapter integration requires it;
@@ -1248,7 +1248,7 @@ Exit gates:
   declaration authority;
 - digest collisions cannot silently alias two canonical occurrences.
 
-### [ ] R01-P — Select Relation Snapshot Support And Access Plan
+### [x] R01-P — Select Relation Snapshot Support And Access Plan
 
 Prerequisite: `R01` has frozen the first admitted semantic and occurrence
 contract. This preflight must finish before `R02` binds physical meaning or
@@ -1277,14 +1277,33 @@ Exit gates:
 
 - one candidate is selected and one rejected with reproducible real-Postgres
   receipts under accepted ceilings and skew;
-- the selected key/version or history identity covers ordinary commits,
+- the selected adjacency-version identity covers ordinary commits,
   managed backfill, repair, stale-definition coexistence, and rollback without
   an unbounded commit-feed scan;
-- edge-history selection includes retained-floor/anchor behavior, while
-  adjacency-version selection fixes its granularity and every event
-  that advances it; and
+- adjacency-version granularity and every event that advances it are fixed,
+  with no edge-history retained-floor or anchor obligation; and
 - no DDL, compiler, reader, or activation gate may retain the rejected candidate
   as a compatibility or fallback path.
+
+Selected physical input for `R02`/`S12`: current occurrence identity is
+`(scope, physical edge definition, source row, target row, duplicate ordinal)`;
+position is mutable metadata. Outgoing current access fixes the
+`(scope, definition, source)` equality prefix and `(target, duplicate)` order;
+incoming fixes `(scope, definition, target)` and `(source, duplicate)`. The
+selected support key is `(scope, definition, direction, endpoint) ->
+last_changed_commit_seq`, with absent equal to `0`, one coalesced advancement
+per affected endpoint/scope commit, and final validation under the existing
+scope-clock-first lock.
+
+The bounded first incoming page returns at most 128 identities, consumes at
+most 129 current rows including lookahead, carries only an internal
+`(source, duplicate)` frontier, and contributes to a 4,096-occurrence
+transaction ceiling. Inactive builds initialize nonempty endpoints to their
+captured frontier; enabled repair uses a replacement physical definition, and
+retirement retains versions through ordinary definition pins. The full
+PostgreSQL `18.3` receipt, rejected-history rationale, writer event matrix, and
+reopen conditions are recorded in
+[`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
 ### [ ] R02 — Bind Analyzed Relations Into App-Schema Publication
 
@@ -1335,10 +1354,9 @@ relation.
 
 Outcome:
 
-- Add current edge occurrences plus exactly the `R01-P`-selected snapshot
-  support: immutable edge-occurrence history or the selected adjacency-version
-  authority. Do not add the rejected support for comparison, fallback, or later
-  choice.
+- Add current edge occurrences plus exactly the `R01-P`-selected endpoint
+  adjacency-version authority. Do not add rejected edge history for comparison,
+  fallback, or later choice.
 - Key every edge to the stable logical relation and exact immutable physical
   edge definition that produced it.
 - Derive occurrence identity from the versioned canonical occurrence codec over
@@ -1349,10 +1367,9 @@ Outcome:
 - Add edge-definition-aware outgoing and incoming access paths only after
   their exact equality prefix, ordering, covering columns, and bounded-read
   semantics are frozen by `R01-P`/`R02`.
-- When history is selected, make edge revisions participate in the accepted
-  retained-floor and anchor rules. When adjacency versions are selected,
-  persist and transactionally advance their exact granularity for commits,
-  managed backfill, and repair.
+- Persist and transactionally advance endpoint adjacency versions at their
+  selected granularity for commits, managed backfill, and repair. They have no
+  edge-history retained-floor or anchor contract.
 
 Exit gates:
 

@@ -1,9 +1,10 @@
 # FlarexDB Native Relational Foundation Contract
 
-Status: `R01` complete on 2026-08-23 for the private semantic, codec, generated
-schema-module, Application Analysis, and manifest-contract slice; `R01-P` is
-next. No relation catalog, edge table, commit lowering, relation read,
-activation, public developer API, or Payload adapter is implemented
+Status: `R01` and the physical snapshot/access preflight `R01-P` are complete
+on 2026-08-23. Endpoint adjacency versions are selected; `R02` stable binding
+is next. No relation catalog, production edge/version table, commit lowering,
+relation read, activation, public developer API, or Payload adapter is
+implemented
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -46,7 +47,7 @@ fx_app_edge_current
   = derived, rebuildable current adjacency sidecar
 
 selected exact-snapshot support
-  = edge history or endpoint adjacency versioning chosen before edge DDL
+  = atomically maintained endpoint adjacency last-changed versions
 
 stable relation catalog + immutable semantic/physical definitions
   = schema and interpretation authority
@@ -467,10 +468,10 @@ occurrence contract and must not introduce a separate physical table.
 
 ## Physical Edge And Snapshot Storage
 
-`R01-P` selects the exact-snapshot support before physical binding or DDL.
-`S12` always adds current edges and also adds exactly one selected support:
-edge revision history, or an endpoint adjacency version maintained atomically
-with current edges. The conceptual current row contains:
+`R01-P` selected endpoint adjacency versions before physical binding or DDL.
+`S12` adds current edges plus that support, maintained atomically with current
+edges. Edge revision history is rejected for this generation. The conceptual
+current row contains:
 
 ```text
 scope UUID
@@ -519,7 +520,7 @@ update ordering metadata
 incoming adjacency change
 outgoing adjacency change
 referential-constraint action
-selected adjacency-version or edge-history action
+adjacency-version action
 ```
 
 The existing point/multi-row commit owner applies those actions atomically with:
@@ -587,16 +588,11 @@ Deleting a source row removes its outgoing derived edges in the same commit.
 definition is enabled. It does not alone reconstruct an older mutation
 snapshot.
 
-`R01-P` must select and prove the physical viability of one exact-snapshot
-support over current edges:
-
-1. edge revision history plus an exact adjacency/range dependency; or
-2. an atomically maintained adjacency
-   `last_changed_commit_seq` for scope, edge definition, direction, and
-   endpoint.
-
-`O10-R` then implements one bounded incoming source/occurrence page using that
-already selected support. For the adjacency-version option, a mutation must:
+`R01-P` selected an atomically maintained endpoint adjacency
+`last_changed_commit_seq` over current edges. Immutable edge-occurrence history
+is rejected for this generation; it is not a fallback, comparison write, or
+second read path. `O10-R` implements one bounded incoming source/occurrence page
+using the selected support. A mutation read must:
 
 ```text
 read adjacency version before the edge page
@@ -608,6 +604,80 @@ register that exact dependency
 validate it unchanged inside final commit
 ```
 
+The absent-version sentinel is `0`. The final validation first locks the
+existing scope clock, then compares the stored endpoint version with the exact
+dependency. Every current-edge writer locks that same scope clock before it
+changes current edges or versions. This closes both present-row and
+absent-to-present registration races without holding a relation lock while user
+code runs. A mismatch or version newer than the snapshot uses the existing OCC
+attempt replacement and deterministic user-code rerun; it never reconstructs
+from commit-feed or edge-history rows.
+
+The admitted current occurrence identity is symbolically:
+
+```text
+(scope, physical edge definition, source row, target row, duplicate ordinal)
+```
+
+The physical edge definition already fixes the top-level source path, source
+and monomorphic target tables, occurrence codec, and ordered meaning. Position
+is nullable mutable ordering metadata, never occurrence identity. The frozen
+current-edge access paths are:
+
+```text
+outgoing equality: (scope, edge definition, source row)
+outgoing order:    (target row, duplicate ordinal)
+incoming equality: (scope, edge definition, target row)
+incoming order:    (source row, duplicate ordinal)
+```
+
+The frozen projection for both paths includes position and commit provenance in
+addition to their key columns. The R01-P plan proof is for the admitted incoming
+page; it does not claim an outgoing index-only scan. Canonical occurrence
+bytes/SHA-256 remain retained collision evidence, but are not pagination-order
+fields and need not be copied into an access index. `R02` binds the symbolic
+identities to stable catalog and row-ID types; `S12` owns exact DDL spelling,
+covering-index decisions, and native compact/UUID representation.
+
+One incoming storage page returns at most `128` logical source/occurrence
+identities and reads at most `129` current rows for lookahead. Its internal
+consumed frontier is the last `(source row, duplicate ordinal)` inspected under
+the bound scope/definition/target equality prefix. Exhausted means every
+returned base row was consumed and no lookahead exists: zero rows and an exact
+full page without lookahead are both exhausted, while a full page with a
+lookahead row is not. One transaction may consume at most `4,096`
+base relation occurrences across relation calls. There is no caller-authored
+cursor. `O10-R` must compose the transaction-local overlay without weakening
+these base-row, frontier, or total-work ceilings.
+
+The selected version key is:
+
+```text
+(scope, physical edge definition, direction, endpoint row)
+  -> last_changed_commit_seq
+```
+
+Within one scope commit, `C09` advances each affected endpoint at most once to
+that commit sequence, in the same transaction as current edges and all existing
+commit facts. Insert advances outgoing source and incoming target; removal
+advances outgoing source and old incoming target; retarget advances outgoing
+source plus old and new incoming targets; position/order or occurrence-evidence
+change advances every direction whose logical projection changed; source delete
+advances its outgoing endpoint and every affected incoming target. Values never
+decrease. Transaction rollback rolls back current-edge and version changes
+together.
+
+Backfill and repair never rewrite an enabled definition invisibly. `E01` builds
+an inactive physical edge definition at fixed scope frontier `F`, creates its
+current edges, initializes every nonempty endpoint version to `F`, validates the
+whole definition, and only then makes it eligible for activation. Empty
+endpoints remain absent/`0`. Stale and replacement definitions coexist because
+the physical edge definition is part of every key. A repair rebuilds an
+inactive replacement definition/generation; rollback discards that candidate or
+reactivates the independently keyed predecessor. Adjacency versions are retained
+until their physical definition passes normal retirement pins; they have no
+O11 retained-history floor or anchor.
+
 The read also requires:
 
 - complete transaction-local read-your-writes overlay;
@@ -616,11 +686,8 @@ The read also requires:
 - the existing conflict replacement and deterministic user-code rerun owner.
 
 The page returns only logical occurrence/source-endpoint identities. Document
-loading is a separate point-read composition, and the first operation has no
-caller-authored cursor. `R01-P` measures high-fanout contention, tenant skew,
-prepared plans, index size, write amplification, churn/vacuum behavior, and
-populated-history `EXPLAIN ANALYZE` results before selection. Commit-feed
-scanning is not an automatic fallback.
+loading is a separate point-read composition. The R01-P receipt below owns the
+physical selection; commit-feed scanning is not an automatic fallback.
 
 Multi-hop traversal, arbitrary graph patterns, raw joins, unbounded pagination,
 post-relation filters, variable-length paths, and mutations through graph
@@ -849,7 +916,7 @@ Every V1-only group remains fail-closed in R01. `R02` must evolve the exact
 post-analysis binding and its consumers together; no union-aware host result
 may be persisted by merely stripping relations or decoding it as V1.
 
-### [ ] R01-P — Select Snapshot Support And Access Paths
+### [x] R01-P — Select Snapshot Support And Access Paths
 
 Prerequisite: R01 has frozen the exact first relation/read semantics.
 
@@ -874,6 +941,95 @@ Exit gates:
   physical-definition meaning are explicit inputs to R02;
 - PGlite compatibility remains possible, while genuine PostgreSQL owns the
   production plan and contention evidence.
+
+Completion receipt (2026-08-23):
+
+- The retained private harness is
+  `packages/persistence-postgres/test/relationSnapshotSupportPreflight.ts`,
+  with a seven-case PGlite semantic lane and a fail-closed PostgreSQL physical
+  lane. Its candidate tables are created only inside a disposable schema; no
+  production migration, package export, runtime caller, compiler, or reader was
+  added.
+- The selecting run used a fresh disposable schema on a dedicated exclusive
+  PostgreSQL `18.3` cluster with default planner mode, `random_page_cost = 4`,
+  `full_page_writes = on`, and `wal_compression = off`. The deterministic
+  profile contained `33,179`
+  current edges, `49,051` history revisions, `33,500` adjacency-version rows,
+  a `20,000`-source hot endpoint, 64 ordinary endpoints of fanout 32, eight
+  skewed scopes, `1,024` churn mutations, and four prewarmed 8-writer by
+  16-write contention trials. History was represented fairly as one immutable
+  row per occurrence revision plus one incoming snapshot index; it was not
+  doubled into separate incoming and outgoing rows. Of the history rows,
+  `512` identities retained 32 revisions each.
+- Distinct initial and after-frontier query shapes prevented nullable-cursor
+  filters. Automatic and forced-generic prepared plans for both shapes used
+  only the intended indexes, with one loop, no filtered rows, no sort, and no
+  candidate-table sequential scan. The retained-history hot page returned its
+  513-candidate ceiling but
+  scanned `16,385` physical revisions, used 205 shared-hit blocks, and took
+  `2.800 ms`; its work grew with retained depth. The selected initial and
+  near-tail resumed current-edge pages each read 129 rows using 5 blocks in
+  `0.034 ms` and `0.046 ms`, respectively; the version point read one row using
+  4 blocks in `0.020 ms`. These local timings are diagnostic, not an SLA.
+- Before churn, candidate-only total storage was `12,402,688` bytes for edge
+  history versus `5,160,960` bytes for adjacency versions; the shared current
+  edge table/indexes were `7,077,888` bytes and are not charged to either
+  candidate.
+- Each exclusive WAL round used exactly 256 inserts, 256 deletes, 256
+  retargets, and 256 reorders. Required preexisting candidate state was seeded
+  before the starting LSN; shared current-edge writes, scope-clock writes, and
+  all other shared row writes were excluded from both candidate deltas. Each
+  candidate delta included the same one batch-transaction commit record,
+  amortized across its 1,024 logical mutations. Three alternating rounds
+  averaged `533.284` bytes per history mutation versus `515.141` per
+  adjacency-version mutation.
+- The naked hot endpoint showed the expected adjacency-row tradeoff (`4.255 ms`
+  p95 versus history's `2.283 ms`). Under the production-relevant existing
+  scope-clock-first lock, all 128 transactions completed and the candidates
+  remained within the accepted 2x boundary: `57.476 ms` total and `9.271 ms`
+  p95 for adjacency versus `53.861 ms` and `7.485 ms` for history. The version
+  row therefore adds no wider lock domain while scope commits remain
+  serialized.
+- Churn produced an approximate `6,108` dead adjacency tuples before ordinary
+  `VACUUM (ANALYZE)` and zero afterward. History avoided update garbage but
+  grew append-only. After churn and ordinary vacuum, candidate storage was
+  `14,278,656` bytes for history versus `6,283,264` bytes for versions;
+  ordinary vacuum correctly reused space rather than shrinking files.
+- Across the PostgreSQL and PGlite lanes, the proof covers current-page parity,
+  old-snapshot history reconstruction versus conservative version conflict,
+  insert/delete/retarget/reorder behavior, empty/exhausted and bounded frontier
+  semantics, rollback, stale-definition isolation, and present/absent version
+  races. A coordinated
+  final-validation proof captured expected version `0`, let a writer hold the
+  scope clock with version `2`, observed final validation block behind that
+  writer, and rejected the stale dependency after acquiring the clock. A
+  genuine-PostgreSQL transaction also proved that current edges, history, scope
+  clock, and versions remain invisible together after rollback.
+
+Selection: endpoint adjacency version wins. It preserves a direct bounded
+current-edge read, uses materially less storage and slightly less WAL in the
+fair mixed workload, and its only losing dimension—the naked hot-row lock—does
+not widen the accepted scope-clock commit serialization. Edge history loses on
+retained size and depth-amplified reconstruction while solving an
+older-snapshot case that the existing OCC rerun owner can safely reject and
+rerun.
+
+Reopen R01-P before changing production storage only if at least one of these
+boundaries changes:
+
+- commits that can affect one endpoint cease to serialize through the same
+  scope-clock-first transaction;
+- a supported caller must return an older relation snapshot instead of taking a
+  typed OCC conflict and deterministic rerun;
+- page/fanout/work limits exceed the measured `128`/`20,000`/`4,096` profile;
+- an enabled definition must be repaired in place without a newly advancing
+  authoritative commit sequence or replacement physical definition; or
+- three alternating exclusive PostgreSQL trials on the proposed production
+  schema show adjacency-version total storage or WAL no better than history, or
+  scope-serialized p95/total completion more than `2x` history.
+
+Reopening is a new preflight, not permission to ship dual writes, retain edge
+history as fallback, or scan the commit feed.
 
 ### [ ] R02 — Bind Relation And Edge Definitions Into Schema Lifecycle
 

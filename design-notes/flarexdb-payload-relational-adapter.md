@@ -213,7 +213,7 @@ row revisions/current pointers
 ordered index sidecars
 unique claims
 current edge occurrences
-selected edge-history or adjacency-version snapshot-support actions
+selected endpoint adjacency-version actions
 scope-local commit/change facts
 outbox work
 result/outcome evidence where applicable

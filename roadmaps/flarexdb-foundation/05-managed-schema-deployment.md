@@ -873,8 +873,9 @@ Outcome:
 
 - add scope-fenced, bounded build/readiness state for each immutable physical
   edge definition required by one candidate relation-bearing revision;
-- populate and repair current edges plus the selected edge-history or adjacency-
-  version support from authoritative rows through the same C09 lowerer;
+- populate and repair current edges plus the selected endpoint
+  adjacency-version support from authoritative rows through the same C09
+  lowerer;
 - revalidate target liveness, duplicate rejection, exact expected occurrences,
   canonical evidence/collisions, and the selected snapshot/version state while
   relevant concurrent commits advance the frontier;

@@ -1924,12 +1924,10 @@ preflight rather than opportunistic DDL.
   index revisions precede their referenced app-row revisions; headers follow
   their removable children. Every O11-D owner must inventory all incoming
   foreign keys and prove that a blocked retained reference stops the page.
-- If `R01-P` selects edge history, `S12` must adopt the same anchor rule before
-  that history joins the global floor, and O10-R must consume that exact meaning.
-  Compacted absence must never be accepted as evidence of no row, no edge
-  occurrence, no index membership, or no conflict. If current edges plus an
-  adjacency version are selected, O11 must not invent or compact a second edge
-  history.
+- `R01-P` selected current edges plus endpoint adjacency versions. O11 must not
+  invent or compact a second edge-history path. Compacted absence must never be
+  accepted as evidence of no row, no edge occurrence, no index membership, or
+  no conflict.
 - Foreign-key blockers, unexpected cardinality, corrupt chains, missing
   anchors, or owner disagreement stop the page without `CASCADE`, fallback, or
   floor reinterpretation.
