@@ -539,9 +539,10 @@ Named Flarex differences are:
 are complete. The approved `TQ-B` Application-native query pilot is implemented,
 PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
 remains open. The approved `TQ-C` Application-native mutation localization work
-is in progress through bounded candidate-guard, initial-commit, and validation/
-concurrent-duplicate, OCC conflict/rerun, and head-movement observation slices.
-Remaining `TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
+is complete through bounded candidate-guard, initial-commit, validation/
+concurrent-duplicate, OCC conflict/rerun, head-movement, and terminalization
+observation slices. Remaining `TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work
+requires separate
 implementation approval. No test deletion, lane merger, fixture-lifetime change,
 or package extraction is authorized by this section alone.
 
@@ -764,10 +765,30 @@ The work proceeds in bounded gates:
    no PostgreSQL credential, that lane reports its explicit environment failure
    and skips the aggregate scenario; genuine PostgreSQL remains pending. A single
    previous/current sample measured 13.21/13.43 seconds total and 7.02/6.71
-   seconds of test time, insufficient to infer a runtime change. Terminalization
-   remains aggregate follow-up work. File size is a review signal, not a deletion
-   rule; later slices must improve attribution without weakening ordering,
-   concurrency, transaction, or fault evidence.
+   seconds of test time, insufficient to infer a runtime change.
+
+   The sixth bounded slice replaces `terminalJournalFailureDidNotCommit` and
+   `terminalFailureDidNotCommit` with a `terminalization` observation. The caught
+   journal path exposes its `PinnedPointTableNotFoundV1Error`, deployment, schema
+   version, and `missing_table` target. The user-code path exposes its
+   `PointMutationOccUserCodeV1Error` plus the retained
+   `ApplicationWorkerUserCodeV1Error` name and message. Only those exact typed
+   tags become observation data; every other typed failure, defect, and
+   interruption propagates. Each path owns explicit before/after commit,
+   idempotency-outcome, feed, and outbox counts, plus its Worker-load snapshot.
+   The wrappers compare the actual counter records directly, prove one fresh
+   Worker per terminal attempt, and preserve continuity between the two failure
+   boundaries; string serialization is no longer used as state evidence. The
+   focused PGlite suite and package typecheck pass with the same one-test,
+   one-fixture lifecycle and unchanged scenario order. With no PostgreSQL
+   credential, that lane reports its explicit environment failure and skips the
+   aggregate scenario; genuine PostgreSQL remains pending. A single previous/
+   current sample measured 13.43/13.76 seconds total and 6.71/6.82 seconds of
+   test time, insufficient to infer a runtime change. Application-native mutation
+   localization is complete after this slice; broader stored-attempt or cross-
+   lane consolidation remains separately bounded. File size is a review signal,
+   not a deletion rule; later work must not weaken ordering, concurrency,
+   transaction, or fault evidence.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case
@@ -905,13 +926,13 @@ and stale non-authoritative caches without changing the Postgres oracle.
    contract against genuine PostgreSQL. The focused package typecheck is green;
    preserve the implemented shared scenario/assertion contract and each lane's
    activation, fixture construction, and resource-lifetime ownership.
-4. **Continue bounded `TQ-C` localization.** Keep the candidate-guard, initial-
-   commit, validation-catch, concurrent-duplicate, and OCC conflict/rerun
-   observations plus head-movement evidence, then localize caught terminal-
-   journal and terminal user-code failure evidence without changing the shared
-   fixture, sequential state transitions, or lane-specific resource ownership.
+4. **Preserve the completed Application-native mutation localization.** Its six
+   bounded slices now expose candidate-guard, initial-commit, validation,
+   concurrent-duplicate, OCC, head-movement, and terminalization evidence without
+   changing the shared fixture or lane-specific resource ownership. Run the
+   aggregate scenario against genuine PostgreSQL when credentials are available.
    Do not introduce cross-lane contract reuse while `TQ-B` PostgreSQL acceptance
-   remains open.
+   remains open; stored-attempt decomposition is a separate `TQ-C` approval.
 5. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,

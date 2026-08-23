@@ -84,8 +84,7 @@ export interface ApplicationNativeMutationProof {
   readonly concurrentDuplicate: ApplicationNativeMutationConcurrentDuplicateObservation;
   readonly occConflict: ApplicationNativeMutationOccConflictObservation;
   readonly headMovement: ApplicationNativeMutationHeadMovementObservation;
-  readonly terminalJournalFailureDidNotCommit: true;
-  readonly terminalFailureDidNotCommit: true;
+  readonly terminalization: ApplicationNativeMutationTerminalizationObservation;
   readonly candidateSchemaWriteGuard: ApplicationNativeMutationCandidateSchemaWriteGuardObservation;
   readonly freshWorkerLoads: number;
   readonly commitCount: number;
@@ -220,6 +219,78 @@ export interface ApplicationNativeMutationHeadMovementObservation {
   readonly workerLoadsBeforeRelease: number;
   readonly publication: ApplicationNativeMutationPinnedHeadPublicationObservation;
   readonly executionRevisionIds: ReadonlyArray<string>;
+}
+
+export interface ApplicationNativeMutationDurableCountsObservation {
+  readonly commits: number;
+  readonly outcomes: number;
+  readonly feed: number;
+  readonly outbox: number;
+}
+
+type ApplicationNativeMutationJournalTerminalError = Extract<
+  InvokeStandardApplicationPointMutationV1Error,
+  { readonly _tag: "PinnedPointTableNotFoundV1Error" }
+>;
+
+export type ApplicationNativeMutationJournalTerminalOutcomeObservation =
+  | {
+    readonly disposition: "accepted";
+    readonly outcomeDisposition: "published" | "replayed";
+    readonly commitSeq: bigint;
+  }
+  | {
+    readonly disposition: "rejected";
+    readonly errorTag: ApplicationNativeMutationJournalTerminalError["_tag"];
+    readonly deploymentId:
+      ApplicationNativeMutationJournalTerminalError["deploymentId"];
+    readonly schemaVersionId:
+      ApplicationNativeMutationJournalTerminalError["schemaVersionId"];
+    readonly tableName: ApplicationNativeMutationJournalTerminalError["tableName"];
+  };
+
+type ApplicationNativeMutationUserCodeTerminalError = Extract<
+  InvokeStandardApplicationPointMutationV1Error,
+  { readonly _tag: "PointMutationOccUserCodeV1Error" }
+>;
+
+export type ApplicationNativeMutationUserCodeCauseObservation =
+  | {
+    readonly kind: "error";
+    readonly name: string;
+    readonly message: string;
+  }
+  | {
+    readonly kind: "nonError";
+    readonly valueType: string;
+  };
+
+export type ApplicationNativeMutationUserCodeTerminalOutcomeObservation =
+  | {
+    readonly disposition: "accepted";
+    readonly outcomeDisposition: "published" | "replayed";
+    readonly commitSeq: bigint;
+  }
+  | {
+    readonly disposition: "rejected";
+    readonly errorTag: ApplicationNativeMutationUserCodeTerminalError["_tag"];
+    readonly cause: ApplicationNativeMutationUserCodeCauseObservation;
+  };
+
+export interface ApplicationNativeMutationTerminalFailureObservation<Outcome> {
+  readonly outcome: Outcome;
+  readonly before: ApplicationNativeMutationDurableCountsObservation;
+  readonly after: ApplicationNativeMutationDurableCountsObservation;
+  readonly workerLoads: number;
+}
+
+export interface ApplicationNativeMutationTerminalizationObservation {
+  readonly journal: ApplicationNativeMutationTerminalFailureObservation<
+    ApplicationNativeMutationJournalTerminalOutcomeObservation
+  >;
+  readonly userCode: ApplicationNativeMutationTerminalFailureObservation<
+    ApplicationNativeMutationUserCodeTerminalOutcomeObservation
+  >;
 }
 
 export type ApplicationNativeMutationConfigurationObservation =
@@ -631,51 +702,124 @@ export async function proveApplicationNativeMutation(
 
   const beforeJournalFailure = await durableCounts(fixture.target);
   loader.mode = "catchTerminalJournalFailure";
-  let terminalJournalFailed = false;
-  try {
-    await invoke(invokeStandardApplicationPointMutationV1(
+  const terminalJournalOutcome = await invoke(
+    invokeStandardApplicationPointMutationV1(
       create,
       { name: "Caught terminal journal failure" },
       TransactionRequestKeyV1Schema.make(
         "application-native:create:terminal-journal",
       ),
-    ));
-  } catch {
-    terminalJournalFailed = true;
-  }
+    ).pipe(
+      Effect.map(outcome => Object.freeze({
+        disposition: "accepted" as const,
+        outcomeDisposition: outcome.disposition,
+        commitSeq: outcome.commitSeq,
+      })),
+      Effect.catchTag(
+        "PinnedPointTableNotFoundV1Error",
+        error => Effect.succeed(Object.freeze({
+          disposition: "rejected" as const,
+          errorTag: error._tag,
+          deploymentId: error.deploymentId,
+          schemaVersionId: error.schemaVersionId,
+          tableName: error.tableName,
+        })),
+      ),
+    ),
+  );
+  const workerLoadsAfterJournalFailure = loader.loads;
   const afterJournalFailure = await durableCounts(fixture.target);
-  const terminalJournalFailureDidNotCommit = terminalJournalFailed &&
-    JSON.stringify(afterJournalFailure) === JSON.stringify(beforeJournalFailure);
-  if (!terminalJournalFailureDidNotCommit) {
-    throw new Error("Caught terminal journal failure changed durable commit state.");
+  const journalCountsStayedStable = sameApplicationNativeMutationDurableCounts(
+    afterJournalFailure,
+    beforeJournalFailure,
+  );
+  if (
+    terminalJournalOutcome.disposition !== "rejected" ||
+    terminalJournalOutcome.tableName !== "missing_table" ||
+    !journalCountsStayedStable
+  ) {
+    const outcomeDetail = terminalJournalOutcome.disposition === "rejected"
+      ? `${terminalJournalOutcome.errorTag}/${terminalJournalOutcome.tableName}`
+      : `accepted/${terminalJournalOutcome.outcomeDisposition}`;
+    throw new Error(
+      `Caught terminal journal failure was not preserved: ${outcomeDetail}; durableCountsStable=${journalCountsStayedStable}.`,
+    );
   }
+  const terminalJournalFailure: ApplicationNativeMutationTerminalFailureObservation<
+    ApplicationNativeMutationJournalTerminalOutcomeObservation
+  > = Object.freeze({
+    outcome: terminalJournalOutcome,
+    before: beforeJournalFailure,
+    after: afterJournalFailure,
+    workerLoads: workerLoadsAfterJournalFailure,
+  });
 
   const beforeFailure = afterJournalFailure;
   loader.mode = "terminalFailure";
-  let terminalFailed = false;
-  try {
-    await invoke(invokeStandardApplicationPointMutationV1(
+  const terminalUserCodeOutcome = await invoke(
+    invokeStandardApplicationPointMutationV1(
       create,
       { name: "Must not commit" },
       TransactionRequestKeyV1Schema.make("application-native:create:3"),
-    ));
-  } catch {
-    terminalFailed = true;
-  }
+    ).pipe(
+      Effect.map(outcome => Object.freeze({
+        disposition: "accepted" as const,
+        outcomeDisposition: outcome.disposition,
+        commitSeq: outcome.commitSeq,
+      })),
+      Effect.catchTag(
+        "PointMutationOccUserCodeV1Error",
+        error => Effect.succeed(Object.freeze({
+          disposition: "rejected" as const,
+          errorTag: error._tag,
+          cause: observeApplicationNativeMutationUserCodeCause(error.cause),
+        })),
+      ),
+    ),
+  );
+  const workerLoadsAfterUserCodeFailure = loader.loads;
   const afterFailure = await durableCounts(fixture.target);
-  const terminalFailureDidNotCommit = terminalFailed &&
-    JSON.stringify(afterFailure) === JSON.stringify(beforeFailure);
-  if (!terminalFailureDidNotCommit) {
-    throw new Error("Application terminal failure changed durable commit state.");
+  const userCodeCountsStayedStable = sameApplicationNativeMutationDurableCounts(
+    afterFailure,
+    beforeFailure,
+  );
+  if (
+    terminalUserCodeOutcome.disposition !== "rejected" ||
+    terminalUserCodeOutcome.cause.kind !== "error" ||
+    terminalUserCodeOutcome.cause.name !== "ApplicationWorkerUserCodeV1Error" ||
+    terminalUserCodeOutcome.cause.message !== "application terminal failure" ||
+    !userCodeCountsStayedStable
+  ) {
+    const outcomeDetail = terminalUserCodeOutcome.disposition === "rejected"
+      ? `${terminalUserCodeOutcome.errorTag}/${terminalUserCodeOutcome.cause.kind}` +
+        (terminalUserCodeOutcome.cause.kind === "error"
+          ? `/${terminalUserCodeOutcome.cause.name}/${terminalUserCodeOutcome.cause.message}`
+          : `/${terminalUserCodeOutcome.cause.valueType}`)
+      : `accepted/${terminalUserCodeOutcome.outcomeDisposition}`;
+    throw new Error(
+      `Application terminal user-code failure was not preserved: ${outcomeDetail}; durableCountsStable=${userCodeCountsStayedStable}.`,
+    );
   }
+  const terminalUserCodeFailure: ApplicationNativeMutationTerminalFailureObservation<
+    ApplicationNativeMutationUserCodeTerminalOutcomeObservation
+  > = Object.freeze({
+    outcome: terminalUserCodeOutcome,
+    before: beforeFailure,
+    after: afterFailure,
+    workerLoads: workerLoadsAfterUserCodeFailure,
+  });
+  const terminalization: ApplicationNativeMutationTerminalizationObservation =
+    Object.freeze({
+      journal: terminalJournalFailure,
+      userCode: terminalUserCodeFailure,
+    });
   return Object.freeze({
     initialCommit,
     validationCatch,
     concurrentDuplicate,
     occConflict,
     headMovement,
-    terminalJournalFailureDidNotCommit: true,
-    terminalFailureDidNotCommit: true,
+    terminalization,
     candidateSchemaWriteGuard,
     freshWorkerLoads: loader.loads,
     commitCount: afterFailure.commits,
@@ -1140,6 +1284,31 @@ async function durableCounts(persistence: ApplicationNativeMutationPersistence) 
     feed: Number(row.feed),
     outbox: Number(row.outbox),
   });
+}
+
+function sameApplicationNativeMutationDurableCounts(
+  left: ApplicationNativeMutationDurableCountsObservation,
+  right: ApplicationNativeMutationDurableCountsObservation,
+): boolean {
+  return left.commits === right.commits &&
+    left.outcomes === right.outcomes &&
+    left.feed === right.feed &&
+    left.outbox === right.outbox;
+}
+
+function observeApplicationNativeMutationUserCodeCause(
+  cause: ApplicationNativeMutationUserCodeTerminalError["cause"],
+): ApplicationNativeMutationUserCodeCauseObservation {
+  return cause instanceof Error
+    ? Object.freeze({
+      kind: "error",
+      name: cause.name,
+      message: cause.message,
+    })
+    : Object.freeze({
+      kind: "nonError",
+      valueType: typeof cause,
+    });
 }
 
 interface Deferred<A> {

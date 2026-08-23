@@ -7,9 +7,10 @@ are complete. Historical alias convergence remains `TQ-A2`. The `TQ-B`
 Application-native query contract is implemented, PGlite-validated, and
 package-typechecked, with genuine PostgreSQL acceptance pending. Runtime timing
 and test-level skip attribution remain explicit telemetry gaps rather than
-inferred results. `TQ-C` Application-native mutation localization is in progress
+inferred results. `TQ-C` Application-native mutation localization is complete
 through bounded candidate-guard, initial-commit, and validation/concurrent-
-duplicate, OCC conflict/rerun, and head-movement observation slices.
+duplicate, OCC conflict/rerun, head-movement, and terminalization observation
+slices.
 
 This file is the living operational inventory for
 [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md).
@@ -242,9 +243,16 @@ suffixes produces 126 multi-lane filename groups:
    their cause after releasing and settling the blocked mutation. The wrappers
    assert the non-retryable `validateSelection` / `concurrentHead` rejection,
    consecutive commit/load progression, distinct active head, and one execution
-   on the admitted revision. Fixture ownership, scenario order, and the one-test
-   lane shape remain unchanged. Terminalization remains aggregate and must be
-   localized before considering a generic cross-lane suite.
+   on the admitted revision. The sixth slice replaces both terminal-failure
+   Booleans with exact missing-pinned-table and user-code error observations,
+   retained Worker-cause details, explicit before/after commit, outcome, feed and
+   outbox counts, and per-attempt Worker loads. Only the two expected typed tags
+   become data; all other failures propagate. The wrappers compare the counter
+   records directly, prove one fresh Worker per failed attempt, and retain state
+   continuity between the two terminal boundaries. Fixture ownership, scenario
+   order, and the one-test lane shape remain unchanged. Application-native
+   mutation localization is complete; a generic cross-lane suite still requires
+   genuine PostgreSQL acceptance and its own approval.
 
 ### Non-Candidates Without Further Proof
 
@@ -300,13 +308,12 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    shared contract through genuine PostgreSQL while retaining separate lane
    activation and PostgreSQL resource ownership; the focused package typecheck
    is green.
-3. **Continue `TQ-C` Application-native mutation failure localization.** The
-   candidate-schema write-guard, initial-commit, validation-catch, and concurrent-
-   duplicate groups plus OCC conflict/rerun and head movement now return typed
-   attributable observations. Localize caught terminal-journal and terminal
-   user-code failure evidence next while preserving the shared fixture and
-   sequential mutation state. Do not widen to a cross-lane contract suite while
-   `TQ-B` PostgreSQL acceptance remains open.
+3. **Preserve completed Application-native mutation localization.** Its six
+   bounded slices return typed attributable observations while retaining the
+   shared fixture and sequential mutation state. Run the aggregate scenario
+   through genuine PostgreSQL when credentials are available, and do not widen
+   to a cross-lane contract suite while `TQ-B` PostgreSQL acceptance remains
+   open.
 4. **`TQ-C` stored-attempt evidence decomposition.** Highest line
    concentration and broadest owner interaction; begin only after the active
    persistence preflight work is complete and review every transaction,
@@ -318,5 +325,6 @@ exists, runtime-based pruning or fixture sharing is not authorized.
 `TQ-P` and `TQ-A1` are complete. `TQ-A2` has completed exact-duplicate and
 ordered-subset pilots, with consumer/removal policy still open. `TQ-B` is the
 first implemented harness-reuse pilot. Its remaining acceptance gate does not
-authorize wider contract-suite extraction. The approved first five `TQ-C`
-slices are implemented; later localization slices remain separately bounded.
+authorize wider contract-suite extraction. All six approved Application-native
+mutation `TQ-C` slices are implemented; later `TQ-C` candidates remain separately
+bounded.

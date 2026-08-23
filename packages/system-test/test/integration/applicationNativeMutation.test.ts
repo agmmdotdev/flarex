@@ -45,8 +45,28 @@ describe("Application-native Standard mutation - PGlite", () => {
         },
         publication: { disposition: "published" },
       },
-      terminalJournalFailureDidNotCommit: true,
-      terminalFailureDidNotCommit: true,
+      terminalization: {
+        journal: {
+          outcome: {
+            disposition: "rejected",
+            errorTag: "PinnedPointTableNotFoundV1Error",
+            deploymentId: expect.any(String),
+            schemaVersionId: expect.any(String),
+            tableName: "missing_table",
+          },
+        },
+        userCode: {
+          outcome: {
+            disposition: "rejected",
+            errorTag: "PointMutationOccUserCodeV1Error",
+            cause: {
+              kind: "error",
+              name: "ApplicationWorkerUserCodeV1Error",
+              message: "application terminal failure",
+            },
+          },
+        },
+      },
       candidateSchemaWriteGuard: {
         exact: { disposition: "accepted" },
         copied: {
@@ -136,5 +156,20 @@ describe("Application-native Standard mutation - PGlite", () => {
     expect(proof.headMovement.executionRevisionIds).toEqual([
       proof.headMovement.pinnedRevisionId,
     ]);
+    expect(proof.terminalization.journal.before).toEqual(
+      proof.terminalization.journal.after,
+    );
+    expect(proof.terminalization.journal.workerLoads).toBe(
+      proof.headMovement.publication.workerLoads + 1,
+    );
+    expect(proof.terminalization.userCode.before).toEqual(
+      proof.terminalization.journal.after,
+    );
+    expect(proof.terminalization.userCode.after).toEqual(
+      proof.terminalization.userCode.before,
+    );
+    expect(proof.terminalization.userCode.workerLoads).toBe(
+      proof.terminalization.journal.workerLoads + 1,
+    );
   }, 480_000);
 });
