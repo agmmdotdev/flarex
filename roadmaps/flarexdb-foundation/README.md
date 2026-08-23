@@ -787,12 +787,13 @@ Dynamic Worker binding baseline before selecting it.
     frozen page returns at most 128 identities with one-row lookahead, an
     internal source/duplicate frontier, and a 4,096-occurrence transaction
     ceiling. No production DDL or reader was added.
-14. `R02` (next): map analyzer-local relation declarations/ordinals into stable
-    relation IDs, immutable semantic definitions, reusable physical edge
-    definitions, and selected snapshot/read-key meaning in a post-analysis bound
-    publication.
-15. `S12`: add stable current edge occurrences, the preflight-selected snapshot
-    support, and the frozen physical access paths.
+14. `R02` (complete): map analyzer-local relation declarations/ordinals into
+    stable relation IDs, immutable semantic definitions, reusable physical edge
+    definitions, and selected snapshot/read-key meaning in a post-analysis
+    bound publication.
+15. `S12` (in progress; storage/repository preflight complete): add stable
+    current edge occurrences, the preflight-selected endpoint adjacency
+    versions, and the frozen physical access paths.
 16. `C09`: lower authoritative row changes into stable current edge occurrences
     plus the selected snapshot support without creating a second commit system.
 17. `E01`: build, validate, and enable each required edge definition before

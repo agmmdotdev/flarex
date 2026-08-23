@@ -1133,6 +1133,9 @@ Completion receipt (2026-08-24):
 
 Prerequisite: R01, R01-P, and R02 are complete for the admitted subset.
 
+Status: storage/repository preflight completed and implementation started on
+2026-08-24.
+
 Outcome:
 
 - add private `fx_app_edge_current` plus only the snapshot-support storage
@@ -1142,6 +1145,54 @@ Outcome:
 - implement the frozen total page order and row/byte ceilings;
 - add transaction-only repository primitives with no public edge CRUD or
   alternate snapshot fallback.
+
+Accepted storage and repository shape:
+
+- add exactly `fx_app_edge_current` and
+  `fx_app_edge_adjacency_version`; do not add an edge revision/history table;
+- keep occurrence identity in the current-edge primary key as
+  `(scope_uuid, edge_definition_id, source_row_id, target_row_id,
+  duplicate_ordinal)`, so the primary key is also the outgoing equality-prefix
+  and total-order access path;
+- add the incoming covering index in the exact order
+  `(scope_uuid, edge_definition_id, target_row_id, source_row_id,
+  duplicate_ordinal) include (position, commit_seq)`;
+- retain the stable relation ID, exact immutable edge-definition ID,
+  source/target table IDs, occurrence codec version, canonical occurrence
+  bytes, SHA-256 digest, explicit absent locale, nullable position, schema
+  version, epoch, and commit provenance on every current edge;
+- constrain row IDs to 16 bytes, occurrence codec/duplicate ordinal to the
+  accepted V1 contract, canonical occurrence bytes to `1..8192`, digests to 32
+  bytes, locale to `NULL`, array position to `0..1023`, and catalog IDs/commit
+  sequence to their positive native ranges;
+- key endpoint versions by
+  `(scope_uuid, edge_definition_id, direction, endpoint_row_id)`, persist only
+  positive `last_changed_commit_seq` values, and interpret an absent row as the
+  frozen zero sentinel;
+- foreign-key both tables only to the target-local scope clock. Stable control
+  catalog IDs cannot be protected by a cross-database foreign key, current
+  edges must not pin old source-row revisions indefinitely, target liveness is
+  C09 final-material authority, and adjacency-version rows must survive an
+  empty endpoint;
+- keep the implementation under the private `appRelationEdges` persistence
+  domain. Its aggregate mutation operation accepts the caller-owned metadata
+  transaction, locks the existing scope clock first, applies at most 4,096
+  exact put/remove/reorder actions, and advances each affected incoming or
+  outgoing endpoint version once per scope commit;
+- validate exact physical-definition and canonical-occurrence agreement before
+  SQL, compare retained bytes whenever a digest selects identity, map foreign
+  database failures once into a typed persistence error, and never treat a
+  uniqueness error as successful replay; and
+- expose a bounded physical incoming-page primitive only for storage and plan
+  proof: at most 128 logical identities, one 129th-row lookahead, the internal
+  `(source_row_id, duplicate_ordinal)` frontier, and version-before/page/
+  version-after evidence. O10-R still owns snapshot eligibility, dependency
+  registration, final OCC validation, read-your-writes, and any runtime read.
+
+The repository input is package-private physical storage evidence, not a new
+located-scope publication authority. S12 does not add a production locator or
+claim that raw IDs authorize a write; C09 must consume the authenticated bound
+definition through its separately approved integration boundary.
 
 Exit gates:
 

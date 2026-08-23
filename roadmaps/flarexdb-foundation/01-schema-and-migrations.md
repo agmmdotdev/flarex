@@ -1435,6 +1435,9 @@ Completion receipt:
 Prerequisite: `R01`, `R01-P`, and `R02` are complete for every accepted
 relation.
 
+Status: DDL/repository preflight completed and implementation started on
+2026-08-24.
+
 Outcome:
 
 - Add current edge occurrences plus exactly the `R01-P`-selected endpoint
@@ -1453,6 +1456,41 @@ Outcome:
 - Persist and transactionally advance endpoint adjacency versions at their
   selected granularity for commits, managed backfill, and repair. They have no
   edge-history retained-floor or anchor contract.
+
+Frozen DDL and private repository contract:
+
+- production adds only `fx_app_edge_current` and
+  `fx_app_edge_adjacency_version`;
+- current identity/primary-key order is `(scope_uuid, edge_definition_id,
+  source_row_id, target_row_id, duplicate_ordinal)`, and incoming access is the
+  covering index `(scope_uuid, edge_definition_id, target_row_id,
+  source_row_id, duplicate_ordinal) include (position, commit_seq)`;
+- the current row also pins non-null relation, source-table, target-table,
+  schema-version, write-epoch, and commit identities plus the V1 occurrence
+  codec, canonical bytes, 32-byte digest, explicit `NULL` locale, and nullable
+  position. Position is `NULL` for scalar extraction and `0..1023` for the
+  admitted array profile;
+- endpoint-version identity/primary-key order is `(scope_uuid,
+  edge_definition_id, direction, endpoint_row_id)`, with `incoming` and
+  `outgoing` as the only directions and a positive `last_changed_commit_seq`;
+- both tables reference only the target-local scope clock. There is no
+  cross-database control-catalog FK, source-revision retention FK,
+  target-current FK, commit-retention FK, or edge-to-version FK;
+- `appRelationEdges` owns a private transaction-only Effect aggregate plus
+  stored-row codecs. It reuses `FlarexMetadataTransaction`, takes the shared
+  scope-clock lock first, has no transaction runner/Context service/Layer, and
+  does not enter the package root export surface;
+- exact put/remove/reorder actions are bounded to 4,096 base occurrences,
+  affected endpoint versions are coalesced once, and digest equality always
+  requires retained-byte equality; and
+- the private incoming physical page reads at most 129 base rows to return at
+  most 128 identities. It returns version-before/version-after evidence but
+  does not register or validate an OCC dependency.
+
+The storage input deliberately is not a located-scope publication token. S12
+validates its package-private physical pins and occurrence evidence but does
+not add the production locator that R02 excluded; C09 must introduce or consume
+that authenticated binding at its own approved boundary.
 
 Exit gates:
 

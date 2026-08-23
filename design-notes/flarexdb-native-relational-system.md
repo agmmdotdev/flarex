@@ -711,7 +711,8 @@ The relation work should proceed through these bounded stages:
 4. complete (`R02`): bind stable logical relation identities, immutable
    semantic definitions, and immutable physical edge definitions into the
    schema lifecycle;
-5. add private current-edge storage plus the selected exact-snapshot support and
+5. in progress (`S12`, storage/repository preflight complete): add private
+   current-edge storage plus the selected endpoint-adjacency-version support and
    access paths;
 6. lower authoritative final rows, current edges, and the selected snapshot
    support into the existing commit lane;
@@ -729,6 +730,7 @@ The relation work should proceed through these bounded stages:
     native system.
 
 The first implementation checkpoint, physical preflight, and stable binding are
-complete at `R01`/`R01-P`/`R02`. Continue with `S12` private edge and selected
-snapshot storage; do not start runtime reads or a Payload-shaped public API
-before their own gates.
+complete at `R01`/`R01-P`/`R02`. S12's storage/repository preflight is complete
+and its private current-edge plus selected endpoint-version implementation is
+in progress. Do not start runtime reads or a Payload-shaped public API before
+their own gates.
