@@ -37,7 +37,7 @@
     "test:dte05-e1": "vitest run test/taskRepairSweepV1.test.ts --testTimeout=120000",
     "test:dte05-e2a": "vitest run test/taskRepairSweepContinuationCodecV1.test.ts --testTimeout=120000",
     "test:dte05-e2c1": "vitest run test/pointMutationRedeliverySchedulerRun.test.ts test/taskRepairSchedulerRunV1.test.ts --testTimeout=120000",
-    "test:postgres": "vitest run test/postgresRetry.test.ts test/deploymentAuthority.postgres.test.ts test/transactionGrantVerifier.test.ts"
+    "test:postgres": "node ../../scripts/run-test-lane.mjs postgres-executor"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

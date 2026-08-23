@@ -2,9 +2,10 @@
 
 ## Status And Authority
 
-**Status:** Active `TQ-P` inventory. The baseline and classifications are
-complete enough to select the first test-quality implementation gates. Runtime
-timing remains an explicit telemetry gap rather than an inferred result.
+**Status:** Active inventory. `TQ-P` and the bounded `TQ-A1` stable-lane slice
+are complete. Historical alias convergence remains `TQ-A2`; runtime timing and
+test-level skip attribution remain explicit telemetry gaps rather than inferred
+results.
 
 This file is the living operational inventory for
 [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md).
@@ -70,17 +71,17 @@ scenario-specific environment.
 
 ## Command And Activation Inventory
 
-The workspace and first-party package manifests currently expose 177 scripts
+The workspace and first-party package manifests currently expose 185 scripts
 whose names begin with `test`:
 
 | Command characteristic | Count |
 | --- | ---: |
 | Default `test` commands | 28 |
-| Named test commands | 149 |
-| Names containing `pglite` | 63 |
-| Names containing `postgres` | 65 |
-| Explicit test-file references across commands | 283 |
-| Unique explicitly referenced test files | 217 |
+| Named test commands | 157 |
+| Names containing `pglite` | 64 |
+| Names containing `postgres` | 66 |
+| Explicit test-file references across package commands | 237 |
+| Unique explicitly referenced test files across package commands | 180 |
 
 Two manifests dominate the command catalog:
 
@@ -92,13 +93,19 @@ Two manifests dominate the command catalog:
 Repeated command membership is not additional evidence. For example, the
 PGlite migration suite is named by six commands, stored-attempt evidence by
 five PGlite commands, and the real-PostgreSQL point-commit transaction suite by
-five commands. `TQ-A` must preserve useful operator/roadmap selectors while
-making them resolve through one lane/invariant manifest instead of maintaining
-independent file lists.
+five commands. `TQ-A1` moved the three stable PostgreSQL sweep lists behind the
+root lane manifest. `TQ-A2` must preserve useful operator/roadmap aliases while
+making retained names resolve through manifest-owned lane or invariant
+selectors instead of independently maintained file lists.
 
 The root `test` command remains a recursive package sweep, not an aggregate
 correctness gate. Root integration, H04, H05, and explicitly required
-PostgreSQL proof remain separate as defined by roadmap 11.
+PostgreSQL proof remain separate as defined by roadmap 11. The added
+`test:lane:*` commands are stable orchestration selectors; their increase in
+named-command count is deliberate and does not represent new test evidence.
+The fast, PGlite, and root-integration selectors clear inherited PostgreSQL
+activation before spawning their child steps; the PGlite persistence lane also
+excludes the three known unsuffixed PostgreSQL-owned suites.
 
 ### Conditional Activation
 
@@ -107,16 +114,17 @@ skip constructs. Of these, 123 are PostgreSQL-conditioned files.
 
 | Owner | PostgreSQL-conditioned files | Activation assessment |
 | --- | ---: | --- |
-| `@flarex/persistence-postgres` | 89 | Many use `describe.skip` without a separate required-environment assertion; default and named sweeps can report success without PostgreSQL proof |
+| `@flarex/persistence-postgres` | 89 | Many use `describe.skip` without a separate required-environment assertion; default discovery can report success without PostgreSQL proof, while the stable `test:postgres` selector now fails closed |
 | `@flarex/system-test` | 29 | Current PostgreSQL wrappers include explicit non-skipped environment assertions and are intentionally fail-closed when selected |
-| `@flarex/executor` | 4 | Conditional PostgreSQL files do not provide one uniform fail-closed selector |
+| `@flarex/executor` | 4 | Conditional files still skip under broader discovery; the stable `test:postgres` selector now fails closed |
 | analyzer app | 1 | Connected PostgreSQL composition is conditional |
 
 The heuristic inventory found 72 PostgreSQL-conditioned files without the
-repository's current explicit fail-closed assertion pattern. This is a review
-queue, not a verdict on each file: `TQ-A` should own activation at the command
-or manifest boundary so individual files do not each need to reinvent the
-same environment guard.
+repository's current explicit fail-closed assertion pattern. This remains a
+review queue, not a verdict on each file. `TQ-A1` now owns required activation
+for the stable PostgreSQL selectors at the manifest boundary so individual
+files do not each need to reinvent the same environment guard. Broader default
+discovery remains conditional and must not be reported as PostgreSQL proof.
 
 ## Invariant Family To Lane Inventory
 
@@ -209,18 +217,18 @@ shows risk concentration—many PGlite/PostgreSQL selectors disable file
 parallelism and declare 120-480 second timeouts, while backend/system suites
 serialize resource-heavy files—but timeout ceilings are not measurements.
 
-`TQ-A` must make selected/executed/skipped/unavailable counts attributable.
-`TQ-E` then records per-file and per-lane duration, environment identity, and
-flake outcomes without automatic retries. Until that exists, runtime-based
-pruning or fixture sharing is not authorized.
+`TQ-A1` now makes selected, passed, failed, skipped, and unavailable lane
+outcomes attributable and records the failing step. `TQ-E` still owns per-file
+and per-test execution/skip counts, per-file and per-lane duration history,
+environment identity, and flake outcomes without automatic retries. Until that
+exists, runtime-based pruning or fixture sharing is not authorized.
 
 ## Ranked Next Gates
 
-1. **`TQ-A` lane manifest and fail-closed selectors.** Highest evidence value:
-   it removes false-green PostgreSQL commands and eliminates independently
-   maintained milestone file lists. The persistence and system-test manifests
-   are currently modified by active work, so implementation must wait for or
-   explicitly coordinate with those owners.
+1. **`TQ-A2` milestone-alias convergence.** `TQ-A1` removed false-green stable
+   PostgreSQL commands and centralized their file lists. Next identify live
+   consumers of historical aliases, retain only justified thin selectors, and
+   prove exact evidence equivalence before removing duplicated lists.
 2. **`TQ-B` Application-native query contract pilot.** Small, completed,
    currently untouched pair; retain separate lane activation and PostgreSQL
    resource ownership while sharing only the exact scenario/assertion contract.
@@ -235,6 +243,6 @@ pruning or fixture sharing is not authorized.
    reset/dispose, invocation-error, and resource-ownership tests before relying
    further on example/root integration as the sole decisive surface.
 
-`TQ-P` is complete with this inventory. The next implementation step is
-`TQ-A`, but this inventory does not itself authorize that code/configuration
-slice.
+`TQ-P` and `TQ-A1` are complete. `TQ-A2` is the next orchestration cleanup;
+`TQ-B` remains the first harness-reuse pilot. Neither is authorized merely by
+this inventory.

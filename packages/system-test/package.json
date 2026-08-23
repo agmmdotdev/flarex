@@ -18,7 +18,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "pnpm test:pglite",
     "test:pglite": "vitest run test --exclude test/**/*.postgres.test.ts --no-file-parallelism --testTimeout=480000",
-    "test:postgres": "vitest run --config vitest.postgres.config.ts --no-file-parallelism --testTimeout=480000",
+    "test:postgres": "node ../../scripts/run-test-lane.mjs postgres-system",
     "test:c07:pglite": "vitest run test/integration/c07PrivatePointMutation.test.ts --no-file-parallelism --testTimeout=480000",
     "test:c07:postgres": "vitest run test/integration/c07PrivatePointMutation.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:fsv03:pglite": "vitest run test/integration/fsv03PrivateAnalyzerToPostgres.test.ts --no-file-parallelism --testTimeout=180000",

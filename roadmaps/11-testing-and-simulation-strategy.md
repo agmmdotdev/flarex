@@ -4,10 +4,12 @@
 
 **Status:** Active domain authority with broad unit, PGlite, Miniflare,
 packaging, real-Postgres, workerd/service-binding, and hosted-proof harnesses.
-The test lanes are not yet exposed through one fail-closed matrix, live hosted
-H05 evidence remains incomplete, and no deterministic model simulator exists.
-The docs-only `TQ-P` test-quality inventory is complete; implementation-bearing
-`TQ-A` through `TQ-E` remain separately gated.
+`TQ-A1` now exposes the stable lane matrix through one machine-readable
+manifest and fail-closed selectors. Milestone-alias convergence, test-level
+execution telemetry, live hosted H05 evidence, and a deterministic model
+simulator remain incomplete. The docs-only `TQ-P` inventory and bounded
+`TQ-A1` orchestration slice are complete; later `TQ-A` work and `TQ-B` through
+`TQ-E` remain separately gated.
 
 This roadmap owns:
 
@@ -146,11 +148,19 @@ The default executor Worker test command explicitly excludes both service-
 binding Postgres files. H04 and H05 are separately named because they require
 external state, bundle work, longer timeouts, and cleanup.
 
-The persistence and executor `test:postgres` scripts currently select the
-right files, but those files use `describe.skip` when
-`FLAREX_POSTGRES_DATABASE_URL` is absent. Therefore those scripts are not yet
-fail-closed and a zero-executed-test result must not be reported as green real-
-Postgres evidence.
+[`test-lanes.json`](../test-lanes.json) owns stable fast, PGlite, integration,
+real-Postgres, H04, H05, and release selectors. The root `test:lane:*` commands
+run them through [`scripts/run-test-lane.mjs`](../scripts/run-test-lane.mjs),
+which validates every selected lane prerequisite before starting any step and
+emits a structured lane receipt. The persistence, executor, and system-test
+`test:postgres` commands delegate to that manifest and therefore fail before
+Vitest when `FLAREX_POSTGRES_DATABASE_URL` is absent. This prevents a selected
+PostgreSQL sweep from becoming a false green even though conditionally
+discovered PostgreSQL files can still skip under broader default commands.
+Fast, PGlite, and root-integration lane children remove an inherited
+`FLAREX_POSTGRES_DATABASE_URL`; the PGlite persistence selector also excludes
+the three legacy unsuffixed PostgreSQL-owned suites, so those stable local lanes
+cannot unexpectedly activate external database work.
 
 The H04 harness is fail-closed: it requires a database URL, builds/checks the
 Worker bundle, creates isolated database state, proves the named binding and
@@ -524,7 +534,8 @@ Named Flarex differences are:
 
 ## Test Quality Consolidation Preflight
 
-**Status:** `TQ-P` inventory complete. `TQ-A` through `TQ-E` require separate
+**Status:** `TQ-P` inventory and the bounded `TQ-A1` lane-orchestration slice
+are complete. Remaining `TQ-A` work and `TQ-B` through `TQ-E` require separate
 implementation approval. No test deletion, harness refactor, lane merger,
 fixture-lifetime change, or package extraction is authorized by this section
 alone.
@@ -612,11 +623,22 @@ The work proceeds in bounded gates:
    concentration, hidden-skip behavior, file and harness concentrations,
    cross-lane pair classifications, the missing runtime-telemetry baseline, and
    ranked pilots without changing executable tests.
-2. **`TQ-A` — honest lane orchestration.** Add the machine-readable lane
-   manifest and stable fast, PGlite, PostgreSQL, workerd, hosted, and release
-   selectors. Required lanes fail closed. Milestone aliases may remain only
-   while a live roadmap or operator workflow still names them and must resolve
-   through the same manifest rather than duplicate file lists indefinitely.
+2. **`TQ-A` — honest lane orchestration.** This remains split so manifest
+   authority is not confused with wholesale command deletion:
+   - **`TQ-A1` — stable selectors and fail-closed prerequisites. Complete.**
+     [`test-lanes.json`](../test-lanes.json) and the checked runner expose fast,
+     PGlite, integration, PostgreSQL, workerd, hosted, and release selectors.
+     All selected prerequisites are checked before execution; each run emits
+     selected, passed, failed, skipped, and unavailable lane outcomes with the
+     failing step when applicable. The three stable package PostgreSQL sweeps
+     now delegate to this authority. Manifest validation also removed the stale
+     persistence reference to the no-longer-present C07 PostgreSQL file rather
+     than silently preserving command drift.
+   - **`TQ-A2` — milestone-alias convergence.** Retain an alias only while a
+     live roadmap or operator workflow names it, and move retained aliases to
+     manifest-owned lane or invariant selectors instead of independently
+     maintained file lists. Default recursive discovery still needs explicit
+     skip attribution before it can claim conditional PostgreSQL evidence.
 3. **`TQ-B` — one contract-suite pilot.** Select one completed, currently
    untouched PGlite/PostgreSQL vertical with materially identical behavior.
    Move only resource creation and exact shared scenario mechanics behind a
@@ -650,10 +672,13 @@ authorize repairing or reproducing that owner inside test code.
 ## Known Gaps And Limitations
 
 - Root `pnpm test` omits root integration, H04, and H05 and does not guarantee
-  that conditionally discovered real-Postgres files executed; there is no
-  single machine-readable lane manifest or aggregate correctness command.
-- Persistence and executor `test:postgres` commands can exit successfully with
-  every selected suite skipped when the database URL is absent.
+  that conditionally discovered real-Postgres files executed. Use the explicit
+  `test:lane:*` selectors for attributable lane evidence.
+- The lane receipt is lane-level. Vitest case/file selection, skip counts,
+  timing history, and flake outcomes remain `TQ-E` work, so a default recursive
+  suite must not be treated as proof of every conditionally discovered file.
+- Milestone-named package commands still duplicate many historical file lists;
+  `TQ-A2` owns their evidence-preserving convergence.
 - No repository CI configuration currently shows which lanes are mandatory,
   conditional, scheduled, or release-gating.
 - `@flarex/system-test` resolved the original analyzer arena/finalization
@@ -749,15 +774,16 @@ and stale non-authoritative caches without changing the Postgres oracle.
 
 ## Next Correctness Gates
 
-1. **Make lane activation honest through `TQ-A`.** Add a documented and
-   machine-readable lane manifest plus fail-closed wrappers that report
-   selected, passed, failed, skipped, and unavailable tests. Make both package
-   `test:postgres` commands fail when their required database is absent.
-2. **Define aggregate commands without overclaiming.** Separate fast,
-   integration, real-Postgres, H04, and H05 commands; make the default and
-   release gate explicit. Do not silently add external mutation to `pnpm test`.
-3. **Run the bounded `TQ-B` pilot.** After `TQ-A` establishes attributable lane
-   activation, use the Application-native query pair to prove the exact
+1. **Converge retained milestone aliases through `TQ-A2`.** `TQ-A1` now owns
+   stable fail-closed lane activation. Inventory which historical aliases still
+   have live consumers, preserve those names as thin manifest selectors, and
+   remove duplicated file lists only after exact evidence comparison.
+2. **Keep aggregate commands explicit.** Fast, integration, real-Postgres,
+   H04, H05, and release selectors are separate; do not silently add external
+   mutation to `pnpm test`. Add test-level skip/timing attribution through
+   `TQ-E` before making broader claims from a lane pass.
+3. **Run the bounded `TQ-B` pilot.** After stable lane activation, use the
+   Application-native query pair to prove the exact
    contract-suite shape without changing scenario behavior, lane-specific
    resource ownership, or assertions.
 4. **Bind active foundation work to invariant tests.** D2d is closed by focused

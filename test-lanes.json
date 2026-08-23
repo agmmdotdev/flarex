@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 1,
+  "selectors": {
+    "fast": [
+      "fast-workspace"
+    ],
+    "pglite": [
+      "pglite-persistence",
+      "pglite-system"
+    ],
+    "integration": [
+      "integration-root"
+    ],
+    "postgres": [
+      "postgres-persistence",
+      "postgres-executor",
+      "postgres-system"
+    ],
+    "workerd": [
+      "h04-workerd-postgres"
+    ],
+    "hosted": [
+      "h05-hosted"
+    ],
+    "release": [
+      "fast-workspace",
+      "integration-root",
+      "postgres-persistence",
+      "postgres-executor",
+      "postgres-system",
+      "h04-workerd-postgres",
+      "h05-hosted"
+    ]
+  },
+  "lanes": [
+    {
+      "id": "fast-workspace",
+      "category": "fast",
+      "proof": "Repository script checks plus recursive first-party package tests; this does not include root integration or guarantee external PostgreSQL, workerd, or hosted proof.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "workspace-default",
+          "cwd": ".",
+          "command": "pnpm",
+          "args": [
+            "test"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pglite-persistence",
+      "category": "pglite",
+      "proof": "First-party persistence behavior through the PGlite adapter, excluding explicitly PostgreSQL-suffixed files.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "persistence-pglite",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--exclude",
+            "test/**/*.postgres.test.ts",
+            "--exclude",
+            "test/postgres.test.ts",
+            "--exclude",
+            "test/postgresClient.test.ts",
+            "--exclude",
+            "test/postgresConcurrency.test.ts",
+            "--fileParallelism",
+            "--maxWorkers=2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pglite-system",
+      "category": "pglite",
+      "proof": "Cross-domain Standard Application and system-test composition through the PGlite lane.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "system-pglite",
+          "cwd": "packages/system-test",
+          "command": "pnpm",
+          "args": [
+            "test:pglite"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "integration-root",
+      "category": "integration",
+      "proof": "Cross-package invoke, artifact, CLI, tarball, and fresh-consumer integration selected by the root integration config.",
+      "prerequisites": [],
+      "steps": [
+        {
+          "id": "root-integration",
+          "cwd": ".",
+          "command": "pnpm",
+          "args": [
+            "test:integration"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "postgres-persistence",
+      "category": "postgres",
+      "proof": "The curated persistence PostgreSQL correctness sweep for transactions, locks, concurrency, migrations, and driver lifecycle.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/postgres.test.ts",
+            "test/postgresFileScopedFixture.postgres.test.ts",
+            "test/postgresClient.test.ts",
+            "test/postgresClientDeclarativeV2VerifierProgressV2.postgres.test.ts",
+            "test/postgresConcurrency.test.ts",
+            "test/scopeExecution.postgres.test.ts",
+            "test/scopeClock.postgres.test.ts",
+            "test/scopeAuthorityProvisioning.postgres.test.ts",
+            "test/scopeAuthorityBootstrap.postgres.test.ts",
+            "test/scopeAuthorityProvisioningReceipt.postgres.test.ts",
+            "test/splitScopeAuthorityProvisioning.postgres.test.ts",
+            "test/appDataSnapshot.postgres.test.ts",
+            "test/appRows.postgres.test.ts",
+            "test/appIndexEntries.postgres.test.ts",
+            "test/appUniqueKeys.postgres.test.ts",
+            "test/sessionAuthoritySchema.postgres.test.ts",
+            "test/transactionSessionActivation.postgres.test.ts",
+            "test/sessionJournalStore.postgres.test.ts",
+            "test/storedAttemptEvidence.postgres.test.ts",
+            "test/pointCommitTransaction.postgres.test.ts",
+            "test/pointCommitFinishingTransition.postgres.test.ts",
+            "test/stableTableCatalog.postgres.test.ts",
+            "test/schemaVersionArtifacts.postgres.test.ts",
+            "test/schemaManifestTableBindings.postgres.test.ts",
+            "test/appTableDefinitionsArtifacts.postgres.test.ts",
+            "test/schemaManifestAppSchemaBindings.postgres.test.ts",
+            "test/appIndexDefinitions.postgres.test.ts",
+            "test/appSchemaPublication.postgres.test.ts",
+            "test/indexBuildStates.postgres.test.ts",
+            "test/orderedIndexKeyCodec.postgres.test.ts",
+            "test/commitFeedSchema.postgres.test.ts",
+            "test/commitFeed.postgres.test.ts",
+            "test/idempotencySchema.postgres.test.ts",
+            "test/committedPointOutcome.postgres.test.ts",
+            "test/commitWakeOutbox.postgres.test.ts",
+            "test/transactionExecutionClaimSchema.postgres.test.ts",
+            "test/pointMutationAttemptDiscovery.postgres.test.ts",
+            "test/pointMutationRedeliveryScopeDiscovery.postgres.test.ts",
+            "test/pointMutationRedeliverySchedulerCheckpoint.postgres.test.ts",
+            "test/declarativeV2InertRepository.postgres.test.ts",
+            "test/declarativeV2VerifierProgressV1Retirement.postgres.test.ts",
+            "test/applicationRevisionRegistrationV1.postgres.test.ts",
+            "test/applicationReadiness.postgres.test.ts",
+            "test/applicationActivationMigration.postgres.test.ts",
+            "--no-file-parallelism"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "postgres-executor",
+      "category": "postgres",
+      "proof": "Executor retry, deployment authority, and transaction-grant behavior against genuine PostgreSQL.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "executor-postgres",
+          "cwd": "packages/executor",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/postgresRetry.test.ts",
+            "test/deploymentAuthority.postgres.test.ts",
+            "test/transactionGrantVerifier.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "postgres-system",
+      "category": "postgres",
+      "proof": "All PostgreSQL-suffixed cross-domain system tests through the dedicated PostgreSQL Vitest config.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "system-postgres",
+          "cwd": "packages/system-test",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "--config",
+            "vitest.postgres.config.ts",
+            "--no-file-parallelism",
+            "--testTimeout=480000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h04-workerd-postgres",
+      "category": "workerd",
+      "proof": "The exact executor Worker bundle, named service binding, authentication, and real-PostgreSQL lifecycle in the local workerd-shaped graph.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "executor-h04",
+          "cwd": "apps/executor",
+          "command": "pnpm",
+          "args": [
+            "test:service-binding:postgres"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h05-hosted",
+      "category": "hosted",
+      "proof": "The bounded hosted executor proof through the public probe, private binding, cache-disabled Hyperdrive path, authoritative staging PostgreSQL, and cleanup.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_H05_ALLOW_STAGING_MUTATION",
+          "equals": "yes"
+        },
+        {
+          "name": "FLAREX_H05_POSTGRES_DATABASE_URL"
+        },
+        {
+          "name": "FLAREX_H05_EXPECTED_DATABASE_NAME"
+        },
+        {
+          "name": "FLAREX_H05_PROBE_URL"
+        },
+        {
+          "name": "FLAREX_H05_PROBE_TOKEN"
+        },
+        {
+          "name": "FLAREX_H05_RUN_ID"
+        }
+      ],
+      "steps": [
+        {
+          "id": "executor-h05",
+          "cwd": "apps/executor",
+          "command": "pnpm",
+          "args": [
+            "test:service-binding:hosted:postgres"
+          ]
+        }
+      ]
+    }
+  ]
+}
