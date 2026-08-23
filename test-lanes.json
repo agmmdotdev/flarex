@@ -203,6 +203,8 @@
             "test/declarativeV2InertRepository.postgres.test.ts",
             "test/declarativeV2VerifierProgressV1Retirement.postgres.test.ts",
             "test/applicationRevisionRegistrationV1.postgres.test.ts",
+            "test/applicationAnalysisRegistration.postgres.test.ts",
+            "test/applicationRelationBinding.postgres.test.ts",
             "test/applicationReadiness.postgres.test.ts",
             "test/applicationActivationMigration.postgres.test.ts",
             "--no-file-parallelism"

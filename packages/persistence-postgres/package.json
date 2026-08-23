@@ -201,6 +201,8 @@
     "test:o09-b:postgres": "node ../../scripts/run-test-lane.mjs o09-b-postgres",
     "test:r01-p:pglite": "vitest run test/relationSnapshotSupportPreflight.test.ts --no-file-parallelism",
     "test:r01-p:postgres": "vitest run test/relationSnapshotSupportPreflight.postgres.test.ts --no-file-parallelism --testTimeout=300000",
+    "test:r02:pglite": "vitest run test/applicationAnalysisRegistration.test.ts test/applicationRelationBinding.test.ts test/applicationPublication.test.ts test/applicationReadiness.test.ts test/applicationTaskBindings.test.ts test/pglite.migrations.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:r02:postgres": "vitest run test/applicationAnalysisRegistration.postgres.test.ts test/applicationRelationBinding.postgres.test.ts test/applicationReadiness.postgres.test.ts --no-file-parallelism --testTimeout=300000",
     "test:pglite": "vitest run test/pglite.runtime.test.ts --no-file-parallelism",
     "test:pglite:migrations": "vitest run test/pglite.migrations.test.ts --no-file-parallelism",
     "test:postgres": "node ../../scripts/run-test-lane.mjs postgres-persistence"

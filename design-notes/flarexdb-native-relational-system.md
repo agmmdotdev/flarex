@@ -2,9 +2,9 @@
 
 Status: accepted architecture; private semantic/codec/Application Analysis gate
 `R01` and physical snapshot/access preflight `R01-P` completed on 2026-08-23;
-stable relation/physical-definition binding `R02` is in progress
+stable relation/physical-definition binding `R02` completed on 2026-08-24
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-24
 
 This note defines the ownership, API layering, logical model, and correctness
 boundaries for relationships in FlarexDB. It is an addendum to
@@ -708,9 +708,9 @@ The relation work should proceed through these bounded stages:
    canonical occurrence/path codecs;
 3. complete (`R01-P`): select endpoint adjacency versions over edge history
    through genuine-Postgres evidence and freeze the bounded access/page rule;
-4. in progress (`R02`): bind stable logical relation identities, immutable semantic
-   definitions, and immutable physical edge definitions into the schema
-   lifecycle;
+4. complete (`R02`): bind stable logical relation identities, immutable
+   semantic definitions, and immutable physical edge definitions into the
+   schema lifecycle;
 5. add private current-edge storage plus the selected exact-snapshot support and
    access paths;
 6. lower authoritative final rows, current edges, and the selected snapshot
@@ -728,6 +728,7 @@ The relation work should proceed through these bounded stages:
 14. implement Payload and other framework-adapter conformance over the proven
     native system.
 
-The first implementation checkpoint and its physical preflight are complete at
-`R01`/`R01-P`. Continue with `R02` binding; do not start edge DDL, runtime reads,
-or a Payload-shaped public API before their own gates.
+The first implementation checkpoint, physical preflight, and stable binding are
+complete at `R01`/`R01-P`/`R02`. Continue with `S12` private edge and selected
+snapshot storage; do not start runtime reads or a Payload-shaped public API
+before their own gates.

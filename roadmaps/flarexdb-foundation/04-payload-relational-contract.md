@@ -1,10 +1,10 @@
 # FlarexDB Native Relational Foundation Contract
 
-Status: `R01` and the physical snapshot/access preflight `R01-P` are complete
-on 2026-08-23. Endpoint adjacency versions are selected; `R02` stable binding
-is in progress under the contract lock below. No production edge/version table,
-commit lowering, relation read, activation, public developer API, or Payload
-adapter is implemented
+Status: `R01` and the physical snapshot/access preflight `R01-P` completed on
+2026-08-23, and `R02` stable binding completed on 2026-08-24. Endpoint
+adjacency versions are selected and `S12` is next. No production edge/version
+table, commit lowering, relation read, activation, public developer API, or
+Payload adapter is implemented
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1031,9 +1031,9 @@ boundaries changes:
 Reopening is a new preflight, not permission to ship dual writes, retain edge
 history as fallback, or scan the commit feed.
 
-### [ ] R02 — Bind Relation And Edge Definitions Into Schema Lifecycle
+### [x] R02 — Bind Relation And Edge Definitions Into Schema Lifecycle
 
-Status: implementation in progress on 2026-08-23.
+Status: completed on 2026-08-24.
 
 Outcome:
 
@@ -1104,6 +1104,30 @@ Exit gates:
 - physically different definitions cannot alias;
 - every edge, build, plan, and dependency can resolve exact immutable meaning;
 - no second mutable definition authority exists.
+
+Completion receipt (2026-08-24):
+
+- Durable Application Analysis now accepts the exact V1/V2 manifest union and
+  invokes one private post-analysis binder. Zero-relation V1 remains current;
+  relation-bearing V2 is never stripped or reinterpreted as V1.
+- Migration `0069_stale_landau.sql` adds only the stable relation catalog,
+  immutable physical edge-definition catalog, per-schema relation binding,
+  reusable bound-schema root, and manifest-to-bound-schema commitment. The
+  canonical bound publication remains the sole semantic-definition body.
+- Replay, explicit preservation, compatibility classification, physical
+  reuse/replacement, collision evidence, atomic rollback, stale-plan
+  convergence, origin provenance, and JSONB normalization are covered in
+  PGlite and genuine PostgreSQL.
+- The first isolated-schema PostgreSQL run caught Drizzle Kit's generated
+  `REFERENCES public...` qualifiers in migration 0069. Removing those
+  qualifiers preserved the repository's selected-`search_path` migration
+  contract; the three R02 PostgreSQL files then passed `9/9` on a disposable
+  PostgreSQL `18.3` instance.
+- The repeatable `test:r02:pglite` and `test:r02:postgres` package commands own
+  the focused gate, and the generic PostgreSQL persistence sweep includes both
+  new R02 PostgreSQL files.
+- Located-scope publication, readiness, activation, runtime reads, edge/OCC
+  storage, routes, fallbacks, and public APIs remain outside R02.
 
 ### [ ] S12 — Add Stable Edge And Snapshot Storage
 
@@ -1319,19 +1343,20 @@ checkpoint commit.
 
 ## Known Limitations
 
-- The private Standard source and authenticated Application Analysis host admit
-  `RelationDeclarationV1`, but production publication and activation do not.
-  The V1-only persistence/schema-manifest boundary deliberately rejects a
-  relation-bearing Application Manifest until `R02` evolves that owner.
-- No relation catalog, edge definition, edge table, edge build state, compiler,
-  adjacency version, edge history, relation read, or relation sync dependency
-  is implemented.
+- The private Standard source, authenticated Application Analysis host, and
+  durable R02 binder admit `RelationDeclarationV1`, but located-scope
+  publication, readiness, activation, and production routing do not.
+- Stable relation and immutable physical edge-definition catalogs are
+  implemented. No edge-occurrence table, edge build state, compiler lowering,
+  adjacency-version storage, relation read, or relation sync dependency is
+  implemented.
 - The first high-level profile and its exact declaration/occurrence codecs,
   budgets, Standard source representation, analyzed projection, and manifest
   evolution are frozen by completed `R01`.
-- The exact physical identity spelling, DDL, index order, internal page
-  frontier, build table, and snapshot support remain intentionally deferred
-  to R01-P and their downstream owning gates.
+- R02 freezes exact physical-definition identity and snapshot/access meaning.
+  Edge-occurrence DDL, access-index spelling, internal page implementation,
+  build tables, and adjacency-version storage remain owned by S12 and later
+  gates.
 - Cross-owner references to Medusa or other external resolvers require separate
   existence, deletion, staleness, and transaction participation contracts.
 - Payload relation behavior remains adapter conformance work and does not block

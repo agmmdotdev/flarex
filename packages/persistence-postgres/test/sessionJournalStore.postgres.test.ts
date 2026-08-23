@@ -333,7 +333,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             where table_schema = current_schema()
               and table_name like 'fx_system_tx_journal%'
           `);
-          expect(recovered.rows).toEqual([{ count: 4 }]);
+          expect(recovered.rows).toEqual([{ count: 5 }]);
           const eventEvidenceColumn = await currentPersistence.query<{
             column_default: string | null;
             is_nullable: string;

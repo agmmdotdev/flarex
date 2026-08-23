@@ -20,6 +20,8 @@ exact abort/expiry terminalization is also complete; conditional renewal,
 checked revocation, and hosted Worker/key adapters are deferred to their first
 real consumers and do not affect schema-gate ordering.
 Private non-routing snapshot resolution `O02` is complete.
+Relational `R01`, `R01-P`, and `R02` are complete; `S12` is the next relational
+schema gate.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
 activation, prototype-schema retirement, and any evidence-triggered migration
@@ -1305,11 +1307,10 @@ PostgreSQL `18.3` receipt, rejected-history rationale, writer event matrix, and
 reopen conditions are recorded in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
-### [ ] R02 — Bind Analyzed Relations Into App-Schema Publication
+### [x] R02 — Bind Analyzed Relations Into App-Schema Publication
 
-Status: implementation in progress on 2026-08-23. The contract and ownership
-lock below is accepted; completion still requires the persistence and genuine
-PostgreSQL gates in this section.
+Status: completed on 2026-08-24. The persistence, isolated-schema migration,
+PGlite, and genuine-PostgreSQL gates below passed.
 
 Prerequisites: `R01` and `R01-P` are complete for the admitted subset.
 
@@ -1411,6 +1412,23 @@ Implementation contract:
   publication, readiness, activation, runtime, routes, edge storage, OCC, and
   public APIs remain fail-closed until their own gates; no cross-database
   transaction or fallback is introduced.
+
+Completion receipt:
+
+- Migration `0069_stale_landau.sql` installs the normalized R02 catalogs and
+  immutable commitments through the selected connection `search_path`; no
+  intra-schema foreign key hard-codes `public`.
+- A genuine PostgreSQL `18.3` isolated-schema run first reproduced and then
+  closed the generated-qualifier defect. Application Analysis registration,
+  relation binding, and readiness passed `9/9`, including concurrency,
+  rollback, provenance, collision evidence, and JSONB normalization.
+- `test:r02:pglite` and `test:r02:postgres` retain that focused proof, while the
+  generic PostgreSQL persistence lane now includes both new R02 PostgreSQL
+  files.
+- The canonical protocol, analysis, Standard analysis, migration, PGlite, and
+  lint/typecheck gates remain the owning regression lanes. The detailed R02
+  evidence is recorded in
+  [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
 ### [ ] S12 — Add Stable Current Edges And Selected Snapshot Support
 
