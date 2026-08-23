@@ -17,6 +17,7 @@
     "./auth-headers": "./src/auth-headers.ts",
     "./artifact-runtime": "./src/artifact-runtime.ts",
     "./app-schema-catalog": "./src/app-schema-catalog.ts",
+    "./internal/application-schema-binding": "./src/application-schema-binding.ts",
     "./internal/application-runtime-target-v1": "./src/application-runtime-target-v1.ts",
     "./internal/application-runtime-cold-receipt-v1": "./src/application-runtime-cold-receipt-v1.ts",
     "./internal/application-worker-v1": "./src/application-worker-v1.ts",

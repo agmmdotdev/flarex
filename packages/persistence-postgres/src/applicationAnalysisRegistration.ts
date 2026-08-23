@@ -2,10 +2,10 @@ import {
   ApplicationAnalysisRejectionCodeV1,
   APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1,
   canonicalizeApplicationAnalysisReceiptV1,
-  canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifest,
   type ApplicationAnalysisReceiptV1,
   type ApplicationAnalysisRejectionCodeV1 as ApplicationAnalysisRejectionCode,
-  type ApplicationManifestV1,
+  type ApplicationManifest,
 } from "@flarex/analysis/application-analysis";
 import {
   bytesEqualFullScan,
@@ -92,7 +92,7 @@ export type ApplicationAnalysisProjection =
     readonly status: "analyzed";
     readonly receipt: ApplicationAnalysisReceiptV1;
     readonly receiptSha256: string;
-    readonly manifest: ApplicationManifestV1;
+    readonly manifest: ApplicationManifest;
     readonly manifestSha256: string;
     readonly revision: Readonly<{
       readonly revisionId: string;
@@ -215,7 +215,7 @@ interface PreparedTerminal {
   readonly terminal: ApplicationAnalysisTerminalInput;
   readonly sourceRootBytes: Uint8Array;
   readonly canonicalManifest?: Readonly<{
-    readonly manifest: ApplicationManifestV1;
+    readonly manifest: ApplicationManifest;
     readonly canonicalBytes: Uint8Array;
   }>;
 }
@@ -261,7 +261,7 @@ function prepareTerminal(
         cause,
       ));
     }
-    const canonical = yield* canonicalizeApplicationManifestV1(parsed).pipe(
+    const canonical = yield* canonicalizeApplicationManifest(parsed).pipe(
       Result.mapError(cause => failureValue(
         "settle",
         "invalidInput",
@@ -683,69 +683,65 @@ function projectionBase(
   });
 }
 
-function decodeStoredReceipt(
+const decodeStoredReceipt = Effect.fn(function* (
   operation: ApplicationAnalysisPersistenceError["operation"],
   candidate: CandidateRow,
   analysis: AnalysisRow,
-): Effect.Effect<
+): Effect.fn.Return<
   Readonly<{ readonly receipt: ApplicationAnalysisReceiptV1; readonly sha256: string }>,
   ApplicationAnalysisPersistenceError
 > {
-  return Effect.gen(function* () {
-    if (analysis.receiptBytes === null || analysis.receiptSha256 === null) {
-      return yield* failure(operation, "storedState");
-    }
-    const canonical = yield* decodeCanonicalReceipt(
-      operation,
-      analysis.receiptBytes,
-    );
-    const digest = yield* sha256(operation, canonical.canonicalBytes);
-    if (
-      !bytesEqualFullScan(digest, analysis.receiptSha256) ||
-      canonical.receipt.analysisId !== analysis.analysisId ||
-      canonical.receipt.candidateId !== candidate.candidateId ||
-      canonical.receipt.scopeId !== candidate.scopeId ||
-      canonical.receipt.sourceArtifactRootSha256 !==
-        encodeBytesToLowercaseHex(candidate.sourceArtifactRootSha256) ||
-      canonical.receipt.analyzerIdentity !== analysis.analyzerIdentity ||
-      canonical.receipt.analyzerPolicyIdentity !== analysis.analyzerPolicyIdentity ||
-      canonical.receipt.status !== analysis.status
-    ) return yield* failure(operation, "storedState");
-    return Object.freeze({
-      receipt: canonical.receipt,
-      sha256: encodeBytesToLowercaseHex(digest),
-    });
+  if (analysis.receiptBytes === null || analysis.receiptSha256 === null) {
+    return yield* failure(operation, "storedState");
+  }
+  const canonical = yield* decodeCanonicalReceipt(
+    operation,
+    analysis.receiptBytes,
+  );
+  const digest = yield* sha256(operation, canonical.canonicalBytes);
+  if (
+    !bytesEqualFullScan(digest, analysis.receiptSha256) ||
+    canonical.receipt.analysisId !== analysis.analysisId ||
+    canonical.receipt.candidateId !== candidate.candidateId ||
+    canonical.receipt.scopeId !== candidate.scopeId ||
+    canonical.receipt.sourceArtifactRootSha256 !==
+      encodeBytesToLowercaseHex(candidate.sourceArtifactRootSha256) ||
+    canonical.receipt.analyzerIdentity !== analysis.analyzerIdentity ||
+    canonical.receipt.analyzerPolicyIdentity !== analysis.analyzerPolicyIdentity ||
+    canonical.receipt.status !== analysis.status
+  ) return yield* failure(operation, "storedState");
+  return Object.freeze({
+    receipt: canonical.receipt,
+    sha256: encodeBytesToLowercaseHex(digest),
   });
-}
+});
 
-function decodeStoredManifest(
+const decodeStoredManifest = Effect.fn(function* (
   operation: ApplicationAnalysisPersistenceError["operation"],
   candidate: CandidateRow,
   analysis: AnalysisRow,
-): Effect.Effect<
-  Readonly<{ readonly manifest: ApplicationManifestV1; readonly sha256: string }>,
+): Effect.fn.Return<
+  Readonly<{ readonly manifest: ApplicationManifest; readonly sha256: string }>,
   ApplicationAnalysisPersistenceError
 > {
-  return Effect.gen(function* () {
-    if (analysis.manifestBytes === null || analysis.manifestSha256 === null) {
-      return yield* failure(operation, "storedState");
-    }
-    const canonical = yield* decodeCanonicalManifest(
-      operation,
-      analysis.manifestBytes,
-    );
-    const digest = yield* sha256(operation, canonical.canonicalBytes);
-    if (
-      !bytesEqualFullScan(digest, analysis.manifestSha256) ||
-      canonical.manifest.sourceArtifact.rootSha256 !==
-        encodeBytesToLowercaseHex(candidate.sourceArtifactRootSha256)
-    ) return yield* failure(operation, "storedState");
-    return Object.freeze({
-      manifest: canonical.manifest,
-      sha256: encodeBytesToLowercaseHex(digest),
-    });
+  if (analysis.manifestBytes === null || analysis.manifestSha256 === null) {
+    return yield* failure(operation, "storedState");
+  }
+  const canonical = yield* decodeCanonicalManifest(
+    operation,
+    analysis.manifestBytes,
+  );
+  const digest = yield* sha256(operation, canonical.canonicalBytes);
+  if (
+    !bytesEqualFullScan(digest, analysis.manifestSha256) ||
+    canonical.manifest.sourceArtifact.rootSha256 !==
+      encodeBytesToLowercaseHex(candidate.sourceArtifactRootSha256)
+  ) return yield* failure(operation, "storedState");
+  return Object.freeze({
+    manifest: canonical.manifest,
+    sha256: encodeBytesToLowercaseHex(digest),
   });
-}
+});
 
 function decodeCanonicalReceipt(
   operation: ApplicationAnalysisPersistenceError["operation"],
@@ -762,7 +758,7 @@ function decodeCanonicalManifest(
   operation: ApplicationAnalysisPersistenceError["operation"],
   bytes: Uint8Array,
 ) {
-  return decodeCanonical(operation, bytes, canonicalizeApplicationManifestV1);
+  return decodeCanonical(operation, bytes, canonicalizeApplicationManifest);
 }
 
 function decodeCanonical<A extends { readonly canonicalBytes: Uint8Array }>(

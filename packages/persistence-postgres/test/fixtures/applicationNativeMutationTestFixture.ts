@@ -517,7 +517,9 @@ async function createApplicationNativeMutationFixture<
       candidateId: analyzed.candidateId,
       analysisId: analyzed.analysisId,
       manifestSha256: analyzed.manifestSha256,
-      manifest: analyzed.manifest,
+      manifest: Result.getOrThrow(
+        canonicalizeApplicationManifestV1(analyzed.manifest),
+      ).manifest,
     }),
   );
   await registerFixtureTaskBindings(target, authority, publication, options);
@@ -715,7 +717,9 @@ async function createApplicationNativeMutationFixture<
         candidateId: projected.candidateId,
         analysisId: projected.analysisId,
         manifestSha256: projected.manifestSha256,
-        manifest: projected.manifest,
+        manifest: Result.getOrThrow(
+          canonicalizeApplicationManifestV1(projected.manifest),
+        ).manifest,
       }),
     );
     await registerFixtureTaskBindings(
@@ -765,7 +769,9 @@ async function createApplicationNativeMutationFixture<
         candidateId: nextAnalysis.candidateId,
         analysisId: nextAnalysis.analysisId,
         manifestSha256: nextAnalysis.manifestSha256,
-        manifest: nextAnalysis.manifest,
+        manifest: Result.getOrThrow(
+          canonicalizeApplicationManifestV1(nextAnalysis.manifest),
+        ).manifest,
       }),
     );
     const taskPublication = resolveTaskPublication(options);

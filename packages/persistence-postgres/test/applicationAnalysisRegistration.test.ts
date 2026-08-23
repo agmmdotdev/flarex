@@ -19,6 +19,8 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
+import { relationManifestV2Text } from
+  "./applicationAnalysisRegistrationTestSupport";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import { fxSystemApplicationAnalysesV1 } from "../src/schema";
@@ -213,6 +215,77 @@ describe("Application Analysis persistence generation", () => {
     if (Result.isFailure(corrupted)) {
       expect(corrupted.failure).toBeInstanceOf(ApplicationAnalysisPersistenceError);
       expect(corrupted.failure.reason).toBe("storedState");
+    }
+  });
+
+  it("settles, replays, and inspects a relation-bearing manifest and fails closed", async () => {
+    const fixture = await repositoryFixture();
+    const pending = await runEffect(fixture.repository.begin(beginInput()));
+
+    const mismatched = await runEffect(Effect.result(
+      fixture.repository.settle(AUTHORITY, {
+        kind: "analyzed",
+        candidateId: pending.candidateId,
+        sourceArtifactRootSha256: ROOT,
+        analyzerIdentity: "analyzer-1",
+        analyzerPolicyIdentity: "policy-1",
+        canonicalManifest: relationManifestV2Text("d".repeat(64)),
+      }),
+    ));
+    expect(Result.isFailure(mismatched)).toBe(true);
+    if (Result.isFailure(mismatched)) {
+      expect(mismatched.failure).toMatchObject({
+        reason: "terminalMismatch",
+        retryable: false,
+      });
+    }
+    expect(await runEffect(
+      fixture.repository.inspect(AUTHORITY, pending.candidateId),
+    )).toEqual(pending);
+
+    const terminal = {
+      kind: "analyzed" as const,
+      candidateId: pending.candidateId,
+      sourceArtifactRootSha256: ROOT,
+      analyzerIdentity: "analyzer-1",
+      analyzerPolicyIdentity: "policy-1",
+      canonicalManifest: relationManifestV2Text(ROOT),
+    };
+    const analyzed = await runEffect(
+      fixture.repository.settle(AUTHORITY, terminal),
+    );
+    expect(analyzed).toMatchObject({
+      status: "analyzed",
+      manifest: {
+        version: 2,
+        schema: {
+          version: 2,
+          relations: [{
+            relationOrdinal: 1,
+            sourceTableOrdinal: 1,
+            targetTableOrdinal: 2,
+          }],
+        },
+      },
+      receipt: { status: "analyzed" },
+      revision: { status: "inactive" },
+    });
+    expect(await runEffect(
+      fixture.repository.settle(AUTHORITY, terminal),
+    )).toEqual(analyzed);
+    expect(await runEffect(
+      fixture.repository.inspect(AUTHORITY, pending.candidateId),
+    )).toEqual(analyzed);
+
+    await fixture.persistence.drizzle.update(fxSystemApplicationAnalysesV1).set({
+      manifestBytes: new TextEncoder().encode("{}"),
+    });
+    const corrupted = await runEffect(Effect.result(
+      fixture.repository.inspect(AUTHORITY, pending.candidateId),
+    ));
+    expect(Result.isFailure(corrupted)).toBe(true);
+    if (Result.isFailure(corrupted)) {
+      expect(corrupted.failure).toMatchObject({ reason: "storedState" });
     }
   });
 

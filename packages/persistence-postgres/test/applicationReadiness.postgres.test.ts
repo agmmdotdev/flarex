@@ -424,7 +424,9 @@ async function readinessFixture(
       candidateId: analysis.candidateId,
       analysisId: analysis.analysisId,
       manifestSha256: analysis.manifestSha256,
-      manifest: analysis.manifest,
+      manifest: Result.getOrThrow(
+        canonicalizeApplicationManifestV1(analysis.manifest),
+      ).manifest,
     }),
   );
   const catalog = await runEffect(hashCanonicalTaskCatalogV1({

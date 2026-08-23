@@ -2,9 +2,9 @@
 
 Status: `R01` and the physical snapshot/access preflight `R01-P` are complete
 on 2026-08-23. Endpoint adjacency versions are selected; `R02` stable binding
-is next. No relation catalog, production edge/version table, commit lowering,
-relation read, activation, public developer API, or Payload adapter is
-implemented
+is in progress under the contract lock below. No production edge/version table,
+commit lowering, relation read, activation, public developer API, or Payload
+adapter is implemented
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1033,6 +1033,8 @@ history as fallback, or scan the commit feed.
 
 ### [ ] R02 — Bind Relation And Edge Definitions Into Schema Lifecycle
 
+Status: implementation in progress on 2026-08-23.
+
 Outcome:
 
 - allocate stable relation IDs through the existing optimistic stale-plan
@@ -1055,6 +1057,44 @@ Outcome:
 - permit old and replacement edge definitions to coexist;
 - keep normalized relation-definition projections deferred unless identity,
   build, or hot introspection proves one necessary.
+
+Accepted implementation shape:
+
+- consume only the durable canonical `ApplicationManifestV2` and its recorded
+  digest; never accept a second relation declaration or reinterpret V1;
+- preserve the exact V1 schema-publication frame, table/index-only
+  `SchemaManifestAppSchemaV1`, and binding bytes, while adding concrete V2
+  schema-publication and application-schema-binding envelopes behind
+  unversioned semantic dispatchers;
+- pin complete semantic and physical definition bodies, their domain-separated
+  canonical digests, stable IDs, analysis-local ordinals, compatibility
+  receipts, and table/index binding evidence in the reusable V2 bound-schema
+  envelope. Retain the exact canonical V2 schema-frame bytes in its immutable
+  root as collision evidence. A separate immutable manifest-schema commitment
+  retains the exact canonical manifest bytes and pins their digest to the exact
+  schema digest, schema version, and bound-publication digest, so function-only
+  changes reuse the same bound schema without losing collision evidence;
+- persist only the stable relation catalog, immutable edge-definition catalog,
+  per-schema relation binding, bound-schema root, and manifest-schema
+  commitment as normalized projections. The semantic body remains solely in
+  the V2 bound publication;
+- require an explicit prior schema/relation coordinate to preserve a logical
+  relation, and an explicit compatible-reuse decision to reuse a physical
+  definition. An identical physical replacement fails closed. Exact replay is
+  idempotent; name or shape similarity never decides identity;
+- derive physical meaning from stable source/target tables, the exact source
+  path, scalar-versus-array extraction, nonlocalized representation, forbidden
+  duplicates, nullable position retention, occurrence codec V1, selected
+  current-edge keys, and endpoint-adjacency-version snapshot semantics;
+- use optimistic high-water planning followed by locked revalidation in one
+  short control-database transaction, retaining canonical bytes anywhere a
+  digest can select identity; and
+- bound the new canonical publication at 16 MiB. Readiness's existing 1 MiB V1
+  frame ceiling is not reused for this larger compatibility envelope.
+
+This gate may make Application Analysis V2 durable and expose a private binder.
+It does not wire relation-bearing located-scope publication, readiness,
+activation, runtime reads, edge/OCC storage, routes, or a public API.
 
 Exit gates:
 

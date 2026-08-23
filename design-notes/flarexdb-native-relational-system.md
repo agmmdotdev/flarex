@@ -2,7 +2,7 @@
 
 Status: accepted architecture; private semantic/codec/Application Analysis gate
 `R01` and physical snapshot/access preflight `R01-P` completed on 2026-08-23;
-stable relation/physical-definition binding `R02` is next
+stable relation/physical-definition binding `R02` is in progress
 
 Last reviewed: 2026-08-23
 
@@ -708,7 +708,7 @@ The relation work should proceed through these bounded stages:
    canonical occurrence/path codecs;
 3. complete (`R01-P`): select endpoint adjacency versions over edge history
    through genuine-Postgres evidence and freeze the bounded access/page rule;
-4. next (`R02`): bind stable logical relation identities, immutable semantic
+4. in progress (`R02`): bind stable logical relation identities, immutable semantic
    definitions, and immutable physical edge definitions into the schema
    lifecycle;
 5. add private current-edge storage plus the selected exact-snapshot support and

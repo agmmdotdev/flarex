@@ -3,13 +3,19 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   decodeCatalogIndexDefinitionId,
   decodeCatalogIndexId,
+  decodeCatalogEdgeDefinitionId,
+  decodeCatalogRelationId,
   decodeCatalogTableId,
   decodeCatalogTableNamespace,
   MAX_CATALOG_INDEX_DEFINITION_ID,
   MAX_CATALOG_INDEX_ID,
+  MAX_CATALOG_EDGE_DEFINITION_ID,
+  MAX_CATALOG_RELATION_ID,
   MAX_CATALOG_TABLE_ID,
   type CatalogIndexDefinitionId,
   type CatalogIndexId,
+  type CatalogEdgeDefinitionId,
+  type CatalogRelationId,
   type CatalogTableId,
   type CatalogTableNamespace,
 } from "../src/catalog";
@@ -64,6 +70,33 @@ describe("FlarexDB catalog contracts", () => {
       null,
     ]) {
       expect(() => decodeCatalogIndexDefinitionId(value)).toThrow();
+    }
+  });
+
+  it("keeps logical relation and physical edge identities distinct", () => {
+    expectTypeOf<CatalogRelationId>().toMatchTypeOf<number>();
+    expectTypeOf<CatalogEdgeDefinitionId>().toMatchTypeOf<number>();
+    expectTypeOf<CatalogRelationId>()
+      .not.toEqualTypeOf<CatalogEdgeDefinitionId>();
+    expectTypeOf<CatalogTableId>().not.toEqualTypeOf<CatalogRelationId>();
+
+    expect(decodeCatalogRelationId(1)).toBe(1);
+    expect(decodeCatalogRelationId(MAX_CATALOG_RELATION_ID)).toBe(
+      MAX_CATALOG_RELATION_ID,
+    );
+    expect(decodeCatalogEdgeDefinitionId(1)).toBe(1);
+    expect(decodeCatalogEdgeDefinitionId(MAX_CATALOG_EDGE_DEFINITION_ID))
+      .toBe(MAX_CATALOG_EDGE_DEFINITION_ID);
+
+    for (const value of [
+      0,
+      -1,
+      1.5,
+      MAX_CATALOG_EDGE_DEFINITION_ID + 1,
+      "1",
+      null,
+    ]) {
+      expect(() => decodeCatalogEdgeDefinitionId(value)).toThrow();
     }
   });
 

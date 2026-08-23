@@ -17,6 +17,10 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1 } from
+  "@flarex/analysis/application-analysis";
+import { APPLICATION_SCHEMA_PUBLICATION_MAXIMUM_FRAME_BYTES_V2 } from
+  "@flarex/analysis/internal/application-publication-v2";
 import {
   MAX_TASK_REQUESTED_EFFECT_PERSISTED_JSON_BYTES_V1,
   MAX_TASK_RUN_ATTEMPT_PERSISTED_JSON_BYTES_V1,
@@ -73,13 +77,21 @@ import {
   type LogicalAppWriteV1,
 } from "flarex-protocol/commit-protocol";
 import type {
+  CatalogEdgeDefinitionId,
   CatalogIndexDefinitionId,
   CatalogIndexId,
+  CatalogRelationId,
   CatalogTableId,
   CatalogTableNamespace,
   CatalogUniqueConstraintDefinitionId,
   CatalogUniqueConstraintId,
 } from "flarex-protocol/catalog";
+import {
+  MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES,
+  MAX_PHYSICAL_EDGE_DEFINITION_CANONICAL_BYTES_V1,
+  type ApplicationSchemaBindingV2,
+  type PhysicalEdgeDefinitionV1,
+} from "flarex-protocol/internal/application-schema-binding";
 import {
   MAX_CANONICAL_APP_UNIQUE_CONSTRAINT_SPEC_BYTES_V1,
   type AppUniqueConstraintPhysicalSpecCodecVersion,
@@ -314,6 +326,12 @@ export const fxControlSchemaVersions = pgTable(
     unique("fx_control_schema_version_deployment_version_unique").on(
       table.deploymentId,
       table.version,
+    ),
+    unique("fx_control_schema_version_artifact_identity_unique").on(
+      table.deploymentId,
+      table.schemaVersionId,
+      table.version,
+      table.manifestSha256,
     ),
     check(
       "fx_control_schema_version_deployment_id_non_empty_check",
@@ -641,6 +659,435 @@ export const fxControlSchemaVersionIndexBindings = pgTable(
     check(
       "fx_control_schema_index_binding_required_check",
       sql`${table.requiredForActivation} is true`,
+    ),
+  ],
+);
+
+/** Stable deployment-scoped logical relation identities. */
+export const fxControlRelations = pgTable(
+  "fx_control_relation",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    relationId: integer("relation_id").$type<CatalogRelationId>().notNull(),
+    createdBySchemaVersionId: text("created_by_schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_control_relation_pk",
+      columns: [table.deploymentId, table.relationId],
+    }),
+    foreignKey({
+      name: "fx_control_relation_schema_fk",
+      columns: [table.deploymentId, table.createdBySchemaVersionId],
+      foreignColumns: [
+        fxControlSchemaVersions.deploymentId,
+        fxControlSchemaVersions.schemaVersionId,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_relation_identity_check",
+      sql`${nonBlankText(table.deploymentId)}
+        and ${table.relationId} between 1 and 2147483647
+        and ${nonBlankText(table.createdBySchemaVersionId)}`,
+    ),
+    check("fx_control_relation_time_check", sql`isfinite(${table.createdAt})`),
+  ],
+);
+
+/** Immutable physical extraction, occurrence, access, and snapshot meaning. */
+export const fxControlEdgeDefinitions = pgTable(
+  "fx_control_edge_definition",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    edgeDefinitionId: integer("edge_definition_id")
+      .$type<CatalogEdgeDefinitionId>()
+      .notNull(),
+    relationId: integer("relation_id").$type<CatalogRelationId>().notNull(),
+    createdBySchemaVersionId: text("created_by_schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    physicalDefinitionCodecVersion: integer(
+      "physical_definition_codec_version",
+    ).$type<1>().notNull(),
+    physicalDefinitionJson: jsonb("physical_definition_json")
+      .$type<PhysicalEdgeDefinitionV1>()
+      .notNull(),
+    physicalDefinitionBytes: bytea("physical_definition_bytes").notNull(),
+    physicalDefinitionSha256: bytea("physical_definition_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_control_edge_definition_pk",
+      columns: [table.deploymentId, table.edgeDefinitionId],
+    }),
+    unique("fx_control_edge_definition_relation_unique").on(
+      table.deploymentId,
+      table.edgeDefinitionId,
+      table.relationId,
+    ),
+    foreignKey({
+      name: "fx_control_edge_definition_relation_fk",
+      columns: [table.deploymentId, table.relationId],
+      foreignColumns: [
+        fxControlRelations.deploymentId,
+        fxControlRelations.relationId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_control_edge_definition_schema_fk",
+      columns: [table.deploymentId, table.createdBySchemaVersionId],
+      foreignColumns: [
+        fxControlSchemaVersions.deploymentId,
+        fxControlSchemaVersions.schemaVersionId,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_edge_definition_identity_check",
+      sql`${nonBlankText(table.deploymentId)}
+        and ${table.edgeDefinitionId} between 1 and 2147483647
+        and ${table.relationId} between 1 and 2147483647
+        and ${nonBlankText(table.createdBySchemaVersionId)}
+        and ${table.physicalDefinitionCodecVersion} = 1`,
+    ),
+    check(
+      "fx_control_edge_definition_json_check",
+      sql`(
+          jsonb_typeof(${table.physicalDefinitionJson}) = 'object'
+          and ${table.physicalDefinitionJson} ->> 'format'
+            = 'flarex.physical-edge-definition'
+          and ${table.physicalDefinitionJson} -> 'version' = '1'::jsonb
+        ) is true`,
+    ),
+    check(
+      "fx_control_edge_definition_bytes_check",
+      sql`octet_length(${table.physicalDefinitionBytes}) between 1 and ${sql.raw(
+        String(MAX_PHYSICAL_EDGE_DEFINITION_CANONICAL_BYTES_V1),
+      )}
+        and octet_length(${table.physicalDefinitionSha256}) = 32`,
+    ),
+    check(
+      "fx_control_edge_definition_time_check",
+      sql`isfinite(${table.createdAt})`,
+    ),
+  ],
+);
+
+/** Exact stable/semantic/physical relation meaning selected by one schema. */
+export const fxControlSchemaVersionRelationBindings = pgTable(
+  "fx_control_schema_relation_binding",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    relationOrdinal: integer("relation_ordinal").notNull(),
+    relationId: integer("relation_id").$type<CatalogRelationId>().notNull(),
+    sourceTableId: integer("source_table_id")
+      .$type<CatalogTableId>()
+      .notNull(),
+    targetTableId: integer("target_table_id")
+      .$type<CatalogTableId>()
+      .notNull(),
+    semanticDefinitionSha256: bytea("semantic_definition_sha256").notNull(),
+    edgeDefinitionId: integer("edge_definition_id")
+      .$type<CatalogEdgeDefinitionId>()
+      .notNull(),
+    evolutionKind: text("evolution_kind")
+      .$type<"new" | "preserve">()
+      .notNull(),
+    originSchemaVersionId: text("origin_schema_version_id")
+      .$type<CatalogSchemaVersionId>(),
+    originRelationOrdinal: integer("origin_relation_ordinal"),
+    physicalEvolution: text("physical_evolution")
+      .$type<"new" | "reuse" | "replace">()
+      .notNull(),
+    requiredForActivation: boolean("required_for_activation")
+      .$type<true>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_control_schema_relation_binding_pk",
+      columns: [
+        table.deploymentId,
+        table.schemaVersionId,
+        table.relationOrdinal,
+      ],
+    }),
+    unique("fx_control_schema_relation_binding_relation_unique").on(
+      table.deploymentId,
+      table.schemaVersionId,
+      table.relationId,
+    ),
+    index("fx_control_schema_relation_binding_definition_idx").on(
+      table.deploymentId,
+      table.edgeDefinitionId,
+      table.schemaVersionId,
+    ),
+    foreignKey({
+      name: "fx_control_schema_relation_binding_schema_fk",
+      columns: [table.deploymentId, table.schemaVersionId],
+      foreignColumns: [
+        fxControlSchemaVersions.deploymentId,
+        fxControlSchemaVersions.schemaVersionId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_control_schema_relation_binding_relation_fk",
+      columns: [table.deploymentId, table.relationId],
+      foreignColumns: [
+        fxControlRelations.deploymentId,
+        fxControlRelations.relationId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_control_schema_relation_binding_edge_fk",
+      columns: [
+        table.deploymentId,
+        table.edgeDefinitionId,
+        table.relationId,
+      ],
+      foreignColumns: [
+        fxControlEdgeDefinitions.deploymentId,
+        fxControlEdgeDefinitions.edgeDefinitionId,
+        fxControlEdgeDefinitions.relationId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_control_schema_relation_binding_source_table_fk",
+      columns: [table.deploymentId, table.sourceTableId],
+      foreignColumns: [fxControlTables.deploymentId, fxControlTables.tableId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_control_schema_relation_binding_target_table_fk",
+      columns: [table.deploymentId, table.targetTableId],
+      foreignColumns: [fxControlTables.deploymentId, fxControlTables.tableId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fx_control_schema_relation_binding_origin_fk",
+      columns: [
+        table.deploymentId,
+        table.originSchemaVersionId,
+        table.originRelationOrdinal,
+      ],
+      foreignColumns: [
+        table.deploymentId,
+        table.schemaVersionId,
+        table.relationOrdinal,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_schema_relation_binding_identity_check",
+      sql`${nonBlankText(table.deploymentId)}
+        and ${nonBlankText(table.schemaVersionId)}
+        and ${table.relationOrdinal} between 1 and 1024
+        and ${table.relationId} between 1 and 2147483647
+        and ${table.sourceTableId} between 1 and 2147483647
+        and ${table.targetTableId} between 1 and 2147483647
+        and octet_length(${table.semanticDefinitionSha256}) = 32
+        and ${table.edgeDefinitionId} between 1 and 2147483647
+        and ${table.requiredForActivation} is true`,
+    ),
+    check(
+      "fx_control_schema_relation_binding_evolution_check",
+      sql`((
+          ${table.evolutionKind} = 'new'
+          and ${table.originSchemaVersionId} is null
+          and ${table.originRelationOrdinal} is null
+          and ${table.physicalEvolution} = 'new'
+        ) or (
+          ${table.evolutionKind} = 'preserve'
+          and ${table.originSchemaVersionId} is not null
+          and ${nonBlankText(table.originSchemaVersionId)}
+          and ${table.originSchemaVersionId} <> ${table.schemaVersionId}
+          and ${table.originRelationOrdinal} is not null
+          and ${table.originRelationOrdinal} between 1 and 1024
+          and ${table.physicalEvolution} in ('reuse', 'replace')
+        )) is true`,
+    ),
+    check(
+      "fx_control_schema_relation_binding_time_check",
+      sql`isfinite(${table.createdAt})`,
+    ),
+  ],
+);
+
+/** One reusable immutable relation-aware bound schema. */
+export const fxControlBoundApplicationSchemas = pgTable(
+  "fx_control_bound_application_schema",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    applicationSchemaSha256: bytea("application_schema_sha256").notNull(),
+    applicationSchemaFrameBytes: bytea("application_schema_frame_bytes")
+      .notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    schemaVersion: integer("schema_version")
+      .$type<CatalogSchemaVersion>()
+      .notNull(),
+    schemaManifestSha256: bytea("schema_manifest_sha256").notNull(),
+    bindingCodecVersion: integer("binding_codec_version")
+      .$type<2>()
+      .notNull(),
+    bindingJson: jsonb("binding_json")
+      .$type<ApplicationSchemaBindingV2>()
+      .notNull(),
+    bindingBytes: bytea("binding_bytes").notNull(),
+    boundPublicationSha256: bytea("bound_publication_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_control_bound_application_schema_pk",
+      columns: [table.deploymentId, table.applicationSchemaSha256],
+    }),
+    unique("fx_control_bound_application_schema_version_id_unique").on(
+      table.deploymentId,
+      table.schemaVersionId,
+    ),
+    unique("fx_control_bound_application_schema_version_unique").on(
+      table.deploymentId,
+      table.schemaVersion,
+    ),
+    unique("fx_control_bound_application_schema_identity_unique").on(
+      table.deploymentId,
+      table.applicationSchemaSha256,
+      table.schemaVersionId,
+      table.schemaVersion,
+      table.boundPublicationSha256,
+    ),
+    foreignKey({
+      name: "fx_control_bound_application_schema_artifact_fk",
+      columns: [
+        table.deploymentId,
+        table.schemaVersionId,
+        table.schemaVersion,
+        table.schemaManifestSha256,
+      ],
+      foreignColumns: [
+        fxControlSchemaVersions.deploymentId,
+        fxControlSchemaVersions.schemaVersionId,
+        fxControlSchemaVersions.version,
+        fxControlSchemaVersions.manifestSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_bound_application_schema_identity_check",
+      sql`${nonBlankText(table.deploymentId)}
+        and octet_length(${table.applicationSchemaSha256}) = 32
+        and octet_length(${table.applicationSchemaFrameBytes}) between 1 and ${sql.raw(
+          String(APPLICATION_SCHEMA_PUBLICATION_MAXIMUM_FRAME_BYTES_V2),
+        )}
+        and ${nonBlankText(table.schemaVersionId)}
+        and ${table.schemaVersion} between 1 and 2147483647
+        and octet_length(${table.schemaManifestSha256}) = 32
+        and ${table.bindingCodecVersion} = 2
+        and octet_length(${table.bindingBytes}) between 1 and ${sql.raw(
+          String(MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES),
+        )}
+        and octet_length(${table.boundPublicationSha256}) = 32`,
+    ),
+    check(
+      "fx_control_bound_application_schema_json_check",
+      sql`(
+          jsonb_typeof(${table.bindingJson}) = 'object'
+          and ${table.bindingJson} ->> 'format'
+            = 'flarex.application-schema-binding'
+          and ${table.bindingJson} -> 'version' = '2'::jsonb
+        ) is true`,
+    ),
+    check(
+      "fx_control_bound_application_schema_time_check",
+      sql`isfinite(${table.createdAt})`,
+    ),
+  ],
+);
+
+/** Immutable pin from one analyzed manifest to its reusable bound schema. */
+export const fxControlApplicationManifestSchemaBindings = pgTable(
+  "fx_control_application_manifest_schema_binding",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    applicationManifestSha256: bytea("application_manifest_sha256").notNull(),
+    applicationManifestBytes: bytea("application_manifest_bytes").notNull(),
+    applicationSchemaSha256: bytea("application_schema_sha256").notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    schemaVersion: integer("schema_version")
+      .$type<CatalogSchemaVersion>()
+      .notNull(),
+    boundPublicationSha256: bytea("bound_publication_sha256").notNull(),
+    bindingSha256: bytea("binding_sha256").notNull(),
+    bindingBytes: bytea("binding_bytes").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_control_application_manifest_schema_binding_pk",
+      columns: [table.deploymentId, table.applicationManifestSha256],
+    }),
+    unique("fx_control_application_manifest_schema_binding_identity_unique")
+      .on(
+        table.deploymentId,
+        table.applicationManifestSha256,
+        table.applicationSchemaSha256,
+        table.schemaVersionId,
+        table.boundPublicationSha256,
+        table.bindingSha256,
+      ),
+    foreignKey({
+      name: "fx_control_application_manifest_schema_binding_schema_fk",
+      columns: [
+        table.deploymentId,
+        table.applicationSchemaSha256,
+        table.schemaVersionId,
+        table.schemaVersion,
+        table.boundPublicationSha256,
+      ],
+      foreignColumns: [
+        fxControlBoundApplicationSchemas.deploymentId,
+        fxControlBoundApplicationSchemas.applicationSchemaSha256,
+        fxControlBoundApplicationSchemas.schemaVersionId,
+        fxControlBoundApplicationSchemas.schemaVersion,
+        fxControlBoundApplicationSchemas.boundPublicationSha256,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_application_manifest_schema_binding_identity_check",
+      sql`${nonBlankText(table.deploymentId)}
+        and octet_length(${table.applicationManifestSha256}) = 32
+        and octet_length(${table.applicationManifestBytes}) between 1 and ${sql.raw(
+          String(APPLICATION_ANALYSIS_MAXIMUM_MANIFEST_BYTES_V1),
+        )}
+        and octet_length(${table.applicationSchemaSha256}) = 32
+        and ${nonBlankText(table.schemaVersionId)}
+        and ${table.schemaVersion} between 1 and 2147483647
+        and octet_length(${table.boundPublicationSha256}) = 32
+        and octet_length(${table.bindingSha256}) = 32
+        and octet_length(${table.bindingBytes}) between 1 and ${sql.raw(
+          String(MAX_APPLICATION_SCHEMA_BINDING_CANONICAL_BYTES),
+        )}`,
+    ),
+    check(
+      "fx_control_application_manifest_schema_binding_time_check",
+      sql`isfinite(${table.createdAt})`,
     ),
   ],
 );

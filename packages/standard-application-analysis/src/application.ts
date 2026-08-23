@@ -1,6 +1,6 @@
 import type {
   ApplicationAnalysisReceiptV1,
-  ApplicationManifestV1,
+  ApplicationManifest,
 } from "@flarex/analysis/application-analysis";
 import { Effect } from "effect";
 
@@ -16,7 +16,7 @@ export type StandardApplicationAnalysis =
       ApplicationAnalysisReceiptV1,
       { readonly status: "analyzed" }
     >;
-    readonly manifest: ApplicationManifestV1;
+    readonly manifest: ApplicationManifest;
   }>
   | Readonly<{
     readonly kind: "rejected";

@@ -5,6 +5,8 @@ export const MAX_CATALOG_INDEX_ID = 2_147_483_647;
 export const MAX_CATALOG_INDEX_DEFINITION_ID = 2_147_483_647;
 export const MAX_CATALOG_UNIQUE_CONSTRAINT_ID = 2_147_483_647;
 export const MAX_CATALOG_UNIQUE_CONSTRAINT_DEFINITION_ID = 2_147_483_647;
+export const MAX_CATALOG_RELATION_ID = 2_147_483_647;
+export const MAX_CATALOG_EDGE_DEFINITION_ID = 2_147_483_647;
 
 export const CatalogTableIdSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: MAX_CATALOG_TABLE_ID }),
@@ -79,6 +81,35 @@ export type CatalogUniqueConstraintDefinitionId =
   typeof CatalogUniqueConstraintDefinitionIdSchema.Type;
 export const decodeCatalogUniqueConstraintDefinitionId =
   Schema.decodeUnknownSync(CatalogUniqueConstraintDefinitionIdSchema);
+
+/** Stable deployment-scoped identity for one logical relation. */
+export const CatalogRelationIdSchema = Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: MAX_CATALOG_RELATION_ID }),
+).pipe(Schema.brand("FlarexDB/CatalogRelationId"));
+export type CatalogRelationId = typeof CatalogRelationIdSchema.Type;
+export const decodeCatalogRelationId = Schema.decodeUnknownSync(
+  CatalogRelationIdSchema,
+);
+
+/**
+ * Deployment-scoped identity for one immutable physical edge definition.
+ *
+ * This is deliberately distinct from the stable logical relation identity.
+ * Compatible semantic revisions may explicitly reuse one definition, while
+ * any change to edge extraction, occurrence identity, access order, or
+ * snapshot meaning requires a replacement definition identity.
+ */
+export const CatalogEdgeDefinitionIdSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 1,
+    maximum: MAX_CATALOG_EDGE_DEFINITION_ID,
+  }),
+).pipe(Schema.brand("FlarexDB/CatalogEdgeDefinitionId"));
+export type CatalogEdgeDefinitionId =
+  typeof CatalogEdgeDefinitionIdSchema.Type;
+export const decodeCatalogEdgeDefinitionId = Schema.decodeUnknownSync(
+  CatalogEdgeDefinitionIdSchema,
+);
 
 export const CatalogTableNamespaceSchema = Schema.Union([
   Schema.Literal("app"),

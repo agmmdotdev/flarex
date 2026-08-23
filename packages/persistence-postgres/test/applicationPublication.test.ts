@@ -245,7 +245,7 @@ async function publicationFixture(functionOverrides?: FunctionOverrides) {
       candidateId: analyzed.candidateId,
       analysisId: analyzed.analysisId,
       manifestSha256: analyzed.manifestSha256,
-      manifest: analyzed.manifest,
+      manifest: canonical.manifest,
     }),
   });
 }

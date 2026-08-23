@@ -632,7 +632,9 @@ async function taskBindingFixture(empty = false) {
       candidateId: analyzed.candidateId,
       analysisId: analyzed.analysisId,
       manifestSha256: analyzed.manifestSha256,
-      manifest: analyzed.manifest,
+      manifest: Result.getOrThrow(
+        canonicalizeApplicationManifestV1(analyzed.manifest),
+      ).manifest,
     }),
   );
   return Object.freeze({

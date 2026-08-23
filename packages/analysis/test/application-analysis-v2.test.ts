@@ -17,6 +17,12 @@ import {
   makeApplicationManifest,
   makeApplicationManifestV1,
 } from "../src/applicationAnalysis.ts";
+import { applicationSchemaPublicationFrameV1 } from
+  "../src/applicationPublicationFramesV1.ts";
+import {
+  applicationSchemaPublicationFrame,
+  applicationSchemaPublicationFrameV2,
+} from "../src/applicationPublicationFramesV2.ts";
 
 const digest = (digit: string) => digit.repeat(64);
 
@@ -205,6 +211,37 @@ describe("Application Manifest V2", () => {
       operation: "lowerManifest",
       reason: "manifestBytesExceeded",
     });
+  });
+
+  it("publishes the exact V2 schema without changing V1 framing", async () => {
+    const v2 = await relationManifest();
+    const v2Frame = Effect.runSync(Effect.fromResult(
+      applicationSchemaPublicationFrameV2(v2.manifest),
+    ));
+    const dispatchedV2 = Effect.runSync(Effect.fromResult(
+      applicationSchemaPublicationFrame(v2.manifest),
+    ));
+    expect(dispatchedV2).toEqual(v2Frame);
+    expect(JSON.parse(new TextDecoder().decode(v2Frame))).toEqual({
+      format: "flarex.application-schema-publication",
+      version: 2,
+      schema: v2.manifest.schema,
+    });
+
+    const v1 = await Effect.runPromise(makeApplicationManifest(
+      await analyze(schemaDefinition([])),
+      sourceArtifact(),
+    ));
+    if (v1.manifest.version !== 1) {
+      throw new Error("Expected a zero-relation Application Manifest V1.");
+    }
+    const oldV1 = Effect.runSync(Effect.fromResult(
+      applicationSchemaPublicationFrameV1(v1.manifest),
+    ));
+    const dispatchedV1 = Effect.runSync(Effect.fromResult(
+      applicationSchemaPublicationFrame(v1.manifest),
+    ));
+    expect(dispatchedV1).toEqual(oldV1);
   });
 });
 

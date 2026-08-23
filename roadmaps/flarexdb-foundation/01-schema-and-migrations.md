@@ -1204,7 +1204,7 @@ Evidence:
 - typecheck, build, Drizzle metadata, Effect-boundary, and diff checks remain
   green without adding a public export or production caller.
 
-### [ ] R01 — Freeze Relation Semantics And Stable Identity
+### [x] R01 — Freeze Relation Semantics And Stable Identity
 
 Outcome:
 
@@ -1307,6 +1307,10 @@ reopen conditions are recorded in
 
 ### [ ] R02 — Bind Analyzed Relations Into App-Schema Publication
 
+Status: implementation in progress on 2026-08-23. The contract and ownership
+lock below is accepted; completion still requires the persistence and genuine
+PostgreSQL gates in this section.
+
 Prerequisites: `R01` and `R01-P` are complete for the admitted subset.
 
 Outcome:
@@ -1346,6 +1350,67 @@ Exit gates:
   publication carries stable identities plus selected read-key/snapshot meaning;
 - C09 can pin and verify both artifacts without consulting mutable active state;
 - no second mutable definition authority exists.
+
+Implementation contract:
+
+- The only semantic input is the durable canonical `ApplicationManifestV2`
+  produced by Application Analysis. The binder re-canonicalizes it, hashes the
+  owned bytes, and requires the supplied durable manifest digest to match. It
+  never rereads Standard relation intent or accepts a second declaration.
+- `applicationSchemaPublicationFrameV1` and
+  `SchemaManifestAppSchemaV1` remain byte-for-byte table/index contracts for
+  zero-relation applications. Relation-bearing schemas use a distinct
+  application-schema publication V2 frame and a concrete
+  `flarex.application-schema-binding` V2 envelope. The normal private type and
+  decoder are unversioned unions; V1 remains current and is not renamed
+  `Legacy`.
+- The reusable V2 binding envelope pins the V2 application-schema digest, while
+  its immutable root retains the exact canonical V2 schema-frame bytes as
+  collision evidence. It also pins the existing table/index schema-manifest
+  digest, analysis-local ordinals, stable table/index/relation IDs, complete
+  semantic-definition bodies and digests,
+  complete physical-edge-definition bodies and digests, and its own canonical
+  bound-publication digest. A separate concrete manifest-schema binding retains
+  the exact canonical manifest bytes and pins their digest to that exact schema
+  digest, schema version, and bound-publication digest. Function-only manifest
+  changes therefore reuse one bound schema without losing the required
+  two-artifact correlation or collision evidence. The bound envelope's explicit
+  canonical-byte ceiling is 16 MiB; it does not inherit readiness's incidental
+  1 MiB limit.
+- Semantic identity is the schema-qualified pair of application-schema digest
+  and canonical semantic-definition digest. The semantic body lives in the
+  bound publication; R02 does not add a normalized semantic-definition table.
+  Physical identity is the stable edge-definition ID plus canonical physical
+  bytes and digest.
+- The normalized persistence projection is limited to a deployment-scoped
+  stable relation catalog, an immutable physical edge-definition catalog, a
+  per-schema relation binding, one immutable bound-schema root, and the narrow
+  manifest-to-bound-schema commitment. The relation binding stores the exact
+  semantic digest and physical definition ID; the V2 envelope remains the
+  complete meaning.
+- A relation in a new schema is either explicitly new or explicitly preserved
+  from a prior schema binding. Preservation is identified by prior schema and
+  relation ordinal, not inferred from names, paths, targets, or declaration
+  shape. Rename, retarget, cardinality, delete-policy, path, localization, and
+  codec differences are classified before persistence, and the canonical
+  compatibility receipt is retained with the preservation evidence.
+- Physical reuse is an explicit decision and succeeds only when the newly
+  derived canonical physical bytes equal the referenced immutable definition.
+  An unrequested byte match fails closed instead of silently allocating an
+  identical replacement, and digest equality never substitutes for byte
+  equality. A physically different definition receives another ID, so old and
+  replacement definitions coexist.
+- Preparation observes existing bindings and high-water marks outside the
+  transaction. The short control-database transaction locks and rechecks those
+  observations, rejects stale or partial plans, and atomically writes the
+  stable relation rows, immutable edge definitions, schema bindings, and
+  canonical V2 envelope. Hash equality is never sufficient without retained
+  byte equality, including application-schema identity itself.
+- R02 makes durable Application Analysis accept the already-defined V1/V2
+  manifest union and adds only a private binder consumer. Located-scope
+  publication, readiness, activation, runtime, routes, edge storage, OCC, and
+  public APIs remain fail-closed until their own gates; no cross-database
+  transaction or fallback is introduced.
 
 ### [ ] S12 — Add Stable Current Edges And Selected Snapshot Support
 

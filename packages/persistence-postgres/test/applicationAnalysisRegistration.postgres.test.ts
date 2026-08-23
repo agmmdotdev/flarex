@@ -20,6 +20,8 @@ import {
   SESSION_TEST_EPOCH_UUID,
   SESSION_TEST_SCOPE_UUID,
 } from "./sessionAuthorityTestSupport";
+import { relationManifestV2Text } from
+  "./applicationAnalysisRegistrationTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const withPostgres = useFileScopedPostgresPersistence();
@@ -69,6 +71,45 @@ describePostgres("Application Analysis admission - PostgreSQL", () => {
         candidate_count: "1",
         analysis_count: "1",
       }]);
+    });
+  }, 60_000);
+
+  it("settles and replays a relation-bearing manifest exactly", async () => {
+    await withPostgres(async persistence => {
+      await insertSessionTestScope(persistence);
+      const repository = makeApplicationAnalysisRepository(persistence.drizzle);
+      const rootSha256 = "d".repeat(64);
+      const pending = await runEffect(repository.begin(Object.freeze({
+        authority: AUTHORITY,
+        requestKey: "request:application-analysis:postgres-relations",
+        sourceArtifactRootSha256: rootSha256,
+        analyzerIdentity: "analyzer-postgres-relations",
+        analyzerPolicyIdentity: "policy-postgres-relations",
+      })));
+      const terminal = Object.freeze({
+        kind: "analyzed" as const,
+        candidateId: pending.candidateId,
+        sourceArtifactRootSha256: rootSha256,
+        analyzerIdentity: "analyzer-postgres-relations",
+        analyzerPolicyIdentity: "policy-postgres-relations",
+        canonicalManifest: relationManifestV2Text(rootSha256),
+      });
+
+      const analyzed = await runEffect(repository.settle(AUTHORITY, terminal));
+      const replay = await runEffect(repository.settle(AUTHORITY, terminal));
+      const inspected = await runEffect(
+        repository.inspect(AUTHORITY, pending.candidateId),
+      );
+
+      expect(analyzed).toMatchObject({
+        status: "analyzed",
+        manifest: {
+          version: 2,
+          schema: { version: 2, relations: [{ relationOrdinal: 1 }] },
+        },
+      });
+      expect(replay).toEqual(analyzed);
+      expect(inspected).toEqual(analyzed);
     });
   }, 60_000);
 });

@@ -10,6 +10,7 @@
     ".": "./src/index.ts",
     "./internal/application-task-bindings": "./src/applicationTaskBindings.ts",
     "./internal/application-schema-authority": "./src/applicationSchemaAuthority.ts",
+    "./internal/application-relation-binding": "./src/applicationRelationBinding/index.ts",
     "./internal/application-readiness": "./src/applicationReadiness.ts",
     "./internal/application-analysis-registration": "./src/applicationAnalysisRegistration.ts",
     "./internal/application-publication": "./src/applicationPublication.ts",

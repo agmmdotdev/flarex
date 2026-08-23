@@ -25,8 +25,6 @@ import {
   MAX_CATALOG_SCHEMA_VERSION,
   canonicalizeSchemaManifestV1,
   decodeSchemaManifestAppSchemaV1Result,
-  decodeSchemaManifestAppIndexDeclarationsV1Result,
-  decodeSchemaManifestAppTableDeclarationsV1Result,
   type CatalogSchemaVersion,
   type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
@@ -53,6 +51,10 @@ import {
   type ReadSchemaVersionArtifactError,
 } from "./schemaVersionArtifacts";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
+import {
+  applicationSchemaPublicationInputResult,
+  projectBoundApplicationSchemaResult,
+} from "./applicationSchemaProjection";
 
 export interface ApplicationSchemaTableBinding {
   readonly applicationTableId: number;
@@ -585,54 +587,15 @@ function schemaPublicationInput(
   schemaVersion: CatalogSchemaVersion,
   manifest: ApplicationManifestV1,
 ): Result.Result<PublishAppSchemaV1Input, ApplicationSchemaAuthorityError> {
-  const tableNames = new Map(
-    manifest.schema.tables.map(table => [table.tableId, table.name] as const),
-  );
-  const tables = manifest.schema.tables.map(table => ({
-    logicalName: table.name,
-    definition: {
-      kind: "appDocument" as const,
-      definitionVersion: 1 as const,
-      documentType: table.validator,
-    },
-  }));
-  const indexes: Array<{
-    readonly tableLogicalName: string;
-    readonly descriptor: string;
-    readonly fields: ReadonlyArray<string>;
-  }> = [];
-  for (const index of manifest.schema.indexes) {
-    const tableLogicalName = tableNames.get(index.tableId);
-    if (tableLogicalName === undefined) {
-      return Result.fail(authorityFailureValue("invalidSchema"));
-    }
-    indexes.push({
-      tableLogicalName,
-      descriptor: index.name,
-      fields: index.fields,
-    });
-  }
-  return Result.gen(function* () {
-    const decodedTables = yield* decodeSchemaManifestAppTableDeclarationsV1Result(
-      tables,
-    ).pipe(Result.mapError(cause => authorityFailureValue(
-      "invalidSchema",
-      cause,
-    )));
-    const decodedIndexes = yield* decodeSchemaManifestAppIndexDeclarationsV1Result(
-      indexes,
-    ).pipe(Result.mapError(cause => authorityFailureValue(
-      "invalidSchema",
-      cause,
-    )));
-    return Object.freeze({
-      deploymentId,
-      schemaVersionId,
-      version: CatalogSchemaVersionSchema.make(schemaVersion),
-      tables: decodedTables,
-      indexes: decodedIndexes,
-    });
-  });
+  return applicationSchemaPublicationInputResult(
+    deploymentId,
+    schemaVersionId,
+    CatalogSchemaVersionSchema.make(schemaVersion),
+    manifest.schema,
+  ).pipe(Result.mapError(cause => authorityFailureValue(
+    "invalidSchema",
+    cause,
+  )));
 }
 
 function projectAuthority(
@@ -645,81 +608,13 @@ function projectAuthority(
   manifestSha256: Uint8Array,
   operation: ApplicationSchemaAuthorityError["operation"] = "publish",
 ): Result.Result<ApplicationSchemaAuthority, ApplicationSchemaAuthorityError> {
-  const boundTablesByName = new Map<string,
-    PublishAppSchemaV1Result["manifest"]["tableDefinitions"]["tables"][number]
-  >(
-    manifest.tableDefinitions.tables.map(table => [
-      table.logicalName,
-      table,
-    ] as const),
-  );
-  if (boundTablesByName.size !== schema.tables.length) {
-    return Result.fail(authorityFailureValue(
+  return projectBoundApplicationSchemaResult(schema, manifest).pipe(
+    Result.mapError(cause => authorityFailureValue(
       "projectionMismatch",
-      undefined,
+      cause,
       operation,
-    ));
-  }
-  const tables: ApplicationSchemaTableBinding[] = [];
-  const boundTableIdsByApplicationId = new Map<number, CatalogTableId>();
-  for (const table of schema.tables) {
-    const bound = boundTablesByName.get(table.name);
-    if (bound === undefined ||
-      !canonicalJsonEqual(bound.definition.documentType, table.validator)) {
-      return Result.fail(authorityFailureValue(
-        "projectionMismatch",
-        undefined,
-        operation,
-      ));
-    }
-    boundTableIdsByApplicationId.set(table.tableId, bound.tableId);
-    tables.push(Object.freeze({
-      applicationTableId: table.tableId,
-      logicalName: table.name,
-      tableId: bound.tableId,
-    }));
-  }
-
-  const indexes: ApplicationSchemaIndexBinding[] = [];
-  const unmatched = new Set(manifest.indexBindings.indexes);
-  for (const index of schema.indexes) {
-    const tableId = boundTableIdsByApplicationId.get(index.tableId);
-    if (tableId === undefined) {
-      return Result.fail(authorityFailureValue(
-        "projectionMismatch",
-        undefined,
-        operation,
-      ));
-    }
-    const bound = manifest.indexBindings.indexes.find(candidate =>
-      candidate.tableId === tableId && candidate.descriptor === index.name
-    );
-    if (bound === undefined ||
-      !stringArraysEqual(bound.spec.fields, index.fields)) {
-      return Result.fail(authorityFailureValue(
-        "projectionMismatch",
-        undefined,
-        operation,
-      ));
-    }
-    unmatched.delete(bound);
-    indexes.push(Object.freeze({
-      applicationIndexId: index.indexId,
-      applicationTableId: index.tableId,
-      descriptor: index.name,
-      logicalIndexId: bound.logicalIndexId,
-      tableId,
-    }));
-  }
-  if (unmatched.size !== 0) {
-    return Result.fail(authorityFailureValue(
-      "projectionMismatch",
-      undefined,
-      operation,
-    ));
-  }
-
-  return Result.succeed(Object.freeze({
+    )),
+    Result.map(projection => Object.freeze({
     deploymentId,
     applicationSchemaSha256,
     schemaVersionId,
@@ -728,9 +623,10 @@ function projectAuthority(
       manifestSha256,
     ),
     manifest: snapshotSchemaManifestValue(manifest),
-    tables: Object.freeze(tables),
-    indexes: Object.freeze(indexes),
-  }));
+    tables: projection.tables,
+    indexes: projection.indexes,
+  } satisfies ApplicationSchemaAuthority)),
+  );
 }
 
 function canonicalJsonEqual(left: unknown, right: unknown): boolean {
@@ -741,14 +637,6 @@ function canonicalJsonEqual(left: unknown, right: unknown): boolean {
 
 function canonicalJsonInvariant(issue: { readonly reason: string }): never {
   throw new Error(`Application schema JSON invariant: ${issue.reason}`);
-}
-
-function stringArraysEqual(
-  left: ReadonlyArray<string>,
-  right: ReadonlyArray<string>,
-): boolean {
-  return left.length === right.length &&
-    left.every((value, index) => value === right[index]);
 }
 
 function sha256(bytes: Uint8Array): Effect.Effect<Uint8Array> {
