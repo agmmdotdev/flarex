@@ -30,8 +30,9 @@ import type {
   StandardApplicationTypedReferenceV1Error,
 } from "../../src/environment/standardApplicationEnvironmentV1";
 import type {
-  StandardApplicationTaskDeliveryReceiptV1,
   StandardApplicationTaskDeliveryV1Error,
+  StandardApplicationTaskRetryScheduledDeliveryReceiptV1,
+  StandardApplicationTaskSucceededDeliveryReceiptV1,
 } from "../../src/environment/standardApplicationTaskDeliveryV1";
 
 const RECIPE_FIELDS = {
@@ -73,12 +74,16 @@ interface StandardApplicationTaskSetupV1 {
 interface StandardApplicationTaskWorkloadProofV1 {
   readonly first: StandardApplicationTaskRunCreationReceipt;
   readonly replay: StandardApplicationTaskRunCreationReceipt;
-  readonly delivery: StandardApplicationTaskDeliveryReceiptV1<Readonly<{
+  readonly delivery: StandardApplicationTaskSucceededDeliveryReceiptV1<Readonly<{
     readonly prepared: boolean;
     readonly preparationId: string;
     readonly title: string;
     readonly subject: string;
   }>>;
+  readonly failedFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly failedReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly failedDelivery:
+    StandardApplicationTaskRetryScheduledDeliveryReceiptV1;
 }
 
 type StandardApplicationTaskSimulationErrorV1 =
@@ -105,6 +110,33 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
       title: standardV1.string(),
       subject: standardV1.string(),
     }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 3,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
+
+export const standardApplicationTaskFailureV1 = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "systemTest.failRecipePreparation",
+    handler: {
+      logicalModulePath: "recipeCommands",
+      artifactModulePath: "recipeMutation",
+      exportName: "failRecipePreparation",
+    },
+    payload: standardV1.object({ recipeId: standardV1.string() }),
+    output: standardV1.object({ prepared: standardV1.boolean() }),
     runAttemptPolicy: {
       version: 1,
       retry: {
@@ -183,7 +215,43 @@ const runTaskQueryCallbackV1 = Effect.fn(
     standardApplicationTaskCreationV1.reference,
     first,
   );
-  return Object.freeze({ first, replay, delivery });
+  if (delivery.status !== "succeeded") {
+    return yield* Effect.die(new Error(
+      "The successful Task unexpectedly scheduled a retry.",
+    ));
+  }
+  const failedRequest = Object.freeze({
+    ...request,
+    requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
+      "system-test:task-failure-retry-replay",
+    )),
+    payload: Object.freeze({ recipeId: setup.recipeId }),
+  });
+  const failedFirst = yield* client.tasks.create(
+    standardApplicationTaskFailureV1.reference,
+    failedRequest,
+  );
+  const failedReplay = yield* client.tasks.create(
+    standardApplicationTaskFailureV1.reference,
+    failedRequest,
+  );
+  const failedDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskFailureV1.reference,
+    failedFirst,
+  );
+  if (failedDelivery.status !== "retry_scheduled") {
+    return yield* Effect.die(new Error(
+      "The failing Task did not schedule its bound retry.",
+    ));
+  }
+  return Object.freeze({
+    first,
+    replay,
+    delivery,
+    failedFirst,
+    failedReplay,
+    failedDelivery,
+  });
 });
 
 export const standardApplicationTaskCreationSimulationV1 =
@@ -194,7 +262,10 @@ export const standardApplicationTaskCreationSimulationV1 =
       applicationId: "typed-task-creation-replay",
       revisionName: "system-test-typed-task-creation-replay",
       define: taskApplicationDefinition,
-      defineTasks: () => [standardApplicationTaskCreationV1],
+      defineTasks: () => [
+        standardApplicationTaskCreationV1,
+        standardApplicationTaskFailureV1,
+      ],
     },
     setup: setupTaskQueryCallbackV1,
     workload: runTaskQueryCallbackV1,
@@ -217,6 +288,8 @@ export interface StandardApplicationTaskCreationStateV1
   readonly child_mutation_effect_count: string;
   readonly confirmed_child_mutation_effect_count: string;
   readonly child_mutation_outcome_count: string;
+  readonly ready_run_count: string;
+  readonly terminal_run_count: string;
 }
 
 export async function readStandardApplicationTaskCreationStateV1(
@@ -240,7 +313,9 @@ export async function readStandardApplicationTaskCreationStateV1(
       (select count(*)::text from fx_system_tx_session where lifecycle = 'committed') as committed_transaction_session_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation') as child_mutation_effect_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and state = 'confirmed') as confirmed_child_mutation_effect_count,
-      (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and child_mutation_outcome_sha256 is not null) as child_mutation_outcome_count
+      (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and child_mutation_outcome_sha256 is not null) as child_mutation_outcome_count,
+      (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'ready' and due_kind = 'start_attempt') as ready_run_count,
+      (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'terminal') as terminal_run_count
   `);
   return result.rows;
 }
@@ -262,6 +337,9 @@ function taskApplicationDefinition() {
     queryArtifactPath: "recipeQuery",
     mutationSourceBytes: new TextEncoder().encode([
       'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
+      "export function failRecipePreparation() {",
+      "  throw new Error('simulated recipe preparation failure');",
+      "}",
       "export async function prepareRecipe(ctx, payload) {",
       "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",
       "  if (result.recipe === null) throw new Error('recipe missing');",

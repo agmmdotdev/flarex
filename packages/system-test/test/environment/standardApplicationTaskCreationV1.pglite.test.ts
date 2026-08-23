@@ -60,9 +60,55 @@ it("creates, replays, and manually delivers one typed PGlite Task", async () => 
       starts: 1,
       inputReads: 1,
       settlements: 1,
+      resultReads: 2,
+      resultWrites: 1,
       legacyRuntimeObjectReads: 0,
     },
   });
+  expect(receipt.workloadProof.failedReplay).toEqual(
+    receipt.workloadProof.failedFirst,
+  );
+  expect(receipt.workloadProof.failedFirst).toMatchObject({
+    status: "created",
+    version: 1,
+  });
+  expect(receipt.workloadProof.failedDelivery).toEqual({
+    version: 1,
+    status: "retry_scheduled",
+    runId: receipt.workloadProof.failedFirst.runId,
+    retry: {
+      previousAttemptNumber: 1,
+      notBeforeMs: expect.anything(),
+      nextComputeProfile: "standard-1x",
+      failure: {
+        kind: "task_failure",
+        code: "handler_failed",
+        message: null,
+      },
+    },
+    host: {
+      dispatchCandidatesHandled: 1,
+      dispatchProviderCalls: 1,
+      candidateFailures: 0,
+      supervisionExpected: 1,
+      supervisionObserved: 1,
+      supervisionSucceeded: 1,
+      supervisionFailed: 0,
+    },
+    worker: {
+      generation: "application_v1",
+      loads: 1,
+      starts: 1,
+      inputReads: 1,
+      settlements: 1,
+      resultReads: 0,
+      resultWrites: 0,
+      legacyRuntimeObjectReads: 0,
+    },
+  });
+  expect(receipt.workloadProof.failedDelivery.retry.notBeforeMs).toBeGreaterThan(
+    0,
+  );
   const redactedHostReceipt = JSON.stringify(receipt.workloadProof.delivery.host);
   expect(redactedHostReceipt).not.toContain("recipe-1");
   expect(redactedHostReceipt).not.toContain(receipt.workloadProof.first.runId);
@@ -70,18 +116,20 @@ it("creates, replays, and manually delivers one typed PGlite Task", async () => 
     persistence.target,
   )).toEqual([{
     catalog_count: "1",
-    definition_count: "1",
+    definition_count: "2",
     legacy_definition_revision_count: "0",
-    run_count: "1",
-    request_count: "1",
-    attempt_count: "1",
+    run_count: "2",
+    request_count: "2",
+    attempt_count: "2",
     pending_count: "0",
-    dispatch_count: "1",
+    dispatch_count: "2",
     transaction_session_count: "2",
     committed_transaction_session_count: "2",
     child_mutation_effect_count: "1",
     confirmed_child_mutation_effect_count: "1",
     child_mutation_outcome_count: "1",
+    ready_run_count: "1",
+    terminal_run_count: "1",
   }]);
   expect(receipt.afterSetupInspection).toMatchObject({
     currentRowCount: 1,

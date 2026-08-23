@@ -3,6 +3,9 @@ import {
   decodeTaskRetryJitterV1,
   decodeTaskRunVersionV1,
   type RunAttemptDecisionErrorV1,
+  type TaskAttemptNumberV1,
+  type TaskComputeProfileRefV1,
+  type TaskDatabaseTimeMsV1,
   type TaskSystemRunAttemptStoreErrorV1,
   type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
@@ -150,10 +153,12 @@ export interface StandardApplicationTaskDeliveryWorkerReceiptV1 {
   readonly starts: number;
   readonly inputReads: number;
   readonly settlements: number;
+  readonly resultReads: number;
+  readonly resultWrites: number;
   readonly legacyRuntimeObjectReads: number;
 }
 
-export interface StandardApplicationTaskDeliveryReceiptV1<Output> {
+export interface StandardApplicationTaskSucceededDeliveryReceiptV1<Output> {
   readonly version: 1;
   readonly status: "succeeded";
   readonly runId: TaskRunIdV1;
@@ -161,6 +166,28 @@ export interface StandardApplicationTaskDeliveryReceiptV1<Output> {
   readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
   readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
 }
+
+export interface StandardApplicationTaskRetryScheduledDeliveryReceiptV1 {
+  readonly version: 1;
+  readonly status: "retry_scheduled";
+  readonly runId: TaskRunIdV1;
+  readonly retry: Readonly<{
+    readonly previousAttemptNumber: TaskAttemptNumberV1;
+    readonly notBeforeMs: TaskDatabaseTimeMsV1;
+    readonly nextComputeProfile: TaskComputeProfileRefV1;
+    readonly failure: Readonly<{
+      readonly kind: "task_failure";
+      readonly code: "handler_failed";
+      readonly message: null;
+    }>;
+  }>;
+  readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
+  readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
+}
+
+export type StandardApplicationTaskDeliveryReceiptV1<Output> =
+  | StandardApplicationTaskSucceededDeliveryReceiptV1<Output>
+  | StandardApplicationTaskRetryScheduledDeliveryReceiptV1;
 
 export class StandardApplicationTaskDeliveryContractV1Error
   extends Data.TaggedError(
@@ -540,6 +567,8 @@ export function makeStandardApplicationTaskDeliveryV1(
       ),
     );
 
+    const resultReadsBefore = resources.results.getCalls;
+    const resultWritesBefore = resources.results.putCalls;
     loader.releaseSettlement();
     const hosted = yield* host.run(null);
     const hostReceipt = hosted.receipt;
@@ -566,38 +595,6 @@ export function makeStandardApplicationTaskDeliveryV1(
       runId: creation.runId,
     });
     if (
-      settled.current.phase !== "terminal" ||
-      settled.current.terminal.kind !== "succeeded" ||
-      settled.current.terminal.result === null
-    ) {
-      return yield* failDelivery(
-        "inspectAttempt",
-        "attemptNotSucceeded",
-        reference.taskId,
-        creation.runId,
-        Object.freeze({ host: hosted.receipt, settled }),
-      );
-    }
-    const stored = yield* resultStore.read(
-      settled.current.terminal.result,
-    );
-    if (definition.manifest.outputValidator !== null) {
-      yield* Effect.fromResult(validateValidatorValueV1(
-        definition.manifest.outputValidator,
-        stored.value,
-        { idPolicy: { mode: "shapeOnly" } },
-      )).pipe(Effect.mapError(error =>
-        new StandardApplicationTaskDeliveryContractV1Error({
-          phase: "validateOutput",
-          reason: "outputMismatch",
-          taskId: reference.taskId,
-          runId: creation.runId,
-          issue: error.issue,
-        })
-      ));
-    }
-
-    if (
       loader.loads !== 1 || loader.starts !== 1 ||
       loader.workerInputReads !== 1 || loader.workerSettlements !== 1 ||
       loader.generations.length !== 1 ||
@@ -621,31 +618,102 @@ export function makeStandardApplicationTaskDeliveryV1(
         creation.runId,
       );
     }
+    const hostEvidence = Object.freeze({
+      dispatchCandidatesHandled:
+        hostReceipt.runner.confirmedDispatchCandidatesHandled,
+      dispatchProviderCalls:
+        hostReceipt.runner.confirmedDispatchProviderCalls,
+      candidateFailures: hostReceipt.runner.candidateFailures,
+      supervisionExpected: hostReceipt.supervision.expected,
+      supervisionObserved: hostReceipt.supervision.observed,
+      supervisionSucceeded: hostReceipt.supervision.succeeded,
+      supervisionFailed: hostReceipt.supervision.failed,
+    });
+    const makeWorkerEvidence = () => Object.freeze({
+      generation: "application_v1" as const,
+      loads: loader.loads,
+      starts: loader.starts,
+      inputReads: loader.workerInputReads,
+      settlements: loader.workerSettlements,
+      resultReads: resources.results.getCalls - resultReadsBefore,
+      resultWrites: resources.results.putCalls - resultWritesBefore,
+      legacyRuntimeObjectReads: resources.runtimeObjects.getCalls,
+    });
+
+    if (
+      settled.current.phase === "ready" &&
+      settled.current.ready.kind === "immediate_retry" &&
+      settled.current.ready.acceptedRetry.cause.kind === "failed_completion" &&
+      settled.current.ready.acceptedRetry.cause.failure.kind === "task_failure" &&
+      settled.current.ready.acceptedRetry.cause.failure.code === "handler_failed" &&
+      settled.current.ready.acceptedRetry.cause.failure.message === null
+    ) {
+      const retry = settled.current.ready.acceptedRetry;
+      const workerEvidence = makeWorkerEvidence();
+      if (workerEvidence.resultReads !== 0 || workerEvidence.resultWrites !== 0) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          reference.taskId,
+          creation.runId,
+          workerEvidence,
+        );
+      }
+      return Object.freeze({
+        version: 1 as const,
+        status: "retry_scheduled" as const,
+        runId: creation.runId,
+        retry: Object.freeze({
+          previousAttemptNumber: retry.previousAttempt.attemptNumber,
+          notBeforeMs: retry.notBeforeMs,
+          nextComputeProfile: retry.nextComputeProfile,
+          failure: Object.freeze({
+            kind: "task_failure" as const,
+            code: "handler_failed" as const,
+            message: null,
+          }),
+        }),
+        host: hostEvidence,
+        worker: workerEvidence,
+      });
+    }
+    if (
+      settled.current.phase !== "terminal" ||
+      settled.current.terminal.kind !== "succeeded" ||
+      settled.current.terminal.result === null
+    ) {
+      return yield* failDelivery(
+        "inspectAttempt",
+        "attemptNotSucceeded",
+        reference.taskId,
+        creation.runId,
+        Object.freeze({ host: hosted.receipt, settled }),
+      );
+    }
+    const stored = yield* resultStore.read(settled.current.terminal.result);
+    if (definition.manifest.outputValidator !== null) {
+      yield* Effect.fromResult(validateValidatorValueV1(
+        definition.manifest.outputValidator,
+        stored.value,
+        { idPolicy: { mode: "shapeOnly" } },
+      )).pipe(Effect.mapError(error =>
+        new StandardApplicationTaskDeliveryContractV1Error({
+          phase: "validateOutput",
+          reason: "outputMismatch",
+          taskId: reference.taskId,
+          runId: creation.runId,
+          issue: error.issue,
+        })
+      ));
+    }
 
     return Object.freeze({
       version: 1 as const,
       status: "succeeded" as const,
       runId: creation.runId,
       output: stored.value as Output,
-      host: Object.freeze({
-        dispatchCandidatesHandled:
-          hostReceipt.runner.confirmedDispatchCandidatesHandled,
-        dispatchProviderCalls:
-          hostReceipt.runner.confirmedDispatchProviderCalls,
-        candidateFailures: hostReceipt.runner.candidateFailures,
-        supervisionExpected: hostReceipt.supervision.expected,
-        supervisionObserved: hostReceipt.supervision.observed,
-        supervisionSucceeded: hostReceipt.supervision.succeeded,
-        supervisionFailed: hostReceipt.supervision.failed,
-      }),
-      worker: Object.freeze({
-        generation: "application_v1" as const,
-        loads: loader.loads,
-        starts: loader.starts,
-        inputReads: loader.workerInputReads,
-        settlements: loader.workerSettlements,
-        legacyRuntimeObjectReads: resources.runtimeObjects.getCalls,
-      }),
+      host: hostEvidence,
+      worker: makeWorkerEvidence(),
     });
   });
 
