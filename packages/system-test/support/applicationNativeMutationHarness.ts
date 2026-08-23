@@ -77,9 +77,8 @@ const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
 
 export interface ApplicationNativeMutationProof {
   readonly initialCommit: ApplicationNativeMutationInitialCommitObservation;
-  readonly validationCaught: true;
-  readonly concurrentDuplicateInProgress: true;
-  readonly concurrentDuplicateReplay: true;
+  readonly validationCatch: ApplicationNativeMutationValidationCatchObservation;
+  readonly concurrentDuplicate: ApplicationNativeMutationConcurrentDuplicateObservation;
   readonly occConflictReran: true;
   readonly staleHeadRejected: true;
   readonly admittedHeadStayedPinned: true;
@@ -128,6 +127,42 @@ export interface ApplicationNativeMutationInitialCommitObservation {
   readonly replay: ApplicationNativeMutationReplayObservation;
   readonly conflictingRequestKey:
     ApplicationNativeMutationConflictingRequestKeyObservation;
+}
+
+export interface ApplicationNativeMutationValidationCatchObservation {
+  readonly disposition: "published";
+  readonly caughtValidationCount: number;
+  readonly commitSeq: bigint;
+  readonly workerLoads: number;
+}
+
+type ApplicationNativeMutationOutcomeUnavailableError = Extract<
+  InvokeStandardApplicationPointMutationV1Error,
+  { readonly _tag: "ApplicationMutationOutcomeUnavailableError" }
+>;
+
+export type ApplicationNativeMutationDuplicateContenderObservation =
+  | {
+    readonly disposition: "accepted";
+    readonly outcomeDisposition: "published" | "replayed";
+  }
+  | {
+    readonly disposition: "rejected";
+    readonly errorTag: ApplicationNativeMutationOutcomeUnavailableError["_tag"];
+    readonly reason: ApplicationNativeMutationOutcomeUnavailableError["reason"];
+  };
+
+export interface ApplicationNativeMutationDuplicateCommitObservation {
+  readonly disposition: "published" | "replayed";
+  readonly commitSeq: bigint;
+  readonly workerLoads: number;
+}
+
+export interface ApplicationNativeMutationConcurrentDuplicateObservation {
+  readonly contender: ApplicationNativeMutationDuplicateContenderObservation;
+  readonly workerLoadsBeforeRelease: number;
+  readonly publication: ApplicationNativeMutationDuplicateCommitObservation;
+  readonly replay: ApplicationNativeMutationDuplicateCommitObservation;
 }
 
 export type ApplicationNativeMutationConfigurationObservation =
@@ -267,6 +302,13 @@ export async function proveApplicationNativeMutation(
   if (caught.disposition !== "published" || loader.caughtValidation !== 1) {
     throw new Error("Application validation failure was not catchable.");
   }
+  const validationCatch: ApplicationNativeMutationValidationCatchObservation =
+    Object.freeze({
+      disposition: caught.disposition,
+      caughtValidationCount: loader.caughtValidation,
+      commitSeq: caught.commitSeq,
+      workerLoads: loader.loads,
+    });
 
   const duplicateBlock = loader.blockNextInvocation();
   const duplicateKey = TransactionRequestKeyV1Schema.make(
@@ -278,28 +320,49 @@ export async function proveApplicationNativeMutation(
     duplicateKey,
   ));
   await duplicateBlock.started;
-  let concurrentDuplicateInProgress = false;
-  let duplicateFailure: unknown;
+  let duplicateContender:
+    ApplicationNativeMutationDuplicateContenderObservation;
   try {
-    await invoke(invokeStandardApplicationPointMutationV1(
-      create,
-      { name: "Concurrent" },
-      duplicateKey,
-    ));
-  } catch (cause) {
-    duplicateFailure = cause;
-    concurrentDuplicateInProgress = failureTag(cause) ===
-        "ApplicationMutationOutcomeUnavailableError" &&
-      failureReason(cause) === "inProgress";
-  }
-  if (!concurrentDuplicateInProgress) {
-    throw new Error(
-      `Concurrent Application duplicate was not in progress: ${failureTag(duplicateFailure)}/${failureReason(duplicateFailure)}.`,
+    duplicateContender = await invoke(
+      invokeStandardApplicationPointMutationV1(
+        create,
+        { name: "Concurrent" },
+        duplicateKey,
+      ).pipe(
+        Effect.map(outcome => Object.freeze({
+          disposition: "accepted",
+          outcomeDisposition: outcome.disposition,
+        })),
+        Effect.catchTag(
+          "ApplicationMutationOutcomeUnavailableError",
+          error => Effect.succeed(Object.freeze({
+            disposition: "rejected",
+            errorTag: error._tag,
+            reason: error.reason,
+          })),
+        ),
+      ),
     );
+  } catch (cause: unknown) {
+    duplicateBlock.release();
+    await Promise.allSettled([duplicateFirst]);
+    throw cause;
   }
-  const duplicateLoads = loader.loads;
+  const workerLoadsBeforeRelease = loader.loads;
   duplicateBlock.release();
   const duplicatePublished = await duplicateFirst;
+  const workerLoadsAfterPublication = loader.loads;
+  if (
+    duplicateContender.disposition !== "rejected" ||
+    duplicateContender.reason !== "inProgress"
+  ) {
+    const contenderDetail = duplicateContender.disposition === "rejected"
+      ? `${duplicateContender.errorTag}/${duplicateContender.reason}`
+      : `accepted/${duplicateContender.outcomeDisposition}`;
+    throw new Error(
+      `Concurrent Application duplicate was not in progress: ${contenderDetail}.`,
+    );
+  }
   const duplicateReplay = await invoke(
     invokeStandardApplicationPointMutationV1(
       create,
@@ -311,10 +374,26 @@ export async function proveApplicationNativeMutation(
     duplicatePublished.disposition === "published" &&
     duplicateReplay.disposition === "replayed" &&
     duplicateReplay.commitSeq === duplicatePublished.commitSeq &&
-    loader.loads === duplicateLoads;
+    workerLoadsAfterPublication === workerLoadsBeforeRelease &&
+    loader.loads === workerLoadsAfterPublication;
   if (!concurrentDuplicateReplay) {
     throw new Error("Concurrent Application duplicate did not replay.");
   }
+  const concurrentDuplicate: ApplicationNativeMutationConcurrentDuplicateObservation =
+    Object.freeze({
+      contender: duplicateContender,
+      workerLoadsBeforeRelease,
+      publication: Object.freeze({
+        disposition: duplicatePublished.disposition,
+        commitSeq: duplicatePublished.commitSeq,
+        workerLoads: workerLoadsAfterPublication,
+      }),
+      replay: Object.freeze({
+        disposition: duplicateReplay.disposition,
+        commitSeq: duplicateReplay.commitSeq,
+        workerLoads: loader.loads,
+      }),
+    });
 
   const conflictBlock = loader.blockNextInvocation();
   loader.conflictDocumentId = published.value;
@@ -441,9 +520,8 @@ export async function proveApplicationNativeMutation(
   }
   return Object.freeze({
     initialCommit,
-    validationCaught: true,
-    concurrentDuplicateInProgress: true,
-    concurrentDuplicateReplay: true,
+    validationCatch,
+    concurrentDuplicate,
     occConflictReran: true,
     staleHeadRejected: true,
     admittedHeadStayedPinned: true,

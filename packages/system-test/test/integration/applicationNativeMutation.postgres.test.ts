@@ -44,9 +44,19 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
             mismatches: ["requestSha256"],
           },
         },
-        validationCaught: true,
-        concurrentDuplicateInProgress: true,
-        concurrentDuplicateReplay: true,
+        validationCatch: {
+          disposition: "published",
+          caughtValidationCount: 1,
+        },
+        concurrentDuplicate: {
+          contender: {
+            disposition: "rejected",
+            errorTag: "ApplicationMutationOutcomeUnavailableError",
+            reason: "inProgress",
+          },
+          publication: { disposition: "published" },
+          replay: { disposition: "replayed" },
+        },
         occConflictReran: true,
         staleHeadRejected: true,
         admittedHeadStayedPinned: true,
@@ -82,6 +92,27 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
       );
       expect(proof.initialCommit.replay.workerLoads).toBe(
         proof.initialCommit.publication.workerLoads,
+      );
+      expect(proof.validationCatch.commitSeq).toBe(
+        proof.initialCommit.replay.commitSeq + 1n,
+      );
+      expect(proof.validationCatch.workerLoads).toBe(
+        proof.initialCommit.replay.workerLoads + 1,
+      );
+      expect(proof.concurrentDuplicate.publication.commitSeq).toBe(
+        proof.validationCatch.commitSeq + 1n,
+      );
+      expect(proof.concurrentDuplicate.publication.commitSeq).toBe(
+        proof.concurrentDuplicate.replay.commitSeq,
+      );
+      expect(proof.concurrentDuplicate.workerLoadsBeforeRelease).toBe(
+        proof.validationCatch.workerLoads + 1,
+      );
+      expect(proof.concurrentDuplicate.publication.workerLoads).toBe(
+        proof.concurrentDuplicate.workerLoadsBeforeRelease,
+      );
+      expect(proof.concurrentDuplicate.publication.workerLoads).toBe(
+        proof.concurrentDuplicate.replay.workerLoads,
       );
     });
   }, 480_000);

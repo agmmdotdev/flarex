@@ -8,7 +8,8 @@ Application-native query contract is implemented, PGlite-validated, and
 package-typechecked, with genuine PostgreSQL acceptance pending. Runtime timing
 and test-level skip attribution remain explicit telemetry gaps rather than
 inferred results. `TQ-C` Application-native mutation localization is in progress
-through bounded candidate-guard and initial-commit observation slices.
+through bounded candidate-guard, initial-commit, and validation/concurrent-
+duplicate observation slices.
 
 This file is the living operational inventory for
 [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md).
@@ -220,9 +221,16 @@ suffixes produces 126 multi-lane filename groups:
    replay, and conflicting request-key Boolean fields with concrete disposition,
    commit-sequence, Worker-load, value, typed error-tag, and mismatch evidence.
    Only the expected reuse error becomes observation data; other failures and
-   defects propagate. Validation, concurrent duplication, OCC, head movement,
-   and terminalization remain aggregate and must be localized before considering
-   a generic cross-lane suite.
+   defects propagate. The third slice replaces validation-catch and concurrent-
+   duplicate Booleans with observations for caught-validation count, commit and
+   Worker-load progression, the contender's typed error tag/reason, and separate
+   publication/replay snapshots. The wrappers assert the sequential increments,
+   same-commit replay, and absence of an additional replay load. Only the expected
+   outcome-unavailable error becomes contender evidence; unexpected failure
+   releases and settles the blocked primary invocation before propagating the
+   original cause. Fixture ownership, scenario order, and the one-test lane shape
+   remain unchanged. OCC, head movement, and terminalization remain aggregate and
+   must be localized before considering a generic cross-lane suite.
 
 ### Non-Candidates Without Further Proof
 
@@ -279,11 +287,12 @@ exists, runtime-based pruning or fixture sharing is not authorized.
    activation and PostgreSQL resource ownership; the focused package typecheck
    is green.
 3. **Continue `TQ-C` Application-native mutation failure localization.** The
-   candidate-schema write-guard and initial-commit groups now return typed
-   attributable observations. Localize validation-catch and concurrent-duplicate
-   evidence while preserving the shared fixture and sequential mutation state;
-   do not widen to a cross-lane contract suite while `TQ-B` PostgreSQL acceptance
-   remains open.
+   candidate-schema write-guard, initial-commit, validation-catch, and concurrent-
+   duplicate groups now return typed attributable observations. Localize OCC
+   conflict/rerun evidence next while preserving the shared fixture and sequential
+   mutation state; keep head movement and terminalization as later separately
+   bounded slices. Do not widen to a cross-lane contract suite while `TQ-B`
+   PostgreSQL acceptance remains open.
 4. **`TQ-C` stored-attempt evidence decomposition.** Highest line
    concentration and broadest owner interaction; begin only after the active
    persistence preflight work is complete and review every transaction,
@@ -295,5 +304,5 @@ exists, runtime-based pruning or fixture sharing is not authorized.
 `TQ-P` and `TQ-A1` are complete. `TQ-A2` has completed exact-duplicate and
 ordered-subset pilots, with consumer/removal policy still open. `TQ-B` is the
 first implemented harness-reuse pilot. Its remaining acceptance gate does not
-authorize wider contract-suite extraction. The approved first two `TQ-C` slices
-are implemented; later localization slices remain separately bounded.
+authorize wider contract-suite extraction. The approved first three `TQ-C`
+slices are implemented; later localization slices remain separately bounded.
