@@ -28,7 +28,7 @@ describe("typed Task delivery genuine PostgreSQL environment", () => {
 });
 
 describePostgres("typed Task delivery - PostgreSQL", () => {
-  it("creates, replays, and manually delivers one typed Task", async () => {
+  it("proves typed Task delivery, retry, and cancellation", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
       const receipt = await Effect.runPromise(
         runStandardApplicationSimulationV1({
@@ -46,6 +46,7 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         version: 1,
         status: "succeeded",
         runId: receipt.workloadProof.first.runId,
+        cancellation: null,
         output: {
           prepared: true,
           preparationId: expect.any(String),
@@ -55,6 +56,8 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         host: {
           dispatchCandidatesHandled: 1,
           dispatchProviderCalls: 1,
+          cancellationCandidatesHandled: 0,
+          cancellationProviderCalls: 0,
           candidateFailures: 0,
           supervisionExpected: 1,
           supervisionObserved: 1,
@@ -93,9 +96,12 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
             message: null,
           },
         },
+        cancellation: null,
         host: {
           dispatchCandidatesHandled: 1,
           dispatchProviderCalls: 1,
+          cancellationCandidatesHandled: 0,
+          cancellationProviderCalls: 0,
           candidateFailures: 0,
           supervisionExpected: 1,
           supervisionObserved: 1,
@@ -116,6 +122,70 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
       expect(
         receipt.workloadProof.failedDelivery.retry.notBeforeMs,
       ).toBeGreaterThan(0);
+      expect(receipt.workloadProof.cancelledReplay).toEqual(
+        receipt.workloadProof.cancelledFirst,
+      );
+      expect(receipt.workloadProof.cancelledDelivery).toEqual({
+        version: 1,
+        status: "cancelled",
+        runId: receipt.workloadProof.cancelledFirst.runId,
+        cancellation: { generation: 1n, resolution: "acknowledged" },
+        host: {
+          dispatchCandidatesHandled: 1,
+          dispatchProviderCalls: 1,
+          cancellationCandidatesHandled: 1,
+          cancellationProviderCalls: 1,
+          candidateFailures: 0,
+          supervisionExpected: 1,
+          supervisionObserved: 1,
+          supervisionSucceeded: 1,
+          supervisionFailed: 0,
+        },
+        worker: {
+          generation: "application_v1",
+          loads: 1,
+          starts: 1,
+          inputReads: 1,
+          settlements: 1,
+          resultReads: 0,
+          resultWrites: 0,
+          legacyRuntimeObjectReads: 0,
+        },
+      });
+      expect(receipt.workloadProof.raceReplay).toEqual(
+        receipt.workloadProof.raceFirst,
+      );
+      expect(receipt.workloadProof.raceDelivery).toEqual({
+        version: 1,
+        status: "succeeded",
+        runId: receipt.workloadProof.raceFirst.runId,
+        output: { completed: true },
+        cancellation: {
+          generation: 1n,
+          resolution: "superseded_by_completion",
+        },
+        host: {
+          dispatchCandidatesHandled: 1,
+          dispatchProviderCalls: 1,
+          cancellationCandidatesHandled: 1,
+          cancellationProviderCalls: 1,
+          candidateFailures: 0,
+          supervisionExpected: 1,
+          supervisionObserved: 1,
+          supervisionSucceeded: 1,
+          supervisionFailed: 0,
+        },
+        worker: {
+          generation: "application_v1",
+          loads: 1,
+          starts: 1,
+          inputReads: 1,
+          settlements: 1,
+          resultReads: 2,
+          resultWrites: 1,
+          legacyRuntimeObjectReads: 0,
+        },
+      });
       const redactedHostReceipt = JSON.stringify(
         receipt.workloadProof.delivery.host,
       );
@@ -127,20 +197,23 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         persistence.target,
       )).toEqual([{
         catalog_count: "1",
-        definition_count: "2",
+        definition_count: "4",
         legacy_definition_revision_count: "0",
-        run_count: "2",
-        request_count: "2",
-        attempt_count: "2",
+        run_count: "4",
+        request_count: "4",
+        attempt_count: "4",
         pending_count: "0",
-        dispatch_count: "2",
+        dispatch_count: "4",
+        cancellation_count: "2",
+        delivered_cancellation_count: "1",
+        rejected_cancellation_count: "1",
         transaction_session_count: "2",
         committed_transaction_session_count: "2",
         child_mutation_effect_count: "1",
         confirmed_child_mutation_effect_count: "1",
         child_mutation_outcome_count: "1",
         ready_run_count: "1",
-        terminal_run_count: "1",
+        terminal_run_count: "3",
       }]);
       expect(receipt.afterSetupInspection).toMatchObject({
         currentRowCount: 1,

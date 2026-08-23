@@ -115,9 +115,17 @@ export interface ApplicationTaskHostedWorkerLoader extends WorkerLoader {
   readonly awaitWorkerSettlement: () => Promise<void>;
 }
 
+export interface ApplicationTaskHostedWorkerLoaderOptions {
+  readonly interruptionMode:
+    | "settle_without_interruption"
+    | "wait_for_interruption";
+}
+
 export interface ApplicationTaskHostedTestKit {
   readonly resources: ApplicationTaskHostedResources | null;
-  readonly acquireWorkerLoader: () => Effect.Effect<
+  readonly acquireWorkerLoader: (
+    options: ApplicationTaskHostedWorkerLoaderOptions,
+  ) => Effect.Effect<
     ApplicationTaskHostedWorkerLoader,
     never,
     Scope.Scope
@@ -263,9 +271,11 @@ class MiniflareApplicationTaskHostedResourceBucket
 
 const acquireApplicationTaskHostedWorkerLoader = Effect.fn(
   "ApplicationTaskHostedTestKit.acquireWorkerLoader",
-)(function* () {
+)(function* (options: ApplicationTaskHostedWorkerLoaderOptions) {
   return yield* Effect.acquireRelease(
-    Effect.sync(() => new LiveApplicationTaskHostedWorkerLoader()),
+    Effect.sync(() => new LiveApplicationTaskHostedWorkerLoader(
+      options.interruptionMode,
+    )),
     owner => Effect.tryPromise({
       try: () => owner.disposeAll(),
       catch: cause => cause,
@@ -289,7 +299,10 @@ class LiveApplicationTaskHostedWorkerLoader
   private readonly sessions = new Set<LiveGeneratedTaskSession>();
   private readonly disposals = new Set<Promise<void>>();
 
-  constructor() {
+  constructor(
+    private readonly interruptionMode:
+      ApplicationTaskHostedWorkerLoaderOptions["interruptionMode"],
+  ) {
     this.settlementGate = new Promise(resolve => {
       this.releaseSettlementGate = resolve;
     });
@@ -358,6 +371,7 @@ class LiveApplicationTaskHostedWorkerLoader
       payload,
       queryCapability,
       mutationCapability,
+      this.interruptionMode,
     );
     this.sessions.add(session);
     this.resolveAcceptedStart?.();
@@ -447,13 +461,14 @@ class LiveGeneratedTaskSession {
     payload: unknown,
     queryCapability: unknown,
     mutationCapability: unknown,
+    interruptionMode:
+      ApplicationTaskHostedWorkerLoaderOptions["interruptionMode"],
   ): Promise<LiveGeneratedTaskSession> {
     if (entrypoint === undefined) {
       throw new Error("Application Task Worker entrypoint was not selected.");
     }
     const encoded = JSON.stringify({ request, payload }, encodeRpcValue);
-    const waitsForInterruption = payload !== null && typeof payload === "object" &&
-      Reflect.get(payload, "__fixtureTaskWaitForInterruption") === true;
+    const waitsForInterruption = interruptionMode === "wait_for_interruption";
     const outerSource = `
 import { RpcTarget } from "cloudflare:workers";
 const code = ${JSON.stringify(code)};

@@ -393,8 +393,8 @@ sequence does not freeze public `task(...)`, generated-reference, start/await,
 cancellation, scheduling,
 or result-observation syntax.
 
-The completed `SAC01-F2t-C1`, `SAC01-F2t-C2q`, `SAC01-F2t-C2m`, and
-`SAC01-F2t-C3r` gates preserve that boundary.
+The completed `SAC01-F2t-C1`, `SAC01-F2t-C2q`, `SAC01-F2t-C2m`,
+`SAC01-F2t-C3r`, and `SAC01-F2t-C3c` gates preserve that boundary.
 The private
 system-test client groups creation and one explicit manual delivery operation
 beneath a `tasks` capability, but only `client.tasks.create` delegates to this
@@ -406,12 +406,16 @@ implementation, Standard method, selection authority, or identity choice. Its
 mutation callback delegates through the existing launch-bound
 `ApplicationMutationSystem` plus Task mutation/external-effect authorities;
 the lane owns the temporary persistence target, and no mutation method or
-authority enters the Standard API. Cancellation, restart, takeover, and fault
-controls remain separately gated. The C3r handler-failure scenario is a
+authority enters the Standard API. The C3r handler-failure scenario is a
 distinct registered test Task and returns a bounded retry receipt from the
-private harness; it adds no Standard retry method, runtime fault switch, or
-scheduler. The former private `createTaskRun` consumer was replaced directly;
-no compatibility alias, fallback, or dual test surface remains.
+private harness. C3c adds only explicit test-owned cancellation ordering to
+that same private delivery call: separate registered handlers prove
+interruption-first acknowledgement and completion-first supersession through
+the existing lifecycle and provider. Neither gate adds a Standard retry or
+cancellation method, runtime payload or function-name switch, scheduler, or
+raw host authority. Restart, takeover, and remaining fault controls stay
+separately gated. The former private `createTaskRun` consumer was replaced
+directly; no compatibility alias, fallback, or dual test surface remains.
 
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 

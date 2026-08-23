@@ -118,6 +118,7 @@ import {
 import {
   makeStandardApplicationTaskDeliveryV1,
   type StandardApplicationTaskDeliveryControlResourceV1,
+  type StandardApplicationTaskDeliveryModeV1,
   type StandardApplicationTaskMutationExternalEffectResourceV1,
   type StandardApplicationTaskDeliveryReceiptV1,
   type StandardApplicationTaskDeliveryV1Error,
@@ -177,6 +178,7 @@ export interface StandardApplicationSystemTestClientV1
     readonly deliver: <Payload, Output>(
       reference: StandardApplicationTaskReferenceV1<Payload, Output>,
       creation: StandardApplicationTaskRunCreationReceipt,
+      mode: StandardApplicationTaskDeliveryModeV1,
     ) => Effect.Effect<
       StandardApplicationTaskDeliveryReceiptV1<Output>,
       StandardApplicationTaskDeliveryV1Error
@@ -606,9 +608,10 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           deliver: <Payload, Output>(
             reference: StandardApplicationTaskReferenceV1<Payload, Output>,
             creation: StandardApplicationTaskRunCreationReceipt,
+            mode: StandardApplicationTaskDeliveryModeV1,
           ) => invokeWhileActive(() => invokeApplication(
             invocationScope,
-            taskDelivery.deliver(reference, creation),
+            taskDelivery.deliver(reference, creation, mode),
           )).pipe(Effect.withSpan(
             "StandardApplicationSystemTest.tasks.deliverV1",
           )),

@@ -31,6 +31,7 @@ import type {
 } from "../../src/environment/standardApplicationEnvironmentV1";
 import type {
   StandardApplicationTaskDeliveryV1Error,
+  StandardApplicationTaskCancelledDeliveryReceiptV1,
   StandardApplicationTaskRetryScheduledDeliveryReceiptV1,
   StandardApplicationTaskSucceededDeliveryReceiptV1,
 } from "../../src/environment/standardApplicationTaskDeliveryV1";
@@ -84,6 +85,15 @@ interface StandardApplicationTaskWorkloadProofV1 {
   readonly failedReplay: StandardApplicationTaskRunCreationReceipt;
   readonly failedDelivery:
     StandardApplicationTaskRetryScheduledDeliveryReceiptV1;
+  readonly cancelledFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly cancelledReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly cancelledDelivery:
+    StandardApplicationTaskCancelledDeliveryReceiptV1;
+  readonly raceFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly raceReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly raceDelivery: StandardApplicationTaskSucceededDeliveryReceiptV1<
+    Readonly<{ readonly completed: boolean }>
+  >;
 }
 
 type StandardApplicationTaskSimulationErrorV1 =
@@ -141,6 +151,60 @@ export const standardApplicationTaskFailureV1 = Result.getOrThrow(
       version: 1,
       retry: {
         maxAttempts: 3,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
+
+export const standardApplicationTaskCancellationWaitV1 = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "systemTest.waitForCancellation",
+    handler: {
+      logicalModulePath: "recipeCommands",
+      artifactModulePath: "recipeMutation",
+      exportName: "waitForCancellation",
+    },
+    payload: standardV1.object({ probe: standardV1.string() }),
+    output: standardV1.object({ completed: standardV1.boolean() }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 1,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
+
+export const standardApplicationTaskCancellationRaceV1 = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "systemTest.completeCancellationRace",
+    handler: {
+      logicalModulePath: "recipeCommands",
+      artifactModulePath: "recipeMutation",
+      exportName: "completeCancellationRace",
+    },
+    payload: standardV1.object({ probe: standardV1.string() }),
+    output: standardV1.object({ completed: standardV1.boolean() }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 1,
         factor: 2,
         minTimeoutInMs: 1_000,
         maxTimeoutInMs: 60_000,
@@ -214,6 +278,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
   const delivery = yield* client.tasks.deliver(
     standardApplicationTaskCreationV1.reference,
     first,
+    { kind: "completion" },
   );
   if (delivery.status !== "succeeded") {
     return yield* Effect.die(new Error(
@@ -238,10 +303,67 @@ const runTaskQueryCallbackV1 = Effect.fn(
   const failedDelivery = yield* client.tasks.deliver(
     standardApplicationTaskFailureV1.reference,
     failedFirst,
+    { kind: "completion" },
   );
   if (failedDelivery.status !== "retry_scheduled") {
     return yield* Effect.die(new Error(
       "The failing Task did not schedule its bound retry.",
+    ));
+  }
+  const cancelledRequest = Object.freeze({
+    ...request,
+    requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
+      "system-test:task-cancellation-before-completion-replay",
+    )),
+    payload: Object.freeze({ probe: "cancel-before-completion" }),
+  });
+  const cancelledFirst = yield* client.tasks.create(
+    standardApplicationTaskCancellationWaitV1.reference,
+    cancelledRequest,
+  );
+  const cancelledReplay = yield* client.tasks.create(
+    standardApplicationTaskCancellationWaitV1.reference,
+    cancelledRequest,
+  );
+  const cancelledDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskCancellationWaitV1.reference,
+    cancelledFirst,
+    {
+      kind: "cancellation",
+      order: "cancellation_before_completion",
+    },
+  );
+  if (cancelledDelivery.status !== "cancelled") {
+    return yield* Effect.die(new Error(
+      "The cancellation-first Task did not acknowledge cancellation.",
+    ));
+  }
+  const raceRequest = Object.freeze({
+    ...request,
+    requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
+      "system-test:task-completion-cancellation-race-replay",
+    )),
+    payload: Object.freeze({ probe: "completion-before-cancellation" }),
+  });
+  const raceFirst = yield* client.tasks.create(
+    standardApplicationTaskCancellationRaceV1.reference,
+    raceRequest,
+  );
+  const raceReplay = yield* client.tasks.create(
+    standardApplicationTaskCancellationRaceV1.reference,
+    raceRequest,
+  );
+  const raceDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskCancellationRaceV1.reference,
+    raceFirst,
+    {
+      kind: "cancellation",
+      order: "completion_before_cancellation",
+    },
+  );
+  if (raceDelivery.status !== "succeeded") {
+    return yield* Effect.die(new Error(
+      "The completed Task did not win the cancellation race.",
     ));
   }
   return Object.freeze({
@@ -251,6 +373,12 @@ const runTaskQueryCallbackV1 = Effect.fn(
     failedFirst,
     failedReplay,
     failedDelivery,
+    cancelledFirst,
+    cancelledReplay,
+    cancelledDelivery,
+    raceFirst,
+    raceReplay,
+    raceDelivery,
   });
 });
 
@@ -265,6 +393,8 @@ export const standardApplicationTaskCreationSimulationV1 =
       defineTasks: () => [
         standardApplicationTaskCreationV1,
         standardApplicationTaskFailureV1,
+        standardApplicationTaskCancellationWaitV1,
+        standardApplicationTaskCancellationRaceV1,
       ],
     },
     setup: setupTaskQueryCallbackV1,
@@ -283,6 +413,9 @@ export interface StandardApplicationTaskCreationStateV1
   readonly attempt_count: string;
   readonly pending_count: string;
   readonly dispatch_count: string;
+  readonly cancellation_count: string;
+  readonly delivered_cancellation_count: string;
+  readonly rejected_cancellation_count: string;
   readonly transaction_session_count: string;
   readonly committed_transaction_session_count: string;
   readonly child_mutation_effect_count: string;
@@ -309,6 +442,9 @@ export async function readStandardApplicationTaskCreationStateV1(
       (select count(*)::text from fx_system_durable_task_attempt_identity_v1) as attempt_count,
       (select count(*)::text from fx_system_durable_task_compute_pending_v1) as pending_count,
       (select count(*)::text from fx_system_durable_task_compute_dispatch_v1) as dispatch_count,
+      (select count(*)::text from fx_system_durable_task_compute_cancellation_v1) as cancellation_count,
+      (select count(*)::text from fx_system_durable_task_compute_cancellation_v1 where delivery_state = 'delivered') as delivered_cancellation_count,
+      (select count(*)::text from fx_system_durable_task_compute_cancellation_v1 where delivery_state = 'rejected') as rejected_cancellation_count,
       (select count(*)::text from fx_system_tx_session) as transaction_session_count,
       (select count(*)::text from fx_system_tx_session where lifecycle = 'committed') as committed_transaction_session_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation') as child_mutation_effect_count,
@@ -339,6 +475,13 @@ function taskApplicationDefinition() {
       'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
       "export function failRecipePreparation() {",
       "  throw new Error('simulated recipe preparation failure');",
+      "}",
+      "export async function waitForCancellation() {",
+      "  await new Promise(() => {});",
+      "  return { completed: true };",
+      "}",
+      "export function completeCancellationRace() {",
+      "  return { completed: true };",
       "}",
       "export async function prepareRecipe(ctx, payload) {",
       "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",

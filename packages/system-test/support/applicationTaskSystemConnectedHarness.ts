@@ -543,7 +543,15 @@ async function proveApplicationTaskSystemConnectedWithHosting(
                   reason: "authority_unavailable",
                 })),
           });
-    const loader = yield* hostedKit.acquireWorkerLoader();
+    const loader = yield* hostedKit.acquireWorkerLoader({
+      interruptionMode:
+        scenario === "cancellation" ||
+          scenario === "maximum_duration" ||
+          scenario === "stale_fence" ||
+          scenario === "lease_loss"
+          ? "wait_for_interruption"
+          : "settle_without_interruption",
+    });
     const resultBucket = hostedResources === null
       ? new MemoryTaskResultBucket(
           scenario === "result_publication_reconciled"
@@ -899,7 +907,9 @@ async function proveApplicationTaskSystemConnectedWithHosting(
                   reason: "authority_unavailable",
                 })),
           });
-        const loaderB = yield* hostedKit.acquireWorkerLoader();
+        const loaderB = yield* hostedKit.acquireWorkerLoader({
+          interruptionMode: "settle_without_interruption",
+        });
         const resultStoreB = makeTaskResultStore(hostBPorts.results);
         const lifecycleGatewayB = createTaskAttemptLifecycleGateway({
           scopeMetadata: fixture.authorityPorts.scopeMetadata,

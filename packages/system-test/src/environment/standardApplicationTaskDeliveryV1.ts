@@ -1,14 +1,21 @@
 import {
+  decideApplicationRequestCancellationV1,
   decideApplicationStartAttemptV1,
   decodeTaskRetryJitterV1,
   decodeTaskRunVersionV1,
   type RunAttemptDecisionErrorV1,
   type TaskAttemptNumberV1,
+  type TaskCancellationGenerationV1,
   type TaskComputeProfileRefV1,
   type TaskDatabaseTimeMsV1,
   type TaskSystemRunAttemptStoreErrorV1,
   type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import {
+  makeApplicationTaskComputeDeliveryLayer,
+  type ApplicationTaskComputeDeliveryLive,
+} from
+  "@flarex/standard-application-invocation/internal/application-task-compute-delivery";
 import {
   createLocatedTaskComputeDeliveryTargetV1,
   readTaskComputePreparedExecutionV1,
@@ -72,10 +79,17 @@ import {
   "@flarex/standard-application-invocation/internal/system-test/application-task-delivery-event-host";
 import {
   makeTaskAttemptSupervisor,
+  TaskComputeDeliveryConnectedRunner,
+  TaskComputeDeliverySupervisionControl,
+  type TaskAttemptSupervisionObserver,
+  type TaskAttemptSupervisor,
+  type TaskAttemptSupervisorError,
+  type TaskAttemptSupervisorOutcome,
   type TaskAttemptSupervisorConfigurationError,
   type TaskAttemptSupervisorLifecycleResolver,
   type TaskAttemptSupervisorPolicy,
   type TaskComputeDeliveryEventHostConfigurationError,
+  type TaskComputeDeliveryConnectedRunnerReceipt,
 } from "flarex-backend/internal/task-compute-delivery";
 import {
   makeTaskResultStore,
@@ -93,6 +107,7 @@ import {
   type ApplicationAnalysisSourceReader,
 } from "flarex-backend/internal/application-analysis-source-reader";
 import {
+  makeTaskRuntimeLaunchDirectoryFromResources,
   TaskRuntimeLaunchPortError,
   type TaskRuntimeLaunchLocatedSource,
   type TaskRuntimeLaunchResourceDirectory,
@@ -101,10 +116,18 @@ import {
   validateValidatorValueV1,
   type ValidatorValueIssueV1,
 } from "flarex-protocol/validator-engine";
-import { Data, Effect, Result, type Scope } from "effect";
+import {
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  Result,
+  type Scope,
+} from "effect";
 
 import type {
   ApplicationTaskHostedTestKit,
+  ApplicationTaskHostedWorkerLoader,
 } from "../../support/applicationTaskHostedTestKit";
 
 const SUPERVISOR_POLICY: TaskAttemptSupervisorPolicy = Object.freeze({
@@ -140,6 +163,8 @@ export interface StandardApplicationTaskMutationExternalEffectResourceV1 {
 export interface StandardApplicationTaskDeliveryHostReceiptV1 {
   readonly dispatchCandidatesHandled: number;
   readonly dispatchProviderCalls: number;
+  readonly cancellationCandidatesHandled: number;
+  readonly cancellationProviderCalls: number;
   readonly candidateFailures: number;
   readonly supervisionExpected: number;
   readonly supervisionObserved: number;
@@ -163,6 +188,10 @@ export interface StandardApplicationTaskSucceededDeliveryReceiptV1<Output> {
   readonly status: "succeeded";
   readonly runId: TaskRunIdV1;
   readonly output: Output;
+  readonly cancellation: Readonly<{
+    readonly generation: TaskCancellationGenerationV1;
+    readonly resolution: "superseded_by_completion";
+  }> | null;
   readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
   readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
 }
@@ -181,13 +210,54 @@ export interface StandardApplicationTaskRetryScheduledDeliveryReceiptV1 {
       readonly message: null;
     }>;
   }>;
+  readonly cancellation: null;
+  readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
+  readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
+}
+
+export interface StandardApplicationTaskCancelledDeliveryReceiptV1 {
+  readonly version: 1;
+  readonly status: "cancelled";
+  readonly runId: TaskRunIdV1;
+  readonly cancellation: Readonly<{
+    readonly generation: TaskCancellationGenerationV1;
+    readonly resolution: "acknowledged";
+  }>;
   readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
   readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
 }
 
 export type StandardApplicationTaskDeliveryReceiptV1<Output> =
   | StandardApplicationTaskSucceededDeliveryReceiptV1<Output>
-  | StandardApplicationTaskRetryScheduledDeliveryReceiptV1;
+  | StandardApplicationTaskRetryScheduledDeliveryReceiptV1
+  | StandardApplicationTaskCancelledDeliveryReceiptV1;
+
+export type StandardApplicationTaskDeliveryModeV1 =
+  | Readonly<{ readonly kind: "completion" }>
+  | Readonly<{
+      readonly kind: "cancellation";
+      readonly order:
+        | "cancellation_before_completion"
+        | "completion_before_cancellation";
+    }>;
+
+interface StandardApplicationTaskDeliveryExecutionReceiptV1 {
+  readonly runner: Readonly<{
+    readonly stopReason: TaskComputeDeliveryConnectedRunnerReceipt["stopReason"];
+    readonly confirmedDispatchCandidatesHandled: number;
+    readonly confirmedCancellationCandidatesHandled: number;
+    readonly confirmedDispatchProviderCalls: number;
+    readonly confirmedCancellationProviderCalls: number;
+    readonly candidateFailures: number;
+  }>;
+  readonly supervision: Readonly<{
+    readonly expected: number;
+    readonly observed: number;
+    readonly succeeded: number;
+    readonly failed: number;
+  }>;
+  readonly cancellationGeneration: TaskCancellationGenerationV1 | null;
+}
 
 export class StandardApplicationTaskDeliveryContractV1Error
   extends Data.TaggedError(
@@ -204,6 +274,8 @@ export class StandardApplicationTaskDeliveryContractV1Error
     | "unregisteredCreation"
     | "attemptNotStarted"
     | "attemptNotSucceeded"
+    | "cancellationNotRequested"
+    | "cancellationNotSettled"
     | "outputMismatch"
     | "hostEvidenceMismatch"
     | "workerEvidenceMismatch"
@@ -244,6 +316,7 @@ export type StandardApplicationTaskDeliveryV1Error =
   | TaskComputeDeliveryEventHostConfigurationError
   | ApplicationTaskDeliveryEventHostConfigurationError
   | StandardApplicationTaskDeliveryHostRunError
+  | TaskAttemptSupervisorError
   | TaskResultStoreError;
 
 export interface StandardApplicationTaskDeliveryV1 {
@@ -254,6 +327,7 @@ export interface StandardApplicationTaskDeliveryV1 {
   readonly deliver: <Payload, Output>(
     reference: StandardApplicationTaskReferenceV1<Payload, Output>,
     creation: StandardApplicationTaskRunCreationReceipt,
+    mode: StandardApplicationTaskDeliveryModeV1,
   ) => Effect.Effect<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error,
@@ -307,6 +381,7 @@ export function makeStandardApplicationTaskDeliveryV1(
   )(function* <Payload, Output>(
     reference: StandardApplicationTaskReferenceV1<Payload, Output>,
     creation: StandardApplicationTaskRunCreationReceipt,
+    mode: StandardApplicationTaskDeliveryModeV1,
   ): Effect.fn.Return<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error,
@@ -390,7 +465,13 @@ export function makeStandardApplicationTaskDeliveryV1(
         catch: cause => cause,
       }).pipe(Effect.orDie),
     );
-    const loader = yield* input.hostedKit.acquireWorkerLoader();
+    const loader = yield* input.hostedKit.acquireWorkerLoader({
+      interruptionMode:
+        mode.kind === "cancellation" &&
+          mode.order === "cancellation_before_completion"
+          ? "wait_for_interruption"
+          : "settle_without_interruption",
+    });
     const deliveryTarget = createLocatedTaskComputeDeliveryTargetV1(
       fixture.target.drizzle,
       physicalLocator,
@@ -514,68 +595,95 @@ export function makeStandardApplicationTaskDeliveryV1(
       maximumCloseMilliseconds:
         mutationExternalEffect.target.settlementBudgetMilliseconds,
     });
-    const host = yield* Effect.fromResult(
-      makeApplicationTaskDeliveryResourceEventHost(
-        Object.freeze({
-          controlTarget: control.target,
-          directory: Object.freeze({
-            authority: Object.freeze({
-              scopeMetadata: fixture.authorityPorts.scopeMetadata,
-              provisioningReceipts:
-                fixture.authorityPorts.provisioningReceipts,
-              scopeClockTargets: Object.freeze({
-                resolve: async (locator: ScopePhysicalLocator) =>
-                  createLocatedTaskComputeDeliveryTargetV1(
-                    fixture.target.drizzle,
-                    locator,
-                  ),
-              }),
-            }),
-            repository: Object.freeze({
-              claimDurationMilliseconds: 30_000,
-              retryDelayMilliseconds: Object.freeze([1_000, 2_000]),
-              maximumDeliveryAttempts: 3,
-              randomUuid: () => crypto.randomUUID(),
-            }),
-            discoveryDeadline: control.discoveryDeadline,
-            resolutionTimeoutMilliseconds: 1_000,
+    const deliveryLive = Object.freeze({
+      controlTarget: control.target,
+      directory: Object.freeze({
+        authority: Object.freeze({
+          scopeMetadata: fixture.authorityPorts.scopeMetadata,
+          provisioningReceipts:
+            fixture.authorityPorts.provisioningReceipts,
+          scopeClockTargets: Object.freeze({
+            resolve: async (locator: ScopePhysicalLocator) =>
+              createLocatedTaskComputeDeliveryTargetV1(
+                fixture.target.drizzle,
+                locator,
+              ),
           }),
-          launchResources,
-          launchAuthority: Object.freeze({
-            maximumRuntimeObjectBytes: 1_048_576,
-            maximumTotalRuntimeObjectBytes: 2_000_000,
-            validateRuntimeObject: () => Effect.void,
-          }),
-          workerLoader: loader,
-          provider: Object.freeze({
-            applicationHostPolicy:
-              input.hostedKit.makeApplicationHostPolicy(),
-            legacyHostPolicy: input.hostedKit.makeLegacyHostPolicy(),
-            maximumScopedDispatches: 4,
-            handshakeMilliseconds: 5_000,
-            sha256: input.sha256,
-          }),
-          queryAuthority,
-          mutationAuthority,
-          supervision: Object.freeze({ supervisor }),
-          runner: input.hostedKit.makeOneCandidatePolicy(),
         }),
-        Object.freeze({
-          maximumDrainMilliseconds: 15_000,
-          maximumSupervisionExits: 4,
+        repository: Object.freeze({
+          claimDurationMilliseconds: 30_000,
+          retryDelayMilliseconds: Object.freeze([1_000, 2_000]),
+          maximumDeliveryAttempts: 3,
+          randomUuid: () => crypto.randomUUID(),
         }),
-      ),
-    );
+        discoveryDeadline: control.discoveryDeadline,
+        resolutionTimeoutMilliseconds: 1_000,
+      }),
+      launchAuthority: Object.freeze({
+        maximumRuntimeObjectBytes: 1_048_576,
+        maximumTotalRuntimeObjectBytes: 2_000_000,
+        validateRuntimeObject: () => Effect.void,
+      }),
+      workerLoader: loader,
+      provider: Object.freeze({
+        applicationHostPolicy:
+          input.hostedKit.makeApplicationHostPolicy(),
+        legacyHostPolicy: input.hostedKit.makeLegacyHostPolicy(),
+        maximumScopedDispatches: 4,
+        handshakeMilliseconds: 5_000,
+        sha256: input.sha256,
+      }),
+      queryAuthority,
+      mutationAuthority,
+      runner: input.hostedKit.makeOneCandidatePolicy(),
+    });
 
     const resultReadsBefore = resources.results.getCalls;
     const resultWritesBefore = resources.results.putCalls;
-    loader.releaseSettlement();
-    const hosted = yield* host.run(null);
-    const hostReceipt = hosted.receipt;
+    const hostReceipt = mode.kind === "completion"
+      ? yield* Effect.gen(function* () {
+        const host = yield* Effect.fromResult(
+          makeApplicationTaskDeliveryResourceEventHost(
+            Object.freeze({
+              ...deliveryLive,
+              launchResources,
+              supervision: Object.freeze({ supervisor }),
+            }),
+            Object.freeze({
+              maximumDrainMilliseconds: 15_000,
+              maximumSupervisionExits: 4,
+            }),
+          ),
+        );
+        loader.releaseSettlement();
+        const outcome = yield* host.run(null);
+        return Object.freeze({
+          runner: outcome.receipt.runner,
+          supervision: outcome.receipt.supervision,
+          cancellationGeneration: null,
+        });
+      })
+      : yield* runCancellationDelivery({
+        taskId: reference.taskId,
+        creation,
+        mode,
+        lifecycle,
+        loader,
+        deliveryLive,
+        launchResources,
+        supervisor,
+      });
     if (
-      hostReceipt.runner.stopReason !== "total_operation_budget" ||
+      hostReceipt.runner.stopReason !==
+        (mode.kind === "cancellation"
+          ? "cycle_exhausted"
+          : "total_operation_budget") ||
       hostReceipt.runner.confirmedDispatchCandidatesHandled !== 1 ||
       hostReceipt.runner.confirmedDispatchProviderCalls !== 1 ||
+      hostReceipt.runner.confirmedCancellationCandidatesHandled !==
+        (mode.kind === "cancellation" ? 1 : 0) ||
+      hostReceipt.runner.confirmedCancellationProviderCalls !==
+        (mode.kind === "cancellation" ? 1 : 0) ||
       hostReceipt.runner.candidateFailures !== 0 ||
       hostReceipt.supervision.expected !== 1 ||
       hostReceipt.supervision.observed !== 1 ||
@@ -623,6 +731,10 @@ export function makeStandardApplicationTaskDeliveryV1(
         hostReceipt.runner.confirmedDispatchCandidatesHandled,
       dispatchProviderCalls:
         hostReceipt.runner.confirmedDispatchProviderCalls,
+      cancellationCandidatesHandled:
+        hostReceipt.runner.confirmedCancellationCandidatesHandled,
+      cancellationProviderCalls:
+        hostReceipt.runner.confirmedCancellationProviderCalls,
       candidateFailures: hostReceipt.runner.candidateFailures,
       supervisionExpected: hostReceipt.supervision.expected,
       supervisionObserved: hostReceipt.supervision.observed,
@@ -673,6 +785,58 @@ export function makeStandardApplicationTaskDeliveryV1(
             message: null,
           }),
         }),
+        cancellation: null,
+        host: hostEvidence,
+        worker: workerEvidence,
+      });
+    }
+    if (
+      mode.kind === "cancellation" &&
+      mode.order === "cancellation_before_completion"
+    ) {
+      if (
+        hostReceipt.cancellationGeneration === null ||
+        settled.current.phase !== "terminal" ||
+        settled.current.terminal.kind !== "cancelled" ||
+        settled.current.terminal.resolution !== "acknowledged" ||
+        settled.current.terminal.cancellationGeneration !==
+          hostReceipt.cancellationGeneration
+      ) {
+        return yield* failDelivery(
+          "inspectAttempt",
+          "cancellationNotSettled",
+          reference.taskId,
+          creation.runId,
+          Object.freeze({ host: hostReceipt, settled }),
+        );
+      }
+      const workerEvidence = makeWorkerEvidence();
+      const workerSettlement = loader.settlements[0];
+      if (
+        workerEvidence.resultReads !== 0 ||
+        workerEvidence.resultWrites !== 0 ||
+        workerSettlement?.outcome.kind !== "interrupted" ||
+        workerSettlement.outcome.interruption.reason !==
+          "cancellation_requested" ||
+        workerSettlement.outcome.interruption.cancellationGeneration !==
+          hostReceipt.cancellationGeneration
+      ) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          reference.taskId,
+          creation.runId,
+          workerEvidence,
+        );
+      }
+      return Object.freeze({
+        version: 1 as const,
+        status: "cancelled" as const,
+        runId: creation.runId,
+        cancellation: Object.freeze({
+          generation: hostReceipt.cancellationGeneration,
+          resolution: "acknowledged" as const,
+        }),
         host: hostEvidence,
         worker: workerEvidence,
       });
@@ -687,7 +851,27 @@ export function makeStandardApplicationTaskDeliveryV1(
         "attemptNotSucceeded",
         reference.taskId,
         creation.runId,
-        Object.freeze({ host: hosted.receipt, settled }),
+        Object.freeze({ host: hostReceipt, settled }),
+      );
+    }
+    if (
+      mode.kind === "cancellation" &&
+      (
+        hostReceipt.cancellationGeneration === null ||
+        settled.current.cancellation.kind !== "resolved" ||
+        settled.current.cancellation.generation !==
+          hostReceipt.cancellationGeneration ||
+        settled.current.cancellation.resolution !==
+          "superseded_by_completion" ||
+        loader.settlements[0]?.outcome.kind !== "completed"
+      )
+    ) {
+      return yield* failDelivery(
+        "inspectAttempt",
+        "cancellationNotSettled",
+        reference.taskId,
+        creation.runId,
+        Object.freeze({ host: hostReceipt, settled }),
       );
     }
     const stored = yield* resultStore.read(settled.current.terminal.result);
@@ -707,11 +891,31 @@ export function makeStandardApplicationTaskDeliveryV1(
       ));
     }
 
+    let succeededCancellation: StandardApplicationTaskSucceededDeliveryReceiptV1<
+      Output
+    >["cancellation"] = null;
+    if (mode.kind === "cancellation") {
+      const generation = hostReceipt.cancellationGeneration;
+      if (generation === null) {
+        return yield* failDelivery(
+          "inspectAttempt",
+          "cancellationNotSettled",
+          reference.taskId,
+          creation.runId,
+          hostReceipt,
+        );
+      }
+      succeededCancellation = Object.freeze({
+        generation,
+        resolution: "superseded_by_completion" as const,
+      });
+    }
     return Object.freeze({
       version: 1 as const,
       status: "succeeded" as const,
       runId: creation.runId,
       output: stored.value as Output,
+      cancellation: succeededCancellation,
       host: hostEvidence,
       worker: makeWorkerEvidence(),
     });
@@ -719,6 +923,177 @@ export function makeStandardApplicationTaskDeliveryV1(
 
   return Object.freeze({ registerCreation, deliver });
 }
+
+const runCancellationDelivery = Effect.fn(
+  "StandardApplicationTaskDelivery.runCancellationV1",
+)(function* (input: Readonly<{
+  readonly taskId: string;
+  readonly creation: StandardApplicationTaskRunCreationReceipt;
+  readonly mode: Extract<
+    StandardApplicationTaskDeliveryModeV1,
+    { readonly kind: "cancellation" }
+  >;
+  readonly lifecycle: ReturnType<
+    typeof makeApplicationTaskSystemRunAttemptStoreV1
+  >;
+  readonly loader: ApplicationTaskHostedWorkerLoader;
+  readonly deliveryLive: Omit<
+    ApplicationTaskComputeDeliveryLive,
+    "launchDirectory" | "supervision"
+  >;
+  readonly launchResources: TaskRuntimeLaunchResourceDirectory;
+  readonly supervisor: TaskAttemptSupervisor;
+}>): Effect.fn.Return<
+  StandardApplicationTaskDeliveryExecutionReceiptV1,
+  StandardApplicationTaskDeliveryV1Error,
+  Scope.Scope
+> {
+  const launchDirectory = yield* Effect.fromResult(
+    makeTaskRuntimeLaunchDirectoryFromResources(input.launchResources),
+  ).pipe(Effect.mapError(cause =>
+    new ApplicationTaskDeliveryEventHostConfigurationError({
+      reason: "invalid_live_configuration",
+      cause,
+    })
+  ));
+  const supervisionExit = yield* Deferred.make<Exit.Exit<
+    TaskAttemptSupervisorOutcome,
+    TaskAttemptSupervisorError
+  >>();
+  let admissions = 0;
+  let observations = 0;
+  const observer: TaskAttemptSupervisionObserver = Object.freeze({
+    admit: () => {
+      admissions += 1;
+    },
+    observe: (
+      _observation: Parameters<TaskAttemptSupervisionObserver["observe"]>[0],
+      exit: Parameters<TaskAttemptSupervisionObserver["observe"]>[1],
+    ) => {
+      observations += 1;
+      Deferred.doneUnsafe(supervisionExit, Effect.succeed(exit));
+    },
+  });
+  const layer = makeApplicationTaskComputeDeliveryLayer({
+    ...input.deliveryLive,
+    launchDirectory,
+    supervision: Object.freeze({
+      supervisor: input.supervisor,
+      observer,
+    }),
+  });
+
+  return yield* Effect.scoped(Effect.gen(function* () {
+    const runner = yield* TaskComputeDeliveryConnectedRunner;
+    const supervisionControl = yield* TaskComputeDeliverySupervisionControl;
+    const dispatch = yield* runner.run(null);
+    yield* Effect.promise(() => input.loader.awaitAcceptedStart()).pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () => failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+        ),
+      }),
+    );
+    if (input.mode.order === "completion_before_cancellation") {
+      yield* Effect.promise(() => input.loader.awaitWorkerSettlement()).pipe(
+        Effect.timeoutOrElse({
+          duration: "10 seconds",
+          orElse: () => failDelivery(
+            "validateEvidence",
+            "workerEvidenceMismatch",
+            input.taskId,
+            input.creation.runId,
+          ),
+        }),
+      );
+    }
+    const requested = yield* input.lifecycle.transactRunAttempt({
+      operation: "request_cancellation",
+      runId: input.creation.runId,
+      decide: state => decideApplicationRequestCancellationV1({
+        type: "request_cancellation",
+        runId: input.creation.runId,
+        reason: { code: "requested", message: null },
+      }, state),
+    });
+    if (
+      requested.disposition !== "accepted" ||
+      requested.outcome.kind !== "cancellation_requested"
+    ) {
+      return yield* failDelivery(
+        "inspectAttempt",
+        "cancellationNotRequested",
+        input.taskId,
+        input.creation.runId,
+        requested,
+      );
+    }
+    const cancellation = yield* runner.run(null);
+    input.loader.releaseSettlement();
+    yield* supervisionControl.quiesce();
+    const exit = yield* Deferred.await(supervisionExit).pipe(
+      Effect.timeoutOrElse({
+        duration: "15 seconds",
+        orElse: () => failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+        ),
+      }),
+    );
+    if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause);
+    const noResurrection = yield* runner.run(null);
+    if (
+      noResurrection.confirmedDispatchCandidatesHandled !== 0 ||
+      noResurrection.confirmedCancellationCandidatesHandled !== 0 ||
+      noResurrection.confirmedDispatchProviderCalls !== 0 ||
+      noResurrection.confirmedCancellationProviderCalls !== 0 ||
+      noResurrection.candidateFailures !== 0
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        noResurrection,
+      );
+    }
+    return Object.freeze({
+      runner: Object.freeze({
+        stopReason: cancellation.stopReason,
+        confirmedDispatchCandidatesHandled:
+          dispatch.confirmedDispatchCandidatesHandled +
+          cancellation.confirmedDispatchCandidatesHandled,
+        confirmedCancellationCandidatesHandled:
+          dispatch.confirmedCancellationCandidatesHandled +
+          cancellation.confirmedCancellationCandidatesHandled,
+        confirmedDispatchProviderCalls:
+          dispatch.confirmedDispatchProviderCalls +
+          cancellation.confirmedDispatchProviderCalls,
+        confirmedCancellationProviderCalls:
+          dispatch.confirmedCancellationProviderCalls +
+          cancellation.confirmedCancellationProviderCalls,
+        candidateFailures:
+          dispatch.candidateFailures + cancellation.candidateFailures,
+      }),
+      supervision: Object.freeze({
+        expected: admissions,
+        observed: observations,
+        succeeded: 1,
+        failed: 0,
+      }),
+      cancellationGeneration: requested.outcome.cancellation.generation,
+    });
+  }).pipe(
+    Effect.provide(layer),
+    Effect.ensuring(Effect.sync(() => input.loader.releaseSettlement())),
+  ));
+});
 
 function failDelivery(
   phase: StandardApplicationTaskDeliveryContractV1Error["phase"],
