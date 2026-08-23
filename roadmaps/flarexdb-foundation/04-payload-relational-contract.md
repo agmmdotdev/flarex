@@ -1,9 +1,9 @@
 # FlarexDB Native Relational Foundation Contract
 
-Status: accepted deferred foundation contract; the 2026-08-23 authority
-reconciliation is docs-only, and no relation schema, edge table, relation
-compiler, relation read, developer API, or Payload adapter is implemented by
-this document
+Status: `R01` complete on 2026-08-23 for the private semantic, codec, generated
+schema-module, Application Analysis, and manifest-contract slice; `R01-P` is
+next. No relation catalog, edge table, commit lowering, relation read,
+activation, public developer API, or Payload adapter is implemented
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -109,9 +109,18 @@ source.
 has a strict `schema` member containing only tables and indexes;
 [`SchemaManifestAppSchemaV1`](../../packages/flarex-protocol/src/schema-manifest.ts)
 likewise has a strict table/index-only shape.
-`R01` must inventory their persisted/runtime consumers and select an explicit
-compatible contract evolution. Adding a `relations` member to an existing V1
-shape or reusing an old digest with new meaning is forbidden.
+`R01` selected an additive concrete contract evolution: zero-relation analysis
+still emits exact `ApplicationManifestV1`, while relation-bearing analysis emits
+`ApplicationManifestV2` with `schema.version = 2` and canonical analyzed
+relation entries. The normal semantic boundary is the unversioned
+`ApplicationManifest` union and its unversioned canonicalizer/manifest maker;
+the numeric suffixes remain only on the two exact envelopes that must coexist
+and decode independently. V1 is still active and is therefore not called
+legacy. The authenticated analysis host accepts and validates both envelopes.
+Persisted publication, readiness, activation, and runtime consumers remain
+V1-only, and `SchemaManifestAppSchemaV1` remains unchanged; `R02` owns their
+explicit relation-bearing binding evolution. Adding `relations` to either V1
+shape or reusing an old digest with new meaning remains forbidden.
 
 Here, current means the unversioned private Application revision generation.
 Roadmap 49's `AA-R9-P` production-cutover preflight remains no-go. No relation
@@ -150,14 +159,36 @@ authenticated Source Artifact V2 upload, the values loaded from those modules
 are the analyzer's sole acceptance inputs. Standard intent is not read again
 beside them during analysis, registration, readiness, or runtime selection.
 
-The exact exported API remains an implementation decision, but the canonical
-input must express:
+The current private semantic API is
+`@flarex/standard-application-definition/internal/relation-definition`.
+Its unversioned preparation and source-production operations accept exact
+`RelationDeclarationV1` data and generate the sole executable schema module.
+The declaration contract is:
+
+```text
+format = flarex.relation-declaration
+version = 1
+source = { table, path: [{ kind: field, name }], forwardName }
+target = { table }
+value = { cardinality: one, required }
+     or { cardinality: many, minItems, maxItems, ordered,
+          duplicates: forbid }
+inverse = { cardinality: many, name: string | null }
+localized = false
+onTargetDelete = restrict
+```
+
+The source path field and forward name must be identical. Identity strings are
+nonempty and at most 256 UTF-16 code units; a declaration set contains at most
+1,024 declarations; one declaration's canonical JSON is at most 8,192 bytes;
+and a many value has `0 <= minItems <= maxItems <= 1,024` with positive
+`maxItems`. The exact input expresses:
 
 ```text
 source logical table
 canonical typed source path
 forward logical name
-allowed target logical tables and stable polymorphic tags
+one target logical table
 forward cardinality
 reverse maximum cardinality and optional generated reverse name
 requiredness or min/max item constraints
@@ -316,8 +347,9 @@ classification.
 
 Locale presence and locale value participate in relation occurrence and read
 semantics when a relation is localized. Missing locale and empty locale are not
-implicitly equivalent. R01 must freeze the canonical representation before
-DDL.
+implicitly equivalent. Completed `R01` admits only `localized: false` and
+rejects locale fields in occurrence identity. Any future localized profile must
+freeze its distinct canonical representation before its own DDL.
 
 ## Identity Roles
 
@@ -379,6 +411,26 @@ fails definition analysis.
 ## Edge Occurrence Contract
 
 Position is ordering metadata, never occurrence identity.
+
+`R01` freezes the pre-binding occurrence identity as exact
+`RelationOccurrenceV1` data:
+
+```text
+format = flarex.relation-occurrence
+version = 1
+sourceDocumentId = AppDocumentIdV1
+sourcePath = RelationSourcePathV1
+targetDocumentId = AppDocumentIdV1
+duplicateOrdinal = 0
+```
+
+The strict envelope has no position, locale, relation ID, physical edge ID, or
+future nesting field. Canonical JSON is capped at 8,192 bytes and its injected
+SHA-256 capability must return exactly 32 bytes. Both canonical bytes and the
+digest are defensively owned. Equal digests with unequal retained canonical
+bytes fail closed as a collision; byte-identical evidence with unequal digests
+fails closed as inconsistent evidence. `R02` may bind this occurrence under a
+stable relation and physical edge definition without changing these bytes.
 
 Each current edge occurrence carries or deterministically derives:
 
@@ -689,7 +741,7 @@ Exit gates:
   relation DDL, runtime behavior, public syntax, production cutover, or Payload
   work.
 
-### [ ] R01 — Freeze Native Relation Semantics And Codecs
+### [x] R01 — Freeze Native Relation Semantics And Codecs
 
 Outcome:
 
@@ -722,6 +774,80 @@ Exit gates:
   contract;
 - old manifest/schema contracts remain exactly decodable for their retained
   consumers.
+
+Implementation receipt (2026-08-23):
+
+- `flarex-protocol` owns strict `RelationDeclarationV1` and
+  `RelationOccurrenceV1` codecs, canonical vectors, resource ceilings,
+  defensive byte ownership, injected SHA-256, and fail-closed collision
+  comparison through internal contract subpaths;
+- Standard Application owns unversioned relation preparation and one private
+  relation-bearing source producer. It canonicalizes, sorts, owns, and freezes
+  declarations, rejects duplicates, and emits the existing `defineSchema`
+  result wrapped with canonical `relations`. The established zero-relation
+  producer and generated bytes remain exact;
+- the relation-aware Application Analysis operation validates source and target
+  tables, top-level validator compatibility, required one versus required
+  many-array shape, duplicate source paths, inverse/field collisions, and
+  duplicate target inverse names. It emits deterministic dense one-based
+  analysis-local relation and table ordinals only;
+- the unversioned manifest operation emits exact `ApplicationManifestV1` for
+  zero relations and strict `ApplicationManifestV2` for relation-bearing
+  analysis. V2 retains the V1 source, function, table, and index projections,
+  uses `schema.version = 2`, adds only canonical analyzed relations, enforces
+  the existing one-MiB manifest ceiling, and has a strict V1/V2 union decoder;
+- the authenticated analysis Worker core and host cold-load the generated
+  relation schema twice, validate the canonical union, and reject unsupported
+  declarations through the existing `invalidSchema` classification. The
+  analyzer policy identity and generated-core identity changed accordingly;
+- existing publication persistence, schema-manifest, readiness, activation,
+  and runtime materialization remain V1-only and fail closed for relation
+  manifests. Their relation-bearing evolution belongs to `R02`; no relation
+  identity, DDL, commit behavior, runtime read, route, fallback, or public API
+  entered this checkpoint.
+
+Evidence: protocol, Standard definition, analysis, boundary-guard, analyzer
+unit, deterministic generated-core, and real Miniflare cold-load suites cover
+strictness, limits, ordering, mutation isolation, V1 exactness, V2 selection,
+invalid shapes, canonical evidence, hash-service failures, forced collisions,
+and the generated Standard-to-analyzer path.
+
+R01 consumer inventory:
+
+- union-aware now: `packages/analysis/src/applicationAnalysis.ts`,
+  `packages/analysis/src/applicationAnalysisV2.ts`, and the analyzer Worker core
+  and host;
+- V1-only analysis registration: `apps/analyzer/src/ApplicationAnalysisComposition.ts`,
+  `packages/standard-application-analysis/src/application.ts`, and
+  `packages/persistence-postgres/src/applicationAnalysisRegistration.ts`;
+- V1-only publication/lifecycle: analysis `applicationPublicationFramesV1` and
+  persistence `applicationPublication`, `applicationSchemaAuthority`,
+  `applicationReadiness`, `applicationActivation`, `applicationActionAdmission`,
+  `applicationActionAuthorityV1`, `applicationMutationAdmission`,
+  `applicationQuerySnapshot`, and `storedCommitAuthority` model/materialization;
+- V1-only runtime/invocation: executor stored-commit authority, backend
+  `ApplicationWorkerDefinition`, `ApplicationRuntimeSourceAuthority`,
+  `ApplicationRuntimeMaterializer`, and `ApplicationActionRunner`, plus Standard
+  `ApplicationActionHostComposition`, `ApplicationMutationSystem`, and
+  `ApplicationQuerySystem`;
+- unchanged `SchemaManifestAppSchemaV1` protocol/compiler consumers:
+  `schema-manifest`, `app-schema-catalog`, and `point-mutation-start`;
+- unchanged schema-manifest persistence/evolution consumers: persistence
+  `schema`, `schemaManifestAppSchemaBindings`, `schemaManifestValueSnapshot`,
+  `appSchemaPublicationTransaction`, `applicationSchemaAuthority`,
+  `appSchemaCandidateValidation`, and `indexBuildReconciliation`, plus managed
+  schema `CandidateDocument`, `Compatibility`, and `Planning`;
+- unchanged schema-manifest activation/read/commit consumers: persistence
+  `applicationRevisionActivationV1`, `applicationRevisionActiveSelectionStateV1`,
+  `applicationRevisionSyscallValidatorV1`,
+  `applicationRevisionSyscallValidatorStateV1`,
+  `applicationPointQuerySnapshotV1`, and stored-commit model/materialization,
+  plus executor stored-attempt authentication and its commit-authority/input
+  verifiers.
+
+Every V1-only group remains fail-closed in R01. `R02` must evolve the exact
+post-analysis binding and its consumers together; no union-aware host result
+may be persisted by merely stripping relations or decoding it as V1.
 
 ### [ ] R01-P — Select Snapshot Support And Access Paths
 
@@ -997,13 +1123,16 @@ checkpoint commit.
 
 ## Known Limitations
 
-- No native relation definition is currently admitted by the production
-  application schema contract.
+- The private Standard source and authenticated Application Analysis host admit
+  `RelationDeclarationV1`, but production publication and activation do not.
+  The V1-only persistence/schema-manifest boundary deliberately rejects a
+  relation-bearing Application Manifest until `R02` evolves that owner.
 - No relation catalog, edge definition, edge table, edge build state, compiler,
   adjacency version, edge history, relation read, or relation sync dependency
   is implemented.
-- The first high-level supported profile is frozen by REL-P0, while its exact
-  AST, codecs, budgets, and manifest contract evolution remain R01 work.
+- The first high-level profile and its exact declaration/occurrence codecs,
+  budgets, Standard source representation, analyzed projection, and manifest
+  evolution are frozen by completed `R01`.
 - The exact physical identity spelling, DDL, index order, internal page
   frontier, build table, and snapshot support remain intentionally deferred
   to R01-P and their downstream owning gates.

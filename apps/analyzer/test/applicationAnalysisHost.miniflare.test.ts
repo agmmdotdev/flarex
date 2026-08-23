@@ -6,6 +6,9 @@ import {
   produceStandardApplicationSource,
 } from "@flarex/standard-application-definition/application-source";
 import {
+  produceInternalStandardApplicationSourceWithRelations,
+} from "@flarex/standard-application-definition/internal/relation-definition";
+import {
   prepareStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";
 import {
@@ -210,6 +213,138 @@ export default { leaked: { query } };`,
       }],
     });
   });
+
+  it("cold-analyzes a generated Standard relation schema into manifest V2", async () => {
+    const prepared = Result.getOrThrow(prepareStandardApplicationDefinitionV1({
+      programBudgetInput: {
+        maximumModules: 1,
+        maximumFunctions: 0,
+        maximumIdentifierUtf8Bytes: 1_024,
+        maximumValidatorNodes: 64,
+        maximumValidatorDepth: 16,
+        maximumValidatorStringUtf8Bytes: 1_024,
+      },
+      programInput: {
+        format: "flarex.declarative-program/v1",
+        version: 1,
+        schema: {
+          tables: [
+            {
+              logicalName: "posts",
+              definition: {
+                kind: "appDocument",
+                definitionVersion: 1,
+                documentType: {
+                  type: "object",
+                  value: {
+                    authorId: {
+                      fieldType: { type: "id", tableName: "users" },
+                      optional: false,
+                    },
+                  },
+                },
+              },
+            },
+            {
+              logicalName: "users",
+              definition: {
+                kind: "appDocument",
+                definitionVersion: 1,
+                documentType: {
+                  type: "object",
+                  value: {
+                    name: {
+                      fieldType: { type: "string" },
+                      optional: false,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          indexes: [],
+        },
+        modules: [{ modulePath: "empty", functions: [] }],
+      },
+      materializationBudgetInput: {
+        maximumModules: 1,
+        maximumEntryBindings: 1,
+        maximumSourceBytes: 1_024,
+        maximumSourceMapBytes: 0,
+        maximumBytesMaterialized: 16_384,
+        maximumSemanticRecords: 32,
+        maximumSemanticRecordBytes: 8_192,
+        maximumSemanticStreamBytes: 16_384,
+      },
+      graphInput: {
+        modules: [{
+          path: "functions/empty.js",
+          roles: ["function", "execution"],
+          sourceBytes: new TextEncoder().encode("export {};\n"),
+          sourceMapBytes: null,
+        }],
+        functionEntries: [{
+          logicalModulePath: "empty",
+          artifactModulePath: "functions/empty.js",
+        }],
+        executionPath: "functions/empty.js",
+        schemaPath: null,
+        authPath: null,
+      },
+    }));
+    const produced = Result.getOrThrow(
+      produceInternalStandardApplicationSourceWithRelations(
+        prepared,
+        [relationDeclaration()],
+      ),
+    );
+    const modules = produced.modules.map((module, ordinal) => Object.freeze({
+      path: module.path,
+      roles: module.roles,
+      sourceSha256: (ordinal + 1).toString(16).repeat(64),
+      sourceByteLength: module.sourceBytes.byteLength,
+      source: new TextDecoder().decode(module.sourceBytes),
+    }));
+    const bundle: ApplicationAnalysisSourceBundle = Object.freeze({
+      sourceArtifact: Object.freeze({
+        rootSha256: "e".repeat(64),
+        executionModulePath: produced.executionPath,
+        schemaModulePath: produced.schemaPath,
+        modules: Object.freeze(modules.map(module => Object.freeze({
+          path: module.path,
+          roles: module.roles,
+          sourceSha256: module.sourceSha256,
+          sourceByteLength: module.sourceByteLength,
+        }))),
+      }),
+      modules: Object.freeze(modules),
+    });
+    const miniflare = makeMiniflare(
+      makeApplicationAnalysisWorkerDefinition(bundle),
+    );
+    const response = await miniflare.dispatchFetch("https://analysis.invalid/");
+    const body = decodeColdLoadPair(await response.json());
+
+    expect(body.first.kind).toBe("analyzed");
+    expect(body.second.kind).toBe("analyzed");
+    if (typeof body.first.canonicalManifest !== "string") {
+      throw new Error("Generated relation source omitted its manifest.");
+    }
+    expect(body.first.canonicalManifest).toBe(body.second.canonicalManifest);
+    expect(JSON.parse(body.first.canonicalManifest)).toMatchObject({
+      version: 2,
+      schema: {
+        version: 2,
+        relations: [{
+          relationOrdinal: 1,
+          declaration: {
+            source: { table: "posts", forwardName: "authorId" },
+            target: { table: "users" },
+          },
+        }],
+      },
+    });
+  });
 });
 
 function makeMiniflare(definition: WorkerLoaderWorkerCode): Miniflare {
@@ -314,5 +449,30 @@ function sourceBundle(
       }))),
     }),
     modules: Object.freeze(modules),
+  });
+}
+
+function relationDeclaration() {
+  return Object.freeze({
+    format: "flarex.relation-declaration" as const,
+    version: 1 as const,
+    source: Object.freeze({
+      table: "posts",
+      path: Object.freeze([
+        Object.freeze({ kind: "field" as const, name: "authorId" }),
+      ]),
+      forwardName: "authorId",
+    }),
+    target: Object.freeze({ table: "users" }),
+    value: Object.freeze({
+      cardinality: "one" as const,
+      required: true,
+    }),
+    inverse: Object.freeze({
+      cardinality: "many" as const,
+      name: "posts",
+    }),
+    localized: false as const,
+    onTargetDelete: "restrict" as const,
   });
 }

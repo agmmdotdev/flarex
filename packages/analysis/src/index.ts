@@ -1,6 +1,6 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import type {
@@ -16,6 +16,24 @@ import {
 } from "flarex-protocol/deployment";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import { ValidatorJson as ProtocolValidatorJsonSchema } from "flarex-protocol/validator-json";
+import {
+  ApplicationRelationAnalysisError,
+  analyzeApplicationRelationDeclarationsResult,
+  type AnalyzedApplicationRelation,
+} from "./applicationRelationAnalysis.ts";
+
+export {
+  APPLICATION_ANALYSIS_MAXIMUM_RELATIONS,
+  ApplicationRelationAnalysisError,
+  analyzeApplicationRelationDeclarationsResult,
+  analyzeDecodedApplicationRelationsResult,
+  compareAnalyzedApplicationRelations,
+  type AnalyzedApplicationRelation,
+  type ApplicationRelationAnalysisIssueReason,
+  type ApplicationRelationAnalysisIssue,
+  type RelationAnalysisSchema,
+  type RelationAnalysisTable,
+} from "./applicationRelationAnalysis.ts";
 
 export type AnalyzerDiagnostic = {
   readonly level: "log" | "warn" | "error";
@@ -93,6 +111,10 @@ export type DeploymentAnalysis = {
   readonly schema: AnalyzedSchema;
 };
 
+export type ApplicationAnalysis = DeploymentAnalysis & {
+  readonly relations: ReadonlyArray<AnalyzedApplicationRelation>;
+};
+
 export type LoadedExecutionModules = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
 export type AnalyzerSourceMapInput = Readonly<Record<string, string>>;
@@ -158,6 +180,10 @@ export type AnalyzerSemanticError =
   | AnalyzerPartitionError
   | AnalyzerSourceMapError;
 
+export type ApplicationAnalyzerSemanticError =
+  | AnalyzerSemanticError
+  | ApplicationRelationAnalysisError;
+
 type RuntimeFunction = Readonly<Record<string, unknown>> | ((...args: never[]) => unknown);
 type OptionalKeys<T extends object> = {
   [Key in keyof T]-?: undefined extends T[Key] ? Key : never
@@ -213,6 +239,59 @@ export const analyzeLoadedSourcePackageEffect = Effect.fn(
   const rawFunctions = yield* analyzeExecutionModulesEffect(input.executionModules, { positionFor });
   const functions = yield* validateAndLowerFunctionPartitionsEffect(rawFunctions, schema);
   return { functions, schema };
+});
+
+/**
+ * Relation-aware Application Analysis entrypoint. The retained deployment
+ * operation above remains byte- and behavior-compatible for every existing
+ * V1 consumer.
+ */
+export const analyzeLoadedApplicationSourcePackageEffect = Effect.fn(
+  "FlarexAnalysis.analyzeLoadedApplicationSourcePackage",
+)(function* (
+  input: AnalyzeLoadedSourcePackageInput,
+): Effect.fn.Return<ApplicationAnalysis, ApplicationAnalyzerSemanticError> {
+  const analysis = yield* analyzeLoadedSourcePackageEffect(input);
+  if (input.schemaDefinition === undefined) {
+    return { ...analysis, relations: Object.freeze([]) };
+  }
+  if (!isRecord(input.schemaDefinition)) {
+    return yield* schemaFailure(
+      "Schema default export must be a Flarex schema definition.",
+    );
+  }
+  const declarations = yield* readSchemaPropertyEffect(
+    input.schemaDefinition,
+    "relations",
+    "schema.relations",
+  );
+  const relations = declarations === undefined
+    ? Object.freeze([])
+    : yield* analyzeApplicationRelationDeclarationsEffect(
+        declarations,
+        analysis.schema,
+      );
+  return { ...analysis, relations };
+});
+
+export const analyzeApplicationRelationDeclarationsEffect = Effect.fn(
+  "FlarexAnalysis.analyzeApplicationRelationDeclarations",
+)(function* (
+  declarations: unknown,
+  schema: AnalyzedSchema,
+): Effect.fn.Return<
+  ReadonlyArray<AnalyzedApplicationRelation>,
+  ApplicationRelationAnalysisError
+> {
+  return yield* Effect.fromResult(
+    analyzeApplicationRelationDeclarationsResult(declarations, schema).pipe(
+      Result.mapError(issue => new ApplicationRelationAnalysisError({
+        operation: "analyzeDeclarations",
+        message: issue.message,
+        issue,
+      })),
+    ),
+  );
 });
 
 export const decodeAnalyzerSuccessEnvelopeEffect = Effect.fn(

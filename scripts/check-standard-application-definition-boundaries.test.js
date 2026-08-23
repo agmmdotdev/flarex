@@ -23,6 +23,14 @@ describe("Standard Application definition boundary checker", () => {
         `,
       }, {
         relativePath:
+          "packages/standard-application-definition/src/relationDefinition/Preparation.ts",
+        text: `
+          import { Result } from "effect";
+          import { declaration } from "flarex-protocol/internal/relation-declaration-v1";
+          import { localHelper } from "./Model.js";
+        `,
+      }, {
+        relativePath:
           "packages/standard-application-definition/src/taskDefinition/Schema.ts",
         text: `
           import { makePrivateSha256V1 } from "@flarex/analysis/internal/private-sha256-v1";
@@ -113,6 +121,30 @@ describe("Standard Application definition boundary checker", () => {
     ]);
   });
 
+  it("confines the relation declaration dependency to its private owner subtree", () => {
+    const relationPath =
+      "packages/standard-application-definition/src/relationDefinition/Preparation.ts";
+    const report = analyzeStandardApplicationDefinitionBoundary(
+      validManifest(),
+      [{
+        relativePath: sourcePath,
+        text: `
+          import { declaration } from "flarex-protocol/internal/relation-declaration-v1";
+        `,
+      }, {
+        relativePath: relationPath,
+        text: `
+          import { analyze } from "@flarex/analysis";
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${sourcePath}:2 imports forbidden module "flarex-protocol/internal/relation-declaration-v1".`,
+      `${relationPath}:2 imports forbidden module "@flarex/analysis".`,
+    ]);
+  });
+
   it("rejects local re-exports of admitted durable-task bindings", () => {
     const privatePath =
       "packages/standard-application-definition/src/taskDefinition/Schema.ts";
@@ -147,7 +179,7 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition package must expose exactly ./v1, ./application-source, and its three declared private owner subpaths with no package root.",
+      "Standard Application definition package must expose exactly ./v1, ./application-source, and its four declared private owner subpaths with no package root.",
     ]);
   });
 
@@ -383,9 +415,11 @@ function validManifest() {
   return {
     name: "@flarex/standard-application-definition",
     exports: {
-      "./application-source": "./src/applicationSource.ts",
+      "./application-source": "./src/applicationSourcePublic.ts",
       "./internal/application-task-binding-v1":
         "./src/applicationTaskBinding/v1.ts",
+      "./internal/relation-definition":
+        "./src/relationDefinition/index.ts",
       "./internal/task-authoring-v1": "./src/taskAuthoringV1.ts",
       "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
       "./v1": "./src/v1.ts",

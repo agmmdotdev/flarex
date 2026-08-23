@@ -7,7 +7,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./application-analysis": "./src/applicationAnalysisV1.ts",
+    "./application-analysis": "./src/applicationAnalysis.ts",
     "./internal/application-publication-v1": "./src/applicationPublicationFramesV1.ts",
     "./internal/application-import-policy-v1": "./src/applicationImportPolicyV1.ts",
     "./internal/application-analysis-module-path-policy": "./src/applicationAnalysisModulePathPolicy.ts",

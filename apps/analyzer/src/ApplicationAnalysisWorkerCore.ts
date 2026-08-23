@@ -1,11 +1,12 @@
 import {
   ApplicationAnalysisRejectionCodeV1,
-  makeApplicationManifestV1,
+  makeApplicationManifest,
   type ApplicationAnalysisRejectionCodeV1 as ApplicationAnalysisRejectionCode,
   type ApplicationManifestSourceArtifactV1Input,
 } from "@flarex/analysis/application-analysis";
 import {
-  analyzeLoadedSourcePackageEffect,
+  ApplicationRelationAnalysisError,
+  analyzeLoadedApplicationSourcePackageEffect,
   type AnalyzerDiagnostic,
   type LoadedExecutionModules,
 } from "@flarex/analysis";
@@ -128,13 +129,13 @@ export async function runApplicationAnalysisColdLoad(
     }
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
-        const analysis = yield* analyzeLoadedSourcePackageEffect({
+        const analysis = yield* analyzeLoadedApplicationSourcePackageEffect({
           executionModules,
           schemaDefinition,
           sourceMaps: {},
           sourceMapFailure: "ignore",
         });
-        return yield* makeApplicationManifestV1(analysis, input.sourceArtifact);
+        return yield* makeApplicationManifest(analysis, input.sourceArtifact);
       }),
       { scheduler: APPLICATION_ANALYSIS_SCHEDULER },
     );
@@ -152,10 +153,14 @@ export async function runApplicationAnalysisColdLoad(
       });
     }
     const failure = Cause.findError(exit.cause);
-    if (Result.isFailure(failure)) {
-      throw new Error("Application Analysis core encountered an unexpected defect.");
-    }
-    return rejected(classifyAnalysisFailure(failure.success), diagnostics);
+    return Result.match(failure, {
+      onFailure: () => {
+        throw new Error(
+          "Application Analysis core encountered an unexpected defect.",
+        );
+      },
+      onSuccess: value => rejected(classifyAnalysisFailure(value), diagnostics),
+    });
   } catch (cause) {
     if (
       cause instanceof ApplicationImportForbiddenEffectV1 ||
@@ -174,6 +179,12 @@ export async function runApplicationAnalysisColdLoad(
 }
 
 function classifyAnalysisFailure(value: unknown): ApplicationAnalysisRejectionCode {
+  if (value instanceof ApplicationRelationAnalysisError) {
+    return value.issue.reason === "relationLimitExceeded" ||
+        value.issue.reason === "relationDeclarationBytesExceeded"
+      ? ApplicationAnalysisRejectionCodeV1.limitExceeded
+      : ApplicationAnalysisRejectionCodeV1.invalidSchema;
+  }
   if (!isRecord(value) || typeof value._tag !== "string") {
     throw new Error("Application Analysis core received an unknown typed failure.");
   }

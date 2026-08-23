@@ -83,6 +83,10 @@ const applicationSourceAllowedProductionImports = new Set([
   "@flarex/utils/strings",
   "flarex-protocol/internal/declarative-v2-source-artifact-v2",
 ]);
+const relationDefinitionAllowedProductionImports = new Set([
+  "effect",
+  "flarex-protocol/internal/relation-declaration-v1",
+]);
 const applicationTaskBindingAllowedProductionImports = new Set([
   ...shippedDefinitionAllowedProductionImports,
   "@flarex/utils/bytes",
@@ -133,7 +137,7 @@ if (isCliEntrypoint()) {
   } else {
     console.log("Standard Application definition boundary check passed.");
     console.log(
-      "Allowed package exports: ./v1 plus four explicit owner subpaths.",
+      "Allowed package exports: ./v1 plus five explicit owner subpaths.",
     );
     console.log(
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
@@ -244,15 +248,19 @@ function collectExportErrors(exportsValue, errors) {
 
   const exportNames = Object.keys(exportsValue).sort();
   if (
-    exportNames.length !== 5
+    exportNames.length !== 6
     || exportNames[0] !== "./application-source"
     || exportNames[1] !== "./internal/application-task-binding-v1"
-    || exportNames[2] !== "./internal/task-authoring-v1"
-    || exportNames[3] !== "./internal/task-definition-v1"
-    || exportNames[4] !== "./v1"
-    || exportsValue["./application-source"] !== "./src/applicationSource.ts"
+    || exportNames[2] !== "./internal/relation-definition"
+    || exportNames[3] !== "./internal/task-authoring-v1"
+    || exportNames[4] !== "./internal/task-definition-v1"
+    || exportNames[5] !== "./v1"
+    || exportsValue["./application-source"] !==
+      "./src/applicationSourcePublic.ts"
     || exportsValue["./internal/application-task-binding-v1"] !==
       "./src/applicationTaskBinding/v1.ts"
+    || exportsValue["./internal/relation-definition"] !==
+      "./src/relationDefinition/index.ts"
     || exportsValue["./internal/task-authoring-v1"] !==
       "./src/taskAuthoringV1.ts"
     || exportsValue["./internal/task-definition-v1"] !==
@@ -260,7 +268,7 @@ function collectExportErrors(exportsValue, errors) {
     || exportsValue["./v1"] !== "./src/v1.ts"
   ) {
     errors.push(
-      "Standard Application definition package must expose exactly ./v1, ./application-source, and its three declared private owner subpaths with no package root.",
+      "Standard Application definition package must expose exactly ./v1, ./application-source, and its four declared private owner subpaths with no package root.",
     );
   }
 }
@@ -624,10 +632,14 @@ function isAllowedProductionImport(specifier, relativePath) {
           `${standardApplicationDefinitionSourceRoot}/applicationSource.ts`
         ? applicationSourceAllowedProductionImports
         : normalizedSourcePath.startsWith(
-            `${standardApplicationDefinitionSourceRoot}/applicationTaskBinding/`,
+            `${standardApplicationDefinitionSourceRoot}/relationDefinition/`,
           )
-          ? applicationTaskBindingAllowedProductionImports
-          : shippedDefinitionAllowedProductionImports;
+          ? relationDefinitionAllowedProductionImports
+          : normalizedSourcePath.startsWith(
+              `${standardApplicationDefinitionSourceRoot}/applicationTaskBinding/`,
+            )
+            ? applicationTaskBindingAllowedProductionImports
+            : shippedDefinitionAllowedProductionImports;
   if (allowedImports.has(specifier)) {
     return true;
   }

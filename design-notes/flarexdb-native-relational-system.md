@@ -1,6 +1,7 @@
 # FlarexDB Native Relational System
 
-Status: accepted relation-specific architecture correction; implementation remains deferred behind the active FlarexDB foundation order
+Status: accepted architecture; private semantic/codec/Application Analysis gate
+`R01` completed on 2026-08-23, with physical planning gate `R01-P` next
 
 Last reviewed: 2026-08-23
 
@@ -135,25 +136,33 @@ Artifact V2 upload. Canonical Declarative Program may remain an upstream
 authoring/code-generation compatibility input, while Semantic Artifact remains
 historical evidence/decoding only; neither may be consulted after cold load by
 analysis, readiness, activation, or runtime as a second metadata authority. The
-current
+active concrete
 [`ApplicationManifestV1`](../packages/analysis/src/applicationAnalysisV1.ts)
 has a strict `schema` member containing only tables and indexes, while current
 [`SchemaManifestAppSchemaV1`](../packages/flarex-protocol/src/schema-manifest.ts)
-is likewise table/index-only. Relation work must
-inventory both consumer sets, freeze an explicit analyzed-manifest evolution for
-canonical relation declarations, and add a distinct post-analysis binding
-generation for stable catalog/physical IDs. It must not add `relations` to
-either V1 or reuse an old digest with new meaning.
+is likewise table/index-only. Completed `R01` keeps exact V1 emission for
+zero-relation analysis and adds strict `ApplicationManifestV2` only for
+relation-bearing analysis. The normal semantic boundary is the unversioned
+`ApplicationManifest` union; numeric suffixes identify only the two concrete
+coexisting envelopes. V1 remains active and is not legacy. The authenticated
+analysis host accepts both, while persisted publication/runtime consumers and
+`SchemaManifestAppSchemaV1` remain V1-only until `R02` adds a distinct
+post-analysis binding generation for stable catalog/physical IDs. Neither V1
+shape gains `relations`, and no old digest acquires new meaning.
 
 This is the current unversioned private authority, not a claim that production
 callers have cut over. Roadmap 49's `AA-R9-P` remains no-go, and relation work
 does not authorize a route, binding, production caller, or fallback.
 
-The Standard relation representation must be ordinary canonical data. An
-illustrative shape is:
+The Standard relation representation is ordinary canonical data. The current
+private semantic API is the unversioned
+`@flarex/standard-application-definition/internal/relation-definition`; it
+accepts exact `RelationDeclarationV1` input. The concrete envelope is:
 
 ```ts
-defineStandardRelation({
+{
+  format: "flarex.relation-declaration",
+  version: 1,
   source: {
     table: "posts",
     path: [
@@ -161,9 +170,7 @@ defineStandardRelation({
     ],
     forwardName: "author",
   },
-  targets: [
-    { tag: "users", table: "users" },
-  ],
+  target: { table: "users" },
   value: {
     cardinality: "one",
     required: true,
@@ -174,11 +181,15 @@ defineStandardRelation({
   },
   localized: false,
   onTargetDelete: "restrict",
-})
+}
 ```
 
-The exact exported spelling remains an implementation gate. The durable rules
-are:
+`source.path` is exactly one `field` segment and its name equals
+`forwardName`. A many value instead carries nonnegative `minItems`, positive
+`maxItems` no greater than 1,024, `ordered`, and `duplicates: "forbid"`.
+Identity strings are nonempty and at most 256 UTF-16 code units; a declaration
+set has at most 1,024 entries and one canonical declaration at most 8,192
+bytes. The durable rules are:
 
 - the value is inert and serializable;
 - logical table names and explicit path segments are used rather than module
@@ -449,6 +460,15 @@ Mutable array position is ordering metadata, not occurrence identity. The same
 target may appear in multiple source fields, nested items, blocks, locales, or
 repeated positions.
 
+For the first profile, `RelationOccurrenceV1` is the strict canonical envelope
+`{ format, version, sourceDocumentId, sourcePath, targetDocumentId,
+duplicateOrdinal: 0 }`. It deliberately contains no position, locale, relation
+ID, physical edge ID, nesting segment, or other future field. Canonical JSON is
+capped at 8,192 bytes; injected SHA-256 must return exactly 32 owned bytes;
+equal digests with unequal retained bytes and equal bytes with unequal digests
+both fail closed. Later stable relation/edge binding encloses this evidence and
+does not change its bytes.
+
 Every stored occurrence must carry or deterministically derive:
 
 ```text
@@ -660,13 +680,13 @@ SQL/PGQ as a correctness or storage prerequisite
 
 The relation work should proceed through these bounded stages:
 
-1. rebase the relation producer and artifact path on authenticated executable
-   function-registration/schema modules, Application Analysis, and one explicit
-   manifest-contract evolution;
-2. freeze the narrow native Standard relation semantics and canonical
-   occurrence/path codecs;
-3. select edge-history or adjacency-version exact-snapshot support over current
-   edges through genuine-Postgres evidence;
+1. complete (`R01`): rebase the relation producer and artifact path on
+   authenticated executable function-registration/schema modules, Application
+   Analysis, and one explicit manifest-contract evolution;
+2. complete (`R01`): freeze the narrow native Standard relation semantics and
+   canonical occurrence/path codecs;
+3. next (`R01-P`): select edge-history or adjacency-version exact-snapshot
+   support over current edges through genuine-Postgres evidence;
 4. bind stable logical relation identities, immutable semantic definitions, and
    immutable physical edge definitions into the schema lifecycle;
 5. add private current-edge storage plus the selected exact-snapshot support and
@@ -686,6 +706,7 @@ The relation work should proceed through these bounded stages:
 14. implement Payload and other framework-adapter conformance over the proven
     native system.
 
-The first implementation PR after this documentation checkpoint should start
-with the Standard/native semantic contract and internal test fixtures. It
-should not start with edge DDL or a Payload-shaped public API.
+The first implementation checkpoint is complete at `R01`. Continue with the
+measured `R01-P` snapshot/access-path decision; do not start edge DDL, stable
+relation binding, runtime reads, or a Payload-shaped public API before their
+own gates.

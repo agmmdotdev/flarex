@@ -1,11 +1,13 @@
 import {
   APPLICATION_MANIFEST_FORMAT_V1,
   ApplicationAnalysisRejectionCodeV1,
+  canonicalizeApplicationManifestV2,
   canonicalizeApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import { Effect, Result } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -91,6 +93,38 @@ describe("Application Analysis trusted cold-load host", () => {
         });
       expect(code.modules["flarex/server"]).toBeUndefined();
     }
+  });
+
+  it("accepts one canonical relation-bearing manifest V2 from both cold loads", async () => {
+    const source = relationSourceBundle();
+    const canonical = relationManifestText(source.sourceArtifact);
+    const loader = new FakeWorkerLoader([
+      analyzed(canonical),
+      analyzed(canonical),
+    ]);
+
+    const result = await Effect.runPromise(
+      applicationAnalysisHostEffectWithCapabilities(
+        { source: { read: () => Effect.succeed(source) }, loader },
+        request(),
+      ),
+    );
+
+    expect(result.kind).toBe("analyzed");
+    if (result.kind !== "analyzed") throw new Error("expected analyzed result");
+    expect(result.canonicalManifest).toBe(canonical);
+    expect(result.manifest).toMatchObject({
+      version: 2,
+      schema: {
+        version: 2,
+        relations: [{
+          relationOrdinal: 1,
+          sourceTableOrdinal: 1,
+          targetTableOrdinal: 2,
+        }],
+      },
+    });
+    expect(loader.loaded).toHaveLength(2);
   });
 
   it("rejects a genuine application/framework graph-path collision", async () => {
@@ -305,6 +339,38 @@ function sourceBundle(path = "functions.js"): ApplicationAnalysisSourceBundle {
   });
 }
 
+function relationSourceBundle(): ApplicationAnalysisSourceBundle {
+  const execution = Object.freeze({
+    path: "functions.js",
+    roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+    sourceSha256: SOURCE_DIGEST,
+    sourceByteLength: new TextEncoder().encode(SOURCE).byteLength,
+    source: SOURCE,
+  });
+  const schemaSource = "export default {};";
+  const schema = Object.freeze({
+    path: "schema.js",
+    roles: SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+    sourceSha256: "c".repeat(64),
+    sourceByteLength: new TextEncoder().encode(schemaSource).byteLength,
+    source: schemaSource,
+  });
+  return Object.freeze({
+    sourceArtifact: Object.freeze({
+      rootSha256: ROOT,
+      executionModulePath: execution.path,
+      schemaModulePath: schema.path,
+      modules: Object.freeze([execution, schema].map(module => Object.freeze({
+        path: module.path,
+        roles: module.roles,
+        sourceSha256: module.sourceSha256,
+        sourceByteLength: module.sourceByteLength,
+      }))),
+    }),
+    modules: Object.freeze([execution, schema]),
+  });
+}
+
 function deferred<A>(): Readonly<{
   readonly promise: Promise<A>;
   readonly resolve: (value: A) => void;
@@ -331,6 +397,82 @@ function manifestText(): string {
     schema: { version: 1, tables: [], indexes: [] },
     functions: [],
   })).canonicalText;
+}
+
+function relationManifestText(
+  sourceArtifact: ApplicationAnalysisSourceBundle["sourceArtifact"],
+): string {
+  return Result.getOrThrow(canonicalizeApplicationManifestV2({
+    format: APPLICATION_MANIFEST_FORMAT_V1,
+    version: 2,
+    sourceArtifact,
+    schema: {
+      version: 2,
+      tables: [
+        {
+          tableId: 1,
+          name: "posts",
+          validator: {
+            type: "object",
+            value: {
+              authorId: {
+                fieldType: { type: "id", tableName: "users" },
+                optional: false,
+              },
+            },
+          },
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+        {
+          tableId: 2,
+          name: "users",
+          validator: {
+            type: "object",
+            value: {
+              name: {
+                fieldType: { type: "string" },
+                optional: false,
+              },
+            },
+          },
+          placement: { kind: "partitionBy", field: "_id" },
+        },
+      ],
+      indexes: [],
+      relations: [{
+        relationOrdinal: 1,
+        sourceTableOrdinal: 1,
+        targetTableOrdinal: 2,
+        declaration: relationDeclaration(),
+      }],
+    },
+    functions: [],
+  })).canonicalText;
+}
+
+function relationDeclaration() {
+  return Object.freeze({
+    format: "flarex.relation-declaration" as const,
+    version: 1 as const,
+    source: Object.freeze({
+      table: "posts",
+      path: Object.freeze([
+        Object.freeze({ kind: "field" as const, name: "authorId" }),
+      ]),
+      forwardName: "authorId",
+    }),
+    target: Object.freeze({ table: "users" }),
+    value: Object.freeze({
+      cardinality: "one" as const,
+      required: true,
+    }),
+    inverse: Object.freeze({
+      cardinality: "many" as const,
+      name: "posts",
+    }),
+    localized: false as const,
+    onTargetDelete: "restrict" as const,
+  });
 }
 
 function analyzed(canonicalManifest: string): object {

@@ -1,8 +1,8 @@
 import {
   ApplicationAnalysisRejectionCodeV1,
-  canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifest,
   type ApplicationAnalysisRejectionCodeV1 as ApplicationAnalysisRejectionCode,
-  type ApplicationManifestV1,
+  type ApplicationManifest,
 } from "@flarex/analysis/application-analysis";
 import {
   APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS,
@@ -36,7 +36,7 @@ export const APPLICATION_ANALYSIS_COLD_LOAD_CPU_MILLISECONDS = 10_000;
 export const APPLICATION_ANALYSIS_ANALYZER_IDENTITY =
   APPLICATION_ANALYSIS_WORKER_CORE_SHA256;
 export const APPLICATION_ANALYSIS_POLICY_IDENTITY =
-  "flarex.application-analysis-policy/compat=2026-06-14;loads=2;cpu=10000;deadline=30000;diag=100/65536;outbound=null;ambient=date-random-performance-fixed,fetch-crypto-timers-scheduler-reject" as const;
+  "flarex.application-analysis-policy/compat=2026-06-14;loads=2;cpu=10000;deadline=30000;diag=100/65536;outbound=null;ambient=date-random-performance-fixed,fetch-crypto-timers-scheduler-reject;relation-analysis=declaration-v1,manifest-v2" as const;
 
 const SUPPORTED_FRAMEWORK_MODULES = Object.freeze({
   [APPLICATION_ANALYSIS_FRAMEWORK_MODULE_PATHS[0]]:
@@ -66,7 +66,7 @@ interface ApplicationAnalysisHostBaseResult {
 export type ApplicationAnalysisHostResult =
   | Readonly<ApplicationAnalysisHostBaseResult & {
     readonly kind: "analyzed";
-    readonly manifest: ApplicationManifestV1;
+    readonly manifest: ApplicationManifest;
     readonly canonicalManifest: string;
   }>
   | Readonly<ApplicationAnalysisHostBaseResult & {
@@ -148,18 +148,19 @@ export async function runApplicationAnalysisHostWithCapabilities(
   );
   if (Exit.isSuccess(exit)) return exit.value;
   const failure = Cause.findError(exit.cause);
-  if (Result.isFailure(failure)) return failed("internalFailure");
-  if (failure.success.reason === "timeout") {
-    const request = decodeRequest(input);
-    return Result.isSuccess(request)
-      ? rejectedResult(
-        request.success,
-        ApplicationAnalysisRejectionCodeV1.timeout,
-        "Application Analysis exceeded its deadline.",
-      )
-      : failed("invalidRequest");
-  }
-  return failed(failure.success.reason);
+  return Result.match(failure, {
+    onFailure: () => failed("internalFailure"),
+    onSuccess: error => error.reason === "timeout"
+      ? Result.match(decodeRequest(input), {
+          onFailure: () => failed("invalidRequest"),
+          onSuccess: request => rejectedResult(
+            request,
+            ApplicationAnalysisRejectionCodeV1.timeout,
+            "Application Analysis exceeded its deadline.",
+          ),
+        })
+      : failed(error.reason),
+  });
 }
 
 const applicationAnalysisHostEffect = Effect.fn(
@@ -482,12 +483,12 @@ function decodeColdLoadOutcome(
 function parseCanonicalManifest(
   value: string,
 ): Result.Result<
-  ReturnType<typeof canonicalizeApplicationManifestV1> extends
+  ReturnType<typeof canonicalizeApplicationManifest> extends
     Result.Result<infer Success, unknown> ? Success : never,
   ApplicationAnalysisHostError
 > {
   try {
-    return canonicalizeApplicationManifestV1(JSON.parse(value)).pipe(
+    return canonicalizeApplicationManifest(JSON.parse(value)).pipe(
       Result.mapError(cause => new ApplicationAnalysisHostError({
         reason: "invalidWorkerResult",
         cause,

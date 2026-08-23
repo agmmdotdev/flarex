@@ -1,13 +1,17 @@
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
-import { query } from "flarex/server";
+import { definePartitionTable, defineSchema, query } from "flarex/server";
 import { v } from "flarex/values";
 import { describe, expect, it } from "vitest";
 import {
   runApplicationAnalysisColdLoad,
 } from "../src/ApplicationAnalysisWorkerCore";
-import { ApplicationAnalysisRejectionCodeV1 } from
+import {
+  APPLICATION_ANALYSIS_MAXIMUM_RELATIONS,
+  ApplicationAnalysisRejectionCodeV1,
+} from
   "@flarex/analysis/application-analysis";
 
 const ROOT = "a".repeat(64);
@@ -34,11 +38,122 @@ describe("Application Analysis cold-load core", () => {
     expect(outcome.kind).toBe("analyzed");
     if (outcome.kind !== "analyzed") throw new Error("expected analyzed outcome");
     expect(JSON.parse(outcome.canonicalManifest)).toMatchObject({
+      version: 1,
       functions: [{
         path: "users:get",
         kind: "query",
         visibility: "public",
       }],
+    });
+  });
+
+  it("emits manifest V2 for one valid relation-bearing schema", async () => {
+    const schema = defineSchema({
+      posts: definePartitionTable({ authorId: v.id("users") }),
+      users: definePartitionTable({ name: v.string() }),
+    });
+    const outcome = await runApplicationAnalysisColdLoad({
+      sourceArtifact: sourceArtifactWithSchema(),
+      loadExecution: () => Promise.resolve({ default: {} }),
+      loadSchema: () => Promise.resolve({
+        default: Object.freeze({
+          tables: schema.tables,
+          relations: Object.freeze([relationDeclaration()]),
+        }),
+      }),
+    });
+
+    expect(outcome.kind).toBe("analyzed");
+    if (outcome.kind !== "analyzed") throw new Error("expected analyzed outcome");
+    expect(JSON.parse(outcome.canonicalManifest)).toMatchObject({
+      version: 2,
+      schema: {
+        version: 2,
+        relations: [{
+          relationOrdinal: 1,
+          declaration: {
+            source: { table: "posts", forwardName: "authorId" },
+            target: { table: "users" },
+          },
+        }],
+      },
+    });
+  });
+
+  it("classifies unsupported relation shapes as invalid schema", async () => {
+    const schema = defineSchema({
+      posts: definePartitionTable({ authorId: v.id("users") }),
+      users: definePartitionTable({ name: v.string() }),
+    });
+    const invalid = {
+      ...relationDeclaration(),
+      source: {
+        table: "posts",
+        path: [
+          { kind: "field", name: "authorId" },
+          { kind: "field", name: "nested" },
+        ],
+        forwardName: "authorId",
+      },
+    };
+    const outcome = await runApplicationAnalysisColdLoad({
+      sourceArtifact: sourceArtifactWithSchema(),
+      loadExecution: () => Promise.resolve({ default: {} }),
+      loadSchema: () => Promise.resolve({
+        default: { tables: schema.tables, relations: [invalid] },
+      }),
+    });
+
+    expect(outcome).toMatchObject({
+      kind: "rejected",
+      failureCode: ApplicationAnalysisRejectionCodeV1.invalidSchema,
+    });
+  });
+
+  it("classifies the relation-count ceiling as a limit", async () => {
+    const schema = defineSchema({
+      posts: definePartitionTable({ authorId: v.id("users") }),
+      users: definePartitionTable({ name: v.string() }),
+    });
+    const relations = Array.from(
+      { length: APPLICATION_ANALYSIS_MAXIMUM_RELATIONS + 1 },
+      relationDeclaration,
+    );
+    const outcome = await runApplicationAnalysisColdLoad({
+      sourceArtifact: sourceArtifactWithSchema(),
+      loadExecution: () => Promise.resolve({ default: {} }),
+      loadSchema: () => Promise.resolve({
+        default: { tables: schema.tables, relations },
+      }),
+    });
+
+    expect(outcome).toMatchObject({
+      kind: "rejected",
+      failureCode: ApplicationAnalysisRejectionCodeV1.limitExceeded,
+    });
+  });
+
+  it("does not trust a foreign schema cause that resembles a relation limit", async () => {
+    const schema = defineSchema({
+      posts: definePartitionTable({ authorId: v.id("users") }),
+      users: definePartitionTable({ name: v.string() }),
+    });
+    const definition = { tables: schema.tables };
+    Object.defineProperty(definition, "relations", {
+      enumerable: true,
+      get() {
+        throw { reason: "relationLimitExceeded" };
+      },
+    });
+    const outcome = await runApplicationAnalysisColdLoad({
+      sourceArtifact: sourceArtifactWithSchema(),
+      loadExecution: () => Promise.resolve({ default: {} }),
+      loadSchema: () => Promise.resolve({ default: definition }),
+    });
+
+    expect(outcome).toMatchObject({
+      kind: "rejected",
+      failureCode: ApplicationAnalysisRejectionCodeV1.invalidSchema,
     });
   });
 
@@ -212,5 +327,52 @@ function sourceArtifact() {
       sourceSha256: SOURCE_DIGEST,
       sourceByteLength: 18,
     })]),
+  });
+}
+
+function sourceArtifactWithSchema() {
+  return Object.freeze({
+    rootSha256: ROOT,
+    executionModulePath: "functions.js",
+    schemaModulePath: "schema.js",
+    modules: Object.freeze([
+      Object.freeze({
+        path: "functions.js",
+        roles: SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
+        sourceSha256: SOURCE_DIGEST,
+        sourceByteLength: 18,
+      }),
+      Object.freeze({
+        path: "schema.js",
+        roles: SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+        sourceSha256: "c".repeat(64),
+        sourceByteLength: 18,
+      }),
+    ]),
+  });
+}
+
+function relationDeclaration() {
+  return Object.freeze({
+    format: "flarex.relation-declaration" as const,
+    version: 1 as const,
+    source: Object.freeze({
+      table: "posts",
+      path: Object.freeze([
+        Object.freeze({ kind: "field" as const, name: "authorId" }),
+      ]),
+      forwardName: "authorId",
+    }),
+    target: Object.freeze({ table: "users" }),
+    value: Object.freeze({
+      cardinality: "one" as const,
+      required: true,
+    }),
+    inverse: Object.freeze({
+      cardinality: "many" as const,
+      name: "posts",
+    }),
+    localized: false as const,
+    onTargetDelete: "restrict" as const,
   });
 }

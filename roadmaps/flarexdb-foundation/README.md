@@ -775,10 +775,15 @@ Dynamic Worker binding baseline before selecting it.
     neither is current relation-analysis authority. This records order and
     ownership; it implements no relation capability and does not change the
     no-go production-cutover decision.
-12. `R01`: freeze the admitted native relation semantics and codecs.
-13. `R01-P`: select and measure relation snapshot support and access paths,
-    including pagination order and genuine-PostgreSQL high-fanout plans, before
-    relation identity is bound or edge DDL is frozen.
+12. `R01` (complete, private, analysis-only): strict relation declaration and
+    occurrence contracts, unversioned Standard/analysis semantics, exact V1
+    preservation, relation-bearing Application Manifest V2, and authenticated
+    generated-source cold-load proof. Concrete compatibility envelopes retain
+    numeric versions; current semantic APIs do not. No persistence, runtime,
+    activation, route, or public API changed.
+13. `R01-P` (next): select and measure relation snapshot support and access
+    paths, including pagination order and genuine-PostgreSQL high-fanout plans,
+    before relation identity is bound or edge DDL is frozen.
 14. `R02`: map analyzer-local relation declarations/ordinals into stable relation
     IDs, immutable semantic definitions, reusable physical edge definitions, and
     selected snapshot/read-key meaning in a post-analysis bound publication.
@@ -821,11 +826,14 @@ contract and exact gate details are in
    contract, and consumed by the current application publication, readiness,
    activation, and runtime-materialization owners. These private owners are
    production-inert until their separately owned cutover prerequisites close.
-2. Evolve that concrete manifest/publication contract explicitly for any newly
-   admitted relation metadata. `ApplicationManifestV1.schema` remains the
-   strict tables-and-indexes-only contract until an approved compatibility/
-   migration cut says otherwise; a relation roadmap cannot silently reinterpret
-   it.
+2. Preserve completed `R01`'s explicit manifest split:
+   `ApplicationManifestV1.schema` remains strict tables-and-indexes-only and is
+   emitted unchanged for zero relations; relation-bearing analysis emits
+   `ApplicationManifestV2`, while the normal semantic boundary is the
+   unversioned `ApplicationManifest` union. `R02` must explicitly evolve the
+   still-V1-only publication/schema-manifest consumers into a bound relation
+   publication; it may not silently reinterpret V1 or call it legacy while it
+   remains active.
 3. Treat the displaced Declarative V2 candidate/verifier, Canonical Declarative
    Program V1 analysis, Semantic Artifact V1, `S03-D4`, and `S04` activation
    chain as compatibility or historical migration evidence only. No relation
