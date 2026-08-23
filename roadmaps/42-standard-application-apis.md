@@ -419,7 +419,13 @@ response, and result-publication response loss behind explicit system-test host
 or store adapters. The existing runner, supervisor, lifecycle, and immutable
 result-store owners decide all idempotency and uncertainty outcomes; the
 harness adds no retry loop or settlement path. Restart and takeover stay
-separately gated. The former private `createTaskRun` consumer was replaced
+separately gated from those fault adapters. C4 now proves private fresh-host
+takeover by composing the existing scope-bound manual wake owner: a new control
+target, Worker loader/session owner, database adapters, and immutable-resource
+ports recover expired attempt 1 as attempt 2 while stale Host A operations are
+fenced. This remains a system-test delivery mode, not a Standard method,
+automatic scheduler, production trigger, or exposed host authority. The former
+private `createTaskRun` consumer was replaced
 directly; no compatibility alias, fallback, or dual test surface remains.
 
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy

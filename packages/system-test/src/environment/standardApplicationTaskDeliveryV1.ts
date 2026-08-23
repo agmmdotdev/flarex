@@ -3,6 +3,7 @@ import {
   decideApplicationStartAttemptV1,
   decodeTaskRetryJitterV1,
   decodeTaskRunVersionV1,
+  encodeApplicationTaskRunAttemptAggregateJsonV1,
   type RunAttemptDecisionErrorV1,
   type TaskAttemptNumberV1,
   type TaskCancellationGenerationV1,
@@ -11,6 +12,9 @@ import {
   type TaskSystemRunAttemptStoreErrorV1,
   type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import {
+  makeFixedTaskRetryJitterSourceV1,
+} from "@flarex/durable-task/internal/scheduling-testing-v1";
 import {
   makeApplicationTaskComputeDeliveryLayer,
   type ApplicationTaskComputeDeliveryLive,
@@ -26,6 +30,11 @@ import {
   type LocatedTaskSystemRunAttemptTargetV1,
 } from
   "@flarex/persistence-postgres/internal/task-system-run-attempt-store-v1";
+import {
+  makeApplicationTaskSystemWakeSchedulerPartitionV1,
+  type ApplicationTaskSystemWakeSchedulerPartitionV1,
+} from
+  "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1";
 import {
   createTaskAttemptLifecycleGateway,
   type ApplicationTaskAttemptLifecycleCapability,
@@ -90,6 +99,7 @@ import {
   type TaskAttemptSupervisorLifecycleResolver,
   type TaskAttemptSupervisorPolicy,
   type TaskComputeDeliveryEventHostConfigurationError,
+  type TaskComputeDeliveryEventRunnerReceipt,
   type TaskComputeDeliveryConnectedRunnerReceipt,
 } from "flarex-backend/internal/task-compute-delivery";
 import {
@@ -98,10 +108,14 @@ import {
   type TaskResultStoreBucket,
   type TaskResultStoreError,
 } from "flarex-backend/internal/task-result-store";
-import type {
-  TaskExecutionPrincipalStore,
+import {
+  makeTaskExecutionPrincipalStore,
+  type TaskExecutionPrincipalStore,
 } from "flarex-backend/internal/task-execution-principal-store";
-import type { TaskInputStore } from "flarex-backend/internal/task-input-store";
+import {
+  makeTaskInputStore,
+  type TaskInputStore,
+} from "flarex-backend/internal/task-input-store";
 import {
   makeTaskRuntimeObjectStore,
 } from "flarex-backend/internal/task-runtime-object-store";
@@ -121,15 +135,20 @@ import {
 } from "flarex-protocol/validator-engine";
 import {
   Cause,
+  Clock,
   Data,
   Deferred,
+  Duration,
   Effect,
   Exit,
+  Fiber,
   Result,
   type Scope,
 } from "effect";
 
 import type {
+  ApplicationTaskHostedResourceBucket,
+  ApplicationTaskHostedResourcePorts,
   ApplicationTaskHostedTestKit,
   ApplicationTaskHostedWorkerLoader,
 } from "../../support/applicationTaskHostedTestKit";
@@ -237,6 +256,32 @@ export interface StandardApplicationTaskResultPublicationUncertainReceiptV1 {
   readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
 }
 
+export interface StandardApplicationTaskRecoveredDeliveryReceiptV1<Output> {
+  readonly version: 1;
+  readonly status: "recovered";
+  readonly runId: TaskRunIdV1;
+  readonly output: Output;
+  readonly recovery: Readonly<{
+    readonly abandonedAttemptNumber: 1;
+    readonly replacementAttemptNumber: 2;
+    readonly leaseExpiryOutcome: "retry_scheduled";
+    readonly retryStartOutcome: "attempt_granted";
+    readonly staleHeartbeatRejected: true;
+    readonly staleCompletionRejected: true;
+    readonly staleAttemptStatePreserved: true;
+    readonly freshControlTarget: true;
+    readonly freshWorkerLoader: true;
+    readonly freshResourcePorts: true;
+  }>;
+  readonly abandonedWorker: Readonly<{
+    readonly loads: 1;
+    readonly starts: 1;
+    readonly settlements: 0;
+  }>;
+  readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
+  readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
+}
+
 export interface StandardApplicationTaskRetryScheduledDeliveryReceiptV1 {
   readonly version: 1;
   readonly status: "retry_scheduled";
@@ -270,12 +315,17 @@ export interface StandardApplicationTaskCancelledDeliveryReceiptV1 {
 
 export type StandardApplicationTaskDeliveryReceiptV1<Output> =
   | StandardApplicationTaskSucceededDeliveryReceiptV1<Output>
+  | StandardApplicationTaskRecoveredDeliveryReceiptV1<Output>
   | StandardApplicationTaskRetryScheduledDeliveryReceiptV1
   | StandardApplicationTaskCancelledDeliveryReceiptV1
   | StandardApplicationTaskResultPublicationUncertainReceiptV1;
 
 export type StandardApplicationTaskDeliveryModeV1 =
   | Readonly<{ readonly kind: "completion" }>
+  | Readonly<{
+      readonly kind: "recovery";
+      readonly recovery: "expired_attempt_takeover";
+    }>
   | Readonly<{
       readonly kind: "fault";
       readonly fault:
@@ -358,6 +408,10 @@ type StandardApplicationTaskDeliveryHostRunError = Effect.Error<
   ReturnType<ApplicationTaskDeliveryEventHost["run"]>
 >;
 
+type StandardApplicationTaskWakeRunErrorV1 = Effect.Error<
+  ReturnType<ApplicationTaskSystemWakeSchedulerPartitionV1["run"]>
+>;
+
 export type StandardApplicationTaskDeliveryV1Error =
   | StandardApplicationTaskDeliveryContractV1Error
   | StandardApplicationTaskDeliveryControlAcquisitionV1Error
@@ -368,6 +422,7 @@ export type StandardApplicationTaskDeliveryV1Error =
   | TaskComputeDeliveryEventHostConfigurationError
   | ApplicationTaskDeliveryEventHostConfigurationError
   | StandardApplicationTaskDeliveryHostRunError
+  | StandardApplicationTaskWakeRunErrorV1
   | TaskAttemptSupervisorError
   | TaskResultStoreError;
 
@@ -614,6 +669,9 @@ export function makeStandardApplicationTaskDeliveryV1(
           }),
         })
         : null;
+    const recoveryLifecycle = mode.kind === "recovery"
+      ? yield* Deferred.make<ApplicationTaskAttemptLifecycleCapability>()
+      : null;
     const completionAttempts: unknown[] = [];
     const lifecycleResolver: TaskAttemptSupervisorLifecycleResolver =
       Object.freeze({
@@ -632,6 +690,9 @@ export function makeStandardApplicationTaskDeliveryV1(
             return yield* Effect.die(new Error(
               "Standard Application Task delivery resolved a Legacy lifecycle.",
             ));
+          }
+          if (recoveryLifecycle !== null) {
+            yield* Deferred.succeed(recoveryLifecycle, current);
           }
           if (completionResponseLostGateway === null) return current;
           const replay = yield* completionResponseLostGateway.resolve(
@@ -740,6 +801,302 @@ export function makeStandardApplicationTaskDeliveryV1(
       mutationAuthority,
       runner: input.hostedKit.makeOneCandidatePolicy(),
     });
+
+    if (mode.kind === "recovery") {
+      const freshPorts = resources.forkPorts();
+      const freshInputs = makeTaskInputStore(freshPorts.inputs);
+      const freshPrincipals = Result.getOrThrow(
+        makeTaskExecutionPrincipalStore(
+          input.principals.scopeId,
+          freshPorts.principals,
+        ),
+      );
+      const freshControl = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: input.createControlTarget,
+          catch: cause =>
+            new StandardApplicationTaskDeliveryControlAcquisitionV1Error({
+              operation: "acquireControl",
+              cause,
+            }),
+        }),
+        owner => Effect.tryPromise({
+          try: () => owner.close(),
+          catch: cause => cause,
+        }).pipe(Effect.orDie),
+      );
+      const freshMutationExternalEffect = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: () => input.createMutationExternalEffectTarget(physicalLocator),
+          catch: cause =>
+            new StandardApplicationTaskMutationExternalEffectAcquisitionV1Error({
+              operation: "acquireMutationExternalEffect",
+              cause,
+            }),
+        }),
+        owner => Effect.tryPromise({
+          try: () => owner.close(),
+          catch: cause => cause,
+        }).pipe(Effect.orDie),
+      );
+      const freshLoader = yield* input.hostedKit.acquireWorkerLoader({
+        interruptionMode: "settle_without_interruption",
+      });
+      const freshDeliveryTarget = createLocatedTaskComputeDeliveryTargetV1(
+        fixture.target.drizzle,
+        physicalLocator,
+      );
+      const freshDeliveryAuthority = Object.freeze({
+        authority: fixture.active.basis.authority,
+        target: freshDeliveryTarget,
+      });
+      const freshReadEvidence: TaskRuntimeLaunchLocatedSource["readEvidence"] =
+        providerRequest => readTaskComputePreparedExecutionV1(
+          freshDeliveryAuthority,
+          providerRequest,
+        ).pipe(
+          Effect.map(preparedExecution => Object.freeze({
+            generation: "application_v1" as const,
+            preparedExecution,
+          })),
+          Effect.mapError(cause => new TaskRuntimeLaunchPortError({
+            operation: "read_evidence",
+            reason: cause.reason === "not_found"
+              ? "not_found"
+              : cause.reason === "resource_failure"
+                ? "resource_failure"
+                : "corrupt",
+            cause,
+          })),
+        );
+      const freshApplicationSource: ApplicationAnalysisSourceReader =
+        Object.freeze({
+          read: (
+            rootSha256: Parameters<ApplicationAnalysisSourceReader["read"]>[0],
+          ) => rootSha256 === fixture.source.sourceArtifact.rootSha256
+            ? Effect.succeed(fixture.source)
+            : Effect.fail(new ApplicationAnalysisSourceReadError({
+                operation: "read",
+                reason: "notFound",
+              })),
+        });
+      const freshLaunchResources: TaskRuntimeLaunchResourceDirectory =
+        Object.freeze({
+          resolve: (
+            scopeId: Parameters<
+              TaskRuntimeLaunchResourceDirectory["resolve"]
+            >[0],
+          ) => scopeId === fixture.active.basis.authority.scopeId
+            ? Effect.succeed(Object.freeze({
+                scopeId,
+                readEvidence: freshReadEvidence,
+                runtimeObjects: makeTaskRuntimeObjectStore(
+                  freshPorts.runtimeObjects,
+                ),
+                inputs: freshInputs,
+                applicationSource: freshApplicationSource,
+                principals: freshPrincipals,
+              }))
+            : Effect.fail(new TaskRuntimeLaunchPortError({
+                operation: "resolve_source",
+                reason: "authority_unavailable",
+              })),
+        });
+      const freshResultBucket = new StandardApplicationTaskResultFaultBucketV1(
+        freshPorts.results,
+        "none",
+      );
+      const freshResultStore = makeTaskResultStore(freshResultBucket);
+      const freshLifecycleGateway = createTaskAttemptLifecycleGateway({
+        scopeMetadata: fixture.authorityPorts.scopeMetadata,
+        provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+        scopeClockTargets: Object.freeze({
+          resolve: async (locator: ScopePhysicalLocator) =>
+            input.locateRunTarget(locator),
+        }),
+      });
+      const freshLifecycleResolver: TaskAttemptSupervisorLifecycleResolver =
+        Object.freeze({
+          resolve: Effect.fn(
+            "StandardApplicationTaskDelivery.resolveFreshLifecycleV1",
+          )(function* (dispatch) {
+            const current = yield* freshLifecycleGateway.resolve(
+              fixture.deploymentId,
+              dispatch,
+            );
+            return current.generation === "application_v1"
+              ? current
+              : yield* Effect.die(new Error(
+                  "Fresh Standard Application Task host resolved a Legacy lifecycle.",
+                ));
+          }),
+        });
+      const freshSupervisor = yield* Effect.fromResult(
+        makeTaskAttemptSupervisor(
+          freshLifecycleResolver,
+          freshResultStore,
+          SUPERVISOR_POLICY,
+        ),
+      );
+      const freshQueryAuthority = makeApplicationTaskQueryAuthority({
+        activation: fixture.activation,
+        query: querySystem.selectionQuery,
+      });
+      const freshMutationSha256 = Object.freeze({
+        hash: (bytes: Uint8Array) => Effect.tryPromise({
+          try: async () => new Uint8Array(
+            await globalThis.crypto.subtle.digest(
+              "SHA-256",
+              bytes.slice().buffer,
+            ),
+          ),
+          catch: cause => cause,
+        }),
+      });
+      const freshMutationExternalEffectAuthority =
+        makeApplicationTaskMutationExternalEffectAuthority({
+          deploymentId: fixture.deploymentId,
+          authority: Object.freeze({
+            scopeMetadata: fixture.authorityPorts.scopeMetadata,
+            provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+            scopeClockTargets: Object.freeze({
+              resolve: async () => freshMutationExternalEffect.target,
+            }),
+          }),
+          sha256: freshMutationSha256,
+        });
+      const freshMutationAuthority = makeApplicationTaskMutationAuthority({
+        externalEffect: freshMutationExternalEffectAuthority,
+        mutation: mutationSystem,
+        sha256: freshMutationSha256,
+        maximumCloseMilliseconds:
+          freshMutationExternalEffect.target.settlementBudgetMilliseconds,
+      });
+      const freshDirectoryAuthority = Object.freeze({
+        scopeMetadata: fixture.authorityPorts.scopeMetadata,
+        provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+        scopeClockTargets: Object.freeze({
+          resolve: async (locator: ScopePhysicalLocator) =>
+            createLocatedTaskComputeDeliveryTargetV1(
+              fixture.target.drizzle,
+              locator,
+            ),
+        }),
+      });
+      const freshDeliveryLive = Object.freeze({
+        controlTarget: freshControl.target,
+        directory: Object.freeze({
+          authority: freshDirectoryAuthority,
+          repository: Object.freeze({
+            claimDurationMilliseconds: 30_000,
+            retryDelayMilliseconds: Object.freeze([1_000, 2_000]),
+            maximumDeliveryAttempts: 3,
+            randomUuid: () => crypto.randomUUID(),
+          }),
+          discoveryDeadline: freshControl.discoveryDeadline,
+          resolutionTimeoutMilliseconds: 1_000,
+        }),
+        launchAuthority: Object.freeze({
+          maximumRuntimeObjectBytes: 1_048_576,
+          maximumTotalRuntimeObjectBytes: 2_000_000,
+          validateRuntimeObject: () => Effect.void,
+        }),
+        workerLoader: freshLoader,
+        provider: Object.freeze({
+          applicationHostPolicy:
+            input.hostedKit.makeApplicationHostPolicy(),
+          legacyHostPolicy: input.hostedKit.makeLegacyHostPolicy(),
+          maximumScopedDispatches: 4,
+          handshakeMilliseconds: 5_000,
+          sha256: input.sha256,
+        }),
+        queryAuthority: freshQueryAuthority,
+        mutationAuthority: freshMutationAuthority,
+        runner: input.hostedKit.makeOneCandidatePolicy(),
+      });
+      const hostA = yield* Effect.fromResult(
+        makeApplicationTaskDeliveryResourceEventHost(
+          Object.freeze({
+            ...deliveryLive,
+            launchResources,
+            supervision: Object.freeze({ supervisor }),
+          }),
+          Object.freeze({
+            maximumDrainMilliseconds: 15_000,
+            maximumSupervisionExits: 4,
+          }),
+        ),
+      );
+      const hostB = yield* Effect.fromResult(
+        makeApplicationTaskDeliveryResourceEventHost(
+          Object.freeze({
+            ...freshDeliveryLive,
+            launchResources: freshLaunchResources,
+            supervision: Object.freeze({ supervisor: freshSupervisor }),
+          }),
+          Object.freeze({
+            maximumDrainMilliseconds: 15_000,
+            maximumSupervisionExits: 4,
+          }),
+        ),
+      );
+      const scheduler = yield* Effect.fromResult(
+        makeApplicationTaskSystemWakeSchedulerPartitionV1(
+          locatedRunAuthority,
+          {
+            scheduler: Object.freeze({
+              pageSize: 10,
+              maximumPages: 2,
+              maximumCandidates: 10,
+            }),
+            retryJitter: makeFixedTaskRetryJitterSourceV1(
+              Result.getOrThrow(decodeTaskRetryJitterV1(0)),
+            ),
+            runAttemptStore: Object.freeze({
+              randomUuid: () => crypto.randomUUID(),
+            }),
+          },
+        ),
+      ).pipe(Effect.mapError(cause =>
+        new StandardApplicationTaskDeliveryContractV1Error({
+          phase: "validateEvidence",
+          reason: "hostEvidenceMismatch",
+          taskId: reference.taskId,
+          runId: creation.runId,
+          cause,
+        })
+      ));
+      if (recoveryLifecycle === null) {
+        return yield* Effect.die(new Error(
+          "Fresh-host recovery lifecycle capture was not constructed.",
+        ));
+      }
+      return yield* runFreshHostRecoveryV1<Output>({
+        taskId: reference.taskId,
+        creation,
+        definition,
+        lifecycle,
+        scheduler,
+        hostA,
+        hostB,
+        loaderA: loader,
+        loaderB: freshLoader,
+        oldLifecycle: Deferred.await(recoveryLifecycle),
+        resultStore: freshResultStore,
+        resultBucket: freshResultBucket,
+        runtimeObjects: freshPorts.runtimeObjects,
+        freshIdentity: Object.freeze({
+          control: freshControl.target !== control.target,
+          mutation:
+            freshMutationExternalEffect.target !== mutationExternalEffect.target,
+          loader: freshLoader !== loader,
+          ports: freshResourcePortsAreDistinct(resources, freshPorts),
+          delivery: freshDeliveryTarget !== deliveryTarget,
+          evidence: freshReadEvidence !== readEvidence,
+          directory: freshDirectoryAuthority !== deliveryLive.directory.authority,
+        }),
+      });
+    }
 
     const hostReceipt = mode.kind === "completion"
       ? yield* Effect.gen(function* () {
@@ -1071,6 +1428,485 @@ export function makeStandardApplicationTaskDeliveryV1(
   });
 
   return Object.freeze({ registerCreation, deliver });
+}
+
+const runFreshHostRecoveryV1 = Effect.fn(
+  "StandardApplicationTaskDelivery.runFreshHostRecoveryV1",
+)(function* <Output>(input: Readonly<{
+  readonly taskId: string;
+  readonly creation: StandardApplicationTaskRunCreationReceipt;
+  readonly definition: StandardApplicationTaskDefinitionV1<unknown, unknown>;
+  readonly lifecycle: ReturnType<
+    typeof makeApplicationTaskSystemRunAttemptStoreV1
+  >;
+  readonly scheduler: ApplicationTaskSystemWakeSchedulerPartitionV1;
+  readonly hostA: ApplicationTaskDeliveryEventHost;
+  readonly hostB: ApplicationTaskDeliveryEventHost;
+  readonly loaderA: ApplicationTaskHostedWorkerLoader;
+  readonly loaderB: ApplicationTaskHostedWorkerLoader;
+  readonly oldLifecycle: Effect.Effect<
+    ApplicationTaskAttemptLifecycleCapability
+  >;
+  readonly resultStore: ReturnType<typeof makeTaskResultStore>;
+  readonly resultBucket: StandardApplicationTaskResultFaultBucketV1;
+  readonly runtimeObjects: ApplicationTaskHostedResourceBucket;
+  readonly freshIdentity: Readonly<{
+    readonly control: boolean;
+    readonly mutation: boolean;
+    readonly loader: boolean;
+    readonly ports: boolean;
+    readonly delivery: boolean;
+    readonly evidence: boolean;
+    readonly directory: boolean;
+  }>;
+}>): Effect.fn.Return<
+  StandardApplicationTaskRecoveredDeliveryReceiptV1<Output>,
+  StandardApplicationTaskDeliveryV1Error,
+  Scope.Scope
+> {
+  return yield* Effect.gen(function* () {
+    const hostARun = yield* input.hostA.run(null).pipe(Effect.forkChild);
+    yield* Effect.promise(() => input.loaderA.awaitAcceptedStart()).pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () => failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+        ),
+      }),
+    );
+    const executingA = yield* waitForApplicationTaskAttemptPhaseV1(
+      input.lifecycle,
+      input.creation.runId,
+      "executing",
+    );
+    if (
+      executingA.current.phase !== "executing" ||
+      executingA.current.currentAttempt.attemptNumber !== 1
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        executingA,
+      );
+    }
+    const oldLifecycle = yield* input.oldLifecycle.pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () => failDelivery(
+          "validateEvidence",
+          "hostEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+        ),
+      }),
+    );
+    yield* Fiber.interrupt(hostARun);
+    const hostAExit = yield* Fiber.await(hostARun);
+    if (
+      !Exit.isFailure(hostAExit) ||
+      !Cause.hasInterruptsOnly(hostAExit.cause)
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        hostAExit,
+      );
+    }
+    if (
+      input.loaderA.loads !== 1 ||
+      input.loaderA.starts !== 1 ||
+      input.loaderA.workerSettlements !== 0
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "workerEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+      );
+    }
+
+    const beforeExpiry = yield* input.hostB.run(null);
+    if (!isEmptyTaskDeliveryHostRun(beforeExpiry)) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        beforeExpiry,
+      );
+    }
+    const prematureExpiry = yield* input.scheduler.run({
+      dueKind: "handle_lease_expiry",
+      cursor: null,
+    });
+    if (prematureExpiry.candidatesHandled !== 0) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        prematureExpiry,
+      );
+    }
+    const expired = yield* waitForApplicationTaskWakeAcceptanceV1(
+      input.scheduler,
+      "handle_lease_expiry",
+    );
+    const expiryOutcome = expired.handled[0];
+    if (
+      expired.candidatesHandled !== 1 ||
+      expired.handled.length !== 1 ||
+      expiryOutcome?.runId !== input.creation.runId ||
+      expiryOutcome.disposition !== "accepted" ||
+      expiryOutcome.outcomeKind !== "retry_scheduled"
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        Object.freeze({
+          candidatesHandled: expired.candidatesHandled,
+          handledLength: expired.handled.length,
+          runId: expiryOutcome?.runId,
+          disposition: expiryOutcome?.disposition,
+          outcomeKind: expiryOutcome?.outcomeKind,
+        }),
+      );
+    }
+    const retryWaiting = yield* input.lifecycle.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: input.creation.runId,
+    });
+    if (
+      retryWaiting.current.phase !== "retry_waiting" ||
+      retryWaiting.current.retry.previousAttempt.attemptNumber !== 1
+    ) {
+      return yield* failDelivery(
+        "inspectAttempt",
+        "attemptNotStarted",
+        input.taskId,
+        input.creation.runId,
+        retryWaiting,
+      );
+    }
+    const restarted = yield* waitForApplicationTaskWakeAcceptanceV1(
+      input.scheduler,
+      "start_attempt",
+    );
+    const restartOutcome = restarted.handled[0];
+    if (
+      restarted.candidatesHandled !== 1 ||
+      restarted.handled.length !== 1 ||
+      restartOutcome?.runId !== input.creation.runId ||
+      restartOutcome.disposition !== "accepted" ||
+      restartOutcome.outcomeKind !== "attempt_granted"
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        Object.freeze({
+          candidatesHandled: restarted.candidatesHandled,
+          handledLength: restarted.handled.length,
+          runId: restartOutcome?.runId,
+          disposition: restartOutcome?.disposition,
+          outcomeKind: restartOutcome?.outcomeKind,
+        }),
+      );
+    }
+    const grantedB = yield* input.lifecycle.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: input.creation.runId,
+    });
+    if (
+      grantedB.current.phase !== "attempt_granted" ||
+      grantedB.current.currentAttempt.attemptNumber !== 2
+    ) {
+      return yield* failDelivery(
+        "inspectAttempt",
+        "attemptNotStarted",
+        input.taskId,
+        input.creation.runId,
+        grantedB,
+      );
+    }
+
+    const hostBRun = yield* input.hostB.run(null).pipe(Effect.forkChild);
+    yield* Effect.promise(() => input.loaderB.awaitAcceptedStart()).pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () => failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+        ),
+      }),
+    );
+    const executingB = yield* waitForApplicationTaskAttemptPhaseV1(
+      input.lifecycle,
+      input.creation.runId,
+      "executing",
+    );
+    const beforeStaleEvidence = Result.getOrThrow(
+      encodeApplicationTaskRunAttemptAggregateJsonV1(executingB.current),
+    );
+    const staleHeartbeat = yield* oldLifecycle.heartbeat(99);
+    const staleCompletion = yield* oldLifecycle.complete({
+      kind: "failed",
+      failure: Object.freeze({
+        kind: "task_failure",
+        code: "handler_failed",
+        message: null,
+      }),
+      retry: Object.freeze({ kind: "do_not_retry" }),
+      executionDurationMs: null,
+    });
+    const afterStale = yield* input.lifecycle.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: input.creation.runId,
+    });
+    const staleStatePreserved = JSON.stringify(Result.getOrThrow(
+      encodeApplicationTaskRunAttemptAggregateJsonV1(afterStale.current),
+    )) === JSON.stringify(beforeStaleEvidence);
+    if (
+      executingB.current.phase !== "executing" ||
+      executingB.current.currentAttempt.attemptNumber !== 2 ||
+      staleHeartbeat.disposition !== "current" ||
+      staleHeartbeat.outcome.kind !== "current" ||
+      staleHeartbeat.outcome.reason !== "stale_attempt" ||
+      staleCompletion.disposition !== "current" ||
+      staleCompletion.outcome.kind !== "current" ||
+      staleCompletion.outcome.reason !== "stale_attempt" ||
+      !staleStatePreserved
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        Object.freeze({ staleHeartbeat, staleCompletion, afterStale }),
+      );
+    }
+
+    input.loaderB.releaseSettlement();
+    const hostedB = yield* Fiber.join(hostBRun);
+    const noResurrection = yield* input.hostB.run(null);
+    if (!isEmptyTaskDeliveryHostRun(noResurrection)) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        noResurrection,
+      );
+    }
+    const settled = yield* input.lifecycle.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId: input.creation.runId,
+    });
+    if (
+      settled.current.phase !== "terminal" ||
+      settled.current.terminal.kind !== "succeeded" ||
+      settled.current.terminal.result === null
+    ) {
+      return yield* failDelivery(
+        "inspectAttempt",
+        "attemptNotSucceeded",
+        input.taskId,
+        input.creation.runId,
+        settled,
+      );
+    }
+    const stored = yield* input.resultStore.read(
+      settled.current.terminal.result,
+    );
+    if (input.definition.manifest.outputValidator !== null) {
+      yield* Effect.fromResult(validateValidatorValueV1(
+        input.definition.manifest.outputValidator,
+        stored.value,
+        { idPolicy: { mode: "shapeOnly" } },
+      )).pipe(Effect.mapError(error =>
+        new StandardApplicationTaskDeliveryContractV1Error({
+          phase: "validateOutput",
+          reason: "outputMismatch",
+          taskId: input.taskId,
+          runId: input.creation.runId,
+          issue: error.issue,
+        })
+      ));
+    }
+    const runner = hostedB.receipt.runner;
+    const supervision = hostedB.receipt.supervision;
+    if (
+      runner.stopReason !== "total_operation_budget" ||
+      runner.confirmedDispatchCandidatesHandled !== 1 ||
+      runner.confirmedDispatchProviderCalls !== 1 ||
+      runner.confirmedCancellationCandidatesHandled !== 0 ||
+      runner.confirmedCancellationProviderCalls !== 0 ||
+      runner.candidateFailures !== 0 ||
+      supervision.expected !== 1 ||
+      supervision.observed !== 1 ||
+      supervision.succeeded !== 1 ||
+      supervision.failed !== 0 ||
+      input.loaderB.loads !== 1 ||
+      input.loaderB.starts !== 1 ||
+      input.loaderB.workerInputReads !== 1 ||
+      input.loaderB.workerSettlements !== 1 ||
+      input.loaderB.generations.length !== 1 ||
+      input.loaderB.generations[0] !== "application_v1" ||
+      input.resultBucket.putCalls !== 1 ||
+      input.resultBucket.getCalls !== 2 ||
+      input.runtimeObjects.getCalls !== 0 ||
+      input.runtimeObjects.putCalls !== 0 ||
+      !Object.values(input.freshIdentity).every(Boolean)
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "workerEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        Object.freeze({
+          runner,
+          supervision,
+          freshIdentity: input.freshIdentity,
+        }),
+      );
+    }
+    return Object.freeze({
+      version: 1 as const,
+      status: "recovered" as const,
+      runId: input.creation.runId,
+      output: stored.value as Output,
+      recovery: Object.freeze({
+        abandonedAttemptNumber: 1 as const,
+        replacementAttemptNumber: 2 as const,
+        leaseExpiryOutcome: "retry_scheduled" as const,
+        retryStartOutcome: "attempt_granted" as const,
+        staleHeartbeatRejected: true as const,
+        staleCompletionRejected: true as const,
+        staleAttemptStatePreserved: true as const,
+        freshControlTarget: true as const,
+        freshWorkerLoader: true as const,
+        freshResourcePorts: true as const,
+      }),
+      abandonedWorker: Object.freeze({
+        loads: 1 as const,
+        starts: 1 as const,
+        settlements: 0 as const,
+      }),
+      host: makeTaskDeliveryHostEvidenceV1(runner, supervision),
+      worker: Object.freeze({
+        generation: "application_v1" as const,
+        loads: input.loaderB.loads,
+        starts: input.loaderB.starts,
+        inputReads: input.loaderB.workerInputReads,
+        settlements: input.loaderB.workerSettlements,
+        resultReads: input.resultBucket.getCalls,
+        resultWrites: input.resultBucket.putCalls,
+        legacyRuntimeObjectReads: input.runtimeObjects.getCalls,
+      }),
+    });
+  }).pipe(Effect.ensuring(Effect.sync(() => {
+    input.loaderA.releaseSettlement();
+    input.loaderB.releaseSettlement();
+  })));
+});
+
+const waitForApplicationTaskAttemptPhaseV1 = Effect.fn(
+  "StandardApplicationTaskDelivery.waitForAttemptPhaseV1",
+)(function* (
+  lifecycle: ReturnType<typeof makeApplicationTaskSystemRunAttemptStoreV1>,
+  runId: TaskRunIdV1,
+  phase: "executing",
+) {
+  const deadline = (yield* Clock.currentTimeMillis) + 10_000;
+  while (true) {
+    const snapshot = yield* lifecycle.inspectRunAttempt({
+      operation: "inspect_current_attempt",
+      runId,
+    });
+    if (snapshot.current.phase === phase) return snapshot;
+    if ((yield* Clock.currentTimeMillis) >= deadline) {
+      return yield* Effect.die(new Error(
+        `Task attempt did not reach ${phase} before the proof deadline.`,
+      ));
+    }
+    yield* Effect.sleep(Duration.millis(20));
+  }
+});
+
+const waitForApplicationTaskWakeAcceptanceV1 = Effect.fn(
+  "StandardApplicationTaskDelivery.waitForWakeAcceptanceV1",
+)(function* (
+  scheduler: ApplicationTaskSystemWakeSchedulerPartitionV1,
+  dueKind: "handle_lease_expiry" | "start_attempt",
+) {
+  const deadline = (yield* Clock.currentTimeMillis) + 45_000;
+  while (true) {
+    const receipt = yield* scheduler.run({ dueKind, cursor: null });
+    if (receipt.candidatesHandled > 0) return receipt;
+    if ((yield* Clock.currentTimeMillis) >= deadline) {
+      return yield* Effect.die(new Error(
+        `Task wake did not accept ${dueKind} before the proof deadline.`,
+      ));
+    }
+    yield* Effect.sleep(Duration.millis(50));
+  }
+});
+
+function isEmptyTaskDeliveryHostRun(
+  outcome: Effect.Success<ReturnType<ApplicationTaskDeliveryEventHost["run"]>>,
+): boolean {
+  return outcome.receipt.runner.confirmedDispatchCandidatesHandled === 0 &&
+    outcome.receipt.runner.confirmedDispatchProviderCalls === 0 &&
+    outcome.receipt.runner.confirmedCancellationCandidatesHandled === 0 &&
+    outcome.receipt.runner.confirmedCancellationProviderCalls === 0 &&
+    outcome.receipt.runner.candidateFailures === 0 &&
+    outcome.receipt.supervision.expected === 0 &&
+    outcome.receipt.supervision.observed === 0;
+}
+
+function freshResourcePortsAreDistinct(
+  original: ApplicationTaskHostedResourcePorts,
+  fresh: ApplicationTaskHostedResourcePorts,
+): boolean {
+  return fresh.inputs !== original.inputs &&
+    fresh.principals !== original.principals &&
+    fresh.runtimeObjects !== original.runtimeObjects &&
+    fresh.results !== original.results;
+}
+
+function makeTaskDeliveryHostEvidenceV1(
+  runner: TaskComputeDeliveryEventRunnerReceipt,
+  supervision: Readonly<{
+    readonly expected: number;
+    readonly observed: number;
+    readonly succeeded: number;
+    readonly failed: number;
+  }>,
+): StandardApplicationTaskDeliveryHostReceiptV1 {
+  return Object.freeze({
+    dispatchCandidatesHandled: runner.confirmedDispatchCandidatesHandled,
+    dispatchProviderCalls: runner.confirmedDispatchProviderCalls,
+    cancellationCandidatesHandled:
+      runner.confirmedCancellationCandidatesHandled,
+    cancellationProviderCalls: runner.confirmedCancellationProviderCalls,
+    candidateFailures: runner.candidateFailures,
+    supervisionExpected: supervision.expected,
+    supervisionObserved: supervision.observed,
+    supervisionSucceeded: supervision.succeeded,
+    supervisionFailed: supervision.failed,
+  });
 }
 
 const runFaultDelivery = Effect.fn(

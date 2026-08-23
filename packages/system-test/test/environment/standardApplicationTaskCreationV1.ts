@@ -32,6 +32,7 @@ import type {
 import type {
   StandardApplicationTaskDeliveryV1Error,
   StandardApplicationTaskCancelledDeliveryReceiptV1,
+  StandardApplicationTaskRecoveredDeliveryReceiptV1,
   StandardApplicationTaskResultPublicationUncertainReceiptV1,
   StandardApplicationTaskRetryScheduledDeliveryReceiptV1,
   StandardApplicationTaskSucceededDeliveryReceiptV1,
@@ -119,6 +120,11 @@ interface StandardApplicationTaskWorkloadProofV1 {
     StandardApplicationTaskRunCreationReceipt;
   readonly publicationUncertainDelivery:
     StandardApplicationTaskResultPublicationUncertainReceiptV1;
+  readonly recoveryFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly recoveryReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly recoveryDelivery: StandardApplicationTaskRecoveredDeliveryReceiptV1<
+    Readonly<{ readonly probe: string }>
+  >;
 }
 
 type StandardApplicationTaskSimulationErrorV1 =
@@ -270,6 +276,33 @@ export const standardApplicationTaskFaultProbeV1 = Result.getOrThrow(
   }),
 );
 
+export const standardApplicationTaskRecoveryProbeV1 = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "systemTest.taskRecoveryProbe",
+    handler: {
+      logicalModulePath: "recipeCommands",
+      artifactModulePath: "recipeMutation",
+      exportName: "taskFaultProbe",
+    },
+    payload: standardV1.object({ probe: standardV1.string() }),
+    output: standardV1.object({ probe: standardV1.string() }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 2,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
+
 const setupTaskQueryCallbackV1 = Effect.fn(
   "StandardApplicationTaskQueryCallback.setupV1",
 )(function* (
@@ -335,6 +368,31 @@ const runTaskQueryCallbackV1 = Effect.fn(
   if (delivery.status !== "succeeded") {
     return yield* Effect.die(new Error(
       "The successful Task unexpectedly scheduled a retry.",
+    ));
+  }
+  const recoveryRequest = Object.freeze({
+    ...request,
+    requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
+      "system-test:task-fresh-host-recovery",
+    )),
+    payload: Object.freeze({ probe: "fresh-host-recovery" }),
+  });
+  const recoveryFirst = yield* client.tasks.create(
+    standardApplicationTaskRecoveryProbeV1.reference,
+    recoveryRequest,
+  );
+  const recoveryReplay = yield* client.tasks.create(
+    standardApplicationTaskRecoveryProbeV1.reference,
+    recoveryRequest,
+  );
+  const recoveryDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskRecoveryProbeV1.reference,
+    recoveryFirst,
+    { kind: "recovery", recovery: "expired_attempt_takeover" },
+  );
+  if (recoveryDelivery.status !== "recovered") {
+    return yield* Effect.die(new Error(
+      "The fresh Task host did not recover the expired attempt.",
     ));
   }
   const failedRequest = Object.freeze({
@@ -534,6 +592,9 @@ const runTaskQueryCallbackV1 = Effect.fn(
     publicationUncertainFirst,
     publicationUncertainReplay,
     publicationUncertainDelivery,
+    recoveryFirst,
+    recoveryReplay,
+    recoveryDelivery,
   });
 });
 
@@ -551,6 +612,7 @@ export const standardApplicationTaskCreationSimulationV1 =
         standardApplicationTaskCancellationWaitV1,
         standardApplicationTaskCancellationRaceV1,
         standardApplicationTaskFaultProbeV1,
+        standardApplicationTaskRecoveryProbeV1,
       ],
     },
     setup: setupTaskQueryCallbackV1,

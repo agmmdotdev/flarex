@@ -28,7 +28,7 @@ describe("typed Task delivery genuine PostgreSQL environment", () => {
 });
 
 describePostgres("typed Task delivery - PostgreSQL", () => {
-  it("proves typed Task delivery, retry, cancellation, and faults", async () => {
+  it("proves typed Task delivery, recovery, retry, cancellation, and faults", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
       const receipt = await Effect.runPromise(
         runStandardApplicationSimulationV1({
@@ -294,6 +294,49 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
           legacyRuntimeObjectReads: 0,
         },
       });
+      expect(receipt.workloadProof.recoveryReplay).toEqual(
+        receipt.workloadProof.recoveryFirst,
+      );
+      expect(receipt.workloadProof.recoveryDelivery).toEqual({
+        version: 1,
+        status: "recovered",
+        runId: receipt.workloadProof.recoveryFirst.runId,
+        output: { probe: "fresh-host-recovery" },
+        recovery: {
+          abandonedAttemptNumber: 1,
+          replacementAttemptNumber: 2,
+          leaseExpiryOutcome: "retry_scheduled",
+          retryStartOutcome: "attempt_granted",
+          staleHeartbeatRejected: true,
+          staleCompletionRejected: true,
+          staleAttemptStatePreserved: true,
+          freshControlTarget: true,
+          freshWorkerLoader: true,
+          freshResourcePorts: true,
+        },
+        abandonedWorker: { loads: 1, starts: 1, settlements: 0 },
+        host: {
+          dispatchCandidatesHandled: 1,
+          dispatchProviderCalls: 1,
+          cancellationCandidatesHandled: 0,
+          cancellationProviderCalls: 0,
+          candidateFailures: 0,
+          supervisionExpected: 1,
+          supervisionObserved: 1,
+          supervisionSucceeded: 1,
+          supervisionFailed: 0,
+        },
+        worker: {
+          generation: "application_v1",
+          loads: 1,
+          starts: 1,
+          inputReads: 1,
+          settlements: 1,
+          resultReads: 2,
+          resultWrites: 1,
+          legacyRuntimeObjectReads: 0,
+        },
+      });
       const redactedHostReceipt = JSON.stringify(
         receipt.workloadProof.delivery.host,
       );
@@ -305,13 +348,13 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         persistence.target,
       )).toEqual([{
         catalog_count: "1",
-        definition_count: "5",
+        definition_count: "6",
         legacy_definition_revision_count: "0",
-        run_count: "8",
-        request_count: "8",
-        attempt_count: "8",
+        run_count: "9",
+        request_count: "9",
+        attempt_count: "10",
         pending_count: "0",
-        dispatch_count: "8",
+        dispatch_count: "10",
         cancellation_count: "2",
         delivered_cancellation_count: "1",
         rejected_cancellation_count: "1",
@@ -322,7 +365,7 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         child_mutation_outcome_count: "1",
         ready_run_count: "1",
         executing_run_count: "1",
-        terminal_run_count: "6",
+        terminal_run_count: "7",
       }]);
       expect(receipt.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
