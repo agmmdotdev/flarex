@@ -18,17 +18,17 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describe("typed Task creation genuine PostgreSQL environment", () => {
+describe("typed Task delivery genuine PostgreSQL environment", () => {
   it("requires an authenticated genuine PostgreSQL URL", () => {
     expect(
       postgresUrl,
-      "Set FLAREX_POSTGRES_DATABASE_URL before accepting the Task creation PostgreSQL lane.",
+      "Set FLAREX_POSTGRES_DATABASE_URL before accepting the Task delivery PostgreSQL lane.",
     ).not.toBeNull();
   });
 });
 
-describePostgres("typed Task creation - PostgreSQL", () => {
-  it("publishes a typed Task and replays one run exactly", async () => {
+describePostgres("typed Task delivery - PostgreSQL", () => {
+  it("creates, replays, and manually delivers one typed Task", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
       const receipt = await Effect.runPromise(
         runStandardApplicationSimulationV1({
@@ -42,6 +42,36 @@ describePostgres("typed Task creation - PostgreSQL", () => {
         status: "created",
         version: 1,
       });
+      expect(receipt.workloadProof.delivery).toEqual({
+        version: 1,
+        status: "succeeded",
+        runId: receipt.workloadProof.first.runId,
+        output: { prepared: true },
+        host: {
+          dispatchCandidatesHandled: 1,
+          dispatchProviderCalls: 1,
+          candidateFailures: 0,
+          supervisionExpected: 1,
+          supervisionObserved: 1,
+          supervisionSucceeded: 1,
+          supervisionFailed: 0,
+        },
+        worker: {
+          generation: "application_v1",
+          loads: 1,
+          starts: 1,
+          inputReads: 1,
+          settlements: 1,
+          legacyRuntimeObjectReads: 0,
+        },
+      });
+      const redactedHostReceipt = JSON.stringify(
+        receipt.workloadProof.delivery.host,
+      );
+      expect(redactedHostReceipt).not.toContain("recipe-1");
+      expect(redactedHostReceipt).not.toContain(
+        receipt.workloadProof.first.runId,
+      );
       expect(await readStandardApplicationTaskCreationStateV1(
         persistence.target,
       )).toEqual([{
@@ -50,9 +80,9 @@ describePostgres("typed Task creation - PostgreSQL", () => {
         legacy_definition_revision_count: "0",
         run_count: "1",
         request_count: "1",
-        attempt_count: "0",
+        attempt_count: "1",
         pending_count: "0",
-        dispatch_count: "0",
+        dispatch_count: "1",
       }]);
       expect(receipt.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
     });

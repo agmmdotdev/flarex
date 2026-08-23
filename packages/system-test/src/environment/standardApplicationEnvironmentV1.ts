@@ -112,6 +112,15 @@ import {
 import type {
   StandardApplicationSimulationV1,
 } from "../simulation/standardApplicationSimulationV1";
+import {
+  acquireApplicationTaskHostedTestKit,
+} from "../../support/applicationTaskHostedTestKit";
+import {
+  makeStandardApplicationTaskDeliveryV1,
+  type StandardApplicationTaskDeliveryControlResourceV1,
+  type StandardApplicationTaskDeliveryReceiptV1,
+  type StandardApplicationTaskDeliveryV1Error,
+} from "./standardApplicationTaskDeliveryV1";
 
 type ApplicationTestRequirementsV1 =
   | ApplicationMutationSystem
@@ -156,13 +165,22 @@ export interface StandardApplicationSystemTestSetupClientV1 {
 
 export interface StandardApplicationSystemTestClientV1
   extends StandardApplicationSystemTestSetupClientV1 {
-  readonly createTaskRun: <Payload, Output>(
-    reference: StandardApplicationTaskReferenceV1<Payload, Output>,
-    request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
-  ) => Effect.Effect<
-    StandardApplicationTaskRunCreationReceipt,
-    CreateStandardApplicationTaskRunError
-  >;
+  readonly tasks: Readonly<{
+    readonly create: <Payload, Output>(
+      reference: StandardApplicationTaskReferenceV1<Payload, Output>,
+      request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
+    ) => Effect.Effect<
+      StandardApplicationTaskRunCreationReceipt,
+      CreateStandardApplicationTaskRunError
+    >;
+    readonly deliver: <Payload, Output>(
+      reference: StandardApplicationTaskReferenceV1<Payload, Output>,
+      creation: StandardApplicationTaskRunCreationReceipt,
+    ) => Effect.Effect<
+      StandardApplicationTaskDeliveryReceiptV1<Output>,
+      StandardApplicationTaskDeliveryV1Error
+    >;
+  }>;
   readonly query: <
     Path extends string,
     Contract extends StandardFunctionContractV1<
@@ -272,9 +290,12 @@ export interface StandardApplicationSystemTestLaneV1 {
   ) => Promise<
     ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
   >;
-  readonly locateTaskRunCreationTarget: (
+  readonly locateTaskRunTarget: (
     physicalLocator: ScopePhysicalLocator,
   ) => LocatedTaskSystemRunAttemptTargetV1;
+  readonly createTaskDeliveryControlTarget: () => Promise<
+    StandardApplicationTaskDeliveryControlResourceV1
+  >;
 }
 
 /**
@@ -292,13 +313,15 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
 > {
   const analysisLoader = new MiniflareApplicationAnalysisWorkerLoader();
   const runtimeLoader = new MiniflareApplicationWorkerLoader();
-  return yield* runStandardApplicationSimulationWithCurrentAuthorityV1(
-    input,
-    analysisLoader,
-    runtimeLoader,
-  ).pipe(Effect.ensuring(Effect.promise(async () => {
-    await Promise.all([analysisLoader.dispose(), runtimeLoader.dispose()]);
-  })));
+  return yield* Effect.scoped(
+    runStandardApplicationSimulationWithCurrentAuthorityV1(
+      input,
+      analysisLoader,
+      runtimeLoader,
+    ).pipe(Effect.ensuring(Effect.promise(async () => {
+      await Promise.all([analysisLoader.dispose(), runtimeLoader.dispose()]);
+    }))),
+  );
 });
 
 const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
@@ -309,11 +332,21 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
   runtimeLoader: MiniflareApplicationWorkerLoader,
 ): Effect.fn.Return<
   StandardApplicationSimulationRunReceiptV1<Setup, A>,
-  RunStandardApplicationSimulationV1Error<E>
+  RunStandardApplicationSimulationV1Error<E>,
+  Scope.Scope
 > {
   const { simulation } = input;
   const standardDefinitionInput = simulation.application.define();
   const taskDefinitions = simulation.application.defineTasks?.() ?? [];
+  const hostedTaskKit = yield* acquireApplicationTaskHostedTestKit({
+    resources: taskDefinitions.length === 0 ? "none" : "r2",
+  }).pipe(Effect.mapError(cause =>
+    new StandardApplicationSimulationIntegrationV1Error({
+      phase: "prepareTaskSystem",
+      applicationId: simulation.application.applicationId,
+      cause,
+    })
+  ));
   const registeredFunctionContracts = indexRegisteredFunctionContractsV1(
     standardDefinitionInput,
   );
@@ -381,7 +414,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
   );
   const locatedTaskRunAuthority = Object.freeze({
     authority: fixture.active.basis.authority,
-    target: input.lane.locateTaskRunCreationTarget(
+    target: input.lane.locateTaskRunTarget(
       fixture.active.basis.authority.physicalLocator,
     ),
   });
@@ -399,7 +432,8 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
       ReplacementScopeIdV1Schema.make(
         fixture.active.basis.authority.scopeId,
       ),
-      new MemoryImmutableTaskObjectBucketV1(),
+      hostedTaskKit.resources?.principals ??
+        new MemoryImmutableTaskObjectBucketV1(),
     ),
   ).pipe(Effect.mapError(cause =>
     new StandardApplicationSimulationIntegrationV1Error({
@@ -419,9 +453,22 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     creation: taskRunCreation,
     principalIssuer: principalStore,
   });
+  const inputStore = makeTaskInputStore(
+    hostedTaskKit.resources?.inputs ?? new MemoryImmutableTaskObjectBucketV1(),
+  );
   const standardTaskLayer = makeStandardApplicationTaskSystemLayer(
-    makeTaskInputStore(new MemoryImmutableTaskObjectBucketV1()),
+    inputStore,
   ).pipe(Layer.provide(applicationTaskLayer));
+  const taskDelivery = makeStandardApplicationTaskDeliveryV1({
+    fixture,
+    definitions: taskDefinitions,
+    hostedKit: hostedTaskKit,
+    inputs: inputStore,
+    principals: principalStore,
+    sha256: taskSha256,
+    locateRunTarget: input.lane.locateTaskRunTarget,
+    createControlTarget: input.lane.createTaskDeliveryControlTarget,
+  });
   const applicationLayer = Layer.mergeAll(
     mutationLayer,
     queryLayer,
@@ -536,15 +583,30 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
             ))
       );
       const client = Object.freeze({
-        createTaskRun: <Payload, Output>(
-          reference: StandardApplicationTaskReferenceV1<Payload, Output>,
-          request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
-        ) => invokeWhileActive(() => invokeApplication(
-          invocationScope,
-          createStandardApplicationTaskRun(reference, request),
-        )).pipe(Effect.withSpan(
-          "StandardApplicationSystemTest.createTaskRunV1",
-        )),
+        tasks: Object.freeze({
+          create: <Payload, Output>(
+            reference: StandardApplicationTaskReferenceV1<Payload, Output>,
+            request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
+          ) => invokeWhileActive(() =>
+            invokeApplication(
+              invocationScope,
+              createStandardApplicationTaskRun(reference, request),
+            ).pipe(Effect.tap(creation => Effect.sync(() => {
+              taskDelivery.registerCreation(reference, creation);
+            })))
+          ).pipe(Effect.withSpan(
+            "StandardApplicationSystemTest.tasks.createV1",
+          )),
+          deliver: <Payload, Output>(
+            reference: StandardApplicationTaskReferenceV1<Payload, Output>,
+            creation: StandardApplicationTaskRunCreationReceipt,
+          ) => invokeWhileActive(() => runOwned(
+            invocationScope,
+            Effect.scoped(taskDelivery.deliver(reference, creation)),
+          )).pipe(Effect.withSpan(
+            "StandardApplicationSystemTest.tasks.deliverV1",
+          )),
+        }),
         mutation: <
           Path extends string,
           Contract extends StandardFunctionContractV1<

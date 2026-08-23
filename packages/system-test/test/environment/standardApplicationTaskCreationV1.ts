@@ -43,7 +43,7 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
       },
       outOfMemory: { kind: "disabled" },
     },
-    maximumDurationInSeconds: 300,
+    maximumDurationInSeconds: 30,
     computeProfile: "standard-1x",
     queue: { kind: "default" },
   }),
@@ -77,15 +77,19 @@ export const standardApplicationTaskCreationSimulationV1 =
     },
     setup: () => Effect.void,
     workload: client => Effect.gen(function* () {
-      const first = yield* client.createTaskRun(
+      const first = yield* client.tasks.create(
         standardApplicationTaskCreationV1.reference,
         request,
       );
-      const replay = yield* client.createTaskRun(
+      const replay = yield* client.tasks.create(
         standardApplicationTaskCreationV1.reference,
         request,
       );
-      return Object.freeze({ first, replay });
+      const delivery = yield* client.tasks.deliver(
+        standardApplicationTaskCreationV1.reference,
+        first,
+      );
+      return Object.freeze({ first, replay, delivery });
     }),
     expectedRuntimeExecutions: { mutations: 0, queries: 0 },
   });

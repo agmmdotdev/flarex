@@ -4,8 +4,10 @@ import {
 import {
   makePGliteStandardApplicationSystemTestLaneV1,
 } from "@flarex/system-test/lanes/v1";
+import type { TaskResultStoreError } from
+  "flarex-backend/internal/task-result-store";
 import { Effect } from "effect";
-import { expect, it } from "vitest";
+import { expect, expectTypeOf, it } from "vitest";
 
 import {
   createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence,
@@ -14,8 +16,14 @@ import {
   readStandardApplicationTaskCreationStateV1,
   standardApplicationTaskCreationSimulationV1,
 } from "./standardApplicationTaskCreationV1";
+import type {
+  StandardApplicationTaskDeliveryV1Error,
+} from "../../src/environment/standardApplicationTaskDeliveryV1";
 
-it("publishes a typed Task and replays one PGlite run exactly", async () => {
+it("creates, replays, and manually delivers one typed PGlite Task", async () => {
+  expectTypeOf<TaskResultStoreError>().toMatchTypeOf<
+    StandardApplicationTaskDeliveryV1Error
+  >();
   const persistence = await createMigratedPGlitePersistence();
   const receipt = await Effect.runPromise(runStandardApplicationSimulationV1({
     lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
@@ -27,6 +35,32 @@ it("publishes a typed Task and replays one PGlite run exactly", async () => {
     status: "created",
     version: 1,
   });
+  expect(receipt.workloadProof.delivery).toEqual({
+    version: 1,
+    status: "succeeded",
+    runId: receipt.workloadProof.first.runId,
+    output: { prepared: true },
+    host: {
+      dispatchCandidatesHandled: 1,
+      dispatchProviderCalls: 1,
+      candidateFailures: 0,
+      supervisionExpected: 1,
+      supervisionObserved: 1,
+      supervisionSucceeded: 1,
+      supervisionFailed: 0,
+    },
+    worker: {
+      generation: "application_v1",
+      loads: 1,
+      starts: 1,
+      inputReads: 1,
+      settlements: 1,
+      legacyRuntimeObjectReads: 0,
+    },
+  });
+  const redactedHostReceipt = JSON.stringify(receipt.workloadProof.delivery.host);
+  expect(redactedHostReceipt).not.toContain("recipe-1");
+  expect(redactedHostReceipt).not.toContain(receipt.workloadProof.first.runId);
   expect(await readStandardApplicationTaskCreationStateV1(
     persistence.target,
   )).toEqual([{
@@ -35,8 +69,8 @@ it("publishes a typed Task and replays one PGlite run exactly", async () => {
     legacy_definition_revision_count: "0",
     run_count: "1",
     request_count: "1",
-    attempt_count: "0",
+    attempt_count: "1",
     pending_count: "0",
-    dispatch_count: "0",
+    dispatch_count: "1",
   }]);
 }, 480_000);
