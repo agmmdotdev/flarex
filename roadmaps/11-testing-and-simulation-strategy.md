@@ -6,6 +6,8 @@
 packaging, real-Postgres, workerd/service-binding, and hosted-proof harnesses.
 The test lanes are not yet exposed through one fail-closed matrix, live hosted
 H05 evidence remains incomplete, and no deterministic model simulator exists.
+The docs-only `TQ-P` test-quality inventory is complete; implementation-bearing
+`TQ-A` through `TQ-E` remain separately gated.
 
 This roadmap owns:
 
@@ -50,6 +52,10 @@ Use these sources in order when they disagree:
 5. current package scripts, test configuration, harnesses, and tests for exact
    executable behavior; and
 6. old checkpoint receipts only as provenance, not current green status.
+
+The current cross-package command, activation, concentration, pair, and ranked
+consolidation baseline lives in
+[`testing-and-simulation-inventory.md`](./testing-and-simulation-inventory.md).
 
 Current orchestration anchors include:
 
@@ -516,6 +522,131 @@ Named Flarex differences are:
   controlled scheduler, shrinker, generated history corpus, or public Test SDK.
 - Effect runtime-boundary static enforcement and its own regression tests.
 
+## Test Quality Consolidation Preflight
+
+**Status:** `TQ-P` inventory complete. `TQ-A` through `TQ-E` require separate
+implementation approval. No test deletion, harness refactor, lane merger,
+fixture-lifetime change, or package extraction is authorized by this section
+alone.
+
+The repository has accumulated substantial correctness evidence through
+roadmap checkpoints, but the executable shape has also accumulated milestone-
+named package scripts, very large mixed-responsibility test files, repeated
+PGlite/PostgreSQL lane wrappers, and system harnesses that collapse many
+independent invariants into one aggregate proof receipt. Aggregate file or test
+counts no longer communicate which invariant is uniquely protected, which lane
+is decisive, how a failure localizes, or whether an older checkpoint test is
+still stronger than its successors.
+
+The correction is an evidence-architecture and maintainability program, not a
+test-count reduction target. A consolidation is successful only when it makes
+the protected invariant, owning domain, required lane, resource lifetime, and
+failure signal more explicit. Deleting lines, shortening a package script, or
+moving code into a shared harness is not by itself an improvement.
+
+### Quality Model
+
+Every retained correctness test should be classifiable as one of:
+
+1. a pure policy, codec, type-contract, or deterministic model test owned by
+   one domain;
+2. a reusable contract suite whose complete behavioral contract is identical
+   across two or more adapters;
+3. a lane-specific persistence or host test whose database, transaction,
+   concurrency, runtime, packaging, or Cloudflare semantics are themselves the
+   subject;
+4. a bounded cross-domain system scenario that composes production owners and
+   returns attributable observations;
+5. an explicitly named legacy or compatibility regression with a retained
+   consumer or removal gate; or
+6. a candidate duplicate or obsolete checkpoint test that must remain until an
+   invariant-preservation review proves it can be removed.
+
+The invariant inventory, rather than file names or roadmap chronology, becomes
+the durable index. Each entry records the stable invariant, owner, minimum
+lanes, decisive tests or contract suite, environment prerequisites, expected
+runtime class, and any legacy/removal condition. One test may protect several
+tightly connected facets of one invariant, but a long scenario must not hide a
+catalog of unrelated Boolean success flags behind one test name.
+
+### Harness Reuse Boundary
+
+Reuse the exact mechanics that have one real owner:
+
+- scoped environment construction and disposal;
+- authenticated database provisioning and schema isolation;
+- deterministic clocks, identifiers, deferred signals, and bounded fault
+  controls;
+- canonical fixture factories and observation/receipt collection; and
+- a contract-suite definition when every participating adapter must satisfy the
+  same behavior.
+
+Keep domain decisions, expected failures, final assertions, lane-specific
+semantics, and compatibility policy with their owning tests. A shared harness
+must not become a second runtime, scheduler, persistence implementation, retry
+loop, outcome classifier, or authority reconstruction. Prefer typed
+observations such as stored rows, attempts, commits, feeds, outputs, and
+failure tags over aggregate `true` fields that merely report that hidden
+harness assertions ran.
+
+PGlite and PostgreSQL may share a contract suite only for the exact portable
+contract. PostgreSQL locking, isolation, SQLSTATE, transaction cancellation,
+query-plan, extension, and connection-pool behavior remains PostgreSQL-owned.
+PGlite facade and compatibility behavior remains PGlite-owned. Workerd,
+Miniflare, packaging, and hosted boundaries likewise remain distinct even when
+they consume the same scenario input.
+
+Fixture reuse must preserve cancellation and isolation semantics. File-scoped
+database reuse is allowed only for bounded tests that cannot remain active
+after a runner timeout. Deferred, held-lock, fiber, trigger/DDL, interruption,
+and similar suspendable tests retain disposable isolation unless a separately
+validated lifecycle owner can cancel and settle every operation before reuse.
+
+### Consolidation Gates
+
+The work proceeds in bounded gates:
+
+1. **`TQ-P` — inventory and baseline. Complete.** The living
+   [`test evidence inventory`](./testing-and-simulation-inventory.md) records
+   invariant families and minimum lanes, permanent versus checkpoint command
+   concentration, hidden-skip behavior, file and harness concentrations,
+   cross-lane pair classifications, the missing runtime-telemetry baseline, and
+   ranked pilots without changing executable tests.
+2. **`TQ-A` — honest lane orchestration.** Add the machine-readable lane
+   manifest and stable fast, PGlite, PostgreSQL, workerd, hosted, and release
+   selectors. Required lanes fail closed. Milestone aliases may remain only
+   while a live roadmap or operator workflow still names them and must resolve
+   through the same manifest rather than duplicate file lists indefinitely.
+3. **`TQ-B` — one contract-suite pilot.** Select one completed, currently
+   untouched PGlite/PostgreSQL vertical with materially identical behavior.
+   Move only resource creation and exact shared scenario mechanics behind a
+   typed adapter contract, retain lane-specific activation and assertions, and
+   compare failure localization and runtime before widening the pattern. The
+   Application-native query pair is the preferred candidate, not an
+   authorization. Application-native mutation first requires `TQ-C` failure-
+   localization work rather than a generic wrapper around its aggregate proof.
+4. **`TQ-C` — monolith decomposition.** Split one oversized mixed-owner suite
+   by invariant/domain boundary while retaining one exact fixture owner. File
+   size is a review signal, not a deletion rule; the slice must show that
+   focused reruns and failure attribution improve without weakening ordering,
+   concurrency, transaction, or fault evidence.
+5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
+   test only when the inventory identifies the retained stronger proof, its
+   required lanes execute without hidden skips, a relevant negative/fault case
+   still fails for the intended reason, and no shipped compatibility or
+   migration consumer depends on the displaced coverage.
+6. **`TQ-E` — maintenance ratchet.** Record per-lane timing and skip telemetry,
+   prohibit retry-based flake masking, require explicit justification for new
+   very large test/harness files or permanent milestone commands, and review
+   new coverage against the invariant inventory.
+
+Each implementation-bearing gate is its own bounded slice. Test behavior,
+expectation, fixture-lifetime, public contract, or package-boundary changes are
+significant code changes and require the standing reviewers and proportional
+lane validation before commit. A scenario that exposes a shared-owner defect
+continues to follow the repository stop-and-record rule; consolidation does not
+authorize repairing or reproducing that owner inside test code.
+
 ## Known Gaps And Limitations
 
 - Root `pnpm test` omits root integration, H04, and H05 and does not guarantee
@@ -571,6 +702,16 @@ Named Flarex differences are:
 - Coverage is organized by files and commands, not a traceable invariant-to-
   lane inventory. Important negative/recovery cases can still be omitted while
   aggregate test counts look healthy.
+- Roadmap checkpoint commands have accumulated as permanent package-script file
+  lists. Their overlap, current consumers, and retirement conditions are not
+  represented by one stable lane manifest.
+- Several large suites and private system harnesses combine setup, orchestration,
+  fault control, assertions, and aggregate proof projection. This makes focused
+  reruns, ownership review, and failure attribution harder even when their
+  underlying coverage is valuable.
+- There is no repository test-maintainability ratchet for permanent command
+  growth, exceptionally large test/harness files, duplicated lane assertions,
+  or measured runtime concentration.
 - Legacy DO and Nitro tests remain intermingled with forward evidence unless
   individual names/context are inspected.
 
@@ -608,14 +749,18 @@ and stale non-authoritative caches without changing the Postgres oracle.
 
 ## Next Correctness Gates
 
-1. **Make lane activation honest.** Add a documented/machine-readable lane
-   manifest and fail-closed wrappers that report selected, passed, failed,
-   skipped, and unavailable tests. Make both package `test:postgres` commands
-   fail when their required database is absent.
+1. **Make lane activation honest through `TQ-A`.** Add a documented and
+   machine-readable lane manifest plus fail-closed wrappers that report
+   selected, passed, failed, skipped, and unavailable tests. Make both package
+   `test:postgres` commands fail when their required database is absent.
 2. **Define aggregate commands without overclaiming.** Separate fast,
    integration, real-Postgres, H04, and H05 commands; make the default and
    release gate explicit. Do not silently add external mutation to `pnpm test`.
-3. **Bind active foundation work to invariant tests.** D2d is closed by focused
+3. **Run the bounded `TQ-B` pilot.** After `TQ-A` establishes attributable lane
+   activation, use the Application-native query pair to prove the exact
+   contract-suite shape without changing scenario behavior, lane-specific
+   resource ownership, or assertions.
+4. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,
    concurrent replay, competing publication, separate table/index stale
@@ -623,20 +768,20 @@ and stale non-authoritative caches without changing the Postgres oracle.
    correctness/regression gate, not a hosted-performance SLA. Apply the same
    explicit proportional pure/PGlite/real-Postgres boundary to every applicable
    schema/OCC/compiler gate before marking it complete.
-4. **Close H05-B.** Run the credentialed staging proof, collect control/data/
+5. **Close H05-B.** Run the credentialed staging proof, collect control/data/
    trace/source/cleanup evidence, validate the canonical bundle, and retain an
    attributable receipt without committing secrets or mutable staging state.
-5. **Create the first deterministic model runner.** Start with the smallest
+6. **Create the first deterministic model runner.** Start with the smallest
    accepted scope-clock plus point-read/point-mutation commit slice. Inject
    clock/IDs, record seed/history, compare with a reference model, replay, and
    shrink. Do not begin with a generic virtual Cloudflare cluster.
-6. **Add recovery fault layers.** After the core model is stable, inject commit
+7. **Add recovery fault layers.** After the core model is stable, inject commit
    conflicts, retry exhaustion, crash boundaries, lost wakeups, duplicate
    outbox delivery, artifact eviction, sync actor restart, and catch-up; prove
    authoritative state and externally visible outcomes converge.
-7. **Add consumer and browser release gates.** Test published-like compiled
+8. **Add consumer and browser release gates.** Test published-like compiled
    packages, registry installation, version upgrades/skew, Vite browser
    WebSocket reconnect, and SSR only as those product surfaces become real.
-8. **Operationalize the matrix.** Add CI/scheduled/release ownership, database
-   version coverage, timing/flake telemetry, retained failing seeds, and a
-   concise invariant-to-lane index.
+9. **Operationalize the matrix and `TQ-E`.** Add CI/scheduled/release
+   ownership, database version coverage, timing/flake telemetry, retained
+   failing seeds, and a concise invariant-to-lane index.
