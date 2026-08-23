@@ -41,6 +41,7 @@ it("creates, replays, and manually delivers one typed PGlite Task", async () => 
     runId: receipt.workloadProof.first.runId,
     output: {
       prepared: true,
+      preparationId: expect.any(String),
       title: "Task soup",
       subject: "task-user-1",
     },
@@ -76,18 +77,39 @@ it("creates, replays, and manually delivers one typed PGlite Task", async () => 
     attempt_count: "1",
     pending_count: "0",
     dispatch_count: "1",
+    transaction_session_count: "2",
+    committed_transaction_session_count: "2",
+    child_mutation_effect_count: "1",
+    confirmed_child_mutation_effect_count: "1",
+    child_mutation_outcome_count: "1",
   }]);
   expect(receipt.afterSetupInspection).toMatchObject({
     currentRowCount: 1,
     liveRowCount: 1,
     revisionRowCount: 1,
+    commitSeqs: ["1"],
+    idempotencyOutcomeCommitSeqs: ["1"],
+    commitFeedCommitSeqs: ["1"],
+    outboxCommitSeqs: ["1"],
     mutationRuntimeExecutions: 1,
     queryRuntimeExecutions: 0,
   });
-  expect(receipt.finalInspection).toEqual({
-    ...receipt.afterSetupInspection,
+  expect(receipt.finalInspection).toMatchObject({
+    currentRowCount: 2,
+    liveRowCount: 2,
+    revisionRowCount: 2,
+    commitSeqs: ["1", "2"],
+    idempotencyOutcomeCommitSeqs: ["1", "2"],
+    commitFeedCommitSeqs: ["1", "2"],
+    outboxCommitSeqs: ["1", "2"],
+    mutationRuntimeExecutions: 2,
     queryRuntimeExecutions: 1,
   });
-  expect(receipt.mutationRuntimeExecutions).toBe(1);
+  expect(receipt.finalInspection.currentRows.map(row => row.tableName).sort())
+    .toEqual(["preparations", "recipes"]);
+  expect(receipt.finalInspection.currentRows.find(
+    row => row.tableName === "preparations",
+  )?.documentId).toBe(receipt.workloadProof.delivery.output.preparationId);
+  expect(receipt.mutationRuntimeExecutions).toBe(2);
   expect(receipt.queryRuntimeExecutions).toBe(1);
 }, 480_000);

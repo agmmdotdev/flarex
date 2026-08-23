@@ -20,6 +20,10 @@ import {
   createTaskAttemptLifecycleGateway,
 } from "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
 import type {
+  LocatedTaskExternalEffectAuthorityTarget,
+} from
+  "@flarex/persistence-postgres/internal/task-external-effect-authority";
+import type {
   TaskComputeDeliveryControlDirectoryTarget,
 } from
   "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory";
@@ -44,6 +48,15 @@ import {
   ApplicationQuerySystem,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
+import {
+  ApplicationMutationSystem,
+} from
+  "@flarex/standard-application-invocation/internal/application-mutation-system";
+import {
+  makeApplicationTaskMutationAuthority,
+  makeApplicationTaskMutationExternalEffectAuthority,
+} from
+  "@flarex/standard-application-invocation/internal/application-task-mutation-authority";
 import {
   makeApplicationTaskQueryAuthority,
 } from
@@ -116,6 +129,11 @@ export interface StandardApplicationTaskDeliveryControlResourceV1 {
   readonly close: () => Promise<void>;
 }
 
+export interface StandardApplicationTaskMutationExternalEffectResourceV1 {
+  readonly target: LocatedTaskExternalEffectAuthorityTarget;
+  readonly close: () => Promise<void>;
+}
+
 export interface StandardApplicationTaskDeliveryHostReceiptV1 {
   readonly dispatchCandidatesHandled: number;
   readonly dispatchProviderCalls: number;
@@ -177,6 +195,14 @@ export class StandardApplicationTaskDeliveryControlAcquisitionV1Error
   readonly cause: unknown;
 }> {}
 
+export class StandardApplicationTaskMutationExternalEffectAcquisitionV1Error
+  extends Data.TaggedError(
+    "StandardApplicationTaskMutationExternalEffectAcquisitionV1Error",
+  )<{
+  readonly operation: "acquireMutationExternalEffect";
+  readonly cause: unknown;
+}> {}
+
 type StandardApplicationTaskDeliveryHostRunError = Effect.Error<
   ReturnType<ApplicationTaskDeliveryEventHost["run"]>
 >;
@@ -184,6 +210,7 @@ type StandardApplicationTaskDeliveryHostRunError = Effect.Error<
 export type StandardApplicationTaskDeliveryV1Error =
   | StandardApplicationTaskDeliveryContractV1Error
   | StandardApplicationTaskDeliveryControlAcquisitionV1Error
+  | StandardApplicationTaskMutationExternalEffectAcquisitionV1Error
   | RunAttemptDecisionErrorV1
   | TaskSystemRunAttemptStoreErrorV1
   | TaskAttemptSupervisorConfigurationError
@@ -203,7 +230,7 @@ export interface StandardApplicationTaskDeliveryV1 {
   ) => Effect.Effect<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error,
-    ApplicationQuerySystem | Scope.Scope
+    ApplicationMutationSystem | ApplicationQuerySystem | Scope.Scope
   >;
 }
 
@@ -224,6 +251,9 @@ export interface MakeStandardApplicationTaskDeliveryV1Input {
   readonly createControlTarget: () => Promise<
     StandardApplicationTaskDeliveryControlResourceV1
   >;
+  readonly createMutationExternalEffectTarget: (
+    physicalLocator: ScopePhysicalLocator,
+  ) => Promise<StandardApplicationTaskMutationExternalEffectResourceV1>;
 }
 
 /**
@@ -253,7 +283,7 @@ export function makeStandardApplicationTaskDeliveryV1(
   ): Effect.fn.Return<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error,
-    ApplicationQuerySystem | Scope.Scope
+    ApplicationMutationSystem | ApplicationQuerySystem | Scope.Scope
   > {
     const definition = definitions.get(reference);
     if (definition === undefined || resources === null) {
@@ -311,6 +341,20 @@ export function makeStandardApplicationTaskDeliveryV1(
         catch: cause =>
           new StandardApplicationTaskDeliveryControlAcquisitionV1Error({
             operation: "acquireControl",
+            cause,
+          }),
+      }),
+      owner => Effect.tryPromise({
+        try: () => owner.close(),
+        catch: cause => cause,
+      }).pipe(Effect.orDie),
+    );
+    const mutationExternalEffect = yield* Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () => input.createMutationExternalEffectTarget(physicalLocator),
+        catch: cause =>
+          new StandardApplicationTaskMutationExternalEffectAcquisitionV1Error({
+            operation: "acquireMutationExternalEffect",
             cause,
           }),
       }),
@@ -412,14 +456,36 @@ export function makeStandardApplicationTaskDeliveryV1(
       activation: fixture.activation,
       query: querySystem.selectionQuery,
     });
-    const mutationAuthority = Object.freeze({
-      bindLaunch: () => Effect.succeed(Object.freeze({
-        maximumCloseMilliseconds: 1_000,
-        runMutation: () => Effect.fail(Object.freeze({
-          reason: "invalidInput" as const,
-        })),
-        close: Effect.void,
-      })),
+    const mutationSystem = yield* ApplicationMutationSystem;
+    const mutationSha256 = Object.freeze({
+      hash: (bytes: Uint8Array) => Effect.tryPromise({
+        try: async () => new Uint8Array(
+          await globalThis.crypto.subtle.digest(
+            "SHA-256",
+            bytes.slice().buffer,
+          ),
+        ),
+        catch: cause => cause,
+      }),
+    });
+    const mutationExternalEffectAuthority =
+      makeApplicationTaskMutationExternalEffectAuthority({
+        deploymentId: fixture.deploymentId,
+        authority: Object.freeze({
+          scopeMetadata: fixture.authorityPorts.scopeMetadata,
+          provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+          scopeClockTargets: Object.freeze({
+            resolve: async () => mutationExternalEffect.target,
+          }),
+        }),
+        sha256: mutationSha256,
+      });
+    const mutationAuthority = makeApplicationTaskMutationAuthority({
+      externalEffect: mutationExternalEffectAuthority,
+      mutation: mutationSystem,
+      sha256: mutationSha256,
+      maximumCloseMilliseconds:
+        mutationExternalEffect.target.settlementBudgetMilliseconds,
     });
     const host = yield* Effect.fromResult(
       makeApplicationTaskDeliveryResourceEventHost(

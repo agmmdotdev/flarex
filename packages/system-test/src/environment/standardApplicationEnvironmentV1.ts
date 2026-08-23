@@ -118,6 +118,7 @@ import {
 import {
   makeStandardApplicationTaskDeliveryV1,
   type StandardApplicationTaskDeliveryControlResourceV1,
+  type StandardApplicationTaskMutationExternalEffectResourceV1,
   type StandardApplicationTaskDeliveryReceiptV1,
   type StandardApplicationTaskDeliveryV1Error,
 } from "./standardApplicationTaskDeliveryV1";
@@ -296,6 +297,9 @@ export interface StandardApplicationSystemTestLaneV1 {
   readonly createTaskDeliveryControlTarget: () => Promise<
     StandardApplicationTaskDeliveryControlResourceV1
   >;
+  readonly createTaskMutationExternalEffectTarget: (
+    physicalLocator: ScopePhysicalLocator,
+  ) => Promise<StandardApplicationTaskMutationExternalEffectResourceV1>;
 }
 
 /**
@@ -468,6 +472,8 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     sha256: taskSha256,
     locateRunTarget: input.lane.locateTaskRunTarget,
     createControlTarget: input.lane.createTaskDeliveryControlTarget,
+    createMutationExternalEffectTarget:
+      input.lane.createTaskMutationExternalEffectTarget,
   });
   const applicationLayer = Layer.mergeAll(
     mutationLayer,

@@ -50,6 +50,17 @@ const RECIPE_MODULES = makeCreateAndReadModulesV1({
   queryModulePath: "recipes",
 });
 const RECIPE_CREATE = RECIPE_MODULES.mutationModule.reference("create");
+const PREPARATION_FIELDS = {
+  recipeId: standardV1.string(),
+  title: standardV1.string(),
+  subject: standardV1.string(),
+} as const;
+const PREPARATION_MODULE = standardV1.module("preparationCommands", {
+  create: standardV1.publicMutation({
+    args: standardV1.object(PREPARATION_FIELDS),
+    returns: standardV1.id("preparations"),
+  }),
+});
 const RECIPE_SETUP_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "system-test:task-query-callback:setup",
 );
@@ -64,6 +75,7 @@ interface StandardApplicationTaskWorkloadProofV1 {
   readonly replay: StandardApplicationTaskRunCreationReceipt;
   readonly delivery: StandardApplicationTaskDeliveryReceiptV1<Readonly<{
     readonly prepared: boolean;
+    readonly preparationId: string;
     readonly title: string;
     readonly subject: string;
   }>>;
@@ -89,6 +101,7 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
     }),
     output: standardV1.object({
       prepared: standardV1.boolean(),
+      preparationId: standardV1.id("preparations"),
       title: standardV1.string(),
       subject: standardV1.string(),
     }),
@@ -185,7 +198,7 @@ export const standardApplicationTaskCreationSimulationV1 =
     },
     setup: setupTaskQueryCallbackV1,
     workload: runTaskQueryCallbackV1,
-    expectedRuntimeExecutions: { mutations: 1, queries: 1 },
+    expectedRuntimeExecutions: { mutations: 2, queries: 1 },
   });
 
 export interface StandardApplicationTaskCreationStateV1
@@ -199,6 +212,11 @@ export interface StandardApplicationTaskCreationStateV1
   readonly attempt_count: string;
   readonly pending_count: string;
   readonly dispatch_count: string;
+  readonly transaction_session_count: string;
+  readonly committed_transaction_session_count: string;
+  readonly child_mutation_effect_count: string;
+  readonly confirmed_child_mutation_effect_count: string;
+  readonly child_mutation_outcome_count: string;
 }
 
 export async function readStandardApplicationTaskCreationStateV1(
@@ -217,7 +235,12 @@ export async function readStandardApplicationTaskCreationStateV1(
       (select count(*)::text from fx_system_durable_task_run_request_v1) as request_count,
       (select count(*)::text from fx_system_durable_task_attempt_identity_v1) as attempt_count,
       (select count(*)::text from fx_system_durable_task_compute_pending_v1) as pending_count,
-      (select count(*)::text from fx_system_durable_task_compute_dispatch_v1) as dispatch_count
+      (select count(*)::text from fx_system_durable_task_compute_dispatch_v1) as dispatch_count,
+      (select count(*)::text from fx_system_tx_session) as transaction_session_count,
+      (select count(*)::text from fx_system_tx_session where lifecycle = 'committed') as committed_transaction_session_count,
+      (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation') as child_mutation_effect_count,
+      (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and state = 'confirmed') as confirmed_child_mutation_effect_count,
+      (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and child_mutation_outcome_sha256 is not null) as child_mutation_outcome_count
   `);
   return result.rows;
 }
@@ -242,8 +265,14 @@ function taskApplicationDefinition() {
       "export async function prepareRecipe(ctx, payload) {",
       "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",
       "  if (result.recipe === null) throw new Error('recipe missing');",
+      "  const preparationId = await ctx.runMutation('preparationCommands:create', {",
+      "    recipeId: payload.recipeId,",
+      "    title: result.recipe.title,",
+      "    subject: result.subject,",
+      "  });",
       "  return {",
       "    prepared: result.recipe.servings === payload.servings,",
+      "    preparationId,",
       "    title: result.recipe.title,",
       "    subject: result.subject,",
       "  };",
@@ -259,5 +288,16 @@ function taskApplicationDefinition() {
       "}",
     ].join("\n")),
     fields: RECIPE_FIELDS,
+    additionalTables: [{
+      logicalName: "preparations",
+      fields: PREPARATION_FIELDS,
+    }],
+    additionalFunctionModules: [{
+      module: PREPARATION_MODULE,
+      artifactModulePath: "preparationMutation",
+      sourceBytes: new TextEncoder().encode(
+        'export function create(ctx,a){return ctx.db.insert("preparations",a)}',
+      ),
+    }],
   });
 }

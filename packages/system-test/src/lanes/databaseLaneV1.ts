@@ -5,6 +5,7 @@ import {
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
+  createPGliteLocatedTaskExternalEffectAuthorityTarget,
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
   type PGliteFlarexPersistence,
 } from "@flarex/persistence-postgres/pglite";
@@ -21,6 +22,10 @@ import {
   createPostgresTaskComputeDeliveryControlDirectoryResource,
 } from
   "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory";
+import {
+  createPostgresTaskExternalEffectAuthorityResource,
+} from
+  "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
 } from
@@ -41,6 +46,19 @@ const PGLITE_DELIVERY_DEADLINE_POLICY = Object.freeze({
 
 const POSTGRES_DELIVERY_DEADLINE_POLICY = Object.freeze({
   ...PGLITE_DELIVERY_DEADLINE_POLICY,
+  connectionTimeoutMilliseconds: 500,
+});
+
+const PGLITE_TASK_MUTATION_DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 100,
+  lockTimeoutMilliseconds: 100,
+  statementTimeoutMilliseconds: 1_000,
+  transactionTimeoutMilliseconds: 2_000,
+  settlementReserveMilliseconds: 3_000,
+});
+
+const POSTGRES_TASK_MUTATION_DEADLINE_POLICY = Object.freeze({
+  ...PGLITE_TASK_MUTATION_DEADLINE_POLICY,
   connectionTimeoutMilliseconds: 500,
 });
 
@@ -75,6 +93,19 @@ export function makePGliteStandardApplicationSystemTestLaneV1(
       discoveryDeadline: PGLITE_DELIVERY_DEADLINE_POLICY,
       close: () => Promise.resolve(),
     })),
+    createTaskMutationExternalEffectTarget: (
+      physicalLocator: ScopePhysicalLocator,
+    ) =>
+      Promise.resolve(Object.freeze({
+        target: Result.getOrThrow(
+          createPGliteLocatedTaskExternalEffectAuthorityTarget(
+            persistence.target,
+            physicalLocator,
+            PGLITE_TASK_MUTATION_DEADLINE_POLICY,
+          ),
+        ),
+        close: () => Promise.resolve(),
+      })),
   });
 }
 
@@ -104,6 +135,21 @@ export function makePostgresStandardApplicationSystemTestLaneV1(
       return Object.freeze({
         target: resource.target,
         discoveryDeadline: POSTGRES_DELIVERY_DEADLINE_POLICY,
+        close: resource.close,
+      });
+    },
+    createTaskMutationExternalEffectTarget: async (
+      physicalLocator: ScopePhysicalLocator,
+    ) => {
+      const resource = Result.getOrThrow(
+        createPostgresTaskExternalEffectAuthorityResource(
+          persistence.target.pool.options,
+          physicalLocator,
+          POSTGRES_TASK_MUTATION_DEADLINE_POLICY,
+        ),
+      );
+      return Object.freeze({
+        target: resource.target,
         close: resource.close,
       });
     },
