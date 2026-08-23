@@ -32,6 +32,7 @@ import type {
 import type {
   StandardApplicationTaskDeliveryV1Error,
   StandardApplicationTaskCancelledDeliveryReceiptV1,
+  StandardApplicationTaskResultPublicationUncertainReceiptV1,
   StandardApplicationTaskRetryScheduledDeliveryReceiptV1,
   StandardApplicationTaskSucceededDeliveryReceiptV1,
 } from "../../src/environment/standardApplicationTaskDeliveryV1";
@@ -94,6 +95,30 @@ interface StandardApplicationTaskWorkloadProofV1 {
   readonly raceDelivery: StandardApplicationTaskSucceededDeliveryReceiptV1<
     Readonly<{ readonly completed: boolean }>
   >;
+  readonly duplicateFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly duplicateReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly duplicateDelivery: StandardApplicationTaskSucceededDeliveryReceiptV1<
+    Readonly<{ readonly probe: string }>
+  >;
+  readonly completionLostFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly completionLostReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly completionLostDelivery:
+    StandardApplicationTaskSucceededDeliveryReceiptV1<
+      Readonly<{ readonly probe: string }>
+    >;
+  readonly publicationReconciledFirst:
+    StandardApplicationTaskRunCreationReceipt;
+  readonly publicationReconciledReplay:
+    StandardApplicationTaskRunCreationReceipt;
+  readonly publicationReconciledDelivery:
+    StandardApplicationTaskSucceededDeliveryReceiptV1<
+      Readonly<{ readonly probe: string }>
+    >;
+  readonly publicationUncertainFirst: StandardApplicationTaskRunCreationReceipt;
+  readonly publicationUncertainReplay:
+    StandardApplicationTaskRunCreationReceipt;
+  readonly publicationUncertainDelivery:
+    StandardApplicationTaskResultPublicationUncertainReceiptV1;
 }
 
 type StandardApplicationTaskSimulationErrorV1 =
@@ -201,6 +226,33 @@ export const standardApplicationTaskCancellationRaceV1 = Result.getOrThrow(
     },
     payload: standardV1.object({ probe: standardV1.string() }),
     output: standardV1.object({ completed: standardV1.boolean() }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 1,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
+
+export const standardApplicationTaskFaultProbeV1 = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "systemTest.taskFaultProbe",
+    handler: {
+      logicalModulePath: "recipeCommands",
+      artifactModulePath: "recipeMutation",
+      exportName: "taskFaultProbe",
+    },
+    payload: standardV1.object({ probe: standardV1.string() }),
+    output: standardV1.object({ probe: standardV1.string() }),
     runAttemptPolicy: {
       version: 1,
       retry: {
@@ -366,6 +418,97 @@ const runTaskQueryCallbackV1 = Effect.fn(
       "The completed Task did not win the cancellation race.",
     ));
   }
+  const makeFaultRequest = (fault:
+    | "duplicate-delivery"
+    | "completion-response-lost"
+    | "result-publication-reconciled"
+    | "result-publication-uncertain") => Object.freeze({
+    ...request,
+    requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
+      `system-test:task-fault:${fault}`,
+    )),
+    payload: Object.freeze({ probe: fault }),
+  });
+  const duplicateRequest = makeFaultRequest("duplicate-delivery");
+  const duplicateFirst = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    duplicateRequest,
+  );
+  const duplicateReplay = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    duplicateRequest,
+  );
+  const duplicateDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskFaultProbeV1.reference,
+    duplicateFirst,
+    { kind: "fault", fault: "duplicate_delivery" },
+  );
+  if (duplicateDelivery.status !== "succeeded") {
+    return yield* Effect.die(new Error(
+      "The duplicate Task delivery did not preserve terminal success.",
+    ));
+  }
+  const completionLostRequest = makeFaultRequest("completion-response-lost");
+  const completionLostFirst = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    completionLostRequest,
+  );
+  const completionLostReplay = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    completionLostRequest,
+  );
+  const completionLostDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskFaultProbeV1.reference,
+    completionLostFirst,
+    { kind: "fault", fault: "completion_response_lost" },
+  );
+  if (completionLostDelivery.status !== "succeeded") {
+    return yield* Effect.die(new Error(
+      "The lost completion response did not replay to terminal success.",
+    ));
+  }
+  const publicationReconciledRequest = makeFaultRequest(
+    "result-publication-reconciled",
+  );
+  const publicationReconciledFirst = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    publicationReconciledRequest,
+  );
+  const publicationReconciledReplay = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    publicationReconciledRequest,
+  );
+  const publicationReconciledDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskFaultProbeV1.reference,
+    publicationReconciledFirst,
+    { kind: "fault", fault: "result_publication_reconciled" },
+  );
+  if (publicationReconciledDelivery.status !== "succeeded") {
+    return yield* Effect.die(new Error(
+      "The lost publication response did not reconcile to terminal success.",
+    ));
+  }
+  const publicationUncertainRequest = makeFaultRequest(
+    "result-publication-uncertain",
+  );
+  const publicationUncertainFirst = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    publicationUncertainRequest,
+  );
+  const publicationUncertainReplay = yield* client.tasks.create(
+    standardApplicationTaskFaultProbeV1.reference,
+    publicationUncertainRequest,
+  );
+  const publicationUncertainDelivery = yield* client.tasks.deliver(
+    standardApplicationTaskFaultProbeV1.reference,
+    publicationUncertainFirst,
+    { kind: "fault", fault: "result_publication_uncertain" },
+  );
+  if (publicationUncertainDelivery.status !== "result_publication_uncertain") {
+    return yield* Effect.die(new Error(
+      "The unresolved publication response fabricated a settled outcome.",
+    ));
+  }
   return Object.freeze({
     first,
     replay,
@@ -379,6 +522,18 @@ const runTaskQueryCallbackV1 = Effect.fn(
     raceFirst,
     raceReplay,
     raceDelivery,
+    duplicateFirst,
+    duplicateReplay,
+    duplicateDelivery,
+    completionLostFirst,
+    completionLostReplay,
+    completionLostDelivery,
+    publicationReconciledFirst,
+    publicationReconciledReplay,
+    publicationReconciledDelivery,
+    publicationUncertainFirst,
+    publicationUncertainReplay,
+    publicationUncertainDelivery,
   });
 });
 
@@ -395,6 +550,7 @@ export const standardApplicationTaskCreationSimulationV1 =
         standardApplicationTaskFailureV1,
         standardApplicationTaskCancellationWaitV1,
         standardApplicationTaskCancellationRaceV1,
+        standardApplicationTaskFaultProbeV1,
       ],
     },
     setup: setupTaskQueryCallbackV1,
@@ -422,6 +578,7 @@ export interface StandardApplicationTaskCreationStateV1
   readonly confirmed_child_mutation_effect_count: string;
   readonly child_mutation_outcome_count: string;
   readonly ready_run_count: string;
+  readonly executing_run_count: string;
   readonly terminal_run_count: string;
 }
 
@@ -451,6 +608,7 @@ export async function readStandardApplicationTaskCreationStateV1(
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and state = 'confirmed') as confirmed_child_mutation_effect_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and child_mutation_outcome_sha256 is not null) as child_mutation_outcome_count,
       (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'ready' and due_kind = 'start_attempt') as ready_run_count,
+      (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'executing') as executing_run_count,
       (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'terminal') as terminal_run_count
   `);
   return result.rows;
@@ -482,6 +640,9 @@ function taskApplicationDefinition() {
       "}",
       "export function completeCancellationRace() {",
       "  return { completed: true };",
+      "}",
+      "export function taskFaultProbe(_ctx, payload) {",
+      "  return { probe: payload.probe };",
       "}",
       "export async function prepareRecipe(ctx, payload) {",
       "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",

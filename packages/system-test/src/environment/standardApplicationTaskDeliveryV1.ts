@@ -28,6 +28,7 @@ import {
   "@flarex/persistence-postgres/internal/task-system-run-attempt-store-v1";
 import {
   createTaskAttemptLifecycleGateway,
+  type ApplicationTaskAttemptLifecycleCapability,
 } from "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
 import type {
   LocatedTaskExternalEffectAuthorityTarget,
@@ -93,6 +94,8 @@ import {
 } from "flarex-backend/internal/task-compute-delivery";
 import {
   makeTaskResultStore,
+  TaskResultStoreSettlementUncertainError,
+  type TaskResultStoreBucket,
   type TaskResultStoreError,
 } from "flarex-backend/internal/task-result-store";
 import type {
@@ -117,6 +120,7 @@ import {
   type ValidatorValueIssueV1,
 } from "flarex-protocol/validator-engine";
 import {
+  Cause,
   Data,
   Deferred,
   Effect,
@@ -192,6 +196,43 @@ export interface StandardApplicationTaskSucceededDeliveryReceiptV1<Output> {
     readonly generation: TaskCancellationGenerationV1;
     readonly resolution: "superseded_by_completion";
   }> | null;
+  readonly fault: StandardApplicationTaskResolvedFaultReceiptV1 | null;
+  readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
+  readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
+}
+
+export type StandardApplicationTaskResolvedFaultReceiptV1 =
+  | Readonly<{
+      readonly kind: "duplicate_delivery";
+      readonly duplicate: Readonly<{
+        readonly dispatchCandidatesHandled: 0;
+        readonly dispatchProviderCalls: 0;
+        readonly cancellationCandidatesHandled: 0;
+        readonly cancellationProviderCalls: 0;
+        readonly candidateFailures: 0;
+      }>;
+    }>
+  | Readonly<{
+      readonly kind: "completion_response_lost";
+      readonly completionAttempts: 2;
+      readonly replayedSameCompletion: true;
+      readonly disposition: "idempotent";
+    }>
+  | Readonly<{
+      readonly kind: "result_publication_reconciled";
+      readonly publicationAttempts: 1;
+      readonly reconciliationReads: 1;
+    }>;
+
+export interface StandardApplicationTaskResultPublicationUncertainReceiptV1 {
+  readonly version: 1;
+  readonly status: "result_publication_uncertain";
+  readonly runId: TaskRunIdV1;
+  readonly settlement: Readonly<{
+    readonly stage: "reconcileRead";
+    readonly terminalResultFabricated: false;
+  }>;
+  readonly cancellation: null;
   readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
   readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
 }
@@ -230,10 +271,19 @@ export interface StandardApplicationTaskCancelledDeliveryReceiptV1 {
 export type StandardApplicationTaskDeliveryReceiptV1<Output> =
   | StandardApplicationTaskSucceededDeliveryReceiptV1<Output>
   | StandardApplicationTaskRetryScheduledDeliveryReceiptV1
-  | StandardApplicationTaskCancelledDeliveryReceiptV1;
+  | StandardApplicationTaskCancelledDeliveryReceiptV1
+  | StandardApplicationTaskResultPublicationUncertainReceiptV1;
 
 export type StandardApplicationTaskDeliveryModeV1 =
   | Readonly<{ readonly kind: "completion" }>
+  | Readonly<{
+      readonly kind: "fault";
+      readonly fault:
+        | "duplicate_delivery"
+        | "completion_response_lost"
+        | "result_publication_reconciled"
+        | "result_publication_uncertain";
+    }>
   | Readonly<{
       readonly kind: "cancellation";
       readonly order:
@@ -257,6 +307,8 @@ interface StandardApplicationTaskDeliveryExecutionReceiptV1 {
     readonly failed: number;
   }>;
   readonly cancellationGeneration: TaskCancellationGenerationV1 | null;
+  readonly fault: StandardApplicationTaskResolvedFaultReceiptV1 | null;
+  readonly resultPublicationUncertain: boolean;
 }
 
 export class StandardApplicationTaskDeliveryContractV1Error
@@ -347,6 +399,9 @@ export interface MakeStandardApplicationTaskDeliveryV1Input {
   readonly principals: TaskExecutionPrincipalStore;
   readonly sha256: StandardApplicationTaskSha256V1;
   readonly locateRunTarget: (
+    physicalLocator: ScopePhysicalLocator,
+  ) => LocatedTaskSystemRunAttemptTargetV1;
+  readonly locateCompletionResponseLostRunTarget: (
     physicalLocator: ScopePhysicalLocator,
   ) => LocatedTaskSystemRunAttemptTargetV1;
   readonly createControlTarget: () => Promise<
@@ -529,7 +584,17 @@ export function makeStandardApplicationTaskDeliveryV1(
             reason: "authority_unavailable",
           })),
     });
-    const resultStore = makeTaskResultStore(resources.results);
+    const resultBucket = new StandardApplicationTaskResultFaultBucketV1(
+      resources.results,
+      mode.kind === "fault" &&
+          mode.fault === "result_publication_reconciled"
+        ? "reject_after_write"
+        : mode.kind === "fault" &&
+            mode.fault === "result_publication_uncertain"
+          ? "unresolved"
+          : "none",
+    );
+    const resultStore = makeTaskResultStore(resultBucket);
     const lifecycleGateway = createTaskAttemptLifecycleGateway({
       scopeMetadata: fixture.authorityPorts.scopeMetadata,
       provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
@@ -538,21 +603,59 @@ export function makeStandardApplicationTaskDeliveryV1(
           input.locateRunTarget(locator),
       }),
     });
+    const completionResponseLostGateway =
+      mode.kind === "fault" && mode.fault === "completion_response_lost"
+        ? createTaskAttemptLifecycleGateway({
+          scopeMetadata: fixture.authorityPorts.scopeMetadata,
+          provisioningReceipts: fixture.authorityPorts.provisioningReceipts,
+          scopeClockTargets: Object.freeze({
+            resolve: async (locator: ScopePhysicalLocator) =>
+              input.locateCompletionResponseLostRunTarget(locator),
+          }),
+        })
+        : null;
+    const completionAttempts: unknown[] = [];
     const lifecycleResolver: TaskAttemptSupervisorLifecycleResolver =
       Object.freeze({
-        resolve: (
+        resolve: Effect.fn(
+          "StandardApplicationTaskDelivery.resolveLifecycleV1",
+        )(function* (
           dispatch: Parameters<
             TaskAttemptSupervisorLifecycleResolver["resolve"]
           >[0],
-        ) => lifecycleGateway.resolve(
-          fixture.deploymentId,
-          dispatch,
-        ).pipe(Effect.flatMap(current => current.generation === "application_v1"
-          ? Effect.succeed(current)
-          : Effect.die(new Error(
+        ) {
+          const current = yield* lifecycleGateway.resolve(
+            fixture.deploymentId,
+            dispatch,
+          );
+          if (current.generation !== "application_v1") {
+            return yield* Effect.die(new Error(
               "Standard Application Task delivery resolved a Legacy lifecycle.",
-            ))
-        )),
+            ));
+          }
+          if (completionResponseLostGateway === null) return current;
+          const replay = yield* completionResponseLostGateway.resolve(
+            fixture.deploymentId,
+            dispatch,
+          );
+          if (replay.generation !== "application_v1") {
+            return yield* Effect.die(new Error(
+              "Standard Application Task completion fault resolved a Legacy lifecycle.",
+            ));
+          }
+          const completionOwner: ApplicationTaskAttemptLifecycleCapability =
+            replay;
+          const complete = completionOwner.complete;
+          return Object.freeze({
+            ...current,
+            complete: Effect.fn(
+              "StandardApplicationTaskDelivery.completionResponseLost.completeV1",
+            )((completion: unknown) => {
+              completionAttempts.push(completion);
+              return complete.call(completionOwner, completion);
+            }),
+          });
+        }),
       });
     const supervisor = yield* Effect.fromResult(makeTaskAttemptSupervisor(
       lifecycleResolver,
@@ -638,8 +741,6 @@ export function makeStandardApplicationTaskDeliveryV1(
       runner: input.hostedKit.makeOneCandidatePolicy(),
     });
 
-    const resultReadsBefore = resources.results.getCalls;
-    const resultWritesBefore = resources.results.putCalls;
     const hostReceipt = mode.kind === "completion"
       ? yield* Effect.gen(function* () {
         const host = yield* Effect.fromResult(
@@ -661,9 +762,12 @@ export function makeStandardApplicationTaskDeliveryV1(
           runner: outcome.receipt.runner,
           supervision: outcome.receipt.supervision,
           cancellationGeneration: null,
+          fault: null,
+          resultPublicationUncertain: false,
         });
       })
-      : yield* runCancellationDelivery({
+      : mode.kind === "cancellation"
+        ? yield* runCancellationDelivery({
         taskId: reference.taskId,
         creation,
         mode,
@@ -672,7 +776,20 @@ export function makeStandardApplicationTaskDeliveryV1(
         deliveryLive,
         launchResources,
         supervisor,
-      });
+      })
+        : yield* runFaultDelivery({
+          taskId: reference.taskId,
+          creation,
+          mode,
+          loader,
+          deliveryLive,
+          launchResources,
+          supervisor,
+          resultBucket,
+          completionAttempts,
+        });
+    const expectsUncertainResult = mode.kind === "fault" &&
+      mode.fault === "result_publication_uncertain";
     if (
       hostReceipt.runner.stopReason !==
         (mode.kind === "cancellation"
@@ -687,8 +804,8 @@ export function makeStandardApplicationTaskDeliveryV1(
       hostReceipt.runner.candidateFailures !== 0 ||
       hostReceipt.supervision.expected !== 1 ||
       hostReceipt.supervision.observed !== 1 ||
-      hostReceipt.supervision.succeeded !== 1 ||
-      hostReceipt.supervision.failed !== 0
+      hostReceipt.supervision.succeeded !== (expectsUncertainResult ? 0 : 1) ||
+      hostReceipt.supervision.failed !== (expectsUncertainResult ? 1 : 0)
     ) {
       return yield* failDelivery(
         "validateEvidence",
@@ -747,10 +864,41 @@ export function makeStandardApplicationTaskDeliveryV1(
       starts: loader.starts,
       inputReads: loader.workerInputReads,
       settlements: loader.workerSettlements,
-      resultReads: resources.results.getCalls - resultReadsBefore,
-      resultWrites: resources.results.putCalls - resultWritesBefore,
+      resultReads: resultBucket.getCalls,
+      resultWrites: resultBucket.putCalls,
       legacyRuntimeObjectReads: resources.runtimeObjects.getCalls,
     });
+
+    if (expectsUncertainResult) {
+      const workerEvidence = makeWorkerEvidence();
+      if (
+        !hostReceipt.resultPublicationUncertain ||
+        settled.current.phase !== "executing" ||
+        workerEvidence.resultReads !== 1 ||
+        workerEvidence.resultWrites !== 1 ||
+        resultBucket.retainedFaultValue
+      ) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          reference.taskId,
+          creation.runId,
+          Object.freeze({ host: hostReceipt, settled, workerEvidence }),
+        );
+      }
+      return Object.freeze({
+        version: 1 as const,
+        status: "result_publication_uncertain" as const,
+        runId: creation.runId,
+        settlement: Object.freeze({
+          stage: "reconcileRead" as const,
+          terminalResultFabricated: false as const,
+        }),
+        cancellation: null,
+        host: hostEvidence,
+        worker: workerEvidence,
+      });
+    }
 
     if (
       settled.current.phase === "ready" &&
@@ -916,6 +1064,7 @@ export function makeStandardApplicationTaskDeliveryV1(
       runId: creation.runId,
       output: stored.value as Output,
       cancellation: succeededCancellation,
+      fault: hostReceipt.fault,
       host: hostEvidence,
       worker: makeWorkerEvidence(),
     });
@@ -923,6 +1072,218 @@ export function makeStandardApplicationTaskDeliveryV1(
 
   return Object.freeze({ registerCreation, deliver });
 }
+
+const runFaultDelivery = Effect.fn(
+  "StandardApplicationTaskDelivery.runFaultV1",
+)(function* (input: Readonly<{
+  readonly taskId: string;
+  readonly creation: StandardApplicationTaskRunCreationReceipt;
+  readonly mode: Extract<
+    StandardApplicationTaskDeliveryModeV1,
+    { readonly kind: "fault" }
+  >;
+  readonly loader: ApplicationTaskHostedWorkerLoader;
+  readonly deliveryLive: Omit<
+    ApplicationTaskComputeDeliveryLive,
+    "launchDirectory" | "supervision"
+  >;
+  readonly launchResources: TaskRuntimeLaunchResourceDirectory;
+  readonly supervisor: TaskAttemptSupervisor;
+  readonly resultBucket: StandardApplicationTaskResultFaultBucketV1;
+  readonly completionAttempts: ReadonlyArray<unknown>;
+}>): Effect.fn.Return<
+  StandardApplicationTaskDeliveryExecutionReceiptV1,
+  StandardApplicationTaskDeliveryV1Error,
+  Scope.Scope
+> {
+  const launchDirectory = yield* Effect.fromResult(
+    makeTaskRuntimeLaunchDirectoryFromResources(input.launchResources),
+  ).pipe(Effect.mapError(cause =>
+    new ApplicationTaskDeliveryEventHostConfigurationError({
+      reason: "invalid_live_configuration",
+      cause,
+    })
+  ));
+  const supervisionExit = yield* Deferred.make<Exit.Exit<
+    TaskAttemptSupervisorOutcome,
+    TaskAttemptSupervisorError
+  >>();
+  let admissions = 0;
+  let observations = 0;
+  const observer: TaskAttemptSupervisionObserver = Object.freeze({
+    admit: () => {
+      admissions += 1;
+    },
+    observe: (
+      _observation: Parameters<TaskAttemptSupervisionObserver["observe"]>[0],
+      exit: Parameters<TaskAttemptSupervisionObserver["observe"]>[1],
+    ) => {
+      observations += 1;
+      Deferred.doneUnsafe(supervisionExit, Effect.succeed(exit));
+    },
+  });
+  const layer = makeApplicationTaskComputeDeliveryLayer({
+    ...input.deliveryLive,
+    launchDirectory,
+    supervision: Object.freeze({ supervisor: input.supervisor, observer }),
+  });
+
+  return yield* Effect.scoped(Effect.gen(function* () {
+    const runner = yield* TaskComputeDeliveryConnectedRunner;
+    const supervisionControl = yield* TaskComputeDeliverySupervisionControl;
+    const dispatch = yield* runner.run(null);
+    const duplicate = input.mode.fault === "duplicate_delivery"
+      ? yield* runner.run(null)
+      : null;
+    input.loader.releaseSettlement();
+    yield* supervisionControl.quiesce();
+    const exit = yield* Deferred.await(supervisionExit).pipe(
+      Effect.timeoutOrElse({
+        duration: "15 seconds",
+        orElse: () => failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+        ),
+      }),
+    );
+    if (input.mode.fault === "result_publication_uncertain") {
+      if (Exit.isSuccess(exit)) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+          exit.value,
+        );
+      }
+      if (!isExclusiveResultPublicationUncertaintyCauseV1(exit.cause)) {
+        return yield* Effect.failCause(exit.cause);
+      }
+      return Object.freeze({
+        runner: dispatch,
+        supervision: Object.freeze({
+          expected: admissions,
+          observed: observations,
+          succeeded: 0,
+          failed: 1,
+        }),
+        cancellationGeneration: null,
+        fault: null,
+        resultPublicationUncertain: true,
+      });
+    }
+    if (Exit.isFailure(exit)) return yield* Effect.failCause(exit.cause);
+    const noResurrection = yield* runner.run(null);
+    if (
+      noResurrection.confirmedDispatchCandidatesHandled !== 0 ||
+      noResurrection.confirmedCancellationCandidatesHandled !== 0 ||
+      noResurrection.confirmedDispatchProviderCalls !== 0 ||
+      noResurrection.confirmedCancellationProviderCalls !== 0 ||
+      noResurrection.candidateFailures !== 0
+    ) {
+      return yield* failDelivery(
+        "validateEvidence",
+        "hostEvidenceMismatch",
+        input.taskId,
+        input.creation.runId,
+        noResurrection,
+      );
+    }
+
+    let fault: StandardApplicationTaskResolvedFaultReceiptV1;
+    if (input.mode.fault === "duplicate_delivery") {
+      if (
+        duplicate === null ||
+        duplicate.confirmedDispatchCandidatesHandled !== 0 ||
+        duplicate.confirmedDispatchProviderCalls !== 0 ||
+        duplicate.confirmedCancellationCandidatesHandled !== 0 ||
+        duplicate.confirmedCancellationProviderCalls !== 0 ||
+        duplicate.candidateFailures !== 0
+      ) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "hostEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+          duplicate,
+        );
+      }
+      fault = Object.freeze({
+        kind: "duplicate_delivery" as const,
+        duplicate: Object.freeze({
+          dispatchCandidatesHandled: 0 as const,
+          dispatchProviderCalls: 0 as const,
+          cancellationCandidatesHandled: 0 as const,
+          cancellationProviderCalls: 0 as const,
+          candidateFailures: 0 as const,
+        }),
+      });
+    } else if (input.mode.fault === "completion_response_lost") {
+      if (
+        exit.value.kind !== "completed" ||
+        exit.value.disposition !== "idempotent" ||
+        input.completionAttempts.length !== 2 ||
+        input.completionAttempts[0] !== input.completionAttempts[1]
+      ) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "hostEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+          Object.freeze({
+            outcome: exit.value,
+            completionAttemptCount: input.completionAttempts.length,
+            replayedSameCompletion:
+              input.completionAttempts[0] === input.completionAttempts[1],
+          }),
+        );
+      }
+      fault = Object.freeze({
+        kind: "completion_response_lost" as const,
+        completionAttempts: 2 as const,
+        replayedSameCompletion: true as const,
+        disposition: "idempotent" as const,
+      });
+    } else {
+      if (
+        input.mode.fault !== "result_publication_reconciled" ||
+        input.resultBucket.putCalls !== 1 ||
+        input.resultBucket.getCalls !== 1 ||
+        !input.resultBucket.retainedFaultValue
+      ) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "workerEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+          input.resultBucket,
+        );
+      }
+      fault = Object.freeze({
+        kind: "result_publication_reconciled" as const,
+        publicationAttempts: 1 as const,
+        reconciliationReads: 1 as const,
+      });
+    }
+    return Object.freeze({
+      runner: dispatch,
+      supervision: Object.freeze({
+        expected: admissions,
+        observed: observations,
+        succeeded: 1,
+        failed: 0,
+      }),
+      cancellationGeneration: null,
+      fault,
+      resultPublicationUncertain: false,
+    });
+  }).pipe(
+    Effect.provide(layer),
+    Effect.ensuring(Effect.sync(() => input.loader.releaseSettlement())),
+  ));
+});
 
 const runCancellationDelivery = Effect.fn(
   "StandardApplicationTaskDelivery.runCancellationV1",
@@ -1088,12 +1449,68 @@ const runCancellationDelivery = Effect.fn(
         failed: 0,
       }),
       cancellationGeneration: requested.outcome.cancellation.generation,
+      fault: null,
+      resultPublicationUncertain: false,
     });
   }).pipe(
     Effect.provide(layer),
     Effect.ensuring(Effect.sync(() => input.loader.releaseSettlement())),
   ));
 });
+
+class StandardApplicationTaskResultFaultBucketV1
+  implements TaskResultStoreBucket {
+  putCalls = 0;
+  getCalls = 0;
+  retainedFaultValue = false;
+
+  constructor(
+    private readonly owner: TaskResultStoreBucket,
+    private readonly fault:
+      | "none"
+      | "reject_after_write"
+      | "unresolved",
+  ) {}
+
+  async put(
+    key: string,
+    value: ArrayBuffer,
+    options: Readonly<{
+      readonly onlyIf: Readonly<{ readonly etagDoesNotMatch: "*" }>;
+    }>,
+  ): Promise<unknown> {
+    this.putCalls += 1;
+    if (this.fault === "unresolved") {
+      throw new Error("result publication settlement unavailable");
+    }
+    const result = await this.owner.put(key, value, options);
+    this.retainedFaultValue = true;
+    if (this.fault === "reject_after_write") {
+      throw new Error("result publication response lost after commit");
+    }
+    return result;
+  }
+
+  get(key: string): PromiseLike<unknown> {
+    this.getCalls += 1;
+    if (this.fault === "unresolved") {
+      return Promise.reject(new Error("result reconciliation unavailable"));
+    }
+    return this.owner.get(key);
+  }
+}
+
+/** @internal Exact-cause boundary used by the private simulation fault proof. */
+export function isExclusiveResultPublicationUncertaintyCauseV1(
+  cause: Cause.Cause<unknown>,
+): boolean {
+  if (cause.reasons.length !== 1) return false;
+  const reason = cause.reasons[0];
+  return reason !== undefined &&
+    Cause.isFailReason(reason) &&
+    reason.error instanceof TaskResultStoreSettlementUncertainError &&
+    reason.error.stage === "reconcileRead";
+}
 
 function failDelivery(
   phase: StandardApplicationTaskDeliveryContractV1Error["phase"],

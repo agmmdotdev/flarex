@@ -296,6 +296,9 @@ export interface StandardApplicationSystemTestLaneV1 {
   readonly locateTaskRunTarget: (
     physicalLocator: ScopePhysicalLocator,
   ) => LocatedTaskSystemRunAttemptTargetV1;
+  readonly locateTaskCompletionResponseLostRunTarget: (
+    physicalLocator: ScopePhysicalLocator,
+  ) => LocatedTaskSystemRunAttemptTargetV1;
   readonly createTaskDeliveryControlTarget: () => Promise<
     StandardApplicationTaskDeliveryControlResourceV1
   >;
@@ -473,6 +476,8 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     principals: principalStore,
     sha256: taskSha256,
     locateRunTarget: input.lane.locateTaskRunTarget,
+    locateCompletionResponseLostRunTarget:
+      input.lane.locateTaskCompletionResponseLostRunTarget,
     createControlTarget: input.lane.createTaskDeliveryControlTarget,
     createMutationExternalEffectTarget:
       input.lane.createTaskMutationExternalEffectTarget,

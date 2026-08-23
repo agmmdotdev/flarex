@@ -394,7 +394,8 @@ cancellation, scheduling,
 or result-observation syntax.
 
 The completed `SAC01-F2t-C1`, `SAC01-F2t-C2q`, `SAC01-F2t-C2m`,
-`SAC01-F2t-C3r`, and `SAC01-F2t-C3c` gates preserve that boundary.
+`SAC01-F2t-C3r`, `SAC01-F2t-C3c`, and `SAC01-F2t-C3d` gates preserve that
+boundary.
 The private
 system-test client groups creation and one explicit manual delivery operation
 beneath a `tasks` capability, but only `client.tasks.create` delegates to this
@@ -413,7 +414,11 @@ that same private delivery call: separate registered handlers prove
 interruption-first acknowledgement and completion-first supersession through
 the existing lifecycle and provider. Neither gate adds a Standard retry or
 cancellation method, runtime payload or function-name switch, scheduler, or
-raw host authority. Restart, takeover, and remaining fault controls stay
+raw host authority. C3d keeps duplicate delivery, one lost committed completion
+response, and result-publication response loss behind explicit system-test host
+or store adapters. The existing runner, supervisor, lifecycle, and immutable
+result-store owners decide all idempotency and uncertainty outcomes; the
+harness adds no retry loop or settlement path. Restart and takeover stay
 separately gated. The former private `createTaskRun` consumer was replaced
 directly; no compatibility alias, fallback, or dual test surface remains.
 
