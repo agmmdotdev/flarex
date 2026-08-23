@@ -5,10 +5,17 @@ import { proveApplicationNativeMutation } from
 
 describe("Application-native Standard mutation - PGlite", () => {
   it("composes active Application authority through the shared commit tail", async () => {
-    await expect(proveApplicationNativeMutation()).resolves.toMatchObject({
-      published: true,
-      exactReplay: true,
-      conflictingReuseRejected: true,
+    const proof = await proveApplicationNativeMutation();
+    expect(proof).toMatchObject({
+      initialCommit: {
+        publication: { disposition: "published" },
+        replay: { disposition: "replayed" },
+        conflictingRequestKey: {
+          disposition: "rejected",
+          errorTag: "CommittedPointOutcomeRequestKeyReuseErrorV1",
+          mismatches: ["requestSha256"],
+        },
+      },
       validationCaught: true,
       concurrentDuplicateInProgress: true,
       concurrentDuplicateReplay: true,
@@ -41,5 +48,12 @@ describe("Application-native Standard mutation - PGlite", () => {
       feedCount: 6,
       outboxCount: 6,
     });
+    expect(proof.initialCommit.publication.value).toEqual(expect.any(String));
+    expect(proof.initialCommit.replay.commitSeq).toBe(
+      proof.initialCommit.publication.commitSeq,
+    );
+    expect(proof.initialCommit.replay.workerLoads).toBe(
+      proof.initialCommit.publication.workerLoads,
+    );
   }, 480_000);
 });

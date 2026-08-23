@@ -539,10 +539,10 @@ Named Flarex differences are:
 are complete. The approved `TQ-B` Application-native query pilot is implemented,
 PGlite-validated, and package-typechecked; its genuine PostgreSQL acceptance
 remains open. The approved `TQ-C` Application-native mutation localization work
-is in progress through a bounded candidate-guard observation slice. Remaining
-`TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate implementation
-approval. No test deletion, lane merger, fixture-lifetime change, or package
-extraction is authorized by this section alone.
+is in progress through bounded candidate-guard and initial-commit observation
+slices. Remaining `TQ-A`, later `TQ-C`, `TQ-D`, and `TQ-E` work requires separate
+implementation approval. No test deletion, lane merger, fixture-lifetime change,
+or package extraction is authorized by this section alone.
 
 The repository has accumulated substantial correctness evidence through
 roadmap checkpoints, but the executable shape has also accumulated milestone-
@@ -694,10 +694,24 @@ The work proceeds in bounded gates:
    PostgreSQL credential, that lane reports its explicit environment failure and
    skips the aggregate scenario. A single before/after sample measured
    11.75/13.06 seconds total and 6.51/7.67 seconds of test time, which is not
-   sufficient to infer a runtime change. Replay, validation, concurrency, OCC,
-   head movement, and terminalization remain aggregate follow-up work. File size
-   is a review signal, not a deletion rule; later slices must improve attribution
-   without weakening ordering, concurrency, transaction, or fault evidence.
+   sufficient to infer a runtime change.
+
+   The second bounded slice replaces `published`, `exactReplay`, and
+   `conflictingReuseRejected` with an `initialCommit` observation. Publication
+   and replay now expose their actual disposition, commit sequence, Worker-load
+   count, and published value; the wrappers assert the cross-observation commit
+   and load relationships directly. Conflicting request-key reuse is converted
+   to evidence only through its typed Effect tag and retains the owner-defined
+   mismatch list, while every other failure and defect propagates. The original
+   prerequisite guards still stop the sequential scenario before a broken
+   publication or replay can contaminate later state. The focused PGlite suite
+   and package typecheck pass with the same one-test, one-fixture lifecycle. A
+   single previous/current sample measured 11.18/11.94 seconds total and
+   6.32/6.66 seconds of test time, again insufficient to infer a runtime change.
+   Validation, concurrent duplication, OCC, head movement, and terminalization
+   remain aggregate follow-up work. File size is a review signal, not a deletion
+   rule; later slices must improve attribution without weakening ordering,
+   concurrency, transaction, or fault evidence.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case
@@ -835,11 +849,11 @@ and stale non-authoritative caches without changing the Postgres oracle.
    contract against genuine PostgreSQL. The focused package typecheck is green;
    preserve the implemented shared scenario/assertion contract and each lane's
    activation, fixture construction, and resource-lifetime ownership.
-4. **Continue bounded `TQ-C` localization.** Keep the candidate-guard typed
-   observation, then separate the next independent Application-native mutation
-   invariant without changing the shared fixture, sequential state transitions,
-   or lane-specific resource ownership. Do not introduce cross-lane contract
-   reuse while `TQ-B` PostgreSQL acceptance remains open.
+4. **Continue bounded `TQ-C` localization.** Keep the candidate-guard and
+   initial-commit observations, then localize the validation-catch and concurrent-
+   duplicate evidence without changing the shared fixture, sequential state
+   transitions, or lane-specific resource ownership. Do not introduce cross-lane
+   contract reuse while `TQ-B` PostgreSQL acceptance remains open.
 5. **Bind active foundation work to invariant tests.** D2d is closed by focused
    PGlite facade/retry, declaration/work-cap, and staged byte-guard coverage
    plus a real-Postgres proof at the current 256-item operational boundary,

@@ -24,6 +24,7 @@ import {
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import {
   invokeStandardApplicationPointMutationV1,
+  type InvokeStandardApplicationPointMutationV1Error,
 } from "@flarex/standard-application-invocation/v1";
 import { Effect, Result, Scope } from "effect";
 import {
@@ -75,9 +76,7 @@ const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
 }));
 
 export interface ApplicationNativeMutationProof {
-  readonly published: true;
-  readonly exactReplay: true;
-  readonly conflictingReuseRejected: true;
+  readonly initialCommit: ApplicationNativeMutationInitialCommitObservation;
   readonly validationCaught: true;
   readonly concurrentDuplicateInProgress: true;
   readonly concurrentDuplicateReplay: true;
@@ -92,6 +91,43 @@ export interface ApplicationNativeMutationProof {
   readonly outcomeCount: number;
   readonly feedCount: number;
   readonly outboxCount: number;
+}
+
+export interface ApplicationNativeMutationPublishedObservation {
+  readonly disposition: "published";
+  readonly value: string;
+  readonly commitSeq: bigint;
+  readonly workerLoads: number;
+}
+
+export interface ApplicationNativeMutationReplayObservation {
+  readonly disposition: "replayed";
+  readonly commitSeq: bigint;
+  readonly workerLoads: number;
+}
+
+type ApplicationNativeMutationRequestKeyReuseError = Extract<
+  InvokeStandardApplicationPointMutationV1Error,
+  { readonly _tag: "CommittedPointOutcomeRequestKeyReuseErrorV1" }
+>;
+
+export type ApplicationNativeMutationConflictingRequestKeyObservation =
+  | {
+    readonly disposition: "accepted";
+    readonly outcomeDisposition: "published" | "replayed";
+  }
+  | {
+    readonly disposition: "rejected";
+    readonly errorTag: ApplicationNativeMutationRequestKeyReuseError["_tag"];
+    readonly mismatches:
+      ApplicationNativeMutationRequestKeyReuseError["mismatches"];
+  };
+
+export interface ApplicationNativeMutationInitialCommitObservation {
+  readonly publication: ApplicationNativeMutationPublishedObservation;
+  readonly replay: ApplicationNativeMutationReplayObservation;
+  readonly conflictingRequestKey:
+    ApplicationNativeMutationConflictingRequestKeyObservation;
 }
 
 export type ApplicationNativeMutationConfigurationObservation =
@@ -175,6 +211,12 @@ export async function proveApplicationNativeMutation(
     throw new Error("Application-native mutation was not published.");
   }
   const loadsAfterPublish = loader.loads;
+  const publication: ApplicationNativeMutationPublishedObservation = Object.freeze({
+    disposition: published.disposition,
+    value: published.value,
+    commitSeq: published.commitSeq,
+    workerLoads: loadsAfterPublish,
+  });
   const replayed = await invoke(invokeStandardApplicationPointMutationV1(
     create,
     { name: "Ada" },
@@ -185,20 +227,37 @@ export async function proveApplicationNativeMutation(
     replayed.commitSeq !== published.commitSeq ||
     loader.loads !== loadsAfterPublish
   ) throw new Error("Application-native replay re-executed the Worker.");
-  let conflictingReuseRejected = false;
-  try {
-    await invoke(invokeStandardApplicationPointMutationV1(
-      create,
-      { name: "Different" },
-      firstKey,
-    ));
-  } catch (cause) {
-    conflictingReuseRejected = failureTag(cause) ===
-      "CommittedPointOutcomeRequestKeyReuseErrorV1";
-  }
-  if (!conflictingReuseRejected) {
+  const replay: ApplicationNativeMutationReplayObservation = Object.freeze({
+    disposition: replayed.disposition,
+    commitSeq: replayed.commitSeq,
+    workerLoads: loader.loads,
+  });
+  const conflictingRequestKey:
+    ApplicationNativeMutationConflictingRequestKeyObservation = await invoke(
+      invokeStandardApplicationPointMutationV1(
+        create,
+        { name: "Different" },
+        firstKey,
+      ).pipe(
+        Effect.map(outcome => Object.freeze({
+          disposition: "accepted",
+          outcomeDisposition: outcome.disposition,
+        })),
+        Effect.catchTag(
+          "CommittedPointOutcomeRequestKeyReuseErrorV1",
+          error => Effect.succeed(Object.freeze({
+            disposition: "rejected",
+            errorTag: error._tag,
+            mismatches: Object.freeze([...error.mismatches]),
+          })),
+        ),
+      ),
+    );
+  if (conflictingRequestKey.disposition !== "rejected") {
     throw new Error("Application-native mutation accepted conflicting replay.");
   }
+  const initialCommit: ApplicationNativeMutationInitialCommitObservation =
+    Object.freeze({ publication, replay, conflictingRequestKey });
   loader.mode = "catchValidation";
   const caught = await invoke(invokeStandardApplicationPointMutationV1(
     create,
@@ -381,9 +440,7 @@ export async function proveApplicationNativeMutation(
     throw new Error("Application terminal failure changed durable commit state.");
   }
   return Object.freeze({
-    published: true,
-    exactReplay: true,
-    conflictingReuseRejected: true,
+    initialCommit,
     validationCaught: true,
     concurrentDuplicateInProgress: true,
     concurrentDuplicateReplay: true,

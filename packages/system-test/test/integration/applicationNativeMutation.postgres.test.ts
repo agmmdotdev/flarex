@@ -28,15 +28,22 @@ describe("Application-native mutation PostgreSQL acceptance environment", () => 
 describePostgres("Application-native Standard mutation - PostgreSQL", () => {
   it("composes active Application authority through the shared commit tail", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
-      await expect(proveApplicationNativeMutation(() =>
+      const proof = await proveApplicationNativeMutation(() =>
         createApplicationNativeMutationPostgresFixture({
           runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
           compatibilityDate: COMPATIBILITY_DATE,
         }, persistence)
-      )).resolves.toMatchObject({
-        published: true,
-        exactReplay: true,
-        conflictingReuseRejected: true,
+      );
+      expect(proof).toMatchObject({
+        initialCommit: {
+          publication: { disposition: "published" },
+          replay: { disposition: "replayed" },
+          conflictingRequestKey: {
+            disposition: "rejected",
+            errorTag: "CommittedPointOutcomeRequestKeyReuseErrorV1",
+            mismatches: ["requestSha256"],
+          },
+        },
         validationCaught: true,
         concurrentDuplicateInProgress: true,
         concurrentDuplicateReplay: true,
@@ -69,6 +76,13 @@ describePostgres("Application-native Standard mutation - PostgreSQL", () => {
         feedCount: 6,
         outboxCount: 6,
       });
+      expect(proof.initialCommit.publication.value).toEqual(expect.any(String));
+      expect(proof.initialCommit.replay.commitSeq).toBe(
+        proof.initialCommit.publication.commitSeq,
+      );
+      expect(proof.initialCommit.replay.workerLoads).toBe(
+        proof.initialCommit.publication.workerLoads,
+      );
     });
   }, 480_000);
 });
