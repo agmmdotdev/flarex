@@ -2,11 +2,14 @@
 
 ## Status And Decision
 
-**Status:** Accepted and complete privately. Both mandatory exact-final
-reviewers reported no findings. The implementation adds the candidate-bound
-target, generated exact runtime, fresh Worker Loader host, controlled outbound
-gateway, and authenticated callback bridge. It does not implement SAP07,
-expose a route, activate a caller, or change a public SDK.
+**Status:** Accepted and complete privately as the original candidate-bound
+runtime. SAP07 later consumed it, and the Application migration subsequently
+retained it only as the explicit Legacy branch. The current unversioned
+`ApplicationActionSystem` instead uses Application execution authority,
+`ApplicationActionHostComposition`, Source Artifact V2, and the fresh-load
+`ApplicationExecutionHost`, while preserving the admitted host-policy,
+outbound, callback, resource, and cleanup semantics. Neither branch exposes a
+route, activates a production caller, or changes a public SDK.
 
 Runtime-projection and manifest bodies remain in R2, no schema or migration was
 added, and outbound plus child-mutation evidence reuses AAV-A1. Focused

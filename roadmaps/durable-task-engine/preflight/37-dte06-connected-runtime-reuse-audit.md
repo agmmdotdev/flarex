@@ -11,8 +11,11 @@ persistence owners. The second completes the canonical active-scope
 continuation. The third completes the deterministic bounded multi-scope runner
 core. All remain private and hostless. Connected persistence proof is complete.
 The mapped unknown-delivery replay/recovery subgate is complete and hostless.
-The Worker Loader task adapter, supervision, and private end-to-end proof
-remain pending.
+The Worker Loader task adapter and supervision are now complete privately
+under Preflights 38 and 41. Preflight 42's F0A/F0B/F1/F2 runtime convergence,
+authenticated Task context, production-compatible private host, and fresh-host
+takeover are also complete privately. Its real-Cloudflare F3/F4 closure remains
+separately gated.
 
 The audit itself changed no code or runtime configuration. Its approved first
 implementation checkpoint adds only private package code and private package
@@ -335,19 +338,18 @@ The fixture establishes real candidate, verifier-attempt, schema-version, and
 application-revision parent rows and does not use `session_replication_role`.
 The bounded connected persistence gate is complete and production-inert.
 
-## Stop Boundary
+## Historical Stop Boundary And Current Constraint
 
-The approved source map authorizes only the implementation sequence above. It
-does not authorize work beyond the current Roadmap 06 checkpoint:
+The approved source map authorized only the implementation sequence above.
+Later approved Preflights 38 and 41 completed the private Worker Loader adapter
+and supervision without changing this reuse decision. The current constraint
+remains:
 
-- do not add a task Worker Loader route, runtime ABI, supervisor, heartbeat,
-  result publisher, or settlement composition;
 - do not change the admitted Task lifecycle, schema, migration, repository, or
-  discovery semantics merely to simplify the future runner;
-- do not add a real Cloudflare provider, Queue/cron host, route, binding,
+  discovery semantics merely to simplify the hosted proof;
+- do not add a production Cloudflare provider, Queue/cron host, route, binding,
   deployment, public API, observability UI, or production activation; and
-- do not claim Trigger runtime integration or parity from the completed
-  foundations alone.
+- do not claim hosted parity from the completed private foundations alone.
 
 ## Next After This Gate
 
@@ -357,14 +359,16 @@ cancellation settlement, alternating later-scope progress across two real
 scope databases, conservative persistence-backed accounting for a lost
 accepted-dispatch receipt, and equivalent ordinary-role genuine-PostgreSQL 18
 transaction/provider behavior. The connected persistence and mapped unknown-
-delivery recovery gates are complete. The next roadmap checkpoint is the
-still-private DTE06-D Worker Loader task adapter and its minimal runtime ABI,
-whose approved boundary and implementation order now live in
-[`38-dte06-worker-loader-task-adapter.md`](./38-dte06-worker-loader-task-adapter.md).
-Its first code slice is trusted launch-subject resolution, followed by the
-private ABI and existing-runtime composition; fenced settlement follows that
-gate. This does not authorize a Worker host, route, schedule, binding,
-deployment, public API, or production activation.
+delivery recovery gates are complete. Preflight 38 subsequently completed the
+private Worker Loader task adapter and runtime contract, and Preflight 41
+completed private supervision and fenced settlement. Preflight 42 subsequently
+completed F0A/F0B/F1/F2 through runtime/provider convergence, authenticated Task
+callbacks, the production-compatible private host, and fresh-host takeover. Its
+real-Cloudflare F3/F4 closure remains separately gated under
+[`42-dte06-hosted-runtime-proof.md`](./42-dte06-hosted-runtime-proof.md).
+It does not authorize a production Worker host, route, schedule, binding,
+deployment, public API, observability surface, or external Cloudflare resource
+mutation.
 Only blockers discovered by that vertical may justify another foundation
 preflight.
 

@@ -321,7 +321,7 @@ settlement, and close. Runtime-object materialization and authenticated Task
 callback mechanics now share those existing owners rather than creating a
 second action/runtime system.
 
-The next foundation now adds `ApplicationTaskQueryAuthority`. Its post-launch
+The completed foundation adds `ApplicationTaskQueryAuthority`. Its post-launch
 composition binds the already-authenticated launch creation authority and
 runtime target once, then exposes a session whose query calls accept no launch
 identity. Each call re-reads and claims the opaque active Application selection,

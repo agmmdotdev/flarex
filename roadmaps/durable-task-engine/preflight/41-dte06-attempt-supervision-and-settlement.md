@@ -653,7 +653,10 @@ the unchanged success completion; the existing lifecycle reaches
 this proves both terminal orderings without adding a race policy outside the
 durable lifecycle.
 
-E5 is complete privately. DTE06-F is the next implementation gate.
+E5 is complete privately. DTE06-F0A/F0B/F1/F2 subsequently completed the
+runtime convergence, authenticated callbacks, private host, and fresh-host
+takeover proof. The real-Cloudflare F3/F4 closure remains separately gated under
+[`42-dte06-hosted-runtime-proof.md`](./42-dte06-hosted-runtime-proof.md).
 
 Every significant code slice requires the two standing project reviewers
 against the final diff. Any newly discovered schema/migration, lifecycle-policy,
@@ -713,11 +716,12 @@ be supervised into the existing durable lifecycle with bounded heartbeats,
 exact cancellation acknowledgement, typed failure/retry settlement, and
 content-addressed successful results.
 
-The private Application delivery composition now supplies the scope-aware
-resolver and supervisor, but no deployed host is required to run it. E5 does
-not prove redelivery after process loss, public status/results, or hosted
-Cloudflare/PostgreSQL operational behavior. DTE06-F now owns hosted end-to-end
-recovery.
+The private Application delivery composition supplies the scope-aware resolver
+and supervisor, and DTE06-F1/F2 subsequently prove the production-compatible
+private host plus fresh-host recovery in PGlite and ordinary-role PostgreSQL.
+They do not prove public status/results or real Cloudflare/Hyperdrive/R2
+operation. DTE06-F3/F4 own that separately gated hosted closure under
+[`42-dte06-hosted-runtime-proof.md`](./42-dte06-hosted-runtime-proof.md).
 DTE05-E3 may consider a scheduled
 Worker/Cron host only after DTE06-F closes and receives separate deployment
 approval.

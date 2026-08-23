@@ -2,20 +2,36 @@
 
 ## Status And Decision
 
-**Status:** AAV-A1, AAV-A2, and SAP07 are accepted and complete privately. Both
-mandatory exact-final reviewers reported no findings. The route-independent
-`ApplicationActionSystemV1` and thin Standard consumer compose the existing
-active-revision reader, AAV-A1 durable request/outcome authority, AAV-A2 opaque
-candidate-bound host bundle, and R2 result ownership without adding another
-schema, migration, route, trigger, or production caller. Existing owners can
-authenticate an
-`action` function, publish its `edge_action` projection to R2, settle cold-
-materialization readiness, and select the active revision. The admitted
-`@flarex/durable-task` domain owns task run/attempt lifecycle and sequenced
-orchestration requests; it does not turn direct actions into tasks and does not
-own user external-effect dispatch evidence. The new AAV-A1 owners now durably
-distinguish a confirmed pre-dispatch failure from an external effect that may
-have succeeded before its response was lost, without creating task lifecycle.
+**Status:** AAV-A1, AAV-A2, and SAP07 are accepted and complete privately. The
+later Application migration retained their single durable action/effect
+lifecycle while replacing candidate-bound execution authority with the current
+`application_v1` authority. The unversioned `ApplicationActionSystem` and thin
+Standard consumer now compose issuer-backed active Application selection,
+generation-aware durable request/outcome authority, the scoped
+`ApplicationActionHostComposition`, authenticated Source Artifact V2 loading,
+fresh `ApplicationExecutionHost` execution, and R2 argument/result ownership.
+The displaced candidate-bound service is explicitly
+`LegacyApplicationActionSystemV1` and is reachable only through retained
+migration/system-test owners; it is not a fallback or comparison runtime.
+
+No current action owner adds a production route, binding, trigger, scheduler,
+or public caller. `@flarex/durable-task` separately owns task run/attempt
+lifecycle and sequenced orchestration requests; it does not turn direct actions
+into tasks and does not own action external-effect dispatch evidence. The one
+action lifecycle still distinguishes confirmed pre-dispatch failure from an
+external effect that may have succeeded before its response was lost without
+creating task lifecycle.
+
+The current direct Action contract is foreground request/response external I/O
+only. Durable Tasks are the sole engine for background, queued, delayed,
+retryable, and scheduled work. `ApplicationActionSystem` is therefore not a
+scheduler target and may not be invoked inside a Task attempt. Query/mutation
+callbacks, outbound policy, source/runtime loading, fresh Worker isolation,
+RPC cleanup, and external-effect evidence may converge at their existing
+runtime owners; Action request/outcome authority and Task run/attempt authority
+remain separate. DTE06-F0A/F0B completed that bounded runtime/provider and
+authenticated-callback convergence without nesting Action lifecycle inside a
+Task; the real-Cloudflare DTE06-F3/F4 proof remains separately gated.
 
 The implemented private gate is:
 
@@ -32,10 +48,12 @@ action attempts, dual writes, or a second retry/lease/cancellation state
 machine. An in-memory Dynamic Worker proof cannot substitute for it.
 
 [`48-aav-a2-candidate-bound-edge-action-runtime.md`](./48-aav-a2-candidate-bound-edge-action-runtime.md)
-pins the exact AAV-A2 target/profile/ABI, host-owned policy, ceilings,
-Worker isolation, callback/outbound bridges, and cleanup boundary. The private
-implementation now supplies only that candidate-bound runtime and bridge. The
-final private Standard gate
+pins the exact original AAV-A2 target/profile/ABI, host-owned policy, ceilings,
+Worker isolation, callback/outbound bridges, and cleanup boundary. That
+candidate-bound runtime is now the retained Legacy branch; the current
+Application branch reuses its admitted host policy and capability semantics
+through the Application authority and execution host recorded in Roadmap 49.
+The final private Standard gate
 is named `SAP07` only in this roadmap and means **one route-independent public
 edge action**; it does not mean FSV07 production routing or a public SDK.
 
@@ -47,28 +65,26 @@ host integration.
 
 The private implementation adds:
 
-- `ApplicationActionSystemV1`, whose scoped operation admits the exact public
-  action request, prepares the AAV-A2 candidate target, issues one opaque host
-  bundle and one opaque settlement capability, and publishes or replays the
-  durable AAV-A1 outcome;
-- `invokeStandardApplicationActionV1`, a thin consumer of the existing
-  Scope-owned active-revision reader;
-- a private backend coordinator that validates the route-independent artifact-
-  host result while preserving rejected host Promises as defects; and
-- focused unit, Workerd-regression, and migrated-PGlite composition evidence.
+- `ApplicationActionSystem`, whose scoped operation admits the exact public
+  Application action request, issues one scoped host bundle and one opaque
+  settlement capability, and publishes or replays the durable action outcome;
+- `invokeStandardApplicationActionV1`, a compatibility-named thin consumer of
+  the unversioned System service;
+- `ApplicationActionHostComposition`, which owns claim, argument loading,
+  callback/outbound capability sequencing, close-and-drain, and settlement
+  admission; and
+- the backend Application action runner, which validates the Application
+  authority and calls the fresh-load `ApplicationExecutionHost` with the
+  authority-pinned Source Artifact V2 runtime.
 
-The PGlite proof selects a real activated revision, claims its real registered
-`actions:send` entry and content-addressed `edge_action` target, transfers the
-opaque bundle once, stores canonical arguments and result bodies only in the
-R2 adapter, persists one invocation row with no byte columns, and replays the
-completed result without a second host execution. It also proves database-time
-expiry recovery: an execution with no possible dispatch returns to `admitted`
-and completes, while durable outbound-dispatch evidence settles the parent as
-`uncertain` without another Worker. Request-key inspection precedes new active-
-revision admission, so a completed pinned outcome remains replayable after an
-active revision changes, while an admitted retry dispatches only when scope,
-revision, candidate, action binding, compatibility date, and host-policy
-authority still match. The existing AAV-A2 Workerd
+The current private PGlite and genuine-PostgreSQL proofs select a real activated
+Application action, store canonical arguments and result bodies only in the R2
+adapter, persist one generation-aware invocation row, and replay the completed
+result without a second Worker execution. They also prove database-time expiry
+recovery and durable outbound uncertainty. Request-key inspection precedes new
+active Application selection, so a completed pinned outcome remains replayable
+after head movement, while an admitted retry executes only when the current
+issuer reproduces the exact stored Application authority. The Worker/runtime
 tests remain the sandbox/global-fetch/fixed-time/deterministic-random proof;
 the accepted analyzer capability matrix remains unchanged and continues to
 forbid action database access and to expose only authenticated query/mutation
@@ -335,12 +351,13 @@ or nondeterministic crypto randomness. The analyzer and generated Worker must
 reject or remove every unavailable surface; importing a global name is not
 authority.
 
-`ApplicationActionSystemV1` should own shared private composition through a
-Layer. Each invocation's active selection, durable claim, runtime target,
+`ApplicationActionSystem` owns shared private composition through a Layer. Each
+invocation's active Application selection, durable claim, runtime target,
 callback capability, outbound adapter, Worker, cancellation, and cleanup state
 remain Scope-owned. The System Effect requires
-`ApplicationActionSystemV1 | Scope.Scope`; the thin Standard consumer first
-uses the existing active-revision reader and preserves its Scope requirement.
+`ApplicationActionSystem | Scope.Scope`; the thin Standard consumer delegates
+selection, admission, execution, and settlement to that service and preserves
+its Scope requirement.
 Neither service may expose raw persistence, R2 administration, database,
 transaction, Worker Loader, binding, or provider credentials.
 

@@ -285,7 +285,8 @@ separate task entrypoint and host kit. It must:
 - construct the exact module graph from verified immutable runtime objects;
 - reject missing, extra, colliding, or digest-mismatched modules;
 - resolve only the declared `durable_task` module/export pair;
-- preserve materialization identity across cold and warm starts;
+- preserve materialization identity across cold and repeat immutable-object
+  paths while loading a fresh task Worker for every execution;
 - set `globalOutbound: null` unless a later separately approved compute profile
   introduces a restricted outbound capability;
 - expose no raw Task tables, persistence transaction, tenant routing,
@@ -435,8 +436,9 @@ No real provider composition is admitted in D2.
 - implement the real Cloudflare `TaskComputeProvider` adapter without changing
   the provider-neutral interface;
 - preserve exact dispatch acceptance and generation-correlated cancellation;
-- prove cold/warm materialization, idempotent replay, unknown response,
-  unsupported profile, lost execution, timeout, and cleanup behavior;
+- prove cold/repeat immutable-object materialization with fresh task Workers,
+  idempotent replay, unknown response, unsupported profile, lost execution,
+  timeout, and cleanup behavior;
 - prove no import or runtime fallback to `InvokeRequest`, `/invoke`, action,
   query, or mutation hosts; and
 - keep the adapter absent from every deployable composition root.
@@ -687,6 +689,8 @@ Duplicate connected delivery is suppressed through the persisted dispatch
 checkpoint before a second provider call. The final cancel/complete proof
 preserves success and lets the existing lifecycle record
 `superseded_by_completion` when completion wins.
-DTE06-F now owns the private end-to-end hosted proof.
+DTE06-F0A/F0B/F1/F2 are now complete privately; the isolated real-Cloudflare
+F3/F4 closure remains separately gated under
+[`42-dte06-hosted-runtime-proof.md`](./42-dte06-hosted-runtime-proof.md).
 Only after those gates may DTE05-E3 consider a scheduled Worker host and
 activation.

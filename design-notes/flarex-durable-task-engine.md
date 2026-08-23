@@ -6,13 +6,13 @@
 in [`../roadmaps/durable-task-engine/README.md`](../roadmaps/durable-task-engine/README.md).
 The private lifecycle, Task System Postgres, scheduling/repair, provider, and
 compute-delivery persistence foundations are implemented but production-inert.
-The connected runtime source-reuse audit is approved. Its private trusted
-directory, single-candidate delivery, canonical active-scope continuation, and
-deterministic bounded multi-scope runner checkpoints are implemented. The
-deadline-owned control-directory persistence prerequisite is complete in
-PGlite and genuine PostgreSQL. Connected repository/discovery/provider proof
-and the runtime vertical remain pending under
-[`../roadmaps/durable-task-engine/preflight/37-dte06-connected-runtime-reuse-audit.md`](../roadmaps/durable-task-engine/preflight/37-dte06-connected-runtime-reuse-audit.md).
+The connected runtime, Worker Loader provider, supervision, result publication,
+heartbeat, cancellation, and fenced settlement vertical is complete privately.
+Runtime/provider convergence, authenticated Task query/mutation context,
+production-compatible private hosting, and fresh-host takeover are complete
+through DTE06-F0A/F0B/F1/F2. The isolated real-Cloudflare F3/F4 proof remains
+separately gated under
+[`../roadmaps/durable-task-engine/preflight/42-dte06-hosted-runtime-proof.md`](../roadmaps/durable-task-engine/preflight/42-dte06-hosted-runtime-proof.md).
 
 This note defines how the pinned Trigger.dev compatibility island may inform a
 Flarex-native durable background-task engine. It does not activate the imported
@@ -84,6 +84,13 @@ Flarex task and scheduler APIs
                   -> AgentOS or another provider
 ```
 
+The `ComputeProvider` remains the asynchronous Task dispatch/cancellation
+boundary. It is not widened into a universal query/mutation/action/task
+provider. Query snapshot, mutation OCC/journal, foreground action
+request/outcome, and Task run/attempt authority remain separate while their
+Application Worker materialization, isolation, RPC, cleanup, and callback
+mechanics converge below those domain services.
+
 The durable-run state machine should be host-neutral. It should express
 validated commands, current durable state, deterministic transition decisions,
 required atomic writes, emitted events, and typed failures. Cloudflare Workers,
@@ -117,9 +124,18 @@ not public identity. Each application revision creates an immutable
 task-definition revision that captures the exact manifest, artifact,
 validators, and policies used by its runs.
 
-Current Flarex action code is prototype evidence only. Action runtime work may
-later provide reusable sandbox, external-I/O, or nested-call mechanics, but it
-does not decide the task definition, context, artifact class, or lifecycle.
+The current `ApplicationActionSystem` is a real foreground request/response
+external-I/O owner, not Task authority. Durable Tasks are the sole engine for
+background, queued, delayed, retryable, and scheduled work. Action runtime
+mechanics may provide reusable sandbox, outbound-I/O, or nested query/mutation
+callback mechanics, but an Action is not a scheduler target and is never
+invoked as a nested lifecycle inside a Task attempt.
+
+The Task Worker receives an authenticated, scope-bound context whose admitted
+members route `runQuery` and `runMutation` through the existing Application
+systems and route scheduler/enqueue requests through Task System operations.
+It receives no ambient service container, raw database transaction, Task
+tables, provider credentials, Queue, Cron, or infrastructure authority.
 
 The first private producer should target the canonical task manifest directly.
 A later Trigger-style public `task({ id, run, ... })` API must lower to that

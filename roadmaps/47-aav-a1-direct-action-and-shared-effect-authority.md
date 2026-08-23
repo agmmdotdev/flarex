@@ -2,13 +2,16 @@
 
 ## Status And Decision
 
-**Status:** Accepted and complete privately. Both mandatory exact-final
-reviewers reported no findings after the final corrections. The four admitted
-protocol identities, R2 evidence-body owner,
-exactly two PostgreSQL tables, operation-specific authority, active-action
-admission facade, and PGlite/genuine-PostgreSQL proofs now exist. The capability
-remains production-inert: there is no action runtime, route, binding, trigger,
-scheduler, task integration, or production caller.
+**Status:** Accepted and complete privately. The four admitted protocol
+identities, R2 evidence-body owner, two PostgreSQL tables, operation-specific
+authority, and PGlite/genuine-PostgreSQL proofs exist. The later Application
+migration retained this single invocation/effect lifecycle and made its parent
+execution authority an exact Legacy/Application generation union. The current
+unversioned `ApplicationActionSystem` consumes only the Application branch;
+the candidate-bound branch is retained as explicit Legacy migration evidence.
+The capability remains production-inert: the private action runtime now exists,
+but there is no route, binding, trigger, scheduler, task integration, or
+production caller.
 
 Implementation evidence preserves the ownership decision: canonical argument,
 result, and HTTP bodies live only in content-addressed R2 objects; PostgreSQL

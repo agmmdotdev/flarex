@@ -38,6 +38,7 @@ import {
   internalQuery,
   mutation,
   query,
+  task,
   v,
 } from "flarex/server"
 ```
@@ -51,6 +52,7 @@ v.* validators and field builders
 query(...)
 mutation(...)
 action(...)
+task(...)
 ctx.db
 ctx.auth
 ctx.storage
@@ -543,10 +545,12 @@ export const createCourse = mutation({
 })
 ```
 
-Actions:
+Durable background work:
 
 ```ts
-export const generateLessonAudio = action({
+export const generateLessonAudio = task({
+  id: "generate-lesson-audio",
+  retry: { maximumAttempts: 5 },
   args: {
     lessonId: v.id("lessons"),
   },
@@ -565,8 +569,11 @@ Function rules:
 
 - Queries are read-only and live-syncable.
 - Mutations are short, deterministic transactional functions.
-- Actions can call external APIs and run longer, but do not hold a database
-  transaction open.
+- Tasks own background, queued, delayed, retryable, and scheduled work. They
+  may call external APIs and use authenticated query/mutation callbacks, but do
+  not hold a database transaction open.
+- Actions, if retained, are foreground request/response external-I/O
+  functions. They are not scheduler targets and are not nested inside Tasks.
 - Internal functions are callable by server code only.
 
 ## Ctx Surfaces
@@ -598,8 +605,21 @@ ctx.runMutation
 ctx.fetch
 ```
 
+Task ctx:
+
+```ts
+ctx.auth
+ctx.storage
+ctx.scheduler
+ctx.runQuery
+ctx.runMutation
+ctx.fetch
+```
+
 Actions should not receive a raw `ctx.db` write surface by default. They should
 call queries/mutations so transactional boundaries stay explicit.
+Tasks follow the same rule and receive no raw Task System, Postgres, provider,
+Queue, or Cron capability.
 
 ## ctx.db Reads
 
@@ -832,8 +852,10 @@ await ctx.scheduler.runAt("publishCourse", {
 })
 ```
 
-Scheduled work should run actions or internal mutations, not arbitrary long
-transactions.
+Scheduled work creates first-class durable Task runs. Queue, Cron, alarms, and
+other host mechanisms only wake the Task System; they do not execute actions or
+mutations directly and are not durable truth. A scheduled Task may call the
+existing query and mutation systems through authenticated context callbacks.
 
 ## Live Sync Semantics
 
