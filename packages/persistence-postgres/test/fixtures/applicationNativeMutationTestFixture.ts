@@ -7,13 +7,18 @@ import {
   type ApplicationManifestSourceArtifactV1Input,
 } from "@flarex/analysis/application-analysis";
 import {
+  decodeCanonicalTaskManifestV1,
   hashCanonicalTaskCatalogV1,
   makeStandardApplicationTaskSha256V1,
+  type CanonicalTaskManifestV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import {
   produceApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
-import { prepareStandardApplicationDefinitionV1 } from
+import {
+  prepareStandardApplicationDefinitionV1,
+  type PreparedStandardApplicationDefinitionV1,
+} from
   "@flarex/standard-application-definition/v1";
 import { Effect, Result } from "effect";
 import {
@@ -168,6 +173,10 @@ export interface ApplicationNativeMutationFixtureOptions {
   readonly includeTask?: boolean;
   readonly taskMaximumDurationInSeconds?: number;
   readonly taskRetryMinimumTimeoutInMs?: number;
+  readonly taskPublication?: Readonly<{
+    readonly definition: PreparedStandardApplicationDefinitionV1;
+    readonly manifests: ReadonlyArray<CanonicalTaskManifestV1>;
+  }>;
   readonly analysis?: Readonly<ApplicationNativeMutationAnalysis>;
 }
 
@@ -759,16 +768,13 @@ async function createApplicationNativeMutationFixture<
         manifest: nextAnalysis.manifest,
       }),
     );
+    const taskPublication = resolveTaskPublication(options);
     const nextCatalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
       version: 1,
-      tasks: options.includeTask === true
-        ? [applicationTaskManifest(options)]
-        : [],
+      tasks: taskPublication.manifests,
     }, taskSha256));
     const nextBindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
-      definition: options.includeTask === true
-        ? taskPreparedDefinition()
-        : emptyPreparedDefinition(),
+      definition: taskPublication.definition,
       catalog: nextCatalog,
       authority: {
         scopeId: nextPublication.scopeId,
@@ -1130,16 +1136,13 @@ async function registerFixtureTaskBindings(
   publication: ApplicationPublication,
   options: ApplicationNativeMutationFixtureOptions,
 ): Promise<void> {
+  const taskPublication = resolveTaskPublication(options);
   const catalog = await Effect.runPromise(hashCanonicalTaskCatalogV1({
     version: 1,
-    tasks: options.includeTask === true
-      ? [applicationTaskManifest(options)]
-      : [],
+    tasks: taskPublication.manifests,
   }, taskSha256));
   const bindings = await Effect.runPromise(produceApplicationTaskBindingsV1({
-    definition: options.includeTask === true
-      ? taskPreparedDefinition()
-      : emptyPreparedDefinition(),
+    definition: taskPublication.definition,
     catalog,
     authority: {
       scopeId: publication.scopeId,
@@ -1160,6 +1163,31 @@ async function registerFixtureTaskBindings(
       bindings,
     }),
   );
+}
+
+function resolveTaskPublication(
+  options: ApplicationNativeMutationFixtureOptions,
+): Readonly<{
+  readonly definition: PreparedStandardApplicationDefinitionV1;
+  readonly manifests: ReadonlyArray<CanonicalTaskManifestV1>;
+}> {
+  if (options.taskPublication !== undefined) {
+    if (options.includeTask === true) {
+      throw new Error(
+        "Application-native fixture Task publication cannot use both the fixed and explicit Task catalogs.",
+      );
+    }
+    return options.taskPublication;
+  }
+  return options.includeTask === true
+    ? Object.freeze({
+        definition: taskPreparedDefinition(),
+        manifests: Object.freeze([applicationTaskManifest(options)]),
+      })
+    : Object.freeze({
+        definition: emptyPreparedDefinition(),
+        manifests: Object.freeze([]),
+      });
 }
 
 async function mutationSourceBundle(): Promise<ApplicationNativeMutationSourceBundle> {
@@ -1361,10 +1389,12 @@ function taskPreparedDefinition() {
   }));
 }
 
-function applicationTaskManifest(options: ApplicationNativeMutationFixtureOptions) {
+function applicationTaskManifest(
+  options: ApplicationNativeMutationFixtureOptions,
+): CanonicalTaskManifestV1 {
   const maximumDurationInSeconds = options.taskMaximumDurationInSeconds ?? 30;
   const retryMinimumTimeoutInMs = options.taskRetryMinimumTimeoutInMs ?? 1_000;
-  return Object.freeze({
+  return Result.getOrThrow(decodeCanonicalTaskManifestV1({
     version: 1 as const,
     taskId: "tasks.users.task",
     handler: Object.freeze({
@@ -1388,7 +1418,7 @@ function applicationTaskManifest(options: ApplicationNativeMutationFixtureOption
     maximumDurationInSeconds,
     computeProfile: "standard-1x",
     queue: Object.freeze({ kind: "default" as const }),
-  });
+  }));
 }
 
 function uuidSequence(...sequences: ReadonlyArray<number>): () => string {

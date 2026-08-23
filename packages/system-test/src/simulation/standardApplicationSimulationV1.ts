@@ -1,6 +1,9 @@
 import type {
   StandardApplicationDefinitionInputV1,
 } from "@flarex/standard-application-definition/v1";
+import type {
+  StandardApplicationTaskDefinitionV1,
+} from "@flarex/standard-application-definition/internal/task-authoring-v1";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import type { Effect } from "effect";
 
@@ -13,6 +16,9 @@ export interface StandardApplicationSimulationApplicationV1 {
   readonly applicationId: string;
   readonly revisionName: string;
   readonly define: () => StandardApplicationDefinitionInputV1;
+  readonly defineTasks?: () => ReadonlyArray<
+    StandardApplicationTaskDefinitionV1<unknown, unknown>
+  >;
 }
 
 export interface StandardApplicationSimulationRuntimeExpectationsV1 {

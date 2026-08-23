@@ -304,7 +304,42 @@ fixture succeeds.
 
 ## Investigation Leads
 
-None.
+### `ST-CORE-027` - DTE06-C3 retained cross-package relative test imports
+
+- **Reproducible scenario:** Run `pnpm --filter @flarex/system-test exec
+  vitest run test/packageBoundary.test.ts --no-file-parallelism`.
+- **Expected behavior:** Every relative import in the private system-test package
+  remains inside the package root; dependencies on another package use an owned
+  exported subpath.
+- **Actual behavior:** The boundary guard reports ten escapes from the PGlite and
+  PostgreSQL DTE06-C3 tests into durable-task source and persistence test-support
+  files.
+- **Owner and trust boundary:** The retained specialized DTE06-C3 test harness
+  and the owning package export boundaries. This is not part of the unified
+  Standard Application Task producer.
+- **Current evidence:** The focused boundary test fails 1 of 13 cases while the
+  other boundary checks pass.
+- **Current disposition:** Open for a separate bounded package-boundary cleanup.
+  Do not add an allowlist exception or copy the imported owners into
+  `@flarex/system-test`.
+
+### `ST-CORE-028` - retained FSV03 bridge emits encoded syscall sequence text
+
+- **Reproducible scenario:** Run `pnpm --filter @flarex/system-test exec
+  vitest run test/integration/fsv03PrivateAnalyzerToPostgres.test.ts
+  --no-file-parallelism`.
+- **Expected behavior:** The in-process runtime bridge preserves the bigint
+  `syscallSequence` accepted by the point-mutation journal runtime boundary.
+- **Actual behavior:** The success case supplies the encoded string `"1"` and
+  fails with `UnsupportedPointMutationJournalOperationV1Error` / `invalidSequence`;
+  the digest-rejection case still passes.
+- **Owner and trust boundary:** The retained FSV03 test-owned runtime bridge.
+  The executor correction recorded by `ST-CORE-021` remains authoritative and
+  must not be weakened to accept encoded strings at runtime.
+- **Current evidence:** The focused FSV03 file fails 1 of 2 tests with `Expected
+  bigint, got "1"`.
+- **Current disposition:** Open for a separate test-fixture correction. It is not
+  authority to change the journal decoder or the F2t-B Task composition.
 
 ## Resolved Issues
 

@@ -1,4 +1,5 @@
 import { Data, Effect, Fiber, Layer, Result, Scope } from "effect";
+import { copyBytes } from "@flarex/utils/bytes";
 import type {
   TransactionFunctionPathV1,
   TransactionRequestKeyV1,
@@ -12,6 +13,9 @@ import {
   type ValidatorValueIssueV1,
 } from "flarex-protocol/validator-engine";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import {
+  decodeTaskDurationMsV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
 
 import type {
   AnyStandardFunctionContractV1,
@@ -34,19 +38,61 @@ import {
   type InvokeStandardApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/v1";
 import {
+  createStandardApplicationTaskRun,
+  makeStandardApplicationTaskSystemLayer,
+  type CreateStandardApplicationTaskRunError,
+  type StandardApplicationTaskRunCreationReceipt,
+  type StandardApplicationTaskRunRequestV1,
+  StandardApplicationTaskSystem,
+} from
+  "@flarex/standard-application-invocation/internal/standard-application-task-system";
+import {
+  makeApplicationTaskSystemLayer,
+} from "@flarex/standard-application-invocation/internal/application-task-system";
+import {
   ApplicationMutationSystem,
 } from "@flarex/standard-application-invocation/internal/application-mutation-system";
 import {
   ApplicationQuerySystem,
 } from "@flarex/standard-application-invocation/internal/application-query-system";
 import type {
+  StandardApplicationTaskReferenceV1,
+} from "@flarex/standard-application-definition/internal/task-authoring-v1";
+import {
+  makeStandardApplicationTaskSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import {
+  makeApplicationTaskSystemRunCreationStore,
+} from
+  "@flarex/persistence-postgres/internal/application-task-system-run-creation";
+import type {
+  TaskExecutionPrincipalStoreBucket,
+} from "flarex-backend/internal/task-execution-principal-store";
+import {
+  makeTaskExecutionPrincipalStore,
+} from "flarex-backend/internal/task-execution-principal-store";
+import {
+  makeTaskInputStore,
+  type TaskInputStoreBucket,
+} from "flarex-backend/internal/task-input-store";
+import type {
   ApplicationNativeMutationFixture,
   ApplicationNativeMutationFixtureOptions,
   ApplicationNativeMutationPersistence,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
+import type {
+  LocatedTaskSystemRunAttemptTargetV1,
+} from
+  "@flarex/persistence-postgres/internal/task-system-run-attempt-store-v1";
+import type {
+  ScopePhysicalLocator,
+} from "@flarex/persistence-postgres";
 import { APPLICATION_RUNTIME_HOST_IDENTITY } from
   "flarex-backend/artifact-runtime";
+import {
+  ReplacementScopeIdV1Schema,
+} from "flarex-protocol/storage-authority";
 import { makeApplicationNativeMutationTestLayer } from
   "../../support/applicationNativeMutationHarness";
 import {
@@ -70,6 +116,7 @@ import type {
 type ApplicationTestRequirementsV1 =
   | ApplicationMutationSystem
   | ApplicationQuerySystem
+  | StandardApplicationTaskSystem
   | Scope.Scope;
 
 export type StandardApplicationLegacySimulationQueryErrorV1 =
@@ -109,6 +156,13 @@ export interface StandardApplicationSystemTestSetupClientV1 {
 
 export interface StandardApplicationSystemTestClientV1
   extends StandardApplicationSystemTestSetupClientV1 {
+  readonly createTaskRun: <Payload, Output>(
+    reference: StandardApplicationTaskReferenceV1<Payload, Output>,
+    request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
+  ) => Effect.Effect<
+    StandardApplicationTaskRunCreationReceipt,
+    CreateStandardApplicationTaskRunError
+  >;
   readonly query: <
     Path extends string,
     Contract extends StandardFunctionContractV1<
@@ -196,7 +250,10 @@ export class StandardApplicationSimulationIntegrationV1Error
   extends Data.TaggedError(
     "StandardApplicationSimulationIntegrationV1Error",
   )<{
-    readonly phase: "prepareRevision" | "inspectPostgresVersion";
+    readonly phase:
+      | "prepareRevision"
+      | "prepareTaskSystem"
+      | "inspectPostgresVersion";
     readonly applicationId: string;
     readonly cause: unknown;
   }> {}
@@ -215,6 +272,9 @@ export interface StandardApplicationSystemTestLaneV1 {
   ) => Promise<
     ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
   >;
+  readonly locateTaskRunCreationTarget: (
+    physicalLocator: ScopePhysicalLocator,
+  ) => LocatedTaskSystemRunAttemptTargetV1;
 }
 
 /**
@@ -253,6 +313,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
 > {
   const { simulation } = input;
   const standardDefinitionInput = simulation.application.define();
+  const taskDefinitions = simulation.application.defineTasks?.() ?? [];
   const registeredFunctionContracts = indexRegisteredFunctionContractsV1(
     standardDefinitionInput,
   );
@@ -267,6 +328,12 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
       return input.lane.createFixture({
         runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
         compatibilityDate: "2026-06-14",
+        taskPublication: Object.freeze({
+          definition,
+          manifests: Object.freeze(
+            taskDefinitions.map(task => task.manifest),
+          ),
+        }),
         analysis: makeStandardApplicationCurrentAnalysisV1(
           source,
           analysisLoader,
@@ -309,9 +376,56 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     runtimeLoader,
     () => { queryRuntimeExecutions += 1; },
   );
+  const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
+    globalThis.crypto.subtle.digest("SHA-256", input)
+  );
+  const locatedTaskRunAuthority = Object.freeze({
+    authority: fixture.active.basis.authority,
+    target: input.lane.locateTaskRunCreationTarget(
+      fixture.active.basis.authority.physicalLocator,
+    ),
+  });
+  const taskRunCreation = makeApplicationTaskSystemRunCreationStore(
+    locatedTaskRunAuthority,
+    {
+      sha256: taskSha256,
+      leaseDurationMs: Result.getOrThrow(decodeTaskDurationMsV1(30_000)),
+      immediateRetryThresholdMs:
+        Result.getOrThrow(decodeTaskDurationMsV1(5_000)),
+    },
+  );
+  const principalStore = yield* Effect.fromResult(
+    makeTaskExecutionPrincipalStore(
+      ReplacementScopeIdV1Schema.make(
+        fixture.active.basis.authority.scopeId,
+      ),
+      new MemoryImmutableTaskObjectBucketV1(),
+    ),
+  ).pipe(Effect.mapError(cause =>
+    new StandardApplicationSimulationIntegrationV1Error({
+      phase: "prepareTaskSystem",
+      applicationId: simulation.application.applicationId,
+      cause,
+    })
+  ));
+  const applicationTaskLayer = makeApplicationTaskSystemLayer({
+    activation: fixture.activation,
+    selection: {
+      deploymentId: fixture.deploymentId,
+      runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+      compatibilityDate: "2026-06-14",
+      authority: fixture.authorityPorts,
+    },
+    creation: taskRunCreation,
+    principalIssuer: principalStore,
+  });
+  const standardTaskLayer = makeStandardApplicationTaskSystemLayer(
+    makeTaskInputStore(new MemoryImmutableTaskObjectBucketV1()),
+  ).pipe(Layer.provide(applicationTaskLayer));
   const applicationLayer = Layer.mergeAll(
     mutationLayer,
     queryLayer,
+    standardTaskLayer,
   );
   const inspector = yield* makeStandardApplicationSystemTestInspectorV1({
     applicationId: simulation.application.applicationId,
@@ -422,6 +536,15 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
             ))
       );
       const client = Object.freeze({
+        createTaskRun: <Payload, Output>(
+          reference: StandardApplicationTaskReferenceV1<Payload, Output>,
+          request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
+        ) => invokeWhileActive(() => invokeApplication(
+          invocationScope,
+          createStandardApplicationTaskRun(reference, request),
+        )).pipe(Effect.withSpan(
+          "StandardApplicationSystemTest.createTaskRunV1",
+        )),
         mutation: <
           Path extends string,
           Contract extends StandardFunctionContractV1<
@@ -767,4 +890,37 @@ function runUninterruptibleIntegrationPromiseV1<A>(
       cause,
     }),
   }));
+}
+
+class MemoryImmutableTaskObjectBucketV1
+  implements TaskInputStoreBucket, TaskExecutionPrincipalStoreBucket
+{
+  private readonly values = new Map<string, Uint8Array>();
+
+  async put(
+    key: string,
+    value: ArrayBuffer,
+    _options: Readonly<{
+      readonly onlyIf: Readonly<{ readonly etagDoesNotMatch: "*" }>;
+    }>,
+  ): Promise<unknown> {
+    if (this.values.has(key)) throw new Error("precondition failed");
+    this.values.set(key, new Uint8Array(value.slice(0)));
+    return {};
+  }
+
+  async get(key: string): Promise<unknown> {
+    const value = this.values.get(key);
+    if (value === undefined) return null;
+    const bytes = copyBytes(value);
+    return Object.freeze({
+      size: bytes.byteLength,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(copyBytes(bytes));
+          controller.close();
+        },
+      }),
+    });
+  }
 }

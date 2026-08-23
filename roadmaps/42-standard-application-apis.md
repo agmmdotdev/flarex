@@ -381,13 +381,17 @@ least-authority import allowlists for the shipped definition, application
 source, application Task binding, canonical Task definition, and typed Task
 authoring owners.
 
-After `SAP08-A`, roadmap 41 may add a private system-test Task producer over the
-same Standard contract and the existing F2-proven host. Test-only delivery,
-restart, cancellation, and fault controls remain with the harness rather than
-entering the Standard API. Roadmaps 09 and 15 may consider public developer and
-public test ergonomics only after the private producer is proven and DTE06-F
-closes its separately approved hosted gates. This sequence does not freeze
-public `task(...)`, generated-reference, start/await, cancellation, scheduling,
+Roadmap 41's `SAC01-F2t-B` now owns the private system-test Task producer over
+this same Standard contract. Its PGlite implementation publishes typed Tasks
+with the current Application revision and proves exact create-run replay without
+delivery; its matching genuine-PostgreSQL lane remains fail-closed and
+unaccepted until it runs with zero skips. Test-only delivery, restart,
+cancellation, and fault controls remain with the harness rather than entering
+the Standard API and are separately gated by `SAC01-F2t-C`. Roadmaps 09 and 15
+may consider public developer and public test ergonomics only after the private
+producer and DTE06-F close their separately approved hosted gates. This
+sequence does not freeze public `task(...)`, generated-reference, start/await,
+cancellation, scheduling,
 or result-observation syntax.
 
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
