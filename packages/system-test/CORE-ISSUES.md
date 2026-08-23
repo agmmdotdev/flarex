@@ -209,25 +209,6 @@ fixture succeeds.
   handler write that restores the removed field, with no commit/feed/outbox
   publication, through both PGlite and genuine PostgreSQL.
 
-### `ST-CORE-018` - SAP06-A2 fixture omits the application-error platform module
-
-- **Status:** Open; reproduced independently during the FSV04/FSV05 C08
-  readiness-fold regression run on 2026-08-10. No runtime owner was changed in
-  that readiness slice.
-- **Reproduction:** Run
-  `pnpm --filter @flarex/system-test test:pglite` or the focused
-  `sap06A2MutationInternalQuery.test.ts` lane. Workerd fails to start because
-  `worker.js` imports `_flarex/application-error-platform-v1.js`, but the test
-  runtime module registry does not provide it.
-- **Expected:** The focused journal-boundary mapping test constructs the same
-  complete generated Worker module graph as the accepted mutation runtime.
-- **Actual:** Miniflare reports `No such module
-  "_flarex/application-error-platform-v1.js"` before dispatch.
-- **Owner and trust boundary:** SAP06-A2 generated-Worker fixture composition
-  and the host-private application-error platform module registry.
-- **Current disposition:** Fix only through that runtime-fixture owner. Do not
-  add a fallback module or weaken the journal-boundary assertion.
-
 ### `ST-CORE-016` — the point commit planner admitted only one material row
 
 - **Status:** Resolved and accepted. PGlite core and real Standard cooking
@@ -288,6 +269,23 @@ fixture succeeds.
 None.
 
 ## Resolved Issues
+
+### `ST-CORE-018` - SAP06-A2 fixture omitted the application-error platform module
+
+- **Status:** Resolved by the existing SAP06-A2 generated-Worker fixture
+  correction in commit `af63d0f9`.
+- **Root cause:** The focused journal-boundary mapping test constructed a
+  partial generated Worker module graph and omitted the host-private
+  `_flarex/application-error-platform-v1.js` module imported by `worker.js`.
+  Miniflare therefore failed module resolution before dispatch.
+- **Correction:** The fixture now registers the exact host-private module path
+  with only the `captureCoreApplicationErrorV1` test implementation required by
+  that boundary. No fallback, dual module path, production runtime change,
+  decoder relaxation, or weakened journal-boundary assertion was added.
+- **Evidence:** The focused SAP06-A2 PGlite lane passes 2/2, the connected
+  SAP06-A3 PGlite lane passes 1/1, and the system-test package typecheck passes.
+  The owning runtime roadmap also retains the accepted genuine PostgreSQL proof
+  for both internal-call profiles.
 
 ### `ST-CORE-028` - retained point-mutation bridges emitted encoded syscall sequence text
 
