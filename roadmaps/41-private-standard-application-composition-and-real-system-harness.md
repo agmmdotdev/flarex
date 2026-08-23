@@ -939,9 +939,94 @@ same chain supports the replacement.
 | `SAC01-F2l` | Prove multi-revision app-document schema evolution in cooking | Managed-schema `M01-A` through `M03-C` are complete. The separate scenario is now sequenced after roadmap 49's `AA-R6` capability-composition/private-consumer cut because the reusable runner still selects the displaced Application Revision V1 lifecycle. Once the Standard consumer selects only the new Application authority, the scenario covers populated-field removal refusal/remediation, required-field expand/backfill/contract, validator tightening, concurrent shadow validation, supersession, readiness, activation, and stale-attempt retry without test-owned schema, receipt, activation, or commit authority and without old/new fallback or comparison |
 | `SAC01-F2t-A` | Move the unified private simulation environment onto the current Application authority | Complete. The unified runner now uses current Application Analysis, publication, readiness, activation, query, and mutation composition over split control/target lanes with no retained legacy/current branch. [`ST-CORE-026`](../packages/system-test/CORE-ISSUES.md) was resolved in the Application Analysis owner without relaxing import policy. Cooking and English-learning preserve their typed setup/workload and authoritative inspection contracts through PGlite and ordinary-role PostgreSQL 18.3, including replay, OCC, rollback, optional-field deletion, feed, and outbox evidence. Task behavior remains absent from this checkpoint |
 | `SAC01-F2t-B` | Add typed Task publication and run creation/replay to the unified private simulation environment | Complete in PGlite and genuine PostgreSQL 18.3 through an authenticated ordinary role. The unified runner accepts private typed Task definitions, publishes their canonical catalog and bindings with the same current Application revision, and exposes only the existing typed create-run operation. Both lanes create and exactly replay one run while retaining one catalog, one definition, one request, and one run; they also prove zero Legacy definition-revision, attempt, pending-delivery, and dispatch rows. Delivery, lifecycle/fault controls, provider authority, public Task syntax, and scheduling remain absent |
-| `SAC01-F2t-C` | Reuse hosted Task delivery and test-owned lifecycle/fault controls in the unified environment | After `SAC01-F2t-B` completes, reuse the existing hosted delivery composition; expose only test-owned delivery, cancellation, restart, and fault controls. Prove PGlite and ordinary-role PostgreSQL success, query/mutation callbacks, retry, cancellation, duplicate/lost response behavior, and fresh-host takeover before adding a cooking Task scenario. Do not expose persistence/provider authority or activate scheduling |
+| `SAC01-F2t-C` | Reuse hosted Task delivery and test-owned lifecycle/fault controls in the unified environment | Preflight complete. Implement the scoped host-kit extraction and the success, callback, fault, cancellation, and fresh-host gates below one capability and one commit at a time. Reuse the existing production-compatible Application delivery/event-host, lifecycle, result, query, mutation, and takeover owners. Do not expose persistence/provider authority, add a Standard API, or activate scheduling |
 | `SAC01-F2+` | Add internal calls, actions, workflow mutations, faults, and scheduled invocations to representative workloads one capability at a time | Each capability must already have its own runtime/host/claim contract; scheduling and durable-task semantics remain separately gated |
 | `SAC01-G` | Extract a dedicated private corpus or system-harness package | Complete as private `@flarex/system-test`: cooking and English-learning are separate `defineStandardApplicationSimulationV1` configs; the package owns setup/workload scopes and real-system composition while database lanes remain explicit runner inputs; intentional versioned subpaths plus graph guards enforce the dependency leaf, reject source-tree escapes, and require declared owner dependencies; persistence exposes only narrow owner-controlled private fixtures required by real-system composition and publishes no general harness or simulation adapter; and the persistence-local general harness duplication was deleted in the same slice |
+
+### `SAC01-F2t-C` Preflight Decision
+
+The 2026-08-23 preflight accepts hosted Task delivery in the unified private
+simulation environment, but rejects both direct reuse of the existing
+assertion-owning connected proof and any copy of its composition. The current
+`standardApplicationEnvironmentV1` already owns the current Application
+definition, analysis, publication, readiness, activation, Standard query and
+mutation services, typed Task publication, input publication, principal
+issuance, and exact run creation/replay. The completed DTE06-F1/F2 path already
+owns the production-compatible Application delivery event host, Worker Loader
+provider, attempt supervision, result publication, lifecycle settlement, and
+fresh-host recovery. No new core Task capability or representation is missing.
+
+The remaining gap is test composition. The retained
+`applicationTaskSystemConnectedHarness` is a 2,483-line proof that constructs a
+separate application fixture, Task run, lifecycle, object stores, Worker host,
+faults, and assertions. Calling it from the unified environment would prove a
+second application rather than the caller's simulation. Copying its internals
+would create divergent host, lifecycle, retry, cancellation, and authority
+logic. It remains regression evidence while its exact reusable Miniflare R2
+ports, Application Task Worker loader/session bridge, bounded host policies,
+and resource lifecycle are extracted once under the system-test owner.
+
+The accepted composition is:
+
+```text
+simulation-owned definition, typed Tasks, setup, and workload
+  -> unified Standard Application environment
+       -> existing Standard Task create/replay service
+       -> scoped system-test Task host kit
+            -> existing Application Task delivery resource event host
+            -> existing run-attempt lifecycle and result store
+            -> existing Application query and mutation authorities
+            -> existing Worker Loader provider and fresh-host recovery
+  -> bounded typed proof; no raw store, SQL, provider, or host authority
+```
+
+The host kit is a scoped plain capability, not a singleton Context service.
+Each simulation owns one resource lifetime, and takeover deliberately creates
+multiple host instances over the same persisted authority and immutable object
+resources. `Scope` owns Miniflare, Worker sessions, control targets, and fresh
+host instances. Reusable operations are named Effect operations; expected
+delivery failures remain in their existing tagged error channels, defects and
+interruption remain Cause-preserving at the host/test boundary, and the test
+entry point performs the sole runtime bridge. Layer construction builds the
+existing delivery graph but does not create, start, deliver, cancel, retry, or
+settle a run.
+
+The workload-facing surface remains private to `@flarex/system-test`. It groups
+Task operations under one `client.tasks` capability. The current sole
+`createTaskRun` consumer moves directly to `client.tasks.create`; no alias,
+fallback, or dual surface is retained. Later controls are admitted one gate at
+a time. They return bounded typed receipts and validated Task outputs, never a
+database handle, physical locator, lifecycle store, result store, provider,
+Worker Loader, event host, scheduler, or mutable fault controller. Manual
+delivery is an explicit test call and is not a Queue, cron, alarm, recurring
+fiber, or production scheduler.
+
+Implementation proceeds in this order, with one implementation-bearing
+capability and one commit per row:
+
+| Gate | Bounded implementation | Mandatory evidence |
+| --- | --- | --- |
+| `SAC01-F2t-C0` | Extract the exact hosted R2-resource, Worker-session, bounded-policy, and disposal mechanics from the connected proof into one system-test-owned scoped host kit. Keep the existing DTE06-F1/F2 proofs behaviorally unchanged and delete the displaced local copies in the same commit | System-test typecheck, lint gates, existing DTE06-F1 hosted success and DTE06-F2 fresh-host tests in PGlite and authenticated ordinary-role PostgreSQL 18.3 |
+| `SAC01-F2t-C1` | Directly replace the private top-level Task creation method with `client.tasks.create`, add `client.tasks.deliver` for one manually started run, and connect the caller's current Application fixture to the existing resource event host. Decode and validate the stored result through the selected Task definition before returning its typed output | The existing create/replay assertions plus hosted success, one Application-generation Worker load/start, exact terminal result, bounded redacted host receipt, zero Legacy reads, PGlite, and zero-skip ordinary-role PostgreSQL |
+| `SAC01-F2t-C2q` | Bind the hosted Task query capability to the unified environment's existing `ApplicationQuerySystem`; add no query implementation or fake response | A real Task handler invokes a registered query with its launch-bound principal; exact result, query runtime count, read-only authoritative state, PGlite, and PostgreSQL |
+| `SAC01-F2t-C2m` | Bind the hosted Task mutation capability to the existing Application mutation and external-effect owners through a lane-owned temporary target | A real Task handler commits one child mutation exactly once; replay, OCC/commit/feed/outbox/external-effect evidence, PGlite, and PostgreSQL |
+| `SAC01-F2t-C3r` | Add one explicit test-owned handler-failure/retry control without payload-name matching or application/runtime fallback | Existing retry policy schedules the exact next attempt without duplicate result or terminal success; PGlite and PostgreSQL |
+| `SAC01-F2t-C3c` | Add bounded cancellation controls and exact-generation delivery/acknowledgement | Cancellation before completion, the completion race, no resurrection, scoped Worker interruption and cleanup, PGlite, and PostgreSQL |
+| `SAC01-F2t-C3d` | Add one fault at a time for duplicate delivery, lost completion response, and result-publication uncertainty through explicit host/store adapters | Existing idempotency and uncertainty owners decide every outcome; no string matching, retry loop, weakened assertion, or second settlement path; PGlite and PostgreSQL |
+| `SAC01-F2t-C4` | Construct a genuinely fresh host over the same persisted authority and immutable resources and invoke the existing manual wake/recovery operation | New control target, new loader/session owner, expired-attempt recovery, exact retry/takeover result, no process-memory authority, PGlite, and PostgreSQL |
+
+Only after C0 through C4 pass may cooking add its first Task scenario. Public
+Task syntax, generated references, scheduling, outbound actions, run reads or
+subscriptions, and production routing remain owned by their later roadmaps.
+
+Stop and record a core issue before implementation continues if a gate requires
+new DDL, a persistence or provider contract change, a new lifecycle/retry/
+settlement decision, application result duplication in PostgreSQL, test-owned
+authority reconstruction, a raw capability exposed to workload code, a magic
+payload or function-name fault switch, a second runtime bridge, a production
+binding/route/scheduler, or a repair in a shared owner. A connected scenario is
+diagnostic evidence for that owner, not permission to hide the defect in the
+harness.
 
 ### Parallel-Work Safety And Stop Conditions
 

@@ -393,6 +393,15 @@ sequence does not freeze public `task(...)`, generated-reference, start/await,
 cancellation, scheduling,
 or result-observation syntax.
 
+The completed `SAC01-F2t-C` preflight preserves that boundary. Its private
+system-test client groups create and test-only delivery operations beneath a
+`tasks` capability, but only creation delegates to this Standard API owner.
+Delivery, cancellation, restart, takeover, and fault controls compose the
+existing hosted Task owners inside the scoped harness and are not proposed as
+Standard Application methods. The sole private `createTaskRun` test consumer is
+replaced directly when the first hosted-success gate lands; no compatibility
+alias, fallback, or dual test surface is retained.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator
