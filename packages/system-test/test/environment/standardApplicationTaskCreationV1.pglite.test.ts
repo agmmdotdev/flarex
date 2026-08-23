@@ -39,7 +39,11 @@ it("creates, replays, and manually delivers one typed PGlite Task", async () => 
     version: 1,
     status: "succeeded",
     runId: receipt.workloadProof.first.runId,
-    output: { prepared: true },
+    output: {
+      prepared: true,
+      title: "Task soup",
+      subject: "task-user-1",
+    },
     host: {
       dispatchCandidatesHandled: 1,
       dispatchProviderCalls: 1,
@@ -73,4 +77,17 @@ it("creates, replays, and manually delivers one typed PGlite Task", async () => 
     pending_count: "0",
     dispatch_count: "1",
   }]);
+  expect(receipt.afterSetupInspection).toMatchObject({
+    currentRowCount: 1,
+    liveRowCount: 1,
+    revisionRowCount: 1,
+    mutationRuntimeExecutions: 1,
+    queryRuntimeExecutions: 0,
+  });
+  expect(receipt.finalInspection).toEqual({
+    ...receipt.afterSetupInspection,
+    queryRuntimeExecutions: 1,
+  });
+  expect(receipt.mutationRuntimeExecutions).toBe(1);
+  expect(receipt.queryRuntimeExecutions).toBe(1);
 }, 480_000);

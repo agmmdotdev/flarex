@@ -600,9 +600,9 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           deliver: <Payload, Output>(
             reference: StandardApplicationTaskReferenceV1<Payload, Output>,
             creation: StandardApplicationTaskRunCreationReceipt,
-          ) => invokeWhileActive(() => runOwned(
+          ) => invokeWhileActive(() => invokeApplication(
             invocationScope,
-            Effect.scoped(taskDelivery.deliver(reference, creation)),
+            taskDelivery.deliver(reference, creation),
           )).pipe(Effect.withSpan(
             "StandardApplicationSystemTest.tasks.deliverV1",
           )),

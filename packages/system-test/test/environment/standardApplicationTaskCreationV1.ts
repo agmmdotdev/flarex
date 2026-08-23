@@ -10,14 +10,70 @@ import {
 import {
   defineStandardApplicationSimulationV1,
 } from "@flarex/system-test/simulation/v1";
+import type {
+  CreateStandardApplicationTaskRunError,
+  StandardApplicationTaskRunCreationReceipt,
+} from
+  "@flarex/standard-application-invocation/internal/standard-application-task-system";
 import { Effect, Result } from "effect";
+import { TransactionRequestKeyV1Schema } from
+  "flarex-protocol/transaction-session";
 
 import {
   makeCreateAndReadDefinitionV1,
   makeCreateAndReadModulesV1,
 } from "../simulation/support/createAndReadDefinitionV1";
-import { makeCreateAndReadFunctionSourcesV1 } from
-  "../simulation/support/createAndReadFunctionSourcesV1";
+import type {
+  StandardApplicationLegacySimulationMutationErrorV1,
+  StandardApplicationSystemTestClientV1,
+  StandardApplicationSystemTestSetupClientV1,
+  StandardApplicationTypedReferenceV1Error,
+} from "../../src/environment/standardApplicationEnvironmentV1";
+import type {
+  StandardApplicationTaskDeliveryReceiptV1,
+  StandardApplicationTaskDeliveryV1Error,
+} from "../../src/environment/standardApplicationTaskDeliveryV1";
+
+const RECIPE_FIELDS = {
+  title: standardV1.string(),
+  servings: standardV1.number(),
+} as const;
+const RECIPE_DOCUMENT = standardV1.object({
+  _id: standardV1.id("recipes"),
+  _creationTime: standardV1.number(),
+  ...RECIPE_FIELDS,
+});
+const RECIPE_MODULES = makeCreateAndReadModulesV1({
+  tableName: "recipes",
+  fields: RECIPE_FIELDS,
+  mutationModulePath: "recipeCommands",
+  queryModulePath: "recipes",
+});
+const RECIPE_CREATE = RECIPE_MODULES.mutationModule.reference("create");
+const RECIPE_SETUP_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "system-test:task-query-callback:setup",
+);
+const TASK_IDENTITY_SUBJECT = "task-user-1";
+
+interface StandardApplicationTaskSetupV1 {
+  readonly recipeId: string;
+}
+
+interface StandardApplicationTaskWorkloadProofV1 {
+  readonly first: StandardApplicationTaskRunCreationReceipt;
+  readonly replay: StandardApplicationTaskRunCreationReceipt;
+  readonly delivery: StandardApplicationTaskDeliveryReceiptV1<Readonly<{
+    readonly prepared: boolean;
+    readonly title: string;
+    readonly subject: string;
+  }>>;
+}
+
+type StandardApplicationTaskSimulationErrorV1 =
+  | StandardApplicationLegacySimulationMutationErrorV1
+  | StandardApplicationTypedReferenceV1Error
+  | CreateStandardApplicationTaskRunError
+  | StandardApplicationTaskDeliveryV1Error;
 
 export const standardApplicationTaskCreationV1 = Result.getOrThrow(
   defineStandardApplicationTaskV1({
@@ -31,7 +87,11 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
       recipeId: standardV1.string(),
       servings: standardV1.number(),
     }),
-    output: standardV1.object({ prepared: standardV1.boolean() }),
+    output: standardV1.object({
+      prepared: standardV1.boolean(),
+      title: standardV1.string(),
+      subject: standardV1.string(),
+    }),
     runAttemptPolicy: {
       version: 1,
       retry: {
@@ -49,20 +109,68 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
   }),
 );
 
-const request = Object.freeze({
-  version: 1 as const,
-  requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
-    "system-test:task-creation-replay",
-  )),
-  payload: Object.freeze({ recipeId: "recipe-1", servings: 4 }),
-  executionIdentity: Object.freeze({
-    kind: "user" as const,
-    user: Object.freeze({
-      tokenIdentifier: "standard-application-system-test",
-      subject: "task-user-1",
-      issuer: "https://system-test.flarex.invalid",
+const setupTaskQueryCallbackV1 = Effect.fn(
+  "StandardApplicationTaskQueryCallback.setupV1",
+)(function* (
+  client: StandardApplicationSystemTestSetupClientV1,
+): Effect.fn.Return<
+  StandardApplicationTaskSetupV1,
+  StandardApplicationTaskSimulationErrorV1
+> {
+  const created = yield* client.mutation(
+    RECIPE_CREATE,
+    { title: "Task soup", servings: 4 },
+    RECIPE_SETUP_REQUEST_KEY,
+  );
+  if (
+    created.status !== "committed" ||
+    created.disposition !== "published" ||
+    typeof created.value !== "string"
+  ) {
+    return yield* Effect.die(new Error(
+      "The Task query callback setup did not publish a recipe.",
+    ));
+  }
+  return Object.freeze({ recipeId: created.value });
+});
+
+const runTaskQueryCallbackV1 = Effect.fn(
+  "StandardApplicationTaskQueryCallback.workloadV1",
+)(function* (
+  client: StandardApplicationSystemTestClientV1,
+  setup: StandardApplicationTaskSetupV1,
+): Effect.fn.Return<
+  StandardApplicationTaskWorkloadProofV1,
+  StandardApplicationTaskSimulationErrorV1
+> {
+  const request = Object.freeze({
+    version: 1 as const,
+    requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
+      "system-test:task-creation-replay",
+    )),
+    payload: Object.freeze({ recipeId: setup.recipeId, servings: 4 }),
+    executionIdentity: Object.freeze({
+      kind: "user" as const,
+      user: Object.freeze({
+        tokenIdentifier: "standard-application-system-test",
+        subject: TASK_IDENTITY_SUBJECT,
+        issuer: "https://system-test.flarex.invalid",
+      }),
     }),
-  }),
+  });
+  const first = yield* client.tasks.create(
+    standardApplicationTaskCreationV1.reference,
+    request,
+  );
+  const replay = yield* client.tasks.create(
+    standardApplicationTaskCreationV1.reference,
+    request,
+  );
+  const delivery = yield* client.tasks.deliver(
+    standardApplicationTaskCreationV1.reference,
+    first,
+  );
+  return Object.freeze({ first, replay, delivery });
 });
 
 export const standardApplicationTaskCreationSimulationV1 =
@@ -75,23 +183,9 @@ export const standardApplicationTaskCreationSimulationV1 =
       define: taskApplicationDefinition,
       defineTasks: () => [standardApplicationTaskCreationV1],
     },
-    setup: () => Effect.void,
-    workload: client => Effect.gen(function* () {
-      const first = yield* client.tasks.create(
-        standardApplicationTaskCreationV1.reference,
-        request,
-      );
-      const replay = yield* client.tasks.create(
-        standardApplicationTaskCreationV1.reference,
-        request,
-      );
-      const delivery = yield* client.tasks.deliver(
-        standardApplicationTaskCreationV1.reference,
-        first,
-      );
-      return Object.freeze({ first, replay, delivery });
-    }),
-    expectedRuntimeExecutions: { mutations: 0, queries: 0 },
+    setup: setupTaskQueryCallbackV1,
+    workload: runTaskQueryCallbackV1,
+    expectedRuntimeExecutions: { mutations: 1, queries: 1 },
   });
 
 export interface StandardApplicationTaskCreationStateV1
@@ -129,28 +223,41 @@ export async function readStandardApplicationTaskCreationStateV1(
 }
 
 function taskApplicationDefinition() {
-  const fields = {
-    title: standardV1.string(),
-    servings: standardV1.number(),
-  } as const;
   return makeCreateAndReadDefinitionV1({
     tableName: "recipes",
-    ...makeCreateAndReadModulesV1({
-      tableName: "recipes",
-      fields,
-      mutationModulePath: "recipeCommands",
-      queryModulePath: "recipes",
+    mutationModule: RECIPE_MODULES.mutationModule,
+    queryModule: standardV1.module("recipes", {
+      get: standardV1.publicQuery({
+        args: standardV1.object({ id: standardV1.string() }),
+        returns: standardV1.object({
+          recipe: standardV1.nullable(RECIPE_DOCUMENT),
+          subject: standardV1.string(),
+        }),
+      }),
     }),
     mutationArtifactPath: "recipeMutation",
     queryArtifactPath: "recipeQuery",
     mutationSourceBytes: new TextEncoder().encode([
       'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
-      "export async function prepareRecipe(_ctx, payload) {",
-      "  return { prepared: payload.servings > 0 };",
+      "export async function prepareRecipe(ctx, payload) {",
+      "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",
+      "  if (result.recipe === null) throw new Error('recipe missing');",
+      "  return {",
+      "    prepared: result.recipe.servings === payload.servings,",
+      "    title: result.recipe.title,",
+      "    subject: result.subject,",
+      "  };",
       "}",
     ].join("\n")),
-    querySourceBytes:
-      makeCreateAndReadFunctionSourcesV1("recipes").querySourceBytes,
-    fields,
+    querySourceBytes: new TextEncoder().encode([
+      "export async function get(ctx, { id }) {",
+      "  const identity = await ctx.auth.getUserIdentity();",
+      "  return {",
+      "    recipe: await ctx.db.get(id),",
+      "    subject: identity?.subject ?? 'anonymous',",
+      "  };",
+      "}",
+    ].join("\n")),
+    fields: RECIPE_FIELDS,
   });
 }

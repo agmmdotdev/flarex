@@ -393,12 +393,16 @@ sequence does not freeze public `task(...)`, generated-reference, start/await,
 cancellation, scheduling,
 or result-observation syntax.
 
-The completed `SAC01-F2t-C1` gate preserves that boundary. Its private
+The completed `SAC01-F2t-C1` and `SAC01-F2t-C2q` gates preserve that boundary.
+The private
 system-test client groups creation and one explicit manual delivery operation
 beneath a `tasks` capability, but only `client.tasks.create` delegates to this
 Standard API owner. `client.tasks.deliver` composes the existing hosted Task
-owners inside the scoped harness and is not a Standard Application method.
-Cancellation, restart, takeover, callbacks, and fault controls remain
+owners inside the scoped harness and is not a Standard Application method. Its
+first callback gate delegates through the existing selection-bound
+`ApplicationQuerySystem` port with the launch-bound principal; it adds no query
+implementation, Standard method, selection authority, or identity choice.
+Mutation callbacks, cancellation, restart, takeover, and fault controls remain
 separately gated. The former private `createTaskRun` consumer was replaced
 directly; no compatibility alias, fallback, or dual test surface remains.
 

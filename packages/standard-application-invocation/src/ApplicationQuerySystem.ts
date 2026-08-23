@@ -188,6 +188,9 @@ export type InvokeApplicationSelectionQueryError =
   | ApplicationExecutionHostError;
 
 export interface ApplicationQuerySystemApi {
+  readonly selectionQuery: ApplicationSelectionQueryPort<
+    InvokeApplicationSelectionQueryError
+  >;
   readonly invoke: (
     functionRef: string,
     args: unknown,
@@ -228,6 +231,7 @@ export function makeApplicationQuerySystemLayer(
     Effect.gen(function* () {
       const selectionQuery = yield* makeApplicationSelectionQueryPort(captured);
       return ApplicationQuerySystem.of({
+        selectionQuery,
         invoke: makeInvoke(captured.activation, selectionQuery),
       });
     }),

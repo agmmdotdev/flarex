@@ -46,7 +46,11 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         version: 1,
         status: "succeeded",
         runId: receipt.workloadProof.first.runId,
-        output: { prepared: true },
+        output: {
+          prepared: true,
+          title: "Task soup",
+          subject: "task-user-1",
+        },
         host: {
           dispatchCandidatesHandled: 1,
           dispatchProviderCalls: 1,
@@ -84,6 +88,19 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
         pending_count: "0",
         dispatch_count: "1",
       }]);
+      expect(receipt.afterSetupInspection).toMatchObject({
+        currentRowCount: 1,
+        liveRowCount: 1,
+        revisionRowCount: 1,
+        mutationRuntimeExecutions: 1,
+        queryRuntimeExecutions: 0,
+      });
+      expect(receipt.finalInspection).toEqual({
+        ...receipt.afterSetupInspection,
+        queryRuntimeExecutions: 1,
+      });
+      expect(receipt.mutationRuntimeExecutions).toBe(1);
+      expect(receipt.queryRuntimeExecutions).toBe(1);
       expect(receipt.postgresVersion).toMatch(/^PostgreSQL \d+\.\d+\b/);
     });
   }, 480_000);

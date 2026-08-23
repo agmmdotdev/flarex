@@ -41,6 +41,10 @@ import type {
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-system";
 import {
+  ApplicationQuerySystem,
+} from
+  "@flarex/standard-application-invocation/internal/application-query-system";
+import {
   makeApplicationTaskQueryAuthority,
 } from
   "@flarex/standard-application-invocation/internal/application-task-query-authority";
@@ -199,7 +203,7 @@ export interface StandardApplicationTaskDeliveryV1 {
   ) => Effect.Effect<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error,
-    Scope.Scope
+    ApplicationQuerySystem | Scope.Scope
   >;
 }
 
@@ -249,7 +253,7 @@ export function makeStandardApplicationTaskDeliveryV1(
   ): Effect.fn.Return<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error,
-    Scope.Scope
+    ApplicationQuerySystem | Scope.Scope
   > {
     const definition = definitions.get(reference);
     if (definition === undefined || resources === null) {
@@ -403,13 +407,10 @@ export function makeStandardApplicationTaskDeliveryV1(
       resultStore,
       SUPERVISOR_POLICY,
     ));
+    const querySystem = yield* ApplicationQuerySystem;
     const queryAuthority = makeApplicationTaskQueryAuthority({
       activation: fixture.activation,
-      query: {
-        runQuery: () => Effect.fail(Object.freeze({
-          reason: "taskQueryCallbacksNotEnabled" as const,
-        })),
-      },
+      query: querySystem.selectionQuery,
     });
     const mutationAuthority = Object.freeze({
       bindLaunch: () => Effect.succeed(Object.freeze({
