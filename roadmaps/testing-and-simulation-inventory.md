@@ -80,7 +80,7 @@ whose names begin with `test`:
 | Named test commands | 157 |
 | Names containing `pglite` | 64 |
 | Names containing `postgres` | 66 |
-| Explicit test-file references across package commands | 237 |
+| Explicit test-file references across package commands | 235 |
 | Unique explicitly referenced test files across package commands | 180 |
 
 Two manifests dominate the command catalog:
@@ -97,6 +97,13 @@ five commands. `TQ-A1` moved the three stable PostgreSQL sweep lists behind the
 root lane manifest. `TQ-A2` must preserve useful operator/roadmap aliases while
 making retained names resolve through manifest-owned lane or invariant
 selectors instead of independently maintained file lists.
+
+The first `TQ-A2` pilot found one exact live duplicate: roadmap 04 still names
+both `test:c08-b1a:postgres` and `test:c08-b1b:postgres`, and both commands ran
+only `appUniqueConstraintSetBuildV1.postgres.test.ts` with identical runner
+options. Both names now resolve to one fail-closed `c08-b1-postgres` lane. The
+different B1a/B1b PGlite lists remain separate, so this is command-list
+deduplication rather than milestone or invariant merger.
 
 The root `test` command remains a recursive package sweep, not an aggregate
 correctness gate. Root integration, H04, H05, and explicitly required
@@ -225,10 +232,11 @@ exists, runtime-based pruning or fixture sharing is not authorized.
 
 ## Ranked Next Gates
 
-1. **`TQ-A2` milestone-alias convergence.** `TQ-A1` removed false-green stable
-   PostgreSQL commands and centralized their file lists. Next identify live
-   consumers of historical aliases, retain only justified thin selectors, and
-   prove exact evidence equivalence before removing duplicated lists.
+1. **Continue `TQ-A2` milestone-alias convergence.** `TQ-A1` removed
+   false-green stable PostgreSQL commands, and the C08-B1a/B1b PostgreSQL pair
+   is the first exact thin-selector pilot. Next identify another live duplicate,
+   retain justified names, and prove exact evidence equivalence before removing
+   its repeated list.
 2. **`TQ-B` Application-native query contract pilot.** Small, completed,
    currently untouched pair; retain separate lane activation and PostgreSQL
    resource ownership while sharing only the exact scenario/assertion contract.

@@ -639,6 +639,11 @@ The work proceeds in bounded gates:
      manifest-owned lane or invariant selectors instead of independently
      maintained file lists. Default recursive discovery still needs explicit
      skip attribution before it can claim conditional PostgreSQL evidence.
+     The first bounded pilot retains the live `C08-B1a` and `C08-B1b`
+     PostgreSQL command names from roadmap 04 while resolving both through one
+     `c08-b1-postgres` lane; their distinct PGlite commands remain unchanged.
+     This exact duplicate removal does not authorize merging the milestones or
+     assuming that other similarly named commands protect the same invariant.
 3. **`TQ-B` — one contract-suite pilot.** Select one completed, currently
    untouched PGlite/PostgreSQL vertical with materially identical behavior.
    Move only resource creation and exact shared scenario mechanics behind a
@@ -774,10 +779,11 @@ and stale non-authoritative caches without changing the Postgres oracle.
 
 ## Next Correctness Gates
 
-1. **Converge retained milestone aliases through `TQ-A2`.** `TQ-A1` now owns
-   stable fail-closed lane activation. Inventory which historical aliases still
-   have live consumers, preserve those names as thin manifest selectors, and
-   remove duplicated file lists only after exact evidence comparison.
+1. **Continue retained-alias convergence through `TQ-A2`.** `TQ-A1` owns
+   stable fail-closed lane activation, and the exact C08-B1a/B1b PostgreSQL
+   duplicate is now the first thin-selector pilot. Inventory which remaining
+   historical aliases still have live consumers, preserve justified names, and
+   remove another duplicated file list only after exact evidence comparison.
 2. **Keep aggregate commands explicit.** Fast, integration, real-Postgres,
    H04, H05, and release selectors are separate; do not silently add external
    mutation to `pnpm test`. Add test-level skip/timing attribution through

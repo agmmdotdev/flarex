@@ -26,6 +26,10 @@ describe("test lane manifest and runner", () => {
       ]);
     expect(resolveTestLaneSelection(manifest, "postgres-executor").map((lane) => lane.id))
       .toEqual(["postgres-executor"]);
+    expect(resolveTestLaneSelection(manifest, "c08-b1a-postgres").map((lane) => lane.id))
+      .toEqual(["c08-b1-postgres"]);
+    expect(resolveTestLaneSelection(manifest, "c08-b1b-postgres").map((lane) => lane.id))
+      .toEqual(["c08-b1-postgres"]);
   });
 
   it("keeps stable package PostgreSQL commands delegated to the root manifest", () => {
@@ -48,6 +52,15 @@ describe("test lane manifest and runner", () => {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
       expect(manifest.scripts?.["test:postgres"]).toBe(expectedCommand);
     }
+  });
+
+  it("keeps both live C08-B1 PostgreSQL aliases on one manifest-owned proof", () => {
+    const manifest = JSON.parse(readFileSync("packages/persistence-postgres/package.json", "utf8"));
+
+    expect(manifest.scripts?.["test:c08-b1a:postgres"])
+      .toBe("node ../../scripts/run-test-lane.mjs c08-b1a-postgres");
+    expect(manifest.scripts?.["test:c08-b1b:postgres"])
+      .toBe("node ../../scripts/run-test-lane.mjs c08-b1b-postgres");
   });
 
   it("rejects unknown lanes, unsafe directories, duplicate prerequisites, and foreign commands", () => {

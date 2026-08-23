@@ -16,6 +16,12 @@
       "postgres-executor",
       "postgres-system"
     ],
+    "c08-b1a-postgres": [
+      "c08-b1-postgres"
+    ],
+    "c08-b1b-postgres": [
+      "c08-b1-postgres"
+    ],
     "workerd": [
       "h04-workerd-postgres"
     ],
@@ -197,6 +203,31 @@
             "test/postgresRetry.test.ts",
             "test/deploymentAuthority.postgres.test.ts",
             "test/transactionGrantVerifier.test.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c08-b1-postgres",
+      "category": "postgres",
+      "proof": "The exact shared C08-B1a/B1b PostgreSQL unique-constraint-set build proof retained by both live roadmap aliases.",
+      "prerequisites": [
+        {
+          "name": "FLAREX_POSTGRES_DATABASE_URL"
+        }
+      ],
+      "steps": [
+        {
+          "id": "persistence-c08-b1-postgres",
+          "cwd": "packages/persistence-postgres",
+          "command": "pnpm",
+          "args": [
+            "exec",
+            "vitest",
+            "run",
+            "test/appUniqueConstraintSetBuildV1.postgres.test.ts",
+            "--no-file-parallelism",
+            "--testTimeout=180000"
           ]
         }
       ]
