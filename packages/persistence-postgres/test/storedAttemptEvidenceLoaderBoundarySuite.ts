@@ -1,4 +1,13 @@
+import { Schema } from "effect";
 import { expect, expectTypeOf, it } from "vitest";
+import { CatalogSchemaVersionIdSchema } from
+  "flarex-protocol/schema-manifest";
+import {
+  CommitSeqSchema,
+  ScopeEpochSchema,
+  SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
+} from "flarex-protocol/storage-authority";
 import {
   TransactionAttemptFenceSchema,
   type TransactionSessionLifecycleV1,
@@ -468,6 +477,127 @@ export function registerStoredAttemptEvidenceLoaderLifecycleTests<
     }))).resolves.toMatchObject({
       kind: "authorityMismatch",
       reason: "attemptReplaced",
+    });
+  });
+}
+
+export interface StoredAttemptEvidenceLoaderIntegrityScenario {
+  readonly loader: StoredAttemptEvidenceLoaderV1;
+  readonly authority: StoredAttemptEvidenceAuthorityV1;
+}
+
+export interface StoredAttemptEvidenceLoaderIntegrityHarness<
+  Scenario extends StoredAttemptEvidenceLoaderIntegrityScenario,
+> {
+  readonly scenario: (label: string) => Promise<Scenario>;
+  readonly seal: (current: Scenario) => Promise<unknown>;
+  readonly advanceAuthorizationRevocationEpoch: (
+    current: Scenario,
+  ) => Promise<void>;
+  readonly withMalformedLeaseCommitSequence: <Result>(
+    current: Scenario,
+    work: () => Promise<Result>,
+  ) => Promise<Result>;
+  readonly withMalformedLegacyExecutionAuthority: <Result>(
+    current: Scenario,
+    work: () => Promise<Result>,
+  ) => Promise<Result>;
+}
+
+export function registerStoredAttemptEvidenceLoaderIntegrityTests<
+  Scenario extends StoredAttemptEvidenceLoaderIntegrityScenario,
+>(
+  harness: StoredAttemptEvidenceLoaderIntegrityHarness<Scenario>,
+): void {
+  it("rejects stale generation, epoch, snapshot, schema, and revocation pins", async () => {
+    const current = await harness.scenario("stale_pins");
+    await harness.seal(current);
+    const staleAuthorities = [
+      {
+        authority: {
+          ...current.authority,
+          storageGenerationFence: StorageGenerationFenceSchema.make(99n),
+        },
+        reason: "generationChanged",
+      },
+      {
+        authority: {
+          ...current.authority,
+          snapshotToken: SnapshotTokenSchema.make({
+            ...current.authority.snapshotToken,
+            epoch: ScopeEpochSchema.make("epoch_stale_c04a"),
+          }),
+        },
+        reason: "epochChanged",
+      },
+      {
+        authority: {
+          ...current.authority,
+          snapshotToken: SnapshotTokenSchema.make({
+            ...current.authority.snapshotToken,
+            commitSeq: CommitSeqSchema.make(
+              current.authority.snapshotToken.commitSeq + 1n,
+            ),
+          }),
+        },
+        reason: "snapshotChanged",
+      },
+      {
+        authority: {
+          ...current.authority,
+          schemaVersionId: CatalogSchemaVersionIdSchema.make("schema_stale"),
+        },
+        reason: "schemaChanged",
+      },
+    ] as const satisfies ReadonlyArray<Readonly<{
+      readonly authority: StoredAttemptEvidenceAuthorityV1;
+      readonly reason: string;
+    }>>;
+    for (const stale of staleAuthorities) {
+      await expect(runEffect(
+        current.loader.loadEffect(stale.authority),
+      )).resolves.toMatchObject({
+        kind: "authorityMismatch",
+        reason: stale.reason,
+      });
+    }
+
+    await harness.advanceAuthorizationRevocationEpoch(current);
+    await expect(runEffect(
+      current.loader.loadEffect(current.authority),
+    )).resolves.toMatchObject({
+      kind: "authorityMismatch",
+      reason: "revocationEpochChanged",
+    });
+  });
+
+  it("keeps malformed detached lease scalars in the corruption result", async () => {
+    const current = await harness.scenario("malformed_lease_commit_seq");
+    await harness.seal(current);
+    await harness.withMalformedLeaseCommitSequence(current, async () => {
+      const result = await runEffect(
+        current.loader.loadEffect(current.authority),
+      );
+      expect(result).toMatchObject({
+        kind: "corrupt",
+        reason: "sessionRecordInvalid",
+      });
+      if (result.kind !== "corrupt") {
+        throw new Error("Expected malformed lease corruption.");
+      }
+      expect(Schema.isSchemaError(result.cause)).toBe(true);
+    });
+  });
+
+  it("keeps malformed legacy execution authority in the corruption result", async () => {
+    const current = await harness.scenario("malformed_legacy_authority");
+    await harness.seal(current);
+    await harness.withMalformedLegacyExecutionAuthority(current, async () => {
+      await expect(runEffect(current.loader.loadEffect(current.authority)))
+        .resolves.toMatchObject({
+          kind: "corrupt",
+          reason: "sessionRecordInvalid",
+        });
     });
   });
 }

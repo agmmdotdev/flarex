@@ -90,7 +90,6 @@ import {
   MAX_PERSISTED_SIGNED_INT64_V1,
   ScopeEpochSchema,
   SnapshotTokenSchema,
-  StorageGenerationFenceSchema,
   decodeReplacementScopeIdV1,
   projectScopeEpochUuidV1,
   projectScopeIdUuidV1,
@@ -353,6 +352,7 @@ import {
 } from "./transactionSessionActivationTestSupport";
 import {
   registerStoredAttemptEvidenceLoaderBoundaryTests,
+  registerStoredAttemptEvidenceLoaderIntegrityTests,
   registerStoredAttemptEvidenceLoaderLeaseTests,
   registerStoredAttemptEvidenceLoaderLifecycleTests,
 } from "./storedAttemptEvidenceLoaderBoundarySuite";
@@ -470,158 +470,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expireSessionAndLease,
   });
 
-  it("rejects stale generation, epoch, snapshot, schema, and revocation pins", async () => {
-    const current = await scenario("stale_pins");
-    await seal(current);
-    const staleAuthorities: ReadonlyArray<Readonly<{
-      authority: StoredAttemptEvidenceAuthorityV1;
-      reason: string;
-    }>> = [
-      {
-        authority: {
-          ...current.authority,
-          storageGenerationFence: StorageGenerationFenceSchema.make(99n),
-        },
-        reason: "generationChanged",
-      },
-      {
-        authority: {
-          ...current.authority,
-          snapshotToken: SnapshotTokenSchema.make({
-            ...current.authority.snapshotToken,
-            epoch: ScopeEpochSchema.make("epoch_stale_c04a"),
-          }),
-        },
-        reason: "epochChanged",
-      },
-      {
-        authority: {
-          ...current.authority,
-          snapshotToken: SnapshotTokenSchema.make({
-            ...current.authority.snapshotToken,
-            commitSeq: CommitSeqSchema.make(
-              current.authority.snapshotToken.commitSeq + 1n,
-            ),
-          }),
-        },
-        reason: "snapshotChanged",
-      },
-      {
-        authority: {
-          ...current.authority,
-          schemaVersionId: CatalogSchemaVersionIdSchema.make("schema_stale"),
-        },
-        reason: "schemaChanged",
-      },
-    ];
-    for (const stale of staleAuthorities) {
-      await expect(runEffect(
-        current.loader.loadEffect(stale.authority),
-      )).resolves
-        .toMatchObject({ kind: "authorityMismatch", reason: stale.reason });
-    }
-
-    await setFlarexActivationClock(persistence, current.anchor.scopeId, {
-      storageGenerationFence: current.anchor.storageGenerationFence,
-      lastCommitSeq: current.anchor.snapshotToken.commitSeq,
-      authorizationRevocationEpoch: 1n,
-    });
-    await expect(runEffect(
-      current.loader.loadEffect(current.authority),
-    )).resolves
-      .toMatchObject({
-        kind: "authorityMismatch",
-        reason: "revocationEpochChanged",
-      });
-  });
-
-  it("keeps malformed detached lease scalars in the corruption result", async () => {
-    const current = await scenario("malformed_lease_commit_seq");
-    await seal(current);
-    await persistence.exec(`
-      alter table fx_system_snapshot_lease
-        drop constraint fx_system_snapshot_lease_commit_seq_check
-    `);
-    try {
-      await persistence.query(
-        `
-          update fx_system_snapshot_lease
-          set snapshot_commit_seq = -1
-          where session_id = $1
-        `,
-        [current.anchor.sessionId],
-      );
-      const result = await runEffect(
-        current.loader.loadEffect(current.authority),
-      );
-      expect(result).toMatchObject({
-        kind: "corrupt",
-        reason: "sessionRecordInvalid",
-      });
-      if (result.kind !== "corrupt") {
-        throw new Error("Expected malformed lease corruption.");
-      }
-      expect(Schema.isSchemaError(result.cause)).toBe(true);
-    } finally {
-      await persistence.query(
-        `
-          update fx_system_snapshot_lease
-          set snapshot_commit_seq = $1
-          where session_id = $2
-        `,
-        [current.anchor.snapshotToken.commitSeq, current.anchor.sessionId],
-      );
-      await persistence.exec(`
-        alter table fx_system_snapshot_lease
-          add constraint fx_system_snapshot_lease_commit_seq_check
-          check (snapshot_commit_seq >= 0)
-      `);
-    }
-  });
-
-  it("keeps malformed legacy execution authority in the corruption result", async () => {
-    const current = await scenario("malformed_legacy_authority");
-    await seal(current);
-    const constraintRows = await persistence.query<Readonly<{
-      definition: string;
-    }>>(
-      `select pg_get_constraintdef(oid) as definition
-         from pg_constraint
-        where conname = 'fx_system_tx_session_execution_authority_check'`,
-    );
-    const constraintDefinition = constraintRows.rows[0]?.definition;
-    if (constraintDefinition === undefined) {
-      throw new Error("Missing execution-authority constraint definition.");
-    }
-    await persistence.exec(`
-      alter table fx_system_tx_session
-        drop constraint fx_system_tx_session_execution_authority_check
-    `);
-    try {
-      await persistence.query(
-        `update fx_system_tx_session
-            set package_id = ''
-          where session_id = $1`,
-        [current.anchor.sessionId],
-      );
-      await expect(runEffect(current.loader.loadEffect(current.authority)))
-        .resolves.toMatchObject({
-          kind: "corrupt",
-          reason: "sessionRecordInvalid",
-        });
-    } finally {
-      await persistence.query(
-        `update fx_system_tx_session
-            set package_id = $1
-          where session_id = $2`,
-        ["package_activation_v1", current.anchor.sessionId],
-      );
-      await persistence.exec(`
-        alter table fx_system_tx_session
-          add constraint fx_system_tx_session_execution_authority_check
-          ${constraintDefinition}
-      `);
-    }
+  registerStoredAttemptEvidenceLoaderIntegrityTests({
+    scenario,
+    seal,
+    advanceAuthorizationRevocationEpoch,
+    withMalformedLeaseCommitSequence,
+    withMalformedLegacyExecutionAuthority,
   });
 
   it("returns at most max+1 point rows and rejects overflow before decoding it", async () => {
@@ -9075,6 +8929,93 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       `,
       [current.anchor.sessionId],
     );
+  }
+
+  async function advanceAuthorizationRevocationEpoch(
+    current: Scenario,
+  ): Promise<void> {
+    await setFlarexActivationClock(persistence, current.anchor.scopeId, {
+      storageGenerationFence: current.anchor.storageGenerationFence,
+      lastCommitSeq: current.anchor.snapshotToken.commitSeq,
+      authorizationRevocationEpoch: 1n,
+    });
+  }
+
+  async function withMalformedLeaseCommitSequence<Result>(
+    current: Scenario,
+    work: () => Promise<Result>,
+  ): Promise<Result> {
+    await persistence.exec(`
+      alter table fx_system_snapshot_lease
+        drop constraint fx_system_snapshot_lease_commit_seq_check
+    `);
+    try {
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set snapshot_commit_seq = -1
+          where session_id = $1
+        `,
+        [current.anchor.sessionId],
+      );
+      return await work();
+    } finally {
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set snapshot_commit_seq = $1
+          where session_id = $2
+        `,
+        [current.anchor.snapshotToken.commitSeq, current.anchor.sessionId],
+      );
+      await persistence.exec(`
+        alter table fx_system_snapshot_lease
+          add constraint fx_system_snapshot_lease_commit_seq_check
+          check (snapshot_commit_seq >= 0)
+      `);
+    }
+  }
+
+  async function withMalformedLegacyExecutionAuthority<Result>(
+    current: Scenario,
+    work: () => Promise<Result>,
+  ): Promise<Result> {
+    const constraintRows = await persistence.query<Readonly<{
+      definition: string;
+    }>>(
+      `select pg_get_constraintdef(oid) as definition
+         from pg_constraint
+        where conname = 'fx_system_tx_session_execution_authority_check'`,
+    );
+    const constraintDefinition = constraintRows.rows[0]?.definition;
+    if (constraintDefinition === undefined) {
+      throw new Error("Missing execution-authority constraint definition.");
+    }
+    await persistence.exec(`
+      alter table fx_system_tx_session
+        drop constraint fx_system_tx_session_execution_authority_check
+    `);
+    try {
+      await persistence.query(
+        `update fx_system_tx_session
+            set package_id = ''
+          where session_id = $1`,
+        [current.anchor.sessionId],
+      );
+      return await work();
+    } finally {
+      await persistence.query(
+        `update fx_system_tx_session
+            set package_id = $1
+          where session_id = $2`,
+        ["package_activation_v1", current.anchor.sessionId],
+      );
+      await persistence.exec(`
+        alter table fx_system_tx_session
+          add constraint fx_system_tx_session_execution_authority_check
+          ${constraintDefinition}
+      `);
+    }
   }
 
   async function timestamps(

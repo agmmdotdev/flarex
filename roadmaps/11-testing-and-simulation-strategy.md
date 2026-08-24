@@ -840,6 +840,20 @@ The work proceeds in bounded gates:
    monolith is now 9,375 lines and the registrar 473 lines; those counts are
    review telemetry, not authority to move the adjacent interruption, stale-pin,
    corruption, payload, publication, OCC, or redelivery groups.
+
+   The fourth bounded stored-attempt slice moves the adjacent stale authority-
+   pin matrix and the two malformed stored-record corruption proofs into one
+   integrity registrar. Branded stale generation, epoch, snapshot, and schema
+   authorities remain test policy in the registrar. The original PGlite owner
+   retains revocation-clock mutation plus both constraint-drop, invalid-row,
+   repair, and constraint-restoration sequences through narrow callbacks whose
+   `try/finally` cleanup still encloses the moved assertions. The registrar gains
+   no persistence handle or DDL authority. All 15 registrar-owned runtime cases
+   pass together, package typecheck is green, and the full 92-test file remains
+   at the recorded 89-pass/three-failure `C04A-VAL-001` baseline. The monolith
+   is now 9,316 lines and the registrar 603 lines. Point overflow, byte
+   detachment, commit-authority payload/interruption, publication, OCC, and
+   redelivery remain outside this slice.
 5. **`TQ-D` — evidence-preserving pruning.** Remove a duplicate or obsolete
    test only when the inventory identifies the retained stronger proof, its
    required lanes execute without hidden skips, a relevant negative/fault case
