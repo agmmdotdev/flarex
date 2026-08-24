@@ -2,8 +2,10 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1,
   decodeSchemaManifestAppTableDeclarationsV1,
+  schemaManifestAppValidatorCanContainFieldPathV1,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
+  type SchemaManifestAppIndexFieldPath,
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestAppTableDeclarationV1,
 } from "flarex-protocol/schema-manifest";
@@ -66,8 +68,16 @@ export function snapshotApplicationTableDefinition(
       fields: index.fields,
     })),
   );
+  const documentType = snapshotObjectValidator(definition.documentType);
+  for (const index of decodedIndexes) {
+    requireApplicationIndexFieldsCanExist(
+      documentType,
+      index.descriptor,
+      index.fields,
+    );
+  }
   return Object.freeze({
-    documentType: snapshotObjectValidator(definition.documentType),
+    documentType,
     indexes: Object.freeze(decodedIndexes.map(index => Object.freeze({
       descriptor: index.descriptor,
       fields: Object.freeze([...index.fields]),
@@ -109,13 +119,28 @@ export function snapshotApplicationSchemaDefinition(
 ): ApplicationSchemaDefinition {
   const decodedTables = decodeSchemaManifestAppTableDeclarationsV1(input.tables);
   const decodedIndexes = decodeSchemaManifestAppIndexDeclarationsV1(input.indexes);
-  const tableNames = new Set(decodedTables.map(table => table.logicalName));
+  const tablesByLogicalName = new Map(
+    decodedTables.map(table => [table.logicalName, table] as const),
+  );
   for (const index of decodedIndexes) {
-    if (!tableNames.has(index.tableLogicalName)) {
+    if (!tablesByLogicalName.has(index.tableLogicalName)) {
       throw new RangeError(
         `Application index ${JSON.stringify(index.descriptor)} references unknown table ${JSON.stringify(index.tableLogicalName)}.`,
       );
     }
+  }
+  for (const index of decodedIndexes) {
+    const table = tablesByLogicalName.get(index.tableLogicalName);
+    if (table === undefined) {
+      throw new Error(
+        `Decoded application schema lost table ${JSON.stringify(index.tableLogicalName)}.`,
+      );
+    }
+    requireApplicationIndexFieldsCanExist(
+      table.definition.documentType,
+      index.descriptor,
+      index.fields,
+    );
   }
 
   const tables = decodedTables.map(table => Object.freeze({
@@ -159,4 +184,23 @@ function snapshotObjectValidator(
     throw new TypeError("Application table definitions require an object validator.");
   }
   return snapshot;
+}
+
+function requireApplicationIndexFieldsCanExist(
+  documentType: ObjectValidatorJsonV1,
+  descriptor: string,
+  fields: ReadonlyArray<SchemaManifestAppIndexFieldPath>,
+): void {
+  for (const fieldPath of fields) {
+    if (
+      !schemaManifestAppValidatorCanContainFieldPathV1(
+        documentType,
+        fieldPath,
+      )
+    ) {
+      throw new RangeError(
+        `Application index ${JSON.stringify(descriptor)} references field ${JSON.stringify(fieldPath)}, which cannot occur under the table validator.`,
+      );
+    }
+  }
 }

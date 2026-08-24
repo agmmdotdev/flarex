@@ -6,6 +6,7 @@ import {
   canonicalizeSchemaManifestV1,
   decodeSchemaManifestAppIndexDeclarationsV1,
   decodeSchemaManifestAppIndexDeclarationsV1Result,
+  decodeSchemaManifestAppIndexFieldPath,
   decodeSchemaManifestAppSchemaV1,
   decodeSchemaManifestAppSchemaV1Result,
   decodeSchemaManifestIndexBindingsV1,
@@ -14,6 +15,7 @@ import {
   MAX_SCHEMA_MANIFEST_APP_INDEXES,
   MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE,
   MAX_SCHEMA_MANIFEST_APP_TABLES,
+  schemaManifestAppValidatorCanContainFieldPathV1,
   type SchemaManifestAppIndexBindingV1,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppIndexDeclarationV1,
@@ -230,6 +232,82 @@ describe("FlarexDB semantic app index bindings", () => {
         ),
       ]),
     ).toHaveLength(1);
+  });
+
+  it("owns the validator field-containment rule used by app indexes", () => {
+    const documentType = {
+      type: "object",
+      value: {
+        scalar: { fieldType: { type: "string" }, optional: false },
+        nested: {
+          fieldType: {
+            type: "object",
+            value: {
+              email: { fieldType: { type: "string" }, optional: false },
+            },
+          },
+          optional: false,
+        },
+        loose: { fieldType: { type: "any" }, optional: false },
+        choice: {
+          fieldType: {
+            type: "union",
+            value: [
+              { type: "string" },
+              {
+                type: "object",
+                value: {
+                  code: { fieldType: { type: "number" }, optional: false },
+                },
+              },
+            ],
+          },
+          optional: false,
+        },
+        tags: {
+          fieldType: { type: "array", value: { type: "string" } },
+          optional: false,
+        },
+        lookup: {
+          fieldType: {
+            type: "record",
+            keys: { type: "string" },
+            values: { type: "string" },
+          },
+          optional: false,
+        },
+      },
+    } as const;
+
+    for (const fieldPath of [
+      "scalar",
+      "nested.email",
+      "loose.any.depth",
+      "choice.code",
+      "tags",
+      "lookup",
+    ]) {
+      expect(schemaManifestAppValidatorCanContainFieldPathV1(
+        documentType,
+        decodeSchemaManifestAppIndexFieldPath(fieldPath),
+      )).toBe(true);
+    }
+
+    for (const fieldPath of [
+      "missing",
+      "scalar.child",
+      "nested.missing",
+      "choice.missing",
+      "tags.child",
+      "lookup.child",
+      "constructor",
+      "toString",
+    ]) {
+      expect(schemaManifestAppValidatorCanContainFieldPathV1(
+        documentType,
+        decodeSchemaManifestAppIndexFieldPath(fieldPath),
+      )).toBe(false);
+    }
   });
 
   it("rejects duplicate logical access paths and redundant ordered specs", () => {

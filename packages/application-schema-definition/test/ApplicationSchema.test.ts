@@ -44,7 +44,9 @@ describe("application table and index authoring", () => {
   });
 
   it("returns a new table definition when an index is added", () => {
-    const table = applicationTableDefinition(applicationObjectValidatorJson({}));
+    const table = applicationTableDefinition(applicationObjectValidatorJson({
+      name: { fieldType: { type: "string" }, optional: false },
+    }));
     const indexed = applicationTableDefinitionWithIndex(
       table,
       "by_name",
@@ -75,7 +77,10 @@ describe("application table and index authoring", () => {
   });
 
   it("rejects duplicate descriptors and duplicate ordered field lists", () => {
-    const table = applicationTableDefinition(applicationObjectValidatorJson({}));
+    const table = applicationTableDefinition(applicationObjectValidatorJson({
+      name: { fieldType: { type: "string" }, optional: false },
+      email: { fieldType: { type: "string" }, optional: false },
+    }));
     const byName = applicationTableDefinitionWithIndex(
       table,
       "by_name",
@@ -101,6 +106,108 @@ describe("application table and index authoring", () => {
         tableLogicalName: "missing",
         descriptor: "by_name",
         fields: ["name"],
+      }],
+    })).toThrow(RangeError);
+  });
+
+  it("shares the catalog compiler's field-containment semantics", () => {
+    const documentType = applicationObjectValidatorJson({
+      scalar: { fieldType: { type: "string" }, optional: false },
+      nested: {
+        fieldType: {
+          type: "object",
+          value: {
+            email: { fieldType: { type: "string" }, optional: false },
+          },
+        },
+        optional: false,
+      },
+      loose: { fieldType: { type: "any" }, optional: false },
+      choice: {
+        fieldType: {
+          type: "union",
+          value: [
+            { type: "string" },
+            {
+              type: "object",
+              value: {
+                code: { fieldType: { type: "number" }, optional: false },
+              },
+            },
+          ],
+        },
+        optional: false,
+      },
+      tags: {
+        fieldType: { type: "array", value: { type: "string" } },
+        optional: false,
+      },
+      lookup: {
+        fieldType: {
+          type: "record",
+          keys: { type: "string" },
+          values: { type: "string" },
+        },
+        optional: false,
+      },
+    });
+
+    for (const validPath of [
+      "scalar",
+      "nested.email",
+      "loose.any.depth",
+      "choice.code",
+      "tags",
+      "lookup",
+    ]) {
+      expect(() => applicationTableDefinitionWithIndex(
+        applicationTableDefinition(documentType),
+        "by_field",
+        [validPath],
+      )).not.toThrow();
+    }
+
+    for (const invalidPath of [
+      "missing",
+      "scalar.child",
+      "nested.missing",
+      "choice.missing",
+      "tags.child",
+      "lookup.child",
+      "constructor",
+      "toString",
+    ]) {
+      expect(() => applicationTableDefinitionWithIndex(
+        applicationTableDefinition(documentType),
+        "by_field",
+        [invalidPath],
+      )).toThrow(RangeError);
+    }
+  });
+
+  it("rejects an impossible field path at exact schema snapshot ingress", () => {
+    expect(() => snapshotApplicationSchemaDefinition({
+      tables: [{
+        logicalName: "users",
+        definition: {
+          kind: "appDocument",
+          definitionVersion: 1,
+          documentType: applicationObjectValidatorJson({
+            lookup: {
+              fieldType: {
+                type: "record",
+                keys: { type: "string" },
+                values: { type: "string" },
+              },
+              optional: false,
+            },
+          }),
+        },
+      }],
+      indexes: [{
+        tableLogicalName: "users",
+        descriptor: "by_lookup_child",
+        fields: ["lookup.child"],
       }],
     })).toThrow(RangeError);
   });

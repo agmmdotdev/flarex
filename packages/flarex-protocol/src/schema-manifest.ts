@@ -251,6 +251,21 @@ export const decodeSchemaManifestAppIndexFieldPath = Schema.decodeUnknownSync(
   SchemaManifestAppIndexFieldPathSchema,
 );
 
+/**
+ * Returns whether an already-decoded app index field path can occur under the
+ * validator. This is structural compatibility only; it does not validate an
+ * unknown path, prove index authority, or compile a physical index.
+ */
+export function schemaManifestAppValidatorCanContainFieldPathV1(
+  validator: ValidatorJsonV1,
+  fieldPath: SchemaManifestAppIndexFieldPath,
+): boolean {
+  return schemaManifestAppValidatorCanContainFieldPathPartsV1(
+    validator,
+    fieldPath.split("."),
+  );
+}
+
 const SchemaManifestAppIndexDeclaredFieldsV1Schema = Schema.Array(
   SchemaManifestAppIndexFieldPathSchema,
 ).check(
@@ -897,6 +912,49 @@ function validateSchemaManifestAppValidatorIdentifiers(
     case "any":
     case "literal":
       return undefined;
+  }
+
+  return assertNeverSchemaManifestValidator(validator);
+}
+
+/** Close port of Convex Validator::_can_contain_field. */
+function schemaManifestAppValidatorCanContainFieldPathPartsV1(
+  validator: ValidatorJsonV1,
+  fieldPathParts: ReadonlyArray<string>,
+): boolean {
+  const [firstPart, ...remainingParts] = fieldPathParts;
+  if (firstPart === undefined) return true;
+
+  switch (validator.type) {
+    case "any":
+      return true;
+    case "union":
+      return validator.value.some(member =>
+        schemaManifestAppValidatorCanContainFieldPathPartsV1(
+          member,
+          fieldPathParts,
+        )
+      );
+    case "object": {
+      if (!Object.hasOwn(validator.value, firstPart)) return false;
+      const field = validator.value[firstPart];
+      return field !== undefined &&
+        schemaManifestAppValidatorCanContainFieldPathPartsV1(
+          field.fieldType,
+          remainingParts,
+        );
+    }
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "id":
+    case "literal":
+    case "array":
+    case "record":
+      return false;
   }
 
   return assertNeverSchemaManifestValidator(validator);

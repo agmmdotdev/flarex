@@ -705,8 +705,10 @@ that the current protocol can represent exactly: one object document validator
 per logical table plus its ordered developer-index declarations. The shared
 owner snapshots and freezes those values, delegates identifier, field-path,
 duplicate, and catalog-limit validation to the protocol schema-manifest
-decoders, and rejects an index whose table is absent from the same logical
-schema. Public SDK chaining remains an ergonomic compatibility facade; the
+decoders, rejects an index whose table is absent from the same logical schema,
+and uses the protocol-owned field-containment predicate shared with catalog
+compilation to reject an index path that cannot occur under its document
+validator. Public SDK chaining remains an ergonomic compatibility facade; the
 private Standard producer and generated-source path consume the same immutable
 logical definition. Analysis must still defensively decode SDK metadata rather
 than trusting that it came from those constructors.

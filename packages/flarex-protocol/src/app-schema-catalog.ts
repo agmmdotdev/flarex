@@ -12,6 +12,7 @@ import {
 } from "./ordered-index";
 import {
   decodeSchemaManifestAppSchemaV1,
+  schemaManifestAppValidatorCanContainFieldPathV1,
   type SchemaManifestAppIndexBindingV1,
   type SchemaManifestAppIndexDescriptor,
   type SchemaManifestAppIndexFieldPath,
@@ -309,9 +310,9 @@ function verifyIndexFields(
   }
   for (const fieldPath of index.spec.fields) {
     if (
-      !validatorCanContainField(
+      !schemaManifestAppValidatorCanContainFieldPathV1(
         table.definition.documentType,
-        fieldPath.split("."),
+        fieldPath,
       )
     ) {
       throw new AppSchemaCatalogCompilationErrorV1({
@@ -323,45 +324,6 @@ function verifyIndexFields(
       });
     }
   }
-}
-
-/** Close port of Convex Validator::_can_contain_field. */
-function validatorCanContainField(
-  validator: ValidatorJsonV1,
-  fieldPathParts: ReadonlyArray<string>,
-): boolean {
-  const [firstPart, ...remainingParts] = fieldPathParts;
-  if (firstPart === undefined) return true;
-
-  switch (validator.type) {
-    case "any":
-      return true;
-    case "union":
-      return validator.value.some((member) =>
-        validatorCanContainField(member, fieldPathParts)
-      );
-    case "object": {
-      if (!Object.hasOwn(validator.value, firstPart)) return false;
-      const field = validator.value[firstPart];
-      return field !== undefined && validatorCanContainField(
-        field.fieldType,
-        remainingParts,
-      );
-    }
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "id":
-    case "literal":
-    case "array":
-    case "record":
-      return false;
-  }
-
-  return assertNeverValidator(validator);
 }
 
 async function canonicalizeRequirement<
