@@ -1,3 +1,11 @@
+import {
+  applicationSchemaDefinition,
+  applicationTableDefinition,
+  applicationTableDefinitionWithIndex,
+  snapshotApplicationTableDefinition,
+  type ApplicationSchemaDefinition,
+  type ApplicationTableDefinition,
+} from "@flarex/application-schema-definition/application-schema";
 import type { GenericDataModel } from "./dataModel";
 import {
   asObjectValidator,
@@ -14,6 +22,10 @@ export type Placement =
   | { kind: "colocateWith"; table: string; field: string }
   | { kind: "global" };
 type Indexes = Record<string, readonly string[]>;
+const applicationTableDefinitions = new WeakMap<
+  TableDefinition,
+  ApplicationTableDefinition
+>();
 type FieldPathsForFields<Fields extends PropertyValidators> = {
   [Field in keyof Fields & string]:
     | Field
@@ -38,7 +50,15 @@ export class TableDefinition<
   constructor(
     readonly validator: DocumentValidator,
     readonly fields: PropertyValidators,
-  ) {}
+  ) {
+    if (validator.json.type !== "object") {
+      throw new TypeError("Flarex table definitions require an object validator.");
+    }
+    applicationTableDefinitions.set(
+      this,
+      applicationTableDefinition(validator.json),
+    );
+  }
 
   index<
     Name extends string,
@@ -48,7 +68,20 @@ export class TableDefinition<
     name: Name,
     fields: readonly [First, ...Rest],
   ): TableDefinition<DocumentValidator, TableIndexes & Record<Name, readonly [First, ...Rest]>> {
-    this.indexes.push({ name, fields });
+    const current = applicationTableDefinitions.get(this);
+    if (current === undefined) {
+      throw new TypeError("Flarex table definition authoring metadata is unavailable.");
+    }
+    const next = applicationTableDefinitionWithIndex(current, name, fields);
+    applicationTableDefinitions.set(this, next);
+    const index = next.indexes.at(-1);
+    if (index === undefined) {
+      throw new Error("Flarex table index authoring lost the appended index.");
+    }
+    this.indexes.push(Object.freeze({
+      name: index.descriptor,
+      fields: index.fields,
+    }));
     return this as never;
   }
 
@@ -77,6 +110,10 @@ export type GenericSchema = Record<string, TableDefinition | ProjectionDefinitio
 
 export class SchemaDefinition<Definitions extends GenericSchema> {
   constructor(readonly tables: Definitions) {}
+
+  get applicationSchemaDefinition(): ApplicationSchemaDefinition {
+    return applicationSchemaDefinitionFromSdkDefinitions(this.tables);
+  }
 }
 
 export function defineTable<Fields extends PropertyValidators>(
@@ -157,6 +194,38 @@ export function defineSchema<Definitions extends GenericSchema>(
   definitions: Definitions,
 ): SchemaDefinition<Definitions> {
   return new SchemaDefinition(definitions);
+}
+
+function applicationSchemaDefinitionFromSdkDefinitions(
+  definitions: GenericSchema,
+): ApplicationSchemaDefinition {
+  const applicationTables: Record<string, ApplicationTableDefinition> =
+    Object.create(null);
+  for (const [logicalName, definition] of Object.entries(definitions)) {
+    if (definition.kind !== "table") continue;
+    Object.defineProperty(applicationTables, logicalName, {
+      enumerable: true,
+      configurable: false,
+      writable: false,
+      value: snapshotSdkTableDefinition(definition),
+    });
+  }
+  return applicationSchemaDefinition(applicationTables);
+}
+
+function snapshotSdkTableDefinition(
+  table: TableDefinition,
+): ApplicationTableDefinition {
+  if (table.validator.json.type !== "object") {
+    throw new TypeError("Flarex table definitions require an object validator.");
+  }
+  return snapshotApplicationTableDefinition({
+    documentType: table.validator.json,
+    indexes: table.indexes.map(index => ({
+      descriptor: index.name,
+      fields: index.fields,
+    })),
+  });
 }
 
 export type DataModelFromSchemaDefinition<Schema extends SchemaDefinition<any>> = {

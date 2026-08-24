@@ -1,3 +1,6 @@
+import {
+  snapshotApplicationSchemaDefinition,
+} from "@flarex/application-schema-definition/application-schema";
 import type {
   CanonicalDeclarativeFunctionKindV1,
   CanonicalDeclarativeFunctionVisibilityV1,
@@ -237,13 +240,16 @@ function generateSchemaSource(
   relations?: PreparedStandardApplicationRelations,
 ): Result.Result<string, Readonly<{ readonly path: string }>> {
   return Result.gen(function* () {
-    const indexesByTable = new Map<string, typeof definition.program.schema.indexes>();
-    for (const index of definition.program.schema.indexes) {
+    const logicalSchema = snapshotApplicationSchemaDefinition(
+      definition.program.schema,
+    );
+    const indexesByTable = new Map<string, typeof logicalSchema.indexes>();
+    for (const index of logicalSchema.indexes) {
       const current = indexesByTable.get(index.tableLogicalName) ?? [];
       indexesByTable.set(index.tableLogicalName, [...current, index]);
     }
     const tables: string[] = [];
-    for (const table of definition.program.schema.tables) {
+    for (const table of logicalSchema.tables) {
       let tableSource = `definePartitionTable(${
         yield* validatorSource(table.definition.documentType).pipe(
           Result.mapError(() => ({ path: `schema.${table.logicalName}` })),

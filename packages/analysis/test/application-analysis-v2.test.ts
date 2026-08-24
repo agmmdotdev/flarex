@@ -289,11 +289,16 @@ function schemaDefinition(relations: ReadonlyArray<unknown>) {
 function largeRelationSchemaDefinition() {
   const tables: Record<string, unknown> = {};
   const relations: unknown[] = [];
-  const targetTable = `target_${"t".repeat(120)}`;
-  tables[targetTable] = schemaTable({});
+  const targetTable = `target_${"t".repeat(57)}`;
+  tables[targetTable] = schemaTable({
+    padding: {
+      fieldType: { type: "literal", value: "p".repeat(1_100_000) },
+      optional: true,
+    },
+  });
   for (let tableIndex = 0; tableIndex < 16; tableIndex += 1) {
     const sourceTable = `source_${String(tableIndex).padStart(2, "0")}_${
-      "s".repeat(116)
+      "s".repeat(53)
     }`;
     const fields: Record<string, {
       readonly fieldType: ValidatorJSON;
@@ -301,7 +306,7 @@ function largeRelationSchemaDefinition() {
     }> = {};
     for (let fieldIndex = 0; fieldIndex < 64; fieldIndex += 1) {
       const field = `field_${String(fieldIndex).padStart(2, "0")}_${
-        "f".repeat(231)
+        "f".repeat(55)
       }`;
       fields[field] = {
         fieldType: { type: "id", tableName: targetTable },

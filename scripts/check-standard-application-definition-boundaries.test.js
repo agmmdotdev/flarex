@@ -53,6 +53,7 @@ describe("Standard Application definition boundary checker", () => {
           "packages/standard-application-definition/src/applicationSource.ts",
         text: `
           import { policy } from "@flarex/analysis/internal/application-analysis-module-path-policy";
+          import { snapshotApplicationSchemaDefinition } from "@flarex/application-schema-definition/application-schema";
           import { copyBytes } from "@flarex/utils/bytes";
           import { compareUtf16Strings } from "@flarex/utils/strings";
           import { source } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";

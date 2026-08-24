@@ -171,6 +171,41 @@ describe("shared analyzer semantics", () => {
     });
   });
 
+  it("applies protocol table validation before placement policy", async () => {
+    await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
+      schemaDefinition: {
+        tables: {
+          _reserved: {
+            ...schemaTableDefinition(),
+            placement: { kind: "not-a-placement" },
+          },
+        },
+      },
+      executionModules: {},
+      sourceMaps: {},
+    }))).rejects.toMatchObject({
+      _tag: "AnalyzerSchemaError",
+      message: "Schema table declarations are invalid.",
+    });
+  });
+
+  it("defensively applies protocol index validation to SDK metadata", async () => {
+    const table = schemaTableDefinition();
+    table.indexes = [
+      { name: "by_name", fields: ["name"] },
+      { name: "by_name", fields: ["email"] },
+    ];
+
+    await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
+      schemaDefinition: { tables: { users: table } },
+      executionModules: {},
+      sourceMaps: {},
+    }))).rejects.toMatchObject({
+      _tag: "AnalyzerSchemaError",
+      message: 'Schema table "users" has invalid indexes.',
+    });
+  });
+
   it("rejects ambiguous root model partitions", async () => {
     await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
       schemaDefinition: schemaDefinition(),

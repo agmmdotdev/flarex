@@ -69,6 +69,7 @@ function malformedSdkLiteral(value: unknown) {
 
 function schemaWithMalformedSdkLiteral() {
   const table = defineGlobalTable({ status: v.string() });
+  const schema = defineSchema({ orders: table });
   Object.defineProperty(table, "validator", {
     value: {
       isFlarexValidator: true,
@@ -83,7 +84,7 @@ function schemaWithMalformedSdkLiteral() {
       },
     },
   });
-  return defineSchema({ orders: table });
+  return schema;
 }
 
 function directProgramInput() {
@@ -149,9 +150,32 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
     );
 
     expect(fromSdk).toEqual(fromFixture);
+    expect(fromSdk.schema).toEqual(sdkSchema.applicationSchemaDefinition);
     expect(analyzeCanonicalDeclarativeProgramV1(fromSdk)).toEqual(
       analyzeCanonicalDeclarativeProgramV1(fromFixture),
     );
+  });
+
+  it("keeps post-schema index chaining aligned with canonical analysis", async () => {
+    const orders = defineGlobalTable({ status: v.string() });
+    const schema = defineSchema({ orders });
+    orders.index("by_status", ["status"]);
+
+    const program = await Effect.runPromise(
+      canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
+        schemaDefinition: schema,
+        executionModules: {
+          orders: { place: placeOrder },
+        },
+      }, BUDGET),
+    );
+
+    expect(program.schema).toEqual(schema.applicationSchemaDefinition);
+    expect(program.schema.indexes).toEqual([{
+      tableLogicalName: "orders",
+      descriptor: "by_status",
+      fields: ["status"],
+    }]);
   });
 
   it("preserves the SDK omitted-return compatibility marker as canonical null", async () => {

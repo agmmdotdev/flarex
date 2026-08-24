@@ -20,6 +20,80 @@ describe("schema builders", () => {
       placement: { kind: "colocateWith", table: "users", field: "userId" },
       indexes: [{ name: "by_user", fields: ["userId"] }],
     });
+    expect(schema.applicationSchemaDefinition).toEqual({
+      tables: [
+        {
+          logicalName: "progress",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                userId: {
+                  fieldType: { type: "id", tableName: "users" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        },
+        {
+          logicalName: "users",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                name: {
+                  fieldType: { type: "string" },
+                  optional: false,
+                },
+              },
+            },
+          },
+        },
+      ],
+      indexes: [{
+        tableLogicalName: "progress",
+        descriptor: "by_user",
+        fields: ["userId"],
+      }],
+    });
+    expect(Object.isFrozen(schema.applicationSchemaDefinition)).toBe(true);
+  });
+
+  it("snapshots index fields and rejects malformed or duplicate index metadata", () => {
+    const fields = ["name"] as ["name"];
+    const table = definePartitionTable({ name: v.string() })
+      .index("by_name", fields);
+    const mutableFields: string[] = fields;
+    mutableFields[0] = "changed";
+    const schema = defineSchema({ users: table });
+
+    expect(schema.applicationSchemaDefinition.indexes[0]?.fields).not.toBe(fields);
+    expect(schema.applicationSchemaDefinition.indexes[0]?.fields).toEqual([
+      "name",
+    ]);
+    expect(() => table.index("by_name", ["name"])).toThrow();
+    expect(() => definePartitionTable({ name: v.string() }).index(
+      "_reserved",
+      ["name"],
+    )).toThrow();
+  });
+
+  it("keeps the logical definition aligned with supported post-schema chaining", () => {
+    const users = defineGlobalTable({ name: v.string() });
+    const schema = defineSchema({ users });
+
+    expect(schema.applicationSchemaDefinition.indexes).toEqual([]);
+    users.index("by_name", ["name"]);
+    expect(schema.applicationSchemaDefinition.indexes).toEqual([{
+      tableLogicalName: "users",
+      descriptor: "by_name",
+      fields: ["name"],
+    }]);
   });
 
   it("records global placement explicitly", () => {

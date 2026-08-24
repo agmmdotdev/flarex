@@ -15,6 +15,10 @@ import {
   decodeDeploymentCodegenAnalysisEffect,
 } from "flarex-protocol/deployment";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
+import {
+  decodeSchemaManifestAppIndexDeclarationsV1Result,
+  decodeSchemaManifestAppTableDeclarationsV1Result,
+} from "flarex-protocol/schema-manifest";
 import { ValidatorJson as ProtocolValidatorJsonSchema } from "flarex-protocol/validator-json";
 import {
   ApplicationRelationAnalysisError,
@@ -393,18 +397,15 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
       schemaError("Schema table metadata inspection failed.", cause),
   });
   const tableIds = new Map(entries.map(([name], index) => [name, index + 1] as const));
-  const tables: AnalyzedSchema["tables"][number][] = [];
-  const indexes: AnalyzedSchema["indexes"][number][] = [];
-  let nextIndexId = 1;
-
+  const inspectedTables: Array<{
+    readonly name: string;
+    readonly table: Readonly<Record<string, unknown>>;
+    readonly validator: ValidatorJSON;
+  }> = [];
   for (const [name, table] of entries) {
-    const tableId = tableIds.get(name);
-    if (tableId === undefined) {
-      return yield* schemaFailure(`Schema table "${name}" has no generated table id.`);
-    }
-    tables.push({
-      tableId,
+    inspectedTables.push({
       name,
+      table,
       validator: yield* analyzeTableValidatorEffect(
         yield* readSchemaPropertyEffect(
           table,
@@ -413,6 +414,47 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
         ),
         name,
       ),
+    });
+  }
+  const decodedTableDeclarations = yield* Effect.fromResult(
+    decodeSchemaManifestAppTableDeclarationsV1Result(
+      inspectedTables.map(table => ({
+        logicalName: table.name,
+        definition: {
+          kind: "appDocument",
+          definitionVersion: 1,
+          documentType: table.validator,
+        },
+      })),
+    ),
+  ).pipe(
+    Effect.mapError(cause =>
+      schemaError("Schema table declarations are invalid.", cause)
+    ),
+  );
+  const decodedTableByName = new Map<
+    string,
+    typeof decodedTableDeclarations[number]
+  >(
+    decodedTableDeclarations.map(table => [table.logicalName, table] as const),
+  );
+  const tables: AnalyzedSchema["tables"][number][] = [];
+  const indexDeclarations: Array<{
+    readonly tableLogicalName: string;
+    readonly descriptor: string;
+    readonly fields: ReadonlyArray<string>;
+  }> = [];
+
+  for (const { name, table } of inspectedTables) {
+    const tableId = tableIds.get(name);
+    const decodedTable = decodedTableByName.get(name);
+    if (tableId === undefined || decodedTable === undefined) {
+      return yield* schemaFailure(`Schema table "${name}" has no generated table id.`);
+    }
+    tables.push({
+      tableId,
+      name,
+      validator: decodedTable.definition.documentType,
       placement: yield* analyzePlacementEffect(
         yield* readSchemaPropertyEffect(
           table,
@@ -431,14 +473,35 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
       name,
     );
     for (const index of tableIndexes) {
-      indexes.push({
-        indexId: nextIndexId++,
-        tableId,
-        name: index.name,
+      indexDeclarations.push({
+        tableLogicalName: name,
+        descriptor: index.name,
         fields: index.fields,
       });
     }
   }
+
+  const decodedIndexDeclarations = yield* Effect.fromResult(
+    decodeSchemaManifestAppIndexDeclarationsV1Result(indexDeclarations),
+  ).pipe(
+    Effect.mapError(cause =>
+      schemaError("Schema index declarations are invalid.", cause)
+    ),
+  );
+  const indexes = decodedIndexDeclarations.map((index, position) => {
+    const tableId = tableIds.get(index.tableLogicalName);
+    if (tableId === undefined) {
+      throw new Error(
+        `Decoded schema index ${JSON.stringify(index.descriptor)} lost table ${JSON.stringify(index.tableLogicalName)}.`,
+      );
+    }
+    return {
+      indexId: position + 1,
+      tableId,
+      name: index.descriptor,
+      fields: index.fields,
+    };
+  });
 
   return { version: 1, tables, indexes };
 });
@@ -797,7 +860,21 @@ const analyzeIndexesEffect = Effect.fn(function* (
     }
     indexes.push({ name, fields });
   }
-  return indexes;
+  const decoded = yield* Effect.fromResult(
+    decodeSchemaManifestAppIndexDeclarationsV1Result(indexes.map(index => ({
+      tableLogicalName: tableName,
+      descriptor: index.name,
+      fields: index.fields,
+    }))),
+  ).pipe(
+    Effect.mapError(cause =>
+      schemaError(`Schema table "${tableName}" has invalid indexes.`, cause)
+    ),
+  );
+  return decoded.map(index => ({
+    name: index.descriptor,
+    fields: index.fields,
+  }));
 });
 
 const analyzeExportEffect = Effect.fn(function* (

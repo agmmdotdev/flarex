@@ -700,6 +700,28 @@ persistence, runtimes, hosts, deployment, readiness, activation, and framework
 adapters. It is not a runtime validator, wire decoder, managed-schema planner,
 database schema, universal schema library, or public SDK by itself.
 
+The accepted table/index authoring slice centralizes only the logical schema
+that the current protocol can represent exactly: one object document validator
+per logical table plus its ordered developer-index declarations. The shared
+owner snapshots and freezes those values, delegates identifier, field-path,
+duplicate, and catalog-limit validation to the protocol schema-manifest
+decoders, and rejects an index whose table is absent from the same logical
+schema. Public SDK chaining remains an ergonomic compatibility facade; the
+private Standard producer and generated-source path consume the same immutable
+logical definition. Analysis must still defensively decode SDK metadata rather
+than trusting that it came from those constructors.
+
+Placement is deliberately not part of that shared logical definition yet. The
+public SDK currently represents `global`, `partitionBy`, and `colocateWith`,
+while the canonical declarative table declaration has no placement member. In
+addition, canonical-program analysis currently projects such tables as global,
+whereas Standard generated schema source emits `definePartitionTable`. That is
+a concrete unresolved placement-contract mismatch. Its disposition is to keep
+placement producer-owned and visibly separate in this slice; selecting and
+versioning one canonical placement contract, migrating both projections, and
+proving compatibility requires a separate approved preflight. Table/index
+deduplication must not encode either default as if agreement already existed.
+
 Migration proceeds compatibility-first:
 
 1. the private Standard authoring surface consumes the shared owner and retains

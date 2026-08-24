@@ -81,6 +81,7 @@ const taskAuthoringAllowedProductionImports = new Set([
 const applicationSourceAllowedProductionImports = new Set([
   ...shippedDefinitionAllowedProductionImports,
   "@flarex/analysis/internal/application-analysis-module-path-policy",
+  "@flarex/application-schema-definition/application-schema",
   "@flarex/utils/bytes",
   "@flarex/utils/strings",
   "flarex-protocol/internal/declarative-v2-source-artifact-v2",
