@@ -33,5 +33,6 @@ export {
   hasApplicationRelationCommitAuthorityForControlDb,
   hasApplicationRelationCommitAuthorityForPointCommit,
   hasPreparedApplicationRelationCommitAuthority,
+  prepareApplicationRelationDefinitionBuildResult,
   prepareApplicationRelationCommitResult,
 } from "./applicationRelationCommit/Repository";

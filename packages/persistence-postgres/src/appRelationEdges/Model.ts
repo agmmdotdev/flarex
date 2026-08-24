@@ -18,7 +18,9 @@ export type AppRelationEdgeOperation =
   | "applyChanges"
   | "readAdjacencyVersion"
   | "hasIncoming"
-  | "readIncomingPage";
+  | "readIncomingPage"
+  | "readBuildSource"
+  | "readBuildPage";
 
 /**
  * Package-private physical pin. It records immutable R02 meaning but is not a

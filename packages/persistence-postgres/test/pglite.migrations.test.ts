@@ -102,6 +102,8 @@ describe("createPGlitePersistence", () => {
       "fx_system_durable_task_requested_effect_v1",
       "fx_system_durable_task_run_request_v1",
       "fx_system_durable_task_run_v1",
+      "fx_system_edge_definition_build",
+      "fx_system_edge_definition_readiness",
       "fx_system_external_effect_attempt_v1",
       "fx_system_idempotency",
       "fx_system_index_build_state",
@@ -152,6 +154,41 @@ describe("createPGlitePersistence", () => {
         table_name: "__drizzle_migrations",
       },
     ]);
+
+    const edgeBuildConstraints = await persistence.query<{
+      constraint_name: string;
+      definition: string;
+    }>(
+      `select conname constraint_name, pg_get_constraintdef(oid) definition
+         from pg_constraint
+        where conname in (
+          'fx_system_edge_definition_build_count_check',
+          'fx_system_edge_definition_build_scope_fk',
+          'fx_system_edge_definition_readiness_build_fk'
+        )
+        order by conname`,
+    );
+    expect(edgeBuildConstraints.rows.map((row) => row.constraint_name)).toEqual([
+      "fx_system_edge_definition_build_count_check",
+      "fx_system_edge_definition_build_scope_fk",
+      "fx_system_edge_definition_readiness_build_fk",
+    ]);
+    const progressCheck = edgeBuildConstraints.rows.find((row) =>
+      row.constraint_name === "fx_system_edge_definition_build_count_check"
+    )?.definition ?? "";
+    expect(progressCheck).toContain("processed_source_count = 0");
+    expect(progressCheck).toContain(
+      "validated_source_count = processed_source_count",
+    );
+    const edgeBuildIndexes = await persistence.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where tablename = 'fx_system_edge_definition_readiness'
+        order by indexname`,
+    );
+    expect(edgeBuildIndexes.rows.map((row) => row.indexname)).toContain(
+      "fx_system_edge_definition_readiness_digest_unique",
+    );
   });
 
   it("upgrades existing Task rows to the explicit Legacy definition generation", async () => {

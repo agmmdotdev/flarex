@@ -45,6 +45,8 @@ export {
   fxSystemApplicationPublicationsV1,
   fxSystemApplicationReadinessFunctionsV1,
   fxSystemApplicationReadinessV1,
+  fxSystemEdgeDefinitionBuilds,
+  fxSystemEdgeDefinitionReadiness,
   fxSystemApplicationRevisionSchemasV1,
   fxSystemApplicationRevisionsV2,
   fxSystemApplicationTaskCatalogsV1,

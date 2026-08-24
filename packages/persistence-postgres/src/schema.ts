@@ -203,6 +203,15 @@ import {
   MAX_APP_UNIQUE_LOCALE_KEY_BYTES_V1,
   type AppUniqueConstraintIdV1,
 } from "./appUniqueKeyContract";
+import {
+  APPLICATION_RELATION_BUILD_CURSOR_CODEC_VERSION,
+  APPLICATION_RELATION_READINESS_RECEIPT_CODEC_VERSION,
+  APPLICATION_RELATION_READINESS_RECEIPT_MAXIMUM_BYTES,
+} from "./applicationRelationBuild/Constants";
+import type {
+  ApplicationRelationBuildAttemptFence,
+  ApplicationRelationBuildLifecycle,
+} from "./applicationRelationBuild/Model";
 import { MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 } from "flarex-protocol/value";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
@@ -4038,6 +4047,263 @@ export const fxAppEdgeAdjacencyVersions = pgTable(
     check(
       "fx_app_edge_adjacency_version_commit_seq_check",
       sql`${table.lastChangedCommitSeq} >= 1`,
+    ),
+  ],
+);
+
+/** Mutable scope-fenced progress for one inactive physical edge definition. */
+export const fxSystemEdgeDefinitionBuilds = pgTable(
+  "fx_system_edge_definition_build",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    edgeDefinitionId: integer("edge_definition_id")
+      .$type<CatalogEdgeDefinitionId>()
+      .notNull(),
+    deploymentId: text("deployment_id").notNull(),
+    relationId: integer("relation_id").$type<CatalogRelationId>().notNull(),
+    sourceTableId: integer("source_table_id").$type<CatalogTableId>().notNull(),
+    targetTableId: integer("target_table_id").$type<CatalogTableId>().notNull(),
+    semanticDefinitionSha256: bytea("semantic_definition_sha256").notNull(),
+    physicalDefinitionSha256: bytea("physical_definition_sha256").notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    frontierCommitSeq: bigint("frontier_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<ApplicationRelationBuildAttemptFence>()
+      .notNull(),
+    lifecycle: text("lifecycle")
+      .$type<ApplicationRelationBuildLifecycle>()
+      .notNull(),
+    cursorCodecVersion: integer("cursor_codec_version").notNull(),
+    sourceCursorRowId: bytea("source_cursor_row_id"),
+    edgeCursorSourceRowId: bytea("edge_cursor_source_row_id"),
+    edgeCursorTargetRowId: bytea("edge_cursor_target_row_id"),
+    versionCursorDirection: text("version_cursor_direction")
+      .$type<"incoming" | "outgoing">(),
+    versionCursorEndpointRowId: bytea("version_cursor_endpoint_row_id"),
+    processedSourceCount: bigint("processed_source_count", { mode: "bigint" })
+      .notNull(),
+    validatedSourceCount: bigint("validated_source_count", { mode: "bigint" })
+      .notNull(),
+    validatedEdgeCount: bigint("validated_edge_count", { mode: "bigint" })
+      .notNull(),
+    validatedVersionCount: bigint("validated_version_count", { mode: "bigint" })
+      .notNull(),
+    readinessSha256: bytea("readiness_sha256"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_edge_definition_build_pk",
+      columns: [table.scopeId, table.edgeDefinitionId],
+    }),
+    foreignKey({
+      name: "fx_system_edge_definition_build_scope_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    check(
+      "fx_system_edge_definition_build_identity_check",
+      sql`${nonBlankText(table.scopeId)}
+        and ${nonBlankText(table.deploymentId)}
+        and ${table.edgeDefinitionId} between 1 and 2147483647
+        and ${table.relationId} between 1 and 2147483647
+        and ${table.sourceTableId} between 1 and 2147483647
+        and ${table.targetTableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_system_edge_definition_build_digest_check",
+      sql`octet_length(${table.semanticDefinitionSha256}) = 32
+        and octet_length(${table.physicalDefinitionSha256}) = 32`,
+    ),
+    check(
+      "fx_system_edge_definition_build_authority_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'
+        and ${table.storageGenerationFence} >= 1
+        and ${nonBlankText(table.epoch)}
+        and ${table.frontierCommitSeq} >= 0
+        and ${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_edge_definition_build_lifecycle_check",
+      sql`${table.lifecycle} in ('cleaning', 'backfilling', 'validating_sources', 'validating_edges', 'validating_versions', 'enabled')`,
+    ),
+    check(
+      "fx_system_edge_definition_build_cursor_check",
+      sql`${table.cursorCodecVersion} = ${sql.raw(
+        String(APPLICATION_RELATION_BUILD_CURSOR_CODEC_VERSION),
+      )}
+        and (${table.sourceCursorRowId} is null or octet_length(${table.sourceCursorRowId}) = 16)
+        and (${table.edgeCursorSourceRowId} is null or octet_length(${table.edgeCursorSourceRowId}) = 16)
+        and (${table.edgeCursorTargetRowId} is null or octet_length(${table.edgeCursorTargetRowId}) = 16)
+        and (${table.edgeCursorSourceRowId} is null) = (${table.edgeCursorTargetRowId} is null)
+        and (${table.versionCursorDirection} is null or ${table.versionCursorDirection} in ('incoming', 'outgoing'))
+        and (${table.versionCursorEndpointRowId} is null or octet_length(${table.versionCursorEndpointRowId}) = 16)
+        and (${table.versionCursorDirection} is null) = (${table.versionCursorEndpointRowId} is null)
+        and (
+          (${table.lifecycle} in ('backfilling', 'validating_sources')
+            and ${table.edgeCursorSourceRowId} is null
+            and ${table.versionCursorDirection} is null)
+          or (${table.lifecycle} = 'validating_edges'
+            and ${table.sourceCursorRowId} is null
+            and ${table.versionCursorDirection} is null)
+          or (${table.lifecycle} = 'validating_versions'
+            and ${table.sourceCursorRowId} is null
+            and ${table.edgeCursorSourceRowId} is null)
+          or (${table.lifecycle} in ('cleaning', 'enabled')
+            and ${table.sourceCursorRowId} is null
+            and ${table.edgeCursorSourceRowId} is null
+            and ${table.versionCursorDirection} is null)
+        )`,
+    ),
+    check(
+      "fx_system_edge_definition_build_count_check",
+      sql`${table.processedSourceCount} >= 0
+        and ${table.validatedSourceCount} >= 0
+        and ${table.validatedEdgeCount} >= 0
+        and ${table.validatedVersionCount} >= 0
+        and (
+          (${table.lifecycle} = 'cleaning'
+            and ${table.processedSourceCount} = 0
+            and ${table.validatedSourceCount} = 0
+            and ${table.validatedEdgeCount} = 0
+            and ${table.validatedVersionCount} = 0)
+          or (${table.lifecycle} = 'backfilling'
+            and ${table.validatedSourceCount} = 0
+            and ${table.validatedEdgeCount} = 0
+            and ${table.validatedVersionCount} = 0)
+          or (${table.lifecycle} = 'validating_sources'
+            and ${table.validatedSourceCount} <= ${table.processedSourceCount}
+            and ${table.validatedEdgeCount} = 0
+            and ${table.validatedVersionCount} = 0)
+          or (${table.lifecycle} = 'validating_edges'
+            and ${table.validatedSourceCount} = ${table.processedSourceCount}
+            and ${table.validatedVersionCount} = 0)
+          or (${table.lifecycle} in ('validating_versions', 'enabled')
+            and ${table.validatedSourceCount} = ${table.processedSourceCount})
+        )
+        and (
+          (${table.lifecycle} = 'enabled'
+            and ${table.readinessSha256} is not null
+            and octet_length(${table.readinessSha256}) = 32)
+          or (${table.lifecycle} <> 'enabled' and ${table.readinessSha256} is null)
+        )`,
+    ),
+    check(
+      "fx_system_edge_definition_build_time_check",
+      sql`isfinite(${table.createdAt}) and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
+/** Immutable exact physical-readiness evidence for one completed attempt. */
+export const fxSystemEdgeDefinitionReadiness = pgTable(
+  "fx_system_edge_definition_readiness",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().notNull(),
+    edgeDefinitionId: integer("edge_definition_id")
+      .$type<CatalogEdgeDefinitionId>()
+      .notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<ApplicationRelationBuildAttemptFence>()
+      .notNull(),
+    deploymentId: text("deployment_id").notNull(),
+    relationId: integer("relation_id").$type<CatalogRelationId>().notNull(),
+    sourceTableId: integer("source_table_id").$type<CatalogTableId>().notNull(),
+    targetTableId: integer("target_table_id").$type<CatalogTableId>().notNull(),
+    semanticDefinitionSha256: bytea("semantic_definition_sha256").notNull(),
+    physicalDefinitionSha256: bytea("physical_definition_sha256").notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    }).$type<StorageGenerationFence>().notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    frontierCommitSeq: bigint("frontier_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    receiptCodecVersion: integer("receipt_codec_version").notNull(),
+    receiptBytes: bytea("receipt_bytes").notNull(),
+    readinessSha256: bytea("readiness_sha256").notNull(),
+    sourceCount: bigint("source_count", { mode: "bigint" }).notNull(),
+    edgeCount: bigint("edge_count", { mode: "bigint" }).notNull(),
+    versionCount: bigint("version_count", { mode: "bigint" }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_edge_definition_readiness_pk",
+      columns: [table.scopeId, table.edgeDefinitionId, table.attemptFence],
+    }),
+    foreignKey({
+      name: "fx_system_edge_definition_readiness_build_fk",
+      columns: [table.scopeId, table.edgeDefinitionId],
+      foreignColumns: [
+        fxSystemEdgeDefinitionBuilds.scopeId,
+        fxSystemEdgeDefinitionBuilds.edgeDefinitionId,
+      ],
+    }).onDelete("restrict"),
+    uniqueIndex("fx_system_edge_definition_readiness_digest_unique").on(
+      table.scopeId,
+      table.readinessSha256,
+    ),
+    check(
+      "fx_system_edge_definition_readiness_identity_check",
+      sql`${nonBlankText(table.scopeId)}
+        and ${nonBlankText(table.deploymentId)}
+        and ${table.edgeDefinitionId} between 1 and 2147483647
+        and ${table.relationId} between 1 and 2147483647
+        and ${table.sourceTableId} between 1 and 2147483647
+        and ${table.targetTableId} between 1 and 2147483647
+        and ${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_edge_definition_readiness_digest_check",
+      sql`octet_length(${table.semanticDefinitionSha256}) = 32
+        and octet_length(${table.physicalDefinitionSha256}) = 32
+        and octet_length(${table.readinessSha256}) = 32`,
+    ),
+    check(
+      "fx_system_edge_definition_readiness_authority_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'
+        and ${table.storageGenerationFence} >= 1
+        and ${nonBlankText(table.epoch)}
+        and ${table.frontierCommitSeq} >= 0`,
+    ),
+    check(
+      "fx_system_edge_definition_readiness_receipt_check",
+      sql`${table.receiptCodecVersion} = ${sql.raw(
+        String(APPLICATION_RELATION_READINESS_RECEIPT_CODEC_VERSION),
+      )}
+        and octet_length(${table.receiptBytes}) between 1 and ${sql.raw(
+          String(APPLICATION_RELATION_READINESS_RECEIPT_MAXIMUM_BYTES),
+        )}`,
+    ),
+    check(
+      "fx_system_edge_definition_readiness_count_check",
+      sql`${table.sourceCount} >= 0
+        and ${table.edgeCount} >= 0
+        and ${table.versionCount} >= 0`,
+    ),
+    check(
+      "fx_system_edge_definition_readiness_time_check",
+      sql`isfinite(${table.settledAt})`,
     ),
   ],
 );

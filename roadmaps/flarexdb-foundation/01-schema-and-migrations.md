@@ -20,10 +20,11 @@ exact abort/expiry terminalization is also complete; conditional renewal,
 checked revocation, and hosted Worker/key adapters are deferred to their first
 real consumers and do not affect schema-gate ordering.
 Private non-routing snapshot resolution `O02` is complete.
-Relational `R01`, `R01-P`, `R02`, `S12`, and private `C09` are complete.
-Docs-only `E01-A-P` freezes the next target-schema slice: a per-definition
-fenced build head plus immutable physical-readiness receipt. `E01-A` code and
-`E01-B` Application-readiness folding remain open.
+Relational `R01`, `R01-P`, `R02`, `S12`, private `C09`, and private
+production-inert `E01-A` are complete. Migration `0071_nebulous_crystal.sql`
+adds E01-A's per-definition fenced build head and immutable per-attempt physical
+readiness receipt. `E01-B` Application-readiness folding and E01 as a whole
+remain open.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
 activation, prototype-schema retirement, and any evidence-triggered migration
@@ -100,7 +101,7 @@ Convex-first implementation references include:
 | Table definitions | Strict app-document definitions live only inside the immutable manifest; no second table-definition projection exists. |
 | Logical indexes | Stable deployment-scoped logical index identities and optimistic table/index binding preparation exist. |
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
-| Build state | Fenced per-scope index-build state, reconciliation, the relation-free intrinsic builder, scope-clock-fenced readiness settlement, and shared-primary activation/coherent reads exist. E01-A's edge-definition build head and immutable physical-readiness receipt are preflighted but not yet implemented; production prepared-start remains separate. |
+| Build state | Fenced per-scope index-build state, reconciliation, the relation-free intrinsic builder, scope-clock-fenced readiness settlement, and shared-primary activation/coherent reads exist. Private E01-A adds a scope-clock-fenced edge-definition build head, bounded target-local lifecycle, and immutable per-attempt physical-readiness receipt. It remains production-inert; Application-wide relation readiness, semantic-reuse validation, and active-serving admission remain open. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |

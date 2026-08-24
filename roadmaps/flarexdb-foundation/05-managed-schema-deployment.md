@@ -958,16 +958,20 @@ Exit gates:
 
 The accepted implementation is split at the existing owner boundary:
 
-- `E01-A-P` is complete as a docs-only preflight. `E01-A` owns one private,
-  scope-clock-fenced physical edge-definition builder, bounded cleanup and
+- `E01-A` is complete privately and remains production-inert. Its
+  scope-clock-fenced physical edge-definition builder owns bounded cleanup and
   fixed-frontier backfill, independent source/edge/version validation, and an
-  immutable per-attempt physical readiness receipt. It restarts after frontier
-  movement instead of dual-maintaining inactive definitions.
+  immutable per-attempt physical readiness receipt. It restarts an inactive
+  candidate after frontier movement instead of dual-maintaining definitions.
+  A moved semantic binding over an enabled reused physical definition remains
+  fail-closed without mutating the original physical evidence.
 - `E01-B` later closes the exact required-definition set for the inactive
   Application revision and folds only authenticated E01-A receipts plus the R02
   bound-publication identity into Application readiness. It may evolve the
   persisted readiness frame, but it may not reinterpret the existing V1
-  table/index readiness bytes.
+  table/index readiness bytes. It or a separately approved gate must also prove
+  policy-only reuse and non-serving admission before any builder cleanup can be
+  composed near activation.
 
 The precise E01-A state machine, fixed work ceilings, receipt identity, narrow
 C09/S12 owner extensions, uncertainty handling, and non-goals are frozen in

@@ -180,6 +180,38 @@ export function prepareApplicationRelationCommitResult(
   }));
 }
 
+/**
+ * Same-factory one-definition view used only by the E01 physical builder.
+ * The original located set remains the authority; callers cannot construct or
+ * filter a structurally similar set and cross this boundary.
+ */
+export function prepareApplicationRelationDefinitionBuildResult(
+  definitions: LocatedApplicationRelationDefinitionSet,
+  edgeDefinitionId: LocatedApplicationRelationDefinition["edge"]["edgeDefinitionId"],
+  transitionsInput: ReadonlyArray<ApplicationRelationRowTransition>,
+): Result.Result<
+  PreparedApplicationRelationCommit,
+  PrepareApplicationRelationCommitError
+> {
+  const state = locatedApplicationRelationDefinitionSetStates.get(definitions);
+  if (state === undefined) {
+    return Result.fail(commitCorruption("invalidDefinitionSet"));
+  }
+  const matches = definitions.definitions.filter((definition) =>
+    definition.edge.edgeDefinitionId === edgeDefinitionId
+  );
+  const definition = matches[0];
+  if (definition === undefined || matches.length !== 1) {
+    return Result.fail(commitCorruption("invalidDefinitionSet"));
+  }
+  const narrowed = Object.freeze({
+    ...definitions,
+    definitions: Object.freeze([definition]),
+  });
+  locatedApplicationRelationDefinitionSetStates.set(narrowed, state);
+  return prepareApplicationRelationCommitResult(narrowed, transitionsInput);
+}
+
 function projectLocatedApplicationRelationDefinitionSetResult(
   located: LocatedApplicationRelationBinding,
   deploymentId: TransactionGrantDeploymentIdV1,

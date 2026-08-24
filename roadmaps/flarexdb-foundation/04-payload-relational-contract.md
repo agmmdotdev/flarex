@@ -2,11 +2,11 @@
 
 Status: `R01` and the physical snapshot/access preflight `R01-P` completed on
 2026-08-23; `R02` stable binding, `S12` private edge storage, and `C09` private
-point-commit lowering completed on 2026-08-24. `E01-A-P` now freezes the first
-physical build/readiness implementation slice; its code is not yet complete.
-No relation runtime read or OCC registration, Application-wide E01 readiness
-fold, RA01 activation, RQ01 query, public developer API, or Payload adapter is
-implemented.
+point-commit lowering completed on 2026-08-24. The preflighted `E01-A` private
+physical builder and per-attempt readiness evidence are also complete at the
+system-core boundary. `E01-B` and E01 as a whole remain open. No relation
+runtime read or OCC registration, Application-wide E01 readiness fold, RA01
+activation, RQ01 query, public developer API, or Payload adapter is implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1401,10 +1401,38 @@ isolation, injected rollback, exact edge/version validation, corruption, repair,
 and readiness receipt replay. The port remains private, production-inert, and
 unwired from activation or higher APIs.
 
-#### [ ] E01-A — Private Physical Edge-Definition Builder
+#### [x] E01-A — Private Physical Edge-Definition Builder
 
-Implement the preflight above without changing Application-wide readiness,
-activation, relation OCC, or a runtime query.
+The private target-local builder now implements the complete preflight above.
+Migration `0071_nebulous_crystal.sql` adds the fenced per-definition build head
+and immutable per-attempt receipt. The package-local build port revalidates the
+R02 binding, resolves one located target capability, locks the existing scope
+clock, and advances exactly one bounded lifecycle step per transaction. It
+reuses C09's authenticated single-definition lowerer and S12's bounded build
+facet; neither owner gained a second commit path or a runtime relation read.
+
+The builder keeps source, edge, version, cleanup, and target-evidence work
+bounded under the scope-clock lock and fails closed when current-row evidence
+is newer than its fixed frontier. Engine-specific test coverage remains owned
+by the package test suites and commit handoff rather than this living roadmap.
+The port remains private and production-inert. Application-wide readiness,
+activation, relation OCC, runtime query, and higher APIs remain unchanged.
+
+E01-A deliberately does not reinterpret an already-enabled physical definition
+for a moved semantic binding. That admission fails with `bindingMoved` and
+leaves the original head, receipt, edges, and versions untouched; it does not
+mint binding-specific readiness for R02 policy-only physical reuse. E01-B or a
+separately approved reuse-validation gate must authenticate that reuse lineage,
+run validation-only state without cleaning or backfill, and bind a new semantic
+readiness result to the original physical receipt before E01 can close.
+
+The current port also has no authenticated view of which definition is serving
+an active Application revision. Its restart and frontier-reconciliation paths
+are therefore admitted only for inactive candidate definitions while the port
+is production-inert. Before E01-B or RA01 wires any caller, the composition must
+prove that the definition is non-serving, or introduce separate validation-only
+state, so bounded cleanup can never mutate active relation sidecars. This is an
+explicit integration gate rather than a caller convention.
 
 #### [ ] E01-B — Application Relation Readiness Fold
 
