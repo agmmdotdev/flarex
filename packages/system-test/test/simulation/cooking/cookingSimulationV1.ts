@@ -69,6 +69,12 @@ export interface CookingWorkloadProofV1 {
   readonly taskMutationWorkflowCommitted: true;
   readonly taskMutationNestedQueryOutputValidated: true;
   readonly taskMutationDuplicateDeliverySuppressed: true;
+  readonly taskMutationCompletionReplayDocumentId: string;
+  readonly taskMutationCompletionReplayRunId: string;
+  readonly taskMutationCompletionCreationReplay: true;
+  readonly taskMutationCompletionResponseReplayed: true;
+  readonly taskMutationCompletionWorkflowCommitted: true;
+  readonly taskMutationCompletionNestedQueryOutputValidated: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -240,6 +246,15 @@ const COOKING_TASK_DRAFT_CREATE_REQUEST_KEY =
 const COOKING_PUBLISH_SERVING_GUIDE_TASK_REQUEST_KEY = Result.getOrThrow(
   decodeTaskRunCreationRequestKeyV1(
     "sac01:cooking:publish-serving-guide-task",
+  ),
+);
+const COOKING_COMPLETION_REPLAY_DRAFT_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:completion-replay-draft-create",
+  );
+const COOKING_COMPLETION_REPLAY_TASK_REQUEST_KEY = Result.getOrThrow(
+  decodeTaskRunCreationRequestKeyV1(
+    "sac01:cooking:completion-replay-serving-guide-task",
   ),
 );
 const COOKING_TASK_IDENTITY_SUBJECT = "cooking-task-user";
@@ -477,6 +492,12 @@ const COOKING_TASK_DRAFT_RECIPE = {
   localizedTitles: { en: "Task-baked mushroom risotto" },
   source: "Durable Task fixture",
 } as const;
+const COOKING_COMPLETION_REPLAY_DRAFT_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Replay-safe mushroom risotto",
+  localizedTitles: { en: "Replay-safe mushroom risotto" },
+  source: "Completion replay fixture",
+} as const;
 const COOKING_INITIAL_ASSESSMENT = {
   title: "Tomato soup",
   servings: 4,
@@ -508,6 +529,11 @@ const COOKING_TASK_PUBLISHED_ASSESSMENT = {
   title: "Task-baked mushroom risotto",
   headline: "Task-baked mushroom risotto serves 3",
 } as const;
+const COOKING_COMPLETION_REPLAY_PUBLISHED_ASSESSMENT = {
+  ...COOKING_PUBLISHED_ASSESSMENT,
+  title: "Replay-safe mushroom risotto",
+  headline: "Replay-safe mushroom risotto serves 3",
+} as const;
 const COOKING_TASK_DUPLICATE_DELIVERY_FAULT = {
   kind: "duplicate_delivery",
   duplicate: {
@@ -517,6 +543,12 @@ const COOKING_TASK_DUPLICATE_DELIVERY_FAULT = {
     cancellationProviderCalls: 0,
     candidateFailures: 0,
   },
+} as const;
+const COOKING_TASK_COMPLETION_RESPONSE_LOST_FAULT = {
+  kind: "completion_response_lost",
+  completionAttempts: 2,
+  replayedSameCompletion: true,
+  disposition: "idempotent",
 } as const;
 const COOKING_PUBLISH_RECEIPT = {
   changed: true,
@@ -1609,6 +1641,77 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking publication Task did not commit and reread its workflow result.",
     ));
   }
+  const completionReplayDraftInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_COMPLETION_REPLAY_DRAFT_RECIPE,
+    COOKING_COMPLETION_REPLAY_DRAFT_CREATE_REQUEST_KEY,
+  );
+  if (
+    completionReplayDraftInserted.status !== "committed" ||
+    completionReplayDraftInserted.disposition !== "published" ||
+    completionReplayDraftInserted.commitSeq !== setup.commitSeq + 15n ||
+    typeof completionReplayDraftInserted.value !== "string"
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not publish the completion-replay draft.",
+    ));
+  }
+  const taskMutationCompletionReplayDocumentId =
+    completionReplayDraftInserted.value;
+  const taskMutationCompletionReplayRequest = Object.freeze({
+    version: 1 as const,
+    requestKey: COOKING_COMPLETION_REPLAY_TASK_REQUEST_KEY,
+    payload: Object.freeze({
+      recipeId: taskMutationCompletionReplayDocumentId,
+    }),
+    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+  });
+  const taskMutationCompletionReplayFirst = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationCompletionReplayRequest,
+  );
+  const taskMutationCompletionReplayReplay = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationCompletionReplayRequest,
+  );
+  if (!sameTaskRunCreationReceiptV1(
+    taskMutationCompletionReplayReplay,
+    taskMutationCompletionReplayFirst,
+  )) {
+    return yield* Effect.die(new Error(
+      "The cooking completion-replay Task did not replay its durable run.",
+    ));
+  }
+  const taskMutationCompletionReplayDelivery = yield* client.tasks.deliver(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationCompletionReplayFirst,
+    { kind: "fault", fault: "completion_response_lost" },
+  );
+  if (
+    taskMutationCompletionReplayDelivery.status !== "succeeded" ||
+    taskMutationCompletionReplayDelivery.runId !==
+      taskMutationCompletionReplayFirst.runId ||
+    taskMutationCompletionReplayDelivery.worker.generation !==
+      "application_v1" ||
+    taskMutationCompletionReplayDelivery.worker.loads !== 1 ||
+    taskMutationCompletionReplayDelivery.worker.starts !== 1 ||
+    taskMutationCompletionReplayDelivery.worker.settlements !== 1 ||
+    taskMutationCompletionReplayDelivery.worker.resultWrites !== 1 ||
+    taskMutationCompletionReplayDelivery.worker.resultReads !== 2 ||
+    !sameJsonValue(
+      taskMutationCompletionReplayDelivery.fault,
+      COOKING_TASK_COMPLETION_RESPONSE_LOST_FAULT,
+    ) ||
+    !sameJsonValue(taskMutationCompletionReplayDelivery.output, {
+      recipeId: taskMutationCompletionReplayDocumentId,
+      publication: COOKING_PUBLISH_RECEIPT,
+      assessment: COOKING_COMPLETION_REPLAY_PUBLISHED_ASSESSMENT,
+    })
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Task did not preserve its committed workflow across completion replay.",
+    ));
+  }
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -1628,6 +1731,13 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationWorkflowCommitted: true,
     taskMutationNestedQueryOutputValidated: true,
     taskMutationDuplicateDeliverySuppressed: true,
+    taskMutationCompletionReplayDocumentId,
+    taskMutationCompletionReplayRunId:
+      taskMutationCompletionReplayFirst.runId,
+    taskMutationCompletionCreationReplay: true,
+    taskMutationCompletionResponseReplayed: true,
+    taskMutationCompletionWorkflowCommitted: true,
+    taskMutationCompletionNestedQueryOutputValidated: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2284,7 +2394,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 21,
-    queries: 20,
+    mutations: 23,
+    queries: 21,
   },
 });

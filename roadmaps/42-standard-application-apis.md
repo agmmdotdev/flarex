@@ -452,6 +452,13 @@ single application publication commit, and unchanged durable projections are
 adoption evidence only; post-terminal delivery, retry policy, scheduler
 authority, and public or Standard delivery methods remain out of scope.
 
+The completed `SAC01-F2t-D4` consumer runs a second isolated Cooking
+publication Task through the existing private lost-completion-response adapter.
+The Worker and application mutation finish once before the lifecycle response
+is hidden; the supervisor then replays the identical completion and the
+lifecycle owner returns its existing `idempotent` decision. This adds no Task
+retry, application replay, scheduler, completion method, or public API.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator

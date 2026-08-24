@@ -36,6 +36,10 @@ it("runs the cooking simulation through the real Standard path", async () => {
       taskMutationWorkflowCommitted: true,
       taskMutationNestedQueryOutputValidated: true,
       taskMutationDuplicateDeliverySuppressed: true,
+      taskMutationCompletionCreationReplay: true,
+      taskMutationCompletionResponseReplayed: true,
+      taskMutationCompletionWorkflowCommitted: true,
+      taskMutationCompletionNestedQueryOutputValidated: true,
       rejectedInvalidMutations: 5,
       invalidArgumentsRejectedBeforeRuntime: true,
       committedStateUnchangedAfterRejections: true,
@@ -75,26 +79,28 @@ it("runs the cooking simulation through the real Standard path", async () => {
       losingReservationWritesRolledBack: true,
       competitorReservationReplay: true,
     },
-    mutationRuntimeExecutions: 21,
-    queryRuntimeExecutions: 20,
+    mutationRuntimeExecutions: 23,
+    queryRuntimeExecutions: 21,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
   expect(proof.workloadProof.taskRunId).not.toHaveLength(0);
   expect(proof.workloadProof.taskMutationRunId).not.toHaveLength(0);
+  expect(proof.workloadProof.taskMutationCompletionReplayRunId)
+    .not.toHaveLength(0);
   expect(await readCookingTaskStateV1(persistence.target)).toEqual([{
     catalog_count: "1",
     definition_count: "2",
     legacy_definition_revision_count: "0",
-    run_count: "2",
-    request_count: "2",
-    attempt_count: "2",
+    run_count: "3",
+    request_count: "3",
+    attempt_count: "3",
     pending_count: "0",
-    dispatch_count: "2",
-    terminal_run_count: "2",
-    child_mutation_effect_count: "1",
-    confirmed_child_mutation_effect_count: "1",
-    child_mutation_outcome_count: "1",
+    dispatch_count: "3",
+    terminal_run_count: "3",
+    child_mutation_effect_count: "2",
+    confirmed_child_mutation_effect_count: "2",
+    child_mutation_outcome_count: "2",
   }]);
   expect(proof.workloadProof.secondaryDocumentId)
     .toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -106,6 +112,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
     proof.workloadProof.indexedPhantomDocumentId,
     proof.workloadProof.pantryDocumentId,
     proof.workloadProof.taskMutationDocumentId,
+    proof.workloadProof.taskMutationCompletionReplayDocumentId,
   ]) {
     expect(documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
   }
@@ -151,27 +158,32 @@ it("runs the cooking simulation through the real Standard path", async () => {
     documentId: proof.workloadProof.taskMutationDocumentId,
     commitSeq: "15",
     valueState: "live",
+  }, {
+    tableName: "recipes",
+    documentId: proof.workloadProof.taskMutationCompletionReplayDocumentId,
+    commitSeq: "17",
+    valueState: "live",
   }].sort((left, right) => left.documentId < right.documentId ? -1 : 1);
   const lifecycleInspection = {
     version: 1,
     currentRows,
-    currentRowCount: 7,
-    liveRowCount: 6,
-    revisionRowCount: 16,
+    currentRowCount: 8,
+    liveRowCount: 7,
+    revisionRowCount: 18,
     commitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
     ],
     idempotencyOutcomeCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
     ],
     commitFeedCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13", "14", "15",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13", "14", "15", "16", "17",
     ],
     outboxCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
     ],
-    mutationRuntimeExecutions: 21,
-    queryRuntimeExecutions: 20,
+    mutationRuntimeExecutions: 23,
+    queryRuntimeExecutions: 21,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);
@@ -182,8 +194,8 @@ it("runs the cooking simulation through the real Standard path", async () => {
     (select count(*)::text from fx_app_index_entry_rev) as revisions,
     (select count(*)::text from fx_app_index_entry_current) as current_rows`);
   expect(sidecarCounts.rows[0]).toEqual({
-    revisions: "47",
-    current_rows: "16",
+    revisions: "53",
+    current_rows: "19",
   });
   const removedFieldEvidence = await persistence.target.query<{
     commit_seq: string;
