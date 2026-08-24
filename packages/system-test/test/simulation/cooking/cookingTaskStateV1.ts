@@ -8,6 +8,7 @@ export interface CookingTaskStateV1 extends Readonly<Record<string, unknown>> {
   readonly pending_count: string;
   readonly dispatch_count: string;
   readonly terminal_run_count: string;
+  readonly executing_run_count: string;
   readonly child_mutation_effect_count: string;
   readonly confirmed_child_mutation_effect_count: string;
   readonly child_mutation_outcome_count: string;
@@ -31,6 +32,7 @@ export async function readCookingTaskStateV1(
       (select count(*)::text from fx_system_durable_task_compute_pending_v1) as pending_count,
       (select count(*)::text from fx_system_durable_task_compute_dispatch_v1) as dispatch_count,
       (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'terminal') as terminal_run_count,
+      (select count(*)::text from fx_system_durable_task_run_v1 where phase = 'executing') as executing_run_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation') as child_mutation_effect_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and state = 'confirmed') as confirmed_child_mutation_effect_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and child_mutation_outcome_sha256 is not null) as child_mutation_outcome_count

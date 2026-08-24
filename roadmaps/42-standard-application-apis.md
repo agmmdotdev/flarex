@@ -469,6 +469,16 @@ Worker, child-mutation, commit, feed, and outbox evidence. This adds no
 result-store method, retry policy, scheduler authority, or public or Standard
 API.
 
+The completed `SAC01-F2t-D6` consumer runs a fourth isolated Cooking
+publication Task through the existing private unresolved-result-publication
+adapter. Its application mutation and post-commit query finish once, but the
+failed publication and reconciliation leave the Task attempt executing with no
+retained or fabricated terminal result. An ordinary application query confirms
+the committed recipe independently. PGlite and authenticated ordinary-role
+PostgreSQL pin the exact non-terminal run, Worker, child-mutation, commit, feed,
+and outbox evidence. This adds no result-store method, retry policy, scheduler
+authority, or public or Standard API.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator

@@ -55,6 +55,11 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           taskMutationResultPublicationReconciled: true,
           taskMutationResultReconciliationWorkflowCommitted: true,
           taskMutationResultReconciliationNestedQueryOutputValidated: true,
+          taskMutationResultUncertainCreationReplay: true,
+          taskMutationResultPublicationUncertain: true,
+          taskMutationResultUncertainWorkflowCommitted: true,
+          taskMutationResultUncertainCommittedAssessmentValidated: true,
+          taskMutationResultUncertainTerminalResultFabricated: false,
           mutationReplay: true,
           secondaryMutationReplay: true,
           queryReplay: true,
@@ -91,8 +96,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           losingReservationWritesRolledBack: true,
           competitorReservationReplay: true,
         },
-        mutationRuntimeExecutions: 25,
-        queryRuntimeExecutions: 22,
+        mutationRuntimeExecutions: 27,
+        queryRuntimeExecutions: 24,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -108,19 +113,22 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         .not.toHaveLength(0);
       expect(proof.workloadProof.taskMutationResultReconciliationRunId)
         .not.toHaveLength(0);
+      expect(proof.workloadProof.taskMutationResultUncertainRunId)
+        .not.toHaveLength(0);
       expect(await readCookingTaskStateV1(persistence.target)).toEqual([{
         catalog_count: "1",
         definition_count: "2",
         legacy_definition_revision_count: "0",
-        run_count: "4",
-        request_count: "4",
-        attempt_count: "4",
+        run_count: "5",
+        request_count: "5",
+        attempt_count: "5",
         pending_count: "0",
-        dispatch_count: "4",
+        dispatch_count: "5",
         terminal_run_count: "4",
-        child_mutation_effect_count: "3",
-        confirmed_child_mutation_effect_count: "3",
-        child_mutation_outcome_count: "3",
+        executing_run_count: "1",
+        child_mutation_effect_count: "4",
+        confirmed_child_mutation_effect_count: "4",
+        child_mutation_outcome_count: "4",
       }]);
       expect(proof.finalInspection).toMatchObject({
         currentRows: expect.arrayContaining([{
@@ -170,21 +178,27 @@ describePostgres("cooking simulation - PostgreSQL", () => {
             proof.workloadProof.taskMutationResultReconciliationDocumentId,
           commitSeq: "19",
           valueState: "live",
+        }, {
+          tableName: "recipes",
+          documentId:
+            proof.workloadProof.taskMutationResultUncertainDocumentId,
+          commitSeq: "21",
+          valueState: "live",
         }]),
-        currentRowCount: 9,
-        liveRowCount: 8,
-        revisionRowCount: 20,
+        currentRowCount: 10,
+        liveRowCount: 9,
+        revisionRowCount: 22,
         commitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
         ],
         idempotencyOutcomeCommitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
         ],
         commitFeedCommitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13", "14", "15", "16", "17", "18", "19",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
         ],
         outboxCommitSeqs: [
-          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+          "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
         ],
       });
       const sidecarCounts = await persistence.target.query<{
@@ -194,8 +208,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         (select count(*)::text from fx_app_index_entry_rev) as revisions,
         (select count(*)::text from fx_app_index_entry_current) as current_rows`);
       expect(sidecarCounts.rows[0]).toEqual({
-        revisions: "59",
-        current_rows: "22",
+        revisions: "65",
+        current_rows: "25",
       });
       const removedFieldEvidence = await persistence.target.query<{
         commit_seq: string;

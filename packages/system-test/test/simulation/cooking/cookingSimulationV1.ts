@@ -81,6 +81,13 @@ export interface CookingWorkloadProofV1 {
   readonly taskMutationResultPublicationReconciled: true;
   readonly taskMutationResultReconciliationWorkflowCommitted: true;
   readonly taskMutationResultReconciliationNestedQueryOutputValidated: true;
+  readonly taskMutationResultUncertainDocumentId: string;
+  readonly taskMutationResultUncertainRunId: string;
+  readonly taskMutationResultUncertainCreationReplay: true;
+  readonly taskMutationResultPublicationUncertain: true;
+  readonly taskMutationResultUncertainWorkflowCommitted: true;
+  readonly taskMutationResultUncertainCommittedAssessmentValidated: true;
+  readonly taskMutationResultUncertainTerminalResultFabricated: false;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -270,6 +277,15 @@ const COOKING_RESULT_RECONCILIATION_DRAFT_CREATE_REQUEST_KEY =
 const COOKING_RESULT_RECONCILIATION_TASK_REQUEST_KEY = Result.getOrThrow(
   decodeTaskRunCreationRequestKeyV1(
     "sac01:cooking:result-reconciliation-serving-guide-task",
+  ),
+);
+const COOKING_RESULT_UNCERTAIN_DRAFT_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:result-uncertain-draft-create",
+  );
+const COOKING_RESULT_UNCERTAIN_TASK_REQUEST_KEY = Result.getOrThrow(
+  decodeTaskRunCreationRequestKeyV1(
+    "sac01:cooking:result-uncertain-serving-guide-task",
   ),
 );
 const COOKING_TASK_IDENTITY_SUBJECT = "cooking-task-user";
@@ -519,6 +535,12 @@ const COOKING_RESULT_RECONCILIATION_DRAFT_RECIPE = {
   localizedTitles: { en: "Reconciled mushroom risotto" },
   source: "Result reconciliation fixture",
 } as const;
+const COOKING_RESULT_UNCERTAIN_DRAFT_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Uncertain mushroom risotto",
+  localizedTitles: { en: "Uncertain mushroom risotto" },
+  source: "Result uncertainty fixture",
+} as const;
 const COOKING_INITIAL_ASSESSMENT = {
   title: "Tomato soup",
   servings: 4,
@@ -559,6 +581,11 @@ const COOKING_RESULT_RECONCILIATION_PUBLISHED_ASSESSMENT = {
   ...COOKING_PUBLISHED_ASSESSMENT,
   title: "Reconciled mushroom risotto",
   headline: "Reconciled mushroom risotto serves 3",
+} as const;
+const COOKING_RESULT_UNCERTAIN_PUBLISHED_ASSESSMENT = {
+  ...COOKING_PUBLISHED_ASSESSMENT,
+  title: "Uncertain mushroom risotto",
+  headline: "Uncertain mushroom risotto serves 3",
 } as const;
 const COOKING_TASK_DUPLICATE_DELIVERY_FAULT = {
   kind: "duplicate_delivery",
@@ -1814,6 +1841,97 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking Task did not reconcile its stored result after publication response loss.",
     ));
   }
+  const resultUncertainDraftInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_RESULT_UNCERTAIN_DRAFT_RECIPE,
+    COOKING_RESULT_UNCERTAIN_DRAFT_CREATE_REQUEST_KEY,
+  );
+  if (
+    resultUncertainDraftInserted.status !== "committed" ||
+    resultUncertainDraftInserted.disposition !== "published" ||
+    resultUncertainDraftInserted.commitSeq !== setup.commitSeq + 19n ||
+    typeof resultUncertainDraftInserted.value !== "string"
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not publish the result-uncertain draft.",
+    ));
+  }
+  const taskMutationResultUncertainDocumentId =
+    resultUncertainDraftInserted.value;
+  const taskMutationResultUncertainRequest = Object.freeze({
+    version: 1 as const,
+    requestKey: COOKING_RESULT_UNCERTAIN_TASK_REQUEST_KEY,
+    payload: Object.freeze({
+      recipeId: taskMutationResultUncertainDocumentId,
+    }),
+    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+  });
+  const taskMutationResultUncertainFirst = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultUncertainRequest,
+  );
+  const taskMutationResultUncertainReplay = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultUncertainRequest,
+  );
+  if (!sameTaskRunCreationReceiptV1(
+    taskMutationResultUncertainReplay,
+    taskMutationResultUncertainFirst,
+  )) {
+    return yield* Effect.die(new Error(
+      "The cooking result-uncertain Task did not replay its durable run.",
+    ));
+  }
+  const taskMutationResultUncertainDelivery = yield* client.tasks.deliver(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultUncertainFirst,
+    { kind: "fault", fault: "result_publication_uncertain" },
+  );
+  if (
+    taskMutationResultUncertainDelivery.status !==
+      "result_publication_uncertain" ||
+    taskMutationResultUncertainDelivery.runId !==
+      taskMutationResultUncertainFirst.runId ||
+    taskMutationResultUncertainDelivery.settlement.stage !== "reconcileRead" ||
+    taskMutationResultUncertainDelivery.settlement.terminalResultFabricated !==
+      false ||
+    taskMutationResultUncertainDelivery.cancellation !== null ||
+    taskMutationResultUncertainDelivery.host.dispatchCandidatesHandled !== 1 ||
+    taskMutationResultUncertainDelivery.host.dispatchProviderCalls !== 1 ||
+    taskMutationResultUncertainDelivery.host.cancellationCandidatesHandled !==
+      0 ||
+    taskMutationResultUncertainDelivery.host.cancellationProviderCalls !== 0 ||
+    taskMutationResultUncertainDelivery.host.candidateFailures !== 0 ||
+    taskMutationResultUncertainDelivery.host.supervisionExpected !== 1 ||
+    taskMutationResultUncertainDelivery.host.supervisionObserved !== 1 ||
+    taskMutationResultUncertainDelivery.host.supervisionSucceeded !== 0 ||
+    taskMutationResultUncertainDelivery.host.supervisionFailed !== 1 ||
+    taskMutationResultUncertainDelivery.worker.generation !==
+      "application_v1" ||
+    taskMutationResultUncertainDelivery.worker.loads !== 1 ||
+    taskMutationResultUncertainDelivery.worker.starts !== 1 ||
+    taskMutationResultUncertainDelivery.worker.inputReads !== 1 ||
+    taskMutationResultUncertainDelivery.worker.settlements !== 1 ||
+    taskMutationResultUncertainDelivery.worker.resultWrites !== 1 ||
+    taskMutationResultUncertainDelivery.worker.resultReads !== 1 ||
+    taskMutationResultUncertainDelivery.worker.legacyRuntimeObjectReads !== 0
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Task did not preserve unresolved result-publication evidence.",
+    ));
+  }
+  const taskMutationResultUncertainAssessment = yield* client.query(
+    COOKING_ASSESSMENT_FUNCTION,
+    { id: taskMutationResultUncertainDocumentId },
+  );
+  if (!sameJsonValue(
+    taskMutationResultUncertainAssessment,
+    COOKING_RESULT_UNCERTAIN_PUBLISHED_ASSESSMENT,
+  )) {
+    return yield* Effect.die(new Error(
+      "The cooking result-uncertain Task did not commit its application workflow.",
+    ));
+  }
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -1847,6 +1965,13 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationResultPublicationReconciled: true,
     taskMutationResultReconciliationWorkflowCommitted: true,
     taskMutationResultReconciliationNestedQueryOutputValidated: true,
+    taskMutationResultUncertainDocumentId,
+    taskMutationResultUncertainRunId: taskMutationResultUncertainFirst.runId,
+    taskMutationResultUncertainCreationReplay: true,
+    taskMutationResultPublicationUncertain: true,
+    taskMutationResultUncertainWorkflowCommitted: true,
+    taskMutationResultUncertainCommittedAssessmentValidated: true,
+    taskMutationResultUncertainTerminalResultFabricated: false,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2503,7 +2628,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 25,
-    queries: 22,
+    mutations: 27,
+    queries: 24,
   },
 });
