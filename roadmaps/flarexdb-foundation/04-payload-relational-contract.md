@@ -1220,6 +1220,51 @@ Completion receipt:
 
 Prerequisite: the exact relation binding and edge repository exist.
 
+Status: bounded system-core preflight accepted on 2026-08-24; implementation is
+approved behind a private authenticated point-commit composition only.
+
+Accepted lowerer and final-state policy:
+
+- One private `applicationRelationCommit` owner consumes the complete canonical
+  R02 binding and pairs each stable relation binding with its exact semantic and
+  immutable physical definition. Analyzer ordinals, field names by themselves,
+  raw catalog IDs, and caller-authored actions are never write authority.
+- The pure input is the prior authoritative document, final authoritative
+  document or tombstone, source identity, and exact paired definition. It
+  accepts only the frozen top-level, nonlocalized, monomorphic, reverse-many,
+  duplicate-free, target-live, `restrict` profile; optional scalar absence is
+  distinct from an invalid value, arrays retain zero-based position metadata
+  even when semantic ordering is false, and target document IDs must name the
+  bound target table.
+- Preparation validates required/minimum/maximum cardinality, repeated targets,
+  occurrence identity, and exact physical/semantic agreement before target or
+  sidecar SQL. It admits at most 4,096 prior occurrences, 4,096 final
+  occurrences, 4,096 emitted S12 actions, and 4,096 distinct final target
+  checks, plus at most 4,096 exact deleted-target/definition `restrict` probes.
+  A maximum-plus-one case fails during preparation.
+- Actions are deterministic and sorted by immutable edge definition, source,
+  target, and action phase. A retained target with changed list position emits
+  only reorder; retarget emits remove plus put; source deletion removes its
+  exact outgoing occurrences; and no action for one physical definition can
+  delete another definition's edge.
+- Target liveness first overlays every same-commit row intent, so a live target
+  inserted in that commit succeeds and a final tombstone fails regardless of
+  SQL statement order. Remaining distinct targets are resolved in one bounded
+  set against the authoritative current-row pointer and exact revision in the
+  same scope. Missing, tombstoned, wrong-table, other-scope-only, duplicate, or
+  incomplete evidence fails closed.
+- After the edge delta is applied but before commit publication, every deleted
+  target is checked against every exact bound definition that targets its table.
+  One S12-owned, index-backed `LIMIT 1` incoming-existence query per checked
+  endpoint observes the final transaction-local edge set. This naturally
+  accounts for removals, retargets, and puts in the same commit without an
+  unbounded incoming scan. The primitive is private writer policy, not a
+  runtime page or O10-R dependency.
+- C09 exposes no runtime incoming/outgoing page, cursor, relation dependency,
+  change fact, readiness receipt, activation capability, public export,
+  Payload/Medusa adapter, reverse-one claim, localization, nesting,
+  polymorphism, `detach`, `cascade`, edge history, comparison write, or fallback.
+
 Outcome:
 
 - implement the pure prior/final row relation lowerer;

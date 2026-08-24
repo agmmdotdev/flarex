@@ -1036,6 +1036,54 @@ Prerequisite:
   snapshot support selected by `R01-P`. C09 may not retain the rejected support
   for comparison, fallback, or dual publication.
 
+Status: system-core implementation preflight accepted on 2026-08-24. This is a
+private, production-inert commit integration; it adds no runtime relation read,
+activation path, or higher API.
+
+Accepted commit-integration contract:
+
+- Add one private, same-factory relation-definition capability beside the C08
+  definition ports. It locates the complete canonical R02 V2 binding from the
+  control catalog by deployment and pinned schema-version identity before the
+  target transaction. The locator reuses R02's retained-byte/digest decoder and
+  cross-checks the normalized relation and physical-definition evidence; raw
+  relation IDs, physical definitions, or precomputed edge actions never enter
+  the persisted point-commit command.
+- After taking the existing scope-clock lock, extend the active-application
+  schema check to compare the located root's application-schema and
+  schema-manifest digests with the locked readiness row and the session's schema
+  pin. The existing readiness `schemaBindingSha256` is the table/index V1 frame,
+  not the R02 bound-publication digest, and must not be equated with it.
+- Reuse the existing point-commit kernel and allocation only. It loads prior
+  authoritative documents, derives and validates the complete bounded relation
+  plan, resolves final target liveness, writes the ordinary row/index/unique
+  atoms, applies S12 edge actions with the same transaction and commit sequence,
+  then checks final incoming existence for deleted targets before the kernel may
+  become ready for publication.
+- `restrict` is evaluated after the uncommitted S12 delta. C09 authorizes one
+  minimal S12-owner extension: a private transaction-only, definition-aware
+  incoming-existence primitive backed by the frozen incoming index and
+  `LIMIT 1`. It is not a page, runtime read, snapshot dependency, or public
+  relation API. Absence in that complete predicate proves no final current
+  incoming edge; presence rejects the target deletion. The rejection escapes
+  S12's savepoint and aborts the outer point-commit transaction, so it can never
+  commit earlier row work.
+- Keep the existing scope clock as the sole writer-serialization lock and commit
+  sequence owner. S12 may reacquire that already-held row lock through its owned
+  aggregate; C09 adds no parallel lock, transaction runner, OCC dependency,
+  result stream, or replay path.
+- Preserve distinct typed failures: relation constraint failures cover invalid
+  admitted values, repeated targets, non-live targets, `restrict`, and lowering
+  ceilings; active binding changes use existing stale-authority handling;
+  absent private composition fails closed; binding/row/edge disagreement or
+  collision is corruption; and foreign SQL failures cross the existing
+  transaction boundary once. None becomes a relation OCC conflict.
+- The capability remains uncomposed from production activation. `E01`, `O10-R`,
+  and `RA01` must later prove complete definition state, exact relation OCC, and
+  active selection before relation-bearing traffic can use this maintenance
+  path. C09 maintains only the exact pinned definition set and does not silently
+  dual-maintain retained or replacement definitions.
+
 Outcome:
 
 - Derive the admitted top-level edge occurrences from complete final row values,
