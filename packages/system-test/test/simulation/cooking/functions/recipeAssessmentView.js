@@ -40,3 +40,25 @@ export async function buildServingGuide(ctx, { recipeId }) {
     assessment: recipeAssessment,
   };
 }
+
+export async function publishServingGuide(ctx, { recipeId }) {
+  const publication = await ctx.runMutation(
+    "recipeWorkflows:publish",
+    { id: recipeId },
+  );
+  if (publication === null) {
+    throw new Error("recipe missing");
+  }
+  const recipeAssessment = await ctx.runQuery(
+    "recipeViews:assessment",
+    { id: recipeId },
+  );
+  if (recipeAssessment === null) {
+    throw new Error("recipe missing after publication");
+  }
+  return {
+    recipeId,
+    publication,
+    assessment: recipeAssessment,
+  };
+}

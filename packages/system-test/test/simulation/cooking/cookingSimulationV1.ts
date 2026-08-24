@@ -63,6 +63,11 @@ export interface CookingWorkloadProofV1 {
   readonly taskCreationReplay: true;
   readonly taskNestedQueryOutputValidated: true;
   readonly taskHostedDeliveryCompleted: true;
+  readonly taskMutationDocumentId: string;
+  readonly taskMutationRunId: string;
+  readonly taskMutationCreationReplay: true;
+  readonly taskMutationWorkflowCommitted: true;
+  readonly taskMutationNestedQueryOutputValidated: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -229,7 +234,22 @@ const COOKING_RACE_COMPETITOR_REQUEST_KEY =
 const COOKING_SERVING_GUIDE_TASK_REQUEST_KEY = Result.getOrThrow(
   decodeTaskRunCreationRequestKeyV1("sac01:cooking:serving-guide-task"),
 );
+const COOKING_TASK_DRAFT_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make("sac01:cooking:task-draft-create");
+const COOKING_PUBLISH_SERVING_GUIDE_TASK_REQUEST_KEY = Result.getOrThrow(
+  decodeTaskRunCreationRequestKeyV1(
+    "sac01:cooking:publish-serving-guide-task",
+  ),
+);
 const COOKING_TASK_IDENTITY_SUBJECT = "cooking-task-user";
+const COOKING_TASK_EXECUTION_IDENTITY = Object.freeze({
+  kind: "user" as const,
+  user: Object.freeze({
+    tokenIdentifier: "standard-application-system-test",
+    subject: COOKING_TASK_IDENTITY_SUBJECT,
+    issuer: "https://system-test.flarex.invalid",
+  }),
+});
 const COOKING_FUNCTION_SOURCES = {
   create: readFileSync(new URL(
     "./functions/recipeCreate.js",
@@ -450,6 +470,12 @@ const COOKING_DEPLETED_PANTRY_STOCK = {
   ingredient: "shared-stock",
   available: 0,
 } as const;
+const COOKING_TASK_DRAFT_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Task-baked mushroom risotto",
+  localizedTitles: { en: "Task-baked mushroom risotto" },
+  source: "Durable Task fixture",
+} as const;
 const COOKING_INITIAL_ASSESSMENT = {
   title: "Tomato soup",
   servings: 4,
@@ -475,6 +501,11 @@ const COOKING_REPLACEMENT_ASSESSMENT = {
 const COOKING_PUBLISHED_ASSESSMENT = {
   ...COOKING_REPLACEMENT_ASSESSMENT,
   published: true,
+} as const;
+const COOKING_TASK_PUBLISHED_ASSESSMENT = {
+  ...COOKING_PUBLISHED_ASSESSMENT,
+  title: "Task-baked mushroom risotto",
+  headline: "Task-baked mushroom risotto serves 3",
 } as const;
 const COOKING_PUBLISH_RECEIPT = {
   changed: true,
@@ -553,14 +584,15 @@ const COOKING_ASSESSMENT_VIEW_FIELDS = {
 const COOKING_ASSESSMENT_VIEW = standardV1.nullable(
   standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
 );
+const COOKING_PUBLISH_RECEIPT_FIELDS = {
+  changed: standardV1.boolean(),
+  beforePublished: standardV1.boolean(),
+  afterPublished: standardV1.boolean(),
+  ingredientCount: standardV1.number(),
+  timedMinutes: standardV1.number(),
+} as const;
 const COOKING_PUBLISH_RECEIPT_VALIDATOR = standardV1.nullable(
-  standardV1.object({
-    changed: standardV1.boolean(),
-    beforePublished: standardV1.boolean(),
-    afterPublished: standardV1.boolean(),
-    ingredientCount: standardV1.number(),
-    timedMinutes: standardV1.number(),
-  }),
+  standardV1.object(COOKING_PUBLISH_RECEIPT_FIELDS),
 );
 const COOKING_RESERVATION_RECEIPT_VALIDATOR = standardV1.nullable(
   standardV1.object({
@@ -734,6 +766,38 @@ const COOKING_SERVING_GUIDE_TASK = Result.getOrThrow(
     queue: { kind: "default" },
   }),
 );
+const COOKING_PUBLISH_SERVING_GUIDE_TASK = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "cooking.publishServingGuide",
+    handler: {
+      logicalModulePath: "recipeViews",
+      artifactModulePath: "recipeAssessmentView",
+      exportName: "publishServingGuide",
+    },
+    payload: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+    }),
+    output: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      publication: standardV1.object(COOKING_PUBLISH_RECEIPT_FIELDS),
+      assessment: standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
+    }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 1,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
 const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
 const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
 const COOKING_REMOVE_DESCRIPTION =
@@ -805,14 +869,7 @@ const runCookingWorkloadV1 = Effect.fn(
     version: 1 as const,
     requestKey: COOKING_SERVING_GUIDE_TASK_REQUEST_KEY,
     payload: Object.freeze({ recipeId: setup.documentId }),
-    executionIdentity: Object.freeze({
-      kind: "user" as const,
-      user: Object.freeze({
-        tokenIdentifier: "standard-application-system-test",
-        subject: COOKING_TASK_IDENTITY_SUBJECT,
-        issuer: "https://system-test.flarex.invalid",
-      }),
-    }),
+    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
   });
   const taskFirst = yield* client.tasks.create(
     COOKING_SERVING_GUIDE_TASK.reference,
@@ -1478,6 +1535,65 @@ const runCookingWorkloadV1 = Effect.fn(
     indexedPhantomDocumentId,
     cookingIndexedPhantomWithoutDescription(),
   );
+  const taskDraftInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_TASK_DRAFT_RECIPE,
+    COOKING_TASK_DRAFT_CREATE_REQUEST_KEY,
+  );
+  if (
+    taskDraftInserted.status !== "committed" ||
+    taskDraftInserted.disposition !== "published" ||
+    taskDraftInserted.commitSeq !== setup.commitSeq + 13n ||
+    typeof taskDraftInserted.value !== "string"
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not publish the isolated Task draft.",
+    ));
+  }
+  const taskMutationDocumentId = taskDraftInserted.value;
+  const taskMutationRequest = Object.freeze({
+    version: 1 as const,
+    requestKey: COOKING_PUBLISH_SERVING_GUIDE_TASK_REQUEST_KEY,
+    payload: Object.freeze({ recipeId: taskMutationDocumentId }),
+    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+  });
+  const taskMutationFirst = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRequest,
+  );
+  const taskMutationReplay = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRequest,
+  );
+  if (!sameTaskRunCreationReceiptV1(taskMutationReplay, taskMutationFirst)) {
+    return yield* Effect.die(new Error(
+      "The cooking publication Task did not replay its durable run.",
+    ));
+  }
+  const taskMutationDelivery = yield* client.tasks.deliver(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationFirst,
+    { kind: "completion" },
+  );
+  if (
+    taskMutationDelivery.status !== "succeeded" ||
+    taskMutationDelivery.runId !== taskMutationFirst.runId ||
+    taskMutationDelivery.worker.generation !== "application_v1" ||
+    taskMutationDelivery.worker.loads !== 1 ||
+    taskMutationDelivery.worker.starts !== 1 ||
+    taskMutationDelivery.worker.settlements !== 1 ||
+    taskMutationDelivery.worker.resultWrites !== 1 ||
+    taskMutationDelivery.worker.resultReads !== 2 ||
+    !sameJsonValue(taskMutationDelivery.output, {
+      recipeId: taskMutationDocumentId,
+      publication: COOKING_PUBLISH_RECEIPT,
+      assessment: COOKING_TASK_PUBLISHED_ASSESSMENT,
+    })
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking publication Task did not commit and reread its workflow result.",
+    ));
+  }
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -1491,6 +1607,11 @@ const runCookingWorkloadV1 = Effect.fn(
     taskCreationReplay: true,
     taskNestedQueryOutputValidated: true,
     taskHostedDeliveryCompleted: true,
+    taskMutationDocumentId,
+    taskMutationRunId: taskMutationFirst.runId,
+    taskMutationCreationReplay: true,
+    taskMutationWorkflowCommitted: true,
+    taskMutationNestedQueryOutputValidated: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2068,7 +2189,10 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   application: {
     applicationId: "cooking",
     revisionName: "sac01-cooking-app",
-    defineTasks: () => [COOKING_SERVING_GUIDE_TASK],
+    defineTasks: () => [
+      COOKING_SERVING_GUIDE_TASK,
+      COOKING_PUBLISH_SERVING_GUIDE_TASK,
+    ],
     define: () => makeCreateAndReadDefinitionV1({
       tableName: "recipes",
       mutationModule: COOKING_MUTATION_MODULE,
@@ -2144,7 +2268,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 19,
-    queries: 19,
+    mutations: 21,
+    queries: 20,
   },
 });

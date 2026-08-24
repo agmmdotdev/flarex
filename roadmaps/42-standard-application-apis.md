@@ -436,6 +436,14 @@ through the existing nested query path. This is adoption evidence, not a new
 Standard method or public developer syntax, and it adds no scheduler, run-read,
 subscription, action, or production-routing authority.
 
+The completed `SAC01-F2t-D2` consumer adds mutation-bearing application
+evidence without widening that API. Cooking's generated Task handler invokes
+the existing publication workflow through the private hosted Task mutation
+authority and then rereads its assessment through Task query authority. The
+existing application mutation system, child-effect authority, OCC/commit path,
+and typed validators remain authoritative. The test-only delivery call still
+does not become a Standard mutation, scheduler, run reader, or public Task API.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator
