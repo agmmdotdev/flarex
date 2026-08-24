@@ -26,3 +26,17 @@ export async function assessment(ctx, args) {
     effort: timedMinutes >= 30 ? "long" : "short",
   };
 }
+
+export async function buildServingGuide(ctx, { recipeId }) {
+  const recipeAssessment = await ctx.runQuery(
+    "recipeViews:assessment",
+    { id: recipeId },
+  );
+  if (recipeAssessment === null) {
+    throw new Error("recipe missing");
+  }
+  return {
+    recipeId,
+    assessment: recipeAssessment,
+  };
+}

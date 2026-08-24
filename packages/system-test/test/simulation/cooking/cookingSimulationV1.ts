@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { bytesEqual } from "@flarex/utils/bytes";
+import {
+  decodeTaskRunCreationRequestKeyV1,
+} from "@flarex/durable-task/internal/run-creation-v1";
 import { Effect, Result } from "effect";
 import {
   TransactionFunctionPathV1Schema,
@@ -14,6 +18,9 @@ import {
 import { ApplicationExecutionHostError } from
   "flarex-backend/internal/application-execution-host";
 
+import {
+  defineStandardApplicationTaskV1,
+} from "@flarex/standard-application-definition/internal/task-authoring-v1";
 import {
   standardV1,
   type StandardIdV1,
@@ -52,6 +59,10 @@ export interface CookingWorkloadProofV1 {
   readonly raceCompetitorDocumentId: string;
   readonly pantryDocumentId: string;
   readonly richDocumentRoundTrip: true;
+  readonly taskRunId: string;
+  readonly taskCreationReplay: true;
+  readonly taskNestedQueryOutputValidated: true;
+  readonly taskHostedDeliveryCompleted: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -102,7 +113,17 @@ type CookingWorkloadErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
   | StandardApplicationLegacySimulationQueryErrorV1
   | StandardApplicationSystemTestInspectionV1Error
-  | StandardApplicationTypedReferenceV1Error;
+  | StandardApplicationTypedReferenceV1Error
+  | Effect.Error<
+    ReturnType<StandardApplicationSystemTestClientV1["tasks"]["create"]>
+  >
+  | Effect.Error<
+    ReturnType<StandardApplicationSystemTestClientV1["tasks"]["deliver"]>
+  >;
+
+type CookingTaskRunCreationReceiptV1 = Effect.Success<
+  ReturnType<StandardApplicationSystemTestClientV1["tasks"]["create"]>
+>;
 
 type CookingMutationInvocationErrorV1 =
   | InvokeStandardApplicationPointMutationV1Error
@@ -205,6 +226,10 @@ const COOKING_RACE_PRIMARY_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make("sac01:cooking:race-primary");
 const COOKING_RACE_COMPETITOR_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make("sac01:cooking:race-competitor");
+const COOKING_SERVING_GUIDE_TASK_REQUEST_KEY = Result.getOrThrow(
+  decodeTaskRunCreationRequestKeyV1("sac01:cooking:serving-guide-task"),
+);
+const COOKING_TASK_IDENTITY_SUBJECT = "cooking-task-user";
 const COOKING_FUNCTION_SOURCES = {
   create: readFileSync(new URL(
     "./functions/recipeCreate.js",
@@ -425,6 +450,17 @@ const COOKING_DEPLETED_PANTRY_STOCK = {
   ingredient: "shared-stock",
   available: 0,
 } as const;
+const COOKING_INITIAL_ASSESSMENT = {
+  title: "Tomato soup",
+  servings: 4,
+  published: true,
+  ingredientCount: 2,
+  stepCount: 2,
+  timedMinutes: 25,
+  publishable: true,
+  headline: "Tomato soup serves 4",
+  effort: "short",
+} as const;
 const COOKING_REPLACEMENT_ASSESSMENT = {
   title: "Mushroom risotto",
   servings: 3,
@@ -506,14 +542,17 @@ const COOKING_ASSESSMENT_FIELDS = {
 const COOKING_ASSESSMENT = standardV1.nullable(
   standardV1.object(COOKING_ASSESSMENT_FIELDS),
 );
-const COOKING_ASSESSMENT_VIEW = standardV1.nullable(standardV1.object({
+const COOKING_ASSESSMENT_VIEW_FIELDS = {
   ...COOKING_ASSESSMENT_FIELDS,
   headline: standardV1.string(),
   effort: standardV1.union(
     standardV1.literal("short"),
     standardV1.literal("long"),
   ),
-}));
+} as const;
+const COOKING_ASSESSMENT_VIEW = standardV1.nullable(
+  standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
+);
 const COOKING_PUBLISH_RECEIPT_VALIDATOR = standardV1.nullable(
   standardV1.object({
     changed: standardV1.boolean(),
@@ -664,6 +703,37 @@ const COOKING_RESERVATION_MODULE = standardV1.module("pantryReservation", {
     returns: COOKING_RESERVATION_RECEIPT_VALIDATOR,
   }),
 });
+const COOKING_SERVING_GUIDE_TASK = Result.getOrThrow(
+  defineStandardApplicationTaskV1({
+    taskId: "cooking.buildServingGuide",
+    handler: {
+      logicalModulePath: "recipeViews",
+      artifactModulePath: "recipeAssessmentView",
+      exportName: "buildServingGuide",
+    },
+    payload: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+    }),
+    output: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      assessment: standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
+    }),
+    runAttemptPolicy: {
+      version: 1,
+      retry: {
+        maxAttempts: 1,
+        factor: 2,
+        minTimeoutInMs: 1_000,
+        maxTimeoutInMs: 60_000,
+        randomize: true,
+      },
+      outOfMemory: { kind: "disabled" },
+    },
+    maximumDurationInSeconds: 30,
+    computeProfile: "standard-1x",
+    queue: { kind: "default" },
+  }),
+);
 const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
 const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
 const COOKING_REMOVE_DESCRIPTION =
@@ -728,6 +798,56 @@ const runCookingWorkloadV1 = Effect.fn(
   ) {
     return yield* Effect.die(new Error(
       "The cooking workload did not deterministically replay its mutation.",
+    ));
+  }
+
+  const taskRequest = Object.freeze({
+    version: 1 as const,
+    requestKey: COOKING_SERVING_GUIDE_TASK_REQUEST_KEY,
+    payload: Object.freeze({ recipeId: setup.documentId }),
+    executionIdentity: Object.freeze({
+      kind: "user" as const,
+      user: Object.freeze({
+        tokenIdentifier: "standard-application-system-test",
+        subject: COOKING_TASK_IDENTITY_SUBJECT,
+        issuer: "https://system-test.flarex.invalid",
+      }),
+    }),
+  });
+  const taskFirst = yield* client.tasks.create(
+    COOKING_SERVING_GUIDE_TASK.reference,
+    taskRequest,
+  );
+  const taskReplay = yield* client.tasks.create(
+    COOKING_SERVING_GUIDE_TASK.reference,
+    taskRequest,
+  );
+  if (!sameTaskRunCreationReceiptV1(taskReplay, taskFirst)) {
+    return yield* Effect.die(new Error(
+      "The cooking serving-guide Task did not replay its durable run.",
+    ));
+  }
+  const taskDelivery = yield* client.tasks.deliver(
+    COOKING_SERVING_GUIDE_TASK.reference,
+    taskFirst,
+    { kind: "completion" },
+  );
+  if (
+    taskDelivery.status !== "succeeded" ||
+    taskDelivery.runId !== taskFirst.runId ||
+    taskDelivery.worker.generation !== "application_v1" ||
+    taskDelivery.worker.loads !== 1 ||
+    taskDelivery.worker.starts !== 1 ||
+    taskDelivery.worker.settlements !== 1 ||
+    taskDelivery.worker.resultWrites !== 1 ||
+    taskDelivery.worker.resultReads !== 2 ||
+    !sameJsonValue(taskDelivery.output, {
+      recipeId: setup.documentId,
+      assessment: COOKING_INITIAL_ASSESSMENT,
+    })
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking serving-guide Task did not complete through the hosted nested-query path.",
     ));
   }
 
@@ -1367,6 +1487,10 @@ const runCookingWorkloadV1 = Effect.fn(
     raceCompetitorDocumentId,
     pantryDocumentId,
     richDocumentRoundTrip: true,
+    taskRunId: taskFirst.runId,
+    taskCreationReplay: true,
+    taskNestedQueryOutputValidated: true,
+    taskHostedDeliveryCompleted: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -1778,6 +1902,23 @@ function sameStrings(
     left.every((value, index) => right[index] === value);
 }
 
+function sameTaskRunCreationReceiptV1(
+  left: CookingTaskRunCreationReceiptV1,
+  right: CookingTaskRunCreationReceiptV1,
+): boolean {
+  return left.status === right.status &&
+    left.version === right.version &&
+    left.runId === right.runId &&
+    left.createdAtMs === right.createdAtMs &&
+    bytesEqual(
+      left.applicationTaskRuntimeTargetSha256,
+      right.applicationTaskRuntimeTargetSha256,
+    ) &&
+    bytesEqual(left.requestKeySha256, right.requestKeySha256) &&
+    bytesEqual(left.requestSha256, right.requestSha256) &&
+    bytesEqual(left.creationAuthoritySha256, right.creationAuthoritySha256);
+}
+
 function requireIndexedDecisionRaceInspection(
   before: StandardApplicationAuthoritativeInspectionV1,
   after: StandardApplicationAuthoritativeInspectionV1,
@@ -1927,6 +2068,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   application: {
     applicationId: "cooking",
     revisionName: "sac01-cooking-app",
+    defineTasks: () => [COOKING_SERVING_GUIDE_TASK],
     define: () => makeCreateAndReadDefinitionV1({
       tableName: "recipes",
       mutationModule: COOKING_MUTATION_MODULE,
@@ -2003,6 +2145,6 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
     mutations: 19,
-    queries: 18,
+    queries: 19,
   },
 });

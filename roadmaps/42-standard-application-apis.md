@@ -428,6 +428,14 @@ automatic scheduler, production trigger, or exposed host authority. The former
 private `createTaskRun` consumer was replaced
 directly; no compatibility alias, fallback, or dual test surface remains.
 
+The completed `SAC01-F2t-D1` consumer is the first application-owned use of
+that private composition. Cooking publishes one typed `buildServingGuide`
+Task, creates and exactly replays its run through the Standard Task System, and
+uses the system-test-only delivery capability to execute the generated handler
+through the existing nested query path. This is adoption evidence, not a new
+Standard method or public developer syntax, and it adds no scheduler, run-read,
+subscription, action, or production-routing authority.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator

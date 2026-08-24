@@ -12,6 +12,7 @@ import {
 import { expectSinglePublicationInspectionV1 } from
   "../support/inspectionAssertionsV1";
 import { cookingSimulationV1 } from "./cookingSimulationV1";
+import { readCookingTaskStateV1 } from "./cookingTaskStateV1";
 
 it("runs the cooking simulation through the real Standard path", async () => {
   const persistence = await createMigratedPGlitePersistence();
@@ -28,6 +29,9 @@ it("runs the cooking simulation through the real Standard path", async () => {
     definitionAnalyzedRegisteredReadyActivated: true,
     workloadProof: {
       richDocumentRoundTrip: true,
+      taskCreationReplay: true,
+      taskNestedQueryOutputValidated: true,
+      taskHostedDeliveryCompleted: true,
       rejectedInvalidMutations: 5,
       invalidArgumentsRejectedBeforeRuntime: true,
       committedStateUnchangedAfterRejections: true,
@@ -68,10 +72,22 @@ it("runs the cooking simulation through the real Standard path", async () => {
       competitorReservationReplay: true,
     },
     mutationRuntimeExecutions: 19,
-    queryRuntimeExecutions: 18,
+    queryRuntimeExecutions: 19,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
+  expect(proof.workloadProof.taskRunId).not.toHaveLength(0);
+  expect(await readCookingTaskStateV1(persistence.target)).toEqual([{
+    catalog_count: "1",
+    definition_count: "1",
+    legacy_definition_revision_count: "0",
+    run_count: "1",
+    request_count: "1",
+    attempt_count: "1",
+    pending_count: "0",
+    dispatch_count: "1",
+    terminal_run_count: "1",
+  }]);
   expect(proof.workloadProof.secondaryDocumentId)
     .toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
   expect(proof.workloadProof.secondaryDocumentId)
@@ -141,7 +157,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
       "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13",
     ],
     mutationRuntimeExecutions: 19,
-    queryRuntimeExecutions: 18,
+    queryRuntimeExecutions: 19,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);

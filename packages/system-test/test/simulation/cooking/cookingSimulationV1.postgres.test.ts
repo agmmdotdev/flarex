@@ -12,6 +12,7 @@ import {
 } from "@flarex/system-test/environment/v1";
 
 import { cookingSimulationV1 } from "./cookingSimulationV1";
+import { readCookingTaskStateV1 } from "./cookingTaskStateV1";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -39,6 +40,9 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           invalidArgumentsRejectedBeforeRuntime: true,
           committedStateUnchangedAfterRejections: true,
           richDocumentRoundTrip: true,
+          taskCreationReplay: true,
+          taskNestedQueryOutputValidated: true,
+          taskHostedDeliveryCompleted: true,
           mutationReplay: true,
           secondaryMutationReplay: true,
           queryReplay: true,
@@ -76,7 +80,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           competitorReservationReplay: true,
         },
         mutationRuntimeExecutions: 19,
-        queryRuntimeExecutions: 18,
+        queryRuntimeExecutions: 19,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -86,6 +90,18 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         commitFeedCommitSeqs: ["1"],
         outboxCommitSeqs: ["1"],
       });
+      expect(proof.workloadProof.taskRunId).not.toHaveLength(0);
+      expect(await readCookingTaskStateV1(persistence.target)).toEqual([{
+        catalog_count: "1",
+        definition_count: "1",
+        legacy_definition_revision_count: "0",
+        run_count: "1",
+        request_count: "1",
+        attempt_count: "1",
+        pending_count: "0",
+        dispatch_count: "1",
+        terminal_run_count: "1",
+      }]);
       expect(proof.finalInspection).toMatchObject({
         currentRows: expect.arrayContaining([{
           tableName: "recipes",
