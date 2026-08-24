@@ -505,6 +505,13 @@
       "when": 1787581443180,
       "tag": "0071_nebulous_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1787593366875,
+      "tag": "0072_faithful_blacklash",
+      "breakpoints": true
     }
   ]
 }

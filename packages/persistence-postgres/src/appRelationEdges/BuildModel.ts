@@ -108,6 +108,14 @@ export interface VerifyAppRelationEdgeBuildRowInput {
   readonly writeEpochUuid: ScopeEpochUuidV1;
 }
 
+export interface VerifyAppRelationEdgeCurrentRowInput {
+  readonly stored: StoredAppRelationEdge;
+  readonly expected: Extract<AppRelationEdgeStorageAction, { readonly kind: "put" }>;
+  readonly rootFrontierCommitSeq: CommitSeq;
+  readonly currentFrontierCommitSeq: CommitSeq;
+  readonly writeEpochUuid: ScopeEpochUuidV1;
+}
+
 export interface HasAppRelationEdgeBuildEndpointInput {
   readonly scopeId: ScopeId;
   readonly definition: AppRelationEdgeDefinitionPin;

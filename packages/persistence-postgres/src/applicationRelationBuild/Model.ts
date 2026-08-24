@@ -15,6 +15,7 @@ import type {
   FlarexDbV1StorageGeneration,
   ScopeEpoch,
   ScopeId,
+  StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
 import type {
@@ -23,6 +24,8 @@ import type {
 } from "../applicationRelationCommit";
 import type {
   AppRelationEdgeBuildError,
+  AppRelationEdgeBuildFrontier,
+  AppRelationEdgeBuildVersionFrontier,
   AppRelationEdgeReadError,
 } from "../appRelationEdges";
 import type { ReadApplicationRelationBindingError } from
@@ -98,6 +101,49 @@ export interface ApplicationRelationBuildStepResult {
   readonly deletedVersions: number;
 }
 
+export type ApplicationRelationSemanticValidationLifecycle =
+  | "validating_sources"
+  | "validating_edges"
+  | "validating_versions"
+  | "ready";
+
+/** Opaque-to-the-facet monotonic fence supplied by its validation owner. */
+export type ApplicationRelationValidationAttemptFence = bigint;
+
+export interface ApplicationRelationSemanticValidationProgress {
+  readonly relationOrdinal: number;
+  readonly lifecycle: Exclude<
+    ApplicationRelationSemanticValidationLifecycle,
+    "ready"
+  >;
+  readonly rootFrontierCommitSeq: CommitSeq;
+  readonly frontierCommitSeq: CommitSeq;
+  readonly attemptFence: ApplicationRelationValidationAttemptFence;
+  readonly sourceCursorRowId: AppRowIdHexV1 | null;
+  readonly edgeCursor: AppRelationEdgeBuildFrontier | null;
+  readonly versionCursor: AppRelationEdgeBuildVersionFrontier | null;
+  readonly validatedSourceCount: bigint;
+  readonly validatedEdgeCount: bigint;
+  readonly validatedVersionCount: bigint;
+}
+
+export interface ApplicationRelationSemanticValidationPageResult {
+  readonly relationOrdinal: number;
+  readonly lifecycle: ApplicationRelationSemanticValidationLifecycle;
+  readonly rootFrontierCommitSeq: CommitSeq;
+  readonly frontierCommitSeq: CommitSeq;
+  readonly attemptFence: ApplicationRelationValidationAttemptFence;
+  readonly sourceCursorRowId: AppRowIdHexV1 | null;
+  readonly edgeCursor: AppRelationEdgeBuildFrontier | null;
+  readonly versionCursor: AppRelationEdgeBuildVersionFrontier | null;
+  readonly validatedSourceCount: bigint;
+  readonly validatedEdgeCount: bigint;
+  readonly validatedVersionCount: bigint;
+  readonly processedSourceRows: number;
+  readonly processedEdges: number;
+  readonly processedVersions: number;
+}
+
 export interface ApplicationRelationReadinessReceipt {
   readonly format: "flarex.application-relation-readiness";
   readonly version: 1;
@@ -125,6 +171,27 @@ export interface ApplicationRelationReadinessEvidence {
   readonly canonicalBytes: Uint8Array;
   readonly sha256: Uint8Array;
   readonly settledAt: Date;
+}
+
+/**
+ * Exact immutable E01-A receipt reference retained by semantic-readiness
+ * evidence. The semantic owner supplies physical identity only; E01-A remains
+ * responsible for authenticating its own canonical receipt bytes.
+ */
+export interface ApplicationRelationBuildReadinessReference {
+  readonly scopeId: ScopeId;
+  readonly deploymentId: string;
+  readonly relationId: CatalogRelationId;
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly sourceTableId: CatalogTableId;
+  readonly targetTableId: CatalogTableId;
+  readonly physicalDefinitionSha256: Uint8Array;
+  readonly storageGeneration: FlarexDbV1StorageGeneration;
+  readonly storageGenerationFence: StorageGenerationFence;
+  readonly epoch: ScopeEpoch;
+  readonly frontierCommitSeq: CommitSeq;
+  readonly attemptFence: ApplicationRelationBuildAttemptFence;
+  readonly readinessSha256: Uint8Array;
 }
 
 export interface ApplicationRelationBuildPort {
@@ -241,25 +308,29 @@ export class ApplicationRelationBuildDecisionUncertainError
     readonly cause: unknown;
   }> {}
 
-/**
- * Foreign owner failures remain typed and visible; none are collapsed into a
- * catch-all Error channel at this private composition boundary.
- */
-export type ApplicationRelationBuildError =
-  | InvalidApplicationRelationBuildInputError
+/** Failures that can originate while a caller-owned target transaction runs. */
+export type ApplicationRelationBuildTransactionError =
   | ApplicationRelationBuildUnavailableError
   | ApplicationRelationBuildStaleAuthorityError
   | ApplicationRelationBuildEnabledDefinitionError
   | ApplicationRelationBuildMismatchError
   | ApplicationRelationBuildCorruptionError
   | ApplicationRelationBuildPersistenceError
-  | ApplicationRelationBuildDecisionUncertainError
   | ApplicationSchemaBindingError
   | ApplicationRelationCommitCorruptionError
   | ApplyApplicationRelationCommitEdgesError
   | AppRelationEdgeBuildError
   | AppRelationEdgeReadError
-  | ReadApplicationRelationBindingError
   | ReadAppRowError
-  | LockScopeClockForUpdateError
-  | TrustedScopeAuthorityError;
+  | LockScopeClockForUpdateError;
+
+/**
+ * Foreign owner failures remain typed and visible; none are collapsed into a
+ * catch-all Error channel at this private composition boundary.
+ */
+export type ApplicationRelationBuildError =
+  | InvalidApplicationRelationBuildInputError
+  | ApplicationRelationBuildDecisionUncertainError
+  | ReadApplicationRelationBindingError
+  | TrustedScopeAuthorityError
+  | ApplicationRelationBuildTransactionError;

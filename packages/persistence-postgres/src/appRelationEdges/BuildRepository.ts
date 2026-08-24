@@ -80,6 +80,7 @@ import {
   type ReadAppRelationEdgeBuildVersionPageResult,
   type StoredAppRelationEdgeBuildVersion,
   type VerifyAppRelationEdgeBuildRowInput,
+  type VerifyAppRelationEdgeCurrentRowInput,
 } from "./BuildModel";
 
 const decodeScopeIdResult = Schema.decodeUnknownResult(
@@ -535,30 +536,64 @@ export const verifyAppRelationEdgeBuildRowEffect = Effect.fn(
 )(function* (
   input: VerifyAppRelationEdgeBuildRowInput,
 ): Effect.fn.Return<void, AppRelationEdgeBuildError, RelationOccurrenceSha256> {
-  const expected = input.expected;
+  return yield* verifyAppRelationEdgeRowEffect(
+    input.stored,
+    input.expected,
+    input.writeEpochUuid,
+    input.stored.commitSeq === input.frontierCommitSeq,
+  );
+});
+
+/**
+ * Semantic-current verifier for an S12 row maintained after its root build.
+ * Unchanged occurrences retain their last-change commit, so provenance is a
+ * closed range rather than E01-A's exact fresh-build frontier.
+ */
+export const verifyAppRelationEdgeCurrentRowEffect = Effect.fn(
+  "AppRelationEdges.verifyCurrentRow",
+)(function* (
+  input: VerifyAppRelationEdgeCurrentRowInput,
+): Effect.fn.Return<void, AppRelationEdgeBuildError, RelationOccurrenceSha256> {
+  return yield* verifyAppRelationEdgeRowEffect(
+    input.stored,
+    input.expected,
+    input.writeEpochUuid,
+    input.stored.commitSeq >= input.rootFrontierCommitSeq &&
+      input.stored.commitSeq <= input.currentFrontierCommitSeq,
+  );
+});
+
+const verifyAppRelationEdgeRowEffect = Effect.fn(
+  "AppRelationEdges.verifyRow",
+)(function* (
+  stored: VerifyAppRelationEdgeBuildRowInput["stored"],
+  expected: VerifyAppRelationEdgeBuildRowInput["expected"],
+  writeEpochUuid: VerifyAppRelationEdgeBuildRowInput["writeEpochUuid"],
+  commitProvenanceMatches: boolean,
+): Effect.fn.Return<void, AppRelationEdgeBuildError, RelationOccurrenceSha256> {
   const canonical = yield* canonicalizeRelationOccurrenceV1(
     expected.occurrence,
   ).pipe(Effect.mapError(mapCanonicalEvidenceError));
   const sourceDocumentId = appDocumentIdV1FromRowIdentity({
-    tableId: input.stored.sourceTableId,
-    rowId: input.stored.sourceRowId,
+    tableId: stored.sourceTableId,
+    rowId: stored.sourceRowId,
   });
   const targetDocumentId = appDocumentIdV1FromRowIdentity({
-    tableId: input.stored.targetTableId,
-    rowId: input.stored.targetRowId,
+    tableId: stored.targetTableId,
+    rowId: stored.targetRowId,
   });
   if (
-    input.stored.relationId !== expected.definition.relationId ||
-    input.stored.edgeDefinitionId !== expected.definition.edgeDefinitionId ||
-    input.stored.sourceTableId !== expected.definition.physical.sourceTableId ||
-    input.stored.targetTableId !== expected.definition.physical.targetTableId ||
+    stored.relationId !== expected.definition.relationId ||
+    stored.edgeDefinitionId !== expected.definition.edgeDefinitionId ||
+    stored.sourceTableId !== expected.definition.physical.sourceTableId ||
+    stored.targetTableId !== expected.definition.physical.targetTableId ||
     sourceDocumentId !== expected.occurrence.sourceDocumentId ||
     targetDocumentId !== expected.occurrence.targetDocumentId ||
-    input.stored.position !== expected.position ||
-    input.stored.commitSeq !== input.frontierCommitSeq ||
-    input.stored.writeEpochUuid !== input.writeEpochUuid ||
-    !bytesEqual(input.stored.occurrenceBytes, canonical.canonicalBytes) ||
-    !bytesEqual(input.stored.occurrenceSha256, canonical.sha256)
+    stored.position !== expected.position ||
+    !commitProvenanceMatches ||
+    stored.writeEpochUuid !== writeEpochUuid ||
+    !bytesEqual(stored.occurrenceBytes, canonical.canonicalBytes) ||
+    !bytesEqual(stored.occurrenceSha256, canonical.sha256)
   ) {
     return yield* Effect.fail(new AppRelationEdgeBuildCorruptionError({
       operation: "validateEdge",

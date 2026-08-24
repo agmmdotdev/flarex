@@ -12,6 +12,7 @@ import {
   isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
@@ -92,8 +93,11 @@ import {
 } from "../stableTableCatalog";
 import {
   ApplicationRelationBindingError,
+  type ApplicationRelationBindingReadOperation,
   type ApplicationRelationBindingPublication,
+  type LocatedApplicationRelationManifestBinding,
   type LocatedApplicationRelationBinding,
+  type LocateApplicationRelationManifestBindingInput,
   type PublishApplicationRelationBindingInput,
   ReadApplicationRelationBindingError,
   type RelationEvolutionDecision,
@@ -105,6 +109,7 @@ import {
 
 const MAX_PUBLICATION_ATTEMPTS = 3;
 const LOWERCASE_SHA256 = /^[0-9a-f]{64}$/;
+const UTF8_FATAL = new TextDecoder("utf-8", { fatal: true });
 const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
   CatalogSchemaVersionIdSchema,
 );
@@ -306,6 +311,189 @@ export const locateApplicationRelationBindingForCommitEffect = Effect.fn(
     schemaManifestSha256: copyBytes(decoded.schemaManifestSha256),
     boundPublicationSha256: copyBytes(row.boundPublicationSha256),
   } satisfies LocatedApplicationRelationBinding);
+});
+
+/**
+ * Authenticates one retained manifest-to-R02 commitment for readiness. The
+ * manifest digest is a locator only; canonical manifest bytes, the derived
+ * schema frame, the manifest binding, and the complete bound root are all
+ * revalidated before a value is returned.
+ */
+export const locateApplicationRelationManifestBindingEffect = Effect.fn(
+  "ApplicationRelationBinding.locateManifestBinding",
+)(function* (
+  db: FlarexMetadataDatabase,
+  input: LocateApplicationRelationManifestBindingInput,
+): Effect.fn.Return<
+  LocatedApplicationRelationManifestBinding | null,
+  ReadApplicationRelationBindingError<"locateManifestBinding">
+> {
+  const operation = "locateManifestBinding" as const;
+  if (
+    !isNonBlankString(input.deploymentId) ||
+    input.deploymentId.includes("\0") ||
+    !LOWERCASE_SHA256.test(input.applicationManifestSha256)
+  ) {
+    return yield* relationBindingReadFailure(
+      "invalidInput",
+      undefined,
+      operation,
+    );
+  }
+  const manifestSha256 = lowercaseHexToBytes(
+    input.applicationManifestSha256,
+  );
+  const rows = yield* relationBindingReadQueryEffect(() => db.select().from(
+    fxControlApplicationManifestSchemaBindings,
+  ).where(and(
+    eq(
+      fxControlApplicationManifestSchemaBindings.deploymentId,
+      input.deploymentId,
+    ),
+    eq(
+      fxControlApplicationManifestSchemaBindings.applicationManifestSha256,
+      manifestSha256,
+    ),
+  )).limit(2), operation);
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  if (
+    rows.length !== 1 || row === undefined ||
+    row.deploymentId !== input.deploymentId ||
+    !isUint8ArrayWithByteLength(row.applicationManifestSha256, 32) ||
+    !bytesEqual(row.applicationManifestSha256, manifestSha256) ||
+    !isUint8Array(row.applicationManifestBytes) ||
+    !isUint8ArrayWithByteLength(row.applicationSchemaSha256, 32) ||
+    !isNonBlankString(row.schemaVersionId) ||
+    !Number.isSafeInteger(row.schemaVersion) || row.schemaVersion < 1 ||
+    !isUint8ArrayWithByteLength(row.boundPublicationSha256, 32) ||
+    !isUint8ArrayWithByteLength(row.bindingSha256, 32) ||
+    !isUint8Array(row.bindingBytes) ||
+    copyFiniteDate(row.createdAt) === undefined
+  ) {
+    return yield* relationBindingReadFailure(
+      "storedState",
+      undefined,
+      operation,
+    );
+  }
+  const parsedManifest = yield* Effect.try({
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(
+      row.applicationManifestBytes,
+    )),
+    catch: cause => relationBindingReadFailureValue(
+      "storedState",
+      cause,
+      operation,
+    ),
+  });
+  const manifest = yield* Effect.fromResult(
+    canonicalizeApplicationManifestV2(parsedManifest).pipe(
+      Result.mapError(cause => relationBindingReadFailureValue(
+        "storedState",
+        cause,
+        operation,
+      )),
+    ),
+  );
+  const recomputedManifestSha256 = yield* relationBindingReadSha256Effect(
+    manifest.canonicalBytes,
+    operation,
+  );
+  if (
+    !bytesEqual(manifest.canonicalBytes, row.applicationManifestBytes) ||
+    !bytesEqual(recomputedManifestSha256, row.applicationManifestSha256)
+  ) {
+    return yield* relationBindingReadFailure(
+      "storedState",
+      undefined,
+      operation,
+    );
+  }
+  const applicationSchemaFrame = yield* Effect.fromResult(
+    applicationSchemaPublicationFrameV2(manifest.manifest).pipe(
+      Result.mapError(cause => relationBindingReadFailureValue(
+        "storedState",
+        cause,
+        operation,
+      )),
+    ),
+  );
+  const applicationSchemaSha256 = yield* relationBindingReadSha256Effect(
+    applicationSchemaFrame,
+    operation,
+  );
+  if (!bytesEqual(applicationSchemaSha256, row.applicationSchemaSha256)) {
+    return yield* relationBindingReadFailure(
+      "storedState",
+      undefined,
+      operation,
+    );
+  }
+  const manifestBinding = yield* canonicalizeApplicationManifestSchemaBinding({
+    format: "flarex.application-manifest-schema-binding",
+    version: 1,
+    deploymentId: row.deploymentId,
+    applicationManifestSha256: encodeBytesToLowercaseHex(
+      row.applicationManifestSha256,
+    ),
+    applicationSchemaSha256: encodeBytesToLowercaseHex(
+      row.applicationSchemaSha256,
+    ),
+    schemaVersionId: row.schemaVersionId,
+    schemaVersion: row.schemaVersion,
+    boundPublicationSha256: encodeBytesToLowercaseHex(
+      row.boundPublicationSha256,
+    ),
+  }).pipe(Effect.mapError(cause => relationBindingReadFailureValue(
+    "storedState",
+    cause,
+    operation,
+  )));
+  if (
+    !bytesEqual(manifestBinding.canonicalBytes, row.bindingBytes) ||
+    manifestBinding.sha256Hex !== encodeBytesToLowercaseHex(row.bindingSha256)
+  ) {
+    return yield* relationBindingReadFailure(
+      "storedState",
+      undefined,
+      operation,
+    );
+  }
+  const relationBinding = yield* locateApplicationRelationBindingForCommitEffect(
+    db,
+    {
+      deploymentId: input.deploymentId,
+      schemaVersionId: row.schemaVersionId,
+    },
+  ).pipe(Effect.mapError(cause => relationBindingReadFailureValue(
+    cause.reason,
+    cause,
+    operation,
+  )));
+  if (
+    relationBinding === null ||
+    relationBinding.deploymentId !== manifestBinding.binding.deploymentId ||
+    relationBinding.schemaVersionId !==
+      manifestBinding.binding.schemaVersionId ||
+    relationBinding.binding.schemaVersion !==
+      manifestBinding.binding.schemaVersion ||
+    !bytesEqual(
+      relationBinding.applicationSchemaSha256,
+      row.applicationSchemaSha256,
+    ) ||
+    !bytesEqual(
+      relationBinding.boundPublicationSha256,
+      row.boundPublicationSha256,
+    )
+  ) {
+    return yield* relationBindingReadFailure(
+      "storedState",
+      undefined,
+      operation,
+    );
+  }
+  return Object.freeze({ manifestBinding, relationBinding });
 });
 
 function runAttemptsEffect(
@@ -2507,12 +2695,28 @@ function relationQueryEffect<A>(
 
 function relationBindingReadQueryEffect<A>(
   query: () => PromiseLike<A>,
-): Effect.Effect<A, ReadApplicationRelationBindingError> {
+): Effect.Effect<A, ReadApplicationRelationBindingError>;
+function relationBindingReadQueryEffect<
+  A,
+  Operation extends ApplicationRelationBindingReadOperation,
+>(
+  query: () => PromiseLike<A>,
+  operation: Operation,
+): Effect.Effect<A, ReadApplicationRelationBindingError<Operation>>;
+function relationBindingReadQueryEffect<A>(
+  query: () => PromiseLike<A>,
+  operation: ApplicationRelationBindingReadOperation =
+    "locateCommitBinding",
+): Effect.Effect<
+  A,
+  ReadApplicationRelationBindingError<ApplicationRelationBindingReadOperation>
+> {
   return Effect.uninterruptible(Effect.tryPromise({
     try: async () => await query(),
     catch: (cause) => relationBindingReadFailureValue(
       "resourceFailure",
       cause,
+      operation,
     ),
   }));
 }
@@ -2529,18 +2733,71 @@ function mapApplicationRelationBindingReadError(
 function relationBindingReadFailure(
   reason: ReadApplicationRelationBindingError["reason"],
   cause?: unknown,
-): Effect.Effect<never, ReadApplicationRelationBindingError> {
-  return Effect.fail(relationBindingReadFailureValue(reason, cause));
+): Effect.Effect<never, ReadApplicationRelationBindingError>;
+function relationBindingReadFailure<
+  Operation extends ApplicationRelationBindingReadOperation,
+>(
+  reason: ReadApplicationRelationBindingError["reason"],
+  cause: unknown,
+  operation: Operation,
+): Effect.Effect<never, ReadApplicationRelationBindingError<Operation>>;
+function relationBindingReadFailure(
+  reason: ReadApplicationRelationBindingError["reason"],
+  cause?: unknown,
+  operation: ApplicationRelationBindingReadOperation =
+    "locateCommitBinding",
+): Effect.Effect<
+  never,
+  ReadApplicationRelationBindingError<ApplicationRelationBindingReadOperation>
+> {
+  return Effect.fail(relationBindingReadFailureValue(reason, cause, operation));
 }
 
 function relationBindingReadFailureValue(
   reason: ReadApplicationRelationBindingError["reason"],
   cause?: unknown,
-): ReadApplicationRelationBindingError {
-  return new ReadApplicationRelationBindingError({
-    operation: "locateCommitBinding",
+): ReadApplicationRelationBindingError;
+function relationBindingReadFailureValue<
+  Operation extends ApplicationRelationBindingReadOperation,
+>(
+  reason: ReadApplicationRelationBindingError["reason"],
+  cause: unknown,
+  operation: Operation,
+): ReadApplicationRelationBindingError<Operation>;
+function relationBindingReadFailureValue(
+  reason: ReadApplicationRelationBindingError["reason"],
+  cause?: unknown,
+  operation: ApplicationRelationBindingReadOperation =
+    "locateCommitBinding",
+): ReadApplicationRelationBindingError<ApplicationRelationBindingReadOperation> {
+  return new ReadApplicationRelationBindingError<
+    ApplicationRelationBindingReadOperation
+  >({
+    operation,
     reason,
     ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function relationBindingReadSha256Effect<
+  Operation extends ApplicationRelationBindingReadOperation,
+>(
+  bytes: Uint8Array,
+  operation: Operation,
+): Effect.Effect<
+  Uint8Array,
+  ReadApplicationRelationBindingError<Operation>
+> {
+  return Effect.tryPromise({
+    try: async () => new Uint8Array(await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      copyBytesToArrayBuffer(bytes),
+    )),
+    catch: cause => relationBindingReadFailureValue(
+      "resourceFailure",
+      cause,
+      operation,
+    ),
   });
 }
 

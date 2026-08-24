@@ -3,6 +3,7 @@ import {
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
+  isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
@@ -63,6 +64,7 @@ import {
   ApplicationRelationConstraintError,
   ApplicationRelationTargetNotLiveError,
   hasApplicationRelationCommitAuthorityForControlDb,
+  hasLocatedApplicationRelationDefinitionSetAuthority,
   type LocatedApplicationRelationDefinition,
   type LocatedApplicationRelationDefinitionSet,
   prepareApplicationRelationDefinitionBuildResult,
@@ -77,6 +79,7 @@ import {
   readAppRelationEdgeBuildSourceInTransactionEffect,
   readAppRelationEdgeBuildVersionPageInTransactionEffect,
   verifyAppRelationEdgeBuildRowEffect,
+  verifyAppRelationEdgeCurrentRowEffect,
   type AppRelationEdgeBuildFrontier,
   type AppRelationEdgeBuildVersionFrontier,
   type AppRelationEdgeStorageAction,
@@ -133,7 +136,11 @@ import {
   type ApplicationRelationBuildOptions,
   ApplicationRelationBuildPersistenceError,
   type ApplicationRelationBuildPort,
+  type ApplicationRelationBuildReadinessReference,
   type ApplicationRelationBuildStepResult,
+  type ApplicationRelationBuildTransactionError,
+  type ApplicationRelationSemanticValidationPageResult,
+  type ApplicationRelationSemanticValidationProgress,
   ApplicationRelationBuildStaleAuthorityError,
   ApplicationRelationBuildUnavailableError,
   type ApplicationRelationReadinessEvidence,
@@ -220,10 +227,7 @@ interface DecodedBuildInput {
   readonly edgeDefinitionId: CatalogEdgeDefinitionId;
 }
 
-type BuildTransactionFailure = Exclude<
-  ApplicationRelationBuildError,
-  InvalidApplicationRelationBuildInputError
->;
+type BuildTransactionFailure = ApplicationRelationBuildTransactionError;
 
 export function createApplicationRelationBuildPort(
   controlDb: FlarexMetadataDatabase,
@@ -263,6 +267,18 @@ export function hasApplicationRelationBuildAuthority(
 ): value is ApplicationRelationBuildPort {
   return typeof value === "object" && value !== null &&
     applicationRelationBuildPortStates.has(value);
+}
+
+/** Exact same-factory composition check for the E01-B readiness owner. */
+export function hasApplicationRelationBuildAuthorityForComposition(
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+  relationCommit: ApplicationRelationCommitPort,
+): value is ApplicationRelationBuildPort {
+  if (typeof value !== "object" || value === null) return false;
+  const state = applicationRelationBuildPortStates.get(value);
+  return state?.controlDb === controlDb &&
+    state.relationCommit === relationCommit;
 }
 
 export function hasApplicationRelationReadinessEvidenceAuthority(
@@ -502,6 +518,298 @@ const runReadinessTransaction = Effect.fn(
     definition.definition.edge.edgeDefinitionId,
     (tx) => readinessInTransaction(tx, authority, definition),
   );
+});
+
+/**
+ * Revalidates one E01-A receipt inside a caller-owned target transaction.
+ * The caller must already hold the scope-clock UPDATE lock represented by
+ * `clock`; this facet never opens a transaction or acquires a second lock.
+ */
+export const validateApplicationRelationBuildReadinessInTransactionEffect =
+  Effect.fn(
+    "ApplicationRelationBuild.validateReadinessInTransaction",
+  )(function* (
+    port: ApplicationRelationBuildPort,
+    tx: AppRowTransaction,
+    authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord,
+    definitions: LocatedApplicationRelationDefinitionSet,
+    edgeDefinitionId: CatalogEdgeDefinitionId,
+  ): Effect.fn.Return<
+    ApplicationRelationReadinessEvidence | null,
+    ApplicationRelationBuildTransactionError
+  > {
+    const state = yield* requirePortState(port);
+    if (clock.scopeId !== authority.scopeId) {
+      return yield* Effect.fail(new ApplicationRelationBuildUnavailableError({
+        reason: "compositionMissing",
+      }));
+    }
+    const located = yield* locateAuthorizedBuildDefinition(
+      state,
+      authority,
+      definitions,
+      edgeDefinitionId,
+    );
+    const evidence = yield* validateReadinessUnderLockedClock(
+      tx,
+      authority,
+      clock,
+      located,
+    );
+    if (evidence !== null) {
+      applicationRelationReadinessEvidenceStates.set(evidence, state);
+    }
+    return evidence;
+  });
+
+/**
+ * Authenticates an enabled historical E01-A receipt for semantic-reuse
+ * lineage. Unlike the direct-current facet above, this deliberately validates
+ * the receipt at its own recorded authority and frontier.
+ */
+export const validateHistoricalApplicationRelationBuildReadinessInTransactionEffect =
+  Effect.fn(
+    "ApplicationRelationBuild.validateHistoricalReadinessInTransaction",
+  )(function* (
+    port: ApplicationRelationBuildPort,
+    tx: AppRowTransaction,
+    authority: TrustedScopeAuthority,
+    definitions: LocatedApplicationRelationDefinitionSet,
+    edgeDefinitionId: CatalogEdgeDefinitionId,
+  ): Effect.fn.Return<
+    ApplicationRelationReadinessEvidence | null,
+    ApplicationRelationBuildTransactionError
+  > {
+    const state = yield* requirePortState(port);
+    const located = yield* locateAuthorizedBuildDefinition(
+      state,
+      authority,
+      definitions,
+      edgeDefinitionId,
+    );
+    const evidence = yield* validateStoredReadinessForLocatedDefinition(
+      tx,
+      authority.scopeId,
+      located,
+    );
+    if (evidence !== null) {
+      applicationRelationReadinessEvidenceStates.set(evidence, state);
+    }
+    return evidence;
+  });
+
+/**
+ * Revalidates one exact immutable E01-A receipt reference retained by a
+ * semantic-readiness receipt. This facet deliberately does not require the
+ * physical build head to still select that historical attempt.
+ */
+export const validateReferencedApplicationRelationBuildReadinessInTransactionEffect =
+  Effect.fn(
+    "ApplicationRelationBuild.validateReferencedReadinessInTransaction",
+  )(function* (
+    port: ApplicationRelationBuildPort,
+    tx: AppRowTransaction,
+    authority: TrustedScopeAuthority,
+    reference: ApplicationRelationBuildReadinessReference,
+  ): Effect.fn.Return<
+    ApplicationRelationReadinessEvidence | null,
+    ApplicationRelationBuildTransactionError
+  > {
+    const state = yield* requirePortState(port);
+    if (!readinessReferenceMatchesAuthority(reference, authority)) {
+      return yield* Effect.fail(new ApplicationRelationBuildUnavailableError({
+        reason: "compositionMissing",
+      }));
+    }
+    const rows = yield* queryEffect(
+      "readReceipt",
+      tx.select().from(fxSystemEdgeDefinitionReadiness).where(and(
+        eq(fxSystemEdgeDefinitionReadiness.scopeId, reference.scopeId),
+        eq(
+          fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
+          reference.edgeDefinitionId,
+        ),
+        eq(
+          fxSystemEdgeDefinitionReadiness.attemptFence,
+          reference.attemptFence,
+        ),
+      )).limit(1),
+    );
+    const row = rows[0];
+    if (row === undefined) return null;
+    const head = yield* Effect.fromResult(
+      buildHeadFromReadinessRowResult(row),
+    );
+    const evidence = yield* verifyReceiptRowEffect(head, row);
+    if (
+      head.scopeId !== reference.scopeId ||
+      head.deploymentId !== reference.deploymentId ||
+      head.relationId !== reference.relationId ||
+      head.edgeDefinitionId !== reference.edgeDefinitionId ||
+      head.sourceTableId !== reference.sourceTableId ||
+      head.targetTableId !== reference.targetTableId ||
+      !bytesEqual(
+        head.physicalDefinitionSha256,
+        reference.physicalDefinitionSha256,
+      ) ||
+      head.storageGeneration !== reference.storageGeneration ||
+      head.storageGenerationFence !== reference.storageGenerationFence ||
+      head.epoch !== reference.epoch ||
+      head.frontierCommitSeq !== reference.frontierCommitSeq ||
+      head.attemptFence !== reference.attemptFence ||
+      !bytesEqual(evidence.sha256, reference.readinessSha256)
+    ) {
+      return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
+        reason: "receiptEvidence",
+      }));
+    }
+    applicationRelationReadinessEvidenceStates.set(evidence, state);
+    return evidence;
+  });
+
+/**
+ * Requires the mutable E01-A head to keep selecting one exact authenticated
+ * receipt while the caller holds the scope-clock lock. A historical receipt
+ * remains valid evidence, but it is not authority to scan sidecars while the
+ * selected physical attempt is being rebuilt or has moved.
+ */
+export const validateCurrentApplicationRelationBuildProjectionReferenceInTransactionEffect =
+  Effect.fn(
+    "ApplicationRelationBuild.validateCurrentProjectionReferenceInTransaction",
+  )(function* (
+    port: ApplicationRelationBuildPort,
+    tx: AppRowTransaction,
+    authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord,
+    reference: ApplicationRelationBuildReadinessReference,
+  ): Effect.fn.Return<
+    ApplicationRelationReadinessEvidence | null,
+    ApplicationRelationBuildTransactionError
+  > {
+    const state = yield* requirePortState(port);
+    if (
+      clock.scopeId !== authority.scopeId ||
+      !readinessReferenceMatchesAuthority(reference, authority)
+    ) {
+      return yield* Effect.fail(new ApplicationRelationBuildUnavailableError({
+        reason: "compositionMissing",
+      }));
+    }
+    if (
+      reference.storageGeneration !== clock.storageGeneration ||
+      reference.storageGenerationFence !== clock.storageGenerationFence ||
+      reference.epoch !== clock.epoch ||
+      reference.frontierCommitSeq > clock.lastCommitSeq
+    ) {
+      return null;
+    }
+    const head = yield* readBuildHeadForUpdateEffect(
+      tx,
+      reference.scopeId,
+      reference.edgeDefinitionId,
+    );
+    if (
+      head === null ||
+      head.lifecycle !== "enabled" ||
+      head.readinessSha256 === null ||
+      !headMatchesAuthority(head, clock) ||
+      head.attemptFence !== reference.attemptFence ||
+      !bytesEqual(head.readinessSha256, reference.readinessSha256)
+    ) {
+      return null;
+    }
+    if (
+      head.scopeId !== reference.scopeId ||
+      head.deploymentId !== reference.deploymentId ||
+      head.relationId !== reference.relationId ||
+      head.edgeDefinitionId !== reference.edgeDefinitionId ||
+      head.sourceTableId !== reference.sourceTableId ||
+      head.targetTableId !== reference.targetTableId ||
+      !bytesEqual(
+        head.physicalDefinitionSha256,
+        reference.physicalDefinitionSha256,
+      ) ||
+      head.storageGeneration !== reference.storageGeneration ||
+      head.storageGenerationFence !== reference.storageGenerationFence ||
+      head.epoch !== reference.epoch ||
+      head.frontierCommitSeq !== reference.frontierCommitSeq
+    ) {
+      return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
+        reason: "receiptEvidence",
+      }));
+    }
+    const row = yield* readReceiptRowEffect(tx, head);
+    if (row === null) {
+      return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
+        reason: "receiptEvidence",
+      }));
+    }
+    const evidence = yield* verifyReceiptRowEffect(head, row);
+    if (!bytesEqual(evidence.sha256, reference.readinessSha256)) {
+      return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
+        reason: "receiptEvidence",
+      }));
+    }
+    applicationRelationReadinessEvidenceStates.set(evidence, state);
+    return evidence;
+  });
+
+function readinessReferenceMatchesAuthority(
+  reference: ApplicationRelationBuildReadinessReference,
+  authority: TrustedScopeAuthority,
+): boolean {
+  return reference.scopeId === authority.scopeId &&
+    reference.deploymentId === authority.deploymentId &&
+    isUint8ArrayWithByteLength(reference.physicalDefinitionSha256, 32) &&
+    isUint8ArrayWithByteLength(reference.readinessSha256, 32) &&
+    reference.attemptFence >= 1n &&
+    reference.frontierCommitSeq >= 0n;
+}
+
+const locateAuthorizedBuildDefinition = Effect.fn(
+  "ApplicationRelationBuild.locateAuthorizedDefinition",
+)(function* (
+  state: ApplicationRelationBuildPortState,
+  authority: TrustedScopeAuthority,
+  definitions: LocatedApplicationRelationDefinitionSet,
+  edgeDefinitionId: CatalogEdgeDefinitionId,
+): Effect.fn.Return<
+  LocatedBuildDefinition,
+  ApplicationRelationBuildTransactionError
+> {
+  if (
+    !hasLocatedApplicationRelationDefinitionSetAuthority(
+      state.relationCommit,
+      definitions,
+    ) || definitions.deploymentId !== authority.deploymentId
+  ) {
+    return yield* Effect.fail(new ApplicationRelationBuildUnavailableError({
+      reason: "compositionMissing",
+    }));
+  }
+  const matches = definitions.definitions.filter((definition) =>
+    definition.edge.edgeDefinitionId === edgeDefinitionId
+  );
+  const definition = matches[0];
+  if (definition === undefined || matches.length !== 1) {
+    return yield* Effect.fail(new ApplicationRelationBuildUnavailableError({
+      reason: "definitionUnavailable",
+    }));
+  }
+  const canonicalPhysical = yield* canonicalizePhysicalEdgeDefinition(
+    definition.edge.physical,
+  );
+  return Object.freeze({
+    definitions,
+    definition,
+    physicalDefinitionSha256: lowercaseHexToBytes(
+      canonicalPhysical.sha256Hex,
+    ),
+    semanticDefinitionSha256: lowercaseHexToBytes(
+      definition.binding.semanticDefinitionSha256,
+    ),
+  });
 });
 
 class ApplicationRelationBuildTargetInvocationFailure extends Error {
@@ -846,6 +1154,7 @@ const validateSourcePage = Effect.fn(
       stored,
       port,
       rowId,
+      { kind: "freshBuild" },
     );
     yield* runFault(options, "afterValidationRow");
   }
@@ -1113,6 +1422,373 @@ const validateVersionPage = Effect.fn(
     options,
   );
   return stepResult(enabled, "enabled", {
+    processedVersions: page.versions.length,
+  });
+});
+
+/**
+ * Advances one validation-only semantic-reuse page inside the caller's locked
+ * target transaction. This operation reads current rows and S12 projections;
+ * it has no cleaning, backfill, edge-write, or version-write path.
+ */
+export const validateApplicationRelationSemanticPageInTransactionEffect =
+  Effect.fn(
+    "ApplicationRelationBuild.validateSemanticPageInTransaction",
+  )(function* (
+    port: ApplicationRelationBuildPort,
+    tx: AppRowTransaction,
+    authority: TrustedScopeAuthority,
+    clock: ScopeClockRecord,
+    definitions: LocatedApplicationRelationDefinitionSet,
+    edgeDefinitionId: CatalogEdgeDefinitionId,
+    progress: ApplicationRelationSemanticValidationProgress,
+    options: ApplicationRelationBuildOptions = {},
+  ): Effect.fn.Return<
+    ApplicationRelationSemanticValidationPageResult,
+    ApplicationRelationBuildTransactionError
+  > {
+    const state = yield* requirePortState(port);
+    if (clock.scopeId !== authority.scopeId) {
+      return yield* Effect.fail(new ApplicationRelationBuildUnavailableError({
+        reason: "compositionMissing",
+      }));
+    }
+    const located = yield* locateAuthorizedBuildDefinition(
+      state,
+      authority,
+      definitions,
+      edgeDefinitionId,
+    );
+    yield* Effect.fromResult(requireCurrentAuthorityResult(
+      authority,
+      edgeDefinitionId,
+      clock,
+    ));
+    if (
+      progress.relationOrdinal !==
+        located.definition.binding.relationOrdinal ||
+      progress.rootFrontierCommitSeq > clock.lastCommitSeq ||
+      progress.frontierCommitSeq !== clock.lastCommitSeq ||
+      progress.attemptFence < 1n ||
+      !semanticProgressMatchesLifecycle(progress)
+    ) {
+      return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
+        reason: "storedHead",
+      }));
+    }
+    const head: ApplicationRelationBuildHead = Object.freeze({
+      scopeId: authority.scopeId,
+      edgeDefinitionId,
+      deploymentId: definitions.deploymentId,
+      relationId: located.definition.binding.relationId,
+      sourceTableId: located.definition.binding.sourceTableId,
+      targetTableId: located.definition.binding.targetTableId,
+      semanticDefinitionSha256: located.semanticDefinitionSha256,
+      physicalDefinitionSha256: located.physicalDefinitionSha256,
+      storageGeneration: FLAREXDB_V1_STORAGE_GENERATION,
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+      frontierCommitSeq: clock.lastCommitSeq,
+      attemptFence: progress.attemptFence,
+      lifecycle: progress.lifecycle,
+      sourceCursorRowId: progress.sourceCursorRowId,
+      edgeCursor: progress.edgeCursor,
+      versionCursor: progress.versionCursor,
+      processedSourceCount: progress.validatedSourceCount,
+      validatedSourceCount: progress.validatedSourceCount,
+      validatedEdgeCount: progress.validatedEdgeCount,
+      validatedVersionCount: progress.validatedVersionCount,
+      readinessSha256: null,
+    });
+    switch (progress.lifecycle) {
+      case "validating_sources":
+        return yield* validateSemanticSourcePage(
+          tx,
+          head,
+          located,
+          state,
+          progress,
+          options,
+        );
+      case "validating_edges":
+        return yield* validateSemanticEdgePage(
+          tx,
+          head,
+          located,
+          state,
+          progress,
+          options,
+        );
+      case "validating_versions":
+        return yield* validateSemanticVersionPage(
+          tx,
+          head,
+          located,
+          progress,
+          options,
+        );
+    }
+  });
+
+const validateSemanticSourcePage = Effect.fn(
+  "ApplicationRelationBuild.validateSemanticSourcePage",
+)(function* (
+  tx: AppRowTransaction,
+  head: ApplicationRelationBuildHead,
+  located: LocatedBuildDefinition,
+  port: ApplicationRelationBuildPortState,
+  progress: ApplicationRelationSemanticValidationProgress,
+  options: ApplicationRelationBuildOptions,
+): Effect.fn.Return<
+  ApplicationRelationSemanticValidationPageResult,
+  BuildTransactionFailure
+> {
+  const candidates = yield* readSourceValidationPageEffect(
+    tx,
+    head,
+    located.definition,
+  );
+  const expectedPage = yield* prepareExpectedSourcePageEffect(
+    tx,
+    head,
+    located,
+    candidates,
+    true,
+    options,
+  );
+  let liveSourceCount = 0n;
+  for (const expected of expectedPage) {
+    const stored = yield* readAppRelationEdgeBuildSourceInTransactionEffect(
+      tx,
+      {
+        scopeId: head.scopeId,
+        definition: located.definition.edge,
+        sourceRowId: expected.rowId,
+      },
+    );
+    if (expected.current.kind === "live") liveSourceCount += 1n;
+    yield* validateExactSourceContentsEffect(
+      head,
+      expected.prepared,
+      stored,
+      port,
+      expected.rowId,
+      {
+        kind: "semanticCurrent",
+        rootFrontierCommitSeq: progress.rootFrontierCommitSeq,
+      },
+    );
+    yield* runFault(options, "afterValidationRow");
+  }
+  const exhausted = candidates.length < APPLICATION_RELATION_BUILD_SOURCE_PAGE_SIZE;
+  return semanticPageResult(progress, head.frontierCommitSeq, {
+    lifecycle: exhausted ? "validating_edges" : "validating_sources",
+    sourceCursorRowId: exhausted
+      ? null
+      : candidates.at(-1) ?? progress.sourceCursorRowId,
+    validatedSourceCount:
+      progress.validatedSourceCount + liveSourceCount,
+    processedSourceRows: candidates.length,
+  });
+});
+
+const validateSemanticEdgePage = Effect.fn(
+  "ApplicationRelationBuild.validateSemanticEdgePage",
+)(function* (
+  tx: AppRowTransaction,
+  head: ApplicationRelationBuildHead,
+  located: LocatedBuildDefinition,
+  port: ApplicationRelationBuildPortState,
+  progress: ApplicationRelationSemanticValidationProgress,
+  options: ApplicationRelationBuildOptions,
+): Effect.fn.Return<
+  ApplicationRelationSemanticValidationPageResult,
+  BuildTransactionFailure
+> {
+  const page = yield* readAppRelationEdgeBuildPageInTransactionEffect(tx, {
+    scopeId: head.scopeId,
+    definition: located.definition.edge,
+    after: progress.edgeCursor,
+  });
+  const sourceRowIds = Object.freeze(Array.from(new Set(
+    page.edges.map((edge) => edge.sourceRowId),
+  )));
+  const expectedPage = yield* prepareExpectedSourcePageEffect(
+    tx,
+    head,
+    located,
+    sourceRowIds,
+    false,
+    options,
+  );
+  const bySource = new Map<AppRowIdHexV1, ReadonlyArray<
+    Extract<AppRelationEdgeStorageAction, { readonly kind: "put" }>
+  >>();
+  for (const expected of expectedPage) {
+    if (expected.current.kind !== "live") {
+      return yield* edgeMismatch(head, expected.rowId, "edgeContents");
+    }
+    bySource.set(
+      expected.rowId,
+      yield* Effect.fromResult(
+        putActionsResult(expected.prepared.actions).pipe(
+          Result.mapError((cause) =>
+            new ApplicationRelationBuildCorruptionError({
+              reason: "storedHead",
+              cause,
+            })
+          ),
+        ),
+      ),
+    );
+  }
+  const matchedEdges: Array<Readonly<{
+    readonly edge: StoredAppRelationEdge;
+    readonly expected: Extract<
+      AppRelationEdgeStorageAction,
+      { readonly kind: "put" }
+    >;
+  }>> = [];
+  for (const edge of page.edges) {
+    const expectedActions = bySource.get(edge.sourceRowId);
+    if (expectedActions === undefined) {
+      return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
+        reason: "storedHead",
+      }));
+    }
+    const targetId = appDocumentIdV1FromRowIdentity({
+      tableId: edge.targetTableId,
+      rowId: edge.targetRowId,
+    });
+    const expected = expectedActions.find((action) =>
+      action.occurrence.targetDocumentId === targetId
+    );
+    if (expected === undefined) {
+      return yield* edgeMismatch(head, edge.sourceRowId, "edgeContents");
+    }
+    matchedEdges.push(Object.freeze({ edge, expected }));
+  }
+  yield* validateTargetRowIdsAtFrontierEffect(
+    tx,
+    head,
+    located.definition.binding.targetTableId,
+    Object.freeze(Array.from(new Set(
+      matchedEdges.map(({ edge }) => edge.targetRowId),
+    ))),
+    options,
+  );
+  const endpointRequests = edgeEndpointRequests(page.edges);
+  if (endpointRequests.length !== 0) {
+    observeBuildQuery(
+      options,
+      "readEdgeEndpointVersionsBatch",
+      endpointRequests.length,
+    );
+  }
+  const endpointVersions = yield*
+    readAppRelationEdgeBuildEndpointVersionsInTransactionEffect(tx, {
+      scopeId: head.scopeId,
+      definition: located.definition.edge,
+      endpoints: endpointRequests,
+    });
+  const versionByEndpoint = new Map(endpointVersions.map((version) => [
+    endpointKey(version.direction, version.endpointRowId),
+    version.lastChangedCommitSeq,
+  ]));
+  const epochProjection = yield* Effect.fromResult(
+    projectScopeEpochUuidV1Result(head.epoch).pipe(
+      Result.mapError((cause) => new ApplicationRelationBuildCorruptionError({
+        reason: "storedHead",
+        cause,
+      })),
+    ),
+  );
+  for (const { edge, expected } of matchedEdges) {
+    yield* verifyAppRelationEdgeCurrentRowEffect({
+      stored: edge,
+      expected,
+      rootFrontierCommitSeq: progress.rootFrontierCommitSeq,
+      currentFrontierCommitSeq: head.frontierCommitSeq,
+      writeEpochUuid: epochProjection.epochUuid,
+    }).pipe(Effect.provideService(
+      RelationOccurrenceSha256,
+      port.occurrenceSha256,
+    ));
+    const outgoing = versionByEndpoint.get(endpointKey(
+      "outgoing",
+      edge.sourceRowId,
+    ));
+    const incoming = versionByEndpoint.get(endpointKey(
+      "incoming",
+      edge.targetRowId,
+    ));
+    const minimumVersion = edge.commitSeq > progress.rootFrontierCommitSeq
+      ? edge.commitSeq
+      : progress.rootFrontierCommitSeq;
+    if (
+      outgoing === undefined || incoming === undefined ||
+      outgoing < minimumVersion || outgoing > head.frontierCommitSeq ||
+      incoming < minimumVersion || incoming > head.frontierCommitSeq
+    ) {
+      return yield* edgeMismatch(
+        head,
+        edge.sourceRowId,
+        "edgeEndpointVersion",
+      );
+    }
+    yield* runFault(options, "afterValidationRow");
+  }
+  return semanticPageResult(progress, head.frontierCommitSeq, {
+    lifecycle: page.exhausted
+      ? "validating_versions"
+      : "validating_edges",
+    edgeCursor: page.exhausted ? null : page.nextFrontier,
+    validatedEdgeCount:
+      progress.validatedEdgeCount + BigInt(page.edges.length),
+    processedEdges: page.edges.length,
+  });
+});
+
+const validateSemanticVersionPage = Effect.fn(
+  "ApplicationRelationBuild.validateSemanticVersionPage",
+)(function* (
+  tx: AppRowTransaction,
+  head: ApplicationRelationBuildHead,
+  located: LocatedBuildDefinition,
+  progress: ApplicationRelationSemanticValidationProgress,
+  options: ApplicationRelationBuildOptions,
+): Effect.fn.Return<
+  ApplicationRelationSemanticValidationPageResult,
+  BuildTransactionFailure
+> {
+  const page = yield* readAppRelationEdgeBuildVersionPageInTransactionEffect(
+    tx,
+    {
+      scopeId: head.scopeId,
+      definition: located.definition.edge,
+      after: progress.versionCursor,
+    },
+  );
+  for (const version of page.versions) {
+    if (
+      version.lastChangedCommitSeq < progress.rootFrontierCommitSeq ||
+      version.lastChangedCommitSeq > head.frontierCommitSeq
+    ) {
+      return yield* Effect.fail(new ApplicationRelationBuildMismatchError({
+        scopeId: head.scopeId,
+        edgeDefinitionId: head.edgeDefinitionId,
+        lifecycle: "validating_versions",
+        reason: "versionValue",
+        rowId: version.endpointRowId,
+      }));
+    }
+    yield* runFault(options, "afterValidationRow");
+  }
+  return semanticPageResult(progress, head.frontierCommitSeq, {
+    lifecycle: page.exhausted ? "ready" : "validating_versions",
+    versionCursor: page.exhausted ? null : page.nextFrontier,
+    validatedVersionCount:
+      progress.validatedVersionCount + BigInt(page.versions.length),
     processedVersions: page.versions.length,
   });
 });
@@ -1859,6 +2535,7 @@ const validateExactSourceContentsEffect = Effect.fn(
   stored: ReadonlyArray<StoredAppRelationEdge>,
   port: ApplicationRelationBuildPortState,
   rowId: AppRowIdHexV1,
+  provenance: ApplicationRelationSourceValidationProvenance,
 ): Effect.fn.Return<void, BuildTransactionFailure> {
   const expected = yield* Effect.fromResult(
     putActionsResult(prepared.actions).pipe(
@@ -1899,12 +2576,21 @@ const validateExactSourceContentsEffect = Effect.fn(
     if (actual === undefined) {
       return yield* edgeMismatch(head, rowId, "sourceContents");
     }
-    yield* verifyAppRelationEdgeBuildRowEffect({
-      stored: actual,
-      expected: action,
-      frontierCommitSeq: head.frontierCommitSeq,
-      writeEpochUuid: epochProjection.epochUuid,
-    }).pipe(Effect.provideService(
+    const verification = provenance.kind === "freshBuild"
+      ? verifyAppRelationEdgeBuildRowEffect({
+          stored: actual,
+          expected: action,
+          frontierCommitSeq: head.frontierCommitSeq,
+          writeEpochUuid: epochProjection.epochUuid,
+        })
+      : verifyAppRelationEdgeCurrentRowEffect({
+          stored: actual,
+          expected: action,
+          rootFrontierCommitSeq: provenance.rootFrontierCommitSeq,
+          currentFrontierCommitSeq: head.frontierCommitSeq,
+          writeEpochUuid: epochProjection.epochUuid,
+        });
+    yield* verification.pipe(Effect.provideService(
       RelationOccurrenceSha256,
       port.occurrenceSha256,
     ));
@@ -1914,6 +2600,13 @@ const validateExactSourceContentsEffect = Effect.fn(
     return yield* edgeMismatch(head, rowId, "sourceContents");
   }
 });
+
+type ApplicationRelationSourceValidationProvenance =
+  | Readonly<{ readonly kind: "freshBuild" }>
+  | Readonly<{
+      readonly kind: "semanticCurrent";
+      readonly rootFrontierCommitSeq: CommitSeq;
+    }>;
 
 function putActionsResult(
   actions: ReadonlyArray<AppRelationEdgeStorageAction>,
@@ -2019,24 +2712,64 @@ const readinessInTransaction = Effect.fn(
     tx,
     authority.scopeId,
   );
+  return yield* validateReadinessUnderLockedClock(
+    tx,
+    authority,
+    clock,
+    located,
+  );
+});
+
+const validateReadinessUnderLockedClock = Effect.fn(
+  "ApplicationRelationBuild.validateReadinessUnderLockedClock",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+  located: LocatedBuildDefinition,
+): Effect.fn.Return<
+  ApplicationRelationReadinessEvidence | null,
+  BuildTransactionFailure
+> {
   yield* Effect.fromResult(requireCurrentAuthorityResult(
     authority,
     located.definition.edge.edgeDefinitionId,
     clock,
   ));
-  const head = yield* readBuildHeadForUpdateEffect(
+  return yield* validateStoredReadinessForLocatedDefinition(
     tx,
     authority.scopeId,
+    located,
+    clock,
+  );
+});
+
+const validateStoredReadinessForLocatedDefinition = Effect.fn(
+  "ApplicationRelationBuild.validateStoredReadinessForLocatedDefinition",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: ScopeId,
+  located: LocatedBuildDefinition,
+  currentClock?: ScopeClockRecord,
+): Effect.fn.Return<
+  ApplicationRelationReadinessEvidence | null,
+  BuildTransactionFailure
+> {
+  const head = yield* readBuildHeadForUpdateEffect(
+    tx,
+    scopeId,
     located.definition.edge.edgeDefinitionId,
   );
   if (head === null) return null;
   yield* Effect.fromResult(requireImmutableDefinitionResult(head, located));
   if (
     head.lifecycle !== "enabled" ||
-    head.frontierCommitSeq !== clock.lastCommitSeq ||
     head.readinessSha256 === null ||
-    !headMatchesAuthority(head, clock) ||
-    !headMatchesBinding(head, located)
+    !headMatchesBinding(head, located) ||
+    (currentClock !== undefined && (
+      head.frontierCommitSeq !== currentClock.lastCommitSeq ||
+      !headMatchesAuthority(head, currentClock)
+    ))
   ) {
     return null;
   }
@@ -2056,6 +2789,62 @@ const readinessInTransaction = Effect.fn(
 });
 
 type ReadinessRow = typeof fxSystemEdgeDefinitionReadiness.$inferSelect;
+
+function buildHeadFromReadinessRowResult(
+  row: ReadinessRow,
+): Result.Result<
+  ApplicationRelationBuildHead,
+  ApplicationRelationBuildCorruptionError
+> {
+  if (
+    !isNonBlankString(row.scopeId) ||
+    !isNonBlankString(row.deploymentId) ||
+    !Number.isSafeInteger(row.relationId) || row.relationId < 1 ||
+    !Number.isSafeInteger(row.edgeDefinitionId) ||
+    row.edgeDefinitionId < 1 ||
+    !Number.isSafeInteger(row.sourceTableId) || row.sourceTableId < 1 ||
+    !Number.isSafeInteger(row.targetTableId) || row.targetTableId < 1 ||
+    !isUint8ArrayWithByteLength(row.semanticDefinitionSha256, 32) ||
+    !isUint8ArrayWithByteLength(row.physicalDefinitionSha256, 32) ||
+    row.storageGeneration !== FLAREXDB_V1_STORAGE_GENERATION ||
+    row.storageGenerationFence < 1n ||
+    !isNonBlankString(row.epoch) ||
+    row.frontierCommitSeq < 0n ||
+    row.attemptFence < 1n ||
+    row.sourceCount < 0n ||
+    row.edgeCount < 0n ||
+    row.versionCount < 0n ||
+    !isUint8ArrayWithByteLength(row.readinessSha256, 32)
+  ) {
+    return Result.fail(new ApplicationRelationBuildCorruptionError({
+      reason: "receiptEvidence",
+    }));
+  }
+  return Result.succeed(Object.freeze({
+    scopeId: row.scopeId,
+    edgeDefinitionId: row.edgeDefinitionId,
+    deploymentId: row.deploymentId,
+    relationId: row.relationId,
+    sourceTableId: row.sourceTableId,
+    targetTableId: row.targetTableId,
+    semanticDefinitionSha256: copyBytes(row.semanticDefinitionSha256),
+    physicalDefinitionSha256: copyBytes(row.physicalDefinitionSha256),
+    storageGeneration: row.storageGeneration,
+    storageGenerationFence: row.storageGenerationFence,
+    epoch: row.epoch,
+    frontierCommitSeq: row.frontierCommitSeq,
+    attemptFence: row.attemptFence,
+    lifecycle: "enabled",
+    sourceCursorRowId: null,
+    edgeCursor: null,
+    versionCursor: null,
+    processedSourceCount: row.sourceCount,
+    validatedSourceCount: row.sourceCount,
+    validatedEdgeCount: row.edgeCount,
+    validatedVersionCount: row.versionCount,
+    readinessSha256: copyBytes(row.readinessSha256),
+  }));
+}
 
 const readReceiptRowEffect = Effect.fn(
   "ApplicationRelationBuild.readReceipt",
@@ -2123,7 +2912,7 @@ const verifyReceiptRowEffect = Effect.fn(
     row.edgeCount !== head.validatedEdgeCount ||
     row.versionCount !== head.validatedVersionCount ||
     !isUint8ArrayWithByteLength(row.readinessSha256, 32) ||
-    !(row.receiptBytes instanceof Uint8Array) ||
+    !isUint8Array(row.receiptBytes) ||
     row.receiptBytes.byteLength < 1 ||
     row.receiptBytes.byteLength >
       APPLICATION_RELATION_READINESS_RECEIPT_MAXIMUM_BYTES
@@ -2473,6 +3262,80 @@ function buildHeadProgressMatchesLifecycle(
         (progress.lifecycle !== "enabled" || noVersionCursor) &&
         progress.validatedSourceCount === progress.processedSourceCount;
   }
+}
+
+function semanticProgressMatchesLifecycle(
+  progress: ApplicationRelationSemanticValidationProgress,
+): boolean {
+  if (
+    !Number.isSafeInteger(progress.relationOrdinal) ||
+    progress.relationOrdinal < 1 ||
+    progress.validatedSourceCount < 0n ||
+    progress.validatedEdgeCount < 0n ||
+    progress.validatedVersionCount < 0n
+  ) {
+    return false;
+  }
+  switch (progress.lifecycle) {
+    case "validating_sources":
+      return progress.edgeCursor === null &&
+        progress.versionCursor === null &&
+        progress.validatedEdgeCount === 0n &&
+        progress.validatedVersionCount === 0n;
+    case "validating_edges":
+      return progress.sourceCursorRowId === null &&
+        progress.versionCursor === null &&
+        progress.validatedVersionCount === 0n;
+    case "validating_versions":
+      return progress.sourceCursorRowId === null &&
+        progress.edgeCursor === null;
+  }
+}
+
+interface SemanticPageUpdate {
+  readonly lifecycle:
+    ApplicationRelationSemanticValidationPageResult["lifecycle"];
+  readonly sourceCursorRowId?: AppRowIdHexV1 | null;
+  readonly edgeCursor?: AppRelationEdgeBuildFrontier | null;
+  readonly versionCursor?: AppRelationEdgeBuildVersionFrontier | null;
+  readonly validatedSourceCount?: bigint;
+  readonly validatedEdgeCount?: bigint;
+  readonly validatedVersionCount?: bigint;
+  readonly processedSourceRows?: number;
+  readonly processedEdges?: number;
+  readonly processedVersions?: number;
+}
+
+function semanticPageResult(
+  progress: ApplicationRelationSemanticValidationProgress,
+  frontierCommitSeq: CommitSeq,
+  update: SemanticPageUpdate,
+): ApplicationRelationSemanticValidationPageResult {
+  return Object.freeze({
+    relationOrdinal: progress.relationOrdinal,
+    lifecycle: update.lifecycle,
+    rootFrontierCommitSeq: progress.rootFrontierCommitSeq,
+    frontierCommitSeq,
+    attemptFence: progress.attemptFence,
+    sourceCursorRowId: update.sourceCursorRowId === undefined
+      ? progress.sourceCursorRowId
+      : update.sourceCursorRowId,
+    edgeCursor: update.edgeCursor === undefined
+      ? progress.edgeCursor
+      : update.edgeCursor,
+    versionCursor: update.versionCursor === undefined
+      ? progress.versionCursor
+      : update.versionCursor,
+    validatedSourceCount:
+      update.validatedSourceCount ?? progress.validatedSourceCount,
+    validatedEdgeCount:
+      update.validatedEdgeCount ?? progress.validatedEdgeCount,
+    validatedVersionCount:
+      update.validatedVersionCount ?? progress.validatedVersionCount,
+    processedSourceRows: update.processedSourceRows ?? 0,
+    processedEdges: update.processedEdges ?? 0,
+    processedVersions: update.processedVersions ?? 0,
+  });
 }
 
 function corruptHead(): Result.Result<

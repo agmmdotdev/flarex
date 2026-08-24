@@ -11,6 +11,7 @@
     "./internal/application-task-bindings": "./src/applicationTaskBindings.ts",
     "./internal/application-schema-authority": "./src/applicationSchemaAuthority.ts",
     "./internal/application-relation-binding": "./src/applicationRelationBinding/index.ts",
+    "./internal/application-relation-readiness": "./src/applicationRelationReadiness/index.ts",
     "./internal/application-readiness": "./src/applicationReadiness.ts",
     "./internal/application-analysis-registration": "./src/applicationAnalysisRegistration.ts",
     "./internal/application-publication": "./src/applicationPublication.ts",
@@ -209,6 +210,8 @@
     "test:c09:postgres": "vitest run test/pointCommitRelations.postgres.test.ts test/appRelationEdges.postgres.test.ts --no-file-parallelism --testTimeout=180000",
     "test:e01-a:pglite": "vitest run test/applicationRelationBuild.test.ts test/pglite.migrations.test.ts --no-file-parallelism --testTimeout=480000",
     "test:e01-a:postgres": "vitest run test/applicationRelationBuild.postgres.test.ts --no-file-parallelism --testTimeout=300000",
+    "test:e01-b:pglite": "vitest run test/applicationRelationReadiness.test.ts test/pglite.migrations.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:e01-b:postgres": "vitest run test/applicationRelationReadiness.postgres.test.ts --no-file-parallelism --testTimeout=300000",
     "test:pglite": "vitest run test/pglite.runtime.test.ts --no-file-parallelism",
     "test:pglite:migrations": "vitest run test/pglite.migrations.test.ts --no-file-parallelism",
     "test:postgres": "node ../../scripts/run-test-lane.mjs postgres-persistence"

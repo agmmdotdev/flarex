@@ -2,6 +2,7 @@ import type { ApplicationManifestV2 } from
   "@flarex/analysis/application-analysis";
 import { Data } from "effect";
 import type {
+  CanonicalApplicationManifestSchemaBindingV1,
   ApplicationManifestSchemaBindingV1,
   ApplicationManifestSchemaBindingSha256Hex,
   ApplicationSchemaBindingSha256Hex,
@@ -62,10 +63,27 @@ export interface LocatedApplicationRelationBinding {
   readonly boundPublicationSha256: Uint8Array;
 }
 
-export class ReadApplicationRelationBindingError extends Data.TaggedError(
-  "ReadApplicationRelationBindingError",
-)<{
-  readonly operation: "locateCommitBinding";
+export interface LocateApplicationRelationManifestBindingInput {
+  readonly deploymentId: string;
+  readonly applicationManifestSha256:
+    ApplicationManifestSchemaBindingV1["applicationManifestSha256"];
+}
+
+/** Exact retained manifest pin plus its independently revalidated R02 root. */
+export interface LocatedApplicationRelationManifestBinding {
+  readonly manifestBinding: CanonicalApplicationManifestSchemaBindingV1;
+  readonly relationBinding: LocatedApplicationRelationBinding;
+}
+
+export type ApplicationRelationBindingReadOperation =
+  | "locateCommitBinding"
+  | "locateManifestBinding";
+
+export class ReadApplicationRelationBindingError<
+  Operation extends ApplicationRelationBindingReadOperation =
+    "locateCommitBinding",
+> extends Data.TaggedError("ReadApplicationRelationBindingError")<{
+  readonly operation: Operation;
   readonly reason: "invalidInput" | "storedState" | "resourceFailure";
   readonly cause?: unknown;
 }> {}

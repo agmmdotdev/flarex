@@ -153,6 +153,17 @@ export function hasApplicationRelationCommitAuthorityForPointCommit(
       pointCommitAuthority;
 }
 
+/** Exact same-factory check for a located R02 definition set. */
+export function hasLocatedApplicationRelationDefinitionSetAuthority(
+  port: ApplicationRelationCommitPort,
+  value: unknown,
+): value is LocatedApplicationRelationDefinitionSet {
+  if (typeof value !== "object" || value === null) return false;
+  const portState = applicationRelationCommitPortStates.get(port);
+  return portState !== undefined &&
+    locatedApplicationRelationDefinitionSetStates.get(value) === portState;
+}
+
 /**
  * Same-factory preparation wrapper. Only its result can cross the private C09
  * write boundary; the lowerer remains a genuinely pure policy function.

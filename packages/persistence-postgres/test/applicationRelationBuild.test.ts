@@ -35,11 +35,18 @@ import {
   createApplicationRelationBuildPort,
   hasApplicationRelationBuildAuthority,
   hasApplicationRelationReadinessEvidenceAuthority,
+  validateApplicationRelationBuildReadinessInTransactionEffect,
   type ApplicationRelationBuildPort,
   type ApplicationRelationBuildQueryObservation,
   type ApplicationRelationBuildStepResult,
   type LocatedApplicationRelationBuildTarget,
 } from "../src/applicationRelationBuild";
+import {
+  lockScopeClockForUpdateInTransactionEffect,
+  type ScopeClockRecord,
+} from "../src/scopeClock";
+import type { TrustedScopeAuthority } from
+  "../src/scopeAuthorityResolution";
 import {
   createApplicationRelationCommitPort,
   type LocatedApplicationRelationDefinitionSet,
@@ -149,6 +156,25 @@ describe("E01-A private application relation builder", () => {
       fixture.port,
       coldEvidence,
     )).toBe(false);
+
+    const lockedEvidence = await validateReadinessInOwnedTransaction(
+      fixture,
+      fixture.definitions,
+    );
+    expect(lockedEvidence?.sha256).toEqual(evidence.sha256);
+    expect(hasApplicationRelationReadinessEvidenceAuthority(
+      fixture.port,
+      lockedEvidence,
+    )).toBe(true);
+
+    const copiedSetFailure = await validateReadinessFailureInOwnedTransaction(
+      fixture,
+      Object.freeze({ ...fixture.definitions }),
+    );
+    expect(copiedSetFailure).toBeInstanceOf(
+      ApplicationRelationBuildUnavailableError,
+    );
+    expect(copiedSetFailure).toMatchObject({ reason: "compositionMissing" });
   });
 
   it("keeps bounded progress durable across rollback, detects missing evidence, repairs, and restarts on frontier movement", async () => {
@@ -1016,6 +1042,62 @@ async function advanceUntilEnabled(
     if (result.lifecycle === "enabled") return result;
   }
   throw new Error("E01-A fixture did not settle within 128 bounded steps.");
+}
+
+async function validateReadinessInOwnedTransaction(
+  fixture: Fixture,
+  definitions: LocatedApplicationRelationDefinitionSet,
+) {
+  return fixture.target.drizzle.transaction(async (tx) => {
+    const clock = await runEffect(
+      lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+    );
+    return runEffect(validateApplicationRelationBuildReadinessInTransactionEffect(
+      fixture.port,
+      tx,
+      authorityFromFixture(fixture, clock),
+      clock,
+      definitions,
+      fixture.input.edgeDefinitionId,
+    ));
+  });
+}
+
+async function validateReadinessFailureInOwnedTransaction(
+  fixture: Fixture,
+  definitions: LocatedApplicationRelationDefinitionSet,
+) {
+  return fixture.target.drizzle.transaction(async (tx) => {
+    const clock = await runEffect(
+      lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+    );
+    return runEffectFailure(
+      validateApplicationRelationBuildReadinessInTransactionEffect(
+        fixture.port,
+        tx,
+        authorityFromFixture(fixture, clock),
+        clock,
+        definitions,
+        fixture.input.edgeDefinitionId,
+      ),
+    );
+  });
+}
+
+function authorityFromFixture(
+  fixture: Fixture,
+  clock: ScopeClockRecord,
+): TrustedScopeAuthority {
+  return Object.freeze({
+    deploymentId: fixture.deploymentId,
+    scopeId: fixture.scopeId,
+    physicalLocator: LOCATOR,
+    storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence,
+    epoch: clock.epoch,
+    lastCommitSeq: clock.lastCommitSeq,
+    lastOutboxSeq: clock.lastOutboxSeq,
+  });
 }
 
 async function seedPopulatedRows(fixture: Fixture, count: number): Promise<void> {

@@ -87,6 +87,8 @@ describe("createPGlitePersistence", () => {
       "fx_system_application_publication_v1",
       "fx_system_application_readiness_function_v1",
       "fx_system_application_readiness_v1",
+      "fx_system_application_relation_semantic_readiness",
+      "fx_system_application_relation_semantic_validation",
       "fx_system_application_revision_schema_v1",
       "fx_system_application_revision_v2",
       "fx_system_application_task_catalog_v1",
@@ -189,6 +191,117 @@ describe("createPGlitePersistence", () => {
     expect(edgeBuildIndexes.rows.map((row) => row.indexname)).toContain(
       "fx_system_edge_definition_readiness_digest_unique",
     );
+
+    const semanticConstraints = await persistence.query<{
+      constraint_name: string;
+      definition: string;
+    }>(
+      `select conname constraint_name, pg_get_constraintdef(oid) definition
+         from pg_constraint
+        where conname in (
+          'fx_app_relation_semantic_validation_count_check',
+          'fx_app_relation_semantic_validation_lineage_check',
+          'fx_app_relation_semantic_validation_scope_fk',
+          'fx_app_relation_semantic_validation_physical_fk',
+          'fx_app_relation_semantic_readiness_head_fk',
+          'fx_app_relation_semantic_readiness_physical_fk',
+          'fx_app_relation_semantic_readiness_origin_fk',
+          'fx_app_relation_semantic_readiness_lineage_check',
+          'fx_app_relation_semantic_readiness_receipt_check'
+        )
+        order by conname`,
+    );
+    expect(semanticConstraints.rows.map((row) => row.constraint_name))
+      .toEqual([
+        "fx_app_relation_semantic_readiness_head_fk",
+        "fx_app_relation_semantic_readiness_lineage_check",
+        "fx_app_relation_semantic_readiness_origin_fk",
+        "fx_app_relation_semantic_readiness_physical_fk",
+        "fx_app_relation_semantic_readiness_receipt_check",
+        "fx_app_relation_semantic_validation_count_check",
+        "fx_app_relation_semantic_validation_lineage_check",
+        "fx_app_relation_semantic_validation_physical_fk",
+        "fx_app_relation_semantic_validation_scope_fk",
+      ]);
+    for (const constraintName of [
+      "fx_app_relation_semantic_validation_lineage_check",
+      "fx_app_relation_semantic_readiness_lineage_check",
+    ]) {
+      const definition = semanticConstraints.rows.find((row) =>
+        row.constraint_name === constraintName
+      )?.definition ?? "";
+      expect(definition).toContain(
+        "origin_semantic_attempt_fence IS NOT NULL",
+      );
+      expect(definition).toContain(
+        "origin_schema_version_id <> schema_version_id",
+      );
+      expect(definition).toContain(
+        "physical_origin_schema_version_id <> schema_version_id",
+      );
+      expect(definition).not.toContain(
+        "origin_schema_version_id = physical_origin_schema_version_id",
+      );
+      expect(definition).not.toContain(
+        "origin_relation_ordinal = physical_origin_relation_ordinal",
+      );
+    }
+    const semanticOriginFk = semanticConstraints.rows.find((row) =>
+      row.constraint_name === "fx_app_relation_semantic_readiness_origin_fk"
+    )?.definition ?? "";
+    expect(semanticOriginFk).toContain(
+      "FOREIGN KEY (scope_id, origin_schema_version_id, origin_relation_ordinal, origin_semantic_attempt_fence, origin_semantic_readiness_sha256)",
+    );
+    expect(semanticOriginFk).toContain(
+      "REFERENCES fx_system_application_relation_semantic_readiness(scope_id, schema_version_id, relation_ordinal, attempt_fence, readiness_sha256)",
+    );
+    expect(semanticOriginFk).toContain("ON DELETE RESTRICT");
+    const semanticHeadFk = semanticConstraints.rows.find((row) =>
+      row.constraint_name === "fx_app_relation_semantic_readiness_head_fk"
+    )?.definition ?? "";
+    expect(semanticHeadFk).toContain(
+      "FOREIGN KEY (scope_id, schema_version_id, relation_ordinal)",
+    );
+    expect(semanticHeadFk).toContain(
+      "REFERENCES fx_system_application_relation_semantic_validation(scope_id, schema_version_id, relation_ordinal)",
+    );
+    expect(semanticHeadFk).toContain("ON DELETE RESTRICT");
+    for (const constraintName of [
+      "fx_app_relation_semantic_validation_physical_fk",
+      "fx_app_relation_semantic_readiness_physical_fk",
+    ]) {
+      const definition = semanticConstraints.rows.find((row) =>
+        row.constraint_name === constraintName
+      )?.definition ?? "";
+      expect(definition).toContain(
+        "FOREIGN KEY (scope_id, edge_definition_id, physical_attempt_fence)",
+      );
+      expect(definition).toContain(
+        "REFERENCES fx_system_edge_definition_readiness(scope_id, edge_definition_id, attempt_fence)",
+      );
+      expect(definition).toContain("ON DELETE RESTRICT");
+    }
+    const receiptCheck = semanticConstraints.rows.find((row) =>
+      row.constraint_name === "fx_app_relation_semantic_readiness_receipt_check"
+    )?.definition ?? "";
+    expect(receiptCheck).toContain("receipt_codec_version = 1");
+    expect(receiptCheck).toContain(
+      "octet_length(receipt_bytes) >= 1",
+    );
+    expect(receiptCheck).toContain(
+      "octet_length(receipt_bytes) <= 16384",
+    );
+    const semanticIndexes = await persistence.query<{ indexname: string }>(
+      `select indexname
+         from pg_indexes
+        where tablename = 'fx_system_application_relation_semantic_readiness'
+        order by indexname`,
+    );
+    expect(semanticIndexes.rows.map((row) => row.indexname)).toEqual([
+      "fx_app_relation_semantic_readiness_digest_unique",
+      "fx_app_relation_semantic_readiness_origin_unique",
+      "fx_app_relation_semantic_readiness_pk",
+    ]);
   });
 
   it("upgrades existing Task rows to the explicit Legacy definition generation", async () => {

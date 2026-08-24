@@ -1,5 +1,8 @@
 import { webcrypto } from "node:crypto";
 import {
+  ApplicationManifestSchemaBindingSha256HexSchema,
+} from "flarex-protocol/internal/application-schema-binding";
+import {
   canonicalizeApplicationManifestV2,
   type ApplicationManifestV2,
 } from "@flarex/analysis/application-analysis";
@@ -16,6 +19,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
+  locateApplicationRelationManifestBindingEffect,
   publishApplicationRelationBindingEffect,
   type ApplicationRelationBindingRepository,
   type PublishApplicationRelationBindingInput,
@@ -80,6 +84,29 @@ describe("Application relation binding", () => {
     expect(secondManifest.manifestBinding.applicationManifestSha256).not.toBe(
       first.manifestBinding.applicationManifestSha256,
     );
+    const located = await runEffect(
+      locateApplicationRelationManifestBindingEffect(persistence.drizzle, {
+        deploymentId,
+        applicationManifestSha256:
+          first.manifestBinding.applicationManifestSha256,
+      }),
+    );
+    expect(located?.manifestBinding.binding).toEqual(first.manifestBinding);
+    expect(located?.relationBinding).toMatchObject({
+      deploymentId,
+      schemaVersionId: first.binding.schemaVersionId,
+      binding: first.binding,
+    });
+    const absent = await runEffect(
+      locateApplicationRelationManifestBindingEffect(persistence.drizzle, {
+        deploymentId,
+        applicationManifestSha256:
+          ApplicationManifestSchemaBindingSha256HexSchema.make(
+            "0".repeat(64),
+          ),
+      }),
+    );
+    expect(absent).toBeNull();
     await expectCounts(persistence, {
       fx_control_schema_version: 1,
       fx_control_table: 2,
@@ -296,7 +323,9 @@ describe("Application relation binding", () => {
       "a".repeat(64),
       [{ relationOrdinal: 1, evolution: { kind: "new" } }],
     );
-    await runEffect(publishApplicationRelationBindingEffect(repository, input));
+    const publication = await runEffect(
+      publishApplicationRelationBindingEffect(repository, input),
+    );
     await persistence.drizzle.update(
       fxControlApplicationManifestSchemaBindings,
     ).set({
@@ -305,6 +334,21 @@ describe("Application relation binding", () => {
       fxControlApplicationManifestSchemaBindings.deploymentId,
       deploymentId,
     ));
+
+    const located = await runEffect(Effect.result(
+      locateApplicationRelationManifestBindingEffect(persistence.drizzle, {
+        deploymentId,
+        applicationManifestSha256:
+          publication.manifestBinding.applicationManifestSha256,
+      }),
+    ));
+    expect(Result.isFailure(located)).toBe(true);
+    if (Result.isFailure(located)) {
+      expect(located.failure).toMatchObject({
+        operation: "locateManifestBinding",
+        reason: "storedState",
+      });
+    }
 
     const replay = await runEffect(Effect.result(
       publishApplicationRelationBindingEffect(repository, input),
