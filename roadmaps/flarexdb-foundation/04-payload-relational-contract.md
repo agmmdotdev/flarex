@@ -1462,7 +1462,11 @@ required immutable physical receipt without opening another transaction. Every
 receipt must retain exact canonical bytes and digest and agree on scope,
 deployment, relation and edge-definition identity, semantic and physical
 definition digests, storage generation and fence, epoch, fixed frontier,
-attempt fence, counts, and the already-locked current commit sequence. Missing,
+attempt fence, and counts. A direct current definition additionally requires
+that physical receipt's frontier to equal the already-locked current commit
+sequence. Semantic reuse instead authenticates the historical root receipt at
+its own frontier and binds it to a fresh semantic-current receipt at the locked
+frontier; it never reinterprets the historical receipt as current. Missing,
 extra, stale, moved, incomplete, or corrupt evidence fails closed. Multiple
 semantic bindings may name one physical definition, but physical work is
 deduplicated while each semantic-to-physical lineage remains explicit in the
@@ -1483,14 +1487,34 @@ validating_sources
   -> ready
 ```
 
-It reuses E01-A's fixed four-source and 128-edge/version page ceilings and the
-same C09/S12 validation mechanics, but can never enter cleaning or backfill and
-can never write an edge or adjacency version. Frontier movement increments only
-the semantic-validation attempt, clears its validation cursors/counts, and
-starts again at `validating_sources`. Settlement retains a new immutable
-semantic-readiness receipt that references the original physical receipt and
-the exact R02 lineage. Chained reuse follows the immediate retained origin;
-there is no digest-only or name-based shortcut.
+It reuses E01-A's fixed four-source and 128-edge/version page ceilings and its
+C09 lowering plus S12 content-validation mechanics, but can never enter
+cleaning or backfill and can never write an edge or adjacency version. It has a
+separate semantic-current provenance policy because normal C09/S12 maintenance
+does not rewrite unchanged edges at every commit and deliberately retains an
+endpoint's adjacency-version row after its last edge is removed. Let `F0` be
+the authenticated root physical receipt frontier and `F` the locked current
+frontier. Source validation freshly lowers every current source through the
+new semantic definition and proves the exact stored occurrence set plus target
+liveness. Edge validation proves exact occurrence bytes, identity, position,
+current epoch, and `F0 <= edge commit <= F`; each nonempty endpoint version
+must exist and lie between the greater of `F0` and that edge commit and `F`.
+Version validation admits retained empty endpoints and requires every stored
+version to lie in `F0..F`. The new source, edge, and version counts come from
+this scan; the historical receipt's counts remain authenticated snapshot
+evidence but are not expected counts for a later frontier.
+
+This semantic-current receipt is a content/coherence proof over trusted C09/S12
+transactional maintenance, not a forensic reconstruction of every historical
+endpoint transition. The current S12 adjacency-version row has no tombstone or
+history witness, so an empty endpoint's exact last-change history cannot be
+reproved from the current projection alone. Adding such history would change
+the S12 owner and requires a separate preflight; E01-B does not do so. Frontier
+movement increments only the semantic-validation attempt, clears its validation
+cursors/counts, and starts again at `validating_sources`. Settlement retains a
+new immutable semantic-readiness receipt that references the original physical
+receipt and the exact R02 lineage. Chained reuse follows the immediate retained
+origin; there is no digest-only or name-based shortcut.
 
 Before E01-A inserts or restarts a physical head, cleans candidate sidecars, or
 automatically reconciles a physical attempt after frontier movement, it checks
