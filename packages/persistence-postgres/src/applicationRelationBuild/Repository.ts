@@ -98,6 +98,12 @@ import {
   type ScopeClockRecord,
 } from "../scopeClock";
 import {
+  hasApplicationRelationServingInspectorAuthority,
+  inspectApplicationRelationServingDefinitionInTransactionEffect,
+  type ApplicationRelationServingInspector,
+  type InspectApplicationRelationServingError,
+} from "../applicationRelationServing";
+import {
   captureTrustedScopeAuthorityResolutionPorts,
   resolveLocatedTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
@@ -133,10 +139,13 @@ import {
   type ApplicationRelationBuildInput,
   type ApplicationRelationBuildLifecycle,
   ApplicationRelationBuildMismatchError,
+  type ApplicationRelationBuildMutationTransactionError,
   type ApplicationRelationBuildOptions,
   ApplicationRelationBuildPersistenceError,
   type ApplicationRelationBuildPort,
   type ApplicationRelationBuildReadinessReference,
+  type ApplicationRelationBuildReadinessValidationError,
+  ApplicationRelationBuildServingDefinitionError,
   type ApplicationRelationBuildStepResult,
   type ApplicationRelationBuildTransactionError,
   type ApplicationRelationSemanticValidationPageResult,
@@ -177,6 +186,7 @@ interface ApplicationRelationBuildPortState {
     LocatedApplicationRelationBuildTarget
   >;
   readonly relationCommit: ApplicationRelationCommitPort;
+  readonly servingInspector: ApplicationRelationServingInspector;
   readonly occurrenceSha256: RelationOccurrenceSha256Api;
 }
 
@@ -227,7 +237,8 @@ interface DecodedBuildInput {
   readonly edgeDefinitionId: CatalogEdgeDefinitionId;
 }
 
-type BuildTransactionFailure = ApplicationRelationBuildTransactionError;
+type BuildTransactionFailure =
+  ApplicationRelationBuildMutationTransactionError;
 
 export function createApplicationRelationBuildPort(
   controlDb: FlarexMetadataDatabase,
@@ -235,6 +246,7 @@ export function createApplicationRelationBuildPort(
     LocatedApplicationRelationBuildTarget
   >,
   relationCommit: ApplicationRelationCommitPort,
+  servingInspector: ApplicationRelationServingInspector,
 ): ApplicationRelationBuildPort {
   const capturedAuthority = captureTrustedScopeAuthorityResolutionPorts(
     authority,
@@ -251,11 +263,12 @@ export function createApplicationRelationBuildPort(
   if (hasApplicationRelationCommitAuthorityForControlDb(
     relationCommit,
     controlDb,
-  )) {
+  ) && hasApplicationRelationServingInspectorAuthority(servingInspector)) {
     applicationRelationBuildPortStates.set(port, Object.freeze({
       controlDb,
       authority: capturedAuthority,
       relationCommit,
+      servingInspector,
       occurrenceSha256: webCryptoRelationOccurrenceSha256,
     }));
   }
@@ -537,7 +550,7 @@ export const validateApplicationRelationBuildReadinessInTransactionEffect =
     edgeDefinitionId: CatalogEdgeDefinitionId,
   ): Effect.fn.Return<
     ApplicationRelationReadinessEvidence | null,
-    ApplicationRelationBuildTransactionError
+    ApplicationRelationBuildReadinessValidationError
   > {
     const state = yield* requirePortState(port);
     if (clock.scopeId !== authority.scopeId) {
@@ -579,7 +592,7 @@ export const validateHistoricalApplicationRelationBuildReadinessInTransactionEff
     edgeDefinitionId: CatalogEdgeDefinitionId,
   ): Effect.fn.Return<
     ApplicationRelationReadinessEvidence | null,
-    ApplicationRelationBuildTransactionError
+    ApplicationRelationBuildReadinessValidationError
   > {
     const state = yield* requirePortState(port);
     const located = yield* locateAuthorizedBuildDefinition(
@@ -614,7 +627,7 @@ export const validateReferencedApplicationRelationBuildReadinessInTransactionEff
     reference: ApplicationRelationBuildReadinessReference,
   ): Effect.fn.Return<
     ApplicationRelationReadinessEvidence | null,
-    ApplicationRelationBuildTransactionError
+    ApplicationRelationBuildReadinessValidationError
   > {
     const state = yield* requirePortState(port);
     if (!readinessReferenceMatchesAuthority(reference, authority)) {
@@ -685,7 +698,7 @@ export const validateCurrentApplicationRelationBuildProjectionReferenceInTransac
     reference: ApplicationRelationBuildReadinessReference,
   ): Effect.fn.Return<
     ApplicationRelationReadinessEvidence | null,
-    ApplicationRelationBuildTransactionError
+    ApplicationRelationBuildReadinessValidationError
   > {
     const state = yield* requirePortState(port);
     if (
@@ -776,7 +789,7 @@ const locateAuthorizedBuildDefinition = Effect.fn(
   edgeDefinitionId: CatalogEdgeDefinitionId,
 ): Effect.fn.Return<
   LocatedBuildDefinition,
-  ApplicationRelationBuildTransactionError
+  ApplicationRelationBuildReadinessValidationError
 > {
   if (
     !hasLocatedApplicationRelationDefinitionSetAuthority(
@@ -941,6 +954,12 @@ const buildInTransaction = Effect.fn(
     located.definition.edge.edgeDefinitionId,
   );
   if (existing === null) {
+    yield* requireDefinitionNotServingInTransaction(
+      tx,
+      authority,
+      located.definition.edge.edgeDefinitionId,
+      port,
+    );
     const initialized = yield* insertBuildHeadEffect(
       tx,
       authority,
@@ -966,6 +985,12 @@ const buildInTransaction = Effect.fn(
     operation === "restart" || bindingMoved || authorityMoved ||
     frontierMoved
   ) {
+    yield* requireDefinitionNotServingInTransaction(
+      tx,
+      authority,
+      located.definition.edge.edgeDefinitionId,
+      port,
+    );
     const restarted = yield* restartBuildHeadEffect(
       tx,
       existing,
@@ -981,6 +1006,12 @@ const buildInTransaction = Effect.fn(
   }
   switch (existing.lifecycle) {
     case "cleaning":
+      yield* requireDefinitionNotServingInTransaction(
+        tx,
+        authority,
+        located.definition.edge.edgeDefinitionId,
+        port,
+      );
       return yield* cleanDefinitionPage(
         tx,
         existing,
@@ -1018,6 +1049,38 @@ const buildInTransaction = Effect.fn(
         located,
         options,
       );
+  }
+});
+
+const requireDefinitionNotServingInTransaction = Effect.fn(
+  "ApplicationRelationBuild.requireDefinitionNotServingInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  edgeDefinitionId: CatalogEdgeDefinitionId,
+  state: ApplicationRelationBuildPortState,
+): Effect.fn.Return<
+  void,
+  | InspectApplicationRelationServingError
+  | ApplicationRelationBuildServingDefinitionError
+> {
+  const inspection = yield*
+    inspectApplicationRelationServingDefinitionInTransactionEffect(
+      state.servingInspector,
+      tx,
+      {
+        scopeId: authority.scopeId,
+        edgeDefinitionId,
+      },
+    );
+  if (inspection.status === "serving") {
+    return yield* Effect.fail(
+      new ApplicationRelationBuildServingDefinitionError({
+        scopeId: authority.scopeId,
+        edgeDefinitionId,
+        activeRevisionId: inspection.activeRevisionId,
+      }),
+    );
   }
 });
 
@@ -1541,7 +1604,7 @@ const validateSemanticSourcePage = Effect.fn(
   options: ApplicationRelationBuildOptions,
 ): Effect.fn.Return<
   ApplicationRelationSemanticValidationPageResult,
-  BuildTransactionFailure
+  ApplicationRelationBuildTransactionError
 > {
   const candidates = yield* readSourceValidationPageEffect(
     tx,
@@ -1603,7 +1666,7 @@ const validateSemanticEdgePage = Effect.fn(
   options: ApplicationRelationBuildOptions,
 ): Effect.fn.Return<
   ApplicationRelationSemanticValidationPageResult,
-  BuildTransactionFailure
+  ApplicationRelationBuildTransactionError
 > {
   const page = yield* readAppRelationEdgeBuildPageInTransactionEffect(tx, {
     scopeId: head.scopeId,
@@ -1759,7 +1822,7 @@ const validateSemanticVersionPage = Effect.fn(
   options: ApplicationRelationBuildOptions,
 ): Effect.fn.Return<
   ApplicationRelationSemanticValidationPageResult,
-  BuildTransactionFailure
+  ApplicationRelationBuildTransactionError
 > {
   const page = yield* readAppRelationEdgeBuildVersionPageInTransactionEffect(
     tx,
@@ -2223,7 +2286,10 @@ const prepareExpectedSourcePageEffect = Effect.fn(
   rowIds: ReadonlyArray<AppRowIdHexV1>,
   validateAllTargets: boolean,
   options: ApplicationRelationBuildOptions,
-): Effect.fn.Return<ReadonlyArray<ExpectedSource>, BuildTransactionFailure> {
+): Effect.fn.Return<
+  ReadonlyArray<ExpectedSource>,
+  ApplicationRelationBuildTransactionError
+> {
   const currentByRowId = yield* readCurrentSourcePageAtFrontierEffect(
     tx,
     head,
@@ -2258,7 +2324,10 @@ const prepareExpectedSourceEffect = Effect.fn(
   located: LocatedBuildDefinition,
   rowId: AppRowIdHexV1,
   current: ExpectedSourceCurrent,
-): Effect.fn.Return<ExpectedSource, BuildTransactionFailure> {
+): Effect.fn.Return<
+  ExpectedSource,
+  ApplicationRelationBuildTransactionError
+> {
   const definition = located.definition;
   const documentId = appDocumentIdV1FromRowIdentity({
     tableId: definition.binding.sourceTableId,
@@ -2304,7 +2373,7 @@ const readCurrentSourcePageAtFrontierEffect = Effect.fn(
   options: ApplicationRelationBuildOptions,
 ): Effect.fn.Return<
   ReadonlyMap<AppRowIdHexV1, ExpectedSourceCurrent>,
-  BuildTransactionFailure
+  ApplicationRelationBuildTransactionError
 > {
   const statuses = yield* readCurrentRowStatusesAtFrontierEffect(
     tx,
@@ -2372,7 +2441,7 @@ const validateExpectedTargetsAtFrontierEffect = Effect.fn(
   located: LocatedBuildDefinition,
   expectedSources: ReadonlyArray<ExpectedSource>,
   options: ApplicationRelationBuildOptions,
-): Effect.fn.Return<void, BuildTransactionFailure> {
+): Effect.fn.Return<void, ApplicationRelationBuildTransactionError> {
   const targetTableId = located.definition.binding.targetTableId;
   const targetRowIds: AppRowIdHexV1[] = [];
   const seen = new Set<AppRowIdHexV1>();
@@ -2406,7 +2475,7 @@ const validateTargetRowIdsAtFrontierEffect = Effect.fn(
   targetTableId: CatalogTableId,
   targetRowIds: ReadonlyArray<AppRowIdHexV1>,
   options: ApplicationRelationBuildOptions,
-): Effect.fn.Return<void, BuildTransactionFailure> {
+): Effect.fn.Return<void, ApplicationRelationBuildTransactionError> {
   const statuses = yield* readCurrentRowStatusesAtFrontierEffect(
     tx,
     head,
@@ -2439,7 +2508,7 @@ const readCurrentRowStatusesAtFrontierEffect = Effect.fn(
   options: ApplicationRelationBuildOptions,
 ): Effect.fn.Return<
   ReadonlyMap<AppRowIdHexV1, CurrentRowStatus>,
-  BuildTransactionFailure
+  ApplicationRelationBuildTransactionError
 > {
   if (new Set(rowIds).size !== rowIds.length) {
     return yield* Effect.fail(new ApplicationRelationBuildCorruptionError({
@@ -2536,7 +2605,7 @@ const validateExactSourceContentsEffect = Effect.fn(
   port: ApplicationRelationBuildPortState,
   rowId: AppRowIdHexV1,
   provenance: ApplicationRelationSourceValidationProvenance,
-): Effect.fn.Return<void, BuildTransactionFailure> {
+): Effect.fn.Return<void, ApplicationRelationBuildTransactionError> {
   const expected = yield* Effect.fromResult(
     putActionsResult(prepared.actions).pipe(
       Result.mapError((cause) => new ApplicationRelationBuildCorruptionError({
@@ -2729,7 +2798,7 @@ const validateReadinessUnderLockedClock = Effect.fn(
   located: LocatedBuildDefinition,
 ): Effect.fn.Return<
   ApplicationRelationReadinessEvidence | null,
-  BuildTransactionFailure
+  ApplicationRelationBuildReadinessValidationError
 > {
   yield* Effect.fromResult(requireCurrentAuthorityResult(
     authority,
@@ -2753,7 +2822,7 @@ const validateStoredReadinessForLocatedDefinition = Effect.fn(
   currentClock?: ScopeClockRecord,
 ): Effect.fn.Return<
   ApplicationRelationReadinessEvidence | null,
-  BuildTransactionFailure
+  ApplicationRelationBuildReadinessValidationError
 > {
   const head = yield* readBuildHeadForUpdateEffect(
     tx,

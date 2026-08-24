@@ -93,16 +93,11 @@ export const readApplicationActiveRevisionForShareInTransactionEffect =
       tx: AppRowTransaction,
       scopeId: TrustedScopeAuthority["scopeId"],
     ) {
-      const rows = yield* query(
-        tx.select().from(fxSystemApplicationActiveHeadsV1).where(eq(
-          fxSystemApplicationActiveHeadsV1.scopeId,
-          scopeId,
-        )).limit(1).for("share"),
+      const head = yield* readApplicationActiveHeadForShareInTransactionEffect(
+        tx,
+        scopeId,
       );
-      const row = rows[0];
-      if (row === undefined) return null;
-      const head = yield* decodeApplicationActiveHeadRowEffect(row);
-      if (head.scopeId !== scopeId) return yield* storedState(head.revisionId);
+      if (head === null) return null;
       const bindings = yield* query(
         tx.select().from(fxSystemApplicationRevisionSchemasV1).where(and(
           eq(fxSystemApplicationRevisionSchemasV1.scopeId, scopeId),
@@ -127,6 +122,32 @@ export const readApplicationActiveRevisionForShareInTransactionEffect =
         deploymentId: binding.deploymentId,
         schemaVersionId: binding.schemaVersionId,
       });
+    },
+  );
+
+/**
+ * Authenticates the exact current persisted active-head frame while retaining
+ * the caller-owned transaction and lock ordering. It deliberately does not
+ * infer a revision schema or readiness generation from the revision ID.
+ */
+export const readApplicationActiveHeadForShareInTransactionEffect =
+  Effect.fn("ApplicationActiveHead.readForShareInTransaction")(
+    function* (
+      tx: AppRowTransaction,
+      scopeId: TrustedScopeAuthority["scopeId"],
+    ) {
+      const rows = yield* query(
+        tx.select().from(fxSystemApplicationActiveHeadsV1).where(eq(
+          fxSystemApplicationActiveHeadsV1.scopeId,
+          scopeId,
+        )).limit(1).for("share"),
+      );
+      const row = rows[0];
+      if (row === undefined) return null;
+      const head = yield* decodeApplicationActiveHeadRowEffect(row);
+      return head.scopeId === scopeId
+        ? head
+        : yield* storedState(head.revisionId);
     },
   );
 

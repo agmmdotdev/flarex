@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Result } from "effect";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity } from
@@ -23,6 +23,8 @@ import {
   type ApplicationRelationBindingRepository,
   publishApplicationRelationBindingEffect,
 } from "../src/applicationRelationBinding";
+import { createApplicationRelationServingInspector } from
+  "../src/applicationRelationServing";
 import {
   createApplicationRelationBuildPort,
   type ApplicationRelationBuildPort,
@@ -31,8 +33,10 @@ import { createApplicationRelationCommitPort } from
   "../src/applicationRelationCommit";
 import {
   createApplicationRelationReadinessPort,
+  type PreparedApplicationRelationReadiness,
   type ApplicationRelationReadinessPort,
   type ApplicationRelationReadinessStepResult,
+  validateApplicationRelationSetReadinessInTransactionEffect,
 } from "../src/applicationRelationReadiness";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from
   "../src/appRows";
@@ -44,16 +48,25 @@ import {
 import {
   fxAppEdgeAdjacencyVersions,
   fxAppEdgeCurrent,
+  fxControlEdgeDefinitions,
+  fxControlRelations,
   fxSystemApplicationRelationSemanticReadiness,
   fxSystemApplicationRelationSemanticValidations,
+  fxSystemEdgeDefinitionBuilds,
+  fxSystemEdgeDefinitionReadiness,
   fxSystemScopeClocks,
 } from "../src/schema";
 import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import { resolveLocatedTrustedScopeAuthorityEffect } from
+  "../src/scopeAuthorityResolution";
+import { lockScopeClockForUpdateInTransactionEffect } from
+  "../src/scopeClock";
 import {
   ensureRelationBuildTestWebCrypto,
   relationBuildDocumentId,
   relationBuildPublicationInput,
   relationBuildRowId,
+  type RelationBuildPublicationOptions,
 } from "./applicationRelationBuildTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
@@ -225,6 +238,64 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       );
     });
   }, 240_000);
+
+  it("authenticates an ordered two-relation set across semantic reuse", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await fixtureFor(control, target);
+      const original = await publishNew(fixture, 30_001, {
+        secondRelation: true,
+        inverseName: "authoredPosts",
+        secondInverseName: "reviewedPosts",
+      });
+      const enabled = await enablePhysicalReadinessSet(fixture, original);
+      expect(enabled.map(definition => definition.relationOrdinal)).toEqual([
+        1,
+        2,
+      ]);
+      const originalPrepared = await runEffect(fixture.readiness.prepare(
+        readinessInput(fixture, original),
+      ));
+      const direct = await validateSet(fixture, originalPrepared);
+      expect(direct.status).toBe("ready");
+      if (direct.status !== "ready") {
+        throw new Error("PostgreSQL direct relation set was not ready.");
+      }
+      expect(direct.evidence.receipt.relations.map(child => ({
+        ordinal: child.relationOrdinal,
+        kind: child.readinessKind,
+      }))).toEqual([
+        { ordinal: 1, kind: "physical" },
+        { ordinal: 2, kind: "physical" },
+      ]);
+      const before = await physicalStateSnapshot(fixture);
+
+      const successor = await publishReuse(fixture, 30_002, original, {
+        inverseName: "articlesAuthored",
+        secondInverseName: "articlesReviewed",
+      });
+      await advanceUntilComplete(fixture, successor);
+      const successorPrepared = await runEffect(fixture.readiness.prepare(
+        readinessInput(fixture, successor),
+      ));
+      const semantic = await validateSet(fixture, successorPrepared);
+      expect(semantic.status).toBe("ready");
+      if (semantic.status !== "ready") {
+        throw new Error("PostgreSQL semantic relation set was not ready.");
+      }
+      expect(semantic.evidence.receipt.relations.map(child => ({
+        ordinal: child.relationOrdinal,
+        kind: child.readinessKind,
+      }))).toEqual([
+        { ordinal: 1, kind: "semantic" },
+        { ordinal: 2, kind: "semantic" },
+      ]);
+      expect(new Set(semantic.evidence.receipt.relations.map(child =>
+        child.readinessSha256
+      )).size).toBe(2);
+      expect(semantic.evidence.sha256).not.toEqual(direct.evidence.sha256);
+      expect(await physicalStateSnapshot(fixture)).toEqual(before);
+    });
+  }, 240_000);
 });
 
 interface Fixture {
@@ -236,6 +307,7 @@ interface Fixture {
   readonly scopeId: ReturnType<typeof ScopeIdSchema.make>;
   readonly epoch: ReturnType<typeof ScopeEpochSchema.make>;
   readonly relationCommit: ReturnType<typeof createApplicationRelationCommitPort>;
+  readonly authority: Parameters<typeof createApplicationRelationBuildPort>[1];
   readonly build: ApplicationRelationBuildPort;
   readonly readiness: ApplicationRelationReadinessPort;
 }
@@ -298,7 +370,7 @@ async function fixtureFor(
 function composePorts(fixture: Pick<
   Fixture,
   "control" | "target" | "relationCommit"
->): Pick<Fixture, "build" | "readiness"> {
+>): Pick<Fixture, "authority" | "build" | "readiness"> {
   const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
     fixture.target,
     LOCATOR,
@@ -314,8 +386,10 @@ function composePorts(fixture: Pick<
     fixture.control.drizzle,
     authority,
     fixture.relationCommit,
+    createApplicationRelationServingInspector(),
   );
   return Object.freeze({
+    authority,
     build,
     readiness: createApplicationRelationReadinessPort(
       fixture.control.drizzle,
@@ -336,10 +410,15 @@ function repositoryFor(fixture: Fixture): ApplicationRelationBindingRepository {
 async function publishNew(
   fixture: Fixture,
   ordinal: number,
+  options: RelationBuildPublicationOptions = {},
 ): Promise<ApplicationRelationBindingPublication> {
   return runEffect(publishApplicationRelationBindingEffect(
     repositoryFor(fixture),
-    await relationBuildPublicationInput(fixture.deploymentId, ordinal),
+    await relationBuildPublicationInput(
+      fixture.deploymentId,
+      ordinal,
+      options,
+    ),
   ));
 }
 
@@ -350,21 +429,24 @@ async function publishReuse(
   options: Readonly<{
     readonly extraUserField?: boolean;
     readonly inverseName?: string;
+    readonly secondInverseName?: string;
   }>,
 ): Promise<ApplicationRelationBindingPublication> {
   return runEffect(publishApplicationRelationBindingEffect(
     repositoryFor(fixture),
     await relationBuildPublicationInput(fixture.deploymentId, ordinal, {
       ...options,
-      decisions: Object.freeze([{
-        relationOrdinal: 1,
-        evolution: Object.freeze({
-          kind: "preserve" as const,
-          fromSchemaVersionId: origin.binding.schemaVersionId,
-          fromRelationOrdinal: 1,
-          physical: "reuse" as const,
-        }),
-      }]),
+      secondRelation: origin.binding.relationBindings.length === 2,
+      decisions: Object.freeze(origin.binding.relationBindings.map(
+        binding => Object.freeze({
+          relationOrdinal: binding.relationOrdinal,
+          evolution: Object.freeze({
+            kind: "preserve" as const,
+            fromSchemaVersionId: origin.binding.schemaVersionId,
+            fromRelationOrdinal: binding.relationOrdinal,
+            physical: "reuse" as const,
+          }),
+        }))),
     }),
   ));
 }
@@ -384,25 +466,61 @@ async function enablePhysicalReadiness(
   fixture: Fixture,
   publication: ApplicationRelationBindingPublication,
 ) {
+  const enabled = await enablePhysicalReadinessSet(fixture, publication);
+  const first = enabled[0];
+  if (first === undefined) {
+    throw new Error("PostgreSQL E01-B physical definition is missing.");
+  }
+  return first.edgeDefinitionId;
+}
+
+async function enablePhysicalReadinessSet(
+  fixture: Fixture,
+  publication: ApplicationRelationBindingPublication,
+) {
   const definitions = await runEffect(fixture.relationCommit.locate({
     deploymentId: fixture.deploymentId,
     schemaVersionId: publication.binding.schemaVersionId,
   }));
-  const definition = definitions?.definitions[0];
-  if (definition === undefined) {
-    throw new Error("PostgreSQL E01-B physical definition is missing.");
+  if (definitions === null) {
+    throw new Error("PostgreSQL E01-B physical definition set is missing.");
   }
-  const input = Object.freeze({
-    deploymentId: fixture.deploymentId,
-    schemaVersionId: publication.binding.schemaVersionId,
-    edgeDefinitionId: definition.edge.edgeDefinitionId,
-  });
-  for (let step = 0; step < 32; step += 1) {
-    if ((await runEffect(fixture.build.advance(input))).lifecycle === "enabled") {
-      return definition.edge.edgeDefinitionId;
+  const enabled: Array<Readonly<{
+    readonly relationOrdinal: number;
+    readonly edgeDefinitionId: Parameters<
+      ApplicationRelationBuildPort["advance"]
+    >[0]["edgeDefinitionId"];
+  }>> = [];
+  for (let index = 0; index < definitions.definitions.length; index += 1) {
+    const definition = definitions.definitions[index];
+    if (
+      definition === undefined ||
+      definition.binding.relationOrdinal !== index + 1
+    ) {
+      throw new Error("PostgreSQL E01-B definition set is not dense.");
     }
+    const input = Object.freeze({
+      deploymentId: fixture.deploymentId,
+      schemaVersionId: publication.binding.schemaVersionId,
+      edgeDefinitionId: definition.edge.edgeDefinitionId,
+    });
+    let settled = false;
+    for (let step = 0; step < 32; step += 1) {
+      if ((await runEffect(fixture.build.advance(input))).lifecycle ===
+        "enabled") {
+        settled = true;
+        break;
+      }
+    }
+    if (!settled) {
+      throw new Error("PostgreSQL E01-B physical readiness did not settle.");
+    }
+    enabled.push(Object.freeze({
+      relationOrdinal: definition.binding.relationOrdinal,
+      edgeDefinitionId: definition.edge.edgeDefinitionId,
+    }));
   }
-  throw new Error("PostgreSQL E01-B physical readiness did not settle.");
+  return Object.freeze(enabled);
 }
 
 async function seedPopulatedRows(
@@ -471,6 +589,72 @@ async function advanceUntilComplete(
     }
   }
   throw new Error("PostgreSQL E01-B semantic readiness did not settle.");
+}
+
+async function validateSet(
+  fixture: Fixture,
+  prepared: PreparedApplicationRelationReadiness,
+) {
+  const located = await runEffect(resolveLocatedTrustedScopeAuthorityEffect(
+    fixture.deploymentId,
+    fixture.authority,
+  ));
+  return fixture.target.drizzle.transaction(async (tx) => {
+    const clock = await runEffect(
+      lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+    );
+    return runEffect(
+      validateApplicationRelationSetReadinessInTransactionEffect(
+        fixture.readiness,
+        tx,
+        located.authority,
+        clock,
+        prepared,
+      ),
+    );
+  });
+}
+
+async function physicalStateSnapshot(fixture: Fixture) {
+  const [relations, definitions, builds, receipts, edges, versions] =
+    await Promise.all([
+      fixture.control.drizzle.select().from(fxControlRelations).orderBy(
+        asc(fxControlRelations.relationId),
+      ),
+      fixture.control.drizzle.select().from(
+        fxControlEdgeDefinitions,
+      ).orderBy(asc(fxControlEdgeDefinitions.edgeDefinitionId)),
+      fixture.target.drizzle.select().from(
+        fxSystemEdgeDefinitionBuilds,
+      ).orderBy(asc(fxSystemEdgeDefinitionBuilds.edgeDefinitionId)),
+      fixture.target.drizzle.select().from(
+        fxSystemEdgeDefinitionReadiness,
+      ).orderBy(
+        asc(fxSystemEdgeDefinitionReadiness.edgeDefinitionId),
+        asc(fxSystemEdgeDefinitionReadiness.attemptFence),
+      ),
+      fixture.target.drizzle.select().from(fxAppEdgeCurrent).orderBy(
+        asc(fxAppEdgeCurrent.edgeDefinitionId),
+        asc(fxAppEdgeCurrent.sourceRowId),
+        asc(fxAppEdgeCurrent.targetRowId),
+        asc(fxAppEdgeCurrent.duplicateOrdinal),
+      ),
+      fixture.target.drizzle.select().from(
+        fxAppEdgeAdjacencyVersions,
+      ).orderBy(
+        asc(fxAppEdgeAdjacencyVersions.edgeDefinitionId),
+        asc(fxAppEdgeAdjacencyVersions.direction),
+        asc(fxAppEdgeAdjacencyVersions.endpointRowId),
+      ),
+    ]);
+  return structuredClone({
+    relations,
+    definitions,
+    builds,
+    receipts,
+    edges,
+    versions,
+  });
 }
 
 async function sidecarCounts(

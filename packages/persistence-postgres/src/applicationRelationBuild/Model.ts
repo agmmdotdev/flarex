@@ -30,6 +30,8 @@ import type {
 } from "../appRelationEdges";
 import type { ReadApplicationRelationBindingError } from
   "../applicationRelationBinding";
+import type { InspectApplicationRelationServingError } from
+  "../applicationRelationServing";
 import type { ReadAppRowError } from "../appRows";
 import type { LockScopeClockForUpdateError } from "../scopeClock";
 import type { TrustedScopeAuthorityError } from
@@ -248,6 +250,13 @@ export class ApplicationRelationBuildEnabledDefinitionError
     readonly reason: "bindingMoved";
   }> {}
 
+export class ApplicationRelationBuildServingDefinitionError
+  extends Data.TaggedError("ApplicationRelationBuildServingDefinitionError")<{
+    readonly scopeId: ScopeId;
+    readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+    readonly activeRevisionId: string;
+  }> {}
+
 export class ApplicationRelationBuildMismatchError extends Data.TaggedError(
   "ApplicationRelationBuildMismatchError",
 )<{
@@ -308,7 +317,18 @@ export class ApplicationRelationBuildDecisionUncertainError
     readonly cause: unknown;
   }> {}
 
-/** Failures that can originate while a caller-owned target transaction runs. */
+/** Failures from immutable readiness authentication under an existing lock. */
+export type ApplicationRelationBuildReadinessValidationError =
+  | ApplicationRelationBuildUnavailableError
+  | ApplicationRelationBuildStaleAuthorityError
+  | ApplicationRelationBuildCorruptionError
+  | ApplicationRelationBuildPersistenceError
+  | ApplicationSchemaBindingError;
+
+/**
+ * Failures shared by validation and build work under a caller-owned target
+ * transaction.
+ */
 export type ApplicationRelationBuildTransactionError =
   | ApplicationRelationBuildUnavailableError
   | ApplicationRelationBuildStaleAuthorityError
@@ -324,6 +344,12 @@ export type ApplicationRelationBuildTransactionError =
   | ReadAppRowError
   | LockScopeClockForUpdateError;
 
+/** Additional failures admitted only by mutable physical-build work. */
+export type ApplicationRelationBuildMutationTransactionError =
+  | ApplicationRelationBuildTransactionError
+  | ApplicationRelationBuildServingDefinitionError
+  | InspectApplicationRelationServingError;
+
 /**
  * Foreign owner failures remain typed and visible; none are collapsed into a
  * catch-all Error channel at this private composition boundary.
@@ -333,4 +359,4 @@ export type ApplicationRelationBuildError =
   | ApplicationRelationBuildDecisionUncertainError
   | ReadApplicationRelationBindingError
   | TrustedScopeAuthorityError
-  | ApplicationRelationBuildTransactionError;
+  | ApplicationRelationBuildMutationTransactionError;

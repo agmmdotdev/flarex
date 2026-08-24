@@ -26,6 +26,10 @@ import {
   publishApplicationRelationBindingEffect,
 } from "../src/applicationRelationBinding";
 import {
+  createApplicationRelationServingInspector,
+  type ApplicationRelationServingInspector,
+} from "../src/applicationRelationServing";
+import {
   ApplicationRelationBuildDecisionUncertainError,
   ApplicationRelationBuildCorruptionError,
   ApplicationRelationBuildEnabledDefinitionError,
@@ -134,6 +138,14 @@ describe("E01-A private application relation builder", () => {
     });
     expect(hasApplicationRelationBuildAuthority(fixture.port)).toBe(true);
     expect(hasApplicationRelationBuildAuthority({ ...fixture.port })).toBe(false);
+    const authenticInspector = createApplicationRelationServingInspector();
+    const counterfeitPort = buildPort(
+      fixture,
+      Object.freeze({ ...authenticInspector }),
+    );
+    expect(hasApplicationRelationBuildAuthority(counterfeitPort)).toBe(false);
+    expect(await runEffectFailure(counterfeitPort.advance(fixture.input)))
+      .toMatchObject({ reason: "compositionMissing" });
     expect(hasApplicationRelationReadinessEvidenceAuthority(
       fixture.port,
       evidence,
@@ -987,20 +999,23 @@ async function fixtureFor(
   return Object.freeze({ ...base, port: buildPort(base) });
 }
 
-function buildPort(fixture: Pick<
-  Fixture,
-  "control" | "target" | "relationCommit"
->): ApplicationRelationBuildPort {
+function buildPort(
+  fixture: Pick<Fixture, "control" | "target" | "relationCommit">,
+  servingInspector: ApplicationRelationServingInspector =
+    createApplicationRelationServingInspector(),
+): ApplicationRelationBuildPort {
   const target = createPGliteLocatedIndexBuildReconciliationTargetV1(
     fixture.target,
     LOCATOR,
   );
-  return buildPortWithTarget(fixture, target);
+  return buildPortWithTarget(fixture, target, servingInspector);
 }
 
 function buildPortWithTarget(
   fixture: Pick<Fixture, "control" | "relationCommit">,
   target: LocatedApplicationRelationBuildTarget,
+  servingInspector: ApplicationRelationServingInspector =
+    createApplicationRelationServingInspector(),
 ): ApplicationRelationBuildPort {
   return createApplicationRelationBuildPort(
     fixture.control.drizzle,
@@ -1012,6 +1027,7 @@ function buildPortWithTarget(
       scopeClockTargets: { resolve: async () => target },
     },
     fixture.relationCommit,
+    servingInspector,
   );
 }
 

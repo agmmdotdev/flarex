@@ -29,6 +29,8 @@ export interface RelationBuildPublicationOptions {
   readonly inverseName?: string;
   readonly many?: boolean;
   readonly maximumItems?: number;
+  readonly secondInverseName?: string;
+  readonly secondRelation?: boolean;
 }
 
 export function ensureRelationBuildTestWebCrypto(): void {
@@ -58,10 +60,12 @@ export async function relationBuildPublicationInput(
     deploymentId,
     manifest: canonical.manifest,
     manifestSha256: encodeBytesToLowercaseHex(digest),
-    decisions: options.decisions ?? Object.freeze([{
-      relationOrdinal: 1,
-      evolution: Object.freeze({ kind: "new" as const }),
-    }]),
+    decisions: options.decisions ?? Object.freeze(
+      canonical.manifest.schema.relations.map(relation => Object.freeze({
+        relationOrdinal: relation.relationOrdinal,
+        evolution: Object.freeze({ kind: "new" as const }),
+      })),
+    ),
   });
 }
 
@@ -120,6 +124,17 @@ function relationBuildManifestInput(
                 : { type: "id", tableName: "users" },
               optional: false,
             },
+            ...(options.secondRelation === true
+              ? {
+                  reviewer: {
+                    fieldType: {
+                      type: "id" as const,
+                      tableName: "users",
+                    },
+                    optional: false,
+                  },
+                }
+              : {}),
           },
         },
         placement: { kind: "global" },
@@ -175,7 +190,30 @@ function relationBuildManifestInput(
           localized: false,
           onTargetDelete: "restrict",
         },
-      }],
+      }, ...(options.secondRelation === true
+        ? [{
+            relationOrdinal: 2,
+            sourceTableOrdinal: 1,
+            targetTableOrdinal: 2,
+            declaration: {
+              format: "flarex.relation-declaration" as const,
+              version: 1 as const,
+              source: {
+                table: "posts",
+                path: [{ kind: "field" as const, name: "reviewer" }],
+                forwardName: "reviewer",
+              },
+              target: { table: "users" },
+              value: { cardinality: "one" as const, required: true },
+              inverse: {
+                cardinality: "many" as const,
+                name: options.secondInverseName ?? "reviewedPosts",
+              },
+              localized: false,
+              onTargetDelete: "restrict" as const,
+            },
+          }]
+        : [])],
     },
     functions: [],
   })).manifest;

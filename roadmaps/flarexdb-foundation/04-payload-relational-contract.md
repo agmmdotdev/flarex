@@ -4,7 +4,10 @@ Status: `R01` and the physical snapshot/access preflight `R01-P` completed on
 2026-08-23; `R02` stable binding, `S12` private edge storage, and `C09` private
 point-commit lowering completed on 2026-08-24. The preflighted `E01-A` private
 physical builder and per-attempt readiness evidence are also complete at the
-system-core boundary. `E01-B` and E01 as a whole remain open. No relation
+system-core boundary. The `E01-B` system-core checkpoint now provides private
+semantic readiness, exact ordered relation-set evidence, a production-inert
+serving-state guard, and genuine multi-relation proof. Application integration
+and E01 as a whole remain open. No relation
 runtime read or OCC registration, Application-wide E01 readiness fold, RA01
 activation, RQ01 query, public developer API, or Payload adapter is implemented.
 
@@ -1446,6 +1449,13 @@ publication, schema authority, cold materialization, and a distinct persisted
 Application readiness contract. Approval of this preflight authorizes both
 checkpoints in that order, but E01-B and E01 remain open until both close.
 
+The first checkpoint also closed the fresh-migration blocker reproduced on
+2026-08-25. Migration 0072 now uses dependency-safe same-search-path foreign
+keys rather than schema-qualified references that escaped the isolated
+PostgreSQL test schema. Fresh PGlite and authenticated ordinary-role
+PostgreSQL 18 migration proofs pass. This correction belongs to the E01-B
+persistence owner; the Cooking system-test harness did not repair or mask it.
+
 The relation-readiness core is one factory-local capability constructed from
 the exact R02/C09 relation capability, E01-A build capability, control database,
 and located scope authority. It prepares one nominal token from the retained
@@ -1454,7 +1464,8 @@ required set comes only from the dense R02 relation bindings in relation-ordinal
 order, never from build heads or caller-authored IDs. Preparation pins the
 deployment, manifest SHA-256, Application schema SHA-256, schema version and
 manifest SHA-256, bound-publication SHA-256, semantic and physical definitions,
-evolution lineage, and the deduplicated physical-definition set.
+evolution lineage, and one exact relation-owned physical definition per current
+relation binding.
 
 Final validation runs inside the existing caller-owned located transaction
 after its scope-clock lock. One narrow same-factory E01-A facet rereads each
@@ -1467,10 +1478,11 @@ that physical receipt's frontier to equal the already-locked current commit
 sequence. Semantic reuse instead authenticates the historical root receipt at
 its own frontier and binds it to a fresh semantic-current receipt at the locked
 frontier; it never reinterprets the historical receipt as current. Missing,
-extra, stale, moved, incomplete, or corrupt evidence fails closed. Multiple
-semantic bindings may name one physical definition, but physical work is
-deduplicated while each semantic-to-physical lineage remains explicit in the
-ordered result.
+extra, stale, moved, incomplete, or corrupt evidence fails closed. Across
+schema revisions, compatible semantic bindings for one stable relation may
+reuse its relation-owned physical definition. Catalog, build, and sidecar work
+remains shared by the stable edge-definition ID, while each revision's semantic
+lineage remains explicit in its ordered readiness child.
 
 An R02 `preserve` plus `reuse` binding whose semantic digest moved cannot
 reinterpret the original E01-A receipt. It receives separate durable
@@ -1517,14 +1529,19 @@ receipt and the exact R02 lineage. Chained reuse follows the immediate retained
 origin; there is no digest-only or name-based shortcut.
 
 Before E01-A inserts or restarts a physical head, cleans candidate sidecars, or
-automatically reconciles a physical attempt after frontier movement, it checks
-serving state under the same scope-clock update lock. The check follows the
-current active head and its exact persisted Application relation-readiness
-children by edge-definition ID. A serving definition returns a dedicated typed
-failure without changing the head, receipt, edges, or versions. Validation-only
-semantic reuse remains allowed for a serving definition because it performs no
-sidecar writes. This is an authenticated transaction invariant, not a caller
-promise that a revision is inactive.
+automatically reconciles a physical attempt after frontier movement, it invokes
+an exact serving-state facet under the same scope-clock update lock. E01-B
+installs that production-inert guard and authenticates the complete current V1
+active-selection tuple; a V1 active head and an unattached relation-readiness
+root are both non-serving. Revision-only correlation is forbidden. The current
+activation foreign keys cannot select relation-aware readiness, so the genuine
+serving branch is deliberately unreachable here. RA01 must extend the same
+facet to its exact relation-aware active-selection tuple and prove that a
+serving definition returns a dedicated typed failure before restart, frontier
+reconciliation, or cleanup. Validation-only semantic reuse remains allowed
+because it performs no sidecar writes. This is an authenticated transaction
+invariant, never a caller-authored Boolean or promise that a revision is
+inactive.
 
 The Application integration checkpoint must accept the unversioned
 `ApplicationManifest` union at publication, schema-authority, readiness, and
@@ -1538,14 +1555,57 @@ Application, task, cold, candidate, table/index, and unique evidence. The
 current activation owner must remain unable to consume this result; O10-R and
 RA01 still own relation read/OCC proof and activation admission.
 
-Focused PGlite and genuine-PostgreSQL proof must cover exact empty/one/many and
-deduplicated sets, prepare-versus-settle movement, missing and corrupt physical
-receipts, semantic reuse and chained reuse with zero sidecar writes, frontier
-restart, active-serving cleanup rejection, inactive replacement cleanup,
-rollback, replay, concurrent settlement, retained V1 byte exactness, and
-relation-ready activation rejection. No checkpoint adds a relation read, OCC
+Focused PGlite and genuine-PostgreSQL proof must cover retained-V1 empty
+integration, exact one/many relation-bearing sets, cross-revision physical
+reuse, prepare-versus-settle movement, missing and corrupt physical receipts,
+semantic reuse and chained reuse with zero sidecar writes, frontier restart,
+the production-inert exact active-selection guard, V1-active and unattached
+relation-root non-serving cases, inactive replacement cleanup, rollback,
+replay, concurrent settlement, retained V1 byte exactness, and relation-ready
+activation rejection. RA01 owns positive active-serving cleanup rejection and
+lock-order concurrency proof before relation activation becomes reachable. No
+checkpoint adds a relation read, OCC
 registration, active head, public API, route, Payload/Medusa adapter, second
 transaction owner, dual write, fallback, feed, outbox, or production caller.
+
+#### [x] E01-B Core — Private Ordered Relation Readiness
+
+The system-core checkpoint is complete. The authenticated readiness capability
+now validates the complete dense R02 relation set inside the caller-owned
+located transaction after the existing scope-clock update lock. It emits one
+nominal, timestamp-free `flarex.application-relation-set-readiness` version 1
+evidence frame with exact Application, publication, schema, authority, frontier,
+relation-order, definition, attempt, and child-receipt commitments. Its byte
+accessors return owned copies, structural clones do not carry authority, and
+the validator opens no transaction, acquires no second scope lock, and writes
+no database state.
+
+Direct children authenticate current E01-A physical receipts. Reused children
+authenticate the exact retained origin plus the current semantic-validation
+attempt and receipt. The ordered validator rejects missing, extra, duplicate,
+foreign, stale, moved, corrupt, or non-ready evidence without accepting a
+caller-authored subset. Its final exact-set scan is linear in the bounded
+relation count after per-child authentication.
+
+Focused PGlite and ordinary-role PostgreSQL 18 proof covers two distinct direct
+relations, two independent cross-revision preserve/reuse lineages, mixed
+semantic and new-physical children, stable relation/edge/physical identities,
+changed semantic digests, ordered per-ordinal attempt binding, canonical replay,
+defensive byte ownership, foreign capability rejection, stale authority,
+extra-head rejection, and rollback. The same proof pins unchanged physical
+catalogs, build receipts, and sidecars across semantic reuse. Retained V1 active
+selection is classified as non-serving, while corrupt active-head evidence
+fails in its existing typed error channel. The genuine relation-serving branch
+remains unreachable until RA01 owns an exact relation-aware active tuple.
+
+One bounded performance issue is recorded rather than hidden: successive calls
+to `advanceReadinessInTransaction` still revalidate already-ready relation
+prefixes, so completing a many-relation lifecycle can perform a quadratic
+number of child validations even though each final set validation is linear.
+Removing that repetition requires durable set-progress state or a new bulk
+E01-A authentication facet. Either choice changes an owner contract and needs a
+separate preflight; this checkpoint does not duplicate E01-A verification logic
+or broaden its authority.
 
 #### [ ] E01-B — Application Relation Readiness Fold
 
@@ -1592,6 +1652,8 @@ Outcome:
   persisted readiness evidence; O10-R is not caller-authored activation input;
 - make forward storage, current incoming reads, and `restrict` enforcement
   available together for one private relation-bearing revision;
+- extend the production-inert E01-B serving-state facet with the exact
+  relation-aware active-selection tuple, never revision-only correlation;
 - add no candidate query path, second activation head, route, binding,
   production caller, fallback, or comparison authority.
 
@@ -1601,6 +1663,9 @@ Exit gates:
   that E01/O10-R proved;
 - stale readiness, head movement, mismatched binding, or missing relation
   evidence fails closed under the existing activation CAS;
+- an active relation child rejects E01-A restart, frontier reconciliation, and
+  cleanup under the shared scope-clock lock, while inactive replacement work
+  and validation-only semantic reuse remain available;
 - relation-specific subscriptions/live observation remain absent until R03 and
   the full SV-R proof; roadmap 49's production-cutover decision remains no-go.
 

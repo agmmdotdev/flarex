@@ -104,7 +104,10 @@ import {
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
-import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import {
+  decodeCatalogEdgeDefinitionId,
+  decodeCatalogTableId,
+} from "flarex-protocol/catalog";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -155,6 +158,12 @@ import {
   validateApplicationReadinessForActivationInTransaction,
   validateStoredApplicationReadinessForActivationInTransaction,
 } from "../src/applicationReadiness";
+import { ApplicationActiveHeadStateError } from
+  "../src/applicationActiveHeadRead";
+import {
+  createApplicationRelationServingInspector,
+  inspectApplicationRelationServingDefinitionInTransactionEffect,
+} from "../src/applicationRelationServing";
 import {
   claimApplicationActiveSelection,
   makeApplicationActivationRepository,
@@ -239,8 +248,10 @@ import { getScopeAuthorityProvisioningReceipt } from
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
-import { lockScopeClockForShareInTransactionEffect } from
-  "../src/scopeClock";
+import {
+  lockScopeClockForShareInTransactionEffect,
+  lockScopeClockForUpdateInTransactionEffect,
+} from "../src/scopeClock";
 import {
   fxSystemIndexBuildStates,
   fxSystemApplicationFunctionsV1,
@@ -1768,6 +1779,70 @@ describe("Application activation", { timeout: 30_000 }, () => {
     if (Result.isFailure(corrupted)) {
       expect(corrupted.failure).toMatchObject({ reason: "storedTask" });
     }
+  });
+
+  it("classifies retained active readiness as non-serving and rejects a corrupt active head", async () => {
+    const fixture = await readinessFixture({ functionKind: "mutation" });
+    await prepareReadinessAuthorities(fixture);
+    const activation = makeApplicationActivationRepository({
+      deploymentId: fixture.input.deploymentId,
+      readiness: fixture.repository,
+      authority: fixture.authorityPorts,
+    });
+    await runEffect(activation.activate({
+      revisionId: fixture.input.revisionId,
+      expectedActiveHead: null,
+    }));
+    const active = await runEffect(activation.readActive());
+    const inspector = createApplicationRelationServingInspector();
+    const edgeDefinitionId = decodeCatalogEdgeDefinitionId(1);
+    const inspection = await fixture.target.drizzle.transaction(async (tx) => {
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(
+        tx,
+        active.basis.authority.scopeId,
+      ));
+      return runEffect(
+        inspectApplicationRelationServingDefinitionInTransactionEffect(
+          inspector,
+          tx,
+          {
+            scopeId: active.basis.authority.scopeId,
+            edgeDefinitionId,
+          },
+        ),
+      );
+    });
+    expect(inspection).toEqual({
+      status: "not_serving",
+      reason: "active_readiness_v1",
+      edgeDefinitionId,
+      activeRevisionId: fixture.input.revisionId,
+    });
+
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+      headSha256: new Uint8Array(32).fill(0xee),
+    }).where(eq(
+      fxSystemApplicationActiveHeadsV1.scopeId,
+      active.basis.authority.scopeId,
+    ));
+    const corrupt = await fixture.target.drizzle.transaction(async (tx) => {
+      await runEffect(lockScopeClockForUpdateInTransactionEffect(
+        tx,
+        active.basis.authority.scopeId,
+      ));
+      return runEffectFailure(
+        inspectApplicationRelationServingDefinitionInTransactionEffect(
+          inspector,
+          tx,
+          {
+            scopeId: active.basis.authority.scopeId,
+            edgeDefinitionId,
+          },
+        ),
+      );
+    });
+    expect(corrupt).toBeInstanceOf(ApplicationActiveHeadStateError);
+    expect(corrupt).toMatchObject({ reason: "storedState" });
   });
 
   it("admits and replays exact Application mutation authority and rejects stale or foreign authority", async () => {

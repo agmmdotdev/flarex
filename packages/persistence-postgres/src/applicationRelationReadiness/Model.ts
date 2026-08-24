@@ -24,6 +24,7 @@ import {
 
 import type {
   ApplicationRelationBuildOptions,
+  ApplicationRelationBuildReadinessValidationError,
   ApplicationRelationBuildTransactionError,
 } from "../applicationRelationBuild";
 import type {
@@ -70,15 +71,6 @@ export interface PreparedApplicationRelation {
   readonly immediateOrigin: PreparedApplicationRelationImmediateOrigin | null;
 }
 
-export interface PreparedApplicationRelationPhysicalDefinition {
-  readonly edgeDefinitionId:
-    LocatedApplicationRelationDefinition["edge"]["edgeDefinitionId"];
-  readonly relationId:
-    LocatedApplicationRelationDefinition["binding"]["relationId"];
-  readonly physical: LocatedApplicationRelationDefinition["edge"]["physical"];
-  readonly physicalDefinitionSha256: string;
-}
-
 /** Nominal prepared token; runtime authority is held by its issuing port. */
 export interface PreparedApplicationRelationReadiness {
   readonly deploymentId: LocatedApplicationRelationDefinitionSet["deploymentId"];
@@ -96,8 +88,6 @@ export interface PreparedApplicationRelationReadiness {
   readonly boundPublicationSha256:
     LocatedApplicationRelationDefinitionSet["boundPublicationSha256"];
   readonly relations: ReadonlyArray<PreparedApplicationRelation>;
-  readonly physicalDefinitions:
-    ReadonlyArray<PreparedApplicationRelationPhysicalDefinition>;
 }
 
 export interface ApplicationRelationReadinessPort {
@@ -183,6 +173,68 @@ export interface ApplicationRelationSemanticReadinessEvidence {
   readonly sha256: Uint8Array;
   readonly settledAt: Date;
 }
+
+export type ApplicationRelationSetReadinessKind = "physical" | "semantic";
+
+export interface ApplicationRelationSetReadinessChild {
+  readonly relationOrdinal: number;
+  readonly relationId: CatalogRelationId;
+  readonly sourceTableId: CatalogTableId;
+  readonly targetTableId: CatalogTableId;
+  readonly semanticDefinitionSha256: string;
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly physicalDefinitionSha256: string;
+  readonly readinessKind: ApplicationRelationSetReadinessKind;
+  readonly attemptFence: string;
+  readonly readinessSha256: string;
+}
+
+export interface ApplicationRelationSetReadinessReceipt {
+  readonly format: "flarex.application-relation-set-readiness";
+  readonly version: 1;
+  readonly scopeId: ScopeId;
+  readonly deploymentId: string;
+  readonly applicationManifestSha256:
+    PreparedApplicationRelationReadiness["applicationManifestSha256"];
+  readonly manifestSchemaBindingSha256:
+    PreparedApplicationRelationReadiness["manifestSchemaBindingSha256"];
+  readonly applicationSchemaSha256:
+    PreparedApplicationRelationReadiness["applicationSchemaSha256"];
+  readonly schemaVersionId:
+    PreparedApplicationRelationReadiness["schemaVersionId"];
+  readonly schemaVersion: CatalogSchemaVersion;
+  readonly schemaManifestSha256:
+    PreparedApplicationRelationReadiness["schemaManifestSha256"];
+  readonly boundPublicationSha256:
+    PreparedApplicationRelationReadiness["boundPublicationSha256"];
+  readonly storageGeneration: FlarexDbV1StorageGeneration;
+  readonly storageGenerationFence: string;
+  readonly epoch: ScopeEpoch;
+  readonly frontierCommitSeq: string;
+  readonly relationCount: number;
+  readonly relations: ReadonlyArray<ApplicationRelationSetReadinessChild>;
+}
+
+/** Nominal whole-set evidence; runtime authority is held by its issuing port. */
+export interface ApplicationRelationSetReadinessEvidence {
+  readonly receipt: ApplicationRelationSetReadinessReceipt;
+  readonly canonicalBytes: Uint8Array;
+  readonly sha256: Uint8Array;
+}
+
+export type ApplicationRelationSetReadinessValidationResult =
+  | Readonly<{
+      readonly status: "ready";
+      readonly evidence: ApplicationRelationSetReadinessEvidence;
+    }>
+  | Readonly<{
+      readonly status: "not_ready";
+      readonly reason:
+        | "physicalReadinessMissing"
+        | "semanticReadinessIncomplete";
+      readonly relationOrdinal: number;
+      readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+    }>;
 
 export interface ApplicationRelationSemanticValidationState {
   readonly scopeId: ScopeId;
@@ -289,6 +341,7 @@ export class ApplicationRelationReadinessCorruptionError
       | "lineage"
       | "storedValidation"
       | "semanticReceipt"
+      | "relationSetReceipt"
       | "attemptFenceExhausted"
       | "concurrentStateChange";
     readonly cause?: unknown;
@@ -313,6 +366,7 @@ export class ApplicationRelationReadinessPersistenceError
       | "insertReceipt"
       | "readTimestamp"
       | "digestReceipt"
+      | "digestSet"
       | "targetTransaction";
     readonly retryable: boolean;
     readonly cause: unknown;
@@ -344,3 +398,10 @@ export type AdvanceApplicationRelationReadinessError =
   | ApplicationRelationBuildTransactionError
   | LockScopeClockForUpdateError
   | TrustedScopeAuthorityError;
+
+export type ValidateApplicationRelationSetReadinessError =
+  | ApplicationRelationReadinessUnavailableError
+  | ApplicationRelationReadinessCorruptionError
+  | ApplicationRelationReadinessPersistenceError
+  | ApplicationRelationReadinessStaleAuthorityError
+  | ApplicationRelationBuildReadinessValidationError;

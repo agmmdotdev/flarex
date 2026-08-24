@@ -8,7 +8,7 @@ import {
 } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Encoding, Exit, Result, Schema } from "effect";
 
 import {
@@ -18,6 +18,7 @@ import {
 
 import {
   canonicalizePhysicalEdgeDefinition,
+  MAX_APPLICATION_SCHEMA_BINDING_RELATIONS,
 } from "flarex-protocol/internal/application-schema-binding";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
@@ -91,6 +92,8 @@ import {
   APPLICATION_RELATION_SEMANTIC_READINESS_RECEIPT_CODEC_VERSION,
   APPLICATION_RELATION_SEMANTIC_READINESS_RECEIPT_MAXIMUM_BYTES,
   APPLICATION_RELATION_SEMANTIC_VALIDATION_CURSOR_CODEC_VERSION,
+  APPLICATION_RELATION_SET_READINESS_RECEIPT_CODEC_VERSION,
+  APPLICATION_RELATION_SET_READINESS_RECEIPT_MAXIMUM_BYTES,
 } from "./Constants";
 import {
   type AdvanceApplicationRelationReadinessError,
@@ -99,6 +102,10 @@ import {
   type ApplicationRelationReadinessInput,
   ApplicationRelationReadinessPersistenceError,
   type ApplicationRelationReadinessPort,
+  type ApplicationRelationSetReadinessChild,
+  type ApplicationRelationSetReadinessEvidence,
+  type ApplicationRelationSetReadinessReceipt,
+  type ApplicationRelationSetReadinessValidationResult,
   type ApplicationRelationReadinessStepResult,
   ApplicationRelationReadinessStaleAuthorityError,
   ApplicationRelationReadinessUnavailableError,
@@ -112,9 +119,9 @@ import {
   InvalidApplicationRelationReadinessInputError,
   type PreparedApplicationRelation,
   type PreparedApplicationRelationImmediateOrigin,
-  type PreparedApplicationRelationPhysicalDefinition,
   type PreparedApplicationRelationReadiness,
   type PrepareApplicationRelationReadinessError,
+  type ValidateApplicationRelationSetReadinessError,
 } from "./Model";
 
 const INPUT_KEYS = Object.freeze([
@@ -195,6 +202,10 @@ const preparedApplicationRelationReadinessStates = new WeakMap<
   object,
   PreparedApplicationRelationReadinessState
 >();
+const applicationRelationSetReadinessEvidenceStates = new WeakMap<
+  object,
+  ApplicationRelationReadinessPortState
+>();
 
 export function createApplicationRelationReadinessPort(
   controlDb: FlarexMetadataDatabase,
@@ -250,6 +261,16 @@ export function hasPreparedApplicationRelationReadinessAuthority(
     preparedApplicationRelationReadinessStates.get(value)?.port === portState;
 }
 
+export function hasApplicationRelationSetReadinessEvidenceAuthority(
+  port: ApplicationRelationReadinessPort,
+  value: unknown,
+): value is ApplicationRelationSetReadinessEvidence {
+  if (typeof value !== "object" || value === null) return false;
+  const portState = applicationRelationReadinessPortStates.get(port);
+  return portState !== undefined &&
+    applicationRelationSetReadinessEvidenceStates.get(value) === portState;
+}
+
 function getPreparedApplicationRelationReadinessState(
   port: ApplicationRelationReadinessPort,
   prepared: PreparedApplicationRelationReadiness,
@@ -261,6 +282,367 @@ function getPreparedApplicationRelationReadinessState(
   return portState !== undefined && preparedState?.port === portState
     ? preparedState
     : null;
+}
+
+/**
+ * Authenticates the complete dense relation set under a caller-owned target
+ * transaction and its already-held scope-clock UPDATE lock. This facet opens
+ * no transaction, acquires no second scope lock, and writes no database state.
+ */
+export const validateApplicationRelationSetReadinessInTransactionEffect =
+  Effect.fn("ApplicationRelationReadiness.validateSetInTransaction")(
+    function* (
+      port: ApplicationRelationReadinessPort,
+      tx: AppRowTransaction,
+      authority: TrustedScopeAuthority,
+      clock: ScopeClockRecord,
+      prepared: PreparedApplicationRelationReadiness,
+    ): Effect.fn.Return<
+      ApplicationRelationSetReadinessValidationResult,
+      ValidateApplicationRelationSetReadinessError
+    > {
+      const portState = applicationRelationReadinessPortStates.get(port);
+      const preparedState = getPreparedApplicationRelationReadinessState(
+        port,
+        prepared,
+      );
+      if (portState === undefined || preparedState === null) {
+        return yield* Effect.fail(
+          new ApplicationRelationReadinessUnavailableError({
+            reason: "compositionMissing",
+          }),
+        );
+      }
+      if (
+        clock.scopeId !== authority.scopeId ||
+        authority.deploymentId !== prepared.deploymentId
+      ) {
+        return yield* Effect.fail(
+          new ApplicationRelationReadinessUnavailableError({
+            reason: "compositionMissing",
+          }),
+        );
+      }
+      yield* requireCurrentAuthorityEffect(authority, clock);
+      const semanticStates = yield* readSemanticValidationSetForUpdateEffect(
+        tx,
+        authority.scopeId,
+        prepared.schemaVersionId,
+      );
+      const semanticStatesByOrdinal = new Map<
+        number,
+        ApplicationRelationSemanticValidationState
+      >();
+      for (const semanticState of semanticStates) {
+        const relation = prepared.relations[
+          semanticState.relationOrdinal - 1
+        ];
+        if (
+          relation === undefined ||
+          relation.binding.relationOrdinal !==
+            semanticState.relationOrdinal ||
+          relation.binding.evolution.kind !== "preserve" ||
+          relation.binding.evolution.physical !== "reuse" ||
+          semanticStatesByOrdinal.has(semanticState.relationOrdinal)
+        ) {
+          return yield* relationReadinessCorruption("definitionSet");
+        }
+        yield* Effect.fromResult(requireSemanticCurrentDefinitionResult(
+          semanticState,
+          prepared,
+          relation,
+        ));
+        semanticStatesByOrdinal.set(
+          semanticState.relationOrdinal,
+          semanticState,
+        );
+      }
+      const children: ApplicationRelationSetReadinessChild[] = [];
+      for (let index = 0; index < prepared.relations.length; index += 1) {
+        const relation = prepared.relations[index];
+        const definition = preparedState.definitions.definitions[index];
+        if (
+          relation === undefined ||
+          definition === undefined ||
+          relation.binding.relationOrdinal !== index + 1 ||
+          definition.binding.relationOrdinal !== index + 1
+        ) {
+          return yield* relationReadinessCorruption("definitionSet");
+        }
+        const physical = yield*
+          validateApplicationRelationBuildReadinessInTransactionEffect(
+            portState.relationBuild,
+            tx,
+            authority,
+            clock,
+            preparedState.definitions,
+            relation.edge.edgeDefinitionId,
+          );
+        if (physical !== null) {
+          children.push(relationSetChild(
+            relation,
+            "physical",
+            physical.receipt.attemptFence,
+            physical.sha256,
+          ));
+          continue;
+        }
+        const evolution = relation.binding.evolution;
+        if (
+          evolution.kind !== "preserve" ||
+          evolution.physical !== "reuse"
+        ) {
+          return relationSetNotReady(relation, "physicalReadinessMissing");
+        }
+        const semanticState = semanticStatesByOrdinal.get(
+          relation.binding.relationOrdinal,
+        );
+        if (semanticState === undefined) {
+          return relationSetNotReady(
+            relation,
+            "semanticReadinessIncomplete",
+          );
+        }
+        if (
+          semanticState.lifecycle !== "ready" ||
+          semanticState.readinessSha256 === null ||
+          semanticState.storageGeneration !== clock.storageGeneration ||
+          semanticState.storageGenerationFence !==
+            clock.storageGenerationFence ||
+          semanticState.epoch !== clock.epoch ||
+          semanticState.frontierCommitSeq !== clock.lastCommitSeq
+        ) {
+          return relationSetNotReady(
+            relation,
+            "semanticReadinessIncomplete",
+          );
+        }
+        const immediateOrigin = preparedState.immediateOrigins.get(
+          relation.binding.relationOrdinal,
+        );
+        if (immediateOrigin === undefined) {
+          return yield* relationReadinessCorruption("lineage");
+        }
+        const originResolution = yield* resolveSemanticOriginEffect(
+          tx,
+          authority,
+          clock,
+          portState,
+          relation,
+          immediateOrigin,
+        );
+        if (originResolution.status === "missing") {
+          return relationSetNotReady(
+            relation,
+            "semanticReadinessIncomplete",
+          );
+        }
+        const desired = yield* Effect.fromResult(
+          initialSemanticValidationStateResult(
+            authority,
+            clock,
+            prepared,
+            relation,
+            originResolution.origin,
+          ),
+        );
+        yield* Effect.fromResult(requireSemanticDefinitionResult(
+          semanticState,
+          desired,
+        ));
+        if (!semanticAttemptMatches(semanticState, desired)) {
+          return relationSetNotReady(
+            relation,
+            "semanticReadinessIncomplete",
+          );
+        }
+        yield* validatePinnedPhysicalReadinessEffect(
+          tx,
+          authority,
+          portState,
+          semanticState,
+        );
+        const semantic = yield* readAndVerifySemanticReadinessEffect(
+          tx,
+          semanticState,
+        );
+        children.push(relationSetChild(
+          relation,
+          "semantic",
+          semantic.receipt.attemptFence,
+          semantic.sha256,
+        ));
+      }
+      const evidence = yield* canonicalApplicationRelationSetReadinessEffect(
+        authority,
+        clock,
+        prepared,
+        children,
+      );
+      applicationRelationSetReadinessEvidenceStates.set(evidence, portState);
+      return Object.freeze({ status: "ready", evidence });
+    },
+  );
+
+function relationSetNotReady(
+  relation: PreparedApplicationRelation,
+  reason: Extract<
+    ApplicationRelationSetReadinessValidationResult,
+    { readonly status: "not_ready" }
+  >["reason"],
+): ApplicationRelationSetReadinessValidationResult {
+  return Object.freeze({
+    status: "not_ready",
+    reason,
+    relationOrdinal: relation.binding.relationOrdinal,
+    edgeDefinitionId: relation.edge.edgeDefinitionId,
+  });
+}
+
+function relationSetChild(
+  relation: PreparedApplicationRelation,
+  readinessKind: ApplicationRelationSetReadinessChild["readinessKind"],
+  attemptFence: string,
+  readinessSha256: Uint8Array,
+): ApplicationRelationSetReadinessChild {
+  return Object.freeze({
+    relationOrdinal: relation.binding.relationOrdinal,
+    relationId: relation.binding.relationId,
+    sourceTableId: relation.binding.sourceTableId,
+    targetTableId: relation.binding.targetTableId,
+    semanticDefinitionSha256: relation.binding.semanticDefinitionSha256,
+    edgeDefinitionId: relation.edge.edgeDefinitionId,
+    physicalDefinitionSha256: relation.physicalDefinitionSha256,
+    readinessKind,
+    attemptFence,
+    readinessSha256: encodeBytesToLowercaseHex(readinessSha256),
+  });
+}
+
+interface CanonicalApplicationRelationSetReadiness {
+  readonly receipt: ApplicationRelationSetReadinessReceipt;
+  readonly canonicalBytes: Uint8Array;
+  readonly sha256: Uint8Array;
+}
+
+const canonicalApplicationRelationSetReadinessEffect = Effect.fn(
+  "ApplicationRelationReadiness.canonicalSetReadiness",
+)(function* (
+  authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
+  prepared: PreparedApplicationRelationReadiness,
+  children: ReadonlyArray<ApplicationRelationSetReadinessChild>,
+): Effect.fn.Return<
+  ApplicationRelationSetReadinessEvidence,
+  ApplicationRelationReadinessPersistenceError |
+    ApplicationRelationReadinessCorruptionError
+> {
+  if (
+    children.length !== prepared.relations.length ||
+    clock.storageGeneration !== "flarexdb_v1"
+  ) {
+    return yield* relationReadinessCorruption("relationSetReceipt");
+  }
+  const relationJson = Object.freeze(children.map(child => Object.freeze({
+    relationOrdinal: child.relationOrdinal,
+    relationId: child.relationId,
+    sourceTableId: child.sourceTableId,
+    targetTableId: child.targetTableId,
+    semanticDefinitionSha256: child.semanticDefinitionSha256,
+    edgeDefinitionId: child.edgeDefinitionId,
+    physicalDefinitionSha256: child.physicalDefinitionSha256,
+    readinessKind: child.readinessKind,
+    attemptFence: child.attemptFence,
+    readinessSha256: child.readinessSha256,
+  } satisfies ApplicationRelationSetReadinessChild & JsonObject)));
+  const receiptJson = {
+    format: "flarex.application-relation-set-readiness",
+    version: APPLICATION_RELATION_SET_READINESS_RECEIPT_CODEC_VERSION,
+    scopeId: authority.scopeId,
+    deploymentId: prepared.deploymentId,
+    applicationManifestSha256: prepared.applicationManifestSha256,
+    manifestSchemaBindingSha256: prepared.manifestSchemaBindingSha256,
+    applicationSchemaSha256: prepared.applicationSchemaSha256,
+    schemaVersionId: prepared.schemaVersionId,
+    schemaVersion: prepared.schemaVersion,
+    schemaManifestSha256: prepared.schemaManifestSha256,
+    boundPublicationSha256: prepared.boundPublicationSha256,
+    storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence.toString(),
+    epoch: clock.epoch,
+    frontierCommitSeq: clock.lastCommitSeq.toString(),
+    relationCount: relationJson.length,
+    relations: relationJson,
+  } satisfies ApplicationRelationSetReadinessReceipt & JsonObject;
+  const receipt: ApplicationRelationSetReadinessReceipt = Object.freeze(
+    receiptJson,
+  );
+  const canonicalText = encodeCanonicalJson(receiptJson, issue => {
+    throw new Error(
+      `Typed application relation-set readiness lost JSON: ${issue.reason}.`,
+    );
+  });
+  const canonicalBytes = TEXT_ENCODER.encode(canonicalText);
+  if (
+    canonicalBytes.byteLength < 1 ||
+    canonicalBytes.byteLength >
+      APPLICATION_RELATION_SET_READINESS_RECEIPT_MAXIMUM_BYTES
+  ) {
+    return yield* relationReadinessCorruption("relationSetReceipt");
+  }
+  const sha256 = yield* digestReadinessEffect(canonicalBytes, "digestSet");
+  return yield* Effect.fromResult(applicationRelationSetEvidenceResult(
+    Object.freeze({
+      receipt,
+      canonicalBytes: copyBytes(canonicalBytes),
+      sha256,
+    } satisfies CanonicalApplicationRelationSetReadiness),
+  ));
+});
+
+function applicationRelationSetEvidenceResult(
+  canonical: CanonicalApplicationRelationSetReadiness,
+): Result.Result<
+  ApplicationRelationSetReadinessEvidence,
+  ApplicationRelationReadinessCorruptionError
+> {
+  const stableBytes = copyBytes(canonical.canonicalBytes);
+  const stableSha256 = copyBytes(canonical.sha256);
+  if (!isUint8ArrayWithByteLength(stableSha256, 32)) {
+    return readinessCorruptionResult("relationSetReceipt");
+  }
+  return Result.succeed(Object.freeze({
+    receipt: canonical.receipt,
+    get canonicalBytes(): Uint8Array {
+      return copyBytes(stableBytes);
+    },
+    get sha256(): Uint8Array {
+      return copyBytes(stableSha256);
+    },
+  }));
+}
+
+function digestReadinessEffect(
+  bytes: Uint8Array,
+  operation: Extract<
+    ApplicationRelationReadinessPersistenceError["operation"],
+    "digestReceipt" | "digestSet"
+  >,
+): Effect.Effect<
+  Uint8Array,
+  ApplicationRelationReadinessPersistenceError
+> {
+  return Effect.tryPromise({
+    try: async () => new Uint8Array(await globalThis.crypto.subtle.digest(
+      "SHA-256",
+      copyBytesToArrayBuffer(bytes),
+    )),
+    catch: cause => new ApplicationRelationReadinessPersistenceError({
+      operation,
+      retryable: false,
+      cause,
+    }),
+  });
 }
 
 const advanceApplicationRelationReadinessEffect = Effect.fn(
@@ -644,7 +1026,10 @@ const resolveSemanticOriginEffect = Effect.fn(
     readonly definitions: LocatedApplicationRelationDefinitionSet;
     readonly definition: LocatedApplicationRelationDefinition;
   }>,
-): Effect.fn.Return<SemanticOriginResolution, ReadinessTransactionFailure> {
+): Effect.fn.Return<
+  SemanticOriginResolution,
+  ValidateApplicationRelationSetReadinessError
+> {
   const physical = yield*
     validateHistoricalApplicationRelationBuildReadinessInTransactionEffect(
       portState.relationBuild,
@@ -770,7 +1155,7 @@ const readCurrentSemanticOriginEffect = Effect.fn(
   definition: LocatedApplicationRelationDefinition,
 ): Effect.fn.Return<
   ApplicationRelationSemanticReadinessEvidence | null,
-  ReadinessTransactionFailure
+  ValidateApplicationRelationSetReadinessError
 > {
   const head = yield* readSemanticValidationForUpdateEffect(
     tx,
@@ -1035,7 +1420,7 @@ const validatePinnedPhysicalReadinessEffect = Effect.fn(
   stored: ApplicationRelationSemanticValidationState,
 ): Effect.fn.Return<
   ApplicationRelationReadinessEvidence,
-  ReadinessTransactionFailure
+  ValidateApplicationRelationSetReadinessError
 > {
   const evidence = yield*
     validateReferencedApplicationRelationBuildReadinessInTransactionEffect(
@@ -1298,6 +1683,46 @@ const readSemanticValidationForUpdateEffect = Effect.fn(
   return row === undefined
     ? null
     : yield* Effect.fromResult(decodeSemanticValidationResult(row));
+});
+
+const readSemanticValidationSetForUpdateEffect = Effect.fn(
+  "ApplicationRelationReadiness.readValidationSet",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: TrustedScopeAuthority["scopeId"],
+  schemaVersionId: PreparedApplicationRelationReadiness["schemaVersionId"],
+): Effect.fn.Return<
+  ReadonlyArray<ApplicationRelationSemanticValidationState>,
+  ApplicationRelationReadinessPersistenceError |
+    ApplicationRelationReadinessCorruptionError
+> {
+  const rows = yield* queryEffect(
+    "readValidation",
+    tx.select().from(
+      fxSystemApplicationRelationSemanticValidations,
+    ).where(and(
+      eq(
+        fxSystemApplicationRelationSemanticValidations.scopeId,
+        scopeId,
+      ),
+      eq(
+        fxSystemApplicationRelationSemanticValidations.schemaVersionId,
+        schemaVersionId,
+      ),
+    )).orderBy(asc(
+      fxSystemApplicationRelationSemanticValidations.relationOrdinal,
+    )).limit(MAX_APPLICATION_SCHEMA_BINDING_RELATIONS + 1).for("update"),
+  );
+  if (rows.length > MAX_APPLICATION_SCHEMA_BINDING_RELATIONS) {
+    return yield* relationReadinessCorruption("definitionSet");
+  }
+  const decoded: ApplicationRelationSemanticValidationState[] = [];
+  for (const row of rows) {
+    decoded.push(yield* Effect.fromResult(
+      decodeSemanticValidationResult(row),
+    ));
+  }
+  return Object.freeze(decoded);
 });
 
 const insertSemanticValidationEffect = Effect.fn(
@@ -2298,7 +2723,10 @@ const canonicalSemanticReadinessEffect = Effect.fn(
   ) {
     return yield* relationReadinessCorruption("semanticReceipt");
   }
-  const sha256 = yield* digestReceiptEffect(canonicalBytes);
+  const sha256 = yield* digestReadinessEffect(
+    canonicalBytes,
+    "digestReceipt",
+  );
   return Object.freeze({
     receipt,
     canonicalBytes: copyBytes(canonicalBytes),
@@ -2336,25 +2764,6 @@ function semanticEvidenceResult(
       return new Date(stableSettledAt.getTime());
     },
   }));
-}
-
-function digestReceiptEffect(
-  bytes: Uint8Array,
-): Effect.Effect<
-  Uint8Array,
-  ApplicationRelationReadinessPersistenceError
-> {
-  return Effect.tryPromise({
-    try: async () => new Uint8Array(await globalThis.crypto.subtle.digest(
-      "SHA-256",
-      copyBytesToArrayBuffer(bytes),
-    )),
-    catch: cause => new ApplicationRelationReadinessPersistenceError({
-      operation: "digestReceipt",
-      retryable: false,
-      cause,
-    }),
-  });
 }
 
 const prepareApplicationRelationReadinessEffect = Effect.fn(
@@ -2488,9 +2897,6 @@ const prepareApplicationRelationReadinessEffect = Effect.fn(
       immediateOrigin,
     }));
   }
-  const physicalDefinitions = yield* Effect.fromResult(
-    deduplicatePhysicalDefinitionsResult(relations),
-  );
   const prepared = Object.freeze({
     deploymentId: definitions.deploymentId,
     applicationManifestSha256:
@@ -2502,7 +2908,6 @@ const prepareApplicationRelationReadinessEffect = Effect.fn(
     schemaManifestSha256: definitions.schemaManifestSha256,
     boundPublicationSha256: definitions.boundPublicationSha256,
     relations: Object.freeze(relations),
-    physicalDefinitions,
   } satisfies PreparedApplicationRelationReadiness);
   preparedApplicationRelationReadinessStates.set(prepared, Object.freeze({
     port: state,
@@ -2578,41 +2983,6 @@ function requireRootAgreementResult(
     : Result.fail(new ApplicationRelationReadinessCorruptionError({
       reason: "bindingMismatch",
     }));
-}
-
-function deduplicatePhysicalDefinitionsResult(
-  relations: ReadonlyArray<PreparedApplicationRelation>,
-): Result.Result<
-  ReadonlyArray<PreparedApplicationRelationPhysicalDefinition>,
-  ApplicationRelationReadinessCorruptionError
-> {
-  const byEdgeDefinitionId = new Map<
-    number,
-    PreparedApplicationRelationPhysicalDefinition
-  >();
-  for (const relation of relations) {
-    const existing = byEdgeDefinitionId.get(relation.edge.edgeDefinitionId);
-    if (existing === undefined) {
-      byEdgeDefinitionId.set(relation.edge.edgeDefinitionId, Object.freeze({
-        edgeDefinitionId: relation.edge.edgeDefinitionId,
-        relationId: relation.binding.relationId,
-        physical: relation.edge.physical,
-        physicalDefinitionSha256: relation.physicalDefinitionSha256,
-      }));
-      continue;
-    }
-    if (
-      existing.relationId !== relation.binding.relationId ||
-      existing.physicalDefinitionSha256 !== relation.physicalDefinitionSha256
-    ) {
-      return Result.fail(new ApplicationRelationReadinessCorruptionError({
-        reason: "definitionSet",
-      }));
-    }
-  }
-  return Result.succeed(Object.freeze(Array.from(
-    byEdgeDefinitionId.values(),
-  ).toSorted((left, right) => left.edgeDefinitionId - right.edgeDefinitionId)));
 }
 
 function snapshotEvolution(

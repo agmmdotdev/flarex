@@ -24,6 +24,8 @@ import {
   type ApplicationRelationBindingRepository,
   publishApplicationRelationBindingEffect,
 } from "../src/applicationRelationBinding";
+import { createApplicationRelationServingInspector } from
+  "../src/applicationRelationServing";
 import {
   createApplicationRelationBuildPort,
   hasApplicationRelationReadinessEvidenceAuthority,
@@ -363,6 +365,7 @@ function buildPort(fixture: Pick<
       scopeClockTargets: { resolve: async () => target },
     },
     fixture.relationCommit,
+    createApplicationRelationServingInspector(),
   );
 }
 
