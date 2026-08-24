@@ -60,6 +60,7 @@ const expectedRuntimeDependencies = new Map([
   ["flarex-protocol", "workspace:*"],
 ]);
 const shippedDefinitionAllowedProductionImports = new Set([
+  "@flarex/application-schema-definition/application-schema",
   "@flarex/application-schema-definition/validator-json",
   "@flarex/declarative-materializer/v1",
   "@flarex/declarative-program/v1",

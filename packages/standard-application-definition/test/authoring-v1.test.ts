@@ -22,6 +22,45 @@ describe("Standard Application typed authoring V1", () => {
       optionality: "required",
     };
     void forged;
+
+    const table = standardV1.table({
+      title: standardV1.string(),
+      author: standardV1.object({ name: standardV1.string() }),
+    });
+    table.index("by_title", ["title"]);
+    table.index("by_author_name", ["author.name"]);
+    // @ts-expect-error Index paths must exist in the table document.
+    table.index("by_missing", ["missing"]);
+    // @ts-expect-error Scalar fields do not acquire invented nested paths.
+    table.index("by_nested_title", ["title.value"]);
+
+    const dynamicPaths = standardV1.table({
+      metadata: standardV1.record(
+        standardV1.string(),
+        standardV1.string(),
+      ),
+      flexible: standardV1.any(),
+      choice: standardV1.union(
+        standardV1.object({ nested: standardV1.string() }),
+        standardV1.null(),
+      ),
+      items: standardV1.array(
+        standardV1.object({ nested: standardV1.string() }),
+      ),
+    });
+    // @ts-expect-error Record entries are not indexable document field paths.
+    dynamicPaths.index("by_metadata", ["metadata.anyKey"]);
+    dynamicPaths.index("by_flexible", ["flexible.any.path"]);
+    dynamicPaths.index("by_choice", ["choice.nested"]);
+    // @ts-expect-error Array element fields are not document field paths.
+    dynamicPaths.index("by_array_member", ["items.nested"]);
+
+    const widenedScalar: StandardValidatorV1<string> = standardV1.string();
+    const widenedTable = standardV1.table({ title: widenedScalar });
+    // @ts-expect-error Widening a scalar validator does not invent descendants.
+    widenedTable.index("by_widened_scalar", ["title.value"]);
+    // @ts-expect-error Placement is not part of Standard logical schemas.
+    standardV1.globalTable({ title: standardV1.string() });
   }
 
   it("lowers typed validators and function references to exact canonical input", () => {
@@ -150,4 +189,120 @@ describe("Standard Application typed authoring V1", () => {
       expect(() => standardV1.literal(value)).toThrow(RangeError);
     },
   );
+
+  it("authors immutable placement-free tables and indexes as canonical schema input", () => {
+    const fields: {
+      title: StandardValidatorV1<string>;
+      author: ReturnType<typeof standardV1.object<{
+        name: ReturnType<typeof standardV1.string>;
+      }>>;
+    } = {
+      title: standardV1.literal("original"),
+      author: standardV1.object({
+        name: standardV1.string(),
+      }),
+    };
+    const base = standardV1.table(fields);
+    const recipes = base
+      .index("by_title", ["title"])
+      .index("by_author_name", ["author.name"]);
+    const schema = standardV1.schema({
+      recipes,
+      authors: standardV1.table({ name: standardV1.string() }),
+    });
+
+    fields.title = standardV1.literal("changed");
+
+    expect(base.indexes).toEqual([]);
+    expect(recipes.indexes).toEqual([
+      { descriptor: "by_title", fields: ["title"] },
+      { descriptor: "by_author_name", fields: ["author.name"] },
+    ]);
+    expect(schema.toCanonicalInput()).toEqual({
+      tables: [
+        {
+          logicalName: "authors",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                name: { fieldType: { type: "string" }, optional: false },
+              },
+            },
+          },
+        },
+        {
+          logicalName: "recipes",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: {
+              type: "object",
+              value: {
+                title: {
+                  fieldType: { type: "literal", value: "original" },
+                  optional: false,
+                },
+                author: {
+                  fieldType: {
+                    type: "object",
+                    value: {
+                      name: {
+                        fieldType: { type: "string" },
+                        optional: false,
+                      },
+                    },
+                  },
+                  optional: false,
+                },
+              },
+            },
+          },
+        },
+      ],
+      indexes: [
+        {
+          tableLogicalName: "recipes",
+          descriptor: "by_author_name",
+          fields: ["author.name"],
+        },
+        {
+          tableLogicalName: "recipes",
+          descriptor: "by_title",
+          fields: ["title"],
+        },
+      ],
+    });
+    expect(schema.canonicalInput).toBe(schema.toCanonicalInput());
+    expect(Object.isFrozen(schema)).toBe(true);
+    expect(Object.isFrozen(schema.canonicalInput.tables)).toBe(true);
+    expect(Object.isFrozen(schema.canonicalInput.indexes)).toBe(true);
+    expect(Object.hasOwn(schema.canonicalInput.tables[0] ?? {}, "placement"))
+      .toBe(false);
+  });
+
+  it("rejects duplicate index descriptors through the shared schema contract", () => {
+    const table = standardV1.table({ title: standardV1.string() })
+      .index("by_title", ["title"]);
+
+    expect(() => table.index("by_title", ["title"])).toThrow();
+  });
+
+  it("owns hostile logical table names without prototype mutation", () => {
+    const tables = Object.create(null) as Record<
+      string,
+      ReturnType<typeof standardV1.table<{ value: ReturnType<typeof standardV1.string> }>>
+    >;
+    Object.defineProperty(tables, "constructor", {
+      enumerable: true,
+      value: standardV1.table({ value: standardV1.string() }),
+    });
+
+    const schema = standardV1.schema(tables);
+
+    expect(schema.canonicalInput.tables[0]?.logicalName).toBe("constructor");
+    expect(Object.getPrototypeOf(tables)).toBeNull();
+  });
 });

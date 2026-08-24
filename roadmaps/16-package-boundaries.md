@@ -711,16 +711,15 @@ private Standard producer and generated-source path consume the same immutable
 logical definition. Analysis must still defensively decode SDK metadata rather
 than trusting that it came from those constructors.
 
-Placement is deliberately not part of that shared logical definition yet. The
-public SDK currently represents `global`, `partitionBy`, and `colocateWith`,
-while the canonical declarative table declaration has no placement member. In
-addition, canonical-program analysis currently projects such tables as global,
-whereas Standard generated schema source emits `definePartitionTable`. That is
-a concrete unresolved placement-contract mismatch. Its disposition is to keep
-placement producer-owned and visibly separate in this slice; selecting and
-versioning one canonical placement contract, migrating both projections, and
-proving compatibility requires a separate approved preflight. Table/index
-deduplication must not encode either default as if agreement already existed.
+Placement is deliberately absent from the target shared logical definition.
+The public SDK's `global`, `partitionBy`, and `colocateWith` forms and the
+Standard generated-source use of `definePartitionTable` are retained
+routing-compatibility surfaces, not candidates for a new canonical placement
+contract. Their different projections are legacy migration debt with explicit
+removal gates; they must not be reconciled by adding placement to the target
+table schema. Internal scope authority, storage generation, and physical
+topology remain backend-owned concerns and do not become developer table
+metadata. Table/index deduplication must keep those concerns absent.
 
 Migration proceeds compatibility-first:
 

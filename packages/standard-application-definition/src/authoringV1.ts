@@ -19,6 +19,16 @@ import type {
   ValidatorJsonV1,
 } from "flarex-protocol/validator-json";
 
+import {
+  standardSchemaDefinitionV1,
+  standardTableDefinitionV1,
+} from "./schemaAuthoringV1.js";
+import type {
+  StandardSchemaDefinitionV1,
+  StandardTableCatalogV1,
+  StandardTableDefinitionV1,
+} from "./schemaAuthoringV1.js";
+
 /**
  * IDs are strings at this host-neutral layer. Table-authoritative branding is
  * added only by a later boundary that can prove the ID belongs to the table.
@@ -54,6 +64,22 @@ export class StandardValidatorV1<
   ) {
     Object.freeze(this);
   }
+}
+
+declare const StandardValidatorFieldPathsV1Type: unique symbol;
+
+/**
+ * Type-only capability carried by validators whose indexable descendants are
+ * known from their constructor. Keeping it off the base validator makes
+ * explicit widening and opaque exact-JSON adaptation safely lose that claim.
+ */
+export class StandardValidatorWithFieldPathsV1<
+  Value,
+  Optionality extends StandardValidatorOptionalityV1,
+  Json extends ValidatorJsonV1,
+  FieldPaths extends string,
+> extends StandardValidatorV1<Value, Optionality, Json> {
+  declare readonly [StandardValidatorFieldPathsV1Type]: FieldPaths;
 }
 
 /**
@@ -105,6 +131,31 @@ export type InferStandardObjectV1<Fields extends StandardValidatorRecordV1> =
     readonly [Key in OptionalStandardValidatorKeysV1<Fields>]?:
       InferStandardValidatorV1<Fields[Key]>;
   }>>;
+
+export type StandardValidatorFieldPathsV1<Validator> =
+  Validator extends Readonly<{
+    readonly [StandardValidatorFieldPathsV1Type]: infer FieldPaths extends string;
+  }> ? FieldPaths : never;
+
+type StandardFieldPathsForFieldsV1<
+  Fields extends StandardValidatorRecordV1,
+> = {
+  readonly [Field in keyof Fields & string]:
+    | Field
+    | (StandardValidatorFieldPathsV1<Fields[Field]> extends
+        infer Nested extends string
+      ? `${Field}.${Nested}`
+      : never);
+}[keyof Fields & string];
+
+export type StandardObjectValidatorV1<
+  Fields extends StandardValidatorRecordV1,
+> = StandardValidatorWithFieldPathsV1<
+  InferStandardObjectV1<Fields>,
+  "required",
+  ObjectValidatorJsonV1,
+  StandardFieldPathsForFieldsV1<Fields>
+>;
 
 export type StandardFunctionArgsValidatorV1 =
   | StandardValidatorV1<
@@ -235,19 +286,25 @@ export class StandardModuleV1<
   }
 }
 
-function requiredValidatorV1<Value>(
+function requiredValidatorV1<Value, FieldPaths extends string = never>(
   json: ValidatorJsonV1,
-): StandardValidatorV1<Value, "required"> {
-  return new StandardValidatorV1(json, "required");
+): StandardValidatorWithFieldPathsV1<
+  Value,
+  "required",
+  ValidatorJsonV1,
+  FieldPaths
+> {
+  return new StandardValidatorWithFieldPathsV1<
+    Value,
+    "required",
+    ValidatorJsonV1,
+    FieldPaths
+  >(json, "required");
 }
 
 function objectValidatorV1<Fields extends StandardValidatorRecordV1>(
   fields: Fields,
-): StandardValidatorV1<
-  InferStandardObjectV1<Fields>,
-  "required",
-  ObjectValidatorJsonV1
-> {
+): StandardObjectValidatorV1<Fields> {
   const value: Record<
     string,
     Readonly<{ readonly fieldType: ValidatorJsonV1; readonly optional: boolean }>
@@ -261,10 +318,28 @@ function objectValidatorV1<Fields extends StandardValidatorRecordV1>(
       },
     });
   }
-  return new StandardValidatorV1(
+  return new StandardValidatorWithFieldPathsV1<
+    InferStandardObjectV1<Fields>,
+    "required",
+    ObjectValidatorJsonV1,
+    StandardFieldPathsForFieldsV1<Fields>
+  >(
     applicationObjectValidatorJson(value),
     "required",
   );
+}
+
+function tableDefinitionV1<Fields extends StandardValidatorRecordV1>(
+  fields: Fields,
+): StandardTableDefinitionV1<Fields> {
+  const document = objectValidatorV1(fields);
+  return standardTableDefinitionV1(document);
+}
+
+function schemaDefinitionV1<Tables extends StandardTableCatalogV1>(
+  tables: Tables,
+): StandardSchemaDefinitionV1<Tables> {
+  return standardSchemaDefinitionV1(tables);
 }
 
 function functionContractV1<
@@ -284,45 +359,103 @@ function functionContractV1<
 }
 
 export const standardV1 = Object.freeze({
-  null: (): StandardValidatorV1<null, "required"> =>
+  null: (): StandardValidatorWithFieldPathsV1<
+    null,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationScalarValidatorJson("null")),
-  number: (): StandardValidatorV1<number, "required"> =>
+  number: (): StandardValidatorWithFieldPathsV1<
+    number,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationScalarValidatorJson("number")),
-  bigint: (): StandardValidatorV1<bigint, "required"> =>
+  bigint: (): StandardValidatorWithFieldPathsV1<
+    bigint,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationScalarValidatorJson("bigint")),
-  boolean: (): StandardValidatorV1<boolean, "required"> =>
+  boolean: (): StandardValidatorWithFieldPathsV1<
+    boolean,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationScalarValidatorJson("boolean")),
-  string: (): StandardValidatorV1<string, "required"> =>
+  string: (): StandardValidatorWithFieldPathsV1<
+    string,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationScalarValidatorJson("string")),
-  bytes: (): StandardValidatorV1<ArrayBuffer, "required"> =>
+  bytes: (): StandardValidatorWithFieldPathsV1<
+    ArrayBuffer,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationScalarValidatorJson("bytes")),
-  any: (): StandardValidatorV1<
+  any: (): StandardValidatorWithFieldPathsV1<
     unknown,
     "required",
-    Readonly<{ readonly type: "any" }>
-  > => new StandardValidatorV1(
+    Readonly<{ readonly type: "any" }>,
+    string
+  > => new StandardValidatorWithFieldPathsV1<
+    unknown,
+    "required",
+    Readonly<{ readonly type: "any" }>,
+    string
+  >(
     applicationScalarValidatorJson("any"),
     "required",
   ),
   id: <TableName extends string>(
     tableName: TableName,
-  ): StandardValidatorV1<StandardIdV1<TableName>, "required"> =>
+  ): StandardValidatorWithFieldPathsV1<
+    StandardIdV1<TableName>,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationIdValidatorJson(tableName)),
   literal: <Literal extends string | number | boolean>(
     value: Literal,
-  ): StandardValidatorV1<Literal, "required"> => {
+  ): StandardValidatorWithFieldPathsV1<
+    Literal,
+    "required",
+    ValidatorJsonV1,
+    never
+  > => {
     return requiredValidatorV1(applicationLiteralValidatorJson(value));
   },
   array: <Value>(
     value: StandardValidatorV1<Value, "required">,
-  ): StandardValidatorV1<ReadonlyArray<Value>, "required"> =>
+  ): StandardValidatorWithFieldPathsV1<
+    ReadonlyArray<Value>,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
     requiredValidatorV1(applicationArrayValidatorJson(value.json)),
   object: objectValidatorV1,
+  table: tableDefinitionV1,
+  schema: schemaDefinitionV1,
   record: <Key, Value>(
     keys: StandardValidatorV1<Key, "required">,
     values: StandardValidatorV1<Value, "required">,
-  ): StandardValidatorV1<Readonly<Record<string, Value>>, "required"> =>
-    requiredValidatorV1(
+  ): StandardValidatorWithFieldPathsV1<
+    Readonly<Record<string, Value>>,
+    "required",
+    ValidatorJsonV1,
+    never
+  > =>
+    requiredValidatorV1<Readonly<Record<string, Value>>, never>(
       applicationRecordValidatorJson(keys.json, values.json),
     ),
   union: <Members extends readonly [
@@ -330,21 +463,47 @@ export const standardV1 = Object.freeze({
     ...ReadonlyArray<StandardValidatorV1<unknown, "required">>,
   ]>(
     ...members: Members
-  ): StandardValidatorV1<InferStandardValidatorV1<Members[number]>, "required"> => {
+  ): StandardValidatorWithFieldPathsV1<
+    InferStandardValidatorV1<Members[number]>,
+    "required",
+    ValidatorJsonV1,
+    StandardValidatorFieldPathsV1<Members[number]>
+  > => {
     const [first, ...rest] = members;
-    return requiredValidatorV1(applicationUnionValidatorJson([
+    return requiredValidatorV1<
+      InferStandardValidatorV1<Members[number]>,
+      StandardValidatorFieldPathsV1<Members[number]>
+    >(applicationUnionValidatorJson([
       first.json,
       ...rest.map(member => member.json),
     ]));
   },
-  optional: <Value>(
-    validator: StandardValidatorV1<Value, "required">,
-  ): StandardValidatorV1<Value, "optional"> =>
-    new StandardValidatorV1(validator.json, "optional"),
-  nullable: <Value>(
-    validator: StandardValidatorV1<Value, "required">,
-  ): StandardValidatorV1<Value | null, "required"> =>
-    requiredValidatorV1(applicationUnionValidatorJson([
+  optional: <Validator extends StandardValidatorV1<unknown, "required">>(
+    validator: Validator,
+  ): StandardValidatorWithFieldPathsV1<
+    InferStandardValidatorV1<Validator>,
+    "optional",
+    ValidatorJsonV1,
+    StandardValidatorFieldPathsV1<Validator>
+  > =>
+    new StandardValidatorWithFieldPathsV1<
+      InferStandardValidatorV1<Validator>,
+      "optional",
+      ValidatorJsonV1,
+      StandardValidatorFieldPathsV1<Validator>
+    >(validator.json, "optional"),
+  nullable: <Validator extends StandardValidatorV1<unknown, "required">>(
+    validator: Validator,
+  ): StandardValidatorWithFieldPathsV1<
+    InferStandardValidatorV1<Validator> | null,
+    "required",
+    ValidatorJsonV1,
+    StandardValidatorFieldPathsV1<Validator>
+  > =>
+    requiredValidatorV1<
+      InferStandardValidatorV1<Validator> | null,
+      StandardValidatorFieldPathsV1<Validator>
+    >(applicationUnionValidatorJson([
       validator.json,
       applicationScalarValidatorJson("null"),
     ])),

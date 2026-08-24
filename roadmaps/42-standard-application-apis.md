@@ -514,6 +514,17 @@ parallel function API. This preserves the existing public SDK surface and
 failure precedence while removing hand-assembled exact validator and function
 metadata from the developer producer.
 
+`SAA03` adds placement-free table and index authoring to the same private
+Standard surface. `standardV1.table({...})` owns one object document validator;
+immutable `.index(...)` chaining validates and snapshots declarations through
+`@flarex/application-schema-definition`; and `standardV1.schema({...})` lowers
+the table catalog to the exact canonical declarative schema input. The API has
+no `global`, `partitionBy`, or `colocateWith` form. Those names remain legacy
+public-SDK and generated-source compatibility debt, while internal scope and
+physical topology remain backend authority. Relation authoring is still
+deferred until the internal relational vertical has completed its contract and
+ownership gates.
+
 ### Preserve Existing Owner Types
 
 `SAP01-A` introduces no alternative schema, function, module, artifact, or
