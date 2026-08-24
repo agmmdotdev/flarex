@@ -2,9 +2,11 @@
 
 Status: `R01` and the physical snapshot/access preflight `R01-P` completed on
 2026-08-23; `R02` stable binding, `S12` private edge storage, and `C09` private
-point-commit lowering completed on 2026-08-24. No relation runtime read or OCC
-registration, E01 build/readiness, RA01 activation, RQ01 query, public
-developer API, or Payload adapter is implemented.
+point-commit lowering completed on 2026-08-24. `E01-A-P` now freezes the first
+physical build/readiness implementation slice; its code is not yet complete.
+No relation runtime read or OCC registration, Application-wide E01 readiness
+fold, RA01 activation, RQ01 query, public developer API, or Payload adapter is
+implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1314,6 +1316,105 @@ Exit gates:
   revision;
 - activation remains blocked until O10-R closes and cannot expose an unready
   definition or a relation whose reverse/read/restrict semantics are disabled.
+
+#### [x] E01-A-P — Physical Build And Readiness Preflight
+
+The first implementation is one medium system-core slice, `E01-A`. It owns the
+complete target-local physical builder and an exact per-definition readiness
+receipt. `E01-B` remains a separate integration slice that folds those receipts
+into the current Application revision readiness root. E01 is not complete until
+both slices close.
+
+E01-A is keyed by the located scope and immutable physical edge-definition ID.
+Admission revalidates the exact R02 bound publication and definition body
+through the same factory-local relation capability used by C09. The mutable
+build head is keyed by `(scope_id, edge_definition_id)` and binds deployment,
+relation ID, physical-definition SHA-256, storage generation, generation fence,
+epoch, fixed start commit sequence `F`, attempt fence, lifecycle, bounded
+internal cursors, and validation counts. An immutable receipt row is keyed by
+`(scope_id, edge_definition_id, attempt_fence)` and retains the canonical
+readiness bytes, digest, counts, authority pins, `F`, and database-authored
+settlement time. Equal digests with unequal retained bytes are corruption.
+
+The persisted lifecycle is exactly:
+
+```text
+cleaning
+  -> backfilling
+  -> validating_sources
+  -> validating_edges
+  -> validating_versions
+  -> enabled
+```
+
+Every transition runs in one short located READ COMMITTED transaction after
+taking the existing scope-clock update lock. A step must observe the same
+generation/fence/epoch and `last_commit_seq = F` before it changes build state or
+S12 data. Any intervening authoritative commit invalidates the attempt: the
+next reconciliation increments the attempt fence, captures the new frontier,
+clears every cursor/count, and returns to `cleaning`. E01-A does not add a
+commit-time reset hook, dual-maintain an inactive definition, or create a second
+clock, OCC, journal, commit, feed, outbox, or retry owner.
+
+`cleaning` removes only the exact inactive definition's candidate current edges
+and adjacency versions through a bounded transaction-only S12 build facet.
+There is no unbounded `DELETE`, attempt-generation column on an edge, or
+in-place repair of an enabled definition. `backfilling` scans at most four
+authoritative row pointers per step in unsigned 16-byte row-ID order. Four is
+fixed because one admitted row may lower to 1,024 occurrences and C09's complete
+transaction ceiling is 4,096. Each selected row is reread under the lock,
+lowered through an authenticated single-definition view of the same pure C09
+lowerer, checked for current target liveness, and published through S12 at `F`.
+There is no caller-authored page size or cursor.
+
+Validation is independently replayed from row ID zero. Source validation proves
+the exact expected occurrence set for every current source row. Edge validation
+scans at most 128 stored occurrences per step, revalidates canonical occurrence
+bytes/digest, source extraction, target liveness, and both endpoint versions.
+Version validation scans at most 128 stored endpoint versions per step and
+rejects an orphan, wrong direction/key, wrong-definition row, or value other
+than `F`. These passes prove both directions: no expected occurrence/version is
+missing and no extra stored occurrence/version is accepted. Empty endpoints
+remain absent and therefore mean version `0`.
+
+A domain mismatch leaves the attempt non-enabled and returns typed diagnostic
+evidence. A later authoritative remediation commit invalidates and restarts it.
+Same-frontier sidecar repair requires the explicit factory-authenticated restart
+operation, which increments the attempt fence and re-enters bounded cleaning;
+it never edits an enabled receipt or reuses another definition's rows. SQL,
+stored-row, canonical-evidence, and decision-uncertainty failures remain
+distinct and fail closed. Retry observes durable head/receipt state rather than
+assuming that an uncertain transaction committed.
+
+E01-A may add only two narrow owner extensions: C09 may mint a same-factory
+single-definition prepared lowering value for this builder, and S12 may expose
+bounded definition cleanup/validation mechanics to that authenticated builder.
+Neither extension changes point-commit behavior or exposes a relation runtime
+read. The new build port is a lifecycle-free local factory because control DB,
+located target authority, and C09 capability instances must remain exact and
+multiple such instances may coexist; it is not a singleton Context service.
+
+E01-A closes only when focused PGlite and genuine-PostgreSQL proof covers empty
+and populated builds, bounded multi-page progress, replay, concurrent-frontier
+invalidation, target deletion, malformed relation values, replacement-definition
+isolation, injected rollback, exact edge/version validation, corruption, repair,
+and readiness receipt replay. The port remains private, production-inert, and
+unwired from activation or higher APIs.
+
+#### [ ] E01-A — Private Physical Edge-Definition Builder
+
+Implement the preflight above without changing Application-wide readiness,
+activation, relation OCC, or a runtime query.
+
+#### [ ] E01-B — Application Relation Readiness Fold
+
+Close the exact required-definition set for one inactive relation-bearing
+Application revision, revalidate every E01-A receipt against its R02 bound
+publication under the existing readiness transaction, and commit that set into
+the current Application readiness and later activation basis. This slice owns
+any necessary new persisted readiness-frame contract. It must preserve the
+current table/index readiness meaning rather than reinterpret its V1 bytes, and
+it still cannot activate before O10-R and RA01.
 
 ### [ ] O10-R — Prove One Exact Relation Read
 

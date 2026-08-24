@@ -956,6 +956,24 @@ Exit gates:
 - RA01 cannot expose forward storage, reverse reads, or `restrict` enforcement
   independently of the other two.
 
+The accepted implementation is split at the existing owner boundary:
+
+- `E01-A-P` is complete as a docs-only preflight. `E01-A` owns one private,
+  scope-clock-fenced physical edge-definition builder, bounded cleanup and
+  fixed-frontier backfill, independent source/edge/version validation, and an
+  immutable per-attempt physical readiness receipt. It restarts after frontier
+  movement instead of dual-maintaining inactive definitions.
+- `E01-B` later closes the exact required-definition set for the inactive
+  Application revision and folds only authenticated E01-A receipts plus the R02
+  bound-publication identity into Application readiness. It may evolve the
+  persisted readiness frame, but it may not reinterpret the existing V1
+  table/index readiness bytes.
+
+The precise E01-A state machine, fixed work ceilings, receipt identity, narrow
+C09/S12 owner extensions, uncertainty handling, and non-goals are frozen in
+[`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
+Neither slice activates a revision; E01 remains open until both are complete.
+
 ## App, Payload, And Medusa Boundaries
 
 App and ordinary Payload collection fields live in shared typed row JSON, so a

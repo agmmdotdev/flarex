@@ -801,8 +801,11 @@ Dynamic Worker binding baseline before selecting it.
     validate final target liveness, and enforce `restrict` after the
     transaction-local edge delta. No activation, relation read/OCC, higher API,
     or second commit authority was added.
-17. `E01`: build, validate, and enable each required edge definition before
-    reverse reads or deletion policy depend on it.
+17. `E01-A-P` (complete, docs-only): freeze one medium private physical-builder
+    slice with scope-fenced bounded cleanup, fixed-frontier backfill through the
+    C09 lowerer, independent edge/version validation, restart-on-frontier-change,
+    and immutable per-attempt readiness evidence. `E01-A` implementation and
+    `E01-B` Application-readiness folding remain open; E01 is not complete.
 18. `O10-R`: prove one exact bounded relation adjacency dependency, including
     snapshot-registration races, read-your-writes, pagination, and phantom
     conflict. SQL/PGQ remains later and optional.
