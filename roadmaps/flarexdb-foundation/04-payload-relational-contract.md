@@ -1434,6 +1434,95 @@ prove that the definition is non-serving, or introduce separate validation-only
 state, so bounded cleanup can never mutate active relation sidecars. This is an
 explicit integration gate rather than a caller convention.
 
+#### [x] E01-B-P — Application Relation Readiness Fold Preflight
+
+E01-B is two connected medium implementation checkpoints rather than one broad
+rewrite of the existing Application lifecycle. The first checkpoint owns the
+private relation-readiness core: exact R02 set preparation, bounded semantic
+reuse validation, E01-A receipt revalidation inside a caller-owned target
+transaction, and race-free non-serving admission for destructive build work.
+The second checkpoint composes that result into relation-aware Application
+publication, schema authority, cold materialization, and a distinct persisted
+Application readiness contract. Approval of this preflight authorizes both
+checkpoints in that order, but E01-B and E01 remain open until both close.
+
+The relation-readiness core is one factory-local capability constructed from
+the exact R02/C09 relation capability, E01-A build capability, control database,
+and located scope authority. It prepares one nominal token from the retained
+manifest-to-bound-schema commitment and complete R02 bound publication. The
+required set comes only from the dense R02 relation bindings in relation-ordinal
+order, never from build heads or caller-authored IDs. Preparation pins the
+deployment, manifest SHA-256, Application schema SHA-256, schema version and
+manifest SHA-256, bound-publication SHA-256, semantic and physical definitions,
+evolution lineage, and the deduplicated physical-definition set.
+
+Final validation runs inside the existing caller-owned located transaction
+after its scope-clock lock. One narrow same-factory E01-A facet rereads each
+required immutable physical receipt without opening another transaction. Every
+receipt must retain exact canonical bytes and digest and agree on scope,
+deployment, relation and edge-definition identity, semantic and physical
+definition digests, storage generation and fence, epoch, fixed frontier,
+attempt fence, counts, and the already-locked current commit sequence. Missing,
+extra, stale, moved, incomplete, or corrupt evidence fails closed. Multiple
+semantic bindings may name one physical definition, but physical work is
+deduplicated while each semantic-to-physical lineage remains explicit in the
+ordered result.
+
+An R02 `preserve` plus `reuse` binding whose semantic digest moved cannot
+reinterpret the original E01-A receipt. It receives separate durable
+validation-only state keyed by `(scope_id, schema_version_id,
+relation_ordinal)`. The state pins the new bound publication and semantic
+binding, exact origin coordinates, original physical receipt, authority and
+frontier, attempt fence, bounded source/edge/version cursors, and counts. Its
+lifecycle is exactly:
+
+```text
+validating_sources
+  -> validating_edges
+  -> validating_versions
+  -> ready
+```
+
+It reuses E01-A's fixed four-source and 128-edge/version page ceilings and the
+same C09/S12 validation mechanics, but can never enter cleaning or backfill and
+can never write an edge or adjacency version. Frontier movement increments only
+the semantic-validation attempt, clears its validation cursors/counts, and
+starts again at `validating_sources`. Settlement retains a new immutable
+semantic-readiness receipt that references the original physical receipt and
+the exact R02 lineage. Chained reuse follows the immediate retained origin;
+there is no digest-only or name-based shortcut.
+
+Before E01-A inserts or restarts a physical head, cleans candidate sidecars, or
+automatically reconciles a physical attempt after frontier movement, it checks
+serving state under the same scope-clock update lock. The check follows the
+current active head and its exact persisted Application relation-readiness
+children by edge-definition ID. A serving definition returns a dedicated typed
+failure without changing the head, receipt, edges, or versions. Validation-only
+semantic reuse remains allowed for a serving definition because it performs no
+sidecar writes. This is an authenticated transaction invariant, not a caller
+promise that a revision is inactive.
+
+The Application integration checkpoint must accept the unversioned
+`ApplicationManifest` union at publication, schema-authority, readiness, and
+cold-materialization boundaries. Relation-bearing input is never down-projected
+and persisted as V1. Existing `flarex.application-readiness` version 1 bytes,
+tables, decoder, activation foreign keys, and table/index/unique meaning remain
+exact. Relation-bearing readiness uses a distinct persisted frame generation
+and atomically retained ordered relation children. Its root includes the R02
+bound-publication digest and relation-set digest in addition to the existing
+Application, task, cold, candidate, table/index, and unique evidence. The
+current activation owner must remain unable to consume this result; O10-R and
+RA01 still own relation read/OCC proof and activation admission.
+
+Focused PGlite and genuine-PostgreSQL proof must cover exact empty/one/many and
+deduplicated sets, prepare-versus-settle movement, missing and corrupt physical
+receipts, semantic reuse and chained reuse with zero sidecar writes, frontier
+restart, active-serving cleanup rejection, inactive replacement cleanup,
+rollback, replay, concurrent settlement, retained V1 byte exactness, and
+relation-ready activation rejection. No checkpoint adds a relation read, OCC
+registration, active head, public API, route, Payload/Medusa adapter, second
+transaction owner, dual write, fallback, feed, outbox, or production caller.
+
 #### [ ] E01-B — Application Relation Readiness Fold
 
 Close the exact required-definition set for one inactive relation-bearing
