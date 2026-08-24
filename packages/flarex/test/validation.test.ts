@@ -3,6 +3,7 @@ import {
   validateFunctionArgs,
   validateValue,
   functionArgsToValidatorJson,
+  Validator,
   ValidationError,
   v,
 } from "../src/values";
@@ -19,7 +20,7 @@ describe("runtime validation", () => {
     expect(() => validateValue(validator, { name: "Ada", profile: { age: 20 } })).not.toThrow();
     expect(() =>
       validateValue(validator, { name: "Ada", profile: { age: "20" } }),
-    ).toThrowError("$\.profile.age: Expected a finite number.");
+    ).toThrowError("$\.profile.age: Expected a number.");
   });
 
   it("rejects missing and extra function arguments", () => {
@@ -60,6 +61,48 @@ describe("runtime validation", () => {
         role: "admin",
       }),
     ).toThrowError(ValidationError);
+  });
+
+  it("uses the protocol number domain and rejects non-Flarex values", () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -0]) {
+      expect(() => validateValue(v.number(), value)).not.toThrow();
+    }
+    expect(() => validateValue(v.any(), new Date())).toThrow(
+      "$: Expected a valid Flarex value.",
+    );
+  });
+
+  it("rejects schema literals that the protocol cannot persist", () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -0]) {
+      expect(() => v.literal(value)).toThrow(RangeError);
+    }
+    expect(() => new Validator(
+      "literal",
+      { type: "literal", value: Number.NaN },
+      "required",
+    )).toThrow();
+  });
+
+  it("does not trust structurally forged validator facades", () => {
+    const malformed = {
+      isFlarexValidator: true,
+      json: { type: "not-a-validator" },
+    };
+    // @ts-expect-error Deliberately exercise an untyped JavaScript caller.
+    expect(() => validateValue(malformed, "anything")).toThrow(
+      "$validator.json: Invalid validator JSON.",
+    );
+  });
+
+  it("preserves unexpected normalization defects", () => {
+    const defect = new Error("hostile proxy defect");
+    const hostile = new Proxy({}, {
+      getPrototypeOf() {
+        throw defect;
+      },
+    });
+
+    expect(() => validateValue(v.any(), hostile)).toThrow(defect);
   });
 
   it("preserves domain errors at generic record boundaries", () => {

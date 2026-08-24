@@ -4,6 +4,7 @@ import type {
   ObjectValidatorJsonV1 as ObjectValidatorJsonV1Type,
   ValidatorJsonV1 as ValidatorJsonV1Type,
 } from "./validator-json-core";
+import { validatorJsonAdmissionIssueV1 } from "./validator-json-core";
 
 export {
   MAX_VALIDATOR_JSON_DEPTH_V1,
@@ -75,6 +76,23 @@ export const ValidatorJsonV1: Schema.Codec<ValidatorJsonV1> =
 
 export const ObjectValidatorJsonV1: Schema.Codec<ObjectValidatorJsonV1> =
   Schema.suspend(objectValidatorJsonV1Schema);
+
+const decodeValidatorJsonV1Sync = Schema.decodeUnknownSync(ValidatorJsonV1);
+
+/**
+ * Bounded unknown-input decoder for the protocol validator contract.
+ * Authoring helpers construct exact values directly; trust boundaries use
+ * this operation before analysis, persistence, or runtime interpretation.
+ */
+export function decodeValidatorJsonV1(value: unknown): ValidatorJsonV1 {
+  const admissionIssue = validatorJsonAdmissionIssueV1(value);
+  if (admissionIssue !== undefined) {
+    throw new TypeError(
+      `Validator JSON admission failed: ${admissionIssue.reason}.`,
+    );
+  }
+  return decodeValidatorJsonV1Sync(value);
+}
 
 export type ValidatorJson = ValidatorJsonV1;
 export const ValidatorJson = ValidatorJsonV1;

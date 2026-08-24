@@ -51,6 +51,7 @@ const productionSourceExtensions = new Set([
 ]);
 const expectedRuntimeDependencies = new Map([
   ["@flarex/analysis", "workspace:*"],
+  ["@flarex/application-schema-definition", "workspace:*"],
   ["@flarex/declarative-materializer", "workspace:*"],
   ["@flarex/declarative-program", "workspace:*"],
   ["@flarex/durable-task", "workspace:*"],
@@ -59,6 +60,7 @@ const expectedRuntimeDependencies = new Map([
   ["flarex-protocol", "workspace:*"],
 ]);
 const shippedDefinitionAllowedProductionImports = new Set([
+  "@flarex/application-schema-definition/validator-json",
   "@flarex/declarative-materializer/v1",
   "@flarex/declarative-program/v1",
   "effect",

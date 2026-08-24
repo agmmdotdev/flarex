@@ -306,6 +306,7 @@ describe("shared analyzer semantics", () => {
               kind: "query",
               visibility: "public",
               args: objectValidator({
+                // @ts-expect-error Deliberately exercise malformed legacy metadata.
                 value: { fieldType: { type: "literal", value: 1n }, optional: false },
               }),
               returns: null,
@@ -334,6 +335,7 @@ describe("shared analyzer semantics", () => {
               optional: false,
             },
             later: {
+              // @ts-expect-error Deliberately exercise failure-order handling.
               fieldType: { type: "literal", value: 1n },
               optional: false,
             },

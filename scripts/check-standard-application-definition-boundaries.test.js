@@ -14,6 +14,7 @@ describe("Standard Application definition boundary checker", () => {
       [{
         relativePath: sourcePath,
         text: `
+          import { applicationScalarValidatorJson } from "@flarex/application-schema-definition/validator-json";
           import { Result } from "effect";
           import type { CanonicalDeclarativeProgramV1 } from "@flarex/declarative-program/v1";
           import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
@@ -203,7 +204,8 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition runtime dependencies must be exactly: @flarex/analysis, @flarex/declarative-materializer, @flarex/declarative-program, @flarex/durable-task, @flarex/utils, effect, flarex-protocol.",
+      "Standard Application definition runtime dependencies must be exactly: @flarex/analysis, @flarex/application-schema-definition, @flarex/declarative-materializer, @flarex/declarative-program, @flarex/durable-task, @flarex/utils, effect, flarex-protocol.",
+      "Standard Application definition dependency @flarex/application-schema-definition must use workspace:*.",
       "Standard Application definition dependency @flarex/declarative-materializer must use workspace:*.",
       "Standard Application definition dependency @flarex/durable-task must use workspace:*.",
       "Standard Application definition dependency @flarex/utils must use workspace:*.",
@@ -426,6 +428,7 @@ function validManifest() {
     },
     dependencies: {
       "@flarex/analysis": "workspace:*",
+      "@flarex/application-schema-definition": "workspace:*",
       "@flarex/declarative-materializer": "workspace:*",
       "@flarex/declarative-program": "workspace:*",
       "@flarex/durable-task": "workspace:*",

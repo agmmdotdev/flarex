@@ -29,6 +29,7 @@ export type ValidatorIdPolicyV1 =
   | { readonly mode: "tableAware"; readonly check: (
       tableName: string,
       value: string,
+      path: string,
     ) => "valid" | "invalid" | "unavailable" };
 
 export interface ValidateValidatorValueV1Options {
@@ -138,7 +139,7 @@ function validateId(
 ): ValidatorValueIssueV1 | undefined {
   if (typeof value !== "string") return mismatch(path, "id");
   if (policy.mode === "shapeOnly") return undefined;
-  const verdict = policy.check(tableName, value);
+  const verdict = policy.check(tableName, value, path);
   if (verdict === "valid") return undefined;
   return verdict === "unavailable"
     ? { reason: "idAuthorityUnavailable", path, tableName }

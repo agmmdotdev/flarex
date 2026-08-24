@@ -4,6 +4,16 @@ import type {
   CanonicalDeclarativeFunctionVisibilityV1,
   CanonicalDeclarativeModuleInputV1,
 } from "@flarex/declarative-program/v1";
+import {
+  applicationArrayValidatorJson,
+  applicationIdValidatorJson,
+  applicationLiteralValidatorJson,
+  applicationObjectValidatorJson,
+  applicationRecordValidatorJson,
+  applicationScalarValidatorJson,
+  applicationUnionValidatorJson,
+  snapshotApplicationValidatorJson,
+} from "@flarex/application-schema-definition/validator-json";
 import type {
   ObjectValidatorJsonV1,
   ValidatorJsonV1,
@@ -54,7 +64,10 @@ export class StandardValidatorV1<
 export function standardValidatorV1FromExactJsonV1(
   json: ValidatorJsonV1,
 ): StandardValidatorV1<unknown, "required"> {
-  return new StandardValidatorV1(snapshotExactValidatorJsonV1(json), "required");
+  return new StandardValidatorV1(
+    snapshotApplicationValidatorJson(json),
+    "required",
+  );
 }
 
 export type InferStandardValidatorV1<Validator> =
@@ -228,78 +241,6 @@ function requiredValidatorV1<Value>(
   return new StandardValidatorV1(json, "required");
 }
 
-function snapshotExactValidatorJsonV1(
-  json: ValidatorJsonV1,
-): ValidatorJsonV1 {
-  switch (json.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return scalarValidatorJsonV1(json.type);
-    case "id":
-      return Object.freeze({ type: "id", tableName: json.tableName });
-    case "literal":
-      return Object.freeze({ type: "literal", value: json.value });
-    case "array":
-      return Object.freeze({
-        type: "array",
-        value: snapshotExactValidatorJsonV1(json.value),
-      });
-    case "object": {
-      const value: Record<
-        string,
-        Readonly<{
-          readonly fieldType: ValidatorJsonV1;
-          readonly optional: boolean;
-        }>
-      > = Object.create(null) as Record<
-        string,
-        Readonly<{
-          readonly fieldType: ValidatorJsonV1;
-          readonly optional: boolean;
-        }>
-      >;
-      for (const [fieldName, field] of Object.entries(json.value)) {
-        Object.defineProperty(value, fieldName, {
-          enumerable: true,
-          configurable: false,
-          writable: false,
-          value: Object.freeze({
-            fieldType: snapshotExactValidatorJsonV1(field.fieldType),
-            optional: field.optional,
-          }),
-        });
-      }
-      Object.freeze(value);
-      return Object.freeze({ type: "object", value });
-    }
-    case "record":
-      return Object.freeze({
-        type: "record",
-        keys: snapshotExactValidatorJsonV1(json.keys),
-        values: snapshotExactValidatorJsonV1(json.values),
-      });
-    case "union":
-      return Object.freeze({
-        type: "union",
-        value: Object.freeze(json.value.map(snapshotExactValidatorJsonV1)),
-      });
-  }
-}
-
-function scalarValidatorJsonV1(
-  type: Extract<
-    ValidatorJsonV1,
-    { readonly type: "null" | "number" | "bigint" | "boolean" | "string" | "bytes" | "any" }
-  >["type"],
-): ValidatorJsonV1 {
-  return Object.freeze({ type });
-}
-
 function objectValidatorV1<Fields extends StandardValidatorRecordV1>(
   fields: Fields,
 ): StandardValidatorV1<
@@ -310,24 +251,18 @@ function objectValidatorV1<Fields extends StandardValidatorRecordV1>(
   const value: Record<
     string,
     Readonly<{ readonly fieldType: ValidatorJsonV1; readonly optional: boolean }>
-  > = Object.create(null) as Record<
-    string,
-    Readonly<{ readonly fieldType: ValidatorJsonV1; readonly optional: boolean }>
-  >;
+  > = Object.create(null);
   for (const [fieldName, field] of Object.entries(fields)) {
     Object.defineProperty(value, fieldName, {
       enumerable: true,
-      configurable: false,
-      writable: false,
-      value: Object.freeze({
+      value: {
         fieldType: field.json,
         optional: field.optionality === "optional",
-      }),
+      },
     });
   }
-  Object.freeze(value);
   return new StandardValidatorV1(
-    Object.freeze({ type: "object", value }),
+    applicationObjectValidatorJson(value),
     "required",
   );
 }
@@ -350,63 +285,58 @@ function functionContractV1<
 
 export const standardV1 = Object.freeze({
   null: (): StandardValidatorV1<null, "required"> =>
-    requiredValidatorV1(scalarValidatorJsonV1("null")),
+    requiredValidatorV1(applicationScalarValidatorJson("null")),
   number: (): StandardValidatorV1<number, "required"> =>
-    requiredValidatorV1(scalarValidatorJsonV1("number")),
+    requiredValidatorV1(applicationScalarValidatorJson("number")),
   bigint: (): StandardValidatorV1<bigint, "required"> =>
-    requiredValidatorV1(scalarValidatorJsonV1("bigint")),
+    requiredValidatorV1(applicationScalarValidatorJson("bigint")),
   boolean: (): StandardValidatorV1<boolean, "required"> =>
-    requiredValidatorV1(scalarValidatorJsonV1("boolean")),
+    requiredValidatorV1(applicationScalarValidatorJson("boolean")),
   string: (): StandardValidatorV1<string, "required"> =>
-    requiredValidatorV1(scalarValidatorJsonV1("string")),
+    requiredValidatorV1(applicationScalarValidatorJson("string")),
   bytes: (): StandardValidatorV1<ArrayBuffer, "required"> =>
-    requiredValidatorV1(scalarValidatorJsonV1("bytes")),
+    requiredValidatorV1(applicationScalarValidatorJson("bytes")),
   any: (): StandardValidatorV1<
     unknown,
     "required",
     Readonly<{ readonly type: "any" }>
-  > => new StandardValidatorV1(Object.freeze({ type: "any" }), "required"),
+  > => new StandardValidatorV1(
+    applicationScalarValidatorJson("any"),
+    "required",
+  ),
   id: <TableName extends string>(
     tableName: TableName,
   ): StandardValidatorV1<StandardIdV1<TableName>, "required"> =>
-    requiredValidatorV1(Object.freeze({ type: "id", tableName })),
+    requiredValidatorV1(applicationIdValidatorJson(tableName)),
   literal: <Literal extends string | number | boolean>(
     value: Literal,
   ): StandardValidatorV1<Literal, "required"> => {
-    if (
-      typeof value === "number" &&
-      (!Number.isFinite(value) || Object.is(value, -0))
-    ) {
-      throw new RangeError(
-        "Standard numeric validator literals must be finite and not negative zero.",
-      );
-    }
-    return requiredValidatorV1(Object.freeze({ type: "literal", value }));
+    return requiredValidatorV1(applicationLiteralValidatorJson(value));
   },
   array: <Value>(
     value: StandardValidatorV1<Value, "required">,
   ): StandardValidatorV1<ReadonlyArray<Value>, "required"> =>
-    requiredValidatorV1(Object.freeze({ type: "array", value: value.json })),
+    requiredValidatorV1(applicationArrayValidatorJson(value.json)),
   object: objectValidatorV1,
   record: <Key, Value>(
     keys: StandardValidatorV1<Key, "required">,
     values: StandardValidatorV1<Value, "required">,
   ): StandardValidatorV1<Readonly<Record<string, Value>>, "required"> =>
-    requiredValidatorV1(Object.freeze({
-      type: "record",
-      keys: keys.json,
-      values: values.json,
-    })),
+    requiredValidatorV1(
+      applicationRecordValidatorJson(keys.json, values.json),
+    ),
   union: <Members extends readonly [
     StandardValidatorV1<unknown, "required">,
     ...ReadonlyArray<StandardValidatorV1<unknown, "required">>,
   ]>(
     ...members: Members
-  ): StandardValidatorV1<InferStandardValidatorV1<Members[number]>, "required"> =>
-    requiredValidatorV1(Object.freeze({
-      type: "union",
-      value: Object.freeze(members.map(member => member.json)),
-    })),
+  ): StandardValidatorV1<InferStandardValidatorV1<Members[number]>, "required"> => {
+    const [first, ...rest] = members;
+    return requiredValidatorV1(applicationUnionValidatorJson([
+      first.json,
+      ...rest.map(member => member.json),
+    ]));
+  },
   optional: <Value>(
     validator: StandardValidatorV1<Value, "required">,
   ): StandardValidatorV1<Value, "optional"> =>
@@ -414,10 +344,10 @@ export const standardV1 = Object.freeze({
   nullable: <Value>(
     validator: StandardValidatorV1<Value, "required">,
   ): StandardValidatorV1<Value | null, "required"> =>
-    requiredValidatorV1(Object.freeze({
-      type: "union",
-      value: Object.freeze([validator.json, scalarValidatorJsonV1("null")]),
-    })),
+    requiredValidatorV1(applicationUnionValidatorJson([
+      validator.json,
+      applicationScalarValidatorJson("null"),
+    ])),
   function: functionContractV1,
   publicQuery: <
     ArgsValidator extends StandardFunctionArgsValidatorV1,

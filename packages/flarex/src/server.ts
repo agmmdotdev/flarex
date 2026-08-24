@@ -1,4 +1,5 @@
 import { isValidator, v } from "./values";
+import { validatorToJson } from "./validation";
 import type { Auth } from "./auth";
 import type {
   GenericValidator,
@@ -276,19 +277,14 @@ function exportPartition(functionDefinition: FunctionDefinition<unknown>): () =>
 }
 
 function validatorJson(validator: FunctionArgsValidator | DefinedReturnValidator): unknown {
-  if (isValidator(validator)) return validator.json;
-  return {
-    type: "object",
-    value: Object.fromEntries(
-      Object.entries(validator).map(([name, field]) => [
-        name,
-        {
-          fieldType: field?.json,
-          optional: field?.isOptional === "optional",
-        },
-      ]),
-    ),
-  };
+  if (!isValidator(validator)) {
+    for (const field of Object.values(validator)) {
+      if (field === undefined) {
+        throw new Error('A validator is undefined for field "fieldType".');
+      }
+    }
+  }
+  return validatorToJson(validator);
 }
 
 function register<

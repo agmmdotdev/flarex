@@ -256,7 +256,7 @@ describe("Convex-style function registration", () => {
     );
   });
 
-  it("rejects numeric validator literals that JSON cannot preserve", () => {
+  it("rejects numeric literals when the schema is authored", () => {
     for (
       const value of [
         Number.NaN,
@@ -265,15 +265,27 @@ describe("Convex-style function registration", () => {
         -0,
       ]
     ) {
-      const fn = query({
-        args: {},
-        returns: v.literal(value),
-        handler: async () => value,
-      });
-      expect(() => fn.exportReturns()).toThrowError(
-        'Validator numeric literal for field "value" must be finite and must not be negative zero.',
+      expect(() => v.literal(value)).toThrowError(
+        "Application numeric validator literals must be finite and not negative zero.",
       );
     }
+  });
+
+  it("rejects forged validator metadata during function registration export", () => {
+    const malformed = {
+      isFlarexValidator: true,
+      isOptional: "required",
+      json: { type: "not-a-validator" },
+    };
+    const fn = query({
+      // @ts-expect-error Deliberately exercise an untyped JavaScript caller.
+      args: { value: malformed },
+      handler: async () => null,
+    });
+
+    expect(() => fn.exportArgs()).toThrow(
+      "$validator.value.json: Invalid validator JSON.",
+    );
   });
 
   it("narrows mutation writer tables from partition scope metadata", () => {

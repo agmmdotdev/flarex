@@ -188,6 +188,35 @@ describe("ValidatorJsonV1 execution", () => {
       expect(invalid.failure.message).not.toContain("malformed");
     }
   });
+
+  it("provides the exact field path to table-aware ID policy", () => {
+    const observations: Array<readonly [string, string, string]> = [];
+    const result = validateValidatorValueV1(
+      {
+        type: "object",
+        value: {
+          ownerId: {
+            optional: false,
+            fieldType: { type: "id", tableName: "users" },
+          },
+        },
+      },
+      normalizeFlarexValueV1({ ownerId: "1:user" }).value,
+      {
+        path: "$args",
+        idPolicy: {
+          mode: "tableAware",
+          check: (tableName, value, path) => {
+            observations.push([tableName, value, path]);
+            return "valid";
+          },
+        },
+      },
+    );
+
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(observations).toEqual([["users", "1:user", "$args.ownerId"]]);
+  });
 });
 
 function float64FromBits(bits: bigint): number {

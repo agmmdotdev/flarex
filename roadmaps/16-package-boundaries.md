@@ -680,6 +680,52 @@ semantics.
   remain with their owners. Backend adapters use one backend-owned boundary to
   detach readonly protocol JSON into the writable backend representation.
 
+## Application Schema Authoring Boundary
+
+The public `flarex` SDK and private Standard Application producer must not own
+independent meanings for `string`, `number`, `object`, table, index, or future
+relation declarations. Developer-facing spelling and TypeScript inference may
+differ, but every supported producer must lower through one pure application-
+schema definition owner into the exact protocol-owned `ValidatorJsonV1` and
+relation contracts. Backend analysis, compatibility, persistence, readiness,
+activation, and runtime validation consume those protocol contracts; they do
+not inspect or trust SDK builder instances.
+
+`@flarex/application-schema-definition` is the narrow shared authoring owner.
+It may own immutable validator construction, defensive ownership of exact
+validator metadata, and later the pure table/index/relation definition graph.
+It depends on `flarex-protocol`, may use domain-neutral `@flarex/utils`
+primitives, and must remain independent of analysis, materialization,
+persistence, runtimes, hosts, deployment, readiness, activation, and framework
+adapters. It is not a runtime validator, wire decoder, managed-schema planner,
+database schema, universal schema library, or public SDK by itself.
+
+Migration proceeds compatibility-first:
+
+1. the private Standard authoring surface consumes the shared owner and retains
+   its exact `standardV1` contract;
+2. public `v.*` becomes a thin typed facade over the same exact validator
+   construction, while protocol decoding and the protocol validator engine
+   remain the only backend interpretation authorities;
+3. cross-surface vectors prove byte-for-byte validator metadata agreement and
+   the same accepted/rejected runtime-value corpus;
+4. table and index authoring move only after validator parity is green; and
+5. relation ergonomics remain deferred until the internal Standard relation
+   vertical is complete, then lower to the already frozen relation protocol
+   rather than introducing a second relational AST.
+
+Compatibility adapters may preserve an established error class or developer-
+facing message, but they must project protocol failures rather than reimplement
+validator traversal. Unsupported or malformed SDK metadata remains
+defensively rejected by analysis even after ordinary SDK constructors can no
+longer create it. Exact protocol rejection at the analyzer ingress precedes
+later producer-specific partition checks and canonical-program budget checks;
+malformed metadata is not carried farther merely to preserve the diagnostic
+order of the displaced permissive SDK parser. A new validator or relation
+variant is incomplete until the protocol codec, canonical program, analyzer,
+compatibility policy, runtime validator, authoring vectors, and every enabled
+execution path agree.
+
 ## Known Gaps And Limitations
 
 - No general package-import DAG checker currently enforces all ownership rules.

@@ -1,4 +1,15 @@
-import { isNonArrayRecord } from "@flarex/utils/records";
+import { applicationObjectValidatorJson } from "@flarex/application-schema-definition/validator-json";
+import {
+  validateValidatorValueIssueV1,
+  type ValidatorValueExpectedV1,
+  type ValidatorValueIssueV1,
+} from "flarex-protocol/internal/validator-engine-core";
+import {
+  FlarexValueCodecV1Error,
+  normalizeFlarexValueV1,
+} from "flarex-protocol/value";
+
+import { assertValidatorJson } from "./validatorJson.ts";
 import type {
   GenericValidator,
   PropertyValidators,
@@ -25,7 +36,34 @@ export function validateValue(
   path = "$",
   options: ValidationOptions = {},
 ): void {
-  validateJson(validatorToJson(validator), value, path, options);
+  const validatorJson = validatorToJson(validator);
+  let normalized;
+  try {
+    normalized = normalizeFlarexValueV1(value);
+  } catch (cause) {
+    if (!(cause instanceof FlarexValueCodecV1Error)) throw cause;
+    throw new ValidationError(
+      `Expected a valid Flarex value. ${cause.message}`,
+      path,
+    );
+  }
+  const issue = validateValidatorValueIssueV1(
+    validatorJson,
+    normalized.value,
+    options.validateId === undefined
+      ? { path, idPolicy: { mode: "shapeOnly" } }
+      : {
+          path,
+          idPolicy: {
+            mode: "tableAware",
+            check: (tableName, id, issuePath) => {
+              options.validateId?.(tableName, id, issuePath);
+              return "valid";
+            },
+          },
+        },
+  );
+  if (issue !== undefined) throw validationErrorFromIssue(issue);
 }
 
 export function validateFunctionArgs(
@@ -33,117 +71,118 @@ export function validateFunctionArgs(
   value: unknown,
   options: ValidationOptions = {},
 ): void {
-  validateJson(validatorToJson(args), value, "$args", options);
+  validateValue(args, value, "$args", options);
 }
 
 export function validatorToJson(
   validator: GenericValidator | PropertyValidators | ValidatorJSON,
 ): ValidatorJSON {
-  if ("isFlarexValidator" in validator) return validator.json;
-  if (typeof (validator as { type?: unknown }).type === "string") {
-    return validator as ValidatorJSON;
+  if (isGenericValidator(validator)) {
+    return requiredValidatorJson(validator.json, "$validator.json");
   }
-  return functionArgsToValidatorJson(validator as PropertyValidators);
+  if (Object.hasOwn(validator, "type") && typeof validator.type === "string") {
+    const decoded = assertValidatorJson(validator);
+    if (decoded === null) {
+      throw new Error("$validator: Validator is required.");
+    }
+    return decoded;
+  }
+  if (isPropertyValidators(validator)) {
+    return functionArgsToValidatorJson(validator);
+  }
+  throw new Error("$validator: Expected a validator or validator field map.");
 }
 
 export function functionArgsToValidatorJson(
   args: GenericValidator | PropertyValidators,
 ): ValidatorJSON {
-  if ("isFlarexValidator" in args) return args.json;
-  return {
-    type: "object",
-    value: Object.fromEntries(
-      Object.entries(args).map(([name, validator]) => [
-        name,
-        {
-          fieldType: validator?.json,
-          optional: validator?.isOptional === "optional",
-        },
-      ]),
-    ),
-  };
+  if (isGenericValidator(args)) {
+    return requiredValidatorJson(args.json, "$validator.json");
+  }
+  const fields: Record<
+    string,
+    Readonly<{ readonly fieldType: ValidatorJSON; readonly optional: boolean }>
+  > = Object.create(null);
+  for (const [name, validator] of Object.entries(args)) {
+    Object.defineProperty(fields, name, {
+      enumerable: true,
+      value: {
+        fieldType: requiredValidatorJson(
+          validator.json,
+          `$validator.${name}.json`,
+        ),
+        optional: validator.isOptional === "optional",
+      },
+    });
+  }
+  return applicationObjectValidatorJson(fields);
 }
 
-function validateJson(
-  validator: ValidatorJSON,
-  value: unknown,
-  path: string,
-  options: ValidationOptions,
-): void {
-  switch (validator.type) {
-    case "any":
-      return;
-    case "null":
-      return expect(value === null, "Expected null.", path);
-    case "number":
-      return expect(typeof value === "number" && Number.isFinite(value), "Expected a finite number.", path);
-    case "bigint":
-      return expect(typeof value === "bigint", "Expected a bigint.", path);
-    case "boolean":
-      return expect(typeof value === "boolean", "Expected a boolean.", path);
-    case "string":
-      return expect(typeof value === "string", "Expected a string.", path);
-    case "bytes":
-      return expect(value instanceof ArrayBuffer, "Expected an ArrayBuffer.", path);
-    case "id":
-      expect(typeof value === "string", `Expected an ID for table ${validator.tableName}.`, path);
-      options.validateId?.(validator.tableName, value, path);
-      return;
-    case "literal":
-      return expect(value === validator.value, `Expected literal ${String(validator.value)}.`, path);
-    case "array":
-      expect(Array.isArray(value), "Expected an array.", path);
-      value.forEach((element, index) =>
-        validateJson(validator.value, element, `${path}[${index}]`, options),
+function validationErrorFromIssue(issue: ValidatorValueIssueV1): ValidationError {
+  switch (issue.reason) {
+    case "typeMismatch":
+      return new ValidationError(typeMismatchMessage(issue.expected), issue.path);
+    case "literalMismatch":
+      return new ValidationError(
+        `Expected a ${issue.literalType} literal.`,
+        issue.path,
       );
-      return;
-    case "object":
-      validateObject(validator.value, value, path, options);
-      return;
-    case "record":
-      expect(isNonArrayRecord(value), "Expected an object.", path);
-      for (const [key, entry] of Object.entries(value)) {
-        validateJson(validator.keys, key, `${path}.${key} (key)`, options);
-        validateJson(validator.values, entry, `${path}.${key}`, options);
-      }
-      return;
-    case "union": {
-      for (const member of validator.value) {
-        try {
-          validateJson(member, value, path, options);
-          return;
-        } catch (error) {
-          if (!(error instanceof ValidationError)) throw error;
-        }
-      }
-      throw new ValidationError("Value does not match any union member.", path);
-    }
+    case "missingRequiredField":
+      return new ValidationError("Required field is missing.", issue.path);
+    case "unexpectedField":
+      return new ValidationError("Field is not allowed.", issue.path);
+    case "unionMismatch":
+      return new ValidationError("Value does not match any union member.", issue.path);
+    case "idMismatch":
+      return new ValidationError(
+        `Expected an ID for table ${issue.tableName}.`,
+        issue.path,
+      );
+    case "idAuthorityUnavailable":
+      return new ValidationError(
+        `ID authority is unavailable for table ${issue.tableName}.`,
+        issue.path,
+      );
   }
 }
 
-function validateObject(
-  fields: Record<string, { fieldType: ValidatorJSON; optional: boolean }>,
-  value: unknown,
-  path: string,
-  options: ValidationOptions,
-): void {
-  expect(isNonArrayRecord(value), "Expected an object.", path);
-  for (const [name, field] of Object.entries(fields)) {
-    if (!Object.hasOwn(value, name)) {
-      if (!field.optional) throw new ValidationError("Required field is missing.", `${path}.${name}`);
-      continue;
-    }
-    validateJson(field.fieldType, value[name], `${path}.${name}`, options);
-  }
-  for (const name of Object.keys(value)) {
-    if (!Object.hasOwn(fields, name)) {
-      throw new ValidationError("Field is not allowed.", `${path}.${name}`);
-    }
+function typeMismatchMessage(expected: ValidatorValueExpectedV1): string {
+  switch (expected) {
+    case "null": return "Expected null.";
+    case "number": return "Expected a number.";
+    case "bigint": return "Expected a bigint.";
+    case "boolean": return "Expected a boolean.";
+    case "string": return "Expected a string.";
+    case "bytes": return "Expected an ArrayBuffer.";
+    case "id": return "Expected an ID.";
+    case "array": return "Expected an array.";
+    case "object": return "Expected an object.";
   }
 }
 
-function expect(condition: boolean, message: string, path: string): asserts condition {
-  if (!condition) throw new ValidationError(message, path);
+function isPropertyValidators(value: unknown): value is PropertyValidators {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every((field) =>
+    isGenericValidator(field)
+  );
+}
+
+function isGenericValidator(value: unknown): value is GenericValidator {
+  return typeof value === "object"
+    && value !== null
+    && "isFlarexValidator" in value
+    && value.isFlarexValidator === true
+    && "json" in value
+    && typeof value.json === "object"
+    && value.json !== null;
+}
+
+function requiredValidatorJson(value: unknown, path: string): ValidatorJSON {
+  const decoded = assertValidatorJson(value, path);
+  if (decoded === null) throw new Error(`${path}: Validator is required.`);
+  return decoded;
 }
 
 export { assertValidatorJson } from "./validatorJson.ts";

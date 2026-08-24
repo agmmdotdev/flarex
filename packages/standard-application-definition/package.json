@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/application-schema-definition": "workspace:*",
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
     "@flarex/durable-task": "workspace:*",

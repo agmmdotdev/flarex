@@ -59,6 +59,33 @@ const sdkSchema = defineSchema({
   }).index("by_status", ["status"]),
 });
 
+function malformedSdkLiteral(value: unknown) {
+  return {
+    isFlarexValidator: true,
+    isOptional: "required",
+    json: { type: "literal", value },
+  };
+}
+
+function schemaWithMalformedSdkLiteral() {
+  const table = defineGlobalTable({ status: v.string() });
+  Object.defineProperty(table, "validator", {
+    value: {
+      isFlarexValidator: true,
+      json: {
+        type: "object",
+        value: {
+          status: {
+            fieldType: { type: "literal", value: Number.NaN },
+            optional: false,
+          },
+        },
+      },
+    },
+  });
+  return defineSchema({ orders: table });
+}
+
 function directProgramInput() {
   return {
     format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
@@ -233,7 +260,7 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
     });
   });
 
-  it("preserves function-partition rejection before exact validator narrowing", async () => {
+  it("rejects malformed schema metadata before inspecting function partitions", async () => {
     const partitioned = Object.assign(mutation({
       args: { status: v.string() },
       handler: async () => null,
@@ -244,9 +271,7 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
         partitionField: "_id",
       }),
     });
-    const schemaWithNonCanonicalLiteral = defineSchema({
-      orders: defineGlobalTable({ status: v.literal(Number.NaN) }),
-    });
+    const schemaWithNonCanonicalLiteral = schemaWithMalformedSdkLiteral();
 
     await expect(Effect.runPromise(
       canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
@@ -255,44 +280,29 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
           orders: { partitioned },
         },
       }, BUDGET),
-    )).rejects.toMatchObject({
-      _tag: "CanonicalDeclarativeProgramV1SdkAdapterError",
-      reason: "unsupportedFunctionPartition",
-    });
+    )).rejects.toMatchObject({ _tag: "AnalyzerValidatorError" });
   });
 
-  it("preserves canonical ownership of non-canonical SDK schema validators", async () => {
-    const schemaWithNonCanonicalLiteral = defineSchema({
-      orders: defineGlobalTable({ status: v.literal(Number.NaN) }),
-    });
+  it("rejects malformed SDK schema metadata at the protocol decoder boundary", async () => {
+    const schemaWithNonCanonicalLiteral = schemaWithMalformedSdkLiteral();
 
     await expect(Effect.runPromise(
       canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
         schemaDefinition: schemaWithNonCanonicalLiteral,
         executionModules: {},
       }, BUDGET),
-    )).rejects.toMatchObject({
-      _tag: "CanonicalDeclarativeProgramV1Error",
-      reason: "invalidValidator",
-    });
+    )).rejects.toMatchObject({ _tag: "AnalyzerValidatorError" });
   });
 
-  it("preserves identifier-budget precedence over later invalid schema validators", async () => {
-    const schemaWithNonCanonicalLiteral = defineSchema({
-      orders: defineGlobalTable({ status: v.literal(Number.NaN) }),
-    });
+  it("rejects malformed schema metadata before canonical budget evaluation", async () => {
+    const schemaWithNonCanonicalLiteral = schemaWithMalformedSdkLiteral();
 
     await expect(Effect.runPromise(
       canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect({
         schemaDefinition: schemaWithNonCanonicalLiteral,
         executionModules: {},
       }, IDENTIFIER_BUDGET),
-    )).rejects.toMatchObject({
-      _tag: "CanonicalDeclarativeProgramV1Error",
-      reason: "budgetExceeded",
-      dimension: "identifierUtf8Bytes",
-      path: "schema.tables[0].logicalName",
-    });
+    )).rejects.toMatchObject({ _tag: "AnalyzerValidatorError" });
   });
 
   it("rejects over-budget validators before Standard ownership lowering", async () => {
@@ -398,7 +408,8 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
   it("rejects non-finite SDK validator literals", async () => {
     const nonFiniteReturn = mutation({
       args: {},
-      returns: v.literal(Number.NaN),
+      // @ts-expect-error Deliberately forge malformed legacy SDK metadata.
+      returns: malformedSdkLiteral(Number.NaN),
       handler: async () => Number.NaN,
     });
 
@@ -417,7 +428,8 @@ describe("canonicalDeclarativeProgramV1FromLoadedSdkDefinitionEffect", () => {
   it("rejects SDK-only bigint literal semantics instead of widening Standard V1", async () => {
     const bigintLiteralReturn = mutation({
       args: {},
-      returns: v.literal(1n),
+      // @ts-expect-error Deliberately forge malformed legacy SDK metadata.
+      returns: malformedSdkLiteral(1n),
       handler: (): 1n => 1n,
     });
 

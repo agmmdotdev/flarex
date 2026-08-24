@@ -25,6 +25,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/application-schema-definition": "workspace:*",
     "@flarex/utils": "workspace:*",
     "flarex-protocol": "workspace:*"
   },
