@@ -89,6 +89,7 @@ import {
   type AppRelationEdgeReadError,
   type ApplyAppRelationEdgeChangesInput,
   type ApplyAppRelationEdgeChangesResult,
+  type HasIncomingAppRelationEdgeInput,
   type ReadAppRelationEdgeAdjacencyVersionInput,
   type ReadIncomingAppRelationEdgePageInput,
   type ReadIncomingAppRelationEdgePageResult,
@@ -280,6 +281,49 @@ export const readAppRelationEdgeAdjacencyVersionInTransactionEffect = Effect.fn(
     prepared.endpointRowId,
     "readAdjacencyVersion",
   );
+});
+
+/**
+ * Exact writer-side anti-existence check for C09 `restrict`. The caller owns
+ * the transaction and its scope-clock lock; this is not a runtime relation
+ * read and produces no snapshot/OCC evidence.
+ */
+export const hasIncomingAppRelationEdgeInTransactionEffect = Effect.fn(
+  "AppRelationEdges.hasIncomingInTransaction",
+)(function* (
+  tx: FlarexMetadataTransaction,
+  input: HasIncomingAppRelationEdgeInput,
+): Effect.fn.Return<boolean, AppRelationEdgeReadError> {
+  const prepared = yield* Effect.fromResult(
+    prepareIncomingEndpointInputResult("hasIncoming", input),
+  );
+  const query = tx.select({
+    edgeDefinitionId: fxAppEdgeCurrent.edgeDefinitionId,
+  }).from(fxAppEdgeCurrent).where(and(
+    eq(fxAppEdgeCurrent.scopeUuid, prepared.scopeUuid),
+    eq(
+      fxAppEdgeCurrent.edgeDefinitionId,
+      prepared.definition.edgeDefinitionId,
+    ),
+    eq(
+      fxAppEdgeCurrent.targetRowId,
+      appRowIdHexV1ToBytes(prepared.targetRowId),
+    ),
+  )).limit(1);
+  observeDrizzleQuery("hasIncoming", query, input.observeQuery);
+  const rows = yield* runQueryEffect("hasIncoming", query);
+  const row = rows[0];
+  if (row === undefined) return false;
+  if (
+    rows.length !== 1 ||
+    row.edgeDefinitionId !== prepared.definition.edgeDefinitionId
+  ) {
+    return yield* Effect.fail(new AppRelationEdgeCorruptionError({
+      operation: "hasIncoming",
+      reason: "incoming existence query returned invalid evidence",
+    }));
+  }
+  return true;
 });
 
 /**
@@ -616,26 +660,9 @@ function prepareIncomingPageInputResult(
 > {
   const operation = "readIncomingPage" as const;
   return Result.gen(function* () {
-    const scopeId = yield* mapInputResult(
+    const endpoint = yield* prepareIncomingEndpointInputResult(
       operation,
-      decodeScopeIdResult(input.scopeId),
-      "invalidScope",
-    );
-    const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
-      Result.mapError((cause) => new AppRelationEdgeCorruptionError({
-        operation,
-        reason: "scope ID cannot project to target-local UUID",
-        cause,
-      })),
-    );
-    const definition = yield* prepareDefinitionPinResult(
-      operation,
-      input.definition,
-    );
-    const targetRowId = yield* mapInputResult(
-      operation,
-      decodeRowIdResult(input.targetRowId),
-      "invalidOccurrence",
+      input,
     );
     if (
       !Number.isInteger(input.maximumIdentities) ||
@@ -657,11 +684,54 @@ function prepareIncomingPageInputResult(
       after = Object.freeze({ sourceRowId, duplicateOrdinal: 0 });
     }
     return Object.freeze({
+      ...endpoint,
+      maximumIdentities: input.maximumIdentities,
+      ...(after === undefined ? {} : { after }),
+    });
+  });
+}
+
+function prepareIncomingEndpointInputResult(
+  operation: "hasIncoming" | "readIncomingPage",
+  input: Readonly<{
+    readonly scopeId: unknown;
+    readonly definition: AppRelationEdgeDefinitionPin;
+    readonly targetRowId: unknown;
+  }>,
+): Result.Result<
+  Readonly<{
+    scopeUuid: ScopeUuidV1;
+    definition: PreparedDefinitionPin;
+    targetRowId: AppRowIdHexV1;
+  }>,
+  AppRelationEdgeInputError | AppRelationEdgeCorruptionError
+> {
+  return Result.gen(function* () {
+    const scopeId = yield* mapInputResult(
+      operation,
+      decodeScopeIdResult(input.scopeId),
+      "invalidScope",
+    );
+    const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
+      Result.mapError((cause) => new AppRelationEdgeCorruptionError({
+        operation,
+        reason: "scope ID cannot project to target-local UUID",
+        cause,
+      })),
+    );
+    const definition = yield* prepareDefinitionPinResult(
+      operation,
+      input.definition,
+    );
+    const targetRowId = yield* mapInputResult(
+      operation,
+      decodeRowIdResult(input.targetRowId),
+      "invalidOccurrence",
+    );
+    return Object.freeze({
       scopeUuid: scopeProjection.scopeUuid,
       definition,
       targetRowId,
-      maximumIdentities: input.maximumIdentities,
-      ...(after === undefined ? {} : { after }),
     });
   });
 }

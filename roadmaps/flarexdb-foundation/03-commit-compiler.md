@@ -1014,7 +1014,7 @@ Exit gate:
 - tables declaring unsupported sidecar features remain inactive until O09
   closes real-Postgres contention, multi-row atomicity, and rollback.
 
-### [ ] C09 — Lower Current Edges And Selected Snapshot Support
+### [x] C09 — Lower Current Edges And Selected Snapshot Support
 
 Prerequisite:
 
@@ -1036,9 +1036,13 @@ Prerequisite:
   snapshot support selected by `R01-P`. C09 may not retain the rejected support
   for comparison, fallback, or dual publication.
 
-Status: system-core implementation preflight accepted on 2026-08-24. This is a
-private, production-inert commit integration; it adds no runtime relation read,
-activation path, or higher API.
+Status: completed privately on 2026-08-24. The point-commit owner now locates
+and revalidates the exact R02 bound publication through a same-factory
+capability, lowers complete prior/final authoritative rows, resolves final
+target liveness, applies S12 current-edge and endpoint-version actions, then
+enforces definition-aware `restrict` against the final transaction-local edge
+set. It reuses the existing scope-clock transaction, sequence, replay,
+commit/change, outbox, and idempotency owners and remains production-inert.
 
 Accepted commit-integration contract:
 

@@ -8,6 +8,8 @@ import type {
   ApplicationSchemaBindingV2,
   ApplicationSchemaRelationBindingV2,
 } from "flarex-protocol/internal/application-schema-binding";
+import type { CatalogSchemaVersionId } from
+  "flarex-protocol/schema-manifest";
 
 type PersistedRelationEvolution =
   ApplicationSchemaRelationBindingV2["evolution"];
@@ -49,6 +51,24 @@ export interface ApplicationRelationBindingPublication {
   readonly manifestSchemaBindingSha256:
     ApplicationManifestSchemaBindingSha256Hex;
 }
+
+/** Canonical R02 root revalidated for one private commit consumer. */
+export interface LocatedApplicationRelationBinding {
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly binding: ApplicationSchemaBindingV2;
+  readonly applicationSchemaSha256: Uint8Array;
+  readonly schemaManifestSha256: Uint8Array;
+  readonly boundPublicationSha256: Uint8Array;
+}
+
+export class ReadApplicationRelationBindingError extends Data.TaggedError(
+  "ReadApplicationRelationBindingError",
+)<{
+  readonly operation: "locateCommitBinding";
+  readonly reason: "invalidInput" | "storedState" | "resourceFailure";
+  readonly cause?: unknown;
+}> {}
 
 export type ApplicationRelationBindingFailureReason =
   | "invalidDeployment"

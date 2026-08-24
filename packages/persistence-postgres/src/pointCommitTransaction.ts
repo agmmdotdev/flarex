@@ -184,6 +184,26 @@ import {
   type AppRowPointDependencyV1,
   type AppRowTransaction,
 } from "./appRows";
+import { AppRelationEdgePersistenceError } from "./appRelationEdges";
+import {
+  applyApplicationRelationCommitEdgesInTransactionEffect,
+  assertApplicationRelationRestrictProbesInTransactionEffect,
+  hasApplicationRelationCommitAuthorityForPointCommit,
+  hasPreparedApplicationRelationCommitAuthority,
+  prepareApplicationRelationCommitResult,
+  ApplicationRelationCommitCorruptionError,
+  ApplicationRelationCommitResourceExhaustionError,
+  ApplicationRelationCommitUnavailableError,
+  ApplicationRelationConstraintError,
+  ApplicationRelationTargetDeleteRestrictedError,
+  ApplicationRelationTargetNotLiveError,
+  type ApplicationRelationCommitPort,
+  type ApplicationRelationRowTransition,
+  type LocatedApplicationRelationDefinitionSet,
+  type PreparedApplicationRelationCommit,
+} from "./applicationRelationCommit";
+import { ReadApplicationRelationBindingError } from
+  "./applicationRelationBinding";
 import {
   applyAppSchemaCandidateWriteGuardInTransactionEffect,
   hasAppSchemaCandidateWriteGuardComposition,
@@ -688,6 +708,10 @@ export type PointCommitCorruptionReasonV1 =
   | "uniqueConstraintDefinitionInvalid"
   | "uniqueConstraintBuildInvalid"
   | "uniqueKeyTransitionInvalid"
+  | "relationBindingInvalid"
+  | "relationTransitionInvalid"
+  | "relationTargetEvidenceInvalid"
+  | "relationEdgeInvalid"
   | "candidateSchemaValidationInvalid"
   | "successfulResultInvalid"
   | "committedOutcomeMissing"
@@ -779,6 +803,8 @@ export type PointCommitSqlOperationV1 =
   | "lockDeveloperIndexBuilds"
   | "loadDeveloperIndexDocuments"
   | "loadUniqueKeyDocuments"
+  | "loadRelationDocuments"
+  | "loadRelationTargets"
   | "loadDeveloperIndexEntryHeads"
   | "loadUniqueKeyOwners"
   | "resetIntrinsicIndexValidation"
@@ -789,6 +815,8 @@ export type PointCommitSqlOperationV1 =
   | "writeIntrinsicIndexEntry"
   | "writeDeveloperIndexEntry"
   | "writeUniqueKey"
+  | "writeRelationEdges"
+  | "validateRelationRestrict"
   | "recheckOutcome"
   | "writeCommitHeader"
   | "writeCommitChange"
@@ -858,6 +886,12 @@ export type PointCommitRollbackProofV1Error =
   | PointCommitDeveloperIndexMaintenanceUnavailableV1Error
   | PointCommitUniqueConstraintMaintenanceUnavailableV1Error
   | AppSchemaCandidateWriteGuardError
+  | ApplicationRelationCommitUnavailableError
+  | ApplicationRelationConstraintError
+  | ApplicationRelationCommitResourceExhaustionError
+  | ApplicationRelationTargetNotLiveError
+  | ApplicationRelationTargetDeleteRestrictedError
+  | ReadApplicationRelationBindingError
   | LocateAppDeveloperIndexDefinitionsV1Error
   | ReadAppUniqueConstraintDefinitionV1Error
   | ReadAppIndexDefinitionError
@@ -878,10 +912,33 @@ export interface PointCommitRollbackProofPortV1 {
 
 const pointCommitDeveloperIndexMaintenancePortsV1 = new WeakSet<object>();
 const pointCommitUniqueConstraintMaintenancePortsV1 = new WeakSet<object>();
+const pointCommitApplicationRelationMaintenancePorts = new WeakSet<object>();
 const pointCommitUniqueConstraintEligibilityPortsV1 = new WeakMap<
   object,
   AppUniqueConstraintSetEligibilityPortV1
 >();
+
+/** Exact private C09 point-commit composition; structural copies fail closed. */
+export function hasPointCommitApplicationRelationMaintenance(
+  value: unknown,
+): boolean {
+  return typeof value === "object" && value !== null &&
+    pointCommitApplicationRelationMaintenancePorts.has(value);
+}
+
+function registerPointCommitApplicationRelationMaintenance<T extends object>(
+  port: T,
+  applicationRelations: ApplicationRelationCommitPort | undefined,
+  pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
+): T {
+  if (hasApplicationRelationCommitAuthorityForPointCommit(
+    applicationRelations,
+    pointCommitAuthority,
+  )) {
+    pointCommitApplicationRelationMaintenancePorts.add(port);
+  }
+  return port;
+}
 
 /**
  * Process-local private capability check. Only point-commit ports constructed
@@ -1136,6 +1193,10 @@ export type PointCommitTransactionProofStepV1 =
   | "intrinsicIndexEntryWritten"
   | "developerIndexEntryWritten"
   | "uniqueKeyWritten"
+  | "relationBindingValidated"
+  | "relationTargetsValidated"
+  | "relationEdgeWritten"
+  | "relationRestrictValidated"
   | "uniqueConstraintValidationReset"
   | "candidateSchemaValidationFailed"
   | "outcomeRechecked"
@@ -1167,6 +1228,8 @@ export interface PointCommitTransactionProofOptionsV1 {
    * the exact B2 definition owner on this same point-commit port.
    */
   readonly uniqueConstraintEligibility?: AppUniqueConstraintSetEligibilityPortV1;
+  /** Private C09 composition; absence preserves the lower proof lane. */
+  readonly applicationRelations?: ApplicationRelationCommitPort;
   /** Private M03-B composition; absence preserves the lower commit lane. */
   readonly candidateSchemaWriteGuard?: AppSchemaCandidateWriteGuardPort;
   readonly afterTransactionStep?: (
@@ -1191,6 +1254,7 @@ function capturePointCommitTransactionProofOptionsV1(
   const developerIndexes = options.developerIndexes;
   const uniqueConstraints = options.uniqueConstraints;
   const uniqueConstraintEligibility = options.uniqueConstraintEligibility;
+  const applicationRelations = options.applicationRelations;
   const candidateSchemaWriteGuard = options.candidateSchemaWriteGuard;
   const afterTransactionStep = options.afterTransactionStep;
   const observeQuery = options.observeQuery;
@@ -1203,6 +1267,9 @@ function capturePointCommitTransactionProofOptionsV1(
     ...(uniqueConstraintEligibility === undefined
       ? {}
       : { uniqueConstraintEligibility }),
+    ...(applicationRelations === undefined
+      ? {}
+      : { applicationRelations }),
     ...(candidateSchemaWriteGuard === undefined
       ? {}
       : { candidateSchemaWriteGuard }),
@@ -1532,6 +1599,59 @@ const prepareUniqueConstraintDefinitions = Effect.fn(
   return definitions;
 });
 
+type PreparedPointCommitApplicationRelations = Readonly<{
+  readonly port: ApplicationRelationCommitPort;
+  readonly definitions: LocatedApplicationRelationDefinitionSet;
+}>;
+
+const prepareApplicationRelationDefinitions = Effect.fn(
+  "PointCommitTransaction.prepareApplicationRelationDefinitions",
+)(function* (
+  command: PreparedPointCommitTransactionCommandV1,
+  pointCommitAuthority: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Effect.fn.Return<
+  PreparedPointCommitApplicationRelations | null,
+  | ApplicationRelationCommitUnavailableError
+  | PointCommitCorruptionV1Error
+  | ReadApplicationRelationBindingError
+> {
+  const port = options.applicationRelations;
+  if (command.rowIntents.length === 0 || port === undefined) return null;
+  if (!hasApplicationRelationCommitAuthorityForPointCommit(
+    port,
+    pointCommitAuthority,
+  )) {
+    return yield* Effect.fail(new ApplicationRelationCommitUnavailableError({
+      reason: "compositionMissing",
+    }));
+  }
+  const definitions = yield* port.locate({
+    deploymentId: command.authorityPins.deploymentId,
+    schemaVersionId: command.authorityPins.schemaVersionId,
+  }).pipe(Effect.mapError((cause) =>
+    cause instanceof ApplicationRelationCommitCorruptionError ||
+      (
+        cause instanceof ReadApplicationRelationBindingError &&
+        cause.reason !== "resourceFailure"
+      )
+      ? corruption("relationBindingInvalid")
+      : cause
+  ));
+  if (definitions === null) {
+    return yield* Effect.fail(new ApplicationRelationCommitUnavailableError({
+      reason: "bindingUnavailable",
+    }));
+  }
+  if (
+    definitions.deploymentId !== command.authorityPins.deploymentId ||
+    definitions.schemaVersionId !== command.authorityPins.schemaVersionId
+  ) {
+    return yield* Effect.fail(corruption("relationBindingInvalid"));
+  }
+  return Object.freeze({ port, definitions });
+});
+
 const prepareCandidateSchemaWriteGuard = Effect.fn(
   "PointCommitTransaction.prepareCandidateSchemaWriteGuard",
 )(function* (
@@ -1728,6 +1848,11 @@ export function createPointCommitRollbackProofPortV1(
       command,
       capturedOptions,
     );
+    const applicationRelations = yield* prepareApplicationRelationDefinitions(
+      command,
+      ports,
+      capturedOptions,
+    );
     const candidateSchemaWriteGuard = yield* prepareCandidateSchemaWriteGuard(
       command,
       ports,
@@ -1741,6 +1866,7 @@ export function createPointCommitRollbackProofPortV1(
         intrinsicDefinitions,
         developerDefinitions,
         uniqueDefinitions,
+        applicationRelations,
         candidateSchemaWriteGuard,
         capturedOptions,
       ),
@@ -1748,16 +1874,20 @@ export function createPointCommitRollbackProofPortV1(
     }));
   });
 
-  return registerPointCommitUniqueConstraintEligibilityV1(
-    registerPointCommitUniqueConstraintMaintenanceV1(
-      registerPointCommitDeveloperIndexMaintenanceV1(
-        Object.freeze({ prove }),
-        capturedOptions.developerIndexes,
+  return registerPointCommitApplicationRelationMaintenance(
+    registerPointCommitUniqueConstraintEligibilityV1(
+      registerPointCommitUniqueConstraintMaintenanceV1(
+        registerPointCommitDeveloperIndexMaintenanceV1(
+          Object.freeze({ prove }),
+          capturedOptions.developerIndexes,
+        ),
+        capturedOptions.uniqueConstraints,
       ),
       capturedOptions.uniqueConstraints,
+      capturedOptions.uniqueConstraintEligibility,
     ),
-    capturedOptions.uniqueConstraints,
-    capturedOptions.uniqueConstraintEligibility,
+    capturedOptions.applicationRelations,
+    ports,
   );
 }
 
@@ -1820,6 +1950,11 @@ export function createPointCommitPublisherPortV1(
       command,
       capturedOptions,
     );
+    const applicationRelations = yield* prepareApplicationRelationDefinitions(
+      command,
+      ports,
+      capturedOptions,
+    );
     const candidateSchemaWriteGuard = yield* prepareCandidateSchemaWriteGuard(
       command,
       ports,
@@ -1834,6 +1969,7 @@ export function createPointCommitPublisherPortV1(
         intrinsicDefinitions,
         developerDefinitions,
         uniqueDefinitions,
+        applicationRelations,
         candidateSchemaWriteGuard,
         capturedOptions,
       ),
@@ -1901,17 +2037,21 @@ export function createPointCommitPublisherPortV1(
     return yield* resolveOutcome(target, input);
   });
 
-  return registerPointCommitUniqueConstraintEligibilityV1(
-    registerPointCommitUniqueConstraintMaintenanceV1(
-      registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
-        ...rollback,
-        publish,
-        [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
-      }), capturedOptions.developerIndexes),
+  return registerPointCommitApplicationRelationMaintenance(
+    registerPointCommitUniqueConstraintEligibilityV1(
+      registerPointCommitUniqueConstraintMaintenanceV1(
+        registerPointCommitDeveloperIndexMaintenanceV1(Object.freeze({
+          ...rollback,
+          publish,
+          [RESOLVE_POINT_COMMIT_OUTCOME_V1]: resolvePointCommitOutcome,
+        }), capturedOptions.developerIndexes),
+        capturedOptions.uniqueConstraints,
+      ),
       capturedOptions.uniqueConstraints,
+      capturedOptions.uniqueConstraintEligibility,
     ),
-    capturedOptions.uniqueConstraints,
-    capturedOptions.uniqueConstraintEligibility,
+    capturedOptions.applicationRelations,
+    ports,
   );
 }
 
@@ -4020,6 +4160,7 @@ async function runRollbackProof(
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  applicationRelations: PreparedPointCommitApplicationRelations | null,
   candidateSchemaWriteGuard:
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
@@ -4033,6 +4174,7 @@ async function runRollbackProof(
         intrinsicDefinitions,
         developerDefinitions,
         uniqueDefinitions,
+        applicationRelations,
         candidateSchemaWriteGuard,
         options,
         "rollbackProof",
@@ -4061,6 +4203,7 @@ async function runPointCommitPublication(
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  applicationRelations: PreparedPointCommitApplicationRelations | null,
   candidateSchemaWriteGuard:
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
@@ -4073,6 +4216,7 @@ async function runPointCommitPublication(
       intrinsicDefinitions,
       developerDefinitions,
       uniqueDefinitions,
+      applicationRelations,
       candidateSchemaWriteGuard,
       options,
       "publish",
@@ -4112,6 +4256,7 @@ async function runPointCommitTransactionKernel(
   intrinsicDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   developerDefinitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
   uniqueDefinitions: ReadonlyArray<LocatedAppUniqueConstraintDefinitionV1>,
+  applicationRelations: PreparedPointCommitApplicationRelations | null,
   candidateSchemaWriteGuard:
     PreparedPointCommitCandidateSchemaWriteGuard | null,
   options: PointCommitTransactionProofOptionsV1,
@@ -4133,8 +4278,15 @@ async function runPointCommitTransactionKernel(
   await validateActiveApplicationSchemaForPointCommit(
     tx,
     command,
+    applicationRelations?.definitions ?? null,
     options,
   );
+  if (
+    applicationRelations !== null &&
+    command.authorityPins.executionAuthorityGeneration === "application_v1"
+  ) {
+    await emitTransactionStep(options, command, "relationBindingValidated");
+  }
   if (command.authorityPins.executionAuthorityGeneration === "application_v1") {
     await emitTransactionStep(
       options,
@@ -4239,6 +4391,20 @@ async function runPointCommitTransactionKernel(
     loadedHeads,
     uniqueDefinitions,
   );
+  const relationPlan = await preparePointCommitApplicationRelationPlan(
+    tx,
+    command,
+    loadedHeads,
+    applicationRelations,
+    clock.record.lastCommitSeq,
+    options,
+  );
+  if (
+    relationPlan !== null &&
+    relationPlan.prepared.distinctFinalTargetCount > 0
+  ) {
+    await emitTransactionStep(options, command, "relationTargetsValidated");
+  }
   if (candidateSchemaWriteGuard !== null) {
     const guardResult = await runCandidateSchemaWriteGuard(
       tx,
@@ -4333,6 +4499,18 @@ async function runPointCommitTransactionKernel(
       );
     }
   }
+  if (relationPlan !== null) {
+    const relationMaintenance = await runPointCommitInTransactionEffect(
+      maintainPointCommitApplicationRelationsEffect(
+        tx,
+        command,
+        allocation.commitSeq,
+        relationPlan,
+        options,
+      ),
+    );
+    projectPointCommitTransactionResult(relationMaintenance);
+  }
   for (const developer of developerBuilds) {
     await resetPointCommitDeveloperIndexValidation(tx, developer.build);
   }
@@ -4364,6 +4542,286 @@ async function resetPointCommitUniqueConstraintValidation(
   );
   return result.status === "reset";
 }
+
+type PreparedPointCommitApplicationRelationPlan = Readonly<{
+  readonly port: ApplicationRelationCommitPort;
+  readonly prepared: PreparedApplicationRelationCommit;
+}>;
+
+async function preparePointCommitApplicationRelationPlan(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  relations: PreparedPointCommitApplicationRelations | null,
+  lastCommitSeq: bigint,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<PreparedPointCommitApplicationRelationPlan | null> {
+  if (relations === null) return null;
+  const headsByDocumentId = new Map<
+    AppDocumentIdV1,
+    LoadedPointCommitHeadV1
+  >();
+  for (let index = 0; index < command.dependencies.length; index += 1) {
+    const dependency = command.dependencies[index];
+    const loaded = loadedHeads[index];
+    if (
+      dependency === undefined || loaded === undefined ||
+      headsByDocumentId.has(dependency.documentId)
+    ) {
+      throw corruption("relationTransitionInvalid");
+    }
+    headsByDocumentId.set(dependency.documentId, loaded);
+  }
+  const sourceTableIds = new Set(
+    relations.definitions.definitions.map(
+      (definition) => definition.binding.sourceTableId,
+    ),
+  );
+  const priorDocuments = await loadPointCommitRelationDocuments(
+    tx,
+    command,
+    headsByDocumentId,
+    sourceTableIds,
+  );
+  const relationTableIds = new Set(
+    relations.definitions.definitions.flatMap((definition) => [
+      definition.binding.sourceTableId,
+      definition.binding.targetTableId,
+    ]),
+  );
+  const transitions: ApplicationRelationRowTransition[] = [];
+  for (const intent of command.rowIntents) {
+    if (!relationTableIds.has(intent.tableId)) continue;
+    const loaded = headsByDocumentId.get(intent.documentId);
+    if (loaded === undefined) {
+      throw corruption("relationTransitionInvalid");
+    }
+    const prior = priorDocuments.get(intent.documentId) ?? null;
+    if (
+      sourceTableIds.has(intent.tableId) &&
+      loaded.head.kind === "live" && prior === null
+    ) {
+      throw corruption("relationTransitionInvalid");
+    }
+    transitions.push(Object.freeze({
+      documentId: intent.documentId,
+      tableId: intent.tableId,
+      rowId: intent.rowId,
+      prior,
+      final: intent.kind === "live" ? intent.document : null,
+    }));
+  }
+  if (transitions.length === 0) return null;
+  const prepared = projectPointCommitTransactionResult(
+    prepareApplicationRelationCommitResult(
+      relations.definitions,
+      Object.freeze(transitions),
+    ).pipe(Result.mapError((cause) =>
+      cause instanceof ApplicationRelationCommitCorruptionError
+        ? corruption(
+            cause.reason === "invalidDefinitionSet"
+              ? "relationBindingInvalid"
+              : "relationTransitionInvalid",
+          )
+        : cause
+    )),
+  );
+  if (!hasPreparedApplicationRelationCommitAuthority(
+    relations.port,
+    prepared,
+    command.authorityPins.schemaVersionId,
+  )) {
+    throw corruption("relationTransitionInvalid");
+  }
+  await validatePointCommitApplicationRelationTargets(
+    tx,
+    command,
+    prepared,
+    lastCommitSeq,
+    options,
+  );
+  return Object.freeze({ port: relations.port, prepared });
+}
+
+async function validatePointCommitApplicationRelationTargets(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  prepared: PreparedApplicationRelationCommit,
+  lastCommitSeq: bigint,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
+  const checks = prepared.storedTargetChecks;
+  if (checks.length === 0) return;
+  const scopeUuid = projectPointCommitTransactionResult(
+    projectScopeIdUuidV1Result(command.authorityPins.scopeId).pipe(
+      Result.mapError(() => corruption("relationTargetEvidenceInvalid")),
+    ),
+  ).scopeUuid;
+  const values = sql.join(checks.map((check, ordinal) => sql`
+    (
+      ${ordinal}::integer,
+      ${check.tableId}::integer,
+      ${appRowIdHexV1ToBytes(check.rowId)}::bytea
+    )
+  `), sql`, `);
+  const statement = sql`
+    with requested(ordinal, table_id, row_id) as (
+      values ${values}
+    )
+    select
+      requested.ordinal::text as "ordinalText",
+      current_row.commit_seq::text as "pointerCommitSeqText",
+      revision.commit_seq::text as "revisionCommitSeqText",
+      revision.is_tombstone as "isTombstone"
+    from requested
+    left join fx_app_row_current as current_row
+      on current_row.scope_uuid = ${scopeUuid}
+      and current_row.table_id = requested.table_id
+      and current_row.row_id = requested.row_id
+    left join fx_app_row_rev as revision
+      on revision.scope_uuid = ${scopeUuid}
+      and revision.table_id = requested.table_id
+      and revision.row_id = requested.row_id
+      and revision.commit_seq = current_row.commit_seq
+    order by requested.ordinal asc
+  `;
+  options.observeQuery?.(Object.freeze({
+    name: "loadRelationTargets",
+    sql: "bounded VALUES with exact current-pointer relation-target evidence",
+    params: Object.freeze([]),
+  }));
+  const result = await sqlCall(
+    "loadRelationTargets",
+    () => tx.execute(statement),
+  );
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw corruption("relationTargetEvidenceInvalid");
+  });
+  if (rows.length !== checks.length) {
+    throw corruption("relationTargetEvidenceInvalid");
+  }
+  for (let ordinal = 0; ordinal < checks.length; ordinal += 1) {
+    const raw = rows[ordinal];
+    const check = checks[ordinal];
+    if (
+      !isNonArrayRecord(raw) || check === undefined ||
+      raw.ordinalText !== String(ordinal)
+    ) {
+      throw corruption("relationTargetEvidenceInvalid");
+    }
+    const pointerCommitSeq = projectPointCommitTransactionResult(
+      parseNullableCommitSeqTextResult(raw.pointerCommitSeqText).pipe(
+        Result.mapError(() => corruption("relationTargetEvidenceInvalid")),
+      ),
+    );
+    const revisionCommitSeq = projectPointCommitTransactionResult(
+      parseNullableCommitSeqTextResult(raw.revisionCommitSeqText).pipe(
+        Result.mapError(() => corruption("relationTargetEvidenceInvalid")),
+      ),
+    );
+    if (
+      pointerCommitSeq === null && revisionCommitSeq === null &&
+      raw.isTombstone === null
+    ) {
+      throw new ApplicationRelationTargetNotLiveError({
+        targetDocumentId: check.documentId,
+      });
+    }
+    if (
+      pointerCommitSeq === null ||
+      revisionCommitSeq === null ||
+      pointerCommitSeq !== revisionCommitSeq ||
+      revisionCommitSeq > lastCommitSeq ||
+      typeof raw.isTombstone !== "boolean"
+    ) {
+      throw corruption("relationTargetEvidenceInvalid");
+    }
+    if (raw.isTombstone) {
+      throw new ApplicationRelationTargetNotLiveError({
+        targetDocumentId: check.documentId,
+      });
+    }
+  }
+}
+
+type PointCommitApplicationRelationMaintenanceError =
+  | ApplicationRelationCommitUnavailableError
+  | ApplicationRelationTargetDeleteRestrictedError
+  | PointCommitCorruptionV1Error
+  | PointCommitSqlFailureMarkerV1;
+
+const maintainPointCommitApplicationRelationsEffect = Effect.fn(
+  "PointCommitTransaction.maintainApplicationRelations",
+)(function* (
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  commitSeq: CommitSeq,
+  plan: PreparedPointCommitApplicationRelationPlan,
+  options: PointCommitTransactionProofOptionsV1,
+): Effect.fn.Return<void, PointCommitApplicationRelationMaintenanceError> {
+  if (plan.prepared.actions.length > 0) {
+    yield* applyApplicationRelationCommitEdgesInTransactionEffect(
+      plan.port,
+      tx,
+      {
+        scopeId: command.authorityPins.scopeId,
+        schemaVersionId: command.authorityPins.schemaVersionId,
+        commitSeq,
+        prepared: plan.prepared,
+      },
+    ).pipe(
+      Effect.mapError((cause) => {
+        if (cause instanceof ApplicationRelationCommitUnavailableError) {
+          return cause;
+        }
+        if (cause instanceof AppRelationEdgePersistenceError) {
+          return new PointCommitSqlFailureMarkerV1(
+            "writeRelationEdges",
+            cause.cause,
+          );
+        }
+        return corruption("relationEdgeInvalid");
+      }),
+    );
+    // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: transaction - proof-hook rejection aborts the transaction and preserves cause identity
+    yield* Effect.promise(() => emitTransactionStep(
+      options,
+      command,
+      "relationEdgeWritten",
+    ));
+  }
+
+  yield* assertApplicationRelationRestrictProbesInTransactionEffect(
+    plan.port,
+    tx,
+    command.authorityPins.scopeId,
+    plan.prepared,
+  ).pipe(
+    Effect.mapError((cause) => {
+      if (
+        cause instanceof ApplicationRelationCommitUnavailableError ||
+        cause instanceof ApplicationRelationTargetDeleteRestrictedError
+      ) {
+        return cause;
+      }
+      if (cause instanceof AppRelationEdgePersistenceError) {
+        return new PointCommitSqlFailureMarkerV1(
+          "validateRelationRestrict",
+          cause.cause,
+        );
+      }
+      return corruption("relationEdgeInvalid");
+    }),
+  );
+  if (plan.prepared.restrictProbes.length > 0) {
+    // oxlint-disable-next-line flarex/no-unreviewed-effect-promise -- REVIEW: transaction - proof-hook rejection aborts the transaction and preserves cause identity
+    yield* Effect.promise(() => emitTransactionStep(
+      options,
+      command,
+      "relationRestrictValidated",
+    ));
+  }
+});
 
 function requirePointCommitReadyForPublicationResult(
   kernel: Extract<PointCommitKernelResultV1, { readonly kind: "ready" }>,
@@ -4668,6 +5126,7 @@ function requireLockedClockAuthorityResult(
 async function validateActiveApplicationSchemaForPointCommit(
   tx: AppRowTransaction,
   command: PreparedPointCommitAttemptScalarCommandV1,
+  applicationRelations: LocatedApplicationRelationDefinitionSet | null,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<void> {
   if (command.authorityPins.executionAuthorityGeneration !== "application_v1") {
@@ -4676,6 +5135,10 @@ async function validateActiveApplicationSchemaForPointCommit(
   const query = tx.select({
     deploymentId: fxSystemApplicationReadinessV1.deploymentId,
     schemaVersionId: fxSystemApplicationReadinessV1.schemaVersionId,
+    applicationSchemaSha256:
+      fxSystemApplicationReadinessV1.applicationSchemaSha256,
+    schemaManifestSha256:
+      fxSystemApplicationReadinessV1.schemaManifestSha256,
   }).from(fxSystemApplicationActiveHeadsV1).innerJoin(
     fxSystemApplicationReadinessV1,
     and(
@@ -4719,6 +5182,19 @@ async function validateActiveApplicationSchemaForPointCommit(
     );
     if (activeSchemaVersionId !== command.authorityPins.schemaVersionId) {
       return yield* Result.fail(stale("activeSchemaChanged"));
+    }
+    if (
+      applicationRelations !== null &&
+      (
+        !isUint8ArrayWithByteLength(row.applicationSchemaSha256, 32) ||
+        !isUint8ArrayWithByteLength(row.schemaManifestSha256, 32) ||
+        encodeBytesToLowercaseHex(row.applicationSchemaSha256) !==
+          applicationRelations.applicationSchemaSha256 ||
+        encodeBytesToLowercaseHex(row.schemaManifestSha256) !==
+          applicationRelations.schemaManifestSha256
+      )
+    ) {
+      return yield* Result.fail(corruption("relationBindingInvalid"));
     }
   }));
 }
@@ -6550,6 +7026,25 @@ async function loadPointCommitUniqueKeyDocuments(
   );
 }
 
+async function loadPointCommitRelationDocuments(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  loadedHeadsByDocumentId: ReadonlyMap<
+    AppDocumentIdV1,
+    LoadedPointCommitHeadV1
+  >,
+  sourceTableIds: ReadonlySet<CatalogTableId>,
+): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
+  return loadPointCommitDocumentsForTables(
+    tx,
+    command,
+    loadedHeadsByDocumentId,
+    sourceTableIds,
+    "loadRelationDocuments",
+    "relationTransitionInvalid",
+  );
+}
+
 async function loadPointCommitDocumentsForTables(
   tx: AppRowTransaction,
   command: PreparedPointCommitTransactionCommandV1,
@@ -6560,11 +7055,15 @@ async function loadPointCommitDocumentsForTables(
   indexedTableIds: ReadonlySet<CatalogTableId>,
   operation: Extract<
     PointCommitSqlOperationV1,
-    "loadDeveloperIndexDocuments" | "loadUniqueKeyDocuments"
+    | "loadDeveloperIndexDocuments"
+    | "loadUniqueKeyDocuments"
+    | "loadRelationDocuments"
   >,
   corruptionReason: Extract<
     PointCommitCorruptionReasonV1,
-    "developerIndexTransitionInvalid" | "uniqueKeyTransitionInvalid"
+    | "developerIndexTransitionInvalid"
+    | "uniqueKeyTransitionInvalid"
+    | "relationTransitionInvalid"
   >,
 ): Promise<ReadonlyMap<AppDocumentIdV1, CanonicalFlarexValueV1>> {
   if (indexedTableIds.size === 0) return new Map();
@@ -7669,6 +8168,11 @@ function mapTransactionFailure(
     cause instanceof PointCommitIntrinsicIndexDefinitionUnavailableV1Error ||
     cause instanceof PointCommitDeveloperIndexMaintenanceUnavailableV1Error ||
     cause instanceof PointCommitUniqueConstraintMaintenanceUnavailableV1Error ||
+    cause instanceof ApplicationRelationCommitUnavailableError ||
+    cause instanceof ApplicationRelationConstraintError ||
+    cause instanceof ApplicationRelationCommitResourceExhaustionError ||
+    cause instanceof ApplicationRelationTargetNotLiveError ||
+    cause instanceof ApplicationRelationTargetDeleteRestrictedError ||
     cause instanceof AppSchemaCandidateWriteGuardError ||
     cause instanceof AppUniqueKeyConflictError ||
     cause instanceof AppUniqueKeyHashError ||
@@ -7676,6 +8180,9 @@ function mapTransactionFailure(
     isAppendAppIndexEntryRevisionV1Error(cause)
   ) {
     return cause;
+  }
+  if (cause instanceof ApplicationRelationCommitCorruptionError) {
+    return corruption("relationTransitionInvalid");
   }
   if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
     if (

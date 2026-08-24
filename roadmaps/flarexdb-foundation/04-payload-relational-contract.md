@@ -1,10 +1,10 @@
 # FlarexDB Native Relational Foundation Contract
 
 Status: `R01` and the physical snapshot/access preflight `R01-P` completed on
-2026-08-23; `R02` stable binding and `S12` private edge storage completed on
-2026-08-24. `C09` commit lowering is next. No relation runtime read, OCC
-registration, activation, public developer API, or Payload adapter is
-implemented.
+2026-08-23; `R02` stable binding, `S12` private edge storage, and `C09` private
+point-commit lowering completed on 2026-08-24. No relation runtime read or OCC
+registration, E01 build/readiness, RA01 activation, RQ01 query, public
+developer API, or Payload adapter is implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1190,7 +1190,7 @@ Accepted storage and repository shape:
 
 The repository input is package-private physical storage evidence, not a new
 located-scope publication authority. S12 does not add a production locator or
-claim that raw IDs authorize a write; C09 must consume the authenticated bound
+claim that raw IDs authorize a write; C09 consumes the authenticated bound
 definition through its separately approved integration boundary.
 
 Exit gates:
@@ -1212,16 +1212,18 @@ Completion receipt:
 - PGlite passed `45/45`; PostgreSQL `18.3` passed `4/4`, including a populated
   25,000-edge skew, bounded automatic and forced-generic resumed-page plans,
   scope-lock serialization, and the exact 4,096-occurrence write ceiling.
-- C09 remains the sole next owner for authenticated definition binding and
-  commit integration. S12 did not change OCC, journals, commit/change feeds,
-  outbox behavior, application-row authority, runtime reads, or public APIs.
+- C09 now consumes S12 only through the authenticated R02 definition and
+  point-commit boundary. Neither slice changed OCC, journals, commit/change
+  feeds, outbox behavior, authoritative application-row semantics, runtime
+  reads, or public APIs.
 
-### [ ] C09 — Lower Authoritative Rows Into Relation Sidecars
+### [x] C09 — Lower Authoritative Rows Into Relation Sidecars
 
 Prerequisite: the exact relation binding and edge repository exist.
 
-Status: bounded system-core preflight accepted on 2026-08-24; implementation is
-approved behind a private authenticated point-commit composition only.
+Status: completed privately on 2026-08-24 behind the authenticated point-commit
+composition. It remains production-inert and uncomposed from relation-bearing
+readiness, activation, and reads.
 
 Accepted lowerer and final-state policy:
 

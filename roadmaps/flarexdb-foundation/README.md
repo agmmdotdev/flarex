@@ -795,11 +795,12 @@ Dynamic Worker binding baseline before selecting it.
     endpoint adjacency versions, bounded transaction-only maintenance, and the
     frozen physical access paths are implemented and proven in PGlite and
     genuine PostgreSQL.
-16. `C09` (implementation preflight accepted, in progress): lower authoritative
-    prior/final rows through one authenticated R02 definition capability into
-    S12 current edges and endpoint versions inside the existing point-commit
-    transaction. The slice remains private and production-inert; it adds no
-    activation, relation read/OCC, or higher API.
+16. `C09` (complete privately, production-inert): one same-factory R02 binding
+    capability and deterministic prior/final lowerer now maintain S12 current
+    edges and endpoint versions inside the existing point-commit transaction,
+    validate final target liveness, and enforce `restrict` after the
+    transaction-local edge delta. No activation, relation read/OCC, higher API,
+    or second commit authority was added.
 17. `E01`: build, validate, and enable each required edge definition before
     reverse reads or deletion policy depend on it.
 18. `O10-R`: prove one exact bounded relation adjacency dependency, including

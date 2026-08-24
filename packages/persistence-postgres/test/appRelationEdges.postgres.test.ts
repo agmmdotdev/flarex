@@ -34,6 +34,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAppRelationEdgeChangesInTransactionEffect,
   AppRelationEdgePersistenceError,
+  hasIncomingAppRelationEdgeInTransactionEffect,
   readIncomingAppRelationEdgePageInTransactionEffect,
   type AppRelationEdgeDefinitionPin,
   type AppRelationEdgeMutationStatementName,
@@ -110,6 +111,14 @@ describePostgres("real PostgreSQL S12 relation-edge storage", () => {
         reorderCount: 0,
         advancedEndpointCount: 2,
       });
+      const hasIncoming = await persistence.drizzle.transaction((tx) =>
+        runEffect(hasIncomingAppRelationEdgeInTransactionEffect(tx, {
+          scopeId,
+          definition,
+          targetRowId: repositoryTarget,
+        }))
+      );
+      expect(hasIncoming).toBe(true);
       const page = await persistence.drizzle.transaction((tx) => runEffect(
         readIncomingAppRelationEdgePageInTransactionEffect(tx, {
           scopeId,

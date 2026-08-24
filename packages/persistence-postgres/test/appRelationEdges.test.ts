@@ -43,6 +43,7 @@ import {
   AppRelationEdgeOccurrenceCollisionError,
   AppRelationEdgePersistenceError,
   applyAppRelationEdgeChangesInTransactionEffect,
+  hasIncomingAppRelationEdgeInTransactionEffect,
   readAppRelationEdgeAdjacencyVersionInTransactionEffect,
   readIncomingAppRelationEdgePageInTransactionEffect,
   type AppRelationEdgeDefinitionPin,
@@ -178,6 +179,67 @@ describe("S12 app relation-edge storage", () => {
       }))
     );
     expect(invalidScalarPosition).toBeInstanceOf(AppRelationEdgeInputError);
+  });
+
+  it("checks exact current incoming existence for writer-side restrict", async () => {
+    const persistence = await edgePersistence();
+    const replacement = definitionPin(false, 32);
+    await apply(persistence, scopeId, 1n, [
+      put(definition, occurrence(sourceA, targetA), 0),
+    ]);
+
+    const observed: string[] = [];
+    const evidence = await persistence.drizzle.transaction(async (tx) => ({
+      exact: await runEffect(hasIncomingAppRelationEdgeInTransactionEffect(
+        tx,
+        {
+          scopeId,
+          definition,
+          targetRowId: targetA,
+          observeQuery: (query) => observed.push(query.name),
+        },
+      )),
+      otherTarget: await runEffect(
+        hasIncomingAppRelationEdgeInTransactionEffect(tx, {
+          scopeId,
+          definition,
+          targetRowId: targetB,
+        }),
+      ),
+      replacement: await runEffect(
+        hasIncomingAppRelationEdgeInTransactionEffect(tx, {
+          scopeId,
+          definition: replacement,
+          targetRowId: targetA,
+        }),
+      ),
+      otherScope: await runEffect(
+        hasIncomingAppRelationEdgeInTransactionEffect(tx, {
+          scopeId: otherScopeId,
+          definition,
+          targetRowId: targetA,
+        }),
+      ),
+    }));
+
+    expect(evidence).toEqual({
+      exact: true,
+      otherTarget: false,
+      replacement: false,
+      otherScope: false,
+    });
+    expect(observed).toEqual(["hasIncoming"]);
+
+    await apply(persistence, scopeId, 2n, [
+      remove(definition, occurrence(sourceA, targetA)),
+    ]);
+    await expect(persistence.drizzle.transaction((tx) => runEffect(
+      hasIncomingAppRelationEdgeInTransactionEffect(tx, {
+        scopeId,
+        definition,
+        targetRowId: targetA,
+      }),
+    ))).resolves.toBe(false);
   });
 
   it("fails closed on duplicate identity and retained digest collision", async () => {

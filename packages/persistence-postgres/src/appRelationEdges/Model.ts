@@ -17,6 +17,7 @@ import type { CommitSeq, ScopeId } from
 export type AppRelationEdgeOperation =
   | "applyChanges"
   | "readAdjacencyVersion"
+  | "hasIncoming"
   | "readIncomingPage";
 
 /**
@@ -87,8 +88,17 @@ export interface ReadIncomingAppRelationEdgePageInput {
   readonly observeQuery?: (query: AppRelationEdgeQueryObservation) => void;
 }
 
+/** Private writer-side anti-existence input used by C09 `restrict`. */
+export interface HasIncomingAppRelationEdgeInput {
+  readonly scopeId: ScopeId;
+  readonly definition: AppRelationEdgeDefinitionPin;
+  readonly targetRowId: AppRowIdHexV1;
+  /** Test-only receipt of the exact compiled existence statement. */
+  readonly observeQuery?: (query: AppRelationEdgeQueryObservation) => void;
+}
+
 export interface AppRelationEdgeQueryObservation {
-  readonly name: "readIncomingPage";
+  readonly name: "hasIncoming" | "readIncomingPage";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
 }
@@ -188,6 +198,7 @@ export interface AppRelationEdgeMutationOptions {
 export type AppRelationEdgePersistenceOperation =
   | AppRelationEdgeMutationStatementName
   | "readAdjacencyVersion"
+  | "hasIncoming"
   | "readIncomingPage";
 
 export class AppRelationEdgePersistenceError extends Data.TaggedError(

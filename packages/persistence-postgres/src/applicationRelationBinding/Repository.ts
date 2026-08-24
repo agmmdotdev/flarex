@@ -93,7 +93,9 @@ import {
 import {
   ApplicationRelationBindingError,
   type ApplicationRelationBindingPublication,
+  type LocatedApplicationRelationBinding,
   type PublishApplicationRelationBindingInput,
+  ReadApplicationRelationBindingError,
   type RelationEvolutionDecision,
 } from "./Model";
 import {
@@ -214,6 +216,96 @@ export const publishApplicationRelationBindingEffect = Effect.fn(
 > {
   const source = yield* prepareSourceEffect(input);
   return yield* runAttemptsEffect(repository, source, 1);
+});
+
+/**
+ * Private C09 locator for the complete immutable R02 root. The control-catalog
+ * coordinates are locators only: retained canonical evidence and every
+ * normalized relation/physical row are revalidated before returning.
+ */
+export const locateApplicationRelationBindingForCommitEffect = Effect.fn(
+  "ApplicationRelationBinding.locateForCommit",
+)(function* (
+  db: FlarexMetadataDatabase,
+  input: Readonly<{
+    readonly deploymentId: string;
+    readonly schemaVersionId: CatalogSchemaVersionId;
+  }>,
+): Effect.fn.Return<
+  LocatedApplicationRelationBinding | null,
+  ReadApplicationRelationBindingError
+> {
+  if (
+    !isNonBlankString(input.deploymentId) ||
+    input.deploymentId.includes("\0")
+  ) {
+    return yield* relationBindingReadFailure("invalidInput");
+  }
+  const schemaVersionId = yield* Effect.fromResult(
+    decodeCatalogSchemaVersionIdResult(input.schemaVersionId).pipe(
+      Result.mapError((cause) => relationBindingReadFailureValue(
+        "invalidInput",
+        cause,
+      )),
+    ),
+  );
+  const rows = yield* relationBindingReadQueryEffect(() => db.select().from(
+    fxControlBoundApplicationSchemas,
+  ).where(and(
+    eq(
+      fxControlBoundApplicationSchemas.deploymentId,
+      input.deploymentId,
+    ),
+    eq(
+      fxControlBoundApplicationSchemas.schemaVersionId,
+      schemaVersionId,
+    ),
+  )).limit(2));
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const row = rows[0];
+  if (row === undefined) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const decoded = yield* decodeStoredBoundRowEffect(row).pipe(
+    Effect.mapError(mapApplicationRelationBindingReadError),
+  );
+  if (
+    decoded.bound.binding.deploymentId !== input.deploymentId ||
+    decoded.bound.binding.schemaVersionId !== schemaVersionId
+  ) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const artifact = yield* getSchemaVersionArtifactByIdEffect(
+    db,
+    input.deploymentId,
+    schemaVersionId,
+  ).pipe(
+    Effect.mapError((cause) => mapApplicationRelationBindingReadError(
+      mapSchemaArtifactReadError(cause),
+    )),
+  );
+  if (
+    artifact === null ||
+    artifact.version !== decoded.bound.binding.schemaVersion ||
+    !bytesEqual(artifact.manifestSha256, decoded.schemaManifestSha256)
+  ) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  yield* validateLocatedRelationBindingCatalogEffect(
+    db,
+    decoded.bound,
+  );
+  return Object.freeze({
+    deploymentId: input.deploymentId,
+    schemaVersionId,
+    binding: decoded.bound.binding,
+    applicationSchemaSha256: copyBytes(row.applicationSchemaSha256),
+    schemaManifestSha256: copyBytes(decoded.schemaManifestSha256),
+    boundPublicationSha256: copyBytes(row.boundPublicationSha256),
+  } satisfies LocatedApplicationRelationBinding);
 });
 
 function runAttemptsEffect(
@@ -828,6 +920,158 @@ const prepareEdgeEvidenceEffect = Effect.fn(
     evidence.set(edge.edgeDefinitionId, canonical);
   }
   return evidence;
+});
+
+const validateLocatedRelationBindingCatalogEffect = Effect.fn(
+  "ApplicationRelationBinding.validateLocatedCommitCatalog",
+)(function* (
+  db: FlarexMetadataDatabase,
+  bound: CanonicalApplicationSchemaBindingV2,
+): Effect.fn.Return<void, ReadApplicationRelationBindingError> {
+  const relationRows = yield* relationBindingReadQueryEffect(() => db.select()
+    .from(fxControlSchemaVersionRelationBindings)
+    .where(and(
+      eq(
+        fxControlSchemaVersionRelationBindings.deploymentId,
+        bound.binding.deploymentId,
+      ),
+      eq(
+        fxControlSchemaVersionRelationBindings.schemaVersionId,
+        bound.binding.schemaVersionId,
+      ),
+    ))
+    .limit(bound.binding.relationBindings.length + 1));
+  if (relationRows.length !== bound.binding.relationBindings.length) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const relationsByOrdinal = new Map(relationRows.map((row) => [
+    row.relationOrdinal,
+    row,
+  ] as const));
+  if (relationsByOrdinal.size !== relationRows.length) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  for (const expected of bound.binding.relationBindings) {
+    const row = relationsByOrdinal.get(expected.relationOrdinal);
+    if (
+      row === undefined ||
+      row.deploymentId !== bound.binding.deploymentId ||
+      row.schemaVersionId !== bound.binding.schemaVersionId ||
+      !relationBindingRowMatches(row, expected)
+    ) {
+      return yield* relationBindingReadFailure("storedState");
+    }
+  }
+
+  const edgeEvidence = yield* prepareEdgeEvidenceEffect(bound).pipe(
+    Effect.mapError(mapApplicationRelationBindingReadError),
+  );
+  const relationByEdgeDefinitionId = new Map(
+    bound.binding.relationBindings.map((relation) => [
+      relation.edgeDefinitionId,
+      relation,
+    ] as const),
+  );
+  if (
+    relationByEdgeDefinitionId.size !==
+      bound.binding.relationBindings.length
+  ) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const relationIds = bound.binding.relationBindings.map(
+    (relation) => relation.relationId,
+  );
+  const stableRelationRows = yield* relationBindingReadQueryEffect(() =>
+    db.select().from(fxControlRelations).where(and(
+      eq(
+        fxControlRelations.deploymentId,
+        bound.binding.deploymentId,
+      ),
+      inArray(fxControlRelations.relationId, relationIds),
+    )).limit(relationIds.length + 1)
+  );
+  if (stableRelationRows.length !== relationIds.length) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const stableRelationsById = new Map(stableRelationRows.map((row) => [
+    row.relationId,
+    row,
+  ] as const));
+  if (stableRelationsById.size !== stableRelationRows.length) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  for (const relation of bound.binding.relationBindings) {
+    const row = stableRelationsById.get(relation.relationId);
+    if (
+      row === undefined ||
+      row.deploymentId !== bound.binding.deploymentId ||
+      !isNonBlankString(row.createdBySchemaVersionId) ||
+      (
+        relation.evolution.kind === "new" &&
+        row.createdBySchemaVersionId !== bound.binding.schemaVersionId
+      )
+    ) {
+      return yield* relationBindingReadFailure("storedState");
+    }
+  }
+  const edgeDefinitionIds = bound.binding.edgeDefinitions.map(
+    (edge) => edge.edgeDefinitionId,
+  );
+  const edgeRows = yield* relationBindingReadQueryEffect(() => db.select()
+    .from(fxControlEdgeDefinitions)
+    .where(and(
+      eq(
+        fxControlEdgeDefinitions.deploymentId,
+        bound.binding.deploymentId,
+      ),
+      inArray(
+        fxControlEdgeDefinitions.edgeDefinitionId,
+        edgeDefinitionIds,
+      ),
+    ))
+    .limit(edgeDefinitionIds.length + 1));
+  if (edgeRows.length !== edgeDefinitionIds.length) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  const edgesById = new Map(edgeRows.map((row) => [
+    row.edgeDefinitionId,
+    row,
+  ] as const));
+  if (edgesById.size !== edgeRows.length) {
+    return yield* relationBindingReadFailure("storedState");
+  }
+  for (const expected of bound.binding.edgeDefinitions) {
+    const row = edgesById.get(expected.edgeDefinitionId);
+    const canonical = edgeEvidence.get(expected.edgeDefinitionId);
+    const relation = relationByEdgeDefinitionId.get(
+      expected.edgeDefinitionId,
+    );
+    if (
+      row === undefined || canonical === undefined || relation === undefined ||
+      row.deploymentId !== bound.binding.deploymentId ||
+      row.relationId !== relation.relationId ||
+      !isNonBlankString(row.createdBySchemaVersionId) ||
+      row.physicalDefinitionCodecVersion !== 1 ||
+      !isUint8Array(row.physicalDefinitionBytes) ||
+      !bytesEqual(row.physicalDefinitionBytes, canonical.canonicalBytes) ||
+      !storedDigestEquals(
+        row.physicalDefinitionSha256,
+        expected.edgeDefinitionSha256,
+      ) ||
+      !jsonValuesEqual(row.physicalDefinitionJson, expected.definition)
+    ) {
+      return yield* relationBindingReadFailure("storedState");
+    }
+    if (
+      (
+        relation.evolution.kind === "new" ||
+        relation.evolution.physical === "replace"
+      ) &&
+      row.createdBySchemaVersionId !== bound.binding.schemaVersionId
+    ) {
+      return yield* relationBindingReadFailure("storedState");
+    }
+  }
 });
 
 const loadOriginsEffect = Effect.fn(
@@ -2259,6 +2503,45 @@ function relationQueryEffect<A>(
       cause,
     ),
   }));
+}
+
+function relationBindingReadQueryEffect<A>(
+  query: () => PromiseLike<A>,
+): Effect.Effect<A, ReadApplicationRelationBindingError> {
+  return Effect.uninterruptible(Effect.tryPromise({
+    try: async () => await query(),
+    catch: (cause) => relationBindingReadFailureValue(
+      "resourceFailure",
+      cause,
+    ),
+  }));
+}
+
+function mapApplicationRelationBindingReadError(
+  cause: ApplicationRelationBindingError,
+): ReadApplicationRelationBindingError {
+  return relationBindingReadFailureValue(
+    cause.reason === "resourceFailure" ? "resourceFailure" : "storedState",
+    cause,
+  );
+}
+
+function relationBindingReadFailure(
+  reason: ReadApplicationRelationBindingError["reason"],
+  cause?: unknown,
+): Effect.Effect<never, ReadApplicationRelationBindingError> {
+  return Effect.fail(relationBindingReadFailureValue(reason, cause));
+}
+
+function relationBindingReadFailureValue(
+  reason: ReadApplicationRelationBindingError["reason"],
+  cause?: unknown,
+): ReadApplicationRelationBindingError {
+  return new ReadApplicationRelationBindingError({
+    operation: "locateCommitBinding",
+    reason,
+    ...(cause === undefined ? {} : { cause }),
+  });
 }
 
 function sha256Effect(
