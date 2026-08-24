@@ -459,6 +459,16 @@ is hidden; the supervisor then replays the identical completion and the
 lifecycle owner returns its existing `idempotent` decision. This adds no Task
 retry, application replay, scheduler, completion method, or public API.
 
+The completed `SAC01-F2t-D5` consumer runs a third isolated Cooking
+publication Task through the existing private lost-result-publication-response
+adapter. Its bounded design keeps the accepted immutable value with the
+result-store owner and requires the supervisor to reconcile it with one read,
+while the Worker and application mutation remain single-execution. PGlite and
+authenticated ordinary-role PostgreSQL prove the exact result-write/read,
+Worker, child-mutation, commit, feed, and outbox evidence. This adds no
+result-store method, retry policy, scheduler authority, or public or Standard
+API.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator

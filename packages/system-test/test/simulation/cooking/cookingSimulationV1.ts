@@ -75,6 +75,12 @@ export interface CookingWorkloadProofV1 {
   readonly taskMutationCompletionResponseReplayed: true;
   readonly taskMutationCompletionWorkflowCommitted: true;
   readonly taskMutationCompletionNestedQueryOutputValidated: true;
+  readonly taskMutationResultReconciliationDocumentId: string;
+  readonly taskMutationResultReconciliationRunId: string;
+  readonly taskMutationResultReconciliationCreationReplay: true;
+  readonly taskMutationResultPublicationReconciled: true;
+  readonly taskMutationResultReconciliationWorkflowCommitted: true;
+  readonly taskMutationResultReconciliationNestedQueryOutputValidated: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -255,6 +261,15 @@ const COOKING_COMPLETION_REPLAY_DRAFT_CREATE_REQUEST_KEY =
 const COOKING_COMPLETION_REPLAY_TASK_REQUEST_KEY = Result.getOrThrow(
   decodeTaskRunCreationRequestKeyV1(
     "sac01:cooking:completion-replay-serving-guide-task",
+  ),
+);
+const COOKING_RESULT_RECONCILIATION_DRAFT_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:result-reconciliation-draft-create",
+  );
+const COOKING_RESULT_RECONCILIATION_TASK_REQUEST_KEY = Result.getOrThrow(
+  decodeTaskRunCreationRequestKeyV1(
+    "sac01:cooking:result-reconciliation-serving-guide-task",
   ),
 );
 const COOKING_TASK_IDENTITY_SUBJECT = "cooking-task-user";
@@ -498,6 +513,12 @@ const COOKING_COMPLETION_REPLAY_DRAFT_RECIPE = {
   localizedTitles: { en: "Replay-safe mushroom risotto" },
   source: "Completion replay fixture",
 } as const;
+const COOKING_RESULT_RECONCILIATION_DRAFT_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Reconciled mushroom risotto",
+  localizedTitles: { en: "Reconciled mushroom risotto" },
+  source: "Result reconciliation fixture",
+} as const;
 const COOKING_INITIAL_ASSESSMENT = {
   title: "Tomato soup",
   servings: 4,
@@ -534,6 +555,11 @@ const COOKING_COMPLETION_REPLAY_PUBLISHED_ASSESSMENT = {
   title: "Replay-safe mushroom risotto",
   headline: "Replay-safe mushroom risotto serves 3",
 } as const;
+const COOKING_RESULT_RECONCILIATION_PUBLISHED_ASSESSMENT = {
+  ...COOKING_PUBLISHED_ASSESSMENT,
+  title: "Reconciled mushroom risotto",
+  headline: "Reconciled mushroom risotto serves 3",
+} as const;
 const COOKING_TASK_DUPLICATE_DELIVERY_FAULT = {
   kind: "duplicate_delivery",
   duplicate: {
@@ -549,6 +575,11 @@ const COOKING_TASK_COMPLETION_RESPONSE_LOST_FAULT = {
   completionAttempts: 2,
   replayedSameCompletion: true,
   disposition: "idempotent",
+} as const;
+const COOKING_TASK_RESULT_PUBLICATION_RECONCILED_FAULT = {
+  kind: "result_publication_reconciled",
+  publicationAttempts: 1,
+  reconciliationReads: 1,
 } as const;
 const COOKING_PUBLISH_RECEIPT = {
   changed: true,
@@ -1712,6 +1743,77 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking Task did not preserve its committed workflow across completion replay.",
     ));
   }
+  const resultReconciliationDraftInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_RESULT_RECONCILIATION_DRAFT_RECIPE,
+    COOKING_RESULT_RECONCILIATION_DRAFT_CREATE_REQUEST_KEY,
+  );
+  if (
+    resultReconciliationDraftInserted.status !== "committed" ||
+    resultReconciliationDraftInserted.disposition !== "published" ||
+    resultReconciliationDraftInserted.commitSeq !== setup.commitSeq + 17n ||
+    typeof resultReconciliationDraftInserted.value !== "string"
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not publish the result-reconciliation draft.",
+    ));
+  }
+  const taskMutationResultReconciliationDocumentId =
+    resultReconciliationDraftInserted.value;
+  const taskMutationResultReconciliationRequest = Object.freeze({
+    version: 1 as const,
+    requestKey: COOKING_RESULT_RECONCILIATION_TASK_REQUEST_KEY,
+    payload: Object.freeze({
+      recipeId: taskMutationResultReconciliationDocumentId,
+    }),
+    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+  });
+  const taskMutationResultReconciliationFirst = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultReconciliationRequest,
+  );
+  const taskMutationResultReconciliationReplay = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultReconciliationRequest,
+  );
+  if (!sameTaskRunCreationReceiptV1(
+    taskMutationResultReconciliationReplay,
+    taskMutationResultReconciliationFirst,
+  )) {
+    return yield* Effect.die(new Error(
+      "The cooking result-reconciliation Task did not replay its durable run.",
+    ));
+  }
+  const taskMutationResultReconciliationDelivery = yield* client.tasks.deliver(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultReconciliationFirst,
+    { kind: "fault", fault: "result_publication_reconciled" },
+  );
+  if (
+    taskMutationResultReconciliationDelivery.status !== "succeeded" ||
+    taskMutationResultReconciliationDelivery.runId !==
+      taskMutationResultReconciliationFirst.runId ||
+    taskMutationResultReconciliationDelivery.worker.generation !==
+      "application_v1" ||
+    taskMutationResultReconciliationDelivery.worker.loads !== 1 ||
+    taskMutationResultReconciliationDelivery.worker.starts !== 1 ||
+    taskMutationResultReconciliationDelivery.worker.settlements !== 1 ||
+    taskMutationResultReconciliationDelivery.worker.resultWrites !== 1 ||
+    taskMutationResultReconciliationDelivery.worker.resultReads !== 2 ||
+    !sameJsonValue(
+      taskMutationResultReconciliationDelivery.fault,
+      COOKING_TASK_RESULT_PUBLICATION_RECONCILED_FAULT,
+    ) ||
+    !sameJsonValue(taskMutationResultReconciliationDelivery.output, {
+      recipeId: taskMutationResultReconciliationDocumentId,
+      publication: COOKING_PUBLISH_RECEIPT,
+      assessment: COOKING_RESULT_RECONCILIATION_PUBLISHED_ASSESSMENT,
+    })
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Task did not reconcile its stored result after publication response loss.",
+    ));
+  }
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -1738,6 +1840,13 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationCompletionResponseReplayed: true,
     taskMutationCompletionWorkflowCommitted: true,
     taskMutationCompletionNestedQueryOutputValidated: true,
+    taskMutationResultReconciliationDocumentId,
+    taskMutationResultReconciliationRunId:
+      taskMutationResultReconciliationFirst.runId,
+    taskMutationResultReconciliationCreationReplay: true,
+    taskMutationResultPublicationReconciled: true,
+    taskMutationResultReconciliationWorkflowCommitted: true,
+    taskMutationResultReconciliationNestedQueryOutputValidated: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2394,7 +2503,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 23,
-    queries: 21,
+    mutations: 25,
+    queries: 22,
   },
 });
