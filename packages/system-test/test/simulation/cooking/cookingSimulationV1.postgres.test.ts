@@ -46,6 +46,7 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           taskMutationCreationReplay: true,
           taskMutationWorkflowCommitted: true,
           taskMutationNestedQueryOutputValidated: true,
+          taskMutationDuplicateDeliverySuppressed: true,
           mutationReplay: true,
           secondaryMutationReplay: true,
           queryReplay: true,

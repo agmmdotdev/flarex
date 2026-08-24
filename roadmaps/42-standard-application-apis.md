@@ -444,6 +444,14 @@ existing application mutation system, child-effect authority, OCC/commit path,
 and typed validators remain authoritative. The test-only delivery call still
 does not become a Standard mutation, scheduler, run reader, or public Task API.
 
+The completed `SAC01-F2t-D3` consumer applies the existing private concurrent
+duplicate-delivery fault mode to that same mutation-bearing Cooking Task. A
+second connected delivery cycle runs while the accepted Worker is live and
+must observe no candidate or provider work. The resulting single child effect,
+single application publication commit, and unchanged durable projections are
+adoption evidence only; post-terminal delivery, retry policy, scheduler
+authority, and public or Standard delivery methods remain out of scope.
+
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 
 Raw `unknown` remains the canonical decoder boundary and runtime validator

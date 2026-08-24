@@ -35,6 +35,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
       taskMutationCreationReplay: true,
       taskMutationWorkflowCommitted: true,
       taskMutationNestedQueryOutputValidated: true,
+      taskMutationDuplicateDeliverySuppressed: true,
       rejectedInvalidMutations: 5,
       invalidArgumentsRejectedBeforeRuntime: true,
       committedStateUnchangedAfterRejections: true,

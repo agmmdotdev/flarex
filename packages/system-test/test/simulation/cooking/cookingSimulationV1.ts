@@ -68,6 +68,7 @@ export interface CookingWorkloadProofV1 {
   readonly taskMutationCreationReplay: true;
   readonly taskMutationWorkflowCommitted: true;
   readonly taskMutationNestedQueryOutputValidated: true;
+  readonly taskMutationDuplicateDeliverySuppressed: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -506,6 +507,16 @@ const COOKING_TASK_PUBLISHED_ASSESSMENT = {
   ...COOKING_PUBLISHED_ASSESSMENT,
   title: "Task-baked mushroom risotto",
   headline: "Task-baked mushroom risotto serves 3",
+} as const;
+const COOKING_TASK_DUPLICATE_DELIVERY_FAULT = {
+  kind: "duplicate_delivery",
+  duplicate: {
+    dispatchCandidatesHandled: 0,
+    dispatchProviderCalls: 0,
+    cancellationCandidatesHandled: 0,
+    cancellationProviderCalls: 0,
+    candidateFailures: 0,
+  },
 } as const;
 const COOKING_PUBLISH_RECEIPT = {
   changed: true,
@@ -1573,7 +1584,7 @@ const runCookingWorkloadV1 = Effect.fn(
   const taskMutationDelivery = yield* client.tasks.deliver(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
     taskMutationFirst,
-    { kind: "completion" },
+    { kind: "fault", fault: "duplicate_delivery" },
   );
   if (
     taskMutationDelivery.status !== "succeeded" ||
@@ -1584,6 +1595,10 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationDelivery.worker.settlements !== 1 ||
     taskMutationDelivery.worker.resultWrites !== 1 ||
     taskMutationDelivery.worker.resultReads !== 2 ||
+    !sameJsonValue(
+      taskMutationDelivery.fault,
+      COOKING_TASK_DUPLICATE_DELIVERY_FAULT,
+    ) ||
     !sameJsonValue(taskMutationDelivery.output, {
       recipeId: taskMutationDocumentId,
       publication: COOKING_PUBLISH_RECEIPT,
@@ -1612,6 +1627,7 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationCreationReplay: true,
     taskMutationWorkflowCommitted: true,
     taskMutationNestedQueryOutputValidated: true,
+    taskMutationDuplicateDeliverySuppressed: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,

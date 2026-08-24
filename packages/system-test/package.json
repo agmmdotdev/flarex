@@ -72,6 +72,8 @@
     "test:sac01-f2t-d1:postgres": "vitest run --config vitest.postgres.config.ts test/simulation/cooking/cookingSimulationV1.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:sac01-f2t-d2:pglite": "vitest run test/simulation/cooking/cookingSimulationV1.pglite.test.ts --no-file-parallelism --testTimeout=480000",
     "test:sac01-f2t-d2:postgres": "vitest run --config vitest.postgres.config.ts test/simulation/cooking/cookingSimulationV1.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:sac01-f2t-d3:pglite": "vitest run test/simulation/cooking/cookingSimulationV1.pglite.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:sac01-f2t-d3:postgres": "vitest run --config vitest.postgres.config.ts test/simulation/cooking/cookingSimulationV1.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:dte06-f1:hosted:pglite": "vitest run test/integration/applicationTaskSystemHostedPGlite.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte06-f2:pglite": "vitest run test/integration/applicationTaskSystemFreshHostTakeover.test.ts test/integration/applicationTaskSystemConnected.test.ts --no-file-parallelism --testTimeout=120000",
     "test:dte06-f2:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationTaskSystemFreshHostTakeover.postgres.test.ts test/integration/applicationTaskSystemConnected.postgres.test.ts --no-file-parallelism --testTimeout=120000",
