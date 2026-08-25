@@ -265,7 +265,7 @@ describePostgres(
           pin: { owner: "active_application" },
         });
         await target.query(
-          `delete from fx_system_application_active_head_v1 where scope_id = $1`,
+          `delete from fx_system_application_active_head where scope_id = $1`,
           [fixture.authority.scopeId],
         );
         await expect(runEffectFailure(finalizePhysicalDefinitionRetirementEffect(

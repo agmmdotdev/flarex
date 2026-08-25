@@ -19,9 +19,11 @@ import type {
   PreparedApplicationRelationCommit,
 } from "../applicationRelationCommit";
 import type {
-  ApplicationRelationReadinessFoldRepository,
-  ApplicationRelationReadinessFoldResult,
-} from "../applicationRelationReadinessFold";
+  ApplicationActiveSelection,
+  ValidateApplicationRelationActiveSelectionError,
+} from "../applicationActivation";
+import type { ApplicationRelationReadinessFoldRepository } from
+  "../applicationRelationReadinessFold";
 
 const applicationRelationReadCapabilityBrand: unique symbol = Symbol(
   "FlarexDB/ApplicationRelationReadCapability",
@@ -42,10 +44,7 @@ export function makeApplicationRelationReadCapability():
 
 export interface PrepareApplicationRelationReadCapabilityInput {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
-  readonly readiness: Extract<
-    ApplicationRelationReadinessFoldResult,
-    { readonly status: "ready" }
-  >;
+  readonly selection: ApplicationActiveSelection;
   readonly relationId: CatalogRelationId;
 }
 
@@ -67,7 +66,7 @@ export class ApplicationRelationReadUnavailableError extends Data.TaggedError(
 )<{
   readonly reason:
     | "invalidComposition"
-    | "readinessUnavailable"
+    | "activeSelectionUnavailable"
     | "definitionSetUnavailable"
     | "definitionNotFound"
     | "definitionNotEligible"
@@ -75,7 +74,8 @@ export class ApplicationRelationReadUnavailableError extends Data.TaggedError(
 }> {}
 
 export type PrepareApplicationRelationReadCapabilityError =
-  ApplicationRelationReadUnavailableError;
+  | ApplicationRelationReadUnavailableError
+  | ValidateApplicationRelationActiveSelectionError;
 
 export interface ApplicationRelationReadPort {
   readonly readiness: ApplicationRelationReadinessFoldRepository;

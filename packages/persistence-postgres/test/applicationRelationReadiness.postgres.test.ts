@@ -58,11 +58,19 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
+import { makeApplicationActivationRepository } from
+  "../src/applicationActivation";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../src/applicationActivationSchema";
 import {
   type ApplicationRelationBindingPublication,
   type ApplicationRelationBindingRepository,
   publishApplicationRelationBindingEffect,
 } from "../src/applicationRelationBinding";
+import { makeApplicationReadinessRepository } from
+  "../src/applicationReadiness";
 import { createApplicationRelationServingInspector } from
   "../src/applicationRelationServing";
 import {
@@ -82,6 +90,8 @@ import { createApplicationRelationReadPort } from
 import {
   hasApplicationRelationReadinessFoldAuthority,
   makeApplicationRelationReadinessFoldRepository,
+  validateApplicationRelationReadinessForActivationInTransaction,
+  validateStoredApplicationRelationReadinessForActivationInTransaction,
 } from "../src/applicationRelationReadinessFold";
 import {
   createApplicationRelationReadinessPort,
@@ -96,10 +106,14 @@ import {
 } from "../src/applicationRelationSchema";
 import { createApplicationRelationSchemaAuthorityPort } from
   "../src/applicationRelationSchemaAuthority";
+import { makeApplicationSchemaAuthorityPublisher } from
+  "../src/applicationSchemaAuthority";
 import {
   createApplicationRelationTaskCatalogSnapshotPort,
   makeApplicationRelationTaskBindingRepository,
 } from "../src/applicationRelationTaskBindings";
+import { createApplicationTaskCatalogSnapshotPort } from
+  "../src/applicationTaskBindings";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from
   "../src/appRows";
 import {
@@ -544,6 +558,13 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           },
         },
       }, { uniqueConstraints, uniqueConstraintEligibility });
+      const candidateReadiness = createAppSchemaCandidateReadinessPort(
+        candidateValidation,
+      );
+      const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({
+        controlDb: fixture.control.drizzle,
+        authority: fixture.authority,
+      });
       const fold = makeApplicationRelationReadinessFoldRepository({
         controlDb: fixture.control.drizzle,
         authority: fixture.authority,
@@ -551,15 +572,29 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           fixture.control.drizzle,
         ),
         taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(),
-        candidateValidation: createAppSchemaCandidateReadinessPort(
-          candidateValidation,
-        ),
+        candidateValidation: candidateReadiness,
         pointCommit,
-        physicalDefinitionLifecycle: createPhysicalDefinitionLifecyclePort({
-          controlDb: fixture.control.drizzle,
-          authority: fixture.authority,
-        }),
+        physicalDefinitionLifecycle,
         relations: fixture.readiness,
+      });
+      const legacyReadiness = makeApplicationReadinessRepository({
+        controlDb: fixture.control.drizzle,
+        authority: fixture.authority,
+        schema: makeApplicationSchemaAuthorityPublisher({
+          db: fixture.control.drizzle,
+          runTransaction: run => fixture.control.drizzle.transaction(run),
+        }),
+        taskCatalog: createApplicationTaskCatalogSnapshotPort(),
+        candidateValidation: candidateReadiness,
+        pointCommit,
+        physicalDefinitionLifecycle,
+        cold: {
+          runtimeHostIdentity: "postgres-ra01-legacy-cold-inert",
+          compatibilityDate: "2026-08-25",
+          materialize: () => Effect.die(new Error(
+            "Legacy cold materialization must not run for relation activation.",
+          )),
+        },
       });
       const input = Object.freeze({
         deploymentId: fixture.deploymentId,
@@ -588,6 +623,50 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         fold,
         Object.freeze({ ...left }),
       )).toBe(false);
+      const stored = await runEffect(fold.readReady(input));
+      if (stored.status !== "ready") {
+        throw new Error("Expected PostgreSQL cold readiness reconstruction.");
+      }
+      expect(stored).toMatchObject({
+        status: "ready",
+        disposition: "replayed",
+        readinessSha256: left.readinessSha256,
+        relationSetReadinessSha256: left.relationSetReadinessSha256,
+        relationCount: 2,
+      });
+      expect(stored.readinessBytes).toEqual(left.readinessBytes);
+      expect(stored.readyAt).toEqual(left.readyAt);
+      const [preparedValidation, storedValidation] =
+        await fixture.target.drizzle.transaction(async tx => {
+          const clock = await runEffect(
+            lockScopeClockForUpdateInTransactionEffect(tx, fixture.scopeId),
+          );
+          const preparedResult = await runEffect(
+            validateApplicationRelationReadinessForActivationInTransaction(
+              fold,
+              left,
+              tx,
+              clock,
+            ),
+          );
+          const storedResult = await runEffect(
+            validateStoredApplicationRelationReadinessForActivationInTransaction(
+              fold,
+              stored,
+              tx,
+              clock,
+            ),
+          );
+          return [preparedResult, storedResult] as const;
+        });
+      expect(preparedValidation).toMatchObject({
+        status: "ready",
+        basis: { revisionId: left.revisionId, relationCount: 2 },
+      });
+      expect(storedValidation).toMatchObject({
+        status: "ready",
+        basis: { revisionId: left.revisionId, relationCount: 2 },
+      });
       const [roots, children, legacy] = await Promise.all([
         fixture.target.drizzle.select().from(fxSystemApplicationReadiness),
         fixture.target.drizzle.select().from(
@@ -608,6 +687,18 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       );
       expect(legacy).toHaveLength(0);
 
+      const relationActivation = makeApplicationActivationRepository({
+        deploymentId: fixture.deploymentId,
+        readiness: legacyReadiness,
+        relationReadiness: fold,
+        authority: fixture.authority,
+      });
+      const insertedActivation = await runEffect(relationActivation.activate({
+        revisionId: left.revisionId,
+        expectedActiveHead: null,
+      }));
+      const active = await runEffect(relationActivation.readActive());
+
       const binding = relation.binding.relationBindings[0];
       if (binding === undefined) {
         throw new Error("Expected a PostgreSQL exact relation binding.");
@@ -620,7 +711,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       );
       const capability = await runEffect(reads.prepare({
         deploymentId: fixture.deploymentId,
-        readiness: left,
+        selection: active.selection,
         relationId: binding.relationId,
       }));
       const resolved = Result.getOrThrow(reads.resolve(capability, {
@@ -642,6 +733,14 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       );
 
       const targetRowId = relationBuildRowId(40_101);
+      const activationInventoryBeforeReplay = await Promise.all([
+        fixture.target.drizzle.select().from(
+          fxSystemApplicationActivations,
+        ),
+        fixture.target.drizzle.select().from(
+          fxSystemApplicationActiveHeads,
+        ),
+      ]);
       const firstSourceDocumentId =
         await applyExactPostgresRelationSourceCommit(
           fixture,
@@ -652,6 +751,36 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
           40_102,
           CommitSeqSchema.make(1n),
         );
+      const replayedActivation = await runEffect(
+        relationActivation.activate({
+          revisionId: left.revisionId,
+          expectedActiveHead: null,
+        }),
+      );
+      expect(replayedActivation).toMatchObject({
+        ...insertedActivation,
+        disposition: "replayed",
+      });
+      expect(await Promise.all([
+        fixture.target.drizzle.select().from(
+          fxSystemApplicationActivations,
+        ),
+        fixture.target.drizzle.select().from(
+          fxSystemApplicationActiveHeads,
+        ),
+      ])).toEqual(activationInventoryBeforeReplay);
+      const reacquiredActive = await runEffect(relationActivation.readActive());
+      expect(reacquiredActive).toMatchObject({
+        basis: {
+          revisionId: left.revisionId,
+          relationFrontierCommitSeq: "0",
+        },
+      });
+      await expect(runEffect(reads.prepare({
+        deploymentId: fixture.deploymentId,
+        selection: reacquiredActive.selection,
+        relationId: binding.relationId,
+      }))).resolves.toBeDefined();
       const randomUuid = relationFoldUuidSequence(31, 32, 33);
       const activation = await activatePointMutationSession(
         createPointMutationSessionActivationPersistenceV1(

@@ -526,6 +526,13 @@
       "when": 1787650679374,
       "tag": "0074_unusual_thunderball",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1787674679137,
+      "tag": "0075_omniscient_galactus",
+      "breakpoints": true
     }
   ]
 }

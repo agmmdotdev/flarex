@@ -197,7 +197,7 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
       head_sha256: Uint8Array;
     }>(
       `select head_sha256
-         from fx_system_application_active_head_v1
+         from fx_system_application_active_head
         where scope_id = $1`,
       [fixture.authority.scopeId],
     );
@@ -206,7 +206,7 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
       throw new Error("M05-B3 active-head evidence was not seeded.");
     }
     await fixture.target.query(
-      `update fx_system_application_active_head_v1
+      `update fx_system_application_active_head
           set head_sha256 = decode(repeat('00', 32), 'hex')
         where scope_id = $1`,
       [fixture.authority.scopeId],
@@ -216,14 +216,14 @@ describe("M05-B3 physical-definition retirement pins - PGlite", {
       owner: "active_application",
     });
     await fixture.target.query(
-      `update fx_system_application_active_head_v1
+      `update fx_system_application_active_head
           set head_sha256 = $1
         where scope_id = $2`,
       [activeHeadSha256, fixture.authority.scopeId],
     );
 
     await fixture.target.query(
-      `delete from fx_system_application_active_head_v1 where scope_id = $1`,
+      `delete from fx_system_application_active_head where scope_id = $1`,
       [fixture.authority.scopeId],
     );
     const candidateEvidence = await fixture.target.query<{

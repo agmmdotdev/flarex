@@ -132,7 +132,7 @@ type ExecutionClaimRow =
 type SchemaRow =
   typeof import("../schema").fxControlSchemaVersions.$inferSelect;
 type ApplicationActivationRow =
-  typeof import("../schema").fxSystemApplicationActivationsV1.$inferSelect;
+  typeof import("../applicationActivationSchema").fxSystemApplicationActivations.$inferSelect;
 type ApplicationReadinessRow =
   typeof import("../schema").fxSystemApplicationReadinessV1.$inferSelect;
 type ApplicationRevisionRow =

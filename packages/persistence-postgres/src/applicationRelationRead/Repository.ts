@@ -1,6 +1,8 @@
 import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../deployments";
+import { validateApplicationRelationActiveSelectionForReadiness } from
+  "../applicationActivation";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "../transactionSessionActivation";
 import {
@@ -13,8 +15,6 @@ import {
   type LocatedApplicationRelationDefinitionSet,
 } from "../applicationRelationCommit";
 import {
-  getApplicationRelationReadinessFoldDefinitionAuthority,
-  hasApplicationRelationReadinessFoldAuthorityFor,
   type ApplicationRelationReadinessFoldRepository,
 } from "../applicationRelationReadinessFold";
 import {
@@ -72,31 +72,23 @@ export function createApplicationRelationReadPort(
     if (!compositionIsExact()) {
       return yield* unavailable("invalidComposition");
     }
-    if (
-      !hasApplicationRelationReadinessFoldAuthorityFor(
-        readiness,
-        input.readiness,
-        controlDb,
-        input.deploymentId,
-      )
-    ) {
-      return yield* unavailable("readinessUnavailable");
-    }
-    const definitionAuthority =
-      getApplicationRelationReadinessFoldDefinitionAuthority(
+    const active = yield* validateApplicationRelationActiveSelectionForReadiness(
       readiness,
-      input.readiness,
+      input.selection,
+      input.deploymentId,
+      {
+        scopeMetadata: authority.scopeMetadata,
+        provisioningReceipts: authority.provisioningReceipts,
+        scopeClockTargets: authority.scopeSessionTargets,
+      },
     );
-    if (definitionAuthority === null) {
-      return yield* unavailable("definitionSetUnavailable");
-    }
-    const located = definitionAuthority.definitions;
+    const located = active.definitions;
     if (
       !hasLocatedApplicationRelationDefinitionSetAuthority(
         definitions,
         located,
       ) ||
-      located.definitions.length !== input.readiness.relationCount
+      located.definitions.length !== active.relationCount
     ) {
       return yield* unavailable("definitionSetUnavailable");
     }
@@ -118,12 +110,12 @@ export function createApplicationRelationReadPort(
     capabilityStates.set(capability, Object.freeze({
       port: state,
       deploymentId: input.deploymentId,
-      scopeId: input.readiness.scopeId,
-      schemaVersionId: input.readiness.schemaVersionId,
+      scopeId: active.authority.scopeId,
+      schemaVersionId: active.schemaVersionId,
       definitions: located,
       definition,
-      storageGenerationFence: definitionAuthority.storageGenerationFence,
-      epoch: definitionAuthority.epoch,
+      storageGenerationFence: active.authority.storageGenerationFence,
+      epoch: active.authority.epoch,
     }));
     return capability;
   });

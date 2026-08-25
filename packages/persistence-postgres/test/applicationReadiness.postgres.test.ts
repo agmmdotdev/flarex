@@ -338,11 +338,11 @@ describePostgres("AA-R6 Application readiness - PostgreSQL", () => {
         });
         expect(await scalarCount(
           target,
-          "fx_system_application_activation_v1",
+          "fx_system_application_activation",
         )).toBe(1);
         expect(await scalarCount(
           target,
-          "fx_system_application_active_head_v1",
+          "fx_system_application_active_head",
         )).toBe(1);
 
         await blocker.query("begin");

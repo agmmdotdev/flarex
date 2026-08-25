@@ -243,6 +243,8 @@ import {
 } from "../src/physicalDefinitionLifecycle";
 import { createAppDeveloperIndexDefinitionPortV1 } from
   "../src/appDeveloperIndexCommitV1";
+import { fxSystemApplicationActiveHeads } from
+  "../src/applicationActivationSchema";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -257,7 +259,6 @@ import {
   fxSystemApplicationFunctionsV1,
   fxSystemApplicationReadinessFunctionsV1,
   fxSystemApplicationReadinessV1,
-  fxSystemApplicationActiveHeadsV1,
   fxSystemApplicationActionInvocationsV1,
   fxSystemScopeClocks,
 } from "../src/schema";
@@ -859,11 +860,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
     });
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_activation_v1",
+      "fx_system_application_activation",
     )).toBe(1);
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_active_head_v1",
+      "fx_system_application_active_head",
     )).toBe(1);
 
     const active = await runEffect(activation.readActive());
@@ -1797,7 +1798,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
     const inspector = createApplicationRelationServingInspector();
     const edgeDefinitionId = decodeCatalogEdgeDefinitionId(1);
     const inspection = await fixture.target.drizzle.transaction(async (tx) => {
-      await runEffect(lockScopeClockForUpdateInTransactionEffect(
+      const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(
         tx,
         active.basis.authority.scopeId,
       ));
@@ -1806,7 +1807,8 @@ describe("Application activation", { timeout: 30_000 }, () => {
           inspector,
           tx,
           {
-            scopeId: active.basis.authority.scopeId,
+            authority: active.basis.authority,
+            clock,
             edgeDefinitionId,
           },
         ),
@@ -1819,14 +1821,14 @@ describe("Application activation", { timeout: 30_000 }, () => {
       activeRevisionId: fixture.input.revisionId,
     });
 
-    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeads).set({
       headSha256: new Uint8Array(32).fill(0xee),
     }).where(eq(
-      fxSystemApplicationActiveHeadsV1.scopeId,
+      fxSystemApplicationActiveHeads.scopeId,
       active.basis.authority.scopeId,
     ));
     const corrupt = await fixture.target.drizzle.transaction(async (tx) => {
-      await runEffect(lockScopeClockForUpdateInTransactionEffect(
+      const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(
         tx,
         active.basis.authority.scopeId,
       ));
@@ -1835,7 +1837,8 @@ describe("Application activation", { timeout: 30_000 }, () => {
           inspector,
           tx,
           {
-            scopeId: active.basis.authority.scopeId,
+            authority: active.basis.authority,
+            clock,
             edgeDefinitionId,
           },
         ),
@@ -1976,10 +1979,10 @@ describe("Application activation", { timeout: 30_000 }, () => {
     ));
     expect(Result.isFailure(foreignGrant)).toBe(true);
 
-    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeads).set({
       headSha256: new Uint8Array(32).fill(0xee),
     }).where(eq(
-      fxSystemApplicationActiveHeadsV1.scopeId,
+      fxSystemApplicationActiveHeads.scopeId,
       active.basis.authority.scopeId,
     ));
     await expect(runEffect(graphLoader.loadEffect(executionAuthority))).resolves
@@ -2144,10 +2147,10 @@ describe("Application activation", { timeout: 30_000 }, () => {
       },
     });
 
-    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeads).set({
       headSha256: new Uint8Array(32).fill(0xee),
     }).where(eq(
-      fxSystemApplicationActiveHeadsV1.scopeId,
+      fxSystemApplicationActiveHeads.scopeId,
       active.basis.authority.scopeId,
     ));
     const stale = await runEffect(Effect.result(
@@ -2800,10 +2803,10 @@ describe("Application activation", { timeout: 30_000 }, () => {
       });
     }
 
-    await fixture.target.drizzle.update(fxSystemApplicationActiveHeadsV1).set({
+    await fixture.target.drizzle.update(fxSystemApplicationActiveHeads).set({
       headSha256: new Uint8Array(32).fill(0xee),
     }).where(eq(
-      fxSystemApplicationActiveHeadsV1.scopeId,
+      fxSystemApplicationActiveHeads.scopeId,
       active.basis.authority.scopeId,
     ));
     const corruptHeadAdmission = await runEffect(Effect.result(
@@ -2840,7 +2843,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       });
     }
     await fixture.target.drizzle.execute(
-      `drop table fx_system_application_active_head_v1 cascade`,
+      `drop table fx_system_application_active_head cascade`,
     );
     const unavailableHeadAdmission = await runEffect(Effect.result(
       admitApplicationAuthorityActionInvocation({
@@ -2880,11 +2883,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
     expect(Result.isFailure(result)).toBe(true);
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_activation_v1",
+      "fx_system_application_activation",
     )).toBe(0);
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_active_head_v1",
+      "fx_system_application_active_head",
     )).toBe(0);
   });
 
@@ -2937,11 +2940,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_activation_v1",
+      "fx_system_application_activation",
     )).toBe(1);
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_active_head_v1",
+      "fx_system_application_active_head",
     )).toBe(1);
 
     const replay = await runEffect(activation.activate({
@@ -2954,11 +2957,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
     });
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_activation_v1",
+      "fx_system_application_activation",
     )).toBe(1);
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_active_head_v1",
+      "fx_system_application_active_head",
     )).toBe(1);
   });
 
@@ -2975,7 +2978,7 @@ describe("Application activation", { timeout: 30_000 }, () => {
       expectedActiveHead: null,
     }));
     await fixture.target.query(
-      `update fx_system_application_active_head_v1
+      `update fx_system_application_active_head
           set head_bytes = $1
         where scope_id = $2`,
       [new Uint8Array([1]), fixture.authority.scopeId],
@@ -3046,11 +3049,11 @@ describe("Application activation", { timeout: 30_000 }, () => {
     }
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_activation_v1",
+      "fx_system_application_activation",
     )).toBe(2);
     expect(await scalarCount(
       fixture.target,
-      "fx_system_application_active_head_v1",
+      "fx_system_application_active_head",
     )).toBe(1);
   });
 

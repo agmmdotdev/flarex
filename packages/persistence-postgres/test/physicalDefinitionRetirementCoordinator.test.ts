@@ -103,7 +103,7 @@ describe("M05-B4 physical-definition retirement coordinator", {
       lifecycle: { lifecycle: "draining", transitionFence: 1n },
     });
     await fixture.target.query(
-      `delete from fx_system_application_active_head_v1 where scope_id = $1`,
+      `delete from fx_system_application_active_head where scope_id = $1`,
       [fixture.authority.scopeId],
     );
     await expect(runColdStep()).resolves.toMatchObject({

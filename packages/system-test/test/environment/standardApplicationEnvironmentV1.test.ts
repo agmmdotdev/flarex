@@ -167,8 +167,8 @@ describe("Standard Application system-test environment - PGlite", () => {
       select
         (select count(*)::text from fx_system_application_publication_v1) as publication_count,
         (select count(*)::text from fx_system_application_readiness_v1) as readiness_count,
-        (select count(*)::text from fx_system_application_activation_v1) as activation_count,
-        (select count(*)::text from fx_system_application_active_head_v1) as active_head_count
+        (select count(*)::text from fx_system_application_activation) as activation_count,
+        (select count(*)::text from fx_system_application_active_head) as active_head_count
     `);
     expect(rows.rows).toEqual([{
       publication_count: "0",

@@ -200,11 +200,11 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
     );
     const activeDigest = await fixture.target.query<{ head_sha256_hex: string }>(
       `select encode(head_sha256, 'hex') head_sha256_hex
-         from fx_system_application_active_head_v1 where scope_id = $1`,
+         from fx_system_application_active_head where scope_id = $1`,
       [fixture.authority.scopeId],
     );
     await fixture.target.query(
-      `update fx_system_application_active_head_v1
+      `update fx_system_application_active_head
           set head_sha256 = decode(repeat('00', 32), 'hex')
         where scope_id = $1`,
       [fixture.authority.scopeId],
@@ -216,7 +216,7 @@ describe("M05-A unique-set build workspace reclamation", { timeout: 180_000 }, (
       "activeSchemaStateInvalid",
     );
     await fixture.target.query(
-      `update fx_system_application_active_head_v1
+      `update fx_system_application_active_head
           set head_sha256 = decode($2, 'hex') where scope_id = $1`,
       [fixture.authority.scopeId, activeDigest.rows[0]?.head_sha256_hex],
     );

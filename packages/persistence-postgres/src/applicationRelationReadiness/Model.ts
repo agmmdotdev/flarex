@@ -189,6 +189,16 @@ export interface ApplicationRelationSetReadinessChild {
   readonly readinessSha256: string;
 }
 
+/**
+ * Exact immutable child references retained by one stored relation-set
+ * readiness receipt. The current scope clock remains a separate input so a
+ * historical frontier can be authenticated without pretending it is current.
+ */
+export interface StoredApplicationRelationSetReadinessReference {
+  readonly frontierCommitSeq: CommitSeq;
+  readonly relations: ReadonlyArray<ApplicationRelationSetReadinessChild>;
+}
+
 export interface ApplicationRelationSetReadinessReceipt {
   readonly format: "flarex.application-relation-set-readiness";
   readonly version: 1;

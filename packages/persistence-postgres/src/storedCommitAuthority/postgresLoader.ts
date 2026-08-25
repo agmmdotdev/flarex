@@ -16,6 +16,7 @@ import type {
 } from "flarex-protocol/transaction-session";
 
 import type { AppRowTransaction } from "../appRows";
+import { fxSystemApplicationActivations } from "../applicationActivationSchema";
 import type { FlarexMetadataDatabase } from "../deployments";
 import {
   detachDriverRows,
@@ -29,7 +30,6 @@ import {
 import {
   fxControlSchemaVersions,
   fxControlApplicationSchemaAuthoritiesV1,
-  fxSystemApplicationActivationsV1,
   fxSystemApplicationAnalysesV1,
   fxSystemApplicationFunctionsV1,
   fxSystemApplicationPublicationsV1,
@@ -924,7 +924,7 @@ async function selectApplicationGraphSizeRows(
 ): Promise<ReadonlyArray<ApplicationGraphSizeRow>> {
   const query = tx.select({
       activationByteLengthText: sql<string>`octet_length(
-        ${fxSystemApplicationActivationsV1.activationBytes}
+        ${fxSystemApplicationActivations.activationBytes}
       )::bigint::text`,
       readinessByteLengthText: sql<string>`octet_length(
         ${fxSystemApplicationReadinessV1.readinessBytes}
@@ -943,20 +943,20 @@ async function selectApplicationGraphSizeRows(
       )::bigint::text`,
       schemaBindingByteLengthText: sql<string>`'0'`,
     })
-    .from(fxSystemApplicationActivationsV1)
+    .from(fxSystemApplicationActivations)
     .innerJoin(fxSystemApplicationReadinessV1, and(
       eq(fxSystemApplicationReadinessV1.scopeId,
-        fxSystemApplicationActivationsV1.scopeId),
+        fxSystemApplicationActivations.scopeId),
       eq(fxSystemApplicationReadinessV1.revisionId,
-        fxSystemApplicationActivationsV1.revisionId),
+        fxSystemApplicationActivations.revisionId),
       eq(fxSystemApplicationReadinessV1.readinessSha256,
-        fxSystemApplicationActivationsV1.readinessSha256),
+        fxSystemApplicationActivations.legacyReadinessSha256),
     ))
     .innerJoin(fxSystemApplicationRevisionsV2, and(
       eq(fxSystemApplicationRevisionsV2.scopeId,
-        fxSystemApplicationActivationsV1.scopeId),
+        fxSystemApplicationActivations.scopeId),
       eq(fxSystemApplicationRevisionsV2.revisionId,
-        fxSystemApplicationActivationsV1.revisionId),
+        fxSystemApplicationActivations.revisionId),
     ))
     .innerJoin(fxSystemApplicationAnalysesV1, and(
       eq(fxSystemApplicationAnalysesV1.scopeId,
@@ -984,10 +984,11 @@ async function selectApplicationGraphSizeRows(
         fxSystemApplicationRevisionsV2.revisionId),
     ))
     .where(and(
-      eq(fxSystemApplicationActivationsV1.scopeId, scopeId),
-      eq(fxSystemApplicationActivationsV1.activationSequence,
+      eq(fxSystemApplicationActivations.scopeId, scopeId),
+      eq(fxSystemApplicationActivations.activationSequence,
         activationSequence),
-      eq(fxSystemApplicationActivationsV1.revisionId, revisionId),
+      eq(fxSystemApplicationActivations.revisionId, revisionId),
+      eq(fxSystemApplicationActivations.readinessContractVersion, 1),
     )).limit(2);
   observeDrizzleQuery("applicationGraphSizes", query, options.observeQuery);
   return await query;
@@ -1004,7 +1005,7 @@ async function selectApplicationGraphPayloadRows(
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
 ): Promise<ReadonlyArray<Omit<ApplicationGraphPayloadRow, "schemaAuthority">>> {
   const query = tx.select({
-      activation: fxSystemApplicationActivationsV1,
+      activation: fxSystemApplicationActivations,
       readiness: fxSystemApplicationReadinessV1,
       revision: fxSystemApplicationRevisionsV2,
       analysis: {
@@ -1031,20 +1032,20 @@ async function selectApplicationGraphPayloadRows(
       selectedFunction: fxSystemApplicationFunctionsV1,
       revisionSchema: fxSystemApplicationRevisionSchemasV1,
     })
-    .from(fxSystemApplicationActivationsV1)
+    .from(fxSystemApplicationActivations)
     .innerJoin(fxSystemApplicationReadinessV1, and(
       eq(fxSystemApplicationReadinessV1.scopeId,
-        fxSystemApplicationActivationsV1.scopeId),
+        fxSystemApplicationActivations.scopeId),
       eq(fxSystemApplicationReadinessV1.revisionId,
-        fxSystemApplicationActivationsV1.revisionId),
+        fxSystemApplicationActivations.revisionId),
       eq(fxSystemApplicationReadinessV1.readinessSha256,
-        fxSystemApplicationActivationsV1.readinessSha256),
+        fxSystemApplicationActivations.legacyReadinessSha256),
     ))
     .innerJoin(fxSystemApplicationRevisionsV2, and(
       eq(fxSystemApplicationRevisionsV2.scopeId,
-        fxSystemApplicationActivationsV1.scopeId),
+        fxSystemApplicationActivations.scopeId),
       eq(fxSystemApplicationRevisionsV2.revisionId,
-        fxSystemApplicationActivationsV1.revisionId),
+        fxSystemApplicationActivations.revisionId),
     ))
     .innerJoin(fxSystemApplicationAnalysesV1, and(
       eq(fxSystemApplicationAnalysesV1.scopeId,
@@ -1072,10 +1073,11 @@ async function selectApplicationGraphPayloadRows(
         fxSystemApplicationRevisionsV2.revisionId),
     ))
     .where(and(
-      eq(fxSystemApplicationActivationsV1.scopeId, scopeId),
-      eq(fxSystemApplicationActivationsV1.activationSequence,
+      eq(fxSystemApplicationActivations.scopeId, scopeId),
+      eq(fxSystemApplicationActivations.activationSequence,
         activationSequence),
-      eq(fxSystemApplicationActivationsV1.revisionId, revisionId),
+      eq(fxSystemApplicationActivations.revisionId, revisionId),
+      eq(fxSystemApplicationActivations.readinessContractVersion, 1),
     )).limit(2);
   observeDrizzleQuery("applicationGraphPayload", query, options.observeQuery);
   return await query;

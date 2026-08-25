@@ -37,8 +37,6 @@ export {
   fxControlUniqueConstraintDefinitions,
   fxControlUniqueConstraints,
   fxSystemApplicationActionInvocationsV1,
-  fxSystemApplicationActivationsV1,
-  fxSystemApplicationActiveHeadsV1,
   fxSystemApplicationAnalysesV1,
   fxSystemApplicationCandidatesV1,
   fxSystemApplicationFunctionsV1,
@@ -109,3 +107,8 @@ export {
   fxSystemApplicationTaskCatalogs,
   fxSystemApplicationTaskDefinitions,
 } from "./applicationRelationSchema";
+
+export {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "./applicationActivationSchema";

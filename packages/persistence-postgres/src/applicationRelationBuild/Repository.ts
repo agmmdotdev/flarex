@@ -957,6 +957,7 @@ const buildInTransaction = Effect.fn(
     yield* requireDefinitionNotServingInTransaction(
       tx,
       authority,
+      clock,
       located.definition.edge.edgeDefinitionId,
       port,
     );
@@ -988,6 +989,7 @@ const buildInTransaction = Effect.fn(
     yield* requireDefinitionNotServingInTransaction(
       tx,
       authority,
+      clock,
       located.definition.edge.edgeDefinitionId,
       port,
     );
@@ -1009,6 +1011,7 @@ const buildInTransaction = Effect.fn(
       yield* requireDefinitionNotServingInTransaction(
         tx,
         authority,
+        clock,
         located.definition.edge.edgeDefinitionId,
         port,
       );
@@ -1057,6 +1060,7 @@ const requireDefinitionNotServingInTransaction = Effect.fn(
 )(function* (
   tx: AppRowTransaction,
   authority: TrustedScopeAuthority,
+  clock: ScopeClockRecord,
   edgeDefinitionId: CatalogEdgeDefinitionId,
   state: ApplicationRelationBuildPortState,
 ): Effect.fn.Return<
@@ -1069,7 +1073,8 @@ const requireDefinitionNotServingInTransaction = Effect.fn(
       state.servingInspector,
       tx,
       {
-        scopeId: authority.scopeId,
+        authority,
+        clock,
         edgeDefinitionId,
       },
     );

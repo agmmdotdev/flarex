@@ -7057,122 +7057,6 @@ export const fxSystemApplicationReadinessFunctionsV1 = pgTable(
   ],
 );
 
-/** Immutable Application activation history; revision rows stay inactive. */
-export const fxSystemApplicationActivationsV1 = pgTable(
-  "fx_system_application_activation_v1",
-  {
-    scopeId: text("scope_id").$type<ScopeId>().notNull(),
-    activationSequence: bigint("activation_sequence", { mode: "bigint" })
-      .notNull(),
-    previousActivationSequence: bigint("previous_activation_sequence", {
-      mode: "bigint",
-    }),
-    revisionId: text("revision_id").notNull(),
-    readinessSha256: bytea("readiness_sha256").notNull(),
-    activationRequestSha256: bytea("activation_request_sha256").notNull(),
-    activationSha256: bytea("activation_sha256").notNull(),
-    activationBytes: bytea("activation_bytes").notNull(),
-    activatedAt: timestamp("activated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.scopeId, table.activationSequence] }),
-    unique("fx_application_activation_v1_request_unique").on(
-      table.scopeId,
-      table.activationRequestSha256,
-    ),
-    unique("fx_application_activation_v1_head_child_unique").on(
-      table.scopeId,
-      table.activationSequence,
-      table.revisionId,
-      table.readinessSha256,
-      table.activationSha256,
-    ),
-    foreignKey({
-      name: "fx_application_activation_v1_readiness_fk",
-      columns: [table.scopeId, table.revisionId, table.readinessSha256],
-      foreignColumns: [
-        fxSystemApplicationReadinessV1.scopeId,
-        fxSystemApplicationReadinessV1.revisionId,
-        fxSystemApplicationReadinessV1.readinessSha256,
-      ],
-    }).onDelete("restrict"),
-    check(
-      "fx_application_activation_v1_identity_check",
-      sql`${table.activationSequence} between 1 and 9223372036854775807
-        and (${table.previousActivationSequence} is null or (
-          ${table.previousActivationSequence} between 1 and 9223372036854775806
-          and ${table.previousActivationSequence} < ${table.activationSequence}
-        ))
-        and ${nonBlankText(table.revisionId)}
-        and octet_length(${table.readinessSha256}) = 32
-        and octet_length(${table.activationRequestSha256}) = 32
-        and octet_length(${table.activationSha256}) = 32
-        and octet_length(${table.activationBytes}) between 1 and 1048576`,
-    ),
-    check(
-      "fx_application_activation_v1_time_check",
-      sql`isfinite(${table.activatedAt})`,
-    ),
-  ],
-);
-
-/** One CAS-protected Application active head per scope. */
-export const fxSystemApplicationActiveHeadsV1 = pgTable(
-  "fx_system_application_active_head_v1",
-  {
-    scopeId: text("scope_id").$type<ScopeId>().primaryKey(),
-    activationSequence: bigint("activation_sequence", { mode: "bigint" })
-      .notNull(),
-    revisionId: text("revision_id").notNull(),
-    readinessSha256: bytea("readiness_sha256").notNull(),
-    activationSha256: bytea("activation_sha256").notNull(),
-    headSha256: bytea("head_sha256").notNull(),
-    headBytes: bytea("head_bytes").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    foreignKey({
-      name: "fx_application_active_head_v1_activation_fk",
-      columns: [
-        table.scopeId,
-        table.activationSequence,
-        table.revisionId,
-        table.readinessSha256,
-        table.activationSha256,
-      ],
-      foreignColumns: [
-        fxSystemApplicationActivationsV1.scopeId,
-        fxSystemApplicationActivationsV1.activationSequence,
-        fxSystemApplicationActivationsV1.revisionId,
-        fxSystemApplicationActivationsV1.readinessSha256,
-        fxSystemApplicationActivationsV1.activationSha256,
-      ],
-    }).onDelete("restrict"),
-    check(
-      "fx_application_active_head_v1_identity_check",
-      sql`${table.activationSequence} between 1 and 9223372036854775807
-        and ${nonBlankText(table.revisionId)}
-        and octet_length(${table.readinessSha256}) = 32
-        and octet_length(${table.activationSha256}) = 32
-        and octet_length(${table.headSha256}) = 32
-        and octet_length(${table.headBytes}) between 1 and 1048576`,
-    ),
-    check(
-      "fx_application_active_head_v1_time_check",
-      sql`isfinite(${table.createdAt})
-        and isfinite(${table.updatedAt})
-        and ${table.updatedAt} >= ${table.createdAt}`,
-    ),
-  ],
-);
-
 /**
  * Inactive legacy application-revision registration evidence.
  *
@@ -9671,8 +9555,6 @@ export const flarexSchema = {
   fxControlScopeProvisioning,
   fxControlScopes,
   fxSystemApplicationAnalysesV1,
-  fxSystemApplicationActivationsV1,
-  fxSystemApplicationActiveHeadsV1,
   fxSystemApplicationCandidatesV1,
   fxSystemApplicationFunctionsV1,
   fxSystemApplicationPublicationsV1,

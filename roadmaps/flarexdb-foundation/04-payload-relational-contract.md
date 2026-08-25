@@ -11,9 +11,12 @@ inactive Application with an empty function catalog. E01 is complete at that
 private, production-inert boundary. `O10-R` completed on 2026-08-25 with the
 exact incoming relation read, journal dependency, read-your-writes overlay,
 final OCC validation, and durable running-conflict takeover. Nonempty function
-catalogs fail closed at an explicit runtime-availability gate. No positive
-RA01 activation, RQ01 query, public developer API, or Payload adapter is
-implemented.
+catalogs fail closed at an explicit runtime-availability gate. The bounded
+RA01 activation-owned core checkpoint now activates and reads one private
+relation revision through the single existing active head, but RA01 remains
+open on a recorded session-journal use-time authority defect and outstanding
+replacement/lock-order proofs. No RQ01 query, public developer API, or Payload
+adapter is implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -125,12 +128,15 @@ still emits exact `ApplicationManifestV1`, while relation-bearing analysis emits
 relation entries. The normal semantic boundary is the unversioned
 `ApplicationManifest` union and its unversioned canonicalizer/manifest maker;
 the numeric suffixes remain only on the two exact envelopes that must coexist
-and decode independently. V1 is still active and is therefore not called
-legacy. The authenticated analysis host accepts and validates both envelopes.
-Persisted publication, readiness, activation, and runtime consumers remain
-V1-only, and `SchemaManifestAppSchemaV1` remains unchanged; `R02` owns their
-explicit relation-bearing binding evolution. Adding `relations` to either V1
-shape or reusing an old digest with new meaning remains forbidden.
+and decode independently. The authenticated analysis host accepts and validates
+both envelopes. The concrete version 1 envelope remains an active compatibility
+contract, while displaced product implementations use `Legacy...` names.
+Current unversioned R02/E01/RA01 persistence owners are relation-aware and
+retain the exact version 1 publication/readiness rows and activation frames.
+Standard runtime consumers remain Legacy-only and reject relation activation;
+the private O10-R relation read is a separate exact system-core composition.
+`SchemaManifestAppSchemaV1` remains unchanged. Adding `relations` to either
+version 1 shape or reusing an old digest with new meaning remains forbidden.
 
 Here, current means the unversioned private Application revision generation.
 Roadmap 49's `AA-R9-P` production-cutover preflight remains no-go. No relation
@@ -1883,6 +1889,67 @@ retry policy, function runtime, feeds/outbox, routes, bindings, Standard query
 APIs, SDKs, Payload/Medusa, and production callers are explicit stop boundaries
 requiring separate approval if implementation would need to change them.
 
+#### RA01 implementation checkpoint — bounded core complete, exit still open
+
+The approved activation-owned system-core work is implemented as one bounded
+checkpoint. Migration `0075` evolves the one activation history and one active
+head in place, retains exact Legacy contract-version-1 rows and frames, and adds
+the mutually exclusive relation contract-version-2 witnesses. The activation
+dispatcher derives its branch from the authenticated stored manifest. Its
+relation branch cold-reconstructs and reauthenticates the complete readiness
+root, ordered children, immutable physical and semantic receipts, immediate R02
+origin lineage, current scope authority, and activation request before insert
+or replay. Exact replay is checked before current-frontier settlement, so an
+already committed activation remains replayable after the scope frontier
+advances without minting a second activation or head.
+
+The same checkpoint adds one exact relation selection and read-capability mint,
+revalidates the selection before minting, and extends E01's serving inspector to
+the complete relation head/history/readiness tuple under the caller-owned scope
+clock. The inspector rejects stale generation, fence, epoch, future relation
+frontier, corrupt evidence, and active-definition restart or cleanup. Legacy
+runtime consumers explicitly accept only readiness contract version 1; they do
+not reinterpret a relation head. No route, Standard query API, SDK, framework
+adapter, second head, fallback, comparison path, dual write, feed, or outbox is
+added.
+
+Focused PGlite and genuine PostgreSQL 18 receipts cover fresh and populated
+Legacy migration, Legacy activation regression, relation settlement and cold
+reconstruction, insert and exact replay (including replay after frontier
+advance), canonical root and child corruption, direct and semantic historical
+receipt authentication, selection authenticity, serving rejection, rollback,
+concurrent settlement, and a real relation read/OCC conflict. These receipts do
+not yet establish every preflight matrix cell: complete Legacy-to-relation and
+relation-to-Legacy replacement coverage and both activation-versus-builder lock
+orders remain open.
+
+One shared-owner defect prevents RA01 from being marked complete:
+
+- **Reproducible scenario:** activate relation revision A, mint its private
+  O10-R read capability, then replace the active head with revision B while an
+  A-pinned attempt still holds that capability. `ApplicationRelationRead.resolve`
+  and `lowerOverlay` authenticate only their process-local `WeakMap` entry and
+  static deployment/scope/schema tuple. `SessionJournalStore` can therefore
+  resolve and consume the old capability without rereading the current active
+  head.
+- **Expected behavior:** a capability whose issuing relation selection has
+  been superseded fails closed before relation data I/O; the active head remains
+  the serving authority at use time.
+- **Actual behavior:** activation-time and mint-time validation are exact, but
+  no use-time head validation occurs inside the journal-owned read transaction.
+- **Affected owner and trust boundary:** the O10-R session-journal read path,
+  specifically `SessionJournalStore.resolveApplicationRelationRead` and the
+  transaction that runs `runApplicationRelationIncomingRead`; a safe repair
+  must either revalidate the active selection there or make the finishing
+  transaction retain an exact active-head dependency.
+- **Evidence and disposition:** the static resolution is visible in
+  `applicationRelationRead/Repository.ts` and consumption in
+  `sessionJournalStore.ts`. Point commit, OCC, journal/session, and retry owners
+  are explicit RA01 stop boundaries, so this checkpoint records the defect and
+  does not weaken assertions, add a fallback, or duplicate active-head logic.
+  RA01 stays open pending a separately approved journal/OCC preflight and the
+  remaining replacement and lock-order proofs.
+
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
 Prerequisite: RA01 has activated the private relation-bearing revision after
@@ -1976,20 +2043,20 @@ checkpoint commit.
 
 ## Known Limitations
 
-- The private Standard source, authenticated Application Analysis host, and
-  durable R02 binder admit `RelationDeclarationV1`, but located-scope
-  publication, readiness, activation, and production routing do not.
-- Stable relation and immutable physical edge-definition catalogs are
-  implemented. No edge-occurrence table, edge build state, compiler lowering,
-  adjacency-version storage, relation read, or relation sync dependency is
-  implemented.
-- The first high-level profile and its exact declaration/occurrence codecs,
-  budgets, Standard source representation, analyzed projection, and manifest
-  evolution are frozen by completed `R01`.
-- R02 freezes exact physical-definition identity and snapshot/access meaning.
-  Edge-occurrence DDL, access-index spelling, internal page implementation,
-  build tables, and adjacency-version storage remain owned by S12 and later
-  gates.
+- The production-inert private core now includes R02 publication/binding, S12
+  edge and adjacency-version storage, C09 point-commit lowering, E01 readiness,
+  the bounded RA01 activation checkpoint, and O10-R journal/OCC reads. Public
+  routing, RQ01 query composition, developer APIs, and framework adapters remain
+  absent.
+- RA01 remains incomplete because a superseded O10-R capability is not yet
+  revalidated at use time inside the journal-owned transaction. Complete
+  Legacy/relation replacement coverage and both activation-versus-builder lock
+  orders also remain open.
+- Relation change facts and sync invalidation remain absent until R03; the
+  existing point-commit feed is not treated as an implicit relation observer.
+- The first admitted high-level profile and its exact declaration/occurrence
+  codecs, budgets, Standard source representation, analyzed projection, and
+  manifest evolution remain intentionally narrow under completed `R01`.
 - Cross-owner references to Medusa or other external resolvers require separate
   existence, deletion, staleness, and transaction participation contracts.
 - Payload relation behavior remains adapter conformance work and does not block

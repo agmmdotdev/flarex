@@ -27,12 +27,18 @@ import {
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
-import type { CatalogSchemaVersionId } from
-  "flarex-protocol/schema-manifest";
+import {
+  type CatalogSchemaVersionId,
+  CatalogSchemaVersionSchema,
+} from "flarex-protocol/schema-manifest";
+import { decodeCatalogEdgeDefinitionId } from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
+  LegacyV1StorageGenerationSchema,
   projectScopeIdUuidV1,
+  ScopeEpochSchema,
+  StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
@@ -58,7 +64,11 @@ import {
   prepareAppUniqueConstraintSetClosureV1Effect,
 } from "../src/appUniqueConstraintSetClosureV1";
 import {
+  claimApplicationActiveSelection,
+  claimApplicationRelationActiveSelection,
   makeApplicationActivationRepository,
+  validateApplicationRelationActiveSelectionInTransaction,
+  validateApplicationRelationActiveSelectionForReadiness,
 } from "../src/applicationActivation";
 import {
   makeApplicationAnalysisRepository,
@@ -83,6 +93,8 @@ import {
 import {
   hasApplicationRelationReadinessFoldAuthority,
   makeApplicationRelationReadinessFoldRepository,
+  validateApplicationRelationReadinessForActivationInTransaction,
+  validateStoredApplicationRelationReadinessForActivationInTransaction,
 } from "../src/applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from
   "../src/applicationRelationReadiness";
@@ -99,8 +111,10 @@ import {
 } from "../src/applicationRelationSchema";
 import { createApplicationRelationSchemaAuthorityPort } from
   "../src/applicationRelationSchemaAuthority";
-import { createApplicationRelationServingInspector } from
-  "../src/applicationRelationServing";
+import {
+  createApplicationRelationServingInspector,
+  inspectApplicationRelationServingDefinitionInTransactionEffect,
+} from "../src/applicationRelationServing";
 import {
   createApplicationRelationTaskCatalogSnapshotPort,
   makeApplicationRelationTaskBindingRepository,
@@ -143,14 +157,19 @@ import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
 import type { SplitScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
+import { lockScopeClockForUpdateInTransactionEffect } from
+  "../src/scopeClock";
+import {
+  fxSystemApplicationActivations,
+  fxSystemApplicationActiveHeads,
+} from "../src/applicationActivationSchema";
 import {
   fxControlApplicationSchemaAuthoritiesV1,
-  fxSystemApplicationActiveHeadsV1,
-  fxSystemApplicationActivationsV1,
   fxSystemApplicationPublicationsV1,
   fxSystemApplicationReadinessV1,
   fxSystemApplicationTaskCatalogsV1,
   fxSystemApplicationTaskDefinitionsV1,
+  fxSystemApplicationRelationSemanticReadiness,
   fxSystemEdgeDefinitionReadiness,
   fxSystemScopeClocks,
   fxSystemTransactionJournals,
@@ -1288,10 +1307,10 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
           fxSystemApplicationReadinessV1,
         ),
         fixture.persistence.drizzle.select().from(
-          fxSystemApplicationActivationsV1,
+          fxSystemApplicationActivations,
         ),
         fixture.persistence.drizzle.select().from(
-          fxSystemApplicationActiveHeadsV1,
+          fxSystemApplicationActiveHeads,
         ),
       ]);
     expect(legacySchemaAuthorities).toHaveLength(0);
@@ -1301,6 +1320,669 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     expect(legacyReadiness).toHaveLength(0);
     expect(legacyActivations).toHaveLength(0);
     expect(legacyHeads).toHaveLength(0);
+  });
+
+  it("cold-reconstructs, activates, validates, and serves one exact relation head", async () => {
+    const fixture = await relationReadinessFixture();
+    await prepareReadinessEvidence(fixture);
+    const prepared = await runEffect(fixture.fold.settle(fixture.input));
+    if (prepared.status !== "ready") {
+      throw new Error("Expected prepared relation-aware Application readiness.");
+    }
+    const beforeColdRead = await relationActivationInventory(fixture);
+    const stored = await runEffect(fixture.fold.readReady(fixture.input));
+    if (stored.status !== "ready") {
+      throw new Error("Expected stored relation-aware Application readiness.");
+    }
+    expect(stored).toMatchObject({
+      status: "ready",
+      disposition: "replayed",
+      scopeId: prepared.scopeId,
+      revisionId: prepared.revisionId,
+      readinessSha256: prepared.readinessSha256,
+      relationSetReadinessSha256: prepared.relationSetReadinessSha256,
+      relationCount: prepared.relationCount,
+    });
+    expect(stored.readinessBytes).toEqual(prepared.readinessBytes);
+    expect(stored.readyAt).toEqual(prepared.readyAt);
+
+    const recreatedFold = makeApplicationRelationReadinessFoldRepository(
+      fixture.foldContext,
+    );
+    const recreatedStored = await runEffect(recreatedFold.readReady(
+      fixture.input,
+    ));
+    if (recreatedStored.status !== "ready") {
+      throw new Error("Expected recreated repository cold reconstruction.");
+    }
+    expect(recreatedStored).toMatchObject({
+      readinessSha256: prepared.readinessSha256,
+      relationSetReadinessSha256: prepared.relationSetReadinessSha256,
+      relationCount: prepared.relationCount,
+    });
+    expect(hasApplicationRelationReadinessFoldAuthority(
+      fixture.fold,
+      recreatedStored,
+    )).toBe(false);
+    expect(hasApplicationRelationReadinessFoldAuthority(
+      recreatedFold,
+      recreatedStored,
+    )).toBe(true);
+    expect(await relationActivationInventory(fixture)).toEqual(beforeColdRead);
+
+    await fixture.persistence.drizzle.transaction(async tx => {
+      const clock = await runEffect(lockScopeClockForUpdateInTransactionEffect(
+        tx,
+        fixture.authority.scopeId,
+      ));
+      const preparedValidation = await runEffect(
+        validateApplicationRelationReadinessForActivationInTransaction(
+          fixture.fold,
+          prepared,
+          tx,
+          clock,
+        ),
+      );
+      const storedValidation = await runEffect(
+        validateStoredApplicationRelationReadinessForActivationInTransaction(
+          fixture.fold,
+          stored,
+          tx,
+          clock,
+        ),
+      );
+      const recreatedValidation = await runEffect(
+        validateStoredApplicationRelationReadinessForActivationInTransaction(
+          recreatedFold,
+          recreatedStored,
+          tx,
+          clock,
+        ),
+      );
+      expect(preparedValidation).toMatchObject({
+        status: "ready",
+        basis: {
+          revisionId: prepared.revisionId,
+          relationCount: 2,
+        },
+      });
+      expect(storedValidation).toMatchObject({
+        status: "ready",
+        basis: {
+          revisionId: prepared.revisionId,
+          relationCount: 2,
+        },
+      });
+      expect(recreatedValidation).toMatchObject({
+        status: "ready",
+        basis: { revisionId: prepared.revisionId },
+      });
+
+      const wrongIssuanceKind = await runEffectFailure(
+        validateApplicationRelationReadinessForActivationInTransaction(
+          fixture.fold,
+          stored,
+          tx,
+          clock,
+        ),
+      );
+      const foreignRepository = await runEffectFailure(
+        validateStoredApplicationRelationReadinessForActivationInTransaction(
+          recreatedFold,
+          stored,
+          tx,
+          clock,
+        ),
+      );
+      const structuralCopy = await runEffectFailure(
+        validateStoredApplicationRelationReadinessForActivationInTransaction(
+          fixture.fold,
+          Object.freeze({ ...stored }),
+          tx,
+          clock,
+        ),
+      );
+      expect(wrongIssuanceKind).toMatchObject({
+        _tag: "ApplicationRelationReadinessFoldError",
+        operation: "validate",
+        reason: "invalidComposition",
+      });
+      expect(foreignRepository).toMatchObject({
+        _tag: "ApplicationRelationReadinessFoldError",
+        operation: "validate",
+        reason: "invalidComposition",
+      });
+      expect(structuralCopy).toMatchObject({
+        _tag: "ApplicationRelationReadinessFoldError",
+        operation: "validate",
+        reason: "invalidComposition",
+      });
+    });
+
+    const inserted = await runEffect(fixture.relationActivation.activate({
+      revisionId: prepared.revisionId,
+      expectedActiveHead: null,
+    }));
+    const replayed = await runEffect(fixture.relationActivation.activate({
+      revisionId: prepared.revisionId,
+      expectedActiveHead: null,
+    }));
+    expect(inserted).toMatchObject({
+      status: "activated",
+      disposition: "inserted",
+      activationSequence: 1n,
+      previousActivationSequence: null,
+      readinessSha256: prepared.readinessSha256,
+    });
+    expect(replayed).toMatchObject({ ...inserted, disposition: "replayed" });
+
+    const active = await runEffect(fixture.relationActivation.readActive());
+    expect(active).toMatchObject({
+      basis: {
+        revisionId: prepared.revisionId,
+        relationCount: 2,
+        relationSetReadinessSha256: expect.any(Uint8Array),
+      },
+    });
+    expect(Result.isFailure(
+      claimApplicationActiveSelection(active.selection),
+    )).toBe(true);
+    expect(Result.isSuccess(
+      claimApplicationRelationActiveSelection(active.selection),
+    )).toBe(true);
+    await expect(runEffect(
+      validateApplicationRelationActiveSelectionForReadiness(
+        fixture.fold,
+        active.selection,
+        fixture.deploymentId,
+        fixture.authorityPorts,
+      ),
+    )).resolves.toMatchObject({ revisionId: prepared.revisionId });
+    expect(await runEffectFailure(
+      validateApplicationRelationActiveSelectionForReadiness(
+        recreatedFold,
+        active.selection,
+        fixture.deploymentId,
+        fixture.authorityPorts,
+      ),
+    )).toMatchObject({
+      _tag: "ApplicationActivationError",
+      reason: "invalidComposition",
+    });
+    expect(Result.isFailure(
+      claimApplicationRelationActiveSelection(Object.freeze({
+        ...active.selection,
+      })),
+    )).toBe(true);
+
+    const activeBinding = fixture.relation.binding.relationBindings[0];
+    if (activeBinding === undefined) {
+      throw new Error("Expected an active relation binding.");
+    }
+    const inactiveEdgeDefinitionId = decodeCatalogEdgeDefinitionId(
+      2_147_483_647,
+    );
+    const [validatedSelection, serving, inactive] =
+      await fixture.persistence.drizzle.transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForUpdateInTransactionEffect(
+            tx,
+            fixture.authority.scopeId,
+          ),
+        );
+        return Promise.all([
+          runEffect(validateApplicationRelationActiveSelectionInTransaction(
+            active.selection,
+            tx,
+            clock,
+          )),
+          runEffect(
+            inspectApplicationRelationServingDefinitionInTransactionEffect(
+              fixture.servingInspector,
+              tx,
+              {
+                authority: active.basis.authority,
+                clock,
+                edgeDefinitionId: activeBinding.edgeDefinitionId,
+              },
+            ),
+          ),
+          runEffect(
+            inspectApplicationRelationServingDefinitionInTransactionEffect(
+              fixture.servingInspector,
+              tx,
+              {
+                authority: active.basis.authority,
+                clock,
+                edgeDefinitionId: inactiveEdgeDefinitionId,
+              },
+            ),
+          ),
+        ]);
+      });
+    expect(validatedSelection).toMatchObject({
+      revisionId: prepared.revisionId,
+      activationSequence: 1n,
+      relationCount: 2,
+    });
+    expect(serving).toEqual({
+      status: "serving",
+      edgeDefinitionId: activeBinding.edgeDefinitionId,
+      activeRevisionId: prepared.revisionId,
+    });
+    expect(inactive).toEqual({
+      status: "not_serving",
+      reason: "definition_not_active",
+      edgeDefinitionId: inactiveEdgeDefinitionId,
+      activeRevisionId: prepared.revisionId,
+    });
+
+    const staleAuthorities = [
+      Object.freeze({
+        reason: "storageGeneration" as const,
+        authority: Object.freeze({
+          ...active.basis.authority,
+          storageGeneration:
+            LegacyV1StorageGenerationSchema.make("legacy_v1"),
+        }),
+      }),
+      Object.freeze({
+        reason: "storageGenerationFence" as const,
+        authority: Object.freeze({
+          ...active.basis.authority,
+          storageGenerationFence: StorageGenerationFenceSchema.make(
+            active.basis.authority.storageGenerationFence + 1n,
+          ),
+        }),
+      }),
+      Object.freeze({
+        reason: "epoch" as const,
+        authority: Object.freeze({
+          ...active.basis.authority,
+          epoch: ScopeEpochSchema.make("stale-serving-epoch"),
+        }),
+      }),
+    ];
+    for (const stale of staleAuthorities) {
+      const failure = await fixture.persistence.drizzle.transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForUpdateInTransactionEffect(
+            tx,
+            active.basis.authority.scopeId,
+          ),
+        );
+        return runEffectFailure(
+          inspectApplicationRelationServingDefinitionInTransactionEffect(
+            fixture.servingInspector,
+            tx,
+            {
+              authority: stale.authority,
+              clock,
+              edgeDefinitionId: activeBinding.edgeDefinitionId,
+            },
+          ),
+        );
+      });
+      expect(failure).toMatchObject({
+        _tag: "ApplicationRelationServingStaleAuthorityError",
+        reason: stale.reason,
+      });
+    }
+
+    const movedFence = StorageGenerationFenceSchema.make(
+      active.basis.authority.storageGenerationFence + 1n,
+    );
+    await fixture.persistence.drizzle.update(fxSystemScopeClocks).set({
+      storageGenerationFence: movedFence,
+    }).where(eq(
+      fxSystemScopeClocks.scopeId,
+      active.basis.authority.scopeId,
+    ));
+    const staleRoot = await fixture.persistence.drizzle.transaction(async tx => {
+      const clock = await runEffect(
+        lockScopeClockForUpdateInTransactionEffect(
+          tx,
+          active.basis.authority.scopeId,
+        ),
+      );
+      return runEffectFailure(
+        inspectApplicationRelationServingDefinitionInTransactionEffect(
+          fixture.servingInspector,
+          tx,
+          {
+            authority: Object.freeze({
+              ...active.basis.authority,
+              storageGenerationFence: movedFence,
+            }),
+            clock,
+            edgeDefinitionId: activeBinding.edgeDefinitionId,
+          },
+        ),
+      );
+    });
+    expect(staleRoot).toMatchObject({
+      _tag: "ApplicationActiveHeadStateError",
+      reason: "storedState",
+    });
+
+    const [activations, heads] = await Promise.all([
+      fixture.persistence.drizzle.select().from(
+        fxSystemApplicationActivations,
+      ),
+      fixture.persistence.drizzle.select().from(
+        fxSystemApplicationActiveHeads,
+      ),
+    ]);
+    expect(activations).toHaveLength(1);
+    expect(activations[0]).toMatchObject({
+      readinessContractVersion: 2,
+      legacyReadinessSha256: null,
+      relationCount: 2,
+    });
+    expect(heads).toHaveLength(1);
+    expect(heads[0]).toMatchObject({
+      readinessContractVersion: 2,
+      relationCount: 2,
+    });
+    expect(encodeBytesToLowercaseHex(
+      activations[0]?.relationReadinessSha256 ?? new Uint8Array(),
+    )).toBe(prepared.readinessSha256);
+    expect(encodeBytesToLowercaseHex(
+      activations[0]?.relationSetReadinessSha256 ?? new Uint8Array(),
+    )).toBe(prepared.relationSetReadinessSha256);
+    expect(encodeBytesToLowercaseHex(
+      heads[0]?.relationSetReadinessSha256 ?? new Uint8Array(),
+    )).toBe(prepared.relationSetReadinessSha256);
+    expect(JSON.parse(new TextDecoder().decode(
+      activations[0]?.activationBytes,
+    ))).toMatchObject({
+      format: "flarex.application-activation",
+      version: 2,
+      readinessContractVersion: 2,
+      relationSetReadinessSha256: prepared.relationSetReadinessSha256,
+      relationCount: 2,
+    });
+    expect(JSON.parse(new TextDecoder().decode(
+      heads[0]?.headBytes,
+    ))).toMatchObject({
+      format: "flarex.application-active-head",
+      version: 2,
+      readinessContractVersion: 2,
+      relationSetReadinessSha256: prepared.relationSetReadinessSha256,
+      relationCount: 2,
+    });
+  });
+
+  it("reacquires an active relation selection after the commit frontier advances", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const beforeReplay = await relationActivationInventory(ready.fixture);
+    await applyExactRelationSourceCommit(
+      ready,
+      relationBuildRowId(19_101),
+      19_102,
+      CommitSeqSchema.make(1n),
+    );
+    const replayed = await runEffect(
+      ready.fixture.relationActivation.activate({
+        revisionId: ready.readiness.revisionId,
+        expectedActiveHead: null,
+      }),
+    );
+    expect(replayed).toMatchObject({
+      status: "activated",
+      disposition: "replayed",
+      revisionId: ready.readiness.revisionId,
+      activationSequence: 1n,
+      previousActivationSequence: null,
+      readinessSha256: ready.readiness.readinessSha256,
+    });
+    expect(await relationActivationInventory(ready.fixture)).toEqual(
+      beforeReplay,
+    );
+    const buildInput = Object.freeze({
+      deploymentId: ready.fixture.deploymentId,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+      edgeDefinitionId: ready.binding.edgeDefinitionId,
+    });
+    expect(await runEffectFailure(
+      ready.fixture.relationBuild.advance(buildInput),
+    )).toMatchObject({
+      _tag: "ApplicationRelationBuildServingDefinitionError",
+      activeRevisionId: ready.readiness.revisionId,
+    });
+    const restartFaultPoints: string[] = [];
+    expect(await runEffectFailure(ready.fixture.relationBuild.restart(
+      buildInput,
+      { faultAfter: point => { restartFaultPoints.push(point); } },
+    ))).toMatchObject({
+      _tag: "ApplicationRelationBuildServingDefinitionError",
+      activeRevisionId: ready.readiness.revisionId,
+    });
+    expect(restartFaultPoints).toEqual(["afterScopeClockLock"]);
+
+    const recreatedFold = makeApplicationRelationReadinessFoldRepository(
+      ready.fixture.foldContext,
+    );
+    const restartedActivation = makeApplicationActivationRepository({
+      deploymentId: ready.fixture.deploymentId,
+      readiness: ready.fixture.legacyReadiness,
+      relationReadiness: recreatedFold,
+      authority: ready.fixture.authorityPorts,
+    });
+    const active = await runEffect(restartedActivation.readActive());
+    expect(active).toMatchObject({
+      basis: {
+        revisionId: ready.readiness.revisionId,
+        relationFrontierCommitSeq: "0",
+      },
+    });
+    const reads = createApplicationRelationReadPort(
+      ready.fixture.persistence.drizzle,
+      ready.fixture.pointCommitAuthority,
+      ready.fixture.relationCommit,
+      recreatedFold,
+    );
+    await expect(runEffect(reads.prepare({
+      deploymentId: ready.fixture.deploymentId,
+      selection: active.selection,
+      relationId: ready.binding.relationId,
+    }))).resolves.toBeDefined();
+  });
+
+  it("rejects a stale selection before minting a relation read capability", async () => {
+    const ready = await readyExactRelationReadFixture();
+    await ready.fixture.persistence.drizzle.delete(
+      fxSystemApplicationActiveHeads,
+    );
+    const failure = await runEffectFailure(ready.reads.prepare({
+      deploymentId: ready.fixture.deploymentId,
+      selection: ready.active.selection,
+      relationId: ready.binding.relationId,
+    }));
+    expect(failure).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "validateSelection",
+      reason: "concurrentHead",
+    });
+  });
+
+  it("rolls relation activation back atomically and rejects a conflicting request", async () => {
+    const fixture = await relationReadinessFixture();
+    await prepareReadinessEvidence(fixture);
+    const readiness = await runEffect(fixture.fold.settle(fixture.input));
+    if (readiness.status !== "ready") {
+      throw new Error("Expected relation readiness before rollback proof.");
+    }
+    const failingActivation = makeApplicationActivationRepository({
+      deploymentId: fixture.deploymentId,
+      readiness: fixture.legacyReadiness,
+      relationReadiness: fixture.fold,
+      authority: fixture.authorityPorts,
+      faultAfter: point => {
+        if (point === "headWritten") {
+          throw new Error("deliberate relation activation rollback");
+        }
+      },
+    });
+    await expect(runEffect(failingActivation.activate({
+      revisionId: readiness.revisionId,
+      expectedActiveHead: null,
+    }))).rejects.toBeDefined();
+    expect(await relationActivationInventory(fixture)).toEqual({
+      roots: 1,
+      children: 2,
+      activations: 0,
+      heads: 0,
+    });
+
+    const inserted = await runEffect(fixture.relationActivation.activate({
+      revisionId: readiness.revisionId,
+      expectedActiveHead: null,
+    }));
+    const conflictingRequest = await runEffectFailure(
+      fixture.relationActivation.activate({
+        revisionId: readiness.revisionId,
+        expectedActiveHead: Object.freeze({
+          activationSequence: inserted.activationSequence,
+          headSha256: "00".repeat(32),
+        }),
+      }),
+    );
+    expect(conflictingRequest).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "activate",
+      reason: "alreadyActive",
+    });
+  });
+
+  it("fails closed on active root, child, and schema-binding corruption", async () => {
+    const rootFixture = await readyExactRelationReadFixture();
+    await rootFixture.fixture.persistence.drizzle.update(
+      fxSystemApplicationReadiness,
+    ).set({ readinessBytes: new Uint8Array([0x7b]) }).where(eq(
+      fxSystemApplicationReadiness.scopeId,
+      rootFixture.fixture.authority.scopeId,
+    ));
+    expect(await runEffectFailure(
+      rootFixture.fixture.relationActivation.readActive(),
+    )).toMatchObject({
+      _tag: "ApplicationRelationReadinessFoldError",
+      operation: "readReady",
+      reason: "conflictingReplay",
+    });
+
+    const childFixture = await readyExactRelationReadFixture();
+    await childFixture.fixture.persistence.drizzle.delete(
+      fxSystemApplicationReadinessRelations,
+    ).where(and(
+      eq(
+        fxSystemApplicationReadinessRelations.scopeId,
+        childFixture.fixture.authority.scopeId,
+      ),
+      eq(fxSystemApplicationReadinessRelations.relationOrdinal, 1),
+    ));
+    expect(await runEffectFailure(
+      childFixture.fixture.relationActivation.readActive(),
+    )).toMatchObject({
+      _tag: "ApplicationRelationReadinessFoldError",
+      operation: "readReady",
+      reason: "storedState",
+    });
+
+    const bindingFixture = await readyExactRelationReadFixture();
+    await bindingFixture.fixture.persistence.drizzle.update(
+      fxSystemApplicationRevisionSchemas,
+    ).set({
+      schemaVersion: CatalogSchemaVersionSchema.make(
+        bindingFixture.fixture.relation.binding.schemaVersion + 1,
+      ),
+    }).where(eq(
+      fxSystemApplicationRevisionSchemas.scopeId,
+      bindingFixture.fixture.authority.scopeId,
+    ));
+    expect(await runEffectFailure(
+      bindingFixture.fixture.relationActivation.readActive(),
+    )).toMatchObject({
+      _tag: "ApplicationRelationReadinessFoldError",
+      operation: "readReady",
+      reason: "conflictingReplay",
+    });
+  });
+
+  it("reauthenticates historical physical relation receipts before selection", async () => {
+    const ready = await readyExactRelationReadFixture();
+    await applyExactRelationSourceCommit(
+      ready,
+      relationBuildRowId(19_201),
+      19_202,
+      CommitSeqSchema.make(1n),
+    );
+    await ready.fixture.persistence.drizzle.update(
+      fxSystemEdgeDefinitionReadiness,
+    ).set({ receiptBytes: new Uint8Array([0x7b]) }).where(and(
+      eq(
+        fxSystemEdgeDefinitionReadiness.scopeId,
+        ready.fixture.authority.scopeId,
+      ),
+      eq(
+        fxSystemEdgeDefinitionReadiness.edgeDefinitionId,
+        ready.binding.edgeDefinitionId,
+      ),
+    ));
+    for (const failure of [
+      await runEffectFailure(ready.fixture.relationActivation.readActive()),
+      await runEffectFailure(
+        validateApplicationRelationActiveSelectionForReadiness(
+          ready.fixture.fold,
+          ready.active.selection,
+          ready.fixture.deploymentId,
+          ready.fixture.authorityPorts,
+        ),
+      ),
+    ]) {
+      expect(failure).toMatchObject({
+        _tag: "ApplicationRelationBuildCorruptionError",
+        reason: "receiptEvidence",
+      });
+    }
+  });
+
+  it("reauthenticates historical semantic relation receipts before selection", async () => {
+    const ready = await readyExactRelationReadFixture({ semanticReuse: true });
+    await applyExactRelationSourceCommit(
+      ready,
+      relationBuildRowId(19_301),
+      19_302,
+      CommitSeqSchema.make(1n),
+    );
+    await ready.fixture.persistence.drizzle.update(
+      fxSystemApplicationRelationSemanticReadiness,
+    ).set({ receiptBytes: new Uint8Array([0x7b]) }).where(and(
+      eq(
+        fxSystemApplicationRelationSemanticReadiness.scopeId,
+        ready.fixture.authority.scopeId,
+      ),
+      eq(
+        fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
+        ready.fixture.relation.binding.schemaVersionId,
+      ),
+    ));
+    for (const failure of [
+      await runEffectFailure(ready.fixture.relationActivation.readActive()),
+      await runEffectFailure(
+        validateApplicationRelationActiveSelectionForReadiness(
+          ready.fixture.fold,
+          ready.active.selection,
+          ready.fixture.deploymentId,
+          ready.fixture.authorityPorts,
+        ),
+      ),
+    ]) {
+      expect(failure).toMatchObject({
+        _tag: "ApplicationRelationReadinessCorruptionError",
+        reason: "semanticReceipt",
+      });
+    }
   });
 
   it("exactly replays a two-export publication then fails closed at the unavailable runtime", async () => {
@@ -1519,13 +2201,45 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
   });
 });
 
-async function readyExactRelationReadFixture() {
-  const fixture = await relationReadinessFixture();
+async function relationActivationInventory(
+  fixture: Awaited<ReturnType<typeof relationReadinessFixture>>,
+) {
+  const [roots, children, activations, heads] = await Promise.all([
+    fixture.persistence.drizzle.select().from(
+      fxSystemApplicationReadiness,
+    ),
+    fixture.persistence.drizzle.select().from(
+      fxSystemApplicationReadinessRelations,
+    ),
+    fixture.persistence.drizzle.select().from(
+      fxSystemApplicationActivations,
+    ),
+    fixture.persistence.drizzle.select().from(
+      fxSystemApplicationActiveHeads,
+    ),
+  ]);
+  return Object.freeze({
+    roots: roots.length,
+    children: children.length,
+    activations: activations.length,
+    heads: heads.length,
+  });
+}
+
+async function readyExactRelationReadFixture(
+  options: RelationReadinessFixtureOptions = {},
+) {
+  const fixture = await relationReadinessFixture(options);
   await prepareReadinessEvidence(fixture);
   const readiness = await runEffect(fixture.fold.settle(fixture.input));
   if (readiness.status !== "ready") {
     throw new Error("Expected relation-aware Application readiness.");
   }
+  await runEffect(fixture.relationActivation.activate({
+    revisionId: readiness.revisionId,
+    expectedActiveHead: null,
+  }));
+  const active = await runEffect(fixture.relationActivation.readActive());
   const binding = fixture.relation.binding.relationBindings[0];
   if (binding === undefined) throw new Error("Expected a relation binding.");
   const reads = createApplicationRelationReadPort(
@@ -1536,7 +2250,7 @@ async function readyExactRelationReadFixture() {
   );
   const capability = await runEffect(reads.prepare({
     deploymentId: fixture.deploymentId,
-    readiness,
+    selection: active.selection,
     relationId: binding.relationId,
   }));
   const input = Object.freeze({
@@ -1549,12 +2263,15 @@ async function readyExactRelationReadFixture() {
     deploymentId: fixture.deploymentId,
     schemaVersionId: fixture.relation.binding.schemaVersionId,
   }));
-  if (definitions === null || definitions.definitions.length !== 2) {
-    throw new Error("Expected both exact relation definitions.");
+  const expectedDefinitions = fixture.semanticReuse ? 1 : 2;
+  if (definitions === null ||
+    definitions.definitions.length !== expectedDefinitions) {
+    throw new Error("Expected the exact relation definitions.");
   }
   return Object.freeze({
     fixture,
     readiness,
+    active,
     binding,
     reads,
     capability,
@@ -1801,11 +2518,12 @@ async function relationReadinessFixture(
     persistence.drizzle,
     pointCommitAuthority,
   );
+  const servingInspector = createApplicationRelationServingInspector();
   const relationBuild = createApplicationRelationBuildPort(
     persistence.drizzle,
     authorityPorts,
     relationCommit,
-    createApplicationRelationServingInspector(),
+    servingInspector,
   );
   const relations = createApplicationRelationReadinessPort(
     persistence.drizzle,
@@ -2010,6 +2728,12 @@ async function relationReadinessFixture(
       },
     },
   });
+  const relationActivation = makeApplicationActivationRepository({
+    deploymentId,
+    readiness: legacyReadiness,
+    relationReadiness: fold,
+    authority: authorityPorts,
+  });
   return Object.freeze({
     persistence,
     deploymentId,
@@ -2026,12 +2750,15 @@ async function relationReadinessFixture(
     taskBindingInput,
     relationBuild,
     relationCommit,
+    servingInspector,
     relations,
     candidateValidation,
     physicalDefinitionLifecycle,
     semanticReuse: options.semanticReuse === true,
     foldContext,
     fold,
+    legacyReadiness,
+    relationActivation,
     legacyActivation: makeApplicationActivationRepository({
       deploymentId,
       readiness: legacyReadiness,

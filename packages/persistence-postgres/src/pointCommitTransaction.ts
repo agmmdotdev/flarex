@@ -283,13 +283,13 @@ import {
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
 } from "./scopeAuthorityResolution";
+import { fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
 import {
   fxAppIndexEntryRevisions,
   fxSystemCommitAppRowChanges,
   fxSystemCommits,
   fxSystemIdempotency,
   fxSystemIndexBuildStates,
-  fxSystemApplicationActiveHeadsV1,
   fxSystemApplicationReadinessV1,
   fxSystemOutbox,
   fxSystemScopeClocks,
@@ -6317,25 +6317,28 @@ async function validateActiveApplicationSchemaForPointCommit(
       fxSystemApplicationReadinessV1.applicationSchemaSha256,
     schemaManifestSha256:
       fxSystemApplicationReadinessV1.schemaManifestSha256,
-  }).from(fxSystemApplicationActiveHeadsV1).innerJoin(
+  }).from(fxSystemApplicationActiveHeads).innerJoin(
     fxSystemApplicationReadinessV1,
     and(
       eq(
         fxSystemApplicationReadinessV1.scopeId,
-        fxSystemApplicationActiveHeadsV1.scopeId,
+        fxSystemApplicationActiveHeads.scopeId,
       ),
       eq(
         fxSystemApplicationReadinessV1.revisionId,
-        fxSystemApplicationActiveHeadsV1.revisionId,
+        fxSystemApplicationActiveHeads.revisionId,
       ),
       eq(
         fxSystemApplicationReadinessV1.readinessSha256,
-        fxSystemApplicationActiveHeadsV1.readinessSha256,
+        fxSystemApplicationActiveHeads.readinessSha256,
       ),
     ),
-  ).where(eq(
-    fxSystemApplicationActiveHeadsV1.scopeId,
-    command.authorityPins.scopeId,
+  ).where(and(
+    eq(
+      fxSystemApplicationActiveHeads.scopeId,
+      command.authorityPins.scopeId,
+    ),
+    eq(fxSystemApplicationActiveHeads.readinessContractVersion, 1),
   )).limit(2).for("share");
   observeDrizzleQuery("validateActiveApplicationSchema", query, options);
   const rows = await sqlCall(

@@ -2961,9 +2961,9 @@ async function managedSchemaLifecycleCounts(
     (select count(*)::text
        from fx_system_app_schema_candidate_validation) as candidate_heads,
     (select count(*)::text
-       from fx_system_application_activation_v1) as activations,
+       from fx_system_application_activation) as activations,
     (select count(*)::text
-       from fx_system_application_active_head_v1) as active_heads`);
+       from fx_system_application_active_head) as active_heads`);
   const row = result.rows[0];
   if (row === undefined) {
     throw new Error("Cooking managed-schema lifecycle counts are missing.");

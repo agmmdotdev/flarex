@@ -28,6 +28,7 @@ import { CatalogSchemaVersionIdSchema } from
   "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
@@ -125,6 +126,7 @@ import {
   type PreparedApplicationRelationImmediateOrigin,
   type PreparedApplicationRelationReadiness,
   type PrepareApplicationRelationReadinessError,
+  type StoredApplicationRelationSetReadinessReference,
   type ValidateApplicationRelationSetReadinessError,
 } from "./Model";
 
@@ -164,11 +166,13 @@ interface PreparedApplicationRelationReadinessState {
   readonly definitions: LocatedApplicationRelationDefinitionSet;
   readonly immediateOrigins: ReadonlyMap<
     number,
-    Readonly<{
-      readonly definitions: LocatedApplicationRelationDefinitionSet;
-      readonly definition: LocatedApplicationRelationDefinition;
-    }>
+    LocatedApplicationRelationImmediateOrigin
   >;
+}
+
+interface LocatedApplicationRelationImmediateOrigin {
+  readonly definitions: LocatedApplicationRelationDefinitionSet;
+  readonly definition: LocatedApplicationRelationDefinition;
 }
 
 interface ResolvedSemanticOrigin {
@@ -512,6 +516,70 @@ export const validateApplicationRelationSetReadinessInTransactionEffect =
       );
       applicationRelationSetReadinessEvidenceStates.set(evidence, portState);
       return Object.freeze({ status: "ready", evidence });
+    },
+  );
+
+/**
+ * Reauthenticates the immutable physical or semantic receipt referenced by
+ * every child of a stored relation-set receipt. Mutable build and semantic
+ * heads are deliberately not consulted: an activated historical frontier is
+ * evidence, while the current scope clock remains the authority boundary.
+ */
+export const validateReferencedApplicationRelationSetReadinessInTransactionEffect =
+  Effect.fn("ApplicationRelationReadiness.validateReferencedSet")(
+    function* (
+      port: ApplicationRelationReadinessPort,
+      tx: AppRowTransaction,
+      authority: TrustedScopeAuthority,
+      clock: ScopeClockRecord,
+      prepared: PreparedApplicationRelationReadiness,
+      reference: StoredApplicationRelationSetReadinessReference,
+    ): Effect.fn.Return<void, ValidateApplicationRelationSetReadinessError> {
+      const portState = applicationRelationReadinessPortStates.get(port);
+      const preparedState = getPreparedApplicationRelationReadinessState(
+        port,
+        prepared,
+      );
+      if (portState === undefined || preparedState === null ||
+        clock.scopeId !== authority.scopeId ||
+        authority.deploymentId !== prepared.deploymentId ||
+        authority.storageGeneration !== "flarexdb_v1") {
+        return yield* Effect.fail(
+          new ApplicationRelationReadinessUnavailableError({
+            reason: "compositionMissing",
+          }),
+        );
+      }
+      yield* requireCurrentAuthorityEffect(authority, clock);
+      if (reference.frontierCommitSeq > clock.lastCommitSeq ||
+        reference.relations.length !== prepared.relations.length ||
+        preparedState.definitions.definitions.length !==
+          prepared.relations.length) {
+        return yield* relationReadinessCorruption("relationSetReceipt");
+      }
+      for (let index = 0; index < reference.relations.length; index += 1) {
+        const child = reference.relations[index];
+        const relation = prepared.relations[index];
+        const definition = preparedState.definitions.definitions[index];
+        if (child === undefined || relation === undefined ||
+          definition === undefined) {
+          return yield* relationReadinessCorruption("relationSetReceipt");
+        }
+        const immediateOrigin = preparedState.immediateOrigins.get(
+          relation.binding.relationOrdinal,
+        );
+        yield* validateStoredRelationReadinessChildEffect(
+          tx,
+          authority,
+          portState,
+          prepared,
+          relation,
+          definition,
+          immediateOrigin,
+          reference.frontierCommitSeq,
+          child,
+        );
+      }
     },
   );
 
@@ -2469,6 +2537,321 @@ function stateWithSemanticPage(
     validatedEdgeCount: page.validatedEdgeCount,
     validatedVersionCount: page.validatedVersionCount,
     readinessSha256: null,
+  });
+}
+
+const validateStoredRelationReadinessChildEffect = Effect.fn(
+  "ApplicationRelationReadiness.validateStoredChild",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  portState: ApplicationRelationReadinessPortState,
+  prepared: PreparedApplicationRelationReadiness,
+  relation: PreparedApplicationRelation,
+  definition: LocatedApplicationRelationDefinition,
+  immediateOrigin: LocatedApplicationRelationImmediateOrigin | undefined,
+  frontierCommitSeq:
+    StoredApplicationRelationSetReadinessReference["frontierCommitSeq"],
+  child: ApplicationRelationSetReadinessChild,
+): Effect.fn.Return<void, ValidateApplicationRelationSetReadinessError> {
+  const physicalDefinitionSha256 = yield* Effect.fromResult(
+    decodeSha256HexResult(
+      relation.physicalDefinitionSha256,
+      "relationSetReceipt",
+    ),
+  );
+  const childReadinessSha256 = yield* Effect.fromResult(
+    decodeSha256HexResult(child.readinessSha256, "relationSetReceipt"),
+  );
+  const attemptFence = yield* Effect.fromResult(
+    parsePositiveBigintResult(child.attemptFence, "relationSetReceipt"),
+  );
+  if (child.relationOrdinal !== relation.binding.relationOrdinal ||
+    child.relationOrdinal !== definition.binding.relationOrdinal ||
+    child.relationId !== relation.binding.relationId ||
+    child.relationId !== definition.binding.relationId ||
+    child.sourceTableId !== relation.binding.sourceTableId ||
+    child.sourceTableId !== definition.binding.sourceTableId ||
+    child.targetTableId !== relation.binding.targetTableId ||
+    child.targetTableId !== definition.binding.targetTableId ||
+    child.semanticDefinitionSha256 !==
+      relation.binding.semanticDefinitionSha256 ||
+    child.edgeDefinitionId !== relation.edge.edgeDefinitionId ||
+    child.edgeDefinitionId !== definition.edge.edgeDefinitionId ||
+    child.physicalDefinitionSha256 !== relation.physicalDefinitionSha256) {
+    return yield* relationReadinessCorruption("relationSetReceipt");
+  }
+  if (child.readinessKind === "physical") {
+    const evidence = yield*
+      validateReferencedApplicationRelationBuildReadinessInTransactionEffect(
+        portState.relationBuild,
+        tx,
+        authority,
+        {
+          scopeId: authority.scopeId,
+          deploymentId: prepared.deploymentId,
+          relationId: child.relationId,
+          edgeDefinitionId: child.edgeDefinitionId,
+          sourceTableId: child.sourceTableId,
+          targetTableId: child.targetTableId,
+          physicalDefinitionSha256,
+          storageGeneration:
+            FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+          storageGenerationFence: authority.storageGenerationFence,
+          epoch: authority.epoch,
+          frontierCommitSeq,
+          attemptFence,
+          readinessSha256: childReadinessSha256,
+        },
+      );
+    if (evidence === null ||
+      !bytesEqual(evidence.sha256, childReadinessSha256) ||
+      evidence.receipt.semanticDefinitionSha256 !==
+        child.semanticDefinitionSha256) {
+      return yield* relationReadinessCorruption("relationSetReceipt");
+    }
+    return;
+  }
+  if (immediateOrigin === undefined) {
+    return yield* relationReadinessCorruption("lineage");
+  }
+  const authenticated = yield* validateReferencedSemanticReadinessChainEffect(
+    tx,
+    authority,
+    portState,
+    immediateOrigin,
+    {
+      schemaVersionId: prepared.schemaVersionId,
+      relationOrdinal: child.relationOrdinal,
+      attemptFence:
+        ApplicationRelationSemanticValidationAttemptFenceSchema.make(
+          attemptFence,
+        ),
+      readinessSha256: childReadinessSha256,
+    },
+  );
+  const state = authenticated.state;
+  yield* Effect.fromResult(requireSemanticCurrentDefinitionResult(
+    state,
+    prepared,
+    relation,
+  ));
+  if (state.frontierCommitSeq !== frontierCommitSeq) {
+    return yield* relationReadinessCorruption("relationSetReceipt");
+  }
+});
+
+interface StoredSemanticReadinessReference {
+  readonly schemaVersionId:
+    PreparedApplicationRelationReadiness["schemaVersionId"];
+  readonly relationOrdinal: number;
+  readonly attemptFence: ApplicationRelationSemanticValidationAttemptFence;
+  readonly readinessSha256: Uint8Array;
+}
+
+interface AuthenticatedStoredSemanticReadiness {
+  readonly state: ApplicationRelationSemanticValidationState;
+  readonly evidence: ApplicationRelationSemanticReadinessEvidence;
+  readonly physicalEvidence: ApplicationRelationReadinessEvidence;
+}
+
+const validateReferencedSemanticReadinessChainEffect = Effect.fn(
+  "ApplicationRelationReadiness.validateReferencedSemanticChain",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  portState: ApplicationRelationReadinessPortState,
+  immediateOrigin: LocatedApplicationRelationImmediateOrigin,
+  reference: StoredSemanticReadinessReference,
+): Effect.fn.Return<
+  AuthenticatedStoredSemanticReadiness,
+  ValidateApplicationRelationSetReadinessError
+> {
+  const current = yield* loadReferencedSemanticReadinessEffect(
+    tx,
+    authority,
+    portState,
+    reference,
+  );
+  const state = current.state;
+  if (state.originReadinessKind === "physical") {
+    if (state.physicalOriginSchemaVersionId !== state.originSchemaVersionId ||
+      state.physicalOriginRelationOrdinal !== state.originRelationOrdinal ||
+      immediateOrigin.definitions.schemaVersionId !==
+        state.originSchemaVersionId ||
+      immediateOrigin.definition.binding.relationOrdinal !==
+        state.originRelationOrdinal ||
+      current.physicalEvidence.receipt.semanticDefinitionSha256 !==
+        immediateOrigin.definition.binding.semanticDefinitionSha256) {
+      return yield* relationReadinessCorruption("lineage");
+    }
+    return current;
+  }
+  const originAttemptFence = state.originSemanticAttemptFence;
+  const originReadinessSha256 = state.originSemanticReadinessSha256;
+  if (originAttemptFence === null || originReadinessSha256 === null) {
+    return yield* relationReadinessCorruption("semanticReceipt");
+  }
+  const origin = yield* loadReferencedSemanticReadinessEffect(
+    tx,
+    authority,
+    portState,
+    Object.freeze({
+      schemaVersionId: state.originSchemaVersionId,
+      relationOrdinal: state.originRelationOrdinal,
+      attemptFence: originAttemptFence,
+      readinessSha256: copyBytes(originReadinessSha256),
+    }),
+  );
+  const originState = origin.state;
+  yield* requireSemanticOriginDefinitionEffect(
+    originState,
+    immediateOrigin.definitions,
+    immediateOrigin.definition,
+  );
+  if (originState.relationId !== state.relationId ||
+    originState.sourceTableId !== state.sourceTableId ||
+    originState.targetTableId !== state.targetTableId ||
+    originState.edgeDefinitionId !== state.edgeDefinitionId ||
+    !bytesEqual(
+      originState.physicalDefinitionSha256,
+      state.physicalDefinitionSha256,
+    ) ||
+    originState.frontierCommitSeq !== state.frontierCommitSeq ||
+    originState.physicalOriginSchemaVersionId !==
+      state.physicalOriginSchemaVersionId ||
+    originState.physicalOriginRelationOrdinal !==
+      state.physicalOriginRelationOrdinal ||
+    originState.physicalAttemptFence !== state.physicalAttemptFence ||
+    originState.physicalFrontierCommitSeq !==
+      state.physicalFrontierCommitSeq ||
+    !bytesEqual(
+      originState.physicalReadinessSha256,
+      state.physicalReadinessSha256,
+    )) {
+    return yield* relationReadinessCorruption("semanticReceipt");
+  }
+  return current;
+});
+
+const loadReferencedSemanticReadinessEffect = Effect.fn(
+  "ApplicationRelationReadiness.loadReferencedSemanticReceipt",
+)(function* (
+  tx: AppRowTransaction,
+  authority: TrustedScopeAuthority,
+  portState: ApplicationRelationReadinessPortState,
+  reference: StoredSemanticReadinessReference,
+): Effect.fn.Return<
+  AuthenticatedStoredSemanticReadiness,
+  ValidateApplicationRelationSetReadinessError
+> {
+  const row = yield* readReferencedSemanticReadinessRowEffect(
+    tx,
+    authority.scopeId,
+    reference,
+  );
+  if (row === null) {
+    return yield* relationReadinessCorruption("semanticReceipt");
+  }
+  const state = semanticStateFromReadinessRow(row);
+  const evidence = yield* verifySemanticReadinessRowEffect(state, row);
+  if (state.scopeId !== authority.scopeId ||
+    state.deploymentId !== authority.deploymentId ||
+    state.storageGeneration !== authority.storageGeneration ||
+    state.storageGenerationFence !== authority.storageGenerationFence ||
+    state.epoch !== authority.epoch ||
+    state.schemaVersionId !== reference.schemaVersionId ||
+    state.relationOrdinal !== reference.relationOrdinal ||
+    state.attemptFence !== reference.attemptFence ||
+    !bytesEqual(evidence.sha256, reference.readinessSha256)) {
+    return yield* relationReadinessCorruption("semanticReceipt");
+  }
+  const physicalEvidence = yield* validatePinnedPhysicalReadinessEffect(
+    tx,
+    authority,
+    portState,
+    state,
+  );
+  return Object.freeze({ state, evidence, physicalEvidence });
+});
+
+const readReferencedSemanticReadinessRowEffect = Effect.fn(
+  "ApplicationRelationReadiness.readReferencedSemanticReceipt",
+)(function* (
+  tx: AppRowTransaction,
+  scopeId: TrustedScopeAuthority["scopeId"],
+  reference: StoredSemanticReadinessReference,
+): Effect.fn.Return<
+  SemanticReadinessRow | null,
+  ApplicationRelationReadinessPersistenceError
+> {
+  const rows = yield* queryEffect(
+    "readReceipt",
+    tx.select().from(
+      fxSystemApplicationRelationSemanticReadiness,
+    ).where(and(
+      eq(fxSystemApplicationRelationSemanticReadiness.scopeId, scopeId),
+      eq(
+        fxSystemApplicationRelationSemanticReadiness.schemaVersionId,
+        reference.schemaVersionId,
+      ),
+      eq(
+        fxSystemApplicationRelationSemanticReadiness.relationOrdinal,
+        reference.relationOrdinal,
+      ),
+      eq(
+        fxSystemApplicationRelationSemanticReadiness.attemptFence,
+        reference.attemptFence,
+      ),
+    )).limit(1).for("share"),
+  );
+  return rows[0] ?? null;
+});
+
+function semanticStateFromReadinessRow(
+  row: SemanticReadinessRow,
+): ApplicationRelationSemanticValidationState {
+  return Object.freeze({
+    scopeId: row.scopeId,
+    deploymentId: row.deploymentId,
+    applicationSchemaSha256: copyBytes(row.applicationSchemaSha256),
+    schemaVersionId: row.schemaVersionId,
+    schemaVersion: row.schemaVersion,
+    schemaManifestSha256: copyBytes(row.schemaManifestSha256),
+    boundPublicationSha256: copyBytes(row.boundPublicationSha256),
+    relationOrdinal: row.relationOrdinal,
+    relationId: row.relationId,
+    sourceTableId: row.sourceTableId,
+    targetTableId: row.targetTableId,
+    semanticDefinitionSha256: copyBytes(row.semanticDefinitionSha256),
+    edgeDefinitionId: row.edgeDefinitionId,
+    physicalDefinitionSha256: copyBytes(row.physicalDefinitionSha256),
+    originSchemaVersionId: row.originSchemaVersionId,
+    originRelationOrdinal: row.originRelationOrdinal,
+    originReadinessKind: row.originReadinessKind,
+    originSemanticAttemptFence: row.originSemanticAttemptFence,
+    originSemanticReadinessSha256:
+      row.originSemanticReadinessSha256 === null
+        ? null
+        : copyBytes(row.originSemanticReadinessSha256),
+    physicalOriginSchemaVersionId: row.physicalOriginSchemaVersionId,
+    physicalOriginRelationOrdinal: row.physicalOriginRelationOrdinal,
+    physicalAttemptFence: row.physicalAttemptFence,
+    physicalReadinessSha256: copyBytes(row.physicalReadinessSha256),
+    physicalFrontierCommitSeq: row.physicalFrontierCommitSeq,
+    storageGeneration: row.storageGeneration,
+    storageGenerationFence: row.storageGenerationFence,
+    epoch: row.epoch,
+    frontierCommitSeq: row.frontierCommitSeq,
+    attemptFence: row.attemptFence,
+    lifecycle: "ready",
+    sourceCursorRowId: null,
+    edgeCursor: null,
+    versionCursor: null,
+    validatedSourceCount: row.sourceCount,
+    validatedEdgeCount: row.edgeCount,
+    validatedVersionCount: row.versionCount,
+    readinessSha256: copyBytes(row.readinessSha256),
   });
 }
 
