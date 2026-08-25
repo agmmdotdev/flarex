@@ -28,7 +28,11 @@ export class StoredAttemptNotPlannableV1Error extends Data.TaggedError(
 )<{
   readonly reason: "lifecycle" | "rootNotSealed" | "expired";
   readonly lifecycle?: TransactionSessionLifecycleV1;
-  readonly rootState?: "open" | "sealed" | "failed";
+  readonly rootState?:
+    | "open"
+    | "sealed"
+    | "failed"
+    | "relation_conflicted";
 }> {}
 
 export class StoredAttemptAuthorityMismatchV1Error extends Data.TaggedError(

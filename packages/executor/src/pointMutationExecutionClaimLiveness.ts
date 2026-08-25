@@ -174,36 +174,38 @@ export function validatePointMutationExecutionLivenessConfigurationV1Result(
   }>,
   PointMutationExecutionLivenessConfigurationV1Error
 > {
-  if (Result.isFailure(liveness.configuration)) {
-    return Result.fail(
+  return liveness.configuration.pipe(
+    Result.mapError((cause) =>
       new PointMutationExecutionLivenessConfigurationV1Error({
         reason: "invalidPersistenceConfiguration",
-        cause: liveness.configuration.failure,
+        cause,
       }),
-    );
-  }
-  const heartbeat = options.heartbeatIntervalMilliseconds;
-  if (!isPositiveSafeInteger(heartbeat)) {
-    return Result.fail(
-      new PointMutationExecutionLivenessConfigurationV1Error({
-        reason: "invalidHeartbeatInterval",
-      }),
-    );
-  }
-  const doubled = heartbeat * 2;
-  if (
-    !Number.isSafeInteger(doubled) ||
-    doubled > liveness.configuration.success.claimDurationMilliseconds
-  ) {
-    return Result.fail(
-      new PointMutationExecutionLivenessConfigurationV1Error({
-        reason: "heartbeatIntervalExceedsClaimHeadroom",
-      }),
-    );
-  }
-  return Result.succeed(Object.freeze({
-    heartbeatIntervalMilliseconds: heartbeat,
-  }));
+    ),
+    Result.flatMap((configuration) => {
+      const heartbeat = options.heartbeatIntervalMilliseconds;
+      if (!isPositiveSafeInteger(heartbeat)) {
+        return Result.fail(
+          new PointMutationExecutionLivenessConfigurationV1Error({
+            reason: "invalidHeartbeatInterval",
+          }),
+        );
+      }
+      const doubled = heartbeat * 2;
+      if (
+        !Number.isSafeInteger(doubled) ||
+        doubled > configuration.claimDurationMilliseconds
+      ) {
+        return Result.fail(
+          new PointMutationExecutionLivenessConfigurationV1Error({
+            reason: "heartbeatIntervalExceedsClaimHeadroom",
+          }),
+        );
+      }
+      return Result.succeed(Object.freeze({
+        heartbeatIntervalMilliseconds: heartbeat,
+      }));
+    }),
+  );
 }
 
 const requireLiveRenewal = Effect.fn(
@@ -219,7 +221,9 @@ const requireLiveRenewal = Effect.fn(
       if (
         initial &&
         ((mode === "execute" && result.phase !== "open") ||
-          (mode === "finishOnly" && result.phase !== "sealed"))
+          (mode === "finishOnly" && result.phase !== "sealed") ||
+          (mode === "replaceRelationConflict" &&
+            result.phase !== "relationConflicted"))
       ) {
         return yield* Effect.fail(
           new PointMutationExecutionLivenessClosedV1Error({

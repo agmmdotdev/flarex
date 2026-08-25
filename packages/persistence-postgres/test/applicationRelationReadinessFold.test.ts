@@ -14,10 +14,29 @@ import { prepareStandardApplicationDefinitionV1 } from
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
+import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import {
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+} from "flarex-protocol/app-document-id";
+import {
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalV1Effect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
 import type { CatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
+import {
+  CommitSeqSchema,
+  decodeReplacementScopeIdV1,
+  projectScopeIdUuidV1,
+} from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
+import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -53,8 +72,11 @@ import {
 } from "../src/applicationRelationBinding";
 import { createApplicationRelationBuildPort } from
   "../src/applicationRelationBuild";
-import { createApplicationRelationCommitPort } from
-  "../src/applicationRelationCommit";
+import {
+  applyApplicationRelationCommitEdgesInTransactionEffect,
+  createApplicationRelationCommitPort,
+  prepareApplicationRelationCommitResult,
+} from "../src/applicationRelationCommit";
 import {
   makeApplicationRelationPublicationRepository,
 } from "../src/applicationRelationPublication";
@@ -64,6 +86,8 @@ import {
 } from "../src/applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from
   "../src/applicationRelationReadiness";
+import { createApplicationRelationReadPort } from
+  "../src/applicationRelationRead";
 import {
   fxSystemApplicationFunctions,
   fxSystemApplicationPublications,
@@ -87,6 +111,8 @@ import {
   createApplicationTaskCatalogSnapshotPort,
 } from "../src/applicationTaskBindings";
 import type { FlarexMetadataDatabase } from "../src/deployments";
+import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from
+  "../src/appRows";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
@@ -105,8 +131,14 @@ import {
   createPGlitePersistence,
   createPGliteSplitScopeAuthorityProvisioner,
 } from "../src/pglite";
-import { createPointCommitPublisherPortV1 } from
-  "../src/pointCommitTransaction";
+import {
+  createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+  createPointCommitRollbackProofPortV1,
+  createPointMutationAttemptReplacementPortV1,
+  PointCommitConflictV1Error,
+  PointCommitCorruptionV1Error,
+} from "../src/pointCommitTransaction";
 import { getScopeAuthorityProvisioningReceipt } from
   "../src/scopeAuthorityProvisioningReceipt";
 import type { SplitScopePhysicalLocator } from
@@ -120,14 +152,56 @@ import {
   fxSystemApplicationTaskCatalogsV1,
   fxSystemApplicationTaskDefinitionsV1,
   fxSystemEdgeDefinitionReadiness,
+  fxSystemScopeClocks,
+  fxSystemTransactionJournals,
 } from "../src/schema";
+import {
+  createSessionJournalStorePersistenceV1,
+  SessionJournalSealV1Error,
+  SessionJournalStorageCorruptionV1Error,
+} from "../src/sessionJournalStore";
+import {
+  createPointMutationExecutionClaimAcquisitionV1,
+  createPointMutationSessionActivationPersistenceV1,
+  createPointMutationSessionAttemptLoadPersistenceV1,
+} from "../src/transactionSessionActivation";
+import { createStoredAttemptEvidenceLoaderV1 } from
+  "../src/storedAttemptEvidence";
+import { createStoredOccExecutionEvidenceLoaderV1 } from
+  "../src/storedOccExecution";
+import { createPointMutationExecutionClaimLivenessV1 } from
+  "../src/transactionExecutionClaimLiveness";
 import type { StableTableCatalogTransaction } from
   "../src/stableTableCatalog";
 import {
   ensureRelationBuildTestWebCrypto,
+  relationBuildRowId,
   relationBuildPublicationInput,
 } from "./applicationRelationBuildTestSupport";
-import { runEffect } from "./effectTestRuntime";
+import {
+  completeSessionJournalSeal,
+  prepareSessionJournalSeal,
+  runEffect,
+  runEffectFailure,
+} from "./effectTestRuntime";
+import {
+  relationAuthorityFromAnchor,
+  selectorFromRelationAnchor,
+} from "./pointCommitRelationTestSupport";
+import {
+  pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
+  runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1,
+  runningRelationConflictRecoveryCommandFromStoredOccExecutionV1,
+} from "./pointCommitTransactionTestSupport";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+  activatePointMutationSession,
+  pointMutationSessionActivationFixture,
+} from "./transactionSessionActivationTestSupport";
+import {
+  issueSetupSeededSyscallValidatorProofV1,
+} from "./applicationRevisionSyscallValidatorTestSupport";
 
 const LOCATOR = Object.freeze({
   kind: "database_per_scope",
@@ -145,6 +219,895 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
   it("classifies PostgreSQL lock contention as retryable", () => {
     expect(isRetryableSqlTransactionCause({ code: "55P03" })).toBe(true);
     expect(isRetryableSqlTransactionCause({ code: "42P01" })).toBe(false);
+  });
+
+  it("journals and seals an exact relation read from the ready fold", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const {
+      fixture,
+      readiness,
+      binding,
+      reads,
+      capability,
+      input,
+      resolved,
+    } = ready;
+    expect(resolved.definition.binding.relationId).toBe(binding.relationId);
+    expect(resolved.storageGenerationFence).toBe(
+      fixture.authority.storageGenerationFence,
+    );
+    expect(resolved.epoch).toBe(fixture.authority.epoch);
+    expect(Result.isFailure(reads.resolve(
+      Object.freeze({ ...capability }),
+      input,
+    ))).toBe(true);
+
+    const randomUuid = uuidSequence(21, 22, 23);
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        fixture.pointCommitAuthority,
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid,
+          randomExecutionClaimOwner: randomUuid,
+        },
+      ),
+      pointMutationSessionActivationFixture(
+        fixture.deploymentId,
+        decodeReplacementScopeIdV1(readiness.scopeId),
+        { evidence: {
+          schemaVersionId: fixture.relation.binding.schemaVersionId,
+        } },
+      ),
+    );
+    if (activation.status !== "created") {
+      throw new Error("Expected a new exact relation-read attempt.");
+    }
+    const store = createSessionJournalStorePersistenceV1(
+      fixture.pointCommitAuthority,
+      {
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        applicationRelations: reads,
+      },
+    );
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromRelationAnchor(activation.anchor),
+      executionClaim: activation.executionClaim,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: fixture.relation.binding.schemaVersionId,
+    }));
+    const relation = await runEffect(
+      store.resolveApplicationRelationReadEffect(attempt, capability),
+    );
+    const targetRowId = relationBuildRowId(9_001);
+    const operation = Object.freeze({
+      kind: "relationIncoming" as const,
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      targetDocumentId: appDocumentIdV1FromRowIdentity({
+        tableId: binding.targetTableId,
+        rowId: targetRowId,
+      }),
+      limit: 1,
+    });
+    const executed = await runEffect(
+      store.runApplicationRelationIncomingReadEffect(relation, operation),
+    );
+    const replayed = await runEffect(
+      store.runApplicationRelationIncomingReadEffect(relation, operation),
+    );
+    expect(executed).toEqual({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "relationIncomingPage",
+        items: [],
+        exhausted: true,
+      },
+    });
+    expect(replayed).toEqual({
+      ...executed,
+      delivery: "replayed",
+    });
+    if (executed.kind !== "completed") {
+      throw new Error("Expected an executed relation page.");
+    }
+
+    const validOutcome = await canonicalizeFlarexValueV1(executed.outcome);
+    const invalidPositionOutcome = await canonicalizeFlarexValueV1({
+      kind: "relationIncomingPage",
+      items: [{
+        sourceDocumentId: appDocumentIdV1FromRowIdentity({
+          tableId: binding.sourceTableId,
+          rowId: relationBuildRowId(9_002),
+        }),
+        duplicateOrdinal: 0,
+        position: 0,
+      }],
+      exhausted: true,
+    });
+    await fixture.persistence.query(
+      `update fx_system_tx_journal_latest_receipt
+          set outcome_bytes = $2, outcome_sha256 = $3
+        where session_id = $1`,
+      [
+        activation.anchor.sessionId,
+        invalidPositionOutcome.canonicalBytes,
+        invalidPositionOutcome.sha256,
+      ],
+    );
+    const invalidReplay = await runEffectFailure(
+      store.runApplicationRelationIncomingReadEffect(relation, operation),
+    );
+    expect(invalidReplay).toBeInstanceOf(
+      SessionJournalStorageCorruptionV1Error,
+    );
+    expect(invalidReplay).toMatchObject({
+      reason: "latestReceiptEvidenceInvalid",
+    });
+    await fixture.persistence.query(
+      `update fx_system_tx_journal_latest_receipt
+          set outcome_bytes = $2, outcome_sha256 = $3
+        where session_id = $1`,
+      [
+        activation.anchor.sessionId,
+        validOutcome.canonicalBytes,
+        validOutcome.sha256,
+      ],
+    );
+
+    await fixture.persistence.query(
+      `update fx_system_tx_journal_relation_incoming
+          set observed_adjacency_version = $2
+        where session_id = $1`,
+      [
+        activation.anchor.sessionId,
+        activation.anchor.snapshotToken.commitSeq + 1n,
+      ],
+    );
+    const invalidDependencyRead = await runEffectFailure(
+      store.runApplicationRelationIncomingReadEffect(relation, {
+        ...operation,
+        syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+        targetDocumentId: appDocumentIdV1FromRowIdentity({
+          tableId: binding.targetTableId,
+          rowId: relationBuildRowId(9_003),
+        }),
+      }),
+    );
+    expect(invalidDependencyRead).toBeInstanceOf(
+      SessionJournalStorageCorruptionV1Error,
+    );
+    expect(invalidDependencyRead).toMatchObject({
+      reason: "relationDependencyInvalid",
+    });
+    const invalidDependencySeal = await runEffectFailure(
+      store.prepareSealEffect(attempt),
+    );
+    expect(invalidDependencySeal).toBeInstanceOf(
+      SessionJournalStorageCorruptionV1Error,
+    );
+    expect(invalidDependencySeal).toMatchObject({
+      reason: "relationDependencyInvalid",
+    });
+    await fixture.persistence.query(
+      `update fx_system_tx_journal_relation_incoming
+          set observed_adjacency_version = $2
+        where session_id = $1`,
+      [
+        activation.anchor.sessionId,
+        activation.anchor.snapshotToken.commitSeq,
+      ],
+    );
+
+    const prepared = await prepareSessionJournalSeal(store, attempt);
+    expect(prepared.journal).toMatchObject({
+      finalSyscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      readDependencies: [{
+        kind: "appRelationIncoming",
+        edgeDefinitionId: binding.edgeDefinitionId,
+        targetRowId,
+        observedAdjacencyVersion: activation.anchor.snapshotToken.commitSeq,
+      }],
+      readUsage: {
+        documentsRead: 0,
+        semanticBytesRead: 0,
+      },
+      writes: [],
+    });
+    const canonicalJournal = await runEffect(
+      canonicalizeSessionJournalV1Effect(prepared.journal),
+    );
+    const successfulResult = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    await fixture.persistence.query(
+      `update fx_system_tx_journal
+          set relation_read_syscalls = relation_read_syscalls + 1
+        where session_id = $1`,
+      [activation.anchor.sessionId],
+    );
+    const staleCounter = await runEffectFailure(store.completeSealEffect(
+      prepared.preparation,
+      canonicalJournal,
+      successfulResult,
+    ));
+    expect(staleCounter).toBeInstanceOf(SessionJournalSealV1Error);
+    expect(staleCounter).toMatchObject({ reason: "stalePreparation" });
+    await fixture.persistence.query(
+      `update fx_system_tx_journal
+          set relation_read_syscalls = relation_read_syscalls - 1
+        where session_id = $1`,
+      [activation.anchor.sessionId],
+    );
+    await completeSessionJournalSeal(
+      store,
+      prepared.preparation,
+      canonicalJournal,
+      successfulResult,
+    );
+    const roots = await fixture.persistence.drizzle.select({
+      state: fxSystemTransactionJournals.state,
+      relationReadSyscalls: fxSystemTransactionJournals.relationReadSyscalls,
+      relationDependencyCount:
+        fxSystemTransactionJournals.relationDependencyCount,
+      relationBaseOccurrences:
+        fxSystemTransactionJournals.relationBaseOccurrences,
+    }).from(fxSystemTransactionJournals).where(eq(
+      fxSystemTransactionJournals.sessionId,
+      activation.anchor.sessionId,
+    ));
+    expect(roots).toEqual([{
+      state: "sealed",
+      relationReadSyscalls: 1,
+      relationDependencyCount: 1,
+      relationBaseOccurrences: 0,
+    }]);
+  });
+
+  it("reads through staged insert, retarget, and delete overlays", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const targetRowId = relationBuildRowId(9_051);
+    const sourceA = await applyExactRelationSourceCommit(
+      ready,
+      targetRowId,
+      9_052,
+      CommitSeqSchema.make(1n),
+    );
+    const sourceB = await applyExactRelationSourceCommit(
+      ready,
+      targetRowId,
+      9_053,
+      CommitSeqSchema.make(2n),
+    );
+    const sourceC = await applyExactRelationSourceCommit(
+      ready,
+      targetRowId,
+      9_054,
+      CommitSeqSchema.make(3n),
+    );
+    const randomUuid = uuidSequence(25, 26, 27);
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid,
+          randomExecutionClaimOwner: randomUuid,
+        },
+      ),
+      pointMutationSessionActivationFixture(
+        ready.fixture.deploymentId,
+        decodeReplacementScopeIdV1(ready.readiness.scopeId),
+        { evidence: {
+          schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        } },
+      ),
+    );
+    if (activation.status !== "created") {
+      throw new Error("Expected a staged relation-read attempt.");
+    }
+    const store = createSessionJournalStorePersistenceV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        randomUuid: uuidSequence(28),
+        applicationRelations: ready.reads,
+      },
+    );
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromRelationAnchor(activation.anchor),
+      executionClaim: activation.executionClaim,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+    }));
+    const table = await runEffect(store.resolvePointTableEffect(
+      attempt,
+      "posts",
+    ));
+    const relation = await runEffect(
+      store.resolveApplicationRelationReadEffect(attempt, ready.capability),
+    );
+    const validator = issueSetupSeededSyscallValidatorProofV1({
+      scopeId: activation.anchor.scopeId,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+    });
+    const targetDocumentId = appDocumentIdV1FromRowIdentity({
+      tableId: ready.binding.targetTableId,
+      rowId: targetRowId,
+    });
+    const otherTargetDocumentId = appDocumentIdV1FromRowIdentity({
+      tableId: ready.binding.targetTableId,
+      rowId: relationBuildRowId(9_055),
+    });
+    await runEffect(store.runPointOperationEffect(table, {
+      kind: "patch",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      documentId: sourceA,
+      patch: { author: otherTargetDocumentId },
+    }, validator));
+    await runEffect(store.runPointOperationEffect(table, {
+      kind: "delete",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+      documentId: sourceB,
+    }, validator));
+    const inserted = await runEffect(store.runPointOperationEffect(table, {
+      kind: "insert",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(3n),
+      fields: {
+        author: targetDocumentId,
+        reviewer: targetDocumentId,
+      },
+    }, validator));
+    if (
+      inserted.kind !== "completed" ||
+      inserted.outcome.kind !== "inserted"
+    ) {
+      throw new Error("Expected one staged relation source insertion.");
+    }
+
+    const read = await runEffect(
+      store.runApplicationRelationIncomingReadEffect(relation, {
+        kind: "relationIncoming",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(4n),
+        targetDocumentId,
+        limit: 10,
+      }),
+    );
+    expect(read).toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "relationIncomingPage",
+        exhausted: true,
+      },
+    });
+    if (
+      read.kind !== "completed" ||
+      read.outcome.kind !== "relationIncomingPage"
+    ) {
+      throw new Error("Expected one staged relation page.");
+    }
+    expect(new Set(read.outcome.items.map(item => item.sourceDocumentId)))
+      .toEqual(new Set([sourceC, inserted.outcome.documentId]));
+  });
+
+  it("replaces a naturally conflicted running relation read and retries from the new snapshot", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const targetRowId = relationBuildRowId(9_101);
+    const firstSourceDocumentId = await applyExactRelationSourceCommit(
+      ready,
+      targetRowId,
+      9_102,
+      CommitSeqSchema.make(1n),
+    );
+    const randomUuid = uuidSequence(31, 32, 33);
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid,
+          randomExecutionClaimOwner: randomUuid,
+        },
+      ),
+      pointMutationSessionActivationFixture(
+        ready.fixture.deploymentId,
+        decodeReplacementScopeIdV1(ready.readiness.scopeId),
+        { evidence: {
+          schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        } },
+      ),
+    );
+    if (activation.status !== "created") {
+      throw new Error("Expected a new natural-conflict attempt.");
+    }
+    expect(activation.anchor.snapshotToken.commitSeq).toBe(1n);
+    const store = createSessionJournalStorePersistenceV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        applicationRelations: ready.reads,
+      },
+    );
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromRelationAnchor(activation.anchor),
+      executionClaim: activation.executionClaim,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+    }));
+    const relation = await runEffect(
+      store.resolveApplicationRelationReadEffect(attempt, ready.capability),
+    );
+    const scopeUuid = projectScopeIdUuidV1(activation.anchor.scopeId).scopeUuid;
+    const claimedAuthority = Object.freeze({
+      kind: "claimedAttempt" as const,
+      deploymentId: activation.anchor.deploymentId,
+      scopeId: activation.anchor.scopeId,
+      scopeUuid,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+      storageGeneration: activation.anchor.storageGeneration,
+      storageGenerationFence: activation.anchor.storageGenerationFence,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+      executionClaim: activation.executionClaim,
+    });
+    const execution = await runEffect(
+      createStoredOccExecutionEvidenceLoaderV1(
+        ready.fixture.pointCommitAuthority,
+      ).loadEffect(claimedAuthority),
+    );
+    if (execution.kind !== "loaded") {
+      throw new Error("Expected pristine running-attempt evidence.");
+    }
+
+    const secondSourceDocumentId = await applyExactRelationSourceCommit(
+      ready,
+      targetRowId,
+      9_103,
+      CommitSeqSchema.make(2n),
+    );
+    const operation = Object.freeze({
+      kind: "relationIncoming" as const,
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      targetDocumentId: appDocumentIdV1FromRowIdentity({
+        tableId: ready.binding.targetTableId,
+        rowId: targetRowId,
+      }),
+      limit: 2,
+    });
+    const conflicted = await runEffect(
+      store.runApplicationRelationIncomingReadEffect(relation, operation),
+    );
+    expect(conflicted).toMatchObject({
+      kind: "conflicted",
+      delivery: "executed",
+      conflict: {
+        kind: "relationConflict",
+        edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId,
+        expectedAdjacencyVersion: 1n,
+        actualAdjacencyVersion: 2n,
+        snapshotCommitSeq: 1n,
+      },
+    });
+    if (conflicted.kind !== "conflicted") {
+      throw new Error("Expected a persisted relation conflict.");
+    }
+    await ready.fixture.persistence.query(
+      `update fx_system_tx_execution_claim
+       set claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [activation.anchor.sessionId],
+    );
+    const acquisition = createPointMutationExecutionClaimAcquisitionV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        durationMilliseconds: 60_000,
+        randomOwner: uuidSequence(34),
+      },
+    );
+    const acquired = await runEffect(acquisition.acquireEffect(
+      selectorFromRelationAnchor(activation.anchor),
+    ));
+    expect(acquired).toMatchObject({
+      kind: "acquired",
+      mode: "replaceRelationConflict",
+      observation: {
+        claimFence: activation.executionClaim.claimFence + 1n,
+      },
+    });
+    if (
+      acquired.kind !== "acquired" ||
+      acquired.mode !== "replaceRelationConflict"
+    ) {
+      throw new Error("Expected a fresh relation-conflict takeover claim.");
+    }
+    await expect(runEffect(
+      createPointMutationExecutionClaimAcquisitionV1(
+        ready.fixture.pointCommitAuthority,
+        {
+          durationMilliseconds: 60_000,
+          randomOwner: uuidSequence(35),
+        },
+      ).acquireEffect(selectorFromRelationAnchor(activation.anchor)),
+    )).resolves.toMatchObject({
+      kind: "busy",
+      observation: {
+        claimOwner: acquired.observation.claimOwner,
+        claimFence: acquired.observation.claimFence,
+      },
+    });
+
+    const freshAttempt = await runEffect(
+      createPointMutationSessionAttemptLoadPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+      ).loadEffect(selectorFromRelationAnchor(activation.anchor)),
+    );
+    if (freshAttempt.status !== "loaded") {
+      throw new Error("Expected the fresh process to load the conflicted attempt.");
+    }
+    const recoveredAuthority = Object.freeze({
+      kind: "claimedRelationConflict" as const,
+      deploymentId: freshAttempt.anchor.deploymentId,
+      scopeId: freshAttempt.anchor.scopeId,
+      scopeUuid,
+      sessionId: freshAttempt.anchor.sessionId,
+      attemptFence: freshAttempt.anchor.attemptFence,
+      storageGeneration: freshAttempt.anchor.storageGeneration,
+      storageGenerationFence: freshAttempt.anchor.storageGenerationFence,
+      snapshotToken: freshAttempt.anchor.snapshotToken,
+      schemaVersionId: freshAttempt.executionPin.schemaVersionId,
+      executionClaim: acquired.observation,
+    });
+    const executionLoader = createStoredOccExecutionEvidenceLoaderV1(
+      ready.fixture.pointCommitAuthority,
+    );
+    await expect(runEffect(executionLoader.loadEffect(Object.freeze({
+      ...recoveredAuthority,
+      kind: "claimedAttempt" as const,
+    })))).resolves.toEqual({
+      kind: "notExecutable",
+      reason: "notPristine",
+    });
+    await expect(runEffect(executionLoader.loadEffect(Object.freeze({
+      ...recoveredAuthority,
+      executionClaim: activation.executionClaim,
+    })))).resolves.toEqual({
+      kind: "authorityMismatch",
+      reason: "executionClaimChanged",
+    });
+    const recoveredExecution = await runEffect(
+      executionLoader.loadEffect(recoveredAuthority),
+    );
+    if (recoveredExecution.kind !== "loaded") {
+      throw new Error("Expected exact stored conflict authority.");
+    }
+    expect(recoveredExecution.evidence.session.lifecycle).toBe("running");
+    expect(recoveredAuthority).toMatchObject({
+      attemptFence: activation.anchor.attemptFence,
+      snapshotToken: activation.anchor.snapshotToken,
+      executionClaim: acquired.observation,
+    });
+
+    const replacementSteps: string[] = [];
+    const replacement = createPointMutationAttemptReplacementPortV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        leaseDurationMilliseconds: 60_000,
+        randomExecutionClaimOwner: uuidSequence(36),
+        afterReplacementStep: event => {
+          replacementSteps.push(event.step);
+          return Promise.resolve();
+        },
+      },
+    );
+    const recovered = await runEffect(
+      replacement.recoverRunningRelationConflict(
+        runningRelationConflictRecoveryCommandFromStoredOccExecutionV1(
+          recoveredAuthority,
+          recoveredExecution.evidence,
+        ),
+      ),
+    );
+    expect(recovered).toMatchObject({
+      request: {
+        syscallSequence: operation.syscallSequence,
+        edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId,
+        limit: operation.limit,
+      },
+      conflict: {
+        edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId,
+        expectedAdjacencyVersion: 1n,
+        actualAdjacencyVersion: 2n,
+        snapshotCommitSeq: 1n,
+      },
+    });
+    expect(Object.isFrozen(recovered)).toBe(true);
+    expect(Object.isFrozen(recovered.request)).toBe(true);
+    expect(Object.isFrozen(recovered.conflict)).toBe(true);
+    const replacementCommand =
+      runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1(
+        recoveredAuthority,
+        recoveredExecution.evidence,
+        recovered,
+      );
+    const replaced = await runEffect(
+      replacement.replaceRunningRelationConflict(replacementCommand),
+    );
+    expect(replaced).toMatchObject({
+      kind: "replaced",
+      previousAttemptFence: activation.anchor.attemptFence,
+      attemptFence: activation.anchor.attemptFence + 1n,
+    });
+    expect(replacementSteps).toEqual([
+      "clockLocked",
+      "outcomeRechecked",
+      "sessionLocked",
+      "leaseLocked",
+      "journalRootLocked",
+      "dependenciesValidated",
+      "executionClaimDeleted",
+      "sessionEnteredRetrying",
+      "journalDeleted",
+      "leaseDeleted",
+      "attemptFenceAdvanced",
+      "leaseInserted",
+      "journalRootInserted",
+      "executionClaimInserted",
+      "sessionRunning",
+      "beforeCommit",
+    ]);
+    if (replaced.kind !== "replaced") {
+      throw new Error("Expected exact running-conflict replacement.");
+    }
+    const loaded = await runEffect(
+      createPointMutationSessionAttemptLoadPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+      ).loadEffect({
+        deploymentId: activation.anchor.deploymentId,
+        scopeId: activation.anchor.scopeId,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: replaced.attemptFence,
+      }),
+    );
+    expect(loaded).toMatchObject({
+      status: "loaded",
+      anchor: { snapshotToken: { commitSeq: 2n } },
+      attemptFacet: { kind: "pristineOpen" },
+    });
+    const retryStore = createSessionJournalStorePersistenceV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        applicationRelations: ready.reads,
+      },
+    );
+    const retryAttempt = await runEffect(retryStore.openAttemptEffect({
+      selector: selectorFromRelationAnchor(loaded.anchor),
+      executionClaim: replaced.executionClaim,
+      snapshotToken: loaded.anchor.snapshotToken,
+      schemaVersionId: loaded.executionPin.schemaVersionId,
+    }));
+    const retryRelation = await runEffect(
+      retryStore.resolveApplicationRelationReadEffect(
+        retryAttempt,
+        ready.capability,
+      ),
+    );
+    const retried = await runEffect(
+      retryStore.runApplicationRelationIncomingReadEffect(
+        retryRelation,
+        operation,
+      ),
+    );
+    expect(retried).toMatchObject({
+      kind: "completed",
+      delivery: "executed",
+      outcome: {
+        kind: "relationIncomingPage",
+        exhausted: true,
+      },
+    });
+    if (retried.kind !== "completed") {
+      throw new Error("Expected the replacement attempt to read successfully.");
+    }
+    expect(retried.outcome.items.map(item => item.sourceDocumentId)).toEqual([
+      firstSourceDocumentId,
+      secondSourceDocumentId,
+    ]);
+  });
+
+  it("rejects an impossible final relation mismatch before exposing a retry conflict", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const targetRowId = relationBuildRowId(9_201);
+    const lowerTargetRowId = relationBuildRowId(9_199);
+    await applyExactRelationSourceCommit(
+      ready,
+      targetRowId,
+      9_202,
+      CommitSeqSchema.make(1n),
+    );
+    await applyExactRelationSourceCommit(
+      ready,
+      lowerTargetRowId,
+      9_203,
+      CommitSeqSchema.make(2n),
+      true,
+    );
+    const randomUuid = uuidSequence(41, 42, 43);
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ready.fixture.pointCommitAuthority,
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid,
+          randomExecutionClaimOwner: randomUuid,
+        },
+      ),
+      pointMutationSessionActivationFixture(
+        ready.fixture.deploymentId,
+        decodeReplacementScopeIdV1(ready.readiness.scopeId),
+        { evidence: {
+          schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        } },
+      ),
+    );
+    if (activation.status !== "created") {
+      throw new Error("Expected a new final-OCC relation attempt.");
+    }
+    expect(activation.anchor.snapshotToken.commitSeq).toBe(2n);
+    const store = createSessionJournalStorePersistenceV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+        applicationRelations: ready.reads,
+      },
+    );
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromRelationAnchor(activation.anchor),
+      executionClaim: activation.executionClaim,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+    }));
+    const relation = await runEffect(
+      store.resolveApplicationRelationReadEffect(attempt, ready.capability),
+    );
+    const firstOperation = Object.freeze({
+      kind: "relationIncoming" as const,
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      targetDocumentId: appDocumentIdV1FromRowIdentity({
+        tableId: ready.binding.targetTableId,
+        rowId: targetRowId,
+      }),
+      limit: 1,
+    });
+    const secondOperation = Object.freeze({
+      kind: "relationIncoming" as const,
+      syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+      targetDocumentId: appDocumentIdV1FromRowIdentity({
+        tableId: ready.binding.targetTableId,
+        rowId: lowerTargetRowId,
+      }),
+      limit: 1,
+    });
+    const firstRead = await runEffect(
+      store.runApplicationRelationIncomingReadEffect(relation, firstOperation),
+    );
+    const secondRead = await runEffect(
+      store.runApplicationRelationIncomingReadEffect(relation, secondOperation),
+    );
+    expect(firstRead).toMatchObject({ kind: "completed" });
+    expect(secondRead).toMatchObject({ kind: "completed" });
+    const prepared = await prepareSessionJournalSeal(store, attempt);
+    const journal = await runEffect(
+      canonicalizeSessionJournalV1Effect(prepared.journal),
+    );
+    const successfulResult = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    await completeSessionJournalSeal(
+      store,
+      prepared.preparation,
+      journal,
+      successfulResult,
+    );
+    const authority = relationAuthorityFromAnchor(
+      activation.anchor,
+      ready.fixture.relation.binding.schemaVersionId,
+      activation.executionClaim,
+    );
+    const loader = createStoredAttemptEvidenceLoaderV1(
+      ready.fixture.pointCommitAuthority,
+    );
+    const running = await runEffect(loader.loadEffect(authority));
+    if (running.kind !== "loaded") {
+      throw new Error("Expected sealed running relation evidence.");
+    }
+    await runEffect(
+      createPointCommitFinishingTransitionPortV1(
+        ready.fixture.pointCommitAuthority,
+      ).enterFinishing(
+        await pointCommitFinishingCommandFromStoredAttemptV1(
+          authority,
+          running.evidence,
+        ),
+      ),
+    );
+    const finishing = await runEffect(loader.loadFinishingEffect(
+      selectorFromRelationAnchor(activation.anchor),
+    ));
+    if (finishing.kind !== "loaded") {
+      throw new Error("Expected finishing relation evidence.");
+    }
+    const command =
+      await pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(
+        authority,
+        finishing.evidence,
+      );
+    expect(command.relationDependencies).toEqual([
+      {
+        kind: "appRelationIncoming",
+        edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId: lowerTargetRowId,
+        observedAdjacencyVersion: 2n,
+      },
+      {
+        kind: "appRelationIncoming",
+        edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId,
+        observedAdjacencyVersion: 1n,
+      },
+    ]);
+    await setExactRelationAdjacencyVersion(
+      ready,
+      targetRowId,
+      CommitSeqSchema.make(2n),
+    );
+    const observedRelationQueries: string[] = [];
+    const rollback = createPointCommitRollbackProofPortV1(
+      ready.fixture.pointCommitAuthority,
+      {
+        applicationRelations: ready.fixture.relationCommit,
+        observeQuery: (query) => {
+          if (query.name === "validateRelationDependencies") {
+            observedRelationQueries.push(query.sql);
+          }
+        },
+      },
+    );
+    const impossible = await runEffectFailure(rollback.prove(command));
+    expect(impossible).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(impossible).toMatchObject({ reason: "occEvidenceInvalid" });
+    expect(observedRelationQueries).toHaveLength(1);
+
+    await advanceExactRelationScopeClock(ready, CommitSeqSchema.make(3n));
+    await setExactRelationAdjacencyVersion(
+      ready,
+      lowerTargetRowId,
+      CommitSeqSchema.make(3n),
+    );
+    await setExactRelationAdjacencyVersion(
+      ready,
+      targetRowId,
+      CommitSeqSchema.make(3n),
+    );
+    observedRelationQueries.length = 0;
+    const retryable = await runEffectFailure(rollback.prove(command));
+    expect(retryable).toBeInstanceOf(PointCommitConflictV1Error);
+    expect(retryable).toMatchObject({
+      conflict: {
+        kind: "appRelationIncoming",
+        edgeDefinitionId: ready.binding.edgeDefinitionId,
+        targetRowId: lowerTargetRowId,
+      },
+      snapshotCommitSeq: 2n,
+      currentCommitSeq: 3n,
+    });
+    expect(observedRelationQueries).toHaveLength(1);
   });
 
   it("atomically folds two ordered relations, exactly replays, and stays outside legacy activation", async () => {
@@ -556,6 +1519,218 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
   });
 });
 
+async function readyExactRelationReadFixture() {
+  const fixture = await relationReadinessFixture();
+  await prepareReadinessEvidence(fixture);
+  const readiness = await runEffect(fixture.fold.settle(fixture.input));
+  if (readiness.status !== "ready") {
+    throw new Error("Expected relation-aware Application readiness.");
+  }
+  const binding = fixture.relation.binding.relationBindings[0];
+  if (binding === undefined) throw new Error("Expected a relation binding.");
+  const reads = createApplicationRelationReadPort(
+    fixture.persistence.drizzle,
+    fixture.pointCommitAuthority,
+    fixture.relationCommit,
+    fixture.fold,
+  );
+  const capability = await runEffect(reads.prepare({
+    deploymentId: fixture.deploymentId,
+    readiness,
+    relationId: binding.relationId,
+  }));
+  const input = Object.freeze({
+    deploymentId: fixture.deploymentId,
+    scopeId: fixture.authority.scopeId,
+    schemaVersionId: fixture.relation.binding.schemaVersionId,
+  });
+  const resolved = Result.getOrThrow(reads.resolve(capability, input));
+  const definitions = await runEffect(fixture.relationCommit.locate({
+    deploymentId: fixture.deploymentId,
+    schemaVersionId: fixture.relation.binding.schemaVersionId,
+  }));
+  if (definitions === null || definitions.definitions.length !== 2) {
+    throw new Error("Expected both exact relation definitions.");
+  }
+  return Object.freeze({
+    fixture,
+    readiness,
+    binding,
+    reads,
+    capability,
+    input,
+    resolved,
+    definitions,
+  });
+}
+
+type ReadyExactRelationReadFixture = Awaited<
+  ReturnType<typeof readyExactRelationReadFixture>
+>;
+
+async function applyExactRelationSourceCommit(
+  ready: ReadyExactRelationReadFixture,
+  targetRowId: ReturnType<typeof relationBuildRowId>,
+  sourceOrdinal: number,
+  commitSeq: ReturnType<typeof CommitSeqSchema.make>,
+  includeTarget: boolean = commitSeq === 1n,
+): Promise<ReturnType<typeof appDocumentIdV1FromRowIdentity>> {
+  const sourceRowId = relationBuildRowId(sourceOrdinal);
+  const sourceDocumentId = appDocumentIdV1FromRowIdentity({
+    tableId: ready.binding.sourceTableId,
+    rowId: sourceRowId,
+  });
+  const targetDocumentId = appDocumentIdV1FromRowIdentity({
+    tableId: ready.binding.targetTableId,
+    rowId: targetRowId,
+  });
+  const sourcePaths = ready.definitions.definitions.map((definition) => {
+    const sourcePath = definition.edge.physical.sourcePath[0];
+    if (sourcePath === undefined) {
+      throw new Error("Expected one exact relation source field.");
+    }
+    return sourcePath.name;
+  });
+  const sourceFields = Object.freeze(Object.fromEntries(
+    sourcePaths.map((name) => [name, targetDocumentId]),
+  ));
+  const sourceCreationTime = decodeAppCreationTimeV1(sourceOrdinal);
+  const final = await canonicalizeAppDocumentV1({
+    tableId: ready.binding.sourceTableId,
+    rowId: sourceRowId,
+    creationTime: sourceCreationTime,
+    fields: sourceFields,
+  });
+  const targetCreationTime = decodeAppCreationTimeV1(9_101);
+  const target = includeTarget
+    ? await canonicalizeAppDocumentV1({
+        tableId: ready.binding.targetTableId,
+        rowId: targetRowId,
+        creationTime: targetCreationTime,
+        fields: { name: "natural relation target" },
+      })
+    : null;
+  const transitions = Object.freeze([
+    ...(target === null
+      ? []
+      : [Object.freeze({
+          documentId: targetDocumentId,
+          tableId: ready.binding.targetTableId,
+          rowId: targetRowId,
+          prior: null,
+          final: target,
+        })]),
+    Object.freeze({
+      documentId: sourceDocumentId,
+      tableId: ready.binding.sourceTableId,
+      rowId: sourceRowId,
+      prior: null,
+      final,
+    }),
+  ]);
+  const prepared = Result.getOrThrow(prepareApplicationRelationCommitResult(
+    ready.definitions,
+    transitions,
+  ));
+  await ready.fixture.persistence.drizzle.transaction(async tx => {
+    for (const transition of transitions) {
+      const document = transition.final;
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: ready.fixture.authority.scopeId,
+        tableId: transition.tableId,
+        rowId: transition.rowId,
+        writeEpoch: ready.fixture.authority.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        creationTime: transition.documentId === targetDocumentId
+          ? targetCreationTime
+          : sourceCreationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+    }
+    await runEffect(applyApplicationRelationCommitEdgesInTransactionEffect(
+      ready.fixture.relationCommit,
+      tx,
+      {
+        scopeId: ready.fixture.authority.scopeId,
+        schemaVersionId: ready.fixture.relation.binding.schemaVersionId,
+        commitSeq,
+        prepared,
+      },
+    ));
+    const advanced = await tx.update(fxSystemScopeClocks).set({
+      lastCommitSeq: commitSeq,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(fxSystemScopeClocks.scopeId, ready.fixture.authority.scopeId),
+      eq(
+        fxSystemScopeClocks.lastCommitSeq,
+        CommitSeqSchema.make(commitSeq - 1n),
+      ),
+    )).returning({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq });
+    if (advanced.length !== 1 || advanced[0]?.lastCommitSeq !== commitSeq) {
+      throw new Error("Expected one exact relation source commit sequence.");
+    }
+  });
+  return sourceDocumentId;
+}
+
+async function advanceExactRelationScopeClock(
+  ready: ReadyExactRelationReadFixture,
+  commitSeq: ReturnType<typeof CommitSeqSchema.make>,
+): Promise<void> {
+  const updated = await ready.fixture.persistence.drizzle.update(
+    fxSystemScopeClocks,
+  ).set({
+    lastCommitSeq: commitSeq,
+    updatedAt: new Date(),
+  }).where(eq(
+    fxSystemScopeClocks.scopeId,
+    ready.fixture.authority.scopeId,
+  )).returning({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq });
+  if (updated.length !== 1 || updated[0]?.lastCommitSeq !== commitSeq) {
+    throw new Error("Expected one exact relation scope clock update.");
+  }
+}
+
+async function setExactRelationAdjacencyVersion(
+  ready: ReadyExactRelationReadFixture,
+  targetRowId: ReturnType<typeof relationBuildRowId>,
+  commitSeq: ReturnType<typeof CommitSeqSchema.make>,
+): Promise<void> {
+  const updated = await ready.fixture.persistence.query<{
+    readonly last_changed_commit_seq: string;
+  }>(
+    `update fx_app_edge_adjacency_version
+        set last_changed_commit_seq = $5
+      where scope_uuid = $1
+        and edge_definition_id = $2
+        and direction = $3
+        and endpoint_row_id = $4
+      returning last_changed_commit_seq::text`,
+    [
+      projectScopeIdUuidV1(ready.fixture.authority.scopeId).scopeUuid,
+      ready.binding.edgeDefinitionId,
+      "incoming",
+      appRowIdHexV1ToBytes(targetRowId),
+      commitSeq,
+    ],
+  );
+  if (
+    updated.rows.length !== 1 ||
+    updated.rows[0]?.last_changed_commit_seq !== commitSeq.toString()
+  ) {
+    throw new Error("Expected one exact incoming adjacency version update.");
+  }
+}
+
 interface RelationReadinessFixtureOptions {
   readonly includeFunction?: boolean;
   readonly semanticReuse?: boolean;
@@ -617,13 +1792,14 @@ async function relationReadinessFixture(
     persistence,
     LOCATOR,
   );
+  const pointCommitAuthority = Object.freeze({
+    scopeMetadata: persistence,
+    provisioningReceipts: authorityPorts.provisioningReceipts,
+    scopeSessionTargets: { resolve: async () => pointTarget },
+  });
   const relationCommit = createApplicationRelationCommitPort(
     persistence.drizzle,
-    {
-      scopeMetadata: persistence,
-      provisioningReceipts: authorityPorts.provisioningReceipts,
-      scopeSessionTargets: { resolve: async () => pointTarget },
-    },
+    pointCommitAuthority,
   );
   const relationBuild = createApplicationRelationBuildPort(
     persistence.drizzle,
@@ -839,6 +2015,8 @@ async function relationReadinessFixture(
     deploymentId,
     authority,
     authorityPorts,
+    pointCommitAuthority,
+    pointTarget,
     relation,
     manifest: canonicalManifest.manifest,
     publication,

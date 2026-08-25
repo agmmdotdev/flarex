@@ -17,7 +17,10 @@ const pointMutationAbortOnlyScopeBrand: unique symbol = Symbol(
   "FlarexExecutor/PointMutationAbortOnlyScopeV1",
 );
 
-export type PointMutationExecutionWorkModeV1 = "execute" | "finishOnly";
+export type PointMutationExecutionWorkModeV1 =
+  | "execute"
+  | "finishOnly"
+  | "replaceRelationConflict";
 
 export interface PointMutationExecutionClaimV1 {
   readonly [pointMutationExecutionClaimBrand]:
@@ -95,7 +98,7 @@ export interface PointMutationExecutionClaimAdmissionV1 {
     PointMutationExecutionWorkClaimStateV1,
     InvalidPointMutationExecutionClaimV1Error
   >;
-  /** Accepts either ordinary stored-attempt mode, but never abort-only. */
+  /** Accepts any stored-attempt work mode, but never abort-only. */
   readonly inspectStoredAttempt: (
     scope: unknown,
   ) => Result.Result<

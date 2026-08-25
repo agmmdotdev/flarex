@@ -19,6 +19,7 @@ import type {
   PointMutationAttemptReplacementObservationV1,
   PointMutationAttemptReplacementPortV1,
   PointMutationAttemptReplacementV1Error,
+  RunningRelationConflictAttemptReplacementPortV1,
   CommittedPointOutcomeResolutionV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
@@ -140,9 +141,12 @@ import {
   isPointCommitPublisherPortV1,
   isPointCommitRollbackProofPortV1,
   isPointMutationAttemptReplacementPortV1,
+  isRunningRelationConflictAttemptReplacementPortV1,
   isPointMutationExecutionClaimDispatchAcquisitionV1,
   isPointMutationExecutionClaimLivenessV1,
+  isPointMutationJournalRelationConflictRecovery,
   isPointMutationJournalV1,
+  isRunningRelationConflictRecoveryPort,
   isPointMutationSessionAttemptDispositionV1,
   isPointMutationSessionAttemptLoadingV1,
   isPointMutationSessionAttemptTerminalizationV1,
@@ -422,6 +426,19 @@ export interface PointMutationOccBoundJournalV1 {
     index: Parameters<PointMutationJournalV1["runIndexedQuery"]>[0],
     operation: unknown,
   ) => ReturnType<PointMutationJournalV1["runIndexedQuery"]>;
+  readonly resolveApplicationRelationRead: (
+    capability: Parameters<
+      PointMutationJournalV1["resolveApplicationRelationRead"]
+    >[1],
+  ) => ReturnType<PointMutationJournalV1["resolveApplicationRelationRead"]>;
+  readonly runApplicationRelationIncomingRead: (
+    relation: Parameters<
+      PointMutationJournalV1["runApplicationRelationIncomingRead"]
+    >[0],
+    operation: unknown,
+  ) => ReturnType<
+    PointMutationJournalV1["runApplicationRelationIncomingRead"]
+  >;
 }
 
 interface PointMutationOccRuntimeNeutralRunnerInputCommonV1 {
@@ -608,6 +625,9 @@ interface StoredAttemptSealedRootPortV1 {
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
   readonly indexRangeDependencyEvidenceBytes: number;
+  readonly relationReadSyscalls: number;
+  readonly relationDependencyCount: number;
+  readonly relationBaseOccurrences: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -650,6 +670,9 @@ export interface StoredAttemptSealIdentityPortV1 {
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
   readonly indexRangeDependencyEvidenceBytes: number;
+  readonly relationReadSyscalls: number;
+  readonly relationDependencyCount: number;
+  readonly relationBaseOccurrences: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -704,7 +727,11 @@ export type StoredAttemptEvidenceLoadResultPortV1 =
       readonly kind: "notPlannable";
       readonly reason: "lifecycle" | "rootNotSealed" | "expired";
       readonly lifecycle?: TransactionSessionLifecycleV1;
-      readonly rootState?: "open" | "sealed" | "failed";
+      readonly rootState?:
+        | "open"
+        | "sealed"
+        | "failed"
+        | "relation_conflicted";
     }>
   | Readonly<{
       readonly kind: "authorityMismatch";
@@ -917,6 +944,9 @@ export interface StoredPointMutationOccRerunAuthorizationConfigV1
   extends StoredPointMutationAttemptReplacementConfigV1 {
   readonly pointCommit:
     PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1;
+  readonly pointMutationAttemptReplacement:
+    PointMutationAttemptReplacementPortV1 &
+    RunningRelationConflictAttemptReplacementPortV1;
   readonly pointMutationOccRerun: Readonly<{
     readonly attemptLoading: PointMutationSessionAttemptLoadingV1;
   }>;
@@ -1169,7 +1199,8 @@ export type PointMutationCrashRedispatchV1Error =
   | PointMutationExecutionClaimAcquisitionV1Error
   | InvalidPointMutationExecutionClaimV1Error
   | PointMutationSessionAttemptDispositionExecutionV1Error
-  | PointMutationAuthenticatedAttemptExecutionV1Error;
+  | PointMutationAuthenticatedAttemptExecutionV1Error
+  | PointMutationOccRerunExecutionV1Error;
 
 export interface StoredPointMutationCrashRedispatchV1
   extends PointMutationInitialExecutionV1 {
@@ -1588,6 +1619,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
 
   const {
     captureOccConflictTicket,
+    captureRunningRelationConflictTicket,
     captureAndClaimDecisionUncertainTicket,
   } = makePointCommitOutcomeTicketCaptureOperationsV1({
     decisionUncertainTickets,
@@ -1640,7 +1672,6 @@ function createStoredPointMutationCapabilityRuntimeV1(
   const {
     facade: executor,
     resolvePointCommitOutcomeFromStoredSession,
-    resolvePointCommitOutcomeObservation,
     publishFinishingPointCommit,
     publicationResultFromCommittedOutcome,
   } = makeStoredPointCommitExecutionPublicationOperationsV1({
@@ -1689,6 +1720,18 @@ function createStoredPointMutationCapabilityRuntimeV1(
   });
   const { replaceConflictedPointMutationAttempt } = replacement;
   if (stage === "attemptReplacement") return replacement;
+  const runningRelationConflictReplacement =
+    isRunningRelationConflictAttemptReplacementPortV1(
+        pointMutationAttemptReplacementCandidate,
+      )
+      ? pointMutationAttemptReplacementCandidate
+      : undefined;
+  if (runningRelationConflictReplacement === undefined) {
+    throw new StoredPointMutationCapabilityConfigurationV1Defect({
+      stage,
+      missing: "pointMutationAttemptReplacement",
+    });
+  }
   const pointMutationOccRerunCandidate: unknown =
     "pointMutationOccRerun" in commitAuthority
       ? commitAuthority.pointMutationOccRerun
@@ -1712,6 +1755,8 @@ function createStoredPointMutationCapabilityRuntimeV1(
   const handoffFreshPointMutationAttempt =
     makeStoredPointMutationFreshAttemptHandoffOperationsV1({
       replaceConflictedPointMutationAttempt,
+      replaceRunningRelationConflict:
+        runningRelationConflictReplacement.replaceRunningRelationConflict,
       pointMutationOccAttemptLoading,
       executionClaimIssuer: executionClaims.issuer,
       authorizedOccRerunStates,
@@ -1724,8 +1769,12 @@ function createStoredPointMutationCapabilityRuntimeV1(
     resolvePointMutationOccOutcome,
   } = makeStoredPointMutationOccRerunAuthorizationOperationsV1({
     base: replacement,
-    resolvePointMutationOccOutcomeObservation:
-      resolvePointCommitOutcomeObservation,
+    resolvePointMutationOccOutcomeObservation: (lineage) =>
+      resolvePointCommitOutcomeFromStoredSession(
+        lineage.authorityPins.deploymentId,
+        lineage.scopeUuid,
+        lineage.previousSession,
+      ),
     handoffFreshPointMutationAttempt,
     occConflictTickets,
     consumedOccConflicts,
@@ -1875,6 +1924,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
     planPointCommit,
     enterPointCommitFinishing,
     publishFinishingPointCommit,
+    captureRunningRelationConflictTicket,
   });
 
   const occExecution = makeStoredPointMutationOccRerunExecutionOperationsV1({
@@ -1914,6 +1964,30 @@ function createStoredPointMutationCapabilityRuntimeV1(
     }),
   } satisfies PointMutationInitialExecutionV1);
   if (stage === "initialExecution") return initialExecution;
+  const runningRelationConflictRecovery =
+    isRunningRelationConflictRecoveryPort(
+        pointMutationAttemptReplacementCandidate,
+      )
+      ? pointMutationAttemptReplacementCandidate
+      : undefined;
+  const pointMutationJournalRelationConflictRecovery =
+    isPointMutationJournalRelationConflictRecovery(
+        pointMutationOccJournalCandidate,
+      )
+      ? pointMutationOccJournalCandidate
+      : undefined;
+  const runningRelationConflictRecoveryPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "runningRelationConflictRecovery",
+      runningRelationConflictRecovery,
+    );
+  const pointMutationJournalRelationConflictRecoveryPort =
+    requireStoredPointMutationCapabilityDependencyV1(
+      stage,
+      "pointMutationJournalRelationConflictRecovery",
+      pointMutationJournalRelationConflictRecovery,
+    );
   const pointMutationRedispatchCandidate: unknown =
     "pointMutationRedispatch" in commitAuthority
       ? commitAuthority.pointMutationRedispatch
@@ -1962,6 +2036,9 @@ function createStoredPointMutationCapabilityRuntimeV1(
     terminalization: pointMutationOccTerminalizationPort,
     executionLiveness: pointMutationExecutionLiveness,
     executionEvidence: pointMutationOccExecutionEvidencePort,
+    runningRelationConflictRecovery: runningRelationConflictRecoveryPort,
+    journalRelationConflictRecovery:
+      pointMutationJournalRelationConflictRecoveryPort,
     deriveAuthority,
     lookupAuthority,
     loadAndVerifyStoredEvidence,
@@ -1980,6 +2057,7 @@ function createStoredPointMutationCapabilityRuntimeV1(
         commitAuthority.applicationMutationGrantVerifier,
       ),
     executeExactPointMutationAttempt: executeExactPointMutationAttemptKernel,
+    captureRunningRelationConflictTicket,
     resolvePointCommitOutcomeFromStoredSession,
     publicationResultFromCommittedOutcome,
   });

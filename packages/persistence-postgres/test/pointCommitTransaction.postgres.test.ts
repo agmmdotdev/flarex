@@ -4146,6 +4146,7 @@ function replacementCommand(
     sealIdentity: command.sealIdentity,
     dependencies: command.dependencies,
     indexRangeDependencies: command.indexRangeDependencies,
+    relationDependencies: command.relationDependencies,
     expectedConflict: Object.freeze({
       conflict: Object.freeze({
         kind: "appRowPoint",

@@ -27,6 +27,9 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   decodeCanonicalSessionJournalV1Effect,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
+  MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
   verifySuccessfulResultEvidenceV1Effect,
   type CanonicalSuccessfulResultV1,
@@ -367,6 +370,9 @@ function journalCounterMismatch(
   const indexedDependencies = journal.readDependencies.filter(
     (dependency) => dependency.kind === "appIndexRange",
   );
+  const relationDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "appRelationIncoming",
+  );
   for (const dependency of journal.readDependencies) {
     if (dependency.kind === "appRowPoint") {
       pointDependencyCount += 1;
@@ -407,6 +413,15 @@ function journalCounterMismatch(
         evidence.root.indexedQuerySyscalls < indexedDependencies.length ||
         evidence.root.indexedQuerySyscalls >
           MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 ||
+        relationDependencies.length !==
+          evidence.root.relationDependencyCount ||
+        evidence.root.relationReadSyscalls < relationDependencies.length ||
+        evidence.root.relationReadSyscalls >
+          MAX_COMMIT_RELATION_READ_SYSCALLS_V1 ||
+        evidence.root.relationDependencyCount >
+          MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 ||
+        evidence.root.relationBaseOccurrences >
+          MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1 ||
         journal.writes.length !== evidence.root.writeOperations ||
         writeSemanticBytes !== evidence.root.writeSemanticBytes ||
         evidence.points.length !== evidence.root.pointDependencyCount
@@ -908,6 +923,9 @@ function captureAuthenticatedState(
       indexRangeDependencyCount: root.indexRangeDependencyCount,
       indexRangeDependencyEvidenceBytes:
         root.indexRangeDependencyEvidenceBytes,
+      relationReadSyscalls: root.relationReadSyscalls,
+      relationDependencyCount: root.relationDependencyCount,
+      relationBaseOccurrences: root.relationBaseOccurrences,
       writeOperations: root.writeOperations,
       writeSemanticBytes: root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:

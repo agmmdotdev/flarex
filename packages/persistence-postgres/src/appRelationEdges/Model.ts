@@ -17,6 +17,7 @@ import type { CommitSeq, ScopeId } from
 export type AppRelationEdgeOperation =
   | "applyChanges"
   | "readAdjacencyVersion"
+  | "readIncomingAdjacencyVersions"
   | "hasIncoming"
   | "readIncomingPage"
   | "readBuildSource"
@@ -75,6 +76,26 @@ export interface ReadAppRelationEdgeAdjacencyVersionInput {
   readonly endpointRowId: AppRowIdHexV1;
 }
 
+export interface IncomingAppRelationEdgeAdjacencyVersionEndpoint {
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly targetRowId: AppRowIdHexV1;
+}
+
+export interface ReadIncomingAppRelationEdgeAdjacencyVersionsInput {
+  readonly scopeId: ScopeId;
+  readonly endpoints: ReadonlyArray<
+    IncomingAppRelationEdgeAdjacencyVersionEndpoint
+  >;
+  /** Test-only receipt of the exact compiled physical version statement. */
+  readonly observeQuery?: (query: AppRelationEdgeQueryObservation) => void;
+}
+
+export interface IncomingAppRelationEdgeAdjacencyVersion {
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly targetRowId: AppRowIdHexV1;
+  readonly adjacencyVersion: CommitSeq;
+}
+
 export interface AppRelationEdgeIncomingFrontier {
   readonly sourceRowId: AppRowIdHexV1;
   readonly duplicateOrdinal: 0;
@@ -100,7 +121,10 @@ export interface HasIncomingAppRelationEdgeInput {
 }
 
 export interface AppRelationEdgeQueryObservation {
-  readonly name: "hasIncoming" | "readIncomingPage";
+  readonly name:
+    | "hasIncoming"
+    | "readIncomingAdjacencyVersions"
+    | "readIncomingPage";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
 }
@@ -114,6 +138,8 @@ export interface AppRelationEdgeIncomingPageItem {
 
 export interface ReadIncomingAppRelationEdgePageResult {
   readonly items: ReadonlyArray<AppRelationEdgeIncomingPageItem>;
+  /** Includes the bounded lookahead row inspected by the physical query. */
+  readonly inspectedBaseOccurrenceCount: number;
   readonly versionBefore: CommitSeq;
   readonly versionAfter: CommitSeq;
   readonly nextFrontier: AppRelationEdgeIncomingFrontier | null;
@@ -131,6 +157,7 @@ export type AppRelationEdgeInputReason =
   | "invalidPosition"
   | "duplicateBatchIdentity"
   | "transactionOccurrenceLimitExceeded"
+  | "invalidEndpointBatchSize"
   | "invalidPageSize"
   | "invalidFrontier";
 
@@ -200,6 +227,7 @@ export interface AppRelationEdgeMutationOptions {
 export type AppRelationEdgePersistenceOperation =
   | AppRelationEdgeMutationStatementName
   | "readAdjacencyVersion"
+  | "readIncomingAdjacencyVersions"
   | "hasIncoming"
   | "readIncomingPage";
 

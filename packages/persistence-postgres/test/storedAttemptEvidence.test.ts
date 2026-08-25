@@ -1206,7 +1206,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           const table = yield* input.journal.resolvePointTable("users");
           const inserted = yield* input.journal.runPointOperation(table, {
             kind: "insert",
-            syscallSequence: "1",
+            syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
             fields: { name: "retried" },
           });
           if (
@@ -1425,6 +1425,29 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         }),
       }),
       Object.freeze({
+        label: "journal_children_relation",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              insert into fx_system_tx_journal_relation_incoming (
+                scope_uuid, session_id, attempt_fence, edge_definition_id,
+                target_row_id, observed_adjacency_version, created_at,
+                updated_at
+              )
+              select scope_uuid, session_id, attempt_fence, 1,
+                decode(repeat('02', 16), 'hex'), 0, created_at, updated_at
+              from fx_system_tx_journal
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
+          reason: "journalChildrenPresent",
+        }),
+      }),
+      Object.freeze({
         label: "durable_retrying",
         mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
           persistence.query(
@@ -1473,7 +1496,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           ),
         expected: Object.freeze({
           _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
-          reason: "sessionEvidenceInvalid",
+          reason: "journalRootInvalid",
         }),
       }),
       Object.freeze({
@@ -1560,7 +1583,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           authorized.rerun,
         ),
       );
-      expect(failure).toMatchObject(currentCase.expected);
+      expect(failure, currentCase.label).toMatchObject(currentCase.expected);
       expect(runnerCalls).toBe(0);
       expect(
         await runFailure(
@@ -2053,7 +2076,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         const table = await journal.resolvePointTable("users");
         const inserted = await table.runPointOperation({
           kind: "insert",
-          syscallSequence: "1",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: `initial-${bindingRequests.length}` },
         });
         if (inserted.kind !== "inserted") {
@@ -9074,6 +9097,9 @@ function commitAuthorityFromStoredEvidence(
       indexRangeDependencyCount: evidence.root.indexRangeDependencyCount,
       indexRangeDependencyEvidenceBytes:
         evidence.root.indexRangeDependencyEvidenceBytes,
+      relationReadSyscalls: evidence.root.relationReadSyscalls,
+      relationDependencyCount: evidence.root.relationDependencyCount,
+      relationBaseOccurrences: evidence.root.relationBaseOccurrences,
       writeOperations: evidence.root.writeOperations,
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:

@@ -26,6 +26,7 @@ import { decodeCatalogSchemaVersionId } from
   "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  projectScopeIdUuidV1,
   ScopeEpochSchema,
   ScopeIdSchema,
 } from "flarex-protocol/storage-authority";
@@ -35,6 +36,7 @@ import {
   applyAppRelationEdgeChangesInTransactionEffect,
   AppRelationEdgePersistenceError,
   hasIncomingAppRelationEdgeInTransactionEffect,
+  readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect,
   readIncomingAppRelationEdgePageInTransactionEffect,
   type AppRelationEdgeDefinitionPin,
   type AppRelationEdgeMutationStatementName,
@@ -87,6 +89,68 @@ const hotTarget = decodeAppRowIdHexV1(
 );
 
 describePostgres("real PostgreSQL S12 relation-edge storage", () => {
+  it("reads 128 incoming adjacency versions through one indexed query", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      await insertClocks(persistence);
+      const endpoints = Object.freeze(Array.from({ length: 128 }, (_, index) =>
+        Object.freeze({
+          edgeDefinitionId,
+          targetRowId: rowIdFromInteger(400_000 + index),
+        })
+      ));
+      await persistence.drizzle.insert(fxAppEdgeAdjacencyVersions).values(
+        endpoints.flatMap((endpoint, index) =>
+          index % 2 === 0
+            ? [{
+                scopeUuid: projectScopeIdUuidV1(scopeId).scopeUuid,
+                edgeDefinitionId: endpoint.edgeDefinitionId,
+                direction: "incoming" as const,
+                endpointRowId: appRowIdHexV1ToBytes(endpoint.targetRowId),
+                lastChangedCommitSeq: CommitSeqSchema.make(BigInt(index + 1)),
+              }]
+            : []
+        ),
+      );
+      const observations: AppRelationEdgeQueryObservation[] = [];
+      const versions = await persistence.drizzle.transaction((tx) => runEffect(
+        readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect(tx, {
+          scopeId,
+          endpoints,
+          observeQuery: (query) => observations.push(query),
+        }),
+      ));
+      expect(versions).toHaveLength(128);
+      expect(versions.map((version) => version.adjacencyVersion)).toEqual(
+        endpoints.map((_endpoint, index) =>
+          CommitSeqSchema.make(index % 2 === 0 ? BigInt(index + 1) : 0n)
+        ),
+      );
+      expect(observations).toHaveLength(1);
+      const observation = observations[0];
+      if (observation === undefined) {
+        throw new Error("Expected one adjacency-version query observation");
+      }
+      const client = await persistence.pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("set local enable_seqscan = off");
+        const plan = await client.query(
+          `explain (format json) ${observation.sql}`,
+          [...observation.params],
+        );
+        expect(JSON.stringify(plan.rows)).toMatch(
+          /fx_app_edge_adjacency_version_pk/,
+        );
+        await client.query("rollback");
+      } catch (error) {
+        await client.query("rollback").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    });
+  }, 120_000);
+
   it("proves production constraints, write path, and populated access plans", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await insertClocks(persistence);

@@ -190,6 +190,10 @@ export class PointMutationJournalRpcTestProvider extends WorkerEntrypoint {
           ? Effect.succeed(EXECUTED_INDEX_PAGE)
           : Effect.die(new Error("indexed query must not run"));
       },
+      resolveApplicationRelationRead: () =>
+        Effect.die(new Error("relation resolution must not run")),
+      runApplicationRelationIncomingRead: () =>
+        Effect.die(new Error("relation read must not run")),
     } satisfies PointMutationOccBoundJournalV1);
     const session = makePointMutationJournalRpcSessionV1(journal);
     record = {

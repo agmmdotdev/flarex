@@ -283,6 +283,15 @@ export function hasPreparedApplicationRelationReadinessAuthority(
     preparedApplicationRelationReadinessStates.get(value)?.port === portState;
 }
 
+/** Package-private exact R02 definition recovery for the E01-B issued token. */
+export function getPreparedApplicationRelationReadinessDefinitions(
+  port: ApplicationRelationReadinessPort,
+  prepared: PreparedApplicationRelationReadiness,
+): LocatedApplicationRelationDefinitionSet | null {
+  return getPreparedApplicationRelationReadinessState(port, prepared)
+    ?.definitions ?? null;
+}
+
 export function hasApplicationRelationSetReadinessEvidenceAuthority(
   port: ApplicationRelationReadinessPort,
   value: unknown,

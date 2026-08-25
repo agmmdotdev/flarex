@@ -33,6 +33,9 @@ import type {
   PointMutationExecutionLivenessCoordinatorV1,
 } from "../pointMutationExecutionClaimLiveness";
 import type {
+  PointMutationJournalRelationConflictError,
+} from "../pointMutationJournal";
+import type {
   LoadedPointMutationSessionAttemptOccRerunInspectionV1,
 } from "../pointMutationSessionAttemptState";
 import type {
@@ -112,7 +115,9 @@ export type PointMutationOccAttemptPublicationV1 =
     }>
   | Readonly<{
       readonly kind: "conflict";
-      readonly error: PointCommitConflictV1Error;
+      readonly error:
+        | PointCommitConflictV1Error
+        | PointMutationJournalRelationConflictError;
     }>;
 
 export interface ExecuteExactPointMutationAttemptInputV1<
@@ -123,6 +128,7 @@ export interface ExecuteExactPointMutationAttemptInputV1<
   readonly attemptFence: TransactionAttemptFence;
   readonly snapshotToken: SnapshotToken;
   readonly executionScope: PointMutationExecutionScopeV1;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
   readonly liveness: PointMutationExecutionLivenessControlV1;
   readonly executionEvidence: StoredOccExecutionEvidenceV1;
   readonly verificationState: CommitAuthorityVerificationStateV1;
@@ -256,7 +262,7 @@ export function makeStoredPointMutationOccRerunExecutionOperationsV1<
 
       while (true) {
         const initialOutcome = yield* resolvePointMutationOccOutcome(
-          rerunState.prepared,
+          rerunState.lineage,
         );
         if (initialOutcome.kind !== "missing") {
           return publicationResultFromCommittedOutcome(initialOutcome);
@@ -285,7 +291,7 @@ export function makeStoredPointMutationOccRerunExecutionOperationsV1<
               );
             if (loadResult.kind === "alreadyCommitted") {
               const committedOutcome = yield* resolvePointMutationOccOutcome(
-                rerunState.prepared,
+                rerunState.lineage,
               );
               if (committedOutcome.kind === "missing") {
                 return yield* Effect.fail(
@@ -325,19 +331,20 @@ export function makeStoredPointMutationOccRerunExecutionOperationsV1<
               attemptFence: rerunState.inspection.attemptFence,
               snapshotToken: rerunState.inspection.snapshotToken,
               executionScope,
+              executionClaim: admittedClaim.observation,
               liveness,
               executionEvidence: loadedExecutionEvidence,
               verificationState,
               verifiedEvidence,
               expectedRequestSha256:
-                rerunState.prepared.provenance.session.requestSha256,
+                rerunState.lineage.previousSession.requestSha256,
               currentInspectionUnavailable: () =>
                 new PointMutationOccRerunAuthorityCorruptionV1Error({
                   reason: "loadedAttemptStateUnavailable",
                 }),
               validateCurrent: (currentInspection) => {
                 const mismatch = pointMutationOccFreshAttemptMismatch(
-                  rerunState.prepared,
+                  rerunState.lineage,
                   rerunState.conflict,
                   rerunState.inspection.attemptFence,
                   currentInspection,
@@ -435,13 +442,13 @@ function captureStoredOccExecutionAuthorityV1(
   state: AuthorizedPointMutationOccRerunStateV1,
   executionClaim: TransactionExecutionClaimPinV1,
 ): StoredOccExecutionEvidenceAuthorityV1 {
-  const pins = state.prepared.plan.authorityPins;
-  const previousSession = state.prepared.provenance.session;
+  const pins = state.lineage.authorityPins;
+  const previousSession = state.lineage.previousSession;
   return Object.freeze({
     kind: "occRerun",
     deploymentId: pins.deploymentId,
     scopeId: pins.scopeId,
-    scopeUuid: state.prepared.plan.sealIdentity.scopeUuid,
+    scopeUuid: state.lineage.scopeUuid,
     sessionId: pins.sessionId,
     attemptFence: state.inspection.attemptFence,
     storageGeneration: pins.storageGeneration,
@@ -470,7 +477,7 @@ function captureOccExecutionVerificationState(
   state: AuthorizedPointMutationOccRerunStateV1,
   session: StoredCommitAuthoritySessionEvidencePortV1,
 ): CommitAuthorityVerificationStateV1 {
-  const pins = state.prepared.plan.authorityPins;
+  const pins = state.lineage.authorityPins;
   return Object.freeze({
     authority: Object.freeze({
       deploymentId: pins.deploymentId,

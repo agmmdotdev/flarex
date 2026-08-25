@@ -4,6 +4,7 @@ import { Data, Effect } from "effect";
 import type {
   PointMutationAttemptReplacementCommandV1,
   PointMutationAttemptReplacementPortV1,
+  RunningRelationConflictAttemptReplacementPortV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   TransactionAttemptFenceSchema,
@@ -29,6 +30,8 @@ import type {
 } from "../storedAttemptAuthentication";
 import type {
   CapturedPointMutationOccConflictV1,
+  PointMutationOccConflictTicketStateV1,
+  PointMutationOccRetryLineage,
   PreparedPointCommitCapabilityStateV1,
   StoredPointMutationCapabilityVaultV1,
 } from "./capabilityState";
@@ -143,9 +146,7 @@ export function makeStoredPointMutationAttemptReplacementOperationsV1(
 }
 
 export interface PointMutationFreshAttemptHandoffInputV1 {
-  readonly finishing: FinishingPreparedPointCommitV1;
-  readonly prepared: PreparedPointCommitCapabilityStateV1;
-  readonly conflict: CapturedPointMutationOccConflictV1;
+  readonly ticket: PointMutationOccConflictTicketStateV1;
   readonly backoffUpperBoundMilliseconds: number;
   readonly backoffMilliseconds: number;
 }
@@ -173,6 +174,10 @@ export interface StoredPointMutationFreshAttemptHandoffOperationDependenciesV1 {
     StoredPointMutationAttemptReplacementV1[
       "replaceConflictedPointMutationAttempt"
     ];
+  readonly replaceRunningRelationConflict:
+    RunningRelationConflictAttemptReplacementPortV1[
+      "replaceRunningRelationConflict"
+    ];
   readonly pointMutationOccAttemptLoading:
     PointMutationSessionAttemptLoadingV1;
   readonly executionClaimIssuer: Pick<
@@ -192,6 +197,7 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
 ): HandoffFreshPointMutationAttemptV1 {
   const {
     replaceConflictedPointMutationAttempt,
+    replaceRunningRelationConflict,
     pointMutationOccAttemptLoading,
     executionClaimIssuer,
     authorizedOccRerunStates,
@@ -202,17 +208,20 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
     "StoredAttemptAuthentication.handoffFreshPointMutationAttempt",
   )(function* (input) {
     const {
-      finishing,
-      prepared,
-      conflict,
+      ticket,
       backoffUpperBoundMilliseconds,
       backoffMilliseconds,
     } = input;
-    const pins = prepared.plan.authorityPins;
+    const { lineage, conflict } = ticket;
+    const pins = lineage.authorityPins;
     const previousSnapshot = pins.snapshotToken;
     const previousAttemptFence = pins.attemptFence;
-    const replacementObservation =
-      yield* replaceConflictedPointMutationAttempt(finishing, conflict);
+    const replacementObservation = ticket.source === "finishingCommit"
+      ? yield* replaceConflictedPointMutationAttempt(
+        ticket.finishing,
+        conflict,
+      )
+      : yield* replaceRunningRelationConflict(ticket.replacement);
     if (!isNonArrayRecord(replacementObservation)) {
       return yield* Effect.fail(
         new PointMutationOccRerunAuthorityCorruptionV1Error({
@@ -236,7 +245,7 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
     );
     if (
       replacementObservation.scopeUuid !==
-        prepared.plan.sealIdentity.scopeUuid ||
+        lineage.scopeUuid ||
       replacementObservation.sessionId !== pins.sessionId ||
       replacementObservation.previousAttemptFence !== previousAttemptFence ||
       replacementObservation.attemptFence !== attemptFence
@@ -286,7 +295,7 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
       );
     }
     const freshMismatch = pointMutationOccFreshAttemptMismatch(
-      prepared,
+      lineage,
       conflict,
       attemptFence,
       loaded,
@@ -321,7 +330,7 @@ export function makeStoredPointMutationFreshAttemptHandoffOperationsV1(
       Object.freeze({
         loadedAttempt,
         executionClaim,
-        prepared,
+        lineage,
         conflict,
         inspection,
       }),
@@ -346,12 +355,12 @@ function lookupPreparedPointCommitState(
 }
 
 export function pointMutationOccFreshAttemptMismatch(
-  prepared: PreparedPointCommitCapabilityStateV1,
+  lineage: PointMutationOccRetryLineage,
   conflict: CapturedPointMutationOccConflictV1,
   expectedAttemptFence: TransactionAttemptFence,
   loaded: LoadedPointMutationSessionAttemptOccRerunInspectionV1,
 ): PointMutationOccRerunFreshAttemptMismatchV1 | undefined {
-  const pins = prepared.plan.authorityPins;
+  const pins = lineage.authorityPins;
   const previousSnapshot = pins.snapshotToken;
   if (loaded.selector.deploymentId !== pins.deploymentId) return "deployment";
   if (loaded.selector.scopeId !== pins.scopeId) return "scope";

@@ -255,7 +255,10 @@ export function decodeStoredIncomingAppRelationEdgePageItemResult(
 }
 
 export function decodeStoredAdjacencyVersionResult(
-  operation: "readAdjacencyVersion" | "readIncomingPage",
+  operation:
+    | "readAdjacencyVersion"
+    | "readIncomingAdjacencyVersions"
+    | "readIncomingPage",
   value: unknown,
 ): Result.Result<CommitSeq, AppRelationEdgeCorruptionError> {
   return decodePositiveCommitSeq(

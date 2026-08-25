@@ -27,6 +27,16 @@ describe("O08-B2b2b2b1a execution-claim renewal policy", () => {
       });
   });
 
+  it("renews a relation-conflicted attempt with the open-state policy", () => {
+    expect(Result.getOrThrow(projectExecutionClaimRenewalV1Result({
+      ...BASE,
+      phase: "relationConflicted",
+    }))).toEqual({
+      targetLeaseExpiresAtMilliseconds: 4_000,
+      targetClaimExpiresAtMilliseconds: 3_000,
+    });
+  });
+
   it("keeps the sealed lease immutable while extending only the claim", () => {
     expect(Result.getOrThrow(projectExecutionClaimRenewalV1Result({
       ...BASE,

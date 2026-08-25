@@ -206,6 +206,7 @@ export interface AttemptChildExistenceRow {
   readonly receiptExists: boolean;
   readonly pointExists: boolean;
   readonly indexRangeExists: boolean;
+  readonly relationDependencyExists: boolean;
   readonly eventExists: boolean;
 }
 
@@ -577,35 +578,51 @@ function materializeStoredAuthorityEffect(
       if (claim === undefined) {
         return occExecutionCorrupt("executionClaimInvalid");
       }
-      const claimOwner = decodeTransactionExecutionClaimOwnerV1(
-        claim.claimOwner,
-      );
-      const claimFence = decodeTransactionExecutionClaimFenceV1(
-        claim.claimFence,
-      );
-      const claimedAtMilliseconds = finiteDateMilliseconds(claim.claimedAt);
-      const claimExpiresAtMilliseconds = finiteDateMilliseconds(
-        claim.claimExpiresAt,
-      );
-      if (
-        Result.isFailure(claimOwner) ||
-        Result.isFailure(claimFence) ||
-        claimedAtMilliseconds === undefined ||
-        claimExpiresAtMilliseconds === undefined ||
-        claim.scopeUuid !== scopeUuid ||
-        claim.sessionId !== expected.sessionId ||
-        claim.attemptFence !== expected.attemptFence ||
-        claimedAtMilliseconds > databaseNowMilliseconds ||
-        claimExpiresAtMilliseconds <= claimedAtMilliseconds
-      ) {
-        return occExecutionCorrupt("executionClaimInvalid");
-      }
+      const claimProjection = Result.gen(function* () {
+        const claimOwner = yield* decodeTransactionExecutionClaimOwnerV1(
+          claim.claimOwner,
+        );
+        const claimFence = yield* decodeTransactionExecutionClaimFenceV1(
+          claim.claimFence,
+        );
+        const claimedAtMilliseconds = finiteDateMilliseconds(claim.claimedAt);
+        const claimExpiresAtMilliseconds = finiteDateMilliseconds(
+          claim.claimExpiresAt,
+        );
+        if (
+          claimedAtMilliseconds === undefined ||
+          claimExpiresAtMilliseconds === undefined ||
+          claim.scopeUuid !== scopeUuid ||
+          claim.sessionId !== expected.sessionId ||
+          claim.attemptFence !== expected.attemptFence ||
+          claimedAtMilliseconds > databaseNowMilliseconds ||
+          claimExpiresAtMilliseconds <= claimedAtMilliseconds
+        ) {
+          return yield* Result.fail("executionClaimInvalid" as const);
+        }
+        return Object.freeze({
+          claimOwner,
+          claimFence,
+          claimExpiresAtMilliseconds,
+        });
+      }).pipe(Result.match({
+        onFailure: () => ({
+          corrupt: occExecutionCorrupt("executionClaimInvalid"),
+        } as const),
+        onSuccess: (value) => ({ value } as const),
+      }));
+      if ("corrupt" in claimProjection) return claimProjection.corrupt;
+      const {
+        claimOwner,
+        claimFence,
+        claimExpiresAtMilliseconds,
+      } = claimProjection.value;
       if (claimExpiresAtMilliseconds <= databaseNowMilliseconds) {
         return Object.freeze({ kind: "notExecutable", reason: "expired" });
       }
       if (
-        claimOwner.success !== mode.expected.executionClaim.claimOwner ||
-        claimFence.success !== mode.expected.executionClaim.claimFence
+        claimOwner !== mode.expected.executionClaim.claimOwner ||
+        claimFence !== mode.expected.executionClaim.claimFence
       ) {
         return occExecutionAuthorityMismatch("executionClaimChanged");
       }
@@ -688,9 +705,6 @@ function materializeStoredAuthorityEffect(
       if (rootState === "corrupt") {
         return occExecutionCorrupt("journalRootInvalid");
       }
-      if (rootState === "advanced") {
-        return Object.freeze({ kind: "notExecutable", reason: "notPristine" });
-      }
       if (captured.attemptChildRows.length !== 1) {
         return occExecutionCorrupt("journalRootNotPristine");
       }
@@ -700,17 +714,38 @@ function materializeStoredAuthorityEffect(
         typeof children.receiptExists !== "boolean" ||
         typeof children.pointExists !== "boolean" ||
         typeof children.indexRangeExists !== "boolean" ||
+        typeof children.relationDependencyExists !== "boolean" ||
         typeof children.eventExists !== "boolean"
       ) {
         return occExecutionCorrupt("journalRootNotPristine");
       }
-      if (
-        children.receiptExists ||
-        children.pointExists ||
-        children.indexRangeExists ||
-        children.eventExists
-      ) {
-        return occExecutionCorrupt("journalChildrenPresent");
+      if (mode.expected.kind === "claimedRelationConflict") {
+        if (
+          rootState !== "advanced" ||
+          root.state !== "relation_conflicted"
+        ) {
+          return Object.freeze({ kind: "notExecutable", reason: "notPristine" });
+        }
+        if (
+          root.lastSyscallSequence < 1n ||
+          root.relationReadSyscalls < 1 ||
+          !children.receiptExists
+        ) {
+          return occExecutionCorrupt("relationConflictEvidenceInvalid");
+        }
+      } else {
+        if (rootState === "advanced") {
+          return Object.freeze({ kind: "notExecutable", reason: "notPristine" });
+        }
+        if (
+          children.receiptExists ||
+          children.pointExists ||
+          children.indexRangeExists ||
+          children.relationDependencyExists ||
+          children.eventExists
+        ) {
+          return occExecutionCorrupt("journalChildrenPresent");
+        }
       }
       creationTimeSeed =
         journalRootOutcome.journalRoot.creationTimeSeed;
@@ -1724,6 +1759,9 @@ function classifyOpenOccExecutionRoot(
     root.indexedQuerySyscalls,
     root.indexRangeDependencyCount,
     root.indexRangeDependencyEvidenceBytes,
+    root.relationReadSyscalls,
+    root.relationDependencyCount,
+    root.relationBaseOccurrences,
     root.writeOperations,
     root.writeSemanticBytes,
     root.materialWriteEventEvidenceBytes,
@@ -1761,7 +1799,7 @@ function classifyOpenOccExecutionRoot(
     root.sealedResultBytes === null &&
     root.sealedResultSha256 === null &&
     root.sealedAt === null;
-  if (root.state === "open") {
+  if (root.state === "open" || root.state === "relation_conflicted") {
     if (root.failureDimension !== null || !hasNoSealedEvidence) {
       return "corrupt";
     }
@@ -1793,6 +1831,9 @@ function isJournalFailureDimension(
     value === "indexedQuerySyscalls" ||
     value === "indexRangeReadDependencies" ||
     value === "indexRangeDependencyEvidenceBytes" ||
+    value === "relationReadSyscalls" ||
+    value === "relationReadDependencies" ||
+    value === "relationBaseOccurrences" ||
     value === "writeOperations" ||
     value === "writeSemanticBytes" ||
     value === "materialWriteEventEvidenceBytes"
@@ -1851,6 +1892,9 @@ function sameSealIdentity(
     expected.indexRangeDependencyCount === root.indexRangeDependencyCount &&
     expected.indexRangeDependencyEvidenceBytes ===
       root.indexRangeDependencyEvidenceBytes &&
+    expected.relationReadSyscalls === root.relationReadSyscalls &&
+    expected.relationDependencyCount === root.relationDependencyCount &&
+    expected.relationBaseOccurrences === root.relationBaseOccurrences &&
     expected.writeOperations === root.writeOperations &&
     expected.writeSemanticBytes === root.writeSemanticBytes &&
     expected.materialWriteEventEvidenceBytes ===

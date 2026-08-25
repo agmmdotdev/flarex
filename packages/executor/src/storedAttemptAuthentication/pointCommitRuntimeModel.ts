@@ -19,6 +19,10 @@ import {
   type PointCommitSuccessfulResultV1,
   type PointCommitTransactionCommandV1,
   type PointMutationAttemptReplacementCommandV1,
+  type RunningRelationConflictAttemptReplacementCommandV1,
+  type RunningRelationConflictRecoveryCommand,
+  type RunningRelationConflictEvidenceV1,
+  type RunningRelationConflictRequestEvidenceV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
@@ -30,6 +34,7 @@ import { CatalogSchemaVersionIdSchema } from
   "flarex-protocol/schema-manifest";
 import {
   ReplacementScopeIdV1Schema,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
   TransactionGrantDeploymentIdV1Schema,
@@ -53,7 +58,14 @@ import {
 } from "flarex-protocol/value";
 
 import { dependenciesEqual } from "./authenticationVerification";
+import {
+  captureCommitInputAuthorityPins,
+} from "./commitInputVerification";
 import type {
+  CommitAuthorityVerificationStateV1,
+} from "./commitAuthorityVerification";
+import type {
+  PointMutationOccRetryLineage,
   PointCommitScalarProvenanceV1,
   PreparedPointCommitCapabilityStateV1,
 } from "./capabilityState";
@@ -130,6 +142,7 @@ export function rebaseFinishingPreparedPointCommitState(
     }),
   ));
   const indexRangeDependencies = capturePointCommitIndexRangeDependencies(state);
+  const relationDependencies = capturePointCommitRelationDependencies(state);
   const rowIntents = Object.freeze(
     state.plan.rowIntents.map(capturePreparedPointRowIntent),
   );
@@ -148,6 +161,7 @@ export function rebaseFinishingPreparedPointCommitState(
     }),
     dependencies,
     indexRangeDependencies,
+    relationDependencies,
     rowIntents,
     successfulResult: Object.freeze({
       valueCodecVersion: successfulResult.valueCodecVersion,
@@ -214,7 +228,7 @@ function capturePointCommitAttemptScalarCommand(
   } satisfies PointCommitAttemptScalarCommandV1);
 }
 
-function capturePointCommitAuthorityPins(
+export function capturePointCommitAuthorityPins(
   pins: PreparedPointCommitCapabilityStateV1["plan"]["authorityPins"],
 ): PointCommitAuthorityPinsV1 {
   const common = {
@@ -259,7 +273,7 @@ function capturePointCommitAuthorityPins(
   });
 }
 
-function capturePointCommitSessionScalars(
+export function capturePointCommitSessionScalars(
   session: PreparedPointCommitCapabilityStateV1["provenance"]["session"],
 ): PointCommitAttemptScalarCommandV1["session"] {
   if (session.executionAuthorityGeneration === "application_v1") {
@@ -299,6 +313,111 @@ function capturePointCommitSessionScalars(
   });
 }
 
+export function capturePointMutationOccRetryLineage(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointMutationOccRetryLineage {
+  return Object.freeze({
+    authorityPins: capturePointCommitAuthorityPins(state.plan.authorityPins),
+    scopeUuid: state.plan.sealIdentity.scopeUuid,
+    previousSession: capturePointCommitSessionScalars(
+      state.provenance.session,
+    ),
+  });
+}
+
+export function captureRunningRelationConflictReplacement(
+  state: CommitAuthorityVerificationStateV1,
+  executionClaim: RunningRelationConflictAttemptReplacementCommandV1[
+    "executionClaim"
+  ],
+  request: RunningRelationConflictRequestEvidenceV1,
+  conflict: RunningRelationConflictEvidenceV1,
+): Result.Result<
+  Readonly<{
+    readonly lineage: PointMutationOccRetryLineage;
+    readonly replacement: RunningRelationConflictAttemptReplacementCommandV1;
+    readonly conflict: PointCommitConflictEvidenceV1;
+  }>,
+  Readonly<{
+    readonly reason:
+      | "sessionNotRunning"
+      | "relationConflictEvidenceInvalid";
+  }>
+> {
+  return Result.gen(function* () {
+    const { authorityPins, session } = yield*
+      captureRunningRelationConflictRecovery(state, executionClaim);
+    if (
+      conflict.snapshotCommitSeq !== state.authority.snapshotToken.commitSeq ||
+      conflict.expectedAdjacencyVersion > conflict.snapshotCommitSeq ||
+      conflict.actualAdjacencyVersion <= conflict.snapshotCommitSeq ||
+      request.edgeDefinitionId !== conflict.edgeDefinitionId ||
+      request.targetRowId !== conflict.targetRowId
+    ) {
+      return yield* Result.fail(Object.freeze({
+        reason: "relationConflictEvidenceInvalid" as const,
+      }));
+    }
+    const capturedConflict = Object.freeze({
+      kind: "relationConflict" as const,
+      edgeDefinitionId: conflict.edgeDefinitionId,
+      targetRowId: conflict.targetRowId,
+      expectedAdjacencyVersion: conflict.expectedAdjacencyVersion,
+      actualAdjacencyVersion: conflict.actualAdjacencyVersion,
+      snapshotCommitSeq: conflict.snapshotCommitSeq,
+    });
+    return Object.freeze({
+      lineage: Object.freeze({
+        authorityPins,
+        scopeUuid: projectScopeIdUuidV1(authorityPins.scopeId).scopeUuid,
+        previousSession: session,
+      }),
+      replacement: Object.freeze({
+        authorityPins,
+        session,
+        executionClaim: Object.freeze({ ...executionClaim }),
+        request: Object.freeze({ ...request }),
+        conflict: capturedConflict,
+      }),
+      conflict: Object.freeze({
+        conflict: Object.freeze({
+          kind: "appRelationIncoming" as const,
+          edgeDefinitionId: capturedConflict.edgeDefinitionId,
+          targetRowId: capturedConflict.targetRowId,
+        }),
+        snapshotCommitSeq: capturedConflict.snapshotCommitSeq,
+        currentCommitSeq: capturedConflict.actualAdjacencyVersion,
+      }),
+    });
+  });
+}
+
+export function captureRunningRelationConflictRecovery(
+  state: CommitAuthorityVerificationStateV1,
+  executionClaim: RunningRelationConflictRecoveryCommand["executionClaim"],
+): Result.Result<
+  RunningRelationConflictRecoveryCommand,
+  Readonly<{ readonly reason: "sessionNotRunning" }>
+> {
+  const session = capturePointCommitSessionScalars(state.session);
+  if (!isRunningPointCommitSessionScalars(session)) {
+    return Result.fail(Object.freeze({ reason: "sessionNotRunning" }));
+  }
+  return Result.succeed(Object.freeze({
+    authorityPins: capturePointCommitAuthorityPins(
+      captureCommitInputAuthorityPins(state.authority, state.session),
+    ),
+    session,
+    executionClaim: Object.freeze({ ...executionClaim }),
+  }));
+}
+
+function isRunningPointCommitSessionScalars(
+  session: PointCommitAttemptScalarCommandV1["session"],
+): session is RunningRelationConflictAttemptReplacementCommandV1["session"] {
+  return session.lifecycle === "running";
+}
+
 export function capturePointCommitTransactionCommand(
   state: PreparedPointCommitCapabilityStateV1,
 ): PointCommitTransactionCommandV1 {
@@ -311,6 +430,7 @@ export function capturePointCommitTransactionCommand(
     ...scalar,
     dependencies,
     indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
+    relationDependencies: capturePointCommitRelationDependencies(state),
     rowIntents,
   } satisfies PointCommitTransactionCommandV1);
 }
@@ -323,6 +443,7 @@ export function capturePointMutationAttemptReplacementCommand(
     ...capturePointCommitAttemptScalarCommand(state),
     dependencies: capturePointCommitDependencies(state),
     indexRangeDependencies: capturePointCommitIndexRangeDependencies(state),
+    relationDependencies: capturePointCommitRelationDependencies(state),
     expectedConflict: capturePointCommitConflictEvidence(expectedConflict),
   });
 }
@@ -335,7 +456,8 @@ function capturePointCommitConflictEvidence(
         kind: "appRowPoint" as const,
         documentId: evidence.conflict.documentId,
       })
-    : Object.freeze({
+    : evidence.conflict.kind === "appIndexRange"
+    ? Object.freeze({
         kind: "appIndexRange" as const,
         reason: evidence.conflict.reason,
         dependencyOrdinal: evidence.conflict.dependencyOrdinal,
@@ -347,6 +469,11 @@ function capturePointCommitConflictEvidence(
         ...(evidence.conflict.rowId === undefined
           ? {}
           : { rowId: evidence.conflict.rowId }),
+      })
+    : Object.freeze({
+        kind: "appRelationIncoming" as const,
+        edgeDefinitionId: evidence.conflict.edgeDefinitionId,
+        targetRowId: evidence.conflict.targetRowId,
       });
   return Object.freeze({
     conflict,
@@ -364,6 +491,14 @@ function capturePointCommitIndexRangeDependencies(
       lower: dependency.lower === null ? null : Object.freeze({ ...dependency.lower }),
       upper: dependency.upper === null ? null : Object.freeze({ ...dependency.upper }),
     })
+  ));
+}
+
+function capturePointCommitRelationDependencies(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointCommitTransactionCommandV1["relationDependencies"] {
+  return Object.freeze(state.plan.relationDependencies.map((dependency) =>
+    Object.freeze({ ...dependency })
   ));
 }
 
@@ -458,6 +593,9 @@ const POINT_COMMIT_SEAL_IDENTITY_SCALAR_FIELDS = [
   "indexedQuerySyscalls",
   "indexRangeDependencyCount",
   "indexRangeDependencyEvidenceBytes",
+  "relationReadSyscalls",
+  "relationDependencyCount",
+  "relationBaseOccurrences",
   "writeOperations",
   "writeSemanticBytes",
   "materialWriteEventEvidenceBytes",
@@ -479,6 +617,7 @@ export function pointCommitPublicationCommandsEqual(
     | "sealIdentity"
     | "dependencies"
     | "indexRangeDependencies"
+    | "relationDependencies"
     | "rowIntents"
     | "successfulResult"
   > extends never ? true : never = true;
@@ -509,11 +648,28 @@ export function pointCommitPublicationCommandsEqual(
     left.indexRangeDependencies,
     right.indexRangeDependencies,
   )) return false;
+  if (!relationDependencyArraysEqual(
+    left.relationDependencies,
+    right.relationDependencies,
+  )) return false;
   return pointCommitRowIntentsEqual(left.rowIntents, right.rowIntents) &&
     pointCommitSuccessfulResultsEqual(
       left.successfulResult,
       right.successfulResult,
     );
+}
+
+function relationDependencyArraysEqual(
+  left: PointCommitPublicationCommandV1["relationDependencies"],
+  right: PointCommitPublicationCommandV1["relationDependencies"],
+): boolean {
+  return left.length === right.length && left.every((dependency, index) => {
+    const other = right[index];
+    return other !== undefined &&
+      dependency.edgeDefinitionId === other.edgeDefinitionId &&
+      dependency.targetRowId === other.targetRowId &&
+      dependency.observedAdjacencyVersion === other.observedAdjacencyVersion;
+  });
 }
 
 function indexRangeDependencyArraysEqual(

@@ -14,6 +14,9 @@ import type { TransactionAttemptFence } from
   "flarex-protocol/transaction-session";
 
 import type {
+  PointMutationJournalRelationConflictError,
+} from "../pointMutationJournal";
+import type {
   AuthorizedPointMutationOccRerunInspectionV1,
   StoredPointMutationAttemptReplacementV1,
   StoredPointMutationOccRerunAuthorizationV1,
@@ -26,10 +29,15 @@ import {
 } from "./attemptReplacementOperations";
 import type {
   AuthorizedPointMutationOccRerunStateV1,
+  CapturedPointMutationOccConflictV1,
   PointCommitDecisionUncertainTicketStateV1,
+  PointMutationOccConflictTicketStateV1,
+  PointMutationOccRetryLineage,
+  PointMutationRunningRelationConflictTicketInput,
   PreparedPointCommitCapabilityStateV1,
   StoredPointMutationCapabilityVaultV1,
 } from "./capabilityState";
+import { capturePointMutationOccRetryLineage } from "./pointCommitRuntimeModel";
 import type { FinishingPreparedPointCommitV1 } from "./planningOperations";
 
 export class InvalidPointMutationOccConflictV1Error extends Data.TaggedError(
@@ -55,6 +63,10 @@ export interface PointCommitOutcomeTicketCaptureOperationsV1 {
     finishing: FinishingPreparedPointCommitV1,
     prepared: PreparedPointCommitCapabilityStateV1,
     error: PointCommitConflictV1Error,
+  ) => void;
+  readonly captureRunningRelationConflictTicket: (
+    error: PointMutationJournalRelationConflictError,
+    input: PointMutationRunningRelationConflictTicketInput,
   ) => void;
   readonly captureAndClaimDecisionUncertainTicket: (
     error: PointCommitDecisionUncertainV1Error,
@@ -106,6 +118,8 @@ export function makePointCommitOutcomeTicketCaptureOperationsV1(
       if (capturedOccConflicts.has(error)) return;
       capturedOccConflicts.add(error);
       occConflictTickets.set(error, Object.freeze({
+        source: "finishingCommit" as const,
+        lineage: capturePointMutationOccRetryLineage(prepared),
         finishing,
         prepared,
         conflict: Object.freeze({
@@ -113,6 +127,20 @@ export function makePointCommitOutcomeTicketCaptureOperationsV1(
           snapshotCommitSeq: error.snapshotCommitSeq,
           currentCommitSeq: error.currentCommitSeq,
         }),
+      }));
+    };
+
+  const captureRunningRelationConflictTicket:
+    PointCommitOutcomeTicketCaptureOperationsV1[
+      "captureRunningRelationConflictTicket"
+    ] = (error, input) => {
+      if (capturedOccConflicts.has(error)) return;
+      capturedOccConflicts.add(error);
+      occConflictTickets.set(error, Object.freeze({
+        source: "runningRelation" as const,
+        lineage: input.lineage,
+        replacement: input.replacement,
+        conflict: input.conflict,
       }));
     };
 
@@ -149,12 +177,13 @@ export function makePointCommitOutcomeTicketCaptureOperationsV1(
 
   return Object.freeze({
     captureOccConflictTicket,
+    captureRunningRelationConflictTicket,
     captureAndClaimDecisionUncertainTicket,
   } satisfies PointCommitOutcomeTicketCaptureOperationsV1);
 }
 
 export type ResolvePointMutationOccOutcomeObservationV1 = (
-  prepared: PreparedPointCommitCapabilityStateV1,
+  lineage: PointMutationOccRetryLineage,
 ) => Effect.Effect<
   CommittedPointOutcomeResolutionV1,
   PointCommitOutcomeResolutionV1Error,
@@ -169,7 +198,7 @@ export type ClaimAuthorizedPointMutationOccRerunV1 = (
 >;
 
 export type ResolvePointMutationOccOutcomeV1 = (
-  prepared: PreparedPointCommitCapabilityStateV1,
+  lineage: PointMutationOccRetryLineage,
 ) => Effect.Effect<
   CommittedPointOutcomeResolutionV1,
   | PointCommitOutcomeResolutionV1Error
@@ -225,8 +254,8 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
 
   const resolvePointMutationOccOutcome = Effect.fn(
     "StoredAttemptAuthentication.resolvePointMutationOccOutcome",
-  )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
-    const outcome = yield* resolvePointMutationOccOutcomeObservation(prepared);
+  )(function* (lineage: PointMutationOccRetryLineage) {
+    const outcome = yield* resolvePointMutationOccOutcomeObservation(lineage);
     if (
       !isNonArrayRecord(outcome) ||
       (outcome.kind !== "missing" &&
@@ -270,24 +299,18 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
       occConflictTickets.delete(conflictTicket);
       consumedOccConflicts.add(conflictTicket);
 
-      const prepared = ticket.prepared;
-      const pins = prepared.plan.authorityPins;
+      const lineage = ticket.lineage;
+      const pins = lineage.authorityPins;
       const previousSnapshot = pins.snapshotToken;
       const conflict = ticket.conflict;
       const conflictCause = conflict.conflict;
-      const causeIsBound = conflictCause.kind === "appRowPoint"
-        ? prepared.plan.dependencies.some(
-            (dependency) => dependency.documentId === conflictCause.documentId,
-          )
-        : prepared.plan.indexRangeDependencies.some((dependency, ordinal) =>
-            ordinal === conflictCause.dependencyOrdinal &&
-            dependency.tableId === conflictCause.tableId &&
-            dependency.indexDefinitionId === conflictCause.indexDefinitionId
-          );
+      const sourceEvidenceIsValid = ticket.source === "finishingCommit"
+        ? finishingConflictCauseIsBound(ticket, conflictCause)
+        : runningRelationConflictEvidenceIsBound(ticket, conflict);
       if (
         conflict.snapshotCommitSeq !== previousSnapshot.commitSeq ||
         conflict.currentCommitSeq <= conflict.snapshotCommitSeq ||
-        !causeIsBound
+        !sourceEvidenceIsValid
       ) {
         return yield* Effect.fail(
           new InvalidPointMutationOccConflictV1Error({
@@ -314,7 +337,7 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
       const backoffMilliseconds = random * backoffUpperBoundMilliseconds;
       yield* Effect.sleep(Duration.millis(backoffMilliseconds));
 
-      const outcome = yield* resolvePointMutationOccOutcome(prepared);
+      const outcome = yield* resolvePointMutationOccOutcome(lineage);
       const outcomeKind = outcome.kind;
       if (outcomeKind === "available") {
         return Object.freeze({ kind: "replayed", outcome });
@@ -328,9 +351,7 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
         );
       }
       return yield* handoffFreshPointMutationAttempt({
-        finishing: ticket.finishing,
-        prepared,
-        conflict,
+        ticket,
         backoffUpperBoundMilliseconds,
         backoffMilliseconds,
       });
@@ -387,4 +408,50 @@ export function makeStoredPointMutationOccRerunAuthorizationOperationsV1(
     claimAuthorizedPointMutationOccRerun,
     resolvePointMutationOccOutcome,
   } satisfies StoredPointMutationOccRerunAuthorizationOperationsV1);
+}
+
+function finishingConflictCauseIsBound(
+  ticket: Extract<
+    PointMutationOccConflictTicketStateV1,
+    { readonly source: "finishingCommit" }
+  >,
+  conflictCause: CapturedPointMutationOccConflictV1["conflict"],
+): boolean {
+  const prepared = ticket.prepared;
+  return conflictCause.kind === "appRowPoint"
+    ? prepared.plan.dependencies.some(
+        (dependency) => dependency.documentId === conflictCause.documentId,
+      )
+    : conflictCause.kind === "appIndexRange"
+    ? prepared.plan.indexRangeDependencies.some((dependency, ordinal) =>
+        ordinal === conflictCause.dependencyOrdinal &&
+        dependency.tableId === conflictCause.tableId &&
+        dependency.indexDefinitionId === conflictCause.indexDefinitionId
+      )
+    : prepared.plan.relationDependencies.some((dependency) =>
+        dependency.edgeDefinitionId === conflictCause.edgeDefinitionId &&
+        dependency.targetRowId === conflictCause.targetRowId
+      );
+}
+
+function runningRelationConflictEvidenceIsBound(
+  ticket: Extract<
+    PointMutationOccConflictTicketStateV1,
+    { readonly source: "runningRelation" }
+  >,
+  conflict: CapturedPointMutationOccConflictV1,
+): boolean {
+  const replacement = ticket.replacement;
+  const relationConflict = replacement.conflict;
+  const cause = conflict.conflict;
+  return cause.kind === "appRelationIncoming" &&
+    replacement.authorityPins === ticket.lineage.authorityPins &&
+    replacement.session === ticket.lineage.previousSession &&
+    replacement.session.lifecycle === "running" &&
+    cause.edgeDefinitionId === relationConflict.edgeDefinitionId &&
+    cause.targetRowId === relationConflict.targetRowId &&
+    conflict.snapshotCommitSeq === relationConflict.snapshotCommitSeq &&
+    conflict.currentCommitSeq === relationConflict.actualAdjacencyVersion &&
+    relationConflict.expectedAdjacencyVersion <=
+      relationConflict.snapshotCommitSeq;
 }

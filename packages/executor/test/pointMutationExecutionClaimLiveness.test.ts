@@ -58,6 +58,13 @@ const RENEWED_OPEN: PointMutationExecutionClaimLivenessResultV1 =
     leaseExpiresAt: "2026-07-21T01:00:00.000Z",
     executionClaim: OBSERVATION,
   });
+const RENEWED_RELATION_CONFLICTED:
+  PointMutationExecutionClaimLivenessResultV1 = Object.freeze({
+    kind: "renewed",
+    phase: "relationConflicted",
+    leaseExpiresAt: "2026-07-21T01:00:00.000Z",
+    executionClaim: OBSERVATION,
+  });
 
 describe("O08-B2b2b2b1b1 structured execution-claim liveness", () => {
   it("stays off the executor package root", () => {
@@ -98,6 +105,79 @@ describe("O08-B2b2b2b1b1 structured execution-claim liveness", () => {
       expect(calls).toBe(3);
     });
     await runEffect(program.pipe(Effect.provide(TestClock.layer())));
+  });
+
+  it("keeps supervising after a periodic relation conflict", async () => {
+    let calls = 0;
+    const fixture = makeCoordinator(() => Effect.succeed(++calls === 1
+      ? RENEWED_OPEN
+      : RENEWED_RELATION_CONFLICTED));
+    const release = await runEffect(Deferred.make<void>());
+    const program = Effect.gen(function* () {
+      const fiber = yield* fixture.coordinator.run(
+        fixture.scope,
+        "execute",
+        () => Deferred.await(release).pipe(Effect.as("done")),
+      ).pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("10 millis");
+      expect(calls).toBe(2);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(fiber)).toBe("done");
+    });
+    await runEffect(program.pipe(Effect.provide(TestClock.layer())));
+  });
+
+  it("rejects a relation-conflicted root as initial execution authority", async () => {
+    let bodyCalls = 0;
+    const fixture = makeCoordinator(
+      () => Effect.succeed(RENEWED_RELATION_CONFLICTED),
+    );
+    const error = await runEffectFailure(fixture.coordinator.run(
+      fixture.scope,
+      "execute",
+      () => Effect.sync(() => {
+        bodyCalls += 1;
+      }),
+    ));
+    expect(error).toMatchObject({
+      _tag: "PointMutationExecutionLivenessClosedV1Error",
+      reason: "initialPhaseMismatch",
+    });
+    expect(bodyCalls).toBe(0);
+  });
+
+  it("accepts a relation-conflicted root only for replacement work", async () => {
+    let bodyCalls = 0;
+    const fixture = makeCoordinator(
+      () => Effect.succeed(RENEWED_RELATION_CONFLICTED),
+      10,
+      "replaceRelationConflict",
+    );
+    const result = await runEffect(fixture.coordinator.run(
+      fixture.scope,
+      "replaceRelationConflict",
+      () => Effect.sync(() => {
+        bodyCalls += 1;
+        return "recovered" as const;
+      }),
+    ));
+    expect(result).toBe("recovered");
+    expect(bodyCalls).toBe(1);
+
+    const openFixture = makeCoordinator(
+      () => Effect.succeed(RENEWED_OPEN),
+      10,
+      "replaceRelationConflict",
+    );
+    await expect(runEffectFailure(openFixture.coordinator.run(
+      openFixture.scope,
+      "replaceRelationConflict",
+      () => Effect.void,
+    ))).resolves.toMatchObject({
+      _tag: "PointMutationExecutionLivenessClosedV1Error",
+      reason: "initialPhaseMismatch",
+    });
   });
 
   it("quiesces renewal while C05-A settles and throughout publication", async () => {
@@ -280,8 +360,9 @@ describe("O08-B2b2b2b1b1 structured execution-claim liveness", () => {
 function makeCoordinator(
   renew: PointMutationExecutionClaimLivenessV1["renewEffect"],
   heartbeatIntervalMilliseconds = 10,
+  mode: "execute" | "finishOnly" | "replaceRelationConflict" = "execute",
 ) {
-  const { vault, scope } = makeScope("execute");
+  const { vault, scope } = makeScope(mode);
   const liveness: PointMutationExecutionClaimLivenessV1 = Object.freeze({
     configuration: Result.succeed(Object.freeze({
       claimDurationMilliseconds: 60,
@@ -301,7 +382,9 @@ function makeCoordinator(
   });
 }
 
-function makeScope(mode: "execute" | "finishOnly") {
+function makeScope(
+  mode: "execute" | "finishOnly" | "replaceRelationConflict",
+) {
   const vault = createPointMutationExecutionClaimVaultV1();
   const claim = vault.issuer.mint(Object.freeze({
     selector: SELECTOR,

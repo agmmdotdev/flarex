@@ -3,6 +3,7 @@ import {
   copyBytes,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import {
   and,
@@ -61,7 +62,10 @@ import {
 
 import type { FlarexMetadataTransaction } from "../metadataTransaction";
 import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
-import { observeDrizzleQuery } from "../drizzleQueryObservation";
+import {
+  observeDrizzleQuery,
+  observeDrizzleRawQuery,
+} from "../drizzleQueryObservation";
 import {
   lockScopeClockForUpdateInTransactionEffect,
   type LockScopeClockForUpdateError,
@@ -90,7 +94,10 @@ import {
   type ApplyAppRelationEdgeChangesInput,
   type ApplyAppRelationEdgeChangesResult,
   type HasIncomingAppRelationEdgeInput,
+  type IncomingAppRelationEdgeAdjacencyVersion,
+  type IncomingAppRelationEdgeAdjacencyVersionEndpoint,
   type ReadAppRelationEdgeAdjacencyVersionInput,
+  type ReadIncomingAppRelationEdgeAdjacencyVersionsInput,
   type ReadIncomingAppRelationEdgePageInput,
   type ReadIncomingAppRelationEdgePageResult,
 } from "./Model";
@@ -120,6 +127,7 @@ const decodeRowIdResult = Schema.decodeUnknownResult(
   Schema.toType(AppRowIdHexV1Schema),
 );
 const ABSENT_ADJACENCY_VERSION = CommitSeqSchema.make(0n);
+const MAXIMUM_INCOMING_ADJACENCY_VERSION_ENDPOINTS = 128;
 const MAXIMUM_MATCH_PREDICATES_PER_STATEMENT = 256;
 const MAXIMUM_MUTATION_ROWS_PER_STATEMENT = 500;
 const MUTATION_SAVEPOINT = "flarex_app_relation_edges_batch";
@@ -166,6 +174,13 @@ interface CurrentEdgeSnapshot {
 
 interface AdjacencyVersionSnapshot {
   readonly byEndpoint: ReadonlyMap<string, CommitSeq>;
+}
+
+interface PreparedIncomingAdjacencyVersionRead {
+  readonly scopeUuid: ScopeUuidV1;
+  readonly endpoints: ReadonlyArray<
+    IncomingAppRelationEdgeAdjacencyVersionEndpoint
+  >;
 }
 
 /**
@@ -282,6 +297,90 @@ export const readAppRelationEdgeAdjacencyVersionInTransactionEffect = Effect.fn(
     "readAdjacencyVersion",
   );
 });
+
+/**
+ * Read one bounded, ordinal-correlated set of incoming adjacency versions.
+ * Missing physical rows are the exact zero version; a stored zero is corrupt.
+ */
+export const readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect =
+  Effect.fn(
+    "AppRelationEdges.readIncomingAdjacencyVersionsInTransaction",
+  )(function* (
+    tx: FlarexMetadataTransaction,
+    input: ReadIncomingAppRelationEdgeAdjacencyVersionsInput,
+  ): Effect.fn.Return<
+    ReadonlyArray<IncomingAppRelationEdgeAdjacencyVersion>,
+    AppRelationEdgeReadError
+  > {
+    const prepared = yield* Effect.fromResult(
+      prepareIncomingAdjacencyVersionsInputResult(input),
+    );
+    if (prepared.endpoints.length === 0) return Object.freeze([]);
+    const requestedValues = sql.join(
+      prepared.endpoints.map((endpoint, ordinal) => sql`(
+        ${ordinal}::integer,
+        ${endpoint.edgeDefinitionId}::integer,
+        ${appRowIdHexV1ToBytes(endpoint.targetRowId)}::bytea
+      )`),
+      sql`, `,
+    );
+    const query = tx.execute(sql`
+      with requested(ordinal, edge_definition_id, target_row_id) as (
+        values ${requestedValues}
+      )
+      select
+        requested.ordinal as "ordinal",
+        requested.edge_definition_id as "edgeDefinitionId",
+        requested.target_row_id as "targetRowId",
+        adjacency.last_changed_commit_seq::text as "lastChangedCommitSeqText"
+      from requested
+      left join fx_app_edge_adjacency_version as adjacency
+        on adjacency.scope_uuid = ${prepared.scopeUuid}::uuid
+        and adjacency.edge_definition_id = requested.edge_definition_id
+        and adjacency.direction = 'incoming'
+        and adjacency.endpoint_row_id = requested.target_row_id
+      order by requested.ordinal asc
+    `);
+    observeDrizzleRawQuery(
+      "readIncomingAdjacencyVersions",
+      query,
+      input.observeQuery,
+    );
+    const rows = yield* runRawReadRowsEffect(
+      "readIncomingAdjacencyVersions",
+      query,
+    );
+    if (rows.length !== prepared.endpoints.length) {
+      return yield* Effect.fail(new AppRelationEdgeCorruptionError({
+        operation: "readIncomingAdjacencyVersions",
+        reason: "incoming adjacency-version query returned the wrong row count",
+      }));
+    }
+    const versions: IncomingAppRelationEdgeAdjacencyVersion[] = [];
+    for (let ordinal = 0; ordinal < prepared.endpoints.length; ordinal += 1) {
+      const expected = prepared.endpoints[ordinal];
+      const row = rows[ordinal];
+      if (expected === undefined || row === undefined) {
+        return yield* Effect.fail(new AppRelationEdgeCorruptionError({
+          operation: "readIncomingAdjacencyVersions",
+          reason: "incoming adjacency-version query lost ordinal correlation",
+        }));
+      }
+      const decodedResult = yield* Effect.try({
+        try: () => decodeIncomingAdjacencyVersionRowResult(
+          row,
+          ordinal,
+          expected,
+        ),
+        catch: (cause) => new AppRelationEdgePersistenceError({
+          operation: "readIncomingAdjacencyVersions",
+          cause,
+        }),
+      });
+      versions.push(yield* Effect.fromResult(decodedResult));
+    }
+    return Object.freeze(versions);
+  });
 
 /**
  * Exact writer-side anti-existence check for C09 `restrict`. The caller owns
@@ -422,8 +521,17 @@ export const readIncomingAppRelationEdgePageInTransactionEffect = Effect.fn(
     prepared.targetRowId,
     "readIncomingPage",
   );
+  if (decoded.some((item) =>
+    item.commitSeq > versionBefore || item.commitSeq > versionAfter
+  )) {
+    return yield* Effect.fail(new AppRelationEdgeCorruptionError({
+      operation: "readIncomingPage",
+      reason: "incoming edge provenance exceeds adjacency-version evidence",
+    }));
+  }
   return Object.freeze({
     items,
+    inspectedBaseOccurrenceCount: decoded.length,
     versionBefore,
     versionAfter,
     nextFrontier,
@@ -642,6 +750,50 @@ function prepareAdjacencyVersionInputResult(
       edgeDefinitionId,
       direction: input.direction,
       endpointRowId,
+    });
+  });
+}
+
+function prepareIncomingAdjacencyVersionsInputResult(
+  input: ReadIncomingAppRelationEdgeAdjacencyVersionsInput,
+): Result.Result<
+  PreparedIncomingAdjacencyVersionRead,
+  AppRelationEdgeInputError | AppRelationEdgeCorruptionError
+> {
+  const operation = "readIncomingAdjacencyVersions" as const;
+  return Result.gen(function* () {
+    const scopeId = yield* mapInputResult(
+      operation,
+      decodeScopeIdResult(input.scopeId),
+      "invalidScope",
+    );
+    const scopeProjection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
+      Result.mapError((cause) => new AppRelationEdgeCorruptionError({
+        operation,
+        reason: "scope ID cannot project to target-local UUID",
+        cause,
+      })),
+    );
+    if (input.endpoints.length > MAXIMUM_INCOMING_ADJACENCY_VERSION_ENDPOINTS) {
+      return yield* invalidInput(operation, "invalidEndpointBatchSize");
+    }
+    const endpoints: IncomingAppRelationEdgeAdjacencyVersionEndpoint[] = [];
+    for (const endpoint of input.endpoints) {
+      const edgeDefinitionId = yield* mapInputResult(
+        operation,
+        decodeEdgeDefinitionIdResult(endpoint.edgeDefinitionId),
+        "invalidDefinition",
+      );
+      const targetRowId = yield* mapInputResult(
+        operation,
+        decodeRowIdResult(endpoint.targetRowId),
+        "invalidOccurrence",
+      );
+      endpoints.push(Object.freeze({ edgeDefinitionId, targetRowId }));
+    }
+    return Object.freeze({
+      scopeUuid: scopeProjection.scopeUuid,
+      endpoints: Object.freeze(endpoints),
     });
   });
 }
@@ -1318,6 +1470,75 @@ const readAdjacencyVersionEffect = Effect.fn(
     ));
 });
 
+function decodeIncomingAdjacencyVersionRowResult(
+  raw: unknown,
+  expectedOrdinal: number,
+  expectedEndpoint: IncomingAppRelationEdgeAdjacencyVersionEndpoint,
+): Result.Result<
+  IncomingAppRelationEdgeAdjacencyVersion,
+  AppRelationEdgeCorruptionError
+> {
+  const operation = "readIncomingAdjacencyVersions" as const;
+  const corrupt = (reason: string, cause?: unknown) =>
+    Result.fail(new AppRelationEdgeCorruptionError({
+      operation,
+      reason,
+      ...(cause === undefined ? {} : { cause }),
+    }));
+  if (!isNonArrayRecord(raw)) {
+    return corrupt("incoming adjacency-version row is not a record");
+  }
+  if (raw.ordinal !== expectedOrdinal) {
+    return corrupt("incoming adjacency-version ordinal is invalid");
+  }
+  return Result.gen(function* () {
+    const edgeDefinitionId = yield* decodeEdgeDefinitionIdResult(
+      raw.edgeDefinitionId,
+    ).pipe(Result.mapError((cause) => new AppRelationEdgeCorruptionError({
+      operation,
+      reason: "incoming adjacency-version edge-definition ID is invalid",
+      cause,
+    })));
+    const targetRowId = yield* appRowIdHexV1FromBytesResult(
+      raw.targetRowId,
+    ).pipe(Result.mapError((cause) => new AppRelationEdgeCorruptionError({
+      operation,
+      reason: "incoming adjacency-version target row ID is invalid",
+      cause,
+    })));
+    if (
+      edgeDefinitionId !== expectedEndpoint.edgeDefinitionId ||
+      targetRowId !== expectedEndpoint.targetRowId
+    ) {
+      return yield* corrupt(
+        "incoming adjacency-version row does not match its requested endpoint",
+      );
+    }
+    let adjacencyVersion: CommitSeq;
+    if (raw.lastChangedCommitSeqText === null) {
+      adjacencyVersion = ABSENT_ADJACENCY_VERSION;
+    } else {
+      if (
+        typeof raw.lastChangedCommitSeqText !== "string" ||
+        !/^[1-9][0-9]*$/.test(raw.lastChangedCommitSeqText)
+      ) {
+        return yield* corrupt(
+          "incoming adjacency-version text is not a canonical positive integer",
+        );
+      }
+      adjacencyVersion = yield* decodeStoredAdjacencyVersionResult(
+        operation,
+        BigInt(raw.lastChangedCommitSeqText),
+      );
+    }
+    return Object.freeze({
+      edgeDefinitionId,
+      targetRowId,
+      adjacencyVersion,
+    });
+  });
+}
+
 function currentEdgeValues(
   context: MutationContext,
   action: PreparedEdgeAction,
@@ -1512,6 +1733,36 @@ function runStatementEffect(
     }),
   })).pipe(Effect.asVoid);
 }
+
+const runRawReadRowsEffect = Effect.fn(
+  "AppRelationEdges.runRawReadRows",
+)(function* (
+  operation: AppRelationEdgePersistenceOperation,
+  query: PromiseLike<unknown>,
+): Effect.fn.Return<
+  ReadonlyArray<unknown>,
+  AppRelationEdgeCorruptionError | AppRelationEdgePersistenceError
+> {
+  const result = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new AppRelationEdgePersistenceError({
+      operation,
+      cause,
+    }),
+  }));
+  return yield* Effect.try({
+    try: () => rowsFromDriverExecuteResult(result, () => {
+      throw new AppRelationEdgeCorruptionError({
+        operation: "readIncomingAdjacencyVersions",
+        reason: "driver adjacency-version result has no rows",
+      });
+    }),
+    catch: (cause) =>
+      cause instanceof AppRelationEdgeCorruptionError
+        ? cause
+        : new AppRelationEdgePersistenceError({ operation, cause }),
+  });
+});
 
 const runRawMutationRowsEffect = Effect.fn(
   "AppRelationEdges.runRawMutationRows",

@@ -393,7 +393,10 @@ export const verifyCommitInputStateEffect = Effect.fn(
     structuredClone(source.schemaManifest),
   );
   return Object.freeze({
-    authorityPins: captureAuthorityPins(source.authority, source.session),
+    authorityPins: captureCommitInputAuthorityPins(
+      source.authority,
+      source.session,
+    ),
     sealIdentity: detachSealIdentity(source.sealIdentity),
     journal: stableJournal,
     points: Object.freeze(verifiedPoints),
@@ -544,7 +547,7 @@ function detachSealIdentity(
   });
 }
 
-function captureAuthorityPins(
+export function captureCommitInputAuthorityPins(
   authority: StoredAttemptAuthorityStateV1,
   session: StoredAttemptSessionScalarsPortV1,
 ): Readonly<CommitInputAuthorityPinsV1> {

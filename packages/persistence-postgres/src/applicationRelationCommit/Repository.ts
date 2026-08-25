@@ -204,6 +204,37 @@ export function prepareApplicationRelationDefinitionBuildResult(
   PreparedApplicationRelationCommit,
   PrepareApplicationRelationCommitError
 > {
+  return prepareSingleDefinitionApplicationRelationCommitResult(
+    definitions,
+    edgeDefinitionId,
+    transitionsInput,
+  );
+}
+
+/** Authenticated single-definition C09 lowering used by O10-R overlays. */
+export function prepareApplicationRelationReadOverlayResult(
+  definitions: LocatedApplicationRelationDefinitionSet,
+  edgeDefinitionId: LocatedApplicationRelationDefinition["edge"]["edgeDefinitionId"],
+  transitionsInput: ReadonlyArray<ApplicationRelationRowTransition>,
+): Result.Result<
+  PreparedApplicationRelationCommit,
+  PrepareApplicationRelationCommitError
+> {
+  return prepareSingleDefinitionApplicationRelationCommitResult(
+    definitions,
+    edgeDefinitionId,
+    transitionsInput,
+  );
+}
+
+function prepareSingleDefinitionApplicationRelationCommitResult(
+  definitions: LocatedApplicationRelationDefinitionSet,
+  edgeDefinitionId: LocatedApplicationRelationDefinition["edge"]["edgeDefinitionId"],
+  transitionsInput: ReadonlyArray<ApplicationRelationRowTransition>,
+): Result.Result<
+  PreparedApplicationRelationCommit,
+  PrepareApplicationRelationCommitError
+> {
   const state = locatedApplicationRelationDefinitionSetStates.get(definitions);
   if (state === undefined) {
     return Result.fail(commitCorruption("invalidDefinitionSet"));

@@ -120,6 +120,7 @@ import {
   type SessionJournalAttemptV1,
   type SessionJournalIndexedQueryOperationV1,
   type SessionJournalPointOperationV1,
+  type SessionJournalStorePersistenceOptionsV1,
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
 import { fxSystemIndexBuildStates } from "../src/schema";
@@ -199,9 +200,9 @@ interface ScenarioOptions {
     | "missing"
     | "foreignControl"
     | "mismatchedAuthority";
-  readonly journalFaultAfter?: (
-    point: "indexedQueryEvidenceWritten",
-  ) => void | Promise<void>;
+  readonly journalFaultAfter?: NonNullable<
+    SessionJournalStorePersistenceOptionsV1["faultAfter"]
+  >;
 }
 
 interface JournalScenario {

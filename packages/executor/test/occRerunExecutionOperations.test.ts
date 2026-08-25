@@ -173,27 +173,23 @@ function authorizedStateForTest(
   return {
     loadedAttempt: Object.freeze({}),
     executionClaim: Object.freeze({ attemptFence }),
-    prepared: {
-      plan: {
-        authorityPins: {
-          deploymentId: "deployment",
-          scopeId: "scope",
-          sessionId: "session",
-          attemptFence,
-          storageGeneration: 1n,
-          storageGenerationFence: 1n,
-          snapshotToken,
-          schemaVersionId: "schema",
-        },
-        sealIdentity: { scopeUuid: "scope-uuid" },
+    lineage: {
+      authorityPins: {
+        deploymentId: "deployment",
+        scopeId: "scope",
+        sessionId: "session",
+        attemptFence,
+        storageGeneration: 1n,
+        storageGenerationFence: 1n,
+        snapshotToken,
+        schemaVersionId: "schema",
       },
-      provenance: {
-        session: {
-          identityAccessPolicySha256: bytes,
-          validatedArgsSha256: bytes,
-          authorizationGrantSha256: bytes,
-          requestSha256: bytes,
-        },
+      scopeUuid: "scope-uuid",
+      previousSession: {
+        identityAccessPolicySha256: bytes,
+        validatedArgsSha256: bytes,
+        authorizationGrantSha256: bytes,
+        requestSha256: bytes,
       },
     },
     conflict: Object.freeze({

@@ -73,9 +73,16 @@ function captureAuthority(
     schemaVersionId: input.schemaVersionId,
     executionClaim: Object.freeze({ ...input.executionClaim }),
   } as const;
-  return input.kind === "claimedAttempt"
-    ? Object.freeze({ ...common, kind: "claimedAttempt" as const })
-    : Object.freeze({
+  if (input.kind === "claimedAttempt") {
+    return Object.freeze({ ...common, kind: "claimedAttempt" as const });
+  }
+  if (input.kind === "claimedRelationConflict") {
+    return Object.freeze({
+      ...common,
+      kind: "claimedRelationConflict" as const,
+    });
+  }
+  return Object.freeze({
         ...common,
         kind: "occRerun" as const,
         previousSession: Object.freeze({

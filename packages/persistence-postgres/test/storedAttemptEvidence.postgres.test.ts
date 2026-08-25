@@ -4111,6 +4111,9 @@ function commitAuthorityFromStoredEvidence(
       indexRangeDependencyCount: evidence.root.indexRangeDependencyCount,
       indexRangeDependencyEvidenceBytes:
         evidence.root.indexRangeDependencyEvidenceBytes,
+      relationReadSyscalls: evidence.root.relationReadSyscalls,
+      relationDependencyCount: evidence.root.relationDependencyCount,
+      relationBaseOccurrences: evidence.root.relationBaseOccurrences,
       writeOperations: evidence.root.writeOperations,
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:

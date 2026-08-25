@@ -18,15 +18,22 @@ import {
   AppCreationTimeV1Schema,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
+import { RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 } from
+  "flarex-protocol/internal/application-schema-binding";
 import {
   AppRowIdHexV1Schema,
   appRowIdHexV1ToBytes,
+  appRowIdHexV1FromBytesResult,
   decodeAppDocumentIdentityV1Result,
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
+  CatalogEdgeDefinitionIdSchema,
   type CatalogIndexDefinitionId,
+  type CatalogEdgeDefinitionId,
+  CatalogRelationIdSchema,
+  type CatalogRelationId,
   type CatalogUniqueConstraintDefinitionId,
   CatalogIndexDefinitionIdSchema,
   CatalogTableIdSchema,
@@ -34,18 +41,31 @@ import {
 } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
+  CommitSyscallSequenceV1Schema,
+  LogicalApplicationRelationIncomingReadDependencyV1Schema,
   LogicalIndexRangeReadDependencyV1Schema,
+  MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_READ_DOCUMENTS_V1,
+  MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
+  MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_WRITE_OPERATIONS_V1,
+  MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSuccessfulResultV1Effect,
   measureLogicalIndexRangeReadDependencyEvidenceBytesV1Result,
   normalizeLogicalIndexRangeReadDependenciesV1Result,
   type CommitFinalSyscallSequenceV1,
+  type CommitSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type LogicalReadDependencyV1,
+  type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalIndexRangeReadDependencyV1,
   type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
@@ -184,7 +204,11 @@ import {
   type AppRowPointDependencyV1,
   type AppRowTransaction,
 } from "./appRows";
-import { AppRelationEdgePersistenceError } from "./appRelationEdges";
+import {
+  AppRelationEdgePersistenceError,
+  readAppRelationEdgeAdjacencyVersionInTransactionEffect,
+  readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect,
+} from "./appRelationEdges";
 import {
   applyApplicationRelationCommitEdgesInTransactionEffect,
   assertApplicationRelationRestrictProbesInTransactionEffect,
@@ -274,6 +298,7 @@ import {
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
@@ -413,6 +438,9 @@ export interface PointCommitSealIdentityV1 {
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
   readonly indexRangeDependencyEvidenceBytes: number;
+  readonly relationReadSyscalls: number;
+  readonly relationDependencyCount: number;
+  readonly relationBaseOccurrences: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -471,6 +499,9 @@ export interface PointCommitTransactionCommandV1
   readonly indexRangeDependencies: ReadonlyArray<
     LogicalIndexRangeReadDependencyV1
   >;
+  readonly relationDependencies: ReadonlyArray<
+    LogicalApplicationRelationIncomingReadDependencyV1
+  >;
   readonly rowIntents: ReadonlyArray<PointCommitRowIntentV1>;
 }
 
@@ -485,7 +516,61 @@ export interface PointMutationAttemptReplacementCommandV1
   readonly indexRangeDependencies: ReadonlyArray<
     LogicalIndexRangeReadDependencyV1
   >;
+  readonly relationDependencies: ReadonlyArray<
+    LogicalApplicationRelationIncomingReadDependencyV1
+  >;
   readonly expectedConflict: PointCommitConflictEvidenceV1;
+}
+
+export interface RunningRelationConflictEvidenceV1 {
+  readonly kind: "relationConflict";
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly targetRowId: AppRowIdHexV1;
+  readonly expectedAdjacencyVersion: CommitSeq;
+  readonly actualAdjacencyVersion: CommitSeq;
+  readonly snapshotCommitSeq: CommitSeq;
+}
+
+export interface RunningRelationConflictRequestEvidenceV1 {
+  readonly format: "flarex.session-journal-syscall";
+  readonly codecVersion: 1;
+  readonly kind: "relationIncoming";
+  readonly syscallSequence: CommitSyscallSequenceV1;
+  readonly relationId: CatalogRelationId;
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly sourceTableId: CatalogTableId;
+  readonly targetTableId: CatalogTableId;
+  readonly targetRowId: AppRowIdHexV1;
+  readonly limit: number;
+}
+
+/**
+ * O10-R correlation input for an already-persisted running-attempt conflict.
+ * It carries no sealed journal/result identity and cannot enter finishing.
+ */
+export interface RunningRelationConflictAttemptReplacementCommandV1 {
+  readonly authorityPins: PointCommitAuthorityPinsV1;
+  readonly session: PointCommitRunningSessionScalarsV1;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
+  readonly request: RunningRelationConflictRequestEvidenceV1;
+  readonly conflict: RunningRelationConflictEvidenceV1;
+}
+
+export interface RunningRelationConflictRecoveryCommand {
+  readonly authorityPins: PointCommitAuthorityPinsV1;
+  readonly session: PointCommitRunningSessionScalarsV1;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
+}
+
+const recoveredRunningRelationConflictEvidenceBrand: unique symbol = Symbol(
+  "FlarexPersistence/RecoveredRunningRelationConflictEvidence",
+);
+
+/** Exact durable evidence authenticated for fresh-process O08 replacement. */
+export interface RecoveredRunningRelationConflictEvidence {
+  readonly [recoveredRunningRelationConflictEvidenceBrand]: true;
+  readonly request: RunningRelationConflictRequestEvidenceV1;
+  readonly conflict: RunningRelationConflictEvidenceV1;
 }
 
 export class PointMutationAttemptReplacementCommittedOutcomeV1Error
@@ -603,6 +688,26 @@ export interface PointMutationAttemptReplacementPortV1 {
   >;
 }
 
+export interface RunningRelationConflictAttemptReplacementPortV1 {
+  readonly replaceRunningRelationConflict: (
+    command: RunningRelationConflictAttemptReplacementCommandV1,
+  ) => Effect.Effect<
+    PointMutationAttemptReplacementObservationV1,
+    PointMutationAttemptReplacementV1Error,
+    never
+  >;
+}
+
+export interface RunningRelationConflictRecoveryPort {
+  readonly recoverRunningRelationConflict: (
+    command: RunningRelationConflictRecoveryCommand,
+  ) => Effect.Effect<
+    RecoveredRunningRelationConflictEvidence,
+    PointMutationAttemptReplacementV1Error,
+    never
+  >;
+}
+
 export class PointMutationAttemptReplacementConfigurationV1Error
   extends Error {
   readonly name = "PointMutationAttemptReplacementConfigurationV1Error";
@@ -651,6 +756,11 @@ export type PointCommitConflictCauseV1 =
       readonly indexDefinitionId: CatalogIndexDefinitionId;
       readonly encodedKey?: OrderedIndexKeyBytesHexV1;
       readonly rowId?: OrderedIndexRowIdHexV1;
+    }>
+  | Readonly<{
+      readonly kind: "appRelationIncoming";
+      readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+      readonly targetRowId: AppRowIdHexV1;
     }>;
 
 export interface PointCommitConflictEvidenceV1 {
@@ -799,6 +909,7 @@ export type PointCommitSqlOperationV1 =
   | "deleteExecutionClaim"
   | "loadRowHeads"
   | "validateIndexRanges"
+  | "validateRelationDependencies"
   | "lockIntrinsicIndexBuild"
   | "lockDeveloperIndexBuilds"
   | "loadDeveloperIndexDocuments"
@@ -1291,6 +1402,7 @@ export type PointMutationAttemptReplacementProofStepV1 =
   | "attemptFenceAdvanced"
   | "leaseInserted"
   | "journalRootInserted"
+  | "executionClaimDeleted"
   | "executionClaimInserted"
   | "sessionRunning"
   | "beforeCommit";
@@ -1357,8 +1469,78 @@ interface PreparedPointMutationAttemptReplacementCommandV1
   readonly indexRangeDependencies: ReadonlyArray<
     LogicalIndexRangeReadDependencyV1
   >;
+  readonly relationDependencies: ReadonlyArray<
+    LogicalApplicationRelationIncomingReadDependencyV1
+  >;
   readonly expectedConflict: PointCommitConflictEvidenceV1;
 }
+
+interface PreparedRunningRelationConflictRecoveryCommand {
+  readonly authorityPins: PointCommitAuthorityPinsV1;
+  readonly session: PointCommitRunningSessionScalarsV1;
+  readonly scopeUuid: ScopeUuidV1;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
+}
+
+interface PreparedRunningRelationConflictAttemptReplacementCommandV1
+  extends PreparedRunningRelationConflictRecoveryCommand {
+  readonly request: RunningRelationConflictRequestEvidenceV1;
+  readonly conflict: RunningRelationConflictEvidenceV1;
+}
+
+const RunningRelationConflictRequestV1Schema = Schema.Struct({
+  format: Schema.Literal("flarex.session-journal-syscall"),
+  codecVersion: Schema.Literal(1),
+  kind: Schema.Literal("relationIncoming"),
+  syscallSequence: Schema.toType(CommitSyscallSequenceV1Schema),
+  relationId: CatalogRelationIdSchema,
+  edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
+  sourceTableId: CatalogTableIdSchema,
+  targetTableId: CatalogTableIdSchema,
+  targetRowId: AppRowIdHexV1Schema,
+  limit: Schema.Int,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+
+const RunningRelationConflictRequestEvidenceV1Schema = Schema.Struct({
+  format: Schema.Literal("flarex.session-journal-syscall"),
+  codecVersion: Schema.Literal(1),
+  kind: Schema.Literal("relationIncoming"),
+  syscallSequence: CommitSyscallSequenceV1Schema,
+  relationId: CatalogRelationIdSchema,
+  edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
+  sourceTableId: CatalogTableIdSchema,
+  targetTableId: CatalogTableIdSchema,
+  targetRowId: AppRowIdHexV1Schema,
+  limit: Schema.Int,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+
+const RunningRelationConflictOutcomeEvidenceV1Schema = Schema.Struct({
+  kind: Schema.Literal("relationConflict"),
+  edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
+  targetRowId: AppRowIdHexV1Schema,
+  expectedAdjacencyVersion: CommitSeqSchema,
+  actualAdjacencyVersion: CommitSeqSchema,
+  snapshotCommitSeq: CommitSeqSchema,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+
+const decodeRunningRelationConflictRequestV1Result =
+  Schema.decodeUnknownResult(RunningRelationConflictRequestV1Schema, {
+    onExcessProperty: "error",
+  });
+const decodeRunningRelationConflictRequestEvidenceV1Result =
+  Schema.decodeUnknownResult(RunningRelationConflictRequestEvidenceV1Schema, {
+    onExcessProperty: "error",
+  });
+const decodeRunningRelationConflictOutcomeEvidenceV1Result =
+  Schema.decodeUnknownResult(RunningRelationConflictOutcomeEvidenceV1Schema, {
+    onExcessProperty: "error",
+  });
 
 type PreparedPointCommitDependencyCommandV1 =
   | PreparedPointCommitTransactionCommandV1
@@ -1373,7 +1555,22 @@ type PointCommitTransactionModeV1 = "rollbackProof" | "publish";
 type PointCommitSessionLockModeV1 =
   | PointCommitTransactionModeV1
   | "enterFinishing"
-  | "replaceAttempt";
+  | "replaceAttempt"
+  | "recoverRunningRelationConflict"
+  | "replaceRunningRelationConflict";
+
+type PreparedPointCommitAuthorityCommandV1 =
+  | PreparedPointCommitAttemptScalarCommandV1
+  | PreparedRunningRelationConflictRecoveryCommand
+  | PreparedRunningRelationConflictAttemptReplacementCommandV1;
+
+function pointCommitCommandScopeUuid(
+  command: PreparedPointCommitAuthorityCommandV1,
+): ScopeUuidV1 {
+  return "scopeUuid" in command
+    ? command.scopeUuid
+    : command.sealIdentity.scopeUuid;
+}
 
 const WOULD_COMMIT = Object.freeze({
   kind: "wouldCommit",
@@ -1727,7 +1924,9 @@ export function createPointCommitFinishingTransitionPortV1(
 export function createPointMutationAttemptReplacementPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointMutationAttemptReplacementOptionsV1,
-): PointMutationAttemptReplacementPortV1 {
+): PointMutationAttemptReplacementPortV1 &
+  RunningRelationConflictAttemptReplacementPortV1 &
+  RunningRelationConflictRecoveryPort {
   if (!isPositiveSafeInteger(options.leaseDurationMilliseconds)) {
     throw new PointMutationAttemptReplacementConfigurationV1Error(
       "leaseDurationInvalid",
@@ -1805,7 +2004,109 @@ export function createPointMutationAttemptReplacementPortV1(
     }));
   });
 
-  return Object.freeze({ replace });
+  const replaceRunningRelationConflict:
+    RunningRelationConflictAttemptReplacementPortV1[
+      "replaceRunningRelationConflict"
+    ] = Effect.fn(
+      "PointMutationAttemptReplacement.replaceRunningRelationConflict",
+    )(function* (input) {
+      const command = yield* Effect.fromResult(
+        captureRunningRelationConflictAttemptReplacementCommandResult(input),
+      ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
+      const generatedOwner = yield* Effect.try({
+        try: randomExecutionClaimOwner,
+        catch: () => new PointMutationAttemptReplacementConfigurationV1Error(
+          "executionClaimOwnerGenerationFailed",
+        ),
+      });
+      const decodedOwner = yield* Effect.fromResult(
+        decodeTransactionExecutionClaimOwnerV1(generatedOwner),
+      ).pipe(Effect.mapError(() =>
+        new PointMutationAttemptReplacementConfigurationV1Error(
+          "executionClaimOwnerInvalid",
+        )
+      ));
+      const located = yield* resolvePointCommitAuthority(
+        command.authorityPins.deploymentId,
+        ports,
+      ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
+      const preliminaryFailure = preliminaryAuthorityFailure(
+        command,
+        located.authority,
+      );
+      if (preliminaryFailure !== null) {
+        return yield* Effect.fail(
+          mapPointMutationAttemptReplacementSharedError(preliminaryFailure),
+        );
+      }
+      const target = isLocatedReadCommittedAttemptTargetV1(located.target)
+        ? located.target
+        : null;
+      if (target === null) {
+        return yield* Effect.fail(replacementCorruption(
+          "readCommittedCapabilityMissing",
+        ));
+      }
+      return yield* Effect.uninterruptible(Effect.tryPromise({
+        try: () => runRunningRelationConflictAttemptReplacement(
+          target,
+          located.authority,
+          command,
+          options,
+          proofOptions,
+          decodedOwner,
+          executionClaimDurationMilliseconds,
+        ),
+        catch: mapPointMutationAttemptReplacementTransactionFailure,
+      }));
+    });
+
+  const recoverRunningRelationConflict:
+    RunningRelationConflictRecoveryPort["recoverRunningRelationConflict"] =
+      Effect.fn(
+        "PointMutationAttemptReplacement.recoverRunningRelationConflict",
+      )(function* (input) {
+        const command = yield* Effect.fromResult(
+          captureRunningRelationConflictRecoveryCommandResult(input),
+        ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
+        const located = yield* resolvePointCommitAuthority(
+          command.authorityPins.deploymentId,
+          ports,
+        ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
+        const preliminaryFailure = preliminaryAuthorityFailure(
+          command,
+          located.authority,
+        );
+        if (preliminaryFailure !== null) {
+          return yield* Effect.fail(
+            mapPointMutationAttemptReplacementSharedError(preliminaryFailure),
+          );
+        }
+        const target = isLocatedReadCommittedAttemptTargetV1(located.target)
+          ? located.target
+          : null;
+        if (target === null) {
+          return yield* Effect.fail(replacementCorruption(
+            "readCommittedCapabilityMissing",
+          ));
+        }
+        return yield* Effect.uninterruptible(Effect.tryPromise({
+          try: () => runRunningRelationConflictRecovery(
+            target,
+            located.authority,
+            command,
+            options,
+            proofOptions,
+          ),
+          catch: mapPointMutationAttemptReplacementTransactionFailure,
+        }));
+      });
+
+  return Object.freeze({
+    replace,
+    replaceRunningRelationConflict,
+    recoverRunningRelationConflict,
+  });
 }
 
 export function createPointCommitRollbackProofPortV1(
@@ -2233,10 +2534,10 @@ function captureSuccessfulResultResult(
 }
 
 function captureCommittedOutcomeLookup(
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
 ): ResolveCommittedPointOutcomeInputV1 {
   return Object.freeze({
-    scopeUuid: command.sealIdentity.scopeUuid,
+    scopeUuid: pointCommitCommandScopeUuid(command),
     requestKey: command.authorityPins.requestKey,
     expectedIdentityAccessPolicySha256:
       TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
@@ -2281,6 +2582,12 @@ function capturePointCommitCommandResult(
       sealIdentity.indexRangeDependencyCount,
       sealIdentity.indexRangeDependencyEvidenceBytes,
     );
+    const relationDependencies = yield*
+      capturePointCommitRelationDependenciesResult(
+        input.relationDependencies,
+        sealIdentity.relationDependencyCount,
+        authorityPins.snapshotToken.commitSeq,
+      );
     const rowIntents = yield* captureRowIntentsResult(input.rowIntents);
     for (const rowIntent of rowIntents) {
       if (!dependencies.some(
@@ -2295,6 +2602,7 @@ function capturePointCommitCommandResult(
       sealIdentity,
       dependencies,
       indexRangeDependencies,
+      relationDependencies,
       rowIntents,
     });
   });
@@ -2332,11 +2640,18 @@ function capturePointMutationAttemptReplacementCommandResult(
       sealIdentity.indexRangeDependencyCount,
       sealIdentity.indexRangeDependencyEvidenceBytes,
     );
+    const relationDependencies = yield*
+      capturePointCommitRelationDependenciesResult(
+        input.relationDependencies,
+        sealIdentity.relationDependencyCount,
+        authorityPins.snapshotToken.commitSeq,
+      );
     const expectedConflict = yield* capturePointCommitConflictEvidenceResult(
       input.expectedConflict,
       authorityPins.snapshotToken.commitSeq,
       dependencies,
       indexRangeDependencies,
+      relationDependencies,
     );
     return Object.freeze({
       authorityPins,
@@ -2344,7 +2659,130 @@ function capturePointMutationAttemptReplacementCommandResult(
       sealIdentity,
       dependencies,
       indexRangeDependencies,
+      relationDependencies,
       expectedConflict,
+    });
+  });
+}
+
+function captureRunningRelationConflictAttemptReplacementCommandResult(
+  input: RunningRelationConflictAttemptReplacementCommandV1,
+): Result.Result<
+  PreparedRunningRelationConflictAttemptReplacementCommandV1,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
+  return Result.gen(function* () {
+    const base = yield* captureRunningRelationConflictRecoveryCommandResult(
+      input,
+    );
+    const requestInput = yield* Result.try({
+      try: () => structuredClone(input.request),
+      catch: () => corruption("commandInvalid"),
+    });
+    const request = yield* decodeRunningRelationConflictRequestV1Result(
+      requestInput,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    if (
+      request.limit < 1 ||
+      request.limit > RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const conflict = yield* Result.try({
+      try: () => structuredClone(input.conflict),
+      catch: () => corruption("commandInvalid"),
+    });
+    if (
+      !isNonArrayRecord(conflict) ||
+      conflict.kind !== "relationConflict"
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const edgeDefinitionId = yield* Schema.decodeUnknownResult(
+      CatalogEdgeDefinitionIdSchema,
+    )(conflict.edgeDefinitionId).pipe(
+      Result.mapError(() => corruption("commandInvalid")),
+    );
+    const targetRowId = yield* Schema.decodeUnknownResult(
+      AppRowIdHexV1Schema,
+    )(conflict.targetRowId).pipe(
+      Result.mapError(() => corruption("commandInvalid")),
+    );
+    const expectedAdjacencyVersion = yield* decodePointCommitSeqResult(
+      conflict.expectedAdjacencyVersion,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const actualAdjacencyVersion = yield* decodePointCommitSeqResult(
+      conflict.actualAdjacencyVersion,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const snapshotCommitSeq = yield* decodePointCommitSeqResult(
+      conflict.snapshotCommitSeq,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    if (
+      snapshotCommitSeq !== base.authorityPins.snapshotToken.commitSeq ||
+      expectedAdjacencyVersion > snapshotCommitSeq ||
+      actualAdjacencyVersion <= snapshotCommitSeq ||
+      request.edgeDefinitionId !== edgeDefinitionId ||
+      request.targetRowId !== targetRowId
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    return Object.freeze({
+      ...base,
+      request: Object.freeze({ ...request }),
+      conflict: Object.freeze({
+        kind: "relationConflict" as const,
+        edgeDefinitionId,
+        targetRowId,
+        expectedAdjacencyVersion,
+        actualAdjacencyVersion,
+        snapshotCommitSeq,
+      }),
+    });
+  });
+}
+
+function captureRunningRelationConflictRecoveryCommandResult(
+  input: RunningRelationConflictRecoveryCommand,
+): Result.Result<
+  PreparedRunningRelationConflictRecoveryCommand,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
+  if (input.session.lifecycle !== "running") {
+    return Result.fail(stale("lifecycleChanged"));
+  }
+  return Result.gen(function* () {
+    const authorityPins = yield* captureAuthorityPinsResult(
+      input.authorityPins,
+    );
+    const session = yield* captureSessionScalarsResult(input.session);
+    const scopeUuid = (yield* projectScopeIdUuidV1Result(
+      authorityPins.scopeId,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")))).scopeUuid;
+    if (
+      authorityPins.storageGeneration !== session.storageGeneration ||
+      authorityPins.storageGenerationFence !== session.storageGenerationFence ||
+      !commandExecutionAuthorityConsistent(authorityPins, session) ||
+      authorityPins.functionPath !== session.functionPath ||
+      authorityPins.functionKind !== session.functionKind ||
+      authorityPins.schemaVersionId !== session.schemaVersionId ||
+      authorityPins.policyVersion !== session.policyVersion ||
+      authorityPins.authorizationRevocationEpoch !==
+        session.authorizationRevocationEpoch ||
+      authorityPins.requestKey !== session.requestKey
+    ) {
+      return yield* Result.fail(corruption("commandInvalid"));
+    }
+    const claimOwner = yield* decodeTransactionExecutionClaimOwnerV1(
+      input.executionClaim.claimOwner,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    const claimFence = yield* decodeTransactionExecutionClaimFenceV1(
+      input.executionClaim.claimFence,
+    ).pipe(Result.mapError(() => corruption("commandInvalid")));
+    return Object.freeze({
+      authorityPins,
+      session: Object.freeze({ ...session, lifecycle: "running" as const }),
+      scopeUuid,
+      executionClaim: Object.freeze({ claimOwner, claimFence }),
     });
   });
 }
@@ -2414,6 +2852,58 @@ function indexRangeDependenciesEqual(
     indexRangeUpperBoundsEqual(left.upper, right.upper);
 }
 
+function capturePointCommitRelationDependenciesResult(
+  input: ReadonlyArray<LogicalApplicationRelationIncomingReadDependencyV1>,
+  expectedCount: number,
+  snapshotCommitSeq: CommitSeq,
+): Result.Result<
+  ReadonlyArray<LogicalApplicationRelationIncomingReadDependencyV1>,
+  PointCommitCorruptionV1Error
+> {
+  if (
+    !Array.isArray(input) ||
+    input.length !== expectedCount ||
+    input.length > MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1
+  ) {
+    return Result.fail(corruption("commandInvalid"));
+  }
+  return Result.gen(function* () {
+    const captured: LogicalApplicationRelationIncomingReadDependencyV1[] = [];
+    for (let index = 0; index < input.length; index += 1) {
+      if (!Object.hasOwn(input, index)) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      const dependency = yield* Schema.decodeUnknownResult(
+        Schema.toType(LogicalApplicationRelationIncomingReadDependencyV1Schema),
+      )(input[index]).pipe(Result.mapError(() => corruption("commandInvalid")));
+      const previous = captured.at(-1);
+      if (
+        dependency.observedAdjacencyVersion > snapshotCommitSeq ||
+        (previous !== undefined &&
+          comparePointCommitRelationDependencies(previous, dependency) >= 0)
+      ) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      captured.push(dependency);
+    }
+    return Object.freeze(captured);
+  });
+}
+
+function comparePointCommitRelationDependencies(
+  left: LogicalApplicationRelationIncomingReadDependencyV1,
+  right: LogicalApplicationRelationIncomingReadDependencyV1,
+): number {
+  if (left.edgeDefinitionId !== right.edgeDefinitionId) {
+    return left.edgeDefinitionId - right.edgeDefinitionId;
+  }
+  return left.targetRowId < right.targetRowId
+    ? -1
+    : left.targetRowId > right.targetRowId
+      ? 1
+      : 0;
+}
+
 function indexRangeLowerBoundsEqual(
   left: LogicalIndexRangeReadDependencyV1["lower"],
   right: LogicalIndexRangeReadDependencyV1["lower"],
@@ -2439,6 +2929,9 @@ function capturePointCommitConflictEvidenceResult(
   expectedSnapshotCommitSeq: CommitSeq,
   pointDependencies: ReadonlyArray<PointCommitDependencyV1>,
   indexRangeDependencies: ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
+  relationDependencies: ReadonlyArray<
+    LogicalApplicationRelationIncomingReadDependencyV1
+  >,
 ): Result.Result<PointCommitConflictEvidenceV1, PointCommitCorruptionV1Error> {
   return Result.gen(function* () {
     const captured = yield* Result.try({
@@ -2472,6 +2965,31 @@ function capturePointCommitConflictEvidenceResult(
         conflict: Object.freeze({
           kind: "appRowPoint",
           documentId: identity.id,
+        }),
+        snapshotCommitSeq: expectedSnapshotCommitSeq,
+        currentCommitSeq,
+      });
+    }
+    if (cause.kind === "appRelationIncoming") {
+      const edgeDefinitionId = yield* Schema.decodeUnknownResult(
+        CatalogEdgeDefinitionIdSchema,
+      )(cause.edgeDefinitionId).pipe(
+        Result.mapError(() => corruption("commandInvalid")),
+      );
+      const targetRowId = yield* decodePointCommitRowIdResult(
+        cause.targetRowId,
+      ).pipe(Result.mapError(() => corruption("commandInvalid")));
+      if (!relationDependencies.some((dependency) =>
+        dependency.edgeDefinitionId === edgeDefinitionId &&
+        dependency.targetRowId === targetRowId
+      )) {
+        return yield* Result.fail(corruption("commandInvalid"));
+      }
+      return Object.freeze({
+        conflict: Object.freeze({
+          kind: "appRelationIncoming",
+          edgeDefinitionId,
+          targetRowId,
         }),
         snapshotCommitSeq: expectedSnapshotCommitSeq,
         currentCommitSeq,
@@ -2883,6 +3401,13 @@ function captureSealIdentityResult(
       !isNonNegativeSafeInteger(input.indexRangeDependencyEvidenceBytes) ||
       input.indexRangeDependencyEvidenceBytes >
         MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 ||
+      !isNonNegativeSafeInteger(input.relationReadSyscalls) ||
+      input.relationReadSyscalls > MAX_COMMIT_RELATION_READ_SYSCALLS_V1 ||
+      !isNonNegativeSafeInteger(input.relationDependencyCount) ||
+      input.relationDependencyCount >
+        MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 ||
+      !isNonNegativeSafeInteger(input.relationBaseOccurrences) ||
+      input.relationBaseOccurrences > MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1 ||
       !isNonNegativeSafeInteger(input.writeOperations) ||
       !isNonNegativeSafeInteger(input.writeSemanticBytes) ||
       !isNonNegativeSafeInteger(input.materialWriteEventEvidenceBytes) ||
@@ -3418,9 +3943,127 @@ async function runPointMutationAttemptReplacement(
       clock,
       command,
       heads,
+      sharedOptions,
     );
     await emitReplacementStep(options, command, "dependenciesValidated");
 
+    return replaceLockedPointMutationAttempt(
+      tx,
+      clock,
+      command,
+      session,
+      lease,
+      options,
+      sharedOptions,
+      executionClaimOwner,
+      executionClaimDurationMilliseconds,
+    );
+  });
+}
+
+async function runRunningRelationConflictAttemptReplacement(
+  target: LocatedReadCommittedAttemptTargetV1,
+  preliminaryAuthority: TrustedScopeAuthority,
+  command: PreparedRunningRelationConflictAttemptReplacementCommandV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+  sharedOptions: PointCommitTransactionProofOptionsV1,
+  executionClaimOwner: TransactionExecutionClaimOwnerV1,
+  executionClaimDurationMilliseconds: number,
+): Promise<PointMutationAttemptReplacementObservationV1> {
+  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    const clock = await lockPointCommitClock(tx, command, sharedOptions);
+    await emitReplacementStep(options, command, "clockLocked");
+    const outcome = await inspectCommittedOutcomeInTransaction(
+      tx,
+      clock,
+      command,
+      sharedOptions,
+    );
+    await emitReplacementStep(options, command, "outcomeRechecked");
+    if (outcome !== null) {
+      throw new PointMutationAttemptReplacementCommittedOutcomeV1Error({
+        reason: outcome.state === "available"
+          ? "committedOutcomeAvailable"
+          : "committedOutcomeExpired",
+        commitSeq: outcome.commitSeq,
+      });
+    }
+    projectPointCommitTransactionResult(
+      requireLockedClockAuthorityResult(
+        clock,
+        preliminaryAuthority,
+        command,
+      ),
+    );
+
+    const session = await lockPointCommitSession(
+      tx,
+      command,
+      sharedOptions,
+      "replaceRunningRelationConflict",
+    );
+    await emitReplacementStep(options, command, "sessionLocked");
+    if (session.attemptFence !== command.authorityPins.attemptFence) {
+      return observeReplacedPointMutationAttempt(
+        tx,
+        clock,
+        command,
+        session,
+        options,
+      );
+    }
+
+    const lease = await lockPointCommitLease(tx, command, sharedOptions);
+    await emitReplacementStep(options, command, "leaseLocked");
+    const conflictJournal = await lockRunningRelationConflictJournal(
+      tx,
+      command,
+      options,
+    );
+    await emitReplacementStep(options, command, "journalRootLocked");
+    const databaseNowMilliseconds = await readPointCommitDatabaseTime(
+      tx,
+      command.authorityPins.scopeId,
+      sharedOptions,
+    );
+    projectPointCommitTransactionResult(
+      requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
+    );
+    if (conflictJournal.updatedAtMilliseconds > databaseNowMilliseconds) {
+      throw replacementCorruption("journalRootInvalid");
+    }
+    const executionClaim = projectPointCommitTransactionResult(
+      await lockExactTransactionExecutionClaimV1Result(tx, {
+        scopeId: command.authorityPins.scopeId,
+        scopeUuid: clock.scopeUuid,
+        sessionId: command.authorityPins.sessionId,
+        attemptFence: command.authorityPins.attemptFence,
+      }),
+    );
+    projectPointCommitTransactionResult(
+      requireLiveTransactionExecutionClaimV1Result(
+        command.authorityPins.scopeId,
+        executionClaim,
+        command.executionClaim,
+        new Date(databaseNowMilliseconds),
+      ),
+    );
+    const recoveredConflict = await recoverRunningRelationConflictEvidence(
+      tx,
+      clock,
+      command,
+      conflictJournal,
+      options,
+    );
+    if (
+      !runningRelationConflictRecoveryMatchesCommand(
+        recoveredConflict,
+        command,
+      )
+    ) {
+      throw replacementCorruption("occEvidenceInvalid");
+    }
+    await emitReplacementStep(options, command, "dependenciesValidated");
     const mutationTimeMilliseconds = await readPointCommitDatabaseTime(
       tx,
       command.authorityPins.scopeId,
@@ -3429,245 +4072,763 @@ async function runPointMutationAttemptReplacement(
     projectPointCommitTransactionResult(
       requireAttemptIsLiveResult(session, lease, mutationTimeMilliseconds),
     );
-    if (
-      command.authorityPins.attemptFence >= MAX_TRANSACTION_ATTEMPT_FENCE
-    ) {
-      throw new PointMutationAttemptReplacementResourceExhaustionV1Error({
-        dimension: "attemptFence",
-        maximum: MAX_TRANSACTION_ATTEMPT_FENCE,
-      });
-    }
-    const replacementFence = TransactionAttemptFenceSchema.make(
-      command.authorityPins.attemptFence + 1n,
-    );
-    const freshFacet = projectPointCommitTransactionResult(
-      buildFreshTransactionAttemptFacetV1({
-        scopeUuid: clock.scopeUuid,
-        sessionId: command.authorityPins.sessionId,
-        attemptFence: replacementFence,
-        snapshotEpochUuid: clock.epochUuid,
-        snapshotCommitSeq: clock.record.lastCommitSeq,
-        databaseNowMilliseconds: mutationTimeMilliseconds,
-        authorizationGrantExpiresAtMilliseconds:
-          session.authorizationGrantExpiresAtMilliseconds,
-        hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
-        leaseDurationMilliseconds: options.leaseDurationMilliseconds,
-      }).pipe(Result.mapError((reason) =>
-        reason === "authorityExpired"
-          ? stale("expired")
-          : replacementCorruption("freshLeaseInvalid")
-      )),
-    );
-    const freshExecutionClaim = projectPointCommitTransactionResult(
-      deriveTransactionExecutionClaimV1({
-        scopeUuid: clock.scopeUuid,
-        sessionId: command.authorityPins.sessionId,
-        attemptFence: replacementFence,
-        claimFence: 1n,
-        claimOwner: executionClaimOwner,
-        databaseNow: new Date(mutationTimeMilliseconds),
-        durationMilliseconds: executionClaimDurationMilliseconds,
-        leaseExpiresAt: freshFacet.leaseExpiresAt,
-        authorizationGrantExpiresAt: new Date(
-          session.authorizationGrantExpiresAtMilliseconds,
-        ),
-        hardExpiresAt: new Date(session.hardExpiresAtMilliseconds),
-      }).pipe(Result.mapError((reason) =>
-        reason === "authorityExpired"
-          ? stale("expired")
-          : replacementCorruption("freshLeaseInvalid")
-      )),
-    );
-
-    const retrying = tx.update(fxSystemTransactionSessions).set({
-      lifecycle: "retrying",
-      updatedAt: freshFacet.sessionUpdatedAt,
-    }).where(and(
-      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
-      eq(
-        fxSystemTransactionSessions.sessionId,
-        command.authorityPins.sessionId,
+    projectPointCommitTransactionResult(
+      requireLiveTransactionExecutionClaimV1Result(
+        command.authorityPins.scopeId,
+        executionClaim,
+        command.executionClaim,
+        new Date(mutationTimeMilliseconds),
       ),
-      eq(
-        fxSystemTransactionSessions.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-      eq(fxSystemTransactionSessions.lifecycle, "finishing"),
-    )).returning({ lifecycle: fxSystemTransactionSessions.lifecycle });
-    observeReplacementQuery("enterRetrying", retrying, options);
-    const retryingRows = await replacementSqlCall(
-      "enterRetrying",
-      () => retrying,
     );
-    if (retryingRows.length !== 1 || retryingRows[0]?.lifecycle !== "retrying") {
-      throw replacementCorruption("replacementMutationInvalid");
-    }
-    await emitReplacementStep(options, command, "sessionEnteredRetrying");
-
-    const journalDelete = tx.delete(fxSystemTransactionJournals).where(and(
-      eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
-      eq(
-        fxSystemTransactionJournals.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(
-        fxSystemTransactionJournals.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-    )).returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
-    observeReplacementQuery("deleteRetryJournal", journalDelete, options);
-    const deletedJournal = await replacementSqlCall(
-      "deleteRetryJournal",
-      () => journalDelete,
-    );
-    if (
-      deletedJournal.length !== 1 ||
-      deletedJournal[0]?.attemptFence !== command.authorityPins.attemptFence
-    ) {
-      throw replacementCorruption("replacementMutationInvalid");
-    }
-    await emitReplacementStep(options, command, "journalDeleted");
-
-    const leaseDelete = tx.delete(fxSystemSnapshotLeases).where(and(
-      eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
-      eq(
-        fxSystemSnapshotLeases.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(
-        fxSystemSnapshotLeases.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-    )).returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
-    observeReplacementQuery("deleteRetryLease", leaseDelete, options);
-    const deletedLease = await replacementSqlCall(
-      "deleteRetryLease",
-      () => leaseDelete,
-    );
-    if (
-      deletedLease.length !== 1 ||
-      deletedLease[0]?.attemptFence !== command.authorityPins.attemptFence
-    ) {
-      throw replacementCorruption("replacementMutationInvalid");
-    }
-    await emitReplacementStep(options, command, "leaseDeleted");
-
-    const fenceUpdate = tx.update(fxSystemTransactionSessions).set({
-      attemptFence: replacementFence,
-    }).where(and(
-      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
-      eq(
-        fxSystemTransactionSessions.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(
-        fxSystemTransactionSessions.attemptFence,
-        command.authorityPins.attemptFence,
-      ),
-      eq(fxSystemTransactionSessions.lifecycle, "retrying"),
-      eq(
-        fxSystemTransactionSessions.updatedAt,
-        freshFacet.sessionUpdatedAt,
-      ),
-    )).returning({ attemptFence: fxSystemTransactionSessions.attemptFence });
-    observeReplacementQuery("advanceAttemptFence", fenceUpdate, options);
-    const advanced = await replacementSqlCall(
-      "advanceAttemptFence",
-      () => fenceUpdate,
-    );
-    if (advanced.length !== 1 || advanced[0]?.attemptFence !== replacementFence) {
-      throw replacementCorruption("attemptFenceUpdateInvalid");
-    }
-    await emitReplacementStep(options, command, "attemptFenceAdvanced");
-
-    const leaseInsert = tx.insert(fxSystemSnapshotLeases)
-      .values(freshFacet.lease)
-      .returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
-    observeReplacementQuery("insertRetryLease", leaseInsert, options);
-    const insertedLease = await replacementSqlCall(
-      "insertRetryLease",
-      () => leaseInsert,
-    );
-    if (
-      insertedLease.length !== 1 ||
-      insertedLease[0]?.attemptFence !== replacementFence
-    ) {
-      throw replacementCorruption("freshLeaseInvalid");
-    }
-    await emitReplacementStep(options, command, "leaseInserted");
-
-    const rootInsert = tx.insert(fxSystemTransactionJournals)
-      .values(freshFacet.journalRoot)
-      .returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
-    observeReplacementQuery("insertRetryJournalRoot", rootInsert, options);
-    const insertedRoot = await replacementSqlCall(
-      "insertRetryJournalRoot",
-      () => rootInsert,
-    );
-    if (
-      insertedRoot.length !== 1 ||
-      insertedRoot[0]?.attemptFence !== replacementFence
-    ) {
-      throw replacementCorruption("freshJournalRootInvalid");
-    }
-    await emitReplacementStep(options, command, "journalRootInserted");
-
-    const claimInsert = tx.insert(fxSystemTransactionExecutionClaims)
-      .values(freshExecutionClaim)
-      .returning({
-        attemptFence: fxSystemTransactionExecutionClaims.attemptFence,
-      });
-    observeReplacementQuery("insertRetryExecutionClaim", claimInsert, options);
-    const insertedClaim = await replacementSqlCall(
-      "insertRetryExecutionClaim",
-      () => claimInsert,
-    );
-    if (
-      insertedClaim.length !== 1 ||
-      insertedClaim[0]?.attemptFence !== replacementFence
-    ) {
-      throw replacementCorruption("replacementMutationInvalid");
-    }
-    await emitReplacementStep(options, command, "executionClaimInserted");
-
-    const runningUpdate = tx.update(fxSystemTransactionSessions).set({
-      lifecycle: "running",
-    }).where(and(
-      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
-      eq(
-        fxSystemTransactionSessions.sessionId,
-        command.authorityPins.sessionId,
-      ),
-      eq(fxSystemTransactionSessions.attemptFence, replacementFence),
-      eq(fxSystemTransactionSessions.lifecycle, "retrying"),
-      eq(
-        fxSystemTransactionSessions.updatedAt,
-        freshFacet.sessionUpdatedAt,
-      ),
-    )).returning({ lifecycle: fxSystemTransactionSessions.lifecycle });
-    observeReplacementQuery("enterRetryRunning", runningUpdate, options);
-    const running = await replacementSqlCall(
-      "enterRetryRunning",
-      () => runningUpdate,
-    );
-    if (running.length !== 1 || running[0]?.lifecycle !== "running") {
-      throw replacementCorruption("replacementMutationInvalid");
-    }
-    await emitReplacementStep(options, command, "sessionRunning");
-    await emitReplacementStep(options, command, "beforeCommit");
-    return replacementObservation(
-      "replaced",
+    await deleteRunningRelationConflictExecutionClaim(
+      tx,
+      clock,
       command,
-      replacementFence,
-      Object.freeze({
-        claimOwner: freshExecutionClaim.claimOwner,
-        claimFence: freshExecutionClaim.claimFence,
-        claimedAt: freshExecutionClaim.claimedAt.toISOString(),
-        claimExpiresAt:
-          freshExecutionClaim.claimExpiresAt.toISOString(),
-      }),
+      options,
+    );
+    await emitReplacementStep(options, command, "executionClaimDeleted");
+
+    return replaceLockedPointMutationAttempt(
+      tx,
+      clock,
+      command,
+      session,
+      lease,
+      options,
+      sharedOptions,
+      executionClaimOwner,
+      executionClaimDurationMilliseconds,
+      mutationTimeMilliseconds,
     );
   });
+}
+
+async function runRunningRelationConflictRecovery(
+  target: LocatedReadCommittedAttemptTargetV1,
+  preliminaryAuthority: TrustedScopeAuthority,
+  command: PreparedRunningRelationConflictRecoveryCommand,
+  options: PointMutationAttemptReplacementOptionsV1,
+  sharedOptions: PointCommitTransactionProofOptionsV1,
+): Promise<RecoveredRunningRelationConflictEvidence> {
+  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    const clock = await lockPointCommitClock(tx, command, sharedOptions);
+    projectPointCommitTransactionResult(
+      requireLockedClockAuthorityResult(
+        clock,
+        preliminaryAuthority,
+        command,
+      ),
+    );
+    const session = await lockPointCommitSession(
+      tx,
+      command,
+      sharedOptions,
+      "recoverRunningRelationConflict",
+    );
+    const lease = await lockPointCommitLease(tx, command, sharedOptions);
+    const conflictJournal = await lockRunningRelationConflictJournal(
+      tx,
+      command,
+      options,
+    );
+    const databaseNowMilliseconds = await readPointCommitDatabaseTime(
+      tx,
+      command.authorityPins.scopeId,
+      sharedOptions,
+    );
+    projectPointCommitTransactionResult(
+      requireAttemptIsLiveResult(session, lease, databaseNowMilliseconds),
+    );
+    if (conflictJournal.updatedAtMilliseconds > databaseNowMilliseconds) {
+      throw replacementCorruption("journalRootInvalid");
+    }
+    const executionClaim = projectPointCommitTransactionResult(
+      await lockExactTransactionExecutionClaimV1Result(tx, {
+        scopeId: command.authorityPins.scopeId,
+        scopeUuid: clock.scopeUuid,
+        sessionId: command.authorityPins.sessionId,
+        attemptFence: command.authorityPins.attemptFence,
+      }),
+    );
+    projectPointCommitTransactionResult(
+      requireLiveTransactionExecutionClaimV1Result(
+        command.authorityPins.scopeId,
+        executionClaim,
+        command.executionClaim,
+        new Date(databaseNowMilliseconds),
+      ),
+    );
+    const recovered = await recoverRunningRelationConflictEvidence(
+      tx,
+      clock,
+      command,
+      conflictJournal,
+      options,
+    );
+    return Object.freeze({
+      [recoveredRunningRelationConflictEvidenceBrand]: true as const,
+      request: recovered.request,
+      conflict: recovered.conflict,
+    });
+  });
+}
+
+interface LockedRunningRelationConflictJournalV1 {
+  readonly lastSyscallSequence: bigint;
+  readonly relationDependencyCount: number;
+  readonly createdAtMilliseconds: number;
+  readonly updatedAtMilliseconds: number;
+}
+
+async function lockRunningRelationConflictJournal(
+  tx: AppRowTransaction,
+  command: PreparedRunningRelationConflictRecoveryCommand,
+  options: PointMutationAttemptReplacementOptionsV1,
+): Promise<LockedRunningRelationConflictJournalV1> {
+  const query = tx.select().from(fxSystemTransactionJournals).where(and(
+    eq(fxSystemTransactionJournals.scopeUuid, command.scopeUuid),
+    eq(
+      fxSystemTransactionJournals.sessionId,
+      command.authorityPins.sessionId,
+    ),
+    eq(
+      fxSystemTransactionJournals.attemptFence,
+      command.authorityPins.attemptFence,
+    ),
+  )).limit(2).for("update");
+  observeReplacementQuery("lockJournalRoot", query, options);
+  const rows = await replacementSqlCall("lockJournalRoot", () => query);
+  if (rows.length !== 1) {
+    throw replacementCorruption("journalRootMissingOrDuplicate");
+  }
+  const row = rows[0];
+  if (row === undefined) {
+    throw replacementCorruption("journalRootMissingOrDuplicate");
+  }
+  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
+  const creationTimeSeed = projectPointCommitTransactionResult(
+    decodePointCommitCreationTimeResult(row.creationTimeSeed).pipe(
+      Result.mapError(() => corruption("journalRootInvalid")),
+    ),
+  );
+  const nextCreationTime = projectPointCommitTransactionResult(
+    decodePointCommitCreationTimeResult(row.nextCreationTime).pipe(
+      Result.mapError(() => corruption("journalRootInvalid")),
+    ),
+  );
+  if (
+    row.scopeUuid !== command.scopeUuid ||
+    row.sessionId !== command.authorityPins.sessionId ||
+    row.attemptFence !== command.authorityPins.attemptFence ||
+    row.state !== "relation_conflicted" ||
+    row.lastSyscallSequence < 1n ||
+    row.failureDimension !== null ||
+    !isNonNegativeSafeInteger(row.readDocuments) ||
+    row.readDocuments > MAX_COMMIT_READ_DOCUMENTS_V1 ||
+    !isNonNegativeSafeInteger(row.readSemanticBytes) ||
+    row.readSemanticBytes > MAX_COMMIT_READ_SEMANTIC_BYTES_V1 ||
+    !isNonNegativeSafeInteger(row.pointDependencyCount) ||
+    row.pointDependencyCount > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 ||
+    !isNonNegativeSafeInteger(row.indexedQuerySyscalls) ||
+    row.indexedQuerySyscalls > MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 ||
+    !isNonNegativeSafeInteger(row.indexRangeDependencyCount) ||
+    row.indexRangeDependencyCount >
+      MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 ||
+    !isNonNegativeSafeInteger(row.indexRangeDependencyEvidenceBytes) ||
+    row.indexRangeDependencyEvidenceBytes >
+      MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 ||
+    !isPositiveSafeInteger(row.relationReadSyscalls) ||
+    row.relationReadSyscalls > MAX_COMMIT_RELATION_READ_SYSCALLS_V1 ||
+    !isNonNegativeSafeInteger(row.relationDependencyCount) ||
+    row.relationDependencyCount > MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 ||
+    !isNonNegativeSafeInteger(row.relationBaseOccurrences) ||
+    row.relationBaseOccurrences > MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1 ||
+    !isNonNegativeSafeInteger(row.writeOperations) ||
+    row.writeOperations > MAX_COMMIT_WRITE_OPERATIONS_V1 ||
+    !isNonNegativeSafeInteger(row.writeSemanticBytes) ||
+    row.writeSemanticBytes > MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1 ||
+    !isNonNegativeSafeInteger(row.materialWriteEventEvidenceBytes) ||
+    row.materialWriteEventEvidenceBytes >
+      MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 ||
+    row.sealedFinalSyscallSequence !== null ||
+    row.sealedJournalBytes !== null ||
+    row.sealedJournalSha256 !== null ||
+    row.sealedResultValueCodecVersion !== null ||
+    row.sealedResultSemanticBytes !== null ||
+    row.sealedResultBytes !== null ||
+    row.sealedResultSha256 !== null ||
+    row.sealedAt !== null ||
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined ||
+    createdAtMilliseconds !== command.session.updatedAtMilliseconds ||
+    creationTimeSeed !== createdAtMilliseconds ||
+    updatedAtMilliseconds < createdAtMilliseconds ||
+    nextCreationTime < creationTimeSeed
+  ) {
+    throw replacementCorruption("journalRootInvalid");
+  }
+  return Object.freeze({
+    lastSyscallSequence: row.lastSyscallSequence,
+    relationDependencyCount: row.relationDependencyCount,
+    createdAtMilliseconds,
+    updatedAtMilliseconds,
+  });
+}
+
+async function recoverRunningRelationConflictEvidence(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedRunningRelationConflictRecoveryCommand,
+  journal: LockedRunningRelationConflictJournalV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+): Promise<Readonly<{
+  readonly request: RunningRelationConflictRequestEvidenceV1;
+  readonly conflict: RunningRelationConflictEvidenceV1;
+}>> {
+  const receiptQuery = tx.select()
+    .from(fxSystemTransactionJournalLatestReceipts)
+    .where(and(
+      eq(fxSystemTransactionJournalLatestReceipts.scopeUuid, command.scopeUuid),
+      eq(
+        fxSystemTransactionJournalLatestReceipts.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionJournalLatestReceipts.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).limit(2).for("update");
+  observeReplacementQuery("validateRelationDependencies", receiptQuery, options);
+  const receipts = await replacementSqlCall(
+    "validateRelationDependencies",
+    () => receiptQuery,
+  );
+  if (receipts.length !== 1) {
+    throw replacementCorruption("occEvidenceInvalid");
+  }
+  const receipt = receipts[0];
+  const receiptCreatedAt = receipt === undefined
+    ? undefined
+    : finiteDateMilliseconds(receipt.createdAt);
+  const receiptUpdatedAt = receipt === undefined
+    ? undefined
+    : finiteDateMilliseconds(receipt.updatedAt);
+  if (
+    receipt === undefined ||
+    receipt.scopeUuid !== command.scopeUuid ||
+    receipt.sessionId !== command.authorityPins.sessionId ||
+    receipt.attemptFence !== command.authorityPins.attemptFence ||
+    receipt.lastSyscallSequence !== journal.lastSyscallSequence ||
+    receipt.operationKind !== "relationIncoming" ||
+    receipt.outcomeKind !== "relationConflict" ||
+    receipt.requestCodecVersion !== 1 ||
+    receipt.outcomeCodecVersion !== 1 ||
+    receiptCreatedAt === undefined ||
+    receiptUpdatedAt === undefined ||
+    receiptCreatedAt !== journal.updatedAtMilliseconds ||
+    receiptUpdatedAt !== journal.updatedAtMilliseconds
+  ) {
+    throw replacementCorruption("occEvidenceInvalid");
+  }
+  const request = await decodeRunningRelationConflictRequestEvidence(
+    receipt.requestBytes,
+    receipt.requestSha256,
+  );
+  const outcome = await decodeRunningRelationConflictOutcomeEvidence(
+    receipt.outcomeBytes,
+    receipt.outcomeSha256,
+  );
+  if (
+    request.syscallSequence !== journal.lastSyscallSequence ||
+    request.limit < 1 ||
+    request.limit > RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1 ||
+    outcome.edgeDefinitionId !== request.edgeDefinitionId ||
+    outcome.targetRowId !== request.targetRowId ||
+    outcome.snapshotCommitSeq !== command.authorityPins.snapshotToken.commitSeq ||
+    outcome.expectedAdjacencyVersion > outcome.snapshotCommitSeq ||
+    outcome.actualAdjacencyVersion <= outcome.snapshotCommitSeq
+  ) {
+    throw replacementCorruption("occEvidenceInvalid");
+  }
+
+  const dependencyQuery = tx.select()
+    .from(fxSystemTransactionJournalRelationIncomingDependencies)
+    .where(and(
+      eq(
+        fxSystemTransactionJournalRelationIncomingDependencies.scopeUuid,
+        command.scopeUuid,
+      ),
+      eq(
+        fxSystemTransactionJournalRelationIncomingDependencies.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionJournalRelationIncomingDependencies.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    ))
+    .orderBy(
+      fxSystemTransactionJournalRelationIncomingDependencies.edgeDefinitionId,
+      fxSystemTransactionJournalRelationIncomingDependencies.targetRowId,
+    )
+    .limit(MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 + 1)
+    .for("update");
+  observeReplacementQuery(
+    "validateRelationDependencies",
+    dependencyQuery,
+    options,
+  );
+  const dependencies = await replacementSqlCall(
+    "validateRelationDependencies",
+    () => dependencyQuery,
+  );
+  if (dependencies.length !== journal.relationDependencyCount) {
+    throw replacementCorruption("occEvidenceInvalid");
+  }
+  let matchingDependencyCount = 0;
+  for (const dependency of dependencies) {
+    const targetRowId = projectPointCommitTransactionResult(
+      appRowIdHexV1FromBytesResult(dependency.targetRowId).pipe(
+        Result.mapError(() => corruption("occEvidenceInvalid")),
+      ),
+    );
+    const dependencyCreatedAt = finiteDateMilliseconds(dependency.createdAt);
+    const dependencyUpdatedAt = finiteDateMilliseconds(dependency.updatedAt);
+    if (
+      dependency.observedAdjacencyVersion > outcome.snapshotCommitSeq ||
+      dependencyCreatedAt === undefined ||
+      dependencyUpdatedAt === undefined ||
+      dependencyCreatedAt < journal.createdAtMilliseconds ||
+      dependencyUpdatedAt < dependencyCreatedAt ||
+      dependencyUpdatedAt > journal.updatedAtMilliseconds
+    ) {
+      throw replacementCorruption("occEvidenceInvalid");
+    }
+    if (
+      dependency.edgeDefinitionId === outcome.edgeDefinitionId &&
+      targetRowId === outcome.targetRowId
+    ) {
+      matchingDependencyCount += 1;
+      if (
+        dependency.observedAdjacencyVersion !==
+          outcome.expectedAdjacencyVersion
+      ) {
+        throw replacementCorruption("occEvidenceInvalid");
+      }
+    }
+  }
+  if (matchingDependencyCount > 1) {
+    throw replacementCorruption("occEvidenceInvalid");
+  }
+
+  const settled = await runPointCommitInTransactionEffect(
+    readAppRelationEdgeAdjacencyVersionInTransactionEffect(tx, {
+      scopeId: command.authorityPins.scopeId,
+      edgeDefinitionId: outcome.edgeDefinitionId,
+      direction: "incoming",
+      endpointRowId: outcome.targetRowId,
+    }),
+  );
+  const current = projectPointCommitTransactionResult(
+    settled.pipe(Result.mapError((failure) =>
+      failure instanceof AppRelationEdgePersistenceError
+        ? new PointCommitSqlFailureMarkerV1(
+            "validateRelationDependencies",
+            failure.cause,
+          )
+        : corruption("occEvidenceInvalid")
+    )),
+  );
+  if (
+    current < outcome.actualAdjacencyVersion ||
+    current <= outcome.snapshotCommitSeq ||
+    current > clock.record.lastCommitSeq
+  ) {
+    throw replacementCorruption("occEvidenceInvalid");
+  }
+  return Object.freeze({
+    request: Object.freeze({ ...request }),
+    conflict: Object.freeze({ ...outcome }),
+  });
+}
+
+function runningRelationConflictRecoveryMatchesCommand(
+  recovered: Readonly<{
+    readonly request: RunningRelationConflictRequestEvidenceV1;
+    readonly conflict: RunningRelationConflictEvidenceV1;
+  }>,
+  command: PreparedRunningRelationConflictAttemptReplacementCommandV1,
+): boolean {
+  const request = recovered.request;
+  const expectedRequest = command.request;
+  const conflict = recovered.conflict;
+  const expectedConflict = command.conflict;
+  return request.syscallSequence === expectedRequest.syscallSequence &&
+    request.relationId === expectedRequest.relationId &&
+    request.edgeDefinitionId === expectedRequest.edgeDefinitionId &&
+    request.sourceTableId === expectedRequest.sourceTableId &&
+    request.targetTableId === expectedRequest.targetTableId &&
+    request.targetRowId === expectedRequest.targetRowId &&
+    request.limit === expectedRequest.limit &&
+    conflict.edgeDefinitionId === expectedConflict.edgeDefinitionId &&
+    conflict.targetRowId === expectedConflict.targetRowId &&
+    conflict.expectedAdjacencyVersion ===
+      expectedConflict.expectedAdjacencyVersion &&
+    conflict.actualAdjacencyVersion ===
+      expectedConflict.actualAdjacencyVersion &&
+    conflict.snapshotCommitSeq === expectedConflict.snapshotCommitSeq;
+}
+
+async function decodeRunningRelationConflictRequestEvidence(
+  canonicalBytes: unknown,
+  sha256: unknown,
+): Promise<typeof RunningRelationConflictRequestV1Schema.Type> {
+  try {
+    const evidence = await decodeCanonicalFlarexValueEvidenceV1({
+      canonicalBytes,
+      sha256,
+    });
+    return projectPointCommitTransactionResult(
+      decodeRunningRelationConflictRequestEvidenceV1Result(evidence.value).pipe(
+        Result.mapError(() => corruption("occEvidenceInvalid")),
+      ),
+    );
+  } catch (cause) {
+    if (
+      cause instanceof FlarexValueCodecV1Error ||
+      cause instanceof FlarexValueEvidenceV1Error
+    ) {
+      throw replacementCorruption("occEvidenceInvalid");
+    }
+    throw cause;
+  }
+}
+
+async function decodeRunningRelationConflictOutcomeEvidence(
+  canonicalBytes: unknown,
+  sha256: unknown,
+): Promise<typeof RunningRelationConflictOutcomeEvidenceV1Schema.Type> {
+  try {
+    const evidence = await decodeCanonicalFlarexValueEvidenceV1({
+      canonicalBytes,
+      sha256,
+    });
+    return projectPointCommitTransactionResult(
+      decodeRunningRelationConflictOutcomeEvidenceV1Result(evidence.value).pipe(
+        Result.mapError(() => corruption("occEvidenceInvalid")),
+      ),
+    );
+  } catch (cause) {
+    if (
+      cause instanceof FlarexValueCodecV1Error ||
+      cause instanceof FlarexValueEvidenceV1Error
+    ) {
+      throw replacementCorruption("occEvidenceInvalid");
+    }
+    throw cause;
+  }
+}
+
+async function deleteRunningRelationConflictExecutionClaim(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedRunningRelationConflictAttemptReplacementCommandV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+): Promise<void> {
+  const query = tx.delete(fxSystemTransactionExecutionClaims).where(and(
+    eq(fxSystemTransactionExecutionClaims.scopeUuid, clock.scopeUuid),
+    eq(
+      fxSystemTransactionExecutionClaims.sessionId,
+      command.authorityPins.sessionId,
+    ),
+    eq(
+      fxSystemTransactionExecutionClaims.attemptFence,
+      command.authorityPins.attemptFence,
+    ),
+    eq(
+      fxSystemTransactionExecutionClaims.claimOwner,
+      command.executionClaim.claimOwner,
+    ),
+    eq(
+      fxSystemTransactionExecutionClaims.claimFence,
+      command.executionClaim.claimFence,
+    ),
+    sql`${fxSystemTransactionExecutionClaims.claimExpiresAt} > clock_timestamp()`,
+  )).returning({
+    claimFence: fxSystemTransactionExecutionClaims.claimFence,
+  });
+  observeReplacementQuery("deleteExecutionClaim", query, options);
+  const rows = await replacementSqlCall("deleteExecutionClaim", () => query);
+  if (
+    rows.length !== 1 ||
+    rows[0]?.claimFence !== command.executionClaim.claimFence
+  ) {
+    throw replacementCorruption("replacementMutationInvalid");
+  }
+}
+
+async function replaceLockedPointMutationAttempt(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointCommitAuthorityCommandV1,
+  session: LockedPointCommitSessionV1,
+  lease: LockedPointCommitLeaseV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+  sharedOptions: PointCommitTransactionProofOptionsV1,
+  executionClaimOwner: TransactionExecutionClaimOwnerV1,
+  executionClaimDurationMilliseconds: number,
+  knownMutationTimeMilliseconds?: number,
+): Promise<PointMutationAttemptReplacementObservationV1> {
+const sourceLifecycle = "scopeUuid" in command ? "running" : "finishing";
+const mutationTimeMilliseconds = knownMutationTimeMilliseconds ??
+  await readPointCommitDatabaseTime(
+    tx,
+    command.authorityPins.scopeId,
+    sharedOptions,
+  );
+projectPointCommitTransactionResult(
+  requireAttemptIsLiveResult(session, lease, mutationTimeMilliseconds),
+);
+if (
+  command.authorityPins.attemptFence >= MAX_TRANSACTION_ATTEMPT_FENCE
+) {
+  throw new PointMutationAttemptReplacementResourceExhaustionV1Error({
+    dimension: "attemptFence",
+    maximum: MAX_TRANSACTION_ATTEMPT_FENCE,
+  });
+}
+const replacementFence = TransactionAttemptFenceSchema.make(
+  command.authorityPins.attemptFence + 1n,
+);
+const freshFacet = projectPointCommitTransactionResult(
+  buildFreshTransactionAttemptFacetV1({
+    scopeUuid: clock.scopeUuid,
+    sessionId: command.authorityPins.sessionId,
+    attemptFence: replacementFence,
+    snapshotEpochUuid: clock.epochUuid,
+    snapshotCommitSeq: clock.record.lastCommitSeq,
+    databaseNowMilliseconds: mutationTimeMilliseconds,
+    authorizationGrantExpiresAtMilliseconds:
+      session.authorizationGrantExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
+    leaseDurationMilliseconds: options.leaseDurationMilliseconds,
+  }).pipe(Result.mapError((reason) =>
+    reason === "authorityExpired"
+      ? stale("expired")
+      : replacementCorruption("freshLeaseInvalid")
+  )),
+);
+const freshExecutionClaim = projectPointCommitTransactionResult(
+  deriveTransactionExecutionClaimV1({
+    scopeUuid: clock.scopeUuid,
+    sessionId: command.authorityPins.sessionId,
+    attemptFence: replacementFence,
+    claimFence: 1n,
+    claimOwner: executionClaimOwner,
+    databaseNow: new Date(mutationTimeMilliseconds),
+    durationMilliseconds: executionClaimDurationMilliseconds,
+    leaseExpiresAt: freshFacet.leaseExpiresAt,
+    authorizationGrantExpiresAt: new Date(
+      session.authorizationGrantExpiresAtMilliseconds,
+    ),
+    hardExpiresAt: new Date(session.hardExpiresAtMilliseconds),
+  }).pipe(Result.mapError((reason) =>
+    reason === "authorityExpired"
+      ? stale("expired")
+      : replacementCorruption("freshLeaseInvalid")
+  )),
+);
+
+const retrying = tx.update(fxSystemTransactionSessions).set({
+  lifecycle: "retrying",
+  updatedAt: freshFacet.sessionUpdatedAt,
+}).where(and(
+  eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+  eq(
+    fxSystemTransactionSessions.sessionId,
+    command.authorityPins.sessionId,
+  ),
+  eq(
+    fxSystemTransactionSessions.attemptFence,
+    command.authorityPins.attemptFence,
+  ),
+  eq(fxSystemTransactionSessions.lifecycle, sourceLifecycle),
+)).returning({ lifecycle: fxSystemTransactionSessions.lifecycle });
+observeReplacementQuery("enterRetrying", retrying, options);
+const retryingRows = await replacementSqlCall(
+  "enterRetrying",
+  () => retrying,
+);
+if (retryingRows.length !== 1 || retryingRows[0]?.lifecycle !== "retrying") {
+  throw replacementCorruption("replacementMutationInvalid");
+}
+await emitReplacementStep(options, command, "sessionEnteredRetrying");
+
+const journalDelete = tx.delete(fxSystemTransactionJournals).where(and(
+  eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+  eq(
+    fxSystemTransactionJournals.sessionId,
+    command.authorityPins.sessionId,
+  ),
+  eq(
+    fxSystemTransactionJournals.attemptFence,
+    command.authorityPins.attemptFence,
+  ),
+)).returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
+observeReplacementQuery("deleteRetryJournal", journalDelete, options);
+const deletedJournal = await replacementSqlCall(
+  "deleteRetryJournal",
+  () => journalDelete,
+);
+if (
+  deletedJournal.length !== 1 ||
+  deletedJournal[0]?.attemptFence !== command.authorityPins.attemptFence
+) {
+  throw replacementCorruption("replacementMutationInvalid");
+}
+await emitReplacementStep(options, command, "journalDeleted");
+
+const leaseDelete = tx.delete(fxSystemSnapshotLeases).where(and(
+  eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
+  eq(
+    fxSystemSnapshotLeases.sessionId,
+    command.authorityPins.sessionId,
+  ),
+  eq(
+    fxSystemSnapshotLeases.attemptFence,
+    command.authorityPins.attemptFence,
+  ),
+)).returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
+observeReplacementQuery("deleteRetryLease", leaseDelete, options);
+const deletedLease = await replacementSqlCall(
+  "deleteRetryLease",
+  () => leaseDelete,
+);
+if (
+  deletedLease.length !== 1 ||
+  deletedLease[0]?.attemptFence !== command.authorityPins.attemptFence
+) {
+  throw replacementCorruption("replacementMutationInvalid");
+}
+await emitReplacementStep(options, command, "leaseDeleted");
+
+const fenceUpdate = tx.update(fxSystemTransactionSessions).set({
+  attemptFence: replacementFence,
+}).where(and(
+  eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+  eq(
+    fxSystemTransactionSessions.sessionId,
+    command.authorityPins.sessionId,
+  ),
+  eq(
+    fxSystemTransactionSessions.attemptFence,
+    command.authorityPins.attemptFence,
+  ),
+  eq(fxSystemTransactionSessions.lifecycle, "retrying"),
+  eq(
+    fxSystemTransactionSessions.updatedAt,
+    freshFacet.sessionUpdatedAt,
+  ),
+)).returning({ attemptFence: fxSystemTransactionSessions.attemptFence });
+observeReplacementQuery("advanceAttemptFence", fenceUpdate, options);
+const advanced = await replacementSqlCall(
+  "advanceAttemptFence",
+  () => fenceUpdate,
+);
+if (advanced.length !== 1 || advanced[0]?.attemptFence !== replacementFence) {
+  throw replacementCorruption("attemptFenceUpdateInvalid");
+}
+await emitReplacementStep(options, command, "attemptFenceAdvanced");
+
+const leaseInsert = tx.insert(fxSystemSnapshotLeases)
+  .values(freshFacet.lease)
+  .returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
+observeReplacementQuery("insertRetryLease", leaseInsert, options);
+const insertedLease = await replacementSqlCall(
+  "insertRetryLease",
+  () => leaseInsert,
+);
+if (
+  insertedLease.length !== 1 ||
+  insertedLease[0]?.attemptFence !== replacementFence
+) {
+  throw replacementCorruption("freshLeaseInvalid");
+}
+await emitReplacementStep(options, command, "leaseInserted");
+
+const rootInsert = tx.insert(fxSystemTransactionJournals)
+  .values(freshFacet.journalRoot)
+  .returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
+observeReplacementQuery("insertRetryJournalRoot", rootInsert, options);
+const insertedRoot = await replacementSqlCall(
+  "insertRetryJournalRoot",
+  () => rootInsert,
+);
+if (
+  insertedRoot.length !== 1 ||
+  insertedRoot[0]?.attemptFence !== replacementFence
+) {
+  throw replacementCorruption("freshJournalRootInvalid");
+}
+await emitReplacementStep(options, command, "journalRootInserted");
+
+const claimInsert = tx.insert(fxSystemTransactionExecutionClaims)
+  .values(freshExecutionClaim)
+  .returning({
+    attemptFence: fxSystemTransactionExecutionClaims.attemptFence,
+  });
+observeReplacementQuery("insertRetryExecutionClaim", claimInsert, options);
+const insertedClaim = await replacementSqlCall(
+  "insertRetryExecutionClaim",
+  () => claimInsert,
+);
+if (
+  insertedClaim.length !== 1 ||
+  insertedClaim[0]?.attemptFence !== replacementFence
+) {
+  throw replacementCorruption("replacementMutationInvalid");
+}
+await emitReplacementStep(options, command, "executionClaimInserted");
+
+const runningUpdate = tx.update(fxSystemTransactionSessions).set({
+  lifecycle: "running",
+}).where(and(
+  eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+  eq(
+    fxSystemTransactionSessions.sessionId,
+    command.authorityPins.sessionId,
+  ),
+  eq(fxSystemTransactionSessions.attemptFence, replacementFence),
+  eq(fxSystemTransactionSessions.lifecycle, "retrying"),
+  eq(
+    fxSystemTransactionSessions.updatedAt,
+    freshFacet.sessionUpdatedAt,
+  ),
+)).returning({ lifecycle: fxSystemTransactionSessions.lifecycle });
+observeReplacementQuery("enterRetryRunning", runningUpdate, options);
+const running = await replacementSqlCall(
+  "enterRetryRunning",
+  () => runningUpdate,
+);
+if (running.length !== 1 || running[0]?.lifecycle !== "running") {
+  throw replacementCorruption("replacementMutationInvalid");
+}
+await emitReplacementStep(options, command, "sessionRunning");
+await emitReplacementStep(options, command, "beforeCommit");
+return replacementObservation(
+  "replaced",
+  command,
+  replacementFence,
+  Object.freeze({
+    claimOwner: freshExecutionClaim.claimOwner,
+    claimFence: freshExecutionClaim.claimFence,
+    claimedAt: freshExecutionClaim.claimedAt.toISOString(),
+    claimExpiresAt:
+      freshExecutionClaim.claimExpiresAt.toISOString(),
+  }),
+);
+
 }
 
 async function requireNoFinishingExecutionClaim(
@@ -3702,7 +4863,7 @@ async function requireNoFinishingExecutionClaim(
 async function observeReplacedPointMutationAttempt(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
-  command: PreparedPointMutationAttemptReplacementCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   session: LockedPointCommitSessionV1,
   options: PointMutationAttemptReplacementOptionsV1,
 ): Promise<PointMutationAttemptReplacementObservationV1> {
@@ -3836,6 +4997,15 @@ async function observeReplacedPointMutationAttempt(
         and ${fxSystemTransactionJournalIndexRanges.attemptFence} =
           ${expectedFence}
     )`,
+    relationExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalRelationIncomingDependencies}
+      where ${fxSystemTransactionJournalRelationIncomingDependencies.scopeUuid} =
+          ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalRelationIncomingDependencies.sessionId} =
+          ${command.authorityPins.sessionId}
+        and ${fxSystemTransactionJournalRelationIncomingDependencies.attemptFence} =
+          ${expectedFence}
+    )`,
     eventExists: sql<boolean>`exists(
       select 1 from ${fxSystemTransactionJournalWriteEvents}
       where ${fxSystemTransactionJournalWriteEvents.scopeUuid} =
@@ -3859,6 +5029,7 @@ async function observeReplacedPointMutationAttempt(
     children[0]?.receiptExists !== false ||
     children[0]?.pointExists !== false ||
     children[0]?.indexRangeExists !== false ||
+    children[0]?.relationExists !== false ||
     children[0]?.eventExists !== false
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
@@ -3899,12 +5070,12 @@ async function observeReplacedPointMutationAttempt(
 
 function replacementObservation(
   kind: PointMutationAttemptReplacementObservationV1["kind"],
-  command: PreparedPointMutationAttemptReplacementCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   attemptFence: TransactionAttemptFence,
   executionClaim?: TransactionExecutionClaimObservationV1,
 ): PointMutationAttemptReplacementObservationV1 {
   const common = {
-    scopeUuid: command.sealIdentity.scopeUuid,
+    scopeUuid: pointCommitCommandScopeUuid(command),
     sessionId: command.authorityPins.sessionId,
     previousAttemptFence: command.authorityPins.attemptFence,
     attemptFence,
@@ -4349,6 +5520,13 @@ async function runPointCommitTransactionKernel(
     command,
   );
   if (rangeConflict !== null) throw rangeConflict;
+  const relationConflict = await findPointCommitRelationConflict(
+    tx,
+    clock,
+    command,
+    options,
+  );
+  if (relationConflict !== null) throw relationConflict;
   await emitTransactionStep(options, command, "dependenciesValidated");
 
   if (mode === "rollbackProof" && command.rowIntents.length === 0) {
@@ -4887,7 +6065,7 @@ function allocatePointCommitKernelResult(
 
 async function lockPointCommitClock(
   tx: AppRowTransaction,
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<LockedPointCommitClockV1> {
   const query = tx
@@ -4984,7 +6162,7 @@ function pointCommitClockFieldResult<Value>(
 async function inspectCommittedOutcomeInTransaction(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<LockedCommittedPointOutcomeV1 | null> {
   const lookup = captureCommittedOutcomeLookup(command);
@@ -5042,7 +6220,7 @@ async function inspectCommittedOutcomeInTransaction(
       ),
     )
     .where(and(
-      eq(fxSystemIdempotency.scopeUuid, command.sealIdentity.scopeUuid),
+      eq(fxSystemIdempotency.scopeUuid, pointCommitCommandScopeUuid(command)),
       eq(fxSystemIdempotency.requestKey, command.authorityPins.requestKey),
     ))
     .limit(2);
@@ -5080,7 +6258,7 @@ async function inspectCommittedOutcomeInTransaction(
 function requireLockedClockAuthorityResult(
   clock: LockedPointCommitClockV1,
   preliminary: TrustedScopeAuthority,
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
 ): Result.Result<
   void,
   PointCommitStaleAuthorityV1Error | PointCommitCorruptionV1Error
@@ -5091,7 +6269,7 @@ function requireLockedClockAuthorityResult(
       clock.record.scopeId !== pins.scopeId ||
       preliminary.scopeId !== pins.scopeId ||
       preliminary.deploymentId !== pins.deploymentId ||
-      clock.scopeUuid !== command.sealIdentity.scopeUuid
+      clock.scopeUuid !== pointCommitCommandScopeUuid(command)
     ) {
       return yield* Result.fail(stale("scopeChanged"));
     }
@@ -5201,7 +6379,7 @@ async function validateActiveApplicationSchemaForPointCommit(
 
 async function lockPointCommitSession(
   tx: AppRowTransaction,
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   options: PointCommitTransactionProofOptionsV1,
   mode: PointCommitSessionLockModeV1,
 ): Promise<LockedPointCommitSessionV1> {
@@ -5259,7 +6437,7 @@ async function lockPointCommitSession(
     .where(and(
       eq(
         fxSystemTransactionSessions.scopeUuid,
-        command.sealIdentity.scopeUuid,
+        pointCommitCommandScopeUuid(command),
       ),
       eq(
         fxSystemTransactionSessions.sessionId,
@@ -5284,17 +6462,26 @@ async function lockPointCommitSession(
         MAX_TRANSACTION_ATTEMPT_FENCE
       ? TransactionAttemptFenceSchema.make(expectedAttemptFence + 1n)
       : null;
-    const observesReplacement = mode === "replaceAttempt" &&
+    const isReplacement = mode === "replaceAttempt" ||
+      mode === "replaceRunningRelationConflict";
+    const observesReplacement = isReplacement &&
       replacementAttemptFence !== null &&
       row.attemptFence === replacementAttemptFence;
     if (row.attemptFence !== expectedAttemptFence && !observesReplacement) {
       return yield* Result.fail(stale("attemptReplaced"));
     }
-    if (mode === "replaceAttempt") {
+    if (isReplacement) {
+      const sourceLifecycle = mode === "replaceAttempt"
+        ? "finishing"
+        : "running";
       if (
         (observesReplacement && row.lifecycle !== "running") ||
-        (!observesReplacement && row.lifecycle !== "finishing")
+        (!observesReplacement && row.lifecycle !== sourceLifecycle)
       ) {
+        return yield* Result.fail(stale("lifecycleChanged"));
+      }
+    } else if (mode === "recoverRunningRelationConflict") {
+      if (row.lifecycle !== "running") {
         return yield* Result.fail(stale("lifecycleChanged"));
       }
     } else if (mode === "enterFinishing") {
@@ -5315,7 +6502,7 @@ async function lockPointCommitSession(
     const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
     const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
     if (
-      row.scopeUuid !== command.sealIdentity.scopeUuid ||
+      row.scopeUuid !== pointCommitCommandScopeUuid(command) ||
       row.sessionId !== command.authorityPins.sessionId ||
       row.storageGeneration !== expected.storageGeneration ||
       row.storageGenerationFence !== expected.storageGenerationFence ||
@@ -5360,7 +6547,7 @@ async function lockPointCommitSession(
       hardExpiresAtMilliseconds !== expected.hardExpiresAtMilliseconds ||
       createdAtMilliseconds !== expected.createdAtMilliseconds ||
       (
-        mode === "replaceAttempt" && observesReplacement
+        isReplacement && observesReplacement
           ? updatedAtMilliseconds < expected.updatedAtMilliseconds
           : mode === "enterFinishing"
           ? row.lifecycle === "running"
@@ -5438,14 +6625,17 @@ function storedExecutionAuthorityMatchesPointCommit(
 
 async function lockPointCommitLease(
   tx: AppRowTransaction,
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<LockedPointCommitLeaseV1> {
   const query = tx
     .select()
     .from(fxSystemSnapshotLeases)
     .where(and(
-      eq(fxSystemSnapshotLeases.scopeUuid, command.sealIdentity.scopeUuid),
+      eq(
+        fxSystemSnapshotLeases.scopeUuid,
+        pointCommitCommandScopeUuid(command),
+      ),
       eq(
         fxSystemSnapshotLeases.sessionId,
         command.authorityPins.sessionId,
@@ -5477,13 +6667,14 @@ async function lockPointCommitLease(
       row.leaseExpiresAt,
     );
     if (
-      row.scopeUuid !== command.sealIdentity.scopeUuid ||
+      row.scopeUuid !== pointCommitCommandScopeUuid(command) ||
       row.sessionId !== command.authorityPins.sessionId ||
       snapshotEpochUuid !== expectedEpochUuid.epochUuid ||
       row.snapshotCommitSeq !== command.authorityPins.snapshotToken.commitSeq ||
       leaseExpiresAtMilliseconds === undefined ||
-      leaseExpiresAtMilliseconds !==
-        command.sealIdentity.leaseExpiresAtMilliseconds ||
+      ("sealIdentity" in command &&
+        leaseExpiresAtMilliseconds !==
+          command.sealIdentity.leaseExpiresAtMilliseconds) ||
       leaseExpiresAtMilliseconds > command.session.hardExpiresAtMilliseconds
     ) {
       return yield* Result.fail(corruption("leaseInvalid"));
@@ -5519,6 +6710,12 @@ async function lockPointCommitJournalRoot(
         fxSystemTransactionJournals.indexRangeDependencyCount,
       indexRangeDependencyEvidenceBytes:
         fxSystemTransactionJournals.indexRangeDependencyEvidenceBytes,
+      relationReadSyscalls:
+        fxSystemTransactionJournals.relationReadSyscalls,
+      relationDependencyCount:
+        fxSystemTransactionJournals.relationDependencyCount,
+      relationBaseOccurrences:
+        fxSystemTransactionJournals.relationBaseOccurrences,
       writeOperations: fxSystemTransactionJournals.writeOperations,
       writeSemanticBytes: fxSystemTransactionJournals.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
@@ -5605,6 +6802,9 @@ async function lockPointCommitJournalRoot(
         expected.indexRangeDependencyCount ||
       row.indexRangeDependencyEvidenceBytes !==
         expected.indexRangeDependencyEvidenceBytes ||
+      row.relationReadSyscalls !== expected.relationReadSyscalls ||
+      row.relationDependencyCount !== expected.relationDependencyCount ||
+      row.relationBaseOccurrences !== expected.relationBaseOccurrences ||
       row.writeOperations !== expected.writeOperations ||
       row.writeSemanticBytes !== expected.writeSemanticBytes ||
       row.materialWriteEventEvidenceBytes !==
@@ -6017,6 +7217,84 @@ async function findPointCommitIndexRangeConflict(
   });
 }
 
+async function findPointCommitRelationConflict(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointCommitDependencyCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<PointCommitConflictV1Error | null> {
+  const dependencies = command.relationDependencies;
+  if (dependencies.length === 0) return null;
+  const pointCommitObserver = options.observeQuery;
+  const settled = await runPointCommitInTransactionEffect(
+    readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect(tx, {
+      scopeId: command.authorityPins.scopeId,
+      endpoints: dependencies.map((dependency) => Object.freeze({
+        edgeDefinitionId: dependency.edgeDefinitionId,
+        targetRowId: dependency.targetRowId,
+      })),
+      ...(pointCommitObserver === undefined
+        ? {}
+        : {
+            observeQuery: ({ sql: statement, params }) =>
+              pointCommitObserver(Object.freeze({
+                name: "validateRelationDependencies",
+                sql: statement,
+                params,
+              })),
+          }),
+    }),
+  );
+  const currentVersions = projectPointCommitTransactionResult(
+    settled.pipe(Result.mapError((failure) =>
+      failure instanceof AppRelationEdgePersistenceError
+        ? new PointCommitSqlFailureMarkerV1(
+            "validateRelationDependencies",
+            failure.cause,
+          )
+        : corruption("occEvidenceInvalid")
+    )),
+  );
+  if (currentVersions.length !== dependencies.length) {
+    throw corruption("occEvidenceInvalid");
+  }
+  for (let ordinal = 0; ordinal < dependencies.length; ordinal += 1) {
+    const dependency = dependencies[ordinal];
+    const currentVersion = currentVersions[ordinal];
+    if (dependency === undefined || currentVersion === undefined) {
+      throw corruption("occEvidenceInvalid");
+    }
+    if (
+      currentVersion.edgeDefinitionId !== dependency.edgeDefinitionId ||
+      currentVersion.targetRowId !== dependency.targetRowId
+    ) {
+      throw corruption("occEvidenceInvalid");
+    }
+    const current = currentVersion.adjacencyVersion;
+    if (
+      current < dependency.observedAdjacencyVersion ||
+      current > clock.record.lastCommitSeq
+    ) {
+      throw corruption("occEvidenceInvalid");
+    }
+    if (current !== dependency.observedAdjacencyVersion) {
+      if (current <= command.authorityPins.snapshotToken.commitSeq) {
+        throw corruption("occEvidenceInvalid");
+      }
+      return new PointCommitConflictV1Error({
+        conflict: Object.freeze({
+          kind: "appRelationIncoming",
+          edgeDefinitionId: dependency.edgeDefinitionId,
+          targetRowId: dependency.targetRowId,
+        }),
+        snapshotCommitSeq: command.authorityPins.snapshotToken.commitSeq,
+        currentCommitSeq: current,
+      });
+    }
+  }
+  return null;
+}
+
 function decodePointCommitIndexRangeConflictRowResult(
   value: unknown,
   dependencies: PreparedPointCommitDependencyCommandV1[
@@ -6110,6 +7388,7 @@ async function requireReproduciblePointCommitConflict(
   clock: LockedPointCommitClockV1,
   command: PreparedPointMutationAttemptReplacementCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
+  options: PointCommitTransactionProofOptionsV1,
 ): Promise<void> {
   const pointConflict = projectPointCommitTransactionResult(
     findPointCommitConflictAfterEvidenceValidationResult(command, heads),
@@ -6118,7 +7397,7 @@ async function requireReproduciblePointCommitConflict(
     tx,
     clock,
     command,
-  );
+  ) ?? await findPointCommitRelationConflict(tx, clock, command, options);
   if (
     actual === null ||
     !pointCommitConflictsReproduce(command.expectedConflict, actual)
@@ -6141,6 +7420,13 @@ function pointCommitConflictsReproduce(
     return actual.conflict.kind === "appRowPoint" &&
       expected.conflict.documentId === actual.conflict.documentId &&
       expected.currentCommitSeq === actual.currentCommitSeq;
+  }
+  if (expected.conflict.kind === "appRelationIncoming") {
+    return actual.conflict.kind === "appRelationIncoming" &&
+      expected.conflict.edgeDefinitionId ===
+        actual.conflict.edgeDefinitionId &&
+      expected.conflict.targetRowId === actual.conflict.targetRowId &&
+      actual.currentCommitSeq >= expected.currentCommitSeq;
   }
   if (actual.conflict.kind !== "appIndexRange") return false;
   if (
@@ -7775,7 +9061,7 @@ async function emitTransactionStep(
 
 async function emitReplacementStep(
   options: PointMutationAttemptReplacementOptionsV1,
-  command: PreparedPointMutationAttemptReplacementCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   step: PointMutationAttemptReplacementProofStepV1,
 ): Promise<void> {
   await options.afterReplacementStep?.(Object.freeze({
@@ -7785,7 +9071,7 @@ async function emitReplacementStep(
 }
 
 function preliminaryAuthorityFailure(
-  command: PreparedPointCommitAttemptScalarCommandV1,
+  command: PreparedPointCommitAuthorityCommandV1,
   preliminary: TrustedScopeAuthority,
 ): PointCommitStaleAuthorityV1Error | null {
   const pins = command.authorityPins;

@@ -12,13 +12,20 @@ import { prepareStandardApplicationDefinitionV1 } from
   "@flarex/standard-application-definition/v1";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect, Result } from "effect";
-import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
+import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity } from
   "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
+import { CommitSyscallSequenceV1Schema } from
+  "flarex-protocol/commit-protocol";
 import {
   CommitSeqSchema,
+  decodeReplacementScopeIdV1,
   FlarexDbV1StorageGenerationSchema,
+  projectScopeIdUuidV1,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -62,10 +69,16 @@ import {
   createApplicationRelationBuildPort,
   type ApplicationRelationBuildPort,
 } from "../src/applicationRelationBuild";
-import { createApplicationRelationCommitPort } from
-  "../src/applicationRelationCommit";
+import {
+  applyApplicationRelationCommitEdgesInTransactionEffect,
+  createApplicationRelationCommitPort,
+  prepareApplicationRelationCommitResult,
+  type LocatedApplicationRelationDefinitionSet,
+} from "../src/applicationRelationCommit";
 import { makeApplicationRelationPublicationRepository } from
   "../src/applicationRelationPublication";
+import { createApplicationRelationReadPort } from
+  "../src/applicationRelationRead";
 import {
   hasApplicationRelationReadinessFoldAuthority,
   makeApplicationRelationReadinessFoldRepository,
@@ -99,8 +112,10 @@ import {
 } from "../src/indexBuildReconciliation";
 import { createPhysicalDefinitionLifecyclePort } from
   "../src/physicalDefinitionLifecycle";
-import { createPointCommitPublisherPortV1 } from
-  "../src/pointCommitTransaction";
+import {
+  createPointCommitPublisherPortV1,
+  createPointMutationAttemptReplacementPortV1,
+} from "../src/pointCommitTransaction";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
@@ -109,6 +124,8 @@ import {
 import {
   fxAppEdgeAdjacencyVersions,
   fxAppEdgeCurrent,
+  fxControlSchemaVersions,
+  fxControlTables,
   fxControlEdgeDefinitions,
   fxControlRelations,
   fxSystemApplicationRelationSemanticReadiness,
@@ -123,6 +140,15 @@ import { resolveLocatedTrustedScopeAuthorityEffect } from
   "../src/scopeAuthorityResolution";
 import { lockScopeClockForUpdateInTransactionEffect } from
   "../src/scopeClock";
+import { createSessionJournalStorePersistenceV1 } from
+  "../src/sessionJournalStore";
+import { createStoredOccExecutionEvidenceLoaderV1 } from
+  "../src/storedOccExecution";
+import {
+  createPointMutationExecutionClaimAcquisitionV1,
+  createPointMutationSessionActivationPersistenceV1,
+  createPointMutationSessionAttemptLoadPersistenceV1,
+} from "../src/transactionSessionActivation";
 import {
   ensureRelationBuildTestWebCrypto,
   relationBuildDocumentId,
@@ -131,10 +157,21 @@ import {
   type RelationBuildPublicationOptions,
 } from "./applicationRelationBuildTestSupport";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+import { selectorFromRelationAnchor } from
+  "./pointCommitRelationTestSupport";
+import {
+  runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1,
+  runningRelationConflictRecoveryCommandFromStoredOccExecutionV1,
+} from "./pointCommitTransactionTestSupport";
 import {
   postgresUrl,
   withTemporaryPostgresPersistencePair,
 } from "./postgresHelpers";
+import {
+  TEST_GRANT_RETENTION_POLICY_V1,
+  activatePointMutationSession,
+  pointMutationSessionActivationFixture,
+} from "./transactionSessionActivationTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const LOCATOR = Object.freeze({
@@ -359,7 +396,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
     });
   }, 240_000);
 
-  it("concurrently settles one authentic relation-aware Application root and ordered child set", async () => {
+  it("concurrently settles one authentic relation-aware Application root and replaces a natural exact-read conflict", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
       const fixture = await fixtureFor(control, target);
       const version = await target.query<{ server_version: string }>(
@@ -570,8 +607,355 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         relation.binding.relationBindings.map(binding => binding.relationId),
       );
       expect(legacy).toHaveLength(0);
+
+      const binding = relation.binding.relationBindings[0];
+      if (binding === undefined) {
+        throw new Error("Expected a PostgreSQL exact relation binding.");
+      }
+      const reads = createApplicationRelationReadPort(
+        fixture.control.drizzle,
+        fixture.pointCommitAuthority,
+        fixture.relationCommit,
+        fold,
+      );
+      const capability = await runEffect(reads.prepare({
+        deploymentId: fixture.deploymentId,
+        readiness: left,
+        relationId: binding.relationId,
+      }));
+      const resolved = Result.getOrThrow(reads.resolve(capability, {
+        deploymentId: fixture.deploymentId,
+        scopeId: left.scopeId,
+        schemaVersionId: relation.binding.schemaVersionId,
+      }));
+      expect(resolved.definition.binding.relationId).toBe(binding.relationId);
+      const definitions = await runEffect(fixture.relationCommit.locate({
+        deploymentId: fixture.deploymentId,
+        schemaVersionId: relation.binding.schemaVersionId,
+      }));
+      if (definitions === null || definitions.definitions.length !== 2) {
+        throw new Error("Expected both PostgreSQL exact relation definitions.");
+      }
+      await publishExactRelationSchemaToPostgresExecutionFixture(
+        fixture,
+        relation.binding.schemaVersionId,
+      );
+
+      const targetRowId = relationBuildRowId(40_101);
+      const firstSourceDocumentId =
+        await applyExactPostgresRelationSourceCommit(
+          fixture,
+          relation,
+          definitions,
+          binding,
+          targetRowId,
+          40_102,
+          CommitSeqSchema.make(1n),
+        );
+      const randomUuid = relationFoldUuidSequence(31, 32, 33);
+      const activation = await activatePointMutationSession(
+        createPointMutationSessionActivationPersistenceV1(
+          fixture.pointCommitAuthority,
+          {
+            leaseDurationMilliseconds: 60_000,
+            randomUuid,
+            randomExecutionClaimOwner: randomUuid,
+          },
+        ),
+        pointMutationSessionActivationFixture(
+          fixture.deploymentId,
+          decodeReplacementScopeIdV1(left.scopeId),
+          { evidence: {
+            schemaVersionId: relation.binding.schemaVersionId,
+          } },
+        ),
+      );
+      if (activation.status !== "created") {
+        throw new Error("Expected a new PostgreSQL natural-conflict attempt.");
+      }
+      expect(activation.anchor.snapshotToken.commitSeq).toBe(1n);
+      const store = createSessionJournalStorePersistenceV1(
+        fixture.pointCommitAuthority,
+        {
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+          applicationRelations: reads,
+        },
+      );
+      const attempt = await runEffect(store.openAttemptEffect({
+        selector: selectorFromRelationAnchor(activation.anchor),
+        executionClaim: activation.executionClaim,
+        snapshotToken: activation.anchor.snapshotToken,
+        schemaVersionId: relation.binding.schemaVersionId,
+      }));
+      const relationRead = await runEffect(
+        store.resolveApplicationRelationReadEffect(attempt, capability),
+      );
+      const claimedAuthority = Object.freeze({
+        kind: "claimedAttempt" as const,
+        deploymentId: activation.anchor.deploymentId,
+        scopeId: activation.anchor.scopeId,
+        scopeUuid: projectScopeIdUuidV1(activation.anchor.scopeId).scopeUuid,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: activation.anchor.attemptFence,
+        storageGeneration: activation.anchor.storageGeneration,
+        storageGenerationFence: activation.anchor.storageGenerationFence,
+        snapshotToken: activation.anchor.snapshotToken,
+        schemaVersionId: relation.binding.schemaVersionId,
+        executionClaim: activation.executionClaim,
+      });
+      const execution = await runEffect(
+        createStoredOccExecutionEvidenceLoaderV1(
+          fixture.pointCommitAuthority,
+        ).loadEffect(claimedAuthority),
+      );
+      if (execution.kind !== "loaded") {
+        throw new Error(
+          `Expected pristine PostgreSQL running evidence; received ${execution.kind}${
+            "reason" in execution ? `:${execution.reason}` : ""
+          }.`,
+        );
+      }
+
+      const secondSourceDocumentId =
+        await applyExactPostgresRelationSourceCommit(
+          fixture,
+          relation,
+          definitions,
+          binding,
+          targetRowId,
+          40_103,
+          CommitSeqSchema.make(2n),
+        );
+      const operation = Object.freeze({
+        kind: "relationIncoming" as const,
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        targetDocumentId: appDocumentIdV1FromRowIdentity({
+          tableId: binding.targetTableId,
+          rowId: targetRowId,
+        }),
+        limit: 2,
+      });
+      const conflicted = await runEffect(
+        store.runApplicationRelationIncomingReadEffect(
+          relationRead,
+          operation,
+        ),
+      );
+      expect(conflicted).toMatchObject({
+        kind: "conflicted",
+        delivery: "executed",
+        conflict: {
+          kind: "relationConflict",
+          edgeDefinitionId: binding.edgeDefinitionId,
+          targetRowId,
+          expectedAdjacencyVersion: 1n,
+          actualAdjacencyVersion: 2n,
+          snapshotCommitSeq: 1n,
+        },
+      });
+      if (conflicted.kind !== "conflicted") {
+        throw new Error("Expected a persisted PostgreSQL relation conflict.");
+      }
+      await fixture.target.query(
+        `update fx_system_tx_execution_claim
+         set claimed_at = clock_timestamp() - interval '2 minutes',
+             claim_expires_at = clock_timestamp() - interval '1 minute'
+         where session_id = $1`,
+        [activation.anchor.sessionId],
+      );
+      const selector = selectorFromRelationAnchor(activation.anchor);
+      const acquisitions = await Promise.all([
+        runEffect(createPointMutationExecutionClaimAcquisitionV1(
+          fixture.pointCommitAuthority,
+          {
+            durationMilliseconds: 60_000,
+            randomOwner: relationFoldUuidSequence(34),
+          },
+        ).acquireEffect(selector)),
+        runEffect(createPointMutationExecutionClaimAcquisitionV1(
+          fixture.pointCommitAuthority,
+          {
+            durationMilliseconds: 60_000,
+            randomOwner: relationFoldUuidSequence(35),
+          },
+        ).acquireEffect(selector)),
+      ]);
+      const acquired = acquisitions.find(result => result.kind === "acquired");
+      const busy = acquisitions.find(result => result.kind === "busy");
+      if (
+        acquired?.kind !== "acquired" ||
+        acquired.mode !== "replaceRelationConflict" ||
+        busy?.kind !== "busy"
+      ) {
+        throw new Error(
+          "Expected one PostgreSQL relation-conflict takeover and one busy result.",
+        );
+      }
+      expect(acquired.observation.claimFence).toBe(
+        activation.executionClaim.claimFence + 1n,
+      );
+      expect(busy.observation).toMatchObject({
+        claimOwner: acquired.observation.claimOwner,
+        claimFence: acquired.observation.claimFence,
+      });
+
+      const freshAttempt = await runEffect(
+        createPointMutationSessionAttemptLoadPersistenceV1(
+          fixture.pointCommitAuthority,
+        ).loadEffect(selector),
+      );
+      if (freshAttempt.status !== "loaded") {
+        throw new Error("Expected the PostgreSQL takeover attempt to load.");
+      }
+      const recoveredAuthority = Object.freeze({
+        kind: "claimedRelationConflict" as const,
+        deploymentId: freshAttempt.anchor.deploymentId,
+        scopeId: freshAttempt.anchor.scopeId,
+        scopeUuid: projectScopeIdUuidV1(freshAttempt.anchor.scopeId).scopeUuid,
+        sessionId: freshAttempt.anchor.sessionId,
+        attemptFence: freshAttempt.anchor.attemptFence,
+        storageGeneration: freshAttempt.anchor.storageGeneration,
+        storageGenerationFence: freshAttempt.anchor.storageGenerationFence,
+        snapshotToken: freshAttempt.anchor.snapshotToken,
+        schemaVersionId: freshAttempt.executionPin.schemaVersionId,
+        executionClaim: acquired.observation,
+      });
+      const recoveredExecution = await runEffect(
+        createStoredOccExecutionEvidenceLoaderV1(
+          fixture.pointCommitAuthority,
+        ).loadEffect(recoveredAuthority),
+      );
+      if (recoveredExecution.kind !== "loaded") {
+        throw new Error(
+          `Expected PostgreSQL conflict authority; received ${recoveredExecution.kind}.`,
+        );
+      }
+
+      const replacementSteps: string[] = [];
+      const replacement = createPointMutationAttemptReplacementPortV1(
+        fixture.pointCommitAuthority,
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomExecutionClaimOwner: relationFoldUuidSequence(36),
+          afterReplacementStep: event => {
+            replacementSteps.push(event.step);
+            return Promise.resolve();
+          },
+        },
+      );
+      const recovered = await runEffect(
+        replacement.recoverRunningRelationConflict(
+          runningRelationConflictRecoveryCommandFromStoredOccExecutionV1(
+            recoveredAuthority,
+            recoveredExecution.evidence,
+          ),
+        ),
+      );
+      expect(recovered).toMatchObject({
+        request: {
+          syscallSequence: operation.syscallSequence,
+          edgeDefinitionId: binding.edgeDefinitionId,
+          targetRowId,
+          limit: operation.limit,
+        },
+        conflict: {
+          expectedAdjacencyVersion: 1n,
+          actualAdjacencyVersion: 2n,
+          snapshotCommitSeq: 1n,
+        },
+      });
+      const replacementCommand =
+        runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1(
+          recoveredAuthority,
+          recoveredExecution.evidence,
+          recovered,
+        );
+      const replaced = await runEffect(
+        replacement.replaceRunningRelationConflict(replacementCommand),
+      );
+      expect(replaced).toMatchObject({
+        kind: "replaced",
+        previousAttemptFence: activation.anchor.attemptFence,
+        attemptFence: activation.anchor.attemptFence + 1n,
+      });
+      expect(replacementSteps).toEqual([
+        "clockLocked",
+        "outcomeRechecked",
+        "sessionLocked",
+        "leaseLocked",
+        "journalRootLocked",
+        "dependenciesValidated",
+        "executionClaimDeleted",
+        "sessionEnteredRetrying",
+        "journalDeleted",
+        "leaseDeleted",
+        "attemptFenceAdvanced",
+        "leaseInserted",
+        "journalRootInserted",
+        "executionClaimInserted",
+        "sessionRunning",
+        "beforeCommit",
+      ]);
+      if (replaced.kind !== "replaced") {
+        throw new Error("Expected exact PostgreSQL conflict replacement.");
+      }
+      const loaded = await runEffect(
+        createPointMutationSessionAttemptLoadPersistenceV1(
+          fixture.pointCommitAuthority,
+        ).loadEffect({
+          deploymentId: activation.anchor.deploymentId,
+          scopeId: activation.anchor.scopeId,
+          sessionId: activation.anchor.sessionId,
+          attemptFence: replaced.attemptFence,
+        }),
+      );
+      expect(loaded).toMatchObject({
+        status: "loaded",
+        anchor: { snapshotToken: { commitSeq: 2n } },
+        attemptFacet: { kind: "pristineOpen" },
+      });
+      const retryStore = createSessionJournalStorePersistenceV1(
+        fixture.pointCommitAuthority,
+        {
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+          applicationRelations: reads,
+        },
+      );
+      const retryAttempt = await runEffect(retryStore.openAttemptEffect({
+        selector: selectorFromRelationAnchor(loaded.anchor),
+        executionClaim: replaced.executionClaim,
+        snapshotToken: loaded.anchor.snapshotToken,
+        schemaVersionId: loaded.executionPin.schemaVersionId,
+      }));
+      const retryRelation = await runEffect(
+        retryStore.resolveApplicationRelationReadEffect(
+          retryAttempt,
+          capability,
+        ),
+      );
+      const retried = await runEffect(
+        retryStore.runApplicationRelationIncomingReadEffect(
+          retryRelation,
+          operation,
+        ),
+      );
+      expect(retried).toMatchObject({
+        kind: "completed",
+        delivery: "executed",
+        outcome: {
+          kind: "relationIncomingPage",
+          exhausted: true,
+        },
+      });
+      if (retried.kind !== "completed") {
+        throw new Error("Expected the PostgreSQL retry read to succeed.");
+      }
+      expect(retried.outcome.items.map(item => item.sourceDocumentId)).toEqual([
+        firstSourceDocumentId,
+        secondSourceDocumentId,
+      ]);
     });
-  }, 240_000);
+  }, 300_000);
 });
 
 interface Fixture {
@@ -583,6 +967,9 @@ interface Fixture {
   readonly scopeId: ReturnType<typeof ScopeIdSchema.make>;
   readonly epoch: ReturnType<typeof ScopeEpochSchema.make>;
   readonly relationCommit: ReturnType<typeof createApplicationRelationCommitPort>;
+  readonly pointCommitAuthority: Parameters<
+    typeof createApplicationRelationCommitPort
+  >[1];
   readonly authority: Parameters<typeof createApplicationRelationBuildPort>[1];
   readonly build: ApplicationRelationBuildPort;
   readonly readiness: ApplicationRelationReadinessPort;
@@ -622,15 +1009,17 @@ async function fixtureFor(
     target,
     LOCATOR,
   );
+  const pointCommitAuthority = Object.freeze({
+    scopeMetadata: control,
+    applicationControlDb: control.drizzle,
+    provisioningReceipts: {
+      getScopeAuthorityProvisioningReceipt: async () => null,
+    },
+    scopeSessionTargets: { resolve: async () => pointTarget },
+  });
   const relationCommit = createApplicationRelationCommitPort(
     control.drizzle,
-    {
-      scopeMetadata: control,
-      provisioningReceipts: {
-        getScopeAuthorityProvisioningReceipt: async () => null,
-      },
-      scopeSessionTargets: { resolve: async () => pointTarget },
-    },
+    pointCommitAuthority,
   );
   const base = Object.freeze({
     control,
@@ -639,6 +1028,7 @@ async function fixtureFor(
     scopeId,
     epoch,
     relationCommit,
+    pointCommitAuthority,
   });
   return Object.freeze({ ...base, ...composePorts(base) });
 }
@@ -1204,6 +1594,165 @@ function relationFoldPreparedDefinition() {
       authPath: null,
     },
   }));
+}
+
+/**
+ * Test-local publication for the legacy located-execution owner. Production
+ * schema placement remains outside this relation-read acceptance scenario.
+ */
+async function publishExactRelationSchemaToPostgresExecutionFixture(
+  fixture: Fixture,
+  schemaVersionId: ApplicationRelationBindingPublication["binding"][
+    "schemaVersionId"
+  ],
+): Promise<void> {
+  const [schemaRows, tableRows] = await Promise.all([
+    fixture.control.drizzle.select().from(fxControlSchemaVersions).where(and(
+      eq(fxControlSchemaVersions.deploymentId, fixture.deploymentId),
+      eq(fxControlSchemaVersions.schemaVersionId, schemaVersionId),
+    )).limit(2),
+    fixture.control.drizzle.select().from(fxControlTables).where(eq(
+      fxControlTables.deploymentId,
+      fixture.deploymentId,
+    )).orderBy(asc(fxControlTables.tableId)),
+  ]);
+  if (schemaRows.length !== 1 || tableRows.length !== 2) {
+    throw new Error(
+      "Expected one exact PostgreSQL schema and two stable table bindings.",
+    );
+  }
+  const schema = schemaRows[0];
+  if (schema === undefined) {
+    throw new Error("Expected the exact PostgreSQL schema artifact.");
+  }
+  await fixture.target.insertDeploymentMetadata({
+    deploymentId: fixture.deploymentId,
+    projectId: "project_e01_b_postgres",
+  });
+  await fixture.target.drizzle.transaction(async tx => {
+    await tx.insert(fxControlSchemaVersions).values(schema);
+    await tx.insert(fxControlTables).values(tableRows);
+  });
+}
+
+async function applyExactPostgresRelationSourceCommit(
+  fixture: Fixture,
+  publication: ApplicationRelationBindingPublication,
+  definitions: LocatedApplicationRelationDefinitionSet,
+  binding: ApplicationRelationBindingPublication["binding"][
+    "relationBindings"
+  ][number],
+  targetRowId: ReturnType<typeof relationBuildRowId>,
+  sourceOrdinal: number,
+  commitSeq: ReturnType<typeof CommitSeqSchema.make>,
+): Promise<ReturnType<typeof appDocumentIdV1FromRowIdentity>> {
+  const sourceRowId = relationBuildRowId(sourceOrdinal);
+  const sourceDocumentId = appDocumentIdV1FromRowIdentity({
+    tableId: binding.sourceTableId,
+    rowId: sourceRowId,
+  });
+  const targetDocumentId = appDocumentIdV1FromRowIdentity({
+    tableId: binding.targetTableId,
+    rowId: targetRowId,
+  });
+  const sourcePaths = definitions.definitions.map((definition) => {
+    const sourcePath = definition.edge.physical.sourcePath[0];
+    if (sourcePath === undefined) {
+      throw new Error("Expected one PostgreSQL exact relation source field.");
+    }
+    return sourcePath.name;
+  });
+  const sourceFields = Object.freeze(Object.fromEntries(
+    sourcePaths.map(name => [name, targetDocumentId]),
+  ));
+  const sourceCreationTime = decodeAppCreationTimeV1(sourceOrdinal);
+  const final = await canonicalizeAppDocumentV1({
+    tableId: binding.sourceTableId,
+    rowId: sourceRowId,
+    creationTime: sourceCreationTime,
+    fields: sourceFields,
+  });
+  const targetCreationTime = decodeAppCreationTimeV1(40_101);
+  const target = commitSeq === 1n
+    ? await canonicalizeAppDocumentV1({
+        tableId: binding.targetTableId,
+        rowId: targetRowId,
+        creationTime: targetCreationTime,
+        fields: { name: "PostgreSQL natural relation target" },
+      })
+    : null;
+  const transitions = Object.freeze([
+    ...(target === null
+      ? []
+      : [Object.freeze({
+          documentId: targetDocumentId,
+          tableId: binding.targetTableId,
+          rowId: targetRowId,
+          prior: null,
+          final: target,
+        })]),
+    Object.freeze({
+      documentId: sourceDocumentId,
+      tableId: binding.sourceTableId,
+      rowId: sourceRowId,
+      prior: null,
+      final,
+    }),
+  ]);
+  const prepared = Result.getOrThrow(prepareApplicationRelationCommitResult(
+    definitions,
+    transitions,
+  ));
+  await fixture.target.drizzle.transaction(async tx => {
+    for (const transition of transitions) {
+      const document = transition.final;
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: fixture.scopeId,
+        tableId: transition.tableId,
+        rowId: transition.rowId,
+        writeEpoch: fixture.epoch,
+        commitSeq,
+        prevCommitSeq: null,
+        schemaVersionId: publication.binding.schemaVersionId,
+        creationTime: transition.documentId === targetDocumentId
+          ? targetCreationTime
+          : sourceCreationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      });
+    }
+    await runEffect(applyApplicationRelationCommitEdgesInTransactionEffect(
+      fixture.relationCommit,
+      tx,
+      {
+        scopeId: fixture.scopeId,
+        schemaVersionId: publication.binding.schemaVersionId,
+        commitSeq,
+        prepared,
+      },
+    ));
+    const advanced = await tx.update(fxSystemScopeClocks).set({
+      lastCommitSeq: commitSeq,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(fxSystemScopeClocks.scopeId, fixture.scopeId),
+      eq(
+        fxSystemScopeClocks.lastCommitSeq,
+        CommitSeqSchema.make(commitSeq - 1n),
+      ),
+    )).returning({ lastCommitSeq: fxSystemScopeClocks.lastCommitSeq });
+    if (advanced.length !== 1 || advanced[0]?.lastCommitSeq !== commitSeq) {
+      throw new Error(
+        "Expected one PostgreSQL exact relation source commit sequence.",
+      );
+    }
+  });
+  return sourceDocumentId;
 }
 
 function relationFoldUuidSequence(

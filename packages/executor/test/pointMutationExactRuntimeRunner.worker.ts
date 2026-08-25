@@ -293,6 +293,10 @@ async function journalPrecedenceScenario() {
         Effect.die(new Error("index resolution must not run")),
       runIndexedQuery: () =>
         Effect.die(new Error("indexed query must not run")),
+      resolveApplicationRelationRead: () =>
+        Effect.die(new Error("relation resolution must not run")),
+      runApplicationRelationIncomingRead: () =>
+        Effect.die(new Error("relation read must not run")),
     }),
   );
   const binding = bindingFrom(async (_request, journal) => {
@@ -336,6 +340,10 @@ async function interruptionScenario() {
         Effect.die(new Error("index resolution must not run")),
       runIndexedQuery: () =>
         Effect.die(new Error("indexed query must not run")),
+      resolveApplicationRelationRead: () =>
+        Effect.die(new Error("relation resolution must not run")),
+      runApplicationRelationIncomingRead: () =>
+        Effect.die(new Error("relation read must not run")),
     }),
   );
   const binding = bindingFrom((_request, journal) => {
@@ -484,6 +492,10 @@ function inertJournal(): PointMutationOccBoundJournalV1 {
     resolveDeveloperIndex: () =>
       Effect.die(new Error("journal must not be called")),
     runIndexedQuery: () =>
+      Effect.die(new Error("journal must not be called")),
+    resolveApplicationRelationRead: () =>
+      Effect.die(new Error("journal must not be called")),
+    runApplicationRelationIncomingRead: () =>
       Effect.die(new Error("journal must not be called")),
   });
 }

@@ -1,7 +1,9 @@
 import type {
   RunSessionJournalIndexedQueryV1Result,
+  RunSessionJournalRelationIncomingV1Result,
   RunSessionJournalPointOperationV1Result,
   SessionJournalIndexedQueryOperationV1,
+  SessionJournalRelationIncomingOperationV1,
   SessionJournalPointOperationV1,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
@@ -20,7 +22,14 @@ import {
   type PointMutationSessionAttemptLoadResultV1,
   type PointMutationSessionAttemptSelectorV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, Result } from "effect";
+import { decodeAppDocumentIdV1, decodeAppRowIdHexV1 } from
+  "flarex-protocol/app-document-id";
+import {
+  decodeCatalogEdgeDefinitionId,
+  decodeCatalogRelationId,
+  decodeCatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
   CommitProtocolV1Error,
@@ -60,10 +69,12 @@ import {
   InvalidPointMutationJournalCapabilityV1Error,
   PointMutationJournalAttemptUnavailableV1Error,
   PointMutationJournalAttemptPinsV1Error,
+  PointMutationJournalRelationConflictError,
   PointMutationJournalPersistenceV1Error,
   UnsupportedPointMutationJournalOperationV1Error,
   createPointMutationJournalV1,
   type PointMutationJournalV1,
+  type PointMutationJournalApplicationRelationReadCapability,
 } from "../src/pointMutationJournal";
 import {
   createPointMutationExecutionClaimVaultV1,
@@ -95,6 +106,29 @@ const SCHEMA_VERSION_ID = CatalogSchemaVersionIdSchema.make(
 );
 const USERS_TABLE_NAME = SchemaManifestAppTableNameSchema.make("users");
 const DOCUMENT_ID = "1:00000000-0000-0000-0000-000000000001";
+const RELATION_TARGET_DOCUMENT_ID = decodeAppDocumentIdV1(DOCUMENT_ID);
+const RELATION_CONFLICT = Object.freeze({
+  kind: "relationConflict" as const,
+  edgeDefinitionId: decodeCatalogEdgeDefinitionId(41),
+  targetRowId: decodeAppRowIdHexV1(
+    "00000000000000000000000000000001",
+  ),
+  expectedAdjacencyVersion: CommitSeqSchema.make(5n),
+  actualAdjacencyVersion: CommitSeqSchema.make(8n),
+  snapshotCommitSeq: CommitSeqSchema.make(6n),
+});
+const RELATION_REQUEST = Object.freeze({
+  format: "flarex.session-journal-syscall" as const,
+  codecVersion: 1 as const,
+  kind: "relationIncoming" as const,
+  syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+  relationId: decodeCatalogRelationId(31),
+  edgeDefinitionId: RELATION_CONFLICT.edgeDefinitionId,
+  sourceTableId: decodeCatalogTableId(1),
+  targetTableId: decodeCatalogTableId(1),
+  targetRowId: RELATION_CONFLICT.targetRowId,
+  limit: 1,
+});
 const SELECTOR = Object.freeze({
   deploymentId: DEPLOYMENT_ID,
   scopeId: SCOPE_ID,
@@ -288,6 +322,93 @@ describe("C03 executor point-mutation journal boundary", () => {
       reason: "invalidFieldShape",
       operationKind: "indexRange",
     });
+  });
+
+  it.each(["executed", "replayed"] as const)(
+    "turns an %s persisted relation conflict into one same-factory retry claim",
+    async (delivery) => {
+      const harness = createHarness({
+        runRelationIncoming: async () => Object.freeze({
+          kind: "conflicted" as const,
+          delivery,
+          request: RELATION_REQUEST,
+          conflict: RELATION_CONFLICT,
+        }),
+      });
+      const foreign = createHarness();
+      const relation = await openResolvedRelation(harness.journal);
+      const failure = await runFailure(
+        harness.journal.runApplicationRelationIncomingRead(
+          relation.relation,
+          relationIncomingOperation(1n),
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(
+        PointMutationJournalRelationConflictError,
+      );
+      expect(failure).toMatchObject({ conflict: RELATION_CONFLICT });
+      expect(Result.isFailure(
+        foreign.journal.claimPersistedRelationConflictForRetry(failure),
+      )).toBe(true);
+      expect(Result.isFailure(
+        harness.journal.claimPersistedRelationConflictForRetry(
+          new PointMutationJournalRelationConflictError({
+            conflict: RELATION_CONFLICT,
+          }),
+        ),
+      )).toBe(true);
+
+      const claimed = harness.journal
+        .claimPersistedRelationConflictForRetry(failure);
+      expect(Result.isSuccess(claimed)).toBe(true);
+      if (Result.isSuccess(claimed)) {
+        expect(claimed.success.error).toBe(failure);
+        expect(claimed.success.request).toEqual(RELATION_REQUEST);
+        expect(claimed.success.conflict).toEqual(RELATION_CONFLICT);
+      }
+      expect(Result.isFailure(
+        harness.journal.claimPersistedRelationConflictForRetry(failure),
+      )).toBe(true);
+      expect(harness.relationOperations).toEqual([
+        relationIncomingOperation(1n),
+      ]);
+    },
+  );
+
+  it("rejects accessor and excess relation operations before persistence", async () => {
+    const harness = createHarness();
+    const { relation } = await openResolvedRelation(harness.journal);
+    let getterCalls = 0;
+    const accessor: Record<string, unknown> = {
+      kind: "relationIncoming",
+      syscallSequence: 1n,
+      targetDocumentId: RELATION_TARGET_DOCUMENT_ID,
+    };
+    Object.defineProperty(accessor, "limit", {
+      enumerable: true,
+      get: () => {
+        getterCalls += 1;
+        return 1;
+      },
+    });
+    const inputs = [
+      accessor,
+      {
+        ...relationIncomingOperation(1n),
+        cursor: "not-supported",
+      },
+      { ...relationIncomingOperation(1n), limit: 0 },
+    ];
+    for (const input of inputs) {
+      await expect(runFailure(
+        harness.journal.runApplicationRelationIncomingRead(relation, input),
+      )).resolves.toBeInstanceOf(
+        UnsupportedPointMutationJournalOperationV1Error,
+      );
+    }
+    expect(getterCalls).toBe(0);
+    expect(harness.relationOperations).toEqual([]);
   });
 
   it("shares exact-attempt serialization across independently loaded handles", async () => {
@@ -761,6 +882,10 @@ interface HarnessOptions {
     persistenceIndex: unknown,
     operation: SessionJournalIndexedQueryOperationV1,
   ) => Promise<RunSessionJournalIndexedQueryV1Result>;
+  readonly runRelationIncoming?: (
+    persistenceRelation: unknown,
+    operation: SessionJournalRelationIncomingOperationV1,
+  ) => Promise<RunSessionJournalRelationIncomingV1Result>;
   readonly prepareSeal?: (persistenceAttempt: unknown) => Promise<Readonly<{
     readonly preparation: unknown;
     readonly journal: SessionJournalV1;
@@ -777,6 +902,7 @@ interface JournalHarness {
   readonly samePersistenceJournal: PointMutationJournalV1;
   readonly operations: SessionJournalPointOperationV1[];
   readonly indexedOperations: SessionJournalIndexedQueryOperationV1[];
+  readonly relationOperations: SessionJournalRelationIncomingOperationV1[];
   readonly completeSealCalls: number;
   readonly completedJournal: CanonicalSessionJournalV1;
   readonly completedResult: CanonicalSuccessfulResultV1;
@@ -786,6 +912,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   const persistenceAttempt = Object.freeze({ kind: "test-attempt" });
   const operations: SessionJournalPointOperationV1[] = [];
   const indexedOperations: SessionJournalIndexedQueryOperationV1[] = [];
+  const relationOperations: SessionJournalRelationIncomingOperationV1[] = [];
   let completeSealCalls = 0;
   let completedJournal: CanonicalSessionJournalV1 | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
@@ -858,6 +985,34 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
             }),
           });
     },
+    resolveApplicationRelationReadEffect: (
+      attempt: unknown,
+      capability: unknown,
+    ) => Effect.succeed(Object.freeze({ attempt, capability })),
+    runApplicationRelationIncomingReadEffect: (
+      relation: unknown,
+      operation: SessionJournalRelationIncomingOperationV1,
+    ) => {
+      relationOperations.push(operation);
+      const runRelationIncoming = options.runRelationIncoming;
+      return runRelationIncoming === undefined
+        ? Effect.succeed(Object.freeze({
+            kind: "completed" as const,
+            delivery: "executed" as const,
+            outcome: Object.freeze({
+              kind: "relationIncomingPage" as const,
+              items: Object.freeze([]),
+              exhausted: true,
+            }),
+          }))
+        : Effect.tryPromise({
+            try: () => runRelationIncoming(relation, operation),
+            catch: (cause) => new SessionJournalPersistenceV1Error({
+              operation: "runApplicationRelationRead",
+              cause,
+            }),
+          });
+    },
     prepareSealEffect: (attempt: unknown) => Effect.tryPromise({
       try: () => options.prepareSeal !== undefined
         ? options.prepareSeal(attempt)
@@ -912,6 +1067,7 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
     samePersistenceJournal,
     operations,
     indexedOperations,
+    relationOperations,
     get completeSealCalls() {
       return completeSealCalls;
     },
@@ -946,6 +1102,22 @@ async function openResolvedIndex(journal: PointMutationJournalV1) {
     journal.resolveDeveloperIndex(table, "by_status"),
   );
   return Object.freeze({ attempt, table, index });
+}
+
+async function openResolvedRelation(journal: PointMutationJournalV1) {
+  const loaded = await loadedAttempt();
+  const attempt = await runEffect(journal.openAttempt(
+    loaded,
+    executionScopeForJournal(journal),
+  ));
+  // The persistence package deliberately keeps this capability nominal and
+  // process-local. This inert fake exists only at the executor adapter seam.
+  const capability = Object.freeze({}) as
+    PointMutationJournalApplicationRelationReadCapability;
+  const relation = await runEffect(
+    journal.resolveApplicationRelationRead(attempt, capability),
+  );
+  return Object.freeze({ attempt, relation });
 }
 
 function executionScopeForJournal(
@@ -1025,6 +1197,17 @@ function getOperation(sequence: bigint) {
     kind: "get",
     syscallSequence: sequence,
     documentId: DOCUMENT_ID,
+  });
+}
+
+function relationIncomingOperation(
+  sequence: bigint,
+): SessionJournalRelationIncomingOperationV1 {
+  return Object.freeze({
+    kind: "relationIncoming",
+    syscallSequence: CommitSyscallSequenceV1Schema.make(sequence),
+    targetDocumentId: RELATION_TARGET_DOCUMENT_ID,
+    limit: 1,
   });
 }
 

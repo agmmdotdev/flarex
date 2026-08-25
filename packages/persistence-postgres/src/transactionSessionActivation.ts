@@ -133,6 +133,7 @@ import {
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalIndexRanges,
+  fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
@@ -395,6 +396,7 @@ export type PointMutationSessionActivationResultV1 =
 export type PointMutationExecutionClaimAcquisitionModeV1 =
   | "execute"
   | "finishOnly"
+  | "replaceRelationConflict"
   | "abortOnly";
 
 export type PointMutationExecutionClaimAbortReasonV1 =
@@ -1711,6 +1713,8 @@ async function renewExecutionClaimLivenessInTransaction(
     ? "sealed"
     : root.state === "failed"
     ? "failed"
+    : root.state === "relation_conflicted"
+    ? "relationConflicted"
     : root.state === "open"
     ? "open"
     : undefined;
@@ -2137,13 +2141,17 @@ async function acquireExecutionClaimInTransaction(
   }
 
   let disposition:
-    | Readonly<{ readonly mode: "execute" | "finishOnly" }>
+    | Readonly<{
+        readonly mode: "execute" | "finishOnly" | "replaceRelationConflict";
+      }>
     | Readonly<{
         readonly mode: "abortOnly";
         readonly reason: PointMutationExecutionClaimAbortReasonV1;
       }>;
   if (root.state === "sealed") {
     disposition = { mode: "finishOnly" };
+  } else if (root.state === "relation_conflicted") {
+    disposition = { mode: "replaceRelationConflict" };
   } else if (root.state === "open") {
     const facet = await observePointMutationSessionAttemptFacet(
       tx,
@@ -2677,6 +2685,9 @@ async function createSession(
     indexedQuerySyscalls: 0,
     indexRangeDependencyCount: 0,
     indexRangeDependencyEvidenceBytes: 0,
+    relationReadSyscalls: 0,
+    relationDependencyCount: 0,
+    relationBaseOccurrences: 0,
     writeOperations: 0,
     writeSemanticBytes: 0,
     materialWriteEventEvidenceBytes:
@@ -3166,6 +3177,15 @@ async function observePointMutationSessionAttemptFacet(
         and ${fxSystemTransactionJournalIndexRanges.attemptFence} =
           ${locked.attemptFence}
     )`,
+    relationDependencyExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalRelationIncomingDependencies}
+      where ${fxSystemTransactionJournalRelationIncomingDependencies.scopeUuid} =
+        ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalRelationIncomingDependencies.sessionId} =
+          ${locked.sessionId}
+        and ${fxSystemTransactionJournalRelationIncomingDependencies.attemptFence} =
+          ${locked.attemptFence}
+    )`,
     eventExists: sql<boolean>`exists(
       select 1 from ${fxSystemTransactionJournalWriteEvents}
       where ${fxSystemTransactionJournalWriteEvents.scopeUuid} =
@@ -3186,6 +3206,7 @@ async function observePointMutationSessionAttemptFacet(
     typeof observation.receiptExists !== "boolean" ||
     typeof observation.pointExists !== "boolean" ||
     typeof observation.indexRangeExists !== "boolean" ||
+    typeof observation.relationDependencyExists !== "boolean" ||
     typeof observation.eventExists !== "boolean"
   ) {
     throw corruptionError(clock.record.scopeId, "journalRootInvalid");
@@ -3194,6 +3215,7 @@ async function observePointMutationSessionAttemptFacet(
     kind: observation.receiptExists ||
         observation.pointExists ||
         observation.indexRangeExists ||
+        observation.relationDependencyExists ||
         observation.eventExists
       ? "nonPristine"
       : "pristineOpen",

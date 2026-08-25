@@ -10,11 +10,15 @@ import { Data, Effect, Encoding, Result, Schema } from "effect";
 import { AppCreationTimeV1Schema } from "./app-document";
 import {
   AppDocumentIdV1Schema,
+  AppRowIdHexV1Schema,
   type AppDocumentIdV1,
+  type AppRowIdHexV1,
 } from "./app-document-id";
 import {
+  CatalogEdgeDefinitionIdSchema,
   CatalogIndexDefinitionIdSchema,
   CatalogTableIdSchema,
+  type CatalogEdgeDefinitionId,
   type CatalogIndexDefinitionId,
 } from "./catalog";
 import { AppIndexPhysicalSpecSha256HexV1Schema } from "./index-definition";
@@ -95,6 +99,9 @@ export const MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1 = 32;
 export const MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1 = 128;
 export const MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 = 32;
 export const MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 = 1 << 18;
+export const MAX_COMMIT_RELATION_READ_SYSCALLS_V1 = 128;
+export const MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 = 128;
+export const MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1 = 4_096;
 /**
  * Operational ceiling for net application-row revisions lowered by the
  * current point-commit transaction owner. Unlike point reads, every material
@@ -114,6 +121,9 @@ export interface CommitProtocolExecutionLimitsV1 {
   readonly indexedQuerySyscalls: number;
   readonly indexedQueryPageSize: number;
   readonly indexRangeReadDependencies: number;
+  readonly relationReadSyscalls: number;
+  readonly relationReadDependencies: number;
+  readonly relationBaseOccurrences: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly resultSemanticBytes: number;
@@ -126,6 +136,9 @@ export const COMMIT_PROTOCOL_EXECUTION_LIMITS_V1 = Object.freeze({
   indexedQuerySyscalls: MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   indexedQueryPageSize: MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
   indexRangeReadDependencies: MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  relationReadSyscalls: MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
+  relationReadDependencies: MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  relationBaseOccurrences: MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
   writeOperations: MAX_COMMIT_WRITE_OPERATIONS_V1,
   writeSemanticBytes: MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   resultSemanticBytes: MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
@@ -288,9 +301,20 @@ export const LogicalIndexRangeReadDependencyV1Schema = Schema.Struct({
 export type LogicalIndexRangeReadDependencyV1 =
   typeof LogicalIndexRangeReadDependencyV1Schema.Type;
 
+export const LogicalApplicationRelationIncomingReadDependencyV1Schema =
+  Schema.Struct({
+    kind: Schema.Literal("appRelationIncoming"),
+    edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
+    targetRowId: AppRowIdHexV1Schema,
+    observedAdjacencyVersion: CommitSeqSchema,
+  }).annotate(StrictStructOptions);
+export type LogicalApplicationRelationIncomingReadDependencyV1 =
+  typeof LogicalApplicationRelationIncomingReadDependencyV1Schema.Type;
+
 export const LogicalReadDependencyV1Schema = Schema.Union([
   LogicalPointReadDependencyV1Schema,
   LogicalIndexRangeReadDependencyV1Schema,
+  LogicalApplicationRelationIncomingReadDependencyV1Schema,
 ]);
 export type LogicalReadDependencyV1 =
   typeof LogicalReadDependencyV1Schema.Type;
@@ -501,6 +525,9 @@ export type CommitProtocolV1LimitDimension =
   | "indexedQuerySyscalls"
   | "indexRangeReadDependencies"
   | "indexRangeDependencyEvidenceBytes"
+  | "relationReadSyscalls"
+  | "relationReadDependencies"
+  | "relationBaseOccurrences"
   | "writeOperations"
   | "patchFields"
   | "writeSemanticBytes"
@@ -546,6 +573,11 @@ export type CommitProtocolV1Issue =
   | {
       readonly reason: "invalidIndexRangeDependency";
       readonly indexDefinitionId: CatalogIndexDefinitionId;
+    }
+  | {
+      readonly reason: "conflictingApplicationRelationReadDependency";
+      readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+      readonly targetRowId: AppRowIdHexV1;
     }
   | {
       readonly reason: "duplicateWriteSequence";
@@ -887,6 +919,9 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
   const indexedDependencies = journal.readDependencies.filter(
     (dependency) => dependency.kind === "appIndexRange",
   );
+  const applicationRelationDependencies = journal.readDependencies.filter(
+    (dependency) => dependency.kind === "appRelationIncoming",
+  );
   yield* enforceLimitEffect(
     "pointReadDependencies",
     pointDependencies.length,
@@ -896,6 +931,11 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     "indexRangeReadDependencies",
     indexedDependencies.length,
     MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
+  );
+  yield* enforceLimitEffect(
+    "relationReadDependencies",
+    applicationRelationDependencies.length,
+    MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
   );
 
   pointDependencies.sort((left, right) =>
@@ -942,9 +982,44 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     indexedDependencyEvidenceBytes,
     MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   );
+  applicationRelationDependencies.sort(
+    compareApplicationRelationReadDependenciesV1,
+  );
+  const normalizedApplicationRelationDependencies:
+    LogicalApplicationRelationIncomingReadDependencyV1[] = [];
+  for (const dependency of applicationRelationDependencies) {
+    const previousApplicationRelationDependency =
+      normalizedApplicationRelationDependencies.at(-1);
+    if (
+      previousApplicationRelationDependency !== undefined &&
+      sameApplicationRelationReadIdentityV1(
+        previousApplicationRelationDependency,
+        dependency,
+      )
+    ) {
+      if (
+        previousApplicationRelationDependency.observedAdjacencyVersion !==
+          dependency.observedAdjacencyVersion
+      ) {
+        return yield* protocolFailureEffect({
+          reason: "conflictingApplicationRelationReadDependency",
+          edgeDefinitionId: dependency.edgeDefinitionId,
+          targetRowId: dependency.targetRowId,
+        });
+      }
+      continue;
+    }
+    normalizedApplicationRelationDependencies.push(dependency);
+  }
+  yield* enforceLimitEffect(
+    "relationReadDependencies",
+    normalizedApplicationRelationDependencies.length,
+    MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  );
   const readDependencies: LogicalReadDependencyV1[] = [
     ...pointDependencies,
     ...mergedIndexedDependencies,
+    ...normalizedApplicationRelationDependencies,
   ];
 
   const orderedWrites = [...journal.writes].toSorted((left, right) =>
@@ -1008,6 +1083,24 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     writes,
   } satisfies SessionJournalV1);
 });
+
+function compareApplicationRelationReadDependenciesV1(
+  left: LogicalApplicationRelationIncomingReadDependencyV1,
+  right: LogicalApplicationRelationIncomingReadDependencyV1,
+): number {
+  if (left.edgeDefinitionId !== right.edgeDefinitionId) {
+    return left.edgeDefinitionId - right.edgeDefinitionId;
+  }
+  return compareUtf16Strings(left.targetRowId, right.targetRowId);
+}
+
+function sameApplicationRelationReadIdentityV1(
+  left: LogicalApplicationRelationIncomingReadDependencyV1,
+  right: LogicalApplicationRelationIncomingReadDependencyV1,
+): boolean {
+  return left.edgeDefinitionId === right.edgeDefinitionId &&
+    left.targetRowId === right.targetRowId;
+}
 
 export function normalizeLogicalIndexRangeReadDependenciesV1Result(
   input: ReadonlyArray<LogicalIndexRangeReadDependencyV1>,
@@ -1541,7 +1634,8 @@ function preflightSessionJournalCandidate(
     Array.isArray(input.readDependencies) &&
     input.readDependencies.length >
       MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 +
-        MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1
+        MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 +
+        MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1
   ) {
     return {
       reason: "invalidSchema",

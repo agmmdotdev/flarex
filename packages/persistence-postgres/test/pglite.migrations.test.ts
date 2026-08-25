@@ -128,6 +128,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_tx_journal_index_range",
       "fx_system_tx_journal_latest_receipt",
       "fx_system_tx_journal_point",
+      "fx_system_tx_journal_relation_incoming",
       "fx_system_tx_journal_write_event",
       "fx_system_tx_session",
       "fx_system_unique_constraint_set_build",
@@ -1904,7 +1905,7 @@ describe("createPGlitePersistence", () => {
         where table_schema = current_schema()
           and table_name like 'fx_system_tx_journal%'
       `);
-      expect(recovered.rows).toEqual([{ count: "5" }]);
+      expect(recovered.rows).toEqual([{ count: "6" }]);
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);

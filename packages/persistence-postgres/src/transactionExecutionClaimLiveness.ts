@@ -62,7 +62,7 @@ export interface PointMutationExecutionClaimLivenessOptionsV1 {
 export type PointMutationExecutionClaimLivenessResultV1 =
   | Readonly<{
       readonly kind: "renewed";
-      readonly phase: "open" | "sealed";
+      readonly phase: "open" | "sealed" | "relationConflicted";
       readonly leaseExpiresAt: string;
       readonly executionClaim: TransactionExecutionClaimObservationV1;
     }>
@@ -215,7 +215,7 @@ export interface ProjectExecutionClaimRenewalInputV1 {
   readonly claimDurationMilliseconds: number;
   readonly leaseRenewalDurationMilliseconds: number;
   readonly maximumLiveSnapshotRetentionMilliseconds: number;
-  readonly phase: "open" | "sealed" | "failed";
+  readonly phase: "open" | "sealed" | "relationConflicted" | "failed";
 }
 
 export type ProjectExecutionClaimRenewalIssueV1 =

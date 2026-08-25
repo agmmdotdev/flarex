@@ -71,6 +71,9 @@ export interface StoredCommitAuthoritySealIdentityV1 {
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
   readonly indexRangeDependencyEvidenceBytes: number;
+  readonly relationReadSyscalls: number;
+  readonly relationDependencyCount: number;
+  readonly relationBaseOccurrences: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:

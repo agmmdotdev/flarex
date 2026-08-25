@@ -42,6 +42,7 @@ import {
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalIndexRanges,
   fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
@@ -702,6 +703,15 @@ async function selectAttemptChildExistenceRows(
         and ${fxSystemTransactionJournalIndexRanges.attemptFence} =
           ${attemptFence}
     )`,
+      relationDependencyExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalRelationIncomingDependencies}
+      where ${fxSystemTransactionJournalRelationIncomingDependencies.scopeUuid} =
+          ${scopeUuid}
+        and ${fxSystemTransactionJournalRelationIncomingDependencies.sessionId} =
+          ${sessionId}
+        and ${fxSystemTransactionJournalRelationIncomingDependencies.attemptFence} =
+          ${attemptFence}
+    )`,
       eventExists: sql<boolean>`exists(
       select 1 from ${fxSystemTransactionJournalWriteEvents}
       where ${fxSystemTransactionJournalWriteEvents.scopeUuid} = ${scopeUuid}
@@ -838,6 +848,11 @@ function selectRootScalarRows(
       fxSystemTransactionJournals.indexRangeDependencyCount,
     indexRangeDependencyEvidenceBytes:
       fxSystemTransactionJournals.indexRangeDependencyEvidenceBytes,
+    relationReadSyscalls: fxSystemTransactionJournals.relationReadSyscalls,
+    relationDependencyCount:
+      fxSystemTransactionJournals.relationDependencyCount,
+    relationBaseOccurrences:
+      fxSystemTransactionJournals.relationBaseOccurrences,
     writeOperations: fxSystemTransactionJournals.writeOperations,
     writeSemanticBytes: fxSystemTransactionJournals.writeSemanticBytes,
     materialWriteEventEvidenceBytes:

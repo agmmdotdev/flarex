@@ -9,6 +9,8 @@ import {
   type PointCommitPublisherPortV1,
   type PointCommitRollbackProofPortV1,
   type PointMutationAttemptReplacementPortV1,
+  type RunningRelationConflictAttemptReplacementPortV1,
+  type RunningRelationConflictRecoveryPort,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type { StoredOccExecutionEvidenceLoaderV1 } from
   "@flarex/persistence-postgres/stored-occ-execution";
@@ -18,7 +20,10 @@ import { Data } from "effect";
 
 import type { PointMutationExecutionClaimDispatchAcquisitionV1 } from
   "../pointMutationExecutionClaimAcquisition";
-import type { PointMutationJournalV1 } from "../pointMutationJournal";
+import type {
+  PointMutationJournalRelationConflictRecovery,
+  PointMutationJournalV1,
+} from "../pointMutationJournal";
 import type {
   PointMutationSessionAttemptLoadingV1,
   PointMutationSessionAttemptTerminalizationV1,
@@ -47,9 +52,11 @@ export type StoredPointMutationCapabilityRequirementV1 =
   | "finishingEvidenceLoader"
   | "pointCommitOutcomeResolution"
   | "pointMutationAttemptReplacement"
+  | "runningRelationConflictRecovery"
   | "pointMutationOccAttemptLoading"
   | "pointMutationOccExecutionEvidence"
   | "pointMutationOccJournal"
+  | "pointMutationJournalRelationConflictRecovery"
   | "pointMutationOccTerminalization"
   | "pointMutationOccContextFactory"
   | "pointMutationOccRunner"
@@ -133,6 +140,20 @@ export function isPointMutationAttemptReplacementPortV1(
   return isNonArrayRecord(value) && typeof value.replace === "function";
 }
 
+export function isRunningRelationConflictAttemptReplacementPortV1(
+  value: unknown,
+): value is RunningRelationConflictAttemptReplacementPortV1 {
+  return isNonArrayRecord(value) &&
+    typeof value.replaceRunningRelationConflict === "function";
+}
+
+export function isRunningRelationConflictRecoveryPort(
+  value: unknown,
+): value is RunningRelationConflictRecoveryPort {
+  return isNonArrayRecord(value) &&
+    typeof value.recoverRunningRelationConflict === "function";
+}
+
 export function isPointMutationSessionAttemptLoadingV1(
   value: unknown,
 ): value is PointMutationSessionAttemptLoadingV1 {
@@ -155,8 +176,18 @@ export function isPointMutationJournalV1(
     typeof value.runPointOperation === "function" &&
     typeof value.resolveDeveloperIndex === "function" &&
     typeof value.runIndexedQuery === "function" &&
+    typeof value.resolveApplicationRelationRead === "function" &&
+    typeof value.runApplicationRelationIncomingRead === "function" &&
+    typeof value.claimPersistedRelationConflictForRetry === "function" &&
     typeof value.sealSuccessfulResult === "function"
   );
+}
+
+export function isPointMutationJournalRelationConflictRecovery(
+  value: unknown,
+): value is PointMutationJournalRelationConflictRecovery {
+  return isNonArrayRecord(value) &&
+    typeof value.captureRecoveredRelationConflict === "function";
 }
 
 export function isPointMutationSessionAttemptTerminalizationV1(

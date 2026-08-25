@@ -14,6 +14,7 @@ import {
   CanonicalSuccessfulResultBytesV1Schema,
   MAX_POINT_COMMIT_MATERIAL_ROWS_V1,
   type LogicalIndexRangeReadDependencyV1,
+  type LogicalApplicationRelationIncomingReadDependencyV1,
   type LogicalReadDependencyV1,
 } from "flarex-protocol/commit-protocol";
 
@@ -116,6 +117,9 @@ export interface PreparedPointCommitStateV1 {
   readonly indexRangeDependencies: ReadonlyArray<
     LogicalIndexRangeReadDependencyV1
   >;
+  readonly relationDependencies: ReadonlyArray<
+    LogicalApplicationRelationIncomingReadDependencyV1
+  >;
   readonly rowIntents: ReadonlyArray<PreparedPointRowIntentV1>;
   readonly successfulResult: Readonly<VerifiedSuccessfulResultV1>;
 }
@@ -156,6 +160,9 @@ export function planPointCommitStateV1(
 > {
   return Result.gen(function* () {
     const indexRangeDependencies = yield* captureIndexRangeDependencies(
+      source.journal.readDependencies,
+    );
+    const relationDependencies = captureRelationDependencies(
       source.journal.readDependencies,
     );
 
@@ -249,6 +256,7 @@ export function planPointCommitStateV1(
       sealIdentity: captureSealIdentity(source.sealIdentity),
       dependencies,
       indexRangeDependencies,
+      relationDependencies,
       rowIntents: Object.freeze(
         materialCandidates.map(captureRowIntent),
       ),
@@ -281,6 +289,8 @@ function captureIndexRangeDependencies(
       case "appIndexRange":
         ranges.push(captureIndexRangeDependency(dependency));
         break;
+      case "appRelationIncoming":
+        break;
       default:
         return Result.fail(new UnsupportedPointCommitPlanV1Error({
           issue: { reason: "unsupportedReadDependency" },
@@ -288,6 +298,16 @@ function captureIndexRangeDependencies(
     }
   }
   return Result.succeed(Object.freeze(ranges));
+}
+
+function captureRelationDependencies(
+  dependencies: ReadonlyArray<LogicalReadDependencyV1>,
+): ReadonlyArray<LogicalApplicationRelationIncomingReadDependencyV1> {
+  return Object.freeze(dependencies.flatMap((dependency) =>
+    dependency.kind === "appRelationIncoming"
+      ? [Object.freeze({ ...dependency })]
+      : []
+  ));
 }
 
 function captureLogicalReadDependency(

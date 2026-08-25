@@ -147,6 +147,77 @@ describe("B2b1/C06-A execution-claim capability projection", () => {
     });
   });
 
+  it("confines relation-conflict replacement claims to one exact work mode", async () => {
+    const claims = createPointMutationExecutionClaimVaultV1();
+    const crossFactory = createPointMutationExecutionClaimVaultV1();
+    const acquisition = createPointMutationExecutionClaimDispatchAcquisitionV1(
+      persistenceAcquisition(() => Effect.succeed({
+        kind: "acquired",
+        mode: "replaceRelationConflict",
+        observation: OBSERVATION,
+      })),
+      claims.issuer,
+    );
+
+    const result = await runEffect(acquisition.acquireEffect(SELECTOR));
+    if (
+      result.kind !== "acquired" ||
+      result.mode !== "replaceRelationConflict"
+    ) {
+      throw new Error("Expected a relation-conflict replacement claim.");
+    }
+    expect(crossFactory.admission.admit(
+      result.executionClaim,
+      "replaceRelationConflict",
+    )).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "notSameFactory" },
+    });
+    expect(claims.admission.admit(result.executionClaim, "execute"))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "modeUnavailable" },
+      });
+    expect(claims.admission.admit(result.executionClaim, "finishOnly"))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "modeUnavailable" },
+      });
+    expect(claims.abortOnlyAdmission.admit(result.executionClaim))
+      .toMatchObject({
+        _tag: "Failure",
+        failure: { reason: "modeUnavailable" },
+      });
+
+    const admitted = Result.getOrThrow(claims.admission.admit(
+      result.executionClaim,
+      "replaceRelationConflict",
+    ));
+    expect(claims.admission.inspect(
+      admitted,
+      "replaceRelationConflict",
+    )).toMatchObject({
+      _tag: "Success",
+      success: {
+        selector: {
+          deploymentId: DEPLOYMENT_ID,
+          scopeId: SCOPE_ID,
+          sessionId: SESSION_ID,
+          attemptFence: ATTEMPT_FENCE,
+        },
+        observation: OBSERVATION,
+        mode: "replaceRelationConflict",
+      },
+    });
+    expect(claims.admission.admit(
+      result.executionClaim,
+      "replaceRelationConflict",
+    )).toMatchObject({
+      _tag: "Failure",
+      failure: { reason: "consumed" },
+    });
+  });
+
   it("confines abort-only claims to a distinct same-factory single-use scope", async () => {
     const claims = createPointMutationExecutionClaimVaultV1();
     const crossFactory = createPointMutationExecutionClaimVaultV1();

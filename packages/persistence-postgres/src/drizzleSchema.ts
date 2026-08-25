@@ -76,6 +76,7 @@ export {
   fxSystemSnapshotLeases,
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalIndexRanges,
+  fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,

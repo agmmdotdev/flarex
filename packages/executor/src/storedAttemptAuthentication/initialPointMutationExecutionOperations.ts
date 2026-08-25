@@ -194,6 +194,7 @@ export function makeInitialPointMutationExecutionOperationsV1<
                 attemptFence: anchor.attemptFence,
                 snapshotToken: Object.freeze({ ...anchor.snapshotToken }),
                 executionScope,
+                executionClaim: claim.observation,
                 liveness,
                 executionEvidence: loadedExecutionEvidence,
                 verificationState,

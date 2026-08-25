@@ -64,6 +64,9 @@ import {
   MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   MAX_COMMIT_READ_DOCUMENTS_V1,
   MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
@@ -262,6 +265,9 @@ type TransactionJournalOperationalLimitDimensionV1 = Extract<
   | "indexedQuerySyscalls"
   | "indexRangeReadDependencies"
   | "indexRangeDependencyEvidenceBytes"
+  | "relationReadSyscalls"
+  | "relationReadDependencies"
+  | "relationBaseOccurrences"
   | "writeOperations"
   | "writeSemanticBytes"
   | "materialWriteEventEvidenceBytes"
@@ -273,7 +279,8 @@ type TransactionJournalOperationKindV1 =
   | "patch"
   | "replace"
   | "delete"
-  | "indexRange";
+  | "indexRange"
+  | "relationIncoming";
 
 type TransactionJournalOutcomeKindV1 =
   | "missing"
@@ -281,6 +288,8 @@ type TransactionJournalOutcomeKindV1 =
   | "inserted"
   | "unit"
   | "indexRangePage"
+  | "relationIncomingPage"
+  | "relationConflict"
   | "error";
 
 type TransactionJournalDependencyKindV1 =
@@ -2710,7 +2719,9 @@ export const fxSystemTransactionJournals = pgTable(
     attemptFence: bigint("attempt_fence", { mode: "bigint" })
       .$type<TransactionAttemptFence>()
       .notNull(),
-    state: text("state").$type<"open" | "sealed" | "failed">().notNull(),
+    state: text("state")
+      .$type<"open" | "sealed" | "failed" | "relation_conflicted">()
+      .notNull(),
     lastSyscallSequence: bigint("last_syscall_sequence", { mode: "bigint" })
       .$type<CommitFinalSyscallSequenceV1>()
       .notNull()
@@ -2730,6 +2741,12 @@ export const fxSystemTransactionJournals = pgTable(
     indexRangeDependencyEvidenceBytes: integer(
       "index_range_dependency_evidence_bytes",
     ).notNull().default(0),
+    relationReadSyscalls: integer("relation_read_syscalls")
+      .notNull().default(0),
+    relationDependencyCount: integer("relation_dependency_count")
+      .notNull().default(0),
+    relationBaseOccurrences: integer("relation_base_occurrences")
+      .notNull().default(0),
     writeOperations: integer("write_operations").notNull().default(0),
     writeSemanticBytes: integer("write_semantic_bytes").notNull().default(0),
     materialWriteEventEvidenceBytes: integer(
@@ -2775,7 +2792,7 @@ export const fxSystemTransactionJournals = pgTable(
     ),
     check(
       "fx_system_tx_journal_state_check",
-      sql`${table.state} in ('open', 'sealed', 'failed')`,
+      sql`${table.state} in ('open', 'sealed', 'failed', 'relation_conflicted')`,
     ),
     check(
       "fx_system_tx_journal_sequence_check",
@@ -2815,6 +2832,18 @@ export const fxSystemTransactionJournals = pgTable(
       sql`${table.indexRangeDependencyEvidenceBytes} between 0 and ${sql.raw(String(MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1))}`,
     ),
     check(
+      "fx_system_tx_journal_relation_read_count_check",
+      sql`${table.relationReadSyscalls} between 0 and ${sql.raw(String(MAX_COMMIT_RELATION_READ_SYSCALLS_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_relation_dependency_count_check",
+      sql`${table.relationDependencyCount} between 0 and ${sql.raw(String(MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_relation_base_occurrence_count_check",
+      sql`${table.relationBaseOccurrences} between 0 and ${sql.raw(String(MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1))}`,
+    ),
+    check(
       "fx_system_tx_journal_write_count_check",
       sql`${table.writeOperations} between 0 and ${sql.raw(String(MAX_COMMIT_WRITE_OPERATIONS_V1))}`,
     ),
@@ -2839,6 +2868,9 @@ export const fxSystemTransactionJournals = pgTable(
             'indexedQuerySyscalls',
             'indexRangeReadDependencies',
             'indexRangeDependencyEvidenceBytes',
+            'relationReadSyscalls',
+            'relationReadDependencies',
+            'relationBaseOccurrences',
             'writeOperations',
             'writeSemanticBytes',
             'materialWriteEventEvidenceBytes'
@@ -2864,6 +2896,18 @@ export const fxSystemTransactionJournals = pgTable(
         or (
           ${table.state} = 'failed'
           and ${table.failureDimension} is not null
+          and ${table.sealedFinalSyscallSequence} is null
+          and ${table.sealedJournalBytes} is null
+          and ${table.sealedJournalSha256} is null
+          and ${table.sealedResultValueCodecVersion} is null
+          and ${table.sealedResultSemanticBytes} is null
+          and ${table.sealedResultBytes} is null
+          and ${table.sealedResultSha256} is null
+          and ${table.sealedAt} is null
+        )
+        or (
+          ${table.state} = 'relation_conflicted'
+          and ${table.failureDimension} is null
           and ${table.sealedFinalSyscallSequence} is null
           and ${table.sealedJournalBytes} is null
           and ${table.sealedJournalSha256} is null
@@ -3041,7 +3085,7 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
     ),
     check(
       "fx_system_tx_journal_receipt_operation_check",
-      sql`${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete', 'indexRange')`,
+      sql`${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete', 'indexRange', 'relationIncoming')`,
     ),
     check(
       "fx_system_tx_journal_receipt_request_check",
@@ -3054,7 +3098,7 @@ export const fxSystemTransactionJournalLatestReceipts = pgTable(
     check(
       "fx_system_tx_journal_receipt_outcome_check",
       sql`
-        ${table.outcomeKind} in ('missing', 'present', 'inserted', 'unit', 'indexRangePage', 'error')
+        ${table.outcomeKind} in ('missing', 'present', 'inserted', 'unit', 'indexRangePage', 'relationIncomingPage', 'relationConflict', 'error')
         and ${table.outcomeCodecVersion} = 1
         and octet_length(${table.outcomeBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
         and octet_length(${table.outcomeSha256}) = 32
@@ -3293,6 +3337,63 @@ export const fxSystemTransactionJournalIndexRanges = pgTable(
     ),
     check(
       "fx_system_tx_journal_index_range_timestamp_check",
+      sql`
+        isfinite(${table.createdAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}
+      `,
+    ),
+  ],
+);
+
+/** Coalesced exact incoming-adjacency OCC dependencies for one attempt. */
+export const fxSystemTransactionJournalRelationIncomingDependencies = pgTable(
+  "fx_system_tx_journal_relation_incoming",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>().notNull(),
+    edgeDefinitionId: integer("edge_definition_id")
+      .$type<CatalogEdgeDefinitionId>().notNull(),
+    targetRowId: bytea("target_row_id").notNull(),
+    observedAdjacencyVersion: bigint("observed_adjacency_version", {
+      mode: "bigint",
+    }).$type<CommitSeq>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_journal_relation_incoming_pk",
+      columns: [
+        table.scopeUuid,
+        table.sessionId,
+        table.attemptFence,
+        table.edgeDefinitionId,
+        table.targetRowId,
+      ],
+    }),
+    foreignKey({
+      name: "fx_system_tx_journal_relation_incoming_root_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionJournals.scopeUuid,
+        fxSystemTransactionJournals.sessionId,
+        fxSystemTransactionJournals.attemptFence,
+      ],
+    }).onUpdate("restrict").onDelete("cascade"),
+    check(
+      "fx_system_tx_journal_relation_incoming_identity_check",
+      sql`
+        ${table.attemptFence} >= 1
+        and ${table.edgeDefinitionId} between 1 and 2147483647
+        and octet_length(${table.targetRowId}) = 16
+        and ${table.observedAdjacencyVersion} >= 0
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_relation_incoming_timestamp_check",
       sql`
         isfinite(${table.createdAt})
         and isfinite(${table.updatedAt})
@@ -9601,6 +9702,7 @@ export const flarexSchema = {
   fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalIndexRanges,
+  fxSystemTransactionJournalRelationIncomingDependencies,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,
   fxSystemTransactionJournalWriteEvents,

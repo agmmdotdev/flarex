@@ -6,6 +6,7 @@ import {
   type CommittedPointOutcomeResolutionV1,
   type PointCommitOutcomeResolutionV1Error,
   type PointCommitPublicationResultV1,
+  type RunningRelationConflictRecoveryPort,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type {
   StoredOccExecutionEvidenceAuthorityV1,
@@ -31,8 +32,12 @@ import {
   type PointMutationAbortOnlyScopeV1,
   type PointMutationExecutionClaimVaultV1,
   type PointMutationExecutionScopeV1,
+  type PointMutationExecutionWorkModeV1,
   type PointMutationExecutionWorkClaimStateV1,
 } from "../pointMutationExecutionClaim";
+import type {
+  PointMutationJournalRelationConflictRecovery,
+} from "../pointMutationJournal";
 import type {
   PointMutationExecutionLivenessCoordinatorV1,
 } from "../pointMutationExecutionClaimLiveness";
@@ -84,6 +89,13 @@ import {
   type ExecuteExactPointMutationAttemptKernelV1,
   type VerifyCommitAuthorityEvidenceForOccExecutionV1,
 } from "./occRerunExecutionOperations";
+import type {
+  PointCommitOutcomeTicketCaptureOperationsV1,
+} from "./occRerunAuthorizationOperations";
+import {
+  captureRunningRelationConflictRecovery,
+  captureRunningRelationConflictReplacement,
+} from "./pointCommitRuntimeModel";
 
 type PointMutationRedispatchAcquisitionOrClosedV1 =
   | Readonly<{
@@ -154,6 +166,14 @@ export interface StoredPointMutationCrashRedispatchDependenciesV1<
     StoredOccExecutionEvidenceLoaderV1,
     "loadEffect"
   >;
+  readonly runningRelationConflictRecovery: Pick<
+    RunningRelationConflictRecoveryPort,
+    "recoverRunningRelationConflict"
+  >;
+  readonly journalRelationConflictRecovery: Pick<
+    PointMutationJournalRelationConflictRecovery,
+    "captureRecoveredRelationConflict"
+  >;
   readonly deriveAuthority: StoredAttemptAuthenticationV1["deriveAuthority"];
   readonly lookupAuthority: (
     authority: TrustedStoredAttemptAuthorityV1,
@@ -184,6 +204,10 @@ export interface StoredPointMutationCrashRedispatchDependenciesV1<
     VerifyCommitAuthorityEvidenceForOccExecutionV1<VerificationError>;
   readonly executeExactPointMutationAttempt:
     ExecuteExactPointMutationAttemptKernelV1<KernelError>;
+  readonly captureRunningRelationConflictTicket:
+    PointCommitOutcomeTicketCaptureOperationsV1[
+      "captureRunningRelationConflictTicket"
+    ];
   readonly resolvePointCommitOutcomeFromStoredSession:
     ResolvePointCommitOutcomeFromStoredSessionV1;
   readonly publicationResultFromCommittedOutcome:
@@ -214,6 +238,8 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
     terminalization,
     executionLiveness,
     executionEvidence,
+    runningRelationConflictRecovery,
+    journalRelationConflictRecovery,
     deriveAuthority,
     lookupAuthority,
     loadAndVerifyStoredEvidence,
@@ -226,13 +252,14 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
     resumePointCommit,
     verifyCommitAuthorityEvidence,
     executeExactPointMutationAttempt,
+    captureRunningRelationConflictTicket,
     resolvePointCommitOutcomeFromStoredSession,
     publicationResultFromCommittedOutcome,
   } = dependencies;
 
   const admitRedispatchClaim = (
     claim: unknown,
-    mode: "execute" | "finishOnly",
+    mode: PointMutationExecutionWorkModeV1,
   ): Result.Result<
     Readonly<{
       readonly scope: PointMutationExecutionScopeV1;
@@ -387,66 +414,111 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
     );
   });
 
+  const authorizeAndExecuteCapturedRelationConflict = Effect.fn(
+    "StoredAttemptAuthentication.authorizeAndExecuteCapturedRelationConflict",
+  )(function* (error: unknown) {
+    const authorization = yield* base.authorizePointMutationOccRerun(error);
+    switch (authorization.kind) {
+      case "replayed":
+      case "expired":
+        return publicationResultFromCommittedOutcome(authorization.outcome);
+      case "authorized":
+        return yield* base.executeAuthorizedPointMutationOccRerun(
+          authorization.rerun,
+        );
+    }
+  });
+
+  const loadVerifiedClaimedExecutionEvidence = Effect.fn(
+    "StoredAttemptAuthentication.loadVerifiedClaimedExecutionEvidence",
+  )(function* (
+    selector: PointMutationSessionAttemptSelectorV1,
+    executionScope: PointMutationExecutionScopeV1,
+    kind: "claimedAttempt" | "claimedRelationConflict",
+  ) {
+    const { authorityCapability } =
+      yield* loadRedispatchAttemptAuthority(selector, executionScope);
+    const authority = authorityCapability.authority;
+    const executionClaim = authority.executionClaim;
+    if (executionClaim === undefined) {
+      return yield* Effect.fail(
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "executionClaimInvalid",
+        }),
+      );
+    }
+    const executionAuthority: StoredOccExecutionEvidenceAuthorityV1 =
+      Object.freeze({
+        kind,
+        deploymentId: authority.deploymentId,
+        scopeId: authority.scopeId,
+        scopeUuid: projectScopeIdUuidV1(authority.scopeId).scopeUuid,
+        sessionId: authority.sessionId,
+        attemptFence: authority.attemptFence,
+        storageGeneration: authority.storageGeneration,
+        storageGenerationFence: authority.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+        schemaVersionId: authority.schemaVersionId,
+        executionClaim: Object.freeze({ ...executionClaim }),
+      });
+    const loadResult = yield* executionEvidence
+      .loadEffect(executionAuthority)
+      .pipe(
+        Effect.mapError(
+          (error: StoredOccExecutionEvidencePersistenceV1Error) =>
+            new PointMutationOccExecutionEvidencePersistenceV1Error({
+              cause: error.cause,
+            }),
+        ),
+      );
+    if (loadResult.kind === "alreadyCommitted") {
+      return yield* Effect.fail(
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "committedOutcomeMissing",
+        }),
+      );
+    }
+    const storedExecutionEvidence = yield*
+      requireOccExecutionEvidenceEffect(loadResult);
+    const verificationState = captureClaimedExecutionVerificationState(
+      authority,
+      storedExecutionEvidence.session,
+    );
+    const verifiedEvidence = yield* verifyCommitAuthorityEvidence(
+      verificationState,
+      storedExecutionEvidence,
+    );
+    return Object.freeze({
+      authority,
+      executionClaim,
+      executionAuthority,
+      storedExecutionEvidence,
+      verificationState,
+      verifiedEvidence,
+    });
+  });
+
   const executeClaimedPristineAttempt = Effect.fn(
     "StoredAttemptAuthentication.executeClaimedPristineAttempt",
   )(function* (
     selector: PointMutationSessionAttemptSelectorV1,
     executionScope: PointMutationExecutionScopeV1,
   ) {
-    return yield* executionLiveness.run(
+    const publication = yield* executionLiveness.run(
       executionScope,
       "execute",
       (liveness) => Effect.gen(function* () {
-        const { authorityCapability } =
-          yield* loadRedispatchAttemptAuthority(selector, executionScope);
-        const authority = authorityCapability.authority;
-        if (authority.executionClaim === undefined) {
-          return yield* Effect.fail(
-            new PointMutationOccExecutionAuthorityCorruptionV1Error({
-              reason: "executionClaimInvalid",
-            }),
-          );
-        }
-        const executionAuthority: StoredOccExecutionEvidenceAuthorityV1 =
-          Object.freeze({
-            kind: "claimedAttempt",
-            deploymentId: authority.deploymentId,
-            scopeId: authority.scopeId,
-            scopeUuid: projectScopeIdUuidV1(authority.scopeId).scopeUuid,
-            sessionId: authority.sessionId,
-            attemptFence: authority.attemptFence,
-            storageGeneration: authority.storageGeneration,
-            storageGenerationFence: authority.storageGenerationFence,
-            snapshotToken: Object.freeze({ ...authority.snapshotToken }),
-            schemaVersionId: authority.schemaVersionId,
-            executionClaim: Object.freeze({ ...authority.executionClaim }),
-          });
-        const loadResult = yield* executionEvidence
-          .loadEffect(executionAuthority)
-          .pipe(
-            Effect.mapError(
-              (error: StoredOccExecutionEvidencePersistenceV1Error) =>
-                new PointMutationOccExecutionEvidencePersistenceV1Error({
-                  cause: error.cause,
-                }),
-            ),
-          );
-        if (loadResult.kind === "alreadyCommitted") {
-          return yield* Effect.fail(
-            new PointMutationOccExecutionAuthorityCorruptionV1Error({
-              reason: "committedOutcomeMissing",
-            }),
-          );
-        }
-        const storedExecutionEvidence = yield*
-          requireOccExecutionEvidenceEffect(loadResult);
-        const verificationState = captureClaimedExecutionVerificationState(
+        const {
           authority,
-          storedExecutionEvidence.session,
-        );
-        const verifiedEvidence = yield* verifyCommitAuthorityEvidence(
-          verificationState,
+          executionClaim,
+          executionAuthority,
           storedExecutionEvidence,
+          verificationState,
+          verifiedEvidence,
+        } = yield* loadVerifiedClaimedExecutionEvidence(
+          selector,
+          executionScope,
+          "claimedAttempt",
         );
 
         // Acquisition was outcome-first. Recheck after CPU verification and
@@ -457,10 +529,13 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
           storedExecutionEvidence.session,
         );
         if (outcome.kind !== "missing") {
-          return publicationResultFromCommittedOutcome(outcome);
+          return Object.freeze({
+            kind: "completed" as const,
+            result: publicationResultFromCommittedOutcome(outcome),
+          });
         }
 
-        const publication = yield* executeExactPointMutationAttempt<
+        const attemptPublication = yield* executeExactPointMutationAttempt<
           PointMutationOccExecutionAuthorityCorruptionV1Error,
           PointMutationOccExecutionAuthorityMismatchV1Error
         >({
@@ -468,6 +543,7 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
           attemptFence: authority.attemptFence,
           snapshotToken: authority.snapshotToken,
           executionScope,
+          executionClaim,
           liveness,
           executionEvidence: storedExecutionEvidence,
           verificationState,
@@ -483,11 +559,93 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
               current,
             ),
         });
-        if (publication.kind === "conflict") {
-          return yield* Effect.fail(publication.error);
-        }
-        return publication.result;
+        return attemptPublication;
       }),
+    );
+    if (publication.kind === "completed") return publication.result;
+    return yield* authorizeAndExecuteCapturedRelationConflict(
+      publication.error,
+    );
+  });
+
+  const replaceClaimedRelationConflict = Effect.fn(
+    "StoredAttemptAuthentication.replaceClaimedRelationConflict",
+  )(function* (
+    selector: PointMutationSessionAttemptSelectorV1,
+    executionScope: PointMutationExecutionScopeV1,
+  ) {
+    const recovered = yield* executionLiveness.run(
+      executionScope,
+      "replaceRelationConflict",
+      () => Effect.gen(function* () {
+        const {
+          authority,
+          executionClaim,
+          executionAuthority,
+          storedExecutionEvidence,
+          verificationState,
+        } = yield* loadVerifiedClaimedExecutionEvidence(
+          selector,
+          executionScope,
+          "claimedRelationConflict",
+        );
+        const recoveryCommand = yield* Effect.fromResult(
+          captureRunningRelationConflictRecovery(
+            verificationState,
+            executionClaim,
+          ).pipe(Result.mapError((cause) =>
+            new PointMutationOccExecutionAuthorityCorruptionV1Error({
+              reason: "runtimePinInvalid",
+              cause,
+            })
+          )),
+        );
+        const evidence = yield*
+          runningRelationConflictRecovery.recoverRunningRelationConflict(
+            recoveryCommand,
+          );
+
+        // Acquisition was outcome-first. Recheck after all durable conflict
+        // evidence is authenticated and immediately before ticket creation.
+        const outcome = yield* resolvePointCommitOutcomeFromStoredSession(
+          authority.deploymentId,
+          executionAuthority.scopeUuid,
+          storedExecutionEvidence.session,
+        );
+        if (outcome.kind !== "missing") {
+          return Object.freeze({
+            kind: "completed" as const,
+            result: publicationResultFromCommittedOutcome(outcome),
+          });
+        }
+
+        const captured = yield* Effect.fromResult(
+          captureRunningRelationConflictReplacement(
+            verificationState,
+            executionClaim,
+            evidence.request,
+            evidence.conflict,
+          ).pipe(Result.mapError((cause) =>
+            new PointMutationOccExecutionAuthorityCorruptionV1Error({
+              reason: "runtimePinInvalid",
+              cause,
+            })
+          )),
+        );
+        const error =
+          journalRelationConflictRecovery.captureRecoveredRelationConflict(
+            evidence,
+          );
+        captureRunningRelationConflictTicket(error, captured);
+        return Object.freeze({
+          kind: "runningRelationConflict" as const,
+          error,
+        });
+      }),
+    );
+    if (recovered.kind === "completed") return recovered.result;
+    return yield* authorizeAndExecuteCapturedRelationConflict(
+      recovered.error,
     );
   });
 
@@ -563,6 +721,18 @@ export function makeStoredPointMutationCrashRedispatchOperationsV1<
                 admitRedispatchClaim(acquired.executionClaim, "finishOnly"),
               );
               return yield* finishClaimedSealedAttempt(
+                admitted.state.selector,
+                admitted.scope,
+              );
+            }
+            case "replaceRelationConflict": {
+              const admitted = yield* Effect.fromResult(
+                admitRedispatchClaim(
+                  acquired.executionClaim,
+                  "replaceRelationConflict",
+                ),
+              );
+              return yield* replaceClaimedRelationConflict(
                 admitted.state.selector,
                 admitted.scope,
               );

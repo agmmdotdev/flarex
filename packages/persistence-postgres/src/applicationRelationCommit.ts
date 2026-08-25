@@ -35,5 +35,6 @@ export {
   hasLocatedApplicationRelationDefinitionSetAuthority,
   hasPreparedApplicationRelationCommitAuthority,
   prepareApplicationRelationDefinitionBuildResult,
+  prepareApplicationRelationReadOverlayResult,
   prepareApplicationRelationCommitResult,
 } from "./applicationRelationCommit/Repository";

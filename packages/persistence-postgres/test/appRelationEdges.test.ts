@@ -45,10 +45,12 @@ import {
   applyAppRelationEdgeChangesInTransactionEffect,
   hasIncomingAppRelationEdgeInTransactionEffect,
   readAppRelationEdgeAdjacencyVersionInTransactionEffect,
+  readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect,
   readIncomingAppRelationEdgePageInTransactionEffect,
   type AppRelationEdgeDefinitionPin,
   type AppRelationEdgeMutationOptions,
   type AppRelationEdgeMutationStatementName,
+  type AppRelationEdgeQueryObservation,
   type AppRelationEdgeStorageAction,
 } from "../src/appRelationEdges";
 import { makePhysicalEdgeDefinition } from
@@ -378,6 +380,78 @@ describe("S12 app relation-edge storage", () => {
     ).toHaveLength(514);
   }, 120_000);
 
+  it("reads 128 incoming adjacency versions in one correlated query", async () => {
+    const persistence = await edgePersistence();
+    const endpoints = Object.freeze(Array.from({ length: 128 }, (_, index) =>
+      Object.freeze({
+        edgeDefinitionId,
+        targetRowId: decodeAppRowIdHexV1(
+          (40_000 + index).toString(16).padStart(32, "0"),
+        ),
+      })
+    ));
+    await persistence.drizzle.insert(fxAppEdgeAdjacencyVersions).values(
+      endpoints.flatMap((endpoint, index) =>
+        index % 2 === 0
+          ? [{
+              scopeUuid: projectScopeIdUuidV1(scopeId).scopeUuid,
+              edgeDefinitionId: endpoint.edgeDefinitionId,
+              direction: "incoming" as const,
+              endpointRowId: appRowIdHexV1ToBytes(endpoint.targetRowId),
+              lastChangedCommitSeq: CommitSeqSchema.make(BigInt(index + 1)),
+            }]
+          : []
+      ),
+    );
+    const observations: AppRelationEdgeQueryObservation[] = [];
+    const versions = await persistence.drizzle.transaction((tx) => runEffect(
+      readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect(tx, {
+        scopeId,
+        endpoints,
+        observeQuery: (query) => observations.push(query),
+      }),
+    ));
+    expect(versions).toHaveLength(128);
+    expect(versions.map((version) => version.adjacencyVersion)).toEqual(
+      endpoints.map((_endpoint, index) =>
+        CommitSeqSchema.make(index % 2 === 0 ? BigInt(index + 1) : 0n)
+      ),
+    );
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.name).toBe("readIncomingAdjacencyVersions");
+    const firstEndpoint = endpoints[0];
+    if (firstEndpoint === undefined) {
+      throw new Error("Expected a first incoming adjacency endpoint");
+    }
+
+    await persistence.query(`
+      alter table fx_app_edge_adjacency_version
+      drop constraint fx_app_edge_adjacency_version_commit_seq_check
+    `);
+    await persistence.query(`
+      update fx_app_edge_adjacency_version
+      set last_changed_commit_seq = 0
+      where scope_uuid = $1 and edge_definition_id = $2
+        and direction = 'incoming' and endpoint_row_id = $3
+    `, [
+      projectScopeIdUuidV1(scopeId).scopeUuid,
+      edgeDefinitionId,
+      appRowIdHexV1ToBytes(firstEndpoint.targetRowId),
+    ]);
+    const failure = await persistence.drizzle.transaction((tx) =>
+      runEffectFailure(
+        readIncomingAppRelationEdgeAdjacencyVersionsInTransactionEffect(tx, {
+          scopeId,
+          endpoints: [firstEndpoint],
+        }),
+      )
+    );
+    expect(failure).toMatchObject({
+      _tag: "AppRelationEdgeCorruptionError",
+      operation: "readIncomingAdjacencyVersions",
+    });
+  });
+
   it("rejects the 4,097th action before any SQL", async () => {
     const persistence = await edgePersistence();
     const actions = Array.from({ length: 4_097 }, (_, index) => {
@@ -473,6 +547,34 @@ describe("S12 app relation-edge storage", () => {
     expect(second.items).toHaveLength(2);
     expect(second.exhausted).toBe(true);
     expect(second.nextFrontier).toBeNull();
+  });
+
+  it("validates provenance on the unreturned incoming lookahead row", async () => {
+    const persistence = await edgePersistence();
+    await apply(persistence, scopeId, 9n, [
+      put(definition, occurrence(sourceA, targetA), 0),
+      put(definition, occurrence(sourceB, targetA), 0),
+    ]);
+    await persistence.drizzle.update(fxAppEdgeCurrent).set({
+      commitSeq: CommitSeqSchema.make(10n),
+    }).where(eq(
+      fxAppEdgeCurrent.sourceRowId,
+      appRowIdHexV1ToBytes(sourceB),
+    ));
+
+    const failure = await persistence.drizzle.transaction((tx) =>
+      runEdgeFailure(readIncomingAppRelationEdgePageInTransactionEffect(tx, {
+        scopeId,
+        definition,
+        targetRowId: targetA,
+        maximumIdentities: 1,
+      }))
+    );
+    expect(failure).toBeInstanceOf(AppRelationEdgeCorruptionError);
+    expect(failure).toMatchObject({
+      operation: "readIncomingPage",
+      reason: "incoming edge provenance exceeds adjacency-version evidence",
+    });
   });
 
   it("rolls current edges and endpoint versions back with the caller transaction", async () => {

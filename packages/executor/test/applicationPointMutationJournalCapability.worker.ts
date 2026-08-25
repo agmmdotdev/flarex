@@ -94,6 +94,10 @@ export default {
           }),
         }) satisfies RunSessionJournalIndexedQueryV1Result;
       }),
+      resolveApplicationRelationRead: () =>
+        Effect.die(new Error("relation resolution must not run")),
+      runApplicationRelationIncomingRead: () =>
+        Effect.die(new Error("relation read must not run")),
     } satisfies PointMutationOccBoundJournalV1);
     const session = makeApplicationPointMutationJournalCapabilitySessionV1(
       journal,

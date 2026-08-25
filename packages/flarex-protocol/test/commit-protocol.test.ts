@@ -17,6 +17,9 @@ import {
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
@@ -47,10 +50,12 @@ import {
 import {
   decodeAppDocumentIdV1,
   decodeAppDocumentIdentityV1,
+  decodeAppRowIdHexV1,
   type AppDocumentIdV1,
 } from "../src/app-document-id";
 import { AppCreationTimeV1Schema } from "../src/app-document";
 import {
+  decodeCatalogEdgeDefinitionId,
   decodeCatalogIndexDefinitionId,
   decodeCatalogTableId,
 } from "../src/catalog";
@@ -301,6 +306,67 @@ describe("commit protocol C02", () => {
         MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
       );
     }
+  });
+
+  it("canonicalizes and bounds exact incoming relation dependencies", async () => {
+    const relationA = relationIncomingDependency(2, 2, 9n);
+    const relationB = relationIncomingDependency(1, 3, 0n);
+    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: [relationA, relationB],
+      }),
+    ));
+
+    expect(canonical.journal.readDependencies).toEqual([
+      relationB,
+      relationA,
+    ]);
+
+    const coalesced = await runEffect(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: [
+          relationIncomingDependency(1, 3, 0n),
+          relationIncomingDependency(1, 3, 0n),
+        ],
+      }),
+    ));
+    expect(coalesced.journal.readDependencies).toEqual([
+      relationIncomingDependency(1, 3, 0n),
+    ]);
+
+    const conflicting = await runFailure(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: [
+          relationIncomingDependency(1, 3, 0n),
+          relationIncomingDependency(1, 3, 7n),
+        ],
+      }),
+    ));
+    expect(conflicting.issue).toEqual({
+      reason: "conflictingApplicationRelationReadDependency",
+      edgeDefinitionId: decodeCatalogEdgeDefinitionId(1),
+      targetRowId: decodeAppRowIdHexV1(
+        "00000000000000000000000000000003",
+      ),
+    });
+
+    const overLimit = await runFailure(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: Array.from(
+          { length: MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 + 1 },
+          (_, index) => relationIncomingDependency(index + 1, 1, 0n),
+        ),
+      }),
+    ));
+    expect(overLimit.issue).toMatchObject({
+      reason: "limitExceeded",
+      dimension: "relationReadDependencies",
+      observed: MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 + 1,
+    });
   });
 
   it("binds insert creation time into stable canonical journal evidence", async () => {
@@ -575,6 +641,9 @@ describe("commit protocol C02", () => {
       indexedQuerySyscalls: 32,
       indexedQueryPageSize: 128,
       indexRangeReadDependencies: 32,
+      relationReadSyscalls: 128,
+      relationReadDependencies: 128,
+      relationBaseOccurrences: 4_096,
       writeOperations: 16_000,
       writeSemanticBytes: 16_777_216,
       resultSemanticBytes: 16_777_216,
@@ -593,6 +662,9 @@ describe("commit protocol C02", () => {
     expect(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1).toBe(
       67_108_864,
     );
+    expect(MAX_COMMIT_RELATION_READ_SYSCALLS_V1).toBe(128);
+    expect(MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1).toBe(128);
+    expect(MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1).toBe(4_096);
     expect(CommitMaterialWriteEventEvidenceBytesV1Schema.make(0)).toBe(0);
     expect(CommitMaterialWriteEventEvidenceBytesV1Schema.make(
       MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
@@ -905,6 +977,24 @@ function indexRangeDependency(options: {
     direction: "asc",
     lower: options.lower ?? null,
     upper: options.upper ?? null,
+  };
+}
+
+function relationIncomingDependency(
+  edgeDefinitionId: number,
+  targetRowId: number,
+  observedAdjacencyVersion: bigint,
+): Extract<
+  LogicalReadDependencyV1,
+  { readonly kind: "appRelationIncoming" }
+> {
+  return {
+    kind: "appRelationIncoming",
+    edgeDefinitionId: decodeCatalogEdgeDefinitionId(edgeDefinitionId),
+    targetRowId: decodeAppRowIdHexV1(
+      targetRowId.toString(16).padStart(32, "0"),
+    ),
+    observedAdjacencyVersion: CommitSeqSchema.make(observedAdjacencyVersion),
   };
 }
 

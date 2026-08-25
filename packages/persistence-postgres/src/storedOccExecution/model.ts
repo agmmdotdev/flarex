@@ -54,6 +54,14 @@ export type StoredOccExecutionEvidenceAuthorityV1 =
        * claim plus the current O03 attempt loader. No previous plan is trusted.
        */
       readonly kind: "claimedAttempt";
+    }>
+  | Readonly<StoredOccExecutionEvidenceAuthorityBaseV1 & {
+      /**
+       * Fresh-process replacement authority for a durable running relation
+       * conflict. It authenticates the current attempt without making that
+       * advanced journal executable as a pristine attempt.
+       */
+      readonly kind: "claimedRelationConflict";
     }>;
 
 export type StoredOccExecutionEvidenceV1 = StoredCommitAuthorityEvidenceV1 & Readonly<{
@@ -66,6 +74,7 @@ export type StoredOccExecutionCorruptionReasonV1 =
   | "durableRetrying"
   | "executionClaimInvalid"
   | "journalRootNotPristine"
+  | "relationConflictEvidenceInvalid"
   | "journalChildrenPresent";
 
 export type StoredOccExecutionEvidenceLoadResultV1 =

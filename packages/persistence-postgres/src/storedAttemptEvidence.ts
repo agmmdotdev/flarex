@@ -18,6 +18,9 @@ import {
   MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1,
   MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1,
+  MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
 } from "flarex-protocol/commit-protocol";
@@ -252,6 +255,9 @@ export interface StoredAttemptSealedRootV1 {
   readonly indexedQuerySyscalls: number;
   readonly indexRangeDependencyCount: number;
   readonly indexRangeDependencyEvidenceBytes: number;
+  readonly relationReadSyscalls: number;
+  readonly relationDependencyCount: number;
+  readonly relationBaseOccurrences: number;
   readonly writeOperations: number;
   readonly writeSemanticBytes: number;
   readonly materialWriteEventEvidenceBytes:
@@ -1326,7 +1332,14 @@ function captureSealedRoot(
       MAX_COMMIT_INDEX_RANGE_READ_DEPENDENCIES_V1 ||
     !isPositiveSafeInteger(root.indexRangeDependencyEvidenceBytes + 1) ||
     root.indexRangeDependencyEvidenceBytes >
-      MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1
+      MAX_COMMIT_INDEX_RANGE_DEPENDENCY_EVIDENCE_BYTES_V1 ||
+    !isPositiveSafeInteger(root.relationReadSyscalls + 1) ||
+    root.relationReadSyscalls > MAX_COMMIT_RELATION_READ_SYSCALLS_V1 ||
+    !isPositiveSafeInteger(root.relationDependencyCount + 1) ||
+    root.relationDependencyCount >
+      MAX_COMMIT_RELATION_READ_DEPENDENCIES_V1 ||
+    !isPositiveSafeInteger(root.relationBaseOccurrences + 1) ||
+    root.relationBaseOccurrences > MAX_COMMIT_RELATION_BASE_OCCURRENCES_V1
   ) {
     return undefined;
   }
@@ -1341,6 +1354,9 @@ function captureSealedRoot(
     indexRangeDependencyCount: root.indexRangeDependencyCount,
     indexRangeDependencyEvidenceBytes:
       root.indexRangeDependencyEvidenceBytes,
+    relationReadSyscalls: root.relationReadSyscalls,
+    relationDependencyCount: root.relationDependencyCount,
+    relationBaseOccurrences: root.relationBaseOccurrences,
     writeOperations: root.writeOperations,
     writeSemanticBytes: root.writeSemanticBytes,
     materialWriteEventEvidenceBytes: root.materialWriteEventEvidenceBytes,

@@ -2,11 +2,14 @@ import { Encoding } from "effect";
 
 import type {
   PointCommitConflictEvidenceV1,
+  PointCommitAuthorityPinsV1,
   PointCommitPublicationCommandV1,
+  RunningRelationConflictAttemptReplacementCommandV1,
 } from
   "@flarex/persistence-postgres/point-commit-transaction";
 import type { PointMutationSessionAttemptSelectorV1 } from
   "@flarex/persistence-postgres/transaction-session-activation";
+import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
 
 import type {
   PointMutationExecutionClaimV1,
@@ -47,9 +50,31 @@ export interface PreparedPointCommitCapabilityStateV1 {
 
 export type CapturedPointMutationOccConflictV1 = PointCommitConflictEvidenceV1;
 
-export interface PointMutationOccConflictTicketStateV1 {
-  readonly finishing: FinishingPreparedPointCommitV1;
-  readonly prepared: PreparedPointCommitCapabilityStateV1;
+export interface PointMutationOccRetryLineage {
+  readonly authorityPins: Readonly<PointCommitAuthorityPinsV1>;
+  readonly scopeUuid: ScopeUuidV1;
+  readonly previousSession: Readonly<StoredAttemptSessionScalarsPortV1>;
+}
+
+export type PointMutationOccConflictTicketStateV1 =
+  | Readonly<{
+      readonly source: "finishingCommit";
+      readonly lineage: PointMutationOccRetryLineage;
+      readonly finishing: FinishingPreparedPointCommitV1;
+      readonly prepared: PreparedPointCommitCapabilityStateV1;
+      readonly conflict: CapturedPointMutationOccConflictV1;
+    }>
+  | Readonly<{
+      readonly source: "runningRelation";
+      readonly lineage: PointMutationOccRetryLineage;
+      readonly replacement:
+        RunningRelationConflictAttemptReplacementCommandV1;
+      readonly conflict: CapturedPointMutationOccConflictV1;
+    }>;
+
+export interface PointMutationRunningRelationConflictTicketInput {
+  readonly lineage: PointMutationOccRetryLineage;
+  readonly replacement: RunningRelationConflictAttemptReplacementCommandV1;
   readonly conflict: CapturedPointMutationOccConflictV1;
 }
 
@@ -63,7 +88,7 @@ export interface PointCommitDecisionUncertainTicketStateV1 {
 export interface AuthorizedPointMutationOccRerunStateV1 {
   readonly loadedAttempt: LoadedPointMutationSessionAttemptV1;
   readonly executionClaim: PointMutationExecutionClaimV1;
-  readonly prepared: PreparedPointCommitCapabilityStateV1;
+  readonly lineage: PointMutationOccRetryLineage;
   readonly conflict: CapturedPointMutationOccConflictV1;
   readonly inspection: AuthorizedPointMutationOccRerunInspectionV1;
 }

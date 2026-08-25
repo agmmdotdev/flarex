@@ -22,6 +22,7 @@ import {
   type PointMutationAttemptReplacementCommandV1,
   type PointMutationAttemptReplacementObservationV1,
   type PointMutationAttemptReplacementPortV1,
+  type RunningRelationConflictAttemptReplacementPortV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   AppCreationTimeV1Schema,
@@ -34,7 +35,9 @@ import {
   type AppDocumentIdV1,
 } from "flarex-protocol/app-document-id";
 import {
+  decodeCatalogEdgeDefinitionId,
   decodeCatalogIndexDefinitionId,
+  decodeCatalogRelationId,
   decodeCatalogTableId,
 } from "flarex-protocol/catalog";
 import {
@@ -163,6 +166,9 @@ import {
   TransactionGrantVerificationV1Error,
 } from "../src/transactionGrant";
 import {
+  findTransactionGrantVerificationKernelV1,
+} from "../src/transactionGrantVerificationKernel";
+import {
   CommitDocumentValidationV1Error,
   CommitInputAuthorityCorruptionV1Error,
   CommitSuccessfulResultValidationV1Error,
@@ -210,6 +216,9 @@ import {
   type ExactPointMutationExecutionOperationDependenciesV1,
 } from "../src/storedAttemptAuthentication/exactPointMutationExecutionOperations";
 import {
+  verifyCommitAuthorityEvidenceEffect,
+} from "../src/storedAttemptAuthentication/commitAuthorityVerification";
+import {
   type ExecuteExactPointMutationAttemptInputV1,
 } from "../src/storedAttemptAuthentication/occRerunExecutionOperations";
 import {
@@ -226,6 +235,10 @@ import {
   runEffect,
   runEffectFailure as runFailure,
 } from "./effectTestRuntime";
+import {
+  InvalidPointMutationJournalCapabilityV1Error,
+  PointMutationJournalRelationConflictError,
+} from "../src/pointMutationJournal";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_c04a_executor",
@@ -886,6 +899,16 @@ describe("C04A stored-attempt authentication", () => {
                   new Error("authorization construction must not replace"),
                 ),
             ),
+            replaceRunningRelationConflict: Effect.fn(
+              "TestPointCommit.replaceRunningAuthorizationConstructionBoundary",
+            )(
+              () =>
+                Effect.die(
+                  new Error(
+                    "authorization construction must not replace a running relation conflict",
+                  ),
+                ),
+            ),
           },
           pointMutationOccRerun,
         },
@@ -923,6 +946,8 @@ describe("C04A stored-attempt authentication", () => {
         },
         pointMutationAttemptReplacement: {
           replace: () => neverRun("replace"),
+          replaceRunningRelationConflict: () =>
+            neverRun("replace a running relation conflict"),
         },
         pointMutationOccRerun: {
           attemptLoading: {
@@ -937,6 +962,13 @@ describe("C04A stored-attempt authentication", () => {
             runPointOperation: () => neverRun("run a point operation"),
             resolveDeveloperIndex: () => neverRun("resolve an index"),
             runIndexedQuery: () => neverRun("run an indexed query"),
+            resolveApplicationRelationRead: () =>
+              neverRun("resolve an application relation"),
+            runApplicationRelationIncomingRead: () =>
+              neverRun("run an application relation read"),
+            claimPersistedRelationConflictForRetry: () => {
+              throw new Error("claim a relation conflict");
+            },
             sealSuccessfulResult: () => neverRun("seal a result"),
           },
           terminalization: {
@@ -2247,6 +2279,253 @@ describe("C04A stored-attempt authentication", () => {
     expect(planningCalls).toBe(1);
   });
 
+  it("captures an exact running relation conflict before seal or abort", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("running-relation-conflict"),
+      returnsValidator: { type: "string" },
+    });
+    const source = commitInputSourceForTest(current);
+    const verificationState = Object.freeze({
+      authority: source.authority,
+      session: source.session,
+    });
+    const grantKernel = findTransactionGrantVerificationKernelV1(
+      current.verifier,
+    );
+    if (grantKernel === undefined) {
+      throw new Error("Expected a registered transaction grant kernel.");
+    }
+    const verifiedEvidence = await runEffect(
+      verifyCommitAuthorityEvidenceEffect(
+        verificationState,
+        current.commitEvidence,
+        grantKernel,
+      ),
+    );
+    const targetDocumentId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000018",
+    );
+    const targetRowId = decodeAppDocumentIdentityV1(targetDocumentId).rowId;
+    const conflict = Object.freeze({
+      kind: "relationConflict" as const,
+      edgeDefinitionId: decodeCatalogEdgeDefinitionId(41),
+      targetRowId,
+      expectedAdjacencyVersion: CommitSeqSchema.make(19n),
+      actualAdjacencyVersion: CommitSeqSchema.make(20n),
+      snapshotCommitSeq: CommitSeqSchema.make(19n),
+    });
+    const requestEvidence = Object.freeze({
+      format: "flarex.session-journal-syscall" as const,
+      codecVersion: 1 as const,
+      kind: "relationIncoming" as const,
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      relationId: decodeCatalogRelationId(31),
+      edgeDefinitionId: conflict.edgeDefinitionId,
+      sourceTableId: decodeCatalogTableId(1),
+      targetTableId: decodeCatalogTableId(1),
+      targetRowId,
+      limit: 1,
+    });
+    const exactError = new PointMutationJournalRelationConflictError({
+      conflict,
+    });
+    const selector = Object.freeze({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: SCOPE_ID,
+      sessionId: SESSION_ID,
+      attemptFence: ATTEMPT_FENCE,
+    });
+    const attemptLoading = createPointMutationSessionAttemptLoadingV1({
+      loadEffect: () => Effect.succeed({
+        status: "loaded",
+        anchor: {
+          ...selector,
+          requestKey: TransactionRequestKeyV1Schema.make(
+            source.session.requestKey,
+          ),
+          storageGeneration: source.authority.storageGeneration,
+          storageGenerationFence: source.authority.storageGenerationFence,
+          snapshotToken: source.authority.snapshotToken,
+          hardExpiresAt: "2099-01-01T00:00:00.000Z",
+          leaseExpiresAt: "2098-12-31T23:59:00.000Z",
+          createdAt: "2026-08-25T00:00:00.000Z",
+          updatedAt: "2026-08-25T00:00:00.000Z",
+        },
+        executionPin: { schemaVersionId: source.authority.schemaVersionId },
+        attemptFacet: { kind: "nonPristine" },
+      }),
+    });
+    const counters = {
+      abort: 0,
+      capture: 0,
+      claim: 0,
+      seal: 0,
+      derive: 0,
+      authenticate: 0,
+      verify: 0,
+      plan: 0,
+      finishing: 0,
+      publish: 0,
+    };
+    let conflictClaimed = false;
+    let capturedTicket: unknown;
+    const relationHandle = Object.freeze({});
+    const operations = makeExactPointMutationExecutionOperationsV1({
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      contextFactory: { make: () => Effect.succeed({
+        executionId: "running-relation-conflict-execution",
+        logScopeId: "running-relation-conflict-log",
+        randomSeed: new Uint8Array(32).fill(7),
+      }) },
+      attemptLoading,
+      journal: {
+        openAttempt: () => Effect.succeed(Object.freeze({}) as never),
+        resolvePointTable: () => Effect.die("runner must not read a point"),
+        runPointOperation: () => Effect.die("runner must not write a point"),
+        resolveDeveloperIndex: () => Effect.die("runner must not query an index"),
+        runIndexedQuery: () => Effect.die("runner must not query an index"),
+        resolveApplicationRelationRead: () =>
+          Effect.succeed(relationHandle as never),
+        runApplicationRelationIncomingRead: () => Effect.fail(exactError),
+        claimPersistedRelationConflictForRetry: (input: unknown) => {
+          counters.claim += 1;
+          if (conflictClaimed || input !== exactError) {
+            return Result.fail(
+              new InvalidPointMutationJournalCapabilityV1Error({
+                capability: "relationConflict",
+              }),
+            );
+          }
+          conflictClaimed = true;
+          return Result.succeed(Object.freeze({
+            error: exactError,
+            request: requestEvidence,
+            conflict,
+          }));
+        },
+        sealSuccessfulResult: () => Effect.sync(() => {
+          counters.seal += 1;
+          return current.fixture.envelope;
+        }),
+      },
+      runner: { run: (input: {
+        readonly journal: {
+          readonly resolveApplicationRelationRead: (capability: unknown) =>
+            Effect.Effect<unknown, unknown>;
+          readonly runApplicationRelationIncomingRead: (
+            relation: unknown,
+            operation: unknown,
+          ) => Effect.Effect<unknown, unknown>;
+        };
+      }) => Effect.gen(function* () {
+        const relation = yield* input.journal.resolveApplicationRelationRead(
+          Object.freeze({}),
+        );
+        yield* input.journal.runApplicationRelationIncomingRead(relation, {
+          kind: "incoming",
+          targetDocumentId,
+          limit: 1,
+        });
+        return "unreachable";
+      }) },
+      terminalization: { abort: () => Effect.sync(() => {
+        counters.abort += 1;
+      }) },
+      deriveAuthority: () => Effect.sync(() => {
+        counters.derive += 1;
+        return Object.freeze({}) as never;
+      }),
+      authenticate: () => Effect.sync(() => {
+        counters.authenticate += 1;
+        return Object.freeze({}) as never;
+      }),
+      authenticateCommitAuthority: () => Effect.sync(() => {
+        counters.authenticate += 1;
+        return Object.freeze({}) as never;
+      }),
+      verifyCommitInput: () => Effect.sync(() => {
+        counters.verify += 1;
+        return Object.freeze({}) as never;
+      }),
+      planPointCommit: () => Effect.sync(() => {
+        counters.plan += 1;
+        return Object.freeze({}) as never;
+      }),
+      enterPointCommitFinishing: () => Effect.sync(() => {
+        counters.finishing += 1;
+        return Object.freeze({}) as never;
+      }),
+      publishFinishingPointCommit: () => Effect.sync(() => {
+        counters.publish += 1;
+        return Object.freeze({}) as never;
+      }),
+      captureRunningRelationConflictTicket: (error: object, ticket: unknown) => {
+        counters.capture += 1;
+        expect(error).toBe(exactError);
+        capturedTicket = ticket;
+      },
+    } as unknown as ExactPointMutationExecutionOperationDependenciesV1);
+
+    const result = await runEffect(operations.executeExactPointMutationAttempt({
+      selector,
+      attemptFence: ATTEMPT_FENCE,
+      snapshotToken: SNAPSHOT,
+      executionScope: makeTestExecutionScope(),
+      executionClaim: TEST_EXECUTION_CLAIM_OBSERVATION,
+      liveness: { enterFinishing: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.sync(() => {
+          counters.finishing += 1;
+        }).pipe(Effect.andThen(effect)) },
+      executionEvidence: Object.freeze({
+        ...current.commitEvidence,
+        creationTimeSeed: AppCreationTimeV1Schema.make(1_800_000_000_000),
+      }),
+      verificationState,
+      verifiedEvidence,
+      currentInspectionUnavailable: () => new Error("attempt missing"),
+      validateCurrent: () => Effect.void,
+    }));
+
+    expect(result.kind).toBe("conflict");
+    if (result.kind !== "conflict") {
+      throw new Error("Expected an exact running relation conflict.");
+    }
+    expect(result.error).toBe(exactError);
+    expect(counters).toEqual({
+      abort: 0,
+      capture: 1,
+      claim: 1,
+      seal: 0,
+      derive: 0,
+      authenticate: 0,
+      verify: 0,
+      plan: 0,
+      finishing: 0,
+      publish: 0,
+    });
+    expect(capturedTicket).toMatchObject({
+      lineage: {
+        previousSession: { lifecycle: "running" },
+      },
+      replacement: {
+        executionClaim: TEST_EXECUTION_CLAIM_OBSERVATION,
+        request: requestEvidence,
+        conflict,
+      },
+      conflict: {
+        conflict: {
+          kind: "appRelationIncoming",
+          edgeDefinitionId: conflict.edgeDefinitionId,
+          targetRowId,
+        },
+        snapshotCommitSeq: CommitSeqSchema.make(19n),
+        currentCommitSeq: CommitSeqSchema.make(20n),
+      },
+    });
+  });
+
   it("mints an opaque same-factory C04C1 capability with zero I/O", async () => {
     type RootLeak = Extract<
       keyof typeof executorRoot,
@@ -3199,6 +3478,7 @@ describe("C04A stored-attempt authentication", () => {
       "dependencies",
       "expectedConflict",
       "indexRangeDependencies",
+      "relationDependencies",
       "sealIdentity",
       "session",
     ]);
@@ -5708,7 +5988,8 @@ async function pointMutationOccAuthorizationFixture(
       ),
     });
   const pointMutationAttemptReplacement:
-    PointMutationAttemptReplacementPortV1 = Object.freeze({
+    PointMutationAttemptReplacementPortV1 &
+    RunningRelationConflictAttemptReplacementPortV1 = Object.freeze({
       replace: Effect.fn("TestO08B1.replace")((command) => Effect.sync(() => {
         replacementCalls += 1;
         return unsafePointMutationAttemptReplacementObservationForTest(
@@ -5724,6 +6005,11 @@ async function pointMutationOccAuthorizationFixture(
           }),
         );
       })),
+      replaceRunningRelationConflict: Effect.fn(
+        "TestO08B1.replaceRunningRelationConflict",
+      )(() => Effect.die(
+        new Error("running relation replacement must not run"),
+      )),
     });
   const authentication = createStoredPointMutationOccRerunAuthorizationV1(
     {
@@ -5886,6 +6172,9 @@ function commitInputSourceForTest(
       indexRangeDependencyCount: evidence.root.indexRangeDependencyCount,
       indexRangeDependencyEvidenceBytes:
         evidence.root.indexRangeDependencyEvidenceBytes,
+      relationReadSyscalls: evidence.root.relationReadSyscalls,
+      relationDependencyCount: evidence.root.relationDependencyCount,
+      relationBaseOccurrences: evidence.root.relationBaseOccurrences,
       writeOperations: evidence.root.writeOperations,
       writeSemanticBytes: evidence.root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
@@ -6453,6 +6742,9 @@ async function fixtureForJournal(
       indexedQuerySyscalls: 0,
       indexRangeDependencyCount: 0,
       indexRangeDependencyEvidenceBytes: 0,
+      relationReadSyscalls: 0,
+      relationDependencyCount: 0,
+      relationBaseOccurrences: 0,
       writeOperations: journal.journal.writes.length,
       writeSemanticBytes: journal.journal.writes.reduce(
         (total, write) => total +

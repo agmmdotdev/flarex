@@ -1,10 +1,15 @@
 import type {
   PinnedDeveloperIndexV1,
+  PinnedApplicationRelationRead,
   PinnedPointTableV1,
+  RunSessionJournalRelationIncomingV1Result,
   RunSessionJournalIndexedQueryV1Result,
   RunSessionJournalPointOperationV1Result,
   SessionJournalIndexedQueryOperationV1,
   SessionJournalIndexedQuerySuccessV1,
+  SessionJournalRelationConflictV1,
+  SessionJournalRelationIncomingRequestEvidenceV1,
+  SessionJournalRelationIncomingOperationV1,
   SessionJournalPointSuccessV1,
   SessionJournalAttemptV1,
   SessionJournalPointOperationV1,
@@ -23,6 +28,9 @@ import {
   SessionJournalStorageCorruptionV1Error,
   SessionJournalTargetUnavailableV1Error,
 } from "@flarex/persistence-postgres/session-journal-store";
+import type {
+  RecoveredRunningRelationConflictEvidence,
+} from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   ApplicationRevisionSyscallDocumentValidationV1Error,
   ApplicationRevisionSyscallValidatorCorruptionV1Error,
@@ -45,6 +53,7 @@ import {
   type OrderedIndexBoundsV1,
 } from "flarex-protocol/ordered-index";
 import {
+  AppDocumentIdV1Schema,
   type AppDocumentIdV1,
   decodeAppDocumentIdV1,
 } from "flarex-protocol/app-document-id";
@@ -86,10 +95,33 @@ export interface PointMutationJournalIndexV1 {
   readonly [pointMutationJournalIndexBrand]: true;
 }
 
+const pointMutationJournalRelationBrand: unique symbol = Symbol(
+  "FlarexExecutor/PointMutationJournalRelation",
+);
+
+export interface PointMutationJournalRelation {
+  readonly [pointMutationJournalRelationBrand]: true;
+}
+
+export type PointMutationJournalApplicationRelationReadCapability = Parameters<
+  SessionJournalStorePersistenceV1["resolveApplicationRelationReadEffect"]
+>[1];
+
 export class InvalidPointMutationJournalCapabilityV1Error
   extends Data.TaggedError("InvalidPointMutationJournalCapabilityV1Error")<{
-    readonly capability: "attempt" | "table" | "index";
+    readonly capability:
+      | "attempt"
+      | "table"
+      | "index"
+      | "relation"
+      | "relationConflict";
   }> {}
+
+export class PointMutationJournalRelationConflictError extends Data.TaggedError(
+  "PointMutationJournalRelationConflictError",
+)<{
+  readonly conflict: SessionJournalRelationConflictV1;
+}> {}
 
 export class UnsupportedPointMutationJournalOperationV1Error
   extends Data.TaggedError(
@@ -129,6 +161,7 @@ export type PointMutationJournalBoundaryV1Error =
   | UnsupportedPointMutationJournalOperationV1Error
   | PointMutationJournalAttemptPinsV1Error
   | PointMutationJournalAttemptUnavailableV1Error
+  | PointMutationJournalRelationConflictError
   | PointMutationJournalPersistenceV1Error
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
@@ -181,6 +214,35 @@ export interface PointMutationJournalV1 {
     RunSessionJournalIndexedQueryV1Result,
     PointMutationJournalBoundaryV1Error
   >;
+  readonly resolveApplicationRelationRead: (
+    attempt: PointMutationJournalAttemptV1,
+    capability: PointMutationJournalApplicationRelationReadCapability,
+  ) => Effect.Effect<
+    PointMutationJournalRelation,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly runApplicationRelationIncomingRead: (
+    relation: PointMutationJournalRelation,
+    operation: unknown,
+  ) => Effect.Effect<
+    Exclude<
+      RunSessionJournalRelationIncomingV1Result,
+      { readonly kind: "conflicted" }
+    >,
+    PointMutationJournalBoundaryV1Error
+  >;
+  readonly claimPersistedRelationConflictForRetry: (
+    input: unknown,
+  ) => Result.Result<
+    Readonly<{
+      readonly error: PointMutationJournalRelationConflictError;
+      readonly request: Readonly<
+        SessionJournalRelationIncomingRequestEvidenceV1
+      >;
+      readonly conflict: SessionJournalRelationConflictV1;
+    }>,
+    InvalidPointMutationJournalCapabilityV1Error
+  >;
   readonly sealSuccessfulResult: (
     attempt: PointMutationJournalAttemptV1,
     successfulResult: unknown,
@@ -188,6 +250,12 @@ export interface PointMutationJournalV1 {
     StoredForSessionAttemptCommitEnvelopeV1,
     PointMutationJournalBoundaryV1Error | CommitProtocolV1Error
   >;
+}
+
+export interface PointMutationJournalRelationConflictRecovery {
+  readonly captureRecoveredRelationConflict: (
+    evidence: RecoveredRunningRelationConflictEvidence,
+  ) => PointMutationJournalRelationConflictError;
 }
 
 export type PointMutationJournalLogicalOutcomeV1 =
@@ -216,11 +284,19 @@ interface JournalIndexStateV1 {
   readonly persistenceIndex: PinnedDeveloperIndexV1;
 }
 
+interface JournalRelationState {
+  readonly attempt: JournalAttemptStateV1;
+  readonly persistenceRelation: PinnedApplicationRelationRead;
+}
+
 const decodeSyscallSequence = Schema.decodeUnknownSync(
   Schema.toType(CommitSyscallSequenceV1Schema),
 );
 const decodeSyscallSequenceResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSyscallSequenceV1Schema),
+);
+const decodeAppDocumentIdResult = Schema.decodeUnknownResult(
+  AppDocumentIdV1Schema,
 );
 const decodeOrderedIndexBoundResult = Schema.decodeUnknownResult(
   OrderedIndexBoundHexV1Schema,
@@ -230,10 +306,21 @@ export function createPointMutationJournalV1(
   persistence: SessionJournalStorePersistenceV1,
   executionClaims: PointMutationExecutionClaimAdmissionV1,
   syscallValidator: ApplicationRevisionSyscallValidatorV1,
-): PointMutationJournalV1 {
+): PointMutationJournalV1 & PointMutationJournalRelationConflictRecovery {
   const attemptStates = new WeakMap<object, JournalAttemptStateV1>();
   const tableStates = new WeakMap<object, JournalTableStateV1>();
   const indexStates = new WeakMap<object, JournalIndexStateV1>();
+  const relationStates = new WeakMap<object, JournalRelationState>();
+  const persistedRelationConflicts = new WeakMap<
+    object,
+    Readonly<{
+      readonly error: PointMutationJournalRelationConflictError;
+      readonly request: Readonly<
+        SessionJournalRelationIncomingRequestEvidenceV1
+      >;
+      readonly conflict: SessionJournalRelationConflictV1;
+    }>
+  >();
   const openedByExecutionClaim = new WeakMap<
     object,
     PointMutationJournalAttemptV1
@@ -455,6 +542,104 @@ export function createPointMutationJournalV1(
       },
     );
 
+  const resolveApplicationRelationRead: PointMutationJournalV1[
+    "resolveApplicationRelationRead"
+  ] = Effect.fn("PointMutationJournal.resolveApplicationRelationRead")(
+    function* (attempt, capability) {
+      const state = yield* Effect.try({
+        try: () => requireAttempt(attempt),
+        catch: mapPersistenceFailure,
+      });
+      const persistenceRelation = yield* state.coordinator.semaphore.withPermit(
+        Effect.uninterruptible(
+          persistence.resolveApplicationRelationReadEffect(
+            state.persistenceAttempt,
+            capability,
+          ).pipe(Effect.mapError(mapPersistenceFailure)),
+        ),
+      );
+      const handle = Object.freeze({
+        [pointMutationJournalRelationBrand]: true as const,
+      });
+      relationStates.set(handle, Object.freeze({
+        attempt: state,
+        persistenceRelation,
+      }));
+      return handle;
+    },
+  );
+
+  const runApplicationRelationIncomingRead: PointMutationJournalV1[
+    "runApplicationRelationIncomingRead"
+  ] = Effect.fn("PointMutationJournal.runApplicationRelationIncomingRead")(
+    function* (relation, input) {
+      const state = typeof relation === "object" && relation !== null
+        ? relationStates.get(relation)
+        : undefined;
+      if (state === undefined) {
+        return yield* Effect.fail(
+          new InvalidPointMutationJournalCapabilityV1Error({
+            capability: "relation",
+          }),
+        );
+      }
+      const operation = yield* Effect.fromResult(
+        decodeRelationIncomingOperationResult(input),
+      );
+      const result = yield* state.attempt.coordinator.semaphore
+        .withPermit(
+          Effect.uninterruptible(
+            persistence.runApplicationRelationIncomingReadEffect(
+              state.persistenceRelation,
+              operation,
+            ).pipe(Effect.mapError(mapPersistenceFailure)),
+          ),
+        );
+      if (result.kind !== "conflicted") return result;
+      const error = captureRelationConflict(result.request, result.conflict);
+      return yield* Effect.fail(error);
+    },
+  );
+
+  function captureRelationConflict(
+    requestInput: SessionJournalRelationIncomingRequestEvidenceV1,
+    conflictInput: SessionJournalRelationConflictV1,
+  ): PointMutationJournalRelationConflictError {
+    const request = Object.freeze(structuredClone(requestInput));
+    const conflict = Object.freeze(structuredClone(conflictInput));
+    const error = new PointMutationJournalRelationConflictError({ conflict });
+    persistedRelationConflicts.set(error, Object.freeze({
+      error,
+      request,
+      conflict,
+    }));
+    return error;
+  }
+
+  const captureRecoveredRelationConflict:
+    PointMutationJournalRelationConflictRecovery[
+      "captureRecoveredRelationConflict"
+    ] = (evidence) =>
+      captureRelationConflict(evidence.request, evidence.conflict);
+
+  const claimPersistedRelationConflictForRetry: PointMutationJournalV1[
+    "claimPersistedRelationConflictForRetry"
+  ] = (input) => {
+    if (typeof input !== "object" || input === null) {
+      return Result.fail(new InvalidPointMutationJournalCapabilityV1Error({
+        capability: "relationConflict",
+      }));
+    }
+    const claimed = persistedRelationConflicts.get(input);
+    if (claimed === undefined) {
+      return Result.fail(new InvalidPointMutationJournalCapabilityV1Error({
+        capability: "relationConflict",
+      }));
+    }
+    persistedRelationConflicts.delete(input);
+    return Result.succeed(claimed);
+  };
+
   const sealSuccessfulResult: PointMutationJournalV1["sealSuccessfulResult"] =
     Effect.fn("PointMutationJournal.sealSuccessfulResult")(
       function* (attempt, successfulResult) {
@@ -490,6 +675,10 @@ export function createPointMutationJournalV1(
     runPointOperation,
     resolveDeveloperIndex,
     runIndexedQuery,
+    resolveApplicationRelationRead,
+    runApplicationRelationIncomingRead,
+    captureRecoveredRelationConflict,
+    claimPersistedRelationConflictForRetry,
     sealSuccessfulResult,
   });
   return journal;
@@ -590,6 +779,116 @@ function decodeIndexedQueryOperationResult(
       bounds,
       limit: Number(captured.limit),
     });
+  });
+}
+
+function decodeRelationIncomingOperationResult(
+  input: unknown,
+): Result.Result<
+  SessionJournalRelationIncomingOperationV1,
+  PointMutationJournalBoundaryV1Error
+> {
+  return Result.gen(function* () {
+    const record = yield* Result.try({
+      try: () => isPlainRecord(input) ? input : null,
+      catch: mapPersistenceFailure,
+    });
+    if (record === null) {
+      return yield* Result.fail(
+        new UnsupportedPointMutationJournalOperationV1Error({
+          reason: "notPlainObject",
+        }),
+      );
+    }
+    const kind = yield* Result.try({
+      try: () => readDataProperty(record, "kind"),
+      catch: mapPersistenceFailure,
+    });
+    if (kind !== "relationIncoming") {
+      return yield* Result.fail(
+        new UnsupportedPointMutationJournalOperationV1Error({
+          reason: "invalidKind",
+          operationKind: kind,
+        }),
+      );
+    }
+    const actualFields = yield* Result.try({
+      try: () => Reflect.ownKeys(record),
+      catch: mapPersistenceFailure,
+    });
+    const expectedFields = new Set([
+      "kind",
+      "syscallSequence",
+      "targetDocumentId",
+      "limit",
+    ]);
+    if (
+      actualFields.length !== expectedFields.size ||
+      actualFields.some((field) =>
+        typeof field !== "string" || !expectedFields.has(field))
+    ) {
+      return yield* Result.fail(
+        new UnsupportedPointMutationJournalOperationV1Error({
+          reason: "unexpectedFields",
+          operationKind: kind,
+        }),
+      );
+    }
+    const syscallSequenceInput = yield* readRelationOperationFieldResult(
+      record,
+      "syscallSequence",
+      kind,
+    );
+    const syscallSequence = yield* decodeSyscallSequenceResult(
+      syscallSequenceInput,
+    ).pipe(Result.mapError(cause => relationOperationFieldError(kind, cause)));
+    const targetDocumentIdInput = yield* readRelationOperationFieldResult(
+      record,
+      "targetDocumentId",
+      kind,
+    );
+    const targetDocumentId = yield* decodeAppDocumentIdResult(
+      targetDocumentIdInput,
+    ).pipe(Result.mapError(cause => relationOperationFieldError(kind, cause)));
+    const limit = yield* readRelationOperationFieldResult(
+      record,
+      "limit",
+      kind,
+    );
+    if (!Number.isSafeInteger(limit) || Number(limit) <= 0) {
+      return yield* Result.fail(relationOperationFieldError(
+        kind,
+        new Error("Invalid relation read limit."),
+      ));
+    }
+    return Object.freeze({
+      kind,
+      syscallSequence,
+      targetDocumentId,
+      limit: Number(limit),
+    });
+  });
+}
+
+function readRelationOperationFieldResult(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+  operationKind: unknown,
+): Result.Result<unknown, UnsupportedPointMutationJournalOperationV1Error> {
+  return Result.try({
+    try: () => readDataProperty(input, field),
+    catch: cause => relationOperationFieldError(operationKind, cause),
+  });
+}
+
+function relationOperationFieldError(
+  operationKind?: unknown,
+  cause?: unknown,
+): UnsupportedPointMutationJournalOperationV1Error {
+  return new UnsupportedPointMutationJournalOperationV1Error({
+    reason: "invalidFieldShape",
+    ...(operationKind === undefined ? {} : { operationKind }),
+    ...(cause === undefined ? {} : { cause }),
   });
 }
 
@@ -793,6 +1092,7 @@ function mapPersistenceFailure(
     cause instanceof InvalidPointMutationJournalCapabilityV1Error ||
     cause instanceof UnsupportedPointMutationJournalOperationV1Error ||
     cause instanceof PointMutationJournalAttemptPinsV1Error ||
+    cause instanceof PointMutationJournalRelationConflictError ||
     cause instanceof InvalidSessionJournalCapabilityV1Error ||
     cause instanceof InvalidSessionJournalInputV1Error ||
     cause instanceof PinnedPointTableCorruptionV1Error ||

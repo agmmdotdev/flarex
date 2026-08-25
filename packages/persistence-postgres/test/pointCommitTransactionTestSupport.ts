@@ -3,14 +3,20 @@ import {
   appRowIdHexV1FromBytes,
   appRowIdHexV1ToBytes,
 } from "flarex-protocol/app-document-id";
-import { SESSION_JOURNAL_FORMAT_V1 } from "flarex-protocol/commit-protocol";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { Effect } from "effect";
+import {
+  SESSION_JOURNAL_FORMAT_V1,
+  decodeCanonicalSessionJournalV1Effect,
+  type LogicalApplicationRelationIncomingReadDependencyV1,
+  type LogicalIndexRangeReadDependencyV1,
+} from "flarex-protocol/commit-protocol";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { CommitSeqSchema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionArtifactIdV1Schema,
-  TransactionArtifactRuntimeV1Schema,
   TransactionAuthorizationGrantIdV1Schema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionExecutionModuleV1Schema,
@@ -19,6 +25,7 @@ import {
   TransactionPolicyVersionV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionSourcePackageSha256HexV1Schema,
+  type StoredTransactionSessionScalarsV1,
 } from "flarex-protocol/transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
@@ -30,14 +37,84 @@ import type {
   PointCommitDependencyV1,
   PointCommitFinishingTransitionCommandV1,
   PointCommitRowIntentV1,
+  PointCommitSessionScalarsV1,
   PointCommitTransactionCommandV1,
   PointMutationAttemptReplacementCommandV1,
+  RunningRelationConflictAttemptReplacementCommandV1,
+  RunningRelationConflictRecoveryCommand,
 } from "../src/pointCommitTransaction";
+import type { RunSessionJournalRelationIncomingV1Result } from
+  "../src/sessionJournalStore";
 import type {
   StoredAttemptEvidenceAuthorityV1,
   StoredAttemptEvidenceV1,
   StoredAttemptPointEvidenceV1,
 } from "../src/storedAttemptEvidence";
+import type {
+  StoredOccExecutionEvidenceAuthorityV1,
+  StoredOccExecutionEvidenceV1,
+} from "../src/storedOccExecution";
+
+export function runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1(
+  authority: StoredOccExecutionEvidenceAuthorityV1,
+  evidence: StoredOccExecutionEvidenceV1,
+  result: Pick<
+    Extract<
+      RunSessionJournalRelationIncomingV1Result,
+      { readonly kind: "conflicted" }
+    >,
+    "request" | "conflict"
+  >,
+): RunningRelationConflictAttemptReplacementCommandV1 {
+  if (
+    evidence.session.lifecycle !== "running" ||
+    evidence.session.storageGeneration !== "flarexdb_v1" ||
+    evidence.session.functionKind !== "mutation"
+  ) {
+    throw new Error(
+      "Running relation-conflict evidence is not a running mutation attempt.",
+    );
+  }
+  return Object.freeze({
+    authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(
+      authority,
+      evidence.session,
+    ),
+    session: pointCommitRunningSessionFromStoredSessionV1(evidence.session),
+    executionClaim: Object.freeze({
+      claimOwner: authority.executionClaim.claimOwner,
+      claimFence: authority.executionClaim.claimFence,
+    }),
+    request: result.request,
+    conflict: result.conflict,
+  });
+}
+
+export function runningRelationConflictRecoveryCommandFromStoredOccExecutionV1(
+  authority: StoredOccExecutionEvidenceAuthorityV1,
+  evidence: StoredOccExecutionEvidenceV1,
+): RunningRelationConflictRecoveryCommand {
+  if (
+    evidence.session.lifecycle !== "running" ||
+    evidence.session.storageGeneration !== "flarexdb_v1" ||
+    evidence.session.functionKind !== "mutation"
+  ) {
+    throw new Error(
+      "Relation-conflict recovery evidence is not a running mutation attempt.",
+    );
+  }
+  return Object.freeze({
+    authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(
+      authority,
+      evidence.session,
+    ),
+    session: pointCommitRunningSessionFromStoredSessionV1(evidence.session),
+    executionClaim: Object.freeze({
+      claimOwner: authority.executionClaim.claimOwner,
+      claimFence: authority.executionClaim.claimFence,
+    }),
+  });
+}
 
 export async function pointMutationAttemptReplacementCommandFromStoredAttemptV1(
   authority: StoredAttemptEvidenceAuthorityV1,
@@ -53,6 +130,7 @@ export async function pointMutationAttemptReplacementCommandFromStoredAttemptV1(
     sealIdentity: command.sealIdentity,
     dependencies: command.dependencies,
     indexRangeDependencies: command.indexRangeDependencies,
+    relationDependencies: command.relationDependencies,
     expectedConflict: expectedPointConflict(command),
   });
 }
@@ -85,6 +163,43 @@ export async function pointCommitCommandFromStoredAttemptV1(
     evidence,
     "finishing",
   );
+}
+
+export async function pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(
+  authority: StoredAttemptEvidenceAuthorityV1,
+  evidence: StoredAttemptEvidenceV1,
+): Promise<PointCommitTransactionCommandV1> {
+  const command = await pointCommitCommandFromStoredAttemptV1(
+    authority,
+    evidence,
+  );
+  const journal = await Effect.runPromise(
+    decodeCanonicalSessionJournalV1Effect({
+      canonicalBytes: new Uint8Array(evidence.root.journalBytes),
+      expectedSha256Hex: encodeBytesToLowercaseHex(
+        evidence.root.journalSha256,
+      ),
+    }),
+  );
+  const indexRangeDependencies = Object.freeze(
+    journal.journal.readDependencies.filter(
+      (dependency): dependency is LogicalIndexRangeReadDependencyV1 =>
+        dependency.kind === "appIndexRange",
+    ),
+  );
+  const relationDependencies = Object.freeze(
+    journal.journal.readDependencies.filter(
+      (
+        dependency,
+      ): dependency is LogicalApplicationRelationIncomingReadDependencyV1 =>
+        dependency.kind === "appRelationIncoming",
+    ),
+  );
+  return Object.freeze({
+    ...command,
+    indexRangeDependencies,
+    relationDependencies,
+  });
 }
 
 export async function pointCommitFinishingCommandFromStoredAttemptV1(
@@ -144,6 +259,7 @@ async function pointCommitCommandForLifecycleFromStoredAttemptV1(
     ...scalar,
     dependencies,
     indexRangeDependencies: Object.freeze([]),
+    relationDependencies: Object.freeze([]),
     rowIntents: Object.freeze(materialIntents),
   } satisfies PointCommitTransactionCommandV1);
 }
@@ -164,83 +280,12 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
   }
   const session = evidence.session;
   const root = evidence.root;
-  const authorityPins = session.executionAuthorityGeneration ===
-      "legacy_dynamic_worker_v1"
-    ? Object.freeze({
-        executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
-        deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-          authority.deploymentId,
-        ),
-        scopeId: authority.scopeId,
-        sessionId: authority.sessionId,
-        attemptFence: authority.attemptFence,
-        storageGeneration: authority.storageGeneration,
-        storageGenerationFence: authority.storageGenerationFence,
-        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
-        schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          authority.schemaVersionId,
-        ),
-        packageId: TransactionPackageIdV1Schema.make(session.packageId),
-        artifactRuntime: TransactionArtifactRuntimeV1Schema.make(
-          session.artifactRuntime,
-        ),
-        artifactId: TransactionArtifactIdV1Schema.make(session.artifactId),
-        sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-          session.sourcePackageHash,
-        ),
-        executionModule: TransactionExecutionModuleV1Schema.make(
-          session.executionModule,
-        ),
-        functionPath: TransactionFunctionPathV1Schema.make(session.functionPath),
-        functionKind: "mutation" as const,
-        policyVersion: TransactionPolicyVersionV1Schema.make(session.policyVersion),
-        authorizationRevocationEpoch:
-          TransactionAuthorizationRevocationEpochSchema.make(
-            session.authorizationRevocationEpoch,
-          ),
-        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
-      })
-    : Object.freeze({
-        executionAuthorityGeneration: "application_v1" as const,
-        deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-          authority.deploymentId,
-        ),
-        scopeId: authority.scopeId,
-        sessionId: authority.sessionId,
-        attemptFence: authority.attemptFence,
-        storageGeneration: authority.storageGeneration,
-        storageGenerationFence: authority.storageGenerationFence,
-        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
-        schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          authority.schemaVersionId,
-        ),
-        applicationExecutionAuthoritySha256: new Uint8Array(
-          session.applicationExecutionAuthoritySha256,
-        ),
-        functionPath: TransactionFunctionPathV1Schema.make(session.functionPath),
-        functionKind: "mutation" as const,
-        policyVersion: TransactionPolicyVersionV1Schema.make(session.policyVersion),
-        authorizationRevocationEpoch:
-          TransactionAuthorizationRevocationEpochSchema.make(
-            session.authorizationRevocationEpoch,
-          ),
-        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
-      });
   return Object.freeze({
-    authorityPins,
-    session: Object.freeze({
-      ...session,
-      lifecycle,
-      authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
-        session.authorizationGrantId,
-      ),
-      identityAccessPolicySha256:
-        new Uint8Array(session.identityAccessPolicySha256),
-      validatedArgsSha256: new Uint8Array(session.validatedArgsSha256),
-      authorizationGrantSha256:
-        new Uint8Array(session.authorizationGrantSha256),
-      requestSha256: new Uint8Array(session.requestSha256),
-    }),
+    authorityPins: pointCommitAuthorityPinsFromStoredSessionV1(
+      authority,
+      session,
+    ),
+    session: pointCommitSessionFromStoredSessionV1(session, lifecycle),
     sealIdentity: Object.freeze({
       scopeUuid: evidence.scopeUuid,
       lifecycle,
@@ -268,12 +313,162 @@ function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
       indexRangeDependencyCount: root.indexRangeDependencyCount,
       indexRangeDependencyEvidenceBytes:
         root.indexRangeDependencyEvidenceBytes,
+      relationReadSyscalls: root.relationReadSyscalls,
+      relationDependencyCount: root.relationDependencyCount,
+      relationBaseOccurrences: root.relationBaseOccurrences,
       writeOperations: root.writeOperations,
       writeSemanticBytes: root.writeSemanticBytes,
       materialWriteEventEvidenceBytes:
         root.materialWriteEventEvidenceBytes,
     }),
   });
+}
+
+type PointCommitStoredAuthorityV1 = Pick<
+  StoredAttemptEvidenceAuthorityV1,
+  | "deploymentId"
+  | "scopeId"
+  | "sessionId"
+  | "attemptFence"
+  | "storageGeneration"
+  | "storageGenerationFence"
+  | "snapshotToken"
+  | "schemaVersionId"
+>;
+
+function pointCommitAuthorityPinsFromStoredSessionV1(
+  authority: PointCommitStoredAuthorityV1,
+  session: StoredTransactionSessionScalarsV1,
+): PointCommitAttemptScalarCommandV1["authorityPins"] {
+  if (session.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    if (session.artifactRuntime !== "dynamic-worker") {
+      throw new Error("Legacy stored execution has an invalid artifact runtime.");
+    }
+    return Object.freeze({
+        executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+        deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+          authority.deploymentId,
+        ),
+        scopeId: authority.scopeId,
+        sessionId: authority.sessionId,
+        attemptFence: authority.attemptFence,
+        storageGeneration: authority.storageGeneration,
+        storageGenerationFence: authority.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          authority.schemaVersionId,
+        ),
+        packageId: TransactionPackageIdV1Schema.make(session.packageId),
+        artifactRuntime: session.artifactRuntime,
+        artifactId: TransactionArtifactIdV1Schema.make(session.artifactId),
+        sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
+          session.sourcePackageHash,
+        ),
+        executionModule: TransactionExecutionModuleV1Schema.make(
+          session.executionModule,
+        ),
+        functionPath: TransactionFunctionPathV1Schema.make(session.functionPath),
+        functionKind: "mutation" as const,
+        policyVersion: TransactionPolicyVersionV1Schema.make(session.policyVersion),
+        authorizationRevocationEpoch:
+          TransactionAuthorizationRevocationEpochSchema.make(
+            session.authorizationRevocationEpoch,
+          ),
+        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
+      });
+  }
+  return Object.freeze({
+        executionAuthorityGeneration: "application_v1" as const,
+        deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+          authority.deploymentId,
+        ),
+        scopeId: authority.scopeId,
+        sessionId: authority.sessionId,
+        attemptFence: authority.attemptFence,
+        storageGeneration: authority.storageGeneration,
+        storageGenerationFence: authority.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          authority.schemaVersionId,
+        ),
+        applicationExecutionAuthoritySha256: new Uint8Array(
+          session.applicationExecutionAuthoritySha256,
+        ),
+        functionPath: TransactionFunctionPathV1Schema.make(session.functionPath),
+        functionKind: "mutation" as const,
+        policyVersion: TransactionPolicyVersionV1Schema.make(session.policyVersion),
+        authorizationRevocationEpoch:
+          TransactionAuthorizationRevocationEpochSchema.make(
+            session.authorizationRevocationEpoch,
+          ),
+        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
+      });
+}
+
+function pointCommitSessionFromStoredSessionV1(
+  session: StoredTransactionSessionScalarsV1,
+  lifecycle: "running" | "finishing",
+): PointCommitAttemptScalarCommandV1["session"] {
+  const common = Object.freeze({
+    lifecycle,
+    storageGeneration: session.storageGeneration,
+    storageGenerationFence: session.storageGenerationFence,
+    functionPath: session.functionPath,
+    functionKind: session.functionKind,
+    schemaVersionId: session.schemaVersionId,
+    policyVersion: session.policyVersion,
+    authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
+      session.authorizationGrantId,
+    ),
+    identityAccessPolicySha256:
+      new Uint8Array(session.identityAccessPolicySha256),
+    validatedArgsSha256: new Uint8Array(session.validatedArgsSha256),
+    authorizationGrantSha256:
+      new Uint8Array(session.authorizationGrantSha256),
+    authorizationGrantValueCodecVersion:
+      session.authorizationGrantValueCodecVersion,
+    authorizationGrantCanonicalByteLength:
+      session.authorizationGrantCanonicalByteLength,
+    authorizationRevocationEpoch: session.authorizationRevocationEpoch,
+    authorizationGrantExpiresAtMilliseconds:
+      session.authorizationGrantExpiresAtMilliseconds,
+    validatedArgsValueCodecVersion: session.validatedArgsValueCodecVersion,
+    validatedArgsCanonicalByteLength: session.validatedArgsCanonicalByteLength,
+    requestKey: session.requestKey,
+    requestSha256: new Uint8Array(session.requestSha256),
+    protocolVersion: session.protocolVersion,
+    hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
+    createdAtMilliseconds: session.createdAtMilliseconds,
+    updatedAtMilliseconds: session.updatedAtMilliseconds,
+  });
+  if (session.executionAuthorityGeneration === "legacy_dynamic_worker_v1") {
+    return Object.freeze({
+      ...common,
+      executionAuthorityGeneration: "legacy_dynamic_worker_v1" as const,
+      packageId: session.packageId,
+      artifactRuntime: session.artifactRuntime,
+      artifactId: session.artifactId,
+      sourcePackageHash: session.sourcePackageHash,
+      executionModule: session.executionModule,
+    });
+  }
+  return Object.freeze({
+    ...common,
+    executionAuthorityGeneration: "application_v1" as const,
+    applicationExecutionAuthorityJson:
+      Object.freeze({ ...session.applicationExecutionAuthorityJson }),
+    applicationExecutionAuthorityCanonicalBytes:
+      new Uint8Array(session.applicationExecutionAuthorityCanonicalBytes),
+    applicationExecutionAuthoritySha256:
+      new Uint8Array(session.applicationExecutionAuthoritySha256),
+  });
+}
+
+function pointCommitRunningSessionFromStoredSessionV1(
+  session: StoredTransactionSessionScalarsV1,
+): RunningRelationConflictAttemptReplacementCommandV1["session"] {
+  const captured = pointCommitSessionFromStoredSessionV1(session, "running");
+  return Object.freeze({ ...captured, lifecycle: "running" as const });
 }
 
 function pointDependency(

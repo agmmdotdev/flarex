@@ -43,6 +43,7 @@ import {
 } from "./applicationReadiness";
 import {
   ApplicationRelationSemanticValidationAttemptFenceSchema,
+  getPreparedApplicationRelationReadinessDefinitions,
   hasApplicationRelationReadinessComposition,
   hasApplicationRelationSetReadinessEvidenceAuthority,
   type ApplicationRelationReadinessPort,
@@ -52,6 +53,8 @@ import {
   type ValidateApplicationRelationSetReadinessError,
   validateApplicationRelationSetReadinessInTransactionEffect,
 } from "./applicationRelationReadiness";
+import type { LocatedApplicationRelationDefinitionSet } from
+  "./applicationRelationCommit";
 import type {
   ReadAppIndexDefinitionError,
   ReadAppSchemaVersionIndexBindingError,
@@ -246,7 +249,13 @@ interface FoldRepositoryState {
 }
 
 const repositoryStates = new WeakMap<object, FoldRepositoryState>();
-const issuedReadyResults = new WeakMap<object, FoldRepositoryState>();
+interface IssuedReadyResultState {
+  readonly repository: FoldRepositoryState;
+  readonly deploymentId: string;
+  readonly preparedRelations: PreparedApplicationRelationReadiness;
+  readonly authority: ApplicationReadinessAuthority;
+}
+const issuedReadyResults = new WeakMap<object, IssuedReadyResultState>();
 
 export function makeApplicationRelationReadinessFoldRepository(
   context: ApplicationRelationReadinessFoldContext,
@@ -432,8 +441,73 @@ export function hasApplicationRelationReadinessFoldAuthority(
 > {
   if (typeof value !== "object" || value === null) return false;
   const repositoryState = repositoryStates.get(repository);
-  return repositoryState !== undefined && issuedReadyResults.get(value) ===
-    repositoryState;
+  return repositoryState !== undefined &&
+    issuedReadyResults.get(value)?.repository === repositoryState;
+}
+
+/** Exact private composition/correlation check used by O10-R capability minting. */
+export function hasApplicationRelationReadinessFoldAuthorityFor(
+  repository: ApplicationRelationReadinessFoldRepository,
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+  deploymentId: string,
+): value is Extract<
+  ApplicationRelationReadinessFoldResult,
+  { readonly status: "ready" }
+> {
+  if (!hasApplicationRelationReadinessFoldAuthority(repository, value)) {
+    return false;
+  }
+  const repositoryState = repositoryStates.get(repository);
+  const issued = issuedReadyResults.get(value);
+  return repositoryState?.context.controlDb === controlDb &&
+    issued?.repository === repositoryState &&
+    issued.deploymentId === deploymentId;
+}
+
+/** Recovers only the exact E01-B/R02 set retained by this issued result. */
+export function getApplicationRelationReadinessFoldDefinitions(
+  repository: ApplicationRelationReadinessFoldRepository,
+  value: unknown,
+): LocatedApplicationRelationDefinitionSet | null {
+  if (!hasApplicationRelationReadinessFoldAuthority(repository, value)) {
+    return null;
+  }
+  const repositoryState = repositoryStates.get(repository);
+  const issued = issuedReadyResults.get(value);
+  if (repositoryState === undefined || issued?.repository !== repositoryState) {
+    return null;
+  }
+  return getPreparedApplicationRelationReadinessDefinitions(
+    repositoryState.context.relations,
+    issued.preparedRelations,
+  );
+}
+
+export interface ApplicationRelationReadinessFoldDefinitionAuthority {
+  readonly definitions: LocatedApplicationRelationDefinitionSet;
+  readonly storageGenerationFence:
+    ApplicationReadinessAuthority["storageGenerationFence"];
+  readonly epoch: ApplicationReadinessAuthority["epoch"];
+}
+
+export function getApplicationRelationReadinessFoldDefinitionAuthority(
+  repository: ApplicationRelationReadinessFoldRepository,
+  value: unknown,
+): ApplicationRelationReadinessFoldDefinitionAuthority | null {
+  const definitions = getApplicationRelationReadinessFoldDefinitions(
+    repository,
+    value,
+  );
+  const issued = typeof value === "object" && value !== null
+    ? issuedReadyResults.get(value)
+    : undefined;
+  if (definitions === null || issued === undefined) return null;
+  return Object.freeze({
+    definitions,
+    storageGenerationFence: issued.authority.storageGenerationFence,
+    epoch: issued.authority.epoch,
+  });
 }
 
 interface StoredBundle {
@@ -831,7 +905,12 @@ const settleInTransaction = Effect.fn(
         return new Date(stableReadyAtMillis);
       },
     } as const);
-    issuedReadyResults.set(result, repositoryState);
+    issuedReadyResults.set(result, Object.freeze({
+      repository: repositoryState,
+      deploymentId: prepared.bundle.deploymentId,
+      preparedRelations: prepared.relations,
+      authority: prepared.bundle.authority,
+    }));
     return result;
 });
 

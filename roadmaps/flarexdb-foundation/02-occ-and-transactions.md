@@ -41,6 +41,10 @@ foundation and O08-B2b2b2b1b2b2b1's private bounded scheduler-run composition
 are complete; the production trigger/liveness owner and
 C06-B endpoint/response policy remain pending under
 [`37-production-redelivery-and-c06b.md`](../37-production-redelivery-and-c06b.md).
+The O08-B2b2a/O10-R durable running-relation-conflict takeover correction and
+O10-R's exact incoming relation read, journal dependency, local write overlay,
+and final OCC validation are also complete. They remain private system-core
+capabilities and do not expose a route, Standard API, or activation path.
 C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -1219,6 +1223,44 @@ no retry, replacement, uncertainty, or publication policy. SQL snapshots close
 before decode, validation, or user code. Claim fencing authorizes database
 admissions; it does not prove that only one CPU has begun computation.
 
+###### [x] O08-B2b2a/O10-R — Recover A Durable Running Relation Conflict
+
+Reproducible scenario: O10-R durably writes one authenticated
+`relation_conflicted` root and receipt, then the executor process stops before
+its process-local conflict ticket reaches the existing O08 replacement owner.
+Before this correction, exact-selector redispatch classified that root as a
+failed non-dispatchable attempt, acquired `abortOnly`, and terminally aborted
+it after the execution claim expired. It now authenticates the complete stored-
+attempt authority plus the exact durable root, latest relation-conflict receipt,
+relation-dependency, and current-adjacency evidence already consumed by
+replacement, acquires a relation-conflict replacement claim, and enters the
+accepted bounded `running -> retrying` replacement/rerun path without executing
+the old attempt or inventing another retry policy. Unrelated earlier journal
+children remain permitted and are discarded with the old attempt; they do not
+become new recovery authority.
+
+The affected shared owner is O08-B2b2a claim acquisition and crash redispatch;
+O10-R supplies the newly durable state that exposed the missing branch. The
+evidence is the state transition above plus the existing replacement
+transaction, which already revalidates the exact receipt, dependency rows,
+current adjacency version, claim fence, outcome, and retry ceiling. Disposition:
+correct this as part of the approved O10-R system-core implementation, keep
+`execute`, `finishOnly`, and `abortOnly` admission unchanged, add one semantic
+relation-conflict replacement mode, and prove both PGlite and PostgreSQL crash
+takeover before closing O10-R. No route, production scheduler, second loop,
+fallback, or terminal-abort weakening is authorized.
+
+The completed implementation keeps one semantic `replaceRelationConflict`
+claim mode distinct from pristine execution and abort-only disposition. A
+fresh process reloads full current authority through the stored OCC owner,
+recovers the opaque exact conflict evidence through the replacement owner, then
+reconstructs only the process-local journal error/ticket needed to enter the
+existing authorization, replacement, backoff, and bounded rerun path. The
+replacement transaction independently revalidates the recovered evidence, so
+the read-only recovery step grants no mutation authority. Natural persisted-
+conflict takeover, competing claim acquisition, replacement, and retry pass on
+PGlite and PostgreSQL.
+
 ###### [x] O08-B2b2b1 — Discover Bounded Inert Candidates
 
 Migration 0033 adds only the scope/claim-expiry execution-claim index and the
@@ -1720,7 +1762,16 @@ Exit gate:
 - filter, scan, descending, external-pagination, relation, search, vector, and
   other unsupported shapes reject before target data I/O.
 
-### [ ] O10-R — Prove One Exact Relation Adjacency Dependency
+### [x] O10-R — Prove One Exact Relation Adjacency Dependency
+
+Status: complete as a private system-core capability. The implementation owns
+one exact incoming reverse-many identity page, immutable relation/edge binding,
+version-before/read/version-after snapshot admission, durable relation journal
+evidence, a complete supported local write overlay, one batched canonical final
+adjacency-version validation, and the existing O08 conflict/replacement path.
+PGlite and PostgreSQL prove natural conflict takeover and retry. No higher API,
+route, population layer, external cursor, outgoing traversal, activation, or
+framework adapter is included.
 
 Implementation preflight is approved in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md#approved-o10-r-implementation-preflight).

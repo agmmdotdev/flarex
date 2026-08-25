@@ -38,6 +38,7 @@ import type {
 import type {
   PointMutationJournalAttemptV1,
   PointMutationJournalBoundaryV1Error,
+  PointMutationJournalRelationConflictError,
   PointMutationJournalTableV1,
   PointMutationJournalV1,
 } from "../pointMutationJournal";
@@ -92,6 +93,12 @@ import {
   type PointMutationOccExecutionEvidencePersistenceV1Error,
   type PointMutationOccExecutionNotRunnableV1Error,
 } from "./occRerunExecutionOperations";
+import type {
+  PointCommitOutcomeTicketCaptureOperationsV1,
+} from "./occRerunAuthorizationOperations";
+import {
+  captureRunningRelationConflictReplacement,
+} from "./pointCommitRuntimeModel";
 import { detachVerifiedGrant } from "./verifiedGrantEvidence";
 
 const encodeCommitEnvelopeV1 = Schema.encodeSync(CommitEnvelopeV1Schema);
@@ -150,6 +157,16 @@ type PointMutationOccDetachedRunnerEvidenceV1 =
       : never
     : never;
 
+type PointMutationOccRunnerOutcome =
+  | Readonly<{
+      readonly kind: "successfulResult";
+      readonly successfulResult: unknown;
+    }>
+  | Readonly<{
+      readonly kind: "runningRelationConflict";
+      readonly error: PointMutationJournalRelationConflictError;
+    }>;
+
 export interface ExactPointMutationExecutionOperationDependenciesV1 {
   readonly functionMetadata:
     PinnedPointMutationFunctionMetadataReaderPortV1;
@@ -174,6 +191,10 @@ export interface ExactPointMutationExecutionOperationDependenciesV1 {
     StoredPointCommitFinishingTransitionV1["enterPointCommitFinishing"];
   readonly publishFinishingPointCommit:
     StoredPointCommitExecutorV1["publishPointCommit"];
+  readonly captureRunningRelationConflictTicket:
+    PointCommitOutcomeTicketCaptureOperationsV1[
+      "captureRunningRelationConflictTicket"
+    ];
 }
 
 export interface ExactPointMutationExecutionOperationsV1 {
@@ -200,6 +221,7 @@ export function makeExactPointMutationExecutionOperationsV1(
     planPointCommit,
     enterPointCommitFinishing,
     publishFinishingPointCommit,
+    captureRunningRelationConflictTicket,
   } = dependencies;
 
   const executeExactPointMutationAttempt:
@@ -333,16 +355,64 @@ export function makeExactPointMutationExecutionOperationsV1(
           currentAttempt,
           input.executionScope,
         );
-        const successfulResult = yield* runner.run(
+        const runnerOutcome: PointMutationOccRunnerOutcome = yield* runner.run(
           capturePointMutationOccRunnerInput(
             runnerEvidence,
             context,
             bindPointMutationOccJournal(journal, journalAttempt),
           ),
+        ).pipe(
+          Effect.map((successfulResult): PointMutationOccRunnerOutcome =>
+            Object.freeze({
+              kind: "successfulResult" as const,
+              successfulResult,
+            })
+          ),
+          Effect.catchTag(
+            "PointMutationJournalRelationConflictError",
+            (runnerError) =>
+              Effect.fromResult(
+                journal.claimPersistedRelationConflictForRetry(runnerError),
+              ).pipe(
+                Effect.mapError(() => runnerError),
+                Effect.flatMap((claimed) =>
+                  Effect.fromResult(
+                    captureRunningRelationConflictReplacement(
+                      input.verificationState,
+                      input.executionClaim,
+                      claimed.request,
+                      claimed.conflict,
+                    ),
+                  ).pipe(
+                    Effect.mapError((cause) =>
+                      new PointMutationOccExecutionAuthorityCorruptionV1Error({
+                        reason: "runtimePinInvalid",
+                        cause,
+                      })
+                    ),
+                    Effect.map((captured): PointMutationOccRunnerOutcome => {
+                      captureRunningRelationConflictTicket(
+                        claimed.error,
+                        captured,
+                      );
+                      return Object.freeze({
+                        kind: "runningRelationConflict" as const,
+                        error: claimed.error,
+                      });
+                    }),
+                  )
+                ),
+              ),
+          ),
         );
+        if (runnerOutcome.kind === "runningRelationConflict") {
+          return runnerOutcome;
+        }
         const envelope = yield* journal.sealSuccessfulResult(
           journalAttempt,
-          successfulResult === undefined ? null : successfulResult,
+          runnerOutcome.successfulResult === undefined
+            ? null
+            : runnerOutcome.successfulResult,
         );
         const encodedEnvelope = yield* Effect.sync(() =>
           encodeCommitEnvelopeV1(envelope)
@@ -359,7 +429,10 @@ export function makeExactPointMutationExecutionOperationsV1(
           storedAttempt,
         );
         const verifiedInput = yield* verifyCommitInput(authenticatedAuthority);
-        return yield* planPointCommit(verifiedInput);
+        return Object.freeze({
+          kind: "planned" as const,
+          plan: yield* planPointCommit(verifiedInput),
+        });
       });
       const runningPlan = yield* abortOnPreFinishingFailure(
         prepareRunningPlan,
@@ -368,8 +441,15 @@ export function makeExactPointMutationExecutionOperationsV1(
         terminalization,
       );
 
+      if (runningPlan.kind === "runningRelationConflict") {
+        return Object.freeze({
+          kind: "conflict" as const,
+          error: runningPlan.error,
+        });
+      }
+
       const finishingPlan = yield* input.liveness.enterFinishing(
-        enterPointCommitFinishing(runningPlan),
+        enterPointCommitFinishing(runningPlan.plan),
       );
       return yield* publishFinishingPointCommit(finishingPlan).pipe(
         Effect.map((result) => Object.freeze({
@@ -455,6 +535,17 @@ function bindPointMutationOccJournal(
       index: Parameters<PointMutationJournalV1["runIndexedQuery"]>[0],
       operation: unknown,
     ) => journal.runIndexedQuery(index, operation),
+    resolveApplicationRelationRead: (
+      capability: Parameters<
+        PointMutationJournalV1["resolveApplicationRelationRead"]
+      >[1],
+    ) => journal.resolveApplicationRelationRead(attempt, capability),
+    runApplicationRelationIncomingRead: (
+      relation: Parameters<
+        PointMutationJournalV1["runApplicationRelationIncomingRead"]
+      >[0],
+      operation: unknown,
+    ) => journal.runApplicationRelationIncomingRead(relation, operation),
   });
 }
 
