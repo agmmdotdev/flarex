@@ -1813,6 +1813,76 @@ Exit gates:
 - relation-specific subscriptions/live observation remain absent until R03 and
   the full SV-R proof; roadmap 49's production-cutover decision remains no-go.
 
+#### RA01 approved implementation preflight
+
+RA01 is one medium system-core slice. The existing Application activation
+module, scope-clock lock, activation sequence, request replay, CAS, immutable
+history, and single active head remain the only activation authority. The
+current physical activation tables are hard-foreign-keyed to the retained
+`flarex.application-readiness` version 1 contract, while E01-B persists the
+relation-aware version 2 contract in the unversioned readiness root and dense
+relation children. Passing the E01 result through the old readiness path,
+fabricating a version 1 row, dropping the readiness foreign key, or adding a
+second relation head would all violate that authority boundary.
+
+Migration `0075` therefore renames the existing private activation-history and
+active-head tables to the accepted unversioned names and evolves those same
+tables in place. Existing rows and version 1 activation/head bytes remain exact.
+The evolved history carries a concrete readiness-contract discriminator, the
+common readiness digest, mutually exclusive Legacy and relation-readiness
+witness columns, and conditional foreign keys to the retained version 1 root or
+the current relation-aware root. The relation witness includes the exact
+relation-set digest and count. A database check requires exactly one witness to
+equal the common digest. The single head carries the same contract discriminator
+and is foreign-keyed to the corresponding common activation identity. Relation
+activation/head frames use concrete contract version 2 and commit the exact
+relation-root tuple; product modules and APIs remain unversioned. There is no
+second physical head, runtime priority order, fallback, comparison read, or dual
+write.
+
+The Application activation owner gains a private readiness dispatcher derived
+from the stored analyzed manifest and persisted head contract, never from a
+caller-authored generation flag. Its Legacy branch preserves the current
+relation-free settle/read/validation behavior and byte-for-byte frame decoding.
+Its relation branch reuses E01-B's owner: cold reconstruction authenticates the
+stored manifest, R02 publication/binding, task/candidate/unique/physical
+evidence, version 2 root, relation-set bytes/digest/frontier/count, and every
+dense ordered child. First activation and already-active reads revalidate that
+same evidence inside the caller-owned activation transaction after the existing
+scope-clock lock. Missing, extra, reordered, stale, foreign, or corrupt evidence
+fails closed; issuer identity alone is never sufficient.
+
+One opaque `ApplicationActiveSelection` remains process-local. Its hidden basis
+is discriminated by readiness contract. Existing relation-free claimants reject
+a relation selection instead of interpreting a version 2 manifest. The private
+relation claimant requires the exact selection identity and transactionally
+revalidates its scope clock and complete head/history/root tuple. Only that
+active result may derive the already-proved O10-R definition/read capability;
+candidate readiness or an unattached, copied, foreign, inactive, or superseded
+O10-R capability is not serving authority. RQ01 remains the later owner of query
+composition.
+
+The existing E01 serving-state facet becomes positive only by authenticating
+the same active head, activation row, relation-readiness root, and matching
+dense child for the requested immutable edge definition. No active head remains
+`not_serving`; an exact retained Legacy head remains `not_serving`; corrupt or
+missing active relation evidence is a typed stored-state failure, never
+absence. Because activation and E01 restart/reconciliation/cleanup both take
+the scope-clock update lock before their owned locks, either the builder wins
+and later activation revalidation fails stale/not-ready, or activation wins and
+later sidecar mutation observes `serving` and fails before writes.
+
+The focused proof includes fresh and populated-Legacy migration, Legacy byte
+and behavior regression, relation insert/replay/CAS/rollback/cold read,
+Legacy-to-relation and relation-to-Legacy head movement,
+root/child/binding corruption,
+selection authenticity and staleness, active-child cleanup rejection, inactive
+replacement and validation-only reuse, and both activation-versus-builder lock
+orders in PGlite and genuine PostgreSQL. Point commit, OCC, journal/session,
+retry policy, function runtime, feeds/outbox, routes, bindings, Standard query
+APIs, SDKs, Payload/Medusa, and production callers are explicit stop boundaries
+requiring separate approval if implementation would need to change them.
+
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
 Prerequisite: RA01 has activated the private relation-bearing revision after

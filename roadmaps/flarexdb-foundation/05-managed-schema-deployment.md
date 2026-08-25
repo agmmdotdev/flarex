@@ -860,7 +860,7 @@ Agents must never be required to answer an interactive prompt.
 
 ## Relation Definition Activation
 
-### [ ] E01 — Build, Validate, And Enable Relation Definitions
+### [x] E01 — Build, Validate, And Enable Relation Definitions
 
 Prerequisites: `R01` has frozen the admitted relation subset, `R01-P` has
 selected one physical snapshot support/access plan, `R02` has bound that exact
@@ -893,6 +893,15 @@ evidence. O10-R is not caller-authored activation input. Activation makes
 forward storage, reverse reads, and `restrict` enforcement available together.
 The later relation-specific `RQ01` Standard query gate must consume the
 resulting active selection; it may not add a candidate-selection bypass.
+
+The approved RA01 preflight evolves the same private activation history and
+single active head into unversioned, readiness-contract-discriminated storage.
+It preserves retained version 1 bytes and foreign-key authority while adding an
+exact foreign-key witness for the relation-aware version 2 readiness root and
+dense child set. Activation continues to take the scope-clock update lock,
+revalidate the selected readiness contract, and then apply the existing replay
+and CAS decision. No second head, down-projected readiness row, dual write,
+runtime fallback, or caller-selected generation is permitted.
 
 A stable logical `relation_id` does not authorize reinterpretation of existing
 edges after a semantic change. R01 first classifies whether the new immutable
@@ -975,7 +984,9 @@ The accepted implementation is split at the existing owner boundary:
 The precise E01-A state machine, fixed work ceilings, receipt identity, narrow
 C09/S12 owner extensions, uncertainty handling, and non-goals are frozen in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
-Neither slice activates a revision; E01 remains open until both are complete.
+Neither E01 slice activates a revision. E01 is complete privately and remains
+production-inert; RA01 now owns the separately approved activation-storage,
+selection, and positive serving-guard integration.
 
 ## App, Payload, And Medusa Boundaries
 
