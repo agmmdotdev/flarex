@@ -14,6 +14,21 @@ export interface LocatedReadCommittedEffectOptions {
   ) => unknown;
 }
 
+/** Retry projection for the kernel's nested SQL failure representation. */
+export function isRetryableLocatedReadCommittedTransactionFailure(
+  failure: LocatedReadCommittedTransactionFailureV1,
+): boolean {
+  switch (failure.issue.kind) {
+    case "infrastructureFailure":
+      return isRetryableSqlTransactionCause(failure.issue.cause);
+    case "callbackRolledBack":
+      return isRetryableSqlTransactionCause(failure.issue.callbackCause);
+    case "callbackCleanupFailed":
+    case "decisionUncertain":
+      return false;
+  }
+}
+
 interface StartedRead<Value, Failure> {
   readonly promise: Promise<Value>;
   readonly rollbackSignal: Error;
@@ -106,4 +121,14 @@ function startLocatedRead<Value, Failure>(
     rollbackSignal,
     callbackCause: () => callbackCause,
   });
+}
+
+export function isRetryableSqlTransactionCause(cause: unknown): boolean {
+  if (typeof cause !== "object" || cause === null) return false;
+  try {
+    const code = Reflect.get(cause, "code");
+    return code === "40001" || code === "40P01" || code === "55P03";
+  } catch {
+    return false;
+  }
 }

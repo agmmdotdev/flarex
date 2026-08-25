@@ -97,3 +97,14 @@ export {
   readOnly,
   tableFreshnessVersions,
 } from "./schema";
+
+export {
+  fxSystemApplicationFunctions,
+  fxSystemApplicationPublications,
+  fxSystemApplicationReadiness,
+  fxSystemApplicationReadinessFunctions,
+  fxSystemApplicationReadinessRelations,
+  fxSystemApplicationRevisionSchemas,
+  fxSystemApplicationTaskCatalogs,
+  fxSystemApplicationTaskDefinitions,
+} from "./applicationRelationSchema";

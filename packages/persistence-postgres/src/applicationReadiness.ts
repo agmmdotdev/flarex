@@ -298,7 +298,7 @@ type StoredApplicationReadinessActivationValidation = Extract<
   { readonly status: "ready" }
 >;
 
-type ApplicationReadinessAuthority = TrustedScopeAuthority & Readonly<{
+export type ApplicationReadinessAuthority = TrustedScopeAuthority & Readonly<{
   readonly storageGeneration: FlarexDbV1StorageGeneration;
 }>;
 
@@ -1882,7 +1882,7 @@ type PhysicalBuildRowsResult =
       readonly rows: ReadonlyArray<IndexBuildStateRecord>;
     }>;
 
-type PhysicalReadinessResult =
+export type ApplicationPhysicalReadinessResult =
   | Readonly<{
       readonly status: "not_ready";
       readonly reason:
@@ -1906,7 +1906,7 @@ const loadPhysicalReadiness = Effect.fn(
   lifecycleReadiness: PreparedPhysicalDefinitionLifecycleReadiness,
   clock: ScopeClockRecord,
 ): Effect.fn.Return<
-  PhysicalReadinessResult,
+  ApplicationPhysicalReadinessResult,
   ApplicationReadinessError |
     ValidatePhysicalDefinitionLifecycleReadinessError
 > {
@@ -1970,6 +1970,13 @@ const loadPhysicalReadiness = Effect.fn(
     physicalReadinessSha256,
   });
 });
+
+/**
+ * Narrow shared Application capability: validates the retained table/index/
+ * unique physical-readiness meaning inside a caller-owned locked transaction.
+ */
+export const validateApplicationPhysicalReadinessInTransactionEffect =
+  loadPhysicalReadiness;
 
 const loadPhysicalBuildRows = Effect.fn(
   "ApplicationReadiness.loadPhysicalBuildRows",

@@ -79,7 +79,11 @@ import {
   fxSystemApplicationRelationSemanticValidations,
   fxSystemScopeClocks,
 } from "../schema";
-import { runLocatedReadCommittedEffect } from
+import {
+  isRetryableLocatedReadCommittedTransactionFailure,
+  isRetryableSqlTransactionCause,
+  runLocatedReadCommittedEffect,
+} from
   "../locatedReadCommittedEffect";
 import {
   isLocatedReadCommittedAttemptTargetV1,
@@ -145,6 +149,9 @@ const TEXT_ENCODER = new TextEncoder();
 
 interface ApplicationRelationReadinessPortState {
   readonly controlDb: FlarexMetadataDatabase;
+  readonly authoritySource: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
@@ -236,6 +243,7 @@ export function createApplicationRelationReadinessPort(
   ) {
     applicationRelationReadinessPortStates.set(port, Object.freeze({
       controlDb,
+      authoritySource: authority,
       authority: captureTrustedScopeAuthorityResolutionPorts(authority),
       relationCommit,
       relationBuild,
@@ -249,6 +257,20 @@ export function hasApplicationRelationReadinessAuthority(
 ): value is ApplicationRelationReadinessPort {
   return typeof value === "object" && value !== null &&
     applicationRelationReadinessPortStates.has(value);
+}
+
+/** Exact same-factory composition check for the Application readiness fold. */
+export function hasApplicationRelationReadinessComposition(
+  value: unknown,
+  controlDb: FlarexMetadataDatabase,
+  authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >,
+): value is ApplicationRelationReadinessPort {
+  if (typeof value !== "object" || value === null) return false;
+  const state = applicationRelationReadinessPortStates.get(value);
+  return state?.controlDb === controlDb &&
+    state.authoritySource === authority;
 }
 
 export function hasPreparedApplicationRelationReadinessAuthority(
@@ -789,7 +811,8 @@ const runReadinessTransaction = Effect.fn(
     return yield* Effect.fail(
       new ApplicationRelationReadinessPersistenceError({
         operation: "targetTransaction",
-        retryable: isRetryableTransactionFailure(onlyReason.error),
+        retryable:
+          isRetryableLocatedReadCommittedTransactionFailure(onlyReason.error),
         cause: onlyReason.error,
       }),
     );
@@ -3129,7 +3152,7 @@ function queryEffect<Value>(
     try: () => query,
     catch: cause => new ApplicationRelationReadinessPersistenceError({
       operation,
-      retryable: isRetryableSqlCause(cause),
+      retryable: isRetryableSqlTransactionCause(cause),
       cause,
     }),
   }));
@@ -3151,30 +3174,6 @@ function runFault(
         cause,
       }),
     });
-}
-
-function isRetryableTransactionFailure(
-  failure: LocatedReadCommittedTransactionFailureV1,
-): boolean {
-  switch (failure.issue.kind) {
-    case "infrastructureFailure":
-      return isRetryableSqlCause(failure.issue.cause);
-    case "callbackRolledBack":
-      return isRetryableSqlCause(failure.issue.callbackCause);
-    case "callbackCleanupFailed":
-    case "decisionUncertain":
-      return false;
-  }
-}
-
-function isRetryableSqlCause(cause: unknown): boolean {
-  if (typeof cause !== "object" || cause === null) return false;
-  try {
-    const code = Reflect.get(cause, "code");
-    return code === "40001" || code === "40P01" || code === "55P03";
-  } catch {
-    return false;
-  }
 }
 
 function relationReadinessCorruption(

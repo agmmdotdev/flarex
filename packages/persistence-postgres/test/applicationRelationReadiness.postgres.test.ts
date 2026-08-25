@@ -1,16 +1,28 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { canonicalizeApplicationManifestV2 } from
+  "@flarex/analysis/application-analysis";
+import { produceApplicationTaskBindingsV1 } from
+  "@flarex/standard-application-definition/internal/application-task-binding-v1";
+import {
+  hashCanonicalTaskCatalogV1,
+  makeStandardApplicationTaskSha256V1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
+import { prepareStandardApplicationDefinitionV1 } from
+  "@flarex/standard-application-definition/v1";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import { appDocumentIdV1FromRowIdentity } from
   "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
   ScopeIdSchema,
+  StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
@@ -18,6 +30,27 @@ import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
+import {
+  advanceAppSchemaCandidateValidationEffect,
+  createAppSchemaCandidateReadinessPort,
+  createAppSchemaCandidateValidationPort,
+  installAppSchemaCandidateValidationEffect,
+  settleAppSchemaCandidateValidationEffect,
+} from "../src/appSchemaCandidateValidation";
+import { locateAppIndexDefinitionByIdEffect } from
+  "../src/appIndexDefinitions";
+import { createAppUniqueConstraintDefinitionPortV1 } from
+  "../src/appUniqueConstraintCommitV1";
+import { createAppUniqueConstraintSetEligibilityPortV1 } from
+  "../src/appUniqueConstraintSetBuildV1";
+import {
+  closeAppUniqueConstraintSetV1InTransactionEffect,
+  prepareAppUniqueConstraintSetClosureV1Effect,
+} from "../src/appUniqueConstraintSetClosureV1";
+import {
+  makeApplicationAnalysisRepository,
+  type ApplicationAnalysisAuthority,
+} from "../src/applicationAnalysisRegistration";
 import {
   type ApplicationRelationBindingPublication,
   type ApplicationRelationBindingRepository,
@@ -31,6 +64,12 @@ import {
 } from "../src/applicationRelationBuild";
 import { createApplicationRelationCommitPort } from
   "../src/applicationRelationCommit";
+import { makeApplicationRelationPublicationRepository } from
+  "../src/applicationRelationPublication";
+import {
+  hasApplicationRelationReadinessFoldAuthority,
+  makeApplicationRelationReadinessFoldRepository,
+} from "../src/applicationRelationReadinessFold";
 import {
   createApplicationRelationReadinessPort,
   type PreparedApplicationRelationReadiness,
@@ -38,8 +77,30 @@ import {
   type ApplicationRelationReadinessStepResult,
   validateApplicationRelationSetReadinessInTransactionEffect,
 } from "../src/applicationRelationReadiness";
+import {
+  fxSystemApplicationReadiness,
+  fxSystemApplicationReadinessRelations,
+} from "../src/applicationRelationSchema";
+import { createApplicationRelationSchemaAuthorityPort } from
+  "../src/applicationRelationSchemaAuthority";
+import {
+  createApplicationRelationTaskCatalogSnapshotPort,
+  makeApplicationRelationTaskBindingRepository,
+} from "../src/applicationRelationTaskBindings";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from
   "../src/appRows";
+import {
+  buildAppDeveloperOrderedIndexV1Effect,
+  buildIntrinsicCreationTimeIndexV1Effect,
+} from "../src/intrinsicCreationTimeIndexBuildV1";
+import {
+  loadPublishedPhysicalRequirementSnapshotV1,
+  reconcilePublishedIndexBuildsV1Effect,
+} from "../src/indexBuildReconciliation";
+import { createPhysicalDefinitionLifecyclePort } from
+  "../src/physicalDefinitionLifecycle";
+import { createPointCommitPublisherPortV1 } from
+  "../src/pointCommitTransaction";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
@@ -52,6 +113,7 @@ import {
   fxControlRelations,
   fxSystemApplicationRelationSemanticReadiness,
   fxSystemApplicationRelationSemanticValidations,
+  fxSystemApplicationReadinessV1,
   fxSystemEdgeDefinitionBuilds,
   fxSystemEdgeDefinitionReadiness,
   fxSystemScopeClocks,
@@ -294,6 +356,220 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       )).size).toBe(2);
       expect(semantic.evidence.sha256).not.toEqual(direct.evidence.sha256);
       expect(await physicalStateSnapshot(fixture)).toEqual(before);
+    });
+  }, 240_000);
+
+  it("concurrently settles one authentic relation-aware Application root and ordered child set", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const fixture = await fixtureFor(control, target);
+      const version = await target.query<{ server_version: string }>(
+        "show server_version",
+      );
+      expect(version.rows[0]?.server_version).toMatch(/^18\./);
+      const relationInput = await relationBuildPublicationInput(
+        fixture.deploymentId,
+        40_001,
+        {
+          secondRelation: true,
+          inverseName: "authoredPosts",
+          secondInverseName: "reviewedPosts",
+        },
+      );
+      const canonical = Result.getOrThrow(
+        canonicalizeApplicationManifestV2(relationInput.manifest),
+      );
+      const relation = await runEffect(
+        publishApplicationRelationBindingEffect(
+          repositoryFor(fixture),
+          relationInput,
+        ),
+      );
+      const authority = Object.freeze({
+        scopeId: fixture.scopeId,
+        storageGeneration:
+          FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+        storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+        epoch: fixture.epoch,
+      }) satisfies ApplicationAnalysisAuthority;
+      const analyses = makeApplicationAnalysisRepository(
+        fixture.target.drizzle,
+        { randomUuid: relationFoldUuidSequence(11, 12, 13) },
+      );
+      const pending = await runEffect(analyses.begin({
+        authority,
+        requestKey: "request:application-relation-fold:postgres",
+        sourceArtifactRootSha256:
+          canonical.manifest.sourceArtifact.rootSha256,
+        analyzerIdentity: "application-relation-analyzer",
+        analyzerPolicyIdentity: "application-relation-analyzer-policy",
+      }));
+      const analyzed = await runEffect(analyses.settle(authority, {
+        kind: "analyzed",
+        candidateId: pending.candidateId,
+        sourceArtifactRootSha256:
+          canonical.manifest.sourceArtifact.rootSha256,
+        analyzerIdentity: "application-relation-analyzer",
+        analyzerPolicyIdentity: "application-relation-analyzer-policy",
+        canonicalManifest: canonical.canonicalText,
+      }));
+      if (analyzed.status !== "analyzed") {
+        throw new Error("Expected analyzed PostgreSQL relation Application.");
+      }
+      expect(analyzed.manifestSha256).toBe(relationInput.manifestSha256);
+      const publication = await runEffect(
+        makeApplicationRelationPublicationRepository(
+          fixture.target.drizzle,
+          fixture.control.drizzle,
+        ).publish({
+          authority,
+          deploymentId: fixture.deploymentId,
+          revisionId: analyzed.revision.revisionId,
+          candidateId: analyzed.candidateId,
+          analysisId: analyzed.analysisId,
+          manifestSha256: analyzed.manifestSha256,
+          manifest: canonical.manifest,
+        }),
+      );
+      const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
+        globalThis.crypto.subtle.digest("SHA-256", input)
+      );
+      const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+        version: 1,
+        tasks: [],
+      }, taskSha256));
+      const bindings = await runEffect(produceApplicationTaskBindingsV1({
+        definition: relationFoldPreparedDefinition(),
+        catalog,
+        authority: {
+          scopeId: publication.scopeId,
+          revisionId: publication.revisionId,
+          candidateId: publication.candidateId,
+          analysisId: publication.analysisId,
+          sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+          publicationSha256: publication.publicationSha256,
+        },
+        runtimePolicy: {
+          runtimeHostIdentity:
+            "flarex.test/application-relation-postgres-runtime",
+          compatibilityDate: "2026-08-25",
+        },
+      }, taskSha256));
+      await runEffect(makeApplicationRelationTaskBindingRepository(
+        fixture.target.drizzle,
+        fixture.control.drizzle,
+      ).register({ authority, publication, bindings }));
+
+      const candidateValidation = createAppSchemaCandidateValidationPort({
+        controlDb: fixture.control.drizzle,
+        authority: fixture.authority,
+      });
+      const candidateInput = Object.freeze({
+        deploymentId: fixture.deploymentId,
+        schemaVersionId: relation.binding.schemaVersionId,
+      });
+      const closure = await runEffect(
+        prepareAppUniqueConstraintSetClosureV1Effect(
+          fixture.control.drizzle,
+          candidateInput,
+        ),
+      );
+      await fixture.control.drizzle.transaction(tx => runEffect(
+        closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure),
+      ));
+      await settlePostgresCandidateValidation(
+        candidateValidation,
+        candidateInput,
+      );
+      await enablePostgresApplicationPhysicalBuilds(
+        fixture,
+        relation.binding.schemaVersionId,
+      );
+      expect((await enablePhysicalReadinessSet(fixture, relation)).map(
+        definition => definition.relationOrdinal
+      )).toEqual([1, 2]);
+
+      const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+        fixture.control.drizzle,
+      );
+      const uniqueConstraintEligibility =
+        createAppUniqueConstraintSetEligibilityPortV1({
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authority,
+        }, uniqueConstraints);
+      const pointCommit = createPointCommitPublisherPortV1({
+        scopeMetadata: fixture.control,
+        provisioningReceipts: fixture.authority.provisioningReceipts,
+        scopeSessionTargets: {
+          resolve: async () => {
+            throw new Error(
+              "PostgreSQL relation readiness must not open a commit session.",
+            );
+          },
+        },
+      }, { uniqueConstraints, uniqueConstraintEligibility });
+      const fold = makeApplicationRelationReadinessFoldRepository({
+        controlDb: fixture.control.drizzle,
+        authority: fixture.authority,
+        schema: createApplicationRelationSchemaAuthorityPort(
+          fixture.control.drizzle,
+        ),
+        taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(),
+        candidateValidation: createAppSchemaCandidateReadinessPort(
+          candidateValidation,
+        ),
+        pointCommit,
+        physicalDefinitionLifecycle: createPhysicalDefinitionLifecyclePort({
+          controlDb: fixture.control.drizzle,
+          authority: fixture.authority,
+        }),
+        relations: fixture.readiness,
+      });
+      const input = Object.freeze({
+        deploymentId: fixture.deploymentId,
+        revisionId: publication.revisionId,
+      });
+      const [left, right] = await Promise.all([
+        runEffect(fold.settle(input)),
+        runEffect(fold.settle(input)),
+      ]);
+      if (left.status !== "ready" || right.status !== "ready") {
+        throw new Error("Expected concurrent PostgreSQL relation readiness.");
+      }
+      expect([left.disposition, right.disposition].sort()).toEqual([
+        "inserted",
+        "replayed",
+      ]);
+      expect(right.readinessSha256).toBe(left.readinessSha256);
+      expect(right.readinessBytes).toEqual(left.readinessBytes);
+      expect(right.relationSetReadinessSha256).toBe(
+        left.relationSetReadinessSha256,
+      );
+      expect(right.readyAt).toEqual(left.readyAt);
+      expect(hasApplicationRelationReadinessFoldAuthority(fold, left))
+        .toBe(true);
+      expect(hasApplicationRelationReadinessFoldAuthority(
+        fold,
+        Object.freeze({ ...left }),
+      )).toBe(false);
+      const [roots, children, legacy] = await Promise.all([
+        fixture.target.drizzle.select().from(fxSystemApplicationReadiness),
+        fixture.target.drizzle.select().from(
+          fxSystemApplicationReadinessRelations,
+        ).orderBy(asc(
+          fxSystemApplicationReadinessRelations.relationOrdinal,
+        )),
+        fixture.target.drizzle.select().from(fxSystemApplicationReadinessV1),
+      ]);
+      expect(roots).toHaveLength(1);
+      expect(roots[0]).toMatchObject({
+        readinessCodecVersion: 2,
+        relationCount: 2,
+      });
+      expect(children.map(child => child.relationOrdinal)).toEqual([1, 2]);
+      expect(children.map(child => child.relationId)).toEqual(
+        relation.binding.relationBindings.map(binding => binding.relationId),
+      );
+      expect(legacy).toHaveLength(0);
     });
   }, 240_000);
 });
@@ -796,4 +1072,152 @@ async function waitForBlockedScopeClockOperations(
     await delay(25);
   }
   throw new Error(`Expected ${expected} E01-B scope-clock waiters.`);
+}
+
+async function settlePostgresCandidateValidation(
+  candidateValidation: ReturnType<
+    typeof createAppSchemaCandidateValidationPort
+  >,
+  input: Parameters<typeof installAppSchemaCandidateValidationEffect>[1],
+): Promise<void> {
+  await runEffect(installAppSchemaCandidateValidationEffect(
+    candidateValidation,
+    input,
+  ));
+  for (let step = 0; step < 64; step += 1) {
+    const result = await runEffect(advanceAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      input,
+    ));
+    if (result.disposition !== "readyToSettle") continue;
+    await runEffect(settleAppSchemaCandidateValidationEffect(
+      candidateValidation,
+      input,
+    ));
+    return;
+  }
+  throw new Error("PostgreSQL relation candidate validation did not settle.");
+}
+
+async function enablePostgresApplicationPhysicalBuilds(
+  fixture: Fixture,
+  schemaVersionId: ApplicationRelationBindingPublication[
+    "binding"
+  ]["schemaVersionId"],
+): Promise<void> {
+  const ports = Object.freeze({
+    controlDb: fixture.control.drizzle,
+    authority: fixture.authority,
+  });
+  await runEffect(reconcilePublishedIndexBuildsV1Effect(ports, {
+    deploymentId: fixture.deploymentId,
+    schemaVersionId,
+  }));
+  const requirements = await runEffect(
+    loadPublishedPhysicalRequirementSnapshotV1(
+      fixture.control.drizzle,
+      Object.freeze({
+        deploymentId: fixture.deploymentId,
+        schemaVersionId,
+      }),
+    ),
+  );
+  if (requirements === null || requirements.definitions.length === 0) {
+    throw new Error("Expected PostgreSQL Application physical requirements.");
+  }
+  for (const definition of requirements.definitions) {
+    const located = await runEffect(locateAppIndexDefinitionByIdEffect(
+      fixture.control.drizzle,
+      fixture.scopeId,
+      definition.indexDefinitionId,
+    ));
+    if (located === null) {
+      throw new Error("PostgreSQL Application index definition is missing.");
+    }
+    for (let step = 0; step < 16; step += 1) {
+      const input = Object.freeze({
+        deploymentId: fixture.deploymentId,
+        indexDefinitionId: definition.indexDefinitionId,
+        pageSize: 16,
+      });
+      const built = located.access.kind === "developer"
+        ? await runEffect(buildAppDeveloperOrderedIndexV1Effect(ports, input))
+        : await runEffect(buildIntrinsicCreationTimeIndexV1Effect(ports, input));
+      if (built.lifecycle === "enabled") break;
+      if (step === 15) {
+        throw new Error("PostgreSQL Application physical build did not enable.");
+      }
+    }
+  }
+}
+
+function relationFoldPreparedDefinition() {
+  return Result.getOrThrow(prepareStandardApplicationDefinitionV1({
+    programBudgetInput: {
+      maximumModules: 1,
+      maximumFunctions: 1,
+      maximumIdentifierUtf8Bytes: 1_024,
+      maximumValidatorNodes: 32,
+      maximumValidatorDepth: 8,
+      maximumValidatorStringUtf8Bytes: 1_024,
+    },
+    programInput: {
+      format: "flarex.declarative-program/v1",
+      version: 1,
+      schema: { tables: [], indexes: [] },
+      modules: [{
+        modulePath: "users",
+        functions: [{
+          exportName: "get",
+          kind: "query",
+          visibility: "public",
+          argsValidator: { type: "any" },
+          returnsValidator: null,
+        }],
+      }],
+    },
+    materializationBudgetInput: {
+      maximumModules: 1,
+      maximumEntryBindings: 1,
+      maximumSourceBytes: 4_096,
+      maximumSourceMapBytes: 0,
+      maximumBytesMaterialized: 16_384,
+      maximumSemanticRecords: 16,
+      maximumSemanticRecordBytes: 4_096,
+      maximumSemanticStreamBytes: 16_384,
+    },
+    graphInput: {
+      modules: [{
+        path: "users.js",
+        roles: ["function", "execution"],
+        sourceBytes: new TextEncoder().encode(
+          "export const get = () => null;\n",
+        ),
+        sourceMapBytes: null,
+      }],
+      functionEntries: [{
+        logicalModulePath: "users",
+        artifactModulePath: "users.js",
+      }],
+      executionPath: "users.js",
+      schemaPath: null,
+      authPath: null,
+    },
+  }));
+}
+
+function relationFoldUuidSequence(
+  ...sequences: ReadonlyArray<number>
+): () => string {
+  let index = 0;
+  return () => {
+    const sequence = sequences[index];
+    if (sequence === undefined) {
+      throw new Error("PostgreSQL relation UUID sequence exhausted.");
+    }
+    index += 1;
+    return `40000000-0000-4000-8000-${sequence
+      .toString()
+      .padStart(12, "0")}`;
+  };
 }

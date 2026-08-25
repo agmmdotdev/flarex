@@ -6,10 +6,12 @@ point-commit lowering completed on 2026-08-24. The preflighted `E01-A` private
 physical builder and per-attempt readiness evidence are also complete at the
 system-core boundary. The `E01-B` system-core checkpoint now provides private
 semantic readiness, exact ordered relation-set evidence, a production-inert
-serving-state guard, and genuine multi-relation proof. Application integration
-and E01 as a whole remain open. No relation
-runtime read or OCC registration, Application-wide E01 readiness fold, RA01
-activation, RQ01 query, public developer API, or Payload adapter is implemented.
+serving-state guard, and the relation-aware Application readiness fold for an
+inactive Application with an empty function catalog. E01 is complete at that
+private, production-inert boundary. Nonempty function catalogs fail closed at
+an explicit runtime-availability gate. No relation runtime read or OCC
+registration, positive RA01 activation, RQ01 query, public developer API, or
+Payload adapter is implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1294,7 +1296,7 @@ Exit gates:
 - injected failures roll back row and every sidecar together;
 - relation reads remain disabled until their own proof.
 
-### [ ] E01 — Build, Validate, And Enable Edge Definitions
+### [x] E01 — Build, Validate, And Enable Edge Definitions
 
 Prerequisite: S12 and C09 are complete.
 
@@ -1543,17 +1545,21 @@ because it performs no sidecar writes. This is an authenticated transaction
 invariant, never a caller-authored Boolean or promise that a revision is
 inactive.
 
-The Application integration checkpoint must accept the unversioned
-`ApplicationManifest` union at publication, schema-authority, readiness, and
-cold-materialization boundaries. Relation-bearing input is never down-projected
-and persisted as V1. Existing `flarex.application-readiness` version 1 bytes,
-tables, decoder, activation foreign keys, and table/index/unique meaning remain
-exact. Relation-bearing readiness uses a distinct persisted frame generation
-and atomically retained ordered relation children. Its root includes the R02
-bound-publication digest and relation-set digest in addition to the existing
-Application, task, cold, candidate, table/index, and unique evidence. The
-current activation owner must remain unable to consume this result; O10-R and
-RA01 still own relation read/OCC proof and activation admission.
+The eventual Application integration dispatcher must accept the unversioned
+`ApplicationManifest` union and route it to the exact publication,
+schema-authority, readiness, and cold-materialization generation. E01-B stops
+below that higher boundary: its private relation system-core ports accept the
+decoded `ApplicationManifestV2` member only, and no public or developer-facing
+dispatcher is claimed complete here. Relation-bearing input is never
+down-projected and persisted as V1. Existing `flarex.application-readiness`
+version 1 bytes, tables, decoder, activation foreign keys, and table/index/
+unique meaning remain exact. Relation-bearing readiness uses a distinct
+persisted frame generation and atomically retained ordered relation children.
+Its root includes the R02 bound-publication digest and relation-set digest in
+addition to the existing Application, task, cold, candidate, table/index, and
+unique evidence. The current activation owner must remain unable to consume
+this result; the unversioned dispatcher, O10-R, and RA01 remain later owned
+work.
 
 Focused PGlite and genuine-PostgreSQL proof must cover retained-V1 empty
 integration, exact one/many relation-bearing sets, cross-revision physical
@@ -1607,15 +1613,66 @@ E01-A authentication facet. Either choice changes an owner contract and needs a
 separate preflight; this checkpoint does not duplicate E01-A verification logic
 or broaden its authority.
 
-#### [ ] E01-B — Application Relation Readiness Fold
+#### [x] E01-B — Application Relation Readiness Fold
 
-Close the exact required-definition set for one inactive relation-bearing
-Application revision, revalidate every E01-A receipt against its R02 bound
-publication under the existing readiness transaction, and commit that set into
-the current Application readiness and later activation basis. This slice owns
-any necessary new persisted readiness-frame contract. It must preserve the
-current table/index readiness meaning rather than reinterpret its V1 bytes, and
-it still cannot activate before O10-R and RA01.
+The private Application integration checkpoint is complete for the first
+runtime-honest system-core boundary. Migration
+`0073_application_relation_readiness_fold.sql` adds separate unversioned
+relation-aware Application publication, function, task-catalog,
+task-definition, revision-schema, readiness-root, readiness-function, and
+ordered readiness-relation tables. The retained `_v1` tables, bytes, decoders,
+foreign keys, and activation head are unchanged; the new names represent the
+accepted current implementation, while version 2 appears only on the concrete
+persisted Application publication and readiness frame contracts.
+
+Relation-aware publication authenticates the exact R02 manifest binding before
+the target transaction and persists the complete V2 schema and function
+commitments without down-projecting them into V1. Schema authority is read-only
+over the R02 bound publication and writes no V1 Application schema-authority
+row. Task registration reuses the exact existing task-binding version 1 codec
+under separate relation-aware storage and requires the process-local authentic
+publication capability; a structural copy is rejected.
+
+The readiness fold resolves the located authority, rereads the analyzed V2
+revision, publication, complete function set, and task catalog, and prepares
+the existing candidate, unique-constraint, physical-definition, and ordered
+relation readiness capabilities. Its final caller-owned target transaction
+takes the existing scope-clock update lock, revalidates every one of those
+owners, authenticates the nominal relation-set evidence, and atomically commits
+one `flarex.application-readiness` version 2 root plus the dense relation
+children. The root pins the complete R02 binding and bound-publication digests,
+candidate, unique, existing table/index physical readiness, task binding, and
+exact retained relation-set bytes and digest. Replay reuses the database-authored
+first readiness timestamp and requires byte-for-byte root and child identity.
+
+The first runtime boundary deliberately accepts only `functions: []`.
+Relation-bearing functions are persisted, but readiness returns
+`functionRuntimeUnavailable` before invoking the retained cold adapter because
+no relation-aware runtime target/materializer has been approved. A real
+version-1 task definition is nevertheless stored and authenticated, proving
+that empty tasks are only a fixture choice and not an implementation limit.
+The ready result has its own nominal issuer and is not registered with the V1
+activation issuer. Current activation therefore cannot consume it; an attempted
+legacy activation of the authentic relation revision fails in the retained
+Application-readiness `storedState` channel and writes no V1 readiness,
+activation, or active-head row. A generation-specific activation-admission
+error and positive relation activation remain RA01 ownership.
+
+Focused PGlite proof covers two distinct direct relations, a nonempty task
+catalog, order-independent two-export publication replay, exact task/readiness
+replay, bounded overfull function/task child-set rejection, PostgreSQL
+lock-not-available retry classification, exact receipt foreign keys,
+same-composition capability rejection, caller-mutation isolation, atomic
+rollback across revision schema, root, and ordered children, the
+nonempty-function runtime gate, zero V1 schema/
+publication/task/readiness/activation writes, and all fresh migrations. The
+configured PostgreSQL 18 integration role concurrently settles the same
+complete fold into exactly one inserted and one replayed root, one ordered
+two-child set, and zero V1 readiness rows. That lane does not claim a
+non-superuser role boundary; role-specific least-privilege proof remains a
+separate deployment/operability concern. No OCC, commit, journal, feed,
+outbox, application row, runtime-read, route, public API, or higher-adapter
+owner changed.
 
 ### [ ] O10-R — Prove One Exact Relation Read
 

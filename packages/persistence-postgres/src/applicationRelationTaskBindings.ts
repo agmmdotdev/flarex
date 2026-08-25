@@ -9,6 +9,15 @@ import type { AppRowTransaction } from "./appRows";
 import type { ApplicationAnalysisAuthority } from
   "./applicationAnalysisRegistration";
 import {
+  hasApplicationRelationPublicationAuthority,
+  type ApplicationRelationPublication,
+} from "./applicationRelationPublication";
+import {
+  fxSystemApplicationPublications,
+  fxSystemApplicationTaskCatalogs,
+  fxSystemApplicationTaskDefinitions,
+} from "./applicationRelationSchema";
+import {
   prepareApplicationTaskBindingRegistrationEffect,
   reconstructApplicationTaskCatalogSnapshotEffect,
   type PreparedApplicationTaskBindingRegistration,
@@ -22,35 +31,30 @@ import {
 } from "./applicationTaskBindingModel";
 import { databaseTimestampFromUnknown } from "./databaseTimestamp";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { runDrizzleStatementEffect } from "./drizzleStatementEffect";
 import { runEffectTransaction } from "./effectTransaction";
+import { isRetryableSqlTransactionCause } from
+  "./locatedReadCommittedEffect";
 import {
   fxSystemApplicationCandidatesV1,
-  fxSystemApplicationPublicationsV1,
-  fxSystemApplicationTaskCatalogsV1,
-  fxSystemApplicationTaskDefinitionsV1,
   fxSystemScopeClocks,
 } from "./schema";
 
-export {
-  ApplicationTaskBindingPersistenceError,
-  ApplicationTaskCatalogSnapshotError,
-} from "./applicationTaskBindingModel";
-export type {
-  ApplicationTaskBindingRegistration,
-  ApplicationTaskCatalogSnapshot,
-  RegisterApplicationTaskBindingsInput,
-} from "./applicationTaskBindingModel";
+export interface RegisterApplicationRelationTaskBindingsInput
+  extends RegisterApplicationTaskBindingsInput {
+  readonly publication: ApplicationRelationPublication;
+}
 
-export interface ApplicationTaskBindingRepository {
+export interface ApplicationRelationTaskBindingRepository {
   readonly register: (
-    input: RegisterApplicationTaskBindingsInput,
+    input: RegisterApplicationRelationTaskBindingsInput,
   ) => Effect.Effect<
     ApplicationTaskBindingRegistration,
     ApplicationTaskBindingPersistenceError
   >;
 }
 
-export interface ApplicationTaskCatalogSnapshotPort {
+export interface ApplicationRelationTaskCatalogSnapshotPort {
   readonly loadInTransaction: (
     tx: AppRowTransaction,
     authority: ApplicationAnalysisAuthority,
@@ -61,12 +65,12 @@ export interface ApplicationTaskCatalogSnapshotPort {
   >;
 }
 
-const taskCatalogSnapshotPorts = new WeakSet<ApplicationTaskCatalogSnapshotPort>();
+const relationTaskCatalogSnapshotPorts = new WeakSet<object>();
 
-export function createApplicationTaskCatalogSnapshotPort():
-ApplicationTaskCatalogSnapshotPort {
+export function createApplicationRelationTaskCatalogSnapshotPort():
+ApplicationRelationTaskCatalogSnapshotPort {
   const loadInTransaction = Effect.fn(
-    "ApplicationTaskCatalogSnapshot.loadInTransaction",
+    "ApplicationRelationTaskCatalogSnapshot.loadInTransaction",
   )(function* (
     tx: AppRowTransaction,
     authority: ApplicationAnalysisAuthority,
@@ -76,33 +80,33 @@ ApplicationTaskCatalogSnapshotPort {
     ApplicationTaskCatalogSnapshotError
   > {
     if (revisionId.trim().length === 0 || revisionId.includes("\0")) {
-      return yield* taskSnapshotFailure("invalidInput", false);
+      return yield* snapshotFailure("invalidInput");
     }
-    const clockRows = yield* taskSnapshotQuery(
+    const clockRows = yield* snapshotQuery(
       tx.select().from(fxSystemScopeClocks).where(eq(
         fxSystemScopeClocks.scopeId,
         authority.scopeId,
       )).limit(1),
     );
     const clock = clockRows[0];
-    if (clock === undefined ||
+    if (
+      clock === undefined ||
       clock.storageGeneration !== authority.storageGeneration ||
       clock.storageGenerationFence !== authority.storageGenerationFence ||
-      clock.epoch !== authority.epoch) {
-      return yield* taskSnapshotFailure("authorityChanged", false);
-    }
-    const catalogRows = yield* taskSnapshotQuery(
-      tx.select().from(fxSystemApplicationTaskCatalogsV1).where(and(
-        eq(fxSystemApplicationTaskCatalogsV1.scopeId, authority.scopeId),
-        eq(fxSystemApplicationTaskCatalogsV1.revisionId, revisionId),
+      clock.epoch !== authority.epoch
+    ) return yield* snapshotFailure("authorityChanged");
+    const catalogRows = yield* snapshotQuery(
+      tx.select().from(fxSystemApplicationTaskCatalogs).where(and(
+        eq(fxSystemApplicationTaskCatalogs.scopeId, authority.scopeId),
+        eq(fxSystemApplicationTaskCatalogs.revisionId, revisionId),
       )).limit(1).for("share"),
     );
     const catalog = catalogRows[0];
     if (catalog === undefined) return null;
-    const definitions = yield* taskSnapshotQuery(
-      tx.select().from(fxSystemApplicationTaskDefinitionsV1).where(and(
-        eq(fxSystemApplicationTaskDefinitionsV1.scopeId, authority.scopeId),
-        eq(fxSystemApplicationTaskDefinitionsV1.revisionId, revisionId),
+    const definitions = yield* snapshotQuery(
+      tx.select().from(fxSystemApplicationTaskDefinitions).where(and(
+        eq(fxSystemApplicationTaskDefinitions.scopeId, authority.scopeId),
+        eq(fxSystemApplicationTaskDefinitions.revisionId, revisionId),
       )).limit(catalog.taskCount + 1).for("share"),
     );
     return yield* reconstructApplicationTaskCatalogSnapshotEffect(
@@ -111,41 +115,68 @@ ApplicationTaskCatalogSnapshotPort {
     );
   });
   const port = Object.freeze({ loadInTransaction });
-  taskCatalogSnapshotPorts.add(port);
+  relationTaskCatalogSnapshotPorts.add(port);
   return port;
 }
 
-export function isApplicationTaskCatalogSnapshotPort(
+export function isApplicationRelationTaskCatalogSnapshotPort(
   value: unknown,
-): value is ApplicationTaskCatalogSnapshotPort {
+): value is ApplicationRelationTaskCatalogSnapshotPort {
   return typeof value === "object" && value !== null &&
-    // SAFETY: the typeof guard above proved the value is a non-null
-    // object; the cast only narrows it to the WeakSet's registered brand.
-    taskCatalogSnapshotPorts.has(value as ApplicationTaskCatalogSnapshotPort);
+    relationTaskCatalogSnapshotPorts.has(value);
 }
 
-export function makeApplicationTaskBindingRepository(
-  db: FlarexMetadataDatabase,
-): ApplicationTaskBindingRepository {
-  const register = Effect.fn("ApplicationTaskBindingRepository.register")(
-    function* (input: RegisterApplicationTaskBindingsInput): Effect.fn.Return<
+export function makeApplicationRelationTaskBindingRepository(
+  targetDb: FlarexMetadataDatabase,
+  controlDb: FlarexMetadataDatabase,
+): ApplicationRelationTaskBindingRepository {
+  const register = Effect.fn("ApplicationRelationTaskBinding.register")(
+    function* (
+      input: RegisterApplicationRelationTaskBindingsInput,
+    ): Effect.fn.Return<
       ApplicationTaskBindingRegistration,
       ApplicationTaskBindingPersistenceError
     > {
-      const prepared = yield* prepareApplicationTaskBindingRegistrationEffect(
-        input,
+      if (!hasApplicationRelationPublicationAuthority(
+        targetDb,
+        controlDb,
+        input.publication,
+      )) return yield* failure("invalidInput");
+      const prepared = yield* prepareApplicationTaskBindingRegistrationEffect({
+        authority: input.authority,
+        bindings: input.bindings,
+      });
+      if (!publicationMatches(prepared, input.publication)) {
+        return yield* failure("publicationMismatch");
+      }
+      return yield* runTransaction(
+        targetDb,
+        tx => registerInTransaction(tx, prepared, input.publication),
       );
-      return yield* runTransaction(db, tx => registerInTransaction(tx, prepared));
     },
   );
   return Object.freeze({ register });
 }
 
+function publicationMatches(
+  prepared: PreparedApplicationTaskBindingRegistration,
+  publication: ApplicationRelationPublication,
+): boolean {
+  return prepared.authority.scopeId === publication.scopeId &&
+    prepared.binding.revisionId === publication.revisionId &&
+    prepared.binding.candidateId === publication.candidateId &&
+    prepared.binding.analysisId === publication.analysisId &&
+    prepared.binding.sourceArtifactRootSha256 ===
+      publication.sourceArtifactRootSha256 &&
+    prepared.binding.publicationSha256 === publication.publicationSha256;
+}
+
 const registerInTransaction = Effect.fn(
-  "ApplicationTaskBinding.registerInTransaction",
+  "ApplicationRelationTaskBinding.registerInTransaction",
 )(function* (
   tx: AppRowTransaction,
   prepared: PreparedApplicationTaskBindingRegistration,
+  publication: ApplicationRelationPublication,
 ): Effect.fn.Return<
   ApplicationTaskBindingRegistration,
   ApplicationTaskBindingPersistenceError
@@ -153,7 +184,8 @@ const registerInTransaction = Effect.fn(
     yield* requireExactAuthority(tx, prepared.authority);
     const candidateRows = yield* query(
       tx.select().from(fxSystemApplicationCandidatesV1).where(and(
-        eq(fxSystemApplicationCandidatesV1.scopeId, prepared.authority.scopeId),
+        eq(fxSystemApplicationCandidatesV1.scopeId,
+          prepared.authority.scopeId),
         eq(fxSystemApplicationCandidatesV1.candidateId,
           prepared.binding.candidateId),
       )).limit(1).for("update"),
@@ -167,29 +199,39 @@ const registerInTransaction = Effect.fn(
       candidate.epoch !== prepared.authority.epoch
     ) return yield* failure("authorityChanged");
     const publicationRows = yield* query(
-      tx.select().from(fxSystemApplicationPublicationsV1).where(and(
-        eq(fxSystemApplicationPublicationsV1.scopeId, prepared.authority.scopeId),
-        eq(fxSystemApplicationPublicationsV1.revisionId,
+      tx.select().from(fxSystemApplicationPublications).where(and(
+        eq(fxSystemApplicationPublications.scopeId,
+          prepared.authority.scopeId),
+        eq(fxSystemApplicationPublications.revisionId,
           prepared.binding.revisionId),
       )).limit(1).for("update"),
     );
-    const publication = publicationRows[0];
-    if (publication === undefined) return yield* failure("publicationMissing");
+    const storedPublication = publicationRows[0];
+    if (storedPublication === undefined) {
+      return yield* failure("publicationMissing");
+    }
+    const sourceRootBytes = yield* decodeSha256(
+      publication.sourceArtifactRootSha256,
+    );
+    const publicationSha256Bytes = yield* decodeSha256(
+      publication.publicationSha256,
+    );
     if (
-      publication.candidateId !== prepared.binding.candidateId ||
-      publication.analysisId !== prepared.binding.analysisId ||
+      storedPublication.candidateId !== prepared.binding.candidateId ||
+      storedPublication.analysisId !== prepared.binding.analysisId ||
       !bytesEqualFullScan(
-        publication.sourceArtifactRootSha256,
-        prepared.sourceRootBytes,
-      ) || !bytesEqualFullScan(
-        publication.publicationSha256,
-        prepared.publicationSha256Bytes,
+        storedPublication.sourceArtifactRootSha256,
+        sourceRootBytes,
+      ) ||
+      !bytesEqualFullScan(
+        storedPublication.publicationSha256,
+        publicationSha256Bytes,
       )
     ) return yield* failure("publicationMismatch");
 
     const registeredAt = yield* databaseTime(tx, prepared.authority.scopeId);
     const inserted = yield* query(
-      tx.insert(fxSystemApplicationTaskCatalogsV1).values({
+      tx.insert(fxSystemApplicationTaskCatalogs).values({
         scopeId: prepared.authority.scopeId,
         revisionId: prepared.binding.revisionId,
         candidateId: prepared.binding.candidateId,
@@ -204,12 +246,12 @@ const registerInTransaction = Effect.fn(
         bindingBytes: prepared.catalogBindingBytes,
         registeredAt,
       }).onConflictDoNothing().returning({
-        revisionId: fxSystemApplicationTaskCatalogsV1.revisionId,
+        revisionId: fxSystemApplicationTaskCatalogs.revisionId,
       }),
     );
     if (inserted.length === 1) {
       if (prepared.definitions.length > 0) {
-        yield* execute(tx.insert(fxSystemApplicationTaskDefinitionsV1).values(
+        yield* execute(tx.insert(fxSystemApplicationTaskDefinitions).values(
           prepared.definitions.map(definition => ({
             scopeId: prepared.authority.scopeId,
             revisionId: prepared.binding.revisionId,
@@ -232,7 +274,7 @@ const registerInTransaction = Effect.fn(
 });
 
 const loadExactReplay = Effect.fn(
-  "ApplicationTaskBinding.loadExactReplay",
+  "ApplicationRelationTaskBinding.loadExactReplay",
 )(function* (
   tx: AppRowTransaction,
   prepared: PreparedApplicationTaskBindingRegistration,
@@ -241,10 +283,10 @@ const loadExactReplay = Effect.fn(
   ApplicationTaskBindingPersistenceError
 > {
     const rows = yield* query(
-      tx.select().from(fxSystemApplicationTaskCatalogsV1).where(and(
-        eq(fxSystemApplicationTaskCatalogsV1.scopeId,
+      tx.select().from(fxSystemApplicationTaskCatalogs).where(and(
+        eq(fxSystemApplicationTaskCatalogs.scopeId,
           prepared.authority.scopeId),
-        eq(fxSystemApplicationTaskCatalogsV1.revisionId,
+        eq(fxSystemApplicationTaskCatalogs.revisionId,
           prepared.binding.revisionId),
       )).limit(1),
     );
@@ -255,7 +297,8 @@ const loadExactReplay = Effect.fn(
       row.taskCount !== prepared.binding.taskCount ||
       row.runtimeHostIdentity !== prepared.binding.runtimeHostIdentity ||
       row.compatibilityDate !== prepared.binding.compatibilityDate ||
-      !bytesEqualFullScan(row.sourceArtifactRootSha256, prepared.sourceRootBytes) ||
+      !bytesEqualFullScan(row.sourceArtifactRootSha256,
+        prepared.sourceRootBytes) ||
       !bytesEqualFullScan(row.publicationSha256,
         prepared.publicationSha256Bytes) ||
       !bytesEqualFullScan(row.taskCatalogSha256,
@@ -265,20 +308,20 @@ const loadExactReplay = Effect.fn(
       !bytesEqualFullScan(row.bindingBytes, prepared.catalogBindingBytes)
     ) return yield* failure("conflictingReplay");
     const definitionRows = yield* query(
-      tx.select().from(fxSystemApplicationTaskDefinitionsV1).where(and(
-        eq(fxSystemApplicationTaskDefinitionsV1.scopeId,
+      tx.select().from(fxSystemApplicationTaskDefinitions).where(and(
+        eq(fxSystemApplicationTaskDefinitions.scopeId,
           prepared.authority.scopeId),
-        eq(fxSystemApplicationTaskDefinitionsV1.revisionId,
+        eq(fxSystemApplicationTaskDefinitions.revisionId,
           prepared.binding.revisionId),
       )).limit(prepared.definitions.length + 1),
     );
-    const definitionsByTaskId = new Map(
+    const byTaskId = new Map(
       definitionRows.map(definition => [definition.taskId, definition]),
     );
     if (
       definitionRows.length !== prepared.definitions.length ||
       prepared.definitions.some(expected => {
-        const stored = definitionsByTaskId.get(expected.taskId);
+        const stored = byTaskId.get(expected.taskId);
         return stored === undefined ||
           stored.logicalModulePath !== expected.logicalModulePath ||
           stored.sourceModulePath !== expected.sourceModulePath ||
@@ -321,48 +364,17 @@ function projection(
   });
 }
 
-function taskSnapshotQuery<Row>(
-  statement: PromiseLike<ReadonlyArray<Row>>,
-): Effect.Effect<ReadonlyArray<Row>, ApplicationTaskCatalogSnapshotError> {
-  return Effect.tryPromise({
-    try: () => statement,
-    catch: cause => taskSnapshotFailureValue(
-      "resourceFailure",
-      isRetryableTransactionCause(cause),
-      cause,
-    ),
-  });
-}
-
-function taskSnapshotFailure(
-  reason: ApplicationTaskCatalogSnapshotError["reason"],
-  retryable: boolean,
-  cause?: unknown,
-): Effect.Effect<never, ApplicationTaskCatalogSnapshotError> {
-  return Effect.fail(taskSnapshotFailureValue(reason, retryable, cause));
-}
-
-function taskSnapshotFailureValue(
-  reason: ApplicationTaskCatalogSnapshotError["reason"],
-  retryable: boolean,
-  cause?: unknown,
-): ApplicationTaskCatalogSnapshotError {
-  return new ApplicationTaskCatalogSnapshotError({
-    reason,
-    retryable,
-    ...(cause === undefined ? {} : { cause }),
-  });
-}
-
-function requireExactAuthority(
+const requireExactAuthority = Effect.fn(
+  "ApplicationRelationTaskBinding.requireExactAuthority",
+)(function* (
   tx: AppRowTransaction,
   authority: ApplicationAnalysisAuthority,
-): Effect.Effect<void, ApplicationTaskBindingPersistenceError> {
-  return Effect.gen(function* () {
+): Effect.fn.Return<void, ApplicationTaskBindingPersistenceError> {
     const rows = yield* query(
-      tx.select().from(fxSystemScopeClocks).where(
-        eq(fxSystemScopeClocks.scopeId, authority.scopeId),
-      ).limit(1).for("update"),
+      tx.select().from(fxSystemScopeClocks).where(eq(
+        fxSystemScopeClocks.scopeId,
+        authority.scopeId,
+      )).limit(1).for("update"),
     );
     const clock = rows[0];
     if (
@@ -371,8 +383,7 @@ function requireExactAuthority(
       clock.storageGenerationFence !== authority.storageGenerationFence ||
       clock.epoch !== authority.epoch
     ) return yield* failure("authorityChanged");
-  });
-}
+});
 
 function databaseTime(
   tx: AppRowTransaction,
@@ -389,59 +400,88 @@ function databaseTime(
   }));
 }
 
-function query<Row>(
-  statement: PromiseLike<ReadonlyArray<Row>>,
-): Effect.Effect<ReadonlyArray<Row>, ApplicationTaskBindingPersistenceError> {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(statement),
-    catch: cause => failureValue(
-      "resourceFailure",
-      isRetryableTransactionCause(cause),
-      cause,
-    ),
-  });
+function decodeSha256(
+  value: string,
+): Effect.Effect<Uint8Array, ApplicationTaskBindingPersistenceError> {
+  if (!/^[0-9a-f]{64}$/.test(value)) return failure("invalidInput");
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return Effect.succeed(bytes);
 }
 
-function execute(
-  statement: PromiseLike<unknown>,
-): Effect.Effect<void, ApplicationTaskBindingPersistenceError> {
-  return Effect.tryPromise({
-    try: () => Promise.resolve(statement),
-    catch: cause => failureValue(
-      "resourceFailure",
-      isRetryableTransactionCause(cause),
-      cause,
-    ),
-  }).pipe(Effect.asVoid);
-}
-
-function runTransaction<A>(
+function runTransaction<Value>(
   db: FlarexMetadataDatabase,
   body: (tx: AppRowTransaction) => Effect.Effect<
-    A,
+    Value,
     ApplicationTaskBindingPersistenceError
   >,
-): Effect.Effect<A, ApplicationTaskBindingPersistenceError> {
+): Effect.Effect<Value, ApplicationTaskBindingPersistenceError> {
   return runEffectTransaction(
     callback => db.transaction(callback),
-    "Application task-binding transaction rolled back.",
+    "Application relation task-binding transaction rolled back.",
     body,
     cause => failureValue(
       "resourceFailure",
-      isRetryableTransactionCause(cause),
+      isRetryableSqlTransactionCause(cause),
       cause,
     ),
   );
 }
 
-function isRetryableTransactionCause(cause: unknown): boolean {
-  if (typeof cause !== "object" || cause === null) return false;
-  try {
-    const code = Reflect.get(cause, "code");
-    return code === "40001" || code === "40P01";
-  } catch {
-    return false;
-  }
+function query<Row>(
+  statement: PromiseLike<ReadonlyArray<Row>>,
+): Effect.Effect<ReadonlyArray<Row>, ApplicationTaskBindingPersistenceError> {
+  return runDrizzleStatementEffect(
+    statement,
+    cause => failureValue(
+      "resourceFailure",
+      isRetryableSqlTransactionCause(cause),
+      cause,
+    ),
+  );
+}
+
+function execute(
+  statement: PromiseLike<unknown>,
+): Effect.Effect<void, ApplicationTaskBindingPersistenceError> {
+  return runDrizzleStatementEffect(
+    statement,
+    cause => failureValue(
+      "resourceFailure",
+      isRetryableSqlTransactionCause(cause),
+      cause,
+    ),
+  ).pipe(Effect.asVoid);
+}
+
+function snapshotQuery<Row>(
+  statement: PromiseLike<ReadonlyArray<Row>>,
+): Effect.Effect<ReadonlyArray<Row>, ApplicationTaskCatalogSnapshotError> {
+  return runDrizzleStatementEffect(
+    statement,
+    cause => snapshotFailureValue("resourceFailure", cause),
+  );
+}
+
+function snapshotFailure(
+  reason: ApplicationTaskCatalogSnapshotError["reason"],
+  cause?: unknown,
+): Effect.Effect<never, ApplicationTaskCatalogSnapshotError> {
+  return Effect.fail(snapshotFailureValue(reason, cause));
+}
+
+function snapshotFailureValue(
+  reason: ApplicationTaskCatalogSnapshotError["reason"],
+  cause?: unknown,
+): ApplicationTaskCatalogSnapshotError {
+  return new ApplicationTaskCatalogSnapshotError({
+    reason,
+    retryable: reason === "resourceFailure" &&
+      isRetryableSqlTransactionCause(cause),
+    ...(cause === undefined ? {} : { cause }),
+  });
 }
 
 function failure(

@@ -4261,6 +4261,12 @@ export const fxSystemEdgeDefinitionReadiness = pgTable(
       name: "fx_system_edge_definition_readiness_pk",
       columns: [table.scopeId, table.edgeDefinitionId, table.attemptFence],
     }),
+    unique("fx_system_edge_definition_readiness_receipt_unique").on(
+      table.scopeId,
+      table.edgeDefinitionId,
+      table.attemptFence,
+      table.readinessSha256,
+    ),
     foreignKey({
       name: "fx_system_edge_definition_readiness_build_fk",
       columns: [table.scopeId, table.edgeDefinitionId],
