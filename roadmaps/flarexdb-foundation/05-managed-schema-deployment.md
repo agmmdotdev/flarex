@@ -886,14 +886,13 @@ Outcome:
   authoritative until the final activation CAS succeeds.
 
 E01 closes the physical readiness prerequisite; it does not activate a relation
-by itself. The candidate remains non-active until O10-R has proved the incoming
-reverse-many dependency. After that roadmap proof closes, `RA01` invokes the
-existing activation owner only with the exact analyzed manifest, R02 bound
-publication, and persisted E01 readiness evidence. O10-R is not caller-authored
-activation input. Activation makes forward storage, reverse reads, and
-`restrict` enforcement available together. The later relation-specific `RQ01`
-Standard query gate must consume the resulting active selection; it may not add
-a candidate-selection bypass.
+by itself. O10-R now proves the incoming reverse-many dependency. The candidate
+remains non-active until `RA01` invokes the existing activation owner with the
+exact analyzed manifest, R02 bound publication, and persisted E01 readiness
+evidence. O10-R is not caller-authored activation input. Activation makes
+forward storage, reverse reads, and `restrict` enforcement available together.
+The later relation-specific `RQ01` Standard query gate must consume the
+resulting active selection; it may not add a candidate-selection bypass.
 
 A stable logical `relation_id` does not authorize reinterpretation of existing
 edges after a semantic change. R01 first classifies whether the new immutable
@@ -951,8 +950,8 @@ Exit gates:
   wrong-definition occurrence is accepted in current edges or the selected
   snapshot support;
 - E01 emits an exact verdict that RA01 can later revalidate under the existing
-  activation CAS after O10-R closes; stale frontier, incomplete build, missing
-  evidence, or changed relation binding fails closed; and
+  activation CAS after the completed O10-R proof; stale frontier, incomplete
+  build, missing evidence, or changed relation binding fails closed; and
 - RA01 cannot expose forward storage, reverse reads, or `restrict` enforcement
   independently of the other two.
 

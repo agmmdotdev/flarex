@@ -1082,11 +1082,11 @@ Accepted commit-integration contract:
   absent private composition fails closed; binding/row/edge disagreement or
   collision is corruption; and foreign SQL failures cross the existing
   transaction boundary once. None becomes a relation OCC conflict.
-- The capability remains uncomposed from production activation. `E01`, `O10-R`,
-  and `RA01` must later prove complete definition state, exact relation OCC, and
-  active selection before relation-bearing traffic can use this maintenance
-  path. C09 maintains only the exact pinned definition set and does not silently
-  dual-maintain retained or replacement definitions.
+- The capability remains uncomposed from production activation. `E01` and
+  `O10-R` now prove complete definition state and exact relation OCC; `RA01`
+  must still establish active selection before relation-bearing traffic can use
+  this maintenance path. C09 maintains only the exact pinned definition set and
+  does not silently dual-maintain retained or replacement definitions.
 
 Outcome:
 
@@ -1140,9 +1140,8 @@ Exit gate:
   target-live and `restrict` decisions, rollback, row revision/current,
   commit/change, outbox, and idempotency outcome publication remain one atomic
   decision;
-- `E01` readiness alone cannot activate a relation-bearing revision: its
-  required definition must be fully ready, O10-R must close the separate
-  OCC/overlay proof, and `RA01` must reuse the existing activation owner.
+- `E01` readiness and the completed O10-R OCC/overlay proof do not activate a
+  relation-bearing revision; `RA01` must reuse the existing activation owner.
   Activation makes forward storage, reverse reads, and `restrict` enforcement
   available together. The later relation-specific `RQ01` Standard query gate
   consumes only that active selection; it does not add candidate access.

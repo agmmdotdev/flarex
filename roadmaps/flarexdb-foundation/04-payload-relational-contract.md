@@ -8,10 +8,12 @@ system-core boundary. The `E01-B` system-core checkpoint now provides private
 semantic readiness, exact ordered relation-set evidence, a production-inert
 serving-state guard, and the relation-aware Application readiness fold for an
 inactive Application with an empty function catalog. E01 is complete at that
-private, production-inert boundary. Nonempty function catalogs fail closed at
-an explicit runtime-availability gate. No relation runtime read or OCC
-registration, positive RA01 activation, RQ01 query, public developer API, or
-Payload adapter is implemented.
+private, production-inert boundary. `O10-R` completed on 2026-08-25 with the
+exact incoming relation read, journal dependency, read-your-writes overlay,
+final OCC validation, and durable running-conflict takeover. Nonempty function
+catalogs fail closed at an explicit runtime-availability gate. No positive
+RA01 activation, RQ01 query, public developer API, or Payload adapter is
+implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -654,7 +656,7 @@ returned base row was consumed and no lookahead exists: zero rows and an exact
 full page without lookahead are both exhausted, while a full page with a
 lookahead row is not. One transaction may consume at most `4,096`
 base relation occurrences across relation calls. There is no caller-authored
-cursor. `O10-R` must compose the transaction-local overlay without weakening
+cursor. `O10-R` composes the transaction-local overlay without weakening
 these base-row, frontier, or total-work ceilings.
 
 The selected version key is:
@@ -719,7 +721,7 @@ validate the complete expected current edge set
 validate the selected exact-snapshot support
 settle physical enabled/readable state
 include physical relation readiness in the application revision readiness root
-hold the revision inactive until O10-R proves reverse-read/OCC behavior
+hold the revision inactive for RA01 after O10-R proves reverse-read/OCC behavior
 ```
 
 The implementation should generalize the existing ordered-index and unique-key
@@ -728,14 +730,13 @@ current-row revalidation, validation reset on relevant writes, replay safety,
 and genuine-Postgres proof.
 
 Before `E01` is complete, relation intent may exist only on an inactive
-application revision. After E01, that revision remains inactive until O10-R
-proves the mutation dependency/overlay. `RA01` may then use only the existing
-activation owner to activate the private revision; RQ01 subsequently consumes
-that active selection through the existing Standard query owner rather than
-inventing candidate selection. The previously active revision retains its prior
-non-relation meaning. No first-generation active relation may expose stored
-relation semantics while incoming adjacency, reverse reads, or declared
-target-delete restriction is disabled.
+application revision. E01 and O10-R are now complete, and that revision remains
+inactive until `RA01` uses only the existing activation owner to activate the
+private revision. RQ01 subsequently consumes that active selection through the
+existing Standard query owner rather than inventing candidate selection. The
+previously active revision retains its prior non-relation meaning. No first-
+generation active relation may expose stored relation semantics while incoming
+adjacency, reverse reads, or declared target-delete restriction is disabled.
 
 ## Commit Feed And Reactive Invalidation
 
@@ -1319,8 +1320,9 @@ Exit gates:
   fail closed;
 - E01 emits physical readiness only and does not activate the relation-bearing
   revision;
-- activation remains blocked until O10-R closes and cannot expose an unready
-  definition or a relation whose reverse/read/restrict semantics are disabled.
+- O10-R is closed; activation remains blocked on RA01 and cannot expose an
+  unready definition or a relation whose reverse/read/restrict semantics are
+  disabled.
 
 #### [x] E01-A-P — Physical Build And Readiness Preflight
 
@@ -1558,8 +1560,8 @@ persisted frame generation and atomically retained ordered relation children.
 Its root includes the R02 bound-publication digest and relation-set digest in
 addition to the existing Application, task, cold, candidate, table/index, and
 unique evidence. The current activation owner must remain unable to consume
-this result; the unversioned dispatcher, O10-R, and RA01 remain later owned
-work.
+this result. The unversioned dispatcher and RA01 remain later-owned work;
+O10-R is complete at the private system-core boundary.
 
 Focused PGlite and genuine-PostgreSQL proof must cover retained-V1 empty
 integration, exact one/many relation-bearing sets, cross-revision physical
@@ -1674,12 +1676,17 @@ separate deployment/operability concern. No OCC, commit, journal, feed,
 outbox, application row, runtime-read, route, public API, or higher-adapter
 owner changed.
 
-### [ ] O10-R — Prove One Exact Relation Read
+### [x] O10-R — Prove One Exact Relation Read
 
 Prerequisite: E01 has enabled the selected edge definition and its R01-P
 snapshot support.
 
 #### Approved O10-R Implementation Preflight
+
+Completion receipt: the approved medium system-core slice is implemented and
+proven in focused PGlite and genuine-PostgreSQL lanes. It remains private and
+production-inert: no active-head change, Standard query, public API, route,
+framework adapter, or production caller was added.
 
 This is one medium system-core slice. It extends the accepted current
 implementation directly; it does not create a chronological `V2` journal,
@@ -1784,7 +1791,7 @@ the incoming dependency/overlay for the exact bound relation publication.
 
 Outcome:
 
-- after O10-R closes as a roadmap proof, invoke only the existing Application
+- with O10-R closed as a roadmap proof, invoke only the existing Application
   activation owner with the exact analyzed manifest, R02 bound publication, and
   persisted readiness evidence; O10-R is not caller-authored activation input;
 - make forward storage, current incoming reads, and `restrict` enforcement

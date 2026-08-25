@@ -1275,8 +1275,8 @@ Outcome:
   index size, write amplification, lock contention, and vacuum pressure. PGlite
   remains useful for semantics but cannot select the physical authority.
 - Record why the rejected candidate loses and the evidence boundary under which
-  the decision must be reopened. O10-R later implements the selected support;
-  it does not choose again.
+  the decision must be reopened. O10-R now implements the selected support; it
+  did not choose again.
 
 Exit gates:
 
