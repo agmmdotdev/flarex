@@ -1679,6 +1679,86 @@ owner changed.
 Prerequisite: E01 has enabled the selected edge definition and its R01-P
 snapshot support.
 
+#### Approved O10-R Implementation Preflight
+
+This is one medium system-core slice. It extends the accepted current
+implementation directly; it does not create a chronological `V2` journal,
+relation reader, OCC lane, or retry owner. `SessionJournalV1` remains the one
+concrete persisted journal contract because the private FlarexDB path is still
+production-inert and no coexisting shipped decoder requires a second format.
+The new product/domain modules and process-local capabilities use plain names.
+
+The admitted logical dependency is exactly:
+
+```text
+appRelationIncoming(
+  edgeDefinitionId,
+  targetRowId,
+  observedAdjacencyVersion
+)
+```
+
+Scope, schema, snapshot, storage generation, epoch, session, and attempt remain
+the existing authenticated journal/commit pins. Dependencies coalesce by the
+exact immutable edge definition plus target row, sort by that same identity,
+and retain the first exact observed version. A later observation with a
+different version is a conflict, never a replacement value. The concrete V1
+journal contract adds one dedicated child set and root counters for at most
+`128` relation syscalls, `128` coalesced relation dependencies, and `4,096`
+physically consumed base occurrences per attempt. These are separate from
+point-document and ordered-index accounting.
+
+The core resolver accepts only an opaque same-composition relation capability
+derived from the exact R02 binding and E01-B readiness fold. It resolves one
+incoming reverse-many, same-scope, top-level, nonlocalized, monomorphic,
+duplicate-free, target-live `restrict` definition before target edge I/O. The
+durable syscall receipt stores the resolved immutable identifiers; callers do
+not supply a physical definition, direction, filter, cursor, graph expression,
+or document-population request. A later API owner may translate its own logical
+descriptor into this capability, but O10-R publishes no such API.
+
+The syscall runs through the existing exact-running read admission. Under the
+scope-clock `FOR SHARE` lock and exact session/claim lock it performs the S12
+version-before/page/version-after handshake, follows only the internal
+`(sourceRowId, duplicateOrdinal)` frontier, and stops after one logical page or
+the attempt-wide physical-work ceiling. Its result contains only source
+document/occurrence identity plus nullable retained position and an exhaustion
+flag. It has no external continuation token.
+
+Read-your-writes uses one exact composition:
+
+```text
+current staged point writes
+  -> existing final-document overlay
+  -> authenticated single-definition C09 lowerer
+  -> relation put/remove/reorder delta
+  -> ordered merge with bounded S12 incoming pages
+```
+
+The merge refills after staged removals, includes staged insertions before,
+inside, and after physical pages, and preserves source-row/duplicate-ordinal
+order. It does not duplicate relation extraction, scan arbitrary JSON, load
+documents into the result, or fall back to the commit feed.
+
+Two conflict times converge on O08. A dependency mismatch found under the final
+scope-clock update lock extends the existing point-commit conflict union and
+uses the existing finishing replacement path. A version above the pinned
+snapshot, or a version change observed before a result can be returned, emits
+an authenticated running-relation conflict. O08 gains one bounded
+`running -> retrying` replacement branch that consumes the exact execution
+claim, deletes the old journal and lease, advances the attempt fence, and
+creates the same pristine fresh attempt as the finishing branch. It does not
+seal a dummy result, terminally abort the attempt, or add another loop, retry
+budget, backoff policy, outcome owner, or user-code runner. Both branches use
+the same maximum four reruns, committed-outcome check, fresh-snapshot proof,
+handoff capability, deterministic rerun, and convergence validation.
+
+The implementation order is protocol/journal storage, pure overlay and bounded
+reader, exact syscall composition, final and early conflict reproduction, then
+PGlite/PostgreSQL plan and race proof. No activation, active-head change,
+developer SDK, Standard query API, Payload/Medusa adapter, route, feed, outbox,
+or production caller is part of this slice.
+
 Outcome:
 
 - implement one bounded incoming source/occurrence page using the R01-P

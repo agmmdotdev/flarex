@@ -1722,6 +1722,17 @@ Exit gate:
 
 ### [ ] O10-R — Prove One Exact Relation Adjacency Dependency
 
+Implementation preflight is approved in
+[`04-payload-relational-contract.md`](./04-payload-relational-contract.md#approved-o10-r-implementation-preflight).
+The key OCC correction is explicit: a post-snapshot adjacency version observed
+while user code is still running does not enter pre-finishing abort. It creates
+authenticated running-conflict evidence and enters a new lifecycle branch of
+the existing O08 replacement transaction. The branch consumes the exact live
+execution claim and converges on the same pristine replacement attempt,
+authorization, maximum-four-rerun budget, backoff, outcome check, and execution
+loop as a final-commit conflict. A dummy seal, second retry loop, latest-state
+fallback, or parallel OCC authority is forbidden.
+
 Prerequisites:
 
 - `R01` has frozen the same-scope, top-level, nonlocalized, monomorphic,

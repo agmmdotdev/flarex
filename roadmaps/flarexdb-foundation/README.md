@@ -801,15 +801,14 @@ Dynamic Worker binding baseline before selecting it.
     validate final target liveness, and enforce `restrict` after the
     transaction-local edge delta. No activation, relation read/OCC, higher API,
     or second commit authority was added.
-17. `E01-A` (complete privately, production-inert): the preflighted medium
-    physical-builder slice now provides scope-fenced bounded cleanup,
-    fixed-frontier backfill through the C09 lowerer, independent source/edge/
-    version validation, restart-on-frontier-change, and immutable per-attempt
-    readiness evidence. Semantic-only reuse of an enabled physical definition
-    remains fail-closed and active-serving admission remains unavailable.
-    `E01-B` owns the Application-readiness fold and the remaining exact reuse/
-    non-serving integration gate; E01 is not complete.
-18. `O10-R`: prove one exact bounded relation adjacency dependency, including
+17. `E01` (complete privately, production-inert): E01-A provides scope-fenced
+    bounded cleanup, fixed-frontier backfill through the C09 lowerer,
+    independent source/edge/version validation, restart-on-frontier-change,
+    and immutable per-attempt readiness evidence. E01-B authenticates the dense
+    ordered relation set and folds it into Application readiness without
+    activating a serving revision.
+18. `O10-R` (approved implementation preflight): prove one exact bounded
+    relation adjacency dependency, including
     snapshot-registration races, read-your-writes, pagination, and phantom
     conflict. SQL/PGQ remains later and optional.
 19. `RA01`: activate one private relation-bearing revision through the existing
