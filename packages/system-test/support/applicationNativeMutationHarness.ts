@@ -21,6 +21,7 @@ import {
 import {
   ApplicationMutationSystemConfigurationError,
   ApplicationMutationSystem,
+  type ApplicationSelectionMutationPort,
   type ApplicationMutationSystemLive,
   makeApplicationMutationSystemLayer,
 } from
@@ -79,6 +80,9 @@ const RETENTION = Result.getOrThrow(makeGrantRetentionPolicyV1Result({
 }));
 
 export interface ApplicationNativeMutationProof {
+  readonly invalidInputRejectedBeforeActiveRead: true;
+  readonly externalInternalMutationRejected: true;
+  readonly selectionMutation: ApplicationNativeSelectionMutationObservation;
   readonly initialCommit: ApplicationNativeMutationInitialCommitObservation;
   readonly validationCatch: ApplicationNativeMutationValidationCatchObservation;
   readonly concurrentDuplicate: ApplicationNativeMutationConcurrentDuplicateObservation;
@@ -91,6 +95,14 @@ export interface ApplicationNativeMutationProof {
   readonly outcomeCount: number;
   readonly feedCount: number;
   readonly outboxCount: number;
+}
+
+export interface ApplicationNativeSelectionMutationObservation {
+  readonly publicPublication: ApplicationNativeMutationPublishedObservation;
+  readonly internalPublication: ApplicationNativeMutationPublishedObservation;
+  readonly internalReplay: ApplicationNativeMutationReplayObservation;
+  readonly staleSelection: ApplicationNativeMutationStaleAdmissionObservation;
+  readonly staleSelectionWorkerLoads: number;
 }
 
 export interface ApplicationNativeMutationPublishedObservation {
@@ -326,7 +338,18 @@ export async function proveApplicationNativeMutation(
     fixture.deploymentId,
   );
   const loader = new ApplicationNativeWorkerLoader();
-  const live = await makeApplicationNativeMutationTestLive(fixture, loader);
+  const baseLive = await makeApplicationNativeMutationTestLive(fixture, loader);
+  let activationReads = 0;
+  const activationOwner = baseLive.activation;
+  const readActive = activationOwner.readActive;
+  const live = Object.freeze({
+    ...baseLive,
+    activation: Object.freeze({
+      readActive: () => Effect.sync(() => { activationReads += 1; }).pipe(
+        Effect.flatMap(() => readActive.call(activationOwner)),
+      ),
+    }),
+  });
   const layer = makeApplicationMutationSystemLayer(live);
   const candidateSchemaWriteGuard:
     ApplicationNativeMutationCandidateSchemaWriteGuardObservation = Object.freeze({
@@ -362,6 +385,166 @@ export async function proveApplicationNativeMutation(
     Effect.scoped(effect.pipe(Effect.provide(layer))),
   );
   const create = TransactionFunctionPathV1Schema.make("users:create");
+  const internalCreate = TransactionFunctionPathV1Schema.make(
+    "users:createInternal",
+  );
+  const activationReadsBeforeInvalidInput = activationReads;
+  const invalidInputRejectedBeforeActiveRead = await invoke(Effect.gen(
+    function* () {
+      const system = yield* ApplicationMutationSystem;
+      return yield* system.invoke(
+        // @ts-expect-error Deliberately exercise the unknown runtime boundary.
+        null,
+        {},
+        TransactionRequestKeyV1Schema.make(
+          "application-native:create:invalid-function",
+        ),
+      );
+    },
+  ).pipe(
+    Effect.as(false as const),
+    Effect.catchTag(
+      "ApplicationMutationInputError",
+      error => error.field === "functionRef"
+        ? Effect.succeed(true as const)
+        : Effect.die(error),
+    ),
+  ));
+  if (
+    !invalidInputRejectedBeforeActiveRead ||
+    activationReads !== activationReadsBeforeInvalidInput
+  ) {
+    throw new Error(
+      "Invalid Application mutation input reached active-head resolution.",
+    );
+  }
+  const workerLoadsBeforeExternalInternalMutation = loader.loads;
+  const externalInternalMutationRejected = await invoke(
+    invokeStandardApplicationPointMutationV1(
+      internalCreate,
+      { name: "External internal mutation" },
+      TransactionRequestKeyV1Schema.make(
+        "application-native:create:external-internal",
+      ),
+    ).pipe(
+      Effect.as(false as const),
+      Effect.catchTag(
+        "ApplicationMutationAdmissionError",
+        error => error.reason === "functionUnsupported"
+          ? Effect.succeed(true as const)
+          : Effect.die(error),
+      ),
+    ),
+  );
+  if (
+    !externalInternalMutationRejected ||
+    loader.loads !== workerLoadsBeforeExternalInternalMutation
+  ) {
+    throw new Error("External mutation root admitted an internal function.");
+  }
+  const publicSelectionKey = TransactionRequestKeyV1Schema.make(
+    "application-native:create:selection-bound-public",
+  );
+  const internalSelectionKey = TransactionRequestKeyV1Schema.make(
+    "application-native:create:selection-bound-internal",
+  );
+  const selectionIdentity = Object.freeze({
+    kind: "user" as const,
+    user: Object.freeze({
+      tokenIdentifier: "application-native-selection-user",
+      issuer: "https://system-test.flarex.invalid",
+      subject: "selection-user",
+    }),
+  });
+  const selectionMutationEffect = Effect.fn(
+    "SystemTest.ApplicationNativeMutation.invokeSelection",
+  )(function* (
+    selection: Parameters<
+      ApplicationSelectionMutationPort["runMutation"]
+    >[0],
+    functionRef: Parameters<
+      ApplicationSelectionMutationPort["runMutation"]
+    >[1],
+    args: Parameters<
+      ApplicationSelectionMutationPort["runMutation"]
+    >[2],
+    requestKey: Parameters<
+      ApplicationSelectionMutationPort["runMutation"]
+    >[3],
+  ) {
+    const system = yield* ApplicationMutationSystem;
+    return yield* system.selectionMutation.runMutation(
+      selection,
+      functionRef,
+      args,
+      requestKey,
+      selectionIdentity,
+    );
+  });
+  const publicSelectionPublished = await invoke(selectionMutationEffect(
+    fixture.active.selection,
+    create,
+    { name: "Selection-bound public" },
+    publicSelectionKey,
+  ));
+  if (
+    publicSelectionPublished.disposition !== "published" ||
+    typeof publicSelectionPublished.value !== "string"
+  ) {
+    throw new Error(
+      "Selection-bound public Application mutation was not published.",
+    );
+  }
+  const publicSelectionPublication: ApplicationNativeMutationPublishedObservation =
+    Object.freeze({
+      disposition: publicSelectionPublished.disposition,
+      value: publicSelectionPublished.value,
+      commitSeq: publicSelectionPublished.commitSeq,
+      workerLoads: loader.loads,
+    });
+  const internalSelectionPublished = await invoke(selectionMutationEffect(
+    fixture.active.selection,
+    internalCreate,
+    { name: "Selection-bound internal" },
+    internalSelectionKey,
+  ));
+  if (
+    internalSelectionPublished.disposition !== "published" ||
+    typeof internalSelectionPublished.value !== "string"
+  ) {
+    throw new Error(
+      "Selection-bound internal Application mutation was not published.",
+    );
+  }
+  const internalSelectionLoadsAfterPublish = loader.loads;
+  const internalSelectionPublication: ApplicationNativeMutationPublishedObservation =
+    Object.freeze({
+      disposition: internalSelectionPublished.disposition,
+      value: internalSelectionPublished.value,
+      commitSeq: internalSelectionPublished.commitSeq,
+      workerLoads: internalSelectionLoadsAfterPublish,
+    });
+  const internalSelectionReplayed = await invoke(selectionMutationEffect(
+    fixture.active.selection,
+    internalCreate,
+    { name: "Selection-bound internal" },
+    internalSelectionKey,
+  ));
+  if (
+    internalSelectionReplayed.disposition !== "replayed" ||
+    internalSelectionReplayed.commitSeq !== internalSelectionPublished.commitSeq ||
+    loader.loads !== internalSelectionLoadsAfterPublish
+  ) {
+    throw new Error(
+      "Selection-bound internal Application replay re-executed the Worker.",
+    );
+  }
+  const internalSelectionReplay: ApplicationNativeMutationReplayObservation =
+    Object.freeze({
+      disposition: internalSelectionReplayed.disposition,
+      commitSeq: internalSelectionReplayed.commitSeq,
+      workerLoads: loader.loads,
+    });
   const firstKey = TransactionRequestKeyV1Schema.make(
     "application-native:create:1",
   );
@@ -686,6 +869,49 @@ export async function proveApplicationNativeMutation(
   if (!admittedHeadStayedPinned) {
     throw new Error("Admitted Application execution followed the mutable head.");
   }
+  const workerLoadsBeforeStaleSelection = loader.loads;
+  const staleSelection = await invoke(selectionMutationEffect(
+    fixture.active.selection,
+    internalCreate,
+    { name: "Must not retarget" },
+    TransactionRequestKeyV1Schema.make(
+      "application-native:create:stale-selection",
+    ),
+  ).pipe(
+    Effect.map(() => Object.freeze({
+      disposition: "accepted" as const,
+      revisionId: moved.basis.revisionId,
+    })),
+    Effect.catchTag(
+      "ApplicationActivationError",
+      error => Effect.succeed(Object.freeze({
+        disposition: "rejected" as const,
+        errorTag: error._tag,
+        operation: error.operation,
+        reason: error.reason,
+        revisionId: error.revisionId,
+        retryable: error.retryable,
+      })),
+    ),
+  ));
+  if (
+    staleSelection.disposition !== "rejected" ||
+    staleSelection.operation !== "validateSelection" ||
+    staleSelection.reason !== "concurrentHead" ||
+    loader.loads !== workerLoadsBeforeStaleSelection
+  ) {
+    throw new Error(
+      "Selection-bound Application mutation retargeted after head movement.",
+    );
+  }
+  const selectionMutation: ApplicationNativeSelectionMutationObservation =
+    Object.freeze({
+      publicPublication: publicSelectionPublication,
+      internalPublication: internalSelectionPublication,
+      internalReplay: internalSelectionReplay,
+      staleSelection,
+      staleSelectionWorkerLoads: loader.loads,
+    });
   const headMovement: ApplicationNativeMutationHeadMovementObservation =
     Object.freeze({
       pinnedRevisionId,
@@ -814,6 +1040,9 @@ export async function proveApplicationNativeMutation(
       userCode: terminalUserCodeFailure,
     });
   return Object.freeze({
+    invalidInputRejectedBeforeActiveRead,
+    externalInternalMutationRejected,
+    selectionMutation,
     initialCommit,
     validationCatch,
     concurrentDuplicate,

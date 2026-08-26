@@ -5,7 +5,7 @@ import {
 } from "./fixtures/applicationNativeMutationTestFixture";
 
 describe("Application-native mutation fixture", { timeout: 180_000 }, () => {
-  it("publishes, readies, and activates one table-bearing public mutation", async () => {
+  it("publishes, readies, and activates public and internal mutation entries", async () => {
     const fixture = await createApplicationNativeMutationPGliteFixture({
       runtimeHostIdentity: "flarex.test/application-runtime-host",
       compatibilityDate: "2026-08-13",
@@ -20,6 +20,18 @@ describe("Application-native mutation fixture", { timeout: 180_000 }, () => {
         functions: [{
           path: "users:create",
           kind: "mutation",
+          visibility: "public",
+        }, {
+          path: "users:createInternal",
+          kind: "mutation",
+          visibility: "internal",
+        }, {
+          path: "users:get",
+          kind: "query",
+          visibility: "public",
+        }, {
+          path: "users:notify",
+          kind: "action",
           visibility: "public",
         }],
         schema: { tables: [{ tableId: 1, name: "users" }] },

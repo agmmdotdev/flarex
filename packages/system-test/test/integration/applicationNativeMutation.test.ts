@@ -7,6 +7,20 @@ describe("Application-native Standard mutation - PGlite", () => {
   it("composes active Application authority through the shared commit tail", async () => {
     const proof = await proveApplicationNativeMutation();
     expect(proof).toMatchObject({
+      invalidInputRejectedBeforeActiveRead: true,
+      externalInternalMutationRejected: true,
+      selectionMutation: {
+        publicPublication: { disposition: "published" },
+        internalPublication: { disposition: "published" },
+        internalReplay: { disposition: "replayed" },
+        staleSelection: {
+          disposition: "rejected",
+          errorTag: "ApplicationActivationError",
+          operation: "validateSelection",
+          reason: "concurrentHead",
+          retryable: false,
+        },
+      },
       initialCommit: {
         publication: { disposition: "published" },
         replay: { disposition: "replayed" },
@@ -85,13 +99,34 @@ describe("Application-native Standard mutation - PGlite", () => {
           reason: "invalidCandidateSchemaWriteGuard",
         },
       },
-      freshWorkerLoads: 9,
-      commitCount: 6,
-      outcomeCount: 6,
-      feedCount: 6,
-      outboxCount: 6,
+      freshWorkerLoads: 11,
+      commitCount: 8,
+      outcomeCount: 8,
+      feedCount: 8,
+      outboxCount: 8,
     });
+    expect(proof.selectionMutation.internalPublication.commitSeq).toBe(
+      proof.selectionMutation.publicPublication.commitSeq + 1n,
+    );
+    expect(proof.selectionMutation.internalPublication.workerLoads).toBe(
+      proof.selectionMutation.publicPublication.workerLoads + 1,
+    );
+    expect(proof.selectionMutation.internalReplay.commitSeq).toBe(
+      proof.selectionMutation.internalPublication.commitSeq,
+    );
+    expect(proof.selectionMutation.internalReplay.workerLoads).toBe(
+      proof.selectionMutation.internalPublication.workerLoads,
+    );
+    expect(proof.selectionMutation.staleSelectionWorkerLoads).toBe(
+      proof.headMovement.publication.workerLoads,
+    );
     expect(proof.initialCommit.publication.value).toEqual(expect.any(String));
+    expect(proof.initialCommit.publication.commitSeq).toBe(
+      proof.selectionMutation.internalReplay.commitSeq + 1n,
+    );
+    expect(proof.initialCommit.publication.workerLoads).toBe(
+      proof.selectionMutation.internalReplay.workerLoads + 1,
+    );
     expect(proof.initialCommit.replay.commitSeq).toBe(
       proof.initialCommit.publication.commitSeq,
     );

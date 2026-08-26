@@ -5,6 +5,7 @@ import type {
   DirectActionExecutionSubjectCapabilityV1,
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
 import { Data } from "effect";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import {
   canonicalizeFlarexValueV1,
   isCanonicalFlarexRuntimeObjectV1,
@@ -39,12 +40,14 @@ export interface EdgeActionCallbackSystemPortV1<Selection> {
     selection: Selection,
     functionPath: string,
     argumentsValue: unknown,
+    identity: ExecutionIdentity,
   ) => Promise<unknown>;
   readonly runMutation: (
     selection: Selection,
     functionPath: string,
     argumentsValue: unknown,
     requestKey: string,
+    identity: ExecutionIdentity,
   ) => Promise<unknown>;
 }
 
@@ -74,6 +77,7 @@ export interface EdgeActionCallbackEvidencePortV1 {
 
 export interface EdgeActionCallbackBridgeV1Input<Selection> {
   readonly selection: Selection;
+  readonly identity: ExecutionIdentity;
   readonly evidence: EdgeActionCallbackEvidencePortV1;
   readonly sequencer: EdgeActionHostSyscallSequencerV1;
   readonly parentRequestKey: string;
@@ -148,6 +152,7 @@ export function makeEdgeActionCallbackBridgeV1<Selection>(
           input.selection,
           request.functionPath,
           normalizedArguments.value,
+          input.identity,
         );
       } catch (cause) {
         throw bridgeError("queryFailed", cause);
@@ -192,6 +197,7 @@ export function makeEdgeActionCallbackBridgeV1<Selection>(
           request.functionPath,
           normalizedArguments.value,
           requestKey,
+          input.identity,
         );
       } catch (cause) {
         await markChildMutationUncertain(

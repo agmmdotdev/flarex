@@ -125,6 +125,7 @@ export const issueActiveApplicationEdgeActionCapabilityBundleV1 = Effect.fn(
   );
   const callback = makeEdgeActionCallbackBridgeV1({
     selection: preparedState.selection,
+    identity: preparedState.request.auth,
     evidence: makeActiveApplicationEdgeActionCallbackEvidencePortV1(
       preparedState.execution.subject,
       live.evidence.authority,

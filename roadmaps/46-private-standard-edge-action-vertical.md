@@ -33,6 +33,30 @@ remain separate. DTE06-F0A/F0B completed that bounded runtime/provider and
 authenticated-callback convergence without nesting Action lifecycle inside a
 Task; the real-Cloudflare DTE06-F3/F4 proof remains separately gated.
 
+A connected system-test preflight on 2026-08-26 identified one open current-
+Application composition gap in the advertised Action callback surface. The
+Action host correctly retains the parent's exact `ApplicationActiveSelection`,
+and `ApplicationQuerySystem` exposes a selection-bound query port, but
+`ApplicationMutationSystem` exposes no corresponding selection-bound mutation
+port and re-reads the active head inside its current invocation path. Therefore
+the existing synthetic callback proofs do not yet establish a real generated
+Action -> current Standard mutation callback. This does not invalidate the
+accepted action request/effect authority, Worker, outbound, settlement, or
+replay owners, but it blocks a connected `ctx.runMutation` completion claim
+until [`ST-CORE-029`](../packages/system-test/CORE-ISSUES.md) is resolved. A
+system-test adapter must not reproduce mutation authority or substitute a stub.
+The first bounded correction now exposes the missing selection-bound operation
+from the existing `ApplicationMutationSystem` owner. Direct current-System
+PGlite and genuine-PostgreSQL proofs publish public and internal mutations under
+one authenticated selection, replay the internal mutation without another
+Worker execution, and prove the external root rejects that internal entry. They
+then reject that stale selection after head movement without Worker execution
+or retargeting. The Action host now forwards its verified user or anonymous
+identity through the callback bridge, and invalid root input retains pre-
+activation failure precedence. `ST-CORE-029` remains open only for the
+separately bounded generated Cooking Action consumer proof; no route, trigger,
+scheduler, or production caller was added by the correction.
+
 The implemented private gate is:
 
 > **`SAP07 - Private Route-Independent Standard Edge Action`**

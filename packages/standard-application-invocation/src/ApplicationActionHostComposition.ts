@@ -221,6 +221,7 @@ export const prepareApplicationActionDispatch = Effect.fn(
   });
   const session = makeCapabilitySession(
     input.admission.selection,
+    auth,
     claimed.subject,
     claimed.invocation.requestKey,
     hostPolicy.frame,
@@ -401,6 +402,7 @@ function requireClaimMatchesInput(
 
 function makeCapabilitySession<HashError, CanonicalError>(
   selection: ApplicationActiveSelection,
+  identity: EdgeActionExactRuntimeAuthV1,
   subject: DirectActionExecutionSubjectCapabilityV1,
   requestKey: string,
   hostPolicy: EdgeActionHostPolicyFrameV1,
@@ -411,6 +413,7 @@ function makeCapabilitySession<HashError, CanonicalError>(
   );
   const callback = makeEdgeActionCallbackBridgeV1({
     selection,
+    identity,
     evidence: makeActiveApplicationEdgeActionCallbackEvidencePortV1(
       subject,
       live.evidence.authority,

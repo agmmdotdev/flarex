@@ -14,6 +14,7 @@ const LIMITS = Object.freeze({
   maximumArgumentBytes: 1_024,
   maximumResultBytes: 1_024,
 });
+const ANONYMOUS_IDENTITY = Object.freeze({ kind: "anonymous" as const });
 
 describe("edge action callback bridge v1", () => {
   it("binds callbacks to one selection and deterministic child request key", async () => {
@@ -22,8 +23,17 @@ describe("edge action callback bridge v1", () => {
     >(() => Promise.resolve({ committed: true }));
     const evidence = evidencePort();
     const selection = Object.freeze({ candidate: "candidate-1" });
+    const identity = Object.freeze({
+      kind: "user" as const,
+      user: Object.freeze({
+        tokenIdentifier: "action-user-token",
+        issuer: "https://identity.example.test",
+        subject: "action-user",
+      }),
+    });
     const bridge = makeEdgeActionCallbackBridgeV1({
       selection,
+      identity,
       evidence,
       sequencer: makeEdgeActionHostSyscallSequencerV1(LIMITS.maximumSyscalls),
       parentRequestKey: "parent-1",
@@ -44,6 +54,7 @@ describe("edge action callback bridge v1", () => {
     expect(result).toEqual({ committed: true });
     expect(mutation).toHaveBeenCalledTimes(1);
     expect(mutation.mock.calls[0]?.[0]).toBe(selection);
+    expect(mutation.mock.calls[0]?.[4]).toBe(identity);
     expect(mutation.mock.calls[0]?.[3]).toMatch(
       /^parent-1:child:1:orders:update:[0-9a-f]{64}$/,
     );
@@ -58,6 +69,7 @@ describe("edge action callback bridge v1", () => {
   it("fails closed on replay, gaps, size mismatch, and closed capability", async () => {
     const bridge = makeEdgeActionCallbackBridgeV1({
       selection: "candidate-1",
+      identity: ANONYMOUS_IDENTITY,
       evidence: evidencePort(),
       sequencer: makeEdgeActionHostSyscallSequencerV1(LIMITS.maximumSyscalls),
       parentRequestKey: "parent-1",
@@ -89,6 +101,7 @@ describe("edge action callback bridge v1", () => {
     );
     const bridge = makeEdgeActionCallbackBridgeV1({
       selection: "candidate-1",
+      identity: ANONYMOUS_IDENTITY,
       evidence,
       sequencer: makeEdgeActionHostSyscallSequencerV1(LIMITS.maximumSyscalls),
       parentRequestKey: "parent-1",
@@ -111,6 +124,7 @@ describe("edge action callback bridge v1", () => {
     const evidence = evidencePort();
     const bridge = makeEdgeActionCallbackBridgeV1({
       selection: "candidate-1",
+      identity: ANONYMOUS_IDENTITY,
       evidence,
       sequencer: makeEdgeActionHostSyscallSequencerV1(LIMITS.maximumSyscalls),
       parentRequestKey: "parent-1",
@@ -131,18 +145,26 @@ describe("edge action callback bridge v1", () => {
 
   it("shares one host syscall budget across query callbacks and other host effects", async () => {
     const sequencer = makeEdgeActionHostSyscallSequencerV1(1);
+    const query = vi.fn(() => Promise.resolve(null));
     const bridge = makeEdgeActionCallbackBridgeV1({
       selection: "candidate-1",
+      identity: ANONYMOUS_IDENTITY,
       evidence: evidencePort(),
       sequencer,
       parentRequestKey: "parent-1",
       ...LIMITS,
       system: {
-        runQuery: () => Promise.resolve(null),
+        runQuery: query,
         runMutation: () => Promise.resolve(null),
       },
     });
     await bridge.invoke(request(1n));
+    expect(query).toHaveBeenCalledWith(
+      "candidate-1",
+      "orders:get",
+      {},
+      ANONYMOUS_IDENTITY,
+    );
     expect(() => sequencer.next("outbound")).toThrowError(
       expect.objectContaining({ reason: "resourceExceeded" }),
     );

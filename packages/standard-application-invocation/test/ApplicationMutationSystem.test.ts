@@ -46,6 +46,7 @@ describe("Application mutation System", () => {
     const layer = Layer.succeed(
       ApplicationMutationSystem,
       ApplicationMutationSystem.of({
+        selectionMutation: Object.freeze({ runMutation: vi.fn() }),
         invoke,
         invokeAuthenticated: vi.fn(),
         invokeAuthenticatedAtTaskLaunch: vi.fn(),
@@ -152,6 +153,7 @@ describe("Application mutation System", () => {
     const layer = Layer.succeed(
       ApplicationMutationSystem,
       ApplicationMutationSystem.of({
+        selectionMutation: Object.freeze({ runMutation: vi.fn() }),
         invoke,
         invokeAuthenticated,
         invokeAuthenticatedAtTaskLaunch: vi.fn(),

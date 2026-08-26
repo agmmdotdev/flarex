@@ -73,7 +73,10 @@ export const canonicalizeApplicationMutationExecutionAuthorityV1 = Effect.fn(
   );
   if (
     target.target.function.kind !== "mutation" ||
-    target.target.function.visibility !== "public"
+    (
+      target.target.function.visibility !== "public" &&
+      target.target.function.visibility !== "internal"
+    )
   ) {
     return yield* failureEffect("invalidRuntimeTarget");
   }

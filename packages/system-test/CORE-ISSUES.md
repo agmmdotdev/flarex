@@ -14,6 +14,75 @@ fixture succeeds.
 
 ## Open Issues
 
+### `ST-CORE-029` - Action mutation callbacks lack selection-bound System composition
+
+- **Status:** Open. The connected Cooking Action simulation is blocked at the
+  shared Standard Application invocation boundary; no simulation-local adapter
+  or synthetic success path is authorized.
+- **Reproduction:** Compose an actual analyzed Cooking public action through
+  `ApplicationActionSystem` and implement its advertised `ctx.runMutation`
+  callback with the current unversioned Application services. The Action host
+  supplies the exact `ApplicationActiveSelection` admitted for the parent.
+  `ApplicationQuerySystem.selectionQuery` can execute a query against that
+  selection, but `ApplicationMutationSystem` exposes only `invoke`,
+  `invokeAuthenticated`, and task-launch invocation. Its shared core reads the
+  active Application head again before mutation admission. Repository-wide
+  callback composition search finds only synthetic test ports; there is no
+  current selection-bound mutation callback consumer to reuse.
+- **Expected:** An Action child mutation enters the existing Standard mutation,
+  OCC, commit, outcome, feed, and outbox owners while remaining bound to the
+  parent's exact admitted Application selection. Head movement must either
+  preserve that exact authority or fail closed; it must never retarget the
+  callback to a newer revision.
+- **Actual:** A host adapter can either call the current mutation service and
+  permit a second active-head resolution, or reproduce mutation admission and
+  authority logic outside its owner. A pre-read comparison cannot close the
+  race between the comparison and the mutation service's own active read.
+  Both choices violate the accepted Action callback contract.
+- **Owner and trust boundary:** Standard Application mutation composition and
+  its selection/admission boundary, consumed by the Action callback host. This
+  is not owned by `@flarex/system-test`, the Cooking application, the Action
+  Worker, or the callback evidence bridge. The harness must not copy mutation
+  authority, add a fallback, weaken head-pinning assertions, or replace the
+  real callback with a stub.
+- **Required design decision:** Expose one narrow opaque selection-bound
+  mutation invocation capability from the existing `ApplicationMutationSystem`
+  owner, or prove an equivalent existing owner can satisfy the exact contract.
+  It must reuse the current admission, grant, session, OCC, commit, outcome,
+  feed, outbox, validator, and candidate-schema guard path without adding a
+  second transaction or compatibility branch.
+- **Current correction:** `ApplicationMutationSystem` now exposes one
+  `selectionMutation` capability whose `runMutation` operation requires the
+  issuer-owned opaque `ApplicationActiveSelection` and an explicit execution
+  identity. The Action host threads its already-decoded, invocation-authenticated
+  identity through the callback bridge; application code cannot author it. A
+  callback-only admission operation permits public or internal mutation entries,
+  while every external mutation root retains the public-only selector. The
+  existing active-head entrypoints validate the function path and request key,
+  read the head once, and then enter the same selection-bound core. No mutation
+  grant, session, OCC, commit, outcome, feed, outbox, validator, or candidate-
+  schema owner was copied or replaced.
+- **Current evidence:** The connected Application-native mutation proof uses a
+  real authenticated identity and current Application execution host to publish
+  both public and internal mutations through the selection-bound port, while
+  proving the external root rejects the internal entry. It replays the exact
+  internal request without another Worker execution, moves the active
+  Application head, and proves the stale selection fails at
+  `validateSelection/concurrentHead` without executing or retargeting.
+  A hostile invalid function reference is rejected before any active-head read.
+  Callback-bridge tests prove both user and anonymous identity propagation. The
+  unchanged shared commit tail passes in PGlite and genuine PostgreSQL 18. Final
+  issue closure still requires the separate generated Cooking Action consumer
+  proof described below.
+- **Required acceptance:** Direct tests must prove exact-selection success,
+  authenticated public and internal child mutation admission, head-movement
+  refusal without retargeting, replay through the derived child request key,
+  and unchanged OCC/commit/uncertainty behavior. The generated Cooking Action
+  must then pass through current analysis, Source Artifact loading, fresh
+  Worker execution, real query and mutation callbacks, controlled outbound,
+  durable parent replay without a second Worker execution, PGlite, and genuine
+  PostgreSQL.
+
 ### `ST-CORE-026` - analyzer scheduling is classified as an application import effect
 
 - **Status:** Resolved by giving only the analyzer-owned Effect runner a host

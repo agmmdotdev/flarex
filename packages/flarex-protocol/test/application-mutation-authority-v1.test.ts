@@ -46,6 +46,27 @@ describe("ApplicationMutationExecutionAuthorityV1", () => {
     await expectFailureReason(mismatch, "runtimeTargetDigestMismatch");
   });
 
+  it("canonicalizes an internal mutation target without changing the authority format", async () => {
+    const internal = await authorityInput();
+    internal.runtimeTarget.function.visibility = "internal";
+    internal.runtimeTargetSha256 = await sha256Hex(Result.getOrThrow(
+      canonicalizeApplicationRuntimeTargetV1(internal.runtimeTarget),
+    ).canonicalBytes);
+
+    const canonical = await runEffect(
+      canonicalizeApplicationMutationExecutionAuthorityV1(internal),
+    );
+
+    expect(canonical.authority.format).toBe(
+      "flarex.application-mutation-execution-authority",
+    );
+    expect(canonical.authority.version).toBe(1);
+    expect(canonical.authority.runtimeTarget.function).toMatchObject({
+      kind: "mutation",
+      visibility: "internal",
+    });
+  });
+
   it("rejects invalid sequence bounds and accessor-backed input without invoking it", async () => {
     const zero = await authorityInput();
     zero.activationSequence = "0";
@@ -117,7 +138,7 @@ function mutationTarget() {
       moduleName: "recipes",
       exportName: "update",
       kind: "mutation" as "mutation" | "query",
-      visibility: "public" as const,
+      visibility: "public" as "public" | "internal",
       args: {
         type: "object" as const,
         value: {

@@ -28,10 +28,14 @@ import {
   type CurrentScopeAuthorizationEpochResolutionPorts,
   resolveCurrentScopeAuthorizationEpochEffect,
 } from "@flarex/persistence-postgres";
-import type { ApplicationActivationRepository } from
+import type {
+  ApplicationActivationRepository,
+  ApplicationActiveSelection,
+} from
   "@flarex/persistence-postgres/internal/application-activation";
 import {
   selectApplicationMutationAdmission,
+  selectApplicationMutationCallbackAdmission,
   type ApplicationMutationAdmissionContext,
   type SelectApplicationMutationAdmissionError,
 } from "@flarex/persistence-postgres/internal/application-mutation-admission";
@@ -213,8 +217,7 @@ export class ApplicationTaskMutationLaunchError extends Data.TaggedError(
   "ApplicationTaskMutationLaunchError",
 )<{ readonly reason: "invalidLaunch" | "staleLaunch"; readonly cause?: unknown }> {}
 
-export type InvokeApplicationMutationError =
-  | Effect.Error<ReturnType<ApplicationMutationSystemLive["activation"]["readActive"]>>
+export type InvokeApplicationSelectionMutationError =
   | SelectApplicationMutationAdmissionError
   | CurrentScopeAuthorizationEpochError
   | ApplicationMutationAuthorityChangedError
@@ -227,6 +230,10 @@ export type InvokeApplicationMutationError =
   | PointMutationInitialExecutionV1Error
   | PointCommitOutcomeResolutionV1Error
   | ApplicationMutationOutcomeUnavailableError;
+
+export type InvokeApplicationMutationError =
+  | Effect.Error<ReturnType<ApplicationMutationSystemLive["activation"]["readActive"]>>
+  | InvokeApplicationSelectionMutationError;
 
 export type InvokeApplicationTaskMutationError =
   | InvokeApplicationMutationError
@@ -241,7 +248,28 @@ export interface AuthoritativeCommittedApplicationMutationOutcome {
   readonly value: Json;
 }
 
+/**
+ * Current selection-bound mutation execution core. It accepts one issuer-owned
+ * opaque selection and retains every existing mutation admission, grant, OCC,
+ * commit, outcome, feed, outbox, and schema-guard owner. Identity is required
+ * because this port does not own authentication or an anonymous-default policy.
+ */
+export interface ApplicationSelectionMutationPort {
+  readonly runMutation: (
+    selection: ApplicationActiveSelection,
+    functionRef: TransactionFunctionPathV1,
+    args: unknown,
+    requestKey: TransactionRequestKeyV1,
+    identity: ExecutionIdentity,
+  ) => Effect.Effect<
+    AuthoritativeCommittedApplicationMutationOutcome,
+    InvokeApplicationSelectionMutationError,
+    Scope.Scope
+  >;
+}
+
 export interface ApplicationMutationSystemApi {
+  readonly selectionMutation: ApplicationSelectionMutationPort;
   readonly invoke: (
     functionRef: TransactionFunctionPathV1,
     args: unknown,
@@ -365,6 +393,40 @@ export const prepareApplicationMutationAuthenticatedIdentity = Effect.fn(
   ApplicationMutationInputError |
     TransactionGrantIdentityAccessPolicyV1Error
 > {
+  const identity = yield* captureApplicationMutationExecutionIdentity(input);
+  if (identity.kind !== "user") {
+    return yield* new ApplicationMutationInputError({ field: "identity" });
+  }
+  const identityAccessPolicy = yield*
+    canonicalizeApplicationMutationIdentityAccessPolicy(identity);
+  // SAFETY: structural shape carries no authority. The module-private WeakMap
+  // below is the only source accepted by authenticated mutation invocation.
+  const prepared = Object.freeze({}) as
+    ApplicationMutationAuthenticatedIdentity;
+  authenticatedIdentityStates.set(prepared, Object.freeze({
+    identityAccessPolicy,
+  }));
+  return prepared;
+});
+
+const prepareApplicationMutationIdentityAccessPolicy = Effect.fn(
+  "ApplicationMutation.prepareIdentityAccessPolicy",
+)(function* (
+  input: unknown,
+): Effect.fn.Return<
+  CanonicalTransactionGrantIdentityAccessPolicyV1,
+  ApplicationMutationInputError |
+    TransactionGrantIdentityAccessPolicyV1Error
+> {
+  const identity = yield* captureApplicationMutationExecutionIdentity(input);
+  return yield* canonicalizeApplicationMutationIdentityAccessPolicy(identity);
+});
+
+const captureApplicationMutationExecutionIdentity = Effect.fn(
+  "ApplicationMutation.captureExecutionIdentity",
+)(function* (
+  input: unknown,
+): Effect.fn.Return<ExecutionIdentity, ApplicationMutationInputError> {
   const captured = yield* Effect.try({
     try: () => structuredClone(input),
     catch: cause => new ApplicationMutationInputError({
@@ -378,25 +440,21 @@ export const prepareApplicationMutationAuthenticatedIdentity = Effect.fn(
       cause,
     })),
   );
-  if (identity.kind !== "user") {
-    return yield* new ApplicationMutationInputError({ field: "identity" });
-  }
-  const auth = transactionGrantAuthFromExecutionIdentity(identity);
-  const identityAccessPolicy = yield*
-    canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
-      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
-      auth,
-      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
-    });
-  // SAFETY: structural shape carries no authority. The module-private WeakMap
-  // below is the only source accepted by authenticated mutation invocation.
-  const prepared = Object.freeze({}) as
-    ApplicationMutationAuthenticatedIdentity;
-  authenticatedIdentityStates.set(prepared, Object.freeze({
-    identityAccessPolicy,
-  }));
-  return prepared;
+  return identity;
 });
+
+function canonicalizeApplicationMutationIdentityAccessPolicy(
+  identity: ExecutionIdentity,
+): Effect.Effect<
+  CanonicalTransactionGrantIdentityAccessPolicyV1,
+  TransactionGrantIdentityAccessPolicyV1Error
+> {
+  return canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    auth: transactionGrantAuthFromExecutionIdentity(identity),
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  });
+}
 
 export function inspectApplicationMutationAuthenticatedIdentity(
   identity: unknown,
@@ -419,16 +477,54 @@ export function makeApplicationMutationSystemLayer(
 ): Layer.Layer<ApplicationMutationSystem> {
   const captured = captureLive(live);
   preflightApplicationMutationSystemConfiguration(captured);
-  const invokeCore = makeInvoke(captured);
+  const invokeRootSelection = makeSelectionInvoke(
+    captured,
+    selectApplicationMutationAdmission,
+  );
+  const invokeCallbackSelection = makeSelectionInvoke(
+    captured,
+    selectApplicationMutationCallbackAdmission,
+  );
+  const selectionMutation = Object.freeze({
+    runMutation: Effect.fn(
+      "ApplicationSelectionMutationPort.runMutation",
+    )(function* (selection, functionRef, args, requestKey, identity) {
+      const preparedInput = yield* prepareApplicationMutationInvocationInput(
+        functionRef,
+        requestKey,
+      );
+      const preparedIdentityAccessPolicy = yield*
+        prepareApplicationMutationIdentityAccessPolicy(identity);
+      return yield* invokeCallbackSelection(
+        selection,
+        preparedInput,
+        args,
+        preparedIdentityAccessPolicy,
+      ).pipe(Effect.catchTag(
+        "ApplicationTaskMutationLaunchError",
+        Effect.die,
+      ));
+    }),
+  }) satisfies ApplicationSelectionMutationPort;
   return Layer.succeed(
     ApplicationMutationSystem,
     ApplicationMutationSystem.of({
+      selectionMutation,
       invoke: Effect.fn("ApplicationMutationSystem.invoke")(function* (
         functionRef,
         args,
         requestKey,
       ) {
-        return yield* invokeCore(functionRef, args, requestKey).pipe(
+        const preparedInput = yield* prepareApplicationMutationInvocationInput(
+          functionRef,
+          requestKey,
+        );
+        const active = yield* captured.activation.readActive();
+        return yield* invokeRootSelection(
+          active.selection,
+          preparedInput,
+          args,
+        ).pipe(
           Effect.catchTag(
             "ApplicationTaskMutationLaunchError",
             Effect.die,
@@ -441,10 +537,15 @@ export function makeApplicationMutationSystemLayer(
         const prepared = yield* Effect.fromResult(
           claimApplicationMutationAuthenticatedIdentity(identity),
         );
-        return yield* invokeCore(
+        const preparedInput = yield* prepareApplicationMutationInvocationInput(
           functionRef,
-          args,
           requestKey,
+        );
+        const active = yield* captured.activation.readActive();
+        return yield* invokeRootSelection(
+          active.selection,
+          preparedInput,
+          args,
           prepared.identityAccessPolicy,
         ).pipe(Effect.catchTag(
           "ApplicationTaskMutationLaunchError",
@@ -465,10 +566,15 @@ export function makeApplicationMutationSystemLayer(
             })),
           ),
         );
-        return yield* invokeCore(
+        const preparedInput = yield* prepareApplicationMutationInvocationInput(
           functionRef,
-          args,
           requestKey,
+        );
+        const active = yield* captured.activation.readActive();
+        return yield* invokeRootSelection(
+          active.selection,
+          preparedInput,
+          args,
           prepared.identityAccessPolicy,
           capturedLaunch,
         );
@@ -499,7 +605,40 @@ export function preflightApplicationMutationSystemConfiguration(
   }
 }
 
-function makeInvoke(live: ApplicationMutationSystemLive) {
+type ApplicationMutationAdmissionSelector =
+  typeof selectApplicationMutationAdmission;
+
+interface PreparedApplicationMutationInvocationInput {
+  readonly functionRef: TransactionFunctionPathV1;
+  readonly requestKey: TransactionRequestKeyV1;
+}
+
+const prepareApplicationMutationInvocationInput = Effect.fn(
+  "ApplicationMutation.prepareInvocationInput",
+)(function* (
+  functionRefInput: unknown,
+  requestKeyInput: unknown,
+): Effect.fn.Return<
+  PreparedApplicationMutationInvocationInput,
+  ApplicationMutationInputError
+> {
+  const functionRef = yield* decodeInput(
+    decodeFunctionPath,
+    functionRefInput,
+    "functionRef",
+  );
+  const requestKey = yield* decodeInput(
+    decodeRequestKey,
+    requestKeyInput,
+    "requestKey",
+  );
+  return Object.freeze({ functionRef, requestKey });
+});
+
+function makeSelectionInvoke(
+  live: ApplicationMutationSystemLive,
+  selectAdmission: ApplicationMutationAdmissionSelector,
+) {
   const applicationRunner = makeApplicationPointMutationRunner(
     live.applicationRunner,
   );
@@ -564,27 +703,17 @@ function makeInvoke(live: ApplicationMutationSystemLive) {
       },
     ),
   );
-  return Effect.fn("ApplicationMutationSystem.invokeCore")(function* (
-    functionRefInput,
+  return Effect.fn("ApplicationSelectionMutationPort.invoke")(function* (
+    selection,
+    preparedInput: PreparedApplicationMutationInvocationInput,
     args,
-    requestKeyInput,
     preparedIdentityAccessPolicy?:
       CanonicalTransactionGrantIdentityAccessPolicyV1,
     taskLaunch?: ApplicationTaskQueryLaunchEvidence,
   ) {
-    const functionRef = yield* decodeInput(
-      decodeFunctionPath,
-      functionRefInput,
-      "functionRef",
-    );
-    const requestKey = yield* decodeInput(
-      decodeRequestKey,
-      requestKeyInput,
-      "requestKey",
-    );
-    const active = yield* live.activation.readActive();
-    const admission = yield* selectApplicationMutationAdmission(
-      active.selection,
+    const { functionRef, requestKey } = preparedInput;
+    const admission = yield* selectAdmission(
+      selection,
       functionRef,
       live.admission,
     );
@@ -864,8 +993,11 @@ function claimApplicationMutationAuthenticatedIdentity(
 }
 
 function transactionGrantAuthFromExecutionIdentity(
-  identity: Extract<ExecutionIdentity, { readonly kind: "user" }>,
+  identity: ExecutionIdentity,
 ): TransactionGrantInertAuthV1 {
+  if (identity.kind === "anonymous") {
+    return Object.freeze({ kind: "anonymous" as const });
+  }
   const user = identity.user;
   const claims: Record<string, Json> = {};
   for (const [key, value] of Object.entries(user)) {

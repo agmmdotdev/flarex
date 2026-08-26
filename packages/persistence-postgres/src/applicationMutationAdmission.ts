@@ -97,10 +97,52 @@ export type SelectApplicationMutationAdmissionError =
 
 export const selectApplicationMutationAdmission = Effect.fn(
   "ApplicationMutationAdmission.select",
+)(function (
+  selection: ApplicationActiveSelection,
+  functionPath: string,
+  context: ApplicationMutationAdmissionContext,
+): Effect.Effect<
+  ApplicationMutationAdmission,
+  SelectApplicationMutationAdmissionError
+> {
+  return selectApplicationMutationAdmissionForVisibility(
+    selection,
+    functionPath,
+    context,
+    "publicOnly",
+  );
+});
+
+/**
+ * Callback-only admission for an already-authenticated, selection-bound
+ * invocation. External mutation roots must continue to use the public-only
+ * selector above.
+ */
+export const selectApplicationMutationCallbackAdmission = Effect.fn(
+  "ApplicationMutationAdmission.selectCallback",
+)(function (
+  selection: ApplicationActiveSelection,
+  functionPath: string,
+  context: ApplicationMutationAdmissionContext,
+): Effect.Effect<
+  ApplicationMutationAdmission,
+  SelectApplicationMutationAdmissionError
+> {
+  return selectApplicationMutationAdmissionForVisibility(
+    selection,
+    functionPath,
+    context,
+    "publicOrInternal",
+  );
+});
+
+const selectApplicationMutationAdmissionForVisibility = Effect.fn(
+  "ApplicationMutationAdmission.selectForVisibility",
 )(function* (
   selection: ApplicationActiveSelection,
   functionPath: string,
   context: ApplicationMutationAdmissionContext,
+  visibility: "publicOnly" | "publicOrInternal",
 ): Effect.fn.Return<
   ApplicationMutationAdmission,
   SelectApplicationMutationAdmissionError
@@ -124,7 +166,13 @@ export const selectApplicationMutationAdmission = Effect.fn(
     candidate.path === functionPath
   );
   if (fn === undefined) return yield* failure("functionMissing");
-  if (fn.kind !== "mutation" || fn.visibility !== "public") {
+  if (
+    fn.kind !== "mutation" ||
+    (
+      fn.visibility !== "public" &&
+      (visibility === "publicOnly" || fn.visibility !== "internal")
+    )
+  ) {
     return yield* failure("functionUnsupported");
   }
   const schema = yield* context.schema.readPublished({
@@ -141,7 +189,7 @@ export const selectApplicationMutationAdmission = Effect.fn(
   const mutationFunction = Object.freeze({
     ...fn,
     kind: "mutation" as const,
-    visibility: "public" as const,
+    visibility: fn.visibility,
   });
   const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
     context.deploymentId,
@@ -200,62 +248,62 @@ export const selectApplicationMutationAdmission = Effect.fn(
   return Object.freeze({ selection, basis, executionAuthority, schema });
 });
 
-function selectStoredFunction(
+const selectStoredFunction = Effect.fn(
+  "ApplicationMutationAdmission.selectStoredFunction",
+)(function* (
   tx: AppRowTransaction,
   selection: ApplicationActiveSelection,
   basis: ApplicationActiveSelectionBasis,
   fn: ApplicationManifestV1["functions"][number] & {
     readonly kind: "mutation";
-    readonly visibility: "public";
+    readonly visibility: "public" | "internal";
   },
 ) {
-  return Effect.gen(function* () {
-    const clock = yield* lockScopeClockForShareInTransactionEffect(
-      tx,
-      basis.authority.scopeId,
-    );
-    yield* validateApplicationActiveSelectionInTransaction(
-      selection,
-      tx,
-      clock,
-    );
-    const rows = yield* query(
-      tx.select().from(fxSystemApplicationFunctionsV1).where(and(
-        eq(fxSystemApplicationFunctionsV1.scopeId, basis.authority.scopeId),
-        eq(fxSystemApplicationFunctionsV1.revisionId, basis.revisionId),
-        eq(fxSystemApplicationFunctionsV1.functionPath, fn.path),
-      )).limit(2),
-    );
-    if (rows.length !== 1) return yield* failure("storedFunction");
-    const row = rows[0]!;
-    const entryBytes = yield* Effect.fromResult(
-      applicationFunctionEntryPublicationFrameV1(fn).pipe(
-        Result.mapError(cause => failureValue(
-          "storedFunction",
-          false,
-          cause,
-        )),
-      ),
-    );
-    const entrySha256 = yield* sha256(entryBytes);
-    if (
-      row.functionPath !== fn.path || row.moduleName !== fn.moduleName ||
-      row.exportName !== fn.exportName || row.functionKind !== fn.kind ||
-      row.visibility !== fn.visibility ||
-      !bytesEqualFullScan(
-        row.functionCatalogSha256,
-        basis.functionCatalogSha256,
-      ) || !bytesEqualFullScan(row.entryBytes, entryBytes) ||
-      !bytesEqualFullScan(row.entrySha256, entrySha256)
-    ) return yield* failure("storedFunction");
-    return Object.freeze({
-      ...fn,
-      kind: "mutation" as const,
-      visibility: "public" as const,
-      entrySha256: encodeBytesToLowercaseHex(entrySha256),
-    });
+  const clock = yield* lockScopeClockForShareInTransactionEffect(
+    tx,
+    basis.authority.scopeId,
+  );
+  yield* validateApplicationActiveSelectionInTransaction(
+    selection,
+    tx,
+    clock,
+  );
+  const rows = yield* query(
+    tx.select().from(fxSystemApplicationFunctionsV1).where(and(
+      eq(fxSystemApplicationFunctionsV1.scopeId, basis.authority.scopeId),
+      eq(fxSystemApplicationFunctionsV1.revisionId, basis.revisionId),
+      eq(fxSystemApplicationFunctionsV1.functionPath, fn.path),
+    )).limit(2),
+  );
+  if (rows.length !== 1) return yield* failure("storedFunction");
+  const row = rows[0]!;
+  const entryBytes = yield* Effect.fromResult(
+    applicationFunctionEntryPublicationFrameV1(fn).pipe(
+      Result.mapError(cause => failureValue(
+        "storedFunction",
+        false,
+        cause,
+      )),
+    ),
+  );
+  const entrySha256 = yield* sha256(entryBytes);
+  if (
+    row.functionPath !== fn.path || row.moduleName !== fn.moduleName ||
+    row.exportName !== fn.exportName || row.functionKind !== fn.kind ||
+    row.visibility !== fn.visibility ||
+    !bytesEqualFullScan(
+      row.functionCatalogSha256,
+      basis.functionCatalogSha256,
+    ) || !bytesEqualFullScan(row.entryBytes, entryBytes) ||
+    !bytesEqualFullScan(row.entrySha256, entrySha256)
+  ) return yield* failure("storedFunction");
+  return Object.freeze({
+    ...fn,
+    kind: "mutation" as const,
+    visibility: fn.visibility,
+    entrySha256: encodeBytesToLowercaseHex(entrySha256),
   });
-}
+});
 
 function requireSameAuthority(
   expected: TrustedScopeAuthority,
