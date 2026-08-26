@@ -386,6 +386,7 @@ export function makeApplicationRelationReadinessFoldRepository(
         input,
         captured,
         compositionIsExact,
+        "current",
       );
       if ("status" in preparation) return preparation;
       return yield* runLocatedTransaction(
@@ -412,6 +413,7 @@ export function makeApplicationRelationReadinessFoldRepository(
       input,
       captured,
       compositionIsExact,
+      "current",
     );
     if ("status" in preparation) return preparation;
     return yield* runLocatedTransaction(
@@ -437,6 +439,7 @@ export function makeApplicationRelationReadinessFoldRepository(
       input,
       captured,
       compositionIsExact,
+      "storedActive",
     );
     if ("status" in preparation) return preparation;
     return yield* runLocatedTransaction(
@@ -647,7 +650,7 @@ interface PreparedFold {
   readonly bundle: StoredBundle;
   readonly schema: ApplicationRelationSchemaAuthority;
   readonly requirements: PublishedPhysicalRequirementSnapshotV1;
-  readonly candidate: AppSchemaCandidateReadinessEvidence;
+  readonly candidate: PreparedCandidateValidation;
   readonly unique: Exclude<
     AppUniqueConstraintSetEligibilityResultV1,
     { readonly status: "not_ready" }
@@ -657,6 +660,21 @@ interface PreparedFold {
   readonly relations: PreparedApplicationRelationReadiness;
   readonly coldReceiptSetSha256: Uint8Array;
 }
+
+type PreparedCandidateValidation =
+  | Readonly<{
+      readonly kind: "current";
+      readonly evidence: AppSchemaCandidateReadinessEvidence;
+    }>
+  | Readonly<{
+      readonly kind: "storedActive";
+      readonly receiptSha256: Uint8Array;
+    }>;
+
+type StoredActivePreparedCandidateValidation = Extract<
+  PreparedCandidateValidation,
+  { readonly kind: "storedActive" }
+>;
 
 interface PreparedFoldLocation {
   readonly target: LocatedReadCommittedAttemptTargetV1;
@@ -668,6 +686,7 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
     input: { readonly deploymentId: string; readonly revisionId: string },
     context: ApplicationRelationReadinessFoldContext,
     compositionIsExact: () => boolean,
+    mode: "current" | "storedActive",
   ): Effect.fn.Return<
     PreparedFoldLocation | Extract<
       ApplicationRelationReadinessFoldResult,
@@ -732,22 +751,38 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
         schema.schemaManifestSha256 ||
       requirements.definitions.length > MAXIMUM_PHYSICAL_DEFINITIONS
     ) return yield* failure("storedState");
-    const candidate = yield* loadAppSchemaCandidateReadinessEffect(
-      context.candidateValidation,
-      Object.freeze({
-        deploymentId: bundle.deploymentId,
-        scopeId: bundle.authority.scopeId,
-        schemaVersionId: schema.schemaVersionId,
-        schemaManifestSha256Hex:
-          appSchemaCandidateManifestSha256HexV1FromBytes(
-            requirements.manifestSha256,
-          ),
-      }),
-    );
-    if (candidate.status !== "ready") {
-      return notReady(
-        bundle.revision.revisionId,
-        candidateNotReadyReason(candidate.reason),
+    let candidate: PreparedCandidateValidation;
+    if (mode === "current") {
+      const currentCandidate = yield* loadAppSchemaCandidateReadinessEffect(
+        context.candidateValidation,
+        Object.freeze({
+          deploymentId: bundle.deploymentId,
+          scopeId: bundle.authority.scopeId,
+          schemaVersionId: schema.schemaVersionId,
+          schemaManifestSha256Hex:
+            appSchemaCandidateManifestSha256HexV1FromBytes(
+              requirements.manifestSha256,
+            ),
+        }),
+      );
+      if (currentCandidate.status !== "ready") {
+        return notReady(
+          bundle.revision.revisionId,
+          candidateNotReadyReason(currentCandidate.reason),
+        );
+      }
+      candidate = Object.freeze({
+        kind: "current",
+        evidence: currentCandidate.evidence,
+      });
+    } else {
+      candidate = yield* runLocatedTransaction(
+        located.target,
+        tx => loadStoredActiveCandidateValidationReceiptInTransaction(
+          tx,
+          bundle.authority,
+          bundle.revision.revisionId,
+        ),
       );
     }
     const unique = yield*
@@ -797,7 +832,7 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
         bundle,
         schema,
         requirements,
-        candidate: candidate.evidence,
+        candidate,
         unique,
         uniqueSha256,
         physicalLifecycle,
@@ -807,6 +842,48 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
     });
   },
 );
+
+const loadStoredActiveCandidateValidationReceiptInTransaction = Effect.fn(
+  "ApplicationRelationReadinessFold.loadStoredActiveCandidateValidationReceipt",
+)(function* (
+  tx: AppRowTransaction,
+  authority: ApplicationReadinessAuthority,
+  revisionId: string,
+): Effect.fn.Return<
+  StoredActivePreparedCandidateValidation,
+  ApplicationRelationReadinessFoldIssue | LockScopeClockForShareError
+> {
+  const clock = yield* lockScopeClockForShareInTransactionEffect(
+    tx,
+    authority.scopeId,
+  );
+  yield* requireExactAuthority(authority, clock);
+  const rows = yield* query(
+    tx.select({
+      receiptSha256:
+        fxSystemApplicationReadiness.candidateValidationReceiptSha256,
+    }).from(fxSystemApplicationReadiness).where(and(
+      eq(fxSystemApplicationReadiness.scopeId, authority.scopeId),
+      eq(fxSystemApplicationReadiness.revisionId, revisionId),
+    )).limit(1).for("share"),
+  );
+  const receiptSha256 = rows[0]?.receiptSha256;
+  if (!isUint8ArrayWithByteLength(receiptSha256, 32)) {
+    return yield* failure("storedState");
+  }
+  return Object.freeze({
+    kind: "storedActive",
+    receiptSha256: copyBytes(receiptSha256),
+  });
+});
+
+function candidateValidationReceiptSha256Hex(
+  candidate: PreparedCandidateValidation,
+): string {
+  return candidate.kind === "current"
+    ? candidate.evidence.receiptSha256Hex
+    : encodeBytesToLowercaseHex(candidate.receiptSha256);
+}
 
 const reserveBundle = Effect.fn("ApplicationRelationReadinessFold.reserve")(
   function* (
@@ -1068,20 +1145,27 @@ const validatePreparedFoldInTransaction = Effect.fn(
     if (!storedBundlesEqual(prepared.bundle, current)) {
       return yield* failure("storedState");
     }
-    const candidate = yield*
-      validateAppSchemaCandidateReadinessInTransactionEffect(
-        tx,
-        context.candidateValidation,
-        prepared.candidate,
-        prepared.bundle.authority,
-        clock,
-        "share",
-      );
-    if (candidate.status !== "ready") {
-      return notReady(
-        prepared.bundle.revision.revisionId,
-        candidateNotReadyReason(candidate.reason),
-      );
+    if (relationMode === "current") {
+      if (prepared.candidate.kind !== "current") {
+        return yield* failure("invalidComposition");
+      }
+      const candidate = yield*
+        validateAppSchemaCandidateReadinessInTransactionEffect(
+          tx,
+          context.candidateValidation,
+          prepared.candidate.evidence,
+          prepared.bundle.authority,
+          clock,
+          "share",
+        );
+      if (candidate.status !== "ready") {
+        return notReady(
+          prepared.bundle.revision.revisionId,
+          candidateNotReadyReason(candidate.reason),
+        );
+      }
+    } else if (prepared.candidate.kind !== "storedActive") {
+      return yield* failure("invalidComposition");
     }
     if (prepared.unique.status === "eligible") {
       const unique = yield*
@@ -1721,7 +1805,7 @@ const insertOrReplayReadiness = Effect.fn(
       prepared.schema.boundPublicationSha256,
     );
     const candidateValidationReceiptSha256 = yield* decodeSha256(
-      prepared.candidate.receiptSha256Hex,
+      candidateValidationReceiptSha256Hex(prepared.candidate),
     );
     const relationChildren: Array<Readonly<{
       readonly child: ApplicationRelationSetReadinessEvidence["receipt"][
@@ -1931,7 +2015,7 @@ const validateReadinessReplay = Effect.fn(
       prepared.schema.boundPublicationSha256,
     );
     const candidateValidationReceiptSha256 = yield* decodeSha256(
-      prepared.candidate.receiptSha256Hex,
+      candidateValidationReceiptSha256Hex(prepared.candidate),
     );
     const expectedChildren: Array<Readonly<{
       readonly child: ApplicationRelationSetReadinessEvidence["receipt"][
@@ -2096,7 +2180,7 @@ const relationReadinessFrame = Effect.fn(
     coldReceiptSetSha256:
       encodeBytesToLowercaseHex(prepared.coldReceiptSetSha256),
     candidateValidationReceiptSha256:
-      prepared.candidate.receiptSha256Hex,
+      candidateValidationReceiptSha256Hex(prepared.candidate),
     uniqueConstraintStatus: prepared.unique.status,
     uniqueConstraintEligibilitySha256:
       encodeBytesToLowercaseHex(prepared.uniqueSha256),

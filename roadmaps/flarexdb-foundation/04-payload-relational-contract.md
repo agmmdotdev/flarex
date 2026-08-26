@@ -11,12 +11,12 @@ inactive Application with an empty function catalog. E01 is complete at that
 private, production-inert boundary. `O10-R` completed on 2026-08-25 with the
 exact incoming relation read, journal dependency, read-your-writes overlay,
 final OCC validation, and durable running-conflict takeover. Nonempty function
-catalogs fail closed at an explicit runtime-availability gate. The bounded
-RA01 activation-owned core checkpoint now activates and reads one private
-relation revision through the single existing active head, but RA01 remains
-open on a recorded session-journal use-time authority defect and outstanding
-replacement/lock-order proofs. No RQ01 query, public developer API, or Payload
-adapter is implemented.
+catalogs fail closed at an explicit runtime-availability gate. `RA01` completed
+on 2026-08-26: the activation-owned core now preserves one private active
+relation revision while replacement candidates are prepared, advances the
+single existing head across exact Legacy/relation transitions, and proves both
+activation-versus-builder lock orders. No RQ01 query, public developer API, or
+Payload adapter is implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -1790,7 +1790,7 @@ Exit gates:
 - unsupported relation, graph, filter, and pagination shapes fail before target
   data I/O.
 
-### [ ] RA01 — Activate One Private Relation Revision
+### [x] RA01 — Activate One Private Relation Revision
 
 Prerequisites: E01 has settled complete physical readiness and O10-R has proved
 the incoming dependency/overlay for the exact bound relation publication.
@@ -2165,6 +2165,35 @@ candidate-validation, physical lifecycle, activation-history, commit/OCC, or
 journal owner is recorded and stopped at that boundary rather than repaired
 incidentally. RQ01 remains blocked until this checkpoint is committed.
 
+#### RA01-S implementation checkpoint — RA01 complete
+
+Completed on 2026-08-26. The relation-readiness fold now prepares stored-active
+candidate validation from the immutable readiness root's exact receipt digest.
+Canonical replay authenticates that committed digest while only the mutable
+non-active candidate head check is omitted. Ordinary `settle`, `readReady`, and
+first-activation preparation retain the branded current candidate evidence and
+all existing validation gates.
+
+Focused persistence proofs now establish:
+
+- active relation A remains readable, including through a cold repository
+  instance, after Legacy B installs a newer candidate-validation head;
+- the single activation head advances A1 -> Legacy B2 -> relation C3 with three
+  distinct digests, mutually exclusive historical witnesses, and stale prior
+  selections;
+- corrupting the stored candidate receipt fails canonical readiness replay;
+- genuine PostgreSQL runs the real builder and activation owners on separate
+  connections in both lock orders: builder-first makes activation fail
+  `notReady` without activation/head writes, while activation-first makes the
+  builder reject the serving revision without changing its physical snapshot.
+
+The package typecheck, core and changed-diff lint, exact staged lint, all 69
+E01-B PGlite tests, all 6 focused genuine-PostgreSQL tests, and both standing
+reviews pass. The implementation adds no RQ01 query, higher relation API,
+route, SDK, framework adapter, second head, fallback, comparison authority, or
+dual write. These receipts close RA01; RQ01 is the next separate roadmap slice
+and remains unapproved here.
+
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
 Prerequisite: RA01 has activated the private relation-bearing revision after
@@ -2260,13 +2289,9 @@ checkpoint commit.
 
 - The production-inert private core now includes R02 publication/binding, S12
   edge and adjacency-version storage, C09 point-commit lowering, E01 readiness,
-  the bounded RA01 activation checkpoint, and O10-R journal/OCC reads. Public
-  routing, RQ01 query composition, developer APIs, and framework adapters remain
-  absent.
-- RA01 remains incomplete because a superseded O10-R capability is not yet
-  revalidated at use time inside the journal-owned transaction. Complete
-  Legacy/relation replacement coverage and both activation-versus-builder lock
-  orders also remain open.
+  O10-R journal/OCC reads, and completed RA01 single-head activation and
+  active-serving continuity. Public routing, RQ01 query composition, developer
+  APIs, and framework adapters remain absent.
 - Relation change facts and sync invalidation remain absent until R03; the
   existing point-commit feed is not treated as an implicit relation observer.
 - The first admitted high-level profile and its exact declaration/occurrence

@@ -811,11 +811,11 @@ Dynamic Worker binding baseline before selecting it.
     relation read and adjacency dependency now cover snapshot-registration
     races, read-your-writes, pagination, phantom conflict, and durable
     running-conflict takeover. SQL/PGQ remains later and optional.
-19. `RA01` (`RA01-J` implemented; bounded `RA01-S` preflight frozen): retain
-    the existing private Application activation history and single head while
-    closing active-serving continuity, exact Legacy/relation transitions, and
-    both real activation-versus-builder lock orders. No route, production
-    caller, fallback, second head, or candidate-query bypass is authorized.
+19. `RA01` (complete): retain the existing private Application activation
+    history and single head while preserving active-serving continuity across
+    exact Legacy/relation transitions and both real activation-versus-builder
+    lock orders. No route, production caller, fallback, second head, or
+    candidate-query bypass was added.
 20. `RQ01`: compose that proven capability into one private, read-only Standard
     relation query without adding public developer ergonomics or production
     routing.

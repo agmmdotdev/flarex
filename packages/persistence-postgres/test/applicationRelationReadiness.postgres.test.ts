@@ -1,7 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { canonicalizeApplicationManifestV2 } from
-  "@flarex/analysis/application-analysis";
+import {
+  canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestV2,
+  type ApplicationManifestV1,
+} from "@flarex/analysis/application-analysis";
 import { produceApplicationTaskBindingsV1 } from
   "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import {
@@ -32,6 +35,7 @@ import {
   projectScopeIdUuidV1,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
+  type ScopeId,
   ScopeIdSchema,
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
@@ -66,8 +70,12 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
-import { makeApplicationActivationRepository } from
-  "../src/applicationActivation";
+import {
+  claimApplicationActiveSelection,
+  claimApplicationRelationActiveSelection,
+  makeApplicationActivationRepository,
+  type ApplicationRelationActivationContext,
+} from "../src/applicationActivation";
 import {
   fxSystemApplicationActivations,
   fxSystemApplicationActiveHeads,
@@ -79,6 +87,8 @@ import {
 } from "../src/applicationRelationBinding";
 import { makeApplicationReadinessRepository } from
   "../src/applicationReadiness";
+import { makeApplicationPublicationRepository } from
+  "../src/applicationPublication";
 import { createApplicationRelationServingInspector } from
   "../src/applicationRelationServing";
 import {
@@ -120,10 +130,14 @@ import {
   createApplicationRelationTaskCatalogSnapshotPort,
   makeApplicationRelationTaskBindingRepository,
 } from "../src/applicationRelationTaskBindings";
-import { createApplicationTaskCatalogSnapshotPort } from
-  "../src/applicationTaskBindings";
-import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from
-  "../src/appRows";
+import {
+  createApplicationTaskCatalogSnapshotPort,
+  makeApplicationTaskBindingRepository,
+} from "../src/applicationTaskBindings";
+import {
+  appendAppRowRevisionAndAdvanceCurrentInTransaction,
+  type AppRowTransaction,
+} from "../src/appRows";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
@@ -176,6 +190,10 @@ import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
 } from "../src/transactionSessionActivation";
+import {
+  RUN_LOCATED_READ_COMMITTED_V1,
+  type LocatedReadCommittedAttemptTargetV1,
+} from "../src/transactionSessionAttemptKernel";
 import {
   ensureRelationBuildTestWebCrypto,
   relationBuildDocumentId,
@@ -432,6 +450,257 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
       expect(await physicalStateSnapshot(fixture)).toEqual(before);
     });
   }, 240_000);
+
+  it("keeps stored-active authority while relation A1 moves through Legacy B2 to relation C3", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const ready = await preparePostgresRelationActivationFixture(
+        await fixtureFor(control, target),
+        35_001,
+      );
+      const activation = ready.makeActivation();
+      const relationA1 = await runEffect(activation.activate({
+        revisionId: ready.readiness.revisionId,
+        expectedActiveHead: null,
+      }));
+      const activeRelationA1 = await runEffect(activation.readActive());
+      expect(Result.isSuccess(claimApplicationRelationActiveSelection(
+        activeRelationA1.selection,
+      ))).toBe(true);
+
+      const legacy = await preparePostgresLegacyReplacement(ready);
+      const retainedRelationA1 = await runEffect(activation.readActive());
+      expect(retainedRelationA1.expectedActiveHead).toEqual(
+        activeRelationA1.expectedActiveHead,
+      );
+      const coldActivation = ready.makeActivation(
+        undefined,
+        makeApplicationRelationReadinessFoldRepository(ready.foldContext),
+      );
+      expect((await runEffect(coldActivation.readActive())).expectedActiveHead)
+        .toEqual(activeRelationA1.expectedActiveHead);
+
+      const legacyB2 = await runEffect(activation.activate({
+        revisionId: legacy.readiness.revisionId,
+        expectedActiveHead: relationA1.expectedActiveHead,
+      }));
+      expect(legacyB2).toMatchObject({
+        status: "activated",
+        disposition: "inserted",
+        activationSequence: 2n,
+        previousActivationSequence: 1n,
+      });
+      const activeLegacyB2 = await runEffect(activation.readActive());
+      expect(Result.isSuccess(claimApplicationActiveSelection(
+        activeLegacyB2.selection,
+      ))).toBe(true);
+      expect(Result.isFailure(claimApplicationRelationActiveSelection(
+        activeLegacyB2.selection,
+      ))).toBe(true);
+
+      await settlePostgresCandidateValidation(
+        ready.candidateValidation,
+        ready.candidateInput,
+      );
+      const retainedLegacyB2 = await runEffect(activation.readActive());
+      expect(retainedLegacyB2.expectedActiveHead).toEqual(
+        activeLegacyB2.expectedActiveHead,
+      );
+      const relationC = await preparePostgresRelationSuccessor(ready);
+      const relationC3 = await runEffect(activation.activate({
+        revisionId: relationC.readiness.revisionId,
+        expectedActiveHead: retainedLegacyB2.expectedActiveHead,
+      }));
+      expect(relationC3).toMatchObject({
+        status: "activated",
+        disposition: "inserted",
+        activationSequence: 3n,
+        previousActivationSequence: 2n,
+      });
+      const activeRelationC3 = await runEffect(activation.readActive());
+      expect(Result.isSuccess(claimApplicationRelationActiveSelection(
+        activeRelationC3.selection,
+      ))).toBe(true);
+
+      const activations = await target.drizzle.select().from(
+        fxSystemApplicationActivations,
+      ).orderBy(asc(fxSystemApplicationActivations.activationSequence));
+      expect(activations.map(row => ({
+        activationSequence: row.activationSequence,
+        previousActivationSequence: row.previousActivationSequence,
+        revisionId: row.revisionId,
+        readinessContractVersion: row.readinessContractVersion,
+        legacyWitness: row.legacyReadinessSha256 !== null,
+        relationWitness: row.relationReadinessSha256 !== null,
+        relationSetWitness: row.relationSetReadinessSha256 !== null,
+      }))).toEqual([
+        {
+          activationSequence: 1n,
+          previousActivationSequence: null,
+          revisionId: ready.readiness.revisionId,
+          readinessContractVersion: 2,
+          legacyWitness: false,
+          relationWitness: true,
+          relationSetWitness: true,
+        },
+        {
+          activationSequence: 2n,
+          previousActivationSequence: 1n,
+          revisionId: legacy.readiness.revisionId,
+          readinessContractVersion: 1,
+          legacyWitness: true,
+          relationWitness: false,
+          relationSetWitness: false,
+        },
+        {
+          activationSequence: 3n,
+          previousActivationSequence: 2n,
+          revisionId: relationC.readiness.revisionId,
+          readinessContractVersion: 2,
+          legacyWitness: false,
+          relationWitness: true,
+          relationSetWitness: true,
+        },
+      ]);
+      expect(new Set([
+        relationA1.expectedActiveHead.headSha256,
+        legacyB2.expectedActiveHead.headSha256,
+        relationC3.expectedActiveHead.headSha256,
+      ]).size).toBe(3);
+      expect(await target.drizzle.select().from(
+        fxSystemApplicationActiveHeads,
+      )).toEqual([
+        expect.objectContaining({
+          activationSequence: 3n,
+          revisionId: relationC.readiness.revisionId,
+          readinessContractVersion: 2,
+        }),
+      ]);
+    });
+  }, 300_000);
+
+  it("serializes real relation activation and builder restart in both lock orders", async () => {
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const ready = await preparePostgresRelationActivationFixture(
+        await fixtureFor(control, target),
+        36_001,
+      );
+      const physicalBefore = await physicalStateSnapshot(ready.fixture);
+      const activationInserted = deferredSignal();
+      const releaseActivation = deferredSignal();
+      const timeline: string[] = [];
+      const activation = ready.makeActivation(async point => {
+        timeline.push(`activation:${point}`);
+        if (point !== "activationInserted") return;
+        activationInserted.resolve();
+        await releaseActivation.promise;
+      });
+      const activationPromise = runEffect(activation.activate({
+        revisionId: ready.readiness.revisionId,
+        expectedActiveHead: null,
+      }));
+      await activationInserted.promise;
+
+      const builderPid = deferredValue<number>();
+      const builder = createPidCapturingRelationBuild(
+        ready.fixture,
+        pid => builderPid.resolve(pid),
+      );
+      const builderPromise = runEffectFailure(builder.restart(
+        ready.buildInput,
+        { faultAfter: point => { timeline.push(`builder:${point}`); } },
+      ));
+      try {
+        await waitForPostgresPidBlocked(target, await builderPid.promise);
+      } finally {
+        releaseActivation.resolve();
+      }
+      const [activated, builderFailure] = await Promise.all([
+        activationPromise,
+        builderPromise,
+      ]);
+      expect(activated).toMatchObject({
+        status: "activated",
+        activationSequence: 1n,
+      });
+      expect(builderFailure).toMatchObject({
+        _tag: "ApplicationRelationBuildServingDefinitionError",
+        activeRevisionId: ready.readiness.revisionId,
+      });
+      expect(timeline).toEqual([
+        "activation:activationInserted",
+        "activation:headWritten",
+        "builder:afterScopeClockLock",
+      ]);
+      expect(await physicalStateSnapshot(ready.fixture)).toEqual(
+        physicalBefore,
+      );
+    });
+
+    await withTemporaryPostgresPersistencePair(async (control, target) => {
+      const ready = await preparePostgresRelationActivationFixture(
+        await fixtureFor(control, target),
+        36_002,
+      );
+      const sidecarsBefore = await sidecarCounts(
+        ready.fixture,
+        ready.buildInput.edgeDefinitionId,
+      );
+      const builderPid = deferredValue<number>();
+      const builder = createPidCapturingRelationBuild(
+        ready.fixture,
+        pid => builderPid.resolve(pid),
+      );
+      const lifecycleTransition = deferredSignal();
+      const releaseBuilder = deferredSignal();
+      const builderPoints: string[] = [];
+      const builderPromise = runEffect(builder.restart(ready.buildInput, {
+        faultAfter: async point => {
+          builderPoints.push(point);
+          if (point !== "afterLifecycleTransition") return;
+          lifecycleTransition.resolve();
+          await releaseBuilder.promise;
+        },
+      }));
+      await lifecycleTransition.promise;
+      const pid = await builderPid.promise;
+      const activation = ready.makeActivation();
+      const activationPromise = runEffectFailure(activation.activate({
+        revisionId: ready.readiness.revisionId,
+        expectedActiveHead: null,
+      }));
+      try {
+        await waitForBlockedScopeClockOperations(target, pid, 1);
+      } finally {
+        releaseBuilder.resolve();
+      }
+      const [restarted, activationFailure] = await Promise.all([
+        builderPromise,
+        activationPromise,
+      ]);
+      expect(restarted).toMatchObject({
+        status: "restarted",
+        lifecycle: "cleaning",
+      });
+      expect(builderPoints).toEqual([
+        "afterScopeClockLock",
+        "afterLifecycleTransition",
+      ]);
+      expect(activationFailure).toMatchObject({
+        _tag: "ApplicationActivationError",
+        operation: "activate",
+        reason: "notReady",
+        revisionId: ready.readiness.revisionId,
+      });
+      expect(await sidecarCounts(
+        ready.fixture,
+        ready.buildInput.edgeDefinitionId,
+      )).toEqual(sidecarsBefore);
+      expect(await Promise.all([
+        target.drizzle.select().from(fxSystemApplicationActivations),
+        target.drizzle.select().from(fxSystemApplicationActiveHeads),
+      ])).toEqual([[], []]);
+    });
+  }, 300_000);
 
   it("concurrently settles one authentic relation-aware Application root and replaces a natural exact-read conflict", async () => {
     await withTemporaryPostgresPersistencePair(async (control, target) => {
@@ -1382,6 +1651,411 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
   }, 300_000);
 });
 
+async function preparePostgresRelationActivationFixture(
+  fixture: Fixture,
+  ordinal: number,
+) {
+  const relationInput = await relationBuildPublicationInput(
+    fixture.deploymentId,
+    ordinal,
+  );
+  const canonical = Result.getOrThrow(
+    canonicalizeApplicationManifestV2(relationInput.manifest),
+  );
+  const relation = await runEffect(publishApplicationRelationBindingEffect(
+    repositoryFor(fixture),
+    relationInput,
+  ));
+  const authority = Object.freeze({
+    scopeId: fixture.scopeId,
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+    epoch: fixture.epoch,
+  }) satisfies ApplicationAnalysisAuthority;
+  const analyses = makeApplicationAnalysisRepository(
+    fixture.target.drizzle,
+    { randomUuid: relationFoldUuidSequence(
+      ordinal,
+      ordinal + 1,
+      ordinal + 2,
+    ) },
+  );
+  const pending = await runEffect(analyses.begin({
+    authority,
+    requestKey: `request:ra01-s:relation:${ordinal}`,
+    sourceArtifactRootSha256: canonical.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "ra01-s-relation-analyzer",
+    analyzerPolicyIdentity: "ra01-s-relation-policy",
+  }));
+  const analyzed = await runEffect(analyses.settle(authority, {
+    kind: "analyzed",
+    candidateId: pending.candidateId,
+    sourceArtifactRootSha256: canonical.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "ra01-s-relation-analyzer",
+    analyzerPolicyIdentity: "ra01-s-relation-policy",
+    canonicalManifest: canonical.canonicalText,
+  }));
+  if (analyzed.status !== "analyzed") {
+    throw new Error("Expected one analyzed PostgreSQL relation revision.");
+  }
+  const publications = makeApplicationRelationPublicationRepository(
+    fixture.target.drizzle,
+    fixture.control.drizzle,
+  );
+  const publication = await runEffect(publications.publish({
+    authority,
+    deploymentId: fixture.deploymentId,
+    revisionId: analyzed.revision.revisionId,
+    candidateId: analyzed.candidateId,
+    analysisId: analyzed.analysisId,
+    manifestSha256: analyzed.manifestSha256,
+    manifest: canonical.manifest,
+  }));
+  const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
+    globalThis.crypto.subtle.digest("SHA-256", input)
+  );
+  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [],
+  }, taskSha256));
+  const bindings = await runEffect(produceApplicationTaskBindingsV1({
+    definition: relationFoldPreparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: "flarex.test/ra01-s-relation-runtime",
+      compatibilityDate: "2026-08-26",
+    },
+  }, taskSha256));
+  const taskBindings = makeApplicationRelationTaskBindingRepository(
+    fixture.target.drizzle,
+    fixture.control.drizzle,
+  );
+  await runEffect(taskBindings.register({ authority, publication, bindings }));
+
+  const candidateValidation = createAppSchemaCandidateValidationPort({
+    controlDb: fixture.control.drizzle,
+    authority: fixture.authority,
+  });
+  const candidateInput = Object.freeze({
+    deploymentId: fixture.deploymentId,
+    schemaVersionId: relation.binding.schemaVersionId,
+  });
+  const closure = await runEffect(
+    prepareAppUniqueConstraintSetClosureV1Effect(
+      fixture.control.drizzle,
+      candidateInput,
+    ),
+  );
+  await fixture.control.drizzle.transaction(tx => runEffect(
+    closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure),
+  ));
+  await settlePostgresCandidateValidation(candidateValidation, candidateInput);
+  await enablePostgresApplicationPhysicalBuilds(
+    fixture,
+    relation.binding.schemaVersionId,
+  );
+  const enabled = await enablePhysicalReadinessSet(fixture, relation);
+  const firstEnabled = enabled[0];
+  if (firstEnabled === undefined) {
+    throw new Error("Expected one enabled PostgreSQL relation definition.");
+  }
+
+  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+    fixture.control.drizzle,
+  );
+  const uniqueConstraintEligibility =
+    createAppUniqueConstraintSetEligibilityPortV1({
+      controlDb: fixture.control.drizzle,
+      authority: fixture.authority,
+    }, uniqueConstraints);
+  const pointCommit = createPointCommitPublisherPortV1({
+    scopeMetadata: fixture.control,
+    provisioningReceipts: fixture.authority.provisioningReceipts,
+    scopeSessionTargets: {
+      resolve: async () => {
+        throw new Error("RA01-S readiness must not open a commit session.");
+      },
+    },
+  }, { uniqueConstraints, uniqueConstraintEligibility });
+  const candidateReadiness = createAppSchemaCandidateReadinessPort(
+    candidateValidation,
+  );
+  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({
+    controlDb: fixture.control.drizzle,
+    authority: fixture.authority,
+  });
+  const foldContext = Object.freeze({
+    controlDb: fixture.control.drizzle,
+    authority: fixture.authority,
+    schema: createApplicationRelationSchemaAuthorityPort(
+      fixture.control.drizzle,
+    ),
+    taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(),
+    candidateValidation: candidateReadiness,
+    pointCommit,
+    physicalDefinitionLifecycle,
+    relations: fixture.readiness,
+  });
+  const fold = makeApplicationRelationReadinessFoldRepository(foldContext);
+  const legacyReadiness = makeApplicationReadinessRepository({
+    controlDb: fixture.control.drizzle,
+    authority: fixture.authority,
+    schema: makeApplicationSchemaAuthorityPublisher({
+      db: fixture.control.drizzle,
+      runTransaction: run => fixture.control.drizzle.transaction(run),
+    }),
+    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
+    candidateValidation: candidateReadiness,
+    pointCommit,
+    physicalDefinitionLifecycle,
+    cold: {
+      runtimeHostIdentity: "flarex.test/ra01-s-legacy-runtime",
+      compatibilityDate: "2026-08-26",
+      materialize: () => Effect.die(new Error(
+        "RA01-S Legacy cold materialization must remain inert.",
+      )),
+    },
+  });
+  const readiness = await runEffect(fold.settle({
+    deploymentId: fixture.deploymentId,
+    revisionId: publication.revisionId,
+  }));
+  if (readiness.status !== "ready") {
+    throw new Error("Expected one ready PostgreSQL relation revision.");
+  }
+  const makeActivation = (
+    faultAfter?: ApplicationRelationActivationContext<unknown, unknown>[
+      "faultAfter"
+    ],
+    relationReadiness = fold,
+  ) => makeApplicationActivationRepository({
+    deploymentId: fixture.deploymentId,
+    readiness: legacyReadiness,
+    relationReadiness,
+    authority: fixture.authority,
+    ...(faultAfter === undefined ? {} : { faultAfter }),
+  });
+  return Object.freeze({
+    fixture,
+    ordinal,
+    authority,
+    relation,
+    manifest: canonical.manifest,
+    publication,
+    publications,
+    taskBindings,
+    taskSha256,
+    candidateValidation,
+    candidateInput,
+    foldContext,
+    fold,
+    legacyReadiness,
+    readiness,
+    makeActivation,
+    buildInput: Object.freeze({
+      deploymentId: fixture.deploymentId,
+      schemaVersionId: relation.binding.schemaVersionId,
+      edgeDefinitionId: firstEnabled.edgeDefinitionId,
+    }),
+  });
+}
+
+async function preparePostgresLegacyReplacement(
+  ready: Awaited<ReturnType<typeof preparePostgresRelationActivationFixture>>,
+) {
+  const manifest = Result.getOrThrow(canonicalizeApplicationManifestV1({
+    format: "flarex.application-manifest",
+    version: 1,
+    sourceArtifact: ready.manifest.sourceArtifact,
+    schema: {
+      version: 1,
+      tables: ready.manifest.schema.tables,
+      indexes: ready.manifest.schema.indexes,
+    },
+    functions: ready.manifest.functions,
+  } satisfies ApplicationManifestV1));
+  const analyses = makeApplicationAnalysisRepository(
+    ready.fixture.target.drizzle,
+    { randomUuid: relationFoldUuidSequence(
+      ready.ordinal + 100,
+      ready.ordinal + 101,
+      ready.ordinal + 102,
+    ) },
+  );
+  const pending = await runEffect(analyses.begin({
+    authority: ready.authority,
+    requestKey: `request:ra01-s:legacy:${ready.ordinal}`,
+    sourceArtifactRootSha256: manifest.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "ra01-s-legacy-analyzer",
+    analyzerPolicyIdentity: "ra01-s-legacy-policy",
+  }));
+  const analyzed = await runEffect(analyses.settle(ready.authority, {
+    kind: "analyzed",
+    candidateId: pending.candidateId,
+    sourceArtifactRootSha256: manifest.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "ra01-s-legacy-analyzer",
+    analyzerPolicyIdentity: "ra01-s-legacy-policy",
+    canonicalManifest: manifest.canonicalText,
+  }));
+  if (analyzed.status !== "analyzed") {
+    throw new Error("Expected one analyzed PostgreSQL Legacy replacement.");
+  }
+  const publication = await runEffect(
+    makeApplicationPublicationRepository(
+      ready.fixture.target.drizzle,
+    ).publish({
+      authority: ready.authority,
+      revisionId: analyzed.revision.revisionId,
+      candidateId: analyzed.candidateId,
+      analysisId: analyzed.analysisId,
+      manifestSha256: analyzed.manifestSha256,
+      manifest: manifest.manifest,
+    }),
+  );
+  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [],
+  }, ready.taskSha256));
+  const bindings = await runEffect(produceApplicationTaskBindingsV1({
+    definition: relationFoldPreparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: "flarex.test/ra01-s-legacy-runtime",
+      compatibilityDate: "2026-08-26",
+    },
+  }, ready.taskSha256));
+  await runEffect(makeApplicationTaskBindingRepository(
+    ready.fixture.target.drizzle,
+  ).register({ authority: ready.authority, bindings }));
+  const schema = await runEffect(makeApplicationSchemaAuthorityPublisher({
+    db: ready.fixture.control.drizzle,
+    runTransaction: run => ready.fixture.control.drizzle.transaction(run),
+  }).publish({
+    deploymentId: ready.fixture.deploymentId,
+    manifest: manifest.manifest,
+  }));
+  const closure = await runEffect(
+    prepareAppUniqueConstraintSetClosureV1Effect(
+      ready.fixture.control.drizzle,
+      {
+        deploymentId: ready.fixture.deploymentId,
+        schemaVersionId: schema.schemaVersionId,
+      },
+    ),
+  );
+  await ready.fixture.control.drizzle.transaction(tx => runEffect(
+    closeAppUniqueConstraintSetV1InTransactionEffect(tx, closure),
+  ));
+  await settlePostgresCandidateValidation(ready.candidateValidation, {
+    deploymentId: ready.fixture.deploymentId,
+    schemaVersionId: schema.schemaVersionId,
+  });
+  await enablePostgresApplicationPhysicalBuilds(
+    ready.fixture,
+    schema.schemaVersionId,
+  );
+  const readiness = await runEffect(ready.legacyReadiness.settle({
+    deploymentId: ready.fixture.deploymentId,
+    revisionId: publication.revisionId,
+  }));
+  if (readiness.status !== "ready") {
+    throw new Error("Expected one ready PostgreSQL Legacy replacement.");
+  }
+  return Object.freeze({ publication, schema, readiness });
+}
+
+async function preparePostgresRelationSuccessor(
+  ready: Awaited<ReturnType<typeof preparePostgresRelationActivationFixture>>,
+) {
+  const canonical = Result.getOrThrow(
+    canonicalizeApplicationManifestV2(ready.manifest),
+  );
+  const analyses = makeApplicationAnalysisRepository(
+    ready.fixture.target.drizzle,
+    { randomUuid: relationFoldUuidSequence(
+      ready.ordinal + 200,
+      ready.ordinal + 201,
+      ready.ordinal + 202,
+    ) },
+  );
+  const pending = await runEffect(analyses.begin({
+    authority: ready.authority,
+    requestKey: `request:ra01-s:relation-successor:${ready.ordinal}`,
+    sourceArtifactRootSha256: canonical.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "ra01-s-relation-successor-analyzer",
+    analyzerPolicyIdentity: "ra01-s-relation-successor-policy",
+  }));
+  const analyzed = await runEffect(analyses.settle(ready.authority, {
+    kind: "analyzed",
+    candidateId: pending.candidateId,
+    sourceArtifactRootSha256: canonical.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "ra01-s-relation-successor-analyzer",
+    analyzerPolicyIdentity: "ra01-s-relation-successor-policy",
+    canonicalManifest: canonical.canonicalText,
+  }));
+  if (analyzed.status !== "analyzed") {
+    throw new Error("Expected one analyzed PostgreSQL relation successor.");
+  }
+  const publication = await runEffect(ready.publications.publish({
+    authority: ready.authority,
+    deploymentId: ready.fixture.deploymentId,
+    revisionId: analyzed.revision.revisionId,
+    candidateId: analyzed.candidateId,
+    analysisId: analyzed.analysisId,
+    manifestSha256: analyzed.manifestSha256,
+    manifest: canonical.manifest,
+  }));
+  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [],
+  }, ready.taskSha256));
+  const bindings = await runEffect(produceApplicationTaskBindingsV1({
+    definition: relationFoldPreparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: "flarex.test/ra01-s-relation-runtime",
+      compatibilityDate: "2026-08-26",
+    },
+  }, ready.taskSha256));
+  await runEffect(ready.taskBindings.register({
+    authority: ready.authority,
+    publication,
+    bindings,
+  }));
+  const readiness = await runEffect(ready.fold.settle({
+    deploymentId: ready.fixture.deploymentId,
+    revisionId: publication.revisionId,
+  }));
+  if (readiness.status !== "ready") {
+    throw new Error("Expected one ready PostgreSQL relation successor.");
+  }
+  return Object.freeze({ publication, readiness });
+}
+
 interface Fixture {
   readonly control: PostgresFlarexPersistence;
   readonly target: PostgresFlarexPersistence;
@@ -1886,6 +2560,63 @@ function deferredSignal(): Readonly<{
     promise,
     resolve: () => resolvePromise?.(),
   });
+}
+
+function deferredValue<Value>(): Readonly<{
+  readonly promise: Promise<Value>;
+  readonly resolve: (value: Value) => void;
+}> {
+  let settled = false;
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>(resolve => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve: (value: Value) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise?.(value);
+    },
+  });
+}
+
+function createPidCapturingRelationBuild(
+  fixture: Fixture,
+  observePid: (pid: number) => void,
+): ApplicationRelationBuildPort {
+  const target = createPostgresLocatedIndexBuildReconciliationTargetV1(
+    fixture.target,
+    LOCATOR,
+  );
+  const capturedTarget: LocatedReadCommittedAttemptTargetV1 = Object.freeze({
+    physicalLocator: target.physicalLocator,
+    getCurrentClock: (scopeId: ScopeId) => target.getCurrentClock(scopeId),
+    [RUN_LOCATED_READ_COMMITTED_V1]: <Value>(
+      work: (tx: AppRowTransaction) => Promise<Value>,
+    ): Promise<Value> => target[RUN_LOCATED_READ_COMMITTED_V1](async tx => {
+      const rows = await tx.select({
+        pid: sql<number>`pg_backend_pid()::int`,
+      }).from(fxSystemScopeClocks).limit(1);
+      const pid = rows[0]?.pid;
+      if (pid === undefined) {
+        throw new Error("Expected a PostgreSQL relation-builder backend PID.");
+      }
+      observePid(pid);
+      return work(tx);
+    }),
+  });
+  const authority = Object.freeze({
+    scopeMetadata: fixture.control,
+    provisioningReceipts: fixture.authority.provisioningReceipts,
+    scopeClockTargets: { resolve: async () => capturedTarget },
+  });
+  return createApplicationRelationBuildPort(
+    fixture.control.drizzle,
+    authority,
+    fixture.relationCommit,
+    createApplicationRelationServingInspector(),
+  );
 }
 
 async function waitForBlockedScopeClockOperations(

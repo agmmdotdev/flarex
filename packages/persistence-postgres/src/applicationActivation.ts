@@ -182,9 +182,10 @@ export interface ApplicationActivationContext<SchemaFailure, ColdFailure> {
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
+  /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
     point: "activationInserted" | "headWritten",
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export interface ApplicationRelationActivationContext<SchemaFailure, ColdFailure> {
@@ -194,9 +195,10 @@ export interface ApplicationRelationActivationContext<SchemaFailure, ColdFailure
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
+  /** Test-only failure or transaction gate after an owned persistence step. */
   readonly faultAfter?: (
     point: "activationInserted" | "headWritten",
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export interface ApplicationActivationRepository<SchemaFailure, ColdFailure> {
@@ -2201,8 +2203,8 @@ function runFault(
 ): Effect.Effect<void, ApplicationActivationError> {
   return faultAfter === undefined
     ? Effect.void
-    : Effect.try({
-        try: () => faultAfter(point),
+    : Effect.tryPromise({
+        try: async () => { await faultAfter(point); },
         catch: cause => activationError(
           "activate",
           "resourceFailure",

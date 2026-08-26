@@ -1,5 +1,7 @@
 import {
+  canonicalizeApplicationManifestV1,
   canonicalizeApplicationManifestV2,
+  type ApplicationManifestV1,
   type ApplicationManifestV2,
 } from "@flarex/analysis/application-analysis";
 import {
@@ -69,6 +71,7 @@ import {
   claimApplicationActiveSelection,
   claimApplicationRelationActiveSelection,
   makeApplicationActivationRepository,
+  validateApplicationActiveSelectionInTransaction,
   validateApplicationRelationActiveSelectionInTransaction,
   validateApplicationRelationActiveSelectionForReadiness,
 } from "../src/applicationActivation";
@@ -76,6 +79,8 @@ import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
 } from "../src/applicationAnalysisRegistration";
+import { makeApplicationPublicationRepository } from
+  "../src/applicationPublication";
 import { makeApplicationReadinessRepository } from
   "../src/applicationReadiness";
 import {
@@ -125,6 +130,7 @@ import { makeApplicationSchemaAuthorityPublisher } from
   "../src/applicationSchemaAuthority";
 import {
   createApplicationTaskCatalogSnapshotPort,
+  makeApplicationTaskBindingRepository,
 } from "../src/applicationTaskBindings";
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { appendAppRowRevisionAndAdvanceCurrentInTransaction } from
@@ -1691,6 +1697,237 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     });
   });
 
+  it("moves one active head from relation A1 through Legacy B2 to relation C3", async () => {
+    const ready = await readyExactRelationReadFixture();
+    const relationA1 = ready.active;
+    expect(relationA1.basis.activationSequence).toBe(1n);
+
+    const legacy = await prepareLegacyRevisionInRelationFixture(ready.fixture);
+
+    const retainedRelationA1 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    expect(retainedRelationA1.expectedActiveHead).toEqual(
+      relationA1.expectedActiveHead,
+    );
+    expect(Result.isSuccess(
+      claimApplicationRelationActiveSelection(retainedRelationA1.selection),
+    )).toBe(true);
+    const validatedRelationA1 = await ready.fixture.persistence.drizzle
+      .transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForShareInTransactionEffect(
+            tx,
+            ready.fixture.authority.scopeId,
+          ),
+        );
+        return runEffect(
+          validateApplicationRelationActiveSelectionInTransaction(
+            relationA1.selection,
+            tx,
+            clock,
+          ),
+        );
+      });
+    expect(validatedRelationA1.activationSequence).toBe(1n);
+
+    const coldRelationActivation = makeApplicationActivationRepository({
+      deploymentId: ready.fixture.deploymentId,
+      readiness: ready.fixture.legacyReadiness,
+      relationReadiness: makeApplicationRelationReadinessFoldRepository(
+        ready.fixture.foldContext,
+      ),
+      authority: ready.fixture.authorityPorts,
+    });
+    const coldRelationA1 = await runEffect(coldRelationActivation.readActive());
+    expect(coldRelationA1.expectedActiveHead).toEqual(
+      relationA1.expectedActiveHead,
+    );
+    expect(Result.isSuccess(
+      claimApplicationRelationActiveSelection(coldRelationA1.selection),
+    )).toBe(true);
+
+    const legacyB2 = await runEffect(
+      ready.fixture.relationActivation.activate({
+        revisionId: legacy.readiness.revisionId,
+        expectedActiveHead: relationA1.expectedActiveHead,
+      }),
+    );
+    expect(legacyB2).toMatchObject({
+      status: "activated",
+      disposition: "inserted",
+      revisionId: legacy.readiness.revisionId,
+      activationSequence: 2n,
+      previousActivationSequence: 1n,
+    });
+    const activeLegacyB2 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    const legacyBasis = Result.getOrThrow(
+      claimApplicationActiveSelection(activeLegacyB2.selection),
+    );
+    expect(legacyBasis).toMatchObject({
+      revisionId: legacy.readiness.revisionId,
+      activationSequence: 2n,
+    });
+    expect(Result.isFailure(
+      claimApplicationRelationActiveSelection(activeLegacyB2.selection),
+    )).toBe(true);
+    const staleRelationA1 = await ready.fixture.persistence.drizzle
+      .transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForShareInTransactionEffect(
+            tx,
+            ready.fixture.authority.scopeId,
+          ),
+        );
+        return runEffectFailure(
+          validateApplicationRelationActiveSelectionInTransaction(
+            relationA1.selection,
+            tx,
+            clock,
+          ),
+        );
+      });
+    expect(staleRelationA1).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "validateSelection",
+      reason: "concurrentHead",
+    });
+
+    await settleCandidateValidation(
+      ready.fixture.candidateValidation,
+      ready.fixture.deploymentId,
+      ready.fixture.relation.binding.schemaVersionId,
+    );
+    const retainedLegacyB2 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    expect(retainedLegacyB2.expectedActiveHead).toEqual(
+      activeLegacyB2.expectedActiveHead,
+    );
+    expect(Result.isSuccess(
+      claimApplicationActiveSelection(retainedLegacyB2.selection),
+    )).toBe(true);
+
+    const relationC = await prepareAdditionalRelationRevision(ready.fixture);
+    const relationC3 = await runEffect(
+      ready.fixture.relationActivation.activate({
+        revisionId: relationC.readiness.revisionId,
+        expectedActiveHead: retainedLegacyB2.expectedActiveHead,
+      }),
+    );
+    expect(relationC3).toMatchObject({
+      status: "activated",
+      disposition: "inserted",
+      revisionId: relationC.readiness.revisionId,
+      activationSequence: 3n,
+      previousActivationSequence: 2n,
+    });
+    const activeRelationC3 = await runEffect(
+      ready.fixture.relationActivation.readActive(),
+    );
+    const relationBasis = Result.getOrThrow(
+      claimApplicationRelationActiveSelection(activeRelationC3.selection),
+    );
+    expect(relationBasis).toMatchObject({
+      revisionId: relationC.readiness.revisionId,
+      activationSequence: 3n,
+      relationCount: relationC.readiness.relationCount,
+    });
+    expect(Result.isFailure(
+      claimApplicationActiveSelection(activeRelationC3.selection),
+    )).toBe(true);
+
+    const [staleLegacyB2, currentRelationC3] =
+      await ready.fixture.persistence.drizzle.transaction(async tx => {
+        const clock = await runEffect(
+          lockScopeClockForShareInTransactionEffect(
+            tx,
+            ready.fixture.authority.scopeId,
+          ),
+        );
+        return Promise.all([
+          runEffectFailure(validateApplicationActiveSelectionInTransaction(
+            retainedLegacyB2.selection,
+            tx,
+            clock,
+          )),
+          runEffect(validateApplicationRelationActiveSelectionInTransaction(
+            activeRelationC3.selection,
+            tx,
+            clock,
+          )),
+        ]);
+      });
+    expect(staleLegacyB2).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "validateSelection",
+      reason: "concurrentHead",
+    });
+    expect(currentRelationC3.activationSequence).toBe(3n);
+
+    const activations = await ready.fixture.persistence.drizzle.select().from(
+      fxSystemApplicationActivations,
+    ).orderBy(asc(fxSystemApplicationActivations.activationSequence));
+    expect(activations.map(row => ({
+      activationSequence: row.activationSequence,
+      previousActivationSequence: row.previousActivationSequence,
+      revisionId: row.revisionId,
+      readinessContractVersion: row.readinessContractVersion,
+      legacyWitness: row.legacyReadinessSha256 !== null,
+      relationWitness: row.relationReadinessSha256 !== null,
+      relationSetWitness: row.relationSetReadinessSha256 !== null,
+      relationCount: row.relationCount,
+    }))).toEqual([
+      {
+        activationSequence: 1n,
+        previousActivationSequence: null,
+        revisionId: ready.readiness.revisionId,
+        readinessContractVersion: 2,
+        legacyWitness: false,
+        relationWitness: true,
+        relationSetWitness: true,
+        relationCount: ready.readiness.relationCount,
+      },
+      {
+        activationSequence: 2n,
+        previousActivationSequence: 1n,
+        revisionId: legacy.readiness.revisionId,
+        readinessContractVersion: 1,
+        legacyWitness: true,
+        relationWitness: false,
+        relationSetWitness: false,
+        relationCount: null,
+      },
+      {
+        activationSequence: 3n,
+        previousActivationSequence: 2n,
+        revisionId: relationC.readiness.revisionId,
+        readinessContractVersion: 2,
+        legacyWitness: false,
+        relationWitness: true,
+        relationSetWitness: true,
+        relationCount: relationC.readiness.relationCount,
+      },
+    ]);
+    expect(new Set([
+      relationA1.expectedActiveHead.headSha256,
+      legacyB2.expectedActiveHead.headSha256,
+      relationC3.expectedActiveHead.headSha256,
+    ]).size).toBe(3);
+    const finalHeads = await ready.fixture.persistence.drizzle.select().from(
+      fxSystemApplicationActiveHeads,
+    );
+    expect(finalHeads).toHaveLength(1);
+    expect(finalHeads[0]).toMatchObject({
+      activationSequence: 3n,
+      revisionId: relationC.readiness.revisionId,
+      readinessContractVersion: 2,
+      relationCount: relationC.readiness.relationCount,
+    });
+  });
+
   it("atomically folds two ordered relations, exactly replays, and stays outside legacy activation", async () => {
     const fixture = await relationReadinessFixture();
     await prepareReadinessEvidence(fixture);
@@ -2351,6 +2588,41 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     }))).resolves.toBeDefined();
   });
 
+  it("rejects activation after an inactive relation builder restarts first", async () => {
+    const fixture = await relationReadinessFixture();
+    await prepareReadinessEvidence(fixture);
+    const readiness = await runEffect(fixture.fold.settle(fixture.input));
+    if (readiness.status !== "ready") {
+      throw new Error("Expected ready relation evidence before restart.");
+    }
+    const binding = fixture.relation.binding.relationBindings[0];
+    if (binding === undefined) throw new Error("Expected a relation binding.");
+    const restarted = await runEffect(fixture.relationBuild.restart({
+      deploymentId: fixture.deploymentId,
+      schemaVersionId: fixture.relation.binding.schemaVersionId,
+      edgeDefinitionId: binding.edgeDefinitionId,
+    }));
+    expect(restarted).toMatchObject({
+      status: "restarted",
+      lifecycle: "cleaning",
+    });
+    expect(await runEffectFailure(fixture.relationActivation.activate({
+      revisionId: readiness.revisionId,
+      expectedActiveHead: null,
+    }))).toMatchObject({
+      _tag: "ApplicationActivationError",
+      operation: "activate",
+      reason: "notReady",
+      revisionId: readiness.revisionId,
+    });
+    expect(await relationActivationInventory(fixture)).toEqual({
+      roots: 1,
+      children: 2,
+      activations: 0,
+      heads: 0,
+    });
+  });
+
   it("rejects a stale selection before minting a relation read capability", async () => {
     const ready = await readyExactRelationReadFixture();
     await ready.fixture.persistence.drizzle.delete(
@@ -2492,6 +2764,23 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
   });
 
   it("fails closed on active root, child, and schema-binding corruption", async () => {
+    const candidateFixture = await readyExactRelationReadFixture();
+    await candidateFixture.fixture.persistence.drizzle.update(
+      fxSystemApplicationReadiness,
+    ).set({
+      candidateValidationReceiptSha256: new Uint8Array(32).fill(0xa5),
+    }).where(eq(
+      fxSystemApplicationReadiness.scopeId,
+      candidateFixture.fixture.authority.scopeId,
+    ));
+    expect(await runEffectFailure(
+      candidateFixture.fixture.relationActivation.readActive(),
+    )).toMatchObject({
+      _tag: "ApplicationRelationReadinessFoldError",
+      operation: "readReady",
+      reason: "conflictingReplay",
+    });
+
     const rootFixture = await readyExactRelationReadFixture();
     await rootFixture.fixture.persistence.drizzle.update(
       fxSystemApplicationReadiness,
@@ -3599,6 +3888,121 @@ async function prepareAdditionalRelationRevision(
     throw new Error("Expected one additional ready relation revision.");
   }
   return Object.freeze({ publication, readiness });
+}
+
+async function prepareLegacyRevisionInRelationFixture(
+  fixture: Awaited<ReturnType<typeof relationReadinessFixture>>,
+) {
+  const manifest = Result.getOrThrow(canonicalizeApplicationManifestV1({
+    format: "flarex.application-manifest",
+    version: 1,
+    sourceArtifact: fixture.manifest.sourceArtifact,
+    schema: {
+      version: 1,
+      tables: fixture.manifest.schema.tables,
+      indexes: fixture.manifest.schema.indexes,
+    },
+    functions: fixture.manifest.functions,
+  } satisfies ApplicationManifestV1));
+  const analyses = makeApplicationAnalysisRepository(
+    fixture.persistence.drizzle,
+    { randomUuid: uuidSequence(121, 122, 123) },
+  );
+  const pending = await runEffect(analyses.begin({
+    authority: fixture.authority,
+    requestKey:
+      `request:application-relation-transition:legacy:${fixture.publication.revisionId}`,
+    sourceArtifactRootSha256: manifest.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "application-relation-transition-legacy-analyzer",
+    analyzerPolicyIdentity:
+      "application-relation-transition-legacy-policy",
+  }));
+  const analyzed = await runEffect(analyses.settle(fixture.authority, {
+    kind: "analyzed",
+    candidateId: pending.candidateId,
+    sourceArtifactRootSha256: manifest.manifest.sourceArtifact.rootSha256,
+    analyzerIdentity: "application-relation-transition-legacy-analyzer",
+    analyzerPolicyIdentity:
+      "application-relation-transition-legacy-policy",
+    canonicalManifest: manifest.canonicalText,
+  }));
+  if (analyzed.status !== "analyzed") {
+    throw new Error("Expected one analyzed Legacy replacement.");
+  }
+  const publication = await runEffect(
+    makeApplicationPublicationRepository(
+      fixture.persistence.drizzle,
+    ).publish({
+      authority: fixture.authority,
+      revisionId: analyzed.revision.revisionId,
+      candidateId: analyzed.candidateId,
+      analysisId: analyzed.analysisId,
+      manifestSha256: analyzed.manifestSha256,
+      manifest: manifest.manifest,
+    }),
+  );
+  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [taskManifest()],
+  }, taskSha256));
+  const bindings = await runEffect(produceApplicationTaskBindingsV1({
+    definition: preparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
+      compatibilityDate: COMPATIBILITY_DATE,
+    },
+  }, taskSha256));
+  await runEffect(
+    makeApplicationTaskBindingRepository(
+      fixture.persistence.drizzle,
+    ).register({
+      authority: fixture.authority,
+      bindings,
+    }),
+  );
+  const schema = await runEffect(
+    makeApplicationSchemaAuthorityPublisher({
+      db: fixture.persistence.drizzle,
+      runTransaction: run => fixture.persistence.drizzle.transaction(run),
+    }).publish({
+      deploymentId: fixture.deploymentId,
+      manifest: manifest.manifest,
+    }),
+  );
+  await closeEmptyUniqueConstraintSet(
+    fixture.persistence.drizzle,
+    fixture.deploymentId,
+    schema.schemaVersionId,
+  );
+  await settleCandidateValidation(
+    fixture.candidateValidation,
+    fixture.deploymentId,
+    schema.schemaVersionId,
+  );
+  await enableApplicationPhysicalBuilds(
+    fixture.persistence.drizzle,
+    fixture.authorityPorts,
+    fixture.authority.scopeId,
+    fixture.deploymentId,
+    schema.schemaVersionId,
+  );
+  const readiness = await runEffect(fixture.legacyReadiness.settle({
+    deploymentId: fixture.deploymentId,
+    revisionId: publication.revisionId,
+  }));
+  if (readiness.status !== "ready") {
+    throw new Error("Expected one ready Legacy replacement.");
+  }
+  return Object.freeze({ publication, schema, readiness });
 }
 
 async function closeEmptyUniqueConstraintSet(
