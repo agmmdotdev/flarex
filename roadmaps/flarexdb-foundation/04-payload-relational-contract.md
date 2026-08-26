@@ -2196,6 +2196,92 @@ and remains unapproved here.
 
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
+Status: implementation preflight approved on 2026-08-26. This is one medium,
+private system-core slice through the existing active Application query
+snapshot and Standard invocation owners. It does not authorize a relation-aware
+function Worker, a nonempty relation-bearing function catalog, a public route
+or SDK, mutation-journal/OCC behavior, sync facts, framework adapters, or the
+later `SV-R` vertical.
+
+#### RQ01 implementation preflight
+
+The first accepted internal operation is the unversioned
+`takeIncomingRelationSources`. It accepts this exact logical request:
+
+```text
+relation = {
+  source = {
+    table = RelationIdentityV1
+    path = [{ kind = field, name = RelationIdentityV1 }]
+  }
+}
+target = AppDocumentIdV1
+limit = integer in [1, 128]
+```
+
+The source table and canonical typed source path are the relation selector.
+The caller does not supply a relation ID, edge-definition ID, target table,
+inverse name, physical definition, adjacency version, or SQL cursor. The
+active authenticated semantic definition supplies those facts, and the target
+document ID must belong to its declared target table.
+
+The exact result is:
+
+```text
+sources = [{ sourceDocumentId, duplicateOrdinal, position }]
+exhausted = boolean
+```
+
+This preserves the already-proved O10-R logical item and ordering contract.
+`duplicateOrdinal` remains zero in the admitted duplicate-forbidden profile;
+`position` preserves the scalar-null versus ordered-many position meaning. No
+source or target document is populated, and no caller cursor is returned.
+
+The Standard boundary strictly decodes and snapshots the complete request
+before reading active authority. Primitive, array, accessor, missing, extra,
+oversized, populated, cursor/offset, filter/order, and graph/traversal shapes
+fail there. The relation-read owner adds source-semantic preparation beside its
+existing internal-ID preparation, resolves exactly one authenticated active
+definition, and mints the same process-local O10-R capability. It does not
+expose the resolved numeric identities to Standard callers.
+
+The existing Application query snapshot owner adds one relation mode rather
+than a second query engine. It retains the same Scope-owned opaque handle,
+`ScopeExecution` located `READ COMMITTED` transaction, scope-clock share lock,
+serialized-use gate, trusted placement/fence/epoch checks, snapshot token, and
+history-retention proof. Open captures the active relation selection and the
+scope clock's `lastCommitSeq`. Read revalidates that exact selection in its
+transaction before edge access, validates the target table and limit, and then
+uses the selected S12 incoming page reader with its bounded lookahead.
+
+The relation snapshot accepts a page only when its adjacency versions are
+equal and do not exceed the captured snapshot commit sequence. A newer
+adjacency version is a typed retryable snapshot conflict; unequal or regressed
+evidence at or before the snapshot is stored-state failure. With no mutation
+overlay, the selected physical page's internal lookahead directly proves the
+logical `exhausted` result; RQ01 does not call or refactor the session journal,
+mint an execution claim, register an OCC dependency, or reproduce mutation
+read-your-writes policy.
+
+The current relation-readiness rule that accepts only `functions: []` remains
+unchanged. Consequently this private Standard operation reads the composite
+active head and invokes the relation snapshot directly. It performs no Source
+Artifact load, Worker definition/materialization, host transaction, RPC
+bridge, default identity decision, point read, or index read. `SV-R` retains
+ownership of the later real function-runtime integration.
+
+Focused proof must establish in both PGlite and genuine PostgreSQL:
+
+- present, empty, exact exhaustion, stable ordering, and the 128-identity
+  boundary through the active relation selection;
+- strict rejection of malformed, foreign-target, oversized, populated,
+  cursor, filter, graph, Legacy/unready, superseded-selection, and
+  post-snapshot-adjacency cases before application-row loading;
+- exact query observation proving only the bounded edge page is read; and
+- unchanged application rows, current edges, adjacency versions, journal and
+  result evidence, execution claims, idempotency outcomes, scope commits,
+  change facts, feeds, outbox rows, and scope-clock commit/outbox counters.
+
 Prerequisite: RA01 has activated the private relation-bearing revision after
 O10-R proved the logical incoming page and selected snapshot reader.
 

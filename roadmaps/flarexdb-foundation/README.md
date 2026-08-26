@@ -816,9 +816,11 @@ Dynamic Worker binding baseline before selecting it.
     exact Legacy/relation transitions and both real activation-versus-builder
     lock orders. No route, production caller, fallback, second head, or
     candidate-query bypass was added.
-20. `RQ01`: compose that proven capability into one private, read-only Standard
-    relation query without adding public developer ergonomics or production
-    routing.
+20. `RQ01` (implementation preflight approved): compose that proven capability
+    into the direct private `takeIncomingRelationSources` Standard operation
+    through the existing active query-snapshot owner. Keep the empty-function
+    readiness gate and add no Worker API, mutation journal, public developer
+    ergonomics, or production routing.
 21. `R03`: publish relation change facts through the existing scope commit and
     prove fenced sync invalidation/reconnect semantics; relation subscriptions
     remain absent before this gate.

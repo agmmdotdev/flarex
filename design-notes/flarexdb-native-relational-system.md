@@ -1,11 +1,10 @@
 # FlarexDB Native Relational System
 
-Status: accepted architecture; private semantic/codec/Application Analysis gate
-`R01` and physical snapshot/access preflight `R01-P` completed on 2026-08-23;
-stable relation/physical-definition binding `R02` and private current-edge
-storage `S12` completed on 2026-08-24
+Status: accepted architecture; private system core through `RA01` is complete;
+the direct read-only Standard relation query `RQ01` has an approved
+implementation preflight
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-26
 
 This note defines the ownership, API layering, logical model, and correctness
 boundaries for relationships in FlarexDB. It is an addendum to
@@ -263,6 +262,18 @@ read current relation state for trusted admin/adapter use
 Each executable System operation must ship with its real implementation,
 typed failures, Effect/resource lifetime where required, test adapter, and first
 real consumer. A contract-only facade over missing behavior is rejected.
+
+The accepted first private Standard read operation is the unversioned
+`takeIncomingRelationSources`. Its exact input selects a relation by the owning
+source `{ table, path }`, supplies one target document ID and a limit from 1 to
+128, and accepts no physical identity, caller cursor, population, filter, or
+graph shape. Its exact result is `{ sources, exhausted }`; each source retains
+the O10-R logical `sourceDocumentId`, `duplicateOrdinal`, and `position`.
+
+RQ01 composes this operation directly through the active Application query
+snapshot owner because relation readiness still deliberately accepts only an
+empty function catalog. It is not the function-runtime API described below.
+The relation-aware Worker/function vertical remains owned by `SV-R` after R03.
 
 ### Function Runtime APIs
 
@@ -731,6 +742,7 @@ The relation work should proceed through these bounded stages:
     native system.
 
 The first implementation checkpoint, physical preflight, stable binding, and
-private edge storage are complete at `R01`/`R01-P`/`R02`/`S12`. C09
-authoritative commit lowering is next. Do not start runtime reads or a
-Payload-shaped public API before their own gates.
+private edge storage are complete at `R01`/`R01-P`/`R02`/`S12`; C09, E01,
+O10-R, and RA01 are also complete at their private system-core boundaries.
+RQ01 is the approved next direct read-only Standard slice. Do not widen it into
+the later function runtime, sync facts, or a Payload-shaped public API.
