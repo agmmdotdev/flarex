@@ -16,7 +16,10 @@ on 2026-08-26: the activation-owned core now preserves one private active
 relation revision while replacement candidates are prepared, advances the
 single existing head across exact Legacy/relation transitions, and proves both
 activation-versus-builder lock orders. No RQ01 query, public developer API, or
-Payload adapter is implemented.
+Payload adapter was part of RA01. `RQ01` completed separately on 2026-08-26:
+the private Standard system core now exposes one direct, read-only logical
+incoming-relation query while retaining the empty-function readiness gate. No
+public developer API, Worker relation runtime, or Payload adapter is implemented.
 
 Filename note: this file retains `04-payload-relational-contract.md` so existing
 roadmap and design-note links remain stable. Payload no longer owns the framing
@@ -2189,14 +2192,14 @@ Focused persistence proofs now establish:
 
 The package typecheck, core and changed-diff lint, exact staged lint, all 69
 E01-B PGlite tests, all 6 focused genuine-PostgreSQL tests, and both standing
-reviews pass. The implementation adds no RQ01 query, higher relation API,
+reviews pass. That checkpoint added no RQ01 query, higher relation API,
 route, SDK, framework adapter, second head, fallback, comparison authority, or
-dual write. These receipts close RA01; RQ01 is the next separate roadmap slice
-and remains unapproved here.
+dual write. Those receipts close RA01; RQ01 was separately preflighted and is
+completed below.
 
-### [ ] RQ01 — Compose One Read-Only Standard Relation Query
+### [x] RQ01 — Compose One Read-Only Standard Relation Query
 
-Status: implementation preflight approved on 2026-08-26. This is one medium,
+Status: completed on 2026-08-26. This is one medium,
 private system-core slice through the existing active Application query
 snapshot and Standard invocation owners. It does not authorize a relation-aware
 function Worker, a nonempty relation-bearing function catalog, a public route
@@ -2301,6 +2304,35 @@ Exit gates:
   shapes reject before application-row loading;
 - query execution publishes no row, edge, result, commit, feed, or outbox
   mutation.
+
+#### RQ01 completion checkpoint
+
+The private unversioned `takeIncomingRelationSources` operation now composes
+the active relation selection through `ApplicationRelationQuerySystem`, the
+existing Application query-snapshot owner, and the O10-R relation-read owner.
+Standard strictly snapshots and decodes the complete logical request before
+active-authority I/O. Persistence resolves the semantic source table/path to
+one authenticated active relation, keeps numeric table and edge identities in
+module-local opaque snapshot state, and performs one bounded S12 incoming-page
+read inside the existing located `READ COMMITTED` scope execution.
+
+The shared paired-engine proof covers empty, 129-source lookahead, and exactly
+128-source exhaustion; stable logical order and item projection; exact SQL,
+placeholders, parameters, and `limit + 1 = 129`; foreign target rejection;
+post-open adjacency change; a genuinely current Legacy selection; and a
+superseded relation selection. The Legacy and stale-selection cells make edge
+storage unavailable to prove rejection before edge access. Read-only state is
+compared across 22 write-bearing application, relation, journal, session,
+claim, result, commit, feed, outbox, and clock tables.
+
+The focused Standard suite passes 15/15, the new PGlite proof passes 1/1, the
+new genuine PostgreSQL 18 proof passes 2/2 under a non-superuser, and the
+existing genuine-PostgreSQL relation-readiness suite passes 6/6. The three
+owning package typechecks, core lint, changed-diff lint, and both standing
+reviews pass. RQ01 adds no Worker/function execution, mutation journal or OCC
+dependency, application-row population, caller cursor, route, SDK, framework
+adapter, alternate query engine, or production cutover. `R03` is the next
+separate relation roadmap slice.
 
 ### [ ] R03 — Relation Change Facts And Sync Invalidation
 

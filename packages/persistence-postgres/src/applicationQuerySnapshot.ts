@@ -28,6 +28,9 @@ import {
 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
+  RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1,
+} from "flarex-protocol/internal/application-schema-binding";
+import {
   MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
@@ -77,12 +80,31 @@ import {
   type AppDeveloperIndexDefinitionPortV1,
 } from "./appDeveloperIndexCommitV1";
 import {
+  claimApplicationRelationActiveSelection,
   claimApplicationActiveSelection,
+  type ApplicationRelationActiveSelectionSnapshot,
   validateApplicationActiveSelectionInTransaction,
   type ApplicationActiveSelection,
   type ApplicationActiveSelectionBasis,
   type ApplicationActivationError,
 } from "./applicationActivation";
+import {
+  type AppRelationEdgeQueryObservation,
+  type AppRelationEdgeReadError,
+  readIncomingAppRelationEdgePageInTransactionEffect,
+} from "./appRelationEdges";
+import {
+  applicationRelationIncomingReadItemFromEdge,
+  hasApplicationRelationReadPortAuthorityForControlDb,
+  type ApplicationRelationIncomingReadItem,
+  type ApplicationRelationReadCapability,
+  type ApplicationRelationReadPort,
+  type ApplicationRelationSourceReference,
+  type PrepareApplicationRelationReadCapabilityError,
+  type ResolveApplicationRelationReadCapabilityInput,
+  type ResolvedApplicationRelationReadCapability,
+  type ValidateApplicationRelationReadCapabilityError,
+} from "./applicationRelationRead";
 import {
   hasApplicationSchemaAuthorityComposition,
   type ApplicationSchemaAuthority,
@@ -176,6 +198,14 @@ export interface ApplicationQuerySnapshotMetadata {
   readonly budget: ApplicationQueryBudget;
 }
 
+interface ApplicationRelationQuerySnapshotMetadata {
+  readonly basis: ApplicationRelationActiveSelectionSnapshot;
+  readonly relation: ApplicationRelationSourceReference;
+  readonly sourceTableId: CatalogTableId;
+  readonly targetTableId: CatalogTableId;
+  readonly snapshotToken: SnapshotToken;
+}
+
 declare const applicationQuerySnapshotBrand: unique symbol;
 export interface ApplicationQuerySnapshot {
   readonly [applicationQuerySnapshotBrand]: true;
@@ -184,6 +214,25 @@ export interface ApplicationQuerySnapshot {
 export interface OpenedApplicationQuerySnapshot {
   readonly snapshot: ApplicationQuerySnapshot;
   readonly metadata: ApplicationQuerySnapshotMetadata;
+}
+
+declare const applicationRelationQuerySnapshotBrand: unique symbol;
+export interface ApplicationRelationQuerySnapshot {
+  readonly [applicationRelationQuerySnapshotBrand]: true;
+}
+
+export interface OpenedApplicationRelationQuerySnapshot {
+  readonly snapshot: ApplicationRelationQuerySnapshot;
+}
+
+export interface ApplicationRelationQueryPage {
+  readonly sources: ReadonlyArray<ApplicationRelationIncomingReadItem>;
+  readonly exhausted: boolean;
+}
+
+export interface ApplicationRelationQueryReadOptions {
+  /** Test-only receipt of the exact compiled physical page statement. */
+  readonly observeQuery?: (query: AppRelationEdgeQueryObservation) => void;
 }
 
 export type ApplicationQueryPointReadResult =
@@ -219,6 +268,21 @@ export class ApplicationQuerySnapshotError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
+export class ApplicationRelationQuerySnapshotError extends Data.TaggedError(
+  "ApplicationRelationQuerySnapshotError",
+)<{
+  readonly operation: "open" | "read";
+  readonly reason:
+    | "invalidComposition"
+    | "invalidInput"
+    | "unsupportedTarget"
+    | "historyUnavailable"
+    | "snapshotChanged"
+    | "resourceFailure";
+  readonly retryable: boolean;
+  readonly cause?: unknown;
+}> {}
+
 export type OpenApplicationQuerySnapshotError =
   | ApplicationQuerySnapshotError
   | ApplicationActivationError
@@ -242,6 +306,24 @@ export type UseApplicationQuerySnapshotError =
   | LockScopeClockForShareError
   | LocatedReadCommittedTransactionFailureV1;
 
+export type OpenApplicationRelationQuerySnapshotError =
+  | ApplicationRelationQuerySnapshotError
+  | ApplicationActivationError
+  | PrepareApplicationRelationReadCapabilityError
+  | TrustedScopeAuthorityError
+  | ScopeExecutionAuthorityError
+  | LockScopeClockForShareError
+  | LocatedReadCommittedTransactionFailureV1;
+
+export type UseApplicationRelationQuerySnapshotError =
+  | ApplicationRelationQuerySnapshotError
+  | AppDocumentIdV1Error
+  | ValidateApplicationRelationReadCapabilityError
+  | AppRelationEdgeReadError
+  | ScopeExecutionAuthorityError
+  | LockScopeClockForShareError
+  | LocatedReadCommittedTransactionFailureV1;
+
 export interface ApplicationQuerySnapshotContext {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
@@ -250,6 +332,15 @@ export interface ApplicationQuerySnapshotContext {
   >;
   readonly schema: ApplicationSchemaAuthorityPublisher<unknown>;
   readonly developerIndexes: AppDeveloperIndexDefinitionPortV1;
+}
+
+export interface ApplicationRelationQuerySnapshotContext {
+  readonly deploymentId: string;
+  readonly controlDb: FlarexMetadataDatabase;
+  readonly authority: TrustedScopeAuthorityResolutionPorts<
+    LocatedReadCommittedAttemptTargetV1
+  >;
+  readonly relations: ApplicationRelationReadPort;
 }
 
 interface Usage {
@@ -273,7 +364,25 @@ interface State {
   readonly closed: Ref.Ref<boolean>;
 }
 
+interface RelationState {
+  readonly scopeExecution: ScopeExecutionApi;
+  readonly capability: ApplicationRelationReadCapability;
+  readonly relations: ApplicationRelationReadPort;
+  readonly resolved: ResolvedApplicationRelationReadCapability;
+  readonly resolveInput: ResolveApplicationRelationReadCapabilityInput;
+  readonly located: LocatedTrustedScopeAuthority<
+    LocatedReadCommittedAttemptTargetV1
+  >;
+  readonly metadata: ApplicationRelationQuerySnapshotMetadata;
+  readonly readGate: Semaphore.Semaphore;
+  readonly closed: Ref.Ref<boolean>;
+}
+
 const states = new WeakMap<ApplicationQuerySnapshot, State>();
+const relationStates = new WeakMap<
+  ApplicationRelationQuerySnapshot,
+  RelationState
+>();
 
 const openScopedOperation = defineScopedReadOperation(
   (tx, scoped, input: Readonly<{
@@ -317,6 +426,46 @@ const indexReadScopedOperation = defineScopedReadOperation(
     readonly bounds: OrderedIndexBoundsV1;
     readonly limit: number;
   }>) => readIndexInTransaction(tx, scoped, input),
+);
+
+const relationOpenScopedOperation = defineScopedReadOperation(
+  (tx, scoped, input: Readonly<{
+    readonly relations: ApplicationRelationReadPort;
+    readonly capability: ApplicationRelationReadCapability;
+    readonly deploymentId: ResolveApplicationRelationReadCapabilityInput["deploymentId"];
+    readonly basis: ApplicationRelationActiveSelectionSnapshot;
+  }>) => Effect.gen(function* () {
+    yield* input.relations.validateInTransaction(
+      input.capability,
+      {
+        deploymentId: input.deploymentId,
+        scopeId: input.basis.authority.scopeId,
+        schemaVersionId: input.basis.schemaVersionId,
+      },
+      tx,
+      scoped.clock,
+    );
+    yield* requireRelationHistoryAvailable(
+      tx,
+      scoped.clock,
+      scoped.clock.lastCommitSeq,
+      "open",
+    );
+    return Object.freeze(SnapshotTokenSchema.make({
+      scopeId: scoped.clock.scopeId,
+      epoch: scoped.clock.epoch,
+      commitSeq: scoped.clock.lastCommitSeq,
+    }));
+  }),
+);
+
+const relationReadScopedOperation = defineScopedReadOperation(
+  (tx, scoped, input: Readonly<{
+    readonly state: RelationState;
+    readonly targetRowId: AppDocumentIdentityV1["rowId"];
+    readonly limit: number;
+    readonly options: ApplicationRelationQueryReadOptions;
+  }>) => readRelationInTransaction(tx, scoped, input),
 );
 
 export const openApplicationQuerySnapshot = Effect.fn(
@@ -426,6 +575,102 @@ export const openApplicationQuerySnapshot = Effect.fn(
   return Object.freeze({ snapshot, metadata: snapshotMetadata(metadata) });
 });
 
+export const openApplicationRelationQuerySnapshot = Effect.fn(
+  "ApplicationQuerySnapshot.openRelation",
+)(function* (
+  selection: ApplicationActiveSelection,
+  relation: ApplicationRelationSourceReference,
+  context: ApplicationRelationQuerySnapshotContext,
+): Effect.fn.Return<
+  OpenedApplicationRelationQuerySnapshot,
+  OpenApplicationRelationQuerySnapshotError,
+  Scope.Scope | ScopeExecution
+> {
+  const scopeExecution = yield* ScopeExecution;
+  if (
+    !hasApplicationRelationReadPortAuthorityForControlDb(
+      context.relations,
+      context.controlDb,
+    )
+  ) return yield* relationFailure("open", "invalidComposition");
+  const basis = yield* Effect.fromResult(
+    claimApplicationRelationActiveSelection(selection),
+  );
+  const deploymentId = yield* Effect.fromResult(
+    decodeDeploymentIdResult(context.deploymentId).pipe(
+      Result.mapError(cause =>
+        relationFailureValue("open", "invalidComposition", false, cause)
+      ),
+    ),
+  );
+  if (basis.deploymentId !== context.deploymentId) {
+    return yield* relationFailure("open", "invalidComposition");
+  }
+  const capability = yield* context.relations.prepareBySource({
+    deploymentId,
+    selection,
+    relation,
+  });
+  const resolveInput = Object.freeze({
+    deploymentId,
+    scopeId: basis.authority.scopeId,
+    schemaVersionId: basis.schemaVersionId,
+  });
+  const resolved = yield* Effect.fromResult(
+    context.relations.resolve(capability, resolveInput),
+  );
+  yield* requireResolvedRelationAuthority(basis, resolved);
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    context.deploymentId,
+    context.authority,
+  );
+  yield* requireSameRelationAuthority(
+    basis.authority,
+    located.authority,
+  );
+  const snapshotToken = yield* runLocatedRelationRead(
+    scopeExecution,
+    located,
+    "open",
+    relationOpenScopedOperation,
+    Object.freeze({
+      relations: context.relations,
+      capability,
+      deploymentId,
+      basis,
+    }),
+  );
+  const metadata = relationSnapshotMetadata({
+    basis,
+    relation,
+    sourceTableId: resolved.definition.binding.sourceTableId,
+    targetTableId: resolved.definition.binding.targetTableId,
+    snapshotToken,
+  });
+  const closed = yield* Ref.make(false);
+  const state = Object.freeze({
+    scopeExecution,
+    capability,
+    relations: context.relations,
+    resolved,
+    resolveInput,
+    located,
+    metadata,
+    readGate: Semaphore.makeUnsafe(1),
+    closed,
+  });
+  const snapshot = yield* Effect.acquireRelease(
+    Effect.sync(() => issueRelationSnapshot(state)),
+    issued => Effect.gen(function* () {
+      yield* Ref.set(state.closed, true);
+      relationStates.delete(issued);
+    }),
+  );
+  return Object.freeze({
+    snapshot,
+  });
+});
+
 export const revalidateApplicationQuerySnapshot = Effect.fn(
   "ApplicationQuerySnapshot.revalidate",
 )(function* (snapshot: ApplicationQuerySnapshot): Effect.fn.Return<
@@ -498,6 +743,45 @@ export const readApplicationQueryIndex = Effect.fn(
 ): Effect.fn.Return<ApplicationQueryIndexPage, UseApplicationQuerySnapshotError> {
   const state = yield* Effect.fromResult(claim(snapshot, "indexRead"));
   return yield* state.readGate.withPermit(readIndex(state, tableName, indexDescriptor, bounds, limit));
+});
+
+export const readApplicationRelationQueryIncomingSources = Effect.fn(
+  "ApplicationQuerySnapshot.readIncomingRelationSources",
+)(function* (
+  snapshot: ApplicationRelationQuerySnapshot,
+  target: AppDocumentIdV1,
+  limit: number,
+  options: ApplicationRelationQueryReadOptions = Object.freeze({}),
+): Effect.fn.Return<
+  ApplicationRelationQueryPage,
+  UseApplicationRelationQuerySnapshotError
+> {
+  const state = yield* Effect.fromResult(claimRelationSnapshot(snapshot));
+  return yield* state.readGate.withPermit(Effect.gen(function* () {
+    yield* requireRelationOpen(state);
+    if (
+      !isPositiveSafeInteger(limit) ||
+      limit > RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1
+    ) return yield* relationFailure("read", "invalidInput");
+    const identity = yield* Effect.fromResult(
+      requireAppDocumentIdentityV1ForTableResult(
+        target,
+        state.metadata.targetTableId,
+      ),
+    );
+    return yield* runLocatedRelationRead(
+      state.scopeExecution,
+      state.located,
+      "read",
+      relationReadScopedOperation,
+      Object.freeze({
+        state,
+        targetRowId: identity.rowId,
+        limit,
+        options: Object.freeze({ ...options }),
+      }),
+    );
+  }));
 });
 
 function readIndex(
@@ -734,6 +1018,75 @@ function readIndexInTransaction(
   });
 }
 
+const readRelationInTransaction = Effect.fn(
+  "ApplicationQuerySnapshot.readRelationInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  scoped: ScopedTransactionContext,
+  input: Readonly<{
+    readonly state: RelationState;
+    readonly targetRowId: AppDocumentIdentityV1["rowId"];
+    readonly limit: number;
+    readonly options: ApplicationRelationQueryReadOptions;
+  }>,
+) {
+  const { state } = input;
+  const basis = state.metadata.basis;
+  yield* state.relations.validateInTransaction(
+    state.capability,
+    state.resolveInput,
+    tx,
+    scoped.clock,
+  );
+  yield* requireRelationClock(state, scoped.clock);
+  yield* requireRelationHistoryAvailable(
+    tx,
+    scoped.clock,
+    state.metadata.snapshotToken.commitSeq,
+    "read",
+  );
+  const page = yield* readIncomingAppRelationEdgePageInTransactionEffect(
+    tx,
+    {
+      scopeId: basis.authority.scopeId,
+      definition: state.resolved.definition.edge,
+      targetRowId: input.targetRowId,
+      maximumIdentities: input.limit,
+      ...(input.options.observeQuery === undefined
+        ? {}
+        : { observeQuery: input.options.observeQuery }),
+    },
+  );
+  const snapshotCommitSeq = state.metadata.snapshotToken.commitSeq;
+  if (
+    page.versionAfter < page.versionBefore ||
+    page.versionBefore > scoped.clock.lastCommitSeq ||
+    page.versionAfter > scoped.clock.lastCommitSeq
+  ) {
+    return yield* relationFailure("read", "resourceFailure");
+  }
+  if (
+    page.versionBefore !== page.versionAfter ||
+    page.versionBefore > snapshotCommitSeq
+  ) {
+    const newest = page.versionBefore > page.versionAfter
+      ? page.versionBefore
+      : page.versionAfter;
+    return yield* (newest > snapshotCommitSeq
+      ? relationFailure("read", "snapshotChanged", true)
+      : relationFailure("read", "resourceFailure"));
+  }
+  return Object.freeze({
+    sources: Object.freeze(page.items.map(item =>
+      applicationRelationIncomingReadItemFromEdge(
+        state.metadata.sourceTableId,
+        item,
+      )
+    )),
+    exhausted: page.exhausted,
+  });
+});
+
 function requireHistoryAvailable(
   tx: AppRowTransaction,
   clock: ScopeClockRecord,
@@ -758,6 +1111,34 @@ function requireHistoryAvailable(
     }
   });
 }
+
+const requireRelationHistoryAvailable = Effect.fn(
+  "ApplicationQuerySnapshot.requireRelationHistoryAvailable",
+)(function* (
+  tx: AppRowTransaction,
+  clock: ScopeClockRecord,
+  snapshotCommitSeq: CommitSeq,
+  operation: ApplicationRelationQuerySnapshotError["operation"],
+) {
+  if (snapshotCommitSeq > clock.lastCommitSeq) {
+    return yield* relationFailure(operation, "historyUnavailable");
+  }
+  const rows = yield* relationQuery(
+    tx.select({
+      oldestAvailableCommitSeq: fxSystemScopeClocks.oldestAvailableCommitSeq,
+    }).from(fxSystemScopeClocks).where(eq(
+      fxSystemScopeClocks.scopeId,
+      clock.scopeId,
+    )).limit(1),
+    operation,
+  );
+  if (
+    rows[0] === undefined ||
+    rows[0].oldestAvailableCommitSeq > snapshotCommitSeq
+  ) {
+    return yield* relationFailure(operation, "historyUnavailable");
+  }
+});
 
 function captureBudget(input: unknown) {
   if (!isNonArrayRecord(input) || Reflect.ownKeys(input).length !== 4) {
@@ -845,6 +1226,53 @@ function requireSameAuthority(
     : failure("open", "unsupportedTarget");
 }
 
+function requireSameRelationAuthority(
+  expected: TrustedScopeAuthority,
+  actual: TrustedScopeAuthority,
+) {
+  const left = expected.physicalLocator;
+  const right = actual.physicalLocator;
+  return expected.deploymentId === actual.deploymentId &&
+      expected.scopeId === actual.scopeId &&
+      expected.storageGeneration === actual.storageGeneration &&
+      expected.storageGenerationFence === actual.storageGenerationFence &&
+      expected.epoch === actual.epoch && left.kind === right.kind &&
+      left.databaseKey === right.databaseKey && left.schemaName === right.schemaName
+    ? Effect.void
+    : relationFailure("open", "unsupportedTarget");
+}
+
+function requireResolvedRelationAuthority(
+  basis: ApplicationRelationActiveSelectionSnapshot,
+  resolved: ResolvedApplicationRelationReadCapability,
+) {
+  const definition = resolved.definition;
+  const edge = definition.edge;
+  return resolved.storageGenerationFence ===
+      basis.authority.storageGenerationFence &&
+      resolved.epoch === basis.authority.epoch &&
+      resolved.definitions.schemaVersionId === basis.schemaVersionId &&
+      resolved.definitions.definitions.length === basis.relationCount &&
+      definition.binding.relationId === edge.relationId &&
+      definition.binding.sourceTableId === edge.physical.sourceTableId &&
+      definition.binding.targetTableId === edge.physical.targetTableId
+    ? Effect.void
+    : relationFailure("open", "resourceFailure");
+}
+
+function requireRelationClock(
+  state: RelationState,
+  clock: ScopeClockRecord,
+) {
+  const metadata = state.metadata;
+  return clock.scopeId === metadata.snapshotToken.scopeId &&
+      clock.epoch === metadata.snapshotToken.epoch &&
+      clock.storageGenerationFence === state.resolved.storageGenerationFence &&
+      clock.epoch === state.resolved.epoch
+    ? Effect.void
+    : relationFailure("read", "unsupportedTarget");
+}
+
 function requireExactDefinitions(
   schema: ApplicationSchemaAuthority,
   definitions: ReadonlyArray<LocatedAppIndexDefinitionV1>,
@@ -875,6 +1303,16 @@ function issue(state: State): ApplicationQuerySnapshot {
   return snapshot;
 }
 
+function issueRelationSnapshot(
+  state: RelationState,
+): ApplicationRelationQuerySnapshot {
+  // SAFETY: the snapshot is an inert identity token; all state lives in the
+  // module-local WeakMap keyed by this object identity.
+  const snapshot = Object.freeze({}) as ApplicationRelationQuerySnapshot;
+  relationStates.set(snapshot, state);
+  return snapshot;
+}
+
 function claim(snapshot: unknown, operation: ApplicationQuerySnapshotError["operation"]) {
   // SAFETY: the typeof guard below proves the value is a non-null object;
   // the cast only narrows it to the WeakMap's registered brand.
@@ -883,6 +1321,17 @@ function claim(snapshot: unknown, operation: ApplicationQuerySnapshotError["oper
     : undefined;
   return state === undefined
     ? Result.fail(failureValue(operation, "invalidComposition"))
+    : Result.succeed(state);
+}
+
+function claimRelationSnapshot(snapshot: unknown) {
+  // SAFETY: the typeof guard proves a non-null object; WeakMap membership is
+  // the process-local relation snapshot authority.
+  const state = typeof snapshot === "object" && snapshot !== null
+    ? relationStates.get(snapshot as ApplicationRelationQuerySnapshot)
+    : undefined;
+  return state === undefined
+    ? Result.fail(relationFailureValue("read", "invalidComposition"))
     : Result.succeed(state);
 }
 
@@ -916,6 +1365,46 @@ function snapshotMetadata(
     snapshotToken: Object.freeze({ ...metadata.snapshotToken }),
     budget: Object.freeze({ ...metadata.budget }),
   });
+}
+
+function relationSnapshotMetadata(
+  metadata: ApplicationRelationQuerySnapshotMetadata,
+): ApplicationRelationQuerySnapshotMetadata {
+  return Object.freeze({
+    basis: Object.freeze({
+      ...metadata.basis,
+      authority: Object.freeze({
+        ...metadata.basis.authority,
+        physicalLocator: Object.freeze({
+          ...metadata.basis.authority.physicalLocator,
+        }),
+      }),
+      readinessSha256: copyBytes(metadata.basis.readinessSha256),
+      relationSetReadinessSha256:
+        copyBytes(metadata.basis.relationSetReadinessSha256),
+      activationSha256: copyBytes(metadata.basis.activationSha256),
+      headSha256: copyBytes(metadata.basis.headSha256),
+    }),
+    relation: Object.freeze({
+      source: Object.freeze({
+        table: metadata.relation.source.table,
+        path: copyRelationSourcePath(metadata.relation.source.path),
+      }),
+    }),
+    sourceTableId: metadata.sourceTableId,
+    targetTableId: metadata.targetTableId,
+    snapshotToken: Object.freeze({ ...metadata.snapshotToken }),
+  });
+}
+
+function copyRelationSourcePath(
+  path: ApplicationRelationSourceReference["source"]["path"],
+): ApplicationRelationSourceReference["source"]["path"] {
+  const segment = path[0];
+  return Object.freeze([Object.freeze({
+    kind: segment.kind,
+    name: segment.name,
+  })]);
 }
 
 function charge(
@@ -975,6 +1464,12 @@ function requireOpen(
     : Effect.void));
 }
 
+function requireRelationOpen(state: RelationState) {
+  return Ref.get(state.closed).pipe(Effect.flatMap(closed => closed
+    ? relationFailure("read", "invalidComposition")
+    : Effect.void));
+}
+
 function query<Row>(
   statement: PromiseLike<ReadonlyArray<Row>>,
   operation: ApplicationQuerySnapshotError["operation"],
@@ -982,6 +1477,21 @@ function query<Row>(
   return Effect.tryPromise({
     try: () => Promise.resolve(statement),
     catch: cause => failureValue(
+      operation,
+      "resourceFailure",
+      isRetryableTransactionCause(cause),
+      cause,
+    ),
+  });
+}
+
+function relationQuery<Row>(
+  statement: PromiseLike<ReadonlyArray<Row>>,
+  operation: ApplicationRelationQuerySnapshotError["operation"],
+) {
+  return Effect.tryPromise({
+    try: () => Promise.resolve(statement),
+    catch: cause => relationFailureValue(
       operation,
       "resourceFailure",
       isRetryableTransactionCause(cause),
@@ -1023,6 +1533,31 @@ function failureValue(
   });
 }
 
+function relationFailure(
+  operation: ApplicationRelationQuerySnapshotError["operation"],
+  reason: ApplicationRelationQuerySnapshotError["reason"],
+  retryable = false,
+  cause?: unknown,
+) {
+  return Effect.fail(
+    relationFailureValue(operation, reason, retryable, cause),
+  );
+}
+
+function relationFailureValue(
+  operation: ApplicationRelationQuerySnapshotError["operation"],
+  reason: ApplicationRelationQuerySnapshotError["reason"],
+  retryable = false,
+  cause?: unknown,
+) {
+  return new ApplicationRelationQuerySnapshotError({
+    operation,
+    reason,
+    retryable,
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
 const runLocatedRead = Effect.fn(
   "ApplicationQuerySnapshot.runLocatedRead",
 )(function <Input, Value, Failure>(
@@ -1041,6 +1576,27 @@ const runLocatedRead = Effect.fn(
     rollbackMessage: "Application query transaction rolled back.",
     cleanupDefect: cause =>
       failureValue(errorOperation, "resourceFailure", false, cause),
+  }, operation, input);
+});
+
+const runLocatedRelationRead = Effect.fn(
+  "ApplicationQuerySnapshot.runLocatedRelationRead",
+)(function <Input, Value, Failure>(
+  scopeExecution: ScopeExecutionApi,
+  located: LocatedTrustedScopeAuthority<LocatedReadCommittedAttemptTargetV1>,
+  errorOperation: ApplicationRelationQuerySnapshotError["operation"],
+  operation: ScopedReadOperation<Input, Value, Failure>,
+  input: Input,
+): Effect.Effect<
+  Value,
+  Failure | ApplicationRelationQuerySnapshotError |
+    ScopeExecutionAuthorityError | LockScopeClockForShareError |
+    LocatedReadCommittedTransactionFailureV1
+> {
+  return scopeExecution.runRead(located, {
+    rollbackMessage: "Application relation query transaction rolled back.",
+    cleanupDefect: cause =>
+      relationFailureValue(errorOperation, "resourceFailure", false, cause),
   }, operation, input);
 });
 

@@ -1,8 +1,7 @@
 # FlarexDB Native Relational System
 
-Status: accepted architecture; private system core through `RA01` is complete;
-the direct read-only Standard relation query `RQ01` has an approved
-implementation preflight
+Status: accepted architecture; private system core through the direct
+read-only Standard relation query `RQ01` is complete
 
 Last reviewed: 2026-08-26
 
@@ -743,6 +742,7 @@ The relation work should proceed through these bounded stages:
 
 The first implementation checkpoint, physical preflight, stable binding, and
 private edge storage are complete at `R01`/`R01-P`/`R02`/`S12`; C09, E01,
-O10-R, and RA01 are also complete at their private system-core boundaries.
-RQ01 is the approved next direct read-only Standard slice. Do not widen it into
-the later function runtime, sync facts, or a Payload-shaped public API.
+O10-R, RA01, and RQ01 are also complete at their private system-core
+boundaries. R03 is the next separate relation slice. Do not widen it into the
+later function runtime, a Payload-shaped public API, or unrelated commit
+authority.

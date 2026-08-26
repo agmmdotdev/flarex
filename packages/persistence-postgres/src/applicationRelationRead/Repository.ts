@@ -24,6 +24,7 @@ import {
   type ApplicationRelationReadinessFoldRepository,
 } from "../applicationRelationReadinessFold";
 import {
+  type ApplicationRelationSourceReference,
   type ApplicationRelationReadCapability,
   type ApplicationRelationReadPort,
   ApplicationRelationReadUnavailableError,
@@ -77,62 +78,25 @@ export function createApplicationRelationReadPort(
 
   const prepare: ApplicationRelationReadPort["prepare"] = Effect.fn(
     "ApplicationRelationRead.prepare",
-  )(function* (input) {
-    if (!compositionIsExact()) {
-      return yield* unavailable("invalidComposition");
-    }
-    const active = yield* validateApplicationRelationActiveSelectionForReadiness(
-      readiness,
-      input.selection,
-      input.deploymentId,
-      {
-        scopeMetadata: authority.scopeMetadata,
-        provisioningReceipts: authority.provisioningReceipts,
-        scopeClockTargets: authority.scopeSessionTargets,
-      },
-    );
-    const selectionSnapshot = yield* Effect.fromResult(
-      claimApplicationRelationActiveSelection(input.selection),
-    );
-    const located = active.definitions;
-    if (
-      !hasLocatedApplicationRelationDefinitionSetAuthority(
-        definitions,
-        located,
-      ) ||
-      located.definitions.length !== active.relationCount
-    ) {
-      return yield* unavailable("definitionSetUnavailable");
-    }
-    const matches = located.definitions.filter((definition) =>
-      definition.binding.relationId === input.relationId
-    );
-    const definition = matches[0];
-    if (definition === undefined || matches.length !== 1) {
-      return yield* unavailable("definitionNotFound");
-    }
-    yield* Effect.fromResult(prepareApplicationRelationReadOverlayResult(
-      located,
-      definition.edge.edgeDefinitionId,
-      Object.freeze([]),
-    ).pipe(
-      Result.mapError(() => unavailableValue("definitionNotEligible")),
+  )(input => prepareCapability(
+    state,
+    compositionIsExact,
+    input,
+    definition => definition.binding.relationId === input.relationId,
+  ));
+
+  const prepareBySource: ApplicationRelationReadPort["prepareBySource"] =
+    Effect.fn(
+      "ApplicationRelationRead.prepareBySource",
+    )(input => prepareCapability(
+      state,
+      compositionIsExact,
+      input,
+      definition => relationSourceMatches(
+        definition,
+        input.relation,
+      ),
     ));
-    const capability = makeApplicationRelationReadCapability();
-    capabilityStates.set(capability, Object.freeze({
-      port: state,
-      selection: input.selection,
-      selectionSnapshot,
-      deploymentId: input.deploymentId,
-      scopeId: active.authority.scopeId,
-      schemaVersionId: active.schemaVersionId,
-      definitions: located,
-      definition,
-      storageGenerationFence: active.authority.storageGenerationFence,
-      epoch: active.authority.epoch,
-    }));
-    return capability;
-  });
 
   const resolve: ApplicationRelationReadPort["resolve"] = (
     capability,
@@ -186,12 +150,96 @@ export function createApplicationRelationReadPort(
   const port = Object.freeze({
     readiness,
     prepare,
+    prepareBySource,
     resolve,
     validateInTransaction,
     lowerOverlay,
   });
   if (compositionIsExact()) portStates.set(port, state);
   return port;
+}
+
+const prepareCapability = Effect.fn(
+  "ApplicationRelationRead.prepareCapability",
+)(function* (
+  state: ApplicationRelationReadPortState,
+  compositionIsExact: () => boolean,
+  input: Readonly<{
+    readonly deploymentId: ApplicationRelationReadCapabilityState["deploymentId"];
+    readonly selection: ApplicationActiveSelection;
+  }>,
+  matchesDefinition: (
+    definition: LocatedApplicationRelationDefinition,
+  ) => boolean,
+) {
+  if (!compositionIsExact()) {
+    return yield* unavailable("invalidComposition");
+  }
+  const { readiness, authority, definitions } = state;
+  const active = yield* validateApplicationRelationActiveSelectionForReadiness(
+    readiness,
+    input.selection,
+    input.deploymentId,
+    {
+      scopeMetadata: authority.scopeMetadata,
+      provisioningReceipts: authority.provisioningReceipts,
+      scopeClockTargets: authority.scopeSessionTargets,
+    },
+  );
+  const selectionSnapshot = yield* Effect.fromResult(
+    claimApplicationRelationActiveSelection(input.selection),
+  );
+  const located = active.definitions;
+  if (
+    !hasLocatedApplicationRelationDefinitionSetAuthority(
+      definitions,
+      located,
+    ) ||
+    located.definitions.length !== active.relationCount
+  ) {
+    return yield* unavailable("definitionSetUnavailable");
+  }
+  const matches = located.definitions.filter(matchesDefinition);
+  const definition = matches[0];
+  if (definition === undefined || matches.length !== 1) {
+    return yield* unavailable("definitionNotFound");
+  }
+  yield* Effect.fromResult(prepareApplicationRelationReadOverlayResult(
+    located,
+    definition.edge.edgeDefinitionId,
+    Object.freeze([]),
+  ).pipe(
+    Result.mapError(() => unavailableValue("definitionNotEligible")),
+  ));
+  const capability = makeApplicationRelationReadCapability();
+  capabilityStates.set(capability, Object.freeze({
+    port: state,
+    selection: input.selection,
+    selectionSnapshot,
+    deploymentId: input.deploymentId,
+    scopeId: active.authority.scopeId,
+    schemaVersionId: active.schemaVersionId,
+    definitions: located,
+    definition,
+    storageGenerationFence: active.authority.storageGenerationFence,
+    epoch: active.authority.epoch,
+  }));
+  return capability;
+});
+
+function relationSourceMatches(
+  definition: LocatedApplicationRelationDefinition,
+  relation: ApplicationRelationSourceReference,
+): boolean {
+  const expected = definition.semantic.declaration.source;
+  const actual = relation.source;
+  return expected.table === actual.table &&
+    expected.path.length === actual.path.length &&
+    expected.path.every((segment, index) => {
+      const candidate = actual.path[index];
+      return candidate !== undefined && candidate.kind === segment.kind &&
+        candidate.name === segment.name;
+    });
 }
 
 export function hasApplicationRelationReadPortAuthorityForControlDb(

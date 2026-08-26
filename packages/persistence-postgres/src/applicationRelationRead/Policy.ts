@@ -160,15 +160,8 @@ export function mergeApplicationRelationIncomingPageResult(
     }
   }
 
-  const page = merged.slice(0, input.maximumIdentities).map((item) =>
-    Object.freeze({
-      sourceDocumentId: appDocumentIdV1FromRowIdentity({
-        tableId: input.sourceTableId,
-        rowId: item.sourceRowId,
-      }),
-      duplicateOrdinal: item.duplicateOrdinal,
-      position: item.position,
-    })
+  const page = merged.slice(0, input.maximumIdentities).map(item =>
+    applicationRelationIncomingReadItemFromEdge(input.sourceTableId, item)
   );
   return Result.succeed(Object.freeze({
     status: "complete",
@@ -176,6 +169,23 @@ export function mergeApplicationRelationIncomingPageResult(
     exhausted: input.baseExhausted &&
       merged.length <= input.maximumIdentities,
   }));
+}
+
+export function applicationRelationIncomingReadItemFromEdge(
+  sourceTableId: CatalogTableId,
+  item: Pick<
+    AppRelationEdgeIncomingPageItem,
+    "sourceRowId" | "duplicateOrdinal" | "position"
+  >,
+): ApplicationRelationIncomingReadItem {
+  return Object.freeze({
+    sourceDocumentId: appDocumentIdV1FromRowIdentity({
+      tableId: sourceTableId,
+      rowId: item.sourceRowId,
+    }),
+    duplicateOrdinal: item.duplicateOrdinal,
+    position: item.position,
+  });
 }
 
 function compareIncomingPositions(

@@ -10,6 +10,10 @@ import type {
 } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from
   "flarex-protocol/transaction-grant";
+import type {
+  RelationIdentityV1,
+  RelationSourcePathV1,
+} from "flarex-protocol/internal/relation-declaration-v1";
 
 import type {
   ApplicationRelationRowTransition,
@@ -49,6 +53,20 @@ export interface PrepareApplicationRelationReadCapabilityInput {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly selection: ApplicationActiveSelection;
   readonly relationId: CatalogRelationId;
+}
+
+/** Logical source-owned selector; it contains no catalog or physical identity. */
+export interface ApplicationRelationSourceReference {
+  readonly source: Readonly<{
+    readonly table: RelationIdentityV1;
+    readonly path: RelationSourcePathV1;
+  }>;
+}
+
+export interface PrepareApplicationRelationReadCapabilityBySourceInput {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly selection: ApplicationActiveSelection;
+  readonly relation: ApplicationRelationSourceReference;
 }
 
 export interface ResolveApplicationRelationReadCapabilityInput {
@@ -97,6 +115,12 @@ export interface ApplicationRelationReadPort {
   readonly readiness: ApplicationRelationReadinessFoldRepository;
   readonly prepare: (
     input: PrepareApplicationRelationReadCapabilityInput,
+  ) => Effect.Effect<
+    ApplicationRelationReadCapability,
+    PrepareApplicationRelationReadCapabilityError
+  >;
+  readonly prepareBySource: (
+    input: PrepareApplicationRelationReadCapabilityBySourceInput,
   ) => Effect.Effect<
     ApplicationRelationReadCapability,
     PrepareApplicationRelationReadCapabilityError

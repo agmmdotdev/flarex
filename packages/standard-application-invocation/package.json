@@ -14,6 +14,7 @@
     "./internal/system-test/system-action-v1": "./src/actionSystemV1.ts",
     "./internal/system-test/system-query-v1": "./src/querySystemV1.ts",
     "./internal/application-query-system": "./src/ApplicationQuerySystem.ts",
+    "./internal/application-relation-query-system": "./src/ApplicationRelationQuerySystem.ts",
     "./internal/application-mutation-system": "./src/ApplicationMutationSystem.ts",
     "./internal/application-action-system": "./src/ApplicationActionSystem.ts",
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
