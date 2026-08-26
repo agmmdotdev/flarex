@@ -1,7 +1,11 @@
-import { copyBytes, isUint8ArrayWithByteLength } from "@flarex/utils/bytes";
+import {
+  copyBytes,
+  encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
-import { Data, Effect } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import {
   decodeUserIdentityEffect,
@@ -21,6 +25,10 @@ import {
   type CanonicalFlarexRuntimeValueV1,
 } from "./value";
 import {
+  TransactionRequestKeyV1Schema,
+  type TransactionRequestKeyV1,
+} from "./transaction-session";
+import {
   validatorJsonAdmissionIssueV1,
   type ValidatorJsonV1,
 } from "./validator-json";
@@ -37,8 +45,13 @@ export const EDGE_ACTION_EXACT_RUNTIME_RANDOM_SEED_BYTES_V1 = 32;
 export const EDGE_ACTION_EXACT_RUNTIME_DIGEST_BYTES_V1 = 32;
 export const MAX_EDGE_ACTION_EXACT_RUNTIME_TEXT_BYTES_V1 = 4_096;
 export const MAX_EDGE_ACTION_EXACT_RUNTIME_AUTH_BYTES_V1 = 64 * 1_024;
+export const EDGE_ACTION_CHILD_MUTATION_REQUEST_KEY_PREFIX_V1 =
+  "edge-action-mutation:v1:" as const;
 
 const UTF8 = new TextEncoder();
+const decodeTransactionRequestKeyV1 = Schema.decodeUnknownResult(
+  TransactionRequestKeyV1Schema,
+);
 
 export type EdgeActionExactRuntimeAuthV1 =
   | Readonly<{ readonly kind: "anonymous" }>
@@ -103,6 +116,42 @@ export class EdgeActionExactRuntimeProtocolV1Error extends Data.TaggedError(
   readonly path?: string;
   readonly cause?: unknown;
 }> {}
+
+export class EdgeActionChildMutationRequestKeyV1Error extends Data.TaggedError(
+  "EdgeActionChildMutationRequestKeyV1Error",
+)<{
+  readonly reason: "invalidDigest" | "invalidProjection";
+}> {}
+
+export function edgeActionChildMutationRequestKeyV1FromDigest(
+  input: unknown,
+): Result.Result<
+  TransactionRequestKeyV1,
+  EdgeActionChildMutationRequestKeyV1Error
+> {
+  if (!isUint8ArrayWithByteLength(input, EDGE_ACTION_EXACT_RUNTIME_DIGEST_BYTES_V1)) {
+    return Result.fail(new EdgeActionChildMutationRequestKeyV1Error({
+      reason: "invalidDigest",
+    }));
+  }
+  let ownedDigest: Uint8Array;
+  try {
+    ownedDigest = copyBytes(input);
+  } catch {
+    return Result.fail(new EdgeActionChildMutationRequestKeyV1Error({
+      reason: "invalidDigest",
+    }));
+  }
+  const requestKey =
+    `${EDGE_ACTION_CHILD_MUTATION_REQUEST_KEY_PREFIX_V1}${
+      encodeBytesToLowercaseHex(ownedDigest)
+    }`;
+  return decodeTransactionRequestKeyV1(requestKey).pipe(
+    Result.mapError(() => new EdgeActionChildMutationRequestKeyV1Error({
+      reason: "invalidProjection",
+    })),
+  );
+}
 
 export const decodeEdgeActionExactRuntimeRequestV1Effect = Effect.fn(
   "EdgeActionExactRuntimeProtocol.decodeRequestV1",

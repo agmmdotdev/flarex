@@ -1,4 +1,4 @@
-import { Data, Effect, Fiber, Layer, Result, Scope } from "effect";
+import { Data, Effect, Fiber, Layer, ManagedRuntime, Result, Scope } from "effect";
 import { copyBytes } from "@flarex/utils/bytes";
 import type {
   TransactionFunctionPathV1,
@@ -6,7 +6,11 @@ import type {
 } from "flarex-protocol/transaction-session";
 import type { CanonicalFlarexRuntimeValueV1 } from "flarex-protocol/value";
 import type { Json } from "flarex-protocol/json";
-import { TransactionFunctionPathV1Schema } from
+import type { ExecutionIdentity } from "flarex-protocol/auth";
+import {
+  TransactionFunctionPathV1Schema,
+  TransactionRequestKeyV1Schema,
+} from
   "flarex-protocol/transaction-session";
 import {
   validateValidatorValueV1,
@@ -32,8 +36,13 @@ import { prepareStandardApplicationDefinitionV1 } from
 
 import {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  type CompletedApplicationActionV1,
+  type InvokeApplicationActionV1Result,
+  type NonCompletedApplicationActionV1,
+  invokeStandardApplicationActionV1,
   invokeStandardApplicationPointMutationV1,
   invokeStandardApplicationPointQueryV1,
+  type InvokeStandardApplicationActionV1Error,
   type InvokeStandardApplicationPointMutationV1Error,
   type InvokeStandardApplicationPointQueryV1Error,
 } from "@flarex/standard-application-invocation/v1";
@@ -49,6 +58,10 @@ import {
 import {
   makeApplicationTaskSystemLayer,
 } from "@flarex/standard-application-invocation/internal/application-task-system";
+import {
+  ApplicationActionSystem,
+  type ApplicationActionSystemLive,
+} from "@flarex/standard-application-invocation/internal/application-action-system";
 import {
   ApplicationMutationSystem,
 } from "@flarex/standard-application-invocation/internal/application-mutation-system";
@@ -96,6 +109,9 @@ import {
 import { makeApplicationNativeMutationTestLayer } from
   "../../support/applicationNativeMutationHarness";
 import {
+  makeApplicationNativeActionTestLayer,
+} from "../../support/applicationNativeActionHarness";
+import {
   makeApplicationNativeQueryTestLayer,
   MiniflareApplicationWorkerLoader,
 } from "../../support/applicationNativeQueryHarness";
@@ -125,6 +141,7 @@ import {
 } from "./standardApplicationTaskDeliveryV1";
 
 type ApplicationTestRequirementsV1 =
+  | ApplicationActionSystem
   | ApplicationMutationSystem
   | ApplicationQuerySystem
   | StandardApplicationTaskSystem
@@ -167,6 +184,33 @@ export interface StandardApplicationSystemTestSetupClientV1 {
 
 export interface StandardApplicationSystemTestClientV1
   extends StandardApplicationSystemTestSetupClientV1 {
+  readonly action: <
+    Path extends string,
+    Contract extends StandardFunctionContractV1<
+      "action",
+      "public",
+      StandardFunctionArgsValidatorV1,
+      StandardValidatorV1<unknown, "required">
+    >,
+  >(
+    reference: StandardFunctionReferenceV1<Path, Contract>,
+    args: InferStandardFunctionArgsV1<Contract>,
+    requestKey: TransactionRequestKeyV1,
+  ) => Effect.Effect<
+    StandardApplicationTypedActionResultV1<
+      InferStandardFunctionReturnV1<Contract>
+    >,
+    | InvokeStandardApplicationActionV1Error
+    | StandardApplicationTypedReferenceV1Error
+  >;
+  readonly unsafeInvokeAction: (
+    functionPath: TransactionFunctionPathV1,
+    args: unknown,
+    requestKey: TransactionRequestKeyV1,
+  ) => Effect.Effect<
+    InvokeApplicationActionV1Result,
+    InvokeStandardApplicationActionV1Error
+  >;
   readonly tasks: Readonly<{
     readonly create: <Payload, Output>(
       reference: StandardApplicationTaskReferenceV1<Payload, Output>,
@@ -226,14 +270,21 @@ export type StandardApplicationTypedMutationOutcomeV1<Value> = Omit<
   "value"
 > & Readonly<{ readonly value: Value }>;
 
+export type StandardApplicationTypedActionResultV1<Value> =
+  | (Omit<CompletedApplicationActionV1, "value"> &
+    Readonly<{ readonly value: Value }>)
+  | NonCompletedApplicationActionV1;
+
 export class StandardApplicationTypedReferenceV1Error extends Data.TaggedError(
   "StandardApplicationTypedReferenceV1Error",
 )<{
   readonly phase:
     | "mutationContract"
     | "queryContract"
+    | "actionContract"
     | "mutationReturn"
-    | "queryReturn";
+    | "queryReturn"
+    | "actionReturn";
   readonly functionPath: string;
   readonly detail:
     | Readonly<{
@@ -259,6 +310,8 @@ export interface StandardApplicationSimulationRunReceiptV1<Setup, A> {
   readonly finalInspection: StandardApplicationAuthoritativeInspectionV1;
   readonly mutationRuntimeExecutions: number;
   readonly queryRuntimeExecutions: number;
+  readonly actionRuntimeExecutions: number;
+  readonly actionOutboundRequests: number;
   readonly postgresVersion: string | null;
 }
 
@@ -418,6 +471,73 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     runtimeLoader,
     () => { queryRuntimeExecutions += 1; },
   );
+  let actionRuntimeExecutions = 0;
+  let actionOutboundRequests = 0;
+  const callbackRuntime = yield* Effect.acquireRelease(
+    Effect.sync(() => ManagedRuntime.make(Layer.merge(
+      mutationLayer,
+      queryLayer,
+    ))),
+    runtime => Effect.promise(() => runtime.dispose()),
+  );
+  const callbackSystem = Object.freeze({
+    runQuery: (
+      selection: Parameters<
+        ApplicationActionSystemLive["host"]["callbackSystem"]["runQuery"]
+      >[0],
+      functionPath: string,
+      argumentsValue: CanonicalFlarexRuntimeValueV1,
+      identity: ExecutionIdentity,
+    ) => callbackRuntime.runPromise(Effect.scoped(Effect.gen(function* () {
+      const querySystem = yield* ApplicationQuerySystem;
+      return yield* querySystem.selectionQuery.runQuery(
+        selection,
+        functionPath,
+        argumentsValue,
+        identity,
+      );
+    }))),
+    runMutation: (
+      selection: Parameters<
+        ApplicationActionSystemLive["host"]["callbackSystem"]["runMutation"]
+      >[0],
+      functionPath: string,
+      argumentsValue: CanonicalFlarexRuntimeValueV1,
+      requestKey: string,
+      identity: ExecutionIdentity,
+    ) => callbackRuntime.runPromise(Effect.scoped(Effect.gen(function* () {
+      const mutationSystem = yield* ApplicationMutationSystem;
+      const outcome = yield* mutationSystem.selectionMutation.runMutation(
+        selection,
+        TransactionFunctionPathV1Schema.make(functionPath),
+        argumentsValue,
+        TransactionRequestKeyV1Schema.make(requestKey),
+        identity,
+      );
+      return outcome.value;
+    }))),
+  } satisfies ApplicationActionSystemLive["host"]["callbackSystem"]);
+  const actionHost = simulation.application.actionHost;
+  const actionLayer = makeApplicationNativeActionTestLayer(
+    fixture,
+    runtimeLoader,
+    {
+      callbackSystem,
+      outboundHost: Object.freeze({
+        fetch: async (request: Request) => {
+          actionOutboundRequests += 1;
+          if (actionHost === undefined) {
+            throw new Error(
+              "The Standard Application simulation has no Action outbound host.",
+            );
+          }
+          return actionHost.fetch(request);
+        },
+      }),
+      allowedOrigins: actionHost?.allowedOrigins ?? [],
+      onExecution: () => { actionRuntimeExecutions += 1; },
+    },
+  ).pipe(Layer.orDie);
   const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
     globalThis.crypto.subtle.digest("SHA-256", input)
   );
@@ -483,6 +603,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
       input.lane.createTaskMutationExternalEffectTarget,
   });
   const applicationLayer = Layer.mergeAll(
+    actionLayer,
     mutationLayer,
     queryLayer,
     standardTaskLayer,
@@ -596,6 +717,36 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
             ))
       );
       const client = Object.freeze({
+        action: <
+          Path extends string,
+          Contract extends StandardFunctionContractV1<
+            "action",
+            "public",
+            StandardFunctionArgsValidatorV1,
+            StandardValidatorV1<unknown, "required">
+          >,
+        >(
+          reference: StandardFunctionReferenceV1<Path, Contract>,
+          args: InferStandardFunctionArgsV1<Contract>,
+          requestKey: TransactionRequestKeyV1,
+        ) => invokeWhileActive(() =>
+          requireTypedReferenceBindingV1(
+            "actionContract",
+            registeredFunctionContracts,
+            reference,
+          ).pipe(Effect.flatMap(() => invokeApplication(
+              invocationScope,
+              invokeStandardApplicationActionV1(
+                TransactionFunctionPathV1Schema.make(reference.path),
+                args,
+                requestKey,
+              ).pipe(Effect.flatMap(result =>
+                projectTypedActionResultV1(reference, result)
+              )),
+            )))
+        ).pipe(Effect.withSpan(
+          "StandardApplicationSystemTest.invokeActionV1",
+        )),
         tasks: Object.freeze({
           create: <Payload, Output>(
             reference: StandardApplicationTaskReferenceV1<Payload, Output>,
@@ -691,6 +842,18 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
             ),
           )
         )),
+        unsafeInvokeAction: Effect.fn(
+          "StandardApplicationSystemTest.unsafeActionV1",
+        )((functionPath, args, requestKey) => invokeWhileActive(() =>
+          invokeApplication(
+            invocationScope,
+            invokeStandardApplicationActionV1(
+              functionPath,
+              args,
+              requestKey,
+            ),
+          )
+        )),
         unsafeInvokeQuery: Effect.fn(
           "StandardApplicationSystemTest.unsafeQueryV1",
         )((functionPath, args) => invokeWhileActive(() =>
@@ -740,14 +903,17 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     expectedRuntimeExecutions !== undefined &&
     (
       mutationRuntimeExecutions !== expectedRuntimeExecutions.mutations ||
-      queryRuntimeExecutions !== expectedRuntimeExecutions.queries
+      queryRuntimeExecutions !== expectedRuntimeExecutions.queries ||
+      actionRuntimeExecutions !== (expectedRuntimeExecutions.actions ?? 0)
     )
   ) {
     return yield* Effect.die(new Error(
       `Simulation ${simulation.simulationId} expected ` +
       `${expectedRuntimeExecutions.mutations} mutation and ` +
-      `${expectedRuntimeExecutions.queries} query runtime executions, but ` +
-      `observed ${mutationRuntimeExecutions} and ${queryRuntimeExecutions}.`,
+      `${expectedRuntimeExecutions.queries} query and ` +
+      `${expectedRuntimeExecutions.actions ?? 0} Action runtime executions, ` +
+      `but observed ${mutationRuntimeExecutions}, ${queryRuntimeExecutions}, ` +
+      `and ${actionRuntimeExecutions}.`,
     ));
   }
   const postgresVersion = input.lane.name === "postgres"
@@ -772,6 +938,8 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     finalInspection,
     mutationRuntimeExecutions,
     queryRuntimeExecutions,
+    actionRuntimeExecutions,
+    actionOutboundRequests,
     postgresVersion,
   };
 });
@@ -801,7 +969,7 @@ function indexRegisteredFunctionContractsV1(
 }
 
 function requireTypedReferenceBindingV1(
-  phase: "mutationContract" | "queryContract",
+  phase: "mutationContract" | "queryContract" | "actionContract",
   contracts: ReadonlyMap<string, RegisteredFunctionContractV1>,
   reference: StandardFunctionReferenceV1<string, AnyStandardFunctionContractV1>,
 ): Effect.Effect<void, StandardApplicationTypedReferenceV1Error> {
@@ -933,6 +1101,32 @@ function projectTypedQueryValueV1<
     reference,
     value,
   ).pipe(Effect.as(value as InferStandardFunctionReturnV1<Contract>));
+}
+
+function projectTypedActionResultV1<
+  Contract extends StandardFunctionContractV1<
+    "action",
+    "public",
+    StandardFunctionArgsValidatorV1,
+    StandardValidatorV1<unknown, "required">
+  >,
+>(
+  reference: StandardFunctionReferenceV1<string, Contract>,
+  result: InvokeApplicationActionV1Result,
+): Effect.Effect<
+  StandardApplicationTypedActionResultV1<
+    InferStandardFunctionReturnV1<Contract>
+  >,
+  StandardApplicationTypedReferenceV1Error
+> {
+  if (result.status === "notCompleted") return Effect.succeed(result);
+  return validateTypedReferenceReturnV1(
+    "actionReturn",
+    reference,
+    result.value,
+  ).pipe(Effect.as(result as StandardApplicationTypedActionResultV1<
+    InferStandardFunctionReturnV1<Contract>
+  >));
 }
 
 function validateTypedReferenceReturnV1(

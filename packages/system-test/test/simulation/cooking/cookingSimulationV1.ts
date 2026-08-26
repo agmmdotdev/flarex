@@ -94,6 +94,12 @@ export interface CookingWorkloadProofV1 {
   readonly taskMutationRecoveredAfterResultUncertainty: true;
   readonly taskMutationRecoveryCommittedOnce: true;
   readonly taskMutationRecoveryNestedQueryOutputValidated: true;
+  readonly actionPublishedAndValidated: true;
+  readonly actionPublicQueryCallback: true;
+  readonly actionInternalMutationCallback: true;
+  readonly actionControlledOutbound: true;
+  readonly actionAnonymousIdentity: true;
+  readonly actionReplay: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -150,6 +156,9 @@ type CookingWorkloadErrorV1 =
   >
   | Effect.Error<
     ReturnType<StandardApplicationSystemTestClientV1["tasks"]["deliver"]>
+  >
+  | Effect.Error<
+    ReturnType<StandardApplicationSystemTestClientV1["action"]>
   >;
 
 type CookingTaskRunCreationReceiptV1 = Effect.Success<
@@ -235,6 +244,9 @@ const COOKING_REPLACE_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
 );
 const COOKING_PUBLISH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:publish",
+);
+const COOKING_ACTION_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
+  "sac01:cooking:publish-action",
 );
 const COOKING_REJECTED_PUBLISH_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make(
@@ -367,6 +379,14 @@ const COOKING_FUNCTION_SOURCES = {
   )),
   pantryReservation: readFileSync(new URL(
     "./functions/pantryReservation.js",
+    import.meta.url,
+  )),
+  publishAction: readFileSync(new URL(
+    "./functions/recipePublishAction.js",
+    import.meta.url,
+  )),
+  actionCallbacks: readFileSync(new URL(
+    "./functions/recipeActionCallbacks.js",
     import.meta.url,
   )),
 } as const;
@@ -862,6 +882,33 @@ const COOKING_RESERVATION_MODULE = standardV1.module("pantryReservation", {
     returns: COOKING_RESERVATION_RECEIPT_VALIDATOR,
   }),
 });
+const COOKING_ACTION_MODULE = standardV1.module("recipeActions", {
+  publishAndNotify: standardV1.publicAction({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      beforePublished: standardV1.boolean(),
+      publication: standardV1.boolean(),
+      afterPublished: standardV1.boolean(),
+      notificationStatus: standardV1.number(),
+      notificationAccepted: standardV1.boolean(),
+      anonymous: standardV1.boolean(),
+    }),
+  }),
+});
+const COOKING_ACTION_CALLBACK_MODULE = standardV1.module(
+  "recipeActionCallbacks",
+  {
+    isPublished: standardV1.publicQuery({
+      args: COOKING_ID_ARGS,
+      returns: standardV1.boolean(),
+    }),
+    markPublished: standardV1.internalMutation({
+      args: COOKING_ID_ARGS,
+      returns: standardV1.boolean(),
+    }),
+  },
+);
 const COOKING_SERVING_GUIDE_TASK = Result.getOrThrow(
   defineStandardApplicationTaskV1({
     taskId: "cooking.buildServingGuide",
@@ -948,6 +995,8 @@ const COOKING_PANTRY_CREATE =
 const COOKING_PANTRY_GET = COOKING_PANTRY_QUERY_MODULE.reference("get");
 const COOKING_RESERVE_AND_PUBLISH =
   COOKING_RESERVATION_MODULE.reference("reserveAndPublish");
+const COOKING_PUBLISH_AND_NOTIFY =
+  COOKING_ACTION_MODULE.reference("publishAndNotify");
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
@@ -2061,6 +2110,44 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking result-uncertain Task did not commit its application workflow.",
     ));
   }
+  const actionResult = yield* client.action(
+    COOKING_PUBLISH_AND_NOTIFY,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_REQUEST_KEY,
+  );
+  const expectedActionValue = {
+    recipeId: secondaryDocumentId,
+    beforePublished: false,
+    publication: true,
+    afterPublished: true,
+    notificationStatus: 202,
+    notificationAccepted: true,
+    anonymous: true,
+  } as const;
+  if (
+    actionResult.status !== "completed" ||
+    actionResult.disposition !== "published" ||
+    !sameJsonValue(actionResult.value, expectedActionValue)
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Action did not publish through its real callbacks and controlled outbound host.",
+    ));
+  }
+  const actionReplay = yield* client.action(
+    COOKING_PUBLISH_AND_NOTIFY,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_REQUEST_KEY,
+  );
+  if (
+    actionReplay.status !== "completed" ||
+    actionReplay.disposition !== "replayed" ||
+    actionReplay.invocationId !== actionResult.invocationId ||
+    !sameJsonValue(actionReplay.value, expectedActionValue)
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Action did not replay its durable completed result.",
+    ));
+  }
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -2107,6 +2194,12 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationRecoveredAfterResultUncertainty: true,
     taskMutationRecoveryCommittedOnce: true,
     taskMutationRecoveryNestedQueryOutputValidated: true,
+    actionPublishedAndValidated: true,
+    actionPublicQueryCallback: true,
+    actionInternalMutationCallback: true,
+    actionControlledOutbound: true,
+    actionAnonymousIdentity: true,
+    actionReplay: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2684,6 +2777,30 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   application: {
     applicationId: "cooking",
     revisionName: "sac01-cooking-app",
+    actionHost: {
+      allowedOrigins: ["https://api.example.com"],
+      fetch: async request => {
+        const body: unknown = await request.json();
+        if (
+          request.url !==
+            "https://api.example.com/cooking-publication" ||
+          request.method !== "POST" ||
+          request.headers.get("content-type") !== "application/json" ||
+          !isNonArrayRecord(body) ||
+          typeof body.recipeId !== "string" ||
+          body.published !== true ||
+          Object.keys(body).length !== 2
+        ) {
+          throw new Error(
+            "The cooking Action emitted an unexpected outbound request.",
+          );
+        }
+        return new Response(JSON.stringify({ accepted: true }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
     defineTasks: () => [
       COOKING_SERVING_GUIDE_TASK,
       COOKING_PUBLISH_SERVING_GUIDE_TASK,
@@ -2743,6 +2860,14 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
         module: COOKING_RESERVATION_MODULE,
         artifactModulePath: "pantryReservation",
         sourceBytes: COOKING_FUNCTION_SOURCES.pantryReservation,
+      }, {
+        module: COOKING_ACTION_MODULE,
+        artifactModulePath: "recipePublishAction",
+        sourceBytes: COOKING_FUNCTION_SOURCES.publishAction,
+      }, {
+        module: COOKING_ACTION_CALLBACK_MODULE,
+        artifactModulePath: "recipeActionCallbacks",
+        sourceBytes: COOKING_FUNCTION_SOURCES.actionCallbacks,
       }],
       additionalTables: [{
         logicalName: "pantryStock",
@@ -2763,7 +2888,8 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 29,
-    queries: 27,
+    mutations: 30,
+    queries: 29,
+    actions: 1,
   },
 });

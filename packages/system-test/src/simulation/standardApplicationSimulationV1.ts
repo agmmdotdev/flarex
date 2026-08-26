@@ -12,6 +12,11 @@ import type {
   StandardApplicationSystemTestSetupClientV1,
 } from "../environment/standardApplicationEnvironmentV1";
 
+export interface StandardApplicationSimulationActionHostV1 {
+  readonly allowedOrigins: ReadonlyArray<string>;
+  readonly fetch: (request: Request) => Promise<Response>;
+}
+
 export interface StandardApplicationSimulationApplicationV1 {
   readonly applicationId: string;
   readonly revisionName: string;
@@ -19,11 +24,13 @@ export interface StandardApplicationSimulationApplicationV1 {
   readonly defineTasks?: () => ReadonlyArray<
     StandardApplicationTaskDefinitionV1<unknown, unknown>
   >;
+  readonly actionHost?: StandardApplicationSimulationActionHostV1;
 }
 
 export interface StandardApplicationSimulationRuntimeExpectationsV1 {
   readonly mutations: number;
   readonly queries: number;
+  readonly actions?: number;
 }
 
 /**
@@ -52,22 +59,39 @@ export interface StandardApplicationSimulationV1<Setup, Proof, Error> {
 export function defineStandardApplicationSimulationV1<Setup, Proof, Error>(
   input: StandardApplicationSimulationV1<Setup, Proof, Error>,
 ): StandardApplicationSimulationV1<Setup, Proof, Error> {
-  const application = Object.freeze({ ...input.application });
+  const actionHost = input.application.actionHost;
+  const application = Object.freeze({
+    ...input.application,
+    ...(actionHost === undefined
+      ? {}
+      : {
+          actionHost: Object.freeze({
+            allowedOrigins: Object.freeze([...actionHost.allowedOrigins]),
+            fetch: actionHost.fetch,
+          }),
+        }),
+  });
   const expectedRuntimeExecutions = input.expectedRuntimeExecutions;
   let ownedRuntimeExpectations:
     StandardApplicationSimulationRuntimeExpectationsV1 | undefined;
   if (expectedRuntimeExecutions !== undefined) {
     const mutations = expectedRuntimeExecutions.mutations;
     const queries = expectedRuntimeExecutions.queries;
+    const actions = expectedRuntimeExecutions.actions;
     if (
       !isNonNegativeSafeInteger(mutations) ||
-      !isNonNegativeSafeInteger(queries)
+      !isNonNegativeSafeInteger(queries) ||
+      (actions !== undefined && !isNonNegativeSafeInteger(actions))
     ) {
       throw new RangeError(
         "Standard Application simulation runtime expectations must be non-negative safe integers.",
       );
     }
-    ownedRuntimeExpectations = Object.freeze({ mutations, queries });
+    ownedRuntimeExpectations = Object.freeze({
+      mutations,
+      queries,
+      ...(actions === undefined ? {} : { actions }),
+    });
   }
 
   return Object.freeze({

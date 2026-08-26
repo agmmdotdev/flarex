@@ -255,7 +255,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     });
 
     await expect(Effect.runPromise(program)).rejects.toThrow(
-      "Simulation runtime-expectation-mismatch expected 0 mutation and 0 query runtime executions, but observed 1 and 0.",
+      "Simulation runtime-expectation-mismatch expected 0 mutation and 0 query and 0 Action runtime executions, but observed 1, 0, and 0.",
     );
   }, 480_000);
 

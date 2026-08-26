@@ -12,13 +12,41 @@ requirements. Simulations must remain fail closed and must not add fallbacks,
 weaken assertions, or claim an issue is resolved merely because a constrained
 fixture succeeds.
 
-## Open Issues
+## Recently Resolved Issues
+
+### `ST-CORE-030` - Action child request keys can exceed the transaction-key bound
+
+- **Status:** Resolved in the generated Cooking Action slice before acceptance.
+- **Reproduction:** Invoke a generated Action with a valid parent
+  `TransactionRequestKeyV1` at its 1,024-byte maximum, then execute
+  `ctx.runMutation`. The callback bridge previously appended the ordinal,
+  function path, and argument digest to the full parent spelling.
+- **Expected:** Child request identity remains deterministic and bound to the
+  parent, ordinal, callee, and canonical arguments while always satisfying the
+  existing transaction request-key contract. A local derivation failure must
+  occur before dispatch declaration and must never create false uncertainty.
+- **Actual:** The expanded child spelling exceeded 1,024 bytes. Likewise, the
+  bridge accepted a merely nonblank callback callee that the transaction
+  function-path contract could reject. The Standard mutation adapter rejected
+  either value only after dispatch had been declared, so the bridge recorded an
+  uncertain child even though mutation execution never began.
+- **Owner and trust boundary:** Edge Action callback identity derivation and the
+  protocol-owned transaction request-key projection. This is not a simulation
+  policy and does not authorize changes to mutation OCC, commit, idempotency,
+  feed, or outbox ownership.
+- **Current correction and evidence:** The bridge now hashes a domain-separated
+  preimage containing the exact parent key, host ordinal, branded callee, and
+  canonical argument digest, then uses the Edge Action protocol owner to
+  project the 32-byte digest into a bounded branded request key before preparing
+  evidence. Maximum-length multibyte-parent and invalid-callee tests prove
+  execution, deterministic replay spelling, schema acceptance, confirmation,
+  and rejection without preparation, dispatch, mutation, or uncertainty.
 
 ### `ST-CORE-029` - Action mutation callbacks lack selection-bound System composition
 
-- **Status:** Open. The connected Cooking Action simulation is blocked at the
-  shared Standard Application invocation boundary; no simulation-local adapter
-  or synthetic success path is authorized.
+- **Status:** Resolved. The shared selection-bound mutation capability and the
+  connected generated Cooking Action proof are both accepted; no simulation-
+  local mutation authority or synthetic callback success path was added.
 - **Reproduction:** Compose an actual analyzed Cooking public action through
   `ApplicationActionSystem` and implement its advertised `ctx.runMutation`
   callback with the current unversioned Application services. The Action host
@@ -62,7 +90,7 @@ fixture succeeds.
   read the head once, and then enter the same selection-bound core. No mutation
   grant, session, OCC, commit, outcome, feed, outbox, validator, or candidate-
   schema owner was copied or replaced.
-- **Current evidence:** The connected Application-native mutation proof uses a
+- **Acceptance evidence:** The connected Application-native mutation proof uses a
   real authenticated identity and current Application execution host to publish
   both public and internal mutations through the selection-bound port, while
   proving the external root rejects the internal entry. It replays the exact
@@ -71,17 +99,16 @@ fixture succeeds.
   `validateSelection/concurrentHead` without executing or retargeting.
   A hostile invalid function reference is rejected before any active-head read.
   Callback-bridge tests prove both user and anonymous identity propagation. The
-  unchanged shared commit tail passes in PGlite and genuine PostgreSQL 18. Final
-  issue closure still requires the separate generated Cooking Action consumer
-  proof described below.
-- **Required acceptance:** Direct tests must prove exact-selection success,
-  authenticated public and internal child mutation admission, head-movement
-  refusal without retargeting, replay through the derived child request key,
-  and unchanged OCC/commit/uncertainty behavior. The generated Cooking Action
-  must then pass through current analysis, Source Artifact loading, fresh
-  Worker execution, real query and mutation callbacks, controlled outbound,
-  durable parent replay without a second Worker execution, PGlite, and genuine
-  PostgreSQL.
+  unchanged shared commit tail passes in PGlite and genuine PostgreSQL 18. The
+  generated Cooking public Action now passes current analysis, Source Artifact
+  loading, and fresh Worker execution, calls two real selection-bound queries
+  and one real internal mutation, and performs one controlled outbound request.
+  Its child mutation advances the existing authoritative commit, idempotency,
+  feed, outbox, and index-sidecar owners to commit 24. Reusing the parent
+  request key replays the completed Action value without a second Worker,
+  callback, mutation, or outbound dispatch. Exact counts and state pass in
+  PGlite and a fresh genuine PostgreSQL 18 cluster. The proof remains private
+  and adds no route, trigger, scheduler, or production caller.
 
 ### `ST-CORE-026` - analyzer scheduling is classified as an application import effect
 

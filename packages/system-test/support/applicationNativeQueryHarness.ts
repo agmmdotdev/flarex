@@ -211,12 +211,12 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
     _name: string | null,
     _getCode: () => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>,
   ): WorkerStub {
-    throw new Error("Application query proof forbids cached Worker loading.");
+    throw new Error("Application system test forbids cached Worker loading.");
   }
 
   load(code: WorkerLoaderWorkerCode): WorkerStub {
     this.loads += 1;
-    return new MiniflareQueryWorkerStub(this, code);
+    return new MiniflareApplicationWorkerStub(this, code);
   }
 
   observeCapability(method: string, argumentsValue: readonly unknown[]): void {
@@ -225,7 +225,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
     this.pointDocumentReads += 1;
     const documentId = argumentsValue[1];
     if (typeof documentId !== "string") {
-      throw new Error("Application query Worker supplied an invalid document ID.");
+      throw new Error("Application Worker supplied an invalid document ID.");
     }
     this.documentIds.push(documentId);
   }
@@ -257,7 +257,7 @@ export class MiniflareApplicationWorkerLoader implements WorkerLoader {
   }
 }
 
-class MiniflareQueryWorkerStub implements WorkerStub {
+class MiniflareApplicationWorkerStub implements WorkerStub {
   constructor(
     private readonly owner: MiniflareApplicationWorkerLoader,
     private readonly code: WorkerLoaderWorkerCode,
@@ -271,7 +271,7 @@ class MiniflareQueryWorkerStub implements WorkerStub {
         this.run(name, request, capability),
       fetch: async () => new Response(null, { status: 501 }),
       connect: () => {
-        throw new Error("Application query proof forbids sockets.");
+        throw new Error("Application system test forbids sockets.");
       },
     };
     // SAFETY: the test adapter implements the exact run RPC used by the host
@@ -281,7 +281,7 @@ class MiniflareQueryWorkerStub implements WorkerStub {
 
   getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>():
     DurableObjectClass<T> {
-    throw new Error("Application query proof forbids Durable Objects.");
+    throw new Error("Application system test forbids Durable Objects.");
   }
 
   private async run(
@@ -290,14 +290,15 @@ class MiniflareQueryWorkerStub implements WorkerStub {
     capability: object,
   ): Promise<unknown> {
     if (name === undefined) {
-      throw new Error("Application query Worker entrypoint was not selected.");
+      throw new Error("Application Worker entrypoint was not selected.");
     }
     this.owner.revisionIds.push(requireNestedString(request, "target", "revisionId"));
     await this.owner.waitForNextInvocationBlock();
+    const globalOutbound = this.code.globalOutbound;
     const runtime = new Miniflare({
       compatibilityDate: COMPATIBILITY_DATE,
       modules: true,
-      script: applicationQueryBridgeSource(this.code, name),
+      script: applicationWorkerBridgeSource(this.code, name),
       workerLoaders: { LOADER: {} },
       serviceBindings: {
         CAPABILITY: (input: Request) => invokeCapability(
@@ -306,6 +307,12 @@ class MiniflareQueryWorkerStub implements WorkerStub {
           (method, argumentsValue) =>
             this.owner.observeCapability(method, argumentsValue),
         ),
+        ...(globalOutbound == null
+          ? {}
+          : {
+              GLOBAL_OUTBOUND: async (request: Request) =>
+                globalOutbound.fetch(await copyMiniflareRequestV1(request)),
+            }),
       },
     });
     this.owner.attach(runtime);
@@ -324,7 +331,7 @@ class MiniflareQueryWorkerStub implements WorkerStub {
       const result = envelope.result;
       if (result === null || typeof result !== "object") {
         this.owner.release(runtime);
-        throw new Error("Application query Worker returned an invalid RPC result.");
+        throw new Error("Application Worker returned an invalid RPC result.");
       }
       return Object.defineProperty(result, Symbol.dispose, {
         value: () => this.owner.release(runtime),
@@ -364,11 +371,11 @@ async function invokeCapability(
     if (
       !isRecord(request) || typeof request.method !== "string" ||
       !Array.isArray(request.arguments)
-    ) throw new Error("Application query capability request is invalid.");
+    ) throw new Error("Application capability request is invalid.");
     observe(request.method, request.arguments);
     const method = Reflect.get(capability, request.method);
     if (typeof method !== "function") {
-      throw new Error("Application query capability method is unavailable.");
+      throw new Error("Application capability method is unavailable.");
     }
     const result = await Reflect.apply(method, capability, request.arguments);
     return bridgeResponse({ ok: true, result });
@@ -385,12 +392,16 @@ function bridgeResponse(value: unknown): Response {
   return new Response(JSON.stringify(encodeBridgeValue(value)));
 }
 
-function applicationQueryBridgeSource(
+function applicationWorkerBridgeSource(
   code: WorkerLoaderWorkerCode,
   entrypoint: string,
 ): string {
+  const workerCode = Object.freeze({ ...code, globalOutbound: null });
+  const globalOutbound = code.globalOutbound == null
+    ? "null"
+    : "env.GLOBAL_OUTBOUND";
   return `import { RpcTarget } from "cloudflare:workers";
-const workerCode = ${JSON.stringify(code)};
+const workerCode = ${JSON.stringify(workerCode)};
 ${BRIDGE_CODEC_SOURCE}
 class Capability extends RpcTarget {
   constructor(binding) { super(); this.binding = binding; }
@@ -414,6 +425,7 @@ class Capability extends RpcTarget {
   queryIndexRange(tableName, indexDescriptor, bounds, limit) {
     return this.call("queryIndexRange", [tableName, indexDescriptor, bounds, limit]);
   }
+  invoke(request) { return this.call("invoke", [request]); }
   insertPointDocument(tableName, value) {
     return this.call("insertPointDocument", [tableName, value]);
   }
@@ -430,7 +442,10 @@ class Capability extends RpcTarget {
 export default {
   async fetch(request, env) {
     try {
-      const worker = env.LOADER.load(workerCode);
+      const worker = env.LOADER.load({
+        ...workerCode,
+        globalOutbound: ${globalOutbound},
+      });
       const stub = worker.getEntrypoint(${JSON.stringify(entrypoint)});
       const input = decodeBridgeValue(JSON.parse(await request.text()));
       const result = await stub.run(input, new Capability(env.CAPABILITY));
@@ -451,6 +466,18 @@ export default {
     }
   },
 };`;
+}
+
+async function copyMiniflareRequestV1(request: Request): Promise<Request> {
+  const method = request.method;
+  const body = method === "GET" || method === "HEAD"
+    ? undefined
+    : await request.arrayBuffer();
+  return new Request(request.url, {
+    method,
+    headers: [...request.headers.entries()],
+    ...(body === undefined ? {} : { body }),
+  });
 }
 
 const BRIDGE_CODEC_SOURCE = `${SYSTEM_TEST_STRUCTURED_CLONE_BRIDGE_WORKER_SOURCE_V1}

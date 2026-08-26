@@ -25,12 +25,15 @@ const RECORD_MODULES = makeCreateAndReadModulesV1({
 });
 
 it("defines an owned immutable Standard Application simulation config", () => {
+  const allowedOrigins = ["https://api.example.com"];
+  const actionFetch = async () => new Response(null, { status: 204 });
   const input: StandardApplicationSimulationV1<void, true, never> = {
     version: 1,
     simulationId: "definition-contract",
     application: {
       applicationId: "definition-contract",
       revisionName: "definition-contract-v1",
+      actionHost: { allowedOrigins, fetch: actionFetch },
       define: () => makeCreateAndReadDefinitionV1({
         tableName: "records",
         ...RECORD_MODULES,
@@ -56,6 +59,17 @@ it("defines an owned immutable Standard Application simulation config", () => {
     .not.toBe(input.expectedRuntimeExecutions);
   expect(Object.isFrozen(simulation)).toBe(true);
   expect(Object.isFrozen(simulation.application)).toBe(true);
+  expect(Object.isFrozen(simulation.application.actionHost)).toBe(true);
+  expect(Object.isFrozen(
+    simulation.application.actionHost?.allowedOrigins,
+  )).toBe(true);
+  expect(simulation.application.actionHost?.allowedOrigins)
+    .not.toBe(allowedOrigins);
+  expect(simulation.application.actionHost?.fetch).toBe(actionFetch);
+  allowedOrigins.push("https://changed.example.com");
+  expect(simulation.application.actionHost?.allowedOrigins).toEqual([
+    "https://api.example.com",
+  ]);
   expect(Object.isFrozen(simulation.expectedRuntimeExecutions)).toBe(true);
   expect(simulation).toMatchObject({
     version: 1,

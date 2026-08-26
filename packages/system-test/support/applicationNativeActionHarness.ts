@@ -36,6 +36,8 @@ import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 import { ApplicationExecutionHostError } from
   "flarex-backend/internal/application-execution-host";
+import { ApplicationAnalysisSourceReadError } from
+  "flarex-backend/internal/application-analysis-source-reader";
 import { Effect, Fiber, Result, Scope } from "effect";
 import {
   ExecutionEvidenceProtocolV1Error,
@@ -92,6 +94,109 @@ export interface ApplicationNativeActionProof {
 export type ApplicationNativeActionFixtureFactory = () => Promise<
   ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
 >;
+
+export interface ApplicationNativeActionTestLayerOptions {
+  readonly callbackSystem: ApplicationActionSystemLive["host"]["callbackSystem"];
+  readonly outboundHost: ApplicationActionSystemLive["host"]["outboundHost"];
+  readonly allowedOrigins: ReadonlyArray<string>;
+  readonly onExecution?: () => void;
+}
+
+/**
+ * Test-owned composition for the current Application Action System. The
+ * caller supplies only callback and controlled-outbound ports; admission,
+ * durable lifecycle, evidence, Source Artifact loading, and Worker execution
+ * remain with their existing owners.
+ */
+export function makeApplicationNativeActionTestLayer(
+  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+  loader: WorkerLoader,
+  options: ApplicationNativeActionTestLayerOptions,
+) {
+  const bodyStore = makeExecutionEvidenceBodyStoreV1(
+    new MemoryEvidenceBucket(),
+    { hash: bytes => Effect.sync(() => sha256(bytes)) },
+    {
+      verify: (kind, bytes) =>
+        kind === "outbound_http_request" ||
+            kind === "outbound_http_response"
+          ? Effect.void
+          : verifyCanonicalValue(bytes),
+    },
+  );
+  const hostPolicy = applicationHostPolicy(options.allowedOrigins);
+  const hostPolicySha256 = sha256(policyBytes(hostPolicy));
+  const runner = makeApplicationActionRunner({
+    source: Object.freeze({
+      read: (rootSha256: string) =>
+        rootSha256 === fixture.source.sourceArtifact.rootSha256
+          ? Effect.succeed(fixture.source)
+          : Effect.fail(new ApplicationAnalysisSourceReadError({
+              operation: "read",
+              reason: "invalidRoot",
+            })),
+    }),
+    host: makeApplicationExecutionHost(loader),
+    hostPolicy,
+    hostPolicySha256,
+    sha256: bytes => Effect.sync(() => sha256(bytes)),
+  });
+  const actionAuthority = Object.freeze({
+    target: createLocatedApplicationActionAuthorityTargetV1(
+      fixture.target.drizzle,
+      fixture.active.basis.authority.physicalLocator,
+    ),
+    authority: fixture.active.basis.authority,
+    sha256: Object.freeze({
+      hash: (bytes: Uint8Array) => Effect.sync(() => sha256(bytes)),
+    }),
+  });
+  let invocationSequence = 0;
+  return makeApplicationActionSystemLayer({
+    activation: fixture.activation,
+    admission: Object.freeze({
+      deploymentId: fixture.deploymentId,
+      controlDb: fixture.control.drizzle,
+      schema: fixture.schema,
+      authority: fixture.authorityPorts,
+    }),
+    host: Object.freeze({
+      evidence: Object.freeze({
+        bodyStore,
+        bodyBudget: Object.freeze({
+          maximumBodyBytes: 1_048_576,
+          maximumHashBytes: 1_048_576,
+        }),
+        authority: actionAuthority,
+      }),
+      effectRunner: Object.freeze({ runPromise: Effect.runPromise }),
+      callbackSystem: options.callbackSystem,
+      outboundHost: options.outboundHost,
+      hostPolicy,
+      runner: Object.freeze({
+        run: (input: Parameters<typeof runner.run>[0]) =>
+          Effect.sync(() => options.onExecution?.()).pipe(
+            Effect.andThen(runner.run(input)),
+        ),
+      }),
+    }),
+    hostPolicyEncodingBudget: Object.freeze({
+      maximumOrigins: 1_024,
+      maximumOriginBytes: 8_192,
+      maximumCanonicalBytes: 1_048_576,
+    }),
+    executionContextFactory: () => {
+      invocationSequence += 1;
+      return Object.freeze({
+        invocationId:
+          `36000000-0000-4000-8000-${invocationSequence.toString().padStart(12, "0")}`,
+        executionDurationMilliseconds: 60_000,
+        randomSeed: new Uint8Array(32).fill(invocationSequence),
+        auth: Object.freeze({ kind: "anonymous" as const }),
+      });
+    },
+  } satisfies ApplicationActionSystemLive);
+}
 
 export async function proveApplicationNativeAction(
   createFixture: ApplicationNativeActionFixtureFactory = () =>
@@ -718,14 +823,16 @@ function verifyCanonicalValue(bytes: Uint8Array) {
   });
 }
 
-function applicationHostPolicy() {
+function applicationHostPolicy(
+  allowedOrigins: ReadonlyArray<string> = ["https://api.example.com"],
+) {
   return Object.freeze({
     identity: EDGE_ACTION_HOST_POLICY_IDENTITY_V1,
     exactRuntimeProfile: EDGE_ACTION_EXACT_RUNTIME_PROFILE_V1,
     syscallAbiIdentity: EDGE_ACTION_EXACT_RUNTIME_SYSCALL_ABI_V1,
     outboundGatewayIdentity: EDGE_ACTION_OUTBOUND_GATEWAY_IDENTITY_V1,
     callbackBridgeIdentity: EDGE_ACTION_CALLBACK_BRIDGE_IDENTITY_V1,
-    allowedOrigins: Object.freeze(["https://api.example.com"]),
+    allowedOrigins: Object.freeze([...allowedOrigins]),
     cpuMilliseconds: 1_000,
     wallMilliseconds: 60_000,
     maximumSyscalls: 64,

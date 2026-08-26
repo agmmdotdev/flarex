@@ -56,6 +56,12 @@ it("runs the cooking simulation through the real Standard path", async () => {
       taskMutationRecoveredAfterResultUncertainty: true,
       taskMutationRecoveryCommittedOnce: true,
       taskMutationRecoveryNestedQueryOutputValidated: true,
+      actionPublishedAndValidated: true,
+      actionPublicQueryCallback: true,
+      actionInternalMutationCallback: true,
+      actionControlledOutbound: true,
+      actionAnonymousIdentity: true,
+      actionReplay: true,
       rejectedInvalidMutations: 5,
       invalidArgumentsRejectedBeforeRuntime: true,
       committedStateUnchangedAfterRejections: true,
@@ -95,8 +101,10 @@ it("runs the cooking simulation through the real Standard path", async () => {
       losingReservationWritesRolledBack: true,
       competitorReservationReplay: true,
     },
-    mutationRuntimeExecutions: 29,
-    queryRuntimeExecutions: 27,
+    mutationRuntimeExecutions: 30,
+    queryRuntimeExecutions: 29,
+    actionRuntimeExecutions: 1,
+    actionOutboundRequests: 1,
     postgresVersion: null,
   });
   expect(proof.workloadProof.documentId).toMatch(/^[0-9]+:[0-9a-f-]{36}$/);
@@ -121,9 +129,9 @@ it("runs the cooking simulation through the real Standard path", async () => {
     dispatch_count: "7",
     terminal_run_count: "5",
     executing_run_count: "1",
-    child_mutation_effect_count: "6",
-    confirmed_child_mutation_effect_count: "6",
-    child_mutation_outcome_count: "6",
+    child_mutation_effect_count: "7",
+    confirmed_child_mutation_effect_count: "7",
+    child_mutation_outcome_count: "7",
   }]);
   expect(await readCookingTaskRecoveryReplayStateV1(persistence.target))
     .toEqual([{
@@ -165,7 +173,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
   }, {
     tableName: "recipes",
     documentId: proof.workloadProof.secondaryDocumentId,
-    commitSeq: "2",
+    commitSeq: "24",
     valueState: "live",
   }, {
     tableName: "recipes",
@@ -218,21 +226,21 @@ it("runs the cooking simulation through the real Standard path", async () => {
     currentRows,
     currentRowCount: 11,
     liveRowCount: 10,
-    revisionRowCount: 24,
+    revisionRowCount: 25,
     commitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
     ],
     idempotencyOutcomeCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
     ],
     commitFeedCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
     ],
     outboxCommitSeqs: [
-      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+      "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24",
     ],
-    mutationRuntimeExecutions: 29,
-    queryRuntimeExecutions: 27,
+    mutationRuntimeExecutions: 30,
+    queryRuntimeExecutions: 29,
   } as const;
   expect(proof.workloadProof.workloadInspection).toEqual(lifecycleInspection);
   expect(proof.finalInspection).toEqual(lifecycleInspection);
@@ -243,7 +251,7 @@ it("runs the cooking simulation through the real Standard path", async () => {
     (select count(*)::text from fx_app_index_entry_rev) as revisions,
     (select count(*)::text from fx_app_index_entry_current) as current_rows`);
   expect(sidecarCounts.rows[0]).toEqual({
-    revisions: "71",
+    revisions: "74",
     current_rows: "28",
   });
   const removedFieldEvidence = await persistence.target.query<{

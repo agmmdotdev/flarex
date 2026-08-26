@@ -1,9 +1,11 @@
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
   decodeEdgeActionExactRuntimeRequestV1Effect,
   decodeEdgeActionExactRuntimeResultV1Effect,
+  edgeActionChildMutationRequestKeyV1FromDigest,
+  EDGE_ACTION_CHILD_MUTATION_REQUEST_KEY_PREFIX_V1,
   EDGE_ACTION_EXACT_RUNTIME_FORMAT_V1,
   EDGE_ACTION_EXACT_RUNTIME_RESULT_FORMAT_V1,
   EDGE_ACTION_EXACT_RUNTIME_RESULT_VERSION_V1,
@@ -59,6 +61,41 @@ describe("edge action exact runtime protocol", () => {
     await expect(Effect.runPromise(
       decodeEdgeActionExactRuntimeResultV1Effect({ ...result, extra: true }),
     )).rejects.toMatchObject({ reason: "invalidShape" });
+  });
+
+  it("projects owned bounded child mutation request keys from exact digests", () => {
+    const digest = Uint8Array.from({ length: 32 }, (_, index) => index);
+    const requestKey = Result.getOrThrow(
+      edgeActionChildMutationRequestKeyV1FromDigest(digest),
+    );
+    expect(requestKey).toBe(
+      `${EDGE_ACTION_CHILD_MUTATION_REQUEST_KEY_PREFIX_V1}` +
+        "000102030405060708090a0b0c0d0e0f" +
+        "101112131415161718191a1b1c1d1e1f",
+    );
+    digest.fill(255);
+    expect(requestKey.endsWith("1c1d1e1f")).toBe(true);
+    expect(Result.getOrThrow(
+      edgeActionChildMutationRequestKeyV1FromDigest(digest),
+    )).not.toBe(requestKey);
+  });
+
+  it("rejects malformed and detached child mutation request-key digests", () => {
+    for (const invalid of [
+      undefined,
+      {},
+      new Uint8Array(31),
+      new Uint8Array(33),
+    ]) {
+      expect(Result.isFailure(
+        edgeActionChildMutationRequestKeyV1FromDigest(invalid),
+      )).toBe(true);
+    }
+    const detached = new Uint8Array(32);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    expect(Result.isFailure(
+      edgeActionChildMutationRequestKeyV1FromDigest(detached),
+    )).toBe(true);
   });
 });
 

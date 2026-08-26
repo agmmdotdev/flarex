@@ -33,7 +33,7 @@ remain separate. DTE06-F0A/F0B completed that bounded runtime/provider and
 authenticated-callback convergence without nesting Action lifecycle inside a
 Task; the real-Cloudflare DTE06-F3/F4 proof remains separately gated.
 
-A connected system-test preflight on 2026-08-26 identified one open current-
+A connected system-test preflight on 2026-08-26 identified one current-
 Application composition gap in the advertised Action callback surface. The
 Action host correctly retains the parent's exact `ApplicationActiveSelection`,
 and `ApplicationQuerySystem` exposes a selection-bound query port, but
@@ -53,9 +53,23 @@ Worker execution, and prove the external root rejects that internal entry. They
 then reject that stale selection after head movement without Worker execution
 or retargeting. The Action host now forwards its verified user or anonymous
 identity through the callback bridge, and invalid root input retains pre-
-activation failure precedence. `ST-CORE-029` remains open only for the
-separately bounded generated Cooking Action consumer proof; no route, trigger,
-scheduler, or production caller was added by the correction.
+activation failure precedence. The separately bounded generated Cooking Action
+consumer now resolves `ST-CORE-029`: it passes current analysis and Source
+Artifact loading, executes one fresh Action Worker, performs two real query
+callbacks, one real internal mutation callback, and one controlled outbound
+request, then replays its durable result without another Worker or effect.
+PGlite and fresh genuine PostgreSQL 18 prove the same commit-24 authoritative
+tail and exact runtime/effect counts. No route, trigger, scheduler, or
+production caller was added by either correction.
+
+Exact-final review of that consumer also exposed and resolved
+[`ST-CORE-030`](../packages/system-test/CORE-ISSUES.md): concatenating an
+already-maximal parent request key could exceed the transaction request-key
+limit after child dispatch declaration. Child mutations now derive a bounded
+protocol-owned request key from a domain-separated digest of the parent,
+ordinal, callee, and canonical arguments before evidence preparation. The
+maximum-length proof pins stable replay spelling and rejects false uncertainty;
+it does not change mutation execution or transaction ownership.
 
 The implemented private gate is:
 

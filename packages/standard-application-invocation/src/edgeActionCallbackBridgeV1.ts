@@ -4,8 +4,15 @@ import type {
   ApplicationActionAuthorityContextV1,
   DirectActionExecutionSubjectCapabilityV1,
 } from "@flarex/persistence-postgres/internal/application-action-authority-v1";
-import { Data } from "effect";
+import { Data, Result, Schema } from "effect";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
+import { edgeActionChildMutationRequestKeyV1FromDigest } from
+  "flarex-protocol/edge-action-exact-runtime";
+import {
+  TransactionFunctionPathV1Schema,
+  type TransactionFunctionPathV1,
+  type TransactionRequestKeyV1,
+} from "flarex-protocol/transaction-session";
 import {
   canonicalizeFlarexValueV1,
   isCanonicalFlarexRuntimeObjectV1,
@@ -26,11 +33,14 @@ import type { EdgeActionHostSyscallSequencerV1 } from
 
 const UTF8 = new TextEncoder();
 const NO_CALLBACK_POISON = Symbol("FlarexEdgeActionNoCallbackPoison");
+const decodeTransactionFunctionPathV1 = Schema.decodeUnknownResult(
+  TransactionFunctionPathV1Schema,
+);
 
 export interface EdgeActionCallbackInvocationV1 {
   readonly kind: "runQuery" | "runMutation";
   readonly ordinal: bigint;
-  readonly functionPath: string;
+  readonly functionPath: TransactionFunctionPathV1;
   readonly arguments: unknown;
   readonly argumentSemanticBytes: number;
 }
@@ -38,15 +48,15 @@ export interface EdgeActionCallbackInvocationV1 {
 export interface EdgeActionCallbackSystemPortV1<Selection> {
   readonly runQuery: (
     selection: Selection,
-    functionPath: string,
-    argumentsValue: unknown,
+    functionPath: TransactionFunctionPathV1,
+    argumentsValue: CanonicalFlarexRuntimeValueV1,
     identity: ExecutionIdentity,
   ) => Promise<unknown>;
   readonly runMutation: (
     selection: Selection,
-    functionPath: string,
-    argumentsValue: unknown,
-    requestKey: string,
+    functionPath: TransactionFunctionPathV1,
+    argumentsValue: CanonicalFlarexRuntimeValueV1,
+    requestKey: TransactionRequestKeyV1,
     identity: ExecutionIdentity,
   ) => Promise<unknown>;
 }
@@ -161,13 +171,21 @@ export function makeEdgeActionCallbackBridgeV1<Selection>(
       const canonicalArguments = await canonicalizeFlarexValueV1(
         normalizedArguments.value,
       );
-      const requestKey = [
-        input.parentRequestKey,
-        "child",
-        hostOrdinal.toString(10),
-        request.functionPath,
-        encodeBytesToLowercaseHex(canonicalArguments.sha256),
-      ].join(":");
+      const requestKeyDigest = await input.evidence.hash(
+        childStableRequestKeyBytes(
+          input.parentRequestKey,
+          hostOrdinal,
+          request.functionPath,
+          canonicalArguments.sha256,
+        ),
+      ).catch(cause => Promise.reject(bridgeError("mutationFailed", cause)));
+      const decodedRequestKey = edgeActionChildMutationRequestKeyV1FromDigest(
+        requestKeyDigest,
+      );
+      const requestKey = Result.getOrThrowWith(
+        decodedRequestKey,
+        cause => bridgeError("mutationFailed", cause),
+      );
       const requestIdentitySha256 = await input.evidence.hash(
         childRequestIdentityBytes(
           requestKey,
@@ -262,16 +280,18 @@ function captureRequest(input: unknown): EdgeActionCallbackInvocationV1 {
   ) throw bridgeError("invalidRequest");
   const kind = input.kind;
   const ordinal = input.ordinal;
-  const functionPath = input.functionPath;
   const argumentsValue = input.arguments;
   const argumentSemanticBytes = input.argumentSemanticBytes;
   if (
     (kind !== "runQuery" && kind !== "runMutation") ||
     typeof ordinal !== "bigint" ||
-    typeof functionPath !== "string" || functionPath.trim().length === 0 ||
     typeof argumentSemanticBytes !== "number" ||
     !Number.isSafeInteger(argumentSemanticBytes)
   ) throw bridgeError("invalidRequest");
+  const functionPath = Result.getOrThrowWith(
+    decodeTransactionFunctionPathV1(input.functionPath),
+    cause => bridgeError("invalidRequest", cause),
+  );
   return Object.freeze({
     kind,
     ordinal,
@@ -310,6 +330,21 @@ function childRequestIdentityBytes(
   return UTF8.encode([
     "flarex.system/edge-action-child-mutation-request/v1",
     requestKey,
+    functionPath,
+    encodeBytesToLowercaseHex(argumentsSha256),
+  ].join("\0"));
+}
+
+function childStableRequestKeyBytes(
+  parentRequestKey: string,
+  hostOrdinal: bigint,
+  functionPath: string,
+  argumentsSha256: Uint8Array,
+): Uint8Array {
+  return UTF8.encode([
+    "flarex.system/edge-action-child-mutation-stable-key/v1",
+    parentRequestKey,
+    hostOrdinal.toString(10),
     functionPath,
     encodeBytesToLowercaseHex(argumentsSha256),
   ].join("\0"));
