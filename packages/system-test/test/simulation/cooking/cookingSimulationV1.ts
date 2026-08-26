@@ -88,6 +88,12 @@ export interface CookingWorkloadProofV1 {
   readonly taskMutationResultUncertainWorkflowCommitted: true;
   readonly taskMutationResultUncertainCommittedAssessmentValidated: true;
   readonly taskMutationResultUncertainTerminalResultFabricated: false;
+  readonly taskMutationRecoveryDocumentId: string;
+  readonly taskMutationRecoveryRunId: string;
+  readonly taskMutationRecoveryCreationReplay: true;
+  readonly taskMutationRecoveredAfterResultUncertainty: true;
+  readonly taskMutationRecoveryCommittedOnce: true;
+  readonly taskMutationRecoveryNestedQueryOutputValidated: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -286,6 +292,15 @@ const COOKING_RESULT_UNCERTAIN_DRAFT_CREATE_REQUEST_KEY =
 const COOKING_RESULT_UNCERTAIN_TASK_REQUEST_KEY = Result.getOrThrow(
   decodeTaskRunCreationRequestKeyV1(
     "sac01:cooking:result-uncertain-serving-guide-task",
+  ),
+);
+const COOKING_RECOVERY_DRAFT_CREATE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:recovery-draft-create",
+  );
+const COOKING_RECOVERY_TASK_REQUEST_KEY = Result.getOrThrow(
+  decodeTaskRunCreationRequestKeyV1(
+    "sac01:cooking:recovery-serving-guide-task",
   ),
 );
 const COOKING_TASK_IDENTITY_SUBJECT = "cooking-task-user";
@@ -541,6 +556,12 @@ const COOKING_RESULT_UNCERTAIN_DRAFT_RECIPE = {
   localizedTitles: { en: "Uncertain mushroom risotto" },
   source: "Result uncertainty fixture",
 } as const;
+const COOKING_RECOVERY_DRAFT_RECIPE = {
+  ...COOKING_REPLACEMENT_RECIPE,
+  title: "Recovered mushroom risotto",
+  localizedTitles: { en: "Recovered mushroom risotto" },
+  source: "Fresh-host recovery fixture",
+} as const;
 const COOKING_INITIAL_ASSESSMENT = {
   title: "Tomato soup",
   servings: 4,
@@ -586,6 +607,11 @@ const COOKING_RESULT_UNCERTAIN_PUBLISHED_ASSESSMENT = {
   ...COOKING_PUBLISHED_ASSESSMENT,
   title: "Uncertain mushroom risotto",
   headline: "Uncertain mushroom risotto serves 3",
+} as const;
+const COOKING_RECOVERY_PUBLISHED_ASSESSMENT = {
+  ...COOKING_PUBLISHED_ASSESSMENT,
+  title: "Recovered mushroom risotto",
+  headline: "Recovered mushroom risotto serves 3",
 } as const;
 const COOKING_TASK_DUPLICATE_DELIVERY_FAULT = {
   kind: "duplicate_delivery",
@@ -886,7 +912,7 @@ const COOKING_PUBLISH_SERVING_GUIDE_TASK = Result.getOrThrow(
     runAttemptPolicy: {
       version: 1,
       retry: {
-        maxAttempts: 1,
+        maxAttempts: 2,
         factor: 2,
         minTimeoutInMs: 1_000,
         maxTimeoutInMs: 60_000,
@@ -1841,6 +1867,109 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking Task did not reconcile its stored result after publication response loss.",
     ));
   }
+  const recoveryDraftInserted = yield* client.mutation(
+    COOKING_CREATE,
+    COOKING_RECOVERY_DRAFT_RECIPE,
+    COOKING_RECOVERY_DRAFT_CREATE_REQUEST_KEY,
+  );
+  if (
+    recoveryDraftInserted.status !== "committed" ||
+    recoveryDraftInserted.disposition !== "published" ||
+    recoveryDraftInserted.commitSeq !== setup.commitSeq + 19n ||
+    typeof recoveryDraftInserted.value !== "string"
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking workload did not publish the fresh-host recovery draft.",
+    ));
+  }
+  const taskMutationRecoveryDocumentId = recoveryDraftInserted.value;
+  const taskMutationRecoveryRequest = Object.freeze({
+    version: 1 as const,
+    requestKey: COOKING_RECOVERY_TASK_REQUEST_KEY,
+    payload: Object.freeze({ recipeId: taskMutationRecoveryDocumentId }),
+    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+  });
+  const taskMutationRecoveryFirst = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRecoveryRequest,
+  );
+  const taskMutationRecoveryReplay = yield* client.tasks.create(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRecoveryRequest,
+  );
+  if (!sameTaskRunCreationReceiptV1(
+    taskMutationRecoveryReplay,
+    taskMutationRecoveryFirst,
+  )) {
+    return yield* Effect.die(new Error(
+      "The cooking fresh-host recovery Task did not replay its durable run.",
+    ));
+  }
+  const taskMutationRecoveryDelivery = yield* client.tasks.deliver(
+    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRecoveryFirst,
+    {
+      kind: "recovery",
+      recovery: "result_publication_uncertain_takeover",
+    },
+  );
+  if (
+    taskMutationRecoveryDelivery.status !== "recovered" ||
+    taskMutationRecoveryDelivery.runId !== taskMutationRecoveryFirst.runId ||
+    taskMutationRecoveryDelivery.recovery.abandonedAttemptNumber !== 1 ||
+    taskMutationRecoveryDelivery.recovery.replacementAttemptNumber !== 2 ||
+    taskMutationRecoveryDelivery.recovery.leaseExpiryOutcome !==
+      "retry_scheduled" ||
+    taskMutationRecoveryDelivery.recovery.retryStartOutcome !==
+      "attempt_granted" ||
+    !taskMutationRecoveryDelivery.recovery.staleHeartbeatRejected ||
+    !taskMutationRecoveryDelivery.recovery.staleCompletionRejected ||
+    !taskMutationRecoveryDelivery.recovery.staleAttemptStatePreserved ||
+    !taskMutationRecoveryDelivery.recovery.freshControlTarget ||
+    !taskMutationRecoveryDelivery.recovery.freshWorkerLoader ||
+    !taskMutationRecoveryDelivery.recovery.freshResourcePorts ||
+    taskMutationRecoveryDelivery.abandonedWorker.loads !== 1 ||
+    taskMutationRecoveryDelivery.abandonedWorker.starts !== 1 ||
+    taskMutationRecoveryDelivery.abandonedWorker.settlements !== 1 ||
+    taskMutationRecoveryDelivery.host.dispatchCandidatesHandled !== 1 ||
+    taskMutationRecoveryDelivery.host.dispatchProviderCalls !== 1 ||
+    taskMutationRecoveryDelivery.host.cancellationCandidatesHandled !== 0 ||
+    taskMutationRecoveryDelivery.host.cancellationProviderCalls !== 0 ||
+    taskMutationRecoveryDelivery.host.candidateFailures !== 0 ||
+    taskMutationRecoveryDelivery.host.supervisionExpected !== 1 ||
+    taskMutationRecoveryDelivery.host.supervisionObserved !== 1 ||
+    taskMutationRecoveryDelivery.host.supervisionSucceeded !== 1 ||
+    taskMutationRecoveryDelivery.host.supervisionFailed !== 0 ||
+    taskMutationRecoveryDelivery.worker.generation !== "application_v1" ||
+    taskMutationRecoveryDelivery.worker.loads !== 1 ||
+    taskMutationRecoveryDelivery.worker.starts !== 1 ||
+    taskMutationRecoveryDelivery.worker.inputReads !== 1 ||
+    taskMutationRecoveryDelivery.worker.settlements !== 1 ||
+    taskMutationRecoveryDelivery.worker.resultWrites !== 1 ||
+    taskMutationRecoveryDelivery.worker.resultReads !== 2 ||
+    taskMutationRecoveryDelivery.worker.legacyRuntimeObjectReads !== 0 ||
+    !sameJsonValue(taskMutationRecoveryDelivery.output, {
+      recipeId: taskMutationRecoveryDocumentId,
+      publication: COOKING_PUBLISH_RECEIPT,
+      assessment: COOKING_RECOVERY_PUBLISHED_ASSESSMENT,
+    })
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Task did not recover result uncertainty on a fresh host.",
+    ));
+  }
+  const taskMutationRecoveryAssessment = yield* client.query(
+    COOKING_ASSESSMENT_FUNCTION,
+    { id: taskMutationRecoveryDocumentId },
+  );
+  if (!sameJsonValue(
+    taskMutationRecoveryAssessment,
+    COOKING_RECOVERY_PUBLISHED_ASSESSMENT,
+  )) {
+    return yield* Effect.die(new Error(
+      "The recovered cooking Task did not preserve its single committed mutation.",
+    ));
+  }
   const resultUncertainDraftInserted = yield* client.mutation(
     COOKING_CREATE,
     COOKING_RESULT_UNCERTAIN_DRAFT_RECIPE,
@@ -1849,7 +1978,7 @@ const runCookingWorkloadV1 = Effect.fn(
   if (
     resultUncertainDraftInserted.status !== "committed" ||
     resultUncertainDraftInserted.disposition !== "published" ||
-    resultUncertainDraftInserted.commitSeq !== setup.commitSeq + 19n ||
+    resultUncertainDraftInserted.commitSeq !== setup.commitSeq + 21n ||
     typeof resultUncertainDraftInserted.value !== "string"
   ) {
     return yield* Effect.die(new Error(
@@ -1972,6 +2101,12 @@ const runCookingWorkloadV1 = Effect.fn(
     taskMutationResultUncertainWorkflowCommitted: true,
     taskMutationResultUncertainCommittedAssessmentValidated: true,
     taskMutationResultUncertainTerminalResultFabricated: false,
+    taskMutationRecoveryDocumentId,
+    taskMutationRecoveryRunId: taskMutationRecoveryFirst.runId,
+    taskMutationRecoveryCreationReplay: true,
+    taskMutationRecoveredAfterResultUncertainty: true,
+    taskMutationRecoveryCommittedOnce: true,
+    taskMutationRecoveryNestedQueryOutputValidated: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2628,7 +2763,7 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 27,
-    queries: 24,
+    mutations: 29,
+    queries: 27,
   },
 });

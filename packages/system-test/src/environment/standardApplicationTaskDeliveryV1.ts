@@ -276,7 +276,7 @@ export interface StandardApplicationTaskRecoveredDeliveryReceiptV1<Output> {
   readonly abandonedWorker: Readonly<{
     readonly loads: 1;
     readonly starts: 1;
-    readonly settlements: 0;
+    readonly settlements: 0 | 1;
   }>;
   readonly host: StandardApplicationTaskDeliveryHostReceiptV1;
   readonly worker: StandardApplicationTaskDeliveryWorkerReceiptV1;
@@ -324,7 +324,9 @@ export type StandardApplicationTaskDeliveryModeV1 =
   | Readonly<{ readonly kind: "completion" }>
   | Readonly<{
       readonly kind: "recovery";
-      readonly recovery: "expired_attempt_takeover";
+      readonly recovery:
+        | "expired_attempt_takeover"
+        | "result_publication_uncertain_takeover";
     }>
   | Readonly<{
       readonly kind: "fault";
@@ -646,6 +648,9 @@ export function makeStandardApplicationTaskDeliveryV1(
         ? "reject_after_write"
         : mode.kind === "fault" &&
             mode.fault === "result_publication_uncertain"
+          ? "unresolved"
+          : mode.kind === "recovery" &&
+              mode.recovery === "result_publication_uncertain_takeover"
           ? "unresolved"
           : "none",
     );
@@ -1075,6 +1080,7 @@ export function makeStandardApplicationTaskDeliveryV1(
         taskId: reference.taskId,
         creation,
         definition,
+        recovery: mode.recovery,
         lifecycle,
         scheduler,
         hostA,
@@ -1082,6 +1088,11 @@ export function makeStandardApplicationTaskDeliveryV1(
         loaderA: loader,
         loaderB: freshLoader,
         oldLifecycle: Deferred.await(recoveryLifecycle),
+        deliveryLive,
+        launchResources,
+        supervisor,
+        completionAttempts,
+        abandonedResultBucket: resultBucket,
         resultStore: freshResultStore,
         resultBucket: freshResultBucket,
         runtimeObjects: freshPorts.runtimeObjects,
@@ -1436,6 +1447,10 @@ const runFreshHostRecoveryV1 = Effect.fn(
   readonly taskId: string;
   readonly creation: StandardApplicationTaskRunCreationReceipt;
   readonly definition: StandardApplicationTaskDefinitionV1<unknown, unknown>;
+  readonly recovery: Extract<
+    StandardApplicationTaskDeliveryModeV1,
+    { readonly kind: "recovery" }
+  >["recovery"];
   readonly lifecycle: ReturnType<
     typeof makeApplicationTaskSystemRunAttemptStoreV1
   >;
@@ -1447,6 +1462,14 @@ const runFreshHostRecoveryV1 = Effect.fn(
   readonly oldLifecycle: Effect.Effect<
     ApplicationTaskAttemptLifecycleCapability
   >;
+  readonly deliveryLive: Omit<
+    ApplicationTaskComputeDeliveryLive,
+    "launchDirectory" | "supervision"
+  >;
+  readonly launchResources: TaskRuntimeLaunchResourceDirectory;
+  readonly supervisor: TaskAttemptSupervisor;
+  readonly completionAttempts: ReadonlyArray<unknown>;
+  readonly abandonedResultBucket: StandardApplicationTaskResultFaultBucketV1;
   readonly resultStore: ReturnType<typeof makeTaskResultStore>;
   readonly resultBucket: StandardApplicationTaskResultFaultBucketV1;
   readonly runtimeObjects: ApplicationTaskHostedResourceBucket;
@@ -1465,18 +1488,62 @@ const runFreshHostRecoveryV1 = Effect.fn(
   Scope.Scope
 > {
   return yield* Effect.gen(function* () {
-    const hostARun = yield* input.hostA.run(null).pipe(Effect.forkChild);
-    yield* Effect.promise(() => input.loaderA.awaitAcceptedStart()).pipe(
-      Effect.timeoutOrElse({
-        duration: "10 seconds",
-        orElse: () => failDelivery(
+    const recoversPublicationUncertainty =
+      input.recovery === "result_publication_uncertain_takeover";
+    const hostARun = recoversPublicationUncertainty
+      ? null
+      : yield* input.hostA.run(null).pipe(Effect.forkChild);
+    if (recoversPublicationUncertainty) {
+      const hostedA = yield* runFaultDelivery({
+        taskId: input.taskId,
+        creation: input.creation,
+        mode: Object.freeze({
+          kind: "fault" as const,
+          fault: "result_publication_uncertain" as const,
+        }),
+        loader: input.loaderA,
+        deliveryLive: input.deliveryLive,
+        launchResources: input.launchResources,
+        supervisor: input.supervisor,
+        resultBucket: input.abandonedResultBucket,
+        completionAttempts: input.completionAttempts,
+      });
+      const runnerA = hostedA.runner;
+      const supervisionA = hostedA.supervision;
+      if (
+        !hostedA.resultPublicationUncertain ||
+        runnerA.stopReason !== "total_operation_budget" ||
+        runnerA.confirmedDispatchCandidatesHandled !== 1 ||
+        runnerA.confirmedDispatchProviderCalls !== 1 ||
+        runnerA.confirmedCancellationCandidatesHandled !== 0 ||
+        runnerA.confirmedCancellationProviderCalls !== 0 ||
+        runnerA.candidateFailures !== 0 ||
+        supervisionA.expected !== 1 ||
+        supervisionA.observed !== 1 ||
+        supervisionA.succeeded !== 0 ||
+        supervisionA.failed !== 1
+      ) {
+        return yield* failDelivery(
           "validateEvidence",
-          "workerEvidenceMismatch",
+          "hostEvidenceMismatch",
           input.taskId,
           input.creation.runId,
-        ),
-      }),
-    );
+          hostedA,
+        );
+      }
+    } else {
+      yield* Effect.promise(() => input.loaderA.awaitAcceptedStart()).pipe(
+        Effect.timeoutOrElse({
+          duration: "10 seconds",
+          orElse: () => failDelivery(
+            "validateEvidence",
+            "workerEvidenceMismatch",
+            input.taskId,
+            input.creation.runId,
+          ),
+        }),
+      );
+    }
     const executingA = yield* waitForApplicationTaskAttemptPhaseV1(
       input.lifecycle,
       input.creation.runId,
@@ -1505,24 +1572,32 @@ const runFreshHostRecoveryV1 = Effect.fn(
         ),
       }),
     );
-    yield* Fiber.interrupt(hostARun);
-    const hostAExit = yield* Fiber.await(hostARun);
-    if (
-      !Exit.isFailure(hostAExit) ||
-      !Cause.hasInterruptsOnly(hostAExit.cause)
-    ) {
-      return yield* failDelivery(
-        "validateEvidence",
-        "hostEvidenceMismatch",
-        input.taskId,
-        input.creation.runId,
-        hostAExit,
-      );
+    if (hostARun !== null) {
+      yield* Fiber.interrupt(hostARun);
+      const hostAExit = yield* Fiber.await(hostARun);
+      if (
+        !Exit.isFailure(hostAExit) ||
+        !Cause.hasInterruptsOnly(hostAExit.cause)
+      ) {
+        return yield* failDelivery(
+          "validateEvidence",
+          "hostEvidenceMismatch",
+          input.taskId,
+          input.creation.runId,
+          hostAExit,
+        );
+      }
     }
     if (
       input.loaderA.loads !== 1 ||
       input.loaderA.starts !== 1 ||
-      input.loaderA.workerSettlements !== 0
+      input.loaderA.workerSettlements !==
+        (recoversPublicationUncertainty ? 1 : 0) ||
+      input.abandonedResultBucket.putCalls !==
+        (recoversPublicationUncertainty ? 1 : 0) ||
+      input.abandonedResultBucket.getCalls !==
+        (recoversPublicationUncertainty ? 1 : 0) ||
+      input.abandonedResultBucket.retainedFaultValue
     ) {
       return yield* failDelivery(
         "validateEvidence",
@@ -1802,7 +1877,7 @@ const runFreshHostRecoveryV1 = Effect.fn(
       abandonedWorker: Object.freeze({
         loads: 1 as const,
         starts: 1 as const,
-        settlements: 0 as const,
+        settlements: recoversPublicationUncertainty ? 1 as const : 0 as const,
       }),
       host: makeTaskDeliveryHostEvidenceV1(runner, supervision),
       worker: Object.freeze({

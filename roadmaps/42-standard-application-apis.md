@@ -469,7 +469,7 @@ Worker, child-mutation, commit, feed, and outbox evidence. This adds no
 result-store method, retry policy, scheduler authority, or public or Standard
 API.
 
-The completed `SAC01-F2t-D6` consumer runs a fourth isolated Cooking
+The completed `SAC01-F2t-D6` consumer runs an isolated Cooking
 publication Task through the existing private unresolved-result-publication
 adapter. Its application mutation and post-commit query finish once, but the
 failed publication and reconciliation leave the Task attempt executing with no
@@ -478,6 +478,23 @@ the committed recipe independently. PGlite and authenticated ordinary-role
 PostgreSQL pin the exact non-terminal run, Worker, child-mutation, commit, feed,
 and outbox evidence. This adds no result-store method, retry policy, scheduler
 authority, or public or Standard API.
+
+The completed `SAC01-F2t-D7` consumer connects that uncertainty to the
+existing private fresh-host takeover path on a separate two-attempt Cooking
+run. Host A commits the publication workflow and loses both result-publication and
+reconciliation evidence; the manual wake owner expires attempt 1 and admits
+attempt 2 on fresh host resources. The Task mutation authority derives the same
+application request key from scope, run, and operation ordinal on both
+attempts, so the application mutation system returns its authoritative replay
+instead of executing a second commit. The replacement attempt retains its own
+confirmed child-effect evidence, reruns the post-commit query, publishes the
+validated result, and settles normally. This remains system-test composition:
+it adds no Standard mutation, delivery, retry, scheduler, run-read, or public
+Task API and changes no production lifecycle or commit owner.
+Focused PGlite and fresh authenticated ordinary-role PostgreSQL 18.3 prove the
+exact typed publication-uncertainty cause, takeover and stale-attempt fencing,
+fresh-host identity, shared authoritative child-mutation outcome, and final
+application state without a duplicate mutation or commit.
 
 ### Share Typed Authoring Mechanics Without Sharing Producer Policy
 

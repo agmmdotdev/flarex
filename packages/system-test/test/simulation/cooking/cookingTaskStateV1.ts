@@ -14,6 +14,15 @@ export interface CookingTaskStateV1 extends Readonly<Record<string, unknown>> {
   readonly child_mutation_outcome_count: string;
 }
 
+export interface CookingTaskRecoveryReplayStateV1
+  extends Readonly<Record<string, unknown>> {
+  readonly attempt_count: string;
+  readonly request_key_count: string;
+  readonly outcome_count: string;
+  readonly minimum_subject_fence: string;
+  readonly maximum_subject_fence: string;
+}
+
 export async function readCookingTaskStateV1(
   persistence: Readonly<{
     readonly query: <Row extends Record<string, unknown>>(
@@ -36,6 +45,30 @@ export async function readCookingTaskStateV1(
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation') as child_mutation_effect_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and state = 'confirmed') as confirmed_child_mutation_effect_count,
       (select count(*)::text from fx_system_external_effect_attempt_v1 where effect_kind = 'child_mutation' and child_mutation_outcome_sha256 is not null) as child_mutation_outcome_count
+  `);
+  return result.rows;
+}
+
+export async function readCookingTaskRecoveryReplayStateV1(
+  persistence: Readonly<{
+    readonly query: <Row extends Record<string, unknown>>(
+      sql: string,
+    ) => PromiseLike<Readonly<{ readonly rows: ReadonlyArray<Row> }>>;
+  }>,
+): Promise<ReadonlyArray<CookingTaskRecoveryReplayStateV1>> {
+  const result = await persistence.query<CookingTaskRecoveryReplayStateV1>(`
+    select
+      count(*)::text as attempt_count,
+      count(distinct child_mutation_request_key)::text as request_key_count,
+      count(distinct encode(child_mutation_outcome_sha256, 'hex'))::text
+        as outcome_count,
+      min(subject_fence)::text as minimum_subject_fence,
+      max(subject_fence)::text as maximum_subject_fence
+    from fx_system_external_effect_attempt_v1
+    where effect_kind = 'child_mutation'
+    group by stable_effect_key
+    having count(*) > 1
+    order by stable_effect_key
   `);
   return result.rows;
 }
