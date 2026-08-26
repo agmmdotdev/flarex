@@ -2069,33 +2069,98 @@ digests are distinct. Genuine PostgreSQL receipts cover the same transaction
 ordering and migration behavior. These receipts close the RA01-J superseded-
 capability defect, but do not close all of RA01.
 
-One separate activation-owner defect now blocks the remaining complete
-Legacy/relation transition proof:
+One separate stored-active readiness defect now blocks the remaining complete
+Legacy/relation transition proof. The original dispatcher diagnosis was too
+broad: direct Legacy activation does not call the relation-readiness fold.
 
-- **Reproducible scenario:** activate a ready relation revision A, prepare a
-  ready Legacy replacement B over the same admitted schema authority, and ask
-  the existing activation dispatcher to replace A with B using A's exact
-  expected head.
-- **Expected behavior:** the ready Legacy revision replaces the active relation
-  head atomically, after which a ready relation revision may replace that
-  Legacy head through the same single-head protocol.
-- **Actual behavior:** current-head revalidation enters the relation-readiness
-  fold and fails with `ApplicationRelationReadinessFoldError` operation
-  `validate`, reason `authorityChanged`; the Legacy activation never reaches
-  the head replacement.
-- **Affected owner and trust boundary:** Application activation's readiness
-  dispatch and the relation-readiness fold validation in
-  `applicationRelationReadinessFold.ts`, not the journal, relation-read, or
-  point-commit authority implemented by RA01-J.
-- **Evidence and disposition:** the failure is reproducible in the relation
-  readiness fixture after the Legacy candidate, schema, validation, and
-  readiness evidence are settled. This checkpoint records it without changing
-  the activation owner, weakening the transition assertion, or adding a
-  fallback. A separate activation-owner preflight is required before repair.
+- **Reproducible scenario:** activate a ready relation revision A and retain its
+  exact active selection, then install candidate-validation evidence for a
+  replacement Legacy revision B without changing the active head.
+- **Expected behavior:** preparing B does not revoke A. A remains readable and
+  its retained selection remains valid until a successful single-head CAS
+  replaces it; the ready Legacy revision can then replace A and a ready
+  relation revision can replace that Legacy head through the same protocol.
+- **Actual behavior:** relation active-read and retained-selection validation
+  reload A through the one non-active candidate-validation head per scope.
+  Installing B moves that head, so A observes `wrongSchema`, which the
+  relation-readiness fold exposes as operation `validate`, reason
+  `authorityChanged`, even though the serving head did not move. The direct
+  Legacy activation branch itself validates B and performs the existing CAS;
+  it has no call path into A's relation fold.
+- **Affected owner and trust boundary:** the stored-active preparation and
+  validation paths in `applicationRelationReadinessFold.ts`, not activation
+  dispatch, the journal, relation read, point commit, or the candidate
+  validation owner.
+- **Evidence and disposition:** the candidate-validation table intentionally
+  has one mutable, non-active head per scope, while the immutable relation
+  readiness root already commits A's exact candidate-validation receipt. The
+  active path incorrectly consults the former instead of authenticating the
+  latter. This checkpoint corrects the diagnosis without weakening an
+  assertion, adding a fallback, or changing either owner before the separate
+  preflight below.
 
 Complete Legacy-to-relation and relation-to-Legacy replacement proof and both
 real activation-versus-builder lock orders therefore remain RA01 exit gates.
 RQ01 remains blocked.
+
+#### RA01-S — Active-serving continuity and transition closure
+
+Status: implementation preflight approved on 2026-08-26. This is the final
+medium system-core slice for RA01's open serving-continuity, mixed-kind
+transition, and lock-order gates. It changes only the existing relation
+readiness and activation owners plus their focused persistence tests. RQ01,
+higher relation APIs, function-runtime composition, routes, SDKs, framework
+adapters, commit/OCC behavior, feeds, outbox, a second active head, fallback,
+comparison authority, and dual writes remain out of scope.
+
+The active head is serving authority; the candidate-validation head is not.
+The latter remains one target-local, non-active admission head per scope and
+may move whenever a replacement schema is prepared. Its current exact receipt
+continues to be required by relation `settle`, ordinary `readReady`, and first
+activation. Moving it must not revoke a different revision whose immutable
+readiness and activation evidence remain the current active head.
+
+The stored-active relation path therefore gains an explicit preparation mode.
+It reconstructs the active revision's candidate-validation receipt digest from
+the immutable readiness root and validates that same committed digest during
+canonical replay; it neither fabricates the process-local candidate evidence
+brand nor queries the current non-active candidate head. Ordinary prepared
+readiness keeps the branded current evidence and its existing transaction-time
+validation. Both modes retain exact bundle, schema/publication/task binding,
+scope generation/fence/epoch, schema-version-keyed unique eligibility, current
+physical lifecycle, stored dense relation root and children, historical
+physical or semantic receipt authentication, canonical readiness bytes and
+digest, and final active-head CAS validation. Legacy stored-readiness behavior
+and all first-activation gates remain unchanged.
+
+The mixed-kind proof uses only the existing readiness dispatcher and single
+head: relation A at activation sequence 1, Legacy B at sequence 2, then the
+same relation A at sequence 3. It retains each exact CAS token before preparing
+the replacement, proves A remains usable while B's candidate evidence is
+installed, proves B remains usable while A's candidate evidence is restored,
+and requires three distinct head digests. History keeps the mutually exclusive
+Legacy and relation witnesses, exactly one head remains, and the A1 and B2
+selections remain stale after A3. No transition may revalidate or rewrite the
+displaced head as a prerequisite to replacing it.
+
+Genuine PostgreSQL must additionally run both real repository operations over
+separate connections. In the builder-first order, a restart holds the scope
+clock through its lifecycle transition; activation blocks, then fails
+`notReady` after the builder commits, with no activation/head write. In the
+activation-first order, activation holds the scope clock after inserting its
+history row; the builder blocks, then observes the committed definition as
+serving and fails before a build-head or sidecar mutation. The proof may widen
+the existing private activation fault callback to await a test gate, but may
+not add a product operation or use direct table mutation as a substitute for
+either owner. PostgreSQL blocker inspection is observation only.
+
+RA01-S closes only when focused PGlite and PostgreSQL receipts prove stored-
+active continuity, the complete A1-to-B2-to-A3 transition, rollback/staleness,
+and both lock orders; core and changed-diff lint, exact staged validation, and
+both standing reviewers must pass. Any defect discovered in the builder,
+candidate-validation, physical lifecycle, activation-history, commit/OCC, or
+journal owner is recorded and stopped at that boundary rather than repaired
+incidentally. RQ01 remains blocked until this checkpoint is committed.
 
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
