@@ -1950,6 +1950,96 @@ One shared-owner defect prevents RA01 from being marked complete:
   RA01 stays open pending a separately approved journal/OCC preflight and the
   remaining replacement and lock-order proofs.
 
+#### RA01-J — Active-selection use-time and finish-time authority
+
+Status: implementation preflight approved on 2026-08-26. This is one medium
+system-core slice crossing only the existing Application activation,
+Application relation-read, session-journal, and point-commit owners. It closes
+the recorded superseded-capability defect; it does not authorize RQ01, a
+relation-aware function runtime or session-activation path, a route, public
+API, SDK, framework adapter, second activation head, or alternate commit/OCC
+lane.
+
+The existing unversioned Application relation-read port retains the exact
+opaque `ApplicationActiveSelection` that issued each relation capability. It
+adds one transaction-owned validation operation rather than exposing the
+selection basis to callers. The operation first authenticates the capability
+through the port's private `WeakMap`, then invokes the existing Application
+activation owner's relation-selection validator with the caller-owned target
+transaction and already-locked scope clock. It must reauthenticate the complete
+head, immutable activation, relation-readiness root and dense children,
+readiness and relation-set digests, activation sequence and digest, scope
+authority, schema, frontier, generation fence, and epoch. A structurally copied
+capability or selection remains invalid.
+
+`SessionJournalStore.runApplicationRelationIncomingRead` invokes that operation
+inside the exact-running syscall transaction before loading relation overlay
+transitions, current edges, adjacency versions, or returning a stored relation
+outcome. The existing scope-clock `FOR SHARE` lock therefore excludes
+activation movement for the complete relation syscall. Missing, foreign,
+corrupt, or superseded selection evidence fails through the existing typed
+relation-read/activation channel before relation data I/O and before new
+journal evidence is written.
+
+The first accepted relation syscall for an attempt also persists exactly one
+Application active-selection dependency in the existing journal transaction.
+It is keyed by the journal root's `(scope_uuid, session_id, attempt_fence)` and
+retains the exact scope ID, deployment, revision, schema version, relation
+frontier, readiness and relation-set digests, relation count, activation
+sequence and digest, and active-head digest. It may reference immutable
+activation history but never the mutable active head. Later relation syscalls
+in the same attempt must reproduce that dependency byte-for-byte; a different
+selection is not coalesced, replaced, or treated as an additional authority.
+The activation sequence plus head digest prevents an A-to-B-to-A replacement
+from passing as unchanged authority.
+
+`SessionJournalV1` remains the one concrete persisted journal contract because
+this core is still production-inert and no coexisting shipped decoder requires
+a new generation. That contract gains one strict logical
+`appActiveSelection` dependency, one `0..1` root counter, and one target-local
+child table. Seal snapshotting, stored-row decoding, canonical normalization,
+replay, corruption checks, and the point-commit command all carry the exact
+dependency. Product modules and APIs remain unversioned; the `V1` suffix stays
+only on this concrete journal/wire contract.
+
+At finish time, the existing point-commit kernel validates the dependency after
+taking the scope-clock update lock and before row, index, unique, relation-edge,
+result, feed, or outbox writes. It rereads the single active head, its immutable
+activation, and the relation readiness root and compares the complete retained
+tuple. An absent or different head is a typed stale-Application authority
+failure, not an adjacency conflict and not permission to rerun revision A under
+revision B. The unchanged exact head continues into the existing point,
+indexed-range, relation-adjacency, and write validation. Attempts with no
+relation syscall retain their current journal and point-commit behavior.
+
+The migration is additive for journal state and preserves all existing
+Application activation, session, journal, result, feed, outbox, and
+authoritative application-row rows. It adds no backfill for active attempts;
+the new dependency count defaults to zero, and only a relation syscall may
+write the child. Existing relation-adjacency dependencies remain unchanged and
+continue to own data OCC independently of the active-selection dependency.
+
+Focused PGlite and genuine-PostgreSQL proof must cover:
+
+- a capability superseded before its first syscall fails before overlay or edge
+  access and writes no selection or relation dependency;
+- a head replaced after a successful relation read but before finish fails at
+  final authority validation before application or sidecar writes;
+- unchanged-head read, replay, seal, and finish preserve exact canonical
+  evidence and existing relation OCC behavior;
+- two relation capabilities from the same active selection coalesce to one
+  dependency, while different selections in one attempt fail closed;
+- A-to-B-to-A replacement cannot satisfy the earlier activation sequence and
+  head digest;
+- malformed, missing, extra, copied, and digest-divergent child evidence fails
+  as stored corruption;
+- complete Legacy-to-relation and relation-to-Legacy replacement behavior; and
+- both activation-versus-builder lock orders, proving the scope-clock-first
+  order without deadlock or post-activation sidecar mutation.
+
+RA01 closes only when this matrix and the previously open replacement and
+builder lock-order cells pass. RQ01 remains blocked until then.
+
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
 Prerequisite: RA01 has activated the private relation-bearing revision after
