@@ -1,8 +1,14 @@
 import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../deployments";
-import { validateApplicationRelationActiveSelectionForReadiness } from
-  "../applicationActivation";
+import {
+  applicationRelationActiveSelectionMatchesSnapshot,
+  claimApplicationRelationActiveSelection,
+  validateApplicationRelationActiveSelectionForReadiness,
+  validateApplicationRelationActiveSelectionInTransaction,
+  type ApplicationActiveSelection,
+  type ApplicationRelationActiveSelectionSnapshot,
+} from "../applicationActivation";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from
   "../transactionSessionActivation";
 import {
@@ -24,6 +30,7 @@ import {
   makeApplicationRelationReadCapability,
   type ResolveApplicationRelationReadCapabilityInput,
   type ResolvedApplicationRelationReadCapability,
+  type ValidatedApplicationRelationReadCapability,
 } from "./Model";
 
 interface ApplicationRelationReadPortState {
@@ -35,6 +42,8 @@ interface ApplicationRelationReadPortState {
 
 interface ApplicationRelationReadCapabilityState {
   readonly port: ApplicationRelationReadPortState;
+  readonly selection: ApplicationActiveSelection;
+  readonly selectionSnapshot: ApplicationRelationActiveSelectionSnapshot;
   readonly deploymentId: ResolveApplicationRelationReadCapabilityInput[
     "deploymentId"
   ];
@@ -82,6 +91,9 @@ export function createApplicationRelationReadPort(
         scopeClockTargets: authority.scopeSessionTargets,
       },
     );
+    const selectionSnapshot = yield* Effect.fromResult(
+      claimApplicationRelationActiveSelection(input.selection),
+    );
     const located = active.definitions;
     if (
       !hasLocatedApplicationRelationDefinitionSetAuthority(
@@ -109,6 +121,8 @@ export function createApplicationRelationReadPort(
     const capability = makeApplicationRelationReadCapability();
     capabilityStates.set(capability, Object.freeze({
       port: state,
+      selection: input.selection,
+      selectionSnapshot,
       deploymentId: input.deploymentId,
       scopeId: active.authority.scopeId,
       schemaVersionId: active.schemaVersionId,
@@ -123,13 +137,43 @@ export function createApplicationRelationReadPort(
   const resolve: ApplicationRelationReadPort["resolve"] = (
     capability,
     input,
-  ) => resolveCapabilityResult(state, capability, input);
+  ) => resolveCapabilityStateResult(state, capability, input).pipe(
+    Result.map(resolvedCapabilityFromState),
+  );
+
+  const validateInTransaction: ApplicationRelationReadPort[
+    "validateInTransaction"
+  ] = Effect.fn(
+    "ApplicationRelationRead.validateInTransaction",
+  )(function* (capability, input, tx, currentClock) {
+    const capabilityState = yield* Effect.fromResult(
+      resolveCapabilityStateResult(state, capability, input),
+    );
+    const active = yield* validateApplicationRelationActiveSelectionInTransaction(
+      capabilityState.selection,
+      tx,
+      currentClock,
+    );
+    if (!applicationRelationActiveSelectionMatchesSnapshot(
+      active,
+      capabilityState.selectionSnapshot,
+    )) {
+      return yield* unavailable("capabilityMismatch");
+    }
+    return Object.freeze({
+      activeSelection: Object.freeze({
+        activationSequence: active.activationSequence,
+        activeHeadSha256: new Uint8Array(active.headSha256),
+      }),
+    } satisfies ValidatedApplicationRelationReadCapability);
+  });
 
   const lowerOverlay: ApplicationRelationReadPort["lowerOverlay"] = (
     capability,
     input,
     transitions,
-  ) => resolveCapabilityResult(state, capability, input).pipe(
+  ) => resolveCapabilityStateResult(state, capability, input).pipe(
+    Result.map(resolvedCapabilityFromState),
     Result.flatMap((resolved) =>
       prepareApplicationRelationReadOverlayResult(
         resolved.definitions,
@@ -139,7 +183,13 @@ export function createApplicationRelationReadPort(
     ),
   );
 
-  const port = Object.freeze({ readiness, prepare, resolve, lowerOverlay });
+  const port = Object.freeze({
+    readiness,
+    prepare,
+    resolve,
+    validateInTransaction,
+    lowerOverlay,
+  });
   if (compositionIsExact()) portStates.set(port, state);
   return port;
 }
@@ -160,12 +210,12 @@ export function hasApplicationRelationReadPortAuthorityForPointCommit(
     portStates.get(value)?.authority === authority;
 }
 
-function resolveCapabilityResult(
+function resolveCapabilityStateResult(
   expectedPort: ApplicationRelationReadPortState,
   capability: ApplicationRelationReadCapability,
   input: ResolveApplicationRelationReadCapabilityInput,
 ): Result.Result<
-  ResolvedApplicationRelationReadCapability,
+  ApplicationRelationReadCapabilityState,
   ApplicationRelationReadUnavailableError
 > {
   const state = capabilityStates.get(capability);
@@ -177,12 +227,18 @@ function resolveCapabilityResult(
   ) {
     return Result.fail(unavailableValue("capabilityMismatch"));
   }
-  return Result.succeed(Object.freeze({
+  return Result.succeed(state);
+}
+
+function resolvedCapabilityFromState(
+  state: ApplicationRelationReadCapabilityState,
+): ResolvedApplicationRelationReadCapability {
+  return Object.freeze({
     definition: state.definition,
     definitions: state.definitions,
     storageGenerationFence: state.storageGenerationFence,
     epoch: state.epoch,
-  }));
+  });
 }
 
 function unavailable(

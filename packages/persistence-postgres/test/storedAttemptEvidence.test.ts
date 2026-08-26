@@ -1431,11 +1431,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             `
               insert into fx_system_tx_journal_relation_incoming (
                 scope_uuid, session_id, attempt_fence, edge_definition_id,
-                target_row_id, observed_adjacency_version, created_at,
-                updated_at
+                target_row_id, observed_adjacency_version,
+                activation_sequence, active_head_sha256, created_at, updated_at
               )
               select scope_uuid, session_id, attempt_fence, 1,
-                decode(repeat('02', 16), 'hex'), 0, created_at, updated_at
+                decode(repeat('02', 16), 'hex'), 0, 1,
+                decode(repeat('03', 32), 'hex'), created_at, updated_at
               from fx_system_tx_journal
               where scope_uuid = $1 and session_id = $2
                 and attempt_fence = 2

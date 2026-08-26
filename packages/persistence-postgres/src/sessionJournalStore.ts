@@ -45,6 +45,8 @@ import {
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
   AppDocumentFieldsJsonV1Schema,
+  ApplicationActivationSequenceV1Schema,
+  ApplicationActiveHeadSha256HexV1Schema,
   CommitDocumentSemanticBytesV1Schema,
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
@@ -73,6 +75,7 @@ import {
   MAX_COMMIT_RELATION_READ_SYSCALLS_V1,
   normalizeLogicalIndexRangeReadDependenciesV1Result,
   verifySuccessfulResultEvidenceV1Effect,
+  type ApplicationActivationSequenceV1,
   type CanonicalSessionJournalV1,
   type CanonicalSuccessfulResultV1,
   type CommitFinalSyscallSequenceV1,
@@ -180,6 +183,7 @@ import {
   type ApplicationRelationReadCapability,
   type ApplicationRelationReadPort,
   type ResolvedApplicationRelationReadCapability,
+  type ValidateApplicationRelationReadCapabilityError,
 } from "./applicationRelationRead";
 import type {
   ApplicationRelationRowTransition,
@@ -887,7 +891,7 @@ export type SessionJournalRunApplicationRelationReadError =
   | SessionJournalPersistenceV1Error
   | SessionJournalStorageCorruptionV1Error
   | SessionJournalTargetUnavailableV1Error
-  | ApplicationRelationReadUnavailableError
+  | ValidateApplicationRelationReadCapabilityError
   | ApplicationRelationReadOverlayError
   | PrepareApplicationRelationCommitError
   | AppRelationEdgeReadError
@@ -3812,10 +3816,46 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
     }));
   }
 
+  const validated = yield* relationPort.validateInTransaction(
+    relation.capability,
+    {
+      deploymentId: attempt.selector.deploymentId,
+      scopeId: attempt.selector.scopeId,
+      schemaVersionId: attempt.schemaVersionId,
+    },
+    tx,
+    context.scopeClock,
+  );
+  const activationSequence = ApplicationActivationSequenceV1Schema.make(
+    validated.activeSelection.activationSequence,
+  );
+  const activeHeadSha256Hex = ApplicationActiveHeadSha256HexV1Schema.make(
+    encodeBytesToLowercaseHex(validated.activeSelection.activeHeadSha256),
+  );
+
   const root = context.journalRoot;
   const counters = yield* Effect.fromResult(
     decodeJournalCountersResult(attempt, root),
   );
+  const currentDependencies = yield* loadRelationIncomingDependenciesForUpdateEffect(
+    tx,
+    context,
+    attempt,
+  );
+  if (currentDependencies.length !== counters.relationDependencyCount) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "relationDependencyCountMismatch",
+    ));
+  }
+  if (currentDependencies.some((dependency) =>
+    dependency.activationSequence !== activationSequence ||
+    dependency.activeHeadSha256Hex !== activeHeadSha256Hex
+  )) {
+    return yield* Effect.fail(new ApplicationRelationReadUnavailableError({
+      reason: "capabilityMismatch",
+    }));
+  }
   const receipt = yield* fromApplicationRelationPromise(() =>
     loadLatestReceipt(tx, context)
   );
@@ -3949,17 +3989,6 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
     return yield* Effect.fail(corruption(attempt, "journalStateInvalid"));
   }
 
-  const currentDependencies = yield* loadRelationIncomingDependenciesForUpdateEffect(
-    tx,
-    context,
-    attempt,
-  );
-  if (currentDependencies.length !== counters.relationDependencyCount) {
-    return yield* Effect.fail(corruption(
-      attempt,
-      "relationDependencyCountMismatch",
-    ));
-  }
   const existingDependency = currentDependencies.find((dependency) =>
     dependency.edgeDefinitionId === request.edgeDefinitionId &&
     dependency.targetRowId === request.targetRowId
@@ -4088,6 +4117,14 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
           expectedAdjacencyVersion: expectedVersion,
           actualAdjacencyVersion: actualVersion,
         }),
+        dependencyIsNew,
+        Object.freeze({
+          edgeDefinitionId: request.edgeDefinitionId,
+          targetRowId: request.targetRowId,
+          observedAdjacencyVersion: expectedVersion,
+          activationSequence,
+          activeHeadSha256: validated.activeSelection.activeHeadSha256,
+        }),
         faultAfter,
       );
     }
@@ -4136,17 +4173,12 @@ const runApplicationRelationIncomingInTransactionEffect = Effect.fn(
       } satisfies SessionJournalStoredOutcomeV1);
       yield* fromApplicationRelationPromise(async () => {
         if (dependencyIsNew) {
-          await tx.insert(
-            fxSystemTransactionJournalRelationIncomingDependencies,
-          ).values({
-            scopeUuid: context.scopeUuid,
-            sessionId: context.anchor.sessionId,
-            attemptFence: context.anchor.attemptFence,
+          await insertApplicationRelationIncomingDependency(tx, context, {
             edgeDefinitionId: request.edgeDefinitionId,
-            targetRowId: appRowIdHexV1ToBytes(request.targetRowId),
+            targetRowId: request.targetRowId,
             observedAdjacencyVersion,
-            createdAt: context.databaseNow,
-            updatedAt: context.databaseNow,
+            activationSequence,
+            activeHeadSha256: validated.activeSelection.activeHeadSha256,
           });
         }
         await faultAfter?.("relationReadEvidenceWritten");
@@ -4241,6 +4273,9 @@ const decodeStoredRelationIncomingDependenciesEffect = Effect.fn(
         edgeDefinitionId: row.edgeDefinitionId,
         targetRowId: appRowIdHexV1FromBytes(row.targetRowId),
         observedAdjacencyVersion: row.observedAdjacencyVersion,
+        activationSequence: row.activationSequence,
+        activeHeadSha256Hex:
+          encodeBytesToLowercaseHex(row.activeHeadSha256),
       }),
       catch: (cause) => corruption(
         attempt,
@@ -4262,7 +4297,9 @@ const decodeStoredRelationIncomingDependenciesEffect = Effect.fn(
       dependency.observedAdjacencyVersion >
         attempt.snapshotToken.commitSeq ||
       previous !== undefined &&
-      compareRelationIncomingDependencies(previous, dependency) >= 0
+      (compareRelationIncomingDependencies(previous, dependency) >= 0 ||
+        previous.activationSequence !== dependency.activationSequence ||
+        previous.activeHeadSha256Hex !== dependency.activeHeadSha256Hex)
     ) {
       return yield* Effect.fail(corruption(
         attempt,
@@ -4403,6 +4440,35 @@ function compareRelationIncomingDependencies(
     : compareUtf16Strings(left.targetRowId, right.targetRowId);
 }
 
+interface ApplicationRelationIncomingJournalDependency {
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly targetRowId: AppRowIdHexV1;
+  readonly observedAdjacencyVersion: CommitSeq;
+  readonly activationSequence: ApplicationActivationSequenceV1;
+  readonly activeHeadSha256: Uint8Array;
+}
+
+async function insertApplicationRelationIncomingDependency(
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+  dependency: ApplicationRelationIncomingJournalDependency,
+): Promise<void> {
+  await tx.insert(
+    fxSystemTransactionJournalRelationIncomingDependencies,
+  ).values({
+    scopeUuid: context.scopeUuid,
+    sessionId: context.anchor.sessionId,
+    attemptFence: context.anchor.attemptFence,
+    edgeDefinitionId: dependency.edgeDefinitionId,
+    targetRowId: appRowIdHexV1ToBytes(dependency.targetRowId),
+    observedAdjacencyVersion: dependency.observedAdjacencyVersion,
+    activationSequence: dependency.activationSequence,
+    activeHeadSha256: new Uint8Array(dependency.activeHeadSha256),
+    createdAt: context.databaseNow,
+    updatedAt: context.databaseNow,
+  });
+}
+
 const persistApplicationRelationLimitOutcomeEffect = Effect.fn(
   "SessionJournalStore.persistApplicationRelationLimitOutcome",
 )(function (
@@ -4447,6 +4513,8 @@ const persistApplicationRelationConflictOutcomeEffect = Effect.fn(
     expectedAdjacencyVersion: CommitSeq;
     actualAdjacencyVersion: CommitSeq;
   }>,
+  dependencyIsNew: boolean,
+  dependency: ApplicationRelationIncomingJournalDependency,
   faultAfter: SessionJournalStorePersistenceOptionsV1["faultAfter"],
 ) {
   const outcome = Object.freeze({
@@ -4460,9 +4528,17 @@ const persistApplicationRelationConflictOutcomeEffect = Effect.fn(
   const deltas = Object.freeze({
     ...ZERO_COUNTER_DELTAS,
     relationReadSyscalls: 1,
+    relationDependencyCount: dependencyIsNew ? 1 : 0,
     relationBaseOccurrences: inspectedBaseOccurrences,
   } satisfies SessionJournalCounterDeltasV1);
   return fromApplicationRelationPromise(async () => {
+    if (dependencyIsNew) {
+      await insertApplicationRelationIncomingDependency(
+        tx,
+        context,
+        dependency,
+      );
+    }
     await persistAcceptedOperation(
       tx,
       context,

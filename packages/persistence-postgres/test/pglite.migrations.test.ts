@@ -18,6 +18,7 @@ import { createPGlitePersistence } from "../src/pglite";
 import { seedTaskComputeDeliverySchemaV1 } from
   "./taskComputeDeliverySchemaV1TestSupport";
 import {
+  insertOpenTransactionJournalFixture,
   insertSessionTestScope,
   insertTransactionSessionFixture,
   transactionSessionFixture,
@@ -312,6 +313,153 @@ describe("createPGlitePersistence", () => {
       "fx_app_relation_semantic_readiness_pk",
     ]);
   });
+
+  it("adds active relation authority only to empty private journal evidence", async () => {
+    const testRoot = await mkdtemp(resolve(
+      tmpdir(),
+      "flarex-ra01-j-upgrade-",
+    ));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const copiedJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const migrationPath = resolve(migrationsFolder, "0076_pink_toxin.sql");
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournal, "utf8");
+      const migrationText = await readFile(migrationPath, "utf8");
+      expect(migrationText.indexOf("LOCK TABLE")).toBeLessThan(
+        migrationText.indexOf("DO $$"),
+      );
+      expect(migrationText.indexOf("DO $$")).toBeLessThan(
+        migrationText.indexOf("ALTER TABLE"),
+      );
+      await writeFile(
+        copiedJournal,
+        migrationJournalBefore(journalText, 76),
+        "utf8",
+      );
+      const previous = await createPGlitePersistence({ db, migrationsFolder });
+      await previous.migrate();
+      await insertSessionTestScope(previous);
+      const session = transactionSessionFixture(transactionSessionIdAt(76));
+      await insertTransactionSessionFixture(previous, session);
+      await insertOpenTransactionJournalFixture(previous, session);
+      await previous.query(`
+        insert into fx_system_tx_journal_relation_incoming
+          (scope_uuid, session_id, attempt_fence, edge_definition_id,
+           target_row_id, observed_adjacency_version, created_at, updated_at)
+        values
+          ($1, $2, 1, 1, decode(repeat('11', 16), 'hex'), 0,
+           '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')
+      `, [session.scopeUuid, session.sessionId]);
+
+      await writeFile(copiedJournal, journalText, "utf8");
+      const current = await createPGlitePersistence({ db, migrationsFolder });
+      await expect(current.migrate()).rejects.toThrow(
+        /cannot add active relation selection authority to populated private relation journal evidence/,
+      );
+      const rejected = await current.query<{
+        rows: string;
+        new_columns: string;
+        receipts: string;
+        identity_check: string;
+      }>(`
+        select
+          (select count(*)::text
+             from fx_system_tx_journal_relation_incoming) as rows,
+          (select count(*)::text
+             from information_schema.columns
+            where table_schema = current_schema()
+              and table_name = 'fx_system_tx_journal_relation_incoming'
+              and column_name in
+                ('activation_sequence', 'active_head_sha256')) as new_columns,
+          (select count(*)::text
+             from drizzle.__drizzle_migrations) as receipts,
+          (select pg_get_constraintdef(oid)
+             from pg_constraint
+            where conname =
+              'fx_system_tx_journal_relation_incoming_identity_check')
+            as identity_check
+      `);
+      expect(rejected.rows[0]).toMatchObject({
+        rows: "1",
+        new_columns: "0",
+        receipts: "76",
+      });
+      expect(rejected.rows[0]?.identity_check).not.toContain(
+        "activation_sequence",
+      );
+      expect(rejected.rows[0]?.identity_check).not.toContain(
+        "active_head_sha256",
+      );
+
+      await current.query(
+        "delete from fx_system_tx_journal_relation_incoming",
+      );
+      await current.migrate();
+      await current.migrate();
+      const installed = await current.query<{
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }>(`
+        select column_name, data_type, is_nullable
+          from information_schema.columns
+         where table_schema = current_schema()
+           and table_name = 'fx_system_tx_journal_relation_incoming'
+           and column_name in ('activation_sequence', 'active_head_sha256')
+         order by column_name
+      `);
+      expect(installed.rows).toEqual([
+        {
+          column_name: "activation_sequence",
+          data_type: "bigint",
+          is_nullable: "NO",
+        },
+        {
+          column_name: "active_head_sha256",
+          data_type: "bytea",
+          is_nullable: "NO",
+        },
+      ]);
+      const accepted = await current.query<{
+        identity_check: string;
+        receipts: string;
+      }>(`
+        select
+          (select pg_get_constraintdef(oid)
+             from pg_constraint
+            where conname =
+              'fx_system_tx_journal_relation_incoming_identity_check')
+            as identity_check,
+          (select count(*)::text
+             from drizzle.__drizzle_migrations) as receipts
+      `);
+      expect(accepted.rows[0]?.receipts).toBe("77");
+      expect(accepted.rows[0]?.identity_check).toContain(
+        "activation_sequence >= 1",
+      );
+      expect(accepted.rows[0]?.identity_check).toContain(
+        "activation_sequence <= '9223372036854775807'::bigint",
+      );
+      expect(accepted.rows[0]?.identity_check).toContain(
+        "octet_length(active_head_sha256) = 32",
+      );
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
 
   it("upgrades existing Task rows to the explicit Legacy definition generation", async () => {
     const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-task-generation-upgrade-"));

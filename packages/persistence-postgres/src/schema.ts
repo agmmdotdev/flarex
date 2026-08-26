@@ -73,6 +73,7 @@ import {
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
   type CanonicalSuccessfulResultBytesV1,
+  type ApplicationActivationSequenceV1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type CommitProtocolV1LimitDimension,
@@ -3360,6 +3361,9 @@ export const fxSystemTransactionJournalRelationIncomingDependencies = pgTable(
     observedAdjacencyVersion: bigint("observed_adjacency_version", {
       mode: "bigint",
     }).$type<CommitSeq>().notNull(),
+    activationSequence: bigint("activation_sequence", { mode: "bigint" })
+      .$type<ApplicationActivationSequenceV1>().notNull(),
+    activeHeadSha256: bytea("active_head_sha256").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
@@ -3390,6 +3394,8 @@ export const fxSystemTransactionJournalRelationIncomingDependencies = pgTable(
         and ${table.edgeDefinitionId} between 1 and 2147483647
         and octet_length(${table.targetRowId}) = 16
         and ${table.observedAdjacencyVersion} >= 0
+        and ${table.activationSequence} between 1 and 9223372036854775807
+        and octet_length(${table.activeHeadSha256}) = 32
       `,
     ),
     check(

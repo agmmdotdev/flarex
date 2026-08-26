@@ -226,6 +226,8 @@ import {
   type LocatedApplicationRelationDefinitionSet,
   type PreparedApplicationRelationCommit,
 } from "./applicationRelationCommit";
+import { readCoherentApplicationActiveHeadForShareInTransactionEffect } from
+  "./applicationActiveHeadRead";
 import { ReadApplicationRelationBindingError } from
   "./applicationRelationBinding";
 import {
@@ -780,6 +782,7 @@ export type PointCommitStaleAuthorityReasonV1 =
   | "epochChanged"
   | "revocationEpochChanged"
   | "activeSchemaChanged"
+  | "activeRelationSelectionChanged"
   | "attemptMissing"
   | "attemptReplaced"
   | "lifecycleChanged"
@@ -900,6 +903,7 @@ export type PointCommitSqlOperationV1 =
   | "beginOrRollback"
   | "lockScopeClock"
   | "validateActiveApplicationSchema"
+  | "validateActiveRelationSelection"
   | "lockSession"
   | "lockLease"
   | "lockJournalRoot"
@@ -1291,6 +1295,7 @@ export interface PointCommitOutcomeResolutionPortV1 {
 export type PointCommitTransactionProofStepV1 =
   | "clockLocked"
   | "activeApplicationSchemaValidated"
+  | "activeRelationSelectionValidated"
   | "sessionLocked"
   | "leaseLocked"
   | "journalRootLocked"
@@ -1392,6 +1397,7 @@ function capturePointCommitTransactionProofOptionsV1(
 export type PointMutationAttemptReplacementProofStepV1 =
   | "clockLocked"
   | "outcomeRechecked"
+  | "activeRelationSelectionValidated"
   | "sessionLocked"
   | "leaseLocked"
   | "journalRootLocked"
@@ -1486,6 +1492,11 @@ interface PreparedRunningRelationConflictAttemptReplacementCommandV1
   extends PreparedRunningRelationConflictRecoveryCommand {
   readonly request: RunningRelationConflictRequestEvidenceV1;
   readonly conflict: RunningRelationConflictEvidenceV1;
+}
+
+interface RecoveredApplicationRelationActiveSelection {
+  readonly activationSequence: bigint;
+  readonly activeHeadSha256Hex: string;
 }
 
 const RunningRelationConflictRequestV1Schema = Schema.Struct({
@@ -2869,6 +2880,12 @@ function capturePointCommitRelationDependenciesResult(
   }
   return Result.gen(function* () {
     const captured: LogicalApplicationRelationIncomingReadDependencyV1[] = [];
+    let activeSelection:
+      | Pick<
+          LogicalApplicationRelationIncomingReadDependencyV1,
+          "activationSequence" | "activeHeadSha256Hex"
+        >
+      | undefined;
     for (let index = 0; index < input.length; index += 1) {
       if (!Object.hasOwn(input, index)) {
         return yield* Result.fail(corruption("commandInvalid"));
@@ -2879,11 +2896,17 @@ function capturePointCommitRelationDependenciesResult(
       const previous = captured.at(-1);
       if (
         dependency.observedAdjacencyVersion > snapshotCommitSeq ||
+        (activeSelection !== undefined &&
+          (dependency.activationSequence !==
+              activeSelection.activationSequence ||
+            dependency.activeHeadSha256Hex !==
+              activeSelection.activeHeadSha256Hex)) ||
         (previous !== undefined &&
           comparePointCommitRelationDependencies(previous, dependency) >= 0)
       ) {
         return yield* Result.fail(corruption("commandInvalid"));
       }
+      activeSelection ??= dependency;
       captured.push(dependency);
     }
     return Object.freeze(captured);
@@ -3895,7 +3918,6 @@ async function runPointMutationAttemptReplacement(
         command,
       ),
     );
-
     const session = await lockPointCommitSession(
       tx,
       command,
@@ -3910,6 +3932,14 @@ async function runPointMutationAttemptReplacement(
         command,
         session,
         options,
+      );
+    }
+    await validateActiveRelationSelectionForPointCommit(tx, command);
+    if (command.relationDependencies.length > 0) {
+      await emitReplacementStep(
+        options,
+        command,
+        "activeRelationSelectionValidated",
       );
     }
 
@@ -4063,6 +4093,11 @@ async function runRunningRelationConflictAttemptReplacement(
     ) {
       throw replacementCorruption("occEvidenceInvalid");
     }
+    await emitReplacementStep(
+      options,
+      command,
+      "activeRelationSelectionValidated",
+    );
     await emitReplacementStep(options, command, "dependenciesValidated");
     const mutationTimeMilliseconds = await readPointCommitDatabaseTime(
       tx,
@@ -4285,6 +4320,7 @@ async function recoverRunningRelationConflictEvidence(
 ): Promise<Readonly<{
   readonly request: RunningRelationConflictRequestEvidenceV1;
   readonly conflict: RunningRelationConflictEvidenceV1;
+  readonly activeSelection: RecoveredApplicationRelationActiveSelection;
 }>> {
   const receiptQuery = tx.select()
     .from(fxSystemTransactionJournalLatestReceipts)
@@ -4387,6 +4423,10 @@ async function recoverRunningRelationConflictEvidence(
     throw replacementCorruption("occEvidenceInvalid");
   }
   let matchingDependencyCount = 0;
+  let activeSelection: Readonly<{
+    readonly activationSequence: bigint;
+    readonly activeHeadSha256Hex: string;
+  }> | undefined;
   for (const dependency of dependencies) {
     const targetRowId = projectPointCommitTransactionResult(
       appRowIdHexV1FromBytesResult(dependency.targetRowId).pipe(
@@ -4397,6 +4437,13 @@ async function recoverRunningRelationConflictEvidence(
     const dependencyUpdatedAt = finiteDateMilliseconds(dependency.updatedAt);
     if (
       dependency.observedAdjacencyVersion > outcome.snapshotCommitSeq ||
+      dependency.activationSequence < 1n ||
+      !isUint8ArrayWithByteLength(dependency.activeHeadSha256, 32) ||
+      (activeSelection !== undefined &&
+        (dependency.activationSequence !==
+            activeSelection.activationSequence ||
+          encodeBytesToLowercaseHex(dependency.activeHeadSha256) !==
+            activeSelection.activeHeadSha256Hex)) ||
       dependencyCreatedAt === undefined ||
       dependencyUpdatedAt === undefined ||
       dependencyCreatedAt < journal.createdAtMilliseconds ||
@@ -4405,6 +4452,11 @@ async function recoverRunningRelationConflictEvidence(
     ) {
       throw replacementCorruption("occEvidenceInvalid");
     }
+    activeSelection ??= Object.freeze({
+      activationSequence: dependency.activationSequence,
+      activeHeadSha256Hex:
+        encodeBytesToLowercaseHex(dependency.activeHeadSha256),
+    });
     if (
       dependency.edgeDefinitionId === outcome.edgeDefinitionId &&
       targetRowId === outcome.targetRowId
@@ -4418,9 +4470,14 @@ async function recoverRunningRelationConflictEvidence(
       }
     }
   }
-  if (matchingDependencyCount > 1) {
+  if (matchingDependencyCount !== 1 || activeSelection === undefined) {
     throw replacementCorruption("occEvidenceInvalid");
   }
+  await validateExpectedActiveRelationSelectionForPointCommit(
+    tx,
+    command.authorityPins.scopeId,
+    [activeSelection],
+  );
 
   const settled = await runPointCommitInTransactionEffect(
     readAppRelationEdgeAdjacencyVersionInTransactionEffect(tx, {
@@ -4450,6 +4507,7 @@ async function recoverRunningRelationConflictEvidence(
   return Object.freeze({
     request: Object.freeze({ ...request }),
     conflict: Object.freeze({ ...outcome }),
+    activeSelection,
   });
 }
 
@@ -5446,6 +5504,14 @@ async function runPointCommitTransactionKernel(
   projectPointCommitTransactionResult(
     requireLockedClockAuthorityResult(clock, preliminaryAuthority, command),
   );
+  await validateActiveRelationSelectionForPointCommit(tx, command);
+  if (command.relationDependencies.length > 0) {
+    await emitTransactionStep(
+      options,
+      command,
+      "activeRelationSelectionValidated",
+    );
+  }
   await validateActiveApplicationSchemaForPointCommit(
     tx,
     command,
@@ -6299,6 +6365,50 @@ function requireLockedClockAuthorityResult(
       return yield* Result.fail(corruption("scopeClockInvalid"));
     }
   });
+}
+
+async function validateActiveRelationSelectionForPointCommit(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitDependencyCommandV1,
+): Promise<void> {
+  if (command.relationDependencies.length === 0) return;
+  await validateExpectedActiveRelationSelectionForPointCommit(
+    tx,
+    command.authorityPins.scopeId,
+    command.relationDependencies,
+  );
+}
+
+async function validateExpectedActiveRelationSelectionForPointCommit(
+  tx: AppRowTransaction,
+  scopeId: ReplacementScopeIdV1,
+  expected: ReadonlyArray<RecoveredApplicationRelationActiveSelection>,
+): Promise<void> {
+  const settled = await runPointCommitInTransactionEffect(
+    readCoherentApplicationActiveHeadForShareInTransactionEffect(
+      tx,
+      scopeId,
+    ),
+  );
+  const active = projectPointCommitTransactionResult(settled.pipe(
+    Result.mapError((failure) => failure.reason === "resourceFailure"
+      ? new PointCommitSqlFailureMarkerV1(
+          "validateActiveRelationSelection",
+          failure.cause ?? failure,
+        )
+      : corruption("activeApplicationHeadInvalid")),
+  ));
+  if (
+    active === null ||
+    active.head.readinessKind !== "relation" ||
+    expected.some((dependency) =>
+      dependency.activationSequence !== active.head.activationSequence ||
+      dependency.activeHeadSha256Hex !==
+        encodeBytesToLowercaseHex(active.head.headSha256)
+    )
+  ) {
+    throw stale("activeRelationSelectionChanged");
+  }
 }
 
 async function validateActiveApplicationSchemaForPointCommit(

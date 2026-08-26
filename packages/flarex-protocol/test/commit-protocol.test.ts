@@ -8,6 +8,8 @@ import {
   COMMIT_PROTOCOL_EXECUTION_LIMITS_V1,
   COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1,
   CanonicalSessionJournalBase64UrlV1Schema,
+  ApplicationActivationSequenceV1Schema,
+  ApplicationActiveHeadSha256HexV1Schema,
   CommitDocumentSemanticBytesV1Schema,
   CommitEnvelopeV1Schema,
   CommitFinalSyscallSequenceV1Schema,
@@ -351,6 +353,74 @@ describe("commit protocol C02", () => {
       targetRowId: decodeAppRowIdHexV1(
         "00000000000000000000000000000003",
       ),
+    });
+
+    const conflictingSelection = await runFailure(
+      canonicalizeSessionJournalV1Effect(sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: [
+          relationIncomingDependency(1, 3, 0n),
+          relationIncomingDependency(2, 4, 0n, {
+            activationSequence: 18n,
+          }),
+        ],
+      })),
+    );
+    expect(conflictingSelection.issue).toEqual({
+      reason: "conflictingApplicationRelationActiveSelection",
+      edgeDefinitionId: decodeCatalogEdgeDefinitionId(2),
+      targetRowId: decodeAppRowIdHexV1(
+        "00000000000000000000000000000004",
+      ),
+    });
+
+    const conflictingSelectionDigest = await runFailure(
+      canonicalizeSessionJournalV1Effect(sessionJournal({
+        finalSyscallSequence: 1n,
+        readDependencies: [
+          relationIncomingDependency(1, 3, 0n),
+          relationIncomingDependency(1, 3, 0n, {
+            activeHeadSha256Hex: "cd".repeat(32),
+          }),
+        ],
+      })),
+    );
+    expect(conflictingSelectionDigest.issue).toEqual({
+      reason: "conflictingApplicationRelationReadDependency",
+      edgeDefinitionId: decodeCatalogEdgeDefinitionId(1),
+      targetRowId: decodeAppRowIdHexV1(
+        "00000000000000000000000000000003",
+      ),
+    });
+
+    const completeRelationDependency = relationIncomingDependency(1, 3, 0n);
+    const {
+      activationSequence: _omittedActivationSequence,
+      ...missingSelectionDependency
+    } = completeRelationDependency;
+    const missingSelection = await runFailure(
+      canonicalizeSessionJournalV1Effect({
+        ...sessionJournal({ finalSyscallSequence: 1n }),
+        readDependencies: [missingSelectionDependency],
+      }),
+    );
+    expect(missingSelection.issue).toEqual({
+      reason: "invalidSchema",
+      component: "journal",
+    });
+
+    const malformedSelection = await runFailure(
+      canonicalizeSessionJournalV1Effect({
+        ...sessionJournal({ finalSyscallSequence: 1n }),
+        readDependencies: [{
+          ...completeRelationDependency,
+          activeHeadSha256Hex: "ab".repeat(31),
+        }],
+      }),
+    );
+    expect(malformedSelection.issue).toEqual({
+      reason: "invalidSchema",
+      component: "journal",
     });
 
     const overLimit = await runFailure(canonicalizeSessionJournalV1Effect(
@@ -984,6 +1054,10 @@ function relationIncomingDependency(
   edgeDefinitionId: number,
   targetRowId: number,
   observedAdjacencyVersion: bigint,
+  activeSelection: Readonly<{
+    readonly activationSequence?: bigint;
+    readonly activeHeadSha256Hex?: string;
+  }> = {},
 ): Extract<
   LogicalReadDependencyV1,
   { readonly kind: "appRelationIncoming" }
@@ -995,6 +1069,12 @@ function relationIncomingDependency(
       targetRowId.toString(16).padStart(32, "0"),
     ),
     observedAdjacencyVersion: CommitSeqSchema.make(observedAdjacencyVersion),
+    activationSequence: ApplicationActivationSequenceV1Schema.make(
+      activeSelection.activationSequence ?? 17n,
+    ),
+    activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema.make(
+      activeSelection.activeHeadSha256Hex ?? "ab".repeat(32),
+    ),
   };
 }
 

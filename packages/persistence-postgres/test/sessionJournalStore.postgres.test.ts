@@ -99,6 +99,13 @@ import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
+import {
+  insertOpenTransactionJournalFixture,
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./sessionAuthorityTestSupport";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -333,7 +340,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             where table_schema = current_schema()
               and table_name like 'fx_system_tx_journal%'
           `);
-          expect(recovered.rows).toEqual([{ count: 5 }]);
+          expect(recovered.rows).toEqual([{ count: 6 }]);
           const eventEvidenceColumn = await currentPersistence.query<{
             column_default: string | null;
             is_nullable: string;
@@ -377,6 +384,144 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       await rm(testRoot, { recursive: true, force: true });
     }
   });
+
+  it("locks and refuses migration 0076 while legacy relation evidence exists", async () => {
+    const testRoot = await mkdtemp(resolve(
+      tmpdir(),
+      "flarex-ra01-j-postgres-",
+    ));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(
+      currentMigrationsFolder,
+      "meta/_journal.json",
+    );
+    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const journalText = await readFile(currentJournal, "utf8");
+      await writeFile(
+        temporaryJournal,
+        migrationJournalBefore(journalText, 76),
+        "utf8",
+      );
+
+      await withTemporaryPostgresSchema(async databaseOptions => {
+        const previous = await createPostgresPersistence({
+          ...databaseOptions,
+          migrationsFolder,
+        });
+        let current:
+          | Awaited<ReturnType<typeof createPostgresPersistence>>
+          | undefined;
+        try {
+          const version = await previous.query<{ version: string }>(
+            "select version() as version",
+          );
+          expect(version.rows[0]?.version).toMatch(/^PostgreSQL /);
+          await previous.migrate();
+          await insertSessionTestScope(previous);
+          const session = transactionSessionFixture(
+            transactionSessionIdAt(176),
+          );
+          await insertTransactionSessionFixture(previous, session);
+          await insertOpenTransactionJournalFixture(previous, session);
+          await previous.query(`
+            insert into fx_system_tx_journal_relation_incoming
+              (scope_uuid, session_id, attempt_fence, edge_definition_id,
+               target_row_id, observed_adjacency_version,
+               created_at, updated_at)
+            values
+              ($1, $2, 1, 1, decode(repeat('21', 16), 'hex'), 0,
+               '2030-01-01T00:00:00.000Z',
+               '2030-01-01T00:00:00.000Z')
+          `, [session.scopeUuid, session.sessionId]);
+
+          await copyFile(currentJournal, temporaryJournal);
+          current = await createPostgresPersistence({
+            ...databaseOptions,
+            migrationsFolder,
+          });
+          await expect(current.migrate()).rejects.toThrow(
+            /cannot add active relation selection authority to populated private relation journal evidence/,
+          );
+          const rejected = await current.query<{
+            rows: number;
+            new_columns: number;
+            receipts: number;
+          }>(`
+            select
+              (select count(*)::int
+                 from fx_system_tx_journal_relation_incoming) as rows,
+              (select count(*)::int
+                 from information_schema.columns
+                where table_schema = current_schema()
+                  and table_name = 'fx_system_tx_journal_relation_incoming'
+                  and column_name in
+                    ('activation_sequence', 'active_head_sha256'))
+                as new_columns,
+              (select count(*)::int
+                 from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations)
+                as receipts
+          `);
+          expect(rejected.rows).toEqual([{
+            rows: 1,
+            new_columns: 0,
+            receipts: 76,
+          }]);
+
+          await current.query(
+            "delete from fx_system_tx_journal_relation_incoming",
+          );
+          await current.migrate();
+          await current.migrate();
+          const installed = await current.query<{
+            new_columns: number;
+            receipts: number;
+            identity_check: string;
+          }>(`
+            select
+              (select count(*)::int
+                 from information_schema.columns
+                where table_schema = current_schema()
+                  and table_name = 'fx_system_tx_journal_relation_incoming'
+                  and column_name in
+                    ('activation_sequence', 'active_head_sha256'))
+                as new_columns,
+              (select count(*)::int
+                 from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations)
+                as receipts,
+              (select pg_get_constraintdef(constraint_row.oid)
+                 from pg_constraint constraint_row
+                 join pg_class relation
+                   on relation.oid = constraint_row.conrelid
+                 join pg_namespace namespace
+                   on namespace.oid = relation.relnamespace
+                where namespace.nspname = current_schema()
+                  and constraint_row.conname =
+                  'fx_system_tx_journal_relation_incoming_identity_check')
+                as identity_check
+          `);
+          expect(installed.rows[0]).toMatchObject({
+            new_columns: 2,
+            receipts: 77,
+          });
+          expect(installed.rows[0]?.identity_check).toContain(
+            "octet_length(active_head_sha256) = 32",
+          );
+        } finally {
+          await Promise.all([
+            previous.close(),
+            current?.close(),
+          ]);
+        }
+      });
+    } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   it("serializes same-sequence and ordered adjacent-sequence races into one latest receipt", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
@@ -1505,6 +1650,24 @@ function sharedLocator(
     databaseKey,
     schemaName: "public",
   });
+}
+
+function migrationJournalBefore(
+  journalText: string,
+  exclusiveIndex: number,
+): string {
+  const parsed = JSON.parse(journalText) as {
+    entries?: Array<{ readonly idx?: number }>;
+  };
+  if (!Array.isArray(parsed.entries)) {
+    throw new Error("Current Drizzle journal is missing its entries array.");
+  }
+  return `${JSON.stringify({
+    ...parsed,
+    entries: parsed.entries.filter(entry =>
+      entry.idx !== undefined && entry.idx < exclusiveIndex
+    ),
+  }, null, 2)}\n`;
 }
 
 function quoteIdentifier(value: string): string {

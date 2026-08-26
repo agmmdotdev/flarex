@@ -326,6 +326,26 @@ export function claimApplicationRelationActiveSelection(
     : Result.succeed(copyRelationSelectionSnapshot(state.basis));
 }
 
+export function applicationRelationActiveSelectionMatchesSnapshot(
+  basis: ApplicationRelationActiveSelectionBasis,
+  snapshot: ApplicationRelationActiveSelectionSnapshot,
+): boolean {
+  return sameTrustedAuthority(basis.authority, snapshot.authority) &&
+    basis.deploymentId === snapshot.deploymentId &&
+    basis.revisionId === snapshot.revisionId &&
+    basis.schemaVersionId === snapshot.schemaVersionId &&
+    basis.relationFrontierCommitSeq === snapshot.relationFrontierCommitSeq &&
+    basis.relationCount === snapshot.relationCount &&
+    basis.activationSequence === snapshot.activationSequence &&
+    bytesEqualFullScan(basis.readinessSha256, snapshot.readinessSha256) &&
+    bytesEqualFullScan(
+      basis.relationSetReadinessSha256,
+      snapshot.relationSetReadinessSha256,
+    ) &&
+    bytesEqualFullScan(basis.activationSha256, snapshot.activationSha256) &&
+    bytesEqualFullScan(basis.headSha256, snapshot.headSha256);
+}
+
 function claimApplicationRelationActiveSelectionForReadiness(
   readiness: ApplicationRelationReadinessFoldRepository,
   selection: unknown,
@@ -352,6 +372,10 @@ export type ValidateApplicationRelationActiveSelectionError =
   | SettleApplicationRelationReadinessFoldError
   | TrustedScopeAuthorityError
   | LockScopeClockForUpdateError;
+
+export type ValidateApplicationRelationActiveSelectionInTransactionError =
+  | ApplicationActivationError
+  | SettleApplicationRelationReadinessFoldError;
 
 /**
  * Revalidates one exact relation selection against the current scope owner,
@@ -874,8 +898,7 @@ export const validateApplicationRelationActiveSelectionInTransaction = Effect.fn
   currentClock: ScopeClockRecord,
 ): Effect.fn.Return<
   ApplicationRelationActiveSelectionBasis,
-  | ApplicationActivationError
-  | SettleApplicationRelationReadinessFoldError
+  ValidateApplicationRelationActiveSelectionInTransactionError
 > {
   if (typeof selection !== "object" || selection === null) {
     return yield* activationFailure(

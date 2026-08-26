@@ -19,8 +19,12 @@ import {
 import { appDocumentIdV1FromRowIdentity } from
   "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
-import { CommitSyscallSequenceV1Schema } from
-  "flarex-protocol/commit-protocol";
+import {
+  ApplicationActivationSequenceV1Schema,
+  CommitSyscallSequenceV1Schema,
+  canonicalizeSessionJournalV1Effect,
+  canonicalizeSuccessfulResultV1Effect,
+} from "flarex-protocol/commit-protocol";
 import {
   CommitSeqSchema,
   decodeReplacementScopeIdV1,
@@ -33,6 +37,10 @@ import {
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
   "flarex-protocol/transaction-grant";
+import {
+  TransactionRequestKeyV1Schema,
+  TransactionRequestSha256V1Schema,
+} from "flarex-protocol/transaction-session";
 import { canonicalizeFlarexValueV1 } from "flarex-protocol/value";
 import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
@@ -127,8 +135,11 @@ import {
 import { createPhysicalDefinitionLifecyclePort } from
   "../src/physicalDefinitionLifecycle";
 import {
+  createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
+  createPointCommitRollbackProofPortV1,
   createPointMutationAttemptReplacementPortV1,
+  PointCommitStaleAuthorityV1Error,
 } from "../src/pointCommitTransaction";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
@@ -158,6 +169,8 @@ import { createSessionJournalStorePersistenceV1 } from
   "../src/sessionJournalStore";
 import { createStoredOccExecutionEvidenceLoaderV1 } from
   "../src/storedOccExecution";
+import { createStoredAttemptEvidenceLoaderV1 } from
+  "../src/storedAttemptEvidence";
 import {
   createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
@@ -170,10 +183,20 @@ import {
   relationBuildRowId,
   type RelationBuildPublicationOptions,
 } from "./applicationRelationBuildTestSupport";
-import { runEffect, runEffectFailure } from "./effectTestRuntime";
-import { selectorFromRelationAnchor } from
+import {
+  completeSessionJournalSeal,
+  prepareSessionJournalSeal,
+  runEffect,
+  runEffectFailure,
+} from "./effectTestRuntime";
+import {
+  relationAuthorityFromAnchor,
+  selectorFromRelationAnchor,
+} from
   "./pointCommitRelationTestSupport";
 import {
+  pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
   runningRelationConflictAttemptReplacementCommandFromStoredOccExecutionV1,
   runningRelationConflictRecoveryCommandFromStoredOccExecutionV1,
 } from "./pointCommitTransactionTestSupport";
@@ -1013,6 +1036,7 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "activeRelationSelectionValidated",
         "dependenciesValidated",
         "executionClaimDeleted",
         "sessionEnteredRetrying",
@@ -1083,6 +1107,277 @@ describePostgres("real PostgreSQL E01-B application relation readiness", () => {
         firstSourceDocumentId,
         secondSourceDocumentId,
       ]);
+      await expect(runEffect(
+        retryStore.runApplicationRelationIncomingReadEffect(
+          retryRelation,
+          operation,
+        ),
+      )).resolves.toMatchObject({
+        kind: "completed",
+        delivery: "replayed",
+      });
+
+      const preparedSeal = await prepareSessionJournalSeal(
+        retryStore,
+        retryAttempt,
+      );
+      const canonicalJournal = await runEffect(
+        canonicalizeSessionJournalV1Effect(preparedSeal.journal),
+      );
+      const successfulResult = await runEffect(
+        canonicalizeSuccessfulResultV1Effect({ ok: true }),
+      );
+      await completeSessionJournalSeal(
+        retryStore,
+        preparedSeal.preparation,
+        canonicalJournal,
+        successfulResult,
+      );
+      const retryAuthority = relationAuthorityFromAnchor(
+        loaded.anchor,
+        loaded.executionPin.schemaVersionId,
+        replaced.executionClaim,
+      );
+      const attemptLoader = createStoredAttemptEvidenceLoaderV1(
+        fixture.pointCommitAuthority,
+      );
+      const retryRunning = await runEffect(
+        attemptLoader.loadEffect(retryAuthority),
+      );
+      if (retryRunning.kind !== "loaded") {
+        throw new Error("Expected sealed PostgreSQL retry evidence.");
+      }
+      await runEffect(
+        createPointCommitFinishingTransitionPortV1(
+          fixture.pointCommitAuthority,
+        ).enterFinishing(
+          await pointCommitFinishingCommandFromStoredAttemptV1(
+            retryAuthority,
+            retryRunning.evidence,
+          ),
+        ),
+      );
+      const retryFinishing = await runEffect(
+        attemptLoader.loadFinishingEffect(
+          selectorFromRelationAnchor(loaded.anchor),
+        ),
+      );
+      if (retryFinishing.kind !== "loaded") {
+        throw new Error("Expected finishing PostgreSQL retry evidence.");
+      }
+      const retryCommand =
+        await pointCommitCommandWithJournalReadDependenciesFromStoredAttemptV1(
+          retryAuthority,
+          retryFinishing.evidence,
+        );
+      const finishSteps: string[] = [];
+      const rollback = createPointCommitRollbackProofPortV1(
+        fixture.pointCommitAuthority,
+        {
+          applicationRelations: fixture.relationCommit,
+          afterTransactionStep: event => {
+            finishSteps.push(event.step);
+            return Promise.resolve();
+          },
+        },
+      );
+      await expect(runEffect(rollback.prove(retryCommand))).resolves.toEqual({
+        kind: "wouldCommit",
+      });
+      expect(finishSteps.slice(0, 2)).toEqual([
+        "clockLocked",
+        "activeRelationSelectionValidated",
+      ]);
+
+      const staleRetryCommand = Object.freeze({
+        ...retryCommand,
+        relationDependencies: Object.freeze(
+          retryCommand.relationDependencies.map(dependency => Object.freeze({
+            ...dependency,
+            activationSequence: ApplicationActivationSequenceV1Schema.make(
+              dependency.activationSequence + 1n,
+            ),
+          })),
+        ),
+      });
+      finishSteps.length = 0;
+      const staleFinish = await runEffectFailure(
+        rollback.prove(staleRetryCommand),
+      );
+      expect(staleFinish).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
+      expect(staleFinish).toMatchObject({
+        reason: "activeRelationSelectionChanged",
+      });
+      expect(finishSteps).toEqual(["clockLocked"]);
+
+      const finishClockLocked = deferredSignal();
+      const releaseFinishClock = deferredSignal();
+      const finishFirst = runEffect(
+        createPointCommitRollbackProofPortV1(
+          fixture.pointCommitAuthority,
+          {
+            applicationRelations: fixture.relationCommit,
+            afterTransactionStep: async event => {
+              if (event.step !== "clockLocked") return;
+              finishClockLocked.resolve();
+              await releaseFinishClock.promise;
+            },
+          },
+        ).prove(retryCommand),
+      );
+      await finishClockLocked.promise;
+      const activationWaiter = await fixture.target.pool.connect();
+      let activationWaiterReleased = false;
+      try {
+        await activationWaiter.query("begin");
+        const activationWaiterPidResult = await activationWaiter.query<{
+          pid: number;
+        }>("select pg_backend_pid()::int pid");
+        const activationWaiterPid = activationWaiterPidResult.rows[0]?.pid;
+        if (activationWaiterPid === undefined) {
+          throw new Error("Expected an activation-waiter backend PID.");
+        }
+        const activationLock = activationWaiter.query(
+          `select 1 from fx_system_scope_clock
+            where scope_id = $1 for update`,
+          [fixture.scopeId],
+        );
+        await waitForPostgresPidBlocked(
+          fixture.target,
+          activationWaiterPid,
+        );
+        releaseFinishClock.resolve();
+        await expect(finishFirst).resolves.toEqual({ kind: "wouldCommit" });
+        await activationLock;
+        await activationWaiter.query("rollback");
+        activationWaiterReleased = true;
+      } finally {
+        releaseFinishClock.resolve();
+        if (!activationWaiterReleased) {
+          await activationWaiter.query("rollback").catch(() => undefined);
+        }
+        activationWaiter.release();
+        await Promise.allSettled([finishFirst]);
+      }
+
+      const staleUuid = relationFoldUuidSequence(71, 72, 73);
+      const staleActivation = await activatePointMutationSession(
+        createPointMutationSessionActivationPersistenceV1(
+          fixture.pointCommitAuthority,
+          {
+            leaseDurationMilliseconds: 60_000,
+            randomUuid: staleUuid,
+            randomExecutionClaimOwner: staleUuid,
+          },
+        ),
+        pointMutationSessionActivationFixture(
+          fixture.deploymentId,
+          decodeReplacementScopeIdV1(left.scopeId),
+          { evidence: {
+            schemaVersionId: relation.binding.schemaVersionId,
+            requestKey: TransactionRequestKeyV1Schema.make(
+              "request:ra01-j:stale-replay",
+            ),
+            requestSha256: TransactionRequestSha256V1Schema.make(
+              new Uint8Array(32).fill(0x71),
+            ),
+          } },
+        ),
+      );
+      if (staleActivation.status !== "created") {
+        throw new Error("Expected a PostgreSQL stale-replay attempt.");
+      }
+      const staleStore = createSessionJournalStorePersistenceV1(
+        fixture.pointCommitAuthority,
+        {
+          grantRetentionPolicy: TEST_GRANT_RETENTION_POLICY_V1,
+          applicationRelations: reads,
+        },
+      );
+      const staleAttempt = await runEffect(staleStore.openAttemptEffect({
+        selector: selectorFromRelationAnchor(staleActivation.anchor),
+        executionClaim: staleActivation.executionClaim,
+        snapshotToken: staleActivation.anchor.snapshotToken,
+        schemaVersionId: relation.binding.schemaVersionId,
+      }));
+      const staleRelation = await runEffect(
+        staleStore.resolveApplicationRelationReadEffect(
+          staleAttempt,
+          capability,
+        ),
+      );
+      const staleOperation = Object.freeze({
+        ...operation,
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      });
+      await expect(runEffect(
+        staleStore.runApplicationRelationIncomingReadEffect(
+          staleRelation,
+          staleOperation,
+        ),
+      )).resolves.toMatchObject({
+        kind: "completed",
+        delivery: "executed",
+      });
+      const activationFirst = await acquireScopeClockLock(fixture);
+      let activationCommitted = false;
+      await activationFirst.client.query(
+        "delete from fx_system_application_active_head where scope_id = $1",
+        [fixture.scopeId],
+      );
+      const staleReplayPromise = runEffectFailure(
+        staleStore.runApplicationRelationIncomingReadEffect(
+          staleRelation,
+          staleOperation,
+        ),
+      );
+      const staleFinishPromise = runEffectFailure(
+        rollback.prove(retryCommand),
+      );
+      try {
+        await waitForBlockedScopeClockOperations(
+          fixture.target,
+          activationFirst.pid,
+          2,
+        );
+        await activationFirst.client.query("commit");
+        activationCommitted = true;
+      } finally {
+        if (!activationCommitted) {
+          await activationFirst.client.query("rollback").catch(
+            () => undefined,
+          );
+        }
+        activationFirst.client.release();
+      }
+      const [staleReplay, activationFirstFinish] = await Promise.all([
+        staleReplayPromise,
+        staleFinishPromise,
+      ]);
+      expect(staleReplay).toMatchObject({
+        _tag: "ApplicationActivationError",
+        operation: "validateSelection",
+        reason: "concurrentHead",
+      });
+      expect(activationFirstFinish).toMatchObject({
+        _tag: "PointCommitStaleAuthorityV1Error",
+        reason: "activeRelationSelectionChanged",
+      });
+      const staleRoot = await fixture.target.query<{
+        last_syscall_sequence: string;
+        relation_read_syscalls: number;
+        relation_dependency_count: number;
+      }>(`
+        select last_syscall_sequence, relation_read_syscalls,
+               relation_dependency_count
+          from fx_system_tx_journal
+         where session_id = $1
+      `, [staleActivation.anchor.sessionId]);
+      expect(staleRoot.rows).toEqual([{
+        last_syscall_sequence: "1",
+        relation_read_syscalls: 1,
+        relation_dependency_count: 1,
+      }]);
     });
   }, 300_000);
 });
@@ -1561,6 +1856,36 @@ async function acquireScopeClockLock(fixture: Fixture): Promise<{
     client.release();
     throw cause;
   }
+}
+
+async function waitForPostgresPidBlocked(
+  persistence: PostgresFlarexPersistence,
+  pid: number,
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{ blocked: boolean }>(
+      "select cardinality(pg_blocking_pids($1)) > 0 as blocked",
+      [pid],
+    );
+    if (result.rows[0]?.blocked === true) return;
+    await delay(25);
+  }
+  throw new Error(`Expected PostgreSQL backend ${pid} to be blocked.`);
+}
+
+function deferredSignal(): Readonly<{
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}> {
+  let resolvePromise: (() => void) | undefined;
+  const promise = new Promise<void>(resolve => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve: () => resolvePromise?.(),
+  });
 }
 
 async function waitForBlockedScopeClockOperations(

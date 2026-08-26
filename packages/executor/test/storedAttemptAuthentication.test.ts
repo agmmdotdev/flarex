@@ -30,6 +30,7 @@ import {
 } from "flarex-protocol/app-document";
 import {
   appRowIdHexV1ToBytes,
+  decodeAppRowIdHexV1,
   decodeAppDocumentIdV1,
   decodeAppDocumentIdentityV1,
   type AppDocumentIdV1,
@@ -42,6 +43,8 @@ import {
 } from "flarex-protocol/catalog";
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
+  ApplicationActivationSequenceV1Schema,
+  ApplicationActiveHeadSha256HexV1Schema,
   CanonicalSessionJournalBase64UrlV1Schema,
   CanonicalSuccessfulResultBytesV1Schema,
   CommitDocumentSemanticBytesV1Schema,
@@ -168,6 +171,8 @@ import {
 import {
   findTransactionGrantVerificationKernelV1,
 } from "../src/transactionGrantVerificationKernel";
+import { pointCommitPublicationCommandsEqual } from
+  "../src/storedAttemptAuthentication/pointCommitRuntimeModel";
 import {
   CommitDocumentValidationV1Error,
   CommitInputAuthorityCorruptionV1Error,
@@ -2729,6 +2734,57 @@ describe("C04A stored-attempt authentication", () => {
     expect(command.successfulResult.canonicalBytes).not.toBe(
       fixture.result.canonicalBytes,
     );
+
+    const relationDependency: Extract<
+      LogicalReadDependencyV1,
+      { readonly kind: "appRelationIncoming" }
+    > = Object.freeze({
+      kind: "appRelationIncoming",
+      edgeDefinitionId: decodeCatalogEdgeDefinitionId(71),
+      targetRowId: decodeAppRowIdHexV1("71".padStart(32, "0")),
+      observedAdjacencyVersion: CommitSeqSchema.make(9n),
+      activationSequence: ApplicationActivationSequenceV1Schema.make(17n),
+      activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema.make(
+        "ab".repeat(32),
+      ),
+    });
+    const commandWithRelation = Object.freeze({
+      ...command,
+      relationDependencies: Object.freeze([relationDependency]),
+    });
+    const equalCommandWithRelation = Object.freeze({
+      ...command,
+      relationDependencies: Object.freeze([
+        Object.freeze({ ...relationDependency }),
+      ]),
+    });
+    expect(pointCommitPublicationCommandsEqual(
+      commandWithRelation,
+      equalCommandWithRelation,
+    )).toBe(true);
+    expect(pointCommitPublicationCommandsEqual(
+      commandWithRelation,
+      Object.freeze({
+        ...equalCommandWithRelation,
+        relationDependencies: Object.freeze([Object.freeze({
+          ...relationDependency,
+          activationSequence:
+            ApplicationActivationSequenceV1Schema.make(18n),
+        })]),
+      }),
+    )).toBe(false);
+    expect(pointCommitPublicationCommandsEqual(
+      commandWithRelation,
+      Object.freeze({
+        ...equalCommandWithRelation,
+        relationDependencies: Object.freeze([Object.freeze({
+          ...relationDependency,
+          activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema.make(
+            "cd".repeat(32),
+          ),
+        })]),
+      }),
+    )).toBe(false);
 
     const calls = commands.length;
     const forged = await runFailure(

@@ -6,6 +6,7 @@ export {
   type PrepareApplicationRelationReadCapabilityInput,
   type ResolveApplicationRelationReadCapabilityInput,
   type ResolvedApplicationRelationReadCapability,
+  type ValidateApplicationRelationReadCapabilityError,
 } from "./applicationRelationRead/Model";
 export {
   createApplicationRelationReadPort,

@@ -2040,6 +2040,63 @@ Focused PGlite and genuine-PostgreSQL proof must cover:
 RA01 closes only when this matrix and the previously open replacement and
 builder lock-order cells pass. RQ01 remains blocked until then.
 
+#### RA01-J implementation checkpoint — journal authority complete, RA01 open
+
+The approved medium system-core slice is implemented without adding a higher
+API or a parallel commit path. The unversioned relation-read capability retains
+its exact issuing active selection and validates it inside the journal syscall
+transaction before replay, overlay, adjacency, or edge access. The concrete
+session-journal dependency now retains its activation sequence and active-head
+digest, canonical normalization preserves those fields, and every dependency
+in an attempt must agree on one exact token. Migration `0076` adds the two
+private persisted witnesses and fails closed rather than inventing authority
+for a populated relation-dependency table.
+
+The shared finishing kernel validates the coherent relation head immediately
+after the scope-clock update lock and before dependency queries or publication
+side effects. The specialized running-relation-conflict replacement path uses
+the same authority rule; a first-read relation conflict persists its logical
+dependency and CAS token, so replacement cannot bypass final validation.
+Superseded authority maps to `activeRelationSelectionChanged`, while an
+unchanged head continues through the existing adjacency OCC checks.
+
+Focused PGlite proof covers capability use before relation storage access,
+stored replay, successful seal, final rollback proof, first-read conflict and
+specialized replacement, malformed and divergent stored CAS evidence, and a
+real A1-to-B2-to-same-revision-A3 cycle. The A1 capability and finishing
+command remain stale under both B2 and A3, while the three activation-head
+digests are distinct. Genuine PostgreSQL receipts cover the same transaction
+ordering and migration behavior. These receipts close the RA01-J superseded-
+capability defect, but do not close all of RA01.
+
+One separate activation-owner defect now blocks the remaining complete
+Legacy/relation transition proof:
+
+- **Reproducible scenario:** activate a ready relation revision A, prepare a
+  ready Legacy replacement B over the same admitted schema authority, and ask
+  the existing activation dispatcher to replace A with B using A's exact
+  expected head.
+- **Expected behavior:** the ready Legacy revision replaces the active relation
+  head atomically, after which a ready relation revision may replace that
+  Legacy head through the same single-head protocol.
+- **Actual behavior:** current-head revalidation enters the relation-readiness
+  fold and fails with `ApplicationRelationReadinessFoldError` operation
+  `validate`, reason `authorityChanged`; the Legacy activation never reaches
+  the head replacement.
+- **Affected owner and trust boundary:** Application activation's readiness
+  dispatch and the relation-readiness fold validation in
+  `applicationRelationReadinessFold.ts`, not the journal, relation-read, or
+  point-commit authority implemented by RA01-J.
+- **Evidence and disposition:** the failure is reproducible in the relation
+  readiness fixture after the Legacy candidate, schema, validation, and
+  readiness evidence are settled. This checkpoint records it without changing
+  the activation owner, weakening the transition assertion, or adding a
+  fallback. A separate activation-owner preflight is required before repair.
+
+Complete Legacy-to-relation and relation-to-Legacy replacement proof and both
+real activation-versus-builder lock orders therefore remain RA01 exit gates.
+RQ01 remains blocked.
+
 ### [ ] RQ01 — Compose One Read-Only Standard Relation Query
 
 Prerequisite: RA01 has activated the private relation-bearing revision after

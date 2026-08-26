@@ -20,10 +20,13 @@ import type {
 } from "../applicationRelationCommit";
 import type {
   ApplicationActiveSelection,
+  ValidateApplicationRelationActiveSelectionInTransactionError,
   ValidateApplicationRelationActiveSelectionError,
 } from "../applicationActivation";
+import type { AppRowTransaction } from "../appRows";
 import type { ApplicationRelationReadinessFoldRepository } from
   "../applicationRelationReadinessFold";
+import type { ScopeClockRecord } from "../scopeClock";
 
 const applicationRelationReadCapabilityBrand: unique symbol = Symbol(
   "FlarexDB/ApplicationRelationReadCapability",
@@ -61,6 +64,15 @@ export interface ResolvedApplicationRelationReadCapability {
   readonly epoch: ScopeEpoch;
 }
 
+export interface ApplicationRelationActiveSelectionCas {
+  readonly activationSequence: bigint;
+  readonly activeHeadSha256: Uint8Array;
+}
+
+export interface ValidatedApplicationRelationReadCapability {
+  readonly activeSelection: ApplicationRelationActiveSelectionCas;
+}
+
 export class ApplicationRelationReadUnavailableError extends Data.TaggedError(
   "ApplicationRelationReadUnavailableError",
 )<{
@@ -77,6 +89,10 @@ export type PrepareApplicationRelationReadCapabilityError =
   | ApplicationRelationReadUnavailableError
   | ValidateApplicationRelationActiveSelectionError;
 
+export type ValidateApplicationRelationReadCapabilityError =
+  | ApplicationRelationReadUnavailableError
+  | ValidateApplicationRelationActiveSelectionInTransactionError;
+
 export interface ApplicationRelationReadPort {
   readonly readiness: ApplicationRelationReadinessFoldRepository;
   readonly prepare: (
@@ -91,6 +107,15 @@ export interface ApplicationRelationReadPort {
   ) => Result.Result<
     ResolvedApplicationRelationReadCapability,
     ApplicationRelationReadUnavailableError
+  >;
+  readonly validateInTransaction: (
+    capability: ApplicationRelationReadCapability,
+    input: ResolveApplicationRelationReadCapabilityInput,
+    tx: AppRowTransaction,
+    currentClock: ScopeClockRecord,
+  ) => Effect.Effect<
+    ValidatedApplicationRelationReadCapability,
+    ValidateApplicationRelationReadCapabilityError
   >;
   readonly lowerOverlay: (
     capability: ApplicationRelationReadCapability,

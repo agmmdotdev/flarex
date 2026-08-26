@@ -207,6 +207,19 @@ export const CommitFinalSyscallSequenceV1Schema =
 export type CommitFinalSyscallSequenceV1 =
   typeof CommitFinalSyscallSequenceV1Schema.Type;
 
+export const ApplicationActivationSequenceV1Schema =
+  CanonicalPositivePostgresBigIntFromString.pipe(
+    Schema.brand("FlarexDB/ApplicationActivationSequenceV1"),
+  );
+export type ApplicationActivationSequenceV1 =
+  typeof ApplicationActivationSequenceV1Schema.Type;
+
+export const ApplicationActiveHeadSha256HexV1Schema = Schema.String.check(
+  Schema.isPattern(LOWERCASE_SHA256_PATTERN),
+).pipe(Schema.brand("FlarexDB/ApplicationActiveHeadSha256HexV1"));
+export type ApplicationActiveHeadSha256HexV1 =
+  typeof ApplicationActiveHeadSha256HexV1Schema.Type;
+
 export const CommitReadDocumentsV1Schema = NonNegativeSafeIntegerSchema.pipe(
   Schema.brand("FlarexDB/CommitReadDocumentsV1"),
 );
@@ -307,6 +320,8 @@ export const LogicalApplicationRelationIncomingReadDependencyV1Schema =
     edgeDefinitionId: CatalogEdgeDefinitionIdSchema,
     targetRowId: AppRowIdHexV1Schema,
     observedAdjacencyVersion: CommitSeqSchema,
+    activationSequence: ApplicationActivationSequenceV1Schema,
+    activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema,
   }).annotate(StrictStructOptions);
 export type LogicalApplicationRelationIncomingReadDependencyV1 =
   typeof LogicalApplicationRelationIncomingReadDependencyV1Schema.Type;
@@ -576,6 +591,11 @@ export type CommitProtocolV1Issue =
     }
   | {
       readonly reason: "conflictingApplicationRelationReadDependency";
+      readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+      readonly targetRowId: AppRowIdHexV1;
+    }
+  | {
+      readonly reason: "conflictingApplicationRelationActiveSelection";
       readonly edgeDefinitionId: CatalogEdgeDefinitionId;
       readonly targetRowId: AppRowIdHexV1;
     }
@@ -987,6 +1007,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
   );
   const normalizedApplicationRelationDependencies:
     LogicalApplicationRelationIncomingReadDependencyV1[] = [];
+  const activeRelationSelection = applicationRelationDependencies[0];
   for (const dependency of applicationRelationDependencies) {
     const previousApplicationRelationDependency =
       normalizedApplicationRelationDependencies.at(-1);
@@ -999,7 +1020,11 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     ) {
       if (
         previousApplicationRelationDependency.observedAdjacencyVersion !==
-          dependency.observedAdjacencyVersion
+          dependency.observedAdjacencyVersion ||
+        !sameApplicationRelationActiveSelectionV1(
+          previousApplicationRelationDependency,
+          dependency,
+        )
       ) {
         return yield* protocolFailureEffect({
           reason: "conflictingApplicationRelationReadDependency",
@@ -1008,6 +1033,19 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
         });
       }
       continue;
+    }
+    if (
+      activeRelationSelection !== undefined &&
+      !sameApplicationRelationActiveSelectionV1(
+        activeRelationSelection,
+        dependency,
+      )
+    ) {
+      return yield* protocolFailureEffect({
+        reason: "conflictingApplicationRelationActiveSelection",
+        edgeDefinitionId: dependency.edgeDefinitionId,
+        targetRowId: dependency.targetRowId,
+      });
     }
     normalizedApplicationRelationDependencies.push(dependency);
   }
@@ -1100,6 +1138,14 @@ function sameApplicationRelationReadIdentityV1(
 ): boolean {
   return left.edgeDefinitionId === right.edgeDefinitionId &&
     left.targetRowId === right.targetRowId;
+}
+
+function sameApplicationRelationActiveSelectionV1(
+  left: LogicalApplicationRelationIncomingReadDependencyV1,
+  right: LogicalApplicationRelationIncomingReadDependencyV1,
+): boolean {
+  return left.activationSequence === right.activationSequence &&
+    left.activeHeadSha256Hex === right.activeHeadSha256Hex;
 }
 
 export function normalizeLogicalIndexRangeReadDependenciesV1Result(

@@ -668,7 +668,9 @@ function relationDependencyArraysEqual(
     return other !== undefined &&
       dependency.edgeDefinitionId === other.edgeDefinitionId &&
       dependency.targetRowId === other.targetRowId &&
-      dependency.observedAdjacencyVersion === other.observedAdjacencyVersion;
+      dependency.observedAdjacencyVersion === other.observedAdjacencyVersion &&
+      dependency.activationSequence === other.activationSequence &&
+      dependency.activeHeadSha256Hex === other.activeHeadSha256Hex;
   });
 }
 

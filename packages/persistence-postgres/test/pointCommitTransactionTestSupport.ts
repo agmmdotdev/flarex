@@ -34,6 +34,7 @@ import {
 
 import type {
   PointCommitAttemptScalarCommandV1,
+  PointCommitConflictEvidenceV1,
   PointCommitDependencyV1,
   PointCommitFinishingTransitionCommandV1,
   PointCommitRowIntentV1,
@@ -124,6 +125,16 @@ export async function pointMutationAttemptReplacementCommandFromStoredAttemptV1(
     authority,
     evidence,
   );
+  return pointMutationAttemptReplacementCommandFromPointCommitCommandV1(
+    command,
+    expectedPointConflict(command),
+  );
+}
+
+export function pointMutationAttemptReplacementCommandFromPointCommitCommandV1(
+  command: PointCommitTransactionCommandV1,
+  expectedConflict: PointCommitConflictEvidenceV1,
+): PointMutationAttemptReplacementCommandV1 {
   return Object.freeze({
     authorityPins: command.authorityPins,
     session: command.session,
@@ -131,7 +142,11 @@ export async function pointMutationAttemptReplacementCommandFromStoredAttemptV1(
     dependencies: command.dependencies,
     indexRangeDependencies: command.indexRangeDependencies,
     relationDependencies: command.relationDependencies,
-    expectedConflict: expectedPointConflict(command),
+    expectedConflict: Object.freeze({
+      conflict: Object.freeze({ ...expectedConflict.conflict }),
+      snapshotCommitSeq: expectedConflict.snapshotCommitSeq,
+      currentCommitSeq: expectedConflict.currentCommitSeq,
+    }),
   });
 }
 
