@@ -823,10 +823,12 @@ Dynamic Worker binding baseline before selecting it.
     Legacy and stale-selection rejection, and zero write-bearing state change.
     The empty-function readiness gate remains; no Worker API, mutation journal,
     public developer ergonomics, or production routing was added.
-21. `R03`: publish relation change facts through the existing scope commit and
-    prove fenced sync invalidation/reconnect semantics; relation subscriptions
-    remain absent before this gate.
-22. `SV-R`: prove one internal Standard relation vertical through definition,
+21. `R03-A`: publish coalesced relation adjacency facts through the existing
+    scope commit/feed/retention owners without a second stream or wake.
+22. `R03-B`: after roadmap 21's accepted scope-local sync owner and contracts
+    exist, prove fenced relation registration, invalidation, and reconnect;
+    relation subscriptions remain absent before this gate.
+23. `SV-R`: prove one internal Standard relation vertical through definition,
     analysis, publication, readiness, activation, commit, query, and
     observation in PGlite and genuine PostgreSQL while production-inert.
 

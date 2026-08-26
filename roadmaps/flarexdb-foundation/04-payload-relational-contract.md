@@ -2339,24 +2339,72 @@ separate relation roadmap slice.
 Prerequisite: C09 exposes deterministic adjacency actions and RQ01 proves the
 read-only logical dependency shape that sync will observe.
 
+R03 is split at its two ownership boundaries. `R03-A` changes only authoritative
+commit publication, the package-private commit-feed reader, and retained-history
+compaction. `R03-B` later changes only the accepted scope-local sync owner after
+roadmap 21 freezes and implements its target contracts. The Legacy Postgres
+subscription/Scheduler path is regression evidence, not an interim R03 owner.
+
+#### [ ] R03-A — Atomic Relation Adjacency Facts
+
 Outcome:
 
-- publish typed incoming/outgoing adjacency changes from C09 actions in the
-  existing scope commit;
+- derive one deterministic fact per unique affected
+  `(edgeDefinitionId, direction, endpointRowId)` from C09's already
+  authenticated actions;
+- treat put, remove, and relevant reorder as changes to the outgoing source and
+  incoming target endpoints; a retarget coalesces its unchanged outgoing source
+  while retaining both old and new incoming targets;
+- publish those typed facts as dedicated children of the existing scope commit,
+  with an independent exact child count, while preserving the existing commit
+  sequence, transaction, idempotency outcome, and generic commit-wake outbox;
+- extend the same bounded repeatable-read commit feed and O11 compaction owner
+  to validate, retain, and delete those children under the existing retained
+  floor.
+
+`R03-A` facts describe changed adjacency endpoints, not raw storage actions.
+They are coalesced once per endpoint per commit, matching S12's adjacency-version
+advance. Callers cannot author them, the feed does not reconstruct them from
+current edges, and no second relation stream or relation-specific wake exists.
+
+Exit gates:
+
+- put, remove, reorder, retarget, and source deletion publish the exact ordered
+  endpoint facts, while no-op, rollback, and committed-outcome replay publish
+  none or no duplicate;
+- each fact and its corresponding S12 adjacency version carry the same commit
+  sequence, with exact per-header count, ordinal, identity, and scope checks;
+- retained facts replay through the existing feed, expired history returns the
+  existing fail-closed cursor reset, and compaction verifies and deletes every
+  relation child before its header;
+- existing app-row feed children, outcome, outbox, and scope-clock behavior stay
+  unchanged.
+
+#### [ ] R03-B — Fenced Relation Sync Registration
+
+Prerequisite: R03-A is complete and roadmap 21's accepted scope-local sync
+contracts and owner exist. This gate must not extend the Legacy timestamp-based
+Postgres subscription registry or compatibility SchedulerDO.
+
+Outcome:
+
 - enable relation dependency registration at an exact scope-commit-fenced
   baseline: earlier changes are observed through a fresh snapshot, and every
   later relevant change has a typed fact;
-- allow the sync owner to register relation dependencies and invalidate live
-  results without a second commit stream;
+- allow the accepted sync owner to register relation dependencies and
+  invalidate live results through the existing contiguous commit feed;
 - freeze retention and reconnect behavior before production relation
   subscriptions.
 
 Exit gates:
 
+- provisional registration, the RQ01 snapshot token and typed incoming
+  dependency, refresh through the contiguous cursor, and activation form one
+  fail-closed protocol;
 - a change before the registration fence is visible in the fresh query snapshot,
-  while every relevant change after it invalidates the dependency;
-- reconnect across retained and expired fact history follows one fail-closed
-  resnapshot policy;
+  while every matching change after it invalidates and unrelated facts do not;
+- duplicate, reverse, and gap processing catch up contiguously, while epoch
+  mismatch or an expired retained floor requires one explicit resnapshot;
 - no relation-specific observer is admitted before the fenced baseline and fact
   publication path are both ready.
 
