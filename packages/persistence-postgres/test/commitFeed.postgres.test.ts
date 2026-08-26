@@ -689,7 +689,7 @@ async function insertGeneratedRelationChanges(
        (scope_uuid, epoch_uuid, commit_seq, change_ordinal,
         edge_definition_id, direction, endpoint_row_id)
      select $1::uuid, $3::uuid, $2, generated_id, 1,
-            case when generated_id % 2 = 0
+            case when generated_id < (($4::integer + 1) / 2)
               then 'outgoing' else 'incoming' end,
             decode(lpad(to_hex($5::bigint + generated_id), 32, '0'), 'hex')
      from generate_series(0, $4::integer - 1) as generated_id`,

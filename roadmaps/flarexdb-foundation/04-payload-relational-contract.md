@@ -2397,7 +2397,8 @@ Implemented system-core boundary:
 - the package-private repeatable-read feed independently bounds 16,000 app-row
   children and 8,192 relation children, with a hard combined maximum of 24,192;
   it never splits a commit, materializes logical endpoint row IDs, and fails
-  closed on count, ordinal, header, identity, or endpoint corruption;
+  closed on count, ordinal, header, identity, canonical-order, or endpoint
+  corruption;
 - O11 retained-history compaction validates both child directories before
   deleting either, deletes both before the exact header, and preserves the one
   retained floor and existing cursor-reset contract;

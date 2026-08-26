@@ -20,9 +20,10 @@ import {
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 
-import type { FlarexMetadataDatabase } from "./deployments";
+import { compareAppRelationEdgeAdjacencyChanges } from "./appRelationEdges";
 import { MAX_APPLICATION_RELATION_ADJACENCY_CHANGES } from
   "./applicationRelationCommit/Model";
+import type { FlarexMetadataDatabase } from "./deployments";
 import { detachDriverRows } from "./detachDriverRows";
 import {
   fxAppRowRevisions,
@@ -60,7 +61,8 @@ export type CommitFeedCorruptionReasonV1 =
   | "relationAdjacencyChangeInvalid"
   | "relationAdjacencyChangeOrdinalGap"
   | "relationAdjacencyChangeHeaderMismatch"
-  | "relationAdjacencyChangeIdentityDuplicate";
+  | "relationAdjacencyChangeIdentityDuplicate"
+  | "relationAdjacencyChangeOrderInvalid";
 
 export class CommitFeedInputErrorV1 extends Data.TaggedError(
   "CommitFeedInputErrorV1",
@@ -654,6 +656,8 @@ function materializeCommitFeedPage(
       const relationAdjacencyChanges:
         CommitFeedRelationAdjacencyChangeV1[] = [];
       const relationIdentities = new Set<string>();
+      let previousRelationChange:
+        CommitFeedRelationAdjacencyChangeV1 | undefined;
       for (
         let ordinal = 0;
         ordinal < header.relationAdjacencyChangeCount;
@@ -683,7 +687,21 @@ function materializeCommitFeedPage(
           );
         }
         relationIdentities.add(identity);
+        if (
+          previousRelationChange !== undefined &&
+          compareAppRelationEdgeAdjacencyChanges(
+            previousRelationChange,
+            change,
+          ) >= 0
+        ) {
+          return yield* corruption(
+            input,
+            "relationAdjacencyChangeOrderInvalid",
+            header.commitSeq,
+          );
+        }
         relationAdjacencyChanges.push(change);
+        previousRelationChange = change;
         relationChildIndex += 1;
       }
       commits.push(Object.freeze({

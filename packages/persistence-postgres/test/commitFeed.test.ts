@@ -44,6 +44,7 @@ const SCOPE_RELATION_EXTRA = "91000000-0000-0000-0000-000000000016";
 const SCOPE_RELATION_ORDINAL = "91000000-0000-0000-0000-000000000017";
 const SCOPE_RELATION_HEADER = "91000000-0000-0000-0000-000000000018";
 const SCOPE_RELATION_DUPLICATE = "91000000-0000-0000-0000-000000000019";
+const SCOPE_RELATION_ORDER = "91000000-0000-0000-0000-000000000020";
 
 const EPOCH_A = "92000000-0000-0000-0000-000000000001";
 const EPOCH_B = "92000000-0000-0000-0000-000000000002";
@@ -401,7 +402,7 @@ describe("S08 package-private commit feed reader", () => {
     );
   });
 
-  it("rejects missing, extra, noncontiguous, mismatched, and duplicate relation facts", async () => {
+  it("rejects missing, extra, noncontiguous, mismatched, duplicate, and noncanonical relation facts", async () => {
     const persistence = await migratedPGlite();
     await persistence.query(`
       alter table fx_system_commit_relation_adjacency_change
@@ -483,6 +484,31 @@ describe("S08 package-private commit feed reader", () => {
       });
     }
 
+    await insertScope(persistence, SCOPE_RELATION_ORDER, EPOCH_A, 1n);
+    await insertHeader(persistence, {
+      scopeUuid: SCOPE_RELATION_ORDER,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      changeCount: 0,
+      relationAdjacencyChangeCount: 2,
+    });
+    await insertRelationChange(persistence, {
+      scopeUuid: SCOPE_RELATION_ORDER,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      ordinal: 0,
+      edgeDefinitionId: 2,
+      endpointValue: 7_005n,
+    });
+    await insertRelationChange(persistence, {
+      scopeUuid: SCOPE_RELATION_ORDER,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      ordinal: 1,
+      edgeDefinitionId: 1,
+      endpointValue: 7_006n,
+    });
+
     const repository = createCommitFeedRepositoryV1(persistence.drizzle);
     await expectCorruption(
       listAfter(repository, SCOPE_RELATION_MISSING, 0n),
@@ -503,6 +529,10 @@ describe("S08 package-private commit feed reader", () => {
     await expectCorruption(
       listAfter(repository, SCOPE_RELATION_DUPLICATE, 0n),
       "relationAdjacencyChangeIdentityDuplicate",
+    );
+    await expectCorruption(
+      listAfter(repository, SCOPE_RELATION_ORDER, 0n),
+      "relationAdjacencyChangeOrderInvalid",
     );
   });
 

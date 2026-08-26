@@ -66,7 +66,9 @@ export function projectAppRelationEdgeAdjacencyChanges(
       endpointRowId: endpoint.targetRowId,
     }));
   }
-  return Object.freeze([...changes.values()].toSorted(compareChanges));
+  return Object.freeze(
+    [...changes.values()].toSorted(compareAppRelationEdgeAdjacencyChanges),
+  );
 }
 
 function addChange(
@@ -79,7 +81,8 @@ function addChange(
   );
 }
 
-function compareChanges(
+/** Canonical R03 ordering shared by publication and retained-feed validation. */
+export function compareAppRelationEdgeAdjacencyChanges(
   left: AppRelationEdgeAdjacencyChange,
   right: AppRelationEdgeAdjacencyChange,
 ): number {

@@ -14,6 +14,40 @@ fixture succeeds.
 
 ## Recently Resolved Issues
 
+### `ST-CORE-031` - relation adjacency migration hard-coded the public schema
+
+- **Status:** Resolved in the relation persistence owner. The Action simulation
+  records the discovery and regression evidence but does not own the schema,
+  generated migration, or migration runner.
+- **Discovered by:** Generated Cooking Action child-mutation ordering coverage
+  in the genuine PostgreSQL split-lane regression.
+- **Reproduction:** Run the Cooking PostgreSQL simulation against a fresh
+  authenticated PostgreSQL 18 cluster while migration `0077_lame_human_torch`
+  is present. The target lane selects an isolated schema, then the migration
+  executes
+  `REFERENCES "public"."fx_system_commit"` while creating the relation-
+  adjacency foreign key.
+- **Expected:** Every target-owned table and foreign key resolves inside the
+  caller-selected target schema, preserving split control/target isolation and
+  allowing a fresh genuine-PostgreSQL migration.
+- **Actual:** PostgreSQL rejects the migration with SQLSTATE `42P01`,
+  `relation "public.fx_system_commit" does not exist`, before application
+  registration or Action execution. PGlite does not expose this schema-
+  qualification failure.
+- **Owner and trust boundary:** Relation-adjacency persistence schema and
+  migration generation/validation. This is not owned by the Action runtime,
+  Cooking simulation, or system-test database lane, and must not be hidden by
+  creating a public compatibility table, changing search paths, or weakening
+  the PostgreSQL gate.
+- **Resolution and evidence:** The generated relation-adjacency foreign key now
+  references unqualified `fx_system_commit`, so it follows the caller-selected
+  target schema. `drizzle-kit check`, persistence typecheck, and the complete
+  33-test PGlite migration suite pass. A fresh isolated genuine PostgreSQL 18
+  cluster passes the relation commit lane (6 tests) and the complete Cooking
+  simulation lane (2 tests), including the generated Action child-mutation
+  ordering scenarios. No public compatibility table, search-path fallback, or
+  Action-runtime workaround was added.
+
 ### `ST-CORE-030` - Action child request keys can exceed the transaction-key bound
 
 - **Status:** Resolved in the generated Cooking Action slice before acceptance.
