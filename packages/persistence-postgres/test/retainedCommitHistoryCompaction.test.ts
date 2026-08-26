@@ -108,7 +108,7 @@ describe("O11-D retained commit-history compaction", () => {
     await seedCommitHistory(persistence, context.scopeId, {
       floor: 2n,
       commits: [
-        { commitSeq: 1n, changeCount: 2 },
+        { commitSeq: 1n, changeCount: 2, relationChangeCount: 3 },
         { commitSeq: 2n, changeCount: 0 },
       ],
     });
@@ -128,17 +128,21 @@ describe("O11-D retained commit-history compaction", () => {
       retainedFloor: 2n,
       deletedCommitSeq: 1n,
       deletedChangeCount: 2,
+      deletedRelationAdjacencyChangeCount: 3,
     });
     expect([...queries.keys()]).toEqual([
       "headerDirectory",
       "changeDirectory",
+      "relationChangeDirectory",
       "changeDeletion",
+      "relationChangeDeletion",
       "headerDeletion",
     ]);
     await expect(readHistoryCounts(persistence, context.scopeId)).resolves
       .toEqual({
         commits: ["2"],
         changes: [],
+        relationChanges: [],
         revisions: ["1", "1"],
       });
 
@@ -153,6 +157,7 @@ describe("O11-D retained commit-history compaction", () => {
       .toEqual({
         commits: ["2"],
         changes: [],
+        relationChanges: [],
         revisions: ["1", "1"],
       });
   });
@@ -180,6 +185,32 @@ describe("O11-D retained commit-history compaction", () => {
     ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
     await expect(readHistoryCounts(persistence, context.scopeId)).resolves
       .toMatchObject({ commits: ["1", "2"], changes: [] });
+
+    const relationContext = await provision("relation_cardinality");
+    await seedCommitHistory(persistence, relationContext.scopeId, {
+      floor: 2n,
+      commits: [
+        { commitSeq: 1n, changeCount: 0 },
+        { commitSeq: 2n, changeCount: 0 },
+      ],
+    });
+    await persistence.query(
+      `update fx_system_commit set relation_adjacency_change_count = 1
+       where scope_uuid = (
+         select scope_uuid from fx_system_scope_clock where scope_id = $1
+       ) and commit_seq = 1`,
+      [relationContext.scopeId],
+    );
+
+    await expect(runEffectFailure(compactRetainedCommitHistoryPageEffect(
+      port(),
+      relationContext.deploymentId,
+    ))).resolves.toMatchObject({ reason: "storedEvidenceInvalid" });
+    await expect(readHistoryCounts(persistence, relationContext.scopeId))
+      .resolves.toMatchObject({
+        commits: ["1", "2"],
+        relationChanges: [],
+      });
   });
 
   it("rejects copied ports, copied targets, and stale authority", async () => {
@@ -224,7 +255,7 @@ describe("O11-D retained commit-history compaction", () => {
     await seedCommitHistory(persistence, context.scopeId, {
       floor: 2n,
       commits: [
-        { commitSeq: 1n, changeCount: 1 },
+        { commitSeq: 1n, changeCount: 1, relationChangeCount: 2 },
         { commitSeq: 2n, changeCount: 0 },
       ],
     });
@@ -245,6 +276,7 @@ describe("O11-D retained commit-history compaction", () => {
       .toEqual({
         commits: ["1", "2"],
         changes: ["1:0"],
+        relationChanges: ["1:0", "1:1"],
         revisions: ["1"],
       });
   });
@@ -254,7 +286,7 @@ describe("O11-D retained commit-history compaction", () => {
     await seedCommitHistory(persistence, context.scopeId, {
       floor: 2n,
       commits: [
-        { commitSeq: 1n, changeCount: 1 },
+        { commitSeq: 1n, changeCount: 1, relationChangeCount: 1 },
         { commitSeq: 2n, changeCount: 0 },
       ],
     });
@@ -283,6 +315,7 @@ describe("O11-D retained commit-history compaction", () => {
       .toEqual({
         commits: ["2"],
         changes: [],
+        relationChanges: [],
         revisions: ["1"],
       });
     await expect(runEffect(compactRetainedCommitHistoryPageEffect(
@@ -303,16 +336,23 @@ async function seedCommitHistory(
     readonly commits: ReadonlyArray<Readonly<{
       readonly commitSeq: bigint;
       readonly changeCount: number;
+      readonly relationChangeCount?: number;
     }>>;
   }>,
 ): Promise<void> {
   for (const commit of input.commits) {
     await persistence.query(
       `insert into fx_system_commit
-         (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-       select scope_uuid, epoch_uuid, $2, $3, clock_timestamp()
+         (scope_uuid, epoch_uuid, commit_seq, change_count,
+          relation_adjacency_change_count, committed_at)
+       select scope_uuid, epoch_uuid, $2, $3, $4, clock_timestamp()
        from fx_system_scope_clock where scope_id = $1`,
-      [scopeId, commit.commitSeq, commit.changeCount],
+      [
+        scopeId,
+        commit.commitSeq,
+        commit.changeCount,
+        commit.relationChangeCount ?? 0,
+      ],
     );
     for (let ordinal = 0; ordinal < commit.changeCount; ordinal += 1) {
       const rowIdHex = (commit.commitSeq * 10_000n + BigInt(ordinal) + 1n)
@@ -336,6 +376,24 @@ async function seedCommitHistory(
         [scopeId, commit.commitSeq, ordinal, rowIdHex],
       );
     }
+    for (
+      let ordinal = 0;
+      ordinal < (commit.relationChangeCount ?? 0);
+      ordinal += 1
+    ) {
+      const rowIdHex = (commit.commitSeq * 20_000n + BigInt(ordinal) + 1n)
+        .toString(16).padStart(32, "0");
+      await persistence.query(
+        `insert into fx_system_commit_relation_adjacency_change
+           (scope_uuid, epoch_uuid, commit_seq, change_ordinal,
+            edge_definition_id, direction, endpoint_row_id)
+         select scope_uuid, epoch_uuid, $2, $3, 1,
+                case when $3 % 2 = 0 then 'outgoing' else 'incoming' end,
+                decode($4, 'hex')
+         from fx_system_scope_clock where scope_id = $1`,
+        [scopeId, commit.commitSeq, ordinal, rowIdHex],
+      );
+    }
   }
   const lastCommitSeq = input.commits.at(-1)?.commitSeq ?? 0n;
   await persistence.query(
@@ -352,6 +410,7 @@ async function readHistoryCounts(
 ): Promise<Readonly<{
   readonly commits: ReadonlyArray<string>;
   readonly changes: ReadonlyArray<string>;
+  readonly relationChanges: ReadonlyArray<string>;
   readonly revisions: ReadonlyArray<string>;
 }>> {
   const commits = await persistence.query<{ commit_seq: string }>(
@@ -379,9 +438,23 @@ async function readHistoryCounts(
      ) order by commit_seq, row_id`,
     [scopeId],
   );
+  const relationChanges = await persistence.query<{
+    commit_seq: string;
+    change_ordinal: number;
+  }>(
+    `select commit_seq::text, change_ordinal
+     from fx_system_commit_relation_adjacency_change
+     where scope_uuid = (
+       select scope_uuid from fx_system_scope_clock where scope_id = $1
+     ) order by commit_seq, change_ordinal`,
+    [scopeId],
+  );
   return Object.freeze({
     commits: Object.freeze(commits.rows.map(row => row.commit_seq)),
     changes: Object.freeze(changes.rows.map(
+      row => `${row.commit_seq}:${row.change_ordinal}`,
+    )),
+    relationChanges: Object.freeze(relationChanges.rows.map(
       row => `${row.commit_seq}:${row.change_ordinal}`,
     )),
     revisions: Object.freeze(revisions.rows.map(row => row.commit_seq)),

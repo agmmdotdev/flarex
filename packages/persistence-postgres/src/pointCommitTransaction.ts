@@ -221,6 +221,7 @@ import {
   ApplicationRelationConstraintError,
   ApplicationRelationTargetDeleteRestrictedError,
   ApplicationRelationTargetNotLiveError,
+  type ApplicationRelationAdjacencyChange,
   type ApplicationRelationCommitPort,
   type ApplicationRelationRowTransition,
   type LocatedApplicationRelationDefinitionSet,
@@ -289,6 +290,7 @@ import { fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
 import {
   fxAppIndexEntryRevisions,
   fxSystemCommitAppRowChanges,
+  fxSystemCommitRelationAdjacencyChanges,
   fxSystemCommits,
   fxSystemIdempotency,
   fxSystemIndexBuildStates,
@@ -353,6 +355,7 @@ const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 const MAX_SIGNED_COMMIT_SEQ_TEXT_LENGTH =
   MAX_SIGNED_COMMIT_SEQ.toString().length;
 const HASH_BYTE_LENGTH = 32;
+const MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT = 500;
 const decodePointCommitCreationTimeResult = Schema.decodeUnknownResult(
   Schema.toType(AppCreationTimeV1Schema),
 );
@@ -935,6 +938,7 @@ export type PointCommitSqlOperationV1 =
   | "recheckOutcome"
   | "writeCommitHeader"
   | "writeCommitChange"
+  | "writeCommitRelationAdjacencyChange"
   | "writeOutcome"
   | "writeWake"
   | "deleteJournal"
@@ -1318,6 +1322,7 @@ export type PointCommitTransactionProofStepV1 =
   | "outcomeRechecked"
   | "commitHeaderWritten"
   | "commitChangeWritten"
+  | "commitRelationAdjacencyChangeWritten"
   | "outcomeWritten"
   | "wakeWritten"
   | "journalDeleted"
@@ -3856,6 +3861,8 @@ type PointCommitKernelResultV1 =
       readonly commitSeq: CommitSeq | null;
       readonly outboxSeq: OutboxSeq | null;
       readonly publicationTimeMilliseconds: number | null;
+      readonly relationAdjacencyChanges:
+        ReadonlyArray<ApplicationRelationAdjacencyChange>;
     }>;
 
 type PointCommitReadyForPublicationV1 = Extract<
@@ -5602,6 +5609,7 @@ async function runPointCommitTransactionKernel(
       commitSeq: null,
       outboxSeq: null,
       publicationTimeMilliseconds: null,
+      relationAdjacencyChanges: Object.freeze([]),
     });
   }
   const preWriteDatabaseNowMilliseconds = await readPointCommitDatabaseTime(
@@ -5761,6 +5769,8 @@ async function runPointCommitTransactionKernel(
   return Object.freeze({
     kind: "ready",
     clock,
+    relationAdjacencyChanges:
+      relationPlan?.prepared.adjacencyChanges ?? Object.freeze([]),
     ...allocation,
   });
 }
@@ -7571,6 +7581,8 @@ async function publishPointCommitInTransaction(
   const commitSeq = kernel.commitSeq;
   const outboxSeq = kernel.outboxSeq;
   const changeCount = command.rowIntents.length;
+  const relationAdjacencyChangeCount =
+    kernel.relationAdjacencyChanges.length;
 
   const header = await sqlCall("writeCommitHeader", () =>
     tx.insert(fxSystemCommits).values({
@@ -7578,6 +7590,7 @@ async function publishPointCommitInTransaction(
       epochUuid,
       commitSeq,
       changeCount,
+      relationAdjacencyChangeCount,
       committedAt: publicationTime,
     }).returning({ commitSeq: fxSystemCommits.commitSeq }));
   projectPointCommitTransactionResult(
@@ -7603,6 +7616,55 @@ async function publishPointCommitInTransaction(
       requireSinglePublicationWriteResult(change, commitSeq, "commitSeq"),
     );
     await emitTransactionStep(options, command, "commitChangeWritten");
+  }
+
+  for (
+    let firstOrdinal = 0;
+    firstOrdinal < kernel.relationAdjacencyChanges.length;
+    firstOrdinal += MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT
+  ) {
+    const batch = kernel.relationAdjacencyChanges.slice(
+      firstOrdinal,
+      firstOrdinal + MAX_COMMIT_RELATION_ADJACENCY_CHANGES_PER_STATEMENT,
+    );
+    const query = tx.insert(fxSystemCommitRelationAdjacencyChanges).values(
+      batch.map((relationChange, batchIndex) => ({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: firstOrdinal + batchIndex,
+        edgeDefinitionId: relationChange.edgeDefinitionId,
+        direction: relationChange.direction,
+        endpointRowId: appRowIdHexV1ToBytes(
+          relationChange.endpointRowId,
+        ),
+      })),
+    ).returning({
+      commitSeq: fxSystemCommitRelationAdjacencyChanges.commitSeq,
+      changeOrdinal: fxSystemCommitRelationAdjacencyChanges.changeOrdinal,
+    });
+    observeDrizzleQuery(
+      "writeCommitRelationAdjacencyChange",
+      query,
+      options,
+    );
+    const changes = await sqlCall(
+      "writeCommitRelationAdjacencyChange",
+      () => query,
+    );
+    projectPointCommitTransactionResult(
+      requireRelationAdjacencyChangeBatchWriteResult(
+        changes,
+        commitSeq,
+        firstOrdinal,
+        batch.length,
+      ),
+    );
+    await emitTransactionStep(
+      options,
+      command,
+      "commitRelationAdjacencyChangeWritten",
+    );
   }
 
   const outcome = await sqlCall("writeOutcome", () =>
@@ -7757,6 +7819,34 @@ function requireSinglePublicationWriteResult<
   return rows.length === 1 && rows[0]?.[key] === expected
     ? Result.succeed(undefined)
     : Result.fail(corruption("publicationInvariantInvalid"));
+}
+
+function requireRelationAdjacencyChangeBatchWriteResult(
+  rows: ReadonlyArray<Readonly<{
+    readonly commitSeq: CommitSeq;
+    readonly changeOrdinal: number;
+  }>>,
+  expectedCommitSeq: CommitSeq,
+  firstOrdinal: number,
+  expectedCount: number,
+): Result.Result<void, PointCommitCorruptionV1Error> {
+  if (rows.length !== expectedCount) {
+    return Result.fail(corruption("publicationInvariantInvalid"));
+  }
+  const ordinals = new Set<number>();
+  for (const row of rows) {
+    if (
+      row.commitSeq !== expectedCommitSeq ||
+      !Number.isInteger(row.changeOrdinal) ||
+      row.changeOrdinal < firstOrdinal ||
+      row.changeOrdinal >= firstOrdinal + expectedCount ||
+      ordinals.has(row.changeOrdinal)
+    ) {
+      return Result.fail(corruption("publicationInvariantInvalid"));
+    }
+    ordinals.add(row.changeOrdinal);
+  }
+  return Result.succeed(undefined);
 }
 
 function requirePointCommitClockPublicationResult(

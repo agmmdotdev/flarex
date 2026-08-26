@@ -15,7 +15,10 @@ import {
 } from "flarex-protocol/internal/relation-occurrence-v1";
 import { isCanonicalFlarexRuntimeObjectV1 } from "flarex-protocol/value";
 
-import type { AppRelationEdgeStorageAction } from "../appRelationEdges";
+import {
+  projectAppRelationEdgeAdjacencyChangesResult,
+  type AppRelationEdgeStorageAction,
+} from "../appRelationEdges";
 import {
   ApplicationRelationCommitCorruptionError,
   ApplicationRelationCommitResourceExhaustionError,
@@ -139,6 +142,14 @@ export function lowerApplicationRelationCommitResult(
       deletedTransitions,
     );
     actions.sort(compareRelationEdgeActions);
+    const adjacencyChanges = yield* projectAppRelationEdgeAdjacencyChangesResult(
+      actions,
+    ).pipe(
+      Result.mapError(cause => commitCorruption(
+        "invalidDocumentTransition",
+        cause,
+      )),
+    );
     const targets = [...finalTargets.values()].toSorted(
       compareApplicationRelationTargets,
     );
@@ -155,6 +166,7 @@ export function lowerApplicationRelationCommitResult(
     }
     return Object.freeze({
       actions: Object.freeze(actions),
+      adjacencyChanges,
       storedTargetChecks: Object.freeze(storedTargetChecks),
       restrictProbes,
       priorOccurrenceCount: budget.priorOccurrences,

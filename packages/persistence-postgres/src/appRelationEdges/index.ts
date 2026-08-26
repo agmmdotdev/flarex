@@ -1,3 +1,4 @@
+export * from "./AdjacencyChanges";
 export * from "./BuildModel";
 export * from "./BuildRepository";
 export * from "./Model";

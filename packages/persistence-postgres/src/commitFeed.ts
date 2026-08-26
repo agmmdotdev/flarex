@@ -3,7 +3,14 @@ import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, asc, eq, gt, gte, lte } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 
-import type { CatalogTableId } from "flarex-protocol/catalog";
+import {
+  appRowIdHexV1FromBytesResult,
+  type AppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import type {
+  CatalogEdgeDefinitionId,
+  CatalogTableId,
+} from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
@@ -14,10 +21,13 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { MAX_APPLICATION_RELATION_ADJACENCY_CHANGES } from
+  "./applicationRelationCommit/Model";
 import { detachDriverRows } from "./detachDriverRows";
 import {
   fxAppRowRevisions,
   fxSystemCommitAppRowChanges,
+  fxSystemCommitRelationAdjacencyChanges,
   fxSystemCommits,
   fxSystemScopeClocks,
 } from "./schema";
@@ -26,6 +36,8 @@ const decodeScopeUuidV1Result = Schema.decodeUnknownResult(ScopeUuidV1Schema);
 
 export const MAX_COMMIT_FEED_PAGE_COMMITS_V1 = 100;
 export const MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 = 16_000;
+export const MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 =
+  MAX_APPLICATION_RELATION_ADJACENCY_CHANGES;
 
 export type CommitFeedInputFailureReasonV1 =
   | "scopeUuidInvalid"
@@ -43,7 +55,12 @@ export type CommitFeedCorruptionReasonV1 =
   | "appRowChangeInvalid"
   | "appRowChangeOrdinalGap"
   | "appRowChangeHeaderMismatch"
-  | "appRowChangeRevisionMismatch";
+  | "appRowChangeRevisionMismatch"
+  | "relationAdjacencyChangeCountMismatch"
+  | "relationAdjacencyChangeInvalid"
+  | "relationAdjacencyChangeOrdinalGap"
+  | "relationAdjacencyChangeHeaderMismatch"
+  | "relationAdjacencyChangeIdentityDuplicate";
 
 export class CommitFeedInputErrorV1 extends Data.TaggedError(
   "CommitFeedInputErrorV1",
@@ -99,12 +116,21 @@ export interface CommitFeedAppRowChangeV1 {
   readonly rowId: Uint8Array;
 }
 
+export interface CommitFeedRelationAdjacencyChangeV1 {
+  readonly ordinal: number;
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly direction: "incoming" | "outgoing";
+  readonly endpointRowId: AppRowIdHexV1;
+}
+
 export interface CommitFeedCommitV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly epochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
   readonly committedAtMilliseconds: number;
   readonly appRowChanges: ReadonlyArray<CommitFeedAppRowChangeV1>;
+  readonly relationAdjacencyChanges:
+    ReadonlyArray<CommitFeedRelationAdjacencyChangeV1>;
 }
 
 export type CommitFeedContinuationV1 =
@@ -141,7 +167,11 @@ export interface CommitFeedRepositoryOptionsV1 {
 }
 
 export interface CommitFeedQueryV1 {
-  readonly name: "clock" | "headers" | "appRowChanges";
+  readonly name:
+    | "clock"
+    | "headers"
+    | "appRowChanges"
+    | "relationAdjacencyChanges";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
 }
@@ -180,10 +210,15 @@ interface CommitAppRowChangeRow {
     | null;
 }
 
+type CommitRelationAdjacencyChangeRow =
+  typeof fxSystemCommitRelationAdjacencyChanges.$inferSelect;
+
 interface CapturedCommitFeedRowsV1 {
   readonly clockRows: ReadonlyArray<ScopeClockRow>;
   readonly headerRows: ReadonlyArray<CommitHeaderRow>;
   readonly appRowChangeRows: ReadonlyArray<CommitAppRowChangeRow>;
+  readonly relationAdjacencyChangeRows:
+    ReadonlyArray<CommitRelationAdjacencyChangeRow>;
 }
 
 interface ValidatedCommitFeedInputV1 {
@@ -195,6 +230,7 @@ interface HeaderCaptureSelectionV1 {
   readonly firstCommitSeq: CommitSeq;
   readonly lastCommitSeq: CommitSeq;
   readonly expectedChangeCount: number;
+  readonly expectedRelationAdjacencyChangeCount: number;
 }
 
 export function createCommitFeedRepositoryV1(
@@ -288,6 +324,7 @@ async function captureCommitFeedRows(
         clockRows: detachDriverRows(clockRows),
         headerRows: Object.freeze([]),
         appRowChangeRows: Object.freeze([]),
+        relationAdjacencyChangeRows: Object.freeze([]),
       });
     }
 
@@ -313,6 +350,7 @@ async function captureCommitFeedRows(
         clockRows: detachDriverRows(clockRows),
         headerRows: detachDriverRows(headerRows),
         appRowChangeRows: Object.freeze([]),
+        relationAdjacencyChangeRows: Object.freeze([]),
       });
     }
 
@@ -379,10 +417,42 @@ async function captureCommitFeedRows(
     );
     const appRowChangeRows = await appRowChangeQuery;
 
+    const relationAdjacencyChangeQuery = tx
+      .select()
+      .from(fxSystemCommitRelationAdjacencyChanges)
+      .where(and(
+        eq(
+          fxSystemCommitRelationAdjacencyChanges.scopeUuid,
+          input.scopeUuid,
+        ),
+        gte(
+          fxSystemCommitRelationAdjacencyChanges.commitSeq,
+          selection.firstCommitSeq,
+        ),
+        lte(
+          fxSystemCommitRelationAdjacencyChanges.commitSeq,
+          selection.lastCommitSeq,
+        ),
+      ))
+      .orderBy(
+        asc(fxSystemCommitRelationAdjacencyChanges.commitSeq),
+        asc(fxSystemCommitRelationAdjacencyChanges.changeOrdinal),
+      )
+      .limit(selection.expectedRelationAdjacencyChangeCount + 1);
+    observeCommitFeedQuery(
+      "relationAdjacencyChanges",
+      relationAdjacencyChangeQuery,
+      observeQuery,
+    );
+    const relationAdjacencyChangeRows =
+      await relationAdjacencyChangeQuery;
+
     return Object.freeze({
       clockRows: detachDriverRows(clockRows),
       headerRows: detachDriverRows(headerRows),
       appRowChangeRows: detachDriverRows(appRowChangeRows),
+      relationAdjacencyChangeRows:
+        detachDriverRows(relationAdjacencyChangeRows),
     });
   });
 }
@@ -421,6 +491,10 @@ function selectHeadersForChildCapture(
       !Number.isInteger(header.changeCount) ||
       header.changeCount < 0 ||
       header.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
+      !Number.isInteger(header.relationAdjacencyChangeCount) ||
+      header.relationAdjacencyChangeCount < 0 ||
+      header.relationAdjacencyChangeCount >
+        MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 ||
       finiteDateMilliseconds(header.committedAt) === undefined
     ) {
       return null;
@@ -436,18 +510,26 @@ function selectHeadersForChildCapture(
   }
 
   let expectedChangeCount = 0;
+  let expectedRelationAdjacencyChangeCount = 0;
   let selectedCount = 0;
   for (
     const header of headerRows.slice(0, MAX_COMMIT_FEED_PAGE_COMMITS_V1)
   ) {
     if (
       selectedCount > 0 &&
-      expectedChangeCount + header.changeCount >
-        MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1
+      (
+        expectedChangeCount + header.changeCount >
+          MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
+        expectedRelationAdjacencyChangeCount +
+            header.relationAdjacencyChangeCount >
+          MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1
+      )
     ) {
       break;
     }
     expectedChangeCount += header.changeCount;
+    expectedRelationAdjacencyChangeCount +=
+      header.relationAdjacencyChangeCount;
     selectedCount += 1;
   }
   if (selectedCount === 0) return null;
@@ -458,6 +540,7 @@ function selectHeadersForChildCapture(
     firstCommitSeq: CommitSeqSchema.make(first.commitSeq),
     lastCommitSeq: CommitSeqSchema.make(last.commitSeq),
     expectedChangeCount,
+    expectedRelationAdjacencyChangeCount,
   });
 }
 
@@ -470,132 +553,175 @@ function materializeCommitFeedPage(
     CommitFeedCursorResetRequiredErrorV1 |
     CommitFeedCorruptionErrorV1
 > {
-  if (captured.clockRows.length === 0) {
-    return Result.fail(new CommitFeedScopeNotFoundErrorV1({
-      scopeUuid: input.scopeUuid,
-    }));
-  }
-  if (captured.clockRows.length !== 1) {
-    return corruption(input, "scopeClockDuplicate");
-  }
-  const clock = captured.clockRows[0];
-  if (
-    clock === undefined ||
-    clock.scopeUuid !== input.scopeUuid ||
-    typeof clock.lastCommitSeq !== "bigint" ||
-    clock.lastCommitSeq < 0n ||
-    clock.lastCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1 ||
-    typeof clock.oldestAvailableCommitSeq !== "bigint" ||
-    clock.oldestAvailableCommitSeq < 0n ||
-    clock.oldestAvailableCommitSeq > clock.lastCommitSeq
-  ) {
-    return corruption(input, "scopeClockInvalid");
-  }
-  if (input.exclusiveCommitSeq > clock.lastCommitSeq) {
-    return Result.fail(new CommitFeedInputErrorV1({
-      reason: "cursorAheadOfClock",
-    }));
-  }
-  const restartExclusiveCommitSeq = retainedFloorExclusiveCursor(
-    clock.oldestAvailableCommitSeq,
-  );
-  if (input.exclusiveCommitSeq < restartExclusiveCommitSeq) {
-    return Result.fail(new CommitFeedCursorResetRequiredErrorV1({
-      scopeUuid: input.scopeUuid,
-      requestedExclusiveCommitSeq: input.exclusiveCommitSeq,
-      restartExclusiveCommitSeq,
-      observedOldestAvailableCommitSeq: CommitSeqSchema.make(
-        clock.oldestAvailableCommitSeq,
-      ),
-    }));
-  }
-
-  const headerValidation = validateCommitHeaders(input, clock, captured.headerRows);
-  const headersOutcome = Result.match(headerValidation, {
-    onSuccess: (headers) => ({ ok: true as const, headers }),
-    onFailure: (failure) => ({ ok: false as const, failure }),
-  });
-  if (!headersOutcome.ok) {
-    return Result.fail(headersOutcome.failure);
-  }
-  const selectedHeaders = selectPageHeaders(headersOutcome.headers);
-  const expectedChangeCount = selectedHeaders.reduce(
-    (total, header) => total + header.changeCount,
-    0,
-  );
-  if (captured.appRowChangeRows.length !== expectedChangeCount) {
-    return corruption(input, "appRowChangeCountMismatch");
-  }
-
-  const commits: CommitFeedCommitV1[] = [];
-  let childIndex = 0;
-  for (const header of selectedHeaders) {
-    const committedAtMilliseconds = finiteDateMilliseconds(
-      header.committedAt,
-    );
-    if (committedAtMilliseconds === undefined) {
-      return corruption(input, "commitHeaderInvalid", header.commitSeq);
+  return Result.gen(function* () {
+    if (captured.clockRows.length === 0) {
+      return yield* Result.fail(new CommitFeedScopeNotFoundErrorV1({
+        scopeUuid: input.scopeUuid,
+      }));
     }
-    const appRowChanges: CommitFeedAppRowChangeV1[] = [];
-    for (let ordinal = 0; ordinal < header.changeCount; ordinal += 1) {
-      const row = captured.appRowChangeRows[childIndex];
-      if (row === undefined) {
-        return corruption(
+    if (captured.clockRows.length !== 1) {
+      return yield* corruption(input, "scopeClockDuplicate");
+    }
+    const clock = captured.clockRows[0];
+    if (
+      clock === undefined ||
+      clock.scopeUuid !== input.scopeUuid ||
+      typeof clock.lastCommitSeq !== "bigint" ||
+      clock.lastCommitSeq < 0n ||
+      clock.lastCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1 ||
+      typeof clock.oldestAvailableCommitSeq !== "bigint" ||
+      clock.oldestAvailableCommitSeq < 0n ||
+      clock.oldestAvailableCommitSeq > clock.lastCommitSeq
+    ) {
+      return yield* corruption(input, "scopeClockInvalid");
+    }
+    if (input.exclusiveCommitSeq > clock.lastCommitSeq) {
+      return yield* Result.fail(new CommitFeedInputErrorV1({
+        reason: "cursorAheadOfClock",
+      }));
+    }
+    const restartExclusiveCommitSeq = retainedFloorExclusiveCursor(
+      clock.oldestAvailableCommitSeq,
+    );
+    if (input.exclusiveCommitSeq < restartExclusiveCommitSeq) {
+      return yield* Result.fail(new CommitFeedCursorResetRequiredErrorV1({
+        scopeUuid: input.scopeUuid,
+        requestedExclusiveCommitSeq: input.exclusiveCommitSeq,
+        restartExclusiveCommitSeq,
+        observedOldestAvailableCommitSeq: CommitSeqSchema.make(
+          clock.oldestAvailableCommitSeq,
+        ),
+      }));
+    }
+
+    const headers = yield* validateCommitHeaders(
+      input,
+      clock,
+      captured.headerRows,
+    );
+    const selectedHeaders = selectPageHeaders(headers);
+    const expectedChangeCount = selectedHeaders.reduce(
+      (total, header) => total + header.changeCount,
+      0,
+    );
+    if (captured.appRowChangeRows.length !== expectedChangeCount) {
+      return yield* corruption(input, "appRowChangeCountMismatch");
+    }
+    const expectedRelationAdjacencyChangeCount = selectedHeaders.reduce(
+      (total, header) => total + header.relationAdjacencyChangeCount,
+      0,
+    );
+    if (
+      captured.relationAdjacencyChangeRows.length !==
+        expectedRelationAdjacencyChangeCount
+    ) {
+      return yield* corruption(input, "relationAdjacencyChangeCountMismatch");
+    }
+
+    const commits: CommitFeedCommitV1[] = [];
+    let childIndex = 0;
+    let relationChildIndex = 0;
+    for (const header of selectedHeaders) {
+      const committedAtMilliseconds = finiteDateMilliseconds(
+        header.committedAt,
+      );
+      if (committedAtMilliseconds === undefined) {
+        return yield* corruption(
           input,
-          "appRowChangeCountMismatch",
+          "commitHeaderInvalid",
           header.commitSeq,
         );
       }
-      const decoded = materializeAppRowChange(
-        input,
-        header,
-        ordinal,
-        row,
-      );
-      const changeOutcome = Result.match(decoded, {
-        onSuccess: (change) => ({ ok: true as const, change }),
-        onFailure: (failure) => ({ ok: false as const, failure }),
-      });
-      if (!changeOutcome.ok) {
-        return Result.fail(changeOutcome.failure);
+      const appRowChanges: CommitFeedAppRowChangeV1[] = [];
+      for (let ordinal = 0; ordinal < header.changeCount; ordinal += 1) {
+        const row = captured.appRowChangeRows[childIndex];
+        if (row === undefined) {
+          return yield* corruption(
+            input,
+            "appRowChangeCountMismatch",
+            header.commitSeq,
+          );
+        }
+        const change = yield* materializeAppRowChange(
+          input,
+          header,
+          ordinal,
+          row,
+        );
+        appRowChanges.push(change);
+        childIndex += 1;
       }
-      appRowChanges.push(changeOutcome.change);
-      childIndex += 1;
+      const relationAdjacencyChanges:
+        CommitFeedRelationAdjacencyChangeV1[] = [];
+      const relationIdentities = new Set<string>();
+      for (
+        let ordinal = 0;
+        ordinal < header.relationAdjacencyChangeCount;
+        ordinal += 1
+      ) {
+        const row =
+          captured.relationAdjacencyChangeRows[relationChildIndex];
+        if (row === undefined) {
+          return yield* corruption(
+            input,
+            "relationAdjacencyChangeCountMismatch",
+            header.commitSeq,
+          );
+        }
+        const change = yield* materializeRelationAdjacencyChange(
+          input,
+          header,
+          ordinal,
+          row,
+        );
+        const identity = relationAdjacencyChangeIdentity(change);
+        if (relationIdentities.has(identity)) {
+          return yield* corruption(
+            input,
+            "relationAdjacencyChangeIdentityDuplicate",
+            header.commitSeq,
+          );
+        }
+        relationIdentities.add(identity);
+        relationAdjacencyChanges.push(change);
+        relationChildIndex += 1;
+      }
+      commits.push(Object.freeze({
+        scopeUuid: input.scopeUuid,
+        epochUuid: header.epochUuid,
+        commitSeq: CommitSeqSchema.make(header.commitSeq),
+        committedAtMilliseconds,
+        appRowChanges: Object.freeze(appRowChanges),
+        relationAdjacencyChanges: Object.freeze(relationAdjacencyChanges),
+      }));
     }
-    commits.push(Object.freeze({
+
+    const observedLastCommitSeq = CommitSeqSchema.make(clock.lastCommitSeq);
+    const lastReturnedCommitSeq = commits.at(-1)?.commitSeq ??
+      input.exclusiveCommitSeq;
+    const continuation: CommitFeedContinuationV1 =
+      lastReturnedCommitSeq === observedLastCommitSeq
+        ? Object.freeze({
+            kind: "complete",
+            observedLastCommitSeq,
+          })
+        : Object.freeze({
+            kind: "more",
+            nextExclusiveCommitSeq: lastReturnedCommitSeq,
+            observedLastCommitSeq,
+          });
+
+    return Object.freeze({
       scopeUuid: input.scopeUuid,
-      epochUuid: header.epochUuid,
-      commitSeq: CommitSeqSchema.make(header.commitSeq),
-      committedAtMilliseconds,
-      appRowChanges: Object.freeze(appRowChanges),
-    }));
-  }
-
-  const observedLastCommitSeq = CommitSeqSchema.make(clock.lastCommitSeq);
-  const lastReturnedCommitSeq = commits.at(-1)?.commitSeq ??
-    input.exclusiveCommitSeq;
-  const continuation: CommitFeedContinuationV1 =
-    lastReturnedCommitSeq === observedLastCommitSeq
-      ? Object.freeze({
-          kind: "complete",
-          observedLastCommitSeq,
-        })
-      : Object.freeze({
-          kind: "more",
-          nextExclusiveCommitSeq: lastReturnedCommitSeq,
-          observedLastCommitSeq,
-        });
-
-  return Result.succeed(Object.freeze({
-    scopeUuid: input.scopeUuid,
-    exclusiveCommitSeq: input.exclusiveCommitSeq,
-    observedLastCommitSeq,
-    observedOldestAvailableCommitSeq: CommitSeqSchema.make(
-      clock.oldestAvailableCommitSeq,
-    ),
-    commits: Object.freeze(commits),
-    continuation,
-  }));
+      exclusiveCommitSeq: input.exclusiveCommitSeq,
+      observedLastCommitSeq,
+      observedOldestAvailableCommitSeq: CommitSeqSchema.make(
+        clock.oldestAvailableCommitSeq,
+      ),
+      commits: Object.freeze(commits),
+      continuation,
+    });
+  });
 }
 
 function shouldCaptureCommitHeaders(
@@ -645,6 +771,10 @@ function validateCommitHeaders(
       !Number.isInteger(row.changeCount) ||
       row.changeCount < 0 ||
       row.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
+      !Number.isInteger(row.relationAdjacencyChangeCount) ||
+      row.relationAdjacencyChangeCount < 0 ||
+      row.relationAdjacencyChangeCount >
+        MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 ||
       finiteDateMilliseconds(row.committedAt) === undefined
     ) {
       return corruption(input, "commitHeaderInvalid");
@@ -676,16 +806,22 @@ function selectPageHeaders(
 ): ReadonlyArray<CommitHeaderRow> {
   const selected: CommitHeaderRow[] = [];
   let changeCount = 0;
+  let relationAdjacencyChangeCount = 0;
   for (const header of headers.slice(0, MAX_COMMIT_FEED_PAGE_COMMITS_V1)) {
     if (
       selected.length > 0 &&
-      changeCount + header.changeCount >
-        MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1
+      (
+        changeCount + header.changeCount >
+          MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
+        relationAdjacencyChangeCount + header.relationAdjacencyChangeCount >
+          MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1
+      )
     ) {
       break;
     }
     selected.push(header);
     changeCount += header.changeCount;
+    relationAdjacencyChangeCount += header.relationAdjacencyChangeCount;
   }
   return Object.freeze(selected);
 }
@@ -737,6 +873,70 @@ function materializeAppRowChange(
     tableId: row.tableId,
     rowId: copyBytes(row.rowId),
   }));
+}
+
+function materializeRelationAdjacencyChange(
+  input: ValidatedCommitFeedInputV1,
+  header: CommitHeaderRow,
+  expectedOrdinal: number,
+  row: CommitRelationAdjacencyChangeRow,
+): Result.Result<
+  CommitFeedRelationAdjacencyChangeV1,
+  CommitFeedCorruptionErrorV1
+> {
+  if (
+    !Number.isInteger(row.changeOrdinal) ||
+    row.changeOrdinal < 0 ||
+    row.changeOrdinal >=
+      MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 ||
+    !Number.isInteger(row.edgeDefinitionId) ||
+    row.edgeDefinitionId < 1 ||
+    row.edgeDefinitionId > 2_147_483_647 ||
+    (row.direction !== "incoming" && row.direction !== "outgoing")
+  ) {
+    return corruption(
+      input,
+      "relationAdjacencyChangeInvalid",
+      header.commitSeq,
+    );
+  }
+  if (row.changeOrdinal !== expectedOrdinal) {
+    return corruption(
+      input,
+      "relationAdjacencyChangeOrdinalGap",
+      header.commitSeq,
+    );
+  }
+  if (
+    row.scopeUuid !== input.scopeUuid ||
+    row.epochUuid !== header.epochUuid ||
+    row.commitSeq !== header.commitSeq
+  ) {
+    return corruption(
+      input,
+      "relationAdjacencyChangeHeaderMismatch",
+      header.commitSeq,
+    );
+  }
+  return appRowIdHexV1FromBytesResult(row.endpointRowId).pipe(
+    Result.mapError(() => new CommitFeedCorruptionErrorV1({
+      reason: "relationAdjacencyChangeInvalid",
+      scopeUuid: input.scopeUuid,
+      commitSeq: CommitSeqSchema.make(header.commitSeq),
+    })),
+    Result.map(endpointRowId => Object.freeze({
+      ordinal: row.changeOrdinal,
+      edgeDefinitionId: row.edgeDefinitionId,
+      direction: row.direction,
+      endpointRowId,
+    })),
+  );
+}
+
+function relationAdjacencyChangeIdentity(
+  change: CommitFeedRelationAdjacencyChangeV1,
+): string {
+  return `${change.edgeDefinitionId}:${change.direction}:${change.endpointRowId}`;
 }
 
 function corruption<A = never>(

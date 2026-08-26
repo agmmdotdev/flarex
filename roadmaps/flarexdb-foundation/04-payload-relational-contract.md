@@ -750,15 +750,16 @@ adjacency, reverse reads, or declared target-delete restriction is disabled.
 ## Commit Feed And Reactive Invalidation
 
 C09 first exposes deterministic adjacency actions inside the authoritative
-commit plan. `R03` later projects every edge insert, remove, retarget, or
+commit plan. Completed `R03-A` projects every edge insert, remove, retarget, or
 relevant reorder into typed adjacency change facts in that same scope commit.
 Those facts identify the exact edge definition, direction, and endpoint and let
 the sync engine invalidate relation subscriptions/live results without scanning
 all source documents or broadly invalidating every query for a table.
 
-Before R03 and the complete SV-R proof, relation-specific change feeds,
-subscriptions, and live observation remain disabled and unclaimed. R03 does not
-create a second edge commit stream or allow a caller to author system facts.
+Before R03-B and the complete SV-R proof, relation subscriptions and live
+observation remain disabled and unclaimed. R03-A adds typed children to the
+existing commit feed; it does not create a relation-specific stream or allow a
+caller to author system facts.
 
 ## Payload Adapter Boundary
 
@@ -1819,7 +1820,7 @@ Exit gates:
 - an active relation child rejects E01-A restart, frontier reconciliation, and
   cleanup under the shared scope-clock lock, while inactive replacement work
   and validation-only semantic reuse remain available;
-- relation-specific subscriptions/live observation remain absent until R03 and
+- relation-specific subscriptions/live observation remain absent until R03-B and
   the full SV-R proof; roadmap 49's production-cutover decision remains no-go.
 
 #### RA01 approved implementation preflight
@@ -2331,8 +2332,8 @@ existing genuine-PostgreSQL relation-readiness suite passes 6/6. The three
 owning package typechecks, core lint, changed-diff lint, and both standing
 reviews pass. RQ01 adds no Worker/function execution, mutation journal or OCC
 dependency, application-row population, caller cursor, route, SDK, framework
-adapter, alternate query engine, or production cutover. `R03` is the next
-separate relation roadmap slice.
+adapter, alternate query engine, or production cutover. `R03-A` is now complete;
+`R03-B` remains the next separately owned relation slice.
 
 ### [ ] R03 — Relation Change Facts And Sync Invalidation
 
@@ -2345,7 +2346,7 @@ compaction. `R03-B` later changes only the accepted scope-local sync owner after
 roadmap 21 freezes and implements its target contracts. The Legacy Postgres
 subscription/Scheduler path is regression evidence, not an interim R03 owner.
 
-#### [ ] R03-A — Atomic Relation Adjacency Facts
+#### [x] R03-A — Atomic Relation Adjacency Facts
 
 Outcome:
 
@@ -2372,13 +2373,45 @@ Exit gates:
 - put, remove, reorder, retarget, and source deletion publish the exact ordered
   endpoint facts, while no-op, rollback, and committed-outcome replay publish
   none or no duplicate;
-- each fact and its corresponding S12 adjacency version carry the same commit
-  sequence, with exact per-header count, ordinal, identity, and scope checks;
+- at publication, exactly the fact endpoint set advances to the publishing S12
+  adjacency version, with exact per-header count, ordinal, identity, and scope
+  checks;
 - retained facts replay through the existing feed, expired history returns the
   existing fail-closed cursor reset, and compaction verifies and deletes every
   relation child before its header;
 - existing app-row feed children, outcome, outbox, and scope-clock behavior stay
   unchanged.
+
+Implemented system-core boundary:
+
+- one package-local pure projector now owns endpoint decoding, coalescing, and
+  deterministic ordering for both C09 publication facts and S12 adjacency-
+  version advancement;
+- migration `0077_lame_human_torch.sql` adds one schema-local private relation-
+  fact child directory and an independent default-zero header count, with no
+  foreign key to mutable current-edge or adjacency-version state;
+- the existing point-commit transaction writes the header, app-row children,
+  relation children in bounded batches of at most 500, outcome, generic wake,
+  and scope-clock publication under the same rollback and committed-outcome
+  replay boundary;
+- the package-private repeatable-read feed independently bounds 16,000 app-row
+  children and 8,192 relation children, with a hard combined maximum of 24,192;
+  it never splits a commit, materializes logical endpoint row IDs, and fails
+  closed on count, ordinal, header, identity, or endpoint corruption;
+- O11 retained-history compaction validates both child directories before
+  deleting either, deletes both before the exact header, and preserves the one
+  retained floor and existing cursor-reset contract;
+- focused PGlite and genuine PostgreSQL proofs cover exact put/remove/
+  reorder/retarget/source-delete facts, replay and rollback, independent
+  maximum-page cutoffs, the 24,192-child combined first-commit capacity,
+  repeatable-read capture, schema-local 0076-to-0077 upgrade/default-zero
+  behavior, child constraints, bounded publication statement counts, and
+  bounded query plans.
+
+R03-A adds no RQ01 result field, subscription registry, DO/Worker observer,
+new wake or stream, relation build/backfill fact, OCC/journal owner change,
+route, public SDK, Payload adapter, or production cutover. Full R03 remains open
+at R03-B.
 
 #### [ ] R03-B — Fenced Relation Sync Registration
 
@@ -2456,10 +2489,12 @@ checkpoint commit.
 - The production-inert private core now includes R02 publication/binding, S12
   edge and adjacency-version storage, C09 point-commit lowering, E01 readiness,
   O10-R journal/OCC reads, and completed RA01 single-head activation and
-  active-serving continuity. Public routing, RQ01 query composition, developer
-  APIs, and framework adapters remain absent.
-- Relation change facts and sync invalidation remain absent until R03; the
-  existing point-commit feed is not treated as an implicit relation observer.
+  active-serving continuity, direct RQ01 relation reads, and R03-A relation
+  facts. Public routing, sync registration, developer APIs, and framework
+  adapters remain absent.
+- Fenced sync registration and invalidation remain absent until R03-B; typed
+  relation children in the existing point-commit feed are not treated as an
+  implicit relation observer.
 - The first admitted high-level profile and its exact declaration/occurrence
   codecs, budgets, Standard source representation, analyzed projection, and
   manifest evolution remain intentionally narrow under completed `R01`.

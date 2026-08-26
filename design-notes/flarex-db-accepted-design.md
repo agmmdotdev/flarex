@@ -1057,15 +1057,27 @@ unique epoch-provenance projection required for this physical invariant. A
 child cannot associate a header from one epoch with a revision written in
 another epoch, even if later transaction code is defective.
 
+R03-A adds a separate `fx_system_commit_relation_adjacency_change` child
+directory and exact header count for coalesced relation endpoints changed by
+the same point commit. Each child identifies one edge definition, incoming or
+outgoing direction, and logical endpoint row ID. It is derived from C09's
+authenticated relation actions and is not caller-authored or reconstructed
+from mutable current-edge state. These children reuse the same commit sequence,
+publication transaction, generic wake, feed, and retained-history floor; they
+do not create a second stream or wake owner.
+
 The package-private S08 `listAfter` reader captures the authoritative scope
 clock, inert retained-history floor, headers, and children in one read-only
 repeatable-read snapshot. It returns the largest contiguous whole-commit
-prefix after an exclusive cursor, bounded by 100 headers and 16,000 total
-children, plus an explicit continuation fact. It strictly correlates header
-counts, child ordinals, scope/epoch/revision provenance, and the captured
-clock. A missing interior or tail header is corruption, never end-of-feed, and
-`last_commit_seq` must never advance without the corresponding header in the
-same publication transaction.
+prefix after an exclusive cursor, bounded independently by 100 headers, 16,000
+app-row children, and 8,192 relation-adjacency children, plus an explicit
+continuation fact. The hard combined child maximum is therefore 24,192. The
+publisher and schema impose the same per-directory ceilings on one commit, so
+the whole-commit rule cannot admit an oversized first commit. The reader
+strictly correlates both header counts, child ordinals, scope/epoch/revision or
+endpoint provenance, and the captured clock. A missing interior or tail header
+is corruption, never end-of-feed, and `last_commit_seq` must never advance
+without the corresponding header in the same publication transaction.
 
 S08 gives `oldest_available_commit_seq` a physical home but no writer. It must
 remain `0`, and the S08 reader fails closed if it observes any nonzero value.

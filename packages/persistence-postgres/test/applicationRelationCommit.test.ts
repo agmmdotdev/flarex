@@ -96,6 +96,22 @@ describe("C09 application relation commit lowering", () => {
       },
       position: null,
     });
+    expect(prepared.adjacencyChanges).toEqual([
+      {
+        edgeDefinitionId:
+          fixture.definitions.definitions[0]?.edge.edgeDefinitionId,
+        direction: "outgoing",
+        endpointRowId: source.rowId,
+      },
+      {
+        edgeDefinitionId:
+          fixture.definitions.definitions[0]?.edge.edgeDefinitionId,
+        direction: "incoming",
+        endpointRowId: target.rowId,
+      },
+    ]);
+    expect(Object.isFrozen(prepared.adjacencyChanges)).toBe(true);
+    expect(prepared.adjacencyChanges.every(Object.isFrozen)).toBe(true);
     expect(prepared.storedTargetChecks).toEqual([]);
     expect(prepared.distinctFinalTargetCount).toBe(1);
     expect(hasPreparedApplicationRelationCommitAuthority(
@@ -179,6 +195,7 @@ describe("C09 application relation commit lowering", () => {
       Object.freeze([transition(source, null, withoutRelation)]),
     ));
     expect(optional.actions).toEqual([]);
+    expect(optional.adjacencyChanges).toEqual([]);
     expect(optional.finalOccurrenceCount).toBe(0);
 
     const required = lowerApplicationRelationCommitResult(
@@ -260,6 +277,20 @@ describe("C09 application relation commit lowering", () => {
     expect(reordered.actions.map((action) => action.kind === "reorder"
       ? action.position
       : null)).toEqual([1, 0]);
+    expect(reordered.adjacencyChanges).toEqual([
+      expect.objectContaining({
+        direction: "outgoing",
+        endpointRowId: source.rowId,
+      }),
+      expect.objectContaining({
+        direction: "incoming",
+        endpointRowId: targetA.rowId,
+      }),
+      expect.objectContaining({
+        direction: "incoming",
+        endpointRowId: targetB.rowId,
+      }),
+    ]);
   });
 
   it("does not authenticate a plan produced only by the pure lowerer", async () => {
@@ -300,6 +331,20 @@ describe("C09 application relation commit lowering", () => {
     expect(retargeted.actions.map((action) =>
       action.occurrence.targetDocumentId
     )).toEqual([targetA.documentId, targetB.documentId]);
+    expect(retargeted.adjacencyChanges).toEqual([
+      expect.objectContaining({
+        direction: "outgoing",
+        endpointRowId: source.rowId,
+      }),
+      expect.objectContaining({
+        direction: "incoming",
+        endpointRowId: targetA.rowId,
+      }),
+      expect.objectContaining({
+        direction: "incoming",
+        endpointRowId: targetB.rowId,
+      }),
+    ]);
 
     const deleted = Result.getOrThrow(lowerApplicationRelationCommitResult(
       fixture.definitions,
@@ -312,6 +357,16 @@ describe("C09 application relation commit lowering", () => {
           sourceDocumentId: source.documentId,
           targetDocumentId: targetA.documentId,
         }),
+      }),
+    ]);
+    expect(deleted.adjacencyChanges).toEqual([
+      expect.objectContaining({
+        direction: "outgoing",
+        endpointRowId: source.rowId,
+      }),
+      expect.objectContaining({
+        direction: "incoming",
+        endpointRowId: targetA.rowId,
       }),
     ]);
   });
@@ -352,6 +407,7 @@ describe("C09 application relation commit lowering", () => {
     expect(cleaned.actions.every((action) => action.kind === "remove")).toBe(
       true,
     );
+    expect(cleaned.adjacencyChanges).toHaveLength(4);
   });
 
   it("fails final and prior occurrence limits at the frozen maximum plus one", async () => {

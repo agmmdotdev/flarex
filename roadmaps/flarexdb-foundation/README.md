@@ -823,8 +823,11 @@ Dynamic Worker binding baseline before selecting it.
     Legacy and stale-selection rejection, and zero write-bearing state change.
     The empty-function readiness gate remains; no Worker API, mutation journal,
     public developer ergonomics, or production routing was added.
-21. `R03-A`: publish coalesced relation adjacency facts through the existing
-    scope commit/feed/retention owners without a second stream or wake.
+21. `R03-A` (complete, private, system-core only): publish coalesced relation
+    adjacency facts through the existing scope commit/feed/retention owners
+    without a second stream or wake. The exact typed child directory, separate
+    header count, bounded repeatable-read materialization, and child-first
+    retained-history deletion are proven in PGlite and genuine PostgreSQL.
 22. `R03-B`: after roadmap 21's accepted scope-local sync owner and contracts
     exist, prove fenced relation registration, invalidation, and reconnect;
     relation subscriptions remain absent before this gate.

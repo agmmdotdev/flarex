@@ -52,8 +52,11 @@ import type { LocatedScopeClockReader } from
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import {
+  fxAppEdgeAdjacencyVersions,
   fxAppEdgeCurrent,
   fxAppRowCurrent,
+  fxSystemCommits,
+  fxSystemCommitRelationAdjacencyChanges,
 } from "../src/schema";
 import {
   createSessionJournalStorePersistenceV1,
@@ -199,10 +202,47 @@ describe("C09 point-commit relation maintenance", () => {
       schemaVersionId: scope.schemaVersionId,
       commitSeq: 1n,
     })]);
+    const sourceRowId = decodeAppDocumentIdentityV1(
+      prepared.value.postId,
+    ).rowId;
+    const targetRowId = decodeAppDocumentIdentityV1(
+      prepared.value.userId,
+    ).rowId;
+    expect(state.relationChanges).toEqual([
+      expect.objectContaining({
+        changeOrdinal: 0,
+        direction: "outgoing",
+        endpointRowId: sourceRowId,
+        commitSeq: 1n,
+      }),
+      expect.objectContaining({
+        changeOrdinal: 1,
+        direction: "incoming",
+        endpointRowId: targetRowId,
+        commitSeq: 1n,
+      }),
+    ]);
+    expect(state.adjacencyVersions).toHaveLength(2);
+    for (const change of state.relationChanges) {
+      expect(state.adjacencyVersions).toContainEqual(expect.objectContaining({
+        edgeDefinitionId: change.edgeDefinitionId,
+        direction: change.direction,
+        endpointRowId: change.endpointRowId,
+        lastChangedCommitSeq: change.commitSeq,
+      }));
+    }
+    expect(state.commitHeaders).toEqual([
+      expect.objectContaining({
+        commitSeq: 1n,
+        changeCount: 2,
+        relationAdjacencyChangeCount: 2,
+      }),
+    ]);
 
     await expect(runEffect(publisher.publish(prepared.command))).resolves
       .toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
     expect((await relationState(scope)).edges).toHaveLength(1);
+    expect((await relationState(scope)).relationChanges).toHaveLength(2);
   });
 
   it("rejects a missing stored target before publishing rows or edges", async () => {
@@ -338,6 +378,7 @@ describe("C09 point-commit relation maintenance", () => {
       steps.indexOf("relationRestrictValidated"),
     );
     expect((await relationState(scope)).edges).toEqual([]);
+    expect((await relationState(scope)).relationChanges).toHaveLength(4);
   });
 
   it("rolls row, edge, feed, and clock state back after relation maintenance", async () => {
@@ -371,7 +412,9 @@ describe("C09 point-commit relation maintenance", () => {
     });
     const failure = await runEffectFailure(relationPublisher(scope, {
       afterTransactionStep: (event) => {
-        if (event.step === "relationEdgeWritten") throw injected;
+        if (event.step === "commitRelationAdjacencyChangeWritten") {
+          throw injected;
+        }
         return Promise.resolve();
       },
     }).publish(prepared.command));
@@ -383,6 +426,7 @@ describe("C09 point-commit relation maintenance", () => {
       edgeVersions: "0",
       commits: "0",
       changes: "0",
+      relationChanges: "0",
       outcomes: "0",
       wakes: "0",
       lastCommitSeq: "0",
@@ -400,6 +444,7 @@ describe("C09 point-commit relation maintenance", () => {
       edges: "1",
       commits: "1",
       changes: "2",
+      relationChanges: "2",
       outcomes: "1",
       wakes: "1",
       lastCommitSeq: "1",
@@ -710,6 +755,45 @@ describe("C09 point-commit relation maintenance", () => {
       fxAppEdgeCurrent.scopeUuid,
       scopeUuid,
     ));
+    const relationChanges = await selected.drizzle.select({
+      changeOrdinal:
+        fxSystemCommitRelationAdjacencyChanges.changeOrdinal,
+      edgeDefinitionId:
+        fxSystemCommitRelationAdjacencyChanges.edgeDefinitionId,
+      direction: fxSystemCommitRelationAdjacencyChanges.direction,
+      endpointRowId:
+        fxSystemCommitRelationAdjacencyChanges.endpointRowId,
+      commitSeq: fxSystemCommitRelationAdjacencyChanges.commitSeq,
+    }).from(fxSystemCommitRelationAdjacencyChanges).where(eq(
+      fxSystemCommitRelationAdjacencyChanges.scopeUuid,
+      scopeUuid,
+    )).orderBy(
+      asc(fxSystemCommitRelationAdjacencyChanges.commitSeq),
+      asc(fxSystemCommitRelationAdjacencyChanges.changeOrdinal),
+    );
+    const adjacencyVersions = await selected.drizzle.select({
+      edgeDefinitionId: fxAppEdgeAdjacencyVersions.edgeDefinitionId,
+      direction: fxAppEdgeAdjacencyVersions.direction,
+      endpointRowId: fxAppEdgeAdjacencyVersions.endpointRowId,
+      lastChangedCommitSeq:
+        fxAppEdgeAdjacencyVersions.lastChangedCommitSeq,
+    }).from(fxAppEdgeAdjacencyVersions).where(eq(
+      fxAppEdgeAdjacencyVersions.scopeUuid,
+      scopeUuid,
+    )).orderBy(
+      asc(fxAppEdgeAdjacencyVersions.edgeDefinitionId),
+      asc(fxAppEdgeAdjacencyVersions.direction),
+      asc(fxAppEdgeAdjacencyVersions.endpointRowId),
+    );
+    const commitHeaders = await selected.drizzle.select({
+      commitSeq: fxSystemCommits.commitSeq,
+      changeCount: fxSystemCommits.changeCount,
+      relationAdjacencyChangeCount:
+        fxSystemCommits.relationAdjacencyChangeCount,
+    }).from(fxSystemCommits).where(eq(
+      fxSystemCommits.scopeUuid,
+      scopeUuid,
+    )).orderBy(asc(fxSystemCommits.commitSeq));
     return Object.freeze({
       currentRows: Object.freeze(currentRows),
       edges: Object.freeze(edges.map((edge) => Object.freeze({
@@ -717,6 +801,21 @@ describe("C09 point-commit relation maintenance", () => {
         sourceRowId: appRowIdHexV1FromBytes(edge.sourceRowId),
         targetRowId: appRowIdHexV1FromBytes(edge.targetRowId),
       }))),
+      relationChanges: Object.freeze(relationChanges.map(change =>
+        Object.freeze({
+          ...change,
+          endpointRowId:
+            appRowIdHexV1FromBytes(change.endpointRowId),
+        })
+      )),
+      adjacencyVersions: Object.freeze(adjacencyVersions.map(version =>
+        Object.freeze({
+          ...version,
+          endpointRowId:
+            appRowIdHexV1FromBytes(version.endpointRowId),
+        })
+      )),
+      commitHeaders: Object.freeze(commitHeaders),
     });
   }
 
@@ -732,6 +831,7 @@ describe("C09 point-commit relation maintenance", () => {
       edge_versions: string;
       commits: string;
       changes: string;
+      relation_changes: string;
       outcomes: string;
       wakes: string;
       last_commit_seq: string;
@@ -750,6 +850,9 @@ describe("C09 point-commit relation maintenance", () => {
           where scope_uuid = $1) as commits,
         (select count(*)::text from fx_system_commit_app_row_change
           where scope_uuid = $1) as changes,
+        (select count(*)::text
+          from fx_system_commit_relation_adjacency_change
+          where scope_uuid = $1) as relation_changes,
         (select count(*)::text from fx_system_idempotency
           where scope_uuid = $1) as outcomes,
         (select count(*)::text from fx_system_outbox
@@ -768,6 +871,7 @@ describe("C09 point-commit relation maintenance", () => {
       edgeVersions: row.edge_versions,
       commits: row.commits,
       changes: row.changes,
+      relationChanges: row.relation_changes,
       outcomes: row.outcomes,
       wakes: row.wakes,
       lastCommitSeq: row.last_commit_seq,

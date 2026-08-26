@@ -226,6 +226,8 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
             orphanEdges: "0",
             liveRows: "2",
             tombstoneRows: "0",
+            relationChanges: "2",
+            staleRelationChanges: "0",
             lastCommitSeq: "2",
           });
         } else {
@@ -234,12 +236,109 @@ describePostgres("real PostgreSQL C09 relation commit serialization", () => {
             orphanEdges: "0",
             liveRows: "0",
             tombstoneRows: "1",
+            relationChanges: "0",
+            staleRelationChanges: "0",
             lastCommitSeq: "2",
           });
         }
       }
     });
   }, 180_000);
+
+  it("publishes a large adjacency fact set in bounded multi-row statements", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const randomUuid = uuidFactory("9c000000");
+      const scope = await createRelationScope(
+        persistence,
+        randomUuid,
+        "bounded_facts",
+        103,
+        "many",
+      );
+      const userIds: Array<
+        ReturnType<typeof requireRelationInsertedDocumentId>
+      > = [];
+      for (let batchIndex = 0; batchIndex < 4; batchIndex += 1) {
+        const seeded = await prepareRelationAttempt(
+          persistence,
+          randomUuid,
+          scope,
+          `bounded_seed_${batchIndex}`,
+          async ({ store, attempt }) => {
+            const users = await runEffect(
+              store.resolvePointTableEffect(attempt, "users"),
+            );
+            const batchUserIds: typeof userIds = [];
+            for (let index = 0; index < 125; index += 1) {
+              batchUserIds.push(requireRelationInsertedDocumentId(
+                await runSessionJournalPointOperation(store, users, {
+                  kind: "insert",
+                  syscallSequence: CommitSyscallSequenceV1Schema.make(
+                    BigInt(index + 1),
+                  ),
+                  fields: { name: `User ${batchIndex}-${index}` },
+                }),
+              ));
+            }
+            return Object.freeze(batchUserIds);
+          },
+        );
+        userIds.push(...seeded.value);
+        await runEffect(relationPublisher(persistence, scope).publish(
+          seeded.command,
+        ));
+      }
+
+      const post = await prepareRelationAttempt(
+        persistence,
+        randomUuid,
+        scope,
+        "bounded_post",
+        async ({ store, attempt }) => {
+          const posts = await runEffect(
+            store.resolvePointTableEffect(attempt, "posts"),
+          );
+          return requireRelationInsertedDocumentId(
+            await runSessionJournalPointOperation(store, posts, {
+              kind: "insert",
+              syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+              fields: { author: userIds },
+            }),
+          );
+        },
+      );
+      const relationWriteParamCounts: number[] = [];
+      let relationWriteSteps = 0;
+      await expect(runEffect(relationPublisher(persistence, scope, {
+        observeQuery: (query) => {
+          if (query.name === "writeCommitRelationAdjacencyChange") {
+            relationWriteParamCounts.push(query.params.length);
+          }
+        },
+        afterTransactionStep: (event) => {
+          if (event.step === "commitRelationAdjacencyChangeWritten") {
+            relationWriteSteps += 1;
+          }
+          return Promise.resolve();
+        },
+      }).publish(post.command))).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 5n },
+      });
+
+      expect(relationWriteParamCounts).toEqual([3_500, 7]);
+      expect(relationWriteSteps).toBe(2);
+      expect(await postgresRelationState(persistence, scope)).toMatchObject({
+        edges: "500",
+        orphanEdges: "0",
+        liveRows: "501",
+        tombstoneRows: "0",
+        relationChanges: "501",
+        staleRelationChanges: "0",
+        lastCommitSeq: "5",
+      });
+    });
+  }, 300_000);
 });
 
 async function createRelationScope(
@@ -247,6 +346,7 @@ async function createRelationScope(
   randomUuid: () => string,
   label: string,
   publicationSequence: number,
+  valueCardinality: "one" | "many" = "one",
 ): Promise<RelationScope> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
     `deployment_c09_postgres_${label}`,
@@ -269,6 +369,7 @@ async function createRelationScope(
     await relationBindingPublicationInput(
       deploymentId,
       publicationSequence,
+      valueCardinality,
     ),
   ));
   await setFlarexActivationClock(persistence, scopeId);
@@ -432,6 +533,8 @@ async function postgresRelationState(
     orphan_edges: string;
     live_rows: string;
     tombstone_rows: string;
+    relation_changes: string;
+    stale_relation_changes: string;
     last_commit_seq: string;
   }>(`
     select
@@ -469,6 +572,26 @@ async function postgresRelationState(
           and revision.commit_seq = current_row.commit_seq
         where current_row.scope_uuid = $1 and revision.is_tombstone = true
       ) as tombstone_rows,
+      (select count(*)::text
+         from fx_system_commit_relation_adjacency_change
+        where scope_uuid = $1
+      ) as relation_changes,
+      (select count(*)::text
+         from fx_system_commit_relation_adjacency_change relation_change
+         left join fx_app_edge_adjacency_version adjacency_version
+           on adjacency_version.scope_uuid = relation_change.scope_uuid
+          and adjacency_version.edge_definition_id =
+            relation_change.edge_definition_id
+          and adjacency_version.direction = relation_change.direction
+          and adjacency_version.endpoint_row_id =
+            relation_change.endpoint_row_id
+        where relation_change.scope_uuid = $1
+          and (
+            adjacency_version.last_changed_commit_seq is null
+            or adjacency_version.last_changed_commit_seq <
+              relation_change.commit_seq
+          )
+      ) as stale_relation_changes,
       last_commit_seq::text
     from fx_system_scope_clock
     where scope_uuid = $1
@@ -480,6 +603,8 @@ async function postgresRelationState(
     orphanEdges: row.orphan_edges,
     liveRows: row.live_rows,
     tombstoneRows: row.tombstone_rows,
+    relationChanges: row.relation_changes,
+    staleRelationChanges: row.stale_relation_changes,
     lastCommitSeq: row.last_commit_seq,
   });
 }

@@ -196,10 +196,11 @@ import type {
   ApplicationActionExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-action-authority-v1";
 import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
-import type {
-  CanonicalFlarexValueBytesV1,
-  FlarexValueCodecVersion,
-  FlarexValueSha256V1,
+import {
+  MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
+  type CanonicalFlarexValueBytesV1,
+  type FlarexValueCodecVersion,
+  type FlarexValueSha256V1,
 } from "flarex-protocol/value";
 
 import {
@@ -226,7 +227,8 @@ import type {
   ApplicationRelationSemanticValidationAttemptFence,
   ApplicationRelationSemanticValidationLifecycle,
 } from "./applicationRelationReadiness/Model";
-import { MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 } from "flarex-protocol/value";
+import { MAX_APPLICATION_RELATION_ADJACENCY_CHANGES } from
+  "./applicationRelationCommit/Model";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
 import type {
@@ -1644,6 +1646,8 @@ export const fxSystemCommits = pgTable(
       .$type<CommitSeq>()
       .notNull(),
     changeCount: integer("change_count").notNull(),
+    relationAdjacencyChangeCount:
+      integer("relation_adjacency_change_count").notNull().default(0),
     committedAt: timestamp("committed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1669,6 +1673,12 @@ export const fxSystemCommits = pgTable(
     check(
       "fx_system_commit_change_count_check",
       sql`${table.changeCount} between 0 and 16000`,
+    ),
+    check(
+      "fx_system_commit_relation_adjacency_change_count_check",
+      sql`${table.relationAdjacencyChangeCount} between 0 and ${sql.raw(
+        String(MAX_APPLICATION_RELATION_ADJACENCY_CHANGES),
+      )}`,
     ),
     check(
       "fx_system_commit_committed_at_finite_check",
@@ -3645,6 +3655,71 @@ export const fxSystemCommitAppRowChanges = pgTable(
     check(
       "fx_system_commit_app_row_change_row_id_length_check",
       sql`octet_length(${table.rowId}) = 16`,
+    ),
+  ],
+);
+
+/**
+ * R03 typed adjacency endpoints changed by one authoritative scope commit.
+ * The child is retained with its header and is not a second commit stream.
+ */
+export const fxSystemCommitRelationAdjacencyChanges = pgTable(
+  "fx_system_commit_relation_adjacency_change",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    epochUuid: uuid("epoch_uuid").$type<ScopeEpochUuidV1>().notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    changeOrdinal: integer("change_ordinal").notNull(),
+    edgeDefinitionId: integer("edge_definition_id")
+      .$type<CatalogEdgeDefinitionId>()
+      .notNull(),
+    direction: text("direction")
+      .$type<"incoming" | "outgoing">()
+      .notNull(),
+    endpointRowId: bytea("endpoint_row_id").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_commit_relation_adjacency_pk",
+      columns: [table.scopeUuid, table.commitSeq, table.changeOrdinal],
+    }),
+    unique("fx_system_commit_relation_adjacency_endpoint_unique").on(
+      table.scopeUuid,
+      table.commitSeq,
+      table.edgeDefinitionId,
+      table.direction,
+      table.endpointRowId,
+    ),
+    foreignKey({
+      name: "fx_system_commit_relation_adjacency_header_fk",
+      columns: [table.scopeUuid, table.epochUuid, table.commitSeq],
+      foreignColumns: [
+        fxSystemCommits.scopeUuid,
+        fxSystemCommits.epochUuid,
+        fxSystemCommits.commitSeq,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    check(
+      "fx_system_commit_relation_adjacency_ordinal_check",
+      sql`${table.changeOrdinal} between 0 and ${sql.raw(
+        String(MAX_APPLICATION_RELATION_ADJACENCY_CHANGES - 1),
+      )}`,
+    ),
+    check(
+      "fx_system_commit_relation_adjacency_edge_id_check",
+      sql`${table.edgeDefinitionId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_system_commit_relation_adjacency_direction_check",
+      sql`${table.direction} in ('incoming', 'outgoing')`,
+    ),
+    check(
+      "fx_system_commit_relation_adjacency_row_id_length_check",
+      sql`octet_length(${table.endpointRowId}) = 16`,
     ),
   ],
 );

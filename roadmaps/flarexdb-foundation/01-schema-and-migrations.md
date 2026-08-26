@@ -978,6 +978,10 @@ Outcome:
 - Add native scope-local commit headers and ordered typed app-row change
   children. Exact composite foreign keys bind every child to both its header's
   epoch and a row revision written with that same epoch provenance.
+- The completed R03-A extension adds a separate exact header count and ordered
+  relation-adjacency child directory. Each child identifies one coalesced edge
+  definition, direction, and logical endpoint under the exact header epoch; it
+  has no foreign key to mutable current-edge or adjacency-version state.
 - Add `oldest_available_commit_seq` to the authoritative scope clock, fixed at
   `0` with no writer until O11 owns retention advancement. S08 fails closed on
   a nonzero floor and defines no reconnect/reset behavior.
@@ -985,18 +989,20 @@ Outcome:
   and every clock advance to O07. Sequence, not `committed_at`, orders the
   feed; the clock may never advance without its corresponding header.
 - Keep the reader package-private. `listAfter` captures clock, floor, headers,
-  and children in one read-only repeatable-read snapshot and returns the
-  largest contiguous whole-commit prefix bounded by 100 headers and 16,000
-  children, with explicit continuation.
+  and both child directories in one read-only repeatable-read snapshot and
+  returns the largest contiguous whole-commit prefix bounded independently by
+  100 headers, 16,000 app-row children, and 8,192 relation children, with a
+  hard combined child maximum of 24,192 and explicit continuation.
 - Leave legacy commit/document/lease/outbox objects unchanged. They remain
   unshipped prototype evidence with no compatibility bridge or dual-write
   obligation.
 
 Exit gates:
 
-- native scope/epoch/sequence keys, exact header/revision epoch provenance,
-  finite database-owned timestamps, strict child count/ordinal correlation,
-  contiguous bounded `listAfter`, and tail-gap detection pass;
+- native scope/epoch/sequence keys, exact header/revision and relation-child
+  epoch provenance, finite database-owned timestamps, strict independent child
+  count/ordinal correlation, contiguous bounded `listAfter`, combined-maximum
+  capacity, and tail-gap detection pass;
 - fresh install, upgrade/replay/failure recovery, non-public schema parity,
   FK/restrict behavior, query plans, and PGlite/real-Postgres boundaries pass;
   and

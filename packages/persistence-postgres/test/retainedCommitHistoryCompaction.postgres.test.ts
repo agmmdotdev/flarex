@@ -49,10 +49,15 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
         "fx_system_commit",
       )).resolves.toEqual([
         "fx_system_commit_app_row_change_header_fk",
+        "fx_system_commit_relation_adjacency_header_fk",
       ]);
       await expect(incomingForeignKeys(
         persistence,
         "fx_system_commit_app_row_change",
+      )).resolves.toEqual([]);
+      await expect(incomingForeignKeys(
+        persistence,
+        "fx_system_commit_relation_adjacency_change",
       )).resolves.toEqual([]);
 
       const queries = new Map<
@@ -86,10 +91,12 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
         retainedFloor: 2n,
         deletedCommitSeq: 1n,
         deletedChangeCount: 16_000,
+        deletedRelationAdjacencyChangeCount: 8_192,
       });
       await expect(readCounts(persistence, scopeId)).resolves.toEqual({
         commits: 1,
         changes: 0,
+        relationChanges: 0,
         revisions: 16_000,
         floorHeader: 1,
       });
@@ -101,8 +108,14 @@ describePostgres("real PostgreSQL O11-D retained commit-history compaction", () 
       expect(plans.changeDirectory).toContain(
         "fx_system_commit_app_row_change_scope_uuid_commit_seq_change_or",
       );
+      expect(plans.relationChangeDirectory).toContain(
+        "fx_system_commit_relation_adjacency_pk",
+      );
       expect(plans.changeDeletion).toMatch(
         /fx_system_commit_app_row_change_(?:scope_uuid_commit_seq_change_or|row_unique)/,
+      );
+      expect(plans.relationChangeDeletion).toMatch(
+        /fx_system_commit_relation_adjacency_(?:pk|endpoint_unique)/,
       );
       expect(plans.headerDeletion).toMatch(
         /fx_system_commit_(?:scope_uuid_commit_seq_pk|scope_epoch_seq_unique)/,
@@ -125,12 +138,15 @@ async function seedMaximumCommitGroup(
 ): Promise<void> {
   await persistence.query(
     `insert into fx_system_commit
-       (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
+       (scope_uuid, epoch_uuid, commit_seq, change_count,
+        relation_adjacency_change_count, committed_at)
      select scope_uuid, epoch_uuid, values.commit_seq, values.change_count,
-            clock_timestamp()
+            values.relation_change_count, clock_timestamp()
      from fx_system_scope_clock,
-          (values (1::bigint, 16000::integer), (2::bigint, 0::integer))
-            as values(commit_seq, change_count)
+          (values
+            (1::bigint, 16000::integer, 8192::integer),
+            (2::bigint, 0::integer, 0::integer))
+            as values(commit_seq, change_count, relation_change_count)
      where scope_id = $1`,
     [scopeId],
   );
@@ -160,6 +176,19 @@ async function seedMaximumCommitGroup(
     [scopeId],
   );
   await persistence.query(
+    `insert into fx_system_commit_relation_adjacency_change
+       (scope_uuid, epoch_uuid, commit_seq, change_ordinal,
+        edge_definition_id, direction, endpoint_row_id)
+     select scope_uuid, epoch_uuid, 1, generated_id, 1,
+            case when generated_id % 2 = 0
+              then 'outgoing' else 'incoming' end,
+            decode(lpad(to_hex(generated_id::bigint + 20001), 32, '0'), 'hex')
+     from fx_system_scope_clock,
+          generate_series(0, 8191) as generated_id
+     where scope_id = $1`,
+    [scopeId],
+  );
+  await persistence.query(
     `update fx_system_scope_clock
      set last_commit_seq = 2, oldest_available_commit_seq = 2
      where scope_id = $1`,
@@ -169,7 +198,10 @@ async function seedMaximumCommitGroup(
 
 async function incomingForeignKeys(
   persistence: PostgresFlarexPersistence,
-  tableName: "fx_system_commit" | "fx_system_commit_app_row_change",
+  tableName:
+    | "fx_system_commit"
+    | "fx_system_commit_app_row_change"
+    | "fx_system_commit_relation_adjacency_change",
 ): Promise<ReadonlyArray<string>> {
   const result = await persistence.query<{ conname: string }>(
     `select constraint_row.conname
@@ -188,12 +220,14 @@ async function readCounts(
 ): Promise<Readonly<{
   readonly commits: number;
   readonly changes: number;
+  readonly relationChanges: number;
   readonly revisions: number;
   readonly floorHeader: number;
 }>> {
   const result = await persistence.query<{
     commits: number;
     changes: number;
+    relation_changes: number;
     revisions: number;
     floor_header: number;
   }>(
@@ -202,6 +236,9 @@ async function readCounts(
         where scope_uuid = clock.scope_uuid) as commits,
        (select count(*)::int from fx_system_commit_app_row_change
         where scope_uuid = clock.scope_uuid) as changes,
+       (select count(*)::int
+        from fx_system_commit_relation_adjacency_change
+        where scope_uuid = clock.scope_uuid) as relation_changes,
        (select count(*)::int from fx_app_row_rev
         where scope_uuid = clock.scope_uuid) as revisions,
        (select count(*)::int from fx_system_commit
@@ -214,6 +251,7 @@ async function readCounts(
   return Object.freeze({
     commits: row.commits,
     changes: row.changes,
+    relationChanges: row.relation_changes,
     revisions: row.revisions,
     floorHeader: row.floor_header,
   });
@@ -239,9 +277,17 @@ async function explainPlans(
         client,
         requireQuery(queries, "changeDirectory"),
       ),
+      relationChangeDirectory: await explainObserved(
+        client,
+        requireQuery(queries, "relationChangeDirectory"),
+      ),
       changeDeletion: await explainObserved(
         client,
         requireQuery(queries, "changeDeletion"),
+      ),
+      relationChangeDeletion: await explainObserved(
+        client,
+        requireQuery(queries, "relationChangeDeletion"),
       ),
       headerDeletion: await explainObserved(
         client,

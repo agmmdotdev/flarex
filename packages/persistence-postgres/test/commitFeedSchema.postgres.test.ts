@@ -152,6 +152,114 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
     }
   }, 30_000);
 
+  it("upgrades 0076 headers to zero relation facts in a non-public schema", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-r03-postgres-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await writeJournalBeforeIndex(currentJournal, temporaryJournal, 77);
+      await withTemporaryPostgresSchema(async (databaseOptions) => {
+        const previous = await createPostgresPersistence({
+          ...databaseOptions,
+          migrationsFolder,
+        });
+        let current:
+          | Awaited<ReturnType<typeof createPostgresPersistence>>
+          | undefined;
+        try {
+          await previous.migrate();
+          await insertScope(previous, SCOPE_A, EPOCH_A, "1");
+          await previous.query(
+            `insert into fx_system_commit
+               (scope_uuid, epoch_uuid, commit_seq, change_count)
+             values ($1::uuid, $2::uuid, 1, 0)`,
+            [SCOPE_A, EPOCH_A],
+          );
+          const schema = await previous.query<{ schema_name: string }>(
+            `select current_schema() as schema_name`,
+          );
+          expect(schema.rows[0]?.schema_name).not.toBe("public");
+
+          await writeFile(
+            temporaryJournal,
+            await readFile(currentJournal, "utf8"),
+            "utf8",
+          );
+          current = await createPostgresPersistence({
+            ...databaseOptions,
+            migrationsFolder,
+          });
+          await expect(current.migrate()).resolves.toBeUndefined();
+          await expect(current.migrate()).resolves.toBeUndefined();
+
+          const upgraded = await current.query<{
+            relation_count: string;
+            column_default: string | null;
+            is_nullable: string;
+            relation_tables: number;
+            fk_target_schema: string;
+            receipts: number;
+          }>(`
+            select
+              (select relation_adjacency_change_count::text
+               from fx_system_commit
+               where scope_uuid = '${SCOPE_A}'::uuid and commit_seq = 1)
+                as relation_count,
+              (select column_default from information_schema.columns
+               where table_schema = current_schema()
+                 and table_name = 'fx_system_commit'
+                 and column_name = 'relation_adjacency_change_count')
+                as column_default,
+              (select is_nullable from information_schema.columns
+               where table_schema = current_schema()
+                 and table_name = 'fx_system_commit'
+                 and column_name = 'relation_adjacency_change_count')
+                as is_nullable,
+              (select count(*)::int from information_schema.tables
+               where table_schema = current_schema()
+                 and table_name =
+                   'fx_system_commit_relation_adjacency_change')
+                as relation_tables,
+              (select target_namespace.nspname
+               from pg_constraint as constraint_row
+               join pg_class as source_relation
+                 on source_relation.oid = constraint_row.conrelid
+               join pg_namespace as source_namespace
+                 on source_namespace.oid = source_relation.relnamespace
+               join pg_class as target_relation
+                 on target_relation.oid = constraint_row.confrelid
+               join pg_namespace as target_namespace
+                 on target_namespace.oid = target_relation.relnamespace
+               where source_namespace.nspname = current_schema()
+                 and constraint_row.conname =
+                 'fx_system_commit_relation_adjacency_header_fk')
+                as fk_target_schema,
+              (select count(*)::int
+               from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations)
+                as receipts
+          `);
+          expect(upgraded.rows).toEqual([{
+            relation_count: "0",
+            column_default: "0",
+            is_nullable: "NO",
+            relation_tables: 1,
+            fk_target_schema: schema.rows[0]?.schema_name,
+            receipts: 78,
+          }]);
+        } finally {
+          await Promise.all([previous.close(), current?.close()]);
+        }
+      });
+    } finally {
+      await rm(testRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("enforces exact header/revision provenance and uses bounded feed indexes", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await insertScope(persistence, SCOPE_A, EPOCH_B, "10");
@@ -165,8 +273,16 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
       // A historical write epoch remains valid feed provenance after the scope
       // authority has moved to a different current epoch.
       await insertRevision(persistence, SCOPE_A, EPOCH_A, "1", ROW_A);
-      await insertHeader(persistence, SCOPE_A, EPOCH_A, "1", 1);
+      await insertHeader(persistence, SCOPE_A, EPOCH_A, "1", 1, 1);
       await insertChange(persistence, SCOPE_A, EPOCH_A, "1", 0, ROW_A);
+      await insertRelationChange(
+        persistence,
+        SCOPE_A,
+        EPOCH_A,
+        "1",
+        0,
+        ROW_A,
+      );
 
       await expect(
         insertChange(persistence, SCOPE_A, EPOCH_A, "1", 1, ROW_A),
@@ -174,6 +290,22 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
       await expect(
         insertChange(persistence, SCOPE_A, EPOCH_A, "2", 0, ROW_B),
       ).rejects.toThrow();
+      await expect(insertRelationChange(
+        persistence,
+        SCOPE_A,
+        EPOCH_B,
+        "1",
+        1,
+        ROW_B,
+      )).rejects.toThrow();
+      await expect(insertRelationChange(
+        persistence,
+        SCOPE_A,
+        EPOCH_A,
+        "1",
+        1,
+        ROW_A,
+      )).rejects.toThrow();
 
       await insertRevision(persistence, SCOPE_A, EPOCH_A, "2", ROW_B);
       await insertHeader(persistence, SCOPE_A, EPOCH_B, "2", 1);
@@ -238,6 +370,9 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
         // PostgreSQL truncates identifiers to 63 bytes in the physical catalog.
         "fx_system_commit_app_row_change_scope_uuid_commit_seq_change_or",
       );
+      expect(plans.relationChildren).toContain(
+        "fx_system_commit_relation_adjacency_pk",
+      );
 
       const provenanceConstraint = await persistence.query<{
         definition: string;
@@ -289,6 +424,23 @@ async function writeJournalThrough0029(
   await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 }
 
+async function writeJournalBeforeIndex(
+  currentJournal: string,
+  targetJournal: string,
+  beforeIndex: number,
+): Promise<void> {
+  const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
+    entries?: Array<{ idx?: number }>;
+  };
+  if (!Array.isArray(parsed.entries)) {
+    throw new Error("Current Drizzle journal is missing its entries array.");
+  }
+  parsed.entries = parsed.entries.filter(
+    (entry) => typeof entry.idx === "number" && entry.idx < beforeIndex,
+  );
+  await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}
+
 async function insertScope(
   persistence: SqlPersistence,
   scopeUuid: string,
@@ -331,14 +483,16 @@ async function insertHeader(
   epochUuid: string,
   commitSeq: string,
   changeCount: number,
+  relationChangeCount = 0,
 ): Promise<void> {
   await persistence.query(
     `
       insert into fx_system_commit
-        (scope_uuid, epoch_uuid, commit_seq, change_count)
-      values ($1::uuid, $2::uuid, $3, $4)
+        (scope_uuid, epoch_uuid, commit_seq, change_count,
+         relation_adjacency_change_count)
+      values ($1::uuid, $2::uuid, $3, $4, $5)
     `,
-    [scopeUuid, epochUuid, commitSeq, changeCount],
+    [scopeUuid, epochUuid, commitSeq, changeCount, relationChangeCount],
   );
 }
 
@@ -360,9 +514,33 @@ async function insertChange(
   );
 }
 
+async function insertRelationChange(
+  persistence: SqlPersistence,
+  scopeUuid: string,
+  epochUuid: string,
+  commitSeq: string,
+  ordinal: number,
+  rowHex: string,
+): Promise<void> {
+  await persistence.query(
+    `
+      insert into fx_system_commit_relation_adjacency_change
+        (scope_uuid, epoch_uuid, commit_seq, change_ordinal,
+         edge_definition_id, direction, endpoint_row_id)
+      values ($1::uuid, $2::uuid, $3, $4, 1, 'outgoing',
+        decode($5, 'hex'))
+    `,
+    [scopeUuid, epochUuid, commitSeq, ordinal, rowHex],
+  );
+}
+
 async function feedLookupPlans(
   persistence: PostgresFlarexPersistence,
-): Promise<{ readonly children: string; readonly headers: string }> {
+): Promise<{
+  readonly children: string;
+  readonly headers: string;
+  readonly relationChildren: string;
+}> {
   const client = await persistence.pool.connect();
   try {
     await client.query(`set enable_seqscan = off`);
@@ -388,9 +566,24 @@ async function feedLookupPlans(
       `,
       [SCOPE_A, "1", "4"],
     );
+    const relationChildren = await client.query<{ "QUERY PLAN": string }>(
+      `
+        explain (costs off)
+        select epoch_uuid, commit_seq, change_ordinal,
+               edge_definition_id, direction, endpoint_row_id
+        from fx_system_commit_relation_adjacency_change
+        where scope_uuid = $1::uuid
+          and commit_seq between $2 and $3
+        order by commit_seq, change_ordinal
+      `,
+      [SCOPE_A, "1", "4"],
+    );
     return {
       headers: headers.rows.map((row) => row["QUERY PLAN"]).join("\n"),
       children: children.rows.map((row) => row["QUERY PLAN"]).join("\n"),
+      relationChildren: relationChildren.rows
+        .map((row) => row["QUERY PLAN"])
+        .join("\n"),
     };
   } finally {
     client.release();

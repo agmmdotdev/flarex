@@ -2086,22 +2086,24 @@ scope-clock lane, rollback after the update, interruption settlement, and a
 committed-but-uncertain response recovered by a cold idempotent retry. No
 physical deletion, maintenance loop, or trigger is part of this checkpoint.
 
-The first `O11-D` owner adds one private commit/change-feed cleanup page without
-DDL or a persisted cursor. It takes the scope-clock share lane, authenticates
-the current located authority and inclusive floor, locks exactly the oldest
-strictly pre-floor header, and verifies its complete ordinal directory before
-deleting all child rows and then that header in one transaction. The existing
-header and child primary-key access paths bound the page; the schema's
-`change_count` and ordinal constraints cap it at 16,000 children. Cardinality
-drift, stale or copied authority, any foreign-key blocker, or a late failure
-rolls back the whole page. Repeated invocation is deletion-idempotent, a
-committed-but-uncertain page is safe to retry, the inclusive-floor header and
-all app-row revisions remain, and no `CASCADE`, row/index cleanup, cross-owner
-loop, scheduler, or production trigger is introduced. Populated PGlite proof
-covers child-first deletion, exhaustion, corruption refusal, authority
-rejection, rollback, and cold uncertainty recovery. Genuine PostgreSQL proof
-covers the maximum 16,000-child group and the exact index-backed header/child
-read and delete plans.
+The first `O11-D` owner, extended by `R03-A`, uses one private commit/change-feed
+cleanup page without a persisted cursor. It takes the scope-clock share lane,
+authenticates the current located authority and inclusive floor, locks exactly
+the oldest strictly pre-floor header, and verifies both complete ordinal
+directories before deleting all app-row children, all relation-adjacency
+children, and then that header in one transaction. The existing header and
+child primary-key access paths bound the page; the schema counts and ordinal
+constraints cap it independently at 16,000 app-row children and 8,192 relation
+children, with a hard combined maximum of 24,192. Cardinality drift, stale or
+copied authority, any foreign-key blocker, or a late failure rolls back the
+whole page. Repeated invocation is deletion-idempotent, a committed-but-
+uncertain page is safe to retry, the inclusive-floor header and all app-row
+revisions remain, and no `CASCADE`, row/index cleanup, cross-owner loop,
+scheduler, or production trigger is introduced. Populated PGlite proof covers
+child-first deletion, exhaustion, corruption refusal, authority rejection,
+rollback, and cold uncertainty recovery. Genuine PostgreSQL proof covers the
+maximum combined child group and the exact index-backed header/child read and
+delete plans.
 
 The second `O11-D` owner adds one private ordered-index revision cleanup page,
 also without DDL or a persisted cursor. It takes the scope-clock share lane,

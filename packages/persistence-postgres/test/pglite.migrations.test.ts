@@ -104,6 +104,7 @@ describe("createPGlitePersistence", () => {
       "fx_system_application_task_definition_v1",
       "fx_system_commit",
       "fx_system_commit_app_row_change",
+      "fx_system_commit_relation_adjacency_change",
       "fx_system_durable_task_attempt_identity_v1",
       "fx_system_durable_task_compute_cancellation_v1",
       "fx_system_durable_task_compute_dispatch_v1",
@@ -402,6 +403,11 @@ describe("createPGlitePersistence", () => {
 
       await current.query(
         "delete from fx_system_tx_journal_relation_incoming",
+      );
+      await writeFile(
+        copiedJournal,
+        migrationJournalBefore(journalText, 77),
+        "utf8",
       );
       await current.migrate();
       await current.migrate();

@@ -12,6 +12,7 @@ import {
   CommitFeedCursorResetRequiredErrorV1,
   MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1,
   MAX_COMMIT_FEED_PAGE_COMMITS_V1,
+  MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1,
   createCommitFeedRepositoryV1,
   type CommitFeedCorruptionReasonV1,
   type CommitFeedQueryV1,
@@ -38,6 +39,11 @@ const SCOPE_FLOOR = "91000000-0000-0000-0000-000000000011";
 const SCOPE_HEADER_LIMIT = "91000000-0000-0000-0000-000000000012";
 const SCOPE_CHILD_LIMIT = "91000000-0000-0000-0000-000000000013";
 const SCOPE_DETACHED = "91000000-0000-0000-0000-000000000014";
+const SCOPE_RELATION_MISSING = "91000000-0000-0000-0000-000000000015";
+const SCOPE_RELATION_EXTRA = "91000000-0000-0000-0000-000000000016";
+const SCOPE_RELATION_ORDINAL = "91000000-0000-0000-0000-000000000017";
+const SCOPE_RELATION_HEADER = "91000000-0000-0000-0000-000000000018";
+const SCOPE_RELATION_DUPLICATE = "91000000-0000-0000-0000-000000000019";
 
 const EPOCH_A = "92000000-0000-0000-0000-000000000001";
 const EPOCH_B = "92000000-0000-0000-0000-000000000002";
@@ -52,18 +58,25 @@ describe("S08 package-private commit feed reader", () => {
       | "CommitFeedRepositoryV1"
       | "fxSystemCommits"
       | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommitRelationAdjacencyChanges"
     >;
     type MetadataQueryLeak = Extract<
       keyof FlarexMetadataDatabase["query"],
-      "fxSystemCommits" | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommits"
+      | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommitRelationAdjacencyChanges"
     >;
     type PGliteQueryLeak = Extract<
       keyof PGliteFlarexPersistence["drizzle"]["query"],
-      "fxSystemCommits" | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommits"
+      | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommitRelationAdjacencyChanges"
     >;
     type PostgresQueryLeak = Extract<
       keyof PostgresFlarexPersistence["drizzle"]["query"],
-      "fxSystemCommits" | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommits"
+      | "fxSystemCommitAppRowChanges"
+      | "fxSystemCommitRelationAdjacencyChanges"
     >;
     expectTypeOf<RootLeak>().toEqualTypeOf<never>();
     expectTypeOf<MetadataQueryLeak>().toEqualTypeOf<never>();
@@ -72,15 +85,26 @@ describe("S08 package-private commit feed reader", () => {
     expect("createCommitFeedRepositoryV1" in persistenceRoot).toBe(false);
     expect("fxSystemCommits" in persistenceRoot).toBe(false);
     expect("fxSystemCommitAppRowChanges" in persistenceRoot).toBe(false);
+    expect(
+      "fxSystemCommitRelationAdjacencyChanges" in persistenceRoot,
+    ).toBe(false);
     expect("fxSystemCommits" in persistenceRoot.flarexSchema).toBe(false);
     expect(
       "fxSystemCommitAppRowChanges" in persistenceRoot.flarexSchema,
+    ).toBe(false);
+    expect(
+      "fxSystemCommitRelationAdjacencyChanges" in
+        persistenceRoot.flarexSchema,
     ).toBe(false);
 
     const persistence = await migratedPGlite();
     expect("fxSystemCommits" in persistence.drizzle.query).toBe(false);
     expect(
       "fxSystemCommitAppRowChanges" in persistence.drizzle.query,
+    ).toBe(false);
+    expect(
+      "fxSystemCommitRelationAdjacencyChanges" in
+        persistence.drizzle.query,
     ).toBe(false);
     await insertScope(persistence, SCOPE_EMPTY, EPOCH_A, 0n);
     await insertScope(persistence, SCOPE_GROUPS, EPOCH_B, 3n);
@@ -107,6 +131,18 @@ describe("S08 package-private commit feed reader", () => {
       changeCount: 2,
       committedAt: "1990-01-01T00:00:00.000Z",
       rowBase: 300n,
+      relationChanges: Object.freeze([
+        Object.freeze({
+          edgeDefinitionId: 7,
+          direction: "outgoing" as const,
+          endpointValue: 900n,
+        }),
+        Object.freeze({
+          edgeDefinitionId: 7,
+          direction: "incoming" as const,
+          endpointValue: 901n,
+        }),
+      ]),
     });
     const repository = createCommitFeedRepositoryV1(persistence.drizzle);
 
@@ -142,6 +178,23 @@ describe("S08 package-private commit feed reader", () => {
     ]);
     expect(page.commits.map(({ appRowChanges }) => appRowChanges.length))
       .toEqual([0, 1, 2]);
+    expect(page.commits.map(({ relationAdjacencyChanges }) =>
+      relationAdjacencyChanges.length
+    )).toEqual([0, 0, 2]);
+    expect(page.commits[2]?.relationAdjacencyChanges).toEqual([
+      {
+        ordinal: 0,
+        edgeDefinitionId: 7,
+        direction: "outgoing",
+        endpointRowId: rowHex(900n),
+      },
+      {
+        ordinal: 1,
+        edgeDefinitionId: 7,
+        direction: "incoming",
+        endpointRowId: rowHex(901n),
+      },
+    ]);
     expect(page.continuation).toEqual({
       kind: "complete",
       observedLastCommitSeq: 3n,
@@ -348,6 +401,111 @@ describe("S08 package-private commit feed reader", () => {
     );
   });
 
+  it("rejects missing, extra, noncontiguous, mismatched, and duplicate relation facts", async () => {
+    const persistence = await migratedPGlite();
+    await persistence.query(`
+      alter table fx_system_commit_relation_adjacency_change
+        drop constraint fx_system_commit_relation_adjacency_header_fk,
+        drop constraint fx_system_commit_relation_adjacency_endpoint_unique
+    `);
+
+    await insertScope(persistence, SCOPE_RELATION_MISSING, EPOCH_A, 1n);
+    await insertHeader(persistence, {
+      scopeUuid: SCOPE_RELATION_MISSING,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      changeCount: 0,
+      relationAdjacencyChangeCount: 1,
+    });
+
+    await insertScope(persistence, SCOPE_RELATION_EXTRA, EPOCH_A, 1n);
+    await insertHeader(persistence, {
+      scopeUuid: SCOPE_RELATION_EXTRA,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      changeCount: 0,
+    });
+    await insertRelationChange(persistence, {
+      scopeUuid: SCOPE_RELATION_EXTRA,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      ordinal: 0,
+      endpointValue: 7_001n,
+    });
+
+    await insertScope(persistence, SCOPE_RELATION_ORDINAL, EPOCH_A, 1n);
+    await insertHeader(persistence, {
+      scopeUuid: SCOPE_RELATION_ORDINAL,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      changeCount: 0,
+      relationAdjacencyChangeCount: 1,
+    });
+    await insertRelationChange(persistence, {
+      scopeUuid: SCOPE_RELATION_ORDINAL,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      ordinal: 1,
+      endpointValue: 7_002n,
+    });
+
+    await insertScope(persistence, SCOPE_RELATION_HEADER, EPOCH_A, 1n);
+    await insertHeader(persistence, {
+      scopeUuid: SCOPE_RELATION_HEADER,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      changeCount: 0,
+      relationAdjacencyChangeCount: 1,
+    });
+    await insertRelationChange(persistence, {
+      scopeUuid: SCOPE_RELATION_HEADER,
+      epochUuid: EPOCH_B,
+      commitSeq: 1n,
+      ordinal: 0,
+      endpointValue: 7_003n,
+    });
+
+    await insertScope(persistence, SCOPE_RELATION_DUPLICATE, EPOCH_A, 1n);
+    await insertHeader(persistence, {
+      scopeUuid: SCOPE_RELATION_DUPLICATE,
+      epochUuid: EPOCH_A,
+      commitSeq: 1n,
+      changeCount: 0,
+      relationAdjacencyChangeCount: 2,
+    });
+    for (const ordinal of [0, 1]) {
+      await insertRelationChange(persistence, {
+        scopeUuid: SCOPE_RELATION_DUPLICATE,
+        epochUuid: EPOCH_A,
+        commitSeq: 1n,
+        ordinal,
+        endpointValue: 7_004n,
+      });
+    }
+
+    const repository = createCommitFeedRepositoryV1(persistence.drizzle);
+    await expectCorruption(
+      listAfter(repository, SCOPE_RELATION_MISSING, 0n),
+      "relationAdjacencyChangeCountMismatch",
+    );
+    await expectCorruption(
+      listAfter(repository, SCOPE_RELATION_EXTRA, 0n),
+      "relationAdjacencyChangeCountMismatch",
+    );
+    await expectCorruption(
+      listAfter(repository, SCOPE_RELATION_ORDINAL, 0n),
+      "relationAdjacencyChangeOrdinalGap",
+    );
+    await expectCorruption(
+      listAfter(repository, SCOPE_RELATION_HEADER, 0n),
+      "relationAdjacencyChangeHeaderMismatch",
+    );
+    await expectCorruption(
+      listAfter(repository, SCOPE_RELATION_DUPLICATE, 0n),
+      "relationAdjacencyChangeIdentityDuplicate",
+    );
+  });
+
   it("requires reset only before the retained floor and resumes at floor minus one", async () => {
     const persistence = await migratedPGlite();
     await insertScope(persistence, SCOPE_FLOOR, EPOCH_A, 3n);
@@ -438,15 +596,18 @@ describe("S08 package-private commit feed reader", () => {
     });
   });
 
-  it("returns an exact 16,000-child commit without splitting and bounds every query", async () => {
+  it("returns the exact combined child maximum without splitting and bounds every query", async () => {
     const persistence = await migratedPGlite();
-    await insertScope(persistence, SCOPE_CHILD_LIMIT, EPOCH_A, 2n);
+    await insertScope(persistence, SCOPE_CHILD_LIMIT, EPOCH_A, 3n);
     await insertCommitGroup(persistence, {
       scopeUuid: SCOPE_CHILD_LIMIT,
       epochUuid: EPOCH_A,
       commitSeq: 1n,
       changeCount: MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1,
       rowBase: 10_000n,
+      relationAdjacencyChangeCount:
+        MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1,
+      relationRowBase: 80_000n,
     });
     await insertCommitGroup(persistence, {
       scopeUuid: SCOPE_CHILD_LIMIT,
@@ -454,6 +615,18 @@ describe("S08 package-private commit feed reader", () => {
       commitSeq: 2n,
       changeCount: 1,
       rowBase: 30_000n,
+      relationAdjacencyChangeCount:
+        MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1,
+      relationRowBase: 50_000n,
+    });
+    await insertCommitGroup(persistence, {
+      scopeUuid: SCOPE_CHILD_LIMIT,
+      epochUuid: EPOCH_A,
+      commitSeq: 3n,
+      changeCount: 0,
+      rowBase: 40_000n,
+      relationAdjacencyChangeCount: 1,
+      relationRowBase: 70_000n,
     });
     const queries = new Map<CommitFeedQueryV1["name"], CommitFeedQueryV1>();
     const repository = createCommitFeedRepositoryV1(persistence.drizzle, {
@@ -466,10 +639,13 @@ describe("S08 package-private commit feed reader", () => {
     expect(first.commits[0]?.appRowChanges).toHaveLength(
       MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1,
     );
+    expect(first.commits[0]?.relationAdjacencyChanges).toHaveLength(
+      MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1,
+    );
     expect(first.continuation).toEqual({
       kind: "more",
       nextExclusiveCommitSeq: 1n,
-      observedLastCommitSeq: 2n,
+      observedLastCommitSeq: 3n,
     });
     expect(requireQuery(queries, "clock").params.at(-1)).toBe(2);
     expect(requireQuery(queries, "headers").params.at(-1)).toBe(
@@ -477,6 +653,12 @@ describe("S08 package-private commit feed reader", () => {
     );
     expect(requireQuery(queries, "appRowChanges").params.at(-1)).toBe(
       MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 + 1,
+    );
+    expect(requireQuery(
+      queries,
+      "relationAdjacencyChanges",
+    ).params.at(-1)).toBe(
+      MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 + 1,
     );
     for (const query of queries.values()) {
       expect(query.sql.toLowerCase()).toContain("limit");
@@ -487,11 +669,30 @@ describe("S08 package-private commit feed reader", () => {
       expect(explained.rows.length).toBeGreaterThan(0);
     }
 
+    queries.clear();
     const second = await listAfter(repository, SCOPE_CHILD_LIMIT, 1n);
     expect(second.commits).toHaveLength(1);
     expect(second.commits[0]?.commitSeq).toBe(2n);
     expect(second.commits[0]?.appRowChanges).toHaveLength(1);
-    expect(second.continuation.kind).toBe("complete");
+    expect(second.commits[0]?.relationAdjacencyChanges).toHaveLength(
+      MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1,
+    );
+    expect(second.continuation).toEqual({
+      kind: "more",
+      nextExclusiveCommitSeq: 2n,
+      observedLastCommitSeq: 3n,
+    });
+    expect(requireQuery(queries, "appRowChanges").params.at(-1)).toBe(2);
+    expect(
+      requireQuery(queries, "relationAdjacencyChanges").params.at(-1),
+    ).toBe(MAX_COMMIT_FEED_PAGE_RELATION_ADJACENCY_CHANGES_V1 + 1);
+
+    const third = await listAfter(repository, SCOPE_CHILD_LIMIT, 2n);
+    expect(third.commits).toHaveLength(1);
+    expect(third.commits[0]?.commitSeq).toBe(3n);
+    expect(third.commits[0]?.appRowChanges).toHaveLength(0);
+    expect(third.commits[0]?.relationAdjacencyChanges).toHaveLength(1);
+    expect(third.continuation.kind).toBe("complete");
   }, 30_000);
 
   it("closes repeatable read before materialization and detaches row bytes", async () => {
@@ -503,6 +704,11 @@ describe("S08 package-private commit feed reader", () => {
       commitSeq: 1n,
       changeCount: 1,
       rowBase: 40_000n,
+      relationChanges: Object.freeze([Object.freeze({
+        edgeDefinitionId: 17,
+        direction: "incoming" as const,
+        endpointValue: 80_000n,
+      })]),
     });
     await insertRevision(persistence, {
       scopeUuid: SCOPE_DETACHED,
@@ -523,6 +729,16 @@ describe("S08 package-private commit feed reader", () => {
           `,
           [SCOPE_DETACHED, EPOCH_A, "1", rowHex(40_001n)],
         );
+        await persistence.query(
+          `
+            update fx_system_commit_relation_adjacency_change
+            set endpoint_row_id = decode($4, 'hex')
+            where scope_uuid = $1::uuid
+              and epoch_uuid = $2::uuid
+              and commit_seq = $3
+          `,
+          [SCOPE_DETACHED, EPOCH_A, "1", rowHex(80_001n)],
+        );
         transactionClosed = true;
       },
     });
@@ -531,6 +747,9 @@ describe("S08 package-private commit feed reader", () => {
     expect(transactionClosed).toBe(true);
     const capturedRowId = captured.commits[0]?.appRowChanges[0]?.rowId;
     expect(bytesToHex(capturedRowId)).toBe(rowHex(40_000n));
+    expect(
+      captured.commits[0]?.relationAdjacencyChanges[0]?.endpointRowId,
+    ).toBe(rowHex(80_000n));
     capturedRowId?.fill(0);
 
     const reloaded = await listAfter(
@@ -541,6 +760,9 @@ describe("S08 package-private commit feed reader", () => {
     expect(bytesToHex(reloaded.commits[0]?.appRowChanges[0]?.rowId)).toBe(
       rowHex(40_001n),
     );
+    expect(
+      reloaded.commits[0]?.relationAdjacencyChanges[0]?.endpointRowId,
+    ).toBe(rowHex(80_001n));
   });
 });
 
@@ -610,6 +832,13 @@ interface CommitGroupFixture {
   readonly changeCount: number;
   readonly rowBase: bigint;
   readonly committedAt?: string;
+  readonly relationChanges?: ReadonlyArray<Readonly<{
+    readonly edgeDefinitionId: number;
+    readonly direction: "incoming" | "outgoing";
+    readonly endpointValue: bigint;
+  }>>;
+  readonly relationAdjacencyChangeCount?: number;
+  readonly relationRowBase?: bigint;
 }
 
 async function insertCommitGroup(
@@ -617,55 +846,77 @@ async function insertCommitGroup(
   input: CommitGroupFixture,
 ): Promise<void> {
   await insertHeader(persistence, input);
-  if (input.changeCount === 0) return;
-  await persistence.query(
-    `
-      insert into fx_app_row_rev
-        (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
-         write_epoch_uuid, schema_version_id, creation_time,
-         value_codec_version, is_tombstone)
-      select
-        $1::uuid,
-        1,
-        decode(lpad(to_hex($5::bigint + generated_id), 32, '0'), 'hex'),
-        $2,
-        null,
-        $3::uuid,
-        'schema_s08_reader_v1',
-        1,
-        1,
-        true
-      from generate_series(0, $4::integer - 1) as generated_id
-    `,
-    [
-      input.scopeUuid,
-      input.commitSeq.toString(),
-      input.epochUuid,
-      input.changeCount,
-      input.rowBase.toString(),
-    ],
-  );
-  await persistence.query(
-    `
-      insert into fx_system_commit_app_row_change
-        (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
-      select
-        $1::uuid,
-        $3::uuid,
-        $2,
-        generated_id,
-        1,
-        decode(lpad(to_hex($5::bigint + generated_id), 32, '0'), 'hex')
-      from generate_series(0, $4::integer - 1) as generated_id
-    `,
-    [
-      input.scopeUuid,
-      input.commitSeq.toString(),
-      input.epochUuid,
-      input.changeCount,
-      input.rowBase.toString(),
-    ],
-  );
+  if (input.changeCount > 0) {
+    await persistence.query(
+      `
+        insert into fx_app_row_rev
+          (scope_uuid, table_id, row_id, commit_seq, prev_commit_seq,
+           write_epoch_uuid, schema_version_id, creation_time,
+           value_codec_version, is_tombstone)
+        select
+          $1::uuid,
+          1,
+          decode(lpad(to_hex($5::bigint + generated_id), 32, '0'), 'hex'),
+          $2,
+          null,
+          $3::uuid,
+          'schema_s08_reader_v1',
+          1,
+          1,
+          true
+        from generate_series(0, $4::integer - 1) as generated_id
+      `,
+      [
+        input.scopeUuid,
+        input.commitSeq.toString(),
+        input.epochUuid,
+        input.changeCount,
+        input.rowBase.toString(),
+      ],
+    );
+    await persistence.query(
+      `
+        insert into fx_system_commit_app_row_change
+          (scope_uuid, epoch_uuid, commit_seq, change_ordinal, table_id, row_id)
+        select
+          $1::uuid,
+          $3::uuid,
+          $2,
+          generated_id,
+          1,
+          decode(lpad(to_hex($5::bigint + generated_id), 32, '0'), 'hex')
+        from generate_series(0, $4::integer - 1) as generated_id
+      `,
+      [
+        input.scopeUuid,
+        input.commitSeq.toString(),
+        input.epochUuid,
+        input.changeCount,
+        input.rowBase.toString(),
+      ],
+    );
+  }
+  if (input.relationChanges !== undefined) {
+    for (let ordinal = 0; ordinal < input.relationChanges.length; ordinal += 1) {
+      const change = input.relationChanges[ordinal];
+      if (change === undefined) throw new Error("Missing relation fixture.");
+      await insertRelationChange(persistence, {
+        scopeUuid: input.scopeUuid,
+        epochUuid: input.epochUuid,
+        commitSeq: input.commitSeq,
+        ordinal,
+        ...change,
+      });
+    }
+  } else if ((input.relationAdjacencyChangeCount ?? 0) > 0) {
+    await insertGeneratedRelationChanges(persistence, {
+      scopeUuid: input.scopeUuid,
+      epochUuid: input.epochUuid,
+      commitSeq: input.commitSeq,
+      count: input.relationAdjacencyChangeCount ?? 0,
+      rowBase: input.relationRowBase ?? 0n,
+    });
+  }
 }
 
 async function insertHeader(
@@ -675,14 +926,20 @@ async function insertHeader(
   await persistence.query(
     `
       insert into fx_system_commit
-        (scope_uuid, epoch_uuid, commit_seq, change_count, committed_at)
-      values ($1::uuid, $2::uuid, $3, $4, coalesce($5::timestamptz, now()))
+        (scope_uuid, epoch_uuid, commit_seq, change_count,
+         relation_adjacency_change_count, committed_at)
+      values (
+        $1::uuid, $2::uuid, $3, $4, $5,
+        coalesce($6::timestamptz, now())
+      )
     `,
     [
       input.scopeUuid,
       input.epochUuid,
       input.commitSeq.toString(),
       input.changeCount,
+      input.relationAdjacencyChangeCount ??
+        input.relationChanges?.length ?? 0,
       input.committedAt ?? null,
     ],
   );
@@ -738,6 +995,77 @@ async function insertChange(
       input.commitSeq.toString(),
       input.ordinal,
       rowHex(input.rowValue),
+    ],
+  );
+}
+
+interface RelationChangeFixture {
+  readonly scopeUuid: string;
+  readonly epochUuid: string;
+  readonly commitSeq: bigint;
+  readonly ordinal: number;
+  readonly edgeDefinitionId?: number;
+  readonly direction?: "incoming" | "outgoing";
+  readonly endpointValue: bigint;
+}
+
+async function insertRelationChange(
+  persistence: SqlPersistence,
+  input: RelationChangeFixture,
+): Promise<void> {
+  await persistence.query(
+    `
+      insert into fx_system_commit_relation_adjacency_change
+        (scope_uuid, epoch_uuid, commit_seq, change_ordinal,
+         edge_definition_id, direction, endpoint_row_id)
+      values (
+        $1::uuid, $2::uuid, $3, $4, $5, $6,
+        decode($7, 'hex')
+      )
+    `,
+    [
+      input.scopeUuid,
+      input.epochUuid,
+      input.commitSeq.toString(),
+      input.ordinal,
+      input.edgeDefinitionId ?? 1,
+      input.direction ?? "incoming",
+      rowHex(input.endpointValue),
+    ],
+  );
+}
+
+async function insertGeneratedRelationChanges(
+  persistence: SqlPersistence,
+  input: Readonly<{
+    scopeUuid: string;
+    epochUuid: string;
+    commitSeq: bigint;
+    count: number;
+    rowBase: bigint;
+  }>,
+): Promise<void> {
+  await persistence.query(
+    `
+      insert into fx_system_commit_relation_adjacency_change
+        (scope_uuid, epoch_uuid, commit_seq, change_ordinal,
+         edge_definition_id, direction, endpoint_row_id)
+      select
+        $1::uuid,
+        $2::uuid,
+        $3,
+        generated_id,
+        1,
+        'incoming',
+        decode(lpad(to_hex($5::bigint + generated_id), 32, '0'), 'hex')
+      from generate_series(0, $4::integer - 1) as generated_id
+    `,
+    [
+      input.scopeUuid,
+      input.epochUuid,
+      input.commitSeq.toString(),
+      input.count,
+      input.rowBase.toString(),
     ],
   );
 }

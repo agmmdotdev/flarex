@@ -25,6 +25,7 @@ import type { TransactionGrantDeploymentIdV1 } from
   "flarex-protocol/transaction-grant";
 
 import type {
+  AppRelationEdgeAdjacencyChange,
   AppRelationEdgeDefinitionPin,
   AppRelationEdgeMutationError,
   AppRelationEdgeStorageAction,
@@ -38,6 +39,8 @@ export const MAX_APPLICATION_RELATION_FINAL_OCCURRENCES =
   RELATION_TRANSACTION_MAXIMUM_BASE_OCCURRENCES_V1;
 export const MAX_APPLICATION_RELATION_EDGE_ACTIONS =
   RELATION_TRANSACTION_MAXIMUM_BASE_OCCURRENCES_V1;
+export const MAX_APPLICATION_RELATION_ADJACENCY_CHANGES =
+  RELATION_TRANSACTION_MAXIMUM_BASE_OCCURRENCES_V1 * 2;
 export const MAX_APPLICATION_RELATION_FINAL_TARGETS =
   RELATION_TRANSACTION_MAXIMUM_BASE_OCCURRENCES_V1;
 export const MAX_APPLICATION_RELATION_RESTRICT_PROBES =
@@ -156,8 +159,14 @@ export interface ApplicationRelationRestrictProbe {
   readonly targetRowId: AppRowIdHexV1;
 }
 
+/** Trusted R03 projection of one adjacency endpoint changed by C09. */
+export type ApplicationRelationAdjacencyChange =
+  AppRelationEdgeAdjacencyChange;
+
 export interface PreparedApplicationRelationCommit {
   readonly actions: ReadonlyArray<AppRelationEdgeStorageAction>;
+  readonly adjacencyChanges:
+    ReadonlyArray<ApplicationRelationAdjacencyChange>;
   readonly storedTargetChecks:
     ReadonlyArray<ApplicationRelationStoredTargetCheck>;
   readonly restrictProbes: ReadonlyArray<ApplicationRelationRestrictProbe>;

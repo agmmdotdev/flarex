@@ -75,6 +75,9 @@ import {
   fxAppEdgeCurrent,
 } from "../schema";
 import {
+  projectAppRelationEdgeAdjacencyChanges,
+} from "./AdjacencyChanges";
+import {
   AppRelationEdgeConflictError,
   AppRelationEdgeCorruptionError,
   AppRelationEdgeEvidenceError,
@@ -82,6 +85,7 @@ import {
   AppRelationEdgeOccurrenceCollisionError,
   AppRelationEdgePersistenceError,
   type AppRelationEdgeAdjacencyDirection,
+  type AppRelationEdgeAdjacencyChange,
   type AppRelationEdgeDefinitionPin,
   type AppRelationEdgeIncomingFrontier,
   type AppRelationEdgeMutationOptions,
@@ -152,6 +156,7 @@ interface PreparedMutationInput {
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly commitSeq: CommitSeq;
   readonly actions: ReadonlyArray<PreparedEdgeAction>;
+  readonly adjacencyChanges: ReadonlyArray<AppRelationEdgeAdjacencyChange>;
 }
 
 interface MutationContext {
@@ -159,12 +164,6 @@ interface MutationContext {
   readonly writeEpochUuid: ScopeEpochUuidV1;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly commitSeq: CommitSeq;
-}
-
-interface AffectedEndpoint {
-  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
-  readonly direction: AppRelationEdgeAdjacencyDirection;
-  readonly endpointRowId: AppRowIdHexV1;
 }
 
 interface CurrentEdgeSnapshot {
@@ -255,7 +254,7 @@ const applyPreparedMutationEffect = Effect.fn(
     prepared.actions,
     options,
   );
-  const endpoints = affectedEndpoints(prepared.actions);
+  const endpoints = prepared.adjacencyChanges;
   const versions = yield* readAffectedAdjacencyVersionsEffect(
     tx,
     context.scopeUuid,
@@ -599,11 +598,19 @@ const prepareMutationInputEffect = Effect.fn(
     identities.add(identity);
     actions.push(prepared);
   }
+  const adjacencyChanges = projectAppRelationEdgeAdjacencyChanges(
+    actions.map(action => Object.freeze({
+      edgeDefinitionId: action.definition.edgeDefinitionId,
+      sourceRowId: action.source.rowId,
+      targetRowId: action.target.rowId,
+    })),
+  );
   return Object.freeze({
     scopeId,
     schemaVersionId,
     commitSeq,
     actions: Object.freeze(actions),
+    adjacencyChanges,
   });
 });
 
@@ -934,7 +941,7 @@ const readAffectedAdjacencyVersionsEffect = Effect.fn(
 )(function* (
   tx: FlarexMetadataTransaction,
   scopeUuid: ScopeUuidV1,
-  endpoints: ReadonlyArray<AffectedEndpoint>,
+  endpoints: ReadonlyArray<AppRelationEdgeAdjacencyChange>,
   options: AppRelationEdgeMutationOptions,
 ): Effect.fn.Return<
   AdjacencyVersionSnapshot,
@@ -1008,7 +1015,7 @@ const validatePreparedActionsEffect = Effect.fn(
   context: MutationContext,
   actions: ReadonlyArray<PreparedEdgeAction>,
   snapshot: CurrentEdgeSnapshot,
-  endpoints: ReadonlyArray<AffectedEndpoint>,
+  endpoints: ReadonlyArray<AppRelationEdgeAdjacencyChange>,
   versions: AdjacencyVersionSnapshot,
 ): Effect.fn.Return<void, AppRelationEdgeMutationError> {
   for (const endpoint of endpoints) {
@@ -1154,7 +1161,7 @@ const applyPreparedChangesEffect = Effect.fn(
   tx: FlarexMetadataTransaction,
   context: MutationContext,
   actions: ReadonlyArray<PreparedEdgeAction>,
-  endpoints: ReadonlyArray<AffectedEndpoint>,
+  endpoints: ReadonlyArray<AppRelationEdgeAdjacencyChange>,
   options: AppRelationEdgeMutationOptions,
 ): Effect.fn.Return<ApplyAppRelationEdgeChangesResult, AppRelationEdgeMutationError> {
   const puts = actions.filter((action) => action.kind === "put");
@@ -1393,7 +1400,7 @@ const advanceAdjacencyVersionsEffect = Effect.fn(
 )(function* (
   tx: FlarexMetadataTransaction,
   context: MutationContext,
-  endpoints: ReadonlyArray<AffectedEndpoint>,
+  endpoints: ReadonlyArray<AppRelationEdgeAdjacencyChange>,
   options: AppRelationEdgeMutationOptions,
 ): Effect.fn.Return<void, AppRelationEdgePersistenceError> {
   if (endpoints.length === 0) return;
@@ -1587,7 +1594,7 @@ function actionCurrentMatchPredicate(action: PreparedEdgeAction): SQL {
     : identity;
 }
 
-function endpointPredicate(endpoint: AffectedEndpoint): SQL {
+function endpointPredicate(endpoint: AppRelationEdgeAdjacencyChange): SQL {
   return sql`(
     ${fxAppEdgeAdjacencyVersions.edgeDefinitionId} = ${endpoint.edgeDefinitionId}
     and ${fxAppEdgeAdjacencyVersions.direction} = ${endpoint.direction}
@@ -1597,33 +1604,7 @@ function endpointPredicate(endpoint: AffectedEndpoint): SQL {
   )`;
 }
 
-function affectedEndpoints(
-  actions: ReadonlyArray<PreparedEdgeAction>,
-): ReadonlyArray<AffectedEndpoint> {
-  const endpoints = new Map<string, AffectedEndpoint>();
-  for (const action of actions) addAffectedEndpoints(endpoints, action);
-  return Object.freeze([...endpoints.values()]);
-}
-
-function addAffectedEndpoints(
-  endpoints: Map<string, AffectedEndpoint>,
-  action: PreparedEdgeAction,
-): void {
-  const outgoing = Object.freeze({
-    edgeDefinitionId: action.definition.edgeDefinitionId,
-    direction: "outgoing" as const,
-    endpointRowId: action.source.rowId,
-  });
-  const incoming = Object.freeze({
-    edgeDefinitionId: action.definition.edgeDefinitionId,
-    direction: "incoming" as const,
-    endpointRowId: action.target.rowId,
-  });
-  endpoints.set(endpointKey(outgoing), outgoing);
-  endpoints.set(endpointKey(incoming), incoming);
-}
-
-function endpointKey(endpoint: AffectedEndpoint): string {
+function endpointKey(endpoint: AppRelationEdgeAdjacencyChange): string {
   return `${endpoint.edgeDefinitionId}:${endpoint.direction}:${endpoint.endpointRowId}`;
 }
 

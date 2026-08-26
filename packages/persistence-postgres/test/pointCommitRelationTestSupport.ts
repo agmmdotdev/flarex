@@ -83,10 +83,11 @@ export function requireRelationInsertedDocumentId(
 export async function relationBindingPublicationInput(
   deploymentId: TransactionGrantDeploymentIdV1,
   sequence: number,
+  valueCardinality: "one" | "many" = "one",
 ): Promise<PublishApplicationRelationBindingInput> {
   const rootSha256 = sequence.toString(16).padStart(64, "a").slice(-64);
   const canonical = Result.getOrThrow(canonicalizeApplicationManifestV2(
-    relationManifest(rootSha256),
+    relationManifest(rootSha256, valueCardinality),
   ));
   const digest = new Uint8Array(await globalThis.crypto.subtle.digest(
     "SHA-256",
@@ -240,7 +241,25 @@ function lowercaseHexToBytes(value: string): Uint8Array {
   );
 }
 
-function relationManifest(rootSha256: string): ApplicationManifestV2 {
+function relationManifest(
+  rootSha256: string,
+  valueCardinality: "one" | "many",
+): ApplicationManifestV2 {
+  const authorFieldType = valueCardinality === "many"
+    ? {
+        type: "array" as const,
+        value: { type: "id" as const, tableName: "users" },
+      }
+    : { type: "id" as const, tableName: "users" };
+  const relationValue = valueCardinality === "many"
+    ? {
+        cardinality: "many" as const,
+        minItems: 0,
+        maxItems: 500,
+        ordered: true,
+        duplicates: "forbid" as const,
+      }
+    : { cardinality: "one" as const, required: true };
   return Result.getOrThrow(canonicalizeApplicationManifestV2({
     format: "flarex.application-manifest",
     version: 2,
@@ -269,7 +288,7 @@ function relationManifest(rootSha256: string): ApplicationManifestV2 {
           type: "object",
           value: {
             author: {
-              fieldType: { type: "id", tableName: "users" },
+              fieldType: authorFieldType,
               optional: false,
             },
           },
@@ -303,7 +322,7 @@ function relationManifest(rootSha256: string): ApplicationManifestV2 {
             forwardName: "author",
           },
           target: { table: "users" },
-          value: { cardinality: "one", required: true },
+          value: relationValue,
           inverse: { cardinality: "many", name: "posts" },
           localized: false,
           onTargetDelete: "restrict",

@@ -69,6 +69,12 @@ export interface ApplyAppRelationEdgeChangesResult {
 
 export type AppRelationEdgeAdjacencyDirection = "incoming" | "outgoing";
 
+export interface AppRelationEdgeAdjacencyChange {
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly direction: AppRelationEdgeAdjacencyDirection;
+  readonly endpointRowId: AppRowIdHexV1;
+}
+
 export interface ReadAppRelationEdgeAdjacencyVersionInput {
   readonly scopeId: ScopeId;
   readonly edgeDefinitionId: CatalogEdgeDefinitionId;

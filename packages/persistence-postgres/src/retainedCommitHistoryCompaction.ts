@@ -12,6 +12,8 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
+import { MAX_APPLICATION_RELATION_ADJACENCY_CHANGES } from
+  "./applicationRelationCommit/Model";
 import { observeDrizzleQuery } from "./drizzleQueryObservation";
 import {
   isLocatedRetainedHistoryFloorTargetInternal,
@@ -36,6 +38,7 @@ import {
 } from "./scopeAuthorityResolution";
 import {
   fxSystemCommitAppRowChanges,
+  fxSystemCommitRelationAdjacencyChanges,
   fxSystemCommits,
 } from "./schema";
 import {
@@ -58,7 +61,9 @@ export interface RetainedCommitHistoryCompactionQuery {
   readonly name:
     | "headerDirectory"
     | "changeDirectory"
+    | "relationChangeDirectory"
     | "changeDeletion"
+    | "relationChangeDeletion"
     | "headerDeletion";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
@@ -122,6 +127,7 @@ export type RetainedCommitHistoryCompactionResult =
       readonly retainedFloor: CommitSeq;
       readonly deletedCommitSeq: CommitSeq;
       readonly deletedChangeCount: number;
+      readonly deletedRelationAdjacencyChangeCount: number;
     }>;
 
 export type GuardedRetainedCommitHistoryCompactionResult =
@@ -146,7 +152,9 @@ export class RetainedCommitHistoryCompactionPersistenceError extends
     readonly operation:
       | "headerDirectory"
       | "changeDirectory"
+      | "relationChangeDirectory"
       | "changeDeletion"
+      | "relationChangeDeletion"
       | "headerDeletion";
     readonly cause: unknown;
   }> {}
@@ -270,6 +278,8 @@ const compactInTransaction = Effect.fn(
     epochUuid: fxSystemCommits.epochUuid,
     commitSeq: fxSystemCommits.commitSeq,
     changeCount: fxSystemCommits.changeCount,
+    relationAdjacencyChangeCount:
+      fxSystemCommits.relationAdjacencyChangeCount,
   }).from(fxSystemCommits).where(and(
     eq(fxSystemCommits.scopeUuid, scopeUuid.scopeUuid),
     lt(fxSystemCommits.commitSeq, clock.oldestAvailableCommitSeq),
@@ -311,6 +321,36 @@ const compactInTransaction = Effect.fn(
     changeRows,
   ));
 
+  const relationChangeQuery = tx.select({
+    changeOrdinal:
+      fxSystemCommitRelationAdjacencyChanges.changeOrdinal,
+  }).from(fxSystemCommitRelationAdjacencyChanges).where(and(
+    eq(
+      fxSystemCommitRelationAdjacencyChanges.scopeUuid,
+      scopeUuid.scopeUuid,
+    ),
+    eq(
+      fxSystemCommitRelationAdjacencyChanges.commitSeq,
+      header.commitSeq,
+    ),
+  )).orderBy(asc(
+    fxSystemCommitRelationAdjacencyChanges.changeOrdinal,
+  ));
+  observeDrizzleQuery(
+    "relationChangeDirectory",
+    relationChangeQuery,
+    state.observeQuery,
+  );
+  const relationChangeRows = yield* queryEffect(
+    "relationChangeDirectory",
+    relationChangeQuery,
+  );
+  yield* Effect.fromResult(requireExactChangeDirectoryResult(
+    authority,
+    header.relationAdjacencyChangeCount,
+    relationChangeRows,
+  ));
+
   const changeDeletion = tx.delete(fxSystemCommitAppRowChanges).where(and(
     eq(fxSystemCommitAppRowChanges.scopeUuid, scopeUuid.scopeUuid),
     eq(fxSystemCommitAppRowChanges.commitSeq, header.commitSeq),
@@ -325,11 +365,45 @@ const compactInTransaction = Effect.fn(
     deletedChanges,
   ));
 
+  const relationChangeDeletion = tx
+    .delete(fxSystemCommitRelationAdjacencyChanges)
+    .where(and(
+      eq(
+        fxSystemCommitRelationAdjacencyChanges.scopeUuid,
+        scopeUuid.scopeUuid,
+      ),
+      eq(
+        fxSystemCommitRelationAdjacencyChanges.commitSeq,
+        header.commitSeq,
+      ),
+    )).returning({
+      changeOrdinal:
+        fxSystemCommitRelationAdjacencyChanges.changeOrdinal,
+    });
+  observeDrizzleQuery(
+    "relationChangeDeletion",
+    relationChangeDeletion,
+    state.observeQuery,
+  );
+  const deletedRelationChanges = yield* queryEffect(
+    "relationChangeDeletion",
+    relationChangeDeletion,
+  );
+  yield* Effect.fromResult(requireExactChangeDirectoryResult(
+    authority,
+    header.relationAdjacencyChangeCount,
+    deletedRelationChanges,
+  ));
+
   const headerDeletion = tx.delete(fxSystemCommits).where(and(
     eq(fxSystemCommits.scopeUuid, scopeUuid.scopeUuid),
     eq(fxSystemCommits.epochUuid, header.epochUuid),
     eq(fxSystemCommits.commitSeq, header.commitSeq),
     eq(fxSystemCommits.changeCount, header.changeCount),
+    eq(
+      fxSystemCommits.relationAdjacencyChangeCount,
+      header.relationAdjacencyChangeCount,
+    ),
   )).returning({ commitSeq: fxSystemCommits.commitSeq });
   observeDrizzleQuery("headerDeletion", headerDeletion, state.observeQuery);
   const deletedHeaders = yield* queryEffect("headerDeletion", headerDeletion);
@@ -351,6 +425,8 @@ const compactInTransaction = Effect.fn(
     retainedFloor: clock.oldestAvailableCommitSeq,
     deletedCommitSeq: header.commitSeq,
     deletedChangeCount: header.changeCount,
+    deletedRelationAdjacencyChangeCount:
+      header.relationAdjacencyChangeCount,
   });
 });
 
@@ -358,6 +434,7 @@ interface DecodedHeader {
   readonly epochUuid: ScopeEpochUuidV1;
   readonly commitSeq: CommitSeq;
   readonly changeCount: number;
+  readonly relationAdjacencyChangeCount: number;
 }
 
 function decodeHeaderResult(
@@ -367,6 +444,7 @@ function decodeHeaderResult(
     readonly epochUuid: unknown;
     readonly commitSeq: unknown;
     readonly changeCount: unknown;
+    readonly relationAdjacencyChangeCount: unknown;
   }>,
 ): Result.Result<DecodedHeader, RetainedCommitHistoryCompactionError> {
   return Result.gen(function* () {
@@ -399,10 +477,23 @@ function decodeHeaderResult(
         "storedEvidenceInvalid",
       ));
     }
+    if (
+      typeof row.relationAdjacencyChangeCount !== "number" ||
+      !Number.isSafeInteger(row.relationAdjacencyChangeCount) ||
+      row.relationAdjacencyChangeCount < 0 ||
+      row.relationAdjacencyChangeCount >
+        MAX_APPLICATION_RELATION_ADJACENCY_CHANGES
+    ) {
+      return yield* Result.fail(compactionError(
+        authority,
+        "storedEvidenceInvalid",
+      ));
+    }
     return Object.freeze({
       epochUuid,
       commitSeq,
       changeCount: row.changeCount,
+      relationAdjacencyChangeCount: row.relationAdjacencyChangeCount,
     });
   });
 }

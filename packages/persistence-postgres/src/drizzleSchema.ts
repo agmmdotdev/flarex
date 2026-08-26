@@ -53,6 +53,7 @@ export {
   fxSystemApplicationTaskDefinitionsV1,
   fxSystemAppSchemaCandidateValidations,
   fxSystemCommitAppRowChanges,
+  fxSystemCommitRelationAdjacencyChanges,
   fxSystemCommits,
   fxSystemDurableTaskAttemptIdentitiesV1,
   fxSystemDurableTaskComputeCancellationsV1,
