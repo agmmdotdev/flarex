@@ -76,3 +76,16 @@ export async function preserveUncertainNotification(_ctx, { id }) {
 export async function returnInvalidNotificationReceipt(_ctx, { id }) {
   return { recipeId: id, notificationStatus: "accepted" };
 }
+
+export async function commitFail(ctx, { id }) {
+  const committed = await ctx.runMutation(
+    "recipeActionCallbacks:markFailure",
+    { id },
+  );
+  if (committed !== true) throw new Error("missing");
+  return { recipeId: id, notificationStatus: "invalid" };
+}
+
+export async function rejectChild(ctx, { id }) {
+  return await ctx.runMutation("recipePatch:patchThenThrow", { id });
+}

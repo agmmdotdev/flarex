@@ -6,6 +6,7 @@ export interface CookingActionStateV1
   readonly uncertain_count: string;
   readonly effect_count: string;
   readonly confirmed_child_mutation_effect_count: string;
+  readonly uncertain_child_mutation_effect_count: string;
   readonly confirmed_outbound_effect_count: string;
   readonly uncertain_outbound_effect_count: string;
   readonly failed_before_dispatch_effect_count: string;
@@ -34,6 +35,11 @@ export async function readCookingActionStateV1(
         where subject_kind = 'direct_action'
           and effect_kind = 'child_mutation'
           and state = 'confirmed') as confirmed_child_mutation_effect_count,
+      (select count(*)::text
+         from fx_system_external_effect_attempt_v1
+        where subject_kind = 'direct_action'
+          and effect_kind = 'child_mutation'
+          and state = 'uncertain') as uncertain_child_mutation_effect_count,
       (select count(*)::text
          from fx_system_external_effect_attempt_v1
         where subject_kind = 'direct_action'

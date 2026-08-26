@@ -58,9 +58,9 @@ consumer now resolves `ST-CORE-029`: it passes current analysis and Source
 Artifact loading, executes one fresh Action Worker, performs two real query
 callbacks, one real internal mutation callback, and one controlled outbound
 request, then replays its durable result without another Worker or effect.
-PGlite and fresh genuine PostgreSQL 18 prove the same commit-24 authoritative
-tail and exact runtime/effect counts. No route, trigger, scheduler, or
-production caller was added by either correction.
+PGlite and fresh genuine PostgreSQL 18 prove identical authoritative commit,
+feed, outbox, runtime, and effect state for the generated consumer. No route,
+trigger, scheduler, or production caller was added by either correction.
 
 Exact-final review of that consumer also exposed and resolved
 [`ST-CORE-030`](../packages/system-test/CORE-ISSUES.md): concatenating an
@@ -83,6 +83,18 @@ confirmed outbound effect, one uncertain outbound effect, and no
 failed-before-dispatch effect row. This is generated-application simulation
 coverage only; it adds no route, trigger, scheduler, redrive, production
 caller, or Action-to-Task authority.
+
+The generated Cooking consumer now also pins child-mutation ordering across a
+parent failure. One Action confirms an independently committed internal
+mutation and then fails its own return validator; the application commit,
+feed, outbox, child-effect outcome, and mutated recipe survive while the parent
+persists `failed`. A second Action invokes a mutation whose attempted write
+rolls back and whose callback rejects after dispatch declaration; the child
+effect and parent persist `uncertain` rather than inventing success, rollback
+authority, or a retry. Exact request replay performs no second Worker or child
+mutation execution in either case. The richer Cooking definition remains
+inside the existing semantic-artifact budget and adds no cross-call
+transaction, Action-owned commit, redrive, route, trigger, or scheduler.
 
 The implemented private gate is:
 

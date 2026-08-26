@@ -106,6 +106,11 @@ export interface CookingWorkloadProofV1 {
   readonly actionOutboundUncertaintyReplay: true;
   readonly actionInvalidReturnFailed: true;
   readonly actionInvalidReturnReplay: true;
+  readonly actionCommittedMutationSurvivedFailure: true;
+  readonly actionCommittedMutationFailureReplay: true;
+  readonly actionRejectedMutationUncertain: true;
+  readonly actionRejectedMutationReplay: true;
+  readonly actionRejectedMutationRolledBack: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -265,6 +270,14 @@ const COOKING_ACTION_UNCERTAIN_OUTBOUND_REQUEST_KEY =
 const COOKING_ACTION_INVALID_RETURN_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make(
     "sac01:cooking:action-invalid-return",
+  );
+const COOKING_ACTION_COMMITTED_MUTATION_FAILURE_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:action-committed-mutation-failure",
+  );
+const COOKING_ACTION_REJECTED_MUTATION_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:action-rejected-mutation",
   );
 const COOKING_REJECTED_PUBLISH_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make(
@@ -498,6 +511,13 @@ const COOKING_SECOND_RECIPE = {
     my: "မုန့်ဟင်းခါး",
   },
   source: null,
+} as const;
+const COOKING_ACTION_FAILURE_DESCRIPTION =
+  "Child committed.";
+const COOKING_SECOND_RECIPE_AFTER_ACTION_FAILURE = {
+  ...COOKING_SECOND_RECIPE,
+  description: COOKING_ACTION_FAILURE_DESCRIPTION,
+  published: true,
 } as const;
 const COOKING_PATCH = {
   description: "A doubled batch for the freezer.",
@@ -934,6 +954,20 @@ const COOKING_ACTION_MODULE = standardV1.module("recipeActions", {
       notificationStatus: standardV1.number(),
     }),
   }),
+  commitFail: standardV1.publicAction({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      notificationStatus: standardV1.number(),
+    }),
+  }),
+  rejectChild: standardV1.publicAction({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      notificationStatus: standardV1.number(),
+    }),
+  }),
 });
 const COOKING_ACTION_CALLBACK_MODULE = standardV1.module(
   "recipeActionCallbacks",
@@ -943,6 +977,10 @@ const COOKING_ACTION_CALLBACK_MODULE = standardV1.module(
       returns: standardV1.boolean(),
     }),
     markPublished: standardV1.internalMutation({
+      args: COOKING_ID_ARGS,
+      returns: standardV1.boolean(),
+    }),
+    markFailure: standardV1.internalMutation({
       args: COOKING_ID_ARGS,
       returns: standardV1.boolean(),
     }),
@@ -1042,6 +1080,10 @@ const COOKING_PRESERVE_UNCERTAIN_NOTIFICATION =
   COOKING_ACTION_MODULE.reference("preserveUncertainNotification");
 const COOKING_RETURN_INVALID_NOTIFICATION_RECEIPT =
   COOKING_ACTION_MODULE.reference("returnInvalidNotificationReceipt");
+const COOKING_COMMIT_MUTATION_THEN_RETURN_INVALID =
+  COOKING_ACTION_MODULE.reference("commitFail");
+const COOKING_INVOKE_REJECTED_CHILD_MUTATION =
+  COOKING_ACTION_MODULE.reference("rejectChild");
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
@@ -2283,6 +2325,77 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking Action invalid-return failure did not replay terminally.",
     ));
   }
+  const committedMutationFailure = yield* client.action(
+    COOKING_COMMIT_MUTATION_THEN_RETURN_INVALID,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_COMMITTED_MUTATION_FAILURE_REQUEST_KEY,
+  );
+  if (
+    committedMutationFailure.status !== "notCompleted" ||
+    committedMutationFailure.disposition !== "settled" ||
+    committedMutationFailure.lifecycle !== "failed"
+  ) {
+    return yield* Effect.die(new Error(
+      `The cooking Action did not preserve its confirmed child mutation before return validation failed: ${JSON.stringify(committedMutationFailure)}.`,
+    ));
+  }
+  const committedMutationFailureReplay = yield* client.action(
+    COOKING_COMMIT_MUTATION_THEN_RETURN_INVALID,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_COMMITTED_MUTATION_FAILURE_REQUEST_KEY,
+  );
+  if (
+    committedMutationFailureReplay.status !== "notCompleted" ||
+    committedMutationFailureReplay.disposition !== "replayed" ||
+    committedMutationFailureReplay.lifecycle !== "failed" ||
+    committedMutationFailureReplay.invocationId !==
+      committedMutationFailure.invocationId ||
+    committedMutationFailureReplay.terminalCode !==
+      committedMutationFailure.terminalCode
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Action did not replay its post-mutation validation failure.",
+    ));
+  }
+  const rejectedMutation = yield* client.action(
+    COOKING_INVOKE_REJECTED_CHILD_MUTATION,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_REJECTED_MUTATION_REQUEST_KEY,
+  );
+  if (
+    rejectedMutation.status !== "notCompleted" ||
+    rejectedMutation.disposition !== "settled" ||
+    rejectedMutation.lifecycle !== "uncertain"
+  ) {
+    return yield* Effect.die(new Error(
+      `The cooking Action did not fail closed after its child mutation callback rejected: ${JSON.stringify(rejectedMutation)}.`,
+    ));
+  }
+  const rejectedMutationReplay = yield* client.action(
+    COOKING_INVOKE_REJECTED_CHILD_MUTATION,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_REJECTED_MUTATION_REQUEST_KEY,
+  );
+  if (
+    rejectedMutationReplay.status !== "notCompleted" ||
+    rejectedMutationReplay.disposition !== "replayed" ||
+    rejectedMutationReplay.lifecycle !== "uncertain" ||
+    rejectedMutationReplay.invocationId !== rejectedMutation.invocationId ||
+    rejectedMutationReplay.terminalCode !== rejectedMutation.terminalCode
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Action reran instead of replaying its rejected-child uncertainty.",
+    ));
+  }
+  const secondaryAfterActionFailures = yield* client.query(
+    COOKING_GET,
+    { id: secondaryDocumentId },
+  );
+  requireRecipeDocument(
+    secondaryAfterActionFailures,
+    secondaryDocumentId,
+    COOKING_SECOND_RECIPE_AFTER_ACTION_FAILURE,
+  );
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -2341,6 +2454,11 @@ const runCookingWorkloadV1 = Effect.fn(
     actionOutboundUncertaintyReplay: true,
     actionInvalidReturnFailed: true,
     actionInvalidReturnReplay: true,
+    actionCommittedMutationSurvivedFailure: true,
+    actionCommittedMutationFailureReplay: true,
+    actionRejectedMutationUncertain: true,
+    actionRejectedMutationReplay: true,
+    actionRejectedMutationRolledBack: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -3042,8 +3160,8 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   setup: prepareCookingStateV1,
   workload: runCookingWorkloadV1,
   expectedRuntimeExecutions: {
-    mutations: 30,
-    queries: 29,
-    actions: 4,
+    mutations: 32,
+    queries: 30,
+    actions: 6,
   },
 });
