@@ -100,6 +100,12 @@ export interface CookingWorkloadProofV1 {
   readonly actionControlledOutbound: true;
   readonly actionAnonymousIdentity: true;
   readonly actionReplay: true;
+  readonly actionDeniedOutboundFailedBeforeDispatch: true;
+  readonly actionDeniedOutboundReplay: true;
+  readonly actionOutboundUncertaintyPersisted: true;
+  readonly actionOutboundUncertaintyReplay: true;
+  readonly actionInvalidReturnFailed: true;
+  readonly actionInvalidReturnReplay: true;
   readonly rejectedInvalidMutations: 5;
   readonly invalidArgumentsRejectedBeforeRuntime: true;
   readonly committedStateUnchangedAfterRejections: true;
@@ -248,6 +254,18 @@ const COOKING_PUBLISH_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
 const COOKING_ACTION_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:cooking:publish-action",
 );
+const COOKING_ACTION_DENIED_OUTBOUND_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:action-denied-outbound",
+  );
+const COOKING_ACTION_UNCERTAIN_OUTBOUND_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:action-uncertain-outbound",
+  );
+const COOKING_ACTION_INVALID_RETURN_REQUEST_KEY =
+  TransactionRequestKeyV1Schema.make(
+    "sac01:cooking:action-invalid-return",
+  );
 const COOKING_REJECTED_PUBLISH_REQUEST_KEY =
   TransactionRequestKeyV1Schema.make(
     "sac01:cooking:publish-incomplete",
@@ -895,6 +913,27 @@ const COOKING_ACTION_MODULE = standardV1.module("recipeActions", {
       anonymous: standardV1.boolean(),
     }),
   }),
+  rejectDeniedNotification: standardV1.publicAction({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      notificationStatus: standardV1.number(),
+    }),
+  }),
+  preserveUncertainNotification: standardV1.publicAction({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      notificationStatus: standardV1.number(),
+    }),
+  }),
+  returnInvalidNotificationReceipt: standardV1.publicAction({
+    args: COOKING_ID_ARGS,
+    returns: standardV1.object({
+      recipeId: standardV1.id("recipes"),
+      notificationStatus: standardV1.number(),
+    }),
+  }),
 });
 const COOKING_ACTION_CALLBACK_MODULE = standardV1.module(
   "recipeActionCallbacks",
@@ -997,6 +1036,12 @@ const COOKING_RESERVE_AND_PUBLISH =
   COOKING_RESERVATION_MODULE.reference("reserveAndPublish");
 const COOKING_PUBLISH_AND_NOTIFY =
   COOKING_ACTION_MODULE.reference("publishAndNotify");
+const COOKING_REJECT_DENIED_NOTIFICATION =
+  COOKING_ACTION_MODULE.reference("rejectDeniedNotification");
+const COOKING_PRESERVE_UNCERTAIN_NOTIFICATION =
+  COOKING_ACTION_MODULE.reference("preserveUncertainNotification");
+const COOKING_RETURN_INVALID_NOTIFICATION_RECEIPT =
+  COOKING_ACTION_MODULE.reference("returnInvalidNotificationReceipt");
 
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
@@ -2148,6 +2193,96 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking Action did not replay its durable completed result.",
     ));
   }
+  const deniedOutbound = yield* client.action(
+    COOKING_REJECT_DENIED_NOTIFICATION,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_DENIED_OUTBOUND_REQUEST_KEY,
+  );
+  if (
+    deniedOutbound.status !== "notCompleted" ||
+    deniedOutbound.disposition !== "settled" ||
+    deniedOutbound.lifecycle !== "failed"
+  ) {
+    return yield* Effect.die(new Error(
+      `The denied cooking Action did not fail before outbound dispatch: ${JSON.stringify(deniedOutbound)}.`,
+    ));
+  }
+  const deniedOutboundReplay = yield* client.action(
+    COOKING_REJECT_DENIED_NOTIFICATION,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_DENIED_OUTBOUND_REQUEST_KEY,
+  );
+  if (
+    deniedOutboundReplay.status !== "notCompleted" ||
+    deniedOutboundReplay.disposition !== "replayed" ||
+    deniedOutboundReplay.lifecycle !== "failed" ||
+    deniedOutboundReplay.invocationId !== deniedOutbound.invocationId ||
+    deniedOutboundReplay.terminalCode !== deniedOutbound.terminalCode
+  ) {
+    return yield* Effect.die(new Error(
+      "The denied cooking Action did not replay its terminal failure.",
+    ));
+  }
+  const uncertainOutbound = yield* client.action(
+    COOKING_PRESERVE_UNCERTAIN_NOTIFICATION,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_UNCERTAIN_OUTBOUND_REQUEST_KEY,
+  );
+  if (
+    uncertainOutbound.status !== "notCompleted" ||
+    uncertainOutbound.disposition !== "settled" ||
+    uncertainOutbound.lifecycle !== "uncertain"
+  ) {
+    return yield* Effect.die(new Error(
+      `The cooking Action did not preserve outbound uncertainty: ${JSON.stringify(uncertainOutbound)}.`,
+    ));
+  }
+  const uncertainOutboundReplay = yield* client.action(
+    COOKING_PRESERVE_UNCERTAIN_NOTIFICATION,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_UNCERTAIN_OUTBOUND_REQUEST_KEY,
+  );
+  if (
+    uncertainOutboundReplay.status !== "notCompleted" ||
+    uncertainOutboundReplay.disposition !== "replayed" ||
+    uncertainOutboundReplay.lifecycle !== "uncertain" ||
+    uncertainOutboundReplay.invocationId !== uncertainOutbound.invocationId ||
+    uncertainOutboundReplay.terminalCode !== uncertainOutbound.terminalCode
+  ) {
+    return yield* Effect.die(new Error(
+      "The uncertain cooking Action did not replay without redispatch.",
+    ));
+  }
+  const invalidReturn = yield* client.action(
+    COOKING_RETURN_INVALID_NOTIFICATION_RECEIPT,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_INVALID_RETURN_REQUEST_KEY,
+  );
+  if (
+    invalidReturn.status !== "notCompleted" ||
+    invalidReturn.disposition !== "settled" ||
+    invalidReturn.lifecycle !== "failed"
+  ) {
+    return yield* Effect.die(new Error(
+      `The cooking Action invalid return was not terminally rejected: ${JSON.stringify(invalidReturn)}.`,
+    ));
+  }
+  const invalidReturnReplay = yield* client.action(
+    COOKING_RETURN_INVALID_NOTIFICATION_RECEIPT,
+    { id: secondaryDocumentId },
+    COOKING_ACTION_INVALID_RETURN_REQUEST_KEY,
+  );
+  if (
+    invalidReturnReplay.status !== "notCompleted" ||
+    invalidReturnReplay.disposition !== "replayed" ||
+    invalidReturnReplay.lifecycle !== "failed" ||
+    invalidReturnReplay.invocationId !== invalidReturn.invocationId ||
+    invalidReturnReplay.terminalCode !== invalidReturn.terminalCode
+  ) {
+    return yield* Effect.die(new Error(
+      "The cooking Action invalid-return failure did not replay terminally.",
+    ));
+  }
   const workloadInspection = yield* client.inspectAuthoritativeState();
   return {
     documentId: setup.documentId,
@@ -2200,6 +2335,12 @@ const runCookingWorkloadV1 = Effect.fn(
     actionControlledOutbound: true,
     actionAnonymousIdentity: true,
     actionReplay: true,
+    actionDeniedOutboundFailedBeforeDispatch: true,
+    actionDeniedOutboundReplay: true,
+    actionOutboundUncertaintyPersisted: true,
+    actionOutboundUncertaintyReplay: true,
+    actionInvalidReturnFailed: true,
+    actionInvalidReturnReplay: true,
     rejectedInvalidMutations: 5,
     invalidArgumentsRejectedBeforeRuntime: true,
     committedStateUnchangedAfterRejections: true,
@@ -2782,6 +2923,19 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
       fetch: async request => {
         const body: unknown = await request.json();
         if (
+          request.url ===
+            "https://api.example.com/cooking-publication-uncertain" &&
+          request.method === "POST" &&
+          request.headers.get("content-type") === "application/json" &&
+          isNonArrayRecord(body) &&
+          typeof body.recipeId === "string" &&
+          Object.keys(body).length === 1
+        ) {
+          throw new Error(
+            "The cooking notification outcome was lost after dispatch.",
+          );
+        }
+        if (
           request.url !==
             "https://api.example.com/cooking-publication" ||
           request.method !== "POST" ||
@@ -2890,6 +3044,6 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
   expectedRuntimeExecutions: {
     mutations: 30,
     queries: 29,
-    actions: 1,
+    actions: 4,
   },
 });

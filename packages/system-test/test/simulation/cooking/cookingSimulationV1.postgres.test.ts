@@ -12,6 +12,7 @@ import {
 } from "@flarex/system-test/environment/v1";
 
 import { cookingSimulationV1 } from "./cookingSimulationV1";
+import { readCookingActionStateV1 } from "./cookingActionStateV1";
 import {
   readCookingTaskRecoveryReplayStateV1,
   readCookingTaskStateV1,
@@ -73,6 +74,12 @@ describePostgres("cooking simulation - PostgreSQL", () => {
           actionControlledOutbound: true,
           actionAnonymousIdentity: true,
           actionReplay: true,
+          actionDeniedOutboundFailedBeforeDispatch: true,
+          actionDeniedOutboundReplay: true,
+          actionOutboundUncertaintyPersisted: true,
+          actionOutboundUncertaintyReplay: true,
+          actionInvalidReturnFailed: true,
+          actionInvalidReturnReplay: true,
           mutationReplay: true,
           secondaryMutationReplay: true,
           queryReplay: true,
@@ -111,8 +118,8 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         },
         mutationRuntimeExecutions: 30,
         queryRuntimeExecutions: 29,
-        actionRuntimeExecutions: 1,
-        actionOutboundRequests: 1,
+        actionRuntimeExecutions: 4,
+        actionOutboundRequests: 2,
       });
       expect(proof.afterSetupInspection).toMatchObject({
         currentRowCount: 1,
@@ -146,6 +153,17 @@ describePostgres("cooking simulation - PostgreSQL", () => {
         child_mutation_effect_count: "7",
         confirmed_child_mutation_effect_count: "7",
         child_mutation_outcome_count: "7",
+      }]);
+      expect(await readCookingActionStateV1(persistence.target)).toEqual([{
+        invocation_count: "4",
+        completed_count: "1",
+        failed_count: "2",
+        uncertain_count: "1",
+        effect_count: "3",
+        confirmed_child_mutation_effect_count: "1",
+        confirmed_outbound_effect_count: "1",
+        uncertain_outbound_effect_count: "1",
+        failed_before_dispatch_effect_count: "0",
       }]);
       expect(await readCookingTaskRecoveryReplayStateV1(persistence.target))
         .toEqual([{

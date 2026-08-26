@@ -71,6 +71,19 @@ ordinal, callee, and canonical arguments before evidence preparation. The
 maximum-length proof pins stable replay spelling and rejects false uncertainty;
 it does not change mutation execution or transaction ownership.
 
+The generated Cooking consumer now also covers three negative Action outcomes
+through the same current Application path. A denied origin fails terminally
+before any outbound host dispatch or effect row, a response lost after an
+allowed dispatch persists `uncertain`, and a return value rejected by the
+declared validator persists `failed`. Reusing each request key replays the same
+invocation and terminal code without another Worker execution or outbound
+request. Database-side evidence pins four invocation rows as one completed,
+two failed, and one uncertain, with exactly one confirmed child mutation, one
+confirmed outbound effect, one uncertain outbound effect, and no
+failed-before-dispatch effect row. This is generated-application simulation
+coverage only; it adds no route, trigger, scheduler, redrive, production
+caller, or Action-to-Task authority.
+
 The implemented private gate is:
 
 > **`SAP07 - Private Route-Independent Standard Edge Action`**

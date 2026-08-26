@@ -42,3 +42,37 @@ export async function publishAndNotify(ctx, { id }) {
     anonymous: identity === null,
   };
 }
+
+export async function rejectDeniedNotification(_ctx, { id }) {
+  const response = await fetch(
+    "https://denied.example.com/cooking-publication",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ recipeId: id }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`notification rejected with status ${response.status}`);
+  }
+  return { recipeId: id, notificationStatus: response.status };
+}
+
+export async function preserveUncertainNotification(_ctx, { id }) {
+  const response = await fetch(
+    "https://api.example.com/cooking-publication-uncertain",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ recipeId: id }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`notification outcome unavailable with status ${response.status}`);
+  }
+  return { recipeId: id, notificationStatus: response.status };
+}
+
+export async function returnInvalidNotificationReceipt(_ctx, { id }) {
+  return { recipeId: id, notificationStatus: "accepted" };
+}
