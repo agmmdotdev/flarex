@@ -1981,58 +1981,58 @@ corrupt, or superseded selection evidence fails through the existing typed
 relation-read/activation channel before relation data I/O and before new
 journal evidence is written.
 
-The first accepted relation syscall for an attempt also persists exactly one
-Application active-selection dependency in the existing journal transaction.
-It is keyed by the journal root's `(scope_uuid, session_id, attempt_fence)` and
-retains the exact scope ID, deployment, revision, schema version, relation
-frontier, readiness and relation-set digests, relation count, activation
-sequence and digest, and active-head digest. It may reference immutable
-activation history but never the mutable active head. Later relation syscalls
-in the same attempt must reproduce that dependency byte-for-byte; a different
+Each accepted `appRelationIncoming` dependency additionally retains the exact
+issuing active-head CAS token: activation sequence plus active-head SHA-256.
+Scope, deployment, schema, generation, fence, and epoch remain the existing
+attempt pins, while the authenticated head digest commits the revision and
+relation-readiness tuple. Repeating the complete selection basis would add
+large redundant evidence without strengthening head-movement detection. Every
+relation dependency in one attempt must carry the same CAS token; a different
 selection is not coalesced, replaced, or treated as an additional authority.
 The activation sequence plus head digest prevents an A-to-B-to-A replacement
 from passing as unchanged authority.
 
 `SessionJournalV1` remains the one concrete persisted journal contract because
 this core is still production-inert and no coexisting shipped decoder requires
-a new generation. That contract gains one strict logical
-`appActiveSelection` dependency, one `0..1` root counter, and one target-local
-child table. Seal snapshotting, stored-row decoding, canonical normalization,
-replay, corruption checks, and the point-commit command all carry the exact
-dependency. Product modules and APIs remain unversioned; the `V1` suffix stays
+a new generation. Its existing strict `appRelationIncoming` dependency gains
+the two CAS-token fields. Seal snapshotting, stored-row decoding, canonical
+normalization, replay, corruption checks, and the point-commit command all
+carry them. Product modules and APIs remain unversioned; the `V1` suffix stays
 only on this concrete journal/wire contract.
 
-At finish time, the existing point-commit kernel validates the dependency after
+At finish time, the existing point-commit kernel validates those pins after
 taking the scope-clock update lock and before row, index, unique, relation-edge,
-result, feed, or outbox writes. It rereads the single active head, its immutable
-activation, and the relation readiness root and compares the complete retained
-tuple. An absent or different head is a typed stale-Application authority
-failure, not an adjacency conflict and not permission to rerun revision A under
-revision B. The unchanged exact head continues into the existing point,
-indexed-range, relation-adjacency, and write validation. Attempts with no
-relation syscall retain their current journal and point-commit behavior.
+result, feed, or outbox writes. It authenticates the single coherent current
+head and immutable activation, requires the relation readiness contract, and
+compares the exact retained CAS token. An absent or different head is a typed
+stale-Application authority failure, not an adjacency conflict and not
+permission to rerun revision A under revision B. The unchanged exact head
+continues into the existing point, indexed-range, relation-adjacency, and write
+validation. Attempts with no relation syscall retain their current journal and
+point-commit behavior.
 
-The migration is additive for journal state and preserves all existing
-Application activation, session, journal, result, feed, outbox, and
-authoritative application-row rows. It adds no backfill for active attempts;
-the new dependency count defaults to zero, and only a relation syscall may
-write the child. Existing relation-adjacency dependencies remain unchanged and
-continue to own data OCC independently of the active-selection dependency.
+The migration adds only non-null activation-sequence and 32-byte active-head
+digest columns to the private relation-dependency table. Existing Application
+activation, session, journal-root, result, feed, outbox, and authoritative
+application-row rows remain unchanged. No trustworthy issuing head can be
+invented for an old relation-dependency row, so migration fails closed if that
+private table is populated instead of fabricating a backfill. The adjacency
+version remains the independent data-OCC component of the same dependency.
 
 Focused PGlite and genuine-PostgreSQL proof must cover:
 
 - a capability superseded before its first syscall fails before overlay or edge
-  access and writes no selection or relation dependency;
+  access and writes no relation dependency;
 - a head replaced after a successful relation read but before finish fails at
   final authority validation before application or sidecar writes;
 - unchanged-head read, replay, seal, and finish preserve exact canonical
   evidence and existing relation OCC behavior;
-- two relation capabilities from the same active selection coalesce to one
-  dependency, while different selections in one attempt fail closed;
+- multiple relation dependencies from the same active selection retain one
+  exact CAS token, while different selections in one attempt fail closed;
 - A-to-B-to-A replacement cannot satisfy the earlier activation sequence and
   head digest;
-- malformed, missing, extra, copied, and digest-divergent child evidence fails
-  as stored corruption;
+- malformed, missing, copied, and digest-divergent CAS fields fail as stored
+  corruption;
 - complete Legacy-to-relation and relation-to-Legacy replacement behavior; and
 - both activation-versus-builder lock orders, proving the scope-clock-first
   order without deadlock or post-activation sidecar mutation.
