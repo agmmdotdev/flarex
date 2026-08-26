@@ -2134,14 +2134,17 @@ digest, and final active-head CAS validation. Legacy stored-readiness behavior
 and all first-activation gates remain unchanged.
 
 The mixed-kind proof uses only the existing readiness dispatcher and single
-head: relation A at activation sequence 1, Legacy B at sequence 2, then the
-same relation A at sequence 3. It retains each exact CAS token before preparing
-the replacement, proves A remains usable while B's candidate evidence is
-installed, proves B remains usable while A's candidate evidence is restored,
-and requires three distinct head digests. History keeps the mutually exclusive
-Legacy and relation witnesses, exactly one head remains, and the A1 and B2
-selections remain stale after A3. No transition may revalidate or rewrite the
-displaced head as a prerequisite to replacing it.
+head: relation A at activation sequence 1, Legacy B at sequence 2, then a newly
+prepared relation C at sequence 3. It retains each exact CAS token before
+preparing the replacement, proves A remains usable while B's candidate
+evidence is installed, proves B remains usable while C's candidate evidence is
+installed, and requires three distinct head digests. History keeps the
+mutually exclusive Legacy and relation witnesses, exactly one head remains,
+and the A1 and B2 selections remain stale after C3. Reinstalling relation
+candidate evidence does not rewrite A's immutable readiness receipt; C settles
+against the new receipt instead. The existing relation-only replacement proof
+continues to own same-revision A-to-B-to-A ABA. No transition may revalidate or
+rewrite the displaced head as a prerequisite to replacing it.
 
 Genuine PostgreSQL must additionally run both real repository operations over
 separate connections. In the builder-first order, a restart holds the scope
@@ -2155,7 +2158,7 @@ not add a product operation or use direct table mutation as a substitute for
 either owner. PostgreSQL blocker inspection is observation only.
 
 RA01-S closes only when focused PGlite and PostgreSQL receipts prove stored-
-active continuity, the complete A1-to-B2-to-A3 transition, rollback/staleness,
+active continuity, the complete A1-to-B2-to-C3 transition, rollback/staleness,
 and both lock orders; core and changed-diff lint, exact staged validation, and
 both standing reviewers must pass. Any defect discovered in the builder,
 candidate-validation, physical lifecycle, activation-history, commit/OCC, or
