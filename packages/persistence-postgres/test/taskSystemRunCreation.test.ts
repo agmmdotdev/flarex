@@ -5,13 +5,21 @@ import {
   TaskSystemRunAttemptStore,
   decodeTaskDurationMsV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import type {
+  TaskRunCreationAuthoritySha256V1,
+} from "@flarex/durable-task/internal/run-creation-v1";
 import {
   decodeTaskDefinitionRuntimeBindingV1,
   decodeTaskRunCreationAuthorityReceiptV1,
   encodeTaskRunCreationAuthorityReceiptPreimageV1,
   hashTaskRunCreationAuthorityReceiptV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { Effect, Layer } from "effect";
+import { and, eq } from "drizzle-orm";
+import { Brand, Effect, Layer } from "effect";
+import {
+  ScopeEpochSchema,
+  ScopeIdSchema,
+} from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +35,10 @@ import {
 } from "../src/taskSystemRunCreationV1";
 import { makeTaskSystemRunAttemptStoreV1 } from
   "../src/taskSystemRunAttemptStoreV1";
+import {
+  fxSystemDurableTaskRunsV1,
+  fxSystemScopeClocks,
+} from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   TASK_DEFINITION_ID,
@@ -52,6 +64,13 @@ import {
   taskSystemCreationSha256V1 as sha256,
   taskSystemCreationSuccessV1 as success,
 } from "./taskSystemRunCreationTestSupport";
+
+const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
+const taskRunCreationAuthoritySha256 =
+  Brand.nominal<TaskRunCreationAuthoritySha256V1>();
+const staleScopeEpoch = ScopeEpochSchema.make(
+  "epoch_73000000-0000-4000-8000-000000000009",
+);
 
 describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
   it("creates the only legal initial state and interoperates with lifecycle", async () => {
@@ -303,13 +322,18 @@ describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
       const forgedSha256 = await runEffect(
         hashTaskRunCreationAuthorityReceiptV1(forgedAuthority, sha256),
       );
-      await fixture.persistence.query(`
-        update fx_system_durable_task_run_v1
-        set creation_authority_bytes = $1,
-            creation_authority_sha256 = $2,
-            creation_authority_byte_length = $3
-        where scope_id = '${TASK_SCOPE_ID}' and run_id = '${created.runId}'
-      `, [forgedBytes, forgedSha256, BigInt(forgedBytes.byteLength)]);
+      await fixture.persistence.drizzle
+        .update(fxSystemDurableTaskRunsV1)
+        .set({
+          creationAuthorityBytes: forgedBytes,
+          creationAuthoritySha256:
+            taskRunCreationAuthoritySha256(forgedSha256),
+          creationAuthorityByteLength: BigInt(forgedBytes.byteLength),
+        })
+        .where(and(
+          eq(fxSystemDurableTaskRunsV1.scopeId, taskScopeId),
+          eq(fxSystemDurableTaskRunsV1.runId, created.runId),
+        ));
       const corruptionFailure = await runEffectFailure(
         store.createRun(fixture.request),
       );
@@ -320,11 +344,10 @@ describe("DTE04-C scope-bound Task System run creation - PGlite", () => {
         reason: "creation_authority_invalid",
       });
 
-      await fixture.persistence.query(`
-        update fx_system_scope_clock
-        set epoch = 'epoch_73000000-0000-4000-8000-000000000009'
-        where scope_id = '${TASK_SCOPE_ID}'
-      `);
+      await fixture.persistence.drizzle
+        .update(fxSystemScopeClocks)
+        .set({ epoch: staleScopeEpoch })
+        .where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
       const staleFailure = await runEffectFailure(store.createRun(
         creationRequest("request-stale", 0x55),
       ));
@@ -351,10 +374,9 @@ async function makeFixture(raw: PGlite) {
   const persistence = await createPGlitePersistence({ db: raw });
   await persistence.migrate();
   await seedTaskSystemRunAttemptStoreV1(persistence);
-  await persistence.query(`
-    delete from fx_system_durable_task_run_v1
-    where scope_id = '${TASK_SCOPE_ID}'
-  `);
+  await persistence.drizzle
+    .delete(fxSystemDurableTaskRunsV1)
+    .where(eq(fxSystemDurableTaskRunsV1.scopeId, taskScopeId));
   const runtimeBinding = await makeTaskSystemCreationRuntimeBindingV1();
   const creationAuthority = makeTaskSystemCreationAuthorityV1();
   await installTaskSystemCreationRuntimeBindingV1(
