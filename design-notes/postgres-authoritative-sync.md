@@ -1,13 +1,28 @@
 # Postgres-Authoritative Sync And Cloudflare Coordination
 
-Status: accepted v1 sync design; caches remain deferred optimizations
+Status: accepted Flarex Postgres/Cloudflare adapter design; portable engine
+semantics are owned by `runtime-agnostic-query-sync-engine.md`; caches remain
+deferred optimizations
 
-Last reviewed: 2026-07-10
+Last reviewed: 2026-08-27
 
 This note defines the sync design that follows from
 `flarex-db-accepted-design.md`. It replaces the earlier assumption that
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` must be built before Flarex can
 provide correct live queries.
+
+The 2026-08-27 Query Sync Engine decision narrows this note without rejecting
+its concrete topology. The per-scope Durable Object, Postgres feed, snapshot,
+cursor, gap recovery, and Flarex identity rules below are the first
+Flarex/Cloudflare adapter composition over the portable engine. References to
+`DeploymentSyncDO` owning query state mean that its SQLite adapter is the sole
+durable Flarex coordination-state authority; portable transition semantics are
+owned by the independent engine. `ConnectionDO` remains current Flarex gateway
+and session evidence, while upstream Durable Streams is evaluated separately
+as a replaceable outbound delivery log. See
+[`runtime-agnostic-query-sync-engine.md`](./runtime-agnostic-query-sync-engine.md)
+and
+[`../roadmaps/query-sync-engine/`](../roadmaps/query-sync-engine/README.md).
 
 ## Verdict
 
@@ -20,8 +35,12 @@ V1 is:
 
 ```text
 Postgres commit feed per scope
-  -> deterministic per-scope DeploymentSyncDO
-  -> ConnectionDO query sets and WebSocket delivery
+  -> Flarex change/query adapters
+  -> portable Query Sync Engine
+  -> deterministic per-scope DeploymentSyncDO and SQLite state adapter
+  -> authenticated delivery adapter
+       current ConnectionDO/WebSocket evidence
+       candidate upstream Durable Streams composition
 ```
 
 Direct wakes reduce latency. A durable sweep and Postgres catch-up provide
@@ -39,15 +58,16 @@ Postgres owns:
   evidence; and
 - a conservative fenced DeploymentSyncDO cursor mirror for the external sweep.
 
-Cloudflare owns:
+The Flarex Cloudflare composition owns:
 
 - sandboxed function execution;
 - WebSocket sessions;
-- active query coordination and dependency indexes;
+- the durable adapter for active query coordination and dependency indexes;
 - ordered delivery state;
 - disposable cached results when later enabled.
 
-Cloudflare does not own committed data or the only copy of recovery state.
+Cloudflare does not own committed data, portable engine semantics, or the only
+copy of source recovery state.
 
 ## Tokens And Freshness
 

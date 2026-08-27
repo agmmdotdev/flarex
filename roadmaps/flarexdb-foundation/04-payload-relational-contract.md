@@ -2345,9 +2345,12 @@ read-only logical dependency shape that sync will observe.
 
 R03 is split at its two ownership boundaries. `R03-A` changes only authoritative
 commit publication, the package-private commit-feed reader, and retained-history
-compaction. `R03-B` later changes only the accepted scope-local sync owner after
-roadmap 21 freezes and implements its target contracts. The Legacy Postgres
-subscription/Scheduler path is regression evidence, not an interim R03 owner.
+compaction. `R03-B` later consumes the portable Query Sync Engine's frozen
+semantics/conformance and changes only the Flarex relation model adapter,
+per-scope Postgres/Cloudflare state and source adapters, registration
+composition, and reconnect/delivery path owned by roadmap 21. The Legacy
+Postgres subscription/Scheduler path is regression evidence, not an interim
+R03 owner.
 
 #### [x] R03-A — Atomic Relation Adjacency Facts
 
@@ -2419,9 +2422,11 @@ at R03-B.
 
 #### [ ] R03-B — Fenced Relation Sync Registration
 
-Prerequisite: R03-A is complete and roadmap 21's accepted scope-local sync
-contracts and owner exist. This gate must not extend the Legacy timestamp-based
-Postgres subscription registry or compatibility SchedulerDO.
+Prerequisite: R03-A is complete, the portable Query Sync Engine contracts and
+reference/conformance gates exist, and roadmap 21's Flarex per-scope
+Postgres/Cloudflare adapters plus reconnect/reset owner exist. This gate must
+not extend the Legacy timestamp-based Postgres subscription registry or
+compatibility SchedulerDO.
 
 Scheduling: deferred to the separately owned sync-engine session. This gate
 does not block the non-reactive `SV-R Core` vertical. Work proceeding under
@@ -2430,43 +2435,24 @@ add a relation-specific observer, wake, registry, or delivery path, or weaken
 R03-B's later fenced-registration requirements merely to complete the core
 vertical.
 
-Roadmap 21's `SYNC01-P` docs-only preflight and bounded `SYNC01-A` strict
-persisted cursor/wake plus pure host-neutral contiguous-cursor core are
-complete. `SYNC01-B` also completes the private RQ01 receipt containing the
-same-read snapshot token, typed incoming dependency, and authenticated active-
-head witness. `SYNC01-C` adds the strict scope-local dependency-key and pure
-commit-routing core, including exact incoming relation keys, but no stored
-inverted index. `SYNC01-D` adds the complete canonical query identity plus
-strict provisional/active generation and pure activation-classification core.
-These checkpoints do not satisfy this prerequisite. R03-B remains blocked
-until the target sync owner also has durable per-scope cursor and generation
-state, a persisted typed dependency index, authenticated active-head
-observation, and reset/reconnect behavior.
+Roadmap 21's bounded `SYNC01-A` through `SYNC01-E` cursor, receipt, dependency,
+generation, and authenticated-head work remains useful Flarex adapter evidence.
+`SYNC01-F` implements the production-inert deterministic `DeploymentSyncDO`
+and fenced SQLite scope-cursor owner. These checkpoints do not satisfy this
+prerequisite: persisted semantic query/dependency state, catch-up, head-change
+recovery, reset/reconnect, delivery, and relation registration remain absent.
 
-Roadmap 21's `SYNC01-E` now implements the narrow authenticated current-head
-observation prerequisite: strict evidence from the trusted located read, the
-query receipt's storage-generation fence, and the connected activation-
-classifier checks. Its paired PGlite and genuine-PostgreSQL transaction/lock
-acceptance lanes are complete. Roadmap 21's `SYNC01-F` now also implements the
-production-inert deterministic `DeploymentSyncDO` and its fenced SQLite
-scope-cursor owner. Persisted query identity, generation and dependency state,
-catch-up, head-change recovery, reset, reconnect, and relation registration
-remain absent and continue to block R03-B.
+The accepted Query Sync Engine authority preflight is complete, but its first
+portable transition-kernel/reference-model implementation `QSYNC01-A` is not
+started. Roadmap 21's earlier `SYNC01-GP` is retained only as candidate
+Flarex/Cloudflare adapter evidence. Its authorization to implement
+`SYNC01-G` directly as backend-owned sync semantics is withdrawn and held.
 
-Completed `SYNC01-F` intentionally excludes canonical-query key encoding,
-generation and dependency storage, feed catch-up, reset/reconnect, and
-registration. The actor and cursor owner are therefore real, but the next
-query-state preflight and the later contiguous catch-up proof must complete
-before R03-B's registration prerequisite is satisfied.
-
-Roadmap 21's `SYNC01-GP` now freezes that next query-state slice without
-implementing it. The accepted model keeps the installed active generation and
-dependency directory authoritative while one newer provisional candidate is in
-flight, stores and revalidates a protocol-owned canonical query frame beside
-its SHA-256 lookup key, and forbids cursor-only advancement after query state
-exists. Authorized `SYNC01-G` remains production-inert; later contiguous
-cursor-plus-invalidation catch-up and provisional registration/refresh gates
-are still required before R03-B can begin.
+R03-B remains blocked until the portable engine's semantic state and
+orchestration contracts, the accepted delivery adapter, and roadmap 21's fresh
+Flarex/Cloudflare state, Postgres catch-up, registration, publication, reset,
+and reconnect gates all pass. No relation-local implementation may fill those
+gaps.
 
 Outcome:
 

@@ -30,6 +30,13 @@ native relational authority above.
 
 ## Notes
 
+- `runtime-agnostic-query-sync-engine.md`
+  - Accepted cross-domain decision to extract one small private query-result
+    synchronization engine with runtime-neutral state semantics and
+    conformance, while retaining Postgres/Flarex/Cloudflare as adapters and
+    evaluating upstream Durable Streams only as the replaceable delivery log.
+    Implementation order and gates live under `roadmaps/query-sync-engine/`.
+
 - `flarex-postgres-persistence-domain-separation-idea.md`
   - Exploratory, snapshot-based idea for separating domain policy,
     orchestration, repository contracts, Postgres adapters, transactions, and
@@ -79,7 +86,9 @@ native relational authority above.
     copying Payload's physical `_rels` model or creating another row authority.
 
 - `postgres-authoritative-sync.md`
-  - Accepted v1 Postgres-authoritative sync topology and deferred cache layers.
+  - Accepted Flarex Postgres/Cloudflare adapter topology, per-scope durable
+    coordination and deferred cache layers over the separately owned portable
+    Query Sync Engine semantics.
 - `postgres-multitenant-persistence-schema.md`
   - Implemented baseline for the current Convex-style generic document/index
     persistence. Future FlarexDB design notes supersede it for app/Payload

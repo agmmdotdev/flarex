@@ -17,7 +17,9 @@ It does not own:
   [FlarexDB foundation plans](./flarexdb-foundation/README.md);
 - deployment analysis and activation sequencing, which belongs to
   [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md);
-- sync and cache semantics, which belong to
+- portable query-sync semantics, which belong to
+  [`query-sync-engine/`](./query-sync-engine/README.md), and concrete Flarex
+  Postgres/Cloudflare sync adapters and caches, which belong to
   [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md); or
 - the exact exported API or implemented behavior of a package. Its
   `package.json`, export entrypoints, source, and tests remain authoritative for
@@ -96,6 +98,7 @@ framework-neutral domain cores
   -> @flarex/persistence-postgres
   -> @flarex/freshness
   -> @flarex/analysis
+  -> @flarex/query-sync              (accepted target; not yet created)
 
 portable developer and wire contracts
   -> flarex
@@ -141,6 +144,47 @@ No `packages/flarex-core` package currently exists. Add another shared package
 only when two legitimate owners duplicate a stable, coherent abstraction and
 neither existing lower-level package is the correct home. A speculative
 “common” package would obscure authority rather than improve it.
+
+### Accepted Private Query Sync Package
+
+The docs-only Query Sync Engine preflight admits one future private
+`@flarex/query-sync` package as a coherent host-neutral domain owner. The
+package does not yet exist, and its first implementation slice remains subject
+to explicit approval under
+[`QSYNC01-A`](./query-sync-engine/preflight/01-qsync01-portable-transition-kernel.md).
+
+The package owns only runtime-neutral query-result synchronization semantics:
+namespace/model isolation, exact source ordering, canonical query/dependency
+state, active/provisional generations, dirty-frontier and activation decisions,
+later semantic state/service contracts, and deterministic reference/conformance
+behavior. It is not a universal common package, row replication engine, public
+SDK, network protocol, database adapter, or Cloudflare runtime.
+
+Its first admitted runtime dependency is `effect`; it may use
+`@flarex/utils` only for an exact dependency-leaf primitive already owned
+there. It must not import `flarex-protocol`, persistence, Drizzle, Postgres,
+backend, Cloudflare, Durable Streams/Electric, HTTP/WebSocket, React, an app,
+or Flarex-specific row/relation/query contracts. Initial package exports are
+private explicit subpaths with no root barrel.
+
+`@flarex/persistence-postgres` retains the authoritative Flarex change-source
+and transactional adapters. `flarex-backend` retains per-Durable-Object
+construction, SQLite and service-binding adapters, authentication, recovery
+scheduling, and delivery composition. `flarex-protocol` retains concrete
+versioned Flarex wire/persisted frames. `flarex` retains client/developer APIs
+and may wrap the selected upstream delivery client later.
+
+Do not preemptively create separate query-sync contracts, testing, Postgres,
+Cloudflare, or client packages. Split only when a real independent owner or a
+public compatibility contract proves that boundary. The executable reference
+model initially lives behind a deliberate testing subpath in the same package.
+
+Pure policies remain plain TypeScript with Effect v4 `Result` where a
+recoverable failure is data. Later shared asynchronous capabilities may become
+narrow Effect services. Namespace-bound stores/coordinators and Durable Object
+state remain scoped/plain multi-instance values created by the host; they do
+not become module-global Context services. The host owns the only runtime
+bridge.
 
 ### Accepted Private Durable Task Package
 

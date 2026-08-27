@@ -19,7 +19,9 @@ It does not own:
 
 - the public SDK, package exports, or npm distribution, covered by
   [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md);
-- client transport, reconnect, and sync correctness, covered by
+- portable query-sync/delivery boundaries, covered by
+  [`query-sync-engine/`](./query-sync-engine/README.md), and concrete Flarex
+  transport/reconnect composition, covered by
   [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md);
 - authoritative scope, storage, OCC, or physical routing, covered by the
   [accepted database design](../design-notes/flarex-db-accepted-design.md) and
@@ -34,9 +36,10 @@ Use these sources in order when they disagree:
 1. [`../AGENTS.md`](../AGENTS.md) and the
    [accepted database design](../design-notes/flarex-db-accepted-design.md) for
    authority and replacement rules;
-2. [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) and
+2. [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md),
+   [`query-sync-engine/`](./query-sync-engine/README.md), and
    [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) for
-   adjacent SDK and sync decisions;
+   adjacent SDK, portable sync, and Flarex adapter decisions;
 3. this roadmap for the durable React contract and direction;
 4. [`packages/flarex/src/react.ts`](../packages/flarex/src/react.ts),
    [`react/queriesObserver.ts`](../packages/flarex/src/react/queriesObserver.ts),

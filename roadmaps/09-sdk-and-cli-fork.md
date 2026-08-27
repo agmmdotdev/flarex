@@ -42,7 +42,9 @@ It does not own:
   [`14-local-dev-server.md`](./14-local-dev-server.md);
 - the test SDK's detailed lifecycle, covered by
   [`15-test-sdk.md`](./15-test-sdk.md);
-- client sync correctness, covered by
+- portable query-sync and delivery boundaries, covered by
+  [`query-sync-engine/`](./query-sync-engine/README.md), plus concrete Flarex
+  Postgres/Cloudflare registration, recovery, and delivery composition in
   [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md); or
 - package dependency direction, covered by
   [`16-package-boundaries.md`](./16-package-boundaries.md).

@@ -244,14 +244,18 @@ Use these sources in order:
 2. [`../../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
    owns the minimal first physical inventory and explicit deferrals.
 3. The focused plans in this folder own executable gates and status.
-4. Living domain roadmaps own their durable architecture and direction:
+4. [`../query-sync-engine/README.md`](../query-sync-engine/README.md) owns the
+   standalone portable Query Sync Engine product, kernel, lifecycle, package,
+   and conformance contracts. Roadmap 21 owns only its Flarex Cloudflare,
+   Postgres, gateway, client, and adoption composition.
+5. Living domain roadmaps own their durable architecture and direction:
    - [`../20-postgres-executor.md`](../20-postgres-executor.md)
    - [`../21-cloudflare-freshness-cache.md`](../21-cloudflare-freshness-cache.md)
    - [`../35-commit-compiler-and-session-intent.md`](../35-commit-compiler-and-session-intent.md)
-5. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
+6. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
    supplies long-form proposals, physical-policy inventory, provenance, and
    unresolved risks; its sketches are not automatically accepted.
-6. Current code/tests prove implementation status but do not override accepted
+7. Current code/tests prove implementation status but do not override accepted
    replacement design.
 
 The most important implementation and prototype-regression evidence is:
@@ -829,37 +833,25 @@ Dynamic Worker binding baseline before selecting it.
     without a second stream or wake. The exact typed child directory, separate
     header count, bounded repeatable-read materialization, and child-first
     retained-history deletion are proven in PGlite and genuine PostgreSQL.
-22. Roadmap 21 `SYNC01-P` (complete, docs-only) freezes the target sync
-    authority and independent app-data cursor and Application active-head
-    fences. `SYNC01-A` is also complete: it adds only the strict cursor/wake
-    contracts and pure contiguous-cursor decisions. `SYNC01-B` now adds the
-    private same-read RQ01 snapshot/dependency/active-head receipt. `SYNC01-C`
-    adds strict scope-local dependency keys and pure commit-to-key routing,
-    including conservative table fallback for index ranges. `SYNC01-D` adds
-    the complete canonical query identity, strict provisional/active generation
-    contracts, and pure activation classification. `SYNC01-E` now implements
-    the separately authenticated current-Application-head observation consumed
-    by that classifier, including current scope/epoch/fence evidence from one
-    trusted located read and exact equality with the query receipt's storage
-    authority. Its paired PGlite and genuine-PostgreSQL transaction/lock
-    acceptance lanes are complete. These still add no Durable Object,
-    registration, stored dependency index, rerun execution, head-change
-    recovery, delivery, reconnect, or relation observer.
-    `SYNC01-FP` now freezes the next smaller actor boundary: one deterministic,
-    production-inert `DeploymentSyncDO` with a fenced SQLite scope cursor,
-    canonical decimal-text sequence storage, exact initialization replay, and
-    atomic exact-next compare-and-swap. The implementation is not started;
-    query-key encoding, generation/dependency storage, catch-up, reset,
-    registration, and every caller remain separate gates.
+22. Roadmap 21 `SYNC01-A` through `SYNC01-E` complete the bounded Flarex cursor,
+    receipt, dependency, generation, and authenticated-head foundations.
+    `SYNC01-F` also implements one deterministic production-inert
+    `DeploymentSyncDO` with a fenced SQLite scope cursor, canonical decimal-text
+    sequence storage, exact initialization replay, and atomic exact-next
+    compare-and-swap. It has no query/generation/dependency storage, catch-up,
+    reset, registration, delivery, or caller. The separate Query Sync Engine
+    authority preflight is complete; its first portable kernel/reference-model
+    implementation is not started. Roadmap 21 `SYNC01-GP` remains adapter
+    evidence, but direct-backend `SYNC01-G` authorization is withdrawn and held.
 23. `SV-R Core`: without waiting for sync, prove one non-reactive internal
     Standard relation vertical through definition, analysis, publication,
     readiness, activation, function-runtime commit, R03-A facts, and RQ01 query
     in PGlite and genuine PostgreSQL while production-inert.
-24. `R03-B`: in the separately owned sync session, after roadmap 21's durable
-    scope-local sync owner, canonical query generation/dependency contracts,
-    active-head observation, and reconnect rules exist, prove fenced relation
-    registration, invalidation, and reconnect; relation subscriptions remain
-    absent before this gate.
+24. `R03-B`: in the separately owned sync session, after the portable Query
+    Sync Engine semantic/conformance gates and roadmap 21's Flarex per-scope
+    state, Postgres catch-up, registration, publication, reset, and reconnect
+    adapters exist, prove fenced relation registration, invalidation, and
+    reconnect; relation subscriptions remain absent before this gate.
 25. `SV-R Live`: after `SV-R Core` and R03-B, prove the registered relation
     query's invalidation, generation-checked rerun/delivery, lost-wake recovery,
     reset, and reconnect behavior.

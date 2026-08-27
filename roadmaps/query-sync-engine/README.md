@@ -1,0 +1,177 @@
+# Flarex Query Sync Engine Roadmaps
+
+## Status And Scope
+
+**Status:** accepted docs-only architecture and roadmap authority.
+[`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
+independent-engine preflight, is complete. No implementation,
+package, export, adapter, Durable Object, route, client API, or production
+caller is authorized by that completion alone. The first proposed medium
+implementation slice is
+[`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md), which
+requires a separate explicit implementation approval.
+
+This roadmap family owns the runtime-neutral semantics for synchronizing
+authoritative server-query results:
+
+- namespace-isolated ordered change admission;
+- canonical query, dependency, generation, dirty-frontier, and result state;
+- deterministic invalidation, rerun, activation, and unchanged-result
+  decisions;
+- semantic state-store and query/publication capability contracts;
+- failure, reset, boundedness, and conformance requirements; and
+- the migration boundary from the current backend-local sync work into one
+  independently testable framework package.
+
+It does **not** own PostgreSQL commit or application-row authority, OCC,
+transaction journals, commit compilation, application query execution,
+Cloudflare Durable Object lifecycle, stream transport, client sessions, public
+SDK ergonomics, row replication, offline writes, conflict resolution, CRDTs,
+or a general event bus.
+
+The product is a **query-result synchronization engine**. It is deliberately
+not advertised as a universal data-sync database.
+
+## Authority Order
+
+Use these authorities in order for query-sync work:
+
+1. [`../../design-notes/runtime-agnostic-query-sync-engine.md`](../../design-notes/runtime-agnostic-query-sync-engine.md)
+   owns the accepted cross-domain architecture decision.
+2. This roadmap family owns portable engine semantics, status, package
+   boundaries, and ordered implementation gates.
+3. [`../21-cloudflare-freshness-cache.md`](../21-cloudflare-freshness-cache.md)
+   owns the Flarex Cloudflare host composition, per-scope placement, Postgres
+   adapter, Durable Streams adapter, recovery scheduling, and deferred caches.
+4. `flarex-protocol` owns concrete versioned Flarex wire and persisted
+   contracts. Those contracts are adapter inputs; they do not define the
+   generic engine vocabulary.
+5. `@flarex/persistence-postgres` owns the authoritative Flarex commit feed,
+   retained floor, scope epoch, snapshot, application facts, and transactional
+   outbox behavior.
+6. The upstream Durable Streams protocol and packages own stream offsets,
+   append/read semantics, transport resume, SSE/long-poll behavior, and their
+   own conformance contract.
+7. The native relational roadmap owns `R03-B` as a consumer. It cannot repair,
+   duplicate, or bypass this engine or its Cloudflare/Postgres adapters.
+
+When these documents disagree, portable semantics stay here and concrete
+Flarex/Postgres/Cloudflare mappings stay in their adapter owners. Current code
+and tests remain the authority for behavior already implemented.
+
+## Current Implementation Boundary
+
+The independent `@flarex/query-sync` package does not yet exist.
+
+Current production-inert work under `flarex-backend/deploymentSync`,
+`DeploymentSyncDO`, and `flarex-protocol/internal/scope-sync-v1` proves useful
+cursor, dependency, canonical-query, and generation ideas, but it is coupled
+to Flarex scope identities, Postgres commit records, and Cloudflare SQLite.
+It is migration evidence, not the portable engine authority.
+
+`SYNC01-GP` previously authorized adding substantially more query state to the
+backend-local Durable Object store. That authorization is superseded and held.
+No agent may implement `SYNC01-G` from its old package-local prescription.
+Useful canonical-frame, collision, active/provisional coexistence, corruption,
+and synchronous-SQLite requirements remain inputs to the later Flarex adapter
+preflight.
+
+No production sync caller currently changes because of this docs-only cut.
+
+## Target Architecture
+
+```text
+trusted application or database owner
+  -> replayable ChangeSource plus optional wake hint
+  -> admitted model-specific invalidation facts
+                         |
+                         v
+                @flarex/query-sync
+      namespace cursor and ordered admission
+      canonical query and generation policy
+      dependency invalidation and dirty frontier
+      rerun/activation/result-hash decisions
+      semantic store and publication capabilities
+                         |
+              host-owned adapters and composition
+        +----------------+------------------+
+        |                                   |
+        v                                   v
+Flarex Postgres/Cloudflare             reference/test host
+  commit-feed adapter                    deterministic model
+  per-scope coordinator DO
+  SQLite state adapter
+  accepted delivery publisher
+    (Durable Streams candidate)
+        |
+        v
+authenticated Durable Stream -> @durable-streams/client -> Flarex SDK adapter
+```
+
+The framework is independently developable and testable. It is not independently
+deployable without a trusted change source, query evaluator, durable state
+adapter, publication adapter, authentication gateway, and host lifecycle.
+
+## Package Direction
+
+The first package is one private `@flarex/query-sync` workspace member with
+explicit internal subpaths. Do not start with separate contracts, engine,
+testing, Cloudflare, Postgres, and client packages.
+
+The package may initially depend only on:
+
+- `effect`; and
+- an exact `@flarex/utils` dependency-leaf primitive when reuse is proven.
+
+It must not import `flarex-protocol`, `@flarex/persistence-postgres`,
+`flarex-backend`, Cloudflare types, database drivers, Electric packages,
+WebSocket/HTTP frameworks, or application-specific row/relation types.
+
+The deterministic reference model belongs behind a deliberate testing subpath
+in the same package. Split another package only after a real second owner or a
+public compatibility contract makes that boundary concrete.
+
+## Gate Sequence
+
+| Gate | Outcome | Status |
+| --- | --- | --- |
+| `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
+| `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Docs-only implementation preflight complete; proposed next; not started |
+| `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Preflight required |
+| `QSYNC01-C` | Effect-native orchestration over reference capabilities: catch-up, provisional evaluation fencing, rerun coalescing, and publication-outbox decisions | Preflight required |
+| `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
+| `QSYNC-FX01` | Flarex query/change adapters plus the first Cloudflare SQLite semantic-store implementation | Blocked on `QSYNC01-B/C`; independent of delivery-adapter selection |
+| `QSYNC-FX02` | Postgres catch-up, transactional publication outbox, authenticated query registration, evaluation, and rerun composition | Blocked on `QSYNC-FX01` |
+| `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
+| portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
+
+Each gate requires its own bounded preflight. A later gate does not authorize
+adjacent public APIs, production routing, schema changes, or compatibility
+paths.
+
+## Roadmap Files
+
+- [`01-product-authority-and-package.md`](./01-product-authority-and-package.md)
+  defines the product, vocabulary, trust boundaries, API planes, and package
+  ownership.
+- [`02-engine-state-and-lifecycle.md`](./02-engine-state-and-lifecycle.md)
+  defines the state model, semantic operations, Effect/lifecycle rules,
+  failures, transactions, and limits.
+- [`03-cloudflare-durable-streams-composition.md`](./03-cloudflare-durable-streams-composition.md)
+  records the Electric/Durable Streams choice and the Cloudflare-native
+  delivery risk gates.
+- [`04-conformance-and-flarex-adoption.md`](./04-conformance-and-flarex-adoption.md)
+  defines reference/conformance evidence, migration, integration order, and
+  the no-dual-engine cutover rule.
+- [`preflight/00-qsync01-framework-authority.md`](./preflight/00-qsync01-framework-authority.md)
+  records the completed docs-only product, authority, package, adapter, and
+  adoption decision.
+- [`preflight/01-qsync01-portable-transition-kernel.md`](./preflight/01-qsync01-portable-transition-kernel.md)
+  is the completed docs-only preflight for the proposed first medium slice.
+
+## Next Correctness Gate
+
+The next implementation candidate is `QSYNC01-A`: one pure, production-inert
+transition kernel and reference model. It intentionally stops before services,
+Layers, storage, Postgres, Cloudflare, Electric, query execution, delivery, or
+client APIs. Its exact cut and evidence are frozen in the preflight above.

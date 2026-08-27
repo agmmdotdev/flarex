@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-07-24
+Last reviewed: 2026-08-27
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -26,8 +26,9 @@ App/CMS rows use typed JSON plus derived indexes, edges, and unique keys.
 Medusa commerce uses Medusa-owned relational tables and transaction semantics.
 Every authoritative write advances one scope-local commit stream and writes
 recovery metadata atomically.
-Cloudflare owns sandboxed execution, WebSockets, coordination, and disposable
-cache state.
+Cloudflare owns sandboxed execution, WebSockets/current delivery adaptation,
+durable Flarex coordination-state adapters, and disposable cache state;
+portable query-sync transition semantics remain host-neutral.
 ```
 
 Reject as a v1 promise:
@@ -191,7 +192,7 @@ work continues.
 | SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b1/C06-A supplies the package-private host-neutral exact-attempt execution claim and fenced-admission foundation, while O08-B2b2a privately composes exact-selector safe-state redispatch for replay/expiry, live-owner busy, one pristine execution, sealed finish-only recovery, and existing finishing recovery. O08-B2b2b1 supplies bounded scope-local read-only discovery whose results are inert candidate hints. O08-B2b2b2a now durably disposes expired dirty-open and failed-root attempts through a separately confined `abortOnly` capability and the existing claim-fenced terminalization owner; the exact-selector composer and locked C06-A acquisition remain the only paths that may mint process authority. O08-B2b2b2b0a supplies the value-based grant/retention policy coherence shared by the backend issuer and executor verifier, O08-B2b2b2b0b atomically promotes the exact snapshot lease while sealing the journal root, O08-B2b2b2b1a supplies the phase-aware claim-renewal transaction without minting process authority, O08-B2b2b2b1b1 owns the host-neutral scoped heartbeat from genuine admission through C05-A/publication, O08-B2b2b2b1b2a composes one bounded discovery page through the exact-selector redispatch owner with redacted operational results, O08-B2b2b2b1b2b1 enumerates one bounded control-plane page of inert replacement-scope locators, O08-B2b2b2b1b2b2a composes private count-bounded round-robin multi-scope work, and O08-B2b2b2b1b2b2b0 persists its bounded inert restart checkpoint. O08-CD0 preserves source-owned transaction-decision provenance, O08-C consumes only confirmed pre-decision rollback for bounded finishing-publication retries, and O08-D closes one direct publication uncertainty through authoritative outcome evidence or one exact guarded C05-B recovery. The rest of O08-B2b2b2b1b2b2b durable scheduling, triggers and production dispatch, C06-B endpoint/response policy, production validator authority, and target routing remain pending. Durable lifecycle, persisted claim fields, scope locators, discovery hints, sweep observations, renewal observations, scheduler checkpoint state, and policy object identity alone never authorize redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
-| DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
+| DeploymentSyncDO | Accepted first Flarex/Cloudflare coordination adapter | One deterministic instance per scope, durable SQLite cursor/query/dependency state and Postgres catch-up composed around the separately owned portable Query Sync Engine semantics. |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
 | Generic atomic `ctx.db + ctx.commerce` | Rejected | Commerce-affecting atomic behavior belongs behind a Medusa-owned facade/workflow. Cross-boundary follow-up uses IDs and the transactional outbox. |
 
@@ -1985,7 +1986,17 @@ operation through a Medusa-owned facade/workflow and let that lane own the
 transaction. Display/custom app state normally references stable commerce IDs
 and follows commerce changes through the transactional outbox.
 
-## V1 Sync Engine
+## Query Sync Engine And Flarex Adapter Topology
+
+The accepted runtime-agnostic engine decision in
+[`runtime-agnostic-query-sync-engine.md`](./runtime-agnostic-query-sync-engine.md)
+supersedes only the assumption that portable query-sync semantics should grow
+directly inside `flarex-backend`. The topology below remains the first concrete
+Flarex adapter composition: Postgres is authoritative, one per-scope Durable
+Object/SQLite adapter owns durable Flarex coordination state, and the portable
+engine owns transition semantics. The current ConnectionDO delivery path is
+adapter evidence; upstream Durable Streams is a separately gated candidate
+delivery log. No dual engine or registry is introduced.
 
 Use the smallest topology that can prove correctness:
 
@@ -1996,13 +2007,17 @@ Postgres per scope
   authoritative data and history
   conservative fenced sync-checkpoint mirror for external sweep
 
-DeploymentSyncDO per scope
+portable Query Sync Engine
+  namespace/source/query/generation transition semantics
+  semantic state and publication contracts
+
+DeploymentSyncDO per scope (Flarex Cloudflare adapter)
   durable SQLite appliedThrough cursor
   canonical query definitions
   dependency -> query index
   dirtyThrough, runningAt, generation, and bounded rerun state
 
-ConnectionDO
+ConnectionDO / accepted delivery adapter
   WebSocket/session attachment
   client query set and auth/version metadata
   ordered transitions
@@ -2073,8 +2088,9 @@ identity/access-policy fingerprint
 ```
 
 The legacy Postgres live-query registry is a behavioral test input, not a
-required target migration layer. DeploymentSyncDO SQLite owns the target
-canonical-query, dependency, and cursor coordination state. A fenced Postgres
+required target migration layer. DeploymentSyncDO SQLite owns the sole target
+Flarex canonical-query, dependency, and cursor coordination state as an adapter
+to the portable engine. A fenced Postgres
 cursor is a conservative operational mirror updated only after the DO commits
 its local cursor; it may lag but must never lead. The external sweep reads the
 mirror, so lag produces harmless duplicate wakes. Hibernation, reconnect,

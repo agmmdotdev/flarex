@@ -35,7 +35,9 @@ It does not own:
 - trusted executor, transaction, OCC, or storage-generation behavior, covered
   by [`20-postgres-executor.md`](./20-postgres-executor.md) and the
   [FlarexDB foundation](./flarexdb-foundation/README.md);
-- sync freshness/delivery semantics, covered by
+- portable query-sync/delivery semantics, covered by
+  [`query-sync-engine/`](./query-sync-engine/README.md), and concrete Flarex
+  Postgres/Cloudflare composition, covered by
   [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md); or
 - action and scheduler runtime implementation, which must exist in their owning
   domains before the test SDK can claim them.

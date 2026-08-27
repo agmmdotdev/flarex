@@ -2,15 +2,17 @@
 
 ## Status And Scope
 
-Status: accepted v1 sync design with an implemented prototype pipeline.
-`SYNC01-P`, the docs-only target authority and first implementation preflight,
-and bounded `SYNC01-A` through `SYNC01-E` private correctness slices are
-complete. `SYNC01-FP`, the docs-only durable scope-cursor owner preflight, is
-also complete, and `SYNC01-F` now implements its production-inert per-scope
-`DeploymentSyncDO` plus fenced SQLite cursor owner. Persisted query identity,
-generation and dependency state, ordered Postgres catch-up, registration,
-reset/reconnect, rerun, delivery, and production caller integration remain
-incomplete. Cache Durable Objects remain deferred optimizations.
+Status: accepted Flarex Postgres/Cloudflare adapter direction with an
+implemented prototype pipeline and production-inert per-scope cursor owner.
+Portable query-sync semantics are now owned by
+[`query-sync-engine/`](./query-sync-engine/README.md), not this roadmap.
+Completed `SYNC01-A` through `SYNC01-F` remain current implementation evidence.
+`SYNC01-GP` is retained adapter-design evidence but its authorization to
+implement `SYNC01-G` directly as backend-owned semantics is superseded and
+held. Persisted semantic query state, ordered Postgres catch-up, registration,
+reset/reconnect, rerun, Durable Streams delivery, and production caller
+integration remain incomplete. Cache Durable Objects remain deferred
+optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
 connection leases remain prototype mechanics, not the accepted replacement
@@ -18,15 +20,18 @@ retention authority. This roadmap must resolve reconnect identity, duration,
 history budget, renewal, expiry, and reset semantics before requesting a
 separate just-in-time schema gate.
 
-This roadmap owns the durable direction for:
+This roadmap owns the concrete Flarex adapter direction for:
 
 - transporting authoritative Postgres commit/change information into
   Cloudflare coordination;
-- `DeploymentSyncDO`, `ConnectionDO`, and delivery-worker responsibilities;
-- canonical live-query identity, dependency indexing, rerun coalescing, and
-  result-hash suppression;
+- per-scope `DeploymentSyncDO` construction, namespace binding, SQLite state
+  adaptation, `ConnectionDO`, and delivery-worker responsibilities;
+- mapping Flarex canonical live-query identity, dependency facts, query
+  execution, and result evidence into the portable engine;
 - initial subscription activation, contiguous cursor processing, gap catch-up,
   lost-wake recovery, reconnect, and ordered publication;
+- evaluation and possible adoption of upstream Durable Streams as the
+  Cloudflare-native outbound delivery-log adapter;
 - disposition and removal of the prototype Postgres subscription/connection/
   delivery registry as target coordination becomes complete; and
 - the conditions under which `VersionDO`, `DocCacheDO`, or `QueryCacheDO` may
@@ -34,6 +39,8 @@ This roadmap owns the durable direction for:
 
 This roadmap does not own:
 
+- runtime-neutral query-sync models, transition policies, semantic store
+  contracts, or conformance;
 - authoritative app-row, OCC, commit, or transactional-outbox semantics;
 - temporary mutation/session journaling or commit-plan lowering;
 - public client protocol parity beyond the internal correctness requirements;
@@ -48,18 +55,23 @@ checkpoint record previously accumulated here.
 
 Use these sources in order:
 
-1. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
+1. [`../design-notes/runtime-agnostic-query-sync-engine.md`](../design-notes/runtime-agnostic-query-sync-engine.md)
+   and [`query-sync-engine/README.md`](./query-sync-engine/README.md) own the
+   portable engine/product boundary, semantics, package direction, and
+   conformance gates.
+2. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
    owns Postgres authority, `SnapshotToken`, scope epoch/commit semantics,
    retention, and the accepted v1 sync topology.
-2. [`../design-notes/postgres-authoritative-sync.md`](../design-notes/postgres-authoritative-sync.md)
+3. [`../design-notes/postgres-authoritative-sync.md`](../design-notes/postgres-authoritative-sync.md)
    owns the focused activation, cursor, recovery, canonical-query, dependency,
-   and deferred-cache design.
-3. [`20-postgres-executor.md`](./20-postgres-executor.md) owns the executor,
+   and deferred-cache design for the Flarex adapter composition.
+4. [`20-postgres-executor.md`](./20-postgres-executor.md) owns the executor,
    storage-generation, commit-feed, and transactional-outbox prerequisites.
-4. [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md)
+5. [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md)
    owns mutation/session reads and the rule that unsupported staged overlays
    fail closed.
-5. Current code and decisive tests prove implemented prototype behavior:
+6. Current code and decisive tests prove implemented prototype and
+   production-inert adapter behavior:
    - [`packages/freshness/src/index.ts`](../packages/freshness/src/index.ts)
    - [`packages/executor/src/liveQueries.ts`](../packages/executor/src/liveQueries.ts)
    - [`packages/executor/src/liveQueryDeliveries.ts`](../packages/executor/src/liveQueryDeliveries.ts)
@@ -72,6 +84,8 @@ Use these sources in order:
    - [`packages/flarex-backend/src/connectionDO.ts`](../packages/flarex-backend/src/connectionDO.ts)
    - [`packages/flarex-backend/src/schedulerDO.ts`](../packages/flarex-backend/src/schedulerDO.ts)
    - [`packages/flarex-backend/src/deliveryDO.ts`](../packages/flarex-backend/src/deliveryDO.ts)
+   - [`packages/flarex-backend/src/deploymentSync`](../packages/flarex-backend/src/deploymentSync)
+   - [`packages/flarex-backend/src/deploymentSyncDO.ts`](../packages/flarex-backend/src/deploymentSyncDO.ts)
    - [`packages/flarex-protocol/src/live-query.ts`](../packages/flarex-protocol/src/live-query.ts)
 
 [`05-sync-and-subscriptions.md`](./05-sync-and-subscriptions.md) and
@@ -79,6 +93,33 @@ Use these sources in order:
 remain compatibility implementation inventories until they are compacted.
 Their historical partition-local or singleton-scheduler design is not the
 accepted target when it conflicts with this roadmap or the design notes above.
+
+## Framework Ownership And Implementation Hold
+
+The accepted runtime-agnostic Query Sync Engine decision supersedes this
+roadmap only where it previously made `flarex-backend` and Cloudflare SQLite the
+owner of portable query-sync semantics.
+
+Completed cursor, wake, dependency, generation, authenticated-head, and
+per-scope actor work remains valid evidence. The existing production-inert
+`DeploymentSyncDO` remains the first Flarex host placement. It must later
+construct/adapt the portable engine; it does not become a second engine.
+
+`SYNC01-G` has not started. Its direct package-local backend form is withdrawn
+and held. Work may resume only after:
+
+1. the portable transition kernel/reference model is accepted;
+2. semantic state and orchestration contracts are derived from that model;
+3. a fresh roadmap-21 adapter preflight maps Flarex contracts into one
+   Cloudflare SQLite authority without duplicate tables, cursors, or writes.
+
+The Flarex model/source/SQLite adapter may proceed independently of delivery
+selection. Durable Streams must pass its own feasibility gate before any
+Durable Streams publication, client adoption, reconnect claim, or production
+cutover.
+
+This correction authorizes no package, schema, migration, route, caller, dual
+registry, fallback, delivery cutover, relation behavior, or production change.
 
 ## Current Architecture
 
@@ -422,10 +463,12 @@ The backend implements:
   and reconnect candidates.
 
 These capabilities preserve useful regression cases and reusable delivery
-mechanics, not the final scope-local sync protocol. No `DeploymentSyncDO`,
-`VersionDO`, `DocCacheDO`, or `QueryCacheDO` implementation exists.
+mechanics, not the final scope-local sync protocol. A separate production-inert
+`DeploymentSyncDO` and fenced SQLite scope cursor now exist, but no persisted
+query/generation/dependency state, catch-up loop, `VersionDO`, `DocCacheDO`, or
+`QueryCacheDO` implementation exists.
 
-The private host-neutral sync core now owns strict cursor and wake contracts,
+The current private backend-local policy/protocol work owns strict cursor and wake contracts,
 scope-local dependency keys, logical-read projection, and validated-commit
 invalidation projection. It also owns the complete canonical query identity,
 strict provisional and active generation contracts, canonical bounded
@@ -443,12 +486,14 @@ while collecting routing or activation evidence.
   SchedulerDO name with singleton pending/in-flight rerun state.
 - The mutation finish hook notifies sync best-effort; current recovery does not
   close the pre-rerun lost-trigger gap.
-- No durable per-scope sync cursor or ordered Postgres gap-catch-up loop exists.
+- The production-inert per-scope cursor exists, but no ordered Postgres
+  gap-catch-up loop or production caller exists.
 - Current stale detection scans active Postgres subscriptions rather than a
   typed dependency-to-query inverted index.
 - Compatibility live-query state does not use the new private canonical-query
   and generation contracts and therefore still lacks target authority despite
-  the host-neutral core now pinning every accepted identity-sensitive input.
+  the backend-local policy/protocol work pinning every accepted
+  identity-sensitive input.
 - Concurrent reruns lack the accepted compare-and-swap generation protocol.
 - Current connection leases are compatibility leases, not the accepted
   reconnect-retention token tied to scope epoch, storage generation, fence, and
@@ -488,20 +533,21 @@ Cloudflare data storage.
 
 ## Target Direction
 
-The target live-query lifecycle is:
+The target Flarex adapter lifecycle is:
 
 ```text
-provisional canonical registration
-  -> authoritative query at SnapshotToken
-  -> dependency/result registration
-  -> refresh through contiguous DeploymentSyncDO cursor
-  -> activate generation
-  -> process commit feed in order
-  -> mark affected canonical queries dirty
-  -> single-flight authoritative rerun at snapshot >= dirtyThrough
-  -> generation CAS
-  -> refresh unchanged result or create durable changed-result delivery
-  -> ordered ConnectionDO transition
+authenticated Flarex query request
+  -> bind one scope/namespace and canonical access-aware query identity
+  -> portable engine begins a provisional generation
+  -> Flarex executes the authoritative query at SnapshotToken
+  -> portable engine refreshes against contiguous admitted Postgres facts
+  -> Cloudflare SQLite adapter atomically activates the exact generation
+  -> portable engine processes later commit facts in order and marks dirty work
+  -> generation-fenced authoritative rerun at snapshot >= dirtyThrough
+  -> unchanged freshness update or durable publication-outbox entry
+  -> append through the accepted authenticated delivery adapter
+       Durable Streams remains the current candidate
+  -> client applies the result before advancing its transport checkpoint
 ```
 
 Recovery is equally important:
@@ -510,17 +556,18 @@ Recovery is equally important:
 lost wake / DO eviction / Worker crash
   -> durable sweep finds Postgres latest commit ahead of mirrored cursor
   -> deterministic DeploymentSyncDO wakes
-  -> contiguous Postgres interval catch-up
-  -> durable query-state validation, or explicit reset if state is unavailable
+  -> namespace engine performs contiguous Postgres interval catch-up
+  -> semantic SQLite state validation, or explicit reset if state is unavailable
   -> dirty reruns
-  -> delivery and ordered client publication
+  -> publication-outbox replay with the identical stream producer identity
+  -> delivery resume or explicit stream rotation/resnapshot
 ```
 
-Remove the Postgres prototype registry after DeploymentSyncDO passes
-hibernation, restart, reconnect, state-loss reset, lease cleanup, and lost-wake
-proof with all callers switched. No live dual-registry migration is required.
-Only after the authoritative loop is correct and measured may cache layers
-enter the design.
+Remove the Postgres prototype registry only after the portable engine plus
+Flarex/Cloudflare adapters pass restart, reconnect, state-loss reset, stream
+rotation, authorization, lease cleanup, and lost-wake proof with all callers
+switched. No live dual-registry migration is required. Only after the
+authoritative loop is correct and measured may cache layers enter the design.
 
 ## Next Correctness Gates
 
@@ -530,38 +577,44 @@ idempotency outcome, and transactional outbox. Prototype fixes should be limited
 to what is needed to preserve regression evidence or unblock caller migration;
 they must not create a second forward sync architecture.
 
-After `C07`, the ordered v1 gates are:
+After `C07`, completed `SYNC01-A` through `SYNC01-F` remain evidence. The next
+ordered gates are now:
 
-1. Freeze typed sync contracts for `SnapshotToken`, canonical query identity,
-   dependency keys, provisional/active generations, cursor state, delivery
-   identity, reset/resnapshot, and fenced Postgres checkpoint mirrors. Freeze
-   reconnect lease identity, duration, history budget, renewal, expiry, and
-   reset behavior in the same design gate.
-2. Add one deterministic `DeploymentSyncDO` per scope in bounded sub-slices:
-   first its fenced durable SQLite cursor owner, then a separately preflighted
-   canonical query-key codec plus query, dependency-index, dirty-through,
-   generation, result-hash, and continuation state.
-3. Implement duplicate/reverse/gap processing and ordered Postgres catch-up;
-   never advance across a missing commit.
-4. Fix initial activation through provisional DeploymentSyncDO registration and
-   refresh against already processed commits without dual-registering the
-   prototype Postgres registry.
-5. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
-   may lag but can never lead the DO cursor.
-6. Add generation-checked, single-flight authoritative reruns and identity/
-   package/schema/policy-safe canonical sharing.
-7. Integrate changed/failed result delivery and ordered ConnectionDO
-   transitions without making DeliveryDO the trigger-recovery owner.
-8. Immediately before O11 consumes reconnect floors or replacement sync admits
-   reconnectable sessions, add the separately preflighted reconnect-retention
-   DDL and focused PGlite/real-Postgres proof.
-9. Prove real-Postgres mutation-to-WebSocket correctness for activation races,
-   lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
-   reconnect floors, and broad dependency fallbacks.
-10. Measure per-scope state, rerun load, and backpressure before deciding whether
-   coordination buckets are necessary.
-11. Remove the prototype SchedulerDO and Postgres registry after target-only
-    recovery parity and internal-caller migration are proven.
+1. Complete the Query Sync Engine `QSYNC01-A` pure transition kernel/reference
+   model without changing the current actor/store/protocol.
+2. Preflight and implement the trusted change-model boundary, semantic atomic
+   state contract, and Effect-native orchestration against reference adapters.
+3. Accept a fresh roadmap-21 adapter preflight that maps Flarex canonical
+   identities/dependencies/results and the existing one-per-scope
+   `DeploymentSyncDO` SQLite authority into the portable semantic contract.
+   Do not add duplicate state or compatibility writes.
+4. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
+   packages on real Cloudflare; accept or reject on conformance,
+   auth/isolation, retention/rotation, payload, uncertainty recovery,
+   lifecycle, and numeric cost gates. Rejection changes the delivery adapter,
+   not the portable engine or Flarex state/source mapping.
+5. Implement duplicate/reverse/gap processing and ordered Postgres catch-up
+   through the trusted Flarex `ChangeSource`; never advance across a missing
+   commit.
+6. Add provisional registration, refresh against already processed commits,
+   generation-fenced single-flight reruns, and unchanged-result suppression.
+7. Add the durable query-result publication outbox and the accepted delivery
+   adapter without making transport the trigger-recovery owner.
+8. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
+   may lag but can never lead the namespace cursor.
+9. Immediately before replacement sync admits reconnectable sessions, freeze
+   query leases, stream age/message/byte budgets, rotation, renewal, expiry,
+   auth change, and reset/resnapshot; add only the separately justified
+   retention storage.
+10. Prove real-Postgres mutation-to-client correctness for activation races,
+    lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
+    publication uncertainty, stream rotation, reconnect, and broad dependency
+    fallbacks.
+11. Remove prototype SchedulerDO/Postgres registry and displaced unshipped sync
+    code only after target-only recovery parity and all supported callers move.
+12. Run `R03-B` through the accepted portable engine plus Flarex adapters; no
+    Legacy timestamp registry or compatibility `SchedulerDO` is an interim
+    owner.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync
@@ -1080,20 +1133,29 @@ SQLite failures remain distinct tagged failures.
 This checkpoint adds no query-key codec, query/generation/dependency table,
 feed interval reader, wake handler, catch-up loop, reset/reconnect state,
 checkpoint mirror, rerun, delivery, public route, public SDK, relation API,
-Payload adapter, or production caller. The next roadmap-21 preflight must own
-the canonical persisted query-key and generation/dependency state before those
-tables exist. `R03-B` remains blocked.
+Payload adapter, or production caller. The portable engine gates must define
+semantic query/generation/dependency state before a fresh roadmap-21 adapter
+preflight may authorize those SQLite tables. `R03-B` remains blocked.
 
-### [x] SYNC01-GP — Freeze Persisted Query Identity And Generation State
+### [x] SYNC01-GP — Persisted Query State Preflight, Superseded As Implementation Authority
 
-Status: docs-only preflight complete. This checkpoint authorizes only the next
-private implementation slice, `SYNC01-G`. It freezes the protocol-owned
-canonical query-key codec and the production-inert `DeploymentSyncDO` query,
-generation, result-hash, dirty-frontier, and dependency-index state. It does
-not implement those contracts and does not authorize Postgres catch-up,
-cursor-plus-invalidation application, query execution, registration RPC,
-rerun scheduling, delivery, reset/reconnect, public routes, compatibility
-writes, or a production caller.
+Status: completed docs-only preflight; superseded as implementation authority
+and retained as Flarex/Cloudflare adapter design evidence.
+
+The runtime-agnostic Query Sync Engine decision supersedes only this
+checkpoint's authorization to implement `SYNC01-G` directly as backend-owned
+sync semantics and package-local SQLite state. The canonical Flarex query
+frame, active/provisional coexistence, dependency-index correctness, atomic
+replacement, collision/corruption rules, and cursor-plus-invalidation
+constraints below remain candidate requirements for a later Flarex/Cloudflare
+state-adapter preflight.
+
+`SYNC01-G` has not started and is on hold. It may resume only after the portable
+kernel, semantic state/orchestration contracts, and conformance gates close and
+a replacement roadmap-21 adapter preflight is accepted. Completed `SYNC01-A`
+through `SYNC01-F` remain valid evidence. This correction authorizes no package,
+schema, migration, route, caller, dual registry, fallback, compatibility write,
+or production behavior.
 
 The storage split preserves two different facts. The active generation is the
 last installed result and dependency set against which already admitted
@@ -1139,12 +1201,13 @@ to another key. Scope, epoch, active head, package, schema, policy, function,
 arguments, and identity/access-policy authority remain with their existing
 producers and must still agree with the actor's fenced scope state.
 
-#### SQLite Query And Dependency State
+#### Retained Cloudflare SQLite Query And Dependency Requirements
 
-`SYNC01-G` extends the existing package-local `DeploymentSync` store; it does
-not create another service, Layer, actor, cursor, transaction owner, or query
-registry. The schema keeps one query row per canonical query key with these
-logical fields:
+A later fresh adapter preflight may adapt the existing package-local
+`DeploymentSync` store to the portable semantic state contract. It must not
+create another engine, service, actor, cursor, transaction owner, query
+registry, table set, or compatibility write. The previously proposed schema
+kept one query row per canonical query key with these logical fields:
 
 | Field group | Contract |
 | --- | --- |
@@ -1184,9 +1247,10 @@ it explicitly checks parent/child agreement and orphan absence. Replacement
 deletes the prior active directory and inserts the new directory in the same
 `transactionSync` callback as the active-slot compare-and-swap.
 
-#### Authorized State Transitions
+#### Retained Candidate State Transitions
 
-`SYNC01-G` may add only these package-local transitions:
+A later adapter preflight may retain only semantically equivalent transitions,
+derived from the portable reference model:
 
 1. Canonicalize and register one query identity against the exact current actor
    scope, epoch, and cursor. A new identity begins generation `1`. Exact replay
@@ -1209,27 +1273,27 @@ deletes the prior active directory and inserts the new directory in the same
 4. Preserve the existing cursor-only `advance` operation only while no query
    rows exist. Once any query state exists, that operation fails with a typed
    query-state-present conflict. It must not advance the cursor without routing
-   invalidations. The later `SYNC01-H` preflight must authorize one combined
-   transaction that applies an exact-next commit to the dependency index,
-   updates affected dirty-through frontiers, and advances the cursor.
+   invalidations. A later fresh adapter preflight must map the portable
+   `applyAdmittedBatchAndAdvance` semantic operation into one synchronous
+   transaction that updates affected dirty-through frontiers and advances the
+   cursor.
 
 An activation with an unchanged result hash still replaces dependency and
-freshness evidence; result equality cannot skip the transaction. No operation
-in this slice publishes a result, deletes a query, acknowledges a commit,
-changes a connection lease, or schedules a rerun. The nullable dirty-through
-column is installed and decoded now so the later combined commit transaction
-has one durable target, but `SYNC01-G` may only initialize it to null.
+freshness evidence; result equality cannot skip the transaction. The retained
+candidate transitions publish no result, delete no query, acknowledge no
+commit, change no connection lease, and schedule no rerun. Any dirty-through
+storage must be justified by the later semantic adapter preflight rather than
+created from this superseded authorization.
 
-#### Authorized Implementation Slice: SYNC01-G
+#### Withdrawn Direct-Backend Slice: SYNC01-G
 
-`SYNC01-G` may add the versioned protocol frame, canonical JSON projection,
-bounded canonical bytes, injected SHA-256 service contract, branded key,
-strict Result/Effect codecs, and focused codec tests. It may extend the current
-backend store with the query and dependency tables, strict stored-row decoders,
-typed codec/collision/conflict/corruption/storage errors, the four transitions
-above, and focused fake-SQLite plus real Miniflare Durable Object storage tests.
+The direct-backend implementation described by this old checkpoint is not
+authorized. A fresh adapter preflight may reuse the versioned Flarex protocol
+frame and require equivalent canonical JSON, bounded bytes, injected SHA-256,
+strict codecs, collision/corruption behavior, and focused tests, but only as a
+mapping into the accepted portable engine and semantic state contract.
 
-Acceptance must prove deterministic identity-to-key vectors, null-versus-text
+That later adapter acceptance must prove deterministic identity-to-key vectors, null-versus-text
 and field-sensitive separation, maximum-size refusal, noncanonical-byte and
 digest mismatch refusal, injected collision refusal, signed-64-bit sequence
 round trips, fresh and replayed provisional registration, active/provisional
@@ -1240,13 +1304,12 @@ orphan detection, transaction rollback, and cursor-only advance refusal after
 query registration. Existing cursor behavior must remain green when no query
 state exists.
 
-This slice adds no query runner, feed interval reader, wake handler, catch-up
-loop, dirty-marking operation, alarm, external sweep, Postgres checkpoint
-mirror, registration or activation RPC, connection target, lease, delivery,
-public SDK, relation API, Payload adapter, prototype-registry access, or
-production caller. `R03-B` remains blocked after `SYNC01-G`; contiguous
-cursor-plus-invalidation catch-up, initial registration/refresh, head-change
-recovery, and reset/reconnect still require their own gates.
+Nothing in this retained section adds a query runner, feed interval reader,
+wake handler, catch-up loop, dirty-marking operation, alarm, external sweep,
+Postgres checkpoint mirror, registration or activation RPC, connection target,
+lease, delivery, public SDK, relation API, Payload adapter,
+prototype-registry access, or production caller. `R03-B` remains blocked on the
+portable engine and complete Flarex adapter/reconnect proof.
 
 Platform evidence was rechecked against Cloudflare's current
 [SQLite-backed Durable Object storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)
