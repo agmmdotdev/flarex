@@ -2422,10 +2422,12 @@ Postgres subscription registry or compatibility SchedulerDO.
 
 Roadmap 21's `SYNC01-P` docs-only preflight and bounded `SYNC01-A` strict
 persisted cursor/wake plus pure host-neutral contiguous-cursor core are
-complete. They do not satisfy this prerequisite. R03-B remains blocked until
-the target sync owner also has durable per-scope cursor state, canonical query
-identity and generation authority, a typed dependency index, authenticated
-active-head observation, and reset/reconnect behavior.
+complete. `SYNC01-B` also completes the private RQ01 receipt containing the
+same-read snapshot token, typed incoming dependency, and authenticated active-
+head witness. These checkpoints do not satisfy this prerequisite. R03-B remains
+blocked until the target sync owner also has durable per-scope cursor state,
+canonical query identity and generation authority, a typed dependency index,
+authenticated active-head observation, and reset/reconnect behavior.
 
 Outcome:
 

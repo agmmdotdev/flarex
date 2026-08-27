@@ -31,6 +31,9 @@ import {
   RELATION_INCOMING_PAGE_MAXIMUM_IDENTITIES_V1,
 } from "flarex-protocol/internal/application-schema-binding";
 import {
+  ApplicationActivationSequenceV1Schema,
+  ApplicationActiveHeadSha256HexV1Schema,
+  type LogicalApplicationRelationIncomingReadDependencyV1,
   MAX_COMMIT_INDEXED_QUERY_PAGE_SIZE_V1,
   MAX_COMMIT_INDEXED_QUERY_SYSCALLS_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
@@ -228,6 +231,16 @@ export interface OpenedApplicationRelationQuerySnapshot {
 export interface ApplicationRelationQueryPage {
   readonly sources: ReadonlyArray<ApplicationRelationIncomingReadItem>;
   readonly exhausted: boolean;
+}
+
+export interface ApplicationRelationQuerySyncReceipt {
+  readonly snapshotToken: SnapshotToken;
+  readonly dependency: LogicalApplicationRelationIncomingReadDependencyV1;
+}
+
+export interface ApplicationRelationQueryPageWithSyncReceipt {
+  readonly page: ApplicationRelationQueryPage;
+  readonly receipt: ApplicationRelationQuerySyncReceipt;
 }
 
 export interface ApplicationRelationQueryReadOptions {
@@ -756,6 +769,48 @@ export const readApplicationRelationQueryIncomingSources = Effect.fn(
   ApplicationRelationQueryPage,
   UseApplicationRelationQuerySnapshotError
 > {
+  const observed = yield* readApplicationRelationQueryIncomingSourcesObserved(
+    snapshot,
+    target,
+    limit,
+    options,
+  );
+  return observed.page;
+});
+
+export const readApplicationRelationQueryIncomingSourcesWithSyncReceipt =
+  Effect.fn(
+    "ApplicationQuerySnapshot.readIncomingRelationSourcesWithSyncReceipt",
+  )(function* (
+    snapshot: ApplicationRelationQuerySnapshot,
+    target: AppDocumentIdV1,
+    limit: number,
+    options: ApplicationRelationQueryReadOptions = Object.freeze({}),
+  ): Effect.fn.Return<
+    ApplicationRelationQueryPageWithSyncReceipt,
+    UseApplicationRelationQuerySnapshotError
+  > {
+    const observed = yield*
+      readApplicationRelationQueryIncomingSourcesObserved(
+        snapshot,
+        target,
+        limit,
+        options,
+      );
+    return Object.freeze({
+      page: observed.page,
+      receipt: captureApplicationRelationQuerySyncReceipt(observed),
+    });
+  });
+
+const readApplicationRelationQueryIncomingSourcesObserved = Effect.fn(
+  "ApplicationQuerySnapshot.readIncomingRelationSourcesObserved",
+)(function* (
+  snapshot: ApplicationRelationQuerySnapshot,
+  target: AppDocumentIdV1,
+  limit: number,
+  options: ApplicationRelationQueryReadOptions,
+) {
   const state = yield* Effect.fromResult(claimRelationSnapshot(snapshot));
   return yield* state.readGate.withPermit(Effect.gen(function* () {
     yield* requireRelationOpen(state);
@@ -783,6 +838,32 @@ export const readApplicationRelationQueryIncomingSources = Effect.fn(
     );
   }));
 });
+
+function captureApplicationRelationQuerySyncReceipt(
+  observed: Readonly<{
+    readonly state: RelationState;
+    readonly targetRowId: AppDocumentIdentityV1["rowId"];
+    readonly observedAdjacencyVersion: CommitSeq;
+  }>,
+): ApplicationRelationQuerySyncReceipt {
+  const { state } = observed;
+  const dependency = Object.freeze({
+    kind: "appRelationIncoming",
+    edgeDefinitionId: state.resolved.definition.edge.edgeDefinitionId,
+    targetRowId: observed.targetRowId,
+    observedAdjacencyVersion: observed.observedAdjacencyVersion,
+    activationSequence: ApplicationActivationSequenceV1Schema.make(
+      state.metadata.basis.activationSequence,
+    ),
+    activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema.make(
+      encodeBytesToLowercaseHex(state.metadata.basis.headSha256),
+    ),
+  }) satisfies LogicalApplicationRelationIncomingReadDependencyV1;
+  return Object.freeze({
+    snapshotToken: Object.freeze({ ...state.metadata.snapshotToken }),
+    dependency,
+  });
+}
 
 function readIndex(
   state: State,
@@ -1077,13 +1158,18 @@ const readRelationInTransaction = Effect.fn(
       : relationFailure("read", "resourceFailure"));
   }
   return Object.freeze({
-    sources: Object.freeze(page.items.map(item =>
-      applicationRelationIncomingReadItemFromEdge(
-        state.metadata.sourceTableId,
-        item,
-      )
-    )),
-    exhausted: page.exhausted,
+    state,
+    targetRowId: input.targetRowId,
+    observedAdjacencyVersion: page.versionBefore,
+    page: Object.freeze({
+      sources: Object.freeze(page.items.map(item =>
+        applicationRelationIncomingReadItemFromEdge(
+          state.metadata.sourceTableId,
+          item,
+        )
+      )),
+      exhausted: page.exhausted,
+    }),
   });
 });
 

@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const operations = vi.hoisted(() => ({
   open: vi.fn(),
   read: vi.fn(),
+  readWithSyncReceipt: vi.fn(),
 }));
 
 vi.mock(
@@ -22,6 +23,8 @@ vi.mock(
     ...await importOriginal<Readonly<Record<string, unknown>>>(),
     openApplicationRelationQuerySnapshot: operations.open,
     readApplicationRelationQueryIncomingSources: operations.read,
+    readApplicationRelationQueryIncomingSourcesWithSyncReceipt:
+      operations.readWithSyncReceipt,
   }),
 );
 
@@ -52,15 +55,37 @@ const PAGE = Object.freeze({
   })]),
   exhausted: true,
 });
+const PAGE_WITH_SYNC_RECEIPT = Object.freeze({
+  page: PAGE,
+  receipt: Object.freeze({
+    snapshotToken: Object.freeze({
+      scopeId: "00000000-0000-0000-0000-000000000003",
+      epoch: "00000000-0000-0000-0000-000000000004",
+      commitSeq: 7n,
+    }),
+    dependency: Object.freeze({
+      kind: "appRelationIncoming",
+      edgeDefinitionId: "00000000-0000-0000-0000-000000000005",
+      targetRowId: "00000000000000000000000000000001",
+      observedAdjacencyVersion: 6n,
+      activationSequence: 2n,
+      activeHeadSha256Hex: "11".repeat(32),
+    }),
+  }),
+});
 
 describe("Application relation query system", () => {
   beforeEach(() => {
     operations.open.mockReset();
     operations.read.mockReset();
+    operations.readWithSyncReceipt.mockReset();
     operations.open.mockReturnValue(Effect.succeed(Object.freeze({
       snapshot: SNAPSHOT,
     })));
     operations.read.mockReturnValue(Effect.succeed(PAGE));
+    operations.readWithSyncReceipt.mockReturnValue(
+      Effect.succeed(PAGE_WITH_SYNC_RECEIPT),
+    );
   });
 
   it("strictly captures the logical request and forwards one active relation read", async () => {
@@ -145,6 +170,39 @@ describe("Application relation query system", () => {
       decoded.target,
       decoded.limit,
     );
+  });
+
+  it("offers one private receipt from the same supplied selection read", async () => {
+    const decoded = Result.getOrThrow(
+      decodeTakeIncomingRelationSourcesInput(validInput()),
+    );
+    const snapshot = Object.freeze({}) as
+      ApplicationRelationQuerySystemLive["snapshot"];
+
+    const result = await Effect.runPromise(
+      makeApplicationSelectionRelationQueryPort({ snapshot }).pipe(
+        Effect.flatMap(port =>
+          port.takeIncomingRelationSourcesWithSyncReceipt(
+            SELECTION,
+            decoded,
+          )
+        ),
+        Effect.provide(ScopeExecutionLive),
+      ),
+    );
+
+    expect(result).toBe(PAGE_WITH_SYNC_RECEIPT);
+    expect(operations.open).toHaveBeenCalledWith(
+      SELECTION,
+      decoded.relation,
+      snapshot,
+    );
+    expect(operations.readWithSyncReceipt).toHaveBeenCalledWith(
+      SNAPSHOT,
+      decoded.target,
+      decoded.limit,
+    );
+    expect(operations.read).not.toHaveBeenCalled();
   });
 
   it.each([

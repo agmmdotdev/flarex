@@ -2,9 +2,13 @@ import {
   type ApplicationRelationQuerySystemTestFixture,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-relation-query-fixture";
+import type {
+  CoherentActiveApplication,
+  CoherentActiveRelationApplication,
+} from "@flarex/persistence-postgres/internal/application-activation";
 import {
   openApplicationRelationQuerySnapshot,
-  readApplicationRelationQueryIncomingSources,
+  readApplicationRelationQueryIncomingSourcesWithSyncReceipt,
 } from
   "@flarex/persistence-postgres/internal/application-query-snapshot";
 import {
@@ -14,9 +18,12 @@ import {
   ApplicationRelationQuerySystem,
   decodeTakeIncomingRelationSourcesInput,
   makeApplicationRelationQuerySystemLayer,
+  type TakeIncomingRelationSourcesResult,
   type TakeIncomingRelationSourcesInput,
+  type TakeIncomingRelationSourcesWithSyncReceiptResult,
 } from
   "@flarex/standard-application-invocation/internal/application-relation-query-system";
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Result } from "effect";
 import {
@@ -57,6 +64,18 @@ export interface ApplicationRelationQueryProof {
   readonly expectedExactLimitSourceDocumentIds: ReadonlyArray<string>;
   readonly activeReadCountAfterSuccess: number;
   readonly readOnlyStateStable: boolean;
+  readonly syncReceipt: Readonly<{
+    readonly dependencyKind: string;
+    readonly pageMatchesLogicalResult: boolean;
+    readonly snapshotScopeMatchesSelection: boolean;
+    readonly snapshotEpochMatchesSelection: boolean;
+    readonly observationAtOrBeforeSnapshot: boolean;
+    readonly edgeDefinitionMatches: boolean;
+    readonly targetRowMatches: boolean;
+    readonly activationSequenceMatches: boolean;
+    readonly activeHeadDigestMatches: boolean;
+    readonly runtimeSurfaceFrozen: boolean;
+  }>;
   readonly legacyActive: Readonly<{
     readonly tag: string;
     readonly operation: string | null;
@@ -184,7 +203,7 @@ export async function proveApplicationRelationQuery(
     Effect.runPromise(Effect.gen(function* () {
       const system = yield* ApplicationRelationQuerySystem;
       return yield* Effect.result(
-        system.selectionRelation.takeIncomingRelationSources(
+        system.selectionRelation.takeIncomingRelationSourcesWithSyncReceipt(
           fixture.initialSelection,
           input,
         ),
@@ -194,6 +213,14 @@ export async function proveApplicationRelationQuery(
   const staleFailure = summarizeFailure(staleResult);
 
   const current = await Effect.runPromise(fixture.activation.readActive());
+  const syncResult = await Effect.runPromise(Effect.gen(function* () {
+    const system = yield* ApplicationRelationQuerySystem;
+    return yield* system.selectionRelation
+      .takeIncomingRelationSourcesWithSyncReceipt(
+        current.selection,
+        input,
+      );
+  }).pipe(Effect.provide(layer)));
   const foreignTarget = fixture.expectedSources[0];
   if (foreignTarget === undefined) {
     throw new Error("Expected a relation-query source for table-mismatch proof.");
@@ -223,7 +250,7 @@ export async function proveApplicationRelationQuery(
       );
       yield* Effect.promise(() => fixture.applySnapshotChangingSource());
       return yield* Effect.result(
-        readApplicationRelationQueryIncomingSources(
+        readApplicationRelationQueryIncomingSourcesWithSyncReceipt(
           opened.snapshot,
           fixture.target,
           128,
@@ -274,6 +301,12 @@ export async function proveApplicationRelationQuery(
     expectedExactLimitSourceDocumentIds: fixture.expectedExactSources,
     activeReadCountAfterSuccess: activeReadCount,
     readOnlyStateStable: deepStateEqual(stateBefore, stateAfter),
+    syncReceipt: summarizeSyncReceipt(
+      syncResult,
+      pages.full,
+      current,
+      fixture,
+    ),
     legacyActive: Object.freeze({
       ...legacyActiveFailure,
       edgeStorageGuarded: true,
@@ -291,6 +324,45 @@ export async function proveApplicationRelationQuery(
       observedPageQueries: observedPageQueries.length,
       pageQuery,
     }),
+  });
+}
+
+function summarizeSyncReceipt(
+  result: TakeIncomingRelationSourcesWithSyncReceiptResult,
+  fullPage: TakeIncomingRelationSourcesResult,
+  current: CoherentActiveApplication | CoherentActiveRelationApplication,
+  fixture: ApplicationRelationQuerySystemTestFixture,
+): ApplicationRelationQueryProof["syncReceipt"] {
+  const expectedTargetRowId = decodeAppDocumentIdentityV1(fixture.target).rowId;
+  const { dependency, snapshotToken } = result.receipt;
+  return Object.freeze({
+    dependencyKind: dependency.kind,
+    pageMatchesLogicalResult:
+      result.page.exhausted === fullPage.exhausted &&
+      result.page.sources.length === fullPage.sources.length &&
+      result.page.sources.every((source, index) =>
+        source.sourceDocumentId === fullPage.sources[index]?.sourceDocumentId
+      ),
+    snapshotScopeMatchesSelection:
+      snapshotToken.scopeId === current.basis.authority.scopeId,
+    snapshotEpochMatchesSelection:
+      snapshotToken.epoch === current.basis.authority.epoch,
+    observationAtOrBeforeSnapshot:
+      dependency.observedAdjacencyVersion <= snapshotToken.commitSeq,
+    edgeDefinitionMatches:
+      dependency.edgeDefinitionId ===
+        fixture.incomingPageQueryExpectation.edgeDefinitionId,
+    targetRowMatches: dependency.targetRowId === expectedTargetRowId,
+    activationSequenceMatches:
+      dependency.activationSequence === current.basis.activationSequence,
+    activeHeadDigestMatches:
+      dependency.activeHeadSha256Hex ===
+        encodeBytesToLowercaseHex(current.basis.headSha256),
+    runtimeSurfaceFrozen:
+      Object.isFrozen(result) &&
+      Object.isFrozen(result.receipt) &&
+      Object.isFrozen(snapshotToken) &&
+      Object.isFrozen(dependency),
   });
 }
 

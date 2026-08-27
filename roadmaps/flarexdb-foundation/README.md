@@ -831,8 +831,10 @@ Dynamic Worker binding baseline before selecting it.
 22. Roadmap 21 `SYNC01-P` (complete, docs-only) freezes the target sync
     authority and independent app-data cursor and Application active-head
     fences. `SYNC01-A` is also complete: it adds only the strict cursor/wake
-    contracts and pure contiguous-cursor decisions, not a Durable Object,
-    registration, rerun, delivery, reconnect, or relation observer.
+    contracts and pure contiguous-cursor decisions. `SYNC01-B` now adds the
+    private same-read RQ01 snapshot/dependency/active-head receipt. These still
+    add no Durable Object, registration, dependency index, rerun, delivery,
+    reconnect, or relation observer.
 23. `R03-B`: after roadmap 21's durable scope-local sync owner, canonical query
     generation/dependency contracts, active-head observation, and reconnect
     rules exist, prove fenced relation registration, invalidation, and

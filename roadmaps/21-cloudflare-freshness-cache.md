@@ -638,3 +638,66 @@ This checkpoint adds no Durable Object, storage table, feed loop, dependency
 application, query generation, registration, rerun, delivery, reconnect, or
 production routing. The next ordered work remains the target contract/owner
 preflight above; `R03-B` is still blocked.
+
+### [x] SYNC01-BP — Freeze The Private Relation Query Receipt Boundary
+
+Status: docs-only preflight completed on 2026-08-27. This checkpoint authorizes
+only one private receipt-producing variant of the existing RQ01 relation read
+plus focused unit and paired database-system proof. It does not complete the
+first ordered typed-contract gate and does not authorize a sync owner, query
+registration, or `R03-B`.
+
+The active query-snapshot owner is the only component authorized to construct
+this receipt. After the existing read has validated one unchanged adjacency
+version at or before its exact snapshot commit, it may return:
+
+- the unchanged logical `{ sources, exhausted }` page;
+- an owned copy of that exact snapshot's `SnapshotToken`; and
+- one `LogicalApplicationRelationIncomingReadDependencyV1` whose edge
+  definition, target row, and observed adjacency version came from that same
+  physical read, and whose activation sequence and active-head digest came
+  from the same authenticated relation selection already validated by the
+  snapshot.
+
+No receipt may be returned when the adjacency version changes during the read,
+is newer than the snapshot, the active selection is stale, or any existing
+authority validation fails. The existing Standard
+`takeIncomingRelationSources` method and its public result remain unchanged.
+Only the private selection-owned port may expose the receipt-producing method.
+
+This slice deliberately leaves canonical query identity, provisional and
+active generations, dependency-index storage, cursor-mirror fencing,
+reset/resnapshot envelopes, reconnect leases, `DeploymentSyncDO`, registration,
+reruns, delivery, public SDK work, and production routing undefined or
+unimplemented. Those remain separately preflighted gates; the receipt is
+evidence for a later owner, not registration authority by itself.
+
+### [x] SYNC01-B — Private Relation Query Sync Receipt
+
+Status: completed on 2026-08-27. The persistence snapshot owner now returns an
+optional private receipt-bearing result from the same validated relation read.
+The Standard selection port exposes that variant only to trusted internal
+callers; the existing active-selection method and its logical page result are
+unchanged.
+
+Completion evidence:
+
+- the receipt owns an exact `SnapshotToken` copy and one frozen typed incoming-
+  relation dependency;
+- the dependency's target row, edge-definition identity, and stable adjacency
+  version come from the same bounded physical read, while its activation
+  sequence and active-head digest come from that read's already authenticated
+  relation selection;
+- existing stale-selection and snapshot-change failures still return no page
+  or receipt;
+- focused Standard unit tests prove the private port boundary without changing
+  the ordinary operation, and the PGlite system proof checks the complete
+  receipt against actual active authority and relation state; and
+- persistence, Standard invocation, and system-test strict typechecks pass.
+
+No real-Postgres receipt acceptance was claimed in this checkpoint. The paired
+acceptance assertion is present and remains to be run in the authenticated
+PostgreSQL lane. This checkpoint still adds no registration, dependency index,
+cursor mirror, `DeploymentSyncDO`, rerun, delivery, reconnect, or production
+route. The first ordered typed-contract gate remains incomplete and `R03-B`
+remains blocked.

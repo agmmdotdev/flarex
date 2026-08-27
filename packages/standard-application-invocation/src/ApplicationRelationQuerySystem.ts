@@ -1,7 +1,9 @@
 import {
   openApplicationRelationQuerySnapshot,
   readApplicationRelationQueryIncomingSources,
+  readApplicationRelationQueryIncomingSourcesWithSyncReceipt,
   type ApplicationRelationQueryPage,
+  type ApplicationRelationQueryPageWithSyncReceipt,
   type ApplicationRelationQuerySnapshotContext,
   type OpenApplicationRelationQuerySnapshotError,
   type UseApplicationRelationQuerySnapshotError,
@@ -32,6 +34,9 @@ export {
 
 export type TakeIncomingRelationSourcesResult = ApplicationRelationQueryPage;
 
+export type TakeIncomingRelationSourcesWithSyncReceiptResult =
+  ApplicationRelationQueryPageWithSyncReceipt;
+
 export type ApplicationSelectionRelationQueryError =
   | OpenApplicationRelationQuerySnapshotError
   | UseApplicationRelationQuerySnapshotError;
@@ -49,6 +54,13 @@ export interface ApplicationSelectionRelationQueryPort {
     input: TakeIncomingRelationSourcesInput,
   ) => Effect.Effect<
     TakeIncomingRelationSourcesResult,
+    ApplicationSelectionRelationQueryError
+  >;
+  readonly takeIncomingRelationSourcesWithSyncReceipt: (
+    selection: ApplicationActiveSelection,
+    input: TakeIncomingRelationSourcesInput,
+  ) => Effect.Effect<
+    TakeIncomingRelationSourcesWithSyncReceiptResult,
     ApplicationSelectionRelationQueryError
   >;
 }
@@ -125,6 +137,11 @@ export const makeApplicationSelectionRelationQueryPort = Effect.fn(
       snapshot,
       scopeExecution,
     ),
+    takeIncomingRelationSourcesWithSyncReceipt:
+      makeSelectionTakeIncomingRelationSourcesWithSyncReceipt(
+        snapshot,
+        scopeExecution,
+      ),
   }) satisfies ApplicationSelectionRelationQueryPort;
 });
 
@@ -177,6 +194,32 @@ function makeSelectionTakeIncomingRelationSources(
         input.target,
         input.limit,
       )),
+    ),
+  ));
+}
+
+function makeSelectionTakeIncomingRelationSourcesWithSyncReceipt(
+  snapshotContext: ApplicationRelationQuerySnapshotContext,
+  scopeExecution: ScopeExecutionApi,
+): ApplicationSelectionRelationQueryPort[
+  "takeIncomingRelationSourcesWithSyncReceipt"
+] {
+  return Effect.fn(
+    "ApplicationSelectionRelationQueryPort.takeIncomingRelationSourcesWithSyncReceipt",
+  )((selection, input) => Effect.scoped(
+    openApplicationRelationQuerySnapshot(
+      selection,
+      input.relation,
+      snapshotContext,
+    ).pipe(
+      Effect.provideService(ScopeExecution, scopeExecution),
+      Effect.flatMap(opened =>
+        readApplicationRelationQueryIncomingSourcesWithSyncReceipt(
+          opened.snapshot,
+          input.target,
+          input.limit,
+        )
+      ),
     ),
   ));
 }

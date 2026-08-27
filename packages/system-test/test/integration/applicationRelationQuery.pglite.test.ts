@@ -54,6 +54,18 @@ function expectRelationQueryProof(
   expect(proof.emptyPage).toEqual({ sourceCount: 0, exhausted: true });
   expect(proof.activeReadCountAfterSuccess).toBe(4);
   expect(proof.readOnlyStateStable).toBe(true);
+  expect(proof.syncReceipt).toEqual({
+    dependencyKind: "appRelationIncoming",
+    pageMatchesLogicalResult: true,
+    snapshotScopeMatchesSelection: true,
+    snapshotEpochMatchesSelection: true,
+    observationAtOrBeforeSnapshot: true,
+    edgeDefinitionMatches: true,
+    targetRowMatches: true,
+    activationSequenceMatches: true,
+    activeHeadDigestMatches: true,
+    runtimeSurfaceFrozen: true,
+  });
   expect(proof.legacyActive).toEqual({
     tag: "ApplicationActivationError",
     operation: "validateSelection",
