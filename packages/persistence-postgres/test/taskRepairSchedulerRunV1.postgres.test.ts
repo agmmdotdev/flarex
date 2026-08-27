@@ -36,6 +36,7 @@ import {
 } from "../src/taskRepairSchedulerCheckpointV1";
 import { TASK_REPAIR_SCHEDULER_KEY_V1 } from
   "../src/taskRepairSchedulerModelV1";
+import { fxSystemDurableTaskRepairSchedulerV1 } from "../src/schema";
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
 import {
@@ -246,17 +247,22 @@ function repairReceipt(
 }
 
 async function row(persistence: PostgresFlarexPersistence) {
-  const result = await persistence.query<{
-    readonly scheduler_state: string;
-    readonly run_fence: string;
-    readonly checkpoint_sequence: string;
-    readonly continuation_bytes: Uint8Array | null;
-  }>(
-    "select scheduler_state, run_fence::text, checkpoint_sequence::text, " +
-      "continuation_bytes " +
-      "from fx_system_durable_task_repair_scheduler_v1",
-  );
-  return result.rows[0];
+  const [result] = await persistence.drizzle.select({
+    schedulerState: fxSystemDurableTaskRepairSchedulerV1.schedulerState,
+    runFence: fxSystemDurableTaskRepairSchedulerV1.runFence,
+    checkpointSequence:
+      fxSystemDurableTaskRepairSchedulerV1.checkpointSequence,
+    continuationBytes:
+      fxSystemDurableTaskRepairSchedulerV1.continuationBytes,
+  }).from(fxSystemDurableTaskRepairSchedulerV1);
+  return result === undefined
+    ? undefined
+    : {
+      scheduler_state: result.schedulerState,
+      run_fence: String(result.runFence),
+      checkpoint_sequence: String(result.checkpointSequence),
+      continuation_bytes: result.continuationBytes,
+    };
 }
 
 async function withTaskRepairPostgresPersistence(
