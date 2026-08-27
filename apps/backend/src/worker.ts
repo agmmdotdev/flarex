@@ -2,6 +2,7 @@ export {
   ConnectionDO,
   DeliveryDO,
   DeploymentDO,
+  DeploymentSyncDO,
   ExecutionDO,
   PartitionDO,
   RegistryDO,

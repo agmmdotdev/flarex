@@ -6,9 +6,11 @@ Status: accepted v1 sync design with an implemented prototype pipeline.
 `SYNC01-P`, the docs-only target authority and first implementation preflight,
 and bounded `SYNC01-A` through `SYNC01-E` private correctness slices are
 complete. `SYNC01-FP`, the docs-only durable scope-cursor owner preflight, is
-also complete; its implementation is not. The per-scope
-`DeploymentSyncDO` replacement is not implemented, and cache Durable Objects
-remain deferred optimizations.
+also complete, and `SYNC01-F` now implements its production-inert per-scope
+`DeploymentSyncDO` plus fenced SQLite cursor owner. Persisted query identity,
+generation and dependency state, ordered Postgres catch-up, registration,
+reset/reconnect, rerun, delivery, and production caller integration remain
+incomplete. Cache Durable Objects remain deferred optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
 connection leases remain prototype mechanics, not the accepted replacement
@@ -1048,3 +1050,36 @@ and [named-object metadata limitation](https://developers.cloudflare.com/durable
 Those sources support private strongly consistent SQLite state,
 `transactionSync`, deterministic named routing, and the explicit stored
 identity check required above; they do not supply Flarex scope authority.
+
+### [x] SYNC01-F — Durable Scope Cursor Owner
+
+Status: completed on 2026-08-27. The backend now exports one production-inert
+`DeploymentSyncDO`, binds it through `DEPLOYMENT_SYNCS`, and adds it as its own
+SQLite Durable Object migration. The backend-owned deterministic name is
+`deployment-sync:${scopeUuid}`. The class exposes no fetch, RPC, alarm, or
+scheduled operation, and no production route or caller resolves the binding.
+
+The package-local store owns one strictly decoded singleton scope-state row.
+It preserves the protocol-owned scope and epoch UUIDs, literal
+`flarexdb_v1` generation, storage-generation fence, and applied-through commit
+sequence. Fence and sequence values round-trip as canonical decimal text and
+decode back to bounded branded `bigint` values. Empty state remains explicit
+uninitialized state; schema construction inserts no authority and does not
+repair malformed state.
+
+Initialization accepts only an already-typed active-head observation, exact
+replay is an immutable no-op, and any differing identity or cursor field is a
+typed conflict. Read and advance operations check the caller-supplied canonical
+scope against the stored identity. Advancement continues to use
+`advanceScopeSyncCursorV1` as its only policy: duplicates do not write;
+scope/epoch mismatches and gaps fail before mutation; exact-next commits use
+one synchronous transaction and exact-text compare-and-swap. Corruption,
+uninitialized access, initialization disagreement, lost compare-and-swap, and
+SQLite failures remain distinct tagged failures.
+
+This checkpoint adds no query-key codec, query/generation/dependency table,
+feed interval reader, wake handler, catch-up loop, reset/reconnect state,
+checkpoint mirror, rerun, delivery, public route, public SDK, relation API,
+Payload adapter, or production caller. The next roadmap-21 preflight must own
+the canonical persisted query-key and generation/dependency state before those
+tables exist. `R03-B` remains blocked.

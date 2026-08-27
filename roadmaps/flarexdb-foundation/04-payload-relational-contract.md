@@ -2437,17 +2437,17 @@ Roadmap 21's `SYNC01-E` now implements the narrow authenticated current-head
 observation prerequisite: strict evidence from the trusted located read, the
 query receipt's storage-generation fence, and the connected activation-
 classifier checks. Its paired PGlite and genuine-PostgreSQL transaction/lock
-acceptance lanes are complete. Durable sync-owner state, atomic installation,
-dependency indexing, catch-up, head-change recovery, reset, reconnect, and
-relation registration remain absent and continue to block R03-B.
+acceptance lanes are complete. Roadmap 21's `SYNC01-F` now also implements the
+production-inert deterministic `DeploymentSyncDO` and its fenced SQLite
+scope-cursor owner. Persisted query identity, generation and dependency state,
+catch-up, head-change recovery, reset, reconnect, and relation registration
+remain absent and continue to block R03-B.
 
-Roadmap 21's `SYNC01-FP` now authorizes only the first durable-owner
-implementation slice: deterministic per-scope `DeploymentSyncDO` routing and
-one fenced SQLite scope-cursor row with exact initialization replay and atomic
-exact-next compare-and-swap. It intentionally excludes canonical-query key
-encoding, generation and dependency storage, feed catch-up, reset/reconnect,
-and registration. Completing `SYNC01-F` will therefore establish the actor and
-cursor owner but will not satisfy R03-B's registration prerequisite.
+Completed `SYNC01-F` intentionally excludes canonical-query key encoding,
+generation and dependency storage, feed catch-up, reset/reconnect, and
+registration. The actor and cursor owner are therefore real, but the next
+query-state preflight and the later contiguous catch-up proof must complete
+before R03-B's registration prerequisite is satisfied.
 
 Outcome:
 

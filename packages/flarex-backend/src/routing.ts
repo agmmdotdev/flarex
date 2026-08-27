@@ -1,5 +1,11 @@
+import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
+
 export function deploymentObjectName(deploymentId: string): string {
   return `deployment:${deploymentId}`;
+}
+
+export function deploymentSyncObjectName(scopeUuid: ScopeUuidV1): string {
+  return `deployment-sync:${scopeUuid}`;
 }
 
 export function partitionObjectName(deploymentId: string, partitionKey: string): string {

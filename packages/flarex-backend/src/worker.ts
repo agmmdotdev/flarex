@@ -45,6 +45,7 @@ import {
 } from "./delivery/RouteBoundary";
 import { DeliveryWakePayloadError } from "./delivery/WakeRequest";
 import { DeploymentDO } from "./deploymentDO";
+import { DeploymentSyncDO } from "./deploymentSyncDO";
 import {
   decodePublicExecutionActionRequest,
   MissingExecutionActionError,
@@ -226,7 +227,15 @@ import type {
   StartPushRequest,
 } from "./types";
 
-export { ConnectionDO, DeliveryDO, DeploymentDO, PartitionDO, RegistryDO, SchedulerDO };
+export {
+  ConnectionDO,
+  DeliveryDO,
+  DeploymentDO,
+  DeploymentSyncDO,
+  PartitionDO,
+  RegistryDO,
+  SchedulerDO,
+};
 export { ExecutionDO };
 
 const functions: BackendFunctionRegistry = {};

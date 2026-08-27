@@ -13,6 +13,7 @@ export type ValidatorJson = ProtocolValidatorJson;
 export type Env = {
   REGISTRY: DurableObjectNamespace;
   DEPLOYMENTS: DurableObjectNamespace;
+  DEPLOYMENT_SYNCS: DurableObjectNamespace;
   PARTITIONS: DurableObjectNamespace;
   EXECUTIONS: DurableObjectNamespace;
   CONNECTIONS: DurableObjectNamespace;
