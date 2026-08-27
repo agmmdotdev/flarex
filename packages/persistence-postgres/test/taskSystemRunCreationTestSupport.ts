@@ -23,12 +23,17 @@ import {
   type TaskRuntimeObjectReferenceV1,
   type TaskRuntimeObjectRoleV1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "../src/deployments";
-import type { FlarexSqlClient } from "../src/index";
-import { fxSystemDurableTaskDefinitionRevisionsV1 } from "../src/schema";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunRequestsV1,
+  fxSystemDurableTaskRunsV1,
+} from "../src/schema";
 import type { LocatedTrustedScopeAuthority } from
   "../src/scopeAuthorityResolution";
 import {
@@ -292,30 +297,27 @@ export async function installTaskSystemCreationRuntimeBindingV1(
 }
 
 export async function taskSystemCreationCountsV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: Readonly<{ readonly drizzle: FlarexMetadataDatabase }>,
 ) {
-  const result = await persistence.query<{
-    runs: number | string;
-    requests: number | string;
-    attempts: number | string;
-    effects: number | string;
-  }>(`
-    select
-      (select count(*)::int from fx_system_durable_task_run_v1) as runs,
-      (select count(*)::int from fx_system_durable_task_run_request_v1)
-        as requests,
-      (select count(*)::int from fx_system_durable_task_attempt_identity_v1)
-        as attempts,
-      (select count(*)::int from fx_system_durable_task_requested_effect_v1)
-        as effects
-  `);
-  const row = result.rows[0];
-  if (row === undefined) throw new Error("Task System counts returned no row.");
+  const [[runs], [requests], [attempts], [effects]] = await Promise.all([
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRunsV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRunRequestsV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskAttemptIdentitiesV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRequestedEffectsV1,
+    ),
+  ]);
   return Object.freeze({
-    runs: Number(row.runs),
-    requests: Number(row.requests),
-    attempts: Number(row.attempts),
-    effects: Number(row.effects),
+    runs: runs?.count ?? -1,
+    requests: requests?.count ?? -1,
+    attempts: attempts?.count ?? -1,
+    effects: effects?.count ?? -1,
   });
 }
 
