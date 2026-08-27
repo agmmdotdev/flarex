@@ -1083,3 +1083,175 @@ checkpoint mirror, rerun, delivery, public route, public SDK, relation API,
 Payload adapter, or production caller. The next roadmap-21 preflight must own
 the canonical persisted query-key and generation/dependency state before those
 tables exist. `R03-B` remains blocked.
+
+### [x] SYNC01-GP — Freeze Persisted Query Identity And Generation State
+
+Status: docs-only preflight complete. This checkpoint authorizes only the next
+private implementation slice, `SYNC01-G`. It freezes the protocol-owned
+canonical query-key codec and the production-inert `DeploymentSyncDO` query,
+generation, result-hash, dirty-frontier, and dependency-index state. It does
+not implement those contracts and does not authorize Postgres catch-up,
+cursor-plus-invalidation application, query execution, registration RPC,
+rerun scheduling, delivery, reset/reconnect, public routes, compatibility
+writes, or a production caller.
+
+The storage split preserves two different facts. The active generation is the
+last installed result and dependency set against which already admitted
+commits must be routed. A provisional generation is one in-flight candidate.
+Beginning a provisional generation must not delete or replace the active
+generation or its dependency rows. They coexist until exact-generation
+activation atomically replaces the active slot. This is still one single-flight
+candidate per canonical query; the retained active slot is not a second rerun.
+
+#### Canonical Persisted Query Key
+
+`flarex-protocol/internal/scope-sync-v1` owns a concrete versioned canonical
+query-key frame rather than permitting the Durable Object to hash an ordinary
+JavaScript object or implementation-dependent JSON. The frame contains the
+complete already accepted `ScopeSyncCanonicalQueryIdentityV1` and no omitted,
+derived, host, subscription, or connection fields. Its representation is:
+
+1. one strict envelope whose format is
+   `flarex.scope-sync-canonical-query-key`, version is `1`, and identity is the
+   complete strict canonical-query identity;
+2. all bigint-backed sequences represented as their canonical decimal text,
+   with `componentPath: null` remaining distinct from every string;
+3. canonical JSON encoded by the protocol's existing `encodeCanonicalJson`
+   contract and then UTF-8 encoded; and
+4. a maximum canonical frame size of 131,072 bytes before hashing or storage.
+
+The protocol owns the branded canonical bytes and the branded lowercase
+SHA-256 query key, canonicalize/decode operations, and exact byte
+recanonicalization check. SHA-256 is supplied through a narrow Effect service,
+matching existing protocol codecs; the Durable Object does not import a
+particular crypto host. Decode verifies the strict envelope, re-encodes it,
+requires byte-for-byte canonical equality, recomputes the digest, and requires
+the expected key to match. Unexpected crypto defects remain defects, while
+malformed, oversized, noncanonical, or digest-mismatched evidence is a typed
+codec failure.
+
+The SHA-256 key is a lookup and sharing key, not identity or authorization
+authority. SQLite stores the complete canonical frame bytes beside it. Every
+read revalidates the frame and digest. If the same digest is presented with
+different canonical bytes, registration fails with a typed collision conflict;
+it never aliases the identities, overwrites the existing query, or falls back
+to another key. Scope, epoch, active head, package, schema, policy, function,
+arguments, and identity/access-policy authority remain with their existing
+producers and must still agree with the actor's fenced scope state.
+
+#### SQLite Query And Dependency State
+
+`SYNC01-G` extends the existing package-local `DeploymentSync` store; it does
+not create another service, Layer, actor, cursor, transaction owner, or query
+registry. The schema keeps one query row per canonical query key with these
+logical fields:
+
+| Field group | Contract |
+| --- | --- |
+| identity | lowercase SHA-256 query key plus owned canonical frame bytes |
+| generation allocator | latest positive generation as canonical decimal text |
+| active slot | nullable generation, snapshot sequence, refreshed-through sequence, result SHA-256, dependency count, and nullable dirty-through sequence |
+| provisional slot | nullable generation and registration cursor sequence |
+
+All sequence columns use canonical decimal text decoded by their existing
+protocol Schemas. An absent active slot requires every active field to be null
+and has no dependency rows. A present active slot requires every active field,
+a non-negative dependency count within the protocol limit, and exactly that
+many strictly decoded dependency rows. An absent provisional slot requires its
+registration cursor to be null; a present provisional slot requires both
+fields. The active and provisional generation may differ and, when both exist,
+the provisional generation is newer. The stored identity's scope and epoch and
+every stored cursor must equal the singleton actor state.
+
+The dependency child table stores only the active generation. Each row owns
+the query key, active generation, dependency kind, and two non-null canonical
+text parts. `appRowPoint` stores its document ID in part one and the empty
+sentinel in part two; `appTable` stores its table ID in part one and the empty
+sentinel in part two; `appRelationIncoming` stores edge-definition ID and
+target-row ID respectively. Strict shape checks and protocol decoding recover
+the existing dependency union. The primary key is the complete query,
+generation, kind, and parts tuple; the reverse index starts with kind and both
+parts and ends with query key. Empty sentinels are storage representation only
+and cannot be interpreted as admitted domain IDs.
+
+The query row's dependency count makes an empty set distinguishable from a
+truncated child directory. Reads are bounded by
+`MAX_SCOPE_SYNC_DEPENDENCY_KEYS_V1`, decode every row once, require one active
+generation, reconstruct strict sorted-unique protocol order, and reject extra,
+missing, duplicate, wrong-generation, malformed, or orphan rows as corruption.
+The store does not rely on an undocumented foreign-key PRAGMA for correctness:
+it explicitly checks parent/child agreement and orphan absence. Replacement
+deletes the prior active directory and inserts the new directory in the same
+`transactionSync` callback as the active-slot compare-and-swap.
+
+#### Authorized State Transitions
+
+`SYNC01-G` may add only these package-local transitions:
+
+1. Canonicalize and register one query identity against the exact current actor
+   scope, epoch, and cursor. A new identity begins generation `1`. Exact replay
+   of an already provisional identity returns the same provisional generation;
+   it does not allocate another candidate. Starting a new candidate for an
+   identity with only an active slot increments the stored generation with
+   bounded bigint arithmetic while retaining the active slot and dependencies.
+2. Read one exact query or perform a bounded reverse dependency lookup. Both
+   paths strictly decode stored state and return owned immutable values. A
+   digest/frame disagreement is collision or corruption, never absence.
+3. Install only an already classified active candidate for the exact current
+   provisional generation. Inside one synchronous transaction, the actor
+   scope/epoch still match, the stored cursor exactly equals the candidate's
+   refreshed-through cursor, and the generation compare-and-swap succeeds.
+   The transaction replaces the active fields and dependency directory, clears
+   the provisional slot, and leaves the new dirty-through frontier null. A
+   stale generation, later cursor, or changed authority leaves the old active
+   slot and provisional state unchanged and returns a typed conflict requiring
+   refresh, rerun, or resnapshot at the owning caller.
+4. Preserve the existing cursor-only `advance` operation only while no query
+   rows exist. Once any query state exists, that operation fails with a typed
+   query-state-present conflict. It must not advance the cursor without routing
+   invalidations. The later `SYNC01-H` preflight must authorize one combined
+   transaction that applies an exact-next commit to the dependency index,
+   updates affected dirty-through frontiers, and advances the cursor.
+
+An activation with an unchanged result hash still replaces dependency and
+freshness evidence; result equality cannot skip the transaction. No operation
+in this slice publishes a result, deletes a query, acknowledges a commit,
+changes a connection lease, or schedules a rerun. The nullable dirty-through
+column is installed and decoded now so the later combined commit transaction
+has one durable target, but `SYNC01-G` may only initialize it to null.
+
+#### Authorized Implementation Slice: SYNC01-G
+
+`SYNC01-G` may add the versioned protocol frame, canonical JSON projection,
+bounded canonical bytes, injected SHA-256 service contract, branded key,
+strict Result/Effect codecs, and focused codec tests. It may extend the current
+backend store with the query and dependency tables, strict stored-row decoders,
+typed codec/collision/conflict/corruption/storage errors, the four transitions
+above, and focused fake-SQLite plus real Miniflare Durable Object storage tests.
+
+Acceptance must prove deterministic identity-to-key vectors, null-versus-text
+and field-sensitive separation, maximum-size refusal, noncanonical-byte and
+digest mismatch refusal, injected collision refusal, signed-64-bit sequence
+round trips, fresh and replayed provisional registration, active/provisional
+coexistence, stale-generation and later-cursor rollback, atomic dependency
+replacement, exact reverse lookup for all three dependency variants, empty-set
+and bounded-maximum handling, child corruption detection, constructor re-entry,
+orphan detection, transaction rollback, and cursor-only advance refusal after
+query registration. Existing cursor behavior must remain green when no query
+state exists.
+
+This slice adds no query runner, feed interval reader, wake handler, catch-up
+loop, dirty-marking operation, alarm, external sweep, Postgres checkpoint
+mirror, registration or activation RPC, connection target, lease, delivery,
+public SDK, relation API, Payload adapter, prototype-registry access, or
+production caller. `R03-B` remains blocked after `SYNC01-G`; contiguous
+cursor-plus-invalidation catch-up, initial registration/refresh, head-change
+recovery, and reset/reconnect still require their own gates.
+
+Platform evidence was rechecked against Cloudflare's current
+[SQLite-backed Durable Object storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)
+and [SQL storage limits](https://developers.cloudflare.com/durable-objects/platform/limits/).
+Those sources support private strongly consistent SQLite storage, synchronous
+SQL operations, indexes, and a two-megabyte BLOB/row ceiling. They do not make
+foreign-key enforcement a Flarex portability contract, so explicit bounded
+parent/child validation remains required above.

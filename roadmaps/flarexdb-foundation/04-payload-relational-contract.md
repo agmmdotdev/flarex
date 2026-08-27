@@ -2449,6 +2449,15 @@ registration. The actor and cursor owner are therefore real, but the next
 query-state preflight and the later contiguous catch-up proof must complete
 before R03-B's registration prerequisite is satisfied.
 
+Roadmap 21's `SYNC01-GP` now freezes that next query-state slice without
+implementing it. The accepted model keeps the installed active generation and
+dependency directory authoritative while one newer provisional candidate is in
+flight, stores and revalidates a protocol-owned canonical query frame beside
+its SHA-256 lookup key, and forbids cursor-only advancement after query state
+exists. Authorized `SYNC01-G` remains production-inert; later contiguous
+cursor-plus-invalidation catch-up and provisional registration/refresh gates
+are still required before R03-B can begin.
+
 Outcome:
 
 - enable relation dependency registration at an exact scope-commit-fenced
