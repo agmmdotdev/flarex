@@ -8,6 +8,7 @@ import {
 import {
   makeFixedTaskRetryJitterSourceV1,
 } from "@flarex/durable-task/internal/scheduling-testing-v1";
+import { count } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { replacementScopeIdV1FromUuid } from
   "flarex-protocol/storage-authority";
@@ -21,6 +22,11 @@ import {
 import {
   createTaskSystemWakeSchedulerResolverV1,
 } from "../src/taskSystemWakeSchedulerResolverV1";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+} from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
 import {
   TASK_LOCATOR,
@@ -225,21 +231,20 @@ function attemptUuidSequence(start: number): () => string {
 }
 
 async function taskCounts(persistence: PGliteFlarexPersistence) {
-  const result = await persistence.query<{
-    runs: string;
-    attempts: string;
-    effects: string;
-  }>(`
-    select
-      (select count(*)::text from fx_system_durable_task_run_v1) as runs,
-      (select count(*)::text
-       from fx_system_durable_task_attempt_identity_v1) as attempts,
-      (select count(*)::text
-       from fx_system_durable_task_requested_effect_v1) as effects
-  `);
+  const [[runs], [attempts], [effects]] = await Promise.all([
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRunsV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskAttemptIdentitiesV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRequestedEffectsV1,
+    ),
+  ]);
   return Object.freeze({
-    runs: Number(result.rows[0]?.runs ?? "-1"),
-    attempts: Number(result.rows[0]?.attempts ?? "-1"),
-    effects: Number(result.rows[0]?.effects ?? "-1"),
+    runs: runs?.count ?? -1,
+    attempts: attempts?.count ?? -1,
+    effects: effects?.count ?? -1,
   });
 }
