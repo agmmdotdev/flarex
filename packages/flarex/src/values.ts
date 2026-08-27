@@ -19,6 +19,16 @@ import {
 } from "flarex-protocol/validator-json";
 
 import type { JSONValue } from "./auth";
+import {
+  captureOwnedValidator,
+  isOwnedValidator,
+} from "./validatorOwnership";
+
+const OBJECT_CREATE = Object.create;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const OBJECT_ENTRIES = Object.entries;
+const OBJECT_FREEZE = Object.freeze;
+const OWNED_VALIDATOR_JSON = Symbol("flarex.owned-validator-json");
 
 export type Id<Table extends string> = string & {
   readonly __tableName: Table;
@@ -39,19 +49,35 @@ export class Validator<
   readonly json: ValidatorJSON;
   readonly isOptional: IsOptional;
 
+  constructor(kind: string, json: ValidatorJSON, isOptional: IsOptional);
   constructor(
     kind: string,
     json: ValidatorJSON,
     isOptional: IsOptional,
+    ownership: typeof OWNED_VALIDATOR_JSON,
+  );
+  constructor(
+    kind: string,
+    json: ValidatorJSON,
+    isOptional: IsOptional,
+    ownership?: typeof OWNED_VALIDATOR_JSON,
   ) {
     this.kind = kind;
-    this.json = snapshotApplicationValidatorJson(decodeValidatorJsonV1(json));
+    this.json = ownership === OWNED_VALIDATOR_JSON
+      ? json
+      : snapshotApplicationValidatorJson(decodeValidatorJsonV1(json));
     this.isOptional = isOptional;
-    Object.freeze(this);
+    OBJECT_FREEZE(this);
+    captureOwnedValidator(this);
   }
 
   asOptional(): Validator<Type | undefined, "optional", FieldPaths> {
-    return new Validator(this.kind, this.json, "optional");
+    return new Validator(
+      this.kind,
+      validatorJsonForComposition(this),
+      "optional",
+      OWNED_VALIDATOR_JSON,
+    );
   }
 }
 
@@ -81,7 +107,16 @@ function required<Type, Paths extends string = never>(
   kind: string,
   json: ValidatorJSON,
 ): Validator<Type, "required", Paths> {
-  return new Validator(kind, json, "required");
+  return new Validator(kind, json, "required", OWNED_VALIDATOR_JSON);
+}
+
+function validatorJsonForComposition(
+  validator: GenericValidator,
+): ValidatorJSON {
+  if (isOwnedValidator(validator)) return validator.json;
+  return snapshotApplicationValidatorJson(
+    decodeValidatorJsonV1(validator.json),
+  );
 }
 
 export function isValidator(value: unknown): value is GenericValidator {
@@ -122,18 +157,23 @@ export const v = {
   array: <Element extends Validator<any, "required", any>>(element: Element) =>
     required<Array<Infer<Element>>>(
       "array",
-      applicationArrayValidatorJson(element.json),
+      applicationArrayValidatorJson(validatorJsonForComposition(element)),
     ),
   object: <Fields extends PropertyValidators>(fields: Fields) => {
     const entries: Record<
       string,
       Readonly<{ readonly fieldType: ValidatorJSON; readonly optional: boolean }>
-    > = Object.create(null);
-    for (const [name, field] of Object.entries(fields)) {
-      Object.defineProperty(entries, name, {
+    > = OBJECT_CREATE(null);
+    const fieldEntries = OBJECT_ENTRIES(fields);
+    for (let index = 0; index < fieldEntries.length; index += 1) {
+      const fieldEntry = fieldEntries[index]!;
+      const name = fieldEntry[0];
+      const field = fieldEntry[1];
+      const fieldType = validatorJsonForComposition(field);
+      OBJECT_DEFINE_PROPERTY(entries, name, {
         enumerable: true,
         value: {
-          fieldType: field.json,
+          fieldType,
           optional: field.isOptional === "optional",
         },
       });
@@ -152,25 +192,42 @@ export const v = {
   ) =>
     required<Record<Infer<Key>, Infer<Value>>, string>(
       "record",
-      applicationRecordValidatorJson(keys.json, values.json),
+      applicationRecordValidatorJson(
+        validatorJsonForComposition(keys),
+        validatorJsonForComposition(values),
+      ),
     ),
   union: <Members extends readonly [
     Validator<any, "required", any>,
     ...ReadonlyArray<Validator<any, "required", any>>,
   ]>(...members: Members) => {
-    const [first, ...rest] = members;
+    const first = members[0]!;
+    const memberJson: [ValidatorJSON, ...ValidatorJSON[]] = [
+      validatorJsonForComposition(first),
+    ];
+    for (let index = 1; index < members.length; index += 1) {
+      OBJECT_DEFINE_PROPERTY(memberJson, index, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: validatorJsonForComposition(members[index]!),
+      });
+    }
     return required<
       Infer<Members[number]>,
       Members[number]["fieldPaths"]
-    >("union", applicationUnionValidatorJson([
-      first.json,
-      ...rest.map(member => member.json),
-    ]));
+    >("union", applicationUnionValidatorJson(memberJson));
   },
-  optional: <Value extends GenericValidator>(value: Value) => value.asOptional(),
+  optional: <Value extends GenericValidator>(value: Value) =>
+    new Validator<Infer<Value> | undefined, "optional", Value["fieldPaths"]>(
+      value.kind,
+      validatorJsonForComposition(value),
+      "optional",
+      OWNED_VALIDATOR_JSON,
+    ),
   nullable: <Value extends Validator<any, "required", any>>(value: Value) =>
     required<Infer<Value> | null>("union", applicationUnionValidatorJson([
-      value.json,
+      validatorJsonForComposition(value),
       applicationScalarValidatorJson("null"),
     ])),
 };
@@ -196,7 +253,7 @@ export class FlarexError<Data extends Value = Value> extends Error {
 
   constructor(code: string, message: string, data?: Data) {
     super(message);
-    Object.defineProperty(this, "name", { value: "FlarexError" });
+    OBJECT_DEFINE_PROPERTY(this, "name", { value: "FlarexError" });
     this.code = code;
     if (data !== undefined) this.data = data;
   }

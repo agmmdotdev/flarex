@@ -63,6 +63,114 @@ describe("runtime validation", () => {
     ).toThrowError(ValidationError);
   });
 
+  it("constructs exact validators after same-realm intrinsic mutation", () => {
+    const defineProperty = Object.defineProperty;
+    const deleteProperty = Reflect.deleteProperty;
+    const freezeDescriptor = Object.getOwnPropertyDescriptor(Object, "freeze");
+    const createDescriptor = Object.getOwnPropertyDescriptor(Object, "create");
+    const entriesDescriptor = Object.getOwnPropertyDescriptor(Object, "entries");
+    const definePropertyDescriptor = Object.getOwnPropertyDescriptor(
+      Object,
+      "defineProperty",
+    );
+    const iteratorDescriptor = Object.getOwnPropertyDescriptor(
+      Array.prototype,
+      Symbol.iterator,
+    );
+    const mapDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, "map");
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(
+      Array.prototype,
+      "constructor",
+    );
+    const zeroDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, "0");
+    if (
+      freezeDescriptor === undefined ||
+      createDescriptor === undefined ||
+      entriesDescriptor === undefined ||
+      definePropertyDescriptor === undefined ||
+      iteratorDescriptor === undefined ||
+      mapDescriptor === undefined ||
+      constructorDescriptor === undefined
+    ) throw new Error("Missing intrinsic descriptor.");
+    let validator: ReturnType<typeof v.object>;
+    try {
+      defineProperty(Array.prototype, "0", {
+        configurable: true,
+        set() {
+          throw new Error("polluted numeric setter");
+        },
+      });
+      defineProperty(Array.prototype, "constructor", {
+        configurable: true,
+        get() {
+          throw new Error("polluted array constructor");
+        },
+      });
+      defineProperty(Array.prototype, Symbol.iterator, {
+        ...iteratorDescriptor,
+        value: function* () {
+          yield { json: { type: "any" } };
+        },
+      });
+      defineProperty(Array.prototype, "map", {
+        ...mapDescriptor,
+        value: () => [{ type: "any" }],
+      });
+      defineProperty(Object, "freeze", {
+        ...freezeDescriptor,
+        value: () => ({ kind: "polluted-freeze" }),
+      });
+      defineProperty(Object, "create", {
+        ...createDescriptor,
+        value: () => { throw new Error("polluted create"); },
+      });
+      defineProperty(Object, "entries", {
+        ...entriesDescriptor,
+        value: () => [],
+      });
+      defineProperty(Object, "defineProperty", {
+        ...definePropertyDescriptor,
+        value: () => { throw new Error("polluted defineProperty"); },
+      });
+
+      validator = v.object({
+        id: v.string(),
+        role: v.union(v.literal("reader"), v.literal("writer")),
+      });
+    } finally {
+      defineProperty(Object, "defineProperty", definePropertyDescriptor);
+      defineProperty(Object, "entries", entriesDescriptor);
+      defineProperty(Object, "create", createDescriptor);
+      defineProperty(Object, "freeze", freezeDescriptor);
+      defineProperty(Array.prototype, "map", mapDescriptor);
+      defineProperty(Array.prototype, Symbol.iterator, iteratorDescriptor);
+      defineProperty(Array.prototype, "constructor", constructorDescriptor);
+      if (zeroDescriptor === undefined) {
+        deleteProperty(Array.prototype, "0");
+      } else {
+        defineProperty(Array.prototype, "0", zeroDescriptor);
+      }
+    }
+
+    expect(validator.json).toEqual({
+      type: "object",
+      value: {
+        id: { fieldType: { type: "string" }, optional: false },
+        role: {
+          fieldType: {
+            type: "union",
+            value: [
+              { type: "literal", value: "reader" },
+              { type: "literal", value: "writer" },
+            ],
+          },
+          optional: false,
+        },
+      },
+    });
+    expect(Object.isFrozen(validator)).toBe(true);
+  });
+
   it("uses the protocol number domain and rejects non-Flarex values", () => {
     for (const value of [Number.NaN, Number.POSITIVE_INFINITY, -0]) {
       expect(() => validateValue(v.number(), value)).not.toThrow();
@@ -92,6 +200,39 @@ describe("runtime validation", () => {
     expect(() => validateValue(malformed, "anything")).toThrow(
       "$validator.json: Invalid validator JSON.",
     );
+  });
+
+  it("does not launder forged validators through facade composition", () => {
+    const malformed = {
+      isFlarexValidator: true,
+      kind: "forged",
+      json: { type: "not-a-validator" },
+      isOptional: "required",
+      asOptional: () => v.any(),
+    };
+    const forged = malformed as unknown as Validator<never>;
+    const forgedString = malformed as unknown as Validator<string>;
+
+    const compositions = [
+      () => v.array(forged),
+      () => v.object({ value: forged }),
+      () => v.record(forgedString, v.any()),
+      () => v.record(v.string(), forged),
+      () => v.union(forged, v.any()),
+      () => v.optional(forged),
+      () => v.nullable(forged),
+    ];
+
+    for (const compose of compositions) {
+      expect(compose).toThrow('got "not-a-validator"');
+    }
+  });
+
+  it("rejects untyped facade inputs outside ID and literal contracts", () => {
+    // @ts-expect-error Deliberately exercise an untyped JavaScript caller.
+    expect(() => v.id(5)).toThrow(RangeError);
+    // @ts-expect-error Deliberately exercise an untyped JavaScript caller.
+    expect(() => v.literal({})).toThrow(RangeError);
   });
 
   it("preserves unexpected normalization defects", () => {

@@ -25,7 +25,10 @@ describe("Application Runtime Worker Loader parity", () => {
       "const deterministicImport = Date.now() === 1700000000000 &&",
       "  Math.random() === 0.2921996123623103;",
       "export default { users: { get: query({",
-      '  args: deterministicImport ? v.object({ id: v.id("users") }) :',
+      '  args: deterministicImport ? v.object({',
+      '    id: v.id("users"),',
+      '    role: v.union(v.literal("reader"), v.literal("writer")),',
+      "  }) :",
       '    v.object({ liveClock: v.string() }),',
       "  returns: v.null(),",
       "  handler: users.get,",
@@ -36,6 +39,10 @@ describe("Application Runtime Worker Loader parity", () => {
       "Object.getPrototypeOf = () => { throw new Error('tampered getPrototypeOf'); };",
       "Object.getOwnPropertyDescriptor = () => undefined;",
       "Object.freeze = () => ({ kind: 'rejected', reason: 'tampered freeze' });",
+      "Object.create = () => { throw new Error('tampered create'); };",
+      "Object.entries = () => [];",
+      "Object.defineProperty = () => { throw new Error('tampered defineProperty'); };",
+      "Array.prototype.map = () => [{ type: 'any' }];",
       "export function get() { return null; }",
       "",
     ].join("\n");
@@ -78,6 +85,16 @@ describe("Application Runtime Worker Loader parity", () => {
           value: {
             id: {
               fieldType: { type: "id", tableName: "users" },
+              optional: false,
+            },
+            role: {
+              fieldType: {
+                type: "union",
+                value: [
+                  { type: "literal", value: "reader" },
+                  { type: "literal", value: "writer" },
+                ],
+              },
               optional: false,
             },
           },

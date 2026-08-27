@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applicationArrayValidatorJson,
+  applicationIdValidatorJson,
   applicationLiteralValidatorJson,
   applicationObjectValidatorJson,
   applicationScalarValidatorJson,
@@ -61,6 +62,13 @@ describe("application validator JSON authoring", () => {
     },
   );
 
+  it("rejects runtime inputs outside the public ID and literal contracts", () => {
+    // @ts-expect-error Deliberately exercise an untyped JavaScript caller.
+    expect(() => applicationIdValidatorJson(5)).toThrow(RangeError);
+    // @ts-expect-error Deliberately exercise an untyped JavaScript caller.
+    expect(() => applicationLiteralValidatorJson({})).toThrow(RangeError);
+  });
+
   it("constructs exact scalar, array, union, and detached snapshot values", () => {
     const string = applicationScalarValidatorJson("string");
     const array = applicationArrayValidatorJson(string);
@@ -73,6 +81,106 @@ describe("application validator JSON authoring", () => {
     expect(snapshot).toEqual(union);
     expect(snapshot).not.toBe(union);
     expect(Object.isFrozen(snapshot)).toBe(true);
+  });
+
+  it("uses module-captured ownership intrinsics after realm mutation", () => {
+    const defineProperty = Object.defineProperty;
+    const freezeDescriptor = Object.getOwnPropertyDescriptor(Object, "freeze");
+    const iteratorDescriptor = Object.getOwnPropertyDescriptor(
+      Array.prototype,
+      Symbol.iterator,
+    );
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(
+      Array.prototype,
+      "constructor",
+    );
+    const zeroDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, "0");
+    if (freezeDescriptor === undefined) throw new Error("Missing Object.freeze.");
+    if (iteratorDescriptor === undefined) {
+      throw new Error("Missing Array iterator.");
+    }
+    if (constructorDescriptor === undefined) {
+      throw new Error("Missing Array constructor.");
+    }
+    let validator: ReturnType<typeof applicationObjectValidatorJson>;
+    let union: ReturnType<typeof applicationUnionValidatorJson>;
+    try {
+      defineProperty(Object, "freeze", {
+        ...freezeDescriptor,
+        value: () => ({ kind: "rejected", reason: "tampered freeze" }),
+      });
+      defineProperty(Array.prototype, Symbol.iterator, {
+        ...iteratorDescriptor,
+        value: function* () {
+          yield [
+            "polluted",
+            { fieldType: { type: "any" }, optional: false },
+          ];
+        },
+      });
+      defineProperty(Array.prototype, "constructor", {
+        configurable: true,
+        get() {
+          throw new Error("polluted array constructor");
+        },
+      });
+      defineProperty(Array.prototype, "0", {
+        configurable: true,
+        set() {
+          throw new Error("polluted numeric setter");
+        },
+      });
+
+      validator = applicationObjectValidatorJson({
+        id: {
+          fieldType: applicationScalarValidatorJson("string"),
+          optional: false,
+        },
+      });
+      union = applicationUnionValidatorJson([
+        applicationScalarValidatorJson("string"),
+      ]);
+    } finally {
+      if (zeroDescriptor === undefined) {
+        Reflect.deleteProperty(Array.prototype, "0");
+      } else {
+        defineProperty(Array.prototype, "0", zeroDescriptor);
+      }
+      defineProperty(Array.prototype, "constructor", constructorDescriptor);
+      defineProperty(Array.prototype, Symbol.iterator, iteratorDescriptor);
+      defineProperty(Object, "freeze", freezeDescriptor);
+    }
+
+    expect(validator).toEqual({
+      type: "object",
+      value: {
+        id: { fieldType: { type: "string" }, optional: false },
+      },
+    });
+    expect(Object.isFrozen(validator)).toBe(true);
+    expect(union).toEqual({ type: "union", value: [{ type: "string" }] });
+  });
+
+  it("preserves owned sparse union members without prototype reads", () => {
+    const members: Array<Readonly<{ readonly type: "string" }>> = [];
+    Object.defineProperty(members, "length", { value: 2 });
+    Object.defineProperty(members, 1, {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: { type: "string" },
+    });
+
+    const snapshot = snapshotApplicationValidatorJson({
+      type: "union",
+      value: members,
+    });
+
+    if (snapshot.type !== "union") throw new Error("Expected a union snapshot.");
+    expect(snapshot.value).toHaveLength(2);
+    expect(Object.hasOwn(snapshot.value, 0)).toBe(false);
+    expect(Object.hasOwn(snapshot.value, 1)).toBe(true);
+    expect(snapshot.value[1]).toEqual({ type: "string" });
   });
 
   it("snapshots the complete protocol union domain including legacy empty unions", () => {

@@ -1,4 +1,7 @@
-import { applicationObjectValidatorJson } from "@flarex/application-schema-definition/validator-json";
+import {
+  applicationObjectValidatorJson,
+  snapshotApplicationValidatorJson,
+} from "@flarex/application-schema-definition/validator-json";
 import {
   validateValidatorValueIssueV1,
   type ValidatorValueExpectedV1,
@@ -10,11 +13,19 @@ import {
 } from "flarex-protocol/value";
 
 import { assertValidatorJson } from "./validatorJson.ts";
+import { isOwnedValidator } from "./validatorOwnership";
 import type {
   GenericValidator,
   PropertyValidators,
   ValidatorJSON,
 } from "./values";
+
+const ARRAY_IS_ARRAY = Array.isArray;
+const OBJECT_CREATE = Object.create;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const OBJECT_ENTRIES = Object.entries;
+const OBJECT_HAS_OWN = Object.hasOwn;
+const OBJECT_VALUES = Object.values;
 
 export class ValidationError extends Error {
   constructor(
@@ -78,9 +89,11 @@ export function validatorToJson(
   validator: GenericValidator | PropertyValidators | ValidatorJSON,
 ): ValidatorJSON {
   if (isGenericValidator(validator)) {
-    return requiredValidatorJson(validator.json, "$validator.json");
+    return isOwnedValidator(validator)
+      ? snapshotApplicationValidatorJson(validator.json)
+      : requiredValidatorJson(validator.json, "$validator.json");
   }
-  if (Object.hasOwn(validator, "type") && typeof validator.type === "string") {
+  if (OBJECT_HAS_OWN(validator, "type") && typeof validator.type === "string") {
     const decoded = assertValidatorJson(validator);
     if (decoded === null) {
       throw new Error("$validator: Validator is required.");
@@ -97,20 +110,28 @@ export function functionArgsToValidatorJson(
   args: GenericValidator | PropertyValidators,
 ): ValidatorJSON {
   if (isGenericValidator(args)) {
-    return requiredValidatorJson(args.json, "$validator.json");
+    return isOwnedValidator(args)
+      ? snapshotApplicationValidatorJson(args.json)
+      : requiredValidatorJson(args.json, "$validator.json");
   }
   const fields: Record<
     string,
     Readonly<{ readonly fieldType: ValidatorJSON; readonly optional: boolean }>
-  > = Object.create(null);
-  for (const [name, validator] of Object.entries(args)) {
-    Object.defineProperty(fields, name, {
+  > = OBJECT_CREATE(null);
+  const entries = OBJECT_ENTRIES(args);
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!;
+    const name = entry[0];
+    const validator = entry[1];
+    OBJECT_DEFINE_PROPERTY(fields, name, {
       enumerable: true,
       value: {
-        fieldType: requiredValidatorJson(
-          validator.json,
-          `$validator.${name}.json`,
-        ),
+        fieldType: isOwnedValidator(validator)
+          ? validator.json
+          : requiredValidatorJson(
+            validator.json,
+            `$validator.${name}.json`,
+          ),
         optional: validator.isOptional === "optional",
       },
     });
@@ -161,12 +182,14 @@ function typeMismatchMessage(expected: ValidatorValueExpectedV1): string {
 }
 
 function isPropertyValidators(value: unknown): value is PropertyValidators {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (typeof value !== "object" || value === null || ARRAY_IS_ARRAY(value)) {
     return false;
   }
-  return Object.values(value).every((field) =>
-    isGenericValidator(field)
-  );
+  const fields = OBJECT_VALUES(value);
+  for (let index = 0; index < fields.length; index += 1) {
+    if (!isGenericValidator(fields[index])) return false;
+  }
+  return true;
 }
 
 function isGenericValidator(value: unknown): value is GenericValidator {

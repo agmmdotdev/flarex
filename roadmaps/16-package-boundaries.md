@@ -700,6 +700,26 @@ persistence, runtimes, hosts, deployment, readiness, activation, and framework
 adapters. It is not a runtime validator, wire decoder, managed-schema planner,
 database schema, universal schema library, or public SDK by itself.
 
+The shared authoring owner is also bundled into generated application Workers.
+Its constructors may run after an imported user module has mutated same-realm
+JavaScript globals, so every intrinsic used for validator ownership and
+canonical-literal checks must be captured when the trusted core module is
+initialized. A user reassignment of `Object.freeze`, `Object.create`,
+`Object.entries`, `Object.defineProperty`, `Object.is`, or `Number.isFinite`
+or mutation of `Array.prototype[Symbol.iterator]`, `Array.prototype.map`, or an
+inherited numeric array property, constructor, or species must not change
+validator construction or make an otherwise valid execution module fail to
+register. Owned sparse array holes remain holes rather than consulting an
+inherited member. The public `v.*` facade must capture the same construction
+intrinsics and pass exact owned field/member projections to this shared owner;
+hardening only the downstream snapshot cannot repair an already corrupted
+facade projection. Runtime metadata export may trust only instances registered
+in the facade's private by-reference ownership set; structurally forged
+validators retain full protocol decoding. The bounded correction belongs to
+`@flarex/application-schema-definition`, the public `flarex/values` adapter,
+and the generated runtime identities that consume them; it does not authorize
+a journal, OCC, commit, analyzer, protocol, or runtime-host fallback.
+
 The accepted table/index authoring slice centralizes only the logical schema
 that the current protocol can represent exactly: one object document validator
 per logical table plus its ordered developer-index declarations. The shared
