@@ -756,10 +756,12 @@ Those facts identify the exact edge definition, direction, and endpoint and let
 the sync engine invalidate relation subscriptions/live results without scanning
 all source documents or broadly invalidating every query for a table.
 
-Before R03-B and the complete SV-R proof, relation subscriptions and live
+Before R03-B and the `SV-R Live` proof, relation subscriptions and live
 observation remain disabled and unclaimed. R03-A adds typed children to the
 existing commit feed; it does not create a relation-specific stream or allow a
-caller to author system facts.
+caller to author system facts. The non-reactive `SV-R Core` proof may inspect
+those canonical children directly as committed evidence, but may not treat
+that test read as registration, invalidation, delivery, or observation.
 
 ## Payload Adapter Boundary
 
@@ -813,8 +815,8 @@ Outcome:
   generation compatibility input and Semantic Artifact V1 only as historical
   evidence/decoding; neither becomes post-load acceptance authority;
 - freeze the narrow first profile recorded above and fail every broader shape;
-- insert `R01-P`, `E01`, `RA01`, `RQ01`, `R03`, and `SV-R` into the controlling
-  order;
+- insert `R01-P`, `E01`, `RA01`, `RQ01`, `R03-A`, `SV-R Core`, R03-B, and
+  `SV-R Live` into the controlling order;
 - keep the native relation API distinct from the discussion-only trusted
   framework relational transaction/persistence SPI.
 
@@ -1821,7 +1823,7 @@ Exit gates:
   cleanup under the shared scope-clock lock, while inactive replacement work
   and validation-only semantic reuse remain available;
 - relation-specific subscriptions/live observation remain absent until R03-B and
-  the full SV-R proof; roadmap 49's production-cutover decision remains no-go.
+  the `SV-R Live` proof; roadmap 49's production-cutover decision remains no-go.
 
 #### RA01 approved implementation preflight
 
@@ -2205,7 +2207,7 @@ private system-core slice through the existing active Application query
 snapshot and Standard invocation owners. It does not authorize a relation-aware
 function Worker, a nonempty relation-bearing function catalog, a public route
 or SDK, mutation-journal/OCC behavior, sync facts, framework adapters, or the
-later `SV-R` vertical.
+later `SV-R Core` vertical.
 
 #### RQ01 implementation preflight
 
@@ -2271,8 +2273,8 @@ The current relation-readiness rule that accepts only `functions: []` remains
 unchanged. Consequently this private Standard operation reads the composite
 active head and invokes the relation snapshot directly. It performs no Source
 Artifact load, Worker definition/materialization, host transaction, RPC
-bridge, default identity decision, point read, or index read. `SV-R` retains
-ownership of the later real function-runtime integration.
+bridge, default identity decision, point read, or index read. `SV-R Core`
+retains ownership of the later real function-runtime integration.
 
 Focused proof must establish in both PGlite and genuine PostgreSQL:
 
@@ -2333,7 +2335,8 @@ owning package typechecks, core lint, changed-diff lint, and both standing
 reviews pass. RQ01 adds no Worker/function execution, mutation journal or OCC
 dependency, application-row population, caller cursor, route, SDK, framework
 adapter, alternate query engine, or production cutover. `R03-A` is now complete;
-`R03-B` remains the next separately owned relation slice.
+`SV-R Core` is the next relational slice, while `R03-B` remains the separately
+owned live-sync slice.
 
 ### [ ] R03 — Relation Change Facts And Sync Invalidation
 
@@ -2420,6 +2423,13 @@ Prerequisite: R03-A is complete and roadmap 21's accepted scope-local sync
 contracts and owner exist. This gate must not extend the Legacy timestamp-based
 Postgres subscription registry or compatibility SchedulerDO.
 
+Scheduling: deferred to the separately owned sync-engine session. This gate
+does not block the non-reactive `SV-R Core` vertical. Work proceeding under
+`SV-R Core` must not edit roadmap 21 or `deploymentSync`, reproduce sync logic,
+add a relation-specific observer, wake, registry, or delivery path, or weaken
+R03-B's later fenced-registration requirements merely to complete the core
+vertical.
+
 Roadmap 21's `SYNC01-P` docs-only preflight and bounded `SYNC01-A` strict
 persisted cursor/wake plus pure host-neutral contiguous-cursor core are
 complete. `SYNC01-B` also completes the private RQ01 receipt containing the
@@ -2486,28 +2496,78 @@ compare the separately authenticated current active head against the witness
 returned by the query owner; it must not fabricate an activation commit, infer
 head changes from relation facts, or rely on a best-effort activation wake.
 
-### [ ] SV-R — Internal Standard Relation Vertical
+The accepted continuation order is split rather than blocked behind sync:
 
-Prerequisite: R01 through R03, including R01-P, E01, O10-R, RA01, and RQ01,
-are complete for the admitted profile.
+```text
+R03-A -> SV-R Core -> private definition/workload and non-reactive adapter work
+   |
+   +-> R03-B in the sync session -> SV-R Live -> reactive claims
+```
+
+### [ ] SV-R Core — Internal Standard Relation Vertical
+
+Prerequisite: R01, R01-P, R02, E01, O10-R, RA01, RQ01, and R03-A are complete
+for the admitted profile. R03-B is deliberately not a prerequisite for this
+non-reactive vertical.
 
 Outcome:
 
-- use the internal test producer to define, analyze, register, ready, activate,
-  invoke, commit, query through RQ01, and observe one real relation-bearing
-  application;
+- use the internal test producer to define, analyze, register the application
+  definition, ready, activate, invoke, commit, and query through RQ01 for one
+  real relation-bearing application;
+- prove each exercised commit owns the expected canonical R03-A relation-
+  adjacency children without interpreting a direct feed read as a live
+  observer;
 - prove the path in PGlite and genuine Postgres;
 - keep the operation route-independent and production-inert until the normal
   activation/routing owners permit it.
 
-Only after this vertical is green may the developer SDK and Payload adapter
-claim the native relation capability.
+Exit gates:
+
+- one private real-system-compatible definition/workload fixture crosses the
+  actual definition, analysis, immutable manifest, readiness, activation,
+  function-runtime, journal/OCC commit, edge persistence, and RQ01 query owners;
+- the committed source rows, edge occurrences, adjacency versions, and R03-A
+  feed children agree for put, remove, reorder, retarget, and declared target-
+  delete behavior admitted by the fixture;
+- the post-commit query reads through the authenticated active relation and
+  returns the exact bounded incoming result without a compatibility registry,
+  SchedulerDO, DeploymentSyncDO, synthetic invalidation, fallback query engine,
+  or test-local reproduction of shared relation logic; and
+- paired PGlite and genuine-PostgreSQL proof, owning package typechecks, lint,
+  and standing reviewers pass before the implementation checkpoint commits.
+
+Completion of `SV-R Core` authorizes later preflight for private developer
+definition/workload APIs and non-reactive adapter conformance. It does not by
+itself authorize a public SDK, Payload cutover, relation subscription, live
+result, reconnect claim, or production route.
+
+### [ ] SV-R Live — Fenced Live Relation Vertical
+
+Prerequisite: `SV-R Core` and R03-B are complete, including the accepted
+scope-local registration, contiguous catch-up, generation, dependency-index,
+dirty-frontier, reset, and reconnect contracts.
+
+Outcome:
+
+- register the RQ01 canonical relation query before execution, refresh its
+  dependency against the contiguous scope cursor, and activate it without a
+  missed-write window;
+- commit one matching and one unrelated relation change, prove only the
+  matching dependency invalidates, and publish the generation-checked changed
+  result through the accepted delivery and connection owners; and
+- prove duplicate, reverse, gap, lost-wake, actor-restart, epoch, retained-floor,
+  and reconnect behavior without the Legacy registry or SchedulerDO.
+
+Only after this live vertical is green may a developer SDK or framework adapter
+claim reactive relations, subscriptions, or reconnectable live results.
 
 ### Later Developer And Adapter Work
 
 ```text
 developer producer
-  ergonomic relation helpers, generated references, typed forward/inverse APIs
+  private real-system-compatible definitions/workloads first; ergonomic
+  relation helpers, generated references, and typed forward/inverse APIs later
 
 Payload adapter
   relationship/upload/join mapping, request transactions, population,
@@ -2539,7 +2599,8 @@ checkpoint commit.
   adapters remain absent.
 - Fenced sync registration and invalidation remain absent until R03-B; typed
   relation children in the existing point-commit feed are not treated as an
-  implicit relation observer.
+  implicit relation observer. This does not block `SV-R Core`, but it does block
+  `SV-R Live` and every reactive or reconnectable relation claim.
 - The first admitted high-level profile and its exact declaration/occurrence
   codecs, budgets, Standard source representation, analyzed projection, and
   manifest evolution remain intentionally narrow under completed `R01`.

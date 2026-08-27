@@ -851,19 +851,25 @@ Dynamic Worker binding baseline before selecting it.
     atomic exact-next compare-and-swap. The implementation is not started;
     query-key encoding, generation/dependency storage, catch-up, reset,
     registration, and every caller remain separate gates.
-23. `R03-B`: after roadmap 21's durable scope-local sync owner, canonical query
-    generation/dependency contracts, active-head observation, and reconnect
-    rules exist, prove fenced relation registration, invalidation, and
-    reconnect; relation subscriptions remain absent before this gate.
-24. `SV-R`: prove one internal Standard relation vertical through definition,
-    analysis, publication, readiness, activation, commit, query, and
-    observation in PGlite and genuine PostgreSQL while production-inert.
+23. `SV-R Core`: without waiting for sync, prove one non-reactive internal
+    Standard relation vertical through definition, analysis, publication,
+    readiness, activation, function-runtime commit, R03-A facts, and RQ01 query
+    in PGlite and genuine PostgreSQL while production-inert.
+24. `R03-B`: in the separately owned sync session, after roadmap 21's durable
+    scope-local sync owner, canonical query generation/dependency contracts,
+    active-head observation, and reconnect rules exist, prove fenced relation
+    registration, invalidation, and reconnect; relation subscriptions remain
+    absent before this gate.
+25. `SV-R Live`: after `SV-R Core` and R03-B, prove the registered relation
+    query's invalidation, generation-checked rerun/delivery, lost-wake recovery,
+    reset, and reconnect behavior.
 
-Only after `SV-R` is green may roadmap
-[`../09-sdk-and-cli-fork.md`](../09-sdk-and-cli-fork.md) design later public
-developer relation ergonomics. Payload mapping remains separate adapter
-conformance work, and the trusted framework persistence/transaction SPI remains
-a distinct private proposal; neither is part of `R01` through `SV-R`. The native
+Only after `SV-R Core` is green may roadmap
+[`../09-sdk-and-cli-fork.md`](../09-sdk-and-cli-fork.md) preflight later public
+non-reactive developer relation ergonomics. Reactive relation APIs remain
+blocked until `SV-R Live`. Payload mapping remains separate adapter conformance
+work, and the trusted framework persistence/transaction SPI remains a distinct
+private proposal; neither is part of `R01` through `SV-R Core`. The native
 contract and exact gate details are in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 

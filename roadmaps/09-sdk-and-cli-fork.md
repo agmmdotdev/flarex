@@ -14,8 +14,9 @@ This roadmap owns:
 - `flarex-dev` CLI/codegen/deploy behavior;
 - client and React developer ergonomics;
 - later public relation authoring, generated-reference, and typed read
-  ergonomics, but only after the native foundation's internal `SV-R` gate is
-  green; no public relation syntax is selected by this roadmap yet;
+  ergonomics, but only after the native foundation's non-reactive `SV-R Core`
+  gate is green; reactive relation surfaces remain blocked on `SV-R Live`, and
+  no public relation syntax is selected by this roadmap yet;
 - npm package/export/tarball shape and licensing provenance; and
 - the boundary between Convex-compatible ergonomics and intentional Flarex
   extensions.
@@ -147,19 +148,24 @@ The native relation foundation owns the ordered gates:
 current Application authority
   -> REL-P0 (complete docs-only)
   -> R01 -> R01-P -> R02 -> S12 -> C09 -> E01
-  -> O10-R -> RA01 -> RQ01 -> R03 -> SV-R
-  -> later public SDK relation ergonomics in this roadmap
+  -> O10-R -> RA01 -> RQ01 -> R03-A -> SV-R Core
+  -> later non-reactive public SDK relation preflight in this roadmap
+
+R03-A -> R03-B in the sync session -> SV-R Live
+  -> later reactive SDK relation preflight
 ```
 
 `R01-P` chooses and measures snapshot support and physical access before DDL;
 `RA01` reuses the existing activation owner after `O10-R`, then `RQ01` composes
 one read-only private Standard relation query from the active selection. This
 handoff is roadmap-only and implements no
-relation API. Until `SV-R` proves the internal application in PGlite and genuine
-PostgreSQL, this roadmap must not freeze a developer DSL, generated relation
-reference, `ctx.db` helper, cursor contract, or client/React relation surface.
-Payload mapping and the trusted framework relational SPI remain separate
-adapter concerns and do not become public SDK contracts through this handoff.
+relation API. Until `SV-R Core` proves the internal application in PGlite and
+genuine PostgreSQL, this roadmap must not freeze a developer DSL, generated
+relation reference, or non-reactive `ctx.db` helper. A cursor, subscription,
+reconnect, or client/React live-relation surface additionally requires
+`SV-R Live`. Payload mapping and the trusted framework relational SPI remain
+separate adapter concerns and do not become public SDK contracts through this
+handoff.
 
 ## Public SDK Surface
 
@@ -504,10 +510,11 @@ replace a release-level license/NOTICE audit across every published package.
     compatibility.
 18. **Public relation ergonomics follow the proven native relation vertical.**
     The SDK may design its relation producer and typed read surface only after
-    `R01` through `SV-R` close. It must lower through the Standard relation
-    contract and current Application Analysis/publication path, never expose
-    physical edge definitions or snapshot support, and never double as the
-    trusted framework persistence/transaction SPI.
+    `R01` through non-reactive `SV-R Core` close. It must lower through the
+    Standard relation contract and current Application Analysis/publication
+    path, never expose physical edge definitions or snapshot support, and
+    never double as the trusted framework persistence/transaction SPI. Reactive
+    relation ergonomics remain blocked until `SV-R Live`.
 
 ## Decisions And Rationale
 
@@ -631,8 +638,9 @@ Named Flarex divergences:
   means generated types and compatibility-runtime validation cannot yet prove
   production safety.
 - No public native relation definition or read helper is implemented. The
-  foundation must close `R01` through `SV-R` before this roadmap can design or
-  claim that surface.
+  foundation must close `R01` through `SV-R Core` before this roadmap can
+  preflight that non-reactive surface; reactive claims additionally require
+  `SV-R Live`.
 
 ## Target Direction
 
@@ -682,7 +690,9 @@ transaction routing remain platform internals.
 7. **Connect replacement schemas to codegen.** Generate from the exact immutable
    active FlarexDB schema/package artifacts and prove stale generation/fence
    metadata cannot produce runnable client/server output.
-8. **Design relation ergonomics only after `SV-R`.** Once the native sequence
-   through `RQ01`, `R03`, and `SV-R` is proven, preflight the smallest public
-   authoring and typed-read surface over the Standard relation contract. Do not
-   design it from Payload types or the trusted framework relational SPI.
+8. **Design relation ergonomics only after `SV-R Core`.** Once the native
+   sequence through `RQ01`, R03-A, and `SV-R Core` is proven, preflight the
+   smallest non-reactive public authoring and typed-read surface over the
+   Standard relation contract. Do not design it from Payload types or the
+   trusted framework relational SPI. Defer subscriptions, reconnect, and live
+   client surfaces until `SV-R Live`.
