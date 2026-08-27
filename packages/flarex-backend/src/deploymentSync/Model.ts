@@ -1,11 +1,23 @@
 import { Data } from "effect";
 
-import type { ScopeSyncCursorV1 } from
-  "flarex-protocol/internal/scope-sync-v1";
+import type {
+  ScopeSyncActiveQueryGenerationV1,
+  ScopeSyncCanonicalQueryIdentityV1,
+  ScopeSyncCursorV1,
+  ScopeSyncDependencyKeySetV1Error,
+  ScopeSyncDependencyKeyV1,
+  ScopeSyncQueryGenerationSequenceV1,
+  ScopeSyncQueryResultSha256HexV1,
+} from "flarex-protocol/internal/scope-sync-v1";
+import type {
+  ApplicationActivationSequenceV1,
+  ApplicationActiveHeadSha256HexV1,
+} from "flarex-protocol/commit-protocol";
 import type {
   CommitSeq,
   ScopeEpochUuidV1,
   ScopeUuidV1,
+  SnapshotToken,
 } from "flarex-protocol/storage-authority";
 
 export type ScopeSyncCursorPolicyOperation =
@@ -93,3 +105,81 @@ export type ScopeSyncEpochAuthorityDecision =
       readonly cursorEpochUuid: ScopeEpochUuidV1;
       readonly authoritativeEpochUuid: ScopeEpochUuidV1;
     }>;
+
+export type ScopeSyncQueryGenerationEvidenceField =
+  | "registrationScopeUuid"
+  | "registrationEpochUuid"
+  | "snapshotScopeId"
+  | "snapshotEpoch"
+  | "snapshotCommitSeq"
+  | "refreshScopeUuid"
+  | "refreshEpochUuid"
+  | "refreshCommitSeq"
+  | "receiptActivationSequence"
+  | "receiptActiveHeadSha256Hex";
+
+export class ScopeSyncQueryGenerationMismatchError extends Data.TaggedError(
+  "ScopeSyncQueryGenerationMismatchError",
+)<{
+  readonly expectedGeneration: ScopeSyncQueryGenerationSequenceV1;
+  readonly observedGeneration: ScopeSyncQueryGenerationSequenceV1;
+}> {}
+
+export class ScopeSyncQueryGenerationEvidenceError extends Data.TaggedError(
+  "ScopeSyncQueryGenerationEvidenceError",
+)<{
+  readonly operation: "beginQueryGeneration" | "activateQueryGeneration";
+  readonly field: ScopeSyncQueryGenerationEvidenceField;
+  readonly expected: string;
+  readonly observed: string;
+}> {}
+
+export interface ScopeSyncQueryActiveHeadWitnessV1 {
+  readonly activationSequence: ApplicationActivationSequenceV1;
+  readonly activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1;
+}
+
+export interface ScopeSyncQueryActivationEvidenceV1 {
+  readonly expectedGeneration: ScopeSyncQueryGenerationSequenceV1;
+  readonly snapshotToken: SnapshotToken;
+  readonly receiptActiveHead: ScopeSyncQueryActiveHeadWitnessV1;
+  readonly currentActiveHead: ScopeSyncQueryActiveHeadWitnessV1;
+  readonly refreshedThroughCursor: ScopeSyncCursorV1;
+  readonly dirtyThroughCommitSeq: CommitSeq | null;
+  readonly dependencies: ReadonlyArray<ScopeSyncDependencyKeyV1>;
+  readonly resultSha256Hex: ScopeSyncQueryResultSha256HexV1;
+}
+
+export type ScopeSyncBeginQueryGenerationError =
+  ScopeSyncQueryGenerationEvidenceError;
+
+export type ScopeSyncActivateQueryGenerationError =
+  | ScopeSyncQueryGenerationMismatchError
+  | ScopeSyncQueryGenerationEvidenceError
+  | ScopeSyncDependencyKeySetV1Error;
+
+export type ScopeSyncQueryActivationDecision =
+  | Readonly<{
+      readonly kind: "activated";
+      readonly activeGeneration: ScopeSyncActiveQueryGenerationV1;
+    }>
+  | Readonly<{
+      readonly kind: "rerunRequired";
+      readonly identity: ScopeSyncCanonicalQueryIdentityV1;
+      readonly generation: ScopeSyncQueryGenerationSequenceV1;
+      readonly snapshotCommitSeq: CommitSeq;
+      readonly dirtyThroughCommitSeq: CommitSeq;
+    }>
+  | Readonly<{
+      readonly kind: "resnapshotRequired";
+      readonly identity: ScopeSyncCanonicalQueryIdentityV1;
+      readonly generation: ScopeSyncQueryGenerationSequenceV1;
+      readonly expectedActiveHead: ScopeSyncQueryActiveHeadWitnessV1;
+      readonly currentActiveHead: ScopeSyncQueryActiveHeadWitnessV1;
+    }>;
+
+export interface ScopeSyncBeginQueryGenerationV1Input {
+  readonly identity: ScopeSyncCanonicalQueryIdentityV1;
+  readonly generation: ScopeSyncQueryGenerationSequenceV1;
+  readonly registeredAtCursor: ScopeSyncCursorV1;
+}

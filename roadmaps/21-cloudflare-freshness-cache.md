@@ -423,8 +423,11 @@ mechanics, not the final scope-local sync protocol. No `DeploymentSyncDO`,
 
 The private host-neutral sync core now owns strict cursor and wake contracts,
 scope-local dependency keys, logical-read projection, and validated-commit
-invalidation projection. It does not store an inverted index or advance a
-cursor while collecting routing evidence.
+invalidation projection. It also owns the complete canonical query identity,
+strict provisional and active generation contracts, canonical bounded
+dependency-set normalization, and pure activation classification. It does not
+store an inverted index, run a query, publish a result, or advance a cursor
+while collecting routing or activation evidence.
 
 ## Known Gaps And Limitations
 
@@ -439,9 +442,9 @@ cursor while collecting routing evidence.
 - No durable per-scope sync cursor or ordered Postgres gap-catch-up loop exists.
 - Current stale detection scans active Postgres subscriptions rather than a
   typed dependency-to-query inverted index.
-- Current canonical query state does not fully pin active package hash, schema
-  version, policy version, registration generation, and every identity-sensitive
-  input required by the accepted key.
+- Compatibility live-query state does not use the new private canonical-query
+  and generation contracts and therefore still lacks target authority despite
+  the host-neutral core now pinning every accepted identity-sensitive input.
 - Concurrent reruns lack the accepted compare-and-swap generation protocol.
 - Current connection leases are compatibility leases, not the accepted
   reconnect-retention token tied to scope epoch, storage generation, fence, and
@@ -729,3 +732,96 @@ PostgreSQL lane. This checkpoint still adds no registration, dependency index,
 cursor mirror, `DeploymentSyncDO`, rerun, delivery, reconnect, or production
 route. The first ordered typed-contract gate remains incomplete and `R03-B`
 remains blocked.
+
+### [x] SYNC01-DP — Freeze Canonical Query And Generation Semantics
+
+Status: docs-only preflight completed on 2026-08-27. This checkpoint authorizes
+only the strict internal canonical-query and generation contracts plus a pure
+host-neutral provisional-to-active policy. It does not authorize a Durable
+Object, SQLite schema, registration route, query execution, feed loop, active-
+head reader, cursor mirror, subscriber registry, reconnect lease, delivery,
+public SDK, compatibility write, or production caller switch.
+
+One canonical query identity contains every currently admitted result-affecting
+pin:
+
+- canonical scope UUID and epoch UUID;
+- the Application activation sequence and active-head SHA-256 witness;
+- the selected source-package SHA-256, schema-version ID, and policy version;
+- an explicit root-or-named component path and the function path;
+- the SHA-256 of arguments encoded through Flarex Value Codec 1; and
+- the SHA-256 of the authenticated identity/access-policy projection.
+
+The digest fields are collision-resistant matching evidence, not authority.
+Their producers remain responsible for canonical argument encoding,
+authentication, policy construction, active selection, and source-package
+verification. The scope-sync protocol validates their exact lowercase
+SHA-256 spelling but does not recompute or authorize them.
+
+A provisional generation owns that complete identity, one positive generation
+sequence, and the exact scope cursor at which registration began. An active
+generation additionally owns the query snapshot sequence, the cursor through
+which dependencies were refreshed, a canonical sorted unique dependency-key
+set, and the SHA-256 of the result encoded through Flarex Value Codec 1. The
+dependency set is bounded by the existing
+logical-read budgets. It is generation evidence for a later storage owner; it
+does not create a persisted inverted index in this slice.
+
+The pure activation policy must enforce all of the following:
+
+1. the completion targets the exact provisional generation;
+2. provisional identity and registration cursor have the same scope and epoch;
+3. the query snapshot has that same scope and epoch and is not older than the
+   registration cursor;
+4. dependency refresh reaches at least the query snapshot and uses the same
+   scope and epoch;
+5. the receipt active-head witness matches the canonical identity;
+6. a separately authenticated current active-head witness still matches;
+7. an invalidation through or before the query snapshot is already visible in
+   that result, while an invalidation after the snapshot returns a normal
+   `rerunRequired` decision; and
+8. an active-head change returns `resnapshotRequired`, while malformed,
+   cross-scope, cross-epoch, stale-generation, or incomplete-refresh evidence
+   is a typed failure and never an active candidate.
+
+Activation returns only an immutable candidate for a later host-owned atomic
+transaction. It cannot mutate a cursor, install dependencies, publish a result,
+or acknowledge any feed or delivery work.
+
+#### Authorized implementation slice: SYNC01-D
+
+`SYNC01-D` may add the strict protocol Schemas, owned capture and decode
+helpers, bounded dependency-set normalization, pure provisional construction,
+pure activation classification, tagged policy errors, and focused protocol and
+backend tests for the rules above. It must keep current cursor and dependency-
+routing behavior unchanged and must not import or reproduce OCC, journal,
+commit, persistence, Durable Object, runtime-host, or delivery authority.
+
+### [x] SYNC01-D — Canonical Query And Generation Core
+
+Status: completed on 2026-08-27. The private protocol now owns the complete
+canonical identity, positive generation sequence, strict provisional/active
+state, lowercase SHA-256 evidence fields, and sorted unique dependency set
+bounded by the existing logical-read budgets. Strict decoding rejects unknown
+fields, malformed pins, noncanonical dependency order, duplicate keys,
+cross-authority generation state, and active state whose refresh cursor is
+behind its snapshot.
+
+The backend sync domain now owns pure provisional construction and activation
+classification. Exact-generation completion matching,
+registration/snapshot/refresh ordering, receipt-head agreement, separately
+authenticated current-head comparison, and dirty-after-snapshot handling are
+explicit. Host-owned atomic installation and stale-writer CAS remain unwired.
+A matching candidate activates;
+a later relevant commit returns `rerunRequired`; a changed active head returns
+`resnapshotRequired`; and stale-generation or malformed authority evidence is
+a typed failure. Dependency inputs are copied, sorted, deduplicated, frozen,
+and detached before entering an active candidate.
+
+Focused protocol and backend tests plus strict package typechecks prove the
+contract and the pre-existing cursor/dependency-routing tests remain green.
+This checkpoint still adds no Durable Object, SQLite or Postgres state,
+persisted inverted index, registration route, query execution, feed loop,
+active-head reader, cursor mirror, reconnect lease, rerun execution, delivery,
+public SDK, compatibility write, or production caller switch. The first
+ordered typed-contract gate remains incomplete and `R03-B` remains blocked.
