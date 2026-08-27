@@ -8,9 +8,28 @@ import {
   decodeTaskComputeDispatchRequestV1,
   type TaskComputeDispatchRequestV1,
 } from "@flarex/durable-task/internal/compute-provider-v1";
-import { Effect, Result } from "effect";
+import {
+  decodeTaskDefinitionRevisionIdV1,
+  type TaskAttemptIdV1,
+  type TaskAttemptNumberV1,
+  type TaskCancellationGenerationV1,
+  type TaskDurationMsV1,
+  type TaskExecutionFenceV1,
+  type TaskLeaseVersionV1,
+  type TaskRequestedEffectSequenceV1,
+  type TaskRunIdV1,
+  type TaskRunVersionV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import { and, eq, sql } from "drizzle-orm";
+import { Brand, Effect, Result } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
-import type { FlarexSqlClient } from "../src/index";
+import {
+  fxSystemDurableTaskComputeCancellationsV1,
+  fxSystemDurableTaskComputeDispatchesV1,
+  fxSystemDurableTaskComputePendingV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+} from "../src/schema";
 import {
   TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
   decodeTaskComputeCancellationReceiptEvidenceV1,
@@ -26,11 +45,30 @@ import {
   type TaskComputeDeliveryEvidenceV1,
 } from "../src/taskComputeDeliveryEvidenceV1";
 import {
+  ACCEPTED_ATTEMPT_UUID,
   seedTaskSystemRunAttemptStoreV1,
+  TASK_DEFINITION_ID,
   TASK_RUN_ID,
   type TaskSystemRunAttemptFixturePersistenceV1,
   type TaskSystemRunAttemptParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
+
+const taskRunId = Brand.nominal<TaskRunIdV1>();
+const taskRunVersion = Brand.nominal<TaskRunVersionV1>();
+const taskRequestedEffectSequence =
+  Brand.nominal<TaskRequestedEffectSequenceV1>();
+const taskAttemptId = Brand.nominal<TaskAttemptIdV1>();
+const taskAttemptNumber = Brand.nominal<TaskAttemptNumberV1>();
+const taskExecutionFence = Brand.nominal<TaskExecutionFenceV1>();
+const taskLeaseVersion = Brand.nominal<TaskLeaseVersionV1>();
+const taskCancellationGeneration =
+  Brand.nominal<TaskCancellationGenerationV1>();
+const taskDuration = Brand.nominal<TaskDurationMsV1>();
+const fixtureRunId = taskRunId(TASK_RUN_ID);
+const fixtureTaskDefinitionRevisionId = Result.getOrThrow(
+  decodeTaskDefinitionRevisionIdV1(TASK_DEFINITION_ID),
+);
+const fixtureAttemptId = taskAttemptId(`attempt_${ACCEPTED_ATTEMPT_UUID}`);
 
 export async function seedTaskComputeDeliverySchemaV1(
   persistence: TaskSystemRunAttemptFixturePersistenceV1,
@@ -54,58 +92,88 @@ export async function seedTaskComputeDeliverySchemaV1(
   const computeProfileBytes = success(
     encodeTaskComputeProfileStorageBytesV1("compute-small"),
   );
-  await persistence.query(`
-    insert into fx_system_durable_task_requested_effect_v1 (
-      scope_id, run_id, sequence, accepted_run_version, kind,
-      payload_codec_version, payload_byte_length, payload_json,
-      not_before_ms
-    ) values
-      ($1, $2, 1, 1, 'dispatch_attempt', 1, 2, '{}'::jsonb, null),
-      ($1, $2, 2, 1, 'request_execution_cancellation',
-        1, 2, '{}'::jsonb, null)
-  `, [seeded.scopeId, TASK_RUN_ID]);
-  await persistence.query(`
-    insert into fx_system_durable_task_compute_dispatch_v1 (
-      scope_id, run_id, requested_effect_sequence, accepted_run_version,
-      ${options.legacySchema === true ? "" : "definition_generation,"}
-      task_definition_revision_id, attempt_id, attempt_number,
-      execution_fence, lease_version, compute_profile_codec_version,
-      compute_profile_byte_length, compute_profile_bytes, cancellation_kind,
-      cancellation_generation, maximum_duration_ms,
-      request_codec_version, request_byte_length, request_sha256,
-      request_bytes, delivery_state, claim_fence, delivery_attempt_count
-    ) values (
-      $1, $2, 1, 1,
-      ${options.legacySchema === true ? "" : "'legacy_definition_v1',"}
-      'taskdef_72000000-0000-4000-8000-000000000002',
-      'attempt_72000000-0000-4000-8000-000000000005', 1,
-      1, 1, $3, $4, $5, 'not_requested', 0, 300000,
-      $6, $7, $8, $9,
-      'prepared', 0, 0
-    )
-  `, [
-    seeded.scopeId,
-    TASK_RUN_ID,
-    TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
-    computeProfileBytes.byteLength,
-    computeProfileBytes,
-    evidence.dispatchRequest.codecVersion,
-    evidence.dispatchRequest.byteLength,
-    evidence.dispatchRequest.sha256,
-    evidence.dispatchRequest.canonicalBytes,
+  const scopeId = ScopeIdSchema.make(seeded.scopeId);
+  const acceptedRunVersion = taskRunVersion(1n);
+  const dispatchSequence = taskRequestedEffectSequence(1n);
+  const cancellationSequence = taskRequestedEffectSequence(2n);
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).values([
+    {
+      scopeId,
+      runId: fixtureRunId,
+      sequence: dispatchSequence,
+      acceptedRunVersion,
+      kind: "dispatch_attempt",
+      payloadCodecVersion: 1,
+      payloadByteLength: 2n,
+      payloadJson: {},
+      notBeforeMs: null,
+    },
+    {
+      scopeId,
+      runId: fixtureRunId,
+      sequence: cancellationSequence,
+      acceptedRunVersion,
+      kind: "request_execution_cancellation",
+      payloadCodecVersion: 1,
+      payloadByteLength: 2n,
+      payloadJson: {},
+      notBeforeMs: null,
+    },
   ]);
-  await persistence.query(`
-    insert into fx_system_durable_task_compute_cancellation_v1 (
-      scope_id, run_id, requested_effect_sequence, accepted_run_version,
-      dispatch_requested_effect_sequence, attempt_id, execution_fence,
-      cancellation_generation, delivery_state, claim_fence,
-      delivery_attempt_count
-    ) values (
-      $1, $2, 2, 1, 1,
-      'attempt_72000000-0000-4000-8000-000000000005', 1, 1,
-      'waiting_dispatch', 0, 0
-    )
-  `, [seeded.scopeId, TASK_RUN_ID]);
+  if (options.legacySchema === true) {
+    await seedLegacyTaskComputeDispatchV1(
+      persistence,
+      seeded.scopeId,
+      computeProfileBytes,
+      evidence.dispatchRequest,
+    );
+  } else {
+    await persistence.drizzle.insert(
+      fxSystemDurableTaskComputeDispatchesV1,
+    ).values({
+      scopeId,
+      runId: fixtureRunId,
+      requestedEffectSequence: dispatchSequence,
+      acceptedRunVersion,
+      definitionGeneration: "legacy_definition_v1",
+      taskDefinitionRevisionId: fixtureTaskDefinitionRevisionId,
+      applicationTaskRuntimeTargetSha256: null,
+      attemptId: fixtureAttemptId,
+      attemptNumber: taskAttemptNumber(1),
+      executionFence: taskExecutionFence(1n),
+      leaseVersion: taskLeaseVersion(1n),
+      computeProfileCodecVersion: TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
+      computeProfileByteLength: computeProfileBytes.byteLength,
+      computeProfileBytes,
+      cancellationKind: "not_requested",
+      cancellationGeneration: taskCancellationGeneration(0n),
+      maximumDurationMs: taskDuration(300_000),
+      requestCodecVersion: evidence.dispatchRequest.codecVersion,
+      requestByteLength: BigInt(evidence.dispatchRequest.byteLength),
+      requestSha256: evidence.dispatchRequest.sha256,
+      requestBytes: evidence.dispatchRequest.canonicalBytes,
+      deliveryState: "prepared",
+      claimFence: 0n,
+      deliveryAttemptCount: 0n,
+    });
+  }
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).values({
+    scopeId,
+    runId: fixtureRunId,
+    requestedEffectSequence: cancellationSequence,
+    acceptedRunVersion,
+    dispatchRequestedEffectSequence: dispatchSequence,
+    attemptId: fixtureAttemptId,
+    executionFence: taskExecutionFence(1n),
+    cancellationGeneration: taskCancellationGeneration(1n),
+    deliveryState: "waiting_dispatch",
+    claimFence: 0n,
+    deliveryAttemptCount: 0n,
+  });
   return Object.freeze({
     scopeId: seeded.scopeId,
     deploymentId: seeded.deploymentId,
@@ -163,163 +231,203 @@ export const invalidTaskComputePendingStatementsV1 = Object.freeze([
 ]);
 
 export async function seedTaskComputePendingConstraintRowV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   scopeId: string,
   runId: string,
 ): Promise<void> {
-  await persistence.query(`
-    insert into fx_system_durable_task_compute_pending_v1 (
-      scope_id, run_id, requested_effect_sequence, kind, eligible_at
-    ) values (
-      $1, $2, 1, 'dispatch_attempt',
-      date_trunc('milliseconds', statement_timestamp())
-    )
-  `, [scopeId, runId]);
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskComputePendingV1,
+  ).values({
+    scopeId: ScopeIdSchema.make(scopeId),
+    runId: taskRunId(runId),
+    requestedEffectSequence: taskRequestedEffectSequence(1n),
+    kind: "dispatch_attempt",
+    eligibleAt: sql<Date>`date_trunc('milliseconds', statement_timestamp())`,
+  });
 }
 
 export async function deleteTaskComputePendingConstraintRowV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   scopeId: string,
   runId: string,
 ): Promise<void> {
-  await persistence.query(`
-    delete from fx_system_durable_task_compute_pending_v1
-    where scope_id = $1 and run_id = $2
-  `, [scopeId, runId]);
+  await persistence.drizzle.delete(
+    fxSystemDurableTaskComputePendingV1,
+  ).where(and(
+    eq(fxSystemDurableTaskComputePendingV1.scopeId, ScopeIdSchema.make(scopeId)),
+    eq(fxSystemDurableTaskComputePendingV1.runId, taskRunId(runId)),
+  ));
 }
 
 export async function settleTaskComputeDeliverySchemaV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   evidence: CanonicalTaskComputeDeliveryEvidenceV1,
 ): Promise<void> {
-  await persistence.query(`
-    update fx_system_durable_task_compute_dispatch_v1
-    set delivery_state = 'accepted',
-        claim_fence = 1,
-        delivery_attempt_count = 1,
-        delivery_started_at = now(),
-        acceptance_codec_version = $1,
-        acceptance_byte_length = $2,
-        acceptance_sha256 = $3,
-        acceptance_bytes = $4,
-        settled_at = now(),
-        updated_at = now()
-  `, [
-    evidence.dispatchAcceptance.codecVersion,
-    evidence.dispatchAcceptance.byteLength,
-    evidence.dispatchAcceptance.sha256,
-    evidence.dispatchAcceptance.canonicalBytes,
-  ]);
-  await persistence.query(`
-    update fx_system_durable_task_compute_cancellation_v1
-    set delivery_state = 'delivered',
-        request_codec_version = $1,
-        request_byte_length = $2,
-        request_sha256 = $3,
-        request_bytes = $4,
-        claim_fence = 1,
-        delivery_attempt_count = 1,
-        delivery_started_at = now(),
-        receipt_codec_version = $5,
-        receipt_byte_length = $6,
-        receipt_sha256 = $7,
-        receipt_bytes = $8,
-        settled_at = now(),
-        updated_at = now()
-  `, [
-    evidence.cancellationRequest.codecVersion,
-    evidence.cancellationRequest.byteLength,
-    evidence.cancellationRequest.sha256,
-    evidence.cancellationRequest.canonicalBytes,
-    evidence.cancellationReceipt.codecVersion,
-    evidence.cancellationReceipt.byteLength,
-    evidence.cancellationReceipt.sha256,
-    evidence.cancellationReceipt.canonicalBytes,
-  ]);
+  const databaseNow = sql<Date>`now()`;
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    deliveryState: "accepted",
+    claimFence: 1n,
+    deliveryAttemptCount: 1n,
+    deliveryStartedAt: databaseNow,
+    acceptanceCodecVersion: evidence.dispatchAcceptance.codecVersion,
+    acceptanceByteLength: BigInt(evidence.dispatchAcceptance.byteLength),
+    acceptanceSha256: evidence.dispatchAcceptance.sha256,
+    acceptanceBytes: evidence.dispatchAcceptance.canonicalBytes,
+    settledAt: databaseNow,
+    updatedAt: databaseNow,
+  });
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryState: "delivered",
+    requestCodecVersion: evidence.cancellationRequest.codecVersion,
+    requestByteLength: BigInt(evidence.cancellationRequest.byteLength),
+    requestSha256: evidence.cancellationRequest.sha256,
+    requestBytes: evidence.cancellationRequest.canonicalBytes,
+    claimFence: 1n,
+    deliveryAttemptCount: 1n,
+    deliveryStartedAt: databaseNow,
+    receiptCodecVersion: evidence.cancellationReceipt.codecVersion,
+    receiptByteLength: BigInt(evidence.cancellationReceipt.byteLength),
+    receiptSha256: evidence.cancellationReceipt.sha256,
+    receiptBytes: evidence.cancellationReceipt.canonicalBytes,
+    settledAt: databaseNow,
+    updatedAt: databaseNow,
+  });
 }
 
 export async function proveLosslessComputeProfileStorageV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
 ): Promise<void> {
   for (const profile of ["   ", "\u0000", "\ud800"]) {
     const bytes = success(encodeTaskComputeProfileStorageBytesV1(profile));
-    await persistence.query(`
-      update fx_system_durable_task_compute_dispatch_v1
-      set compute_profile_codec_version = $1,
-          compute_profile_byte_length = $2,
-          compute_profile_bytes = $3
-    `, [TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1, bytes.byteLength, bytes]);
-    const stored = await persistence.query<{ profile_bytes: Uint8Array }>(`
-      select compute_profile_bytes as profile_bytes
-      from fx_system_durable_task_compute_dispatch_v1
-    `);
+    await persistence.drizzle.update(
+      fxSystemDurableTaskComputeDispatchesV1,
+    ).set({
+      computeProfileCodecVersion: TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
+      computeProfileByteLength: bytes.byteLength,
+      computeProfileBytes: bytes,
+    });
+    const stored = await persistence.drizzle.select({
+      profileBytes: fxSystemDurableTaskComputeDispatchesV1.computeProfileBytes,
+    }).from(fxSystemDurableTaskComputeDispatchesV1);
     expectSingleProfile(
-      stored.rows[0]?.profile_bytes,
+      stored[0]?.profileBytes,
       profile,
     );
   }
   const reset = success(encodeTaskComputeProfileStorageBytesV1("compute-small"));
-  await persistence.query(`
-    update fx_system_durable_task_compute_dispatch_v1
-    set compute_profile_codec_version = $1,
-        compute_profile_byte_length = $2,
-        compute_profile_bytes = $3
-  `, [TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1, reset.byteLength, reset]);
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    computeProfileCodecVersion: TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
+    computeProfileByteLength: reset.byteLength,
+    computeProfileBytes: reset,
+  });
 }
 
 export async function decodeStoredTaskComputeDeliveryEvidenceV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
 ) {
-  const result = await persistence.query<StoredTaskComputeDeliveryEvidenceRowV1>(`
-    select
-      d.request_codec_version as dispatch_request_codec_version,
-      d.request_byte_length::int as dispatch_request_byte_length,
-      d.request_sha256 as dispatch_request_sha256,
-      d.request_bytes as dispatch_request_bytes,
-      d.compute_profile_codec_version as compute_profile_codec_version,
-      d.compute_profile_byte_length as compute_profile_byte_length,
-      d.compute_profile_bytes as compute_profile_bytes,
-      d.acceptance_codec_version as dispatch_acceptance_codec_version,
-      d.acceptance_byte_length::int as dispatch_acceptance_byte_length,
-      d.acceptance_sha256 as dispatch_acceptance_sha256,
-      d.acceptance_bytes as dispatch_acceptance_bytes,
-      c.request_codec_version as cancellation_request_codec_version,
-      c.request_byte_length::int as cancellation_request_byte_length,
-      c.request_sha256 as cancellation_request_sha256,
-      c.request_bytes as cancellation_request_bytes,
-      c.receipt_codec_version as cancellation_receipt_codec_version,
-      c.receipt_byte_length::int as cancellation_receipt_byte_length,
-      c.receipt_sha256 as cancellation_receipt_sha256,
-      c.receipt_bytes as cancellation_receipt_bytes
-    from fx_system_durable_task_compute_dispatch_v1 d
-    join fx_system_durable_task_compute_cancellation_v1 c
-      on c.scope_id = d.scope_id
-      and c.run_id = d.run_id
-      and c.dispatch_requested_effect_sequence = d.requested_effect_sequence
-  `);
-  const row = result.rows[0];
+  const rows = await persistence.drizzle.select({
+    dispatchRequestCodecVersion:
+      fxSystemDurableTaskComputeDispatchesV1.requestCodecVersion,
+    dispatchRequestByteLength:
+      fxSystemDurableTaskComputeDispatchesV1.requestByteLength,
+    dispatchRequestSha256: fxSystemDurableTaskComputeDispatchesV1.requestSha256,
+    dispatchRequestBytes: fxSystemDurableTaskComputeDispatchesV1.requestBytes,
+    computeProfileCodecVersion:
+      fxSystemDurableTaskComputeDispatchesV1.computeProfileCodecVersion,
+    computeProfileByteLength:
+      fxSystemDurableTaskComputeDispatchesV1.computeProfileByteLength,
+    computeProfileBytes: fxSystemDurableTaskComputeDispatchesV1.computeProfileBytes,
+    dispatchAcceptanceCodecVersion:
+      fxSystemDurableTaskComputeDispatchesV1.acceptanceCodecVersion,
+    dispatchAcceptanceByteLength:
+      fxSystemDurableTaskComputeDispatchesV1.acceptanceByteLength,
+    dispatchAcceptanceSha256:
+      fxSystemDurableTaskComputeDispatchesV1.acceptanceSha256,
+    dispatchAcceptanceBytes:
+      fxSystemDurableTaskComputeDispatchesV1.acceptanceBytes,
+    cancellationRequestCodecVersion:
+      fxSystemDurableTaskComputeCancellationsV1.requestCodecVersion,
+    cancellationRequestByteLength:
+      fxSystemDurableTaskComputeCancellationsV1.requestByteLength,
+    cancellationRequestSha256:
+      fxSystemDurableTaskComputeCancellationsV1.requestSha256,
+    cancellationRequestBytes:
+      fxSystemDurableTaskComputeCancellationsV1.requestBytes,
+    cancellationReceiptCodecVersion:
+      fxSystemDurableTaskComputeCancellationsV1.receiptCodecVersion,
+    cancellationReceiptByteLength:
+      fxSystemDurableTaskComputeCancellationsV1.receiptByteLength,
+    cancellationReceiptSha256:
+      fxSystemDurableTaskComputeCancellationsV1.receiptSha256,
+    cancellationReceiptBytes:
+      fxSystemDurableTaskComputeCancellationsV1.receiptBytes,
+  }).from(fxSystemDurableTaskComputeDispatchesV1).innerJoin(
+    fxSystemDurableTaskComputeCancellationsV1,
+    and(
+      eq(
+        fxSystemDurableTaskComputeCancellationsV1.scopeId,
+        fxSystemDurableTaskComputeDispatchesV1.scopeId,
+      ),
+      eq(
+        fxSystemDurableTaskComputeCancellationsV1.runId,
+        fxSystemDurableTaskComputeDispatchesV1.runId,
+      ),
+      eq(
+        fxSystemDurableTaskComputeCancellationsV1
+          .dispatchRequestedEffectSequence,
+        fxSystemDurableTaskComputeDispatchesV1.requestedEffectSequence,
+      ),
+    ),
+  );
+  const row = rows[0];
   if (row === undefined) throw new Error("compute delivery evidence row missing");
   if (
-    row.compute_profile_codec_version !== TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1
-    || row.compute_profile_byte_length !== row.compute_profile_bytes.byteLength
+    row.computeProfileCodecVersion !== TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1
+    || row.computeProfileByteLength !== row.computeProfileBytes.byteLength
   ) {
     throw new Error("compute profile storage envelope mismatch");
   }
   return Effect.runPromise(Effect.all({
     computeProfile: Effect.fromResult(
-      decodeTaskComputeProfileStorageBytesV1(row.compute_profile_bytes),
+      decodeTaskComputeProfileStorageBytesV1(row.computeProfileBytes),
     ),
     dispatchRequest: decodeTaskComputeDispatchRequestEvidenceV1(
-      storedEvidence(row, "dispatch_request"),
+      storedEvidence({
+        codecVersion: row.dispatchRequestCodecVersion,
+        byteLength: row.dispatchRequestByteLength,
+        sha256: row.dispatchRequestSha256,
+        canonicalBytes: row.dispatchRequestBytes,
+      }),
     ),
     dispatchAcceptance: decodeTaskComputeDispatchAcceptanceEvidenceV1(
-      storedEvidence(row, "dispatch_acceptance"),
+      storedEvidence({
+        codecVersion: row.dispatchAcceptanceCodecVersion,
+        byteLength: row.dispatchAcceptanceByteLength,
+        sha256: row.dispatchAcceptanceSha256,
+        canonicalBytes: row.dispatchAcceptanceBytes,
+      }),
     ),
     cancellationRequest: decodeTaskComputeCancellationRequestEvidenceV1(
-      storedEvidence(row, "cancellation_request"),
+      storedEvidence({
+        codecVersion: row.cancellationRequestCodecVersion,
+        byteLength: row.cancellationRequestByteLength,
+        sha256: row.cancellationRequestSha256,
+        canonicalBytes: row.cancellationRequestBytes,
+      }),
     ),
     cancellationReceipt: decodeTaskComputeCancellationReceiptEvidenceV1(
-      storedEvidence(row, "cancellation_receipt"),
+      storedEvidence({
+        codecVersion: row.cancellationReceiptCodecVersion,
+        byteLength: row.cancellationReceiptByteLength,
+        sha256: row.cancellationReceiptSha256,
+        canonicalBytes: row.cancellationReceiptBytes,
+      }),
     ),
   }));
 }
@@ -329,29 +437,6 @@ interface CanonicalTaskComputeDeliveryEvidenceV1 {
   readonly dispatchAcceptance: TaskComputeDeliveryEvidenceV1;
   readonly cancellationRequest: TaskComputeDeliveryEvidenceV1;
   readonly cancellationReceipt: TaskComputeDeliveryEvidenceV1;
-}
-
-interface StoredTaskComputeDeliveryEvidenceRowV1
-  extends Record<string, unknown> {
-  readonly dispatch_request_codec_version: number;
-  readonly dispatch_request_byte_length: number;
-  readonly dispatch_request_sha256: Uint8Array;
-  readonly dispatch_request_bytes: Uint8Array;
-  readonly compute_profile_codec_version: number;
-  readonly compute_profile_byte_length: number;
-  readonly compute_profile_bytes: Uint8Array;
-  readonly dispatch_acceptance_codec_version: number;
-  readonly dispatch_acceptance_byte_length: number;
-  readonly dispatch_acceptance_sha256: Uint8Array;
-  readonly dispatch_acceptance_bytes: Uint8Array;
-  readonly cancellation_request_codec_version: number;
-  readonly cancellation_request_byte_length: number;
-  readonly cancellation_request_sha256: Uint8Array;
-  readonly cancellation_request_bytes: Uint8Array;
-  readonly cancellation_receipt_codec_version: number;
-  readonly cancellation_receipt_byte_length: number;
-  readonly cancellation_receipt_sha256: Uint8Array;
-  readonly cancellation_receipt_bytes: Uint8Array;
 }
 
 async function makeCanonicalTaskComputeDeliveryEvidenceV1(
@@ -420,20 +505,65 @@ function wireIdentity(request: TaskComputeDispatchRequestV1) {
   };
 }
 
-function storedEvidence(
-  row: StoredTaskComputeDeliveryEvidenceRowV1,
-  prefix:
-    | "dispatch_request"
-    | "dispatch_acceptance"
-    | "cancellation_request"
-    | "cancellation_receipt",
-) {
+function storedEvidence(input: Readonly<{
+  readonly codecVersion: number | null;
+  readonly byteLength: bigint | null;
+  readonly canonicalBytes: Uint8Array | null;
+  readonly sha256: Uint8Array | null;
+}>) {
+  if (
+    input.codecVersion === null
+    || input.byteLength === null
+    || input.canonicalBytes === null
+    || input.sha256 === null
+  ) throw new Error("compute delivery evidence envelope incomplete");
+  const byteLength = Number(input.byteLength);
+  if (!Number.isSafeInteger(byteLength)) {
+    throw new Error("compute delivery evidence byte length is unsafe");
+  }
   return {
-    codecVersion: row[`${prefix}_codec_version`],
-    byteLength: row[`${prefix}_byte_length`],
-    canonicalBytes: row[`${prefix}_bytes`],
-    sha256: row[`${prefix}_sha256`],
+    codecVersion: input.codecVersion,
+    byteLength,
+    canonicalBytes: input.canonicalBytes,
+    sha256: input.sha256,
   };
+}
+
+/** Historical migration fixture: the pre-generation table lacks this column. */
+async function seedLegacyTaskComputeDispatchV1(
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
+  scopeId: string,
+  computeProfileBytes: Uint8Array,
+  evidence: TaskComputeDeliveryEvidenceV1,
+): Promise<void> {
+  await persistence.query(`
+    insert into fx_system_durable_task_compute_dispatch_v1 (
+      scope_id, run_id, requested_effect_sequence, accepted_run_version,
+      task_definition_revision_id, attempt_id, attempt_number,
+      execution_fence, lease_version, compute_profile_codec_version,
+      compute_profile_byte_length, compute_profile_bytes, cancellation_kind,
+      cancellation_generation, maximum_duration_ms,
+      request_codec_version, request_byte_length, request_sha256,
+      request_bytes, delivery_state, claim_fence, delivery_attempt_count
+    ) values (
+      $1, $2, 1, 1,
+      'taskdef_72000000-0000-4000-8000-000000000002',
+      'attempt_72000000-0000-4000-8000-000000000005', 1,
+      1, 1, $3, $4, $5, 'not_requested', 0, 300000,
+      $6, $7, $8, $9,
+      'prepared', 0, 0
+    )
+  `, [
+    scopeId,
+    TASK_RUN_ID,
+    TASK_COMPUTE_PROFILE_STORAGE_CODEC_V1,
+    computeProfileBytes.byteLength,
+    computeProfileBytes,
+    evidence.codecVersion,
+    evidence.byteLength,
+    evidence.sha256,
+    evidence.canonicalBytes,
+  ]);
 }
 
 function success<Success, Failure>(

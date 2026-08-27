@@ -51,6 +51,7 @@ describePostgres("real PostgreSQL DTE06-C3 compute pending migration", () => {
           const seeded = await seedTaskComputeDeliverySchemaV1(
             previous,
             parent,
+            { legacySchema: true },
           );
           await previous.query(`
             insert into fx_system_durable_task_requested_effect_v1 (
@@ -152,11 +153,19 @@ async function makeMigrationFixture() {
       && entry.idx < 53
     ),
   }, null, 2)}\n`, "utf8");
+  const targetJournalText = `${JSON.stringify({
+    ...parsed,
+    entries: parsed.entries.filter((entry) =>
+      isNonArrayRecord(entry)
+      && typeof entry.idx === "number"
+      && entry.idx < 54
+    ),
+  }, null, 2)}\n`;
   return Object.freeze({
     migrationsFolder,
     activateCurrentJournal: () => writeFile(
       copiedJournalPath,
-      journalText,
+      targetJournalText,
       "utf8",
     ),
     cleanup: () => rm(root, { recursive: true, force: true }),

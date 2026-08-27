@@ -2,7 +2,10 @@ import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
 
 import { createPGlitePersistence } from "../src/pglite";
-import { fxSystemDurableTaskComputeDispatchesV1 } from "../src/schema";
+import {
+  fxSystemDurableTaskComputeCancellationsV1,
+  fxSystemDurableTaskComputeDispatchesV1,
+} from "../src/schema";
 import {
   decodeStoredTaskComputeDeliveryEvidenceV1,
   deleteTaskComputePendingConstraintRowV1,
@@ -73,21 +76,17 @@ describe("DTE06-C1 compute delivery schema", () => {
 async function states(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
 ) {
-  const result = await persistence.query<{
-    dispatch_state: string;
-    cancellation_state: string;
-  }>(`
-    select
-      (select delivery_state
-       from fx_system_durable_task_compute_dispatch_v1) as dispatch_state,
-      (select delivery_state
-       from fx_system_durable_task_compute_cancellation_v1)
-        as cancellation_state
-  `);
-  const row = result.rows[0];
-  if (row === undefined) throw new Error("compute delivery state row missing");
+  const [dispatch] = await persistence.drizzle.select({
+    state: fxSystemDurableTaskComputeDispatchesV1.deliveryState,
+  }).from(fxSystemDurableTaskComputeDispatchesV1);
+  const [cancellation] = await persistence.drizzle.select({
+    state: fxSystemDurableTaskComputeCancellationsV1.deliveryState,
+  }).from(fxSystemDurableTaskComputeCancellationsV1);
+  if (dispatch === undefined || cancellation === undefined) {
+    throw new Error("compute delivery state row missing");
+  }
   return {
-    dispatch: row.dispatch_state,
-    cancellation: row.cancellation_state,
+    dispatch: dispatch.state,
+    cancellation: cancellation.state,
   };
 }

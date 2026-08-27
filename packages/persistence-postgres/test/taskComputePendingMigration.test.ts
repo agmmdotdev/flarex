@@ -41,7 +41,11 @@ describe("DTE06-C3 compute pending migration", () => {
 
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
-      const seeded = await seedTaskComputeDeliverySchemaV1(previous);
+      const seeded = await seedTaskComputeDeliverySchemaV1(
+        previous,
+        undefined,
+        { legacySchema: true },
+      );
       await previous.query(`
         insert into fx_system_durable_task_requested_effect_v1 (
           scope_id, run_id, sequence, accepted_run_version, kind,
@@ -54,7 +58,14 @@ describe("DTE06-C3 compute pending migration", () => {
           ($1, $2, 5, 1, 'notify_current_state', 1, 2, '{}'::jsonb, null)
       `, [seeded.scopeId, seeded.runId]);
 
-      await writeFile(copiedJournalPath, journalText, "utf8");
+      await writeFile(copiedJournalPath, `${JSON.stringify({
+        ...parsed,
+        entries: parsed.entries.filter((entry) =>
+          isNonArrayRecord(entry)
+          && typeof entry.idx === "number"
+          && entry.idx < 54
+        ),
+      }, null, 2)}\n`, "utf8");
       const current = await createPGlitePersistence({ db, migrationsFolder });
       await current.migrate();
       await current.migrate();
