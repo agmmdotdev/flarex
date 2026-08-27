@@ -4,12 +4,19 @@ import {
   RunAttemptLifecycleLive,
   TaskSystemRunAttemptStore,
   decodeTaskHeartbeatSequenceV1,
+  decodeTaskRequestedEffectSequenceV1,
   decodeTaskRetryJitterV1,
   decodeTaskRunIdV1,
   decodeTaskRunVersionV1,
   type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import { and, count, eq } from "drizzle-orm";
 import { Effect, Layer, Result } from "effect";
+import {
+  FlarexDbV1StorageGenerationSchema,
+  ScopeEpochSchema,
+  ScopeIdSchema,
+} from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -18,6 +25,12 @@ import {
 } from "../src/pglite";
 import { makeTaskSystemRunAttemptStoreV1 } from
   "../src/taskSystemRunAttemptStoreV1";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+  fxSystemScopeClocks,
+} from "../src/schema";
 import {
   TaskSystemRunReadCorruptionError,
   TaskSystemRunReadStaleScopeAuthorityError,
@@ -47,7 +60,20 @@ const OTHER_SCOPE_ID = "scope_72000000-0000-4000-8000-000000000098";
 const runId = Result.getOrThrow(decodeTaskRunIdV1(TASK_RUN_ID));
 const runVersionOne = Result.getOrThrow(decodeTaskRunVersionV1("1"));
 const heartbeatOne = Result.getOrThrow(decodeTaskHeartbeatSequenceV1(1));
+const requestedEffectOne = Result.getOrThrow(
+  decodeTaskRequestedEffectSequenceV1("1"),
+);
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
+const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
+const otherScopeId = ScopeIdSchema.make(OTHER_SCOPE_ID);
+const taskStorageGeneration =
+  FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
+const crossScopeEpoch = ScopeEpochSchema.make(
+  "epoch_72000000-0000-4000-8000-000000000097",
+);
+const staleScopeEpoch = ScopeEpochSchema.make(
+  "epoch_72000000-0000-4000-8000-000000000099",
+);
 
 describe("DTE04-D scope-bound Task System reads - PGlite", () => {
   it("discovers a stable, bounded due snapshot in exact keyset order", async () => {
@@ -275,11 +301,13 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
       }));
       expect(unavailable).toBeInstanceOf(TaskSystemRunReadUnavailableError);
 
-      await persistence.query(`
-        update fx_system_durable_task_run_v1
-        set due_at_ms = 1
-        where scope_id = '${TASK_SCOPE_ID}' and run_id = '${TASK_RUN_ID}'
-      `);
+      await persistence.drizzle
+        .update(fxSystemDurableTaskRunsV1)
+        .set({ dueAtMs: 1n })
+        .where(and(
+          eq(fxSystemDurableTaskRunsV1.scopeId, taskScopeId),
+          eq(fxSystemDurableTaskRunsV1.runId, runId),
+        ));
       const corruptDue = await runEffectFailure(
         makeTaskSystemDueDiscoveryV1(located).discoverDueRuns({
           version: 1,
@@ -290,11 +318,13 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
       );
       expect(corruptDue).toBeInstanceOf(TaskSystemRunReadCorruptionError);
       expect(corruptDue).toMatchObject({ reason: "run_row_invalid" });
-      await persistence.query(`
-        update fx_system_durable_task_run_v1
-        set due_at_ms = 0
-        where scope_id = '${TASK_SCOPE_ID}' and run_id = '${TASK_RUN_ID}'
-      `);
+      await persistence.drizzle
+        .update(fxSystemDurableTaskRunsV1)
+        .set({ dueAtMs: 0n })
+        .where(and(
+          eq(fxSystemDurableTaskRunsV1.scopeId, taskScopeId),
+          eq(fxSystemDurableTaskRunsV1.runId, runId),
+        ));
 
       await runEffect(Effect.gen(function* () {
         const service = yield* RunAttemptLifecycle;
@@ -305,12 +335,17 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
           retryJitter,
         });
       }).pipe(Effect.provide(lifecycleLayer(lifecycleStore))));
-      await persistence.query(`
-        update fx_system_durable_task_requested_effect_v1
-        set payload_json = '{}'::jsonb
-        where scope_id = '${TASK_SCOPE_ID}' and run_id = '${TASK_RUN_ID}'
-          and sequence = 1
-      `);
+      await persistence.drizzle
+        .update(fxSystemDurableTaskRequestedEffectsV1)
+        .set({ payloadJson: {} })
+        .where(and(
+          eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, taskScopeId),
+          eq(fxSystemDurableTaskRequestedEffectsV1.runId, runId),
+          eq(
+            fxSystemDurableTaskRequestedEffectsV1.sequence,
+            requestedEffectOne,
+          ),
+        ));
       const corrupted = await runEffectFailure(ledger.readRequestedEffects({
         version: 1,
         runId,
@@ -320,11 +355,10 @@ describe("DTE04-D scope-bound Task System reads - PGlite", () => {
       expect(corrupted).toBeInstanceOf(TaskSystemRunReadCorruptionError);
       expect(corrupted).toMatchObject({ reason: "effect_sequence_invalid" });
 
-      await persistence.query(`
-        update fx_system_scope_clock
-        set epoch = 'epoch_72000000-0000-4000-8000-000000000099'
-        where scope_id = '${TASK_SCOPE_ID}'
-      `);
+      await persistence.drizzle
+        .update(fxSystemScopeClocks)
+        .set({ epoch: staleScopeEpoch })
+        .where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
       const stale = await runEffectFailure(
         makeTaskSystemDueDiscoveryV1(located).discoverDueRuns({
           version: 1,
@@ -376,22 +410,21 @@ async function makeFixture(raw: PGlite) {
 async function taskCounts(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
 ) {
-  const result = await persistence.query<{
-    runs: string;
-    attempts: string;
-    effects: string;
-  }>(`
-    select
-      (select count(*)::text from fx_system_durable_task_run_v1) as runs,
-      (select count(*)::text
-       from fx_system_durable_task_attempt_identity_v1) as attempts,
-      (select count(*)::text
-       from fx_system_durable_task_requested_effect_v1) as effects
-  `);
+  const [[runs], [attempts], [effects]] = await Promise.all([
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRunsV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskAttemptIdentitiesV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRequestedEffectsV1,
+    ),
+  ]);
   return {
-    runs: Number(result.rows[0]?.runs ?? "-1"),
-    attempts: Number(result.rows[0]?.attempts ?? "-1"),
-    effects: Number(result.rows[0]?.effects ?? "-1"),
+    runs: runs?.count ?? -1,
+    attempts: attempts?.count ?? -1,
+    effects: effects?.count ?? -1,
   };
 }
 
@@ -399,11 +432,11 @@ async function seedCrossScopeRun(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
   crossScopeRunId: TaskRunIdV1,
 ): Promise<void> {
-  await persistence.query(`
-    insert into fx_system_scope_clock (scope_id, storage_generation, epoch)
-    values ('${OTHER_SCOPE_ID}', 'flarexdb_v1',
-      'epoch_72000000-0000-4000-8000-000000000097')
-  `);
+  await persistence.drizzle.insert(fxSystemScopeClocks).values({
+    scopeId: otherScopeId,
+    storageGeneration: taskStorageGeneration,
+    epoch: crossScopeEpoch,
+  });
   const aggregate = Object.freeze({
     ...readyTaskRunAggregateV1(),
     runId: crossScopeRunId,
