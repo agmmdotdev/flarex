@@ -4,7 +4,25 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  AppRowIdHexV1Schema,
+  appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+} from "flarex-protocol/app-document-id";
+import {
+  CatalogEdgeDefinitionIdSchema,
+  CatalogIndexDefinitionIdSchema,
+  CatalogTableIdSchema,
+} from "flarex-protocol/catalog";
+import {
+  ApplicationActivationSequenceV1Schema,
+  ApplicationActiveHeadSha256HexV1Schema,
+  type LogicalReadDependencyV1,
+} from "flarex-protocol/commit-protocol";
+import { AppIndexPhysicalSpecSha256HexV1Schema } from
+  "flarex-protocol/index-definition";
+import {
   SCOPE_SYNC_CURSOR_FORMAT_V1,
+  SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
   SCOPE_SYNC_PROTOCOL_VERSION_V1,
   SCOPE_SYNC_WAKE_FORMAT_V1,
   captureScopeSyncCursorV1,
@@ -12,6 +30,8 @@ import {
   type ScopeSyncCursorV1,
   type ScopeSyncWakeV1,
 } from "flarex-protocol/internal/scope-sync-v1";
+import { OrderedIndexKeyCodecVersionSchema } from
+  "flarex-protocol/ordered-index";
 import {
   CommitSeqSchema,
   MAX_PERSISTED_SIGNED_INT64_V1,
@@ -22,7 +42,9 @@ import {
 import {
   advanceScopeSyncCursorV1,
   classifyScopeSyncWakeV1,
+  collectScopeSyncCommitInvalidationKeysV1Result,
   resolveScopeSyncEpochAuthorityV1,
+  scopeSyncDependencyKeyFromLogicalReadV1,
 } from "../src/deploymentSync";
 
 const scopeUuid = ScopeUuidV1Schema.make(
@@ -37,6 +59,23 @@ const epochUuid = ScopeEpochUuidV1Schema.make(
 const otherEpochUuid = ScopeEpochUuidV1Schema.make(
   "00000000-0000-4000-8000-000000000004",
 );
+const firstTableId = CatalogTableIdSchema.make(1);
+const secondTableId = CatalogTableIdSchema.make(2);
+const edgeDefinitionId = CatalogEdgeDefinitionIdSchema.make(7);
+const firstRowId = AppRowIdHexV1Schema.make(
+  "00000000000040008000000000000001",
+);
+const secondRowId = AppRowIdHexV1Schema.make(
+  "00000000000040008000000000000002",
+);
+const firstDocumentId = appDocumentIdV1FromRowIdentity({
+  tableId: firstTableId,
+  rowId: firstRowId,
+});
+const secondDocumentId = appDocumentIdV1FromRowIdentity({
+  tableId: firstTableId,
+  rowId: secondRowId,
+});
 
 describe("deployment sync cursor core", () => {
   it.each([
@@ -109,6 +148,123 @@ describe("deployment sync cursor core", () => {
       operation: "classifyWake",
       expectedScopeUuid: scopeUuid,
       observedScopeUuid: otherScopeUuid,
+    });
+  });
+
+  it("projects exact point and relation keys plus a conservative index table key", () => {
+    expect(scopeSyncDependencyKeyFromLogicalReadV1(
+      pointDependency(),
+    )).toEqual({
+      format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+      version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+      kind: "appRowPoint",
+      documentId: firstDocumentId,
+    });
+    expect(scopeSyncDependencyKeyFromLogicalReadV1(
+      indexDependency(),
+    )).toEqual({
+      format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+      version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+      kind: "appTable",
+      tableId: firstTableId,
+    });
+    const relationKey = scopeSyncDependencyKeyFromLogicalReadV1(
+      relationDependency(),
+    );
+    expect(relationKey).toEqual({
+      format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+      version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+      kind: "appRelationIncoming",
+      edgeDefinitionId,
+      targetRowId: secondRowId,
+    });
+    expect(relationKey).not.toHaveProperty("observedAdjacencyVersion");
+    expect(relationKey).not.toHaveProperty("activationSequence");
+    expect(relationKey).not.toHaveProperty("activeHeadSha256Hex");
+    expect(Object.isFrozen(relationKey)).toBe(true);
+  });
+
+  it("collects deterministic exact and conservative invalidation keys", () => {
+    const commit = makeCommit(6n, {
+      appRowChanges: Object.freeze([
+        Object.freeze({
+          ordinal: 0,
+          tableId: firstTableId,
+          rowId: appRowIdHexV1ToBytes(secondRowId),
+        }),
+        Object.freeze({
+          ordinal: 1,
+          tableId: firstTableId,
+          rowId: appRowIdHexV1ToBytes(firstRowId),
+        }),
+      ]),
+      relationAdjacencyChanges: Object.freeze([
+        Object.freeze({
+          ordinal: 0,
+          edgeDefinitionId,
+          direction: "outgoing",
+          endpointRowId: firstRowId,
+        }),
+        Object.freeze({
+          ordinal: 1,
+          edgeDefinitionId,
+          direction: "incoming",
+          endpointRowId: secondRowId,
+        }),
+      ]),
+    });
+
+    const keys = Result.getOrThrow(
+      collectScopeSyncCommitInvalidationKeysV1Result(commit),
+    );
+
+    expect(keys).toEqual([
+      {
+        format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+        version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+        kind: "appRowPoint",
+        documentId: firstDocumentId,
+      },
+      {
+        format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+        version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+        kind: "appRowPoint",
+        documentId: secondDocumentId,
+      },
+      {
+        format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+        version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+        kind: "appTable",
+        tableId: firstTableId,
+      },
+      {
+        format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
+        version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+        kind: "appRelationIncoming",
+        edgeDefinitionId,
+        targetRowId: secondRowId,
+      },
+    ]);
+    expect(Object.isFrozen(keys)).toBe(true);
+    expect(keys.every(Object.isFrozen)).toBe(true);
+  });
+
+  it("rejects malformed app-row bytes before producing invalidation keys", () => {
+    const failure = expectFailure(
+      collectScopeSyncCommitInvalidationKeysV1Result(makeCommit(6n, {
+        appRowChanges: Object.freeze([Object.freeze({
+          ordinal: 4,
+          tableId: secondTableId,
+          rowId: new Uint8Array(15),
+        })]),
+      })),
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "ScopeSyncInvalidCommitChangeError",
+      operation: "collectInvalidationKeys",
+      changeKind: "appRow",
+      changeOrdinal: 4,
     });
   });
 
@@ -241,7 +397,10 @@ function makeCommit(
   commitSeq: bigint,
   overrides: Partial<Pick<
     CommitFeedCommitV1,
-    "scopeUuid" | "epochUuid"
+    | "scopeUuid"
+    | "epochUuid"
+    | "appRowChanges"
+    | "relationAdjacencyChanges"
   >> = {},
 ): CommitFeedCommitV1 {
   return Object.freeze({
@@ -249,8 +408,48 @@ function makeCommit(
     epochUuid: overrides.epochUuid ?? epochUuid,
     commitSeq: CommitSeqSchema.make(commitSeq),
     committedAtMilliseconds: 1_000,
-    appRowChanges: Object.freeze([]),
-    relationAdjacencyChanges: Object.freeze([]),
+    appRowChanges: overrides.appRowChanges ?? Object.freeze([]),
+    relationAdjacencyChanges:
+      overrides.relationAdjacencyChanges ?? Object.freeze([]),
+  });
+}
+
+function pointDependency(): LogicalReadDependencyV1 {
+  return Object.freeze({
+    kind: "appRowPoint",
+    documentId: firstDocumentId,
+    observed: Object.freeze({
+      kind: "missing",
+      basis: Object.freeze({ kind: "noVisibleRevision" }),
+    }),
+  });
+}
+
+function indexDependency(): LogicalReadDependencyV1 {
+  return Object.freeze({
+    kind: "appIndexRange",
+    tableId: firstTableId,
+    indexDefinitionId: CatalogIndexDefinitionIdSchema.make(5),
+    keyCodecVersion: OrderedIndexKeyCodecVersionSchema.make(1),
+    physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1Schema.make(
+      "ab".repeat(32),
+    ),
+    direction: "asc",
+    lower: null,
+    upper: null,
+  });
+}
+
+function relationDependency(): LogicalReadDependencyV1 {
+  return Object.freeze({
+    kind: "appRelationIncoming",
+    edgeDefinitionId,
+    targetRowId: secondRowId,
+    observedAdjacencyVersion: CommitSeqSchema.make(5n),
+    activationSequence: ApplicationActivationSequenceV1Schema.make(3n),
+    activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema.make(
+      "cd".repeat(32),
+    ),
   });
 }
 

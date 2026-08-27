@@ -2424,10 +2424,13 @@ Roadmap 21's `SYNC01-P` docs-only preflight and bounded `SYNC01-A` strict
 persisted cursor/wake plus pure host-neutral contiguous-cursor core are
 complete. `SYNC01-B` also completes the private RQ01 receipt containing the
 same-read snapshot token, typed incoming dependency, and authenticated active-
-head witness. These checkpoints do not satisfy this prerequisite. R03-B remains
-blocked until the target sync owner also has durable per-scope cursor state,
-canonical query identity and generation authority, a typed dependency index,
-authenticated active-head observation, and reset/reconnect behavior.
+head witness. `SYNC01-C` adds the strict scope-local dependency-key and pure
+commit-routing core, including exact incoming relation keys, but no stored
+inverted index. These checkpoints do not satisfy this prerequisite. R03-B
+remains blocked until the target sync owner also has durable per-scope cursor
+state, canonical query identity and generation authority, a persisted typed
+dependency index, authenticated active-head observation, and reset/reconnect
+behavior.
 
 Outcome:
 

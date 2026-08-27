@@ -832,8 +832,10 @@ Dynamic Worker binding baseline before selecting it.
     authority and independent app-data cursor and Application active-head
     fences. `SYNC01-A` is also complete: it adds only the strict cursor/wake
     contracts and pure contiguous-cursor decisions. `SYNC01-B` now adds the
-    private same-read RQ01 snapshot/dependency/active-head receipt. These still
-    add no Durable Object, registration, dependency index, rerun, delivery,
+    private same-read RQ01 snapshot/dependency/active-head receipt. `SYNC01-C`
+    adds strict scope-local dependency keys and pure commit-to-key routing,
+    including conservative table fallback for index ranges. These still add no
+    Durable Object, registration, stored dependency index, rerun, delivery,
     reconnect, or relation observer.
 23. `R03-B`: after roadmap 21's durable scope-local sync owner, canonical query
     generation/dependency contracts, active-head observation, and reconnect

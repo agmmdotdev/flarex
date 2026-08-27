@@ -252,6 +252,28 @@ V1 dependency shapes include exact rows, typed index/range dependencies,
 relation/edge occurrences or ranges, and conservative table/index fences when
 precise intervals are not yet available. Broader reruns are the safe fallback.
 
+The current private scope-sync contract implements three scope-local keys. An
+`appRowPoint` key carries the canonical Application document ID, an `appTable`
+key carries the catalog table ID, and an `appRelationIncoming` key carries the
+edge-definition ID plus target row ID. Scope and epoch belong to the enclosing
+`DeploymentSyncDO` and query generation rather than every inverted-index key.
+
+Logical point reads use the exact row key. Index-range reads currently use the
+conservative table key because the canonical feed does not yet carry old and
+new ordered-index key evidence. Incoming relation reads use the exact relation
+key; their observed adjacency version and active-head witness remain generation
+evidence rather than routing-key fields. Each validated app-row commit fact
+produces its exact row and table keys, and each incoming relation fact produces
+its exact relation key. The paired outgoing fact produces no incoming key: the
+relation writer and feed preserve the matching incoming target fact for every
+admitted edge action. Any future outgoing-query profile requires its own typed
+key.
+
+This projection is pure, deterministic, and deduplicating. It rejects malformed
+app-row identity bytes before returning any invalidation keys. The keys are
+routing evidence only; no dependency persistence, registration, cursor
+transaction, Durable Object, or host route exists yet.
+
 ## Invariants And Trust Boundaries
 
 1. **Postgres remains authoritative.** Cloudflare coordination and caches are
@@ -399,6 +421,11 @@ These capabilities preserve useful regression cases and reusable delivery
 mechanics, not the final scope-local sync protocol. No `DeploymentSyncDO`,
 `VersionDO`, `DocCacheDO`, or `QueryCacheDO` implementation exists.
 
+The private host-neutral sync core now owns strict cursor and wake contracts,
+scope-local dependency keys, logical-read projection, and validated-commit
+invalidation projection. It does not store an inverted index or advance a
+cursor while collecting routing evidence.
+
 ## Known Gaps And Limitations
 
 - Current live-query commits and mirrors use `deployment_id` plus wall-clock
@@ -419,8 +446,9 @@ mechanics, not the final scope-local sync protocol. No `DeploymentSyncDO`,
 - Current connection leases are compatibility leases, not the accepted
   reconnect-retention token tied to scope epoch, storage generation, fence, and
   minimum required commit sequence.
-- Typed ordered range/edge dependency contracts and shared OCC/sync interval
-  encoding remain incomplete.
+- The initial row, table-fallback, and incoming-relation dependency-key core is
+  implemented, but persisted indexing, exact ordered-range facts, outgoing
+  query profiles, and shared OCC/sync interval encoding remain incomplete.
 - Delivery reconciliation can recover pending result rows, but it cannot detect
   a commit whose invalidation wake was lost before rerun.
 - Real-Postgres mutation-to-WebSocket recovery across actor eviction, reversed
