@@ -840,10 +840,10 @@ Dynamic Worker binding baseline before selecting it.
     the separately authenticated current-Application-head observation consumed
     by that classifier, including current scope/epoch/fence evidence from one
     trusted located read and exact equality with the query receipt's storage
-    authority. Its genuine-PostgreSQL transaction/lock acceptance lane remains
-    pending. These still add no Durable Object, registration, stored dependency
-    index, rerun execution, head-change recovery, delivery, reconnect, or
-    relation observer.
+    authority. Its paired PGlite and genuine-PostgreSQL transaction/lock
+    acceptance lanes are complete. These still add no Durable Object,
+    registration, stored dependency index, rerun execution, head-change
+    recovery, delivery, reconnect, or relation observer.
 23. `R03-B`: after roadmap 21's durable scope-local sync owner, canonical query
     generation/dependency contracts, active-head observation, and reconnect
     rules exist, prove fenced relation registration, invalidation, and

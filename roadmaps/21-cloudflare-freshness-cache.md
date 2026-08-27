@@ -4,9 +4,8 @@
 
 Status: accepted v1 sync design with an implemented prototype pipeline.
 `SYNC01-P`, the docs-only target authority and first implementation preflight,
-and bounded `SYNC01-A` through `SYNC01-D` private correctness slices are
-complete. `SYNC01-E` is implemented but awaits its genuine-PostgreSQL
-acceptance lane. The per-scope
+and bounded `SYNC01-A` through `SYNC01-E` private correctness slices are
+complete. The per-scope
 `DeploymentSyncDO` replacement is not implemented, and cache Durable Objects
 remain deferred optimizations.
 
@@ -881,14 +880,14 @@ classifier checks, and focused protocol/backend plus paired PGlite/PostgreSQL
 proof. It must preserve upstream typed failures and keep current cursor,
 generation, OCC, journal, commit, activation, and delivery behavior unchanged.
 
-### [ ] SYNC01-E — Authenticated Current-Head Observation
+### [x] SYNC01-E — Authenticated Current-Head Observation
 
-Status: implementation checkpoint completed on 2026-08-27; acceptance remains
-pending the genuine-PostgreSQL transaction/lock proof. The internal protocol
-now owns one strict, owned current-head observation envelope. Persistence
-produces it only through current trusted scope-authority resolution, the existing located
-`ScopeExecution` read transaction and scope-clock share lock, and the existing
-coherent active-head plus immutable-activation-frame reader. The observation
+Status: implementation and paired database acceptance are complete. The
+internal protocol owns one strict, owned current-head observation envelope.
+Persistence produces it only through current trusted scope-authority
+resolution, the existing located `ScopeExecution` read transaction and
+scope-clock share lock, and the existing coherent active-head plus
+immutable-activation-frame reader. The observation
 therefore carries the current canonical scope/epoch projection,
 `flarexdb_v1`, storage-generation fence, same-transaction scope commit
 sequence, activation sequence, and lowercase active-head SHA-256 without
@@ -903,11 +902,11 @@ sequence or digest still returns `resnapshotRequired` rather than installing a
 candidate.
 
 Focused protocol and backend tests, strict protocol/backend/system-test
-typechecks, and the existing relation-query PGlite system proof are green. The
-paired genuine-PostgreSQL assertion consumes the same proof but was not
-executed in this checkpoint because `FLAREX_POSTGRES_DATABASE_URL` was
-unavailable. This checkbox remains open and no genuine-PostgreSQL acceptance is
-claimed here.
+typechecks, and the paired relation-query PGlite and genuine-PostgreSQL system
+proofs are green. The PostgreSQL proof runs with an ordinary PostgreSQL 18 role
+and traverses the located READ COMMITTED transaction, scope-clock share lock,
+coherent active-head and immutable-activation reads, matching current-head
+observation, and typed missing-head failure without adding another authority.
 
 This checkpoint adds no Durable Object, SQLite or Postgres write, generation
 installation, dependency index, catch-up loop, head-change wake/sweep, cursor

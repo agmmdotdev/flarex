@@ -2436,10 +2436,10 @@ observation, and reset/reconnect behavior.
 Roadmap 21's `SYNC01-E` now implements the narrow authenticated current-head
 observation prerequisite: strict evidence from the trusted located read, the
 query receipt's storage-generation fence, and the connected activation-
-classifier checks. Its genuine-PostgreSQL transaction/lock acceptance lane is
-still pending. Durable sync-owner state, atomic installation, dependency
-indexing, catch-up, head-change recovery, reset, reconnect, and relation
-registration remain absent and continue to block R03-B.
+classifier checks. Its paired PGlite and genuine-PostgreSQL transaction/lock
+acceptance lanes are complete. Durable sync-owner state, atomic installation,
+dependency indexing, catch-up, head-change recovery, reset, reconnect, and
+relation registration remain absent and continue to block R03-B.
 
 Outcome:
 
