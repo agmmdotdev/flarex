@@ -2443,11 +2443,13 @@ and fenced SQLite scope-cursor owner. These checkpoints do not satisfy this
 prerequisite: persisted semantic query/dependency state, catch-up, head-change
 recovery, reset/reconnect, delivery, and relation registration remain absent.
 
-The accepted Query Sync Engine authority preflight is complete, but its first
-portable transition-kernel/reference-model implementation `QSYNC01-A` is not
-started. Roadmap 21's earlier `SYNC01-GP` is retained only as candidate
-Flarex/Cloudflare adapter evidence. Its authorization to implement
-`SYNC01-G` directly as backend-owned sync semantics is withdrawn and held.
+The accepted Query Sync Engine authority preflight and first portable
+transition-kernel/reference-model implementation `QSYNC01-A` are complete and
+production-inert. They do not supply the persisted semantic state,
+orchestration, Flarex adapter, catch-up, delivery, or client boundaries needed
+here. Roadmap 21's earlier `SYNC01-GP` is retained only as candidate
+Flarex/Cloudflare adapter evidence. Its authorization to implement `SYNC01-G`
+directly as backend-owned sync semantics is withdrawn and held.
 
 R03-B remains blocked until the portable engine's semantic state and
 orchestration contracts, the accepted delivery adapter, and roadmap 21's fresh

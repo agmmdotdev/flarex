@@ -840,9 +840,11 @@ Dynamic Worker binding baseline before selecting it.
     sequence storage, exact initialization replay, and atomic exact-next
     compare-and-swap. It has no query/generation/dependency storage, catch-up,
     reset, registration, delivery, or caller. The separate Query Sync Engine
-    authority preflight is complete; its first portable kernel/reference-model
-    implementation is not started. Roadmap 21 `SYNC01-GP` remains adapter
-    evidence, but direct-backend `SYNC01-G` authorization is withdrawn and held.
+    authority preflight and first portable kernel/reference-model slice are
+    complete and production-inert. No trusted change source, semantic store,
+    orchestration, Flarex adapter, delivery path, or caller exists yet. Roadmap
+    21 `SYNC01-GP` remains adapter evidence, but direct-backend `SYNC01-G`
+    authorization is withdrawn and held.
 23. `SV-R Core`: without waiting for sync, prove one non-reactive internal
     Standard relation vertical through definition, analysis, publication,
     readiness, activation, function-runtime commit, R03-A facts, and RQ01 query

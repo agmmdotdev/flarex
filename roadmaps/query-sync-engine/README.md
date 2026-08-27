@@ -2,14 +2,13 @@
 
 ## Status And Scope
 
-**Status:** accepted docs-only architecture and roadmap authority.
+**Status:** accepted architecture and roadmap authority; the first portable
+kernel slice is complete and production-inert.
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
-independent-engine preflight, is complete. No implementation,
-package, export, adapter, Durable Object, route, client API, or production
-caller is authorized by that completion alone. The first proposed medium
-implementation slice is
-[`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md), which
-requires a separate explicit implementation approval.
+independent-engine preflight, remains docs-only authority. The user separately
+approved [`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md),
+which now implements the private pure kernel and reference model. It adds no
+adapter, Durable Object, route, client API, or production caller.
 
 This roadmap family owns the runtime-neutral semantics for synchronizing
 authoritative server-query results:
@@ -61,7 +60,10 @@ and tests remain the authority for behavior already implemented.
 
 ## Current Implementation Boundary
 
-The independent `@flarex/query-sync` package does not yet exist.
+The independent private `@flarex/query-sync` package now contains the pure
+runtime-neutral transition kernel and deterministic reference-model testing
+subpath accepted by `QSYNC01-A`. It has no package-root export, no production
+caller, and no host, persistence, network, or delivery adapter.
 
 Current production-inert work under `flarex-backend/deploymentSync`,
 `DeploymentSyncDO`, and `flarex-protocol/internal/scope-sync-v1` proves useful
@@ -76,7 +78,7 @@ Useful canonical-frame, collision, active/provisional coexistence, corruption,
 and synchronous-SQLite requirements remain inputs to the later Flarex adapter
 preflight.
 
-No production sync caller currently changes because of this docs-only cut.
+No production sync caller changes because of `QSYNC01-A`.
 
 ## Target Architecture
 
@@ -136,7 +138,7 @@ public compatibility contract makes that boundary concrete.
 | Gate | Outcome | Status |
 | --- | --- | --- |
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
-| `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Docs-only implementation preflight complete; proposed next; not started |
+| `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Preflight required |
 | `QSYNC01-C` | Effect-native orchestration over reference capabilities: catch-up, provisional evaluation fencing, rerun coalescing, and publication-outbox decisions | Preflight required |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
@@ -167,11 +169,13 @@ paths.
   records the completed docs-only product, authority, package, adapter, and
   adoption decision.
 - [`preflight/01-qsync01-portable-transition-kernel.md`](./preflight/01-qsync01-portable-transition-kernel.md)
-  is the completed docs-only preflight for the proposed first medium slice.
+  is the completed preflight and implementation record for the first medium
+  slice.
 
 ## Next Correctness Gate
 
-The next implementation candidate is `QSYNC01-A`: one pure, production-inert
-transition kernel and reference model. It intentionally stops before services,
-Layers, storage, Postgres, Cloudflare, Electric, query execution, delivery, or
-client APIs. Its exact cut and evidence are frozen in the preflight above.
+The next candidate is a separate `QSYNC01-B` preflight. It must derive the
+trusted model/change-source boundary and semantic atomic state-store contract
+from the completed reference transitions. It must not begin services, Layers,
+storage, Postgres, Cloudflare, Electric, query execution, delivery, or client
+APIs without that fresh approval.

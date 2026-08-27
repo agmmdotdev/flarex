@@ -98,7 +98,7 @@ framework-neutral domain cores
   -> @flarex/persistence-postgres
   -> @flarex/freshness
   -> @flarex/analysis
-  -> @flarex/query-sync              (accepted target; not yet created)
+  -> @flarex/query-sync              (private, production-inert pure kernel)
 
 portable developer and wire contracts
   -> flarex
@@ -147,11 +147,10 @@ neither existing lower-level package is the correct home. A speculative
 
 ### Accepted Private Query Sync Package
 
-The docs-only Query Sync Engine preflight admits one future private
-`@flarex/query-sync` package as a coherent host-neutral domain owner. The
-package does not yet exist, and its first implementation slice remains subject
-to explicit approval under
-[`QSYNC01-A`](./query-sync-engine/preflight/01-qsync01-portable-transition-kernel.md).
+The Query Sync Engine preflight admits one private `@flarex/query-sync` package
+as a coherent host-neutral domain owner. Its explicitly approved first slice,
+[`QSYNC01-A`](./query-sync-engine/preflight/01-qsync01-portable-transition-kernel.md),
+is complete as a production-inert pure kernel and reference model.
 
 The package owns only runtime-neutral query-result synchronization semantics:
 namespace/model isolation, exact source ordering, canonical query/dependency

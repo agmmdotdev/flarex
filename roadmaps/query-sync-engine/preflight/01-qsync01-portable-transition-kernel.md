@@ -2,10 +2,10 @@
 
 ## Decision
 
-**Preflight status:** complete, docs only.
+**Preflight status:** complete.
 
-**Implementation status:** not started and not authorized by this document
-alone. Begin only after explicit user approval for `QSYNC01-A`.
+**Implementation status:** complete, private, and production-inert after
+separate explicit user approval for `QSYNC01-A`.
 
 The first medium implementation slice should create one private,
 production-inert, runtime-neutral `@flarex/query-sync` package containing pure
@@ -100,15 +100,17 @@ not coexisting wire generations:
 
 The slice freezes these representation principles and hard ceilings:
 
-- namespace/model IDs are well-formed NUL-free immutable text no greater than
-  512 UTF-8 bytes; they identify already bound values and are not authority
-  capabilities;
+- namespace/model IDs and source epochs are nonempty, well-formed, NUL-free
+  immutable text no greater than 512 UTF-8 bytes; they identify already bound
+  values and are not authority capabilities or ordering evidence;
 - source sequences use exact non-negative `bigint` from `0` through signed
   64-bit maximum `9_223_372_036_854_775_807n`; query generations use the same
   upper bound and begin at `1`, with explicit overflow refusal;
 - opaque model-specific query identities and dependency keys use one bounded
   canonical unpadded base64url representation, validated by decoding and
   canonical re-encoding through Effect Encoding rather than a private codec;
+- zero decoded bytes and therefore the empty canonical base64url spelling are
+  valid for the variable-size query identity and dependency-key domains;
 - the canonical query identity includes all model-owned effective
   authorization/access evidence that affects result sharing; there is no
   separate optional access fingerprint in the kernel;
@@ -127,26 +129,52 @@ The slice freezes these representation principles and hard ceilings:
 - one invalidation transition performs at most 65,536 indexed dependency-key
   lookups and updates at most 4,096 affected queries; it does not use a
   query-by-key Cartesian scan;
+- one synthetic refresh proof consumes at most 65,536 admitted batches,
+  65,536 normalized dependency-key examinations, and 16 MiB of decoded
+  dependency-key bytes across the complete interval;
 - query lookup keys, result digests, and model-owned authority witnesses are
   canonical unpadded base64url encodings of exactly 32 bytes; their derivation
   remains a trusted future adapter responsibility rather than an async crypto
   service in this slice;
 - caller-owned mutable byte arrays are not retained;
-- dependency sets are captured, bounded, strictly ordered, and unique;
+- dependency and invalidation-key sets are captured, bounded, unique, and
+  ordered by ascending ECMAScript string code-unit order over their canonical
+  ASCII base64url spellings;
+- raw query-dependency input is refused above 8,192 entries and raw
+  invalidation-key input above 65,536 entries before normalization, so a
+  duplicate flood cannot bypass the work ceiling; within those guards,
+  normalization copies, sorts, deduplicates, and freezes the owned result;
 - a query key is only a lookup key; the full canonical identity and model ID are
   retained for collision checks; and
 - all returned aggregate values are owned immutable snapshots. The
   implementation must not freeze or alias caller-owned arrays/records.
 
-`countedCanonicalBytes` is deterministic: it sums UTF-8 bytes of retained IDs
-plus decoded canonical identity, dependency, lookup-key, result-digest, and
-authority-witness bytes and fixed-width sequence/generation accounting defined
-beside the model. It does not pretend to measure engine-specific JavaScript
-object overhead. The separate 262,144-membership ceiling bounds retained
-collection cardinality that decoded-byte accounting cannot see. Base64url input
-is rejected from its encoded length before allocation/decoding when it cannot
-fit the decoded ceiling; the decoder must not allocate an arbitrarily large
-caller string merely to discover that it is oversized.
+`countedCanonicalBytes` is deterministic and counts the retained semantic
+representation exactly:
+
+- UTF-8 bytes of the aggregate namespace, model ID, and source epoch, plus
+  eight bytes for its applied-through sequence;
+- per query, 32 decoded query-key bytes, decoded canonical identity bytes, and
+  one byte for each active/provisional slot-presence tag;
+- per provisional slot, eight bytes each for generation and registration
+  sequence;
+- per active slot, eight bytes each for generation, snapshot, and
+  refreshed-through sequence, 32 bytes each for result digest and authority
+  witness, one dirty-frontier presence byte plus eight bytes when present, and
+  the decoded bytes of its dependency keys once per query-to-key membership.
+
+It does not pretend to measure engine-specific JavaScript object overhead. The
+separate 262,144-membership ceiling bounds retained collection cardinality that
+decoded-byte accounting cannot see. The reverse dependency directory is a
+derived index and does not charge its representation-specific duplicate keys
+or lookup structure into the portable byte metric. Base64url input is rejected
+from its encoded length before allocation/decoding when it cannot fit the
+decoded ceiling; the decoder must not allocate an arbitrarily large caller
+string merely to discover that it is oversized.
+
+One `QuerySyncState` aggregate binds exactly one namespace, model ID, source
+epoch, and cursor. It never stores several models or epochs in one directory;
+wrong-model and wrong-epoch input is refused before query lookup or mutation.
 
 The implementation records these as named constants and tests
 boundary-minus-one, boundary, and boundary-plus-one. A host may configure lower
@@ -174,20 +202,40 @@ pretend to prove that adapter.
 The name prevents a later caller from treating schema decoding or an arbitrary
 push request as commit authority.
 
+Every query operation uses one admitted descriptor containing both
+`CanonicalQueryKey` and `CanonicalQueryIdentity`. The kernel never derives the
+key, because crypto is excluded, and never scans identities to locate a query.
+The descriptor is retained once on `QueryState` and copied into evaluation and
+refresh evidence for exact revalidation.
+
 ## Pure Policies
 
 ### `classifySequence`
 
 Given one namespace/model cursor and admitted batch position, return a pure
-decision for:
+successful decision for:
 
 - idempotent duplicate;
 - exact next sequence;
-- forward gap;
-- namespace mismatch;
-- model mismatch;
-- epoch mismatch/reset required; and
-- sequence exhaustion.
+- forward gap; and
+- epoch mismatch/reset required.
+
+Namespace or model mismatch is a typed `Result` failure rather than a routing
+decision. `duplicate` covers every representable same-epoch position at or
+below the applied-through cursor. `gap` and `resetRequired` are normal
+orchestration decisions that return unchanged state; neither is collapsed into
+a generic failure.
+
+An admitted position is already a valid `SyncSequence`, so a value greater
+than the signed-64-bit maximum cannot enter `classifySequence`. The separate
+pure `nextSyncSequence` helper owns exact-next arithmetic and returns the typed
+sequence-exhaustion failure when the cursor is already at the maximum. At that
+maximum, every representable same-epoch observed position is duplicate/stale;
+there is no exact-next position.
+
+The initial reference aggregate requires an explicit cursor. Sequence `0` is
+an already-applied baseline, not a negative sentinel, so its first exact-next
+position is `1`.
 
 The policy cannot fetch a source, mutate state, or infer authority from IDs.
 
@@ -206,6 +254,13 @@ Given current query state and one admitted canonical identity:
 - the same key/model with different canonical identity fails as a collision;
 - namespace/model/epoch mismatches fail without changing state; and
 - the returned decision owns its captured values.
+
+While a provisional slot exists, this slice has no replace/cancel operation.
+An exact begin replay reuses its generation, including after
+`refreshRequired`, `rerunRequired`, or `resnapshotRequired`. A newer generation
+is allocated only after exact completion clears the provisional slot. Query
+identity change under the same lookup key remains a collision, not a new
+candidate.
 
 ### `applyAdmittedInvalidations`
 
@@ -235,16 +290,23 @@ against changed state.
 
 The input contains separate, exact evidence:
 
-- `QueryEvaluationEvidence`: namespace, model, epoch, complete canonical query
-  identity, provisional generation, authoritative snapshot sequence, captured
-  result digest, opaque model-owned authority witness, and bounded captured
-  dependency set; and
+- `QueryEvaluationEvidence`: namespace, model, epoch, canonical query key,
+  complete canonical query identity, provisional generation, authoritative
+  snapshot sequence, captured result digest, opaque model-owned authority
+  witness, and bounded captured dependency set; and
 - `GenerationRefreshEvidence`: the same namespace/model/epoch/query/generation,
+  including the same canonical query key and complete identity,
+  the exact evaluation snapshot and normalized dependency set,
   `refreshedThroughSequence`, and nullable `relevantThroughSequence`, produced
-  only after the trusted future orchestrator rereads and projects every admitted
-  source batch in `(snapshotSequence, refreshedThroughSequence]` against the
-  candidate dependency set, plus the authority witness re-derived by the
-  trusted model adapter for exactly `refreshedThroughSequence`.
+  only after the trusted future orchestrator rereads and projects every
+  admitted source batch in `(snapshotSequence, refreshedThroughSequence]`
+  against the candidate dependency set, plus the authority witness re-derived
+  by the trusted model adapter for exactly `refreshedThroughSequence`.
+
+`GenerationRefreshEvidence` is a nominal admitted value whose constructor is
+not exported. An object literal with matching fields cannot enter completion;
+the testing oracle is the only constructor in this slice. Production evidence
+construction remains reserved for the later trusted change-model boundary.
 
 The authority witness is an opaque equality token to the kernel. The model
 adapter must include every mutable result-authorizing head/schema/policy value
@@ -274,6 +336,26 @@ The transition revalidates against one current source state:
 - an equal result digest still installs freshness/dependency evidence while its
   receipt reports no changed-result publication intent.
 
+Completion uses one frozen precedence and outcome split:
+
+1. malformed or mutually inconsistent evidence, namespace/model/epoch
+   mismatch, missing query, key collision, generation mismatch, invalid
+   snapshot/refresh ordering, and a refresh cursor ahead of current state are
+   typed `Result` failures and leave state unchanged;
+2. otherwise a refresh cursor behind current state returns the successful
+   `refreshRequired` decision;
+3. otherwise authority-witness drift returns successful
+   `resnapshotRequired`;
+4. otherwise the greatest relevant refresh sequence or installed dirty
+   frontier later than the evaluation snapshot returns successful
+   `rerunRequired`; and
+5. only the remaining exact clean case installs and returns `completed`.
+
+All three non-completing successful decisions retain the exact provisional
+slot. A refresh interval gap/reversal/truncation is an evidence-construction
+failure, not `refreshRequired`; reset-required epoch mismatch is not collapsed
+into a rerun.
+
 Because classification and value-level installation consume the same immutable
 source aggregate, no invalidation can interleave between them in the reference
 contract. The later durable adapter implements the same operation in one
@@ -291,7 +373,9 @@ only the admitted kernel operations. It is:
 - the future durable-adapter conformance oracle.
 
 It is not a production store, transaction callback API, fake Durable Object,
-network simulator, or unbounded in-memory service.
+network simulator, or unbounded in-memory service. It does not export an
+arbitrary state-seeding builder; malformed aggregate construction remains a
+package-local test concern rather than a supported reference-host capability.
 
 Add two synthetic model fixtures with unrelated canonical dependency spaces,
 for example a key/value model and a graph model. Their commands prove the
@@ -321,6 +405,13 @@ The bounded pure channel distinguishes at least:
 - canonical-value/size failure;
 - dependency-count/normalization failure; and
 - aggregate-state/byte limit and transition-work refusal.
+
+This inventory spans both successful decision variants and `Result` failures.
+In particular, sequence `gap` and `resetRequired` are successful unchanged-state
+decisions, while namespace/model mismatch, malformed evidence, collision,
+generation mismatch, exhaustion, and limit refusal use the typed failure
+channel. Completion's `refreshRequired`, `rerunRequired`, and
+`resnapshotRequired` are also successful unchanged-state decisions.
 
 Use domain-tagged failures at the originating pure boundary. Do not collapse
 reset-required, gap, collision, and stale generation into one generic conflict.
@@ -406,6 +497,42 @@ Repository evidence must also include:
 
 If reviewer-driven code changes alter the significant diff, rerun both
 reviewers before committing.
+
+## Implementation Receipt
+
+Completed on 2026-08-28 as one private, production-inert workspace package.
+The package exposes only `./internal/kernel` and
+`./testing/reference-model`; it has no package-root export or production
+caller. Its only runtime dependency is `effect`.
+
+The completed slice includes:
+
+- canonical bounded namespace, model, epoch, cursor, query, result, witness,
+  and dependency values;
+- one immutable namespace/model/epoch state aggregate;
+- duplicate, exact-next, gap, reset, invalidation, generation, refresh,
+  resnapshot, rerun, and completion decisions;
+- nominal refresh evidence bound to the exact evaluation snapshot and
+  normalized dependency set;
+- fixed-extent input traversal and incremental duplicate/byte accounting so
+  caller iterators and duplicate floods cannot bypass hard work ceilings;
+- operation-indexed work-limit error variants with aggregate-union narrowing;
+  and
+- one deterministic reference reducer, refresh oracle, and two unrelated
+  synthetic model fixtures.
+
+Final evidence:
+
+- `pnpm --filter @flarex/query-sync typecheck` passed;
+- `pnpm --filter @flarex/query-sync test` passed 6 files and 54 tests;
+- `pnpm lint:core`, `pnpm lint:diff`, and the exact staged-index
+  `pnpm lint:diff -- --staged` passed;
+- the scoped Oxlint policy passed 329 rule tests, 16 diff-tool tests, both
+  tooling typechecks, and the full silent audit;
+- the Effect runtime-boundary check, forbidden-import audit, and
+  `git diff --check` passed; and
+- the final `typescript-diff-reviewer` and `code-quality-diff-reviewer`
+  checkpoints reported no findings.
 
 ## Exit And Next Gate
 

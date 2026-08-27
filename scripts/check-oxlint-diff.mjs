@@ -35,6 +35,7 @@ const OXLINT_ENTRYPOINT = resolve(REPOSITORY_ROOT, "node_modules/oxlint/bin/oxli
 
 export const OXLINT_SOURCE_ROOTS = Object.freeze([
   "packages/utils/src",
+  "packages/query-sync/src",
   "packages/flarex-protocol/src",
   "packages/executor/src",
   "packages/executor-http/src",

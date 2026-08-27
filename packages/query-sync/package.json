@@ -1,0 +1,25 @@
+{
+  "name": "@flarex/query-sync",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    "./internal/kernel": "./src/kernel/index.ts",
+    "./testing/reference-model": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

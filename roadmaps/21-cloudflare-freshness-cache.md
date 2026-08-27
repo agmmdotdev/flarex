@@ -580,10 +580,11 @@ they must not create a second forward sync architecture.
 After `C07`, completed `SYNC01-A` through `SYNC01-F` remain evidence. The next
 ordered gates are now:
 
-1. Complete the Query Sync Engine `QSYNC01-A` pure transition kernel/reference
+1. Query Sync Engine `QSYNC01-A` completed the pure transition kernel/reference
    model without changing the current actor/store/protocol.
-2. Preflight and implement the trusted change-model boundary, semantic atomic
-   state contract, and Effect-native orchestration against reference adapters.
+2. Separately preflight and implement the trusted change-model boundary,
+   semantic atomic state contract, and Effect-native orchestration against
+   reference adapters.
 3. Accept a fresh roadmap-21 adapter preflight that maps Flarex canonical
    identities/dependencies/results and the existing one-per-scope
    `DeploymentSyncDO` SQLite authority into the portable semantic contract.
@@ -1150,12 +1151,13 @@ replacement, collision/corruption rules, and cursor-plus-invalidation
 constraints below remain candidate requirements for a later Flarex/Cloudflare
 state-adapter preflight.
 
-`SYNC01-G` has not started and is on hold. It may resume only after the portable
-kernel, semantic state/orchestration contracts, and conformance gates close and
-a replacement roadmap-21 adapter preflight is accepted. Completed `SYNC01-A`
-through `SYNC01-F` remain valid evidence. This correction authorizes no package,
-schema, migration, route, caller, dual registry, fallback, compatibility write,
-or production behavior.
+`SYNC01-G` has not started and is on hold. The portable `QSYNC01-A` kernel is
+complete, but the semantic state, orchestration, conformance, and Flarex
+adapter gates remain open. `SYNC01-G` may resume only after those gates close
+and a replacement roadmap-21 adapter preflight is accepted. Completed
+`SYNC01-A` through `SYNC01-F` remain valid evidence. This correction authorizes
+no package, schema, migration, route, caller, dual registry, fallback,
+compatibility write, or production behavior.
 
 The storage split preserves two different facts. The active generation is the
 last installed result and dependency set against which already admitted

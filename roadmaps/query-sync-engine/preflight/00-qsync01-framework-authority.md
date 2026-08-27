@@ -125,4 +125,6 @@ package direction, runtime/lifecycle policy, producer/consumer trust boundary,
 Electric/Cloudflare decision, transaction rule, no-dual-engine adoption, and
 first bounded slice are recorded and cross-linked.
 
-Implementation remains stopped until explicit approval for `QSYNC01-A`.
+Implementation stopped at this docs-only preflight. The user later separately
+approved `QSYNC01-A`, which is now complete under its own implementation
+record. This historical preflight does not authorize any later gate.
