@@ -116,6 +116,8 @@ DTE06-F2 fresh-host recovery and takeover is complete privately. The docs-only
 runtime-kernel/provider-placement decision in
 [`Preflight 47`](./47-dte06-runtime-kernels-and-provider-placement.md) and the
 private, unwired provider router in
-[`Preflight 48`](./48-dte06-task-compute-provider-router.md) are complete.
+[`Preflight 48`](./48-dte06-task-compute-provider-router.md), and the private
+Worker Loader routed composition in
+[`Preflight 49`](./49-dte06-worker-loader-routed-composition.md) are complete.
 Standard Task APIs, DTE05-E3, DTE06-F3/F4, public APIs, observability, and
 production activation remain closed.

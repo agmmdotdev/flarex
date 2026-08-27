@@ -162,6 +162,10 @@ Task compute provider router in
 [`preflight/48-dte06-task-compute-provider-router.md`](./preflight/48-dte06-task-compute-provider-router.md).
 It adds placement composition only; current provider adapters and hosts remain
 unchanged.
+The next private slice is complete: the same scoped Worker Loader provider now
+reaches that seam in the Application delivery composition, as recorded in
+[`preflight/49-dte06-worker-loader-routed-composition.md`](./preflight/49-dte06-worker-loader-routed-composition.md).
+It authorizes neither an alternate provider nor production activation.
 E1 through E5 are complete privately. The current
 session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
@@ -199,9 +203,9 @@ ordinary-role PostgreSQL. DTE05-C3 Application scheduling parity and DTE06-F2
 fresh-host recovery and takeover are complete privately. F2 proves pre-expiry
 exclusion, persisted expiry/retry grant, old-host fencing, and one winning
 fresh Worker in PGlite and ordinary-role genuine PostgreSQL without a new
-runtime owner. Preflight 47's runtime-kernel/provider-placement decision and
-Preflight 48's private, unwired provider router are complete. F3/F4 remain
-separately gated.
+runtime owner. Preflight 47's runtime-kernel/provider-placement decision,
+Preflight 48's provider router, and Preflight 49's private Worker Loader routed
+composition are complete. F3/F4 remain separately gated.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).

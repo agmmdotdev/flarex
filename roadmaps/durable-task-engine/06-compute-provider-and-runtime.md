@@ -62,6 +62,12 @@ production-inert compute-provider router in
 [`preflight/48-dte06-task-compute-provider-router.md`](./preflight/48-dte06-task-compute-provider-router.md).
 It changes no runtime kernel, provider adapter, host wiring, lifecycle, or wire
 contract.
+The next wiring slice is complete privately: the same scoped Worker Loader
+provider now reaches the router only in the Application delivery composition,
+as
+recorded in
+[`preflight/49-dte06-worker-loader-routed-composition.md`](./preflight/49-dte06-worker-loader-routed-composition.md).
+It adds no second provider or production activation.
 The detailed C0-C3 evidence, repository, discovery, deadline, restart,
 lost-receipt, two-host, multi-scope, PGlite, and genuine-PostgreSQL proofs remain
 the admitted foundation for the current private Worker Loader composition.
@@ -784,7 +790,8 @@ old-host fencing, and one winning fresh Worker without shared host state. It
 does not prove a deployed Cloudflare topology. The DTE05-C3 Application
 scheduling-parity correction is complete privately. The separately gated F3/F4
 hosted work and DTE05-E3 scheduled host remain closed. Preflight 47 is the
-accepted architecture checkpoint, and Preflight 48's private, unwired
-provider-router implementation is complete. Public APIs,
+accepted architecture checkpoint, Preflight 48's provider-router
+implementation is complete, and Preflight 49 now routes the same scoped Worker
+Loader provider in the private Application composition. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.

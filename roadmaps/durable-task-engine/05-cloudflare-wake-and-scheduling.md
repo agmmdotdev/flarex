@@ -20,9 +20,10 @@ Cloudflare-hosted cron repair system exists. The DTE05-C3 boundary and evidence
 are recorded in
 [`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
 DTE06-F2 is complete privately. The docs-only runtime-kernel/provider-placement
-decision in Preflight 47 and the private, unwired provider router in Preflight
-48 are complete. F3/F4 and DTE05-E3 remain separately gated; no host work may
-bypass Preflight 37 or those gates.
+decision in Preflight 47, the provider router in Preflight 48, and the private
+Worker Loader routed composition in Preflight 49 are complete. F3/F4 and
+DTE05-E3 remain separately gated; no host work may bypass Preflight 37 or those
+gates.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -293,9 +294,9 @@ PostgreSQL prove both generations plus Application expiry, retry,
 reconstruction, concurrency, rollback/first-failure, and stale authority. No
 host, wake publisher for Application, route, binding, or activation path was
 added. DTE06-F2 fresh-host recovery and takeover is complete privately. The
-Preflight 47 runtime-kernel/provider-placement decision and Preflight 48
-private, unwired provider router are complete; F3/F4 and DTE05-E3 remain
-separately gated.
+Preflight 47 runtime-kernel/provider-placement decision, Preflight 48 provider
+router, and Preflight 49 private Worker Loader routed composition are complete;
+F3/F4 and DTE05-E3 remain separately gated.
 
 ### DTE05-D: Queue Wake Hints — Complete
 

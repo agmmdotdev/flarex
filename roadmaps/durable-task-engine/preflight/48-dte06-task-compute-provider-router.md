@@ -183,6 +183,11 @@ unchanged. A later preflight must adapt provider factories and host composition
 before the router can serve two real providers. Node and AgentOS provider work
 remain independently gated.
 
+The completed private one-provider wiring slice is recorded in
+[`Preflight 49`](./49-dte06-worker-loader-routed-composition.md). It adapts
+the current scoped Worker Loader provider into the private Application
+composition without adding a provider or production host.
+
 ## Implementation Receipt
 
 The backend-private `TaskComputeProviderRouter` now provides the existing

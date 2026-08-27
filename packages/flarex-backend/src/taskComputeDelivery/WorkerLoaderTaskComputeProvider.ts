@@ -27,6 +27,10 @@ import {
   type TaskComputeProviderShape,
 } from "@flarex/durable-task/internal/compute-provider-v1";
 import {
+  TaskComputeProfileRefV1Schema,
+  type TaskComputeProfileRefV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import {
   MAX_TASK_RUNTIME_COMPATIBILITY_FLAGS_V1,
   MAX_TASK_RUNTIME_COMPUTE_PROFILES_V1,
   makeLiveStandardApplicationTaskSha256V1,
@@ -113,6 +117,10 @@ import {
   type ApplicationTaskMutationCallbackAuthority,
   type ApplicationTaskMutationCallbackLease,
 } from "./ApplicationTaskMutationCallback.js";
+import {
+  makeTaskComputeProviderRouter,
+  type TaskComputeProviderRouterConfigurationError,
+} from "./TaskComputeProviderRouter.js";
 
 export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME =
   "flarex-worker-loader" as const;
@@ -143,6 +151,7 @@ export interface WorkerLoaderTaskComputeProviderOptions {
 
 interface CapturedOptions {
   readonly descriptor: TaskComputeProviderDescriptorV1;
+  readonly computeProfiles: ReadonlyArray<TaskComputeProfileRefV1>;
   readonly applicationHostPolicy: ApplicationTaskWorkerHostPolicy;
   readonly applicationQueryAuthority: ApplicationTaskQueryCallbackAuthority;
   readonly applicationMutationAuthority: ApplicationTaskMutationCallbackAuthority;
@@ -234,9 +243,16 @@ interface ProviderState {
   readonly inFlightClassifications: ReadonlySet<StartingDispatch["completion"]>;
 }
 
-interface ProviderBundle {
+export interface WorkerLoaderTaskComputeProviderBundle {
+  readonly descriptor: TaskComputeProviderDescriptorV1;
+  readonly computeProfiles: ReadonlyArray<TaskComputeProfileRefV1>;
   readonly provider: TaskComputeProviderShape;
   readonly supervisionControl: TaskComputeDeliverySupervisionControlShape;
+}
+
+export interface WorkerLoaderTaskComputeProviderSupervision {
+  readonly supervisor: TaskAttemptSupervisor;
+  readonly observer: TaskAttemptSupervisionObserver;
 }
 
 type DispatchClaim =
@@ -248,6 +264,9 @@ type DispatchClaim =
   | Readonly<{ readonly kind: "start"; readonly state: StartingDispatch }>;
 
 const decodeExecutionId = Schema.decodeUnknownResult(TaskComputeExecutionIdV1Schema);
+const decodeComputeProfile = Schema.decodeUnknownResult(
+  TaskComputeProfileRefV1Schema,
+);
 
 export function makeWorkerLoaderTaskComputeProviderLayer(
   loader: WorkerLoader,
@@ -287,6 +306,49 @@ export function makeSupervisedWorkerLoaderTaskComputeProviderLayer(
   );
 }
 
+/**
+ * Private routed composition for the current Application delivery host. The
+ * Worker Loader provider remains one plain scoped instance; only the router is
+ * published as the shared TaskComputeProvider service.
+ */
+export function makeRoutedSupervisedWorkerLoaderTaskComputeProviderLayer(
+  loader: WorkerLoader,
+  options: WorkerLoaderTaskComputeProviderOptions,
+  supervisor: TaskAttemptSupervisor,
+  supervisionObserver: TaskAttemptSupervisionObserver,
+): Layer.Layer<
+  TaskComputeProvider | TaskComputeDeliverySupervisionControl,
+  | WorkerLoaderTaskComputeProviderConfigurationError
+  | TaskComputeProviderRouterConfigurationError,
+  TaskRuntimeLaunchAuthority
+> {
+  return Layer.effectContext(
+    makeWorkerLoaderTaskComputeProviderBundle(
+      loader,
+      options,
+      Object.freeze({
+        supervisor,
+        observer: supervisionObserver,
+      }),
+    ).pipe(Effect.flatMap(bundle =>
+      Effect.fromResult(makeTaskComputeProviderRouter([
+        Object.freeze({
+          descriptor: bundle.descriptor,
+          computeProfiles: bundle.computeProfiles,
+          provider: bundle.provider,
+        }),
+      ])).pipe(Effect.map(provider =>
+        Context.make(TaskComputeProvider, provider).pipe(
+          Context.add(
+            TaskComputeDeliverySupervisionControl,
+            bundle.supervisionControl,
+          ),
+        )
+      ))
+    )),
+  );
+}
+
 function makeWorkerLoaderTaskComputeProviderLayerInternal(
   loader: WorkerLoader,
   options: WorkerLoaderTaskComputeProviderOptions,
@@ -297,46 +359,71 @@ function makeWorkerLoaderTaskComputeProviderLayerInternal(
   WorkerLoaderTaskComputeProviderConfigurationError,
   TaskRuntimeLaunchAuthority
 > {
-  return Layer.effectContext(
-    Effect.gen(function* () {
-      const authority = yield* TaskRuntimeLaunchAuthority;
-      const capturedOptions = yield* Effect.fromResult(captureOptions(options));
-      const captured: CapturedProviderOptions = Object.freeze({
-        ...capturedOptions,
-        sessionSupervisor: supervisor,
-        supervisionObserver,
-      });
-      const host = yield* Effect.try({
-        try: () => makeTaskWorkerSessionHost(
-          captureWorkerLoader(loader),
-          captured.handshakeMilliseconds === undefined
-            ? {}
-            : { handshakeMilliseconds: captured.handshakeMilliseconds },
-        ),
-        catch: cause => configurationError(cause),
-      });
-      const bundle = yield* makeWorkerLoaderTaskComputeProvider(
-        authority,
-        host,
-        captured,
-      );
-      return Context.make(TaskComputeProvider, bundle.provider).pipe(
+  return Layer.effectContext(makeWorkerLoaderTaskComputeProviderBundle(
+    loader,
+    options,
+    supervisor === undefined || supervisionObserver === undefined
+      ? undefined
+      : Object.freeze({
+        supervisor,
+        observer: supervisionObserver,
+      }),
+  ).pipe(Effect.map(bundle =>
+    Context.make(TaskComputeProvider, bundle.provider).pipe(
         Context.add(
           TaskComputeDeliverySupervisionControl,
           bundle.supervisionControl,
         ),
-      );
-    }),
-  );
+      )
+  )));
 }
 
-const makeWorkerLoaderTaskComputeProvider = Effect.fn(
+export const makeWorkerLoaderTaskComputeProviderBundle = Effect.fn(
+  "WorkerLoaderTaskComputeProvider.makeBundle",
+)(function* (
+  loader: WorkerLoader,
+  options: WorkerLoaderTaskComputeProviderOptions,
+  supervision: WorkerLoaderTaskComputeProviderSupervision | undefined =
+    undefined,
+): Effect.fn.Return<
+  WorkerLoaderTaskComputeProviderBundle,
+  WorkerLoaderTaskComputeProviderConfigurationError,
+  TaskRuntimeLaunchAuthority | Scope.Scope
+> {
+  const authority = yield* TaskRuntimeLaunchAuthority;
+  const capturedOptions = yield* Effect.fromResult(captureOptions(options));
+  const captured: CapturedProviderOptions = Object.freeze({
+    ...capturedOptions,
+    sessionSupervisor: supervision?.supervisor,
+    supervisionObserver: supervision?.observer,
+  });
+  const host = yield* Effect.try({
+    try: () => makeTaskWorkerSessionHost(
+      captureWorkerLoader(loader),
+      captured.handshakeMilliseconds === undefined
+        ? {}
+        : { handshakeMilliseconds: captured.handshakeMilliseconds },
+    ),
+    catch: cause => configurationError(cause),
+  });
+  return yield* makeCapturedWorkerLoaderTaskComputeProvider(
+    authority,
+    host,
+    captured,
+  );
+});
+
+const makeCapturedWorkerLoaderTaskComputeProvider = Effect.fn(
   "WorkerLoaderTaskComputeProvider.make",
 )(function* (
   authority: TaskRuntimeLaunchAuthorityShape,
   host: TaskWorkerSessionHost,
   options: CapturedProviderOptions,
-): Effect.fn.Return<ProviderBundle, never, Scope.Scope> {
+): Effect.fn.Return<
+  WorkerLoaderTaskComputeProviderBundle,
+  never,
+  Scope.Scope
+> {
   const providerScope = yield* Scope.Scope;
   const stateRef = yield* Ref.make<ProviderState>(Object.freeze({
     closing: false,
@@ -423,6 +510,8 @@ const makeWorkerLoaderTaskComputeProvider = Effect.fn(
     );
   });
   return Object.freeze({
+    descriptor: options.descriptor,
+    computeProfiles: options.computeProfiles,
     provider: makeTaskComputeProviderV1(implementation),
     supervisionControl: TaskComputeDeliverySupervisionControl.of(Object.freeze({
       quiesce,
@@ -1187,6 +1276,10 @@ function captureOptions(
       outer.applicationMutationAuthority,
     );
     const legacyHostPolicy = yield* captureLegacyPolicy(outer.legacyHostPolicy);
+    const computeProfiles = yield* captureProviderComputeProfiles(
+      applicationHostPolicy,
+      legacyHostPolicy,
+    );
     const maximumScopedDispatches = outer.maximumScopedDispatches ??
       DEFAULT_MAXIMUM_SCOPED_DISPATCHES;
     const handshakeMilliseconds = outer.handshakeMilliseconds;
@@ -1210,6 +1303,7 @@ function captureOptions(
         ));
     return Object.freeze({
       descriptor,
+      computeProfiles,
       applicationHostPolicy,
       applicationQueryAuthority,
       applicationMutationAuthority,
@@ -1219,6 +1313,35 @@ function captureOptions(
       sha256,
       handshakeMilliseconds,
     });
+  });
+}
+
+function captureProviderComputeProfiles(
+  applicationPolicy: ApplicationTaskWorkerHostPolicy,
+  legacyPolicy: LegacyTaskWorkerHostPolicy,
+): Result.Result<
+  ReadonlyArray<TaskComputeProfileRefV1>,
+  WorkerLoaderTaskComputeProviderConfigurationError
+> {
+  return Result.gen(function* () {
+    const profiles: TaskComputeProfileRefV1[] = [];
+    const observed = new Set<TaskComputeProfileRefV1>();
+    const policies = [
+      ...applicationPolicy.computeProfiles,
+      ...legacyPolicy.computeProfiles,
+    ];
+    for (const policy of policies) {
+      const computeProfile = yield* decodeComputeProfile(
+        policy.computeProfile,
+      ).pipe(Result.mapError(configurationError));
+      if (!observed.has(computeProfile)) {
+        observed.add(computeProfile);
+        profiles.push(computeProfile);
+      }
+    }
+    return profiles.length === 0
+      ? yield* Result.fail(configurationError())
+      : Object.freeze(profiles);
   });
 }
 

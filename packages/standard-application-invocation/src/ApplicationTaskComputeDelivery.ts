@@ -2,7 +2,7 @@ import {
   TaskComputeDeliveryCandidateRunnerLive,
   makeTaskComputeDeliveryConnectedRunnerLayer,
   makeTaskComputeDeliveryTrustedDirectoryLayer,
-  makeSupervisedWorkerLoaderTaskComputeProviderLayer,
+  makeRoutedSupervisedWorkerLoaderTaskComputeProviderLayer,
   type TaskAttemptSupervisionObserver,
   type TaskAttemptSupervisor,
   type TaskComputeDeliveryConnectedRunnerOptions,
@@ -56,7 +56,7 @@ export function makeApplicationTaskComputeDeliveryLayer(
     live.launchDirectory,
     live.launchAuthority,
   );
-  const provider = makeSupervisedWorkerLoaderTaskComputeProviderLayer(
+  const provider = makeRoutedSupervisedWorkerLoaderTaskComputeProviderLayer(
     live.workerLoader,
     Object.freeze({
       ...live.provider,

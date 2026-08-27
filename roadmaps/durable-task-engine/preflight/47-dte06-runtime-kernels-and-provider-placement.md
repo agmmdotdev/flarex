@@ -328,3 +328,9 @@ production-inert provider router with no Worker Loader rewiring. It must leave
 the current runtime kernels, Worker definitions, provider adapter, lifecycle,
 and F1/F2 evidence unchanged. Node and AgentOS providers remain later,
 independent gates.
+
+The completed private Worker Loader composition gate is recorded in
+[`Preflight 49`](./49-dte06-worker-loader-routed-composition.md). It exposes
+the existing scoped provider as a plain bundle and route that same provider in
+the private Application delivery composition; it may not add an alternate
+provider or production activation.

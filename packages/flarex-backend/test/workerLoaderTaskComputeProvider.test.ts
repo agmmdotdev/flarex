@@ -35,8 +35,12 @@ import {
   type ApplicationTaskMutationCallbackAuthority,
 } from "../src/taskComputeDelivery/ApplicationTaskMutationCallback";
 import {
+  WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME,
+  WORKER_LOADER_TASK_COMPUTE_PROVIDER_VERSION,
+  makeWorkerLoaderTaskComputeProviderBundle,
   makeWorkerLoaderTaskComputeProviderLayer,
   makeSupervisedWorkerLoaderTaskComputeProviderLayer,
+  WorkerLoaderTaskComputeProviderConfigurationError,
   type TaskAttemptSupervisionObserver,
   TaskComputeDeliverySupervisionControl,
 } from "../src/taskComputeDelivery/WorkerLoaderTaskComputeProvider";
@@ -116,6 +120,94 @@ vi.mock("../src/artifactRuntime/LegacyTaskWorkerDefinition", async importOrigina
 
 describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("exposes a scoped provider bundle with a stable deduplicated profile union", async () => {
+    const request = applicationRequest();
+    const input = await canonicalizeFlarexValueV1({ orderId: "order-1" });
+    const authority = new FakeLaunchAuthority(input, request);
+    const authorityLayer = Layer.succeed(
+      TaskRuntimeLaunchAuthority,
+      TaskRuntimeLaunchAuthority.of(authority),
+    );
+
+    const snapshot = await Effect.runPromise(Effect.scoped(Effect.gen(
+      function* () {
+        const bundle = yield* makeWorkerLoaderTaskComputeProviderBundle(
+          new FakeWorkerLoader(),
+          providerOptions(),
+        );
+        return Object.freeze({
+          descriptor: bundle.descriptor,
+          computeProfiles: bundle.computeProfiles,
+          providerFrozen: Object.isFrozen(bundle.provider),
+          controlFrozen: Object.isFrozen(bundle.supervisionControl),
+        });
+      },
+    ).pipe(Effect.provide(authorityLayer))));
+
+    expect(snapshot).toEqual({
+      descriptor: {
+        provider: WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME,
+        providerVersion: WORKER_LOADER_TASK_COMPUTE_PROVIDER_VERSION,
+      },
+      computeProfiles: ["standard-1x", "unsupported"],
+      providerFrozen: true,
+      controlFrozen: true,
+    });
+  });
+
+  it.each(["overlong profile", "empty profile union"] as const)(
+    "rejects %s before allocating a Worker session",
+    async invalidCase => {
+      const request = applicationRequest();
+      const input = await canonicalizeFlarexValueV1({ orderId: "order-1" });
+      const authority = new FakeLaunchAuthority(input, request);
+      const authorityLayer = Layer.succeed(
+        TaskRuntimeLaunchAuthority,
+        TaskRuntimeLaunchAuthority.of(authority),
+      );
+      const loader = new FakeWorkerLoader();
+      const base = providerOptions();
+      const options = invalidCase === "overlong profile"
+        ? Object.freeze({
+            ...base,
+            applicationHostPolicy: Object.freeze({
+              ...base.applicationHostPolicy,
+              computeProfiles: Object.freeze([Object.freeze({
+                computeProfile: "x".repeat(256),
+                cpuMilliseconds: 10_000,
+                maximumDurationMs: 60_000,
+              })]),
+            }),
+          })
+        : Object.freeze({
+            ...base,
+            applicationHostPolicy: Object.freeze({
+              ...base.applicationHostPolicy,
+              computeProfiles: Object.freeze([]),
+            }),
+            legacyHostPolicy: Object.freeze({
+              ...base.legacyHostPolicy,
+              computeProfiles: Object.freeze([]),
+            }),
+          });
+
+      const failure = await Effect.runPromise(Effect.scoped(
+        makeWorkerLoaderTaskComputeProviderBundle(loader, options).pipe(
+          Effect.flip,
+          Effect.provide(authorityLayer),
+        ),
+      ));
+
+      expect(failure).toBeInstanceOf(
+        WorkerLoaderTaskComputeProviderConfigurationError,
+      );
+      expect(failure).toMatchObject({ reason: "invalid_options" });
+      expect(loader.loaded).toEqual([]);
+      expect(loader.sessions).toEqual([]);
+      expect(loader.starts).toBe(0);
+    },
+  );
 
   it("shares an exact Application start, decodes input, and delivers monotonic cancellation", async () => {
     const input = await canonicalizeFlarexValueV1({ orderId: "order-1" });
@@ -574,7 +666,31 @@ async function runWithProvider<Success, Failure>(
     TaskRuntimeLaunchAuthority,
     TaskRuntimeLaunchAuthority.of(authority),
   );
-  const options = {
+  const options = providerOptions(
+    randomUuid,
+    handshakeMilliseconds,
+    maximumScopedDispatches,
+    applicationMutationAuthority,
+  );
+  const providerLayer = (supervision === undefined
+    ? makeWorkerLoaderTaskComputeProviderLayer(loader, options)
+    : makeSupervisedWorkerLoaderTaskComputeProviderLayer(
+        loader,
+        options,
+        supervision.supervisor,
+        supervision.observer,
+      )).pipe(Layer.provide(authorityLayer));
+  return Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(providerLayer))));
+}
+
+function providerOptions(
+  randomUuid: (() => string) | undefined = undefined,
+  handshakeMilliseconds = 100,
+  maximumScopedDispatches = 32,
+  applicationMutationAuthority: ApplicationTaskMutationCallbackAuthority =
+    defaultApplicationMutationAuthority(),
+) {
+  return Object.freeze({
     applicationHostPolicy: applicationHostPolicy(),
     applicationQueryAuthority: Object.freeze({
       bindLaunch: () => Result.succeed(Object.freeze({
@@ -587,16 +703,7 @@ async function runWithProvider<Success, Failure>(
     handshakeMilliseconds,
     randomUuid: randomUuid ?? (() => crypto.randomUUID()),
     sha256: () => Effect.succeed(new Uint8Array(32)),
-  };
-  const providerLayer = (supervision === undefined
-    ? makeWorkerLoaderTaskComputeProviderLayer(loader, options)
-    : makeSupervisedWorkerLoaderTaskComputeProviderLayer(
-        loader,
-        options,
-        supervision.supervisor,
-        supervision.observer,
-      )).pipe(Layer.provide(authorityLayer));
-  return Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(providerLayer))));
+  });
 }
 
 function defaultApplicationMutationAuthority(): ApplicationTaskMutationCallbackAuthority {
