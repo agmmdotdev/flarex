@@ -618,6 +618,20 @@ scheduler decisions; fences the old attempt without changing the winner; and
 alone reaches terminal success. No production package, public API, route,
 binding, external resource, fallback, or activation is part of this completion.
 
+#### Governance Gate Invariant
+
+The Trigger compatibility boundary must distinguish approved F1/F2, DTE05-C3,
+and system-test composition imports from production activation. Durable-task
+source-map receipts must identify the current mapped target content rather than
+an earlier revision of the same owned lifecycle implementation.
+
+Expected behavior is that only the exact approved private file, module,
+symbol, and value-versus-type import shapes pass while production routes,
+Workers, bindings, unrelated consumers, re-exports, or wider imports remain
+rejected. Reconciliation of those receipts and exact admissions is governance
+only; it does not change lifecycle, delivery, persistence, Worker, result,
+scheduling, host, or activation behavior.
+
 ### DTE06-F3: Isolated Cloudflare/Hyperdrive/R2 Probe — Separately Gated
 
 After F1 and F2 pass locally:

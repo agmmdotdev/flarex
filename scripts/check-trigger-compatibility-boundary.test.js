@@ -558,6 +558,20 @@ describe("Trigger compatibility boundary checker", () => {
       `${taskSystemPath}:2 production source must not consume the Task execution principal store outside admitted issue and launch owners.`,
       `${launchAuthorityPath}:2 production source must not consume the Task execution principal store outside admitted issue and launch owners.`,
     ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: taskSystemPath,
+      text: `
+        import type {
+          TaskExecutionPrincipalIdentity,
+          TaskExecutionPrincipalIssuer,
+          TaskExecutionPrincipalStoreError,
+        } from "flarex-backend/internal/task-execution-principal-store";
+        export type { TaskExecutionPrincipalIdentity };
+      `,
+    }]).errors).toEqual([
+      `${taskSystemPath}:7 production source must not re-export an admitted compatibility binding beyond its owning file.`,
+    ]);
   });
 
   it("admits only the private DTE06-D3b.iii Worker Loader provider chain", () => {
@@ -1087,8 +1101,8 @@ describe("Trigger compatibility boundary checker", () => {
         export default Leaked;
       `,
     }]).errors).toEqual([
-      `${privatePath}:3 production source must not re-export admitted @flarex/durable-task bindings before host admission.`,
-      `${privatePath}:4 production source must not re-export admitted @flarex/durable-task bindings before host admission.`,
+      `${privatePath}:3 production source must not re-export an admitted compatibility binding beyond its owning file.`,
+      `${privatePath}:4 production source must not re-export an admitted compatibility binding beyond its owning file.`,
     ]);
   });
 
@@ -1386,7 +1400,7 @@ describe("Trigger compatibility boundary checker", () => {
           makeTaskComputeDeliveryConnectedRunnerLayer,
           makeTaskComputeDeliveryTrustedDirectoryLayer,
           makeSupervisedWorkerLoaderTaskComputeProviderLayer,
-          type TaskAttemptSupervisionExitObserver,
+          type TaskAttemptSupervisionObserver,
           type TaskAttemptSupervisor,
           type TaskComputeDeliveryConnectedRunnerOptions,
           type TaskComputeDeliveryTrustedDirectoryOptions,
@@ -1417,25 +1431,28 @@ describe("Trigger compatibility boundary checker", () => {
         import {
           makeTaskAttemptSupervisor,
           TaskComputeDeliveryConnectedRunner,
-          type TaskAttemptSupervisionExitObserver,
+          type TaskAttemptSupervisionObserver,
           type TaskAttemptSupervisorError,
           type TaskAttemptSupervisorLifecycleResolver,
           type TaskAttemptSupervisorOutcome,
           type TaskAttemptSupervisorPolicy,
           type TaskComputeDeliveryConnectedRunnerReceipt,
-          type TaskComputeDeliveryConnectedRunnerOptions,
         } from "flarex-backend/internal/task-compute-delivery";
         import {
           TaskRuntimeLaunchPortError,
           type TaskRuntimeLaunchDirectory,
           type TaskRuntimeLaunchLocatedSource,
+          type TaskRuntimeLaunchResourceDirectory,
         } from "flarex-backend/internal/task-runtime-launch";
         import {
           makeTaskResultStore,
           TaskResultStoreSettlementUncertainError,
           type TaskResultStoreBucket,
         } from "flarex-backend/internal/task-result-store";
-        import { createTaskAttemptLifecycleGateway } from
+        import {
+          createTaskAttemptLifecycleGateway,
+          type ApplicationTaskAttemptLifecycleCapability,
+        } from
           "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
         import type { TaskComputeDeliveryControlDirectoryTarget } from
           "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory";
@@ -1483,6 +1500,232 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/system-test/support/otherHarness.ts:2 production source must not activate @flarex/durable-task before host admission.",
       "packages/system-test/support/otherHarness.ts:4 production source must not activate the connected Task compute-delivery runtime before host admission.",
       "packages/system-test/support/otherHarness.ts:6 production source must not activate the Task external-effect authority before mutation-host admission.",
+    ]);
+  });
+
+  it("admits only the exact F1/F2 and C3 proof edges", () => {
+    const inputStore =
+      "packages/flarex-backend/src/taskInput/TaskInputStore.ts";
+    const eventHost =
+      "packages/standard-application-invocation/src/ApplicationTaskDeliveryEventHost.ts";
+    const freshHost =
+      "packages/system-test/support/applicationTaskSystemFreshHostTakeoverHarness.ts";
+    const databaseLane = "packages/system-test/src/lanes/databaseLaneV1.ts";
+    const environment =
+      "packages/system-test/src/environment/standardApplicationEnvironmentV1.ts";
+    const runRead =
+      "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
+    const wakeScheduler =
+      "packages/persistence-postgres/src/taskSystemWakeSchedulerPartitionV1.ts";
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: inputStore,
+      text: `
+        import {
+          decodeTaskInputReferenceV1,
+          makeTaskInputReferenceV1,
+          MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+          type TaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+        import {
+          ImmutableR2BodyBudgetExceededError,
+          ImmutableR2CorruptionError,
+          ImmutableR2NotFoundError,
+          ImmutableR2ResourceError,
+          ImmutableR2SettlementUncertainError,
+          immutableR2ResourceCause,
+          immutableR2SettlementUncertainCause,
+          makeImmutableR2ByteStore,
+          type ImmutableR2Bucket,
+        } from "../immutableR2/ImmutableR2ByteStore.js";
+      `,
+    }, {
+      relativePath: eventHost,
+      text: `
+        import {
+          makeTaskComputeDeliveryEventHost,
+          type TaskAttemptSupervisionObserver,
+          type TaskComputeDeliveryEventHostConfigurationError,
+          type TaskComputeDeliveryEventHostPolicy,
+          type TaskComputeDeliveryEventHostShape,
+        } from "flarex-backend/internal/task-compute-delivery";
+        import {
+          makeTaskRuntimeLaunchDirectoryFromResources,
+          type TaskRuntimeLaunchResourceDirectory,
+        } from "flarex-backend/internal/task-runtime-launch";
+      `,
+    }, {
+      relativePath: freshHost,
+      text: `
+        import {
+          encodeApplicationTaskRunAttemptAggregateJsonV1,
+          type ApplicationTaskSystemRunAttemptStoreShape,
+          type TaskResultCommitmentV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import type { ApplicationTaskAttemptLifecycleCapability } from
+          "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway";
+        import type { ApplicationTaskSystemWakeSchedulerPartitionV1 } from
+          "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1";
+        import type { StoredTaskResult, TaskResultStoreError } from
+          "flarex-backend/internal/task-result-store";
+      `,
+    }, {
+      relativePath: databaseLane,
+      text: `
+        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from
+          "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory";
+        import { createPostgresTaskComputeDeliveryControlDirectoryResource } from
+          "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory";
+        import { createPostgresTaskExternalEffectAuthorityResource } from
+          "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority";
+      `,
+    }, {
+      relativePath: environment,
+      text: `
+        import { decodeTaskDurationMsV1 } from
+          "@flarex/durable-task/internal/run-attempt-v1";
+        import type { TaskExecutionPrincipalStoreBucket } from
+          "flarex-backend/internal/task-execution-principal-store";
+        import { makeTaskExecutionPrincipalStore } from
+          "flarex-backend/internal/task-execution-principal-store";
+      `,
+    }, {
+      relativePath: runRead,
+      text: `
+        import {
+          decodeTaskDatabaseTimeMsV1,
+          decodeTaskRequestedEffectSequenceV1,
+          type ApplicationTaskRunAttemptAggregateV1,
+          type PersistedTaskRunAttemptAggregate,
+          type TaskRequestedEffectPersistenceCursorV1,
+          type TaskRunAttemptAggregateV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath: wakeScheduler,
+      text: `
+        import {
+          makeApplicationRunAttemptLifecycleV1,
+          makeRunAttemptLifecycleV1,
+          type RunAttemptLifecycleErrorV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+        import {
+          makeApplicationRunAttemptDueCandidateHandlerV1,
+          makeRunAttemptDueCandidateHandlerV1,
+          makeWakePublishingRunAttemptDueCandidateHandlerV1,
+          makeTaskWakeSchedulerV1,
+          type InvalidTaskWakeSchedulerConfigurationError,
+          type TaskDueCandidateLifecycleContractError,
+          type TaskRetryJitterSourceV1,
+          type TaskWakeSchedulerOptionsV1,
+          type TaskWakeSchedulerV1,
+          type TaskWakeHintPublisherV1,
+        } from "@flarex/durable-task/internal/scheduling-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: inputStore,
+      text: `
+        import {
+          decodeTaskInputReferenceV1,
+          makeTaskInputReferenceV1,
+          MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+          type TaskInputReferenceV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }, {
+      relativePath: eventHost,
+      text: `
+        import {
+          makeTaskComputeDeliveryEventHost,
+          TaskComputeDeliveryConnectedRunner,
+          type TaskAttemptSupervisionObserver,
+          type TaskComputeDeliveryEventHostConfigurationError,
+          type TaskComputeDeliveryEventHostPolicy,
+          type TaskComputeDeliveryEventHostShape,
+        } from "flarex-backend/internal/task-compute-delivery";
+      `,
+    }, {
+      relativePath: freshHost,
+      text: `
+        import { TaskResultStoreError } from
+          "flarex-backend/internal/task-result-store";
+      `,
+    }, {
+      relativePath: "packages/system-test/src/lanes/otherLane.ts",
+      text: `
+        import { createTaskComputeDeliveryControlDirectoryTargetForSystemTest } from
+          "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory";
+      `,
+    }, {
+      relativePath: environment,
+      text: `
+        import {
+          makeTaskExecutionPrincipalStore,
+          type TaskExecutionPrincipalStoreBucket,
+        } from "flarex-backend/internal/task-execution-principal-store";
+      `,
+    }]).errors).toEqual([
+      `${inputStore}:2 production source must not activate @flarex/durable-task before host admission.`,
+      `${eventHost}:2 production source must not activate the connected Task compute-delivery runtime before host admission.`,
+      `${freshHost}:2 production source must not activate the Task result store before connected host admission.`,
+      "packages/system-test/src/lanes/otherLane.ts:2 production source must not activate the Task compute-delivery control directory before host admission.",
+      `${environment}:2 production source must not consume the Task execution principal store outside admitted issue and launch owners.`,
+    ]);
+
+    expect(analyzeTriggerCompatibilityBoundary([], [{
+      relativePath: inputStore,
+      text: `
+        import {
+          decodeTaskInputReferenceV1,
+          decodeTaskInputReferenceV1 as duplicateDecoder,
+          MAX_TASK_INPUT_CANONICAL_BYTES_V1,
+          type TaskInputReferenceV1,
+        } from "@flarex/durable-task/internal/run-creation-v1";
+      `,
+    }, {
+      relativePath: eventHost,
+      text: `
+        import {
+          makeTaskComputeDeliveryEventHost,
+          type TaskAttemptSupervisionObserver,
+          type TaskComputeDeliveryEventHostConfigurationError,
+          type TaskComputeDeliveryEventHostPolicy,
+          type TaskComputeDeliveryEventHostShape,
+        } from "flarex-backend/internal/task-compute-delivery";
+        export { makeTaskComputeDeliveryEventHost };
+      `,
+    }, {
+      relativePath: runRead,
+      text: `
+        import {
+          ApplicationTaskRunAttemptAggregateV1,
+          PersistedTaskRunAttemptAggregate,
+          decodeTaskDatabaseTimeMsV1,
+          decodeTaskRequestedEffectSequenceV1,
+          type TaskRequestedEffectPersistenceCursorV1,
+          type TaskRunAttemptAggregateV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }, {
+      relativePath: wakeScheduler,
+      text: `
+        import {
+          type makeApplicationRunAttemptLifecycleV1,
+          makeRunAttemptLifecycleV1,
+          type RunAttemptLifecycleErrorV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([
+      `${inputStore}:2 production source must not activate @flarex/durable-task before host admission.`,
+      `${eventHost}:9 production source must not re-export an admitted compatibility binding beyond its owning file.`,
+      `${runRead}:2 production source must not activate @flarex/durable-task before host admission.`,
+      `${wakeScheduler}:2 production source must not activate @flarex/durable-task before host admission.`,
     ]);
   });
 

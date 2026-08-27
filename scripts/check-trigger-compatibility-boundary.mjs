@@ -24,6 +24,18 @@ const standardApplicationTaskSystemPath =
 const systemTestManifestPath = "packages/system-test/package.json";
 const systemTestApplicationTaskSystemConnectedHarnessPath =
   "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
+const systemTestApplicationTaskSystemFreshHostTakeoverHarnessPath =
+  "packages/system-test/support/applicationTaskSystemFreshHostTakeoverHarness.ts";
+const systemTestApplicationTaskHostedTestKitPath =
+  "packages/system-test/support/applicationTaskHostedTestKit.ts";
+const systemTestStandardApplicationEnvironmentPath =
+  "packages/system-test/src/environment/standardApplicationEnvironmentV1.ts";
+const systemTestStandardApplicationTaskDeliveryPath =
+  "packages/system-test/src/environment/standardApplicationTaskDeliveryV1.ts";
+const systemTestDatabaseLanePath =
+  "packages/system-test/src/lanes/databaseLaneV1.ts";
+const standardApplicationTaskDeliveryEventHostPath =
+  "packages/standard-application-invocation/src/ApplicationTaskDeliveryEventHost.ts";
 const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
   "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";
 const flarexBackendWorkerLoaderTaskComputeProviderPath =
@@ -42,6 +54,8 @@ const flarexBackendTaskRuntimeLaunchModelPath =
   "packages/flarex-backend/src/taskRuntimeLaunch/Model.ts";
 const flarexBackendTaskRuntimeLaunchAuthorityPath =
   "packages/flarex-backend/src/taskRuntimeLaunch/Authority.ts";
+const flarexBackendTaskRuntimeLaunchResourceDirectoryPath =
+  "packages/flarex-backend/src/taskRuntimeLaunch/ResourceDirectory.ts";
 const flarexBackendTaskRuntimeLaunchSourcePrefix =
   "packages/flarex-backend/src/taskRuntimeLaunch/";
 const flarexBackendLegacyTaskWorkerDefinitionPath =
@@ -52,6 +66,8 @@ const flarexBackendTaskResultStorePath =
   "packages/flarex-backend/src/taskResult/TaskResultStore.ts";
 const flarexBackendTaskExecutionPrincipalStorePath =
   "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts";
+const flarexBackendTaskInputStorePath =
+  "packages/flarex-backend/src/taskInput/TaskInputStore.ts";
 const flarexBackendImmutableR2SourcePrefix =
   "packages/flarex-backend/src/immutableR2/";
 const flarexBackendDeclarativeV2RuntimeArtifactStorePath =
@@ -94,6 +110,8 @@ const persistencePostgresPostgresTaskComputeDeliveryControlDirectoryPath =
   "packages/persistence-postgres/src/postgresTaskComputeDeliveryControlDirectory.ts";
 const persistencePostgresPGlitePath =
   "packages/persistence-postgres/src/pglite.ts";
+const persistencePostgresPhysicalDefinitionRetirementPinsPath =
+  "packages/persistence-postgres/src/physicalDefinitionRetirementPins.ts";
 const flarexBackendTaskComputeDeliveryTrustedDirectoryPath =
   "packages/flarex-backend/src/taskComputeDelivery/TrustedDirectory.ts";
 const persistencePostgresTaskWakeSchedulerPartitionPath =
@@ -374,7 +392,7 @@ const admittedApplicationTaskComputeDeliveryImports = new Map([
   ["makeTaskComputeDeliveryConnectedRunnerLayer", "value"],
   ["makeTaskComputeDeliveryTrustedDirectoryLayer", "value"],
   ["makeSupervisedWorkerLoaderTaskComputeProviderLayer", "value"],
-  ["TaskAttemptSupervisionExitObserver", "type"],
+  ["TaskAttemptSupervisionObserver", "type"],
   ["TaskAttemptSupervisor", "type"],
   ["TaskComputeDeliveryConnectedRunnerOptions", "type"],
   ["TaskComputeDeliveryTrustedDirectoryOptions", "type"],
@@ -439,18 +457,18 @@ const admittedApplicationTaskRuntimeLaunchImports = new Map([
 const admittedSystemTestConnectedHarnessTaskComputeImports = new Map([
   ["makeTaskAttemptSupervisor", "value"],
   ["TaskComputeDeliveryConnectedRunner", "value"],
-  ["TaskAttemptSupervisionExitObserver", "type"],
+  ["TaskAttemptSupervisionObserver", "type"],
   ["TaskAttemptSupervisorError", "type"],
   ["TaskAttemptSupervisorLifecycleResolver", "type"],
   ["TaskAttemptSupervisorOutcome", "type"],
   ["TaskAttemptSupervisorPolicy", "type"],
   ["TaskComputeDeliveryConnectedRunnerReceipt", "type"],
-  ["TaskComputeDeliveryConnectedRunnerOptions", "type"],
 ]);
 const admittedSystemTestConnectedHarnessTaskRuntimeLaunchImports = new Map([
   ["TaskRuntimeLaunchPortError", "value"],
   ["TaskRuntimeLaunchDirectory", "type"],
   ["TaskRuntimeLaunchLocatedSource", "type"],
+  ["TaskRuntimeLaunchResourceDirectory", "type"],
 ]);
 const admittedSystemTestConnectedHarnessRunAttemptImports = new Map([
   ["decideApplicationRequestCancellationV1", "value"],
@@ -486,6 +504,7 @@ const admittedTaskAttemptSupervisorResultStoreImports = new Map([
 ]);
 const admittedSystemTestConnectedHarnessLifecycleGatewayImports = new Map([
   ["createTaskAttemptLifecycleGateway", "value"],
+  ["ApplicationTaskAttemptLifecycleCapability", "type"],
 ]);
 const admittedSystemTestConnectedHarnessControlTargetImports = new Map([
   ["TaskComputeDeliveryControlDirectoryTarget", "type"],
@@ -493,6 +512,367 @@ const admittedSystemTestConnectedHarnessControlTargetImports = new Map([
 const admittedSystemTestConnectedHarnessControlFactoryImports = new Map([
   ["createTaskComputeDeliveryControlDirectoryTargetForSystemTest", "value"],
 ]);
+const admittedLaterDurableTaskImports = [
+  makeExactImportAdmission(
+    flarexBackendTaskInputStorePath,
+    "@flarex/durable-task/internal/run-creation-v1",
+    {
+      values: [
+        "decodeTaskInputReferenceV1",
+        "makeTaskInputReferenceV1",
+        "MAX_TASK_INPUT_CANONICAL_BYTES_V1",
+      ],
+      types: ["TaskInputReferenceV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    flarexBackendTaskRuntimeLaunchResourceDirectoryPath,
+    "@flarex/durable-task/internal/compute-provider-v1",
+    { types: ["CurrentTaskComputeDispatchRequestV1"] },
+  ),
+  makeExactImportAdmission(
+    persistencePostgresPhysicalDefinitionRetirementPinsPath,
+    "@flarex/durable-task/internal/run-attempt-v1",
+    { types: ["TaskRunIdV1"] },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationEnvironmentPath,
+    "@flarex/durable-task/internal/run-attempt-v1",
+    { values: ["decodeTaskDurationMsV1"] },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decideApplicationRequestCancellationV1",
+        "decideApplicationStartAttemptV1",
+        "decodeTaskRetryJitterV1",
+        "decodeTaskRunVersionV1",
+        "encodeApplicationTaskRunAttemptAggregateJsonV1",
+      ],
+      types: [
+        "RunAttemptDecisionErrorV1",
+        "TaskAttemptNumberV1",
+        "TaskCancellationGenerationV1",
+        "TaskComputeProfileRefV1",
+        "TaskDatabaseTimeMsV1",
+        "TaskSystemRunAttemptStoreErrorV1",
+        "TaskRunIdV1",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "@flarex/durable-task/internal/scheduling-testing-v1",
+    { values: ["makeFixedTaskRetryJitterSourceV1"] },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemConnectedHarnessPath,
+    "@flarex/durable-task/internal/scheduling-testing-v1",
+    { values: ["makeFixedTaskRetryJitterSourceV1"] },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemFreshHostTakeoverHarnessPath,
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: ["encodeApplicationTaskRunAttemptAggregateJsonV1"],
+      types: [
+        "ApplicationTaskSystemRunAttemptStoreShape",
+        "TaskResultCommitmentV1",
+        "TaskRunIdV1",
+      ],
+    },
+  ),
+];
+const admittedLaterTaskComputeDeliveryImports = [
+  makeExactImportAdmission(
+    standardApplicationTaskDeliveryEventHostPath,
+    "flarex-backend/internal/task-compute-delivery",
+    {
+      values: ["makeTaskComputeDeliveryEventHost"],
+      types: [
+        "TaskAttemptSupervisionObserver",
+        "TaskComputeDeliveryEventHostConfigurationError",
+        "TaskComputeDeliveryEventHostPolicy",
+        "TaskComputeDeliveryEventHostShape",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "flarex-backend/internal/task-compute-delivery",
+    {
+      values: [
+        "makeTaskAttemptSupervisor",
+        "TaskComputeDeliveryConnectedRunner",
+        "TaskComputeDeliverySupervisionControl",
+      ],
+      types: [
+        "TaskAttemptSupervisionObserver",
+        "TaskAttemptSupervisor",
+        "TaskAttemptSupervisorError",
+        "TaskAttemptSupervisorOutcome",
+        "TaskAttemptSupervisorConfigurationError",
+        "TaskAttemptSupervisorLifecycleResolver",
+        "TaskAttemptSupervisorPolicy",
+        "TaskComputeDeliveryEventHostConfigurationError",
+        "TaskComputeDeliveryEventRunnerReceipt",
+        "TaskComputeDeliveryConnectedRunnerReceipt",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskHostedTestKitPath,
+    "flarex-backend/internal/task-compute-delivery",
+    { types: ["TaskComputeDeliveryConnectedRunnerOptions"] },
+  ),
+];
+const admittedLaterTaskRuntimeLaunchImports = [
+  makeExactImportAdmission(
+    standardApplicationTaskDeliveryEventHostPath,
+    "flarex-backend/internal/task-runtime-launch",
+    {
+      values: ["makeTaskRuntimeLaunchDirectoryFromResources"],
+      types: ["TaskRuntimeLaunchResourceDirectory"],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "flarex-backend/internal/task-runtime-launch",
+    {
+      values: [
+        "makeTaskRuntimeLaunchDirectoryFromResources",
+        "TaskRuntimeLaunchPortError",
+      ],
+      types: [
+        "TaskRuntimeLaunchLocatedSource",
+        "TaskRuntimeLaunchResourceDirectory",
+      ],
+    },
+  ),
+];
+const admittedLaterTaskExecutionPrincipalStoreImports = [
+  makeExactImportAdmission(
+    flarexBackendTaskRuntimeLaunchResourceDirectoryPath,
+    "../taskExecutionPrincipal/TaskExecutionPrincipalStore.js",
+    {
+      values: [
+        "TaskExecutionPrincipalStoreCorruptionError",
+        "TaskExecutionPrincipalStoreInputError",
+        "TaskExecutionPrincipalStoreNotFoundError",
+        "TaskExecutionPrincipalStoreResourceError",
+        "TaskExecutionPrincipalStoreSettlementUncertainError",
+      ],
+      types: ["TaskExecutionPrincipalReader"],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationEnvironmentPath,
+    "flarex-backend/internal/task-execution-principal-store",
+    { types: ["TaskExecutionPrincipalStoreBucket"] },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationEnvironmentPath,
+    "flarex-backend/internal/task-execution-principal-store",
+    { values: ["makeTaskExecutionPrincipalStore"] },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "flarex-backend/internal/task-execution-principal-store",
+    {
+      values: ["makeTaskExecutionPrincipalStore"],
+      types: ["TaskExecutionPrincipalStore"],
+    },
+  ),
+];
+const admittedLaterTaskResultStoreImports = [
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "flarex-backend/internal/task-result-store",
+    {
+      values: [
+        "makeTaskResultStore",
+        "TaskResultStoreSettlementUncertainError",
+      ],
+      types: ["TaskResultStoreBucket", "TaskResultStoreError"],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskHostedTestKitPath,
+    "flarex-backend/internal/task-result-store",
+    { types: ["TaskResultStoreBucket"] },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemFreshHostTakeoverHarnessPath,
+    "flarex-backend/internal/task-result-store",
+    { types: ["StoredTaskResult", "TaskResultStoreError"] },
+  ),
+];
+const admittedLaterTaskRuntimeObjectStoreImports = [
+  makeExactImportAdmission(
+    flarexBackendTaskRuntimeLaunchResourceDirectoryPath,
+    "../taskRuntimePublication/TaskRuntimeObjectStore.js",
+    {
+      values: [
+        "TaskRuntimeObjectStoreCorruptionError",
+        "TaskRuntimeObjectStoreInputError",
+        "TaskRuntimeObjectStoreNotFoundError",
+        "TaskRuntimeObjectStoreResourceError",
+        "TaskRuntimeObjectStoreSettlementUncertainError",
+      ],
+      types: ["TaskRuntimeObjectStore"],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "flarex-backend/internal/task-runtime-object-store",
+    { values: ["makeTaskRuntimeObjectStore"] },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskHostedTestKitPath,
+    "flarex-backend/internal/task-runtime-object-store",
+    { types: ["TaskRuntimeObjectStoreBucket"] },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemConnectedHarnessPath,
+    "flarex-backend/internal/task-runtime-object-store",
+    { values: ["makeTaskRuntimeObjectStore"] },
+  ),
+];
+const admittedLaterImmutableR2Imports = [
+  makeExactImportAdmission(
+    flarexBackendTaskInputStorePath,
+    "../immutableR2/ImmutableR2ByteStore.js",
+    {
+      values: [
+        "ImmutableR2BodyBudgetExceededError",
+        "ImmutableR2CorruptionError",
+        "ImmutableR2NotFoundError",
+        "ImmutableR2ResourceError",
+        "ImmutableR2SettlementUncertainError",
+        "immutableR2ResourceCause",
+        "immutableR2SettlementUncertainCause",
+        "makeImmutableR2ByteStore",
+      ],
+      types: ["ImmutableR2Bucket"],
+    },
+  ),
+];
+const admittedLaterTaskAttemptLifecycleGatewayImports = [
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway",
+    {
+      values: ["createTaskAttemptLifecycleGateway"],
+      types: ["ApplicationTaskAttemptLifecycleCapability"],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemFreshHostTakeoverHarnessPath,
+    "@flarex/persistence-postgres/internal/task-attempt-lifecycle-gateway",
+    { types: ["ApplicationTaskAttemptLifecycleCapability"] },
+  ),
+];
+const admittedLaterTaskWakeSchedulerPartitionImports = [
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1",
+    {
+      values: ["makeApplicationTaskSystemWakeSchedulerPartitionV1"],
+      types: ["ApplicationTaskSystemWakeSchedulerPartitionV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemConnectedHarnessPath,
+    "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1",
+    { values: ["makeApplicationTaskSystemWakeSchedulerPartitionV1"] },
+  ),
+  makeExactImportAdmission(
+    systemTestApplicationTaskSystemFreshHostTakeoverHarnessPath,
+    "@flarex/persistence-postgres/internal/task-wake-scheduler-partition-v1",
+    { types: ["ApplicationTaskSystemWakeSchedulerPartitionV1"] },
+  ),
+];
+const admittedLaterTaskExternalEffectAuthorityImports = [
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "@flarex/persistence-postgres/internal/task-external-effect-authority",
+    { types: ["LocatedTaskExternalEffectAuthorityTarget"] },
+  ),
+  makeExactImportAdmission(
+    systemTestDatabaseLanePath,
+    "@flarex/persistence-postgres/internal/system-test/postgres-task-external-effect-authority",
+    { values: ["createPostgresTaskExternalEffectAuthorityResource"] },
+  ),
+];
+const admittedLaterTaskComputeDeliveryControlDirectoryImports = [
+  makeExactImportAdmission(
+    systemTestStandardApplicationTaskDeliveryPath,
+    "@flarex/persistence-postgres/internal/task-compute-delivery-control-directory",
+    { types: ["TaskComputeDeliveryControlDirectoryTarget"] },
+  ),
+  makeExactImportAdmission(
+    systemTestDatabaseLanePath,
+    "@flarex/persistence-postgres/internal/system-test/task-compute-delivery-control-directory",
+    { values: ["createTaskComputeDeliveryControlDirectoryTargetForSystemTest"] },
+  ),
+  makeExactImportAdmission(
+    systemTestDatabaseLanePath,
+    "@flarex/persistence-postgres/internal/system-test/postgres-task-compute-delivery-control-directory",
+    { values: ["createPostgresTaskComputeDeliveryControlDirectoryResource"] },
+  ),
+];
+const admittedLaterPersistenceTaskImports = [
+  makeExactImportAdmission(
+    persistencePostgresTaskSystemRunReadPath,
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "decodeTaskDatabaseTimeMsV1",
+        "decodeTaskRequestedEffectSequenceV1",
+      ],
+      types: [
+        "ApplicationTaskRunAttemptAggregateV1",
+        "PersistedTaskRunAttemptAggregate",
+        "TaskRequestedEffectPersistenceCursorV1",
+        "TaskRunAttemptAggregateV1",
+        "TaskRunIdV1",
+      ],
+    },
+  ),
+  makeExactImportAdmission(
+    persistencePostgresTaskWakeSchedulerPartitionPath,
+    "@flarex/durable-task/internal/run-attempt-v1",
+    {
+      values: [
+        "makeApplicationRunAttemptLifecycleV1",
+        "makeRunAttemptLifecycleV1",
+      ],
+      types: ["RunAttemptLifecycleErrorV1"],
+    },
+  ),
+  makeExactImportAdmission(
+    persistencePostgresTaskWakeSchedulerPartitionPath,
+    "@flarex/durable-task/internal/scheduling-v1",
+    {
+      values: [
+        "makeApplicationRunAttemptDueCandidateHandlerV1",
+        "makeRunAttemptDueCandidateHandlerV1",
+        "makeTaskWakeSchedulerV1",
+        "makeWakePublishingRunAttemptDueCandidateHandlerV1",
+      ],
+      types: [
+        "InvalidTaskWakeSchedulerConfigurationError",
+        "TaskDueCandidateLifecycleContractError",
+        "TaskRetryJitterSourceV1",
+        "TaskWakeHintPublisherV1",
+        "TaskWakeSchedulerOptionsV1",
+        "TaskWakeSchedulerV1",
+      ],
+    },
+  ),
+];
 const admittedPersistenceTaskRunAttemptStoreSymbols = new Set([
   "ApplicationPersistedTaskRequestedEffectV1",
   "ApplicationTaskRunAttemptAggregateV1",
@@ -850,18 +1230,18 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
       true,
       scriptKindForPath(relativePath),
     );
-    const admittedDurableTaskLocalBindings =
-      collectAdmittedDurableTaskLocalBindings(sourceFile);
+    const admittedCompatibilityLocalBindings =
+      collectAdmittedCompatibilityLocalBindings(sourceFile);
 
     visit(sourceFile);
 
     /** @param {ts.Node} node */
     function visit(node) {
-      if (isLocalBindingReExport(node, admittedDurableTaskLocalBindings)) {
+      if (isLocalBindingReExport(node, admittedCompatibilityLocalBindings)) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
         ).line + 1;
-        errors.push(`${relativePath}:${line} production source must not re-export admitted @flarex/durable-task bindings before host admission.`);
+        errors.push(`${relativePath}:${line} production source must not re-export an admitted compatibility binding beyond its owning file.`);
       }
       const specifier = moduleSpecifierForNode(node);
       if (specifier !== undefined && isForbiddenModuleSpecifier(specifier)) {
@@ -906,6 +1286,12 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
             node,
             admittedSystemTestConnectedHarnessLifecycleGatewayImports,
           ))
+        && !matchesExactAdmittedImport(
+          admittedLaterTaskAttemptLifecycleGatewayImports,
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -945,6 +1331,12 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
             admittedSystemTestConnectedHarnessTaskExternalEffectAuthorityImports,
           )
         )
+        && !matchesExactAdmittedImport(
+          admittedLaterTaskExternalEffectAuthorityImports,
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -959,6 +1351,12 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && relativePath !== persistencePostgresTaskWakeSchedulerRepairDirectoryPath
         && relativePath !== persistencePostgresTaskWakeSchedulerResolverPath
         && relativePath !== persistencePostgresTaskWakeSchedulerCompositionPath
+        && !matchesExactAdmittedImport(
+          admittedLaterTaskWakeSchedulerPartitionImports,
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1064,6 +1462,7 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         )
         && !isAdmittedFlarexBackendTaskComputeDeliveryConsumer(
           relativePath,
+          specifier,
           node,
         )
       ) {
@@ -1124,6 +1523,12 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
             node,
             admittedSystemTestConnectedHarnessTaskResultImports,
           ))
+        && !matchesExactAdmittedImport(
+          admittedLaterTaskResultStoreImports,
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1135,6 +1540,12 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && isProductionSource(relativePath)
         && isFlarexBackendTaskRuntimeObjectStoreSpecifier(specifier, relativePath)
         && relativePath !== flarexBackendTaskRuntimeObjectStorePath
+        && !matchesExactAdmittedImport(
+          admittedLaterTaskRuntimeObjectStoreImports,
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1149,6 +1560,12 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
         && relativePath !== flarexBackendTaskResultStorePath
         && relativePath !== flarexBackendTaskExecutionPrincipalStorePath
         && relativePath !== flarexBackendDeclarativeV2RuntimeArtifactStorePath
+        && !matchesExactAdmittedImport(
+          admittedLaterImmutableR2Imports,
+          relativePath,
+          specifier,
+          node,
+        )
       ) {
         const line = sourceFile.getLineAndCharacterOfPosition(
           node.getStart(sourceFile),
@@ -1176,14 +1593,14 @@ export function analyzeTriggerCompatibilityBoundary(manifests, sources) {
  * @param {ts.SourceFile} sourceFile
  * @returns {ReadonlySet<string>}
  */
-function collectAdmittedDurableTaskLocalBindings(sourceFile) {
+function collectAdmittedCompatibilityLocalBindings(sourceFile) {
   const bindings = new Set();
   for (const statement of sourceFile.statements) {
     if (
       !ts.isImportDeclaration(statement)
       || statement.moduleSpecifier === undefined
       || !ts.isStringLiteralLike(statement.moduleSpecifier)
-      || !isAdmittedDurableTaskConsumerImport(
+      || !isAdmittedCompatibilityImportForReExport(
         sourceFile.fileName,
         statement.moduleSpecifier.text,
         statement,
@@ -1197,6 +1614,135 @@ function collectAdmittedDurableTaskLocalBindings(sourceFile) {
     }
   }
   return bindings;
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function isAdmittedCompatibilityImportForReExport(
+  relativePath,
+  specifier,
+  node,
+) {
+  if (isAdmittedDurableTaskConsumerImport(relativePath, specifier, node)) {
+    return true;
+  }
+  if (
+    isFlarexBackendTaskComputeDeliverySpecifier(specifier, relativePath)
+    && isAdmittedFlarexBackendTaskComputeDeliveryConsumer(
+      relativePath,
+      specifier,
+      node,
+    )
+  ) return true;
+  if (
+    isFlarexBackendTaskRuntimeLaunchSpecifier(specifier, relativePath)
+    && isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
+      relativePath,
+      specifier,
+      node,
+    )
+  ) return true;
+  if (
+    isFlarexBackendTaskExecutionPrincipalStoreSpecifier(
+      specifier,
+      relativePath,
+    )
+    && isAdmittedFlarexBackendTaskExecutionPrincipalStoreConsumer(
+      relativePath,
+      specifier,
+      node,
+    )
+  ) return true;
+  if (
+    isTaskComputeDeliveryControlDirectorySpecifier(specifier, relativePath)
+    && isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
+      relativePath,
+      specifier,
+      node,
+    )
+  ) return true;
+  if (
+    isTaskAttemptLifecycleGatewaySpecifier(specifier, relativePath)
+    && (
+      (relativePath === flarexBackendTaskAttemptSupervisorPath
+        && isTypeOnlyImportDeclaration(node))
+      || (relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+        && hasExactNamedImportModes(
+          node,
+          admittedSystemTestConnectedHarnessLifecycleGatewayImports,
+        ))
+      || matchesExactAdmittedImport(
+        admittedLaterTaskAttemptLifecycleGatewayImports,
+        relativePath,
+        specifier,
+        node,
+      )
+    )
+  ) return true;
+  if (
+    isTaskExternalEffectAuthoritySpecifier(specifier, relativePath)
+    && (
+      (relativePath === standardApplicationTaskMutationAuthorityPath
+        && hasExactNamedImportModes(
+          node,
+          admittedApplicationTaskMutationAuthorityExternalEffectImports,
+        ))
+      || (relativePath === persistencePostgresPGlitePath
+        && hasExactNamedImportModes(
+          node,
+          admittedPGliteTaskExternalEffectAuthorityImports,
+        ))
+      || (relativePath ===
+          persistencePostgresPostgresTaskExternalEffectAuthorityPath
+        && hasExactNamedImportModes(
+          node,
+          admittedPostgresTaskExternalEffectAuthorityImports,
+        ))
+      || (relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+        && hasExactNamedImportModes(
+          node,
+          admittedSystemTestConnectedHarnessTaskExternalEffectAuthorityImports,
+        ))
+      || matchesExactAdmittedImport(
+        admittedLaterTaskExternalEffectAuthorityImports,
+        relativePath,
+        specifier,
+        node,
+      )
+    )
+  ) return true;
+  if (
+    isFlarexBackendTaskResultStoreSpecifier(specifier, relativePath)
+    && (
+      (relativePath === flarexBackendTaskAttemptSupervisorPath
+        && hasExactNamedImportModes(
+          node,
+          admittedTaskAttemptSupervisorResultStoreImports,
+        ))
+      || (relativePath === systemTestApplicationTaskSystemConnectedHarnessPath
+        && hasExactNamedImportModes(
+          node,
+          admittedSystemTestConnectedHarnessTaskResultImports,
+        ))
+      || matchesExactAdmittedImport(
+        admittedLaterTaskResultStoreImports,
+        relativePath,
+        specifier,
+        node,
+      )
+    )
+  ) return true;
+  return [
+    admittedLaterTaskRuntimeObjectStoreImports,
+    admittedLaterImmutableR2Imports,
+    admittedLaterTaskWakeSchedulerPartitionImports,
+    admittedLaterPersistenceTaskImports,
+  ].some(admissions =>
+    matchesExactAdmittedImport(admissions, relativePath, specifier, node)
+  );
 }
 
 /**
@@ -1672,11 +2218,18 @@ function isFlarexBackendTaskComputeDeliverySpecifier(specifier, relativePath) {
     || resolved.startsWith(flarexBackendTaskComputeDeliverySourcePrefix);
 }
 
-/** @param {string} relativePath @param {ts.Node} node */
+/** @param {string} relativePath @param {string} specifier @param {ts.Node} node */
 function isAdmittedFlarexBackendTaskComputeDeliveryConsumer(
   relativePath,
+  specifier,
   node,
 ) {
+  if (matchesExactAdmittedImport(
+    admittedLaterTaskComputeDeliveryImports,
+    relativePath,
+    specifier,
+    node,
+  )) return true;
   const expected = relativePath === standardApplicationTaskComputeDeliveryPath
     ? admittedApplicationTaskComputeDeliveryImports
     : relativePath === standardApplicationTaskMutationAuthorityPath
@@ -1705,6 +2258,12 @@ function isAdmittedFlarexBackendTaskRuntimeLaunchConsumer(
   specifier,
   node,
 ) {
+  if (matchesExactAdmittedImport(
+    admittedLaterTaskRuntimeLaunchImports,
+    relativePath,
+    specifier,
+    node,
+  )) return true;
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   if (relativePath === standardApplicationTaskComputeDeliveryPath) {
     return hasExactNamedImportModes(
@@ -1767,12 +2326,47 @@ function hasExactNamedImportModes(node, expected) {
     clause.namedBindings.elements.length !== expected.size) {
     return false;
   }
+  const importedNames = new Set();
   return clause.namedBindings.elements.every((element) => {
     const importedName = element.propertyName?.text ?? element.name.text;
+    if (importedNames.has(importedName)) return false;
+    importedNames.add(importedName);
     const mode = expected.get(importedName);
     const typeOnly = clause.isTypeOnly || element.isTypeOnly;
     return mode === (typeOnly ? "type" : "value");
   });
+}
+
+/**
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {{ values?: readonly string[]; types?: readonly string[] }} names
+ */
+function makeExactImportAdmission(relativePath, specifier, names) {
+  /** @type {Map<string, "value" | "type">} */
+  const expected = new Map();
+  for (const name of names.values ?? []) expected.set(name, "value");
+  for (const name of names.types ?? []) expected.set(name, "type");
+  return Object.freeze({ relativePath, specifier, expected });
+}
+
+/**
+ * @param {readonly ReturnType<typeof makeExactImportAdmission>[]} admissions
+ * @param {string} relativePath
+ * @param {string} specifier
+ * @param {ts.Node} node
+ */
+function matchesExactAdmittedImport(
+  admissions,
+  relativePath,
+  specifier,
+  node,
+) {
+  return admissions.some(admission =>
+    admission.relativePath === relativePath
+    && admission.specifier === specifier
+    && hasExactNamedImportModes(node, admission.expected)
+  );
 }
 
 /** @param {string} specifier @param {string} relativePath */
@@ -1812,6 +2406,12 @@ function isAdmittedFlarexBackendTaskExecutionPrincipalStoreConsumer(
   specifier,
   node,
 ) {
+  if (matchesExactAdmittedImport(
+    admittedLaterTaskExecutionPrincipalStoreImports,
+    relativePath,
+    specifier,
+    node,
+  )) return true;
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   const expected = relativePath === standardApplicationTaskSystemPath
     ? admittedApplicationTaskSystemPrincipalStoreImports
@@ -1863,6 +2463,12 @@ function isAdmittedTaskComputeDeliveryControlDirectoryConsumer(
   specifier,
   node,
 ) {
+  if (matchesExactAdmittedImport(
+    admittedLaterTaskComputeDeliveryControlDirectoryImports,
+    relativePath,
+    specifier,
+    node,
+  )) return true;
   const normalized = path.posix.normalize(specifier.replaceAll("\\", "/"));
   const resolved = resolveRepositorySpecifier(specifier, relativePath);
   if (relativePath === flarexBackendTaskComputeDeliveryTrustedDirectoryPath) {
@@ -1946,6 +2552,12 @@ function isAdmittedDurableTaskConsumerDependency(
  * @param {ts.Node} node
  */
 function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
+  if (matchesExactAdmittedImport(
+    admittedLaterDurableTaskImports,
+    relativePath,
+    specifier,
+    node,
+  )) return true;
   return isAdmittedStandardApplicationTaskDefinitionImport(
     relativePath,
     specifier,
@@ -2197,6 +2809,12 @@ function isAdmittedStandardApplicationTaskDefinitionImport(
  * @param {ts.Node} node
  */
 function isAdmittedPersistenceTaskImport(relativePath, specifier, node) {
+  if (matchesExactAdmittedImport(
+    admittedLaterPersistenceTaskImports,
+    relativePath,
+    specifier,
+    node,
+  )) return true;
   const admittedSymbols = relativePath === persistencePostgresSchemaPath
     ? admittedPersistenceDurableTaskSymbolsBySpecifier.get(specifier)
     : relativePath === persistencePostgresTaskRunAttemptStorePath

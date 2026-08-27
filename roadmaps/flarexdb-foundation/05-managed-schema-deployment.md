@@ -1367,6 +1367,10 @@ does not pin an Application physical definition. The active Application head
 and current candidate-validation head remain unconditional selection pins when their
 schema binds the subject. Terminal rows and immutable readiness, activation,
 task, action, and commit evidence remain retained but do not pin execution.
+The compatibility boundary admits only `physicalDefinitionRetirementPins.ts`'s
+type-only `TaskRunIdV1` import as the M05-B3 durable-task pin identity edge. It
+does not admit lifecycle services, task execution, scheduling, delivery, or
+another consumer of the private task package.
 Any stored identity/canonical-evidence disagreement encountered by an
 inspector is corruption and refuses retirement; every directory query returns
 at most 33 indexed candidates, validates no more than the admitted 32 per
