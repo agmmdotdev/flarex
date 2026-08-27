@@ -1,4 +1,8 @@
 import {
+  type TaskInputSha256V1,
+  type TaskRunCreationAuthoritySha256V1,
+} from "@flarex/durable-task/internal/run-creation-v1";
+import {
   encodePersistedTaskRunAttemptAggregateJsonV1,
   encodePersistedTaskRequestedEffectJsonV1,
   type PersistedTaskRequestedEffectV1,
@@ -14,13 +18,32 @@ import {
   type TaskRunIdV1,
   type TaskRunVersionV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import {
+  type TaskDefinitionSha256V1,
+  decodeTaskIdV1,
+} from "@flarex/standard-application-definition/internal/task-definition-v1";
 import type {
   CompatibilityLifecycleCommitV1,
 } from "../../durable-task/test/compatibility-harness.js";
-import { Brand, Result } from "effect";
-import { ScopeIdSchema } from "flarex-protocol/storage-authority";
+import { and, eq, inArray } from "drizzle-orm";
+import { Brand, Encoding, Result } from "effect";
+import {
+  FlarexDbV1StorageGenerationSchema,
+  ScopeEpochSchema,
+  ScopeIdSchema,
+} from "flarex-protocol/storage-authority";
 
+import type { FlarexMetadataDatabase } from "../src/deployments";
 import type { FlarexSqlClient } from "../src/index";
+import type { PGliteFlarexPersistence } from "../src/pglite";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskComputePendingV1,
+  fxSystemDurableTaskDefinitionRevisionsV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+  fxSystemScopeClocks,
+} from "../src/schema";
 import { getScopeClock } from "../src/scopeClock";
 import type {
   LocatedTrustedScopeAuthority,
@@ -30,6 +53,8 @@ import type { ScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import type {
   LocatedTaskSystemRunAttemptTargetV1,
 } from "../src/taskSystemRunAttemptStoreV1";
+import { taskSystemRequestedEffectNotBeforeMsV1 } from
+  "../src/taskSystemRequestedEffectRowV1";
 
 export const TASK_SCOPE_ID =
   "scope_72000000-0000-4000-8000-000000000001";
@@ -56,9 +81,24 @@ const computeProfile = Brand.nominal<TaskComputeProfileRefV1>();
 const maximumAttempts = Brand.nominal<TaskMaximumAttemptsV1>();
 const retryFactor = Brand.nominal<TaskRetryFactorV1>();
 const runId = Brand.nominal<TaskRunIdV1>();
+const taskDefinitionSha256 = Brand.nominal<TaskDefinitionSha256V1>();
+const taskInputSha256 = Brand.nominal<TaskInputSha256V1>();
+const taskRunCreationAuthoritySha256 =
+  Brand.nominal<TaskRunCreationAuthoritySha256V1>();
 const taskDefinitionRevisionId = Result.getOrThrow(
   decodeTaskDefinitionRevisionIdV1(TASK_DEFINITION_ID),
 );
+const taskId = Result.getOrThrow(decodeTaskIdV1("orders.process"));
+const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
+const taskStorageGeneration =
+  FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
+const taskEpoch = ScopeEpochSchema.make(
+  "epoch_72000000-0000-4000-8000-000000000006",
+);
+
+export type TaskSystemRunAttemptFixturePersistenceV1 = Readonly<{
+  readonly drizzle: FlarexMetadataDatabase;
+}> & Pick<FlarexSqlClient, "query">;
 
 export function readyTaskRunAggregateV1(): TaskRunAttemptAggregateV1 {
   return {
@@ -102,7 +142,7 @@ export function readyTaskRunAggregateV1(): TaskRunAttemptAggregateV1 {
 }
 
 export async function seedTaskSystemRunAttemptStoreV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   options: Readonly<{
     readonly aggregate?: TaskRunAttemptAggregateV1;
     readonly parent?: TaskSystemRunAttemptParentV1;
@@ -117,6 +157,114 @@ export async function seedTaskSystemRunAttemptStoreV1(
     applicationRevisionId: "apprev_task_store_v1",
     candidateSha256Hex: "31".repeat(32),
   });
+  if (options.legacySchema === true || options.principalSchema === false) {
+    await seedHistoricalTaskSystemRunAttemptStoreV1(
+      persistence,
+      aggregate,
+      parent,
+      options,
+    );
+    return Object.freeze({
+      scopeId: parent.scopeId,
+      deploymentId: parent.deploymentId,
+    });
+  }
+
+  const scopeId = ScopeIdSchema.make(parent.scopeId);
+  const db = persistence.drizzle;
+  if (options.parent === undefined) {
+    await db.insert(fxSystemScopeClocks).values({
+      scopeId,
+      storageGeneration: taskStorageGeneration,
+      epoch: taskEpoch,
+    });
+  }
+  await db.insert(fxSystemDurableTaskDefinitionRevisionsV1).values({
+    scopeId,
+    taskDefinitionRevisionId,
+    taskId,
+    applicationRevisionId: parent.applicationRevisionId,
+    candidateSha256: taskDefinitionSha256(
+      decodeHexBytes(parent.candidateSha256Hex),
+    ),
+    bindingCodecVersion: 1,
+    bindingByteLength: 1n,
+    bindingSha256: taskDefinitionDigest("41"),
+    bindingBytes: Uint8Array.of(1),
+    applicationRevisionTaskBindingSha256: taskDefinitionDigest("42"),
+    canonicalTaskManifestSha256: taskDefinitionDigest("43"),
+    taskRuntimeEntrySha256: taskDefinitionDigest("44"),
+    taskCatalogSha256: taskDefinitionDigest("45"),
+    taskEntryRootSha256: taskDefinitionDigest("46"),
+    taskRuntimeProjectionSha256: taskDefinitionDigest("47"),
+    taskRuntimeGroupManifestSha256: taskDefinitionDigest("48"),
+    taskRuntimeMaterializationSpecSha256: taskDefinitionDigest("49"),
+    packageSha256: taskDefinitionDigest("4a"),
+    artifactSha256: taskDefinitionDigest("4b"),
+    sourceRootSha256: taskDefinitionDigest("4c"),
+    semanticRootSha256: taskDefinitionDigest("4d"),
+  });
+  const encoded = Result.getOrThrow(
+    encodePersistedTaskRunAttemptAggregateJsonV1(aggregate),
+  );
+  const projection = projectTaskRunAttemptPersistenceV1(aggregate);
+  const aggregateJson = JSON.stringify(encoded);
+  const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
+  await db.insert(fxSystemDurableTaskRunsV1).values({
+    scopeId,
+    runId: runId(TASK_RUN_ID),
+    definitionGeneration: "legacy_definition_v1",
+    taskDefinitionRevisionId,
+    createdAtMs: BigInt(aggregate.createdAtMs),
+    inputCodec: "flarex.task-input-reference.v1",
+    inputStore: "flarex.task-input-object-store.v1",
+    inputValueCodec: "flarex-value/v1",
+    inputObjectKey: `durable-task-input/v1/sha256/${"51".repeat(32)}`,
+    inputByteLength: 1n,
+    inputSha256: taskInputSha256(repeatedHexBytes("51")),
+    inputRetention: "run_lifetime",
+    executionPrincipalGeneration: "not_applicable",
+    creationAuthorityCodecVersion: 1,
+    creationAuthorityByteLength: 1n,
+    creationAuthoritySha256:
+      taskRunCreationAuthoritySha256(repeatedHexBytes("52")),
+    creationAuthorityBytes: Uint8Array.of(1),
+    aggregateCodecVersion: 1,
+    aggregateByteLength: BigInt(aggregateByteLength),
+    aggregateJson: encoded,
+    runVersion: projection.runVersion,
+    phase: projection.phase,
+    dueKind: projection.dueKind,
+    dueAtMs: nullableNumberAsBigInt(projection.dueAtMs),
+    currentAttemptId: projection.currentAttemptId,
+    executionFenceBasis: projection.executionFenceBasis,
+    currentLeaseVersion: projection.currentLeaseVersion,
+    currentLeaseExpiresAtMs: nullableNumberAsBigInt(
+      projection.currentLeaseExpiresAtMs,
+    ),
+    cancellationGeneration: projection.cancellationGeneration,
+    requestedEffectSequence: projection.requestedEffectSequence,
+  });
+  return Object.freeze({
+    scopeId: parent.scopeId,
+    deploymentId: parent.deploymentId,
+  });
+}
+
+/**
+ * Historical migration fixtures intentionally use the schema spelling that
+ * existed at their migration boundary instead of the current Drizzle model.
+ */
+async function seedHistoricalTaskSystemRunAttemptStoreV1(
+  persistence: Pick<FlarexSqlClient, "query">,
+  aggregate: TaskRunAttemptAggregateV1,
+  parent: TaskSystemRunAttemptParentV1,
+  options: Readonly<{
+    readonly parent?: TaskSystemRunAttemptParentV1;
+    readonly legacySchema?: boolean;
+    readonly principalSchema?: boolean;
+  }>,
+): Promise<void> {
   if (options.parent === undefined) {
     await persistence.query(`
       insert into fx_system_scope_clock
@@ -234,14 +382,10 @@ export async function seedTaskSystemRunAttemptStoreV1(
       ${projection.requestedEffectSequence}
     )
   `, [aggregateJson]);
-  return Object.freeze({
-    scopeId: parent.scopeId,
-    deploymentId: parent.deploymentId,
-  });
 }
 
 export async function seedAdditionalTaskSystemRunV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   additionalRunId: string,
   scopeId = TASK_SCOPE_ID,
 ): Promise<void> {
@@ -255,41 +399,40 @@ export async function seedAdditionalTaskSystemRunV1(
   const projection = projectTaskRunAttemptPersistenceV1(aggregate);
   const aggregateJson = JSON.stringify(encoded);
   const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
-  await persistence.query(`
-    insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
-      input_codec, input_store, input_value_codec, input_object_key,
-      input_byte_length, input_sha256, input_retention,
-      execution_principal_generation,
-      creation_authority_codec_version, creation_authority_byte_length,
-      creation_authority_sha256, creation_authority_bytes,
-      aggregate_codec_version, aggregate_byte_length, aggregate_json,
-      run_version, phase, due_kind, due_at_ms, current_attempt_id,
-      execution_fence_basis, current_lease_version,
-      current_lease_expires_at_ms, cancellation_generation,
-      requested_effect_sequence
-    )
-    select scope_id, '${additionalRunId}', definition_generation, task_definition_revision_id,
-      created_at_ms, input_codec, input_store, input_value_codec,
-      input_object_key, input_byte_length, input_sha256, input_retention,
-      execution_principal_generation,
-      creation_authority_codec_version, creation_authority_byte_length,
-      creation_authority_sha256, creation_authority_bytes,
-      1, ${aggregateByteLength}, $1::jsonb, ${projection.runVersion},
-      '${projection.phase}', ${sqlText(projection.dueKind)},
-      ${projection.dueAtMs}, ${sqlText(projection.currentAttemptId)},
-      ${projection.executionFenceBasis}, ${projection.currentLeaseVersion},
-      ${projection.currentLeaseExpiresAtMs},
-      ${projection.cancellationGeneration},
-      ${projection.requestedEffectSequence}
-    from fx_system_durable_task_run_v1
-    where scope_id = '${scopeId}' and run_id = '${TASK_RUN_ID}'
-  `, [aggregateJson]);
+  const typedScopeId = ScopeIdSchema.make(scopeId);
+  const [source] = await persistence.drizzle.select().from(
+    fxSystemDurableTaskRunsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRunsV1.scopeId, typedScopeId),
+    eq(fxSystemDurableTaskRunsV1.runId, runId(TASK_RUN_ID)),
+  )).limit(1);
+  if (source === undefined) {
+    throw new Error("source Task System run fixture is missing");
+  }
+  await persistence.drizzle.insert(fxSystemDurableTaskRunsV1).values({
+    ...source,
+    runId: runId(additionalRunId),
+    aggregateCodecVersion: 1,
+    aggregateByteLength: BigInt(aggregateByteLength),
+    aggregateJson: encoded,
+    runVersion: projection.runVersion,
+    phase: projection.phase,
+    dueKind: projection.dueKind,
+    dueAtMs: nullableNumberAsBigInt(projection.dueAtMs),
+    currentAttemptId: projection.currentAttemptId,
+    executionFenceBasis: projection.executionFenceBasis,
+    currentLeaseVersion: projection.currentLeaseVersion,
+    currentLeaseExpiresAtMs: nullableNumberAsBigInt(
+      projection.currentLeaseExpiresAtMs,
+    ),
+    cancellationGeneration: projection.cancellationGeneration,
+    requestedEffectSequence: projection.requestedEffectSequence,
+  });
 }
 
 /** Seeds the immutable ledgers required by a canonical compatibility aggregate. */
 export async function seedCompatibilityLifecycleLedgerV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   aggregate: TaskRunAttemptAggregateV1,
   history: readonly CompatibilityLifecycleCommitV1[],
 ): Promise<void> {
@@ -321,16 +464,16 @@ export async function seedCompatibilityLifecycleLedgerV1(
       }
       startCount += 1;
       const attempt = transition.next.currentAttempt;
-      await persistence.query(`
-        insert into fx_system_durable_task_attempt_identity_v1 (
-          scope_id, attempt_id, run_id, attempt_number, execution_fence,
-          accepted_run_version
-        ) values (
-          '${TASK_SCOPE_ID}', '${attempt.attemptId}', '${aggregate.runId}',
-          ${attempt.attemptNumber}, ${attempt.executionFence},
-          ${transition.next.runVersion}
-        )
-      `);
+      await persistence.drizzle.insert(
+        fxSystemDurableTaskAttemptIdentitiesV1,
+      ).values({
+        scopeId: taskScopeId,
+        attemptId: attempt.attemptId,
+        runId: aggregate.runId,
+        attemptNumber: attempt.attemptNumber,
+        executionFence: attempt.executionFence,
+        acceptedRunVersion: transition.next.runVersion,
+      });
     }
     for (const effect of transition.requestedEffects) {
       if (effects.has(effect.sequence)) {
@@ -375,22 +518,24 @@ export async function seedCompatibilityLifecycleLedgerV1(
     );
     const payloadJson = JSON.stringify(encoded);
     const payloadByteLength = new TextEncoder().encode(payloadJson).byteLength;
-    await persistence.query(`
-      insert into fx_system_durable_task_requested_effect_v1 (
-        scope_id, run_id, sequence, accepted_run_version, kind,
-        payload_codec_version, payload_byte_length, payload_json,
-        not_before_ms
-      ) values (
-        '${TASK_SCOPE_ID}', '${aggregate.runId}', ${effect.sequence},
-        ${effect.effect.acceptedRunVersion}, '${effect.effect.kind}',
-        1, ${payloadByteLength}, $1::jsonb, ${effectNotBeforeMs(effect)}
-      )
-    `, [payloadJson]);
+    await persistence.drizzle.insert(
+      fxSystemDurableTaskRequestedEffectsV1,
+    ).values({
+      scopeId: taskScopeId,
+      runId: aggregate.runId,
+      sequence: effect.sequence,
+      acceptedRunVersion: effect.effect.acceptedRunVersion,
+      kind: effect.effect.kind,
+      payloadCodecVersion: 1,
+      payloadByteLength: BigInt(payloadByteLength),
+      payloadJson: encoded,
+      notBeforeMs: taskSystemRequestedEffectNotBeforeMsV1(effect),
+    });
   }
 }
 
 export async function resetCompatibilityTaskRunV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: Pick<PGliteFlarexPersistence, "drizzle" | "query">,
   aggregate: TaskRunAttemptAggregateV1,
 ): Promise<void> {
   const encoded = Result.getOrThrow(
@@ -399,16 +544,26 @@ export async function resetCompatibilityTaskRunV1(
   const projection = projectTaskRunAttemptPersistenceV1(aggregate);
   const aggregateJson = JSON.stringify(encoded);
   const aggregateByteLength = new TextEncoder().encode(aggregateJson).byteLength;
-  await persistence.query(`
-    delete from fx_system_durable_task_requested_effect_v1
-    where scope_id = '${TASK_SCOPE_ID}'
-      and run_id in ('${TASK_RUN_ID}', '${aggregate.runId}')
-  `);
-  await persistence.query(`
-    delete from fx_system_durable_task_attempt_identity_v1
-    where scope_id = '${TASK_SCOPE_ID}'
-      and run_id in ('${TASK_RUN_ID}', '${aggregate.runId}')
-  `);
+  const fixtureRunIds = [runId(TASK_RUN_ID), aggregate.runId] as const;
+  // Pending membership references requested effects, so reset dependents first.
+  await persistence.drizzle.delete(
+    fxSystemDurableTaskComputePendingV1,
+  ).where(and(
+    eq(fxSystemDurableTaskComputePendingV1.scopeId, taskScopeId),
+    inArray(fxSystemDurableTaskComputePendingV1.runId, fixtureRunIds),
+  ));
+  await persistence.drizzle.delete(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, taskScopeId),
+    inArray(fxSystemDurableTaskRequestedEffectsV1.runId, fixtureRunIds),
+  ));
+  await persistence.drizzle.delete(
+    fxSystemDurableTaskAttemptIdentitiesV1,
+  ).where(and(
+    eq(fxSystemDurableTaskAttemptIdentitiesV1.scopeId, taskScopeId),
+    inArray(fxSystemDurableTaskAttemptIdentitiesV1.runId, fixtureRunIds),
+  ));
   await persistence.query("set session_replication_role = replica");
   try {
     await persistence.query(`
@@ -434,17 +589,6 @@ export async function resetCompatibilityTaskRunV1(
     `, [aggregateJson]);
   } finally {
     await persistence.query("set session_replication_role = origin");
-  }
-}
-
-function effectNotBeforeMs(effect: PersistedTaskRequestedEffectV1): string {
-  switch (effect.effect.kind) {
-    case "continue_retry":
-    case "wake_retry":
-    case "wake_lease_expiry":
-      return String(effect.effect.notBeforeMs);
-    default:
-      return "null";
   }
 }
 
@@ -474,6 +618,22 @@ export interface TaskSystemRunAttemptParentV1 {
   readonly deploymentId: string;
   readonly applicationRevisionId: string;
   readonly candidateSha256Hex: string;
+}
+
+function taskDefinitionDigest(byteHex: string): TaskDefinitionSha256V1 {
+  return taskDefinitionSha256(repeatedHexBytes(byteHex));
+}
+
+function repeatedHexBytes(byteHex: string): Uint8Array {
+  return decodeHexBytes(byteHex.repeat(32));
+}
+
+function decodeHexBytes(value: string): Uint8Array {
+  return Result.getOrThrow(Encoding.decodeHex(value));
+}
+
+function nullableNumberAsBigInt(value: number | null): bigint | null {
+  return value === null ? null : BigInt(value);
 }
 
 function sqlText(value: string | null): string {

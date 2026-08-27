@@ -28,11 +28,12 @@ import {
 import {
   seedTaskSystemRunAttemptStoreV1,
   TASK_RUN_ID,
+  type TaskSystemRunAttemptFixturePersistenceV1,
   type TaskSystemRunAttemptParentV1,
 } from "./taskSystemRunAttemptStoreTestSupport";
 
 export async function seedTaskComputeDeliverySchemaV1(
-  persistence: Pick<FlarexSqlClient, "query">,
+  persistence: TaskSystemRunAttemptFixturePersistenceV1,
   parent?: TaskSystemRunAttemptParentV1,
   options: Readonly<{
     readonly legacySchema?: boolean;
