@@ -45,6 +45,12 @@ describe("Application point-mutation runner", () => {
         tag: "ApplicationPointMutationRunnerHostV1Error",
         reason: "runtimeHostMismatch",
       },
+      interruption: {
+        admittedOperationDrained: true,
+        capabilityClosed: true,
+        interruptionPendingBeforeDrain: true,
+        interruptedOnly: true,
+      },
     });
     expect(result).toHaveProperty("observed");
     const observed = Reflect.get(result as object, "observed");

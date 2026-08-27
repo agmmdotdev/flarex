@@ -2486,6 +2486,49 @@ invalid write and completes a valid write, while the flat-adapter proof pins
 sequence reuse. The shared executor-tail regression also carries one successful
 Application result through sealing and planning exactly once.
 
+#### AA-R6 Application journal settlement runtime-boundary correction preflight — 2026-08-27
+
+Reproducible scenario: start an Application point-mutation runner whose
+authenticated host operation remains pending, interrupt the runner fiber after
+the host has received the live journal capability, and observe settlement. The
+expected behavior is that interruption reaches the host operation, journal
+admission closes, every already-admitted operation drains, and only then does
+the runner expose the pending interruption. The reproduced backend
+implementation instead masked the complete host operation with
+`Effect.uninterruptible`; a pending host therefore prevented the caller's
+interruption from reaching the execution host and could retain the live journal
+capability until the host's independent wall deadline settled.
+
+The affected owner is the backend Application point-mutation runner's Effect
+runtime and journal-settlement boundary. The executor journal state, syscall
+sequencer, journal error precedence, Application execution host, OCC, sealing,
+commit, retry, outcome, feed, and outbox owners are not defective in this
+scenario and must not change. Source evidence is the mismatch between
+`ApplicationPointMutationRunner.runWithJournalSettlement`, which masks the
+host wait, the Application execution-host contract above, which owns
+interruptible transport settlement, and the already-proven Application action
+runner boundary, which restores interruption only around the host operation
+while retaining an uninterruptible close/drain tail.
+
+Authorized correction: replace the complete uninterruptible mask with
+`Effect.uninterruptibleMask`, restore the existing host operation inside that
+mask, retain the host `Exit`, then close and drain the existing journal session
+before resolving the two exits with unchanged journal-first cause precedence.
+Add a real Worker regression proving the host operation is interruptible and
+the capability is closed before interruption becomes observable. Do not add a
+runtime, service, Layer, timeout, journal path, fallback, retry, or public
+contract, and do not change the legacy exact-runtime runner whose uncancellable
+Workers RPC boundary has a distinct documented owner.
+
+The corrected Application runner restores interruption only around the existing
+execution-host operation and retains the uninterruptible journal close/drain
+tail plus journal-first Cause precedence. Its Worker proof blocks one admitted
+journal operation, requests interruption, proves that interruption remains
+pending until the operation drains, and then observes an interruption-only
+Cause plus rejected late capability use. No journal operation, sequence,
+failure classification, seal, OCC, commit, retry, result, feed, outbox,
+service, Layer, runtime, or public contract changes.
+
 #### AA-R6 mutation checkpoint 3 Standard composition preflight and accepted amendment — 2026-08-13
 
 The runner checkpoint proves an authenticated Application attempt can execute

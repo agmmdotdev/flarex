@@ -1,4 +1,4 @@
-import { Effect, Exit, Result } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Result } from "effect";
 import {
   canonicalizeApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
@@ -24,6 +24,9 @@ import { POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1 } from
 import type {
   PointMutationJournalTableV1,
 } from "@flarex/executor/point-mutation-journal";
+import type {
+  RunSessionJournalPointOperationV1Result,
+} from "@flarex/persistence-postgres/session-journal-store";
 import type {
   PointMutationOccBoundJournalV1,
   PointMutationOccRuntimeNeutralRunnerInputV1,
@@ -117,6 +120,11 @@ export default {
       ...runnerInput(fixture),
       executionAuthorityGeneration: "legacy_dynamic_worker_v1",
     } as unknown as PointMutationOccRuntimeNeutralRunnerInputV1));
+    const interruption = await proveInterruptibleJournalSettlement(
+      fixture,
+      policy,
+      policySha256,
+    );
     return Response.json({
       first,
       second,
@@ -126,12 +134,131 @@ export default {
       observed,
       applicationError: failureReceipt(applicationError),
       runtimeHostMismatch: failureReceipt(runtimeHostMismatch),
+      interruption,
       legacyTag: Exit.isFailure(legacy)
         ? legacy.cause.reasons.find(reason => reason._tag === "Fail")?.error?._tag
         : "success",
     });
   },
 };
+
+async function proveInterruptibleJournalSettlement(
+  fixture: ReturnType<typeof applicationFixture>,
+  policy: ReturnType<typeof hostPolicy>,
+  policySha256: Uint8Array,
+): Promise<Readonly<{
+  readonly admittedOperationDrained: boolean;
+  readonly capabilityClosed: boolean;
+  readonly interruptionPendingBeforeDrain: boolean;
+  readonly interruptedOnly: boolean;
+}>> {
+  return await Effect.runPromise(Effect.gen(function* () {
+    const hostEntered = yield* Deferred.make<void>();
+    const operationEntered = yield* Deferred.make<void>();
+    const releaseOperation = yield* Deferred.make<void>();
+    const table = Object.freeze({}) as PointMutationJournalTableV1;
+    let admittedOperationDrained = false;
+    let capturedCapability:
+      | Readonly<{
+          readonly readPointDocument: (
+            tableName: string,
+            documentId: string,
+          ) => Promise<unknown>;
+          readonly revalidate: () => Promise<void>;
+        }>
+      | undefined;
+    const runner = makeApplicationPointMutationRunner({
+      source: Object.freeze({
+        read: () => Effect.succeed(fixture.source),
+      }),
+      host: Object.freeze({
+        runTransaction: (input: ApplicationTransactionExecutionHostInput) => {
+          const capability = input.capability as Readonly<{
+            readonly readPointDocument: (
+              tableName: string,
+              documentId: string,
+            ) => Promise<unknown>;
+            readonly revalidate: () => Promise<void>;
+          }>;
+          capturedCapability = capability;
+          return Effect.promise(() => capability.revalidate()).pipe(
+            Effect.andThen(Deferred.succeed(hostEntered, undefined)),
+            Effect.andThen(Effect.promise(() => capability.readPointDocument(
+              "users",
+              "1:00000000-0000-4000-8000-000000000001",
+            ))),
+            Effect.andThen(Effect.never),
+          );
+        },
+        runAction: () => Effect.die("action must not run"),
+      }),
+      hostPolicy: policy,
+      hostPolicySha256: policySha256,
+      sha256: bytes => Effect.promise(async () =>
+        new Uint8Array(await crypto.subtle.digest(
+          "SHA-256",
+          copyBytesToArrayBuffer(bytes),
+        ))
+      ),
+    });
+    const input = runnerInput(fixture);
+    const fiber = yield* runner.run(Object.freeze({
+      ...input,
+      journal: Object.freeze({
+        resolvePointTable: () => Effect.succeed(table),
+        runPointOperation: () => Deferred.succeed(
+          operationEntered,
+          undefined,
+        ).pipe(
+          Effect.andThen(Deferred.await(releaseOperation)),
+          Effect.tap(() => Effect.sync(() => {
+            admittedOperationDrained = true;
+          })),
+          Effect.as(Object.freeze({
+            kind: "completed",
+            delivery: "executed",
+            outcome: Object.freeze({ kind: "missing", document: null }),
+          }) satisfies RunSessionJournalPointOperationV1Result),
+        ),
+        resolveDeveloperIndex: () => Effect.die("index must not run"),
+        runIndexedQuery: () => Effect.die("index must not run"),
+        resolveApplicationRelationRead: () =>
+          Effect.die("relation must not run"),
+        runApplicationRelationIncomingRead: () =>
+          Effect.die("relation must not run"),
+      } satisfies PointMutationOccBoundJournalV1),
+    })).pipe(
+      Effect.forkChild,
+    );
+    yield* Deferred.await(hostEntered);
+    yield* Deferred.await(operationEntered);
+    const interruption = yield* Fiber.interrupt(fiber).pipe(Effect.forkChild);
+    yield* Effect.yieldNow;
+    yield* Effect.yieldNow;
+    const interruptionPendingBeforeDrain =
+      interruption.pollUnsafe() === undefined;
+    yield* Deferred.succeed(releaseOperation, undefined);
+    yield* Fiber.join(interruption);
+    const exit = yield* Fiber.await(fiber);
+    const capability = capturedCapability;
+    if (capability === undefined) {
+      return yield* Effect.die("Application journal capability was not captured.");
+    }
+    const capabilityClosed = yield* Effect.promise(() =>
+      capability.revalidate().then(
+        () => false,
+        () => true,
+      )
+    );
+    return Object.freeze({
+      admittedOperationDrained,
+      capabilityClosed,
+      interruptionPendingBeforeDrain,
+      interruptedOnly:
+        Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
+    });
+  }));
+}
 
 function runnerInput(
   fixture: ReturnType<typeof applicationFixture>,

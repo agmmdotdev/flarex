@@ -223,13 +223,12 @@ const runWithJournalSettlement = Effect.fn(
   request: ApplicationTransactionWorkerRequestV1,
   session: ApplicationPointMutationJournalCapabilitySessionV1,
 ): Effect.fn.Return<unknown, PointMutationOccRuntimeNeutralRunnerV1Error> {
-  return yield* Effect.uninterruptible(
-    host.runTransaction({
+  return yield* Effect.uninterruptibleMask(restore =>
+    restore(host.runTransaction({
       definition,
       request,
       capability: session.target,
-    }).pipe(
-      Effect.mapError(mapHostFailure),
+    }).pipe(Effect.mapError(mapHostFailure))).pipe(
       Effect.exit,
       Effect.flatMap(hostExit =>
         session.closeAndDrain.pipe(
@@ -240,7 +239,7 @@ const runWithJournalSettlement = Effect.fn(
           )),
         )
       ),
-    ),
+    )
   );
 });
 
