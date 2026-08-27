@@ -31,6 +31,7 @@ import {
 import type {
   ApplicationActivationRepository,
   ApplicationActiveSelection,
+  ApplicationRelationActivationRepository,
 } from
   "@flarex/persistence-postgres/internal/application-activation";
 import {
@@ -154,6 +155,9 @@ export interface ApplicationMutationSystemLive {
   readonly activation: Pick<
     ApplicationActivationRepository<unknown, unknown>,
     "readActive"
+  > | Pick<
+    ApplicationRelationActivationRepository<unknown, unknown>,
+    "readActive"
   >;
   readonly admission: ApplicationMutationAdmissionContext;
   readonly currentEpochAuthority: CurrentScopeAuthorizationEpochResolutionPorts;
@@ -170,6 +174,8 @@ export interface ApplicationMutationSystemLive {
   readonly intrinsicCreationTimeIndexes:
     IntrinsicCreationTimeIndexDefinitionPortV1;
   readonly developerIndexes: AppDeveloperIndexDefinitionPortV1;
+  readonly applicationRelations?:
+    PointCommitTransactionProofOptionsV1["applicationRelations"];
   readonly indexedQueries: AppDeveloperIndexQueryPortV1;
   readonly grantRetentionPolicy: GrantRetentionPolicyV1;
   readonly applicationRunner: ApplicationPointMutationRunnerConfig;
@@ -648,6 +654,9 @@ function makeSelectionInvoke(
       intrinsicCreationTimeIndexes: live.intrinsicCreationTimeIndexes,
       developerIndexes: live.developerIndexes,
       candidateSchemaWriteGuard: live.candidateSchemaWriteGuard,
+      ...(live.applicationRelations === undefined
+        ? {}
+        : { applicationRelations: live.applicationRelations }),
       ...(live.pointCommitProofAfterTransactionStep === undefined
         ? {}
         : {
@@ -903,6 +912,9 @@ function captureLive(
       deploymentId: live.admission.deploymentId,
       controlDb: live.admission.controlDb,
       schema: live.admission.schema,
+      ...(live.admission.relationSchema === undefined
+        ? {}
+        : { relationSchema: live.admission.relationSchema }),
       authority: Object.freeze({
         scopeMetadata: live.admission.authority.scopeMetadata,
         provisioningReceipts: live.admission.authority.provisioningReceipts,
@@ -931,6 +943,9 @@ function captureLive(
     developerIndexes: Object.freeze({
       locate: live.developerIndexes.locate,
     }),
+    ...(live.applicationRelations === undefined
+      ? {}
+      : { applicationRelations: live.applicationRelations }),
     indexedQueries: live.indexedQueries,
     grantRetentionPolicy: Object.freeze({ ...live.grantRetentionPolicy }),
     applicationRunner: Object.freeze({

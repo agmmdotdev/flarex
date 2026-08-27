@@ -9,7 +9,10 @@ import {
 } from "@flarex/source-analyzer-v2/internal/application-analysis-composition";
 import {
   produceStandardApplicationSource,
+  type StandardApplicationSource,
 } from "@flarex/standard-application-definition/application-source";
+import { produceInternalStandardApplicationSourceWithRelations } from
+  "@flarex/standard-application-definition/internal/relation-definition";
 import type {
   PreparedStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";
@@ -41,6 +44,25 @@ export async function produceStandardApplicationCurrentSourceBundleV1(
   definition: PreparedStandardApplicationDefinitionV1,
 ): Promise<ApplicationNativeMutationSourceBundle> {
   const produced = Result.getOrThrow(produceStandardApplicationSource(definition));
+  return sourceBundleFromProduced(produced);
+}
+
+export async function produceStandardApplicationCurrentRelationSourceBundleV1(
+  definition: PreparedStandardApplicationDefinitionV1,
+  relationDeclarationInputs: unknown,
+): Promise<ApplicationNativeMutationSourceBundle> {
+  const produced = Result.getOrThrow(
+    produceInternalStandardApplicationSourceWithRelations(
+      definition,
+      relationDeclarationInputs,
+    ),
+  );
+  return sourceBundleFromProduced(produced);
+}
+
+async function sourceBundleFromProduced(
+  produced: StandardApplicationSource,
+): Promise<ApplicationNativeMutationSourceBundle> {
   const modules = Object.freeze(await Promise.all(produced.modules.map(
     async module => Object.freeze({
       path: module.path,

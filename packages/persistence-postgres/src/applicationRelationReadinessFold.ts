@@ -162,7 +162,6 @@ export type ApplicationRelationReadinessFoldNotReadyReason =
   | "revisionMissing"
   | "publicationMissing"
   | "taskCatalogMissing"
-  | "functionRuntimeUnavailable"
   | "candidateValidationMissing"
   | "candidateValidationInProgress"
   | "candidateValidationFailed"
@@ -724,13 +723,6 @@ const prepareFold = Effect.fn("ApplicationRelationReadinessFold.prepare")(
       ),
     );
     if ("status" in bundle) return bundle;
-    if (bundle.functions.length !== 0) {
-      return notReady(
-        bundle.revision.revisionId,
-        "functionRuntimeUnavailable",
-        "relation-aware cold runtime target is not yet installed",
-      );
-    }
     const schema = yield* context.schema.resolve({
       deploymentId: bundle.deploymentId,
       applicationManifestSha256:

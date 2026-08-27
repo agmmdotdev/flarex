@@ -287,6 +287,7 @@ import {
   type TrustedScopeAuthorityError,
 } from "./scopeAuthorityResolution";
 import { fxSystemApplicationActiveHeads } from "./applicationActivationSchema";
+import { fxSystemApplicationReadiness } from "./applicationRelationSchema";
 import {
   fxAppIndexEntryRevisions,
   fxSystemCommitAppRowChanges,
@@ -1814,6 +1815,11 @@ const prepareUniqueConstraintDefinitions = Effect.fn(
 
 type PreparedPointCommitApplicationRelations = Readonly<{
   readonly port: ApplicationRelationCommitPort;
+  readonly definitions: LocatedApplicationRelationDefinitionSet | null;
+}>;
+
+type LocatedPreparedPointCommitApplicationRelations = Readonly<{
+  readonly port: ApplicationRelationCommitPort;
   readonly definitions: LocatedApplicationRelationDefinitionSet;
 }>;
 
@@ -1852,9 +1858,7 @@ const prepareApplicationRelationDefinitions = Effect.fn(
       : cause
   ));
   if (definitions === null) {
-    return yield* Effect.fail(new ApplicationRelationCommitUnavailableError({
-      reason: "bindingUnavailable",
-    }));
+    return Object.freeze({ port, definitions: null });
   }
   if (
     definitions.deploymentId !== command.authorityPins.deploymentId ||
@@ -5519,14 +5523,15 @@ async function runPointCommitTransactionKernel(
       "activeRelationSelectionValidated",
     );
   }
-  await validateActiveApplicationSchemaForPointCommit(
+  const validatedApplicationRelations =
+    await validateActiveApplicationSchemaForPointCommit(
     tx,
     command,
-    applicationRelations?.definitions ?? null,
+    applicationRelations,
     options,
   );
   if (
-    applicationRelations !== null &&
+    validatedApplicationRelations !== null &&
     command.authorityPins.executionAuthorityGeneration === "application_v1"
   ) {
     await emitTransactionStep(options, command, "relationBindingValidated");
@@ -5647,7 +5652,7 @@ async function runPointCommitTransactionKernel(
     tx,
     command,
     loadedHeads,
-    applicationRelations,
+    validatedApplicationRelations,
     clock.record.lastCommitSeq,
     options,
   );
@@ -5806,7 +5811,7 @@ async function preparePointCommitApplicationRelationPlan(
   tx: AppRowTransaction,
   command: PreparedPointCommitTransactionCommandV1,
   loadedHeads: ReadonlyArray<LoadedPointCommitHeadV1>,
-  relations: PreparedPointCommitApplicationRelations | null,
+  relations: LocatedPreparedPointCommitApplicationRelations | null,
   lastCommitSeq: bigint,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<PreparedPointCommitApplicationRelationPlan | null> {
@@ -6423,43 +6428,108 @@ async function validateExpectedActiveRelationSelectionForPointCommit(
 
 async function validateActiveApplicationSchemaForPointCommit(
   tx: AppRowTransaction,
-  command: PreparedPointCommitAttemptScalarCommandV1,
-  applicationRelations: LocatedApplicationRelationDefinitionSet | null,
+  command: PreparedPointCommitTransactionCommandV1,
+  preparedApplicationRelations: PreparedPointCommitApplicationRelations | null,
   options: PointCommitTransactionProofOptionsV1,
-): Promise<void> {
+): Promise<LocatedPreparedPointCommitApplicationRelations | null> {
   if (command.authorityPins.executionAuthorityGeneration !== "application_v1") {
-    return;
+    return preparedApplicationRelations?.definitions === null ||
+        preparedApplicationRelations === null
+      ? null
+      : Object.freeze({
+          port: preparedApplicationRelations.port,
+          definitions: preparedApplicationRelations.definitions,
+        });
   }
-  const query = tx.select({
-    deploymentId: fxSystemApplicationReadinessV1.deploymentId,
-    schemaVersionId: fxSystemApplicationReadinessV1.schemaVersionId,
-    applicationSchemaSha256:
-      fxSystemApplicationReadinessV1.applicationSchemaSha256,
-    schemaManifestSha256:
-      fxSystemApplicationReadinessV1.schemaManifestSha256,
-  }).from(fxSystemApplicationActiveHeads).innerJoin(
-    fxSystemApplicationReadinessV1,
-    and(
-      eq(
-        fxSystemApplicationReadinessV1.scopeId,
-        fxSystemApplicationActiveHeads.scopeId,
-      ),
-      eq(
-        fxSystemApplicationReadinessV1.revisionId,
-        fxSystemApplicationActiveHeads.revisionId,
-      ),
-      eq(
-        fxSystemApplicationReadinessV1.readinessSha256,
-        fxSystemApplicationActiveHeads.readinessSha256,
-      ),
-    ),
-  ).where(and(
-    eq(
-      fxSystemApplicationActiveHeads.scopeId,
-      command.authorityPins.scopeId,
-    ),
-    eq(fxSystemApplicationActiveHeads.readinessContractVersion, 1),
+  const contractQuery = tx.select({
+    readinessContractVersion:
+      fxSystemApplicationActiveHeads.readinessContractVersion,
+  }).from(fxSystemApplicationActiveHeads).where(eq(
+    fxSystemApplicationActiveHeads.scopeId,
+    command.authorityPins.scopeId,
   )).limit(2).for("share");
+  const contractRows = await sqlCall(
+    "validateActiveApplicationSchema",
+    () => contractQuery,
+  );
+  const readinessContractVersion =
+    contractRows[0]?.readinessContractVersion;
+  if (contractRows.length !== 1 ||
+    (readinessContractVersion !== 1 && readinessContractVersion !== 2)) {
+    throw corruption("activeApplicationHeadInvalid");
+  }
+  if (
+    readinessContractVersion === 2 &&
+    command.rowIntents.length > 0 &&
+    preparedApplicationRelations === null
+  ) {
+    throw new ApplicationRelationCommitUnavailableError({
+      reason: "compositionMissing",
+    });
+  }
+  if (
+    readinessContractVersion === 2 &&
+    command.rowIntents.length > 0 &&
+    preparedApplicationRelations?.definitions === null
+  ) {
+    throw new ApplicationRelationCommitUnavailableError({
+      reason: "bindingUnavailable",
+    });
+  }
+  const applicationRelations = preparedApplicationRelations?.definitions ??
+    null;
+  const query = readinessContractVersion === 1
+    ? tx.select({
+        deploymentId: fxSystemApplicationReadinessV1.deploymentId,
+        schemaVersionId: fxSystemApplicationReadinessV1.schemaVersionId,
+        applicationSchemaSha256:
+          fxSystemApplicationReadinessV1.applicationSchemaSha256,
+        schemaManifestSha256:
+          fxSystemApplicationReadinessV1.schemaManifestSha256,
+        boundPublicationSha256: sql<Uint8Array | null>`null`,
+      }).from(fxSystemApplicationActiveHeads).innerJoin(
+        fxSystemApplicationReadinessV1,
+        and(
+          eq(fxSystemApplicationReadinessV1.scopeId,
+            fxSystemApplicationActiveHeads.scopeId),
+          eq(fxSystemApplicationReadinessV1.revisionId,
+            fxSystemApplicationActiveHeads.revisionId),
+          eq(fxSystemApplicationReadinessV1.readinessSha256,
+            fxSystemApplicationActiveHeads.readinessSha256),
+        ),
+      ).where(and(
+        eq(fxSystemApplicationActiveHeads.scopeId,
+          command.authorityPins.scopeId),
+        eq(fxSystemApplicationActiveHeads.readinessContractVersion, 1),
+      )).limit(2).for("share")
+    : tx.select({
+        deploymentId: fxSystemApplicationReadiness.deploymentId,
+        schemaVersionId: fxSystemApplicationReadiness.schemaVersionId,
+        applicationSchemaSha256:
+          fxSystemApplicationReadiness.applicationSchemaSha256,
+        schemaManifestSha256:
+          fxSystemApplicationReadiness.schemaManifestSha256,
+        boundPublicationSha256:
+          fxSystemApplicationReadiness.boundPublicationSha256,
+      }).from(fxSystemApplicationActiveHeads).innerJoin(
+        fxSystemApplicationReadiness,
+        and(
+          eq(fxSystemApplicationReadiness.scopeId,
+            fxSystemApplicationActiveHeads.scopeId),
+          eq(fxSystemApplicationReadiness.revisionId,
+            fxSystemApplicationActiveHeads.revisionId),
+          eq(fxSystemApplicationReadiness.readinessSha256,
+            fxSystemApplicationActiveHeads.readinessSha256),
+          eq(fxSystemApplicationReadiness.relationSetReadinessSha256,
+            fxSystemApplicationActiveHeads.relationSetReadinessSha256),
+          eq(fxSystemApplicationReadiness.relationCount,
+            fxSystemApplicationActiveHeads.relationCount),
+        ),
+      ).where(and(
+        eq(fxSystemApplicationActiveHeads.scopeId,
+          command.authorityPins.scopeId),
+        eq(fxSystemApplicationActiveHeads.readinessContractVersion, 2),
+      )).limit(2).for("share");
   observeDrizzleQuery("validateActiveApplicationSchema", query, options);
   const rows = await sqlCall(
     "validateActiveApplicationSchema",
@@ -6492,12 +6562,27 @@ async function validateActiveApplicationSchemaForPointCommit(
         encodeBytesToLowercaseHex(row.applicationSchemaSha256) !==
           applicationRelations.applicationSchemaSha256 ||
         encodeBytesToLowercaseHex(row.schemaManifestSha256) !==
-          applicationRelations.schemaManifestSha256
+          applicationRelations.schemaManifestSha256 ||
+        (
+          readinessContractVersion === 2 &&
+          (
+            !isUint8ArrayWithByteLength(row.boundPublicationSha256, 32) ||
+            encodeBytesToLowercaseHex(row.boundPublicationSha256) !==
+              applicationRelations.boundPublicationSha256
+          )
+        )
       )
     ) {
       return yield* Result.fail(corruption("relationBindingInvalid"));
     }
   }));
+  return preparedApplicationRelations !== null &&
+      preparedApplicationRelations.definitions !== null
+    ? Object.freeze({
+        port: preparedApplicationRelations.port,
+        definitions: preparedApplicationRelations.definitions,
+      })
+    : null;
 }
 
 async function lockPointCommitSession(

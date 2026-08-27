@@ -1,4 +1,4 @@
-import type { ApplicationManifestV1 } from
+import type { ApplicationManifest } from
   "@flarex/analysis/application-analysis";
 
 import type { ApplicationAnalysisSourceBundle } from
@@ -6,7 +6,7 @@ import type { ApplicationAnalysisSourceBundle } from
 
 export function applicationRuntimeSourceMatchesManifest(
   source: ApplicationAnalysisSourceBundle,
-  manifest: ApplicationManifestV1,
+  manifest: ApplicationManifest,
 ): boolean {
   const expected = manifest.sourceArtifact;
   const observed = source.sourceArtifact;

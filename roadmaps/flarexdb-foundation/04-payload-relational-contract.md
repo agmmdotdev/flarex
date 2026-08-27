@@ -1659,12 +1659,13 @@ candidate, unique, existing table/index physical readiness, task binding, and
 exact retained relation-set bytes and digest. Replay reuses the database-authored
 first readiness timestamp and requires byte-for-byte root and child identity.
 
-The first runtime boundary deliberately accepts only `functions: []`.
-Relation-bearing functions are persisted, but readiness returns
-`functionRuntimeUnavailable` before invoking the retained cold adapter because
-no relation-aware runtime target/materializer has been approved. A real
-version-1 task definition is nevertheless stored and authenticated, proving
-that empty tasks are only a fixture choice and not an implementation limit.
+Relation readiness authenticates non-empty Application Manifest V2 function
+catalogs and their stored publication entries. Function-runtime admission then
+resolves the relation schema authority and V2 function entry from the same
+nominal active selection; the relation contract does not pass through the
+retained Application Manifest V1 cold adapter. A real version-1 task definition
+is nevertheless stored and authenticated, proving that empty tasks are only a
+fixture choice and not an implementation limit.
 The ready result has its own nominal issuer and is not registered with the V1
 activation issuer. Current activation therefore cannot consume it; an attempted
 legacy activation of the authentic relation revision fails in the retained
@@ -2490,7 +2491,7 @@ R03-A -> SV-R Core -> private definition/workload and non-reactive adapter work
    +-> R03-B in the sync session -> SV-R Live -> reactive claims
 ```
 
-### [ ] SV-R Core — Internal Standard Relation Vertical
+### [x] SV-R Core — Internal Standard Relation Vertical
 
 Prerequisite: R01, R01-P, R02, E01, O10-R, RA01, RQ01, and R03-A are complete
 for the admitted profile. R03-B is deliberately not a prerequisite for this
@@ -2522,6 +2523,22 @@ Exit gates:
   or test-local reproduction of shared relation logic; and
 - paired PGlite and genuine-PostgreSQL proof, owning package typechecks, lint,
   and standing reviewers pass before the implementation checkpoint commits.
+
+Current implementation checkpoint (2026-08-28): the private producer-through-
+RQ01 proof crosses the relation activation, function runtime, journal/OCC
+commit, R03-A adjacency, and authenticated query owners for put, reorder,
+remove, retarget, restrict-on-target-delete, and unreferenced delete. It asserts
+each canonical R03-A child identity, fails closed before row or commit
+publication when the V2 relation-maintenance capability is absent, and has a
+genuine Miniflare execution receipt for a relation-bearing application
+manifest. Stored commit authority also reauthenticates the manifest/schema
+binding and includes relation-set readiness bytes in its bounded evidence. The
+paired PGlite and genuine PostgreSQL 18 proofs are green; the PostgreSQL proof
+ran under an ordinary role with no superuser, database-creation, or role-
+creation capability. Owning package typechecks, scoped lint, and both standing
+reviews are green. This commit is the relational-core implementation
+checkpoint; it adds no sync owner, registration, invalidation, delivery, or
+reconnect behavior.
 
 Completion of `SV-R Core` authorizes later preflight for private developer
 definition/workload APIs and non-reactive adapter conformance. It does not by

@@ -314,8 +314,8 @@ const loadActiveRelationReadinessChildren = Effect.fn(
     root.relationSetReadinessSha256,
     head.revisionId,
   );
-  if (!readinessFrameMatchesRoot(readinessFrame, root) ||
-    !relationSetFrameMatchesRoot(
+  if (!applicationRelationReadinessFrameMatchesRow(readinessFrame, root) ||
+    !applicationRelationSetFrameMatchesRow(
       relationSetFrame,
       root,
       revisionSchema.schemaVersion,
@@ -340,7 +340,7 @@ const loadActiveRelationReadinessChildren = Effect.fn(
   return children;
 });
 
-function readinessFrameMatchesRoot(
+export function applicationRelationReadinessFrameMatchesRow(
   value: unknown,
   root: typeof fxSystemApplicationReadiness.$inferSelect,
 ): boolean {
@@ -397,7 +397,7 @@ function readinessFrameMatchesRoot(
       encodeBytesToLowercaseHex(root.relationSetReadinessSha256);
 }
 
-function relationSetFrameMatchesRoot(
+export function applicationRelationSetFrameMatchesRow(
   value: unknown,
   root: typeof fxSystemApplicationReadiness.$inferSelect,
   schemaVersion: number,

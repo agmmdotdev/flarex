@@ -170,8 +170,8 @@ import {
   type ProjectExecutionClaimRenewalIssueV1,
 } from "./transactionExecutionClaimLiveness";
 import {
-  claimApplicationActiveSelection,
-  validateApplicationActiveSelectionInTransaction,
+  claimApplicationExecutableActiveSelection,
+  validateApplicationExecutableActiveSelectionInTransaction,
   ApplicationActivationError,
   type ApplicationActiveSelection,
 } from "./applicationActivation";
@@ -1401,7 +1401,7 @@ const applicationActivationScopedOperation = defineScopedWriteOperation(
         catch: mapActivationTransactionError,
       });
       if (replay !== null) return replay;
-      yield* validateApplicationActiveSelectionInTransaction(
+      yield* validateApplicationExecutableActiveSelectionInTransaction(
         selection,
         tx,
         clock.record,
@@ -4153,9 +4153,10 @@ function capturePreparedCommonEvidence(
 const capturePreparedApplicationActivation = Effect.fn(
   "ApplicationMutationSessionActivation.capture",
 )(function* (input: PreparedApplicationMutationSessionActivationV1) {
-  const selectionBasis = yield* Effect.fromResult(
-    claimApplicationActiveSelection(input.activeSelection),
+  const claimedSelection = yield* Effect.fromResult(
+    claimApplicationExecutableActiveSelection(input.activeSelection),
   );
+  const selectionBasis = claimedSelection.basis;
   const executionAuthority = yield*
     canonicalizeApplicationMutationExecutionAuthorityV1(
       input.evidence.executionAuthority,

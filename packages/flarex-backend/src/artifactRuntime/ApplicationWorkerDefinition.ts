@@ -1,5 +1,5 @@
 import type {
-  ApplicationManifestV1,
+  ApplicationManifest,
 } from "@flarex/analysis/application-analysis";
 import {
   applicationFunctionEntryPublicationFrameV1,
@@ -65,7 +65,7 @@ export interface ApplicationWorkerDefinition {
 export function makeApplicationWorkerDefinition(input: {
   readonly source: ApplicationAnalysisSourceBundle;
   readonly target: ApplicationRuntimeTargetV1;
-  readonly manifest: ApplicationManifestV1;
+  readonly manifest: ApplicationManifest;
   readonly hostPolicy: EdgeActionHostPolicyFrameV1;
   readonly hostPolicySha256: Uint8Array;
   readonly compatibilityDate?: string;
@@ -180,7 +180,7 @@ function entrypointSource(
 }
 
 function runtimeFunction(
-  fn: ApplicationManifestV1["functions"][number] |
+  fn: ApplicationManifest["functions"][number] |
     ApplicationRuntimeTargetV1["function"],
   ordinal: number,
 ): ApplicationFunctionRuntimeFunctionV1 {
@@ -200,7 +200,7 @@ function runtimeFunction(
 function requireSourceAuthority(
   source: ApplicationAnalysisSourceBundle,
   target: ApplicationRuntimeTargetV1,
-  manifest: ApplicationManifestV1,
+  manifest: ApplicationManifest,
 ): void {
   if (
     source.sourceArtifact.rootSha256 !== target.sourceArtifactRootSha256 ||
@@ -210,10 +210,10 @@ function requireSourceAuthority(
 }
 
 function functionMatchesTarget(
-  manifest: ApplicationManifestV1["functions"][number],
+  manifest: ApplicationManifest["functions"][number],
   target: ApplicationRuntimeTargetV1["function"],
 ): boolean {
-  const targetProjection: ApplicationManifestV1["functions"][number] = {
+  const targetProjection: ApplicationManifest["functions"][number] = {
     path: target.path,
     moduleName: target.moduleName,
     exportName: target.exportName,

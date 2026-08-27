@@ -132,6 +132,16 @@ export interface ApplicationRelationActiveSelectionBasis
   readonly headSha256: Uint8Array;
 }
 
+export type ApplicationExecutableActiveSelection =
+  | Readonly<{
+      readonly kind: "legacy";
+      readonly basis: ApplicationActiveSelectionBasis;
+    }>
+  | Readonly<{
+      readonly kind: "relation";
+      readonly basis: ApplicationRelationActiveSelectionBasis;
+    }>;
+
 export interface ApplicationRelationActiveSelectionSnapshot {
   readonly authority: TrustedScopeAuthority;
   readonly deploymentId: string;
@@ -326,6 +336,40 @@ export function claimApplicationRelationActiveSelection(
   return state?.kind !== "relation"
     ? Result.fail(activationError("validateSelection", "invalidComposition"))
     : Result.succeed(copyRelationSelectionSnapshot(state.basis));
+}
+
+/**
+ * Claims the nominal active selection accepted by the function runtime while
+ * preserving which immutable publication contract owns its evidence.
+ */
+export function claimApplicationExecutableActiveSelection(
+  selection: unknown,
+): Result.Result<
+  ApplicationExecutableActiveSelection,
+  ApplicationActivationError
+> {
+  if (typeof selection !== "object" || selection === null) {
+    return Result.fail(
+      activationError("validateSelection", "invalidComposition"),
+    );
+  }
+  // SAFETY: the object guard permits the WeakMap lookup. Membership, rather
+  // than structural shape, is the authority for both supported selections.
+  const state = selectionStates.get(selection as ApplicationActiveSelection);
+  if (state === undefined) {
+    return Result.fail(
+      activationError("validateSelection", "invalidComposition"),
+    );
+  }
+  return state.kind === "legacy"
+    ? Result.succeed(Object.freeze({
+        kind: "legacy" as const,
+        basis: copySelectionBasis(state.basis),
+      }))
+    : Result.succeed(Object.freeze({
+        kind: "relation" as const,
+        basis: copyRelationSelectionBasis(state.basis),
+      }));
 }
 
 export function applicationRelationActiveSelectionMatchesSnapshot(
@@ -957,6 +1001,34 @@ export const validateApplicationRelationActiveSelectionInTransaction = Effect.fn
   }
   return copyRelationSelectionBasis(basis);
 });
+
+export const validateApplicationExecutableActiveSelectionInTransaction =
+  Effect.fn("ApplicationActivation.validateExecutableSelectionInTransaction")(
+    function* (
+      selection: unknown,
+      tx: AppRowTransaction,
+      currentClock: ScopeClockRecord,
+    ) {
+      const claimed = yield* Effect.fromResult(
+        claimApplicationExecutableActiveSelection(selection),
+      );
+      if (claimed.kind === "legacy") {
+        const basis = yield* validateApplicationActiveSelectionInTransaction(
+          selection,
+          tx,
+          currentClock,
+        );
+        return Object.freeze({ kind: "legacy" as const, basis });
+      }
+      const basis = yield*
+        validateApplicationRelationActiveSelectionInTransaction(
+          selection,
+          tx,
+          currentClock,
+        );
+      return Object.freeze({ kind: "relation" as const, basis });
+    },
+  );
 
 const tryReplayStoredRelationActivation = Effect.fn(
   "ApplicationActivation.tryReplayStoredRelation",

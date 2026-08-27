@@ -1,7 +1,7 @@
-import type { ApplicationManifestV1 } from
-  "@flarex/analysis/application-analysis";
 import { applicationFunctionEntryPublicationFrameV1 } from
   "@flarex/analysis/internal/application-publication-v1";
+import { applicationFunctionEntryPublicationFrameV2 } from
+  "@flarex/analysis/internal/application-publication-v2";
 import {
   bytesEqualFullScan,
   copyBytesToArrayBuffer,
@@ -18,11 +18,12 @@ import {
 } from "flarex-protocol/internal/application-runtime-target-v1";
 
 import {
-  claimApplicationActiveSelection,
-  validateApplicationActiveSelectionInTransaction,
+  claimApplicationExecutableActiveSelection,
+  validateApplicationExecutableActiveSelectionInTransaction,
   type ApplicationActiveSelection,
-  type ApplicationActiveSelectionBasis,
   type ApplicationActivationError,
+  type ApplicationExecutableActiveSelection,
+  type ValidateApplicationRelationActiveSelectionInTransactionError,
 } from "./applicationActivation";
 import type { AppRowTransaction } from "./appRows";
 import {
@@ -31,6 +32,12 @@ import {
   type ApplicationSchemaAuthorityError,
   type ApplicationSchemaAuthorityPublisher,
 } from "./applicationSchemaAuthority";
+import {
+  hasApplicationRelationSchemaAuthorityComposition,
+  type ApplicationRelationSchemaAuthority,
+  type ApplicationRelationSchemaAuthorityPort,
+  type ResolveApplicationRelationSchemaAuthorityError,
+} from "./applicationRelationSchemaAuthority";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { ReadSchemaVersionArtifactError } from
   "./schemaVersionArtifacts";
@@ -44,7 +51,10 @@ import {
   type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
-import { fxSystemApplicationFunctionsV1 } from "./schema";
+import {
+  fxSystemApplicationFunctionsV1,
+} from "./schema";
+import { fxSystemApplicationFunctions } from "./applicationRelationSchema";
 import {
   LocatedReadCommittedTransactionFailureV1,
   type LocatedReadCommittedAttemptTargetV1,
@@ -55,16 +65,17 @@ import { runApplicationAdmissionQuery } from "./applicationAdmissionQuery";
 
 export interface ApplicationMutationAdmission {
   readonly selection: ApplicationActiveSelection;
-  readonly basis: ApplicationActiveSelectionBasis;
+  readonly basis: ApplicationExecutableActiveSelection["basis"];
   readonly executionAuthority:
     CanonicalApplicationMutationExecutionAuthorityV1;
-  readonly schema: ApplicationSchemaAuthority;
+  readonly schema: ApplicationSchemaAuthority | ApplicationRelationSchemaAuthority;
 }
 
 export interface ApplicationMutationAdmissionContext {
   readonly deploymentId: string;
   readonly controlDb: FlarexMetadataDatabase;
   readonly schema: ApplicationSchemaAuthorityPublisher<unknown>;
+  readonly relationSchema?: ApplicationRelationSchemaAuthorityPort;
   readonly authority: TrustedScopeAuthorityResolutionPorts<
     LocatedReadCommittedAttemptTargetV1
   >;
@@ -90,6 +101,8 @@ export type SelectApplicationMutationAdmissionError =
   | ApplicationMutationAdmissionError
   | ApplicationActivationError
   | ApplicationSchemaAuthorityError
+  | ResolveApplicationRelationSchemaAuthorityError
+  | ValidateApplicationRelationActiveSelectionInTransactionError
   | ReadSchemaVersionArtifactError
   | TrustedScopeAuthorityError
   | LockScopeClockForShareError
@@ -150,16 +163,11 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
   if (
     typeof functionPath !== "string" || functionPath.trim().length === 0
   ) return yield* failure("invalidFunction");
-  const basis = yield* Effect.fromResult(
-    claimApplicationActiveSelection(selection),
+  const claimed = yield* Effect.fromResult(
+    claimApplicationExecutableActiveSelection(selection),
   );
-  if (
-    basis.deploymentId !== context.deploymentId ||
-    !hasApplicationSchemaAuthorityComposition(
-      context.schema,
-      context.controlDb,
-    )
-  ) {
+  const basis = claimed.basis;
+  if (basis.deploymentId !== context.deploymentId) {
     return yield* failure("invalidComposition");
   }
   const fn = basis.manifest.functions.find(candidate =>
@@ -175,10 +183,7 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
   ) {
     return yield* failure("functionUnsupported");
   }
-  const schema = yield* context.schema.readPublished({
-    deploymentId: context.deploymentId,
-    manifest: basis.manifest,
-  });
+  const schema = yield* resolveApplicationMutationSchema(claimed, context);
   if (
     schema.schemaVersionId !== basis.schemaVersionId ||
     schema.applicationSchemaSha256 !==
@@ -198,7 +203,7 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
   yield* requireSameAuthority(basis.authority, located.authority);
   const storedFunction = yield* runLocatedRead(
     located.target,
-    tx => selectStoredFunction(tx, selection, basis, mutationFunction),
+    tx => selectStoredFunction(tx, selection, claimed, mutationFunction),
   );
   const runtimeTarget = yield* Effect.fromResult(
     canonicalizeApplicationRuntimeTargetV1({
@@ -248,26 +253,94 @@ const selectApplicationMutationAdmissionForVisibility = Effect.fn(
   return Object.freeze({ selection, basis, executionAuthority, schema });
 });
 
+const resolveApplicationMutationSchema = Effect.fn(
+  "ApplicationMutationAdmission.resolveSchema",
+)(function* (
+  claimed: ApplicationExecutableActiveSelection,
+  context: ApplicationMutationAdmissionContext,
+) {
+  if (claimed.kind === "legacy") {
+    if (!hasApplicationSchemaAuthorityComposition(
+      context.schema,
+      context.controlDb,
+    )) return yield* failure("invalidComposition");
+    return yield* context.schema.readPublished({
+      deploymentId: context.deploymentId,
+      manifest: claimed.basis.manifest,
+    });
+  }
+  const relationSchema = context.relationSchema;
+  if (!hasApplicationRelationSchemaAuthorityComposition(
+    relationSchema,
+    context.controlDb,
+  )) return yield* failure("invalidComposition");
+  return yield* relationSchema.resolve({
+    deploymentId: context.deploymentId,
+    applicationManifestSha256: encodeBytesToLowercaseHex(
+      claimed.basis.manifestSha256,
+    ),
+    manifest: claimed.basis.manifest,
+  });
+});
+
 const selectStoredFunction = Effect.fn(
   "ApplicationMutationAdmission.selectStoredFunction",
 )(function* (
   tx: AppRowTransaction,
   selection: ApplicationActiveSelection,
-  basis: ApplicationActiveSelectionBasis,
-  fn: ApplicationManifestV1["functions"][number] & {
+  claimed: ApplicationExecutableActiveSelection,
+  fn: ApplicationExecutableActiveSelection["basis"]["manifest"]["functions"][number] & {
     readonly kind: "mutation";
     readonly visibility: "public" | "internal";
   },
 ) {
+  const basis = claimed.basis;
   const clock = yield* lockScopeClockForShareInTransactionEffect(
     tx,
     basis.authority.scopeId,
   );
-  yield* validateApplicationActiveSelectionInTransaction(
+  yield* validateApplicationExecutableActiveSelectionInTransaction(
     selection,
     tx,
     clock,
   );
+  if (claimed.kind === "relation") {
+    const rows = yield* query(
+      tx.select().from(fxSystemApplicationFunctions).where(and(
+        eq(fxSystemApplicationFunctions.scopeId, basis.authority.scopeId),
+        eq(fxSystemApplicationFunctions.revisionId, basis.revisionId),
+        eq(fxSystemApplicationFunctions.functionPath, fn.path),
+      )).limit(2),
+    );
+    if (rows.length !== 1) return yield* failure("storedFunction");
+    const row = rows[0]!;
+    const entryBytes = yield* Effect.fromResult(
+      applicationFunctionEntryPublicationFrameV2(fn).pipe(
+        Result.mapError(cause => failureValue(
+          "storedFunction",
+          false,
+          cause,
+        )),
+      ),
+    );
+    const entrySha256 = yield* sha256(entryBytes);
+    if (
+      row.functionPath !== fn.path || row.moduleName !== fn.moduleName ||
+      row.exportName !== fn.exportName || row.functionKind !== fn.kind ||
+      row.visibility !== fn.visibility ||
+      !bytesEqualFullScan(
+        row.functionCatalogSha256,
+        basis.functionCatalogSha256,
+      ) || !bytesEqualFullScan(row.entryBytes, entryBytes) ||
+      !bytesEqualFullScan(row.entrySha256, entrySha256)
+    ) return yield* failure("storedFunction");
+    return Object.freeze({
+      ...fn,
+      kind: "mutation" as const,
+      visibility: fn.visibility,
+      entrySha256: encodeBytesToLowercaseHex(entrySha256),
+    });
+  }
   const rows = yield* query(
     tx.select().from(fxSystemApplicationFunctionsV1).where(and(
       eq(fxSystemApplicationFunctionsV1.scopeId, basis.authority.scopeId),

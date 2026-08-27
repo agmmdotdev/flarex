@@ -17,6 +17,12 @@ import type {
 
 import type { AppRowTransaction } from "../appRows";
 import { fxSystemApplicationActivations } from "../applicationActivationSchema";
+import {
+  fxSystemApplicationFunctions,
+  fxSystemApplicationPublications,
+  fxSystemApplicationReadiness,
+  fxSystemApplicationRevisionSchemas,
+} from "../applicationRelationSchema";
 import type { FlarexMetadataDatabase } from "../deployments";
 import {
   detachDriverRows,
@@ -58,6 +64,7 @@ import {
   parseLength,
   type AttemptChildExistenceRow,
   type ApplicationGraphPayloadRow,
+  type ApplicationGraphScopePayloadRow,
   type ApplicationGraphSizeRow,
   type CapturedRowsV1,
   type ClockRow,
@@ -438,7 +445,9 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
+  const applicationGraphKind = scopeApplicationGraphSizeRows[0]?.kind;
   const schemaAuthoritySizeRows = applicationSelector !== undefined &&
+      applicationGraphKind === "legacy" &&
       ports.applicationControlDb !== undefined
     ? await selectApplicationSchemaAuthoritySizeRows(
         ports.applicationControlDb,
@@ -447,8 +456,11 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
-  const applicationGraphSizeRows = scopeApplicationGraphSizeRows.length === 1 &&
-      schemaAuthoritySizeRows.length === 1
+  const applicationGraphSizeRows = scopeApplicationGraphSizeRows.length !== 1
+    ? Object.freeze([])
+    : applicationGraphKind === "relation"
+    ? scopeApplicationGraphSizeRows
+    : schemaAuthoritySizeRows.length === 1
     ? Object.freeze([Object.freeze({
         ...scopeApplicationGraphSizeRows[0],
         schemaBindingByteLengthText:
@@ -558,11 +570,13 @@ async function captureRows(
         applicationSelector.revisionId,
         applicationSelector.functionPath,
         applicationSelector.applicationSchemaSha256,
+        applicationGraphSizeRows[0]?.kind,
         options,
       )
     : Object.freeze([]);
   const schemaAuthorityPayloadRows = applicationGraphSizeRows.length === 1 &&
-      applicationSelector !== undefined && ports.applicationControlDb !== undefined
+      applicationGraphKind === "legacy" && applicationSelector !== undefined &&
+      ports.applicationControlDb !== undefined
     ? await selectApplicationSchemaAuthorityPayloadRows(
         ports.applicationControlDb,
         authority.deploymentId,
@@ -570,18 +584,24 @@ async function captureRows(
         options,
       )
     : Object.freeze([]);
-  const applicationGraphPayloadRows =
-      scopeApplicationGraphPayloadRows.length === 1 &&
-      schemaAuthorityPayloadRows.length === 1
-    ? Object.freeze([
-        // SAFETY: the length checks above proved both row arrays hold
-        // exactly one validated row.
-        Object.freeze({
-          ...scopeApplicationGraphPayloadRows[0],
-          schemaAuthority: schemaAuthorityPayloadRows[0],
-        }) as ApplicationGraphPayloadRow,
-      ])
-    : Object.freeze([]);
+  let applicationGraphPayloadRows: ReadonlyArray<ApplicationGraphPayloadRow> =
+    Object.freeze([]);
+  const scopeGraph = scopeApplicationGraphPayloadRows[0];
+  if (applicationGraphKind === "relation" &&
+    scopeApplicationGraphPayloadRows.length === 1 &&
+    scopeGraph?.kind === "relation") {
+    applicationGraphPayloadRows = Object.freeze([scopeGraph]);
+  } else if (applicationGraphKind === "legacy" &&
+    scopeApplicationGraphPayloadRows.length === 1 &&
+    schemaAuthorityPayloadRows.length === 1 && scopeGraph?.kind === "legacy") {
+    const schemaAuthority = schemaAuthorityPayloadRows[0];
+    if (schemaAuthority !== undefined) {
+      applicationGraphPayloadRows = Object.freeze([Object.freeze({
+        ...scopeGraph,
+        schemaAuthority,
+      })]);
+    }
+  }
   const bindingStatement = sql`
     select
       declared.ordinality::bigint::text as "ordinalText",
@@ -922,7 +942,98 @@ async function selectApplicationGraphSizeRows(
   applicationSchemaSha256: Uint8Array,
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
 ): Promise<ReadonlyArray<ApplicationGraphSizeRow>> {
+  const contractRows = await tx.select({
+    readinessContractVersion:
+      fxSystemApplicationActivations.readinessContractVersion,
+  }).from(fxSystemApplicationActivations).where(and(
+    eq(fxSystemApplicationActivations.scopeId, scopeId),
+    eq(fxSystemApplicationActivations.activationSequence, activationSequence),
+    eq(fxSystemApplicationActivations.revisionId, revisionId),
+  )).limit(2);
+  const contract = contractRows[0]?.readinessContractVersion;
+  if (contractRows.length !== 1 || (contract !== 1 && contract !== 2)) {
+    return Object.freeze([]);
+  }
+  if (contract === 2) {
+    const query = tx.select({
+      kind: sql<"relation">`'relation'`,
+      activationByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationActivations.activationBytes}
+      )::bigint::text`,
+      readinessByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationReadiness.readinessBytes}
+      )::bigint::text`,
+      manifestByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationAnalysesV1.manifestBytes}
+      )::bigint::text`,
+      schemaByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationPublications.schemaBytes}
+      )::bigint::text`,
+      functionCatalogByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationPublications.functionCatalogBytes}
+      )::bigint::text`,
+      functionEntryByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationFunctions.entryBytes}
+      )::bigint::text`,
+      schemaBindingByteLengthText: sql<string>`'0'`,
+      relationSetReadinessByteLengthText: sql<string>`octet_length(
+        ${fxSystemApplicationReadiness.relationSetReadinessBytes}
+      )::bigint::text`,
+    }).from(fxSystemApplicationActivations)
+      .innerJoin(fxSystemApplicationReadiness, and(
+        eq(fxSystemApplicationReadiness.scopeId,
+          fxSystemApplicationActivations.scopeId),
+        eq(fxSystemApplicationReadiness.revisionId,
+          fxSystemApplicationActivations.revisionId),
+        eq(fxSystemApplicationReadiness.readinessSha256,
+          fxSystemApplicationActivations.relationReadinessSha256),
+      ))
+      .innerJoin(fxSystemApplicationRevisionsV2, and(
+        eq(fxSystemApplicationRevisionsV2.scopeId,
+          fxSystemApplicationActivations.scopeId),
+        eq(fxSystemApplicationRevisionsV2.revisionId,
+          fxSystemApplicationActivations.revisionId),
+      ))
+      .innerJoin(fxSystemApplicationAnalysesV1, and(
+        eq(fxSystemApplicationAnalysesV1.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationAnalysesV1.analysisId,
+          fxSystemApplicationRevisionsV2.analysisId),
+      ))
+      .innerJoin(fxSystemApplicationPublications, and(
+        eq(fxSystemApplicationPublications.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationPublications.revisionId,
+          fxSystemApplicationRevisionsV2.revisionId),
+        eq(fxSystemApplicationPublications.deploymentId, deploymentId),
+        eq(fxSystemApplicationPublications.schemaSha256,
+          applicationSchemaSha256),
+      ))
+      .innerJoin(fxSystemApplicationFunctions, and(
+        eq(fxSystemApplicationFunctions.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationFunctions.revisionId,
+          fxSystemApplicationRevisionsV2.revisionId),
+        eq(fxSystemApplicationFunctions.functionPath, functionPath),
+      ))
+      .innerJoin(fxSystemApplicationRevisionSchemas, and(
+        eq(fxSystemApplicationRevisionSchemas.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationRevisionSchemas.revisionId,
+          fxSystemApplicationRevisionsV2.revisionId),
+      ))
+      .where(and(
+        eq(fxSystemApplicationActivations.scopeId, scopeId),
+        eq(fxSystemApplicationActivations.activationSequence,
+          activationSequence),
+        eq(fxSystemApplicationActivations.revisionId, revisionId),
+        eq(fxSystemApplicationActivations.readinessContractVersion, 2),
+      )).limit(2);
+    observeDrizzleQuery("applicationGraphSizes", query, options.observeQuery);
+    return await query;
+  }
   const query = tx.select({
+      kind: sql<"legacy">`'legacy'`,
       activationByteLengthText: sql<string>`octet_length(
         ${fxSystemApplicationActivations.activationBytes}
       )::bigint::text`,
@@ -942,6 +1053,7 @@ async function selectApplicationGraphSizeRows(
         ${fxSystemApplicationFunctionsV1.entryBytes}
       )::bigint::text`,
       schemaBindingByteLengthText: sql<string>`'0'`,
+      relationSetReadinessByteLengthText: sql<string>`'0'`,
     })
     .from(fxSystemApplicationActivations)
     .innerJoin(fxSystemApplicationReadinessV1, and(
@@ -1002,8 +1114,95 @@ async function selectApplicationGraphPayloadRows(
   revisionId: string,
   functionPath: string,
   applicationSchemaSha256: Uint8Array,
+  kind: ApplicationGraphSizeRow["kind"] | undefined,
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
-): Promise<ReadonlyArray<Omit<ApplicationGraphPayloadRow, "schemaAuthority">>> {
+): Promise<ReadonlyArray<ApplicationGraphScopePayloadRow>> {
+  if (kind === "relation") {
+    const query = tx.select({
+      activation: fxSystemApplicationActivations,
+      readiness: fxSystemApplicationReadiness,
+      revision: fxSystemApplicationRevisionsV2,
+      analysis: {
+        scopeId: fxSystemApplicationAnalysesV1.scopeId,
+        analysisId: fxSystemApplicationAnalysesV1.analysisId,
+        candidateId: fxSystemApplicationAnalysesV1.candidateId,
+        sourceArtifactRootSha256:
+          fxSystemApplicationAnalysesV1.sourceArtifactRootSha256,
+        analyzerIdentity: fxSystemApplicationAnalysesV1.analyzerIdentity,
+        analyzerPolicyIdentity:
+          fxSystemApplicationAnalysesV1.analyzerPolicyIdentity,
+        status: fxSystemApplicationAnalysesV1.status,
+        manifestSha256: fxSystemApplicationAnalysesV1.manifestSha256,
+        manifestBytes: fxSystemApplicationAnalysesV1.manifestBytes,
+        receiptSha256: sql<Uint8Array | null>`null`,
+        receiptBytes: sql<Uint8Array | null>`null`,
+        failureCode: fxSystemApplicationAnalysesV1.failureCode,
+        failureDetail: fxSystemApplicationAnalysesV1.failureDetail,
+        completedAt: fxSystemApplicationAnalysesV1.completedAt,
+        createdAt: fxSystemApplicationAnalysesV1.createdAt,
+        updatedAt: fxSystemApplicationAnalysesV1.updatedAt,
+      },
+      publication: fxSystemApplicationPublications,
+      selectedFunction: fxSystemApplicationFunctions,
+      revisionSchema: fxSystemApplicationRevisionSchemas,
+    }).from(fxSystemApplicationActivations)
+      .innerJoin(fxSystemApplicationReadiness, and(
+        eq(fxSystemApplicationReadiness.scopeId,
+          fxSystemApplicationActivations.scopeId),
+        eq(fxSystemApplicationReadiness.revisionId,
+          fxSystemApplicationActivations.revisionId),
+        eq(fxSystemApplicationReadiness.readinessSha256,
+          fxSystemApplicationActivations.relationReadinessSha256),
+      ))
+      .innerJoin(fxSystemApplicationRevisionsV2, and(
+        eq(fxSystemApplicationRevisionsV2.scopeId,
+          fxSystemApplicationActivations.scopeId),
+        eq(fxSystemApplicationRevisionsV2.revisionId,
+          fxSystemApplicationActivations.revisionId),
+      ))
+      .innerJoin(fxSystemApplicationAnalysesV1, and(
+        eq(fxSystemApplicationAnalysesV1.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationAnalysesV1.analysisId,
+          fxSystemApplicationRevisionsV2.analysisId),
+      ))
+      .innerJoin(fxSystemApplicationPublications, and(
+        eq(fxSystemApplicationPublications.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationPublications.revisionId,
+          fxSystemApplicationRevisionsV2.revisionId),
+        eq(fxSystemApplicationPublications.deploymentId, deploymentId),
+        eq(fxSystemApplicationPublications.schemaSha256,
+          applicationSchemaSha256),
+      ))
+      .innerJoin(fxSystemApplicationFunctions, and(
+        eq(fxSystemApplicationFunctions.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationFunctions.revisionId,
+          fxSystemApplicationRevisionsV2.revisionId),
+        eq(fxSystemApplicationFunctions.functionPath, functionPath),
+      ))
+      .innerJoin(fxSystemApplicationRevisionSchemas, and(
+        eq(fxSystemApplicationRevisionSchemas.scopeId,
+          fxSystemApplicationRevisionsV2.scopeId),
+        eq(fxSystemApplicationRevisionSchemas.revisionId,
+          fxSystemApplicationRevisionsV2.revisionId),
+      ))
+      .where(and(
+        eq(fxSystemApplicationActivations.scopeId, scopeId),
+        eq(fxSystemApplicationActivations.activationSequence,
+          activationSequence),
+        eq(fxSystemApplicationActivations.revisionId, revisionId),
+        eq(fxSystemApplicationActivations.readinessContractVersion, 2),
+      )).limit(2);
+    observeDrizzleQuery("applicationGraphPayload", query, options.observeQuery);
+    const rows = await query;
+    return Object.freeze(rows.map(row => Object.freeze({
+      kind: "relation" as const,
+      ...row,
+    })));
+  }
+  if (kind !== "legacy") return Object.freeze([]);
   const query = tx.select({
       activation: fxSystemApplicationActivations,
       readiness: fxSystemApplicationReadinessV1,
@@ -1080,7 +1279,11 @@ async function selectApplicationGraphPayloadRows(
       eq(fxSystemApplicationActivations.readinessContractVersion, 1),
     )).limit(2);
   observeDrizzleQuery("applicationGraphPayload", query, options.observeQuery);
-  return await query;
+  const rows = await query;
+  return Object.freeze(rows.map(row => Object.freeze({
+    kind: "legacy" as const,
+    ...row,
+  })));
 }
 
 async function selectApplicationSchemaAuthoritySizeRows(
@@ -1171,6 +1374,7 @@ function sizeProjectionFailure(
       graph.functionCatalogByteLengthText,
       graph.functionEntryByteLengthText,
       graph.schemaBindingByteLengthText,
+      graph.relationSetReadinessByteLengthText,
     ]),
   ].map(parseLength);
   if (lengths.some((length) => length === undefined)) {
@@ -1212,7 +1416,20 @@ function emptyCapture(
 function detachApplicationGraphPayloadRows(
   rows: ReadonlyArray<ApplicationGraphPayloadRow>,
 ): ReadonlyArray<ApplicationGraphPayloadRow> {
-  return Object.freeze(rows.map(row => Object.freeze({
+  return Object.freeze(rows.map(row => row.kind === "legacy"
+    ? Object.freeze({
+        kind: row.kind,
+        activation: Object.freeze(structuredClone(row.activation)),
+        readiness: Object.freeze(structuredClone(row.readiness)),
+        revision: Object.freeze(structuredClone(row.revision)),
+        analysis: Object.freeze(structuredClone(row.analysis)),
+        publication: Object.freeze(structuredClone(row.publication)),
+        selectedFunction: Object.freeze(structuredClone(row.selectedFunction)),
+        revisionSchema: Object.freeze(structuredClone(row.revisionSchema)),
+        schemaAuthority: Object.freeze(structuredClone(row.schemaAuthority)),
+      })
+    : Object.freeze({
+    kind: row.kind,
     activation: Object.freeze(structuredClone(row.activation)),
     readiness: Object.freeze(structuredClone(row.readiness)),
     revision: Object.freeze(structuredClone(row.revision)),
@@ -1220,7 +1437,6 @@ function detachApplicationGraphPayloadRows(
     publication: Object.freeze(structuredClone(row.publication)),
     selectedFunction: Object.freeze(structuredClone(row.selectedFunction)),
     revisionSchema: Object.freeze(structuredClone(row.revisionSchema)),
-    schemaAuthority: Object.freeze(structuredClone(row.schemaAuthority)),
   })));
 }
 

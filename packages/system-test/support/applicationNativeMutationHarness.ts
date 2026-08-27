@@ -11,6 +11,7 @@ import {
   createApplicationNativeMutationPGliteFixture,
   type ApplicationNativeMutationFixture,
   type ApplicationNativeMutationPersistence,
+  type ApplicationNativeMutationSourceBundle,
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
@@ -324,6 +325,33 @@ export type ApplicationNativeMutationFixtureFactory = () => Promise<
   ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>
 >;
 
+export interface ApplicationMutationTestLiveFixture {
+  readonly deploymentId: string;
+  readonly control: Readonly<{ readonly drizzle: ApplicationMutationSystemLive[
+    "admission"
+  ]["controlDb"] }>;
+  readonly activation: ApplicationMutationSystemLive["activation"];
+  readonly schema: ApplicationMutationSystemLive["admission"]["schema"];
+  readonly relationSchema?: ApplicationMutationSystemLive["admission"][
+    "relationSchema"
+  ];
+  readonly authorityPorts: ApplicationMutationSystemLive["admission"][
+    "authority"
+  ];
+  readonly currentEpochAuthority:
+    ApplicationMutationSystemLive["currentEpochAuthority"];
+  readonly sessionAuthority: ApplicationMutationSystemLive["sessionAuthority"];
+  readonly candidateSchemaWriteGuard:
+    ApplicationMutationSystemLive["candidateSchemaWriteGuard"];
+  readonly intrinsicCreationTimeIndexes:
+    ApplicationMutationSystemLive["intrinsicCreationTimeIndexes"];
+  readonly developerIndexes: ApplicationMutationSystemLive["developerIndexes"];
+  readonly applicationRelations?:
+    ApplicationMutationSystemLive["applicationRelations"];
+  readonly indexedQueries: ApplicationMutationSystemLive["indexedQueries"];
+  readonly source: ApplicationNativeMutationSourceBundle;
+}
+
 export async function proveApplicationNativeMutation(
   createFixture: ApplicationNativeMutationFixtureFactory = () =>
     createApplicationNativeMutationPGliteFixture({
@@ -338,7 +366,7 @@ export async function proveApplicationNativeMutation(
     fixture.deploymentId,
   );
   const loader = new ApplicationNativeWorkerLoader();
-  const baseLive = await makeApplicationNativeMutationTestLive(fixture, loader);
+  const baseLive = await makeApplicationMutationTestLive(fixture, loader);
   let activationReads = 0;
   const activationOwner = baseLive.activation;
   const readActive = activationOwner.readActive;
@@ -1083,20 +1111,22 @@ export async function makeApplicationNativeMutationTestLayer(
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
     readonly onExecution?: () => void;
     readonly afterRuntime?: () => Effect.Effect<void, never>;
+    readonly uuidSequenceStart?: number;
   }> = {},
 ) {
   return makeApplicationMutationSystemLayer(
-    await makeApplicationNativeMutationTestLive(fixture, loader, options),
+    await makeApplicationMutationTestLive(fixture, loader, options),
   );
 }
 
-async function makeApplicationNativeMutationTestLive(
-  fixture: ApplicationNativeMutationFixture<ApplicationNativeMutationPersistence>,
+export async function makeApplicationMutationTestLive(
+  fixture: ApplicationMutationTestLiveFixture,
   loader: WorkerLoader,
   options: Readonly<{
     readonly source?: ApplicationMutationSystemLive["applicationRunner"]["source"];
     readonly onExecution?: () => void;
     readonly afterRuntime?: () => Effect.Effect<void, never>;
+    readonly uuidSequenceStart?: number;
   }> = {},
 ): Promise<ApplicationMutationSystemLive> {
   const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
@@ -1193,7 +1223,7 @@ async function makeApplicationNativeMutationTestLive(
         ),
         runAction: baseHost.runAction,
       });
-  let uuidSequence = 0;
+  let uuidSequence = options.uuidSequenceStart ?? 0;
   let executionSequence = 0;
   return Object.freeze({
     deploymentId,
@@ -1202,6 +1232,9 @@ async function makeApplicationNativeMutationTestLive(
       deploymentId,
       controlDb: fixture.control.drizzle,
       schema: fixture.schema,
+      ...(fixture.relationSchema === undefined
+        ? {}
+        : { relationSchema: fixture.relationSchema }),
       authority: fixture.authorityPorts,
     },
     currentEpochAuthority: fixture.currentEpochAuthority,
@@ -1215,6 +1248,9 @@ async function makeApplicationNativeMutationTestLive(
     candidateSchemaWriteGuard: fixture.candidateSchemaWriteGuard,
     intrinsicCreationTimeIndexes: fixture.intrinsicCreationTimeIndexes,
     developerIndexes: fixture.developerIndexes,
+    ...(fixture.applicationRelations === undefined
+      ? {}
+      : { applicationRelations: fixture.applicationRelations }),
     indexedQueries: fixture.indexedQueries,
     grantRetentionPolicy: RETENTION,
     applicationRunner: {

@@ -36,6 +36,8 @@
     "test:application-native-query:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationNativeQuery.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:application-native-action:pglite": "vitest run test/integration/applicationNativeAction.test.ts --no-file-parallelism --testTimeout=480000",
     "test:application-native-action:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationNativeAction.postgres.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:sv-r-core:pglite": "vitest run test/integration/applicationRelationalCore.test.ts --no-file-parallelism --testTimeout=480000",
+    "test:sv-r-core:postgres": "vitest run --config vitest.postgres.config.ts test/integration/applicationRelationalCore.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:managed-schema-cooking-a:pglite": "vitest run test/integration/managedSchemaCookingSchemaA.test.ts --no-file-parallelism --testTimeout=480000",
     "test:managed-schema-cooking-a:postgres": "vitest run --config vitest.postgres.config.ts test/integration/managedSchemaCookingSchemaA.postgres.test.ts --no-file-parallelism --testTimeout=480000",
     "test:managed-schema-cooking-b:pglite": "vitest run test/integration/managedSchemaCookingSchemaB.test.ts --no-file-parallelism --testTimeout=480000",

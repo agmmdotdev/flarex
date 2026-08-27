@@ -79,6 +79,8 @@ import {
   makeApplicationActivationRepository,
   type CoherentActiveApplication,
 } from "../../src/applicationActivation";
+import { createApplicationRelationCommitPort } from
+  "../../src/applicationRelationCommit";
 import {
   makeApplicationPublicationRepository,
   type ApplicationPublication,
@@ -260,6 +262,9 @@ export interface ApplicationNativeMutationFixture<
     typeof createAppDeveloperIndexDefinitionPortV1
   >;
   readonly indexedQueries: ReturnType<typeof createAppDeveloperIndexQueryPortV1>;
+  readonly applicationRelations: ReturnType<
+    typeof createApplicationRelationCommitPort
+  >;
   readonly seedUserDocument: (name: string) => Promise<Readonly<{
     readonly documentId: string;
     readonly name: string;
@@ -990,6 +995,10 @@ async function createApplicationNativeMutationFixture<
       control.drizzle,
       sessionAuthority,
       developerIndexes,
+    ),
+    applicationRelations: createApplicationRelationCommitPort(
+      control.drizzle,
+      sessionAuthority,
     ),
     seedUserDocument,
     moveHead,

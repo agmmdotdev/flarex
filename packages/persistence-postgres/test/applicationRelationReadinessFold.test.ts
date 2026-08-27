@@ -2910,14 +2910,14 @@ describe("Application relation readiness fold", { timeout: 60_000 }, () => {
     }
   });
 
-  it("exactly replays a two-export publication then fails closed at the unavailable runtime", async () => {
+  it("authenticates a two-export publication before continuing to the candidate gate", async () => {
     const fixture = await relationReadinessFixture({ includeFunction: true });
 
     const result = await runEffect(fixture.fold.settle(fixture.input));
 
     expect(result).toMatchObject({
       status: "not_ready",
-      reason: "functionRuntimeUnavailable",
+      reason: "candidateValidationMissing",
       revisionId: fixture.input.revisionId,
     });
     expect(await fixture.persistence.drizzle.select().from(

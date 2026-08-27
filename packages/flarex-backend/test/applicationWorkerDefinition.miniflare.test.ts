@@ -2,6 +2,7 @@ import { Miniflare } from "miniflare";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,
   SOURCE_ARTIFACT_V2_ROLE_FUNCTION,
+  SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import {
   EDGE_ACTION_CALLBACK_BRIDGE_IDENTITY_V1,
@@ -23,7 +24,9 @@ import { Result } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalizeApplicationManifestV1,
+  canonicalizeApplicationManifestV2,
   type ApplicationManifestV1,
+  type ApplicationManifestV2,
 } from "@flarex/analysis/application-analysis";
 import {
   canonicalizeApplicationRuntimeTargetV1,
@@ -44,6 +47,28 @@ afterEach(async () => {
 });
 
 describe("Application Worker definition", () => {
+  it("executes a relation-bearing Manifest V2 through the real Worker loader", async () => {
+    const fixture = relationApplicationFixture();
+    const definition = makeApplicationWorkerDefinition({
+      ...fixture,
+      hostPolicy: hostPolicy(),
+      hostPolicySha256: digestBytes(),
+    });
+
+    const response = await executeDefinition(
+      definition,
+      definition.transactionEntrypoint,
+      transactionRequest(fixture.target, { name: "Ada" }, "write", 9, 2),
+      "mutation",
+    );
+
+    expect(response).toEqual({
+      format: "flarex.application-worker-result",
+      version: 1,
+      value: "1:00000000-0000-0000-0000-000000000002",
+    });
+  });
+
   it("builds a pure definition with no embedded outbound authority", () => {
     const fixture = applicationFixture("query");
     const definition = makeApplicationWorkerDefinition({
@@ -711,6 +736,112 @@ function applicationFixture(
   });
 }
 
+function relationApplicationFixture(): Readonly<{
+  readonly source: ApplicationAnalysisSourceBundle;
+  readonly manifest: ApplicationManifestV2;
+  readonly target: ApplicationRuntimeTargetV1;
+}> {
+  const base = applicationFixture("mutation");
+  const schemaSource = "export default {};\n";
+  const schemaModule = Object.freeze({
+    path: "_flarex/schema.js",
+    roles: SOURCE_ARTIFACT_V2_ROLE_SCHEMA,
+    sourceSha256: "9".repeat(64),
+    sourceByteLength: new TextEncoder().encode(schemaSource).byteLength,
+    source: schemaSource,
+  });
+  const sourceArtifact = Object.freeze({
+    ...base.manifest.sourceArtifact,
+    schemaModulePath: schemaModule.path,
+    modules: Object.freeze([
+      ...base.manifest.sourceArtifact.modules,
+      Object.freeze({
+        path: schemaModule.path,
+        roles: schemaModule.roles,
+        sourceSha256: schemaModule.sourceSha256,
+        sourceByteLength: schemaModule.sourceByteLength,
+      }),
+    ].toSorted((left, right) => left.path.localeCompare(right.path))),
+  });
+  const manifest = Result.getOrThrow(canonicalizeApplicationManifestV2({
+    format: "flarex.application-manifest",
+    version: 2,
+    sourceArtifact,
+    schema: {
+      version: 2,
+      tables: [{
+        tableId: 1,
+        name: "posts",
+        validator: {
+          type: "object",
+          value: {
+            authors: {
+              fieldType: {
+                type: "array",
+                value: { type: "id", tableName: "users" },
+              },
+              optional: false,
+            },
+          },
+        },
+        placement: { kind: "global" },
+      }, {
+        tableId: 2,
+        name: "users",
+        validator: {
+          type: "object",
+          value: {
+            name: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        placement: { kind: "global" },
+      }],
+      indexes: [],
+      relations: [{
+        relationOrdinal: 1,
+        sourceTableOrdinal: 1,
+        targetTableOrdinal: 2,
+        declaration: {
+          format: "flarex.relation-declaration",
+          version: 1,
+          source: {
+            table: "posts",
+            path: [{ kind: "field", name: "authors" }],
+            forwardName: "authors",
+          },
+          target: { table: "users" },
+          value: {
+            cardinality: "many",
+            minItems: 0,
+            maxItems: 16,
+            ordered: true,
+            duplicates: "forbid",
+          },
+          inverse: { cardinality: "many", name: "posts" },
+          localized: false,
+          onTargetDelete: "restrict",
+        },
+      }],
+    },
+    functions: base.manifest.functions,
+  })).manifest;
+  return Object.freeze({
+    source: Object.freeze({
+      sourceArtifact,
+      modules: Object.freeze(
+        [...base.source.modules, schemaModule].toSorted((left, right) =>
+          left.path.localeCompare(right.path)
+        ),
+      ),
+    }),
+    manifest,
+    target: base.target,
+  });
+}
+
 function applicationSources(
   kind: FunctionKind,
   scenario: ApplicationSourceScenario,
@@ -951,6 +1082,7 @@ function transactionRequest(
   argumentsValue: unknown,
   mode: "query" | "write",
   seedByte: number,
+  usersTableId = 1,
 ): unknown {
   return {
     format: APPLICATION_TRANSACTION_WORKER_REQUEST_FORMAT_V1,
@@ -960,7 +1092,7 @@ function transactionRequest(
     arguments: argumentsValue,
     argumentSemanticBytes: normalizeFlarexValueV1(argumentsValue)
       .semanticSizeBytes,
-    tables: [{ tableId: 1, logicalName: "users" }],
+    tables: [{ tableId: usersTableId, logicalName: "users" }],
     context: mode === "query"
       ? {
           mode,

@@ -17,12 +17,25 @@ import {
   applicationSchemaPublicationFrameV1,
 } from "@flarex/analysis/internal/application-publication-v1";
 import {
+  applicationFunctionCatalogPublicationFrameV2,
+  applicationFunctionEntryPublicationFrameV2,
+  applicationPublicationCommitmentFrameV2,
+  applicationSchemaPublicationFrameV2,
+} from "@flarex/analysis/internal/application-publication-v2";
+import {
+  canonicalizeApplicationManifest,
   canonicalizeApplicationManifestV1,
+  isApplicationManifestV2,
   type ApplicationManifestV1,
 } from "@flarex/analysis/application-analysis";
 import {
   canonicalizeApplicationMutationExecutionAuthorityV1,
 } from "flarex-protocol/internal/application-mutation-authority-v1";
+import {
+  APPLICATION_MANIFEST_SCHEMA_BINDING_FORMAT_V1,
+  APPLICATION_MANIFEST_SCHEMA_BINDING_VERSION_V1,
+  canonicalizeApplicationManifestSchemaBinding,
+} from "flarex-protocol/internal/application-schema-binding";
 import {
   canonicalizeApplicationRuntimeTargetV1,
 } from "flarex-protocol/internal/application-runtime-target-v1";
@@ -30,6 +43,7 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   encodeCanonicalJson,
   JsonValue,
+  isJson,
   isJsonObject,
   type Json,
   type JsonObject,
@@ -78,6 +92,10 @@ import {
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
 import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
 import {
+  applicationActivationFrame,
+  applicationActiveHeadFrame,
+} from "../applicationActivationFrames";
+import {
   applicationActivationFrameBytes,
   applicationActiveHeadFrameBytes,
   applicationColdReceiptSetFrameBytes,
@@ -87,6 +105,10 @@ import {
   validateCanonicalFrame,
 } from "../applicationAuthorityFrames";
 import { databaseTimestampFromUnknown } from "../databaseTimestamp";
+import {
+  applicationRelationReadinessFrameMatchesRow,
+  applicationRelationSetFrameMatchesRow,
+} from "../applicationRelationServing";
 import { snapshotApplicationExecutionAuthorityJson } from
   "../applicationExecutionAuthoritySnapshot";
 import {
@@ -147,6 +169,14 @@ type ApplicationRevisionSchemaRow =
   typeof import("../schema").fxSystemApplicationRevisionSchemasV1.$inferSelect;
 type ApplicationSchemaAuthorityRow =
   typeof import("../schema").fxControlApplicationSchemaAuthoritiesV1.$inferSelect;
+type ApplicationRelationReadinessRow =
+  typeof import("../applicationRelationSchema").fxSystemApplicationReadiness.$inferSelect;
+type ApplicationRelationPublicationRow =
+  typeof import("../applicationRelationSchema").fxSystemApplicationPublications.$inferSelect;
+type ApplicationRelationFunctionRow =
+  typeof import("../applicationRelationSchema").fxSystemApplicationFunctions.$inferSelect;
+type ApplicationRelationRevisionSchemaRow =
+  typeof import("../applicationRelationSchema").fxSystemApplicationRevisionSchemas.$inferSelect;
 export type ClockRow =
   typeof import("../schema").fxSystemScopeClocks.$inferSelect;
 
@@ -211,6 +241,7 @@ export interface AttemptChildExistenceRow {
 }
 
 export interface ApplicationGraphSizeRow {
+  readonly kind: "legacy" | "relation";
   readonly activationByteLengthText: string;
   readonly readinessByteLengthText: string;
   readonly manifestByteLengthText: string;
@@ -218,9 +249,11 @@ export interface ApplicationGraphSizeRow {
   readonly functionCatalogByteLengthText: string;
   readonly functionEntryByteLengthText: string;
   readonly schemaBindingByteLengthText: string;
+  readonly relationSetReadinessByteLengthText: string;
 }
 
-export interface ApplicationGraphPayloadRow {
+interface LegacyApplicationGraphPayloadRow {
+  readonly kind: "legacy";
   readonly activation: ApplicationActivationRow;
   readonly readiness: ApplicationReadinessRow;
   readonly revision: ApplicationRevisionRow;
@@ -230,6 +263,25 @@ export interface ApplicationGraphPayloadRow {
   readonly revisionSchema: ApplicationRevisionSchemaRow;
   readonly schemaAuthority: ApplicationSchemaAuthorityRow;
 }
+
+interface RelationApplicationGraphPayloadRow {
+  readonly kind: "relation";
+  readonly activation: ApplicationActivationRow;
+  readonly readiness: ApplicationRelationReadinessRow;
+  readonly revision: ApplicationRevisionRow;
+  readonly analysis: ApplicationAnalysisRow;
+  readonly publication: ApplicationRelationPublicationRow;
+  readonly selectedFunction: ApplicationRelationFunctionRow;
+  readonly revisionSchema: ApplicationRelationRevisionSchemaRow;
+}
+
+export type ApplicationGraphPayloadRow =
+  | LegacyApplicationGraphPayloadRow
+  | RelationApplicationGraphPayloadRow;
+
+export type ApplicationGraphScopePayloadRow =
+  | Omit<LegacyApplicationGraphPayloadRow, "schemaAuthority">
+  | RelationApplicationGraphPayloadRow;
 
 interface BindingRow {
   readonly ordinalText: string;
@@ -894,6 +946,7 @@ function materializeStoredAuthorityEffect(
           captured,
           expected,
           decodedManifest,
+          schemaRow.manifestSha256,
         )
       : undefined;
 
@@ -972,6 +1025,7 @@ const materializeApplicationGraphEffect = Effect.fn(
   captured: CapturedRowsV1,
   expected: StoredCommitAuthorityCaptureAuthorityV1,
   schemaManifest: SchemaManifestAppSchemaV1,
+  schemaManifestSha256: Uint8Array,
 ) {
   if (
     captured.applicationGraphSizeRows.length !== 1 ||
@@ -985,6 +1039,21 @@ const materializeApplicationGraphEffect = Effect.fn(
   const graph = captured.applicationGraphPayloadRows[0];
   if (sizes === undefined || graph === undefined) {
     return yield* Effect.fail("applicationGraphMissingOrDuplicate" as const);
+  }
+  if (sizes.kind !== graph.kind) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  if (graph.kind === "relation") {
+    return yield* materializeRelationApplicationGraphEffect(
+      session,
+      sizes,
+      graph,
+      expected,
+      schemaManifestSha256,
+    );
+  }
+  if (sizes.kind !== "legacy") {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
   }
   const canonicalAuthority = yield*
     canonicalizeApplicationMutationExecutionAuthorityV1(
@@ -1018,6 +1087,7 @@ const materializeApplicationGraphEffect = Effect.fn(
     [sizes.functionCatalogByteLengthText, publication.functionCatalogBytes],
     [sizes.functionEntryByteLengthText, fn.entryBytes],
     [sizes.schemaBindingByteLengthText, schemaAuthority.bindingBytes],
+    [sizes.relationSetReadinessByteLengthText, new Uint8Array(0)],
   ] as const;
   if (expectedLengths.some(([text, bytes]) =>
     bytes === null || parseLength(text) !== bytes.byteLength
@@ -1282,6 +1352,361 @@ const materializeApplicationGraphEffect = Effect.fn(
     publicationSha256: copyBytes(publicationSha),
     functionEntrySha256: copyBytes(entrySha),
     schemaBindingSha256: copyBytes(schemaAuthority.bindingSha256),
+  });
+});
+
+const materializeRelationApplicationGraphEffect = Effect.fn(
+  "StoredCommitAuthority.materializeRelationApplicationGraph",
+)(function* (
+  session: Extract<StoredCommitAuthoritySessionScalarsV1, {
+    readonly executionAuthorityGeneration: "application_v1";
+  }>,
+  sizes: ApplicationGraphSizeRow,
+  graph: Extract<ApplicationGraphPayloadRow, { readonly kind: "relation" }>,
+  expected: StoredCommitAuthorityCaptureAuthorityV1,
+  schemaManifestSha256: Uint8Array,
+) {
+  const canonicalAuthority = yield*
+    canonicalizeApplicationMutationExecutionAuthorityV1(
+      session.applicationExecutionAuthorityJson,
+    ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  if (!bytesEqual(
+    canonicalAuthority.canonicalBytes,
+    session.applicationExecutionAuthorityCanonicalBytes,
+  ) || !bytesEqual(
+    canonicalAuthority.sha256,
+    session.applicationExecutionAuthoritySha256,
+  )) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const authority = canonicalAuthority.authority;
+  const target = authority.runtimeTarget;
+  const { activation, readiness, revision, analysis, publication,
+    selectedFunction: fn, revisionSchema } = graph;
+  const expectedLengths = [
+    [sizes.activationByteLengthText, activation.activationBytes],
+    [sizes.readinessByteLengthText, readiness.readinessBytes],
+    [sizes.manifestByteLengthText, analysis.manifestBytes],
+    [sizes.schemaByteLengthText, publication.schemaBytes],
+    [sizes.functionCatalogByteLengthText, publication.functionCatalogBytes],
+    [sizes.functionEntryByteLengthText, fn.entryBytes],
+    [sizes.schemaBindingByteLengthText, new Uint8Array(0)],
+    [sizes.relationSetReadinessByteLengthText,
+      readiness.relationSetReadinessBytes],
+  ] as const;
+  if (expectedLengths.some(([text, bytes]) =>
+    bytes === null || parseLength(text) !== bytes.byteLength
+  )) return yield* Effect.fail("applicationGraphInvalid" as const);
+  const activatedAt = databaseTimestampFromUnknown(activation.activatedAt);
+  const readyAt = databaseTimestampFromUnknown(readiness.readyAt);
+  const boundAt = databaseTimestampFromUnknown(revisionSchema.boundAt);
+  if (activatedAt === null || readyAt === null ||
+    boundAt === null || boundAt.getTime() !== readyAt.getTime() ||
+    activation.readinessContractVersion !== 2 ||
+    activation.relationReadinessSha256 === null ||
+    activation.relationSetReadinessSha256 === null ||
+    activation.relationCount === null) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  yield* validateCanonicalFrame(
+    activation.activationBytes,
+    activation.activationSha256,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  yield* validateCanonicalFrame(
+    readiness.readinessBytes,
+    readiness.readinessSha256,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  yield* validateCanonicalFrame(
+    readiness.relationSetReadinessBytes,
+    readiness.relationSetReadinessSha256,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  const readinessCommitment = {
+    kind: "relation" as const,
+    contractVersion: 2 as const,
+    readinessSha256: encodeBytesToLowercaseHex(readiness.readinessSha256),
+    relationSetReadinessSha256:
+      encodeBytesToLowercaseHex(readiness.relationSetReadinessSha256),
+    relationCount: readiness.relationCount,
+  };
+  const activationFrame = applicationActivationFrame({
+    scopeId: activation.scopeId,
+    activationSequence: activation.activationSequence.toString(),
+    previousActivationSequence:
+      activation.previousActivationSequence?.toString() ?? null,
+    revisionId: activation.revisionId,
+    readiness: readinessCommitment,
+    activationRequestSha256:
+      encodeBytesToLowercaseHex(activation.activationRequestSha256),
+    activatedAt: activatedAt.toISOString(),
+  });
+  const headFrame = applicationActiveHeadFrame({
+    scopeId: activation.scopeId,
+    activationSequence: activation.activationSequence.toString(),
+    revisionId: activation.revisionId,
+    readiness: readinessCommitment,
+    activationSha256: encodeBytesToLowercaseHex(activation.activationSha256),
+  });
+  if (!isJson(activationFrame) || !isJson(headFrame)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const activationBytes = UTF8_ENCODER.encode(encodeCanonicalJson(
+    activationFrame,
+    () => { throw new Error("Relation activation frame invariant."); },
+  ));
+  const headBytes = UTF8_ENCODER.encode(encodeCanonicalJson(
+    headFrame,
+    () => { throw new Error("Relation active-head frame invariant."); },
+  ));
+  const headSha256 = yield* sha256ApplicationFrame(headBytes).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  if (!bytesEqual(activationBytes, activation.activationBytes) ||
+    activation.activationSequence.toString() !== authority.activationSequence ||
+    activation.revisionId !== target.revisionId ||
+    !bytesEqual(headSha256, hexToBytes(authority.activeHeadSha256)) ||
+    !bytesEqual(activation.readinessSha256, readiness.readinessSha256) ||
+    !bytesEqual(activation.relationReadinessSha256,
+      readiness.readinessSha256) ||
+    !bytesEqual(activation.relationSetReadinessSha256,
+      readiness.relationSetReadinessSha256) ||
+    activation.relationCount !== readiness.relationCount) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  if (revision.scopeId !== target.scopeId ||
+    revision.revisionId !== target.revisionId ||
+    revision.candidateId !== target.candidateId ||
+    revision.analysisId !== target.analysisId ||
+    revision.analysisStatus !== "analyzed" || revision.status !== "inactive" ||
+    analysis.scopeId !== target.scopeId ||
+    analysis.analysisId !== target.analysisId ||
+    analysis.status !== "analyzed" ||
+    analysis.candidateId !== target.candidateId ||
+    !bytesEqual(analysis.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(revision.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(revision.manifestSha256, hexToBytes(target.manifestSha256)) ||
+    analysis.manifestBytes === null || analysis.manifestSha256 === null) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const manifestDigest = yield* sha256ApplicationFrame(
+    analysis.manifestBytes,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  if (!bytesEqual(manifestDigest, analysis.manifestSha256)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  if (!bytesEqual(analysis.manifestSha256,
+    hexToBytes(target.manifestSha256))) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const manifestValue = yield* Effect.try({
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(analysis.manifestBytes!)),
+    catch: () => "applicationGraphInvalid" as const,
+  });
+  const canonicalManifest = yield* Effect.fromResult(
+    canonicalizeApplicationManifest(manifestValue).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  if (!isApplicationManifestV2(canonicalManifest.manifest) ||
+    !bytesEqual(canonicalManifest.canonicalBytes, analysis.manifestBytes)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const manifest = canonicalManifest.manifest;
+  const selected = manifest.functions.find(
+    candidate => candidate.path === target.function.path,
+  );
+  if (selected === undefined) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const schemaFrame = yield* Effect.fromResult(
+    applicationSchemaPublicationFrameV2(manifest).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const catalogFrame = yield* Effect.fromResult(
+    applicationFunctionCatalogPublicationFrameV2(manifest).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const entryFrame = yield* Effect.fromResult(
+    applicationFunctionEntryPublicationFrameV2(selected).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  const schemaSha = yield* sha256ApplicationFrame(schemaFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const catalogSha = yield* sha256ApplicationFrame(catalogFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const entrySha = yield* sha256ApplicationFrame(entryFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const publicationFrame = yield* Effect.fromResult(
+    applicationPublicationCommitmentFrameV2({
+      scopeId: target.scopeId,
+      deploymentId: expected.deploymentId,
+      revisionId: target.revisionId,
+      candidateId: target.candidateId,
+      analysisId: target.analysisId,
+      sourceArtifactRootSha256: target.sourceArtifactRootSha256,
+      manifestSha256: target.manifestSha256,
+      schemaSha256: encodeBytesToLowercaseHex(schemaSha),
+      functionCatalogSha256: encodeBytesToLowercaseHex(catalogSha),
+      schemaVersionId: publication.schemaVersionId,
+      schemaManifestSha256:
+        encodeBytesToLowercaseHex(publication.schemaManifestSha256),
+      manifestSchemaBindingSha256:
+        encodeBytesToLowercaseHex(publication.manifestSchemaBindingSha256),
+      boundPublicationSha256:
+        encodeBytesToLowercaseHex(publication.boundPublicationSha256),
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const publicationSha = yield* sha256ApplicationFrame(publicationFrame).pipe(
+    Effect.mapError(() => "applicationGraphInvalid" as const),
+  );
+  const manifestBinding = yield* canonicalizeApplicationManifestSchemaBinding({
+    format: APPLICATION_MANIFEST_SCHEMA_BINDING_FORMAT_V1,
+    version: APPLICATION_MANIFEST_SCHEMA_BINDING_VERSION_V1,
+    deploymentId: expected.deploymentId,
+    applicationManifestSha256: target.manifestSha256,
+    applicationSchemaSha256: encodeBytesToLowercaseHex(schemaSha),
+    schemaVersionId: authority.schemaVersionId,
+    schemaVersion: revisionSchema.schemaVersion,
+    boundPublicationSha256:
+      encodeBytesToLowercaseHex(publication.boundPublicationSha256),
+  }).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  const reconstructedTarget = yield* Effect.fromResult(
+    canonicalizeApplicationRuntimeTargetV1({
+      ...target,
+      executionModulePath: manifest.sourceArtifact.executionModulePath,
+      function: { ...selected, entrySha256: encodeBytesToLowercaseHex(entrySha) },
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const canonicalTarget = yield* Effect.fromResult(
+    canonicalizeApplicationRuntimeTargetV1(target).pipe(
+      Result.mapError(() => "applicationGraphInvalid" as const),
+    ),
+  );
+  if (publication.scopeId !== target.scopeId ||
+    publication.deploymentId !== expected.deploymentId ||
+    publication.revisionId !== target.revisionId ||
+    publication.candidateId !== target.candidateId ||
+    publication.analysisId !== target.analysisId ||
+    publication.revisionStatus !== "inactive" ||
+    !bytesEqual(publication.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(publication.manifestSha256,
+      hexToBytes(target.manifestSha256)) ||
+    publication.schemaVersionId !== authority.schemaVersionId ||
+    fn.scopeId !== target.scopeId || fn.revisionId !== target.revisionId ||
+    fn.functionPath !== selected.path || fn.moduleName !== selected.moduleName ||
+    fn.exportName !== selected.exportName || fn.functionKind !== selected.kind ||
+    fn.visibility !== selected.visibility ||
+    !bytesEqual(fn.functionCatalogSha256, catalogSha) ||
+    !bytesEqual(schemaFrame, publication.schemaBytes) ||
+    !bytesEqual(catalogFrame, publication.functionCatalogBytes) ||
+    !bytesEqual(entryFrame, fn.entryBytes) ||
+    !bytesEqual(schemaSha, publication.schemaSha256) ||
+    !bytesEqual(catalogSha, publication.functionCatalogSha256) ||
+    !bytesEqual(entrySha, fn.entrySha256) ||
+    !bytesEqual(publicationSha, publication.publicationSha256) ||
+    encodeBytesToLowercaseHex(publicationSha) !== target.publicationSha256 ||
+    !bytesEqual(schemaManifestSha256, publication.schemaManifestSha256) ||
+    manifestBinding.sha256Hex !== encodeBytesToLowercaseHex(
+      publication.manifestSchemaBindingSha256,
+    ) ||
+    !bytesEqual(reconstructedTarget.canonicalBytes,
+      canonicalTarget.canonicalBytes)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const readinessValue = yield* Effect.try({
+    try: (): unknown => JSON.parse(UTF8_FATAL.decode(readiness.readinessBytes)),
+    catch: () => "applicationGraphInvalid" as const,
+  });
+  if (!isJson(readinessValue) || !isJsonObject(readinessValue) ||
+    !applicationRelationReadinessFrameMatchesRow(
+      readinessValue,
+      readiness,
+    )) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  const relationSetValue = yield* Effect.try({
+    try: (): unknown => JSON.parse(
+      UTF8_FATAL.decode(readiness.relationSetReadinessBytes),
+    ),
+    catch: () => "applicationGraphInvalid" as const,
+  });
+  const coldReceiptSetFrame = yield* Effect.fromResult(
+    applicationColdReceiptSetFrameBytes({
+      runtimeHostIdentity: readiness.runtimeHostIdentity,
+      compatibilityDate: readiness.compatibilityDate,
+      entries: [],
+    }).pipe(Result.mapError(() => "applicationGraphInvalid" as const)),
+  );
+  const coldReceiptSetSha256 = yield* sha256ApplicationFrame(
+    coldReceiptSetFrame,
+  ).pipe(Effect.mapError(() => "applicationGraphInvalid" as const));
+  if (!isJson(relationSetValue) || !isJsonObject(relationSetValue) ||
+    !applicationRelationSetFrameMatchesRow(
+      relationSetValue,
+      readiness,
+      revisionSchema.schemaVersion,
+    ) ||
+    readiness.relationFrontierCommitSeq > expected.snapshotToken.commitSeq ||
+    readiness.scopeId !== target.scopeId ||
+    readiness.revisionId !== target.revisionId ||
+    readiness.deploymentId !== expected.deploymentId ||
+    readiness.candidateId !== target.candidateId ||
+    readiness.analysisId !== target.analysisId ||
+    readiness.storageGeneration !== expected.storageGeneration ||
+    readiness.storageGenerationFence !== expected.storageGenerationFence ||
+    readiness.epoch !== expected.snapshotToken.epoch ||
+    readiness.schemaVersionId !== authority.schemaVersionId ||
+    !bytesEqual(readiness.sourceArtifactRootSha256,
+      hexToBytes(target.sourceArtifactRootSha256)) ||
+    !bytesEqual(readiness.manifestSha256, hexToBytes(target.manifestSha256)) ||
+    !bytesEqual(readiness.publicationSha256, publicationSha) ||
+    !bytesEqual(readiness.applicationSchemaSha256, schemaSha) ||
+    !bytesEqual(readiness.functionCatalogSha256, catalogSha) ||
+    !bytesEqual(readiness.coldReceiptSetSha256, coldReceiptSetSha256) ||
+    publication.schemaVersionId !== readiness.schemaVersionId ||
+    !bytesEqual(publication.schemaManifestSha256,
+      readiness.schemaManifestSha256) ||
+    !bytesEqual(publication.manifestSchemaBindingSha256,
+      readiness.manifestSchemaBindingSha256) ||
+    !bytesEqual(publication.boundPublicationSha256,
+      readiness.boundPublicationSha256) ||
+    revisionSchema.scopeId !== target.scopeId ||
+    revisionSchema.revisionId !== target.revisionId ||
+    revisionSchema.deploymentId !== expected.deploymentId ||
+    revisionSchema.schemaVersionId !== authority.schemaVersionId ||
+    !bytesEqual(revisionSchema.manifestSha256, readiness.manifestSha256) ||
+    !bytesEqual(revisionSchema.publicationSha256,
+      readiness.publicationSha256) ||
+    !bytesEqual(revisionSchema.applicationSchemaSha256,
+      readiness.applicationSchemaSha256) ||
+    !bytesEqual(revisionSchema.schemaManifestSha256,
+      readiness.schemaManifestSha256) ||
+    !bytesEqual(revisionSchema.manifestSchemaBindingSha256,
+      readiness.manifestSchemaBindingSha256) ||
+    !bytesEqual(revisionSchema.boundPublicationSha256,
+      readiness.boundPublicationSha256)) {
+    return yield* Effect.fail("applicationGraphInvalid" as const);
+  }
+  return Object.freeze({
+    manifest,
+    runtimeHostIdentity: readiness.runtimeHostIdentity,
+    compatibilityDate: readiness.compatibilityDate,
+    executionAuthority: canonicalAuthority.authority,
+    runtimeTarget: canonicalAuthority.authority.runtimeTarget,
+    activationSequence: activation.activationSequence,
+    readinessSha256: copyBytes(readiness.readinessSha256),
+    activationSha256: copyBytes(activation.activationSha256),
+    activeHeadSha256: copyBytes(headSha256),
+    publicationSha256: copyBytes(publicationSha),
+    functionEntrySha256: copyBytes(entrySha),
+    schemaBindingSha256:
+      copyBytes(readiness.manifestSchemaBindingSha256),
   });
 });
 

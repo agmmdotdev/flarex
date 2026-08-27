@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 import {
   canonicalizeApplicationManifestV1,
   canonicalizeApplicationManifestV2,
+  type ApplicationManifestSourceArtifactV1Input,
   type ApplicationManifestV1,
   type ApplicationManifestV2,
 } from "@flarex/analysis/application-analysis";
@@ -50,11 +51,15 @@ import {
   advanceAppSchemaCandidateValidationEffect,
   createAppSchemaCandidateReadinessPort,
   createAppSchemaCandidateValidationPort,
+  createAppSchemaCandidateValidationPortForPointCommitAuthority,
+  createAppSchemaCandidateWriteGuardPort,
   installAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
 } from "../appSchemaCandidateValidation";
 import { locateAppIndexDefinitionByIdEffect } from
   "../appIndexDefinitions";
+import { createAppDeveloperIndexDefinitionPortV1 } from
+  "../appDeveloperIndexCommitV1";
 import { createAppUniqueConstraintDefinitionPortV1 } from
   "../appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from
@@ -66,6 +71,8 @@ import {
 import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
+  type ApplicationAnalysisProjection,
+  type ApplicationAnalysisRepository,
 } from "../applicationAnalysisRegistration";
 import { makeApplicationPublicationRepository } from
   "../applicationPublication";
@@ -124,6 +131,7 @@ import type { FlarexPersistence } from "../index";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
+  createIntrinsicCreationTimeIndexDefinitionPortV1,
 } from "../intrinsicCreationTimeIndexBuildV1";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
@@ -134,6 +142,7 @@ import { createPhysicalDefinitionLifecyclePort } from
 import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
+  createPGliteLocatedScopeAuthorizationEpochTarget,
   createPGliteLocatedSplitScopeClockTarget,
   createPGliteSplitScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
@@ -141,9 +150,11 @@ import {
 import {
   createPointCommitPublisherPortV1,
 } from "../pointCommitTransaction";
+import { createAppDeveloperIndexQueryPortV1 } from "../sessionJournalStore";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
+  createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresLocatedSplitScopeClockTarget,
   createPostgresSplitScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
@@ -219,6 +230,94 @@ export interface ApplicationRelationQuerySystemTestFixture {
     use: () => Promise<Value>,
   ) => Promise<Value>;
   readonly removeActiveHeadForTest: () => Promise<void>;
+}
+
+export interface ApplicationRelationalCoreSourceBundle {
+  readonly sourceArtifact: ApplicationManifestSourceArtifactV1Input;
+  readonly modules: ReadonlyArray<Readonly<{
+    readonly path: string;
+    readonly roles: number;
+    readonly sourceSha256: string;
+    readonly sourceByteLength: number;
+    readonly source: string;
+  }>>;
+}
+
+export interface ApplicationRelationalCoreAnalysis {
+  readonly source: ApplicationRelationalCoreSourceBundle;
+  readonly runtimePolicy: Readonly<{
+    readonly runtimeHostIdentity: string;
+    readonly compatibilityDate: string;
+  }>;
+  readonly run: (input: Readonly<{
+    readonly authority: ApplicationAnalysisAuthority;
+    readonly repository: ApplicationAnalysisRepository;
+    readonly requestKey: string;
+    readonly sourceArtifactRootSha256: string;
+  }>) => Promise<ApplicationAnalysisProjection>;
+}
+
+export interface ApplicationRelationalCoreSystemTestFixture {
+  readonly control: FixturePersistence;
+  readonly target: FixturePersistence;
+  readonly deploymentId: string;
+  readonly authority: ApplicationAnalysisAuthority;
+  readonly authorityPorts: Readonly<{
+    readonly scopeMetadata: FixturePersistence;
+    readonly provisioningReceipts: Readonly<{
+      readonly getScopeAuthorityProvisioningReceipt:
+        typeof getScopeAuthorityProvisioningReceipt extends (...args: infer _Args) => infer _Return
+          ? (scopeId: ScopeId) => _Return
+          : never;
+    }>;
+    readonly scopeClockTargets: Readonly<{
+      readonly resolve: () => Promise<LocatedReadCommittedAttemptTargetV1>;
+    }>;
+  }>;
+  readonly activation: ApplicationRelationActivationRepository<unknown, unknown>;
+  readonly source: ApplicationRelationalCoreSourceBundle;
+  readonly legacySchema: ReturnType<typeof makeApplicationSchemaAuthorityPublisher>;
+  readonly relationSchema: ReturnType<
+    typeof createApplicationRelationSchemaAuthorityPort
+  >;
+  readonly sessionAuthority: Readonly<{
+    readonly scopeMetadata: FixturePersistence;
+    readonly applicationControlDb: FlarexMetadataDatabase;
+    readonly provisioningReceipts: Readonly<{
+      readonly getScopeAuthorityProvisioningReceipt:
+        typeof getScopeAuthorityProvisioningReceipt extends (...args: infer _Args) => infer _Return
+          ? (scopeId: ScopeId) => _Return
+          : never;
+    }>;
+    readonly scopeSessionTargets: Readonly<{
+      readonly resolve: () => Promise<LocatedScopeClockReader>;
+    }>;
+  }>;
+  readonly currentEpochAuthority: Readonly<{
+    readonly scopeMetadata: FixturePersistence;
+    readonly provisioningReceipts: ApplicationRelationalCoreSystemTestFixture[
+      "sessionAuthority"
+    ]["provisioningReceipts"];
+    readonly scopeEpochTargets: Readonly<{
+      readonly resolve: () => Promise<LocatedScopeClockReader>;
+    }>;
+  }>;
+  readonly candidateSchemaWriteGuard: ReturnType<
+    typeof createAppSchemaCandidateWriteGuardPort
+  >;
+  readonly intrinsicCreationTimeIndexes: ReturnType<
+    typeof createIntrinsicCreationTimeIndexDefinitionPortV1
+  >;
+  readonly developerIndexes: ReturnType<
+    typeof createAppDeveloperIndexDefinitionPortV1
+  >;
+  readonly indexedQueries: ReturnType<typeof createAppDeveloperIndexQueryPortV1>;
+  readonly applicationRelations: ReturnType<
+    typeof createApplicationRelationCommitPort
+  >;
+  readonly edgeDefinitionId: CatalogEdgeDefinitionId;
+  readonly snapshot: ApplicationRelationQuerySnapshotContext;
+  readonly relation: ApplicationRelationSourceReference;
 }
 
 export async function createApplicationRelationQueryPGliteSystemTestFixture(
@@ -307,6 +406,104 @@ export async function createApplicationRelationQueryPostgresSystemTestFixture(
   });
 }
 
+export async function createApplicationRelationalCorePGliteSystemTestFixture(
+  persistence: Readonly<{
+    readonly control: PGliteFlarexPersistence;
+    readonly target: PGliteFlarexPersistence;
+  }>,
+  analysis: ApplicationRelationalCoreAnalysis,
+): Promise<ApplicationRelationalCoreSystemTestFixture> {
+  ensureWebCrypto();
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    "deployment_application_relational_core_pglite",
+  );
+  const provisioned = await createPGliteSplitScopeAuthorityProvisioner(
+    persistence.control,
+    {
+      placementPlanner: { plan: () => LOCATOR },
+      targetResolver: {
+        resolve: async locator =>
+          createPGliteLocatedSplitScopeClockTarget(
+            persistence.target,
+            locator,
+          ),
+      },
+      randomUuid: uuidSequence(201, 202),
+    },
+  ).ensure({
+    deploymentId,
+    projectId: "project_application_relational_core_pglite",
+  });
+  return createRelationalCoreFixture({
+    control: persistence.control,
+    target: persistence.target,
+    deploymentId,
+    scopeId: provisioned.scope.scopeId,
+    locatedTarget: createPGliteLocatedIndexBuildReconciliationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    pointTarget: createPGliteLocatedPointMutationSessionActivationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    epochTarget: createPGliteLocatedScopeAuthorizationEpochTarget(
+      persistence.target,
+      LOCATOR,
+    ),
+    analysis,
+  });
+}
+
+export async function createApplicationRelationalCorePostgresSystemTestFixture(
+  persistence: Readonly<{
+    readonly control: PostgresFlarexPersistence;
+    readonly target: PostgresFlarexPersistence;
+  }>,
+  analysis: ApplicationRelationalCoreAnalysis,
+): Promise<ApplicationRelationalCoreSystemTestFixture> {
+  ensureWebCrypto();
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    "deployment_application_relational_core_postgres",
+  );
+  const provisioned = await createPostgresSplitScopeAuthorityProvisioner(
+    persistence.control,
+    {
+      placementPlanner: { plan: () => LOCATOR },
+      targetResolver: {
+        resolve: async locator =>
+          createPostgresLocatedSplitScopeClockTarget(
+            persistence.target,
+            locator,
+          ),
+      },
+      randomUuid: uuidSequence(221, 222),
+    },
+  ).ensure({
+    deploymentId,
+    projectId: "project_application_relational_core_postgres",
+  });
+  return createRelationalCoreFixture({
+    control: persistence.control,
+    target: persistence.target,
+    deploymentId,
+    scopeId: provisioned.scope.scopeId,
+    locatedTarget: createPostgresLocatedIndexBuildReconciliationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    pointTarget: createPostgresLocatedPointMutationSessionActivationTargetV1(
+      persistence.target,
+      LOCATOR,
+    ),
+    epochTarget: createPostgresLocatedScopeAuthorizationEpochTarget(
+      persistence.target,
+      LOCATOR,
+    ),
+    analysis,
+  });
+}
+
 interface CreateFixtureInput {
   readonly control: FixturePersistence;
   readonly target: FixturePersistence;
@@ -316,6 +513,322 @@ interface CreateFixtureInput {
   readonly scopeId: ScopeId;
   readonly locatedTarget: LocatedReadCommittedAttemptTargetV1;
   readonly pointTarget: LocatedScopeClockReader;
+}
+
+interface CreateRelationalCoreFixtureInput extends CreateFixtureInput {
+  readonly analysis: ApplicationRelationalCoreAnalysis;
+  readonly epochTarget: LocatedScopeClockReader;
+}
+
+async function createRelationalCoreFixture(
+  input: CreateRelationalCoreFixtureInput,
+): Promise<ApplicationRelationalCoreSystemTestFixture> {
+  await input.target.query(
+    `update fx_system_scope_clock
+        set storage_generation = 'flarexdb_v1'
+      where scope_id = $1`,
+    [input.scopeId],
+  );
+  const clock = await input.target.getScopeClock(input.scopeId);
+  if (clock === null || clock.storageGeneration !== "flarexdb_v1") {
+    throw new Error("Expected a FlarexDB relational-core scope authority.");
+  }
+  const authority: ApplicationAnalysisAuthority = Object.freeze({
+    scopeId: clock.scopeId,
+    storageGeneration: clock.storageGeneration,
+    storageGenerationFence: clock.storageGenerationFence,
+    epoch: clock.epoch,
+  });
+  const provisioningReceipts = Object.freeze({
+    getScopeAuthorityProvisioningReceipt: (scopeId: ScopeId) =>
+      getScopeAuthorityProvisioningReceipt(input.control.drizzle, scopeId),
+  });
+  const authorityPorts = Object.freeze({
+    scopeMetadata: input.control,
+    provisioningReceipts,
+    scopeClockTargets: Object.freeze({
+      resolve: async () => input.locatedTarget,
+    }),
+    authority,
+  });
+  const sessionAuthority = Object.freeze({
+    scopeMetadata: input.control,
+    applicationControlDb: input.control.drizzle,
+    provisioningReceipts,
+    scopeSessionTargets: Object.freeze({
+      resolve: async () => input.pointTarget,
+    }),
+  });
+  const currentEpochAuthority = Object.freeze({
+    scopeMetadata: input.control,
+    provisioningReceipts,
+    scopeEpochTargets: Object.freeze({
+      resolve: async () => input.epochTarget,
+    }),
+  });
+  const analyses = makeApplicationAnalysisRepository(input.target.drizzle, {
+    randomUuid: uuidSequence(231, 232, 233),
+  });
+  const analyzed = await input.analysis.run({
+    authority,
+    repository: analyses,
+    requestKey: "request:application-relational-core:analysis",
+    sourceArtifactRootSha256:
+      input.analysis.source.sourceArtifact.rootSha256,
+  });
+  if (analyzed.status !== "analyzed") {
+    throw new Error("Expected an analyzed relational-core Application.");
+  }
+  const canonicalManifest = requireFixtureResult(
+    canonicalizeApplicationManifestV2(analyzed.manifest),
+    "Expected a canonical relational-core Application Manifest.",
+  );
+  if (canonicalManifest.manifest.functions.length === 0) {
+    throw new Error("Relational-core analysis produced no executable function.");
+  }
+  const relationInput = await relationPublicationInput(
+    input.deploymentId,
+    canonicalManifest.manifest,
+  );
+  const relationPublication = await runEffect(
+    publishApplicationRelationBindingEffect(
+      relationBindingRepository(input.control.drizzle),
+      relationInput,
+    ),
+  );
+  await publishExecutionSchema(
+    input,
+    relationPublication.binding.schemaVersionId,
+  );
+  const publication = await runEffect(
+    makeApplicationRelationPublicationRepository(
+      input.target.drizzle,
+      input.control.drizzle,
+    ).publish({
+      authority,
+      deploymentId: input.deploymentId,
+      revisionId: analyzed.revision.revisionId,
+      candidateId: analyzed.candidateId,
+      analysisId: analyzed.analysisId,
+      manifestSha256: analyzed.manifestSha256,
+      manifest: canonicalManifest.manifest,
+    }),
+  );
+  const taskSha256 = makeStandardApplicationTaskSha256V1(bytes =>
+    globalThis.crypto.subtle.digest("SHA-256", bytes)
+  );
+  const catalog = await runEffect(hashCanonicalTaskCatalogV1({
+    version: 1,
+    tasks: [],
+  }, taskSha256));
+  const bindings = await runEffect(produceApplicationTaskBindingsV1({
+    definition: preparedDefinition(),
+    catalog,
+    authority: {
+      scopeId: publication.scopeId,
+      revisionId: publication.revisionId,
+      candidateId: publication.candidateId,
+      analysisId: publication.analysisId,
+      sourceArtifactRootSha256: publication.sourceArtifactRootSha256,
+      publicationSha256: publication.publicationSha256,
+    },
+    runtimePolicy: {
+      runtimeHostIdentity: input.analysis.runtimePolicy.runtimeHostIdentity,
+      compatibilityDate: input.analysis.runtimePolicy.compatibilityDate,
+    },
+  }, taskSha256));
+  await runEffect(
+    makeApplicationRelationTaskBindingRepository(
+      input.target.drizzle,
+      input.control.drizzle,
+    ).register({ authority, publication, bindings }),
+  );
+  const relationCommit = createApplicationRelationCommitPort(
+    input.control.drizzle,
+    sessionAuthority,
+  );
+  const relationBuild = createApplicationRelationBuildPort(
+    input.control.drizzle,
+    authorityPorts,
+    relationCommit,
+    createApplicationRelationServingInspector(),
+  );
+  const relationReadiness = createApplicationRelationReadinessPort(
+    input.control.drizzle,
+    authorityPorts,
+    relationCommit,
+    relationBuild,
+  );
+  const candidateValidation = createAppSchemaCandidateValidationPort({
+    controlDb: input.control.drizzle,
+    authority: authorityPorts,
+  });
+  const commitCandidateValidation =
+    createAppSchemaCandidateValidationPortForPointCommitAuthority(
+      input.control.drizzle,
+      sessionAuthority,
+    );
+  await closeUniqueConstraintSet(
+    input.control.drizzle,
+    input.deploymentId,
+    relationPublication.binding.schemaVersionId,
+  );
+  await settleCandidateValidation(candidateValidation, {
+    deploymentId: input.deploymentId,
+    schemaVersionId: relationPublication.binding.schemaVersionId,
+  });
+  await enableApplicationPhysicalBuilds(
+    input.control.drizzle,
+    authorityPorts,
+    authority.scopeId,
+    input.deploymentId,
+    relationPublication.binding.schemaVersionId,
+  );
+  await enableRelationPhysicalBuilds(
+    relationCommit,
+    relationBuild,
+    input.deploymentId,
+    relationPublication.binding.schemaVersionId,
+  );
+  const uniqueConstraints = createAppUniqueConstraintDefinitionPortV1(
+    input.control.drizzle,
+  );
+  const uniqueConstraintEligibility =
+    createAppUniqueConstraintSetEligibilityPortV1({
+      controlDb: input.control.drizzle,
+      authority: authorityPorts,
+    }, uniqueConstraints);
+  const readinessPointCommit = createPointCommitPublisherPortV1({
+    scopeMetadata: input.control,
+    provisioningReceipts,
+    scopeSessionTargets: {
+      resolve: async () => {
+        throw new Error(
+          "Relational-core readiness must not open a commit session.",
+        );
+      },
+    },
+  }, { uniqueConstraints, uniqueConstraintEligibility });
+  const candidateReadiness = createAppSchemaCandidateReadinessPort(
+    candidateValidation,
+  );
+  const physicalDefinitionLifecycle = createPhysicalDefinitionLifecyclePort({
+    controlDb: input.control.drizzle,
+    authority: authorityPorts,
+  });
+  const relationSchema = createApplicationRelationSchemaAuthorityPort(
+    input.control.drizzle,
+  );
+  const relationFold = makeApplicationRelationReadinessFoldRepository({
+    controlDb: input.control.drizzle,
+    authority: authorityPorts,
+    schema: relationSchema,
+    taskCatalog: createApplicationRelationTaskCatalogSnapshotPort(),
+    candidateValidation: candidateReadiness,
+    pointCommit: readinessPointCommit,
+    physicalDefinitionLifecycle,
+    relations: relationReadiness,
+  });
+  const legacySchema = makeApplicationSchemaAuthorityPublisher({
+    db: input.control.drizzle,
+    runTransaction: run => input.control.drizzle.transaction(run),
+  });
+  const legacyReadiness = makeApplicationReadinessRepository({
+    controlDb: input.control.drizzle,
+    authority: authorityPorts,
+    schema: legacySchema,
+    taskCatalog: createApplicationTaskCatalogSnapshotPort(),
+    candidateValidation: candidateReadiness,
+    pointCommit: readinessPointCommit,
+    physicalDefinitionLifecycle,
+    cold: {
+      runtimeHostIdentity: input.analysis.runtimePolicy.runtimeHostIdentity,
+      compatibilityDate: input.analysis.runtimePolicy.compatibilityDate,
+      materialize: () => Effect.die(new Error(
+        "Relational-core runtime must not use the Legacy cold adapter.",
+      )),
+    },
+  });
+  const activation = makeApplicationActivationRepository({
+    deploymentId: input.deploymentId,
+    readiness: legacyReadiness,
+    relationReadiness: relationFold,
+    authority: authorityPorts,
+  });
+  const ready = await runEffect(relationFold.settle({
+    deploymentId: input.deploymentId,
+    revisionId: publication.revisionId,
+  }));
+  if (ready.status !== "ready") {
+    throw new Error(
+      `Relational-core readiness did not settle: ${ready.status}${
+        "reason" in ready ? `:${ready.reason}` : ""
+      }`,
+    );
+  }
+  await runEffect(activation.activate({
+    revisionId: ready.revisionId,
+    expectedActiveHead: null,
+  }));
+  await runEffect(activation.readActive());
+  const definitions = await runEffect(relationCommit.locate({
+    deploymentId: input.deploymentId,
+    schemaVersionId: relationPublication.binding.schemaVersionId,
+  }));
+  const definition = definitions?.definitions[0];
+  if (definition === undefined || definitions?.definitions.length !== 1) {
+    throw new Error("Expected one exact relational-core definition.");
+  }
+  const relation = Object.freeze({
+    source: Object.freeze({
+      table: definition.semantic.declaration.source.table,
+      path: definition.semantic.declaration.source.path,
+    }),
+  }) satisfies ApplicationRelationSourceReference;
+  const reads = createApplicationRelationReadPort(
+    input.control.drizzle,
+    sessionAuthority,
+    relationCommit,
+    relationFold,
+  );
+  const developerIndexes = createAppDeveloperIndexDefinitionPortV1(
+    input.control.drizzle,
+  );
+  const candidateSchemaWriteGuard = createAppSchemaCandidateWriteGuardPort({
+    candidateValidation: commitCandidateValidation,
+    pointCommitAuthority: sessionAuthority,
+  });
+  return Object.freeze({
+    control: input.control,
+    target: input.target,
+    deploymentId: input.deploymentId,
+    authority,
+    authorityPorts,
+    activation,
+    source: input.analysis.source,
+    legacySchema,
+    relationSchema,
+    sessionAuthority,
+    currentEpochAuthority,
+    candidateSchemaWriteGuard,
+    intrinsicCreationTimeIndexes:
+      createIntrinsicCreationTimeIndexDefinitionPortV1(input.control.drizzle),
+    developerIndexes,
+    indexedQueries: createAppDeveloperIndexQueryPortV1(
+      input.control.drizzle,
+      sessionAuthority,
+      developerIndexes,
+    ),
+    applicationRelations: relationCommit,
+    edgeDefinitionId: definition.edge.edgeDefinitionId,
+    snapshot: Object.freeze({
+      deploymentId: input.deploymentId,
+      controlDb: input.control.drizzle,
+      authority: authorityPorts,
+      relations: reads,
+    }),
+    relation,
+  });
 }
 
 async function createFixture(
@@ -1204,9 +1717,10 @@ function relationBindingRepository(
 
 async function relationPublicationInput(
   deploymentId: ReturnType<typeof TransactionGrantDeploymentIdV1Schema.make>,
+  manifest: ApplicationManifestV2 = relationManifest(),
 ): Promise<PublishApplicationRelationBindingInput> {
   const canonical = requireFixtureResult(
-    canonicalizeApplicationManifestV2(relationManifest()),
+    canonicalizeApplicationManifestV2(manifest),
     "Expected canonical relation-query publication input.",
   );
   const digest = new Uint8Array(await globalThis.crypto.subtle.digest(
