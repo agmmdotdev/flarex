@@ -19,9 +19,10 @@ semantics as Legacy. DTE05-E3 remains DTE06-F-gated before a durable or
 Cloudflare-hosted cron repair system exists. The DTE05-C3 boundary and evidence
 are recorded in
 [`preflight/46-dte05-application-scheduling-parity.md`](./preflight/46-dte05-application-scheduling-parity.md).
-DTE06-F2 is the next active checkpoint after C3. DTE06-F also
-depends on the connected-runtime reuse audit in Preflight 37; no host work may
-bypass either gate.
+DTE06-F2 is complete privately. The docs-only runtime-kernel/provider-placement
+decision in Preflight 47 and the private, unwired provider router in Preflight
+48 are complete. F3/F4 and DTE05-E3 remain separately gated; no host work may
+bypass Preflight 37 or those gates.
 
 Roadmap 04 remains the durable-state authority. Its due-discovery candidates
 and lifecycle transactions are sufficient to reconstruct missed work. Queue
@@ -291,8 +292,10 @@ kernel while preserving the exact Legacy factory. PGlite and genuine
 PostgreSQL prove both generations plus Application expiry, retry,
 reconstruction, concurrency, rollback/first-failure, and stale authority. No
 host, wake publisher for Application, route, binding, or activation path was
-added. DTE06-F2 fresh-host recovery and takeover is now the next active
-checkpoint.
+added. DTE06-F2 fresh-host recovery and takeover is complete privately. The
+Preflight 47 runtime-kernel/provider-placement decision and Preflight 48
+private, unwired provider router are complete; F3/F4 and DTE05-E3 remain
+separately gated.
 
 ### DTE05-D: Queue Wake Hints — Complete
 

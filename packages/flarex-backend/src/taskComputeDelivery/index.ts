@@ -9,3 +9,4 @@ export * from "./WorkerLoaderTaskComputeProvider.js";
 export * from "./ApplicationTaskQueryCallback.js";
 export * from "./ApplicationTaskMutationCallback.js";
 export * from "./TaskComputeDeliveryEventHost.js";
+export * from "./TaskComputeProviderRouter.js";

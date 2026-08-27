@@ -741,7 +741,10 @@ above are complete privately. F0A/F0B remain complete. DTE05-C3 Application
 scheduling parity and DTE06-F2 fresh-host takeover are complete privately. The
 backend-private host, bounded redacted receipt, lifecycle owners, and every
 production entrypoint remain unchanged. F3/F4 require separate approval before
-any external mutation.
+any external mutation. Before that approval, the shared-substrate,
+operation-specific-kernel, and provider-placement boundary must follow
+[`Preflight 47`](./47-dte06-runtime-kernels-and-provider-placement.md); that
+document is architecture-only and does not itself authorize F3/F4.
 
 After DTE06-F closes, DTE05-E3 may separately preflight a real scheduled event
 host and Wrangler Cron binding. DTE06-G then owns final provenance, package,

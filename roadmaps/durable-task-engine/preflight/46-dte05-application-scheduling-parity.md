@@ -112,6 +112,10 @@ Validation evidence on 2026-08-22:
 ## Stop Boundary
 
 DTE05-C3 remains one implementation-bearing capability and one commit.
-DTE06-F2 fresh-host recovery and takeover is the next active checkpoint.
-Standard Task APIs, DTE05-E3, DTE06-F3/F4, public APIs,
-observability, and production activation remain closed.
+DTE06-F2 fresh-host recovery and takeover is complete privately. The docs-only
+runtime-kernel/provider-placement decision in
+[`Preflight 47`](./47-dte06-runtime-kernels-and-provider-placement.md) and the
+private, unwired provider router in
+[`Preflight 48`](./48-dte06-task-compute-provider-router.md) are complete.
+Standard Task APIs, DTE05-E3, DTE06-F3/F4, public APIs, observability, and
+production activation remain closed.

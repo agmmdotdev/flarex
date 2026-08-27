@@ -52,6 +52,16 @@ The approved DTE06-F hosted-runtime proof boundary, corrected fresh-Worker
 terminology, event-scope ownership, fresh-host recovery order, isolated
 Cloudflare topology, and external-mutation gate are recorded in
 [`preflight/42-dte06-hosted-runtime-proof.md`](./preflight/42-dte06-hosted-runtime-proof.md).
+The accepted docs-only decomposition of the shared Application runtime
+substrate, distinct Transaction/Action/Task kernels, trusted Task placement,
+provider lifetimes, and alternate-provider gates is recorded in
+[`preflight/47-dte06-runtime-kernels-and-provider-placement.md`](./preflight/47-dte06-runtime-kernels-and-provider-placement.md).
+It does not authorize code or DTE06-F3/F4 execution.
+The first implementation slice behind that decision is complete privately: the
+production-inert compute-provider router in
+[`preflight/48-dte06-task-compute-provider-router.md`](./preflight/48-dte06-task-compute-provider-router.md).
+It changes no runtime kernel, provider adapter, host wiring, lifecycle, or wire
+contract.
 The detailed C0-C3 evidence, repository, discovery, deadline, restart,
 lost-receipt, two-host, multi-scope, PGlite, and genuine-PostgreSQL proofs remain
 the admitted foundation for the current private Worker Loader composition.
@@ -684,7 +694,9 @@ lifecycle accepts the unchanged success and records the cancellation as
 
 F0A, F0B, F1, and F2 are local/genuine-PostgreSQL implementation gates. F3/F4
 may create an isolated Cloudflare/Hyperdrive/R2 probe only after separate
-explicit approval; passing local tests does not authorize external resources.
+explicit approval and after Preflight 47's runtime-kernel/provider-placement
+boundary is accepted as the implementation basis; passing local tests does not
+authorize external resources.
 
 After DTE06-F closes the minimum safe compute path, DTE05-E3 may add the
 scheduled Worker host and Cron Trigger through its own exact deployment
@@ -771,6 +783,8 @@ fresh-host recovery, pre-expiry exclusion, persisted expiry/retry grant,
 old-host fencing, and one winning fresh Worker without shared host state. It
 does not prove a deployed Cloudflare topology. The DTE05-C3 Application
 scheduling-parity correction is complete privately. The separately gated F3/F4
-hosted work and DTE05-E3 scheduled host remain closed. Public APIs,
+hosted work and DTE05-E3 scheduled host remain closed. Preflight 47 is the
+accepted architecture checkpoint, and Preflight 48's private, unwired
+provider-router implementation is complete. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.

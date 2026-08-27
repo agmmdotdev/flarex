@@ -151,6 +151,17 @@ The approved DTE06-E supervision and settlement boundary is recorded in
 The approved DTE06-F hosted-runtime proof, event-scope ownership, fresh-host
 recovery order, and separately gated Cloudflare topology are recorded in
 [`preflight/42-dte06-hosted-runtime-proof.md`](./preflight/42-dte06-hosted-runtime-proof.md).
+The docs-only runtime-kernel and provider-placement decision that must be
+resolved before F3 or an alternate Task provider is recorded in
+[`preflight/47-dte06-runtime-kernels-and-provider-placement.md`](./preflight/47-dte06-runtime-kernels-and-provider-placement.md).
+It accepts a shared low-level Application runtime substrate with separate
+Transaction, Action, and Task kernels; it authorizes no implementation or
+external mutation.
+The first implementation slice is complete privately: the production-inert
+Task compute provider router in
+[`preflight/48-dte06-task-compute-provider-router.md`](./preflight/48-dte06-task-compute-provider-router.md).
+It adds placement composition only; current provider adapters and hosts remain
+unchanged.
 E1 through E5 are complete privately. The current
 session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
@@ -188,7 +199,9 @@ ordinary-role PostgreSQL. DTE05-C3 Application scheduling parity and DTE06-F2
 fresh-host recovery and takeover are complete privately. F2 proves pre-expiry
 exclusion, persisted expiry/retry grant, old-host fencing, and one winning
 fresh Worker in PGlite and ordinary-role genuine PostgreSQL without a new
-runtime owner.
+runtime owner. Preflight 47's runtime-kernel/provider-placement decision and
+Preflight 48's private, unwired provider router are complete. F3/F4 remain
+separately gated.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -674,7 +687,9 @@ files remain candidates:
      parity evidence. F2 now proves fresh-host recovery and takeover without
      shared process state through the persisted scheduler, lifecycle, and
      delivery owners. Preflight 46 records the scheduling correction and
-     prohibited harness workarounds. Real
+     prohibited harness workarounds. Preflight 47 accepts the docs-only shared
+     substrate plus distinct Transaction/Action/Task kernel and trusted
+     provider-placement direction; it authorizes no code. Real
      Cloudflare, Hyperdrive, and R2 resource mutation
      remains a separately approved later subgate. No scheduled host, public
      API, route, binding, fallback, dual execution, or production activation
