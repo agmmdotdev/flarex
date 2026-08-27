@@ -7,6 +7,7 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { count, eq } from "drizzle-orm";
 import { Cause, Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
@@ -34,6 +35,14 @@ import {
   type PublishAppSchemaV1Result,
 } from "../src/appSchemaPublication";
 import { createPGlitePersistence } from "../src/pglite";
+import {
+  fxControlIndexDefinitions,
+  fxControlIndexes,
+  fxControlSchemaVersionIndexBindings,
+  fxControlSchemaVersions,
+  fxControlTables,
+  fxSystemIndexBuildStates,
+} from "../src/schema";
 import { SchemaManifestAppSchemaBindingPlanStaleError } from "../src/schemaManifestAppSchemaBindings";
 import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
@@ -656,34 +665,43 @@ async function catalogCounts(
   readonly schemaBindings: number;
   readonly buildStates: number;
 }> {
-  const result = await persistence.query<{
-    tables: number;
-    indexes: number;
-    schema_versions: number;
-    definitions: number;
-    schema_bindings: number;
-    build_states: number;
-  }>(
-    `
-      select
-        (select count(*)::int from fx_control_table where deployment_id = $1) as tables,
-        (select count(*)::int from fx_control_index where deployment_id = $1) as indexes,
-        (select count(*)::int from fx_control_schema_version where deployment_id = $1) as schema_versions,
-        (select count(*)::int from fx_control_index_definition where deployment_id = $1) as definitions,
-        (select count(*)::int from fx_control_schema_version_index_binding where deployment_id = $1) as schema_bindings,
-        (select count(*)::int from fx_system_index_build_state) as build_states
-    `,
-    [deploymentId],
-  );
-  const row = result.rows[0];
-  if (row === undefined) throw new Error("Expected catalog count row.");
+  const [
+    [tables],
+    [indexes],
+    [schemaVersions],
+    [definitions],
+    [schemaBindings],
+    [buildStates],
+  ] = await Promise.all([
+    persistence.drizzle.select({ count: count() }).from(
+      fxControlTables,
+    ).where(eq(fxControlTables.deploymentId, deploymentId)),
+    persistence.drizzle.select({ count: count() }).from(
+      fxControlIndexes,
+    ).where(eq(fxControlIndexes.deploymentId, deploymentId)),
+    persistence.drizzle.select({ count: count() }).from(
+      fxControlSchemaVersions,
+    ).where(eq(fxControlSchemaVersions.deploymentId, deploymentId)),
+    persistence.drizzle.select({ count: count() }).from(
+      fxControlIndexDefinitions,
+    ).where(eq(fxControlIndexDefinitions.deploymentId, deploymentId)),
+    persistence.drizzle.select({ count: count() }).from(
+      fxControlSchemaVersionIndexBindings,
+    ).where(eq(
+      fxControlSchemaVersionIndexBindings.deploymentId,
+      deploymentId,
+    )),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemIndexBuildStates,
+    ),
+  ]);
   return {
-    tables: row.tables,
-    indexes: row.indexes,
-    schemaVersions: row.schema_versions,
-    definitions: row.definitions,
-    schemaBindings: row.schema_bindings,
-    buildStates: row.build_states,
+    tables: tables?.count ?? -1,
+    indexes: indexes?.count ?? -1,
+    schemaVersions: schemaVersions?.count ?? -1,
+    definitions: definitions?.count ?? -1,
+    schemaBindings: schemaBindings?.count ?? -1,
+    buildStates: buildStates?.count ?? -1,
   };
 }
 
