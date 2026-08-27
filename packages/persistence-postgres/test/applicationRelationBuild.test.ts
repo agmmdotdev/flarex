@@ -11,9 +11,12 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
+  OutboxSeqSchema,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
   ScopeIdSchema,
+  StorageGenerationFenceSchema,
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
@@ -943,13 +946,15 @@ async function fixtureFor(
     projectId: `project_e01_${suffix}_${fixtureOrdinal}`,
   });
   await control.insertScopeMetadata({ scopeId, deploymentId, physicalLocator: LOCATOR });
-  await target.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, storage_generation_fence,
-        last_commit_seq, last_outbox_seq, epoch)
-     values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
-    [scopeId, epoch],
-  );
+  await target.drizzle.insert(fxSystemScopeClocks).values({
+    scopeId,
+    storageGeneration:
+      FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+    lastCommitSeq: CommitSeqSchema.make(0n),
+    lastOutboxSeq: OutboxSeqSchema.make(0n),
+    epoch,
+  });
   const publication = await runEffect(publishApplicationRelationBindingEffect(
     repositoryFor(control),
     await relationBuildPublicationInput(

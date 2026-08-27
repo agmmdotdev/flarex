@@ -10,9 +10,12 @@ import { appDocumentIdV1FromRowIdentity } from
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
+  OutboxSeqSchema,
   projectScopeIdUuidV1Result,
   ScopeEpochSchema,
   ScopeIdSchema,
+  StorageGenerationFenceSchema,
   type ScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from
@@ -1084,13 +1087,15 @@ async function fixtureFor(suffix: string): Promise<Fixture> {
     deploymentId,
     physicalLocator: LOCATOR,
   });
-  await control.query(
-    `insert into fx_system_scope_clock
-       (scope_id, storage_generation, storage_generation_fence,
-        last_commit_seq, last_outbox_seq, epoch)
-     values ($1, 'flarexdb_v1', 1, 0, 0, $2)`,
-    [scopeId, epoch],
-  );
+  await control.drizzle.insert(fxSystemScopeClocks).values({
+    scopeId,
+    storageGeneration:
+      FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+    lastCommitSeq: CommitSeqSchema.make(0n),
+    lastOutboxSeq: OutboxSeqSchema.make(0n),
+    epoch,
+  });
   const pointTarget = createPGliteLocatedPointMutationSessionActivationTargetV1(
     control,
     LOCATOR,
