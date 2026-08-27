@@ -23,8 +23,12 @@ import {
   decodeTaskCancellationGenerationV1,
   decodeTaskRequestedEffectSequenceV1,
   decodeTaskRunVersionV1,
+  type TaskRequestedEffectSequenceV1,
+  type TaskRunIdV1,
 } from "@flarex/durable-task/internal/run-attempt-v1";
+import { and, count, eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -66,6 +70,13 @@ import { TaskComputeDeliveryEvidenceV1Error } from
   "../src/taskComputeDeliveryEvidenceV1";
 import { makeTaskSystemRunAttemptStoreV1 } from
   "../src/taskSystemRunAttemptStoreV1";
+import {
+  fxSystemDurableTaskComputeCancellationsV1,
+  fxSystemDurableTaskComputeDispatchesV1,
+  fxSystemDurableTaskComputePendingV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+} from "../src/schema";
 import type { AppRowTransaction } from "../src/appRows";
 import {
   LocatedReadCommittedTransactionFailureV1,
@@ -92,6 +103,7 @@ import {
 } from "./taskSystemRunCreationTestSupport";
 
 const CLAIM_OWNER_A = "73000000-0000-4000-8000-000000000001";
+const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
 const DISCOVERY_DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 1_000,
   lockTimeoutMilliseconds: 250,
@@ -336,23 +348,20 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         first.claimExpiresAt.getTime(),
       );
 
-      const stored = await persistence.query<{
-        claim_owner: string;
-        claim_fence: string;
-        delivery_state: string;
-        delivery_attempt_count: string;
-      }>(`
-        select claim_owner::text, claim_fence::text, delivery_state,
-               delivery_attempt_count::text
-        from fx_system_durable_task_compute_dispatch_v1
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
-      expect(stored.rows).toEqual([{
-        claim_owner: CLAIM_OWNER_A,
-        claim_fence: "1",
-        delivery_state: "prepared",
-        delivery_attempt_count: "0",
+      const stored = await persistence.drizzle.select({
+        claimOwner: fxSystemDurableTaskComputeDispatchesV1.claimOwner,
+        claimFence: fxSystemDurableTaskComputeDispatchesV1.claimFence,
+        deliveryState: fxSystemDurableTaskComputeDispatchesV1.deliveryState,
+        deliveryAttemptCount:
+          fxSystemDurableTaskComputeDispatchesV1.deliveryAttemptCount,
+      }).from(fxSystemDurableTaskComputeDispatchesV1).where(
+        dispatchCheckpointWhere(runId, dispatchSequence),
+      );
+      expect(stored).toEqual([{
+        claimOwner: CLAIM_OWNER_A,
+        claimFence: 1n,
+        deliveryState: "prepared",
+        deliveryAttemptCount: 0n,
       }]);
     });
   });
@@ -364,12 +373,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       runId,
       dispatchSequence,
     }) => {
-      await persistence.query(`
-        update fx_system_durable_task_compute_pending_v1
-        set kind = 'request_execution_cancellation'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await persistence.drizzle.update(
+        fxSystemDurableTaskComputePendingV1,
+      ).set({
+        kind: "request_execution_cancellation",
+      }).where(pendingCheckpointWhere(runId, dispatchSequence));
 
       const failure = await runEffectFailure(
         repository(deliveryLocated, CLAIM_OWNER_A).acquireDispatch({
@@ -384,20 +392,18 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         operation: "acquire_dispatch",
         reason: "pending_membership_invalid",
       });
-      const checkpoints = await persistence.query<{ count: string }>(`
-        select count(*)::text as count
-        from fx_system_durable_task_compute_dispatch_v1
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
-      expect(checkpoints.rows).toEqual([{ count: "0" }]);
-      const pending = await persistence.query<{ kind: string }>(`
-        select kind
-        from fx_system_durable_task_compute_pending_v1
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
-      expect(pending.rows).toEqual([{
+      const checkpoints = await persistence.drizzle.select({
+        count: count(),
+      }).from(fxSystemDurableTaskComputeDispatchesV1).where(
+        dispatchCheckpointWhere(runId, dispatchSequence),
+      );
+      expect(checkpoints).toEqual([{ count: 0 }]);
+      const pending = await persistence.drizzle.select({
+        kind: fxSystemDurableTaskComputePendingV1.kind,
+      }).from(fxSystemDurableTaskComputePendingV1).where(
+        pendingCheckpointWhere(runId, dispatchSequence),
+      );
+      expect(pending).toEqual([{
         kind: "request_execution_cancellation",
       }]);
     });
@@ -423,14 +429,14 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         reason: "effect_unavailable",
       });
 
+      // Deliberate relational-corruption probe: remove the protecting FK.
       await persistence.query(`
         alter table fx_system_durable_task_compute_pending_v1
         drop constraint fx_task_compute_pending_v1_effect_fk
       `);
-      await persistence.query(`
-        delete from fx_system_durable_task_requested_effect_v1
-        where scope_id = $1 and run_id = $2 and sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await persistence.drizzle.delete(
+        fxSystemDurableTaskRequestedEffectsV1,
+      ).where(requestedEffectWhere(runId, dispatchSequence));
       await expect(runEffectFailure(
         repository(deliveryLocated, CLAIM_OWNER_A).acquireDispatch({
           runId,
@@ -626,13 +632,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       }));
       if (first.kind !== "claimed") throw new Error("dispatch was not claimed");
       await runEffect(firstRepository.markDispatchDeliveryStarted(first.handle));
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set claimed_at = clock_timestamp() - interval '2 minutes',
-            claim_expires_at = clock_timestamp() - interval '1 minute'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await expireDispatchClaim(persistence, runId, dispatchSequence);
 
       const replay = await runEffect(secondRepository.acquireDispatch({
         runId,
@@ -762,13 +762,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         requestedEffectSequence: dispatchSequence,
       }))).kind).toBe("not_due");
 
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set delivery_started_at = created_at,
-            next_attempt_at = created_at + interval '1 millisecond'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await makeDispatchRetryDue(persistence, runId, dispatchSequence);
       const secondRepository = repositoryWithPolicy(
         deliveryLocated,
         CLAIM_OWNER_B,
@@ -980,13 +974,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
           cause: "definite transport failure",
         }),
       ));
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set delivery_started_at = created_at,
-            next_attempt_at = created_at + interval '1 millisecond'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await makeDispatchRetryDue(persistence, runId, dispatchSequence);
 
       const secondRepository = repositoryWithPolicy(
         deliveryLocated,
@@ -1002,13 +990,7 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       expect((await runEffect(
         secondRepository.markDispatchDeliveryStarted(second.handle),
       )).deliveryAttemptCount).toBe(2n);
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set claimed_at = clock_timestamp() - interval '2 minutes',
-            claim_expires_at = clock_timestamp() - interval '1 minute'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, runId, dispatchSequence]);
+      await expireDispatchClaim(persistence, runId, dispatchSequence);
 
       const recoveryRepository = repositoryWithPolicy(
         deliveryLocated,
@@ -1293,13 +1275,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       await runEffect(
         firstRepository.markCancellationDeliveryStarted(first.handle),
       );
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_cancellation_v1
-        set claimed_at = clock_timestamp() - interval '2 minutes',
-            claim_expires_at = clock_timestamp() - interval '1 minute'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+      await expireCancellationClaim(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      );
       await acknowledgeFixtureCancellation(fixture);
 
       const recoveryRepository = repository(
@@ -1489,13 +1469,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         kind: "retry_scheduled",
         reason: "provider_execution_not_found",
       });
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_cancellation_v1
-        set delivery_started_at = created_at,
-            next_attempt_at = created_at + interval '1 millisecond'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+      await makeCancellationRetryDue(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      );
 
       const secondRepository = repositoryWithPolicy(
         fixture.deliveryLocated,
@@ -1791,13 +1769,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
           cause: "definite transport failure",
         }),
       ));
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_cancellation_v1
-        set delivery_started_at = created_at,
-            next_attempt_at = created_at + interval '1 millisecond'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+      await makeCancellationRetryDue(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      );
 
       const secondRepository = repositoryWithPolicy(
         fixture.deliveryLocated,
@@ -1813,13 +1789,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       expect((await runEffect(
         secondRepository.markCancellationDeliveryStarted(second.handle),
       )).deliveryAttemptCount).toBe(2n);
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_cancellation_v1
-        set claimed_at = clock_timestamp() - interval '2 minutes',
-            claim_expires_at = clock_timestamp() - interval '1 minute'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, fixture.runId, cancellationSequence]);
+      await expireCancellationClaim(
+        fixture.persistence,
+        fixture.runId,
+        cancellationSequence,
+      );
 
       const recoveryRepository = repositoryWithPolicy(
         fixture.deliveryLocated,
@@ -1959,17 +1933,14 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
       await runEffect(
         dispatchRepository.releaseDispatchBeforeDelivery(acquired.handle),
       );
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set request_sha256 = $4
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [
-        TASK_SCOPE_ID,
+      await fixture.persistence.drizzle.update(
+        fxSystemDurableTaskComputeDispatchesV1,
+      ).set({
+        requestSha256: new Uint8Array(32),
+      }).where(dispatchCheckpointWhere(
         fixture.runId,
         fixture.dispatchSequence,
-        new Uint8Array(32),
-      ]);
+      ));
 
       const failure = await runEffectFailure(repository(
         fixture.deliveryLocated,
@@ -2016,17 +1987,14 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         acquired.handle,
         cancellationReceipt(acquired.request),
       ));
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_cancellation_v1
-        set receipt_sha256 = $4
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [
-        TASK_SCOPE_ID,
+      await fixture.persistence.drizzle.update(
+        fxSystemDurableTaskComputeCancellationsV1,
+      ).set({
+        receiptSha256: new Uint8Array(32),
+      }).where(cancellationCheckpointWhere(
         fixture.runId,
         cancellationSequence,
-        new Uint8Array(32),
-      ]);
+      ));
 
       const failure = await runEffectFailure(repository(
         fixture.deliveryLocated,
@@ -2134,13 +2102,11 @@ describe("DTE06-C2 scope-bound compute delivery repository - PGlite", () => {
         delivery_state: "delivering",
         delivery_attempt_count: "1",
       });
-      await fixture.persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set claimed_at = clock_timestamp() - interval '2 minutes',
-            claim_expires_at = clock_timestamp() - interval '1 minute'
-        where scope_id = $1 and run_id = $2
-          and requested_effect_sequence = $3
-      `, [TASK_SCOPE_ID, fixture.runId, fixture.dispatchSequence]);
+      await expireDispatchClaim(
+        fixture.persistence,
+        fixture.runId,
+        fixture.dispatchSequence,
+      );
       let recoveryCalls = 0;
       const uncertainProbeRunner: RunLocatedReadCommittedTransactionV1 =
         async <Value>(work: (tx: AppRowTransaction) => Promise<Value>) => {
@@ -2430,84 +2396,212 @@ function cancellationReceipt(
   }));
 }
 
+function dispatchCheckpointWhere(
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputeDispatchesV1.scopeId, taskScopeId),
+    eq(fxSystemDurableTaskComputeDispatchesV1.runId, runId),
+    eq(
+      fxSystemDurableTaskComputeDispatchesV1.requestedEffectSequence,
+      sequence,
+    ),
+  );
+}
+
+function cancellationCheckpointWhere(
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputeCancellationsV1.scopeId, taskScopeId),
+    eq(fxSystemDurableTaskComputeCancellationsV1.runId, runId),
+    eq(
+      fxSystemDurableTaskComputeCancellationsV1.requestedEffectSequence,
+      sequence,
+    ),
+  );
+}
+
+function pendingCheckpointWhere(
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskComputePendingV1.scopeId, taskScopeId),
+    eq(fxSystemDurableTaskComputePendingV1.runId, runId),
+    eq(
+      fxSystemDurableTaskComputePendingV1.requestedEffectSequence,
+      sequence,
+    ),
+  );
+}
+
+function requestedEffectWhere(
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+) {
+  return and(
+    eq(fxSystemDurableTaskRequestedEffectsV1.scopeId, taskScopeId),
+    eq(fxSystemDurableTaskRequestedEffectsV1.runId, runId),
+    eq(
+      fxSystemDurableTaskRequestedEffectsV1.sequence,
+      sequence,
+    ),
+  );
+}
+
+async function expireDispatchClaim(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+): Promise<void> {
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    claimedAt: sql<Date>`clock_timestamp() - interval '2 minutes'`,
+    claimExpiresAt: sql<Date>`clock_timestamp() - interval '1 minute'`,
+  }).where(dispatchCheckpointWhere(runId, sequence));
+}
+
+async function expireCancellationClaim(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+): Promise<void> {
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    claimedAt: sql<Date>`clock_timestamp() - interval '2 minutes'`,
+    claimExpiresAt: sql<Date>`clock_timestamp() - interval '1 minute'`,
+  }).where(cancellationCheckpointWhere(runId, sequence));
+}
+
+async function makeDispatchRetryDue(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+): Promise<void> {
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).set({
+    deliveryStartedAt: fxSystemDurableTaskComputeDispatchesV1.createdAt,
+    nextAttemptAt:
+      sql<Date>`${fxSystemDurableTaskComputeDispatchesV1.createdAt}
+        + interval '1 millisecond'`,
+  }).where(dispatchCheckpointWhere(runId, sequence));
+}
+
+async function makeCancellationRetryDue(
+  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
+  runId: TaskRunIdV1,
+  sequence: TaskRequestedEffectSequenceV1,
+): Promise<void> {
+  await persistence.drizzle.update(
+    fxSystemDurableTaskComputeCancellationsV1,
+  ).set({
+    deliveryStartedAt: fxSystemDurableTaskComputeCancellationsV1.createdAt,
+    nextAttemptAt:
+      sql<Date>`${fxSystemDurableTaskComputeCancellationsV1.createdAt}
+        + interval '1 millisecond'`,
+  }).where(cancellationCheckpointWhere(runId, sequence));
+}
+
 async function readClaim(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  runId: string,
-  dispatchSequence: bigint,
+  runId: TaskRunIdV1,
+  dispatchSequence: TaskRequestedEffectSequenceV1,
 ) {
-  const stored = await persistence.query<{
-    claim_owner: string | null;
-    claim_fence: string;
-    delivery_state: string;
-    delivery_attempt_count: string;
-  }>(`
-    select claim_owner::text, claim_fence::text, delivery_state,
-           delivery_attempt_count::text
-    from fx_system_durable_task_compute_dispatch_v1
-    where scope_id = $1 and run_id = $2
-      and requested_effect_sequence = $3
-  `, [TASK_SCOPE_ID, runId, dispatchSequence]);
-  return stored.rows[0];
+  const [stored] = await persistence.drizzle.select({
+    claimOwner: fxSystemDurableTaskComputeDispatchesV1.claimOwner,
+    claimFence: fxSystemDurableTaskComputeDispatchesV1.claimFence,
+    deliveryState: fxSystemDurableTaskComputeDispatchesV1.deliveryState,
+    deliveryAttemptCount:
+      fxSystemDurableTaskComputeDispatchesV1.deliveryAttemptCount,
+  }).from(fxSystemDurableTaskComputeDispatchesV1).where(
+    dispatchCheckpointWhere(runId, dispatchSequence),
+  );
+  return stored === undefined
+    ? undefined
+    : {
+        claim_owner: stored.claimOwner,
+        claim_fence: String(stored.claimFence),
+        delivery_state: stored.deliveryState,
+        delivery_attempt_count: String(stored.deliveryAttemptCount),
+      };
 }
 
 async function readSettlement(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  runId: string,
-  dispatchSequence: bigint,
+  runId: TaskRunIdV1,
+  dispatchSequence: TaskRequestedEffectSequenceV1,
 ) {
-  const stored = await persistence.query<{
-    delivery_state: string;
-    claim_owner: string | null;
-    reason_code: string | null;
-    acceptance_codec_version: number | null;
-  }>(`
-    select delivery_state, claim_owner::text, reason_code,
-           acceptance_codec_version
-    from fx_system_durable_task_compute_dispatch_v1
-    where scope_id = $1 and run_id = $2
-      and requested_effect_sequence = $3
-  `, [TASK_SCOPE_ID, runId, dispatchSequence]);
-  return stored.rows[0];
+  const [stored] = await persistence.drizzle.select({
+    deliveryState: fxSystemDurableTaskComputeDispatchesV1.deliveryState,
+    claimOwner: fxSystemDurableTaskComputeDispatchesV1.claimOwner,
+    reasonCode: fxSystemDurableTaskComputeDispatchesV1.reasonCode,
+    acceptanceCodecVersion:
+      fxSystemDurableTaskComputeDispatchesV1.acceptanceCodecVersion,
+  }).from(fxSystemDurableTaskComputeDispatchesV1).where(
+    dispatchCheckpointWhere(runId, dispatchSequence),
+  );
+  return stored === undefined
+    ? undefined
+    : {
+        delivery_state: stored.deliveryState,
+        claim_owner: stored.claimOwner,
+        reason_code: stored.reasonCode,
+        acceptance_codec_version: stored.acceptanceCodecVersion,
+      };
 }
 
 async function readCancellationClaim(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  runId: string,
-  cancellationSequence: bigint,
+  runId: TaskRunIdV1,
+  cancellationSequence: TaskRequestedEffectSequenceV1,
 ) {
-  const stored = await persistence.query<{
-    claim_owner: string | null;
-    claim_fence: string;
-    delivery_state: string;
-    delivery_attempt_count: string;
-  }>(`
-    select claim_owner::text, claim_fence::text, delivery_state,
-           delivery_attempt_count::text
-    from fx_system_durable_task_compute_cancellation_v1
-    where scope_id = $1 and run_id = $2
-      and requested_effect_sequence = $3
-  `, [TASK_SCOPE_ID, runId, cancellationSequence]);
-  return stored.rows[0];
+  const [stored] = await persistence.drizzle.select({
+    claimOwner: fxSystemDurableTaskComputeCancellationsV1.claimOwner,
+    claimFence: fxSystemDurableTaskComputeCancellationsV1.claimFence,
+    deliveryState: fxSystemDurableTaskComputeCancellationsV1.deliveryState,
+    deliveryAttemptCount:
+      fxSystemDurableTaskComputeCancellationsV1.deliveryAttemptCount,
+  }).from(fxSystemDurableTaskComputeCancellationsV1).where(
+    cancellationCheckpointWhere(runId, cancellationSequence),
+  );
+  return stored === undefined
+    ? undefined
+    : {
+        claim_owner: stored.claimOwner,
+        claim_fence: String(stored.claimFence),
+        delivery_state: stored.deliveryState,
+        delivery_attempt_count: String(stored.deliveryAttemptCount),
+      };
 }
 
 async function readCancellationSettlement(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  runId: string,
-  cancellationSequence: bigint,
+  runId: TaskRunIdV1,
+  cancellationSequence: TaskRequestedEffectSequenceV1,
 ) {
-  const stored = await persistence.query<{
-    delivery_state: string;
-    claim_owner: string | null;
-    reason_code: string | null;
-    receipt_codec_version: number | null;
-  }>(`
-    select delivery_state, claim_owner::text, reason_code,
-           receipt_codec_version
-    from fx_system_durable_task_compute_cancellation_v1
-    where scope_id = $1 and run_id = $2
-      and requested_effect_sequence = $3
-  `, [TASK_SCOPE_ID, runId, cancellationSequence]);
-  return stored.rows[0];
+  const [stored] = await persistence.drizzle.select({
+    deliveryState: fxSystemDurableTaskComputeCancellationsV1.deliveryState,
+    claimOwner: fxSystemDurableTaskComputeCancellationsV1.claimOwner,
+    reasonCode: fxSystemDurableTaskComputeCancellationsV1.reasonCode,
+    receiptCodecVersion:
+      fxSystemDurableTaskComputeCancellationsV1.receiptCodecVersion,
+  }).from(fxSystemDurableTaskComputeCancellationsV1).where(
+    cancellationCheckpointWhere(runId, cancellationSequence),
+  );
+  return stored === undefined
+    ? undefined
+    : {
+        delivery_state: stored.deliveryState,
+        claim_owner: stored.claimOwner,
+        reason_code: stored.reasonCode,
+        receipt_codec_version: stored.receiptCodecVersion,
+      };
 }
 
 function repository(
@@ -2593,27 +2687,25 @@ function selectFailureRunner(
 }
 
 async function dispatchCheckpointCount(fixture: DeliveryFixture) {
-  const result = await fixture.persistence.query<{ count: string }>(`
-    select count(*)::text as count
-    from fx_system_durable_task_compute_dispatch_v1
-    where scope_id = $1 and run_id = $2
-      and requested_effect_sequence = $3
-  `, [TASK_SCOPE_ID, fixture.runId, fixture.dispatchSequence]);
-  return Number(result.rows[0]?.count ?? "-1");
+  const [result] = await fixture.persistence.drizzle.select({
+    count: count(),
+  }).from(fxSystemDurableTaskComputeDispatchesV1).where(
+    dispatchCheckpointWhere(fixture.runId, fixture.dispatchSequence),
+  );
+  return result?.count ?? -1;
 }
 
 async function pendingDeliveryCount(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  runId: string,
-  requestedEffectSequence: bigint,
+  runId: TaskRunIdV1,
+  requestedEffectSequence: TaskRequestedEffectSequenceV1,
 ) {
-  const result = await persistence.query<{ count: string }>(`
-    select count(*)::text as count
-    from fx_system_durable_task_compute_pending_v1
-    where scope_id = $1 and run_id = $2
-      and requested_effect_sequence = $3
-  `, [TASK_SCOPE_ID, runId, requestedEffectSequence]);
-  return Number(result.rows[0]?.count ?? "-1");
+  const [result] = await persistence.drizzle.select({
+    count: count(),
+  }).from(fxSystemDurableTaskComputePendingV1).where(
+    pendingCheckpointWhere(runId, requestedEffectSequence),
+  );
+  return result?.count ?? -1;
 }
 
 function latch<Value>() {
@@ -2639,10 +2731,10 @@ async function makeFixture(raw: PGlite) {
   const persistence = await createPGlitePersistence({ db: raw });
   await persistence.migrate();
   await seedTaskSystemRunAttemptStoreV1(persistence);
-  await persistence.query(`
-    delete from fx_system_durable_task_run_v1
-    where scope_id = '${TASK_SCOPE_ID}'
-  `);
+  await persistence.drizzle.delete(fxSystemDurableTaskRunsV1).where(eq(
+    fxSystemDurableTaskRunsV1.scopeId,
+    taskScopeId,
+  ));
   const runtimeBinding = await makeTaskSystemCreationRuntimeBindingV1();
   const creationAuthority = makeTaskSystemCreationAuthorityV1();
   await installTaskSystemCreationRuntimeBindingV1(
