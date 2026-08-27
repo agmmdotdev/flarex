@@ -5,7 +5,8 @@
 Status: accepted v1 sync design with an implemented prototype pipeline.
 `SYNC01-P`, the docs-only target authority and first implementation preflight,
 and bounded `SYNC01-A` through `SYNC01-E` private correctness slices are
-complete. The per-scope
+complete. `SYNC01-FP`, the docs-only durable scope-cursor owner preflight, is
+also complete; its implementation is not. The per-scope
 `DeploymentSyncDO` replacement is not implemented, and cache Durable Objects
 remain deferred optimizations.
 
@@ -534,9 +535,10 @@ After `C07`, the ordered v1 gates are:
    identity, reset/resnapshot, and fenced Postgres checkpoint mirrors. Freeze
    reconnect lease identity, duration, history budget, renewal, expiry, and
    reset behavior in the same design gate.
-2. Add one deterministic `DeploymentSyncDO` per scope with durable SQLite
-   cursor, canonical-query, dependency-index, dirty-through, generation,
-   result-hash, and continuation state.
+2. Add one deterministic `DeploymentSyncDO` per scope in bounded sub-slices:
+   first its fenced durable SQLite cursor owner, then a separately preflighted
+   canonical query-key codec plus query, dependency-index, dirty-through,
+   generation, result-hash, and continuation state.
 3. Implement duplicate/reverse/gap processing and ordered Postgres catch-up;
    never advance across a missing commit.
 4. Fix initial activation through provisional DeploymentSyncDO registration and
@@ -914,3 +916,135 @@ mirror, reset/reconnect state, delivery, route, public SDK, compatibility
 write, or production caller. A head change after the observation remains
 recoverable only after those later gates exist. The first ordered typed-
 contract/owner gate remains incomplete and `R03-B` remains blocked.
+
+### [x] SYNC01-FP — Freeze The Durable Scope Cursor Owner
+
+Status: docs-only preflight complete. This checkpoint authorizes the next
+private implementation slice, `SYNC01-F`, but does not implement it. The slice
+establishes one production-inert `DeploymentSyncDO` and its fenced SQLite
+scope-cursor state. It deliberately does not persist canonical queries,
+generations, dependencies, dirty frontiers, results, continuations, connection
+targets, or reconnect leases.
+
+The narrower split is required because the existing strict canonical-query
+identity has no separately owned persisted query-key digest or canonical
+storage codec. Deriving an ad hoc JSON hash in the Durable Object would create
+a second identity contract. Query-key encoding, generation rows, and the
+dependency-to-query index therefore require their own preflight after the
+scope-cursor owner is real.
+
+#### Actor And Routing Authority
+
+- One actor owns one canonical `ScopeUuidV1`. Its deterministic name is
+  `deployment-sync:${scopeUuid}`; this makes the older `{scopeId}` notation
+  precise at the protocol boundary. The backend host owns the only name
+  constructor and resolves it through the `DEPLOYMENT_SYNCS` namespace.
+- The new class is the plain current `DeploymentSyncDO`, added as a new SQLite
+  Durable Object class in the next Wrangler migration. It does not replace or
+  rename `DeploymentDO`, and no current route or scheduled caller invokes the
+  new binding in this slice.
+- A Durable Object cannot infer the string originally supplied to named-ID
+  routing. Every package-local store operation therefore carries the canonical
+  scope UUID, and the first durable row binds that identity. Every later store
+  operation checks the same identity before reading or mutating the cursor.
+- Postgres remains authoritative for scope placement, epoch, storage
+  generation and fence, retained floor, current commit, and the commit feed.
+  The actor's cursor proves only that this actor examined every admitted feed
+  commit through one sequence. It is never the maximum wake or commit sequence
+  merely observed.
+- The prototype Postgres subscription registry, deployment timestamp mirror,
+  singleton `SchedulerDO`, and query-first `ConnectionDO` flow are neither
+  read nor written. They remain regression evidence, not fallback authority.
+
+#### Fenced SQLite State
+
+The first store has one singleton scope-state row and no query tables. Its
+logical columns are:
+
+| Field | Contract |
+| --- | --- |
+| local schema revision | positive implementation-owned integer for exact store decoding |
+| scope UUID | canonical lowercase `ScopeUuidV1` text and immutable actor identity |
+| epoch UUID | canonical lowercase `ScopeEpochUuidV1` text |
+| storage generation | literal `flarexdb_v1` |
+| storage-generation fence | canonical positive decimal text decoded by `StorageGenerationFenceSchema` |
+| applied-through commit sequence | canonical non-negative decimal text decoded by `CommitSeqSchema` |
+
+The fence and commit sequence are stored as canonical decimal text, not as a
+JavaScript-facing SQLite integer. Cloudflare documents that numeric SQLite
+columns are returned through JavaScript numbers and can lose precision above
+52 bits. Ordering and arithmetic remain typed `bigint` operations after decode;
+the store uses exact text equality only for compare-and-swap predicates.
+
+An absent row means `uninitialized`, not cursor zero. A malformed, duplicate,
+or partially populated row is corruption and fails closed. Constructor schema
+creation must never synthesize scope authority or silently repair an invalid
+row. The store is per-Durable-Object-instance state, not a global Context
+service, and no network or untrusted application work runs inside its
+synchronous SQLite transaction.
+
+#### Initialization And Cursor Transitions
+
+`SYNC01-F` may implement only these state transitions:
+
+1. A fresh, empty actor may initialize from one already-authenticated
+   `ScopeSyncActiveHeadObservationV1`. Because this slice admits no query or
+   connection registrations, it may set the initial applied-through cursor to
+   that observation's current commit sequence without hiding invalidations.
+   Strict decoding alone does not authenticate this evidence. `SYNC01-F`
+   exposes no host or RPC caller; a later caller gate must obtain the
+   observation through the trusted persistence operation completed in
+   `SYNC01-E` and retain that trust boundary through store invocation.
+2. Exact initialization replay is an immutable no-op. A differing scope,
+   epoch, generation, fence, or commit sequence is a typed conflict and leaves
+   state unchanged. Initialization is never an advance operation.
+3. An already validated feed commit may enter the existing pure
+   `advanceScopeSyncCursorV1` policy. Duplicate commits remain no-ops;
+   scope/epoch mismatch and gaps fail before storage mutation.
+4. An exact-next candidate updates the singleton row in one
+   `transactionSync` compare-and-swap from the exact expected decimal sequence
+   to the exact next sequence. A lost compare-and-swap is a typed state
+   conflict. Any transaction failure leaves the prior cursor readable.
+5. A wake remains a hint and cannot invoke the storage transition. Epoch
+   adoption, reset, Postgres catch-up, and checkpoint-mirror publication are
+   not authorized by this slice.
+
+Fresh initialization is not the future state-loss recovery protocol. Once
+query or reconnect registrations exist, an empty actor cannot distinguish a
+brand-new scope from destroyed coordination state by itself. The later
+registration/reset gate must provide durable external evidence and fail closed
+to reset/resubscribe; it must not reuse this empty-owner bootstrap as silent
+recovery.
+
+#### Authorized Implementation Slice: SYNC01-F
+
+`SYNC01-F` may add:
+
+- the `DEPLOYMENT_SYNCS` environment binding, `DeploymentSyncDO` export, and
+  new-SQLite-class Wrangler migration with no production caller;
+- one backend-owned deterministic actor-name helper over `ScopeUuidV1`;
+- one package-local SQLite store and precise tagged initialization,
+  corruption, conflict, and storage errors;
+- package-local initialize, read, and already-validated cursor-transition
+  operations with no fetch, RPC, alarm, or scheduled surface; and
+- focused pure/store tests plus a genuine Workerd SQLite proof that exercises
+  the store through the test harness for actor isolation, exact replay, maximum
+  signed-64-bit fence and sequence round trips, constructor re-entry,
+  corruption refusal, duplicate/gap/scope/epoch behavior, atomic compare-and-
+  swap, rollback, and absence of prototype-registry access.
+
+It must keep the existing protocol cursor and pure policy as the only
+advancement semantics. It adds no feed interval reader, fetch or RPC method,
+wake route, alarm, external sweep, Postgres cursor mirror, canonical-query key,
+query or dependency table, registration, activation, rerun, delivery,
+reconnect, public SDK, relation API, Payload adapter, or production caller
+switch.
+`R03-B` remains blocked after this slice.
+
+Platform evidence was rechecked against Cloudflare's current
+[SQLite-backed Durable Object storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/),
+[named Durable Object namespace API](https://developers.cloudflare.com/durable-objects/api/namespace/),
+and [named-object metadata limitation](https://developers.cloudflare.com/durable-objects/examples/reference-do-name-using-init/).
+Those sources support private strongly consistent SQLite state,
+`transactionSync`, deterministic named routing, and the explicit stored
+identity check required above; they do not supply Flarex scope authority.

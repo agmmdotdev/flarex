@@ -2441,6 +2441,14 @@ acceptance lanes are complete. Durable sync-owner state, atomic installation,
 dependency indexing, catch-up, head-change recovery, reset, reconnect, and
 relation registration remain absent and continue to block R03-B.
 
+Roadmap 21's `SYNC01-FP` now authorizes only the first durable-owner
+implementation slice: deterministic per-scope `DeploymentSyncDO` routing and
+one fenced SQLite scope-cursor row with exact initialization replay and atomic
+exact-next compare-and-swap. It intentionally excludes canonical-query key
+encoding, generation and dependency storage, feed catch-up, reset/reconnect,
+and registration. Completing `SYNC01-F` will therefore establish the actor and
+cursor owner but will not satisfy R03-B's registration prerequisite.
+
 Outcome:
 
 - enable relation dependency registration at an exact scope-commit-fenced

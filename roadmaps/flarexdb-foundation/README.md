@@ -653,7 +653,7 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 21. The rest of `O08-B2b2b2b1b2b2b` + `C06-B` (pending): durable scheduling/
     redelivery, production dispatch, and stable `/invoke/*` endpoint/response
     policy.
-22. `C07`: PGlite plus real-Postgres correctness gate.
+22. `C07` (complete): PGlite plus real-Postgres correctness gate.
 
 The former B2b/C06 dependency contradiction is resolved by this split: C06-A
 is the accepted non-routing prerequisite, and O08-B2b2a now supplies only the
@@ -672,7 +672,8 @@ This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
 so C04C2 remains conditional and outside the mandatory order. O08-
-B2b2b2b1b2b2a is complete; O08-B2b2b2b1b2b2b, C06-B, and C07 remain pending.
+B2b2b2b1b2b2a and C07 are complete; O08-B2b2b2b1b2b2b and C06-B remain
+pending.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or
@@ -844,6 +845,12 @@ Dynamic Worker binding baseline before selecting it.
     acceptance lanes are complete. These still add no Durable Object,
     registration, stored dependency index, rerun execution, head-change
     recovery, delivery, reconnect, or relation observer.
+    `SYNC01-FP` now freezes the next smaller actor boundary: one deterministic,
+    production-inert `DeploymentSyncDO` with a fenced SQLite scope cursor,
+    canonical decimal-text sequence storage, exact initialization replay, and
+    atomic exact-next compare-and-swap. The implementation is not started;
+    query-key encoding, generation/dependency storage, catch-up, reset,
+    registration, and every caller remain separate gates.
 23. `R03-B`: after roadmap 21's durable scope-local sync owner, canonical query
     generation/dependency contracts, active-head observation, and reconnect
     rules exist, prove fenced relation registration, invalidation, and
