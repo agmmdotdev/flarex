@@ -1,8 +1,10 @@
 import { Cause, Effect, Exit, Result } from "effect";
 import {
+  FlarexDbV1StorageGenerationSchema,
   StorageGenerationFenceSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,6 +12,7 @@ import {
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
 } from "../src/pglite";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedTrustedScopeAuthority,
@@ -206,12 +209,13 @@ async function scopeFixture(
       ),
     },
   ).ensure({ deploymentId, projectId: `${deploymentId}_project` });
-  await persistence.query(
-    `update fx_system_scope_clock
-        set storage_generation = 'flarexdb_v1'
-      where scope_id = $1`,
-    [provisioned.scope.scopeId],
-  );
+  await persistence.drizzle
+    .update(fxSystemScopeClocks)
+    .set({
+      storageGeneration:
+        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    })
+    .where(eq(fxSystemScopeClocks.scopeId, provisioned.scope.scopeId));
   const unresolved = createPGliteLocatedPointMutationSessionActivationTargetV1(
     persistence,
     locator,
