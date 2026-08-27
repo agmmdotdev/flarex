@@ -7,6 +7,7 @@ import type {
 import {
   makeFixedTaskRetryJitterSourceV1,
 } from "@flarex/durable-task/internal/scheduling-testing-v1";
+import { count } from "drizzle-orm";
 import { Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -17,6 +18,11 @@ import {
 import {
   createTaskSystemWakeSchedulerResolverV1,
 } from "../src/taskSystemWakeSchedulerResolverV1";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+} from "../src/schema";
 import { runEffect } from "./effectTestRuntime";
 import {
   postgresUrl,
@@ -149,19 +155,20 @@ function attemptUuidSequence(start: number): () => string {
 }
 
 async function taskCounts(persistence: PostgresFlarexPersistence) {
-  const result = await persistence.query<{
-    runs: number;
-    attempts: number;
-    effects: number;
-  }>(`
-    select
-      (select count(*)::int from fx_system_durable_task_run_v1) as runs,
-      (select count(*)::int
-       from fx_system_durable_task_attempt_identity_v1) as attempts,
-      (select count(*)::int
-       from fx_system_durable_task_requested_effect_v1) as effects
-  `);
-  const counts = result.rows[0];
-  if (counts === undefined) throw new Error("task counts returned no row");
-  return Object.freeze(counts);
+  const [[runs], [attempts], [effects]] = await Promise.all([
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRunsV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskAttemptIdentitiesV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRequestedEffectsV1,
+    ),
+  ]);
+  return Object.freeze({
+    runs: runs?.count ?? -1,
+    attempts: attempts?.count ?? -1,
+    effects: effects?.count ?? -1,
+  });
 }
