@@ -7,6 +7,7 @@ import {
   StorageGenerationFenceSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
+import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,6 +18,7 @@ import {
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
 } from "../src/pglite";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   TrustedScopeAuthorityResolutionError,
   type LocatedScopeClockReader,
@@ -106,14 +108,10 @@ describe("app-data snapshot resolution", () => {
       deploymentId: "deployment_snapshot_second",
       projectId: "project_snapshot_second",
     });
-    await persistence.query(
-      `
-        update fx_system_scope_clock
-        set last_commit_seq = $2
-        where scope_id = $1
-      `,
-      [first.scope.scopeId, CommitSeqSchema.make(highCommitSeq)],
-    );
+    await persistence.drizzle
+      .update(fxSystemScopeClocks)
+      .set({ lastCommitSeq: CommitSeqSchema.make(highCommitSeq) })
+      .where(eq(fxSystemScopeClocks.scopeId, first.scope.scopeId));
     const resolver = createAppDataSnapshotResolver(
       sharedResolutionPorts(persistence),
     );

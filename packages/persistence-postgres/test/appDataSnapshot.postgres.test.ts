@@ -1,7 +1,10 @@
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
+  StorageGenerationFenceSchema,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createAppDataSnapshotResolver } from "../src/appDataSnapshot";
@@ -9,6 +12,7 @@ import {
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "../src/postgres";
+import { fxSystemScopeClocks } from "../src/schema";
 import type { TrustedScopeAuthorityResolutionPorts } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
@@ -108,17 +112,16 @@ async function updateClock(
   scopeId: ScopeId,
   commitSeq: bigint,
 ): Promise<void> {
-  await persistence.query(
-    `
-      update fx_system_scope_clock
-      set storage_generation = 'flarexdb_v1',
-          storage_generation_fence = 19,
-          last_commit_seq = $2,
-          updated_at = now()
-      where scope_id = $1
-    `,
-    [scopeId, CommitSeqSchema.make(commitSeq)],
-  );
+  await persistence.drizzle
+    .update(fxSystemScopeClocks)
+    .set({
+      storageGeneration:
+        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: StorageGenerationFenceSchema.make(19n),
+      lastCommitSeq: CommitSeqSchema.make(commitSeq),
+      updatedAt: sql<Date>`now()`,
+    })
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId));
 }
 
 function uuidSequence(...values: readonly string[]): () => string {
