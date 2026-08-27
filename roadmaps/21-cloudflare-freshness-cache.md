@@ -4,7 +4,9 @@
 
 Status: accepted v1 sync design with an implemented prototype pipeline.
 `SYNC01-P`, the docs-only target authority and first implementation preflight,
-and the bounded `SYNC01-A` cursor core are complete. The per-scope
+and bounded `SYNC01-A` through `SYNC01-D` private correctness slices are
+complete. `SYNC01-E` is implemented but awaits its genuine-PostgreSQL
+acceptance lane. The per-scope
 `DeploymentSyncDO` replacement is not implemented, and cache Durable Objects
 remain deferred optimizations.
 
@@ -825,3 +827,91 @@ persisted inverted index, registration route, query execution, feed loop,
 active-head reader, cursor mirror, reconnect lease, rerun execution, delivery,
 public SDK, compatibility write, or production caller switch. The first
 ordered typed-contract gate remains incomplete and `R03-B` remains blocked.
+
+### [x] SYNC01-EP — Freeze Authenticated Current-Head Observation
+
+Status: docs-only preflight completed on 2026-08-27. This checkpoint authorizes
+one private current-Application-head observation boundary needed by the
+already-completed generation classifier. It does not authorize the
+`DeploymentSyncDO`, SQLite state, generation installation, stale-writer CAS,
+dependency-index persistence, commit catch-up, cursor mirror, reconnect lease,
+delivery, route, public SDK, compatibility write, or caller switch.
+
+The protocol observation is strict evidence containing the canonical scope and
+epoch UUIDs, `flarexdb_v1`, the positive storage-generation fence, the scope
+commit sequence observed in the same transaction, and the coherent current
+Application activation sequence and active-head SHA-256. It is evidence only:
+Schema decoding does not authenticate the scope, clock, or head.
+
+Persistence may produce that evidence only after all of the following succeed
+in one located READ COMMITTED transaction:
+
+1. current control metadata and the located scope clock resolve through the
+   existing trusted scope-authority ports;
+2. the existing `ScopeExecution` read boundary acquires the scope-clock share
+   lock and rechecks placement, `flarexdb_v1`, storage-generation fence, and
+   epoch;
+3. the existing active-head reader authenticates both the current head frame
+   and the immutable activation row selected by that head; and
+4. the canonical scope/epoch projections plus activation sequence and digest
+   decode without weakening their protocol contracts.
+
+The backend activation classifier must require the observation's scope and
+epoch to equal the canonical query identity and its observed commit sequence to
+be at least the query snapshot. The query receipt's storage generation and
+generation fence must also exactly equal the authenticated current-head
+observation before activation. It then compares the observed activation
+sequence and digest with the identity as before. A mismatched identity returns
+the existing normal `resnapshotRequired` decision; malformed, cross-authority,
+or displaced-fence observation evidence is a typed failure.
+
+This read does not make Postgres Application activation atomic with a later
+Durable Object installation transaction. A head change after observation must
+still be recovered by the separately preflighted active-head wake/sweep and
+generation CAS. This slice must not fabricate an app-data commit, modify the
+activation owner, or consult the Legacy subscription registry.
+
+#### Authorized implementation slice: SYNC01-E
+
+`SYNC01-E` may add the strict observation Schema and owned capture/decode
+helpers, one persistence-owned Effect observation operation using the existing
+trusted authority and `ScopeExecution` capabilities, the relation-query
+receipt's existing storage-generation authority, the connected backend
+classifier checks, and focused protocol/backend plus paired PGlite/PostgreSQL
+proof. It must preserve upstream typed failures and keep current cursor,
+generation, OCC, journal, commit, activation, and delivery behavior unchanged.
+
+### [ ] SYNC01-E — Authenticated Current-Head Observation
+
+Status: implementation checkpoint completed on 2026-08-27; acceptance remains
+pending the genuine-PostgreSQL transaction/lock proof. The internal protocol
+now owns one strict, owned current-head observation envelope. Persistence
+produces it only through current trusted scope-authority resolution, the existing located
+`ScopeExecution` read transaction and scope-clock share lock, and the existing
+coherent active-head plus immutable-activation-frame reader. The observation
+therefore carries the current canonical scope/epoch projection,
+`flarexdb_v1`, storage-generation fence, same-transaction scope commit
+sequence, activation sequence, and lowercase active-head SHA-256 without
+creating another activation authority.
+
+The relation-query receipt now retains the storage generation and generation
+fence under which the query ran. The backend activation classifier rejects an
+observation from another scope or epoch, one taken before the query snapshot,
+or one whose storage generation or fence differs from that receipt. A matching
+observation retains the existing head comparison, while a changed activation
+sequence or digest still returns `resnapshotRequired` rather than installing a
+candidate.
+
+Focused protocol and backend tests, strict protocol/backend/system-test
+typechecks, and the existing relation-query PGlite system proof are green. The
+paired genuine-PostgreSQL assertion consumes the same proof but was not
+executed in this checkpoint because `FLAREX_POSTGRES_DATABASE_URL` was
+unavailable. This checkbox remains open and no genuine-PostgreSQL acceptance is
+claimed here.
+
+This checkpoint adds no Durable Object, SQLite or Postgres write, generation
+installation, dependency index, catch-up loop, head-change wake/sweep, cursor
+mirror, reset/reconnect state, delivery, route, public SDK, compatibility
+write, or production caller. A head change after the observation remains
+recoverable only after those later gates exist. The first ordered typed-
+contract/owner gate remains incomplete and `R03-B` remains blocked.

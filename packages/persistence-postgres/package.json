@@ -21,6 +21,7 @@
     "./internal/application-managed-schema-application": "./src/applicationManagedSchemaApplication.ts",
     "./internal/application-query-snapshot": "./src/applicationQuerySnapshot.ts",
     "./internal/commit-feed": "./src/commitFeed.ts",
+    "./internal/scope-sync-active-head-observation-v1": "./src/scopeSyncActiveHeadObservationV1.ts",
     "./internal/scope-execution": "./src/scopeExecution/ScopeExecution.ts",
     "./internal/application-mutation-admission": "./src/applicationMutationAdmission.ts",
     "./internal/application-action-admission": "./src/applicationActionAdmission.ts",

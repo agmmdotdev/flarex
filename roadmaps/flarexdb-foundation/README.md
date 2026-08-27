@@ -836,9 +836,14 @@ Dynamic Worker binding baseline before selecting it.
     adds strict scope-local dependency keys and pure commit-to-key routing,
     including conservative table fallback for index ranges. `SYNC01-D` adds
     the complete canonical query identity, strict provisional/active generation
-    contracts, and pure activation classification. These still add no Durable
-    Object, registration, stored dependency index, rerun execution, delivery,
-    reconnect, or relation observer.
+    contracts, and pure activation classification. `SYNC01-E` now implements
+    the separately authenticated current-Application-head observation consumed
+    by that classifier, including current scope/epoch/fence evidence from one
+    trusted located read and exact equality with the query receipt's storage
+    authority. Its genuine-PostgreSQL transaction/lock acceptance lane remains
+    pending. These still add no Durable Object, registration, stored dependency
+    index, rerun execution, head-change recovery, delivery, reconnect, or
+    relation observer.
 23. `R03-B`: after roadmap 21's durable scope-local sync owner, canonical query
     generation/dependency contracts, active-head observation, and reconnect
     rules exist, prove fenced relation registration, invalidation, and

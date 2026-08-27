@@ -2,6 +2,7 @@ import { Data } from "effect";
 
 import type {
   ScopeSyncActiveQueryGenerationV1,
+  ScopeSyncActiveHeadObservationV1,
   ScopeSyncCanonicalQueryIdentityV1,
   ScopeSyncCursorV1,
   ScopeSyncDependencyKeySetV1Error,
@@ -18,6 +19,8 @@ import type {
   ScopeEpochUuidV1,
   ScopeUuidV1,
   SnapshotToken,
+  StorageGeneration,
+  StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 
 export type ScopeSyncCursorPolicyOperation =
@@ -116,7 +119,12 @@ export type ScopeSyncQueryGenerationEvidenceField =
   | "refreshEpochUuid"
   | "refreshCommitSeq"
   | "receiptActivationSequence"
-  | "receiptActiveHeadSha256Hex";
+  | "receiptActiveHeadSha256Hex"
+  | "receiptStorageGeneration"
+  | "receiptStorageGenerationFence"
+  | "currentHeadScopeUuid"
+  | "currentHeadEpochUuid"
+  | "currentHeadCommitSeq";
 
 export class ScopeSyncQueryGenerationMismatchError extends Data.TaggedError(
   "ScopeSyncQueryGenerationMismatchError",
@@ -143,7 +151,9 @@ export interface ScopeSyncQueryActivationEvidenceV1 {
   readonly expectedGeneration: ScopeSyncQueryGenerationSequenceV1;
   readonly snapshotToken: SnapshotToken;
   readonly receiptActiveHead: ScopeSyncQueryActiveHeadWitnessV1;
-  readonly currentActiveHead: ScopeSyncQueryActiveHeadWitnessV1;
+  readonly receiptStorageGeneration: StorageGeneration;
+  readonly receiptStorageGenerationFence: StorageGenerationFence;
+  readonly currentActiveHead: ScopeSyncActiveHeadObservationV1;
   readonly refreshedThroughCursor: ScopeSyncCursorV1;
   readonly dirtyThroughCommitSeq: CommitSeq | null;
   readonly dependencies: ReadonlyArray<ScopeSyncDependencyKeyV1>;

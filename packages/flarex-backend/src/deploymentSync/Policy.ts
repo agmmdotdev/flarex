@@ -304,6 +304,39 @@ export function activateScopeSyncQueryGenerationV1(
       identity.activeHeadSha256Hex,
       evidence.receiptActiveHead.activeHeadSha256Hex,
     );
+    yield* requireQueryGenerationEvidence(
+      evidence.receiptStorageGeneration ===
+        evidence.currentActiveHead.storageGeneration,
+      "receiptStorageGeneration",
+      evidence.currentActiveHead.storageGeneration,
+      evidence.receiptStorageGeneration,
+    );
+    yield* requireQueryGenerationEvidence(
+      evidence.receiptStorageGenerationFence ===
+        evidence.currentActiveHead.storageGenerationFence,
+      "receiptStorageGenerationFence",
+      evidence.currentActiveHead.storageGenerationFence.toString(),
+      evidence.receiptStorageGenerationFence.toString(),
+    );
+    yield* requireQueryGenerationEvidence(
+      evidence.currentActiveHead.scopeUuid === identity.scopeUuid,
+      "currentHeadScopeUuid",
+      identity.scopeUuid,
+      evidence.currentActiveHead.scopeUuid,
+    );
+    yield* requireQueryGenerationEvidence(
+      evidence.currentActiveHead.epochUuid === identity.epochUuid,
+      "currentHeadEpochUuid",
+      identity.epochUuid,
+      evidence.currentActiveHead.epochUuid,
+    );
+    yield* requireQueryGenerationEvidence(
+      evidence.currentActiveHead.observedAtCommitSeq >=
+        evidence.snapshotToken.commitSeq,
+      "currentHeadCommitSeq",
+      `>=${evidence.snapshotToken.commitSeq}`,
+      evidence.currentActiveHead.observedAtCommitSeq.toString(),
+    );
 
     if (
       evidence.currentActiveHead.activationSequence !==

@@ -53,6 +53,8 @@ import {
   SnapshotTokenSchema,
   type CommitSeq,
   type SnapshotToken,
+  type StorageGeneration,
+  type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 import {
   isCanonicalFlarexRuntimeObjectV1,
@@ -235,6 +237,8 @@ export interface ApplicationRelationQueryPage {
 
 export interface ApplicationRelationQuerySyncReceipt {
   readonly snapshotToken: SnapshotToken;
+  readonly storageGeneration: StorageGeneration;
+  readonly storageGenerationFence: StorageGenerationFence;
   readonly dependency: LogicalApplicationRelationIncomingReadDependencyV1;
 }
 
@@ -861,6 +865,9 @@ function captureApplicationRelationQuerySyncReceipt(
   }) satisfies LogicalApplicationRelationIncomingReadDependencyV1;
   return Object.freeze({
     snapshotToken: Object.freeze({ ...state.metadata.snapshotToken }),
+    storageGeneration: state.metadata.basis.authority.storageGeneration,
+    storageGenerationFence:
+      state.metadata.basis.authority.storageGenerationFence,
     dependency,
   });
 }

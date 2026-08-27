@@ -75,12 +75,30 @@ function expectRelationQueryProof(
     pageMatchesLogicalResult: true,
     snapshotScopeMatchesSelection: true,
     snapshotEpochMatchesSelection: true,
+    storageGenerationMatchesSelection: true,
+    storageGenerationFenceMatchesSelection: true,
     observationAtOrBeforeSnapshot: true,
     edgeDefinitionMatches: true,
     targetRowMatches: true,
     activationSequenceMatches: true,
     activeHeadDigestMatches: true,
     runtimeSurfaceFrozen: true,
+  });
+  expect(proof.activeHeadObservation).toEqual({
+    scopeMatches: true,
+    epochMatches: true,
+    storageGenerationMatches: true,
+    storageGenerationFenceMatches: true,
+    activationSequenceMatches: true,
+    activeHeadDigestMatches: true,
+    observedAtCurrentCommit: true,
+    runtimeSurfaceFrozen: true,
+  });
+  expect(proof.activeHeadMissing).toEqual({
+    tag: "ScopeSyncActiveHeadObservationError",
+    operation: null,
+    reason: "activeHeadMissing",
+    retryable: null,
   });
   expect(proof.legacyActive).toEqual({
     tag: "ApplicationActivationError",

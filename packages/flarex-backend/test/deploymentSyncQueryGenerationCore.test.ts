@@ -7,6 +7,7 @@ import {
   ApplicationActiveHeadSha256HexV1Schema,
 } from "flarex-protocol/commit-protocol";
 import {
+  SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1,
   SCOPE_SYNC_CANONICAL_QUERY_FORMAT_V1,
   SCOPE_SYNC_CURSOR_FORMAT_V1,
   SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
@@ -16,6 +17,7 @@ import {
   ScopeSyncQueryIdentityAccessPolicySha256HexV1Schema,
   ScopeSyncQueryResultSha256HexV1Schema,
   ScopeSyncQuerySourcePackageSha256HexV1Schema,
+  captureScopeSyncActiveHeadObservationV1,
   captureScopeSyncCanonicalQueryIdentityV1,
   captureScopeSyncCursorV1,
   captureScopeSyncDependencyKeyV1,
@@ -28,9 +30,12 @@ import { CatalogSchemaVersionIdSchema } from
   "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
+  LegacyV1StorageGenerationSchema,
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
   SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
   replacementScopeEpochV1FromUuid,
   replacementScopeIdV1FromUuid,
 } from "flarex-protocol/storage-authority";
@@ -110,7 +115,7 @@ describe("deployment sync query generation core", () => {
     const decision = Result.getOrThrow(activateScopeSyncQueryGenerationV1(
       makeProvisional(),
       makeEvidence({
-        currentActiveHead: Object.freeze({
+        currentActiveHead: currentHeadObservation({
           activationSequence: ApplicationActivationSequenceV1Schema.make(4n),
           activeHeadSha256Hex:
             ApplicationActiveHeadSha256HexV1Schema.make("66".repeat(32)),
@@ -192,6 +197,27 @@ describe("deployment sync query generation core", () => {
     ["refreshCommitSeq", () => makeEvidence({
       refreshedThroughCursor: cursor(5n),
     })],
+    ["receiptStorageGeneration", () => makeEvidence({
+      receiptStorageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+    })],
+    ["receiptStorageGenerationFence", () => makeEvidence({
+      receiptStorageGenerationFence: StorageGenerationFenceSchema.make(10n),
+    })],
+    ["currentHeadScopeUuid", () => makeEvidence({
+      currentActiveHead: currentHeadObservation({
+        scopeUuid: otherScopeUuid,
+      }),
+    })],
+    ["currentHeadEpochUuid", () => makeEvidence({
+      currentActiveHead: currentHeadObservation({
+        epochUuid: otherEpochUuid,
+      }),
+    })],
+    ["currentHeadCommitSeq", () => makeEvidence({
+      currentActiveHead: currentHeadObservation({
+        observedAtCommitSeq: CommitSeqSchema.make(5n),
+      }),
+    })],
   ] as const)("rejects invalid %s activation evidence", (field, evidence) => {
     const failure = expectFailure(activateScopeSyncQueryGenerationV1(
       makeProvisional(),
@@ -261,12 +287,36 @@ function makeEvidence(
     expectedGeneration: ScopeSyncQueryGenerationSequenceV1Schema.make(1n),
     snapshotToken: snapshot(6n),
     receiptActiveHead: activeHead,
-    currentActiveHead: activeHead,
+    receiptStorageGeneration: FlarexDbV1StorageGenerationSchema.make(
+      "flarexdb_v1",
+    ),
+    receiptStorageGenerationFence: StorageGenerationFenceSchema.make(9n),
+    currentActiveHead: currentHeadObservation(),
     refreshedThroughCursor: cursor(7n),
     dirtyThroughCommitSeq: null,
     dependencies: Object.freeze([tableKey(1)]),
     resultSha256Hex:
       ScopeSyncQueryResultSha256HexV1Schema.make("44".repeat(32)),
+    ...overrides,
+  });
+}
+
+function currentHeadObservation(
+  overrides: Partial<ScopeSyncQueryActivationEvidenceV1["currentActiveHead"]> =
+    {},
+): ScopeSyncQueryActivationEvidenceV1["currentActiveHead"] {
+  return captureScopeSyncActiveHeadObservationV1({
+    format: SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1,
+    version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+    scopeUuid,
+    epochUuid,
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make(
+      "flarexdb_v1",
+    ),
+    storageGenerationFence: StorageGenerationFenceSchema.make(9n),
+    observedAtCommitSeq: CommitSeqSchema.make(7n),
+    activationSequence,
+    activeHeadSha256Hex,
     ...overrides,
   });
 }

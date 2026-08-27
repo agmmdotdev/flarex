@@ -74,6 +74,8 @@ import {
   type ApplicationActiveSelection,
   type ApplicationRelationActivationRepository,
 } from "../applicationActivation";
+import { fxSystemApplicationActiveHeads } from
+  "../applicationActivationSchema";
 import {
   type ApplicationRelationBindingPublication,
   type ApplicationRelationBindingRepository,
@@ -216,6 +218,7 @@ export interface ApplicationRelationQuerySystemTestFixture {
   readonly withEdgeStorageUnavailable: <Value>(
     use: () => Promise<Value>,
   ) => Promise<Value>;
+  readonly removeActiveHeadForTest: () => Promise<void>;
 }
 
 export async function createApplicationRelationQueryPGliteSystemTestFixture(
@@ -831,6 +834,11 @@ async function createFixture(
     },
     withEdgeStorageUnavailable: <Value>(use: () => Promise<Value>) =>
       withEdgeStorageUnavailable(input.target, use),
+    removeActiveHeadForTest: async () => {
+      await input.target.drizzle.delete(fxSystemApplicationActiveHeads).where(
+        eq(fxSystemApplicationActiveHeads.scopeId, authority.scopeId),
+      );
+    },
   });
 }
 

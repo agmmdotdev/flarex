@@ -21,8 +21,10 @@ import {
 } from "./commit-protocol";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   ScopeEpochUuidV1Schema,
   ScopeUuidV1Schema,
+  StorageGenerationFenceSchema,
 } from "./storage-authority";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { CanonicalPositivePostgresBigIntFromString } from "./postgres-bigint";
@@ -32,6 +34,8 @@ import {
 } from "./strict-schema-options";
 
 export const SCOPE_SYNC_CURSOR_FORMAT_V1 = "flarex.scope-sync-cursor";
+export const SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1 =
+  "flarex.scope-sync-active-head-observation";
 export const SCOPE_SYNC_CANONICAL_QUERY_FORMAT_V1 =
   "flarex.scope-sync-canonical-query";
 export const SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1 =
@@ -125,6 +129,20 @@ export const ScopeSyncCanonicalQueryIdentityV1Schema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type ScopeSyncCanonicalQueryIdentityV1 =
   typeof ScopeSyncCanonicalQueryIdentityV1Schema.Type;
+
+export const ScopeSyncActiveHeadObservationV1Schema = Schema.Struct({
+  format: Schema.Literal(SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1),
+  version: Schema.Literal(SCOPE_SYNC_PROTOCOL_VERSION_V1),
+  scopeUuid: ScopeUuidV1Schema,
+  epochUuid: ScopeEpochUuidV1Schema,
+  storageGeneration: FlarexDbV1StorageGenerationSchema,
+  storageGenerationFence: StorageGenerationFenceSchema,
+  observedAtCommitSeq: CommitSeqSchema,
+  activationSequence: ApplicationActivationSequenceV1Schema,
+  activeHeadSha256Hex: ApplicationActiveHeadSha256HexV1Schema,
+}).annotate(StrictStructOptions);
+export type ScopeSyncActiveHeadObservationV1 =
+  typeof ScopeSyncActiveHeadObservationV1Schema.Type;
 
 export const ScopeSyncCursorV1Schema = Schema.Struct({
   format: Schema.Literal(SCOPE_SYNC_CURSOR_FORMAT_V1),
@@ -263,6 +281,10 @@ const decodeCanonicalQueryIdentityResult = Schema.decodeUnknownResult(
   ScopeSyncCanonicalQueryIdentityV1Schema,
   StrictParseOptions,
 );
+const decodeActiveHeadObservationResult = Schema.decodeUnknownResult(
+  ScopeSyncActiveHeadObservationV1Schema,
+  StrictParseOptions,
+);
 const decodeDependencyKeySetResult = Schema.decodeUnknownResult(
   ScopeSyncDependencyKeySetV1Schema,
   StrictParseOptions,
@@ -277,6 +299,14 @@ export function decodeScopeSyncCanonicalQueryIdentityV1Result(
 ): Result.Result<ScopeSyncCanonicalQueryIdentityV1, Schema.SchemaError> {
   return decodeCanonicalQueryIdentityResult(input).pipe(
     Result.map(captureScopeSyncCanonicalQueryIdentityV1),
+  );
+}
+
+export function decodeScopeSyncActiveHeadObservationV1Result(
+  input: unknown,
+): Result.Result<ScopeSyncActiveHeadObservationV1, Schema.SchemaError> {
+  return decodeActiveHeadObservationResult(input).pipe(
+    Result.map(captureScopeSyncActiveHeadObservationV1),
   );
 }
 
@@ -333,6 +363,22 @@ export function captureScopeSyncCanonicalQueryIdentityV1(
     functionPath: input.functionPath,
     argumentsSha256Hex: input.argumentsSha256Hex,
     identityAccessPolicySha256Hex: input.identityAccessPolicySha256Hex,
+  });
+}
+
+export function captureScopeSyncActiveHeadObservationV1(
+  input: ScopeSyncActiveHeadObservationV1,
+): ScopeSyncActiveHeadObservationV1 {
+  return Object.freeze({
+    format: SCOPE_SYNC_ACTIVE_HEAD_OBSERVATION_FORMAT_V1,
+    version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
+    scopeUuid: input.scopeUuid,
+    epochUuid: input.epochUuid,
+    storageGeneration: input.storageGeneration,
+    storageGenerationFence: input.storageGenerationFence,
+    observedAtCommitSeq: input.observedAtCommitSeq,
+    activationSequence: input.activationSequence,
+    activeHeadSha256Hex: input.activeHeadSha256Hex,
   });
 }
 

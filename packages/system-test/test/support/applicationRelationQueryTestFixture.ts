@@ -15,6 +15,9 @@ import {
   ScopeExecutionLive,
 } from "@flarex/persistence-postgres/internal/scope-execution";
 import {
+  observeScopeSyncActiveHeadV1Effect,
+} from "@flarex/persistence-postgres/internal/scope-sync-active-head-observation-v1";
+import {
   ApplicationRelationQuerySystem,
   decodeTakeIncomingRelationSourcesInput,
   makeApplicationRelationQuerySystemLayer,
@@ -30,6 +33,10 @@ import {
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdentityV1,
 } from "flarex-protocol/app-document-id";
+import {
+  projectScopeEpochUuidV1,
+  projectScopeIdUuidV1,
+} from "flarex-protocol/storage-authority";
 
 interface IncomingPageQueryObservation {
   readonly name: string;
@@ -69,12 +76,30 @@ export interface ApplicationRelationQueryProof {
     readonly pageMatchesLogicalResult: boolean;
     readonly snapshotScopeMatchesSelection: boolean;
     readonly snapshotEpochMatchesSelection: boolean;
+    readonly storageGenerationMatchesSelection: boolean;
+    readonly storageGenerationFenceMatchesSelection: boolean;
     readonly observationAtOrBeforeSnapshot: boolean;
     readonly edgeDefinitionMatches: boolean;
     readonly targetRowMatches: boolean;
     readonly activationSequenceMatches: boolean;
     readonly activeHeadDigestMatches: boolean;
     readonly runtimeSurfaceFrozen: boolean;
+  }>;
+  readonly activeHeadObservation: Readonly<{
+    readonly scopeMatches: boolean;
+    readonly epochMatches: boolean;
+    readonly storageGenerationMatches: boolean;
+    readonly storageGenerationFenceMatches: boolean;
+    readonly activationSequenceMatches: boolean;
+    readonly activeHeadDigestMatches: boolean;
+    readonly observedAtCurrentCommit: boolean;
+    readonly runtimeSurfaceFrozen: boolean;
+  }>;
+  readonly activeHeadMissing: Readonly<{
+    readonly tag: string;
+    readonly operation: string | null;
+    readonly reason: string | null;
+    readonly retryable: boolean | null;
   }>;
   readonly legacyActive: Readonly<{
     readonly tag: string;
@@ -213,6 +238,12 @@ export async function proveApplicationRelationQuery(
   const staleFailure = summarizeFailure(staleResult);
 
   const current = await Effect.runPromise(fixture.activation.readActive());
+  const activeHeadObservation = await Effect.runPromise(
+    observeScopeSyncActiveHeadV1Effect({
+      deploymentId: fixture.deploymentId,
+      authority: fixture.snapshot.authority,
+    }).pipe(Effect.provide(ScopeExecutionLive)),
+  );
   const syncResult = await Effect.runPromise(Effect.gen(function* () {
     const system = yield* ApplicationRelationQuerySystem;
     return yield* system.selectionRelation
@@ -266,6 +297,14 @@ export async function proveApplicationRelationQuery(
     observedPageQueries,
     fixture,
   );
+  await fixture.removeActiveHeadForTest();
+  const missingHeadResult = await Effect.runPromise(Effect.result(
+    observeScopeSyncActiveHeadV1Effect({
+      deploymentId: fixture.deploymentId,
+      authority: fixture.snapshot.authority,
+    }).pipe(Effect.provide(ScopeExecutionLive)),
+  ));
+  const missingHeadFailure = summarizeFailure(missingHeadResult);
 
   return Object.freeze({
     invalidInput: Object.freeze({
@@ -307,6 +346,25 @@ export async function proveApplicationRelationQuery(
       current,
       fixture,
     ),
+    activeHeadObservation: Object.freeze({
+      scopeMatches: activeHeadObservation.scopeUuid ===
+        projectScopeIdUuidV1(current.basis.authority.scopeId).scopeUuid,
+      epochMatches: activeHeadObservation.epochUuid ===
+        projectScopeEpochUuidV1(current.basis.authority.epoch).epochUuid,
+      storageGenerationMatches: activeHeadObservation.storageGeneration ===
+        current.basis.authority.storageGeneration,
+      storageGenerationFenceMatches:
+        activeHeadObservation.storageGenerationFence ===
+          current.basis.authority.storageGenerationFence,
+      activationSequenceMatches: activeHeadObservation.activationSequence ===
+        current.basis.activationSequence,
+      activeHeadDigestMatches: activeHeadObservation.activeHeadSha256Hex ===
+        encodeBytesToLowercaseHex(current.basis.headSha256),
+      observedAtCurrentCommit: activeHeadObservation.observedAtCommitSeq ===
+        current.basis.authority.lastCommitSeq,
+      runtimeSurfaceFrozen: Object.isFrozen(activeHeadObservation),
+    }),
+    activeHeadMissing: missingHeadFailure,
     legacyActive: Object.freeze({
       ...legacyActiveFailure,
       edgeStorageGuarded: true,
@@ -334,7 +392,12 @@ function summarizeSyncReceipt(
   fixture: ApplicationRelationQuerySystemTestFixture,
 ): ApplicationRelationQueryProof["syncReceipt"] {
   const expectedTargetRowId = decodeAppDocumentIdentityV1(fixture.target).rowId;
-  const { dependency, snapshotToken } = result.receipt;
+  const {
+    dependency,
+    snapshotToken,
+    storageGeneration,
+    storageGenerationFence,
+  } = result.receipt;
   return Object.freeze({
     dependencyKind: dependency.kind,
     pageMatchesLogicalResult:
@@ -347,6 +410,11 @@ function summarizeSyncReceipt(
       snapshotToken.scopeId === current.basis.authority.scopeId,
     snapshotEpochMatchesSelection:
       snapshotToken.epoch === current.basis.authority.epoch,
+    storageGenerationMatchesSelection:
+      storageGeneration === current.basis.authority.storageGeneration,
+    storageGenerationFenceMatchesSelection:
+      storageGenerationFence ===
+        current.basis.authority.storageGenerationFence,
     observationAtOrBeforeSnapshot:
       dependency.observedAdjacencyVersion <= snapshotToken.commitSeq,
     edgeDefinitionMatches:
