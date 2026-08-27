@@ -1,14 +1,18 @@
 import { PGlite } from "@electric-sql/pglite";
-import { Effect, Result } from "effect";
+import type {
+  TaskRequestedEffectSequenceV1,
+  TaskRunIdV1,
+} from "@flarex/durable-task/internal/run-attempt-v1";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { Brand, Effect, Result } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import {
-  encodeTaskComputeProfileStorageBytesV1,
-} from "../src/taskComputeDeliveryEvidenceV1";
 import {
   createPGliteLocatedTaskSystemRunAttemptTargetV1,
   createPGlitePersistence,
 } from "../src/pglite";
+import { detachDriverRows } from "../src/detachDriverRows";
 import {
   TaskComputeDeliveryContinuationV1Error,
   TaskComputeDeliveryDiscoveryCorruptionError,
@@ -24,6 +28,12 @@ import {
 import {
   createLocatedTaskComputeDeliveryTargetV1,
 } from "../src/taskComputeDeliveryRepositoryV1";
+import {
+  fxSystemDurableTaskComputeCancellationsV1,
+  fxSystemDurableTaskComputeDispatchesV1,
+  fxSystemDurableTaskComputePendingV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+} from "../src/schema";
 import type { AppRowTransaction } from "../src/appRows";
 import {
   createDefaultLocatedReadCommittedTransactionRunnerV1,
@@ -36,6 +46,7 @@ import {
   settleTaskComputeDeliverySchemaV1,
 } from "./taskComputeDeliverySchemaV1TestSupport";
 import {
+  seedAdditionalTaskSystemRunV1,
   TASK_LOCATOR,
   TASK_RUN_ID,
   locatedTaskAuthorityV1,
@@ -45,6 +56,9 @@ const RUN_BEFORE = "run_71000000-0000-4000-8000-000000000001";
 const RUN_AFTER = "run_73000000-0000-4000-8000-000000000001";
 const RUN_AFTER_HIGH_WATER =
   "run_74000000-0000-4000-8000-000000000001";
+const taskRunId = Brand.nominal<TaskRunIdV1>();
+const taskRequestedEffectSequence =
+  Brand.nominal<TaskRequestedEffectSequenceV1>();
 const DISCOVERY_DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 1_000,
   lockTimeoutMilliseconds: 250,
@@ -207,6 +221,7 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       discovery,
       legacyDiscovery,
       seeded,
+      dispatchFixture,
     }) => {
       const initialDispatch = await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
@@ -220,27 +235,17 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       expect(candidateKeys(waitingCancellation)).toEqual([
         `cancellation:${seeded.runId}:2`,
       ]);
-      await setRunDefinitionGeneration(persistence, "application_v1");
-      expect((await runEffect(
-        legacyDiscovery.discoverDispatchCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
-      expect((await runEffect(
-        legacyDiscovery.discoverCancellationCandidates({ limit: 10 }),
-      )).candidates).toEqual([]);
       expect(candidateKeys(await runEffect(
-        discovery.discoverDispatchCandidates({ limit: 10 }),
+        legacyDiscovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
       expect(candidateKeys(await runEffect(
-        discovery.discoverCancellationCandidates({ limit: 10 }),
+        legacyDiscovery.discoverCancellationCandidates({ limit: 10 }),
       ))).toEqual([`cancellation:${seeded.runId}:2`]);
-      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
 
-      await persistence.query(
-        "delete from fx_system_durable_task_compute_cancellation_v1",
+      await persistence.drizzle.delete(
+        fxSystemDurableTaskComputeCancellationsV1,
       );
-      await persistence.query(
-        "delete from fx_system_durable_task_compute_dispatch_v1",
-      );
+      await persistence.drizzle.delete(fxSystemDurableTaskComputeDispatchesV1);
       await seedPendingComputeEffects(persistence, seeded.scopeId);
       expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
@@ -248,47 +253,36 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
       expect(candidateKeys(await runEffect(
         discovery.discoverCancellationCandidates({ limit: 10 }),
       ))).toEqual([`cancellation:${seeded.runId}:2`]);
-      await setRunDefinitionGeneration(persistence, "application_v1");
-      expect(candidateKeys(await runEffect(
-        discovery.discoverDispatchCandidates({ limit: 10 }),
-      ))).toEqual([`dispatch:${seeded.runId}:1`]);
-      expect(candidateKeys(await runEffect(
-        discovery.discoverCancellationCandidates({ limit: 10 }),
-      ))).toEqual([`cancellation:${seeded.runId}:2`]);
-      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
-
-      await seedDispatchCheckpointFromEvidence(persistence, seeded);
-      await setRunDefinitionGeneration(persistence, "application_v1");
-      expect(candidateKeys(await runEffect(
-        discovery.discoverDispatchCandidates({ limit: 10 }),
-      ))).toEqual([`dispatch:${seeded.runId}:1`]);
-      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set delivery_state = 'retry_wait',
-            delivery_attempt_count = 1,
-            created_at = statement_timestamp() - interval '10 seconds',
-            delivery_started_at = statement_timestamp() - interval '5 seconds',
-            next_attempt_at = statement_timestamp() + interval '1 hour',
-            reason_code = 'provider_transport',
-            updated_at = statement_timestamp()
-      `);
+      await restoreDispatchCheckpoint(
+        persistence,
+        dispatchFixture,
+        seeded.scopeId,
+        seeded.runId,
+      );
+      await persistence.drizzle.update(
+        fxSystemDurableTaskComputeDispatchesV1,
+      ).set({
+        deliveryState: "retry_wait",
+        deliveryAttemptCount: 1n,
+        createdAt: sql<Date>`statement_timestamp() - interval '10 seconds'`,
+        deliveryStartedAt:
+          sql<Date>`statement_timestamp() - interval '5 seconds'`,
+        nextAttemptAt: sql<Date>`statement_timestamp() + interval '1 hour'`,
+        reasonCode: "provider_transport",
+        updatedAt: sql<Date>`statement_timestamp()`,
+      });
       expect((await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       )).candidates).toEqual([]);
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set next_attempt_at = statement_timestamp() - interval '1 second'
-      `);
+      await persistence.drizzle.update(
+        fxSystemDurableTaskComputeDispatchesV1,
+      ).set({
+        nextAttemptAt: sql<Date>`statement_timestamp() - interval '1 second'`,
+      });
       expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
-      await setRunDefinitionGeneration(persistence, "application_v1");
-      expect(candidateKeys(await runEffect(
-        discovery.discoverDispatchCandidates({ limit: 10 }),
-      ))).toEqual([`dispatch:${seeded.runId}:1`]);
-      await setRunDefinitionGeneration(persistence, "legacy_definition_v1");
-
+      // Deliberate stored-corruption probe: bypass the typed millisecond shape.
       await persistence.query(`
         update fx_system_durable_task_compute_dispatch_v1
         set next_attempt_at =
@@ -302,30 +296,30 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
         TaskComputeDeliveryDiscoveryCorruptionError,
       );
 
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set delivery_state = 'prepared',
-            delivery_attempt_count = 0,
-            delivery_started_at = null,
-            next_attempt_at = null,
-            reason_code = null,
-            claim_owner = '75000000-0000-4000-8000-000000000001',
-            claim_fence = 1,
-            claimed_at = statement_timestamp(),
-            claim_expires_at = statement_timestamp() + interval '1 hour'
-      `);
+      await persistence.drizzle.update(
+        fxSystemDurableTaskComputeDispatchesV1,
+      ).set({
+        deliveryState: "prepared",
+        deliveryAttemptCount: 0n,
+        deliveryStartedAt: null,
+        nextAttemptAt: null,
+        reasonCode: null,
+        claimOwner: "75000000-0000-4000-8000-000000000001",
+        claimFence: 1n,
+        claimedAt: sql<Date>`statement_timestamp()`,
+        claimExpiresAt:
+          sql<Date>`statement_timestamp() + interval '1 hour'`,
+      });
       expect((await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       )).candidates).toEqual([]);
-      await persistence.query(`
-        update fx_system_durable_task_compute_dispatch_v1
-        set claimed_at = statement_timestamp() - interval '2 seconds',
-            claim_expires_at = statement_timestamp() - interval '1 second'
-      `);
-      expect(candidateKeys(await runEffect(
-        discovery.discoverDispatchCandidates({ limit: 10 }),
-      ))).toEqual([`dispatch:${seeded.runId}:1`]);
-      await setRunDefinitionGeneration(persistence, "application_v1");
+      await persistence.drizzle.update(
+        fxSystemDurableTaskComputeDispatchesV1,
+      ).set({
+        claimedAt: sql<Date>`statement_timestamp() - interval '2 seconds'`,
+        claimExpiresAt:
+          sql<Date>`statement_timestamp() - interval '1 second'`,
+      });
       expect(candidateKeys(await runEffect(
         discovery.discoverDispatchCandidates({ limit: 10 }),
       ))).toEqual([`dispatch:${seeded.runId}:1`]);
@@ -440,19 +434,19 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
 
   it("paginates by exact high water and defers later work to a fresh cycle", async () => {
     await withFixture(async ({ persistence, discovery, seeded }) => {
-      await persistence.query(
-        "delete from fx_system_durable_task_compute_cancellation_v1",
+      await persistence.drizzle.delete(
+        fxSystemDurableTaskComputeCancellationsV1,
       );
-      await persistence.query(
-        "delete from fx_system_durable_task_compute_dispatch_v1",
-      );
-      await persistence.query(`
-        delete from fx_system_durable_task_requested_effect_v1
-        where kind = 'request_execution_cancellation'
-      `);
+      await persistence.drizzle.delete(fxSystemDurableTaskComputeDispatchesV1);
+      await persistence.drizzle.delete(
+        fxSystemDurableTaskRequestedEffectsV1,
+      ).where(eq(
+        fxSystemDurableTaskRequestedEffectsV1.kind,
+        "request_execution_cancellation",
+      ));
       await seedPendingComputeEffects(persistence, seeded.scopeId);
-      await cloneRunAndDispatchEffect(persistence, seeded.runId, RUN_BEFORE);
-      await cloneRunAndDispatchEffect(persistence, seeded.runId, RUN_AFTER);
+      await cloneRunAndDispatchEffect(persistence, RUN_BEFORE);
+      await cloneRunAndDispatchEffect(persistence, RUN_AFTER);
 
       const first = await runEffect(
         discovery.discoverDispatchCandidates({ limit: 1 }),
@@ -464,7 +458,6 @@ describe("DTE06-C3 compute-delivery persistence discovery - PGlite", () => {
 
       await cloneRunAndDispatchEffect(
         persistence,
-        seeded.runId,
         RUN_AFTER_HIGH_WATER,
       );
       const resumed: string[] = [];
@@ -506,6 +499,14 @@ async function makeFixture(raw: PGlite) {
   const persistence = await createPGlitePersistence({ db: raw });
   await persistence.migrate();
   const seeded = await seedTaskComputeDeliverySchemaV1(persistence);
+  const [dispatchFixture] = detachDriverRows(
+    await persistence.drizzle.select().from(
+      fxSystemDurableTaskComputeDispatchesV1,
+    ),
+  );
+  if (dispatchFixture === undefined) {
+    throw new Error("compute dispatch fixture missing");
+  }
   const target = createLocatedTaskComputeDeliveryTargetV1(
     persistence.drizzle,
     TASK_LOCATOR,
@@ -517,6 +518,8 @@ async function makeFixture(raw: PGlite) {
   const lifecycleLocated = await locatedTaskAuthorityV1(
     persistence.drizzle,
     lifecycleTarget,
+    seeded.scopeId,
+    seeded.deploymentId,
   );
   const discovery = success(makeTaskComputeDeliveryCandidateDiscovery(
     Object.freeze({ authority: lifecycleLocated.authority, target }),
@@ -531,6 +534,7 @@ async function makeFixture(raw: PGlite) {
   return Object.freeze({
     persistence,
     seeded,
+    dispatchFixture,
     discovery,
     legacyDiscovery,
     locatedAuthority: lifecycleLocated.authority,
@@ -543,142 +547,92 @@ function candidateKeys(page: TaskComputeDeliveryCandidatePage): string[] {
   );
 }
 
-async function seedDispatchCheckpointFromEvidence(
+async function restoreDispatchCheckpoint(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  seeded: Awaited<ReturnType<typeof seedTaskComputeDeliverySchemaV1>>,
+  dispatchFixture: typeof fxSystemDurableTaskComputeDispatchesV1.$inferSelect,
+  scopeId: string,
+  runId: string,
 ): Promise<void> {
-  const envelope = seeded.evidence.dispatchRequest;
-  const bytes = success(encodeTaskComputeProfileStorageBytesV1(
-    "compute-small",
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskComputeDispatchesV1,
+  ).values(dispatchFixture);
+  await persistence.drizzle.delete(
+    fxSystemDurableTaskComputePendingV1,
+  ).where(and(
+    eq(fxSystemDurableTaskComputePendingV1.scopeId, ScopeIdSchema.make(scopeId)),
+    eq(fxSystemDurableTaskComputePendingV1.runId, taskRunId(runId)),
+    eq(
+      fxSystemDurableTaskComputePendingV1.requestedEffectSequence,
+      taskRequestedEffectSequence(1n),
+    ),
   ));
-  await persistence.query(`
-    insert into fx_system_durable_task_compute_dispatch_v1 (
-      scope_id, run_id, requested_effect_sequence, accepted_run_version,
-      definition_generation,
-      task_definition_revision_id, attempt_id, attempt_number,
-      execution_fence, lease_version, compute_profile_codec_version,
-      compute_profile_byte_length, compute_profile_bytes, cancellation_kind,
-      cancellation_generation, maximum_duration_ms,
-      request_codec_version, request_byte_length, request_sha256,
-      request_bytes, delivery_state, claim_fence, delivery_attempt_count
-    ) values (
-      $1, $2, 1, 1, 'legacy_definition_v1',
-      'taskdef_72000000-0000-4000-8000-000000000002',
-      'attempt_72000000-0000-4000-8000-000000000005', 1,
-      1, 1, 1, $3, $4, 'not_requested', 0, 300000,
-      $5, $6, $7, $8, 'prepared', 0, 0
-    )
-  `, [
-    seeded.scopeId,
-    seeded.runId,
-    bytes.byteLength,
-    bytes,
-    envelope.codecVersion,
-    envelope.byteLength,
-    envelope.sha256,
-    envelope.canonicalBytes,
-  ]);
-  await persistence.query(`
-    delete from fx_system_durable_task_compute_pending_v1
-    where scope_id = $1
-      and run_id = $2
-      and requested_effect_sequence = 1
-  `, [seeded.scopeId, seeded.runId]);
 }
 
 async function seedPendingComputeEffects(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
   scopeId: string,
 ): Promise<void> {
-  await persistence.query(`
-    insert into fx_system_durable_task_compute_pending_v1 (
-      scope_id, run_id, requested_effect_sequence, kind, eligible_at
-    )
-    select
-      scope_id,
-      run_id,
-      sequence,
-      kind,
-      date_trunc('milliseconds', statement_timestamp())
-    from fx_system_durable_task_requested_effect_v1
-    where scope_id = $1
-      and kind in (
-        'dispatch_attempt',
-        'request_execution_cancellation'
-      )
-    on conflict (scope_id, run_id, requested_effect_sequence) do nothing
-  `, [scopeId]);
-}
-
-async function setRunDefinitionGeneration(
-  persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  generation: "legacy_definition_v1" | "application_v1",
-): Promise<void> {
-  await persistence.query(`
-    update fx_system_durable_task_run_v1
-    set definition_generation = $1,
-        task_definition_revision_id = case when $1 = 'legacy_definition_v1'
-          then 'taskdef_72000000-0000-4000-8000-000000000002'
-          else null end,
-        application_task_runtime_target_sha256 =
-          case when $1 = 'application_v1'
-            then decode(repeat('ab', 32), 'hex') else null end
-    where run_id = $2
-  `, [generation, TASK_RUN_ID]);
+  const effects = await persistence.drizzle.select().from(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).where(and(
+    eq(
+      fxSystemDurableTaskRequestedEffectsV1.scopeId,
+      ScopeIdSchema.make(scopeId),
+    ),
+    inArray(fxSystemDurableTaskRequestedEffectsV1.kind, [
+      "dispatch_attempt",
+      "request_execution_cancellation",
+    ]),
+  ));
+  const pendingValues = effects.flatMap((effect) =>
+    effect.kind === "dispatch_attempt"
+        || effect.kind === "request_execution_cancellation"
+      ? [{
+          scopeId: effect.scopeId,
+          runId: effect.runId,
+          requestedEffectSequence: effect.sequence,
+          kind: effect.kind,
+          eligibleAt:
+            sql<Date>`date_trunc('milliseconds', statement_timestamp())`,
+        }]
+      : []
+  );
+  if (pendingValues.length === 0) return;
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskComputePendingV1,
+  ).values(pendingValues).onConflictDoNothing();
 }
 
 async function cloneRunAndDispatchEffect(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
-  sourceRunId: string,
   targetRunId: string,
 ): Promise<void> {
-  await persistence.query(`
-    insert into fx_system_durable_task_run_v1 (
-      scope_id, run_id, definition_generation, task_definition_revision_id, created_at_ms,
-      input_codec, input_store, input_value_codec, input_object_key,
-      input_byte_length, input_sha256, input_retention,
-      creation_authority_codec_version, creation_authority_byte_length,
-      creation_authority_sha256, creation_authority_bytes,
-      aggregate_codec_version, aggregate_byte_length, aggregate_json,
-      run_version, phase, due_kind, due_at_ms, current_attempt_id,
-      execution_fence_basis, current_lease_version,
-      current_lease_expires_at_ms, cancellation_generation,
-      requested_effect_sequence
-    )
-    select
-      scope_id, $2, definition_generation, task_definition_revision_id, created_at_ms,
-      input_codec, input_store, input_value_codec, input_object_key,
-      input_byte_length, input_sha256, input_retention,
-      creation_authority_codec_version, creation_authority_byte_length,
-      creation_authority_sha256, creation_authority_bytes,
-      aggregate_codec_version, aggregate_byte_length, aggregate_json,
-      run_version, phase, due_kind, due_at_ms, current_attempt_id,
-      execution_fence_basis, current_lease_version,
-      current_lease_expires_at_ms, cancellation_generation,
-      requested_effect_sequence
-    from fx_system_durable_task_run_v1
-    where run_id = $1
-  `, [sourceRunId, targetRunId]);
-  await persistence.query(`
-    insert into fx_system_durable_task_requested_effect_v1 (
-      scope_id, run_id, sequence, accepted_run_version, kind,
-      payload_codec_version, payload_byte_length, payload_json, not_before_ms
-    )
-    select
-      scope_id, $2, sequence, accepted_run_version, kind,
-      payload_codec_version, payload_byte_length, payload_json, not_before_ms
-    from fx_system_durable_task_requested_effect_v1
-    where run_id = $1 and kind = 'dispatch_attempt'
-  `, [sourceRunId, targetRunId]);
-  await persistence.query(`
-    insert into fx_system_durable_task_compute_pending_v1 (
-      scope_id, run_id, requested_effect_sequence, kind, eligible_at
-    )
-    select
-      scope_id, $2, requested_effect_sequence, kind, eligible_at
-    from fx_system_durable_task_compute_pending_v1
-    where run_id = $1 and kind = 'dispatch_attempt'
-  `, [sourceRunId, targetRunId]);
+  await seedAdditionalTaskSystemRunV1(
+    persistence,
+    targetRunId,
+  );
+  const sourceId = taskRunId(TASK_RUN_ID);
+  const targetId = taskRunId(targetRunId);
+  const [effect] = await persistence.drizzle.select().from(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).where(and(
+    eq(fxSystemDurableTaskRequestedEffectsV1.runId, sourceId),
+    eq(fxSystemDurableTaskRequestedEffectsV1.kind, "dispatch_attempt"),
+  )).limit(1);
+  if (effect === undefined) throw new Error("dispatch effect fixture missing");
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskRequestedEffectsV1,
+  ).values({ ...effect, runId: targetId });
+  const [pending] = await persistence.drizzle.select().from(
+    fxSystemDurableTaskComputePendingV1,
+  ).where(and(
+    eq(fxSystemDurableTaskComputePendingV1.runId, sourceId),
+    eq(fxSystemDurableTaskComputePendingV1.kind, "dispatch_attempt"),
+  )).limit(1);
+  if (pending === undefined) throw new Error("pending compute fixture missing");
+  await persistence.drizzle.insert(
+    fxSystemDurableTaskComputePendingV1,
+  ).values({ ...pending, runId: targetId });
 }
 
 function success<Success, Failure>(

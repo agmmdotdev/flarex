@@ -195,6 +195,9 @@ import {
   createLocatedTaskComputeDeliveryTargetV1,
   makeTaskComputeDeliveryRepositoryV1,
 } from "../src/taskComputeDeliveryRepositoryV1";
+import {
+  makeTaskComputeDeliveryCandidateDiscovery,
+} from "../src/taskComputeDeliveryDiscovery";
 import { decodeCurrentTaskComputePreparedExecutionV1 } from
   "../src/taskComputeDeliveryEvidenceV1";
 import {
@@ -282,6 +285,13 @@ const LOCATOR = Object.freeze({
 const taskSha256 = makeStandardApplicationTaskSha256V1(input =>
   globalThis.crypto.subtle.digest("SHA-256", input)
 );
+const APPLICATION_TASK_DISCOVERY_DEADLINE_POLICY = Object.freeze({
+  connectionTimeoutMilliseconds: 1_000,
+  lockTimeoutMilliseconds: 250,
+  statementTimeoutMilliseconds: 10_000,
+  transactionTimeoutMilliseconds: 20_000,
+  settlementReserveMilliseconds: 30_000,
+});
 
 beforeAll(() => {
   if (globalThis.crypto === undefined) {
@@ -1253,14 +1263,41 @@ describe("Application activation", { timeout: 30_000 }, () => {
       outcome: { kind: "attempt_granted" },
     });
     expect(startReplay).toEqual({ ...started, disposition: "idempotent" });
+    const computeTarget = createLocatedTaskComputeDeliveryTargetV1(
+      fixture.target.drizzle,
+      active.basis.authority.physicalLocator,
+    );
+    const applicationDiscovery = Result.getOrThrow(
+      makeTaskComputeDeliveryCandidateDiscovery(
+        Object.freeze({
+          authority: active.basis.authority,
+          target: computeTarget,
+        }),
+        APPLICATION_TASK_DISCOVERY_DEADLINE_POLICY,
+        "legacy_and_application",
+      ),
+    );
+    const legacyDiscovery = Result.getOrThrow(
+      makeTaskComputeDeliveryCandidateDiscovery(
+        Object.freeze({
+          authority: active.basis.authority,
+          target: computeTarget,
+        }),
+        APPLICATION_TASK_DISCOVERY_DEADLINE_POLICY,
+        "legacy_only",
+      ),
+    );
+    expect((await runEffect(
+      applicationDiscovery.discoverDispatchCandidates({ limit: 10 }),
+    )).candidates.map(candidate => candidate.runId)).toEqual([created.runId]);
+    expect((await runEffect(
+      legacyDiscovery.discoverDispatchCandidates({ limit: 10 }),
+    )).candidates).toEqual([]);
     const computeRepository = Result.getOrThrow(
       makeTaskComputeDeliveryRepositoryV1(
         Object.freeze({
           authority: active.basis.authority,
-          target: createLocatedTaskComputeDeliveryTargetV1(
-            fixture.target.drizzle,
-            active.basis.authority.physicalLocator,
-          ),
+          target: computeTarget,
         }),
         {
           claimDurationMilliseconds: 30_000,
