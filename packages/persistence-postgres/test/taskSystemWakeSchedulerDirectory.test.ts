@@ -7,6 +7,8 @@ import {
 } from "@flarex/durable-task/internal/scheduling-testing-v1";
 import { Result } from "effect";
 import {
+  FlarexDbV1StorageGenerationSchema,
+  ScopeEpochSchema,
   replacementScopeIdV1FromUuid,
   type ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
@@ -20,6 +22,7 @@ import {
 import type { ScopeMetadataRecord } from "../src/scopeMetadata";
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
+import { fxSystemScopeClocks } from "../src/schema";
 import {
   createTaskSystemWakeSchedulerDirectoryV1,
   TaskSystemWakeSchedulerDirectoryScopeError,
@@ -37,6 +40,8 @@ import {
 
 const TASK_DEPLOYMENT_ID = "deployment_task_store_v1";
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
+const taskStorageGeneration =
+  FlarexDbV1StorageGenerationSchema.make("flarexdb_v1");
 
 describe("DTE05-C2 trusted Task scheduler directory - PGlite", () => {
   it("discovers, freshly resolves, and reconstructs a real C1 scheduler", async () => {
@@ -366,10 +371,11 @@ async function insertScopeClock(
   persistence: PGliteFlarexPersistence,
   scopeId: ReplacementScopeIdV1,
 ): Promise<void> {
-  await persistence.query(`
-    insert into fx_system_scope_clock (scope_id, storage_generation, epoch)
-    values ($1, 'flarexdb_v1', $2)
-  `, [scopeId, `epoch_${scopeId.slice(6)}`]);
+  await persistence.drizzle.insert(fxSystemScopeClocks).values({
+    scopeId,
+    storageGeneration: taskStorageGeneration,
+    epoch: ScopeEpochSchema.make(`epoch_${scopeId.slice(6)}`),
+  });
 }
 
 async function insertLegacyScopeId(
