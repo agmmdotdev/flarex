@@ -5,7 +5,12 @@ import {
 import {
   makeFixedTaskRetryJitterSourceV1,
 } from "@flarex/durable-task/internal/scheduling-testing-v1";
+import { count, eq } from "drizzle-orm";
 import { Result } from "effect";
+import {
+  ScopeEpochSchema,
+  ScopeIdSchema,
+} from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,6 +24,12 @@ import {
 import {
   makeTaskSystemWakeSchedulerPartitionV1,
 } from "../src/taskSystemWakeSchedulerPartitionV1";
+import {
+  fxSystemDurableTaskAttemptIdentitiesV1,
+  fxSystemDurableTaskRequestedEffectsV1,
+  fxSystemDurableTaskRunsV1,
+  fxSystemScopeClocks,
+} from "../src/schema";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 import {
   TASK_LOCATOR,
@@ -32,6 +43,10 @@ import {
 const EARLY_RUN_ID = "run_72000000-0000-4000-8000-000000000001";
 const LATE_RUN_ID = "run_72000000-0000-4000-8000-000000000005";
 const retryJitter = Result.getOrThrow(decodeTaskRetryJitterV1(0.25));
+const taskScopeId = ScopeIdSchema.make(TASK_SCOPE_ID);
+const staleScopeEpoch = ScopeEpochSchema.make(
+  "epoch_72000000-0000-4000-8000-000000000099",
+);
 
 describe("DTE05-C1 located-scope scheduler composition - PGlite", () => {
   it("runs bounded Drizzle pages through the real lifecycle and resumes exactly", async () => {
@@ -122,11 +137,10 @@ describe("DTE05-C1 located-scope scheduler composition - PGlite", () => {
           runAttemptStore: { randomUuid: attemptUuidSequence() },
         }),
       );
-      await persistence.query(`
-        update fx_system_scope_clock
-        set epoch = 'epoch_72000000-0000-4000-8000-000000000099'
-        where scope_id = '${TASK_SCOPE_ID}'
-      `);
+      await persistence.drizzle
+        .update(fxSystemScopeClocks)
+        .set({ epoch: staleScopeEpoch })
+        .where(eq(fxSystemScopeClocks.scopeId, taskScopeId));
 
       const observed = await runEffectFailure(scheduler.run({
         dueKind: "start_attempt",
@@ -182,21 +196,20 @@ async function makeFixture(raw: PGlite) {
 async function taskCounts(
   persistence: Awaited<ReturnType<typeof createPGlitePersistence>>,
 ) {
-  const result = await persistence.query<{
-    runs: string;
-    attempts: string;
-    effects: string;
-  }>(`
-    select
-      (select count(*)::text from fx_system_durable_task_run_v1) as runs,
-      (select count(*)::text
-       from fx_system_durable_task_attempt_identity_v1) as attempts,
-      (select count(*)::text
-       from fx_system_durable_task_requested_effect_v1) as effects
-  `);
+  const [[runs], [attempts], [effects]] = await Promise.all([
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRunsV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskAttemptIdentitiesV1,
+    ),
+    persistence.drizzle.select({ count: count() }).from(
+      fxSystemDurableTaskRequestedEffectsV1,
+    ),
+  ]);
   return {
-    runs: Number(result.rows[0]?.runs ?? "-1"),
-    attempts: Number(result.rows[0]?.attempts ?? "-1"),
-    effects: Number(result.rows[0]?.effects ?? "-1"),
+    runs: runs?.count ?? -1,
+    attempts: attempts?.count ?? -1,
+    effects: effects?.count ?? -1,
   };
 }
