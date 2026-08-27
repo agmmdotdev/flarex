@@ -20,6 +20,7 @@
     "./internal/application-managed-schema-planning": "./src/applicationManagedSchemaPlanning.ts",
     "./internal/application-managed-schema-application": "./src/applicationManagedSchemaApplication.ts",
     "./internal/application-query-snapshot": "./src/applicationQuerySnapshot.ts",
+    "./internal/commit-feed": "./src/commitFeed.ts",
     "./internal/scope-execution": "./src/scopeExecution/ScopeExecution.ts",
     "./internal/application-mutation-admission": "./src/applicationMutationAdmission.ts",
     "./internal/application-action-admission": "./src/applicationActionAdmission.ts",
@@ -127,7 +128,7 @@
     "./internal/system-test/application-revision-mutation-internal-call-runtime-target-v1": "./src/applicationRevisionMutationInternalCallRuntimeTargetV1.ts",
     "./internal/system-test/applicationActivation": "./src/applicationActivation.ts",
     "./internal/system-test/application-native-mutation-fixture": "./test/fixtures/applicationNativeMutationTestFixture.ts",
-    "./internal/system-test/application-relation-query-fixture": "./src/applicationRelationQuerySystemTestFixture.ts",
+    "./internal/system-test/application-relation-query-fixture": "./src/test/applicationRelationQuerySystemTestFixture.ts",
     "./internal/system-test/task-system-run-attempt-fixture": "./test/taskSystemRunAttemptStoreTestSupport.ts",
     "./internal/system-test/task-system-run-creation-fixture": "./test/taskSystemRunCreationTestSupport.ts",
     "./internal/system-test/applicationPointQuerySnapshotV1": "./src/applicationPointQuerySnapshotV1.ts"

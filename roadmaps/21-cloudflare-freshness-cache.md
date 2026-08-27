@@ -2,9 +2,11 @@
 
 ## Status And Scope
 
-Status: accepted v1 sync design with an implemented prototype pipeline;
-the per-scope `DeploymentSyncDO` replacement is not implemented, and cache
-Durable Objects remain deferred optimizations.
+Status: accepted v1 sync design with an implemented prototype pipeline.
+`SYNC01-P`, the docs-only target authority and first implementation preflight,
+and the bounded `SYNC01-A` cursor core are complete. The per-scope
+`DeploymentSyncDO` replacement is not implemented, and cache Durable Objects
+remain deferred optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
 connection leases remain prototype mechanics, not the accepted replacement
@@ -528,3 +530,111 @@ After `C07`, the ordered v1 gates are:
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync
 is operational.
+
+### [x] SYNC01-P — Freeze Target Authority And The First Cursor Core
+
+Status: docs-only preflight completed on 2026-08-27. This checkpoint authorizes
+only the private protocol and host-neutral cursor core described below. It adds
+no Durable Object binding, route, alarm, SQLite table, Postgres mirror, direct
+wake, subscription registration, query rerun, delivery, reconnect lease,
+public SDK, Payload adapter, production caller switch, or compatibility-path
+change.
+
+#### Authority cut
+
+- One deterministic `DeploymentSyncDO` remains the eventual coordination owner
+  for one authenticated scope. Its SQLite state will own the applied-through
+  cursor, provisional and active query generations, dependency index,
+  dirty-through frontier, result hash, and bounded continuation state.
+- Postgres remains authoritative for the scope clock, retained floor, commit
+  headers and typed children, current Application active head, and any later
+  conservative cursor mirror. A Postgres mirror may lag the DO cursor but must
+  never lead it.
+- The existing Postgres subscription registry, deployment-timestamp freshness
+  mirror, singleton `SchedulerDO`, and `ConnectionDO` query-first activation
+  path remain compatibility evidence only. The target core must not write or
+  consult them as a second registration or cursor authority.
+- The commit feed remains the only data-change order. A wake is merely a hint
+  to catch up and must never advance the applied-through cursor by itself.
+  Only a fully validated contiguous commit returned by the existing bounded
+  repeatable-read feed may produce the next cursor. An epoch-mismatched wake is
+  also only a hint: it requires an authenticated current-scope epoch read. It
+  is an old-epoch duplicate when authority still matches the cursor and may
+  require reset only when authority has left the cursor epoch.
+
+#### Two independent registration fences
+
+A target query registration must eventually carry both:
+
+1. the exact `SnapshotToken` for data visibility and a typed logical dependency
+   set; and
+2. the authenticated current Application active-head witness used by query
+   selection, including its activation sequence and active-head digest.
+
+The point-commit feed does not describe Application activation. Do not invent
+an activation-shaped app-data commit or relation fact. New registrations are
+namespaced by their active-head witness, while an existing registration is
+invalidated or resnapshotted when the separately read authenticated active head
+no longer matches. The later host/sweep preflight must prove lost-wake recovery
+for that head comparison as well as for the app-data cursor.
+
+For the first relation profile, the query owner must return a private sync
+receipt without changing the existing RQ01 logical result. That receipt contains
+the exact snapshot token and one
+`LogicalApplicationRelationIncomingReadDependencyV1`, whose activation
+sequence and active-head digest are the same witness validated during the
+read. Standard callers still receive only `sources` and `exhausted`.
+
+#### First authorized implementation slice: SYNC01-A
+
+`SYNC01-A` is deliberately smaller than the complete typed-contract gate in the
+ordered list above. It may add:
+
+- one strict internal protocol envelope for a persisted scope-sync cursor and
+  one strict internal wake envelope, both keyed by canonical scope UUID, epoch
+  UUID, and non-negative commit sequence;
+- one pure host-neutral cursor policy that classifies duplicate, exact-next,
+  gap, scope-mismatch, and epoch-mismatch inputs;
+- one separate advancement decision that consumes an already validated
+  `CommitFeedCommitV1`, treats an already-applied commit as a successful no-op,
+  and returns a candidate next cursor only for exactly one sequence; and
+- focused protocol and policy tests proving unknown-field rejection, canonical
+  persisted encoding and decoding, no advancement from a wake, duplicate
+  idempotence, gap refusal, authority-neutral epoch checks, old-epoch duplicate
+  handling, confirmed epoch reset, scope isolation, and exact contiguous
+  advancement.
+
+Protocol owns only the persisted/wire shapes and intrinsic value invariants.
+The backend sync domain owns cursor decisions. Persistence continues to own
+feed decoding and corruption classification. No new generic utility or
+universal database API is introduced.
+
+`SYNC01-A` does not complete the first ordered contract gate and does not make
+`R03-B` implementable by itself. The next preflight must freeze canonical query
+identity, provisional/active generations, the complete dependency index,
+active-head observation, cursor-mirror fencing, and reconnect retention before
+the Durable Object or relation registration is wired.
+
+### [x] SYNC01-A — Strict Scope Cursor And Wake Core
+
+Status: completed on 2026-08-27. The private protocol now owns strict cursor and
+wake Schemas with precision-safe canonical decimal-string sequence encoding.
+The backend sync domain owns pure decisions for wake classification,
+authenticated epoch resolution, duplicate commit replay, exact-next candidate
+cursor construction, and fail-closed scope, feed-epoch, and gap rejection.
+
+Completion evidence:
+
+- canonical cursor and wake round trips are proven above JavaScript's safe-
+  integer range through the maximum persisted signed-int64 value;
+- a wake cannot advance a cursor, and a mismatched wake epoch cannot authorize
+  reset without a separately supplied authoritative epoch;
+- already-applied feed commits are successful no-ops, while exact-next returns
+  only an immutable candidate cursor for a later host-owned atomic transaction;
+- focused protocol and backend tests, full protocol tests, strict typechecks,
+  core and diff lint, and both standing reviewer passes are green.
+
+This checkpoint adds no Durable Object, storage table, feed loop, dependency
+application, query generation, registration, rerun, delivery, reconnect, or
+production routing. The next ordered work remains the target contract/owner
+preflight above; `R03-B` is still blocked.

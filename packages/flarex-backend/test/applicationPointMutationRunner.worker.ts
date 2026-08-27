@@ -234,6 +234,10 @@ function inertJournal(): PointMutationOccBoundJournalV1 {
     runPointOperation: () => Effect.die("journal must not run"),
     resolveDeveloperIndex: () => Effect.die("journal must not run"),
     runIndexedQuery: () => Effect.die("journal must not run"),
+    resolveApplicationRelationRead: () =>
+      Effect.die("journal must not run"),
+    runApplicationRelationIncomingRead: () =>
+      Effect.die("journal must not run"),
   });
 }
 

@@ -52,115 +52,115 @@ import {
   createAppSchemaCandidateValidationPort,
   installAppSchemaCandidateValidationEffect,
   settleAppSchemaCandidateValidationEffect,
-} from "./appSchemaCandidateValidation";
+} from "../appSchemaCandidateValidation";
 import { locateAppIndexDefinitionByIdEffect } from
-  "./appIndexDefinitions";
+  "../appIndexDefinitions";
 import { createAppUniqueConstraintDefinitionPortV1 } from
-  "./appUniqueConstraintCommitV1";
+  "../appUniqueConstraintCommitV1";
 import { createAppUniqueConstraintSetEligibilityPortV1 } from
-  "./appUniqueConstraintSetBuildV1";
+  "../appUniqueConstraintSetBuildV1";
 import {
   closeAppUniqueConstraintSetV1InTransactionEffect,
   prepareAppUniqueConstraintSetClosureV1Effect,
-} from "./appUniqueConstraintSetClosureV1";
+} from "../appUniqueConstraintSetClosureV1";
 import {
   makeApplicationAnalysisRepository,
   type ApplicationAnalysisAuthority,
-} from "./applicationAnalysisRegistration";
+} from "../applicationAnalysisRegistration";
 import { makeApplicationPublicationRepository } from
-  "./applicationPublication";
+  "../applicationPublication";
 import {
   makeApplicationActivationRepository,
   type ApplicationActiveSelection,
   type ApplicationRelationActivationRepository,
-} from "./applicationActivation";
+} from "../applicationActivation";
 import {
   type ApplicationRelationBindingPublication,
   type ApplicationRelationBindingRepository,
   type PublishApplicationRelationBindingInput,
   publishApplicationRelationBindingEffect,
-} from "./applicationRelationBinding";
+} from "../applicationRelationBinding";
 import { createApplicationRelationBuildPort } from
-  "./applicationRelationBuild";
+  "../applicationRelationBuild";
 import {
   applyApplicationRelationCommitEdgesInTransactionEffect,
   createApplicationRelationCommitPort,
   type LocatedApplicationRelationDefinitionSet,
   prepareApplicationRelationCommitResult,
-} from "./applicationRelationCommit";
+} from "../applicationRelationCommit";
 import { makeApplicationRelationPublicationRepository } from
-  "./applicationRelationPublication";
+  "../applicationRelationPublication";
 import {
   createApplicationRelationReadPort,
   type ApplicationRelationSourceReference,
-} from "./applicationRelationRead";
+} from "../applicationRelationRead";
 import { makeApplicationRelationReadinessFoldRepository } from
-  "./applicationRelationReadinessFold";
+  "../applicationRelationReadinessFold";
 import { createApplicationRelationReadinessPort } from
-  "./applicationRelationReadiness";
+  "../applicationRelationReadiness";
 import { createApplicationRelationSchemaAuthorityPort } from
-  "./applicationRelationSchemaAuthority";
+  "../applicationRelationSchemaAuthority";
 import { createApplicationRelationServingInspector } from
-  "./applicationRelationServing";
+  "../applicationRelationServing";
 import {
   createApplicationRelationTaskCatalogSnapshotPort,
   makeApplicationRelationTaskBindingRepository,
-} from "./applicationRelationTaskBindings";
+} from "../applicationRelationTaskBindings";
 import { makeApplicationReadinessRepository } from
-  "./applicationReadiness";
+  "../applicationReadiness";
 import { makeApplicationSchemaAuthorityPublisher } from
-  "./applicationSchemaAuthority";
+  "../applicationSchemaAuthority";
 import {
   createApplicationTaskCatalogSnapshotPort,
   makeApplicationTaskBindingRepository,
-} from "./applicationTaskBindings";
+} from "../applicationTaskBindings";
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
-} from "./appRows";
-import type { FlarexMetadataDatabase } from "./deployments";
-import type { FlarexPersistence } from "./index";
+} from "../appRows";
+import type { FlarexMetadataDatabase } from "../deployments";
+import type { FlarexPersistence } from "../index";
 import {
   buildAppDeveloperOrderedIndexV1Effect,
   buildIntrinsicCreationTimeIndexV1Effect,
-} from "./intrinsicCreationTimeIndexBuildV1";
+} from "../intrinsicCreationTimeIndexBuildV1";
 import {
   loadPublishedPhysicalRequirementSnapshotV1,
   reconcilePublishedIndexBuildsV1Effect,
-} from "./indexBuildReconciliation";
+} from "../indexBuildReconciliation";
 import { createPhysicalDefinitionLifecyclePort } from
-  "./physicalDefinitionLifecycle";
+  "../physicalDefinitionLifecycle";
 import {
   createPGliteLocatedIndexBuildReconciliationTargetV1,
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGliteLocatedSplitScopeClockTarget,
   createPGliteSplitScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
-} from "./pglite";
+} from "../pglite";
 import {
   createPointCommitPublisherPortV1,
-} from "./pointCommitTransaction";
+} from "../pointCommitTransaction";
 import {
   createPostgresLocatedIndexBuildReconciliationTargetV1,
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresLocatedSplitScopeClockTarget,
   createPostgresSplitScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
-} from "./postgres";
+} from "../postgres";
 import type { ApplicationRelationQuerySnapshotContext } from
-  "./applicationQuerySnapshot";
+  "../applicationQuerySnapshot";
 import {
   fxControlSchemaVersions,
   fxControlTables,
   fxSystemScopeClocks,
-} from "./schema";
+} from "../schema";
 import { getScopeAuthorityProvisioningReceipt } from
-  "./scopeAuthorityProvisioningReceipt";
+  "../scopeAuthorityProvisioningReceipt";
 import type { LocatedScopeClockReader } from
-  "./scopeAuthorityResolution";
+  "../scopeAuthorityResolution";
 import type { SplitScopePhysicalLocator } from
-  "./scopeMetadataTypes";
+  "../scopeMetadataTypes";
 import type { LocatedReadCommittedAttemptTargetV1 } from
-  "./transactionSessionAttemptKernel";
+  "../transactionSessionAttemptKernel";
 
 const LOCATOR = Object.freeze({
   kind: "database_per_scope",

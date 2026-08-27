@@ -2420,6 +2420,13 @@ Prerequisite: R03-A is complete and roadmap 21's accepted scope-local sync
 contracts and owner exist. This gate must not extend the Legacy timestamp-based
 Postgres subscription registry or compatibility SchedulerDO.
 
+Roadmap 21's `SYNC01-P` docs-only preflight and bounded `SYNC01-A` strict
+persisted cursor/wake plus pure host-neutral contiguous-cursor core are
+complete. They do not satisfy this prerequisite. R03-B remains blocked until
+the target sync owner also has durable per-scope cursor state, canonical query
+identity and generation authority, a typed dependency index, authenticated
+active-head observation, and reset/reconnect behavior.
+
 Outcome:
 
 - enable relation dependency registration at an exact scope-commit-fenced
@@ -2433,14 +2440,20 @@ Outcome:
 Exit gates:
 
 - provisional registration, the RQ01 snapshot token and typed incoming
-  dependency, refresh through the contiguous cursor, and activation form one
-  fail-closed protocol;
+  dependency, the same authenticated activation-sequence/head-digest witness,
+  refresh through the contiguous cursor, and activation form one fail-closed
+  protocol;
 - a change before the registration fence is visible in the fresh query snapshot,
   while every matching change after it invalidates and unrelated facts do not;
 - duplicate, reverse, and gap processing catch up contiguously, while epoch
   mismatch or an expired retained floor requires one explicit resnapshot;
 - no relation-specific observer is admitted before the fenced baseline and fact
   publication path are both ready.
+
+Application activation is not an R03 app-data fact. The target sync owner must
+compare the separately authenticated current active head against the witness
+returned by the query owner; it must not fabricate an activation commit, infer
+head changes from relation facts, or rely on a best-effort activation wake.
 
 ### [ ] SV-R — Internal Standard Relation Vertical
 
