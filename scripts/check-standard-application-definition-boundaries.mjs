@@ -39,6 +39,11 @@ const packageRoot = path.join(
   "packages",
   "standard-application-definition",
 );
+const applicationDefinitionPackageRoot = path.join(
+  repoRoot,
+  "packages",
+  "application-definition",
+);
 const productionSourceExtensions = new Set([
   ".ts",
   ".tsx",
@@ -58,6 +63,23 @@ const expectedRuntimeDependencies = new Map([
   ["@flarex/utils", "workspace:*"],
   ["effect", "catalog:"],
   ["flarex-protocol", "workspace:*"],
+]);
+const expectedApplicationDefinitionRuntimeDependencies = new Map([
+  ["@flarex/application-schema-definition", "workspace:*"],
+  ["@flarex/declarative-materializer", "workspace:*"],
+  ["@flarex/declarative-program", "workspace:*"],
+  ["@flarex/standard-application-definition", "workspace:*"],
+  ["@flarex/utils", "workspace:*"],
+  ["effect", "catalog:"],
+]);
+const applicationDefinitionAllowedProductionImports = new Set([
+  "@flarex/application-schema-definition/application-schema",
+  "@flarex/declarative-materializer/v1",
+  "@flarex/declarative-program/v1",
+  "@flarex/standard-application-definition/v1",
+  "@flarex/utils/bytes",
+  "@flarex/utils/strings",
+  "effect",
 ]);
 const shippedDefinitionAllowedProductionImports = new Set([
   "@flarex/application-schema-definition/application-schema",
@@ -108,6 +130,8 @@ const admittedDurableTaskDefinitionSymbols = new Set([
 ]);
 const standardApplicationDefinitionSourceRoot =
   "packages/standard-application-definition/src";
+const applicationDefinitionSourceRoot =
+  "packages/application-definition/src";
 /** @type {SourceTreeReader} */
 const nodeSourceTreeReader = {
   readDirectory(root) {
@@ -135,6 +159,29 @@ if (isCliEntrypoint()) {
   );
   report.errors.unshift(...sourceDiscovery.errors);
 
+  /** @type {unknown} */
+  const applicationDefinitionManifest = JSON.parse(
+    readFileSync(
+      path.join(applicationDefinitionPackageRoot, "package.json"),
+      "utf8",
+    ),
+  );
+  const applicationDefinitionSourceDiscovery = collectProductionSourceFiles(
+    path.join(applicationDefinitionPackageRoot, "src"),
+  );
+  const applicationDefinitionReport = analyzeApplicationDefinitionBoundary(
+    applicationDefinitionManifest,
+    applicationDefinitionSourceDiscovery.files.map((file) => ({
+      relativePath: normalizePath(path.relative(repoRoot, file)),
+      text: readFileSync(file, "utf8"),
+      scriptKind: scriptKindForPath(file),
+    })),
+  );
+  report.errors.push(
+    ...applicationDefinitionSourceDiscovery.errors,
+    ...applicationDefinitionReport.errors,
+  );
+
   if (report.errors.length > 0) {
     console.error(report.errors.join("\n\n"));
     process.exitCode = 1;
@@ -145,6 +192,9 @@ if (isCliEntrypoint()) {
     );
     console.log(
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
+    );
+    console.log(
+      "Clean Application definition boundary check passed with one package root.",
     );
   }
 }
@@ -177,9 +227,46 @@ export function analyzeStandardApplicationDefinitionBoundary(
   collectRuntimeDependencyErrors(manifest, errors);
 
   for (const source of sources) {
-    collectSourceImportErrors(source, errors);
+    collectSourceImportErrors(source, errors, "standard");
   }
 
+  return { errors };
+}
+
+/**
+ * @param {unknown} manifest
+ * @param {SourceInput[]} sources
+ * @returns {StandardApplicationDefinitionBoundaryReport}
+ */
+export function analyzeApplicationDefinitionBoundary(manifest, sources) {
+  /** @type {string[]} */
+  const errors = [];
+  if (!isRecord(manifest)) {
+    return { errors: ["Application definition manifest must be an object."] };
+  }
+  if (manifest.name !== "@flarex/application-definition") {
+    errors.push(
+      "Application definition manifest must use @flarex/application-definition.",
+    );
+  }
+  if (
+    !isRecord(manifest.exports)
+    || Object.keys(manifest.exports).length !== 1
+    || manifest.exports["."] !== "./src/index.ts"
+  ) {
+    errors.push(
+      "Application definition package must expose only . from ./src/index.ts.",
+    );
+  }
+  collectExactDependencyErrors(
+    manifest,
+    expectedApplicationDefinitionRuntimeDependencies,
+    "Application definition",
+    errors,
+  );
+  for (const source of sources) {
+    collectSourceImportErrors(source, errors, "application");
+  }
   return { errors };
 }
 
@@ -323,10 +410,46 @@ function collectRuntimeDependencyErrors(manifest, errors) {
 }
 
 /**
- * @param {SourceInput} source
+ * @param {Readonly<Record<string, unknown>>} manifest
+ * @param {ReadonlyMap<string, string>} expected
+ * @param {string} label
  * @param {string[]} errors
  */
-function collectSourceImportErrors(source, errors) {
+function collectExactDependencyErrors(manifest, expected, label, errors) {
+  const dependencies = manifest.dependencies;
+  const expectedNames = Array.from(expected.keys()).sort();
+  if (!isRecord(dependencies)) {
+    errors.push(`${label} runtime dependencies must be an object.`);
+  } else {
+    const dependencyNames = Object.keys(dependencies).sort();
+    if (
+      dependencyNames.length !== expectedNames.length
+      || dependencyNames.some((name, index) => name !== expectedNames[index])
+    ) {
+      errors.push(
+        `${label} runtime dependencies must be exactly: ${expectedNames.join(", ")}.`,
+      );
+    }
+    for (const [name, specifier] of expected) {
+      if (dependencies[name] !== specifier) {
+        errors.push(`${label} dependency ${name} must use ${specifier}.`);
+      }
+    }
+  }
+  for (const field of ["optionalDependencies", "peerDependencies"]) {
+    const value = manifest[field];
+    if (value !== undefined && (!isRecord(value) || Object.keys(value).length > 0)) {
+      errors.push(`${label} package must not declare ${field}.`);
+    }
+  }
+}
+
+/**
+ * @param {SourceInput} source
+ * @param {string[]} errors
+ * @param {"standard" | "application"} boundary
+ */
+function collectSourceImportErrors(source, errors, boundary) {
   const sourceFile = ts.createSourceFile(
     source.relativePath,
     source.text,
@@ -345,9 +468,9 @@ function collectSourceImportErrors(source, errors) {
 
   /** @type {Set<ts.Node>} */
   const visitedJsDoc = new Set();
-  const admittedDurableTaskLocalBindings = collectAdmittedDurableTaskLocalBindings(
-    sourceFile,
-  );
+  const admittedDurableTaskLocalBindings = boundary === "standard"
+    ? collectAdmittedDurableTaskLocalBindings(sourceFile)
+    : new Set();
   visit(sourceFile);
 
   /** @param {ts.Node} node */
@@ -374,7 +497,9 @@ function collectSourceImportErrors(source, errors) {
           node.getStart(sourceFile),
           node,
         );
-        collectDurableTaskSymbolError(moduleReference.specifier, node);
+        if (boundary === "standard") {
+          collectDurableTaskSymbolError(moduleReference.specifier, node);
+        }
       }
     }
 
@@ -406,7 +531,8 @@ function collectSourceImportErrors(source, errors) {
    */
   function collectSpecifierError(specifier, position, node) {
     if (
-      specifier === "flarex-protocol/validator-json"
+      boundary === "standard"
+      && specifier === "flarex-protocol/validator-json"
       && !source.relativePath.replaceAll("\\", "/").includes(
         "/taskDefinition/",
       )
@@ -416,7 +542,13 @@ function collectSourceImportErrors(source, errors) {
     ) {
       return;
     }
-    if (!isAllowedProductionImport(specifier, source.relativePath)) {
+    const allowed = boundary === "standard"
+      ? isAllowedStandardProductionImport(specifier, source.relativePath)
+      : isAllowedApplicationDefinitionProductionImport(
+        specifier,
+        source.relativePath,
+      );
+    if (!allowed) {
       const { line } = sourceFile.getLineAndCharacterOfPosition(position);
       errors.push(
         `${source.relativePath}:${line + 1} imports forbidden module ${JSON.stringify(specifier)}.`,
@@ -620,7 +752,7 @@ function isDirectRequireExpression(expression) {
  * @param {string} relativePath
  * @returns {boolean}
  */
-function isAllowedProductionImport(specifier, relativePath) {
+function isAllowedStandardProductionImport(specifier, relativePath) {
   if (specifier.includes("\\")) {
     return false;
   }
@@ -659,6 +791,29 @@ function isAllowedProductionImport(specifier, relativePath) {
     || resolvedImportPath.startsWith(
       `${standardApplicationDefinitionSourceRoot}/`,
     );
+}
+
+/**
+ * @param {string} specifier
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+function isAllowedApplicationDefinitionProductionImport(
+  specifier,
+  relativePath,
+) {
+  if (specifier.includes("\\")) return false;
+  if (applicationDefinitionAllowedProductionImports.has(specifier)) {
+    return true;
+  }
+  if (!specifier.startsWith(".")) return false;
+  const normalizedSourcePath = relativePath.replaceAll("\\", "/");
+  const resolvedImportPath = path.posix.normalize(path.posix.join(
+    path.posix.dirname(normalizedSourcePath),
+    specifier,
+  ));
+  return resolvedImportPath === applicationDefinitionSourceRoot
+    || resolvedImportPath.startsWith(`${applicationDefinitionSourceRoot}/`);
 }
 
 /** @param {ts.Node} node */

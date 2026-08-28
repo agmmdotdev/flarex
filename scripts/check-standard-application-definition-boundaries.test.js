@@ -1,6 +1,7 @@
 // @ts-check
 import { describe, expect, it } from "vitest";
 import {
+  analyzeApplicationDefinitionBoundary,
   analyzeStandardApplicationDefinitionBoundary,
   collectProductionSourceFiles,
 } from "./check-standard-application-definition-boundaries.mjs";
@@ -16,6 +17,7 @@ describe("Standard Application definition boundary checker", () => {
         text: `
           import { applicationScalarValidatorJson } from "@flarex/application-schema-definition/validator-json";
           import { Result } from "effect";
+          import { applicationSchemaDefinition } from "@flarex/application-schema-definition/application-schema";
           import type { CanonicalDeclarativeProgramV1 } from "@flarex/declarative-program/v1";
           import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
           export { materializeDeclarativeV2ArtifactsV1 } from "@flarex/declarative-materializer/v1";
@@ -362,6 +364,57 @@ describe("Standard Application definition boundary checker", () => {
   });
 });
 
+describe("Application definition boundary checker", () => {
+  const cleanSourcePath =
+    "packages/application-definition/src/Preparation.ts";
+
+  it("accepts the clean root and its exact pure preparation imports", () => {
+    const report = analyzeApplicationDefinitionBoundary(
+      validApplicationDefinitionManifest(),
+      [{
+        relativePath: cleanSourcePath,
+        text: `
+          import { Result } from "effect";
+          import { compareUtf16Strings } from "@flarex/utils/strings";
+          import type { Program } from "@flarex/declarative-program/v1";
+          import { materialize } from "@flarex/declarative-materializer/v1";
+          import { standardV1 } from "@flarex/standard-application-definition/v1";
+          import { local } from "./Authoring.js";
+          void import("effect");
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([]);
+  });
+
+  it("rejects trust-boundary imports, escapes, and indirect loads", () => {
+    const report = analyzeApplicationDefinitionBoundary(
+      validApplicationDefinitionManifest(),
+      [{
+        relativePath: cleanSourcePath,
+        text: `
+          /// <reference types="@flarex/backend" />
+          import type { Runtime } from "@flarex/executor";
+          import { persistence } from "../../persistence-postgres/src/index";
+          /** @type {import("@flarex/system-test").Simulation} */
+          export const simulation = undefined;
+          const packageName = "@flarex/analysis";
+          void import(packageName);
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${cleanSourcePath}:2 imports forbidden module "@flarex/backend".`,
+      `${cleanSourcePath}:3 imports forbidden module "@flarex/executor".`,
+      `${cleanSourcePath}:4 imports forbidden module "../../persistence-postgres/src/index".`,
+      `${cleanSourcePath}:5 imports forbidden module "@flarex/system-test".`,
+      `${cleanSourcePath}:8 uses a non-literal dynamic import.`,
+    ]);
+  });
+});
+
 describe("Standard Application definition source discovery", () => {
   it("rejects a symbolic-link source root", () => {
     const root = "packages/standard-application-definition/src";
@@ -436,6 +489,24 @@ function validManifest() {
       "@flarex/utils": "workspace:*",
       "effect": "catalog:",
       "flarex-protocol": "workspace:*",
+    },
+  };
+}
+
+/** @returns {Readonly<Record<string, unknown>>} */
+function validApplicationDefinitionManifest() {
+  return {
+    name: "@flarex/application-definition",
+    exports: {
+      ".": "./src/index.ts",
+    },
+    dependencies: {
+      "@flarex/application-schema-definition": "workspace:*",
+      "@flarex/declarative-materializer": "workspace:*",
+      "@flarex/declarative-program": "workspace:*",
+      "@flarex/standard-application-definition": "workspace:*",
+      "@flarex/utils": "workspace:*",
+      "effect": "catalog:",
     },
   };
 }

@@ -1,0 +1,28 @@
+{
+  "name": "@flarex/application-definition",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/application-schema-definition": "workspace:*",
+    "@flarex/declarative-materializer": "workspace:*",
+    "@flarex/declarative-program": "workspace:*",
+    "@flarex/standard-application-definition": "workspace:*",
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,5 +1,14 @@
 # Standard Application APIs
 
+> **Current naming and ingress direction:**
+> [`50-clean-application-apis.md`](./50-clean-application-apis.md) is the
+> accepted migration roadmap for replacing chronology-shaped Standard product APIs
+> with clean, unversioned Application Definition and Application Invocation
+> surfaces. `CAPI-A` is complete privately; later consumer, invocation,
+> package-removal, public, and production gates remain pending. Existing `/v1`
+> exports and `...V1` product names are migration inventory, not accepted target
+> naming.
+
 ## Status And Scope
 
 **Status:** Active internal contract. `SAP01-A` through `SAP01-D`, `SAP02`, and
@@ -90,9 +99,13 @@ real-system harness, canonical program semantics, artifact formats, analyzer
 semantics, deployment authority, runtime capabilities, transactions, OCC,
 commit behavior, persistence, or production routing.
 
-**Standard** means a deliberately versioned internal application contract
-shared by more than one producer. It does not mean public npm API,
-production-routed, trusted, or independently authoritative.
+**Standard** means a shared internal application contract used by more than one
+producer. It is not itself a versioning requirement. Accepted current product
+and operation names are plain and unversioned; suffixes remain only on concrete
+wire, persisted, manifest, receipt, codec, envelope, source-artifact, or
+migration contracts that require exact decoding or coexistence. Standard does
+not mean public npm API, production-routed, trusted, or independently
+authoritative.
 
 ## Current Sources Of Truth
 
