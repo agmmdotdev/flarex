@@ -2,14 +2,19 @@
 
 ## Status And Decision Boundary
 
-**Status:** Accepted workspace-internal migration roadmap. `CAPI-A` is complete
-privately; `CAPI-B` through `CAPI-E` remain pending and separately gated.
+**Status:** Accepted workspace-internal migration roadmap. `CAPI-A` and
+`CAPI-B` are complete privately; `CAPI-C` through `CAPI-E` remain pending and
+separately gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
 `prepareApplication` composition, deterministic create/query lowering, and
-focused boundary tests. It does not authorize later consumer, invocation,
-simulation, public, or production gates.
+focused boundary tests. The user approved `CAPI-B` on the same date. That slice
+migrates the `flarex-dev` SDK/source-package producer and the reusable
+system-test definition producer onto `prepareApplication`, adds the clean
+source-production bridge, and removes the displaced raw developer adapters.
+It does not authorize invocation, system-test facade naming, public, or
+production gates.
 
 This preflight defines a clean, unversioned workspace-internal entry surface
 for application definition and invocation. It responds to the current
@@ -24,7 +29,7 @@ contracts may retain their existing versions because exact decoding and
 migration compatibility require them. Those versions remain below the clean
 Application APIs.
 
-Beyond the completed `CAPI-A` slice, this roadmap does not authorize package
+Beyond the completed `CAPI-A` and `CAPI-B` slices, this roadmap does not authorize package
 renames, public SDK changes, routes, bindings, deployment, production routing,
 schemas, migrations, runtime changes, compatibility aliases, fallbacks,
 comparison execution, or dual writes.
@@ -410,6 +415,31 @@ Exit criteria:
 
 ### `CAPI-B` — Definition consumers and source production
 
+**Status:** Complete privately on 2026-08-28. `flarex-dev` now owns one clean
+SDK/source-package adapter that produces an opaque `ApplicationDefinition`,
+enters `prepareApplication`, and delegates source generation through
+`produceApplicationSource`. Its displaced declarative-program and materializer
+entry points, raw graph inputs, paired budget inputs, and direct tests are
+removed. The reusable system-test create/read producer now returns the same
+opaque definition, while the runner owns preparation policy and uses the same
+source-production path.
+
+The existing task-publication fixture still consumes the displaced prepared
+definition contract. `withLegacyPreparedApplication` is the sole explicit
+callback bridge from the clean prepared value to that downstream owner, and it
+is exposed only through `@flarex/application-definition/internal/preparation`,
+not the clean package root. It does not prepare, compare, fall back, or add a
+second definition path. Its removal belongs to the later downstream-consumer
+migration gate.
+
+Preparation policy is admitted and snapshotted once by the clean owner before
+the SDK or source-package adapter reads producer input. The admitted handle is
+then reused by core preparation. The SDK adapter bounds the complete source
+module container and proves source and source-map byte totals before allocating
+their byte arrays. Simulation typed-reference checks are derived from the same
+admitted prepared program used for analysis and registration; there is no
+side-channel definition catalog.
+
 Migrate `flarex-dev` and the reusable system-test definition producer to the
 clean definition facade. Producer-specific file, SDK, graph, and diagnostic
 policy remains outside the definition owner. Remove migrated raw-input helpers;
@@ -510,6 +540,7 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after `CAPI-A`. The next work requires explicit approval for `CAPI-B`; do
-not begin package-wide renaming, invocation migration, system-test producer
-migration, or the cooking simulation from this completed slice.
+Stop after `CAPI-B`. The next work requires explicit approval for `CAPI-C`; do
+not start invocation APIs, system-test facade renaming, or broad simulation
+migration from this completed slice. The English-learning and cooking PGlite
+lanes run here only as unchanged producer-path regression evidence.

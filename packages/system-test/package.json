@@ -91,6 +91,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/application-definition": "workspace:*",
     "@flarex/durable-task": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",

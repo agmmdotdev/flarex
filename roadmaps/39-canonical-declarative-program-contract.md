@@ -652,6 +652,13 @@ own measured evidence.
 
 ## First Implementation Receipt
 
+> **Current producer path:** CAPI-B in
+> [`50-clean-application-apis.md`](./50-clean-application-apis.md) displaced the
+> historical `flarex-dev/internal/declarative-program-v1` and
+> `flarex-dev/internal/declarative-materializer-v1` entry points with the clean
+> Application Definition and source producer. The receipt below remains exact
+> historical evidence for the lower-level contracts, not current API guidance.
+
 The approved internal vertical now exists without production routing:
 
 - `@flarex/declarative-program/v1` owns the nominal program and budget types,

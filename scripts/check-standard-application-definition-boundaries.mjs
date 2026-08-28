@@ -77,6 +77,7 @@ const applicationDefinitionAllowedProductionImports = new Set([
   "@flarex/declarative-materializer/v1",
   "@flarex/declarative-program/v1",
   "@flarex/standard-application-definition/v1",
+  "@flarex/standard-application-definition/application-source",
   "@flarex/utils/bytes",
   "@flarex/utils/strings",
   "effect",
@@ -194,7 +195,7 @@ if (isCliEntrypoint()) {
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
     );
     console.log(
-      "Clean Application definition boundary check passed with one package root.",
+      "Clean Application definition boundary check passed with one root and one internal preparation bridge.",
     );
   }
 }
@@ -251,11 +252,13 @@ export function analyzeApplicationDefinitionBoundary(manifest, sources) {
   }
   if (
     !isRecord(manifest.exports)
-    || Object.keys(manifest.exports).length !== 1
+    || Object.keys(manifest.exports).length !== 2
     || manifest.exports["."] !== "./src/index.ts"
+    || manifest.exports["./internal/preparation"] !==
+      "./src/internal/preparation.ts"
   ) {
     errors.push(
-      "Application definition package must expose only . from ./src/index.ts.",
+      "Application definition package must expose its clean root and internal preparation bridge.",
     );
   }
   collectExactDependencyErrors(

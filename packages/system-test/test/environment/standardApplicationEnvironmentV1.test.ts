@@ -46,11 +46,14 @@ import { makeCreateAndReadFunctionSourcesV1 } from
 import { cookingSimulationV1 } from
   "../simulation/cooking/cookingSimulationV1";
 
-function makeCookingDefinitionV1() {
+function makeCookingDefinitionV1(
+  mutationSourceBytes?: Uint8Array,
+) {
   const fields = {
     title: standardV1.string(),
     servings: standardV1.number(),
   } as const;
+  const sources = makeCreateAndReadFunctionSourcesV1("recipes");
   return makeCreateAndReadDefinitionV1({
     tableName: "recipes",
     ...makeCreateAndReadModulesV1({
@@ -61,28 +64,18 @@ function makeCookingDefinitionV1() {
     }),
     mutationArtifactPath: "recipeMutation",
     queryArtifactPath: "recipeQuery",
-    ...makeCreateAndReadFunctionSourcesV1("recipes"),
+    mutationSourceBytes: mutationSourceBytes ?? sources.mutationSourceBytes,
+    querySourceBytes: sources.querySourceBytes,
     fields,
   });
 }
 
 function makeDiagnosticCookingDefinitionV1() {
-  const definition = makeCookingDefinitionV1();
   const source = new TextEncoder().encode(
     'throw new Error("injected import-time effect");' +
       'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
   );
-  return {
-    ...definition,
-    graphInput: {
-      ...definition.graphInput,
-      modules: definition.graphInput.modules.map(module =>
-        module.path === "recipeMutation"
-          ? { ...module, sourceBytes: source }
-          : module
-      ),
-    },
-  };
+  return makeCookingDefinitionV1(source);
 }
 
 function testApplication(

@@ -8,6 +8,7 @@ describe("Application definition package boundary", () => {
     expect(manifest.name).toBe("@flarex/application-definition");
     expect(manifest.exports).toEqual({
       ".": "./src/index.ts",
+      "./internal/preparation": "./src/internal/preparation.ts",
     });
     expect(manifest.dependencies).toEqual({
       "@flarex/application-schema-definition": "workspace:*",
@@ -22,6 +23,7 @@ describe("Application definition package boundary", () => {
   it("exposes only plain current runtime names", () => {
     expect(Object.keys(applicationDefinition).sort()).toEqual([
       "action",
+      "admitApplicationPreparationPolicy",
       "defineApplication",
       "defineModule",
       "defineSchema",
@@ -31,6 +33,7 @@ describe("Application definition package boundary", () => {
       "internalQuery",
       "mutation",
       "prepareApplication",
+      "produceApplicationSource",
       "query",
       "sourceModule",
       "v",

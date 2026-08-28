@@ -31,11 +31,20 @@ export {
   type Validator,
   type ValidatorFieldPaths,
   type ValidatorOptionality,
+  type ValidatorRecord,
 } from "./Authoring.js";
 
 export {
+  admitApplicationPreparationPolicy,
   prepareApplication,
+  type AdmittedApplicationPreparationPolicy,
   type ApplicationPreparationError,
   type ApplicationPreparationPolicy,
   type PreparedApplication,
 } from "./Preparation.js";
+
+export {
+  produceApplicationSource,
+  type ApplicationSource,
+  type ApplicationSourceError,
+} from "./Production.js";

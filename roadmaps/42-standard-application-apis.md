@@ -4,8 +4,8 @@
 > [`50-clean-application-apis.md`](./50-clean-application-apis.md) is the
 > accepted migration roadmap for replacing chronology-shaped Standard product APIs
 > with clean, unversioned Application Definition and Application Invocation
-> surfaces. `CAPI-A` is complete privately; later consumer, invocation,
-> package-removal, public, and production gates remain pending. Existing `/v1`
+> surfaces. `CAPI-A` and `CAPI-B` are complete privately; invocation,
+> facade migration, package-removal, public, and production gates remain pending. Existing `/v1`
 > exports and `...V1` product names are migration inventory, not accepted target
 > naming.
 

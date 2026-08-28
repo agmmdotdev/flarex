@@ -2,15 +2,19 @@
 
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
+  produceApplicationSource,
+  type ApplicationSource,
+  type PreparedApplication,
+} from "@flarex/application-definition";
+import {
+  produceStandardApplicationSource,
+} from "@flarex/standard-application-definition/application-source";
+import {
   applicationAnalysisHostEffectWithCapabilities,
 } from "@flarex/source-analyzer-v2/internal/application-analysis-host";
 import {
   makeApplicationAnalysisContext,
 } from "@flarex/source-analyzer-v2/internal/application-analysis-composition";
-import {
-  produceStandardApplicationSource,
-  type StandardApplicationSource,
-} from "@flarex/standard-application-definition/application-source";
 import { produceInternalStandardApplicationSourceWithRelations } from
   "@flarex/standard-application-definition/internal/relation-definition";
 import type {
@@ -40,10 +44,19 @@ export function decodeStandardApplicationCurrentSourceTextV1(
   return SOURCE_UTF8.decode(sourceBytes);
 }
 
+export async function produceApplicationCurrentSourceBundle(
+  definition: PreparedApplication,
+): Promise<ApplicationNativeMutationSourceBundle> {
+  const produced = Result.getOrThrow(produceApplicationSource(definition));
+  return sourceBundleFromProduced(produced);
+}
+
 export async function produceStandardApplicationCurrentSourceBundleV1(
   definition: PreparedStandardApplicationDefinitionV1,
 ): Promise<ApplicationNativeMutationSourceBundle> {
-  const produced = Result.getOrThrow(produceStandardApplicationSource(definition));
+  const produced = Result.getOrThrow(
+    produceStandardApplicationSource(definition),
+  );
   return sourceBundleFromProduced(produced);
 }
 
@@ -61,7 +74,7 @@ export async function produceStandardApplicationCurrentRelationSourceBundleV1(
 }
 
 async function sourceBundleFromProduced(
-  produced: StandardApplicationSource,
+  produced: ApplicationSource,
 ): Promise<ApplicationNativeMutationSourceBundle> {
   const modules = Object.freeze(await Promise.all(produced.modules.map(
     async module => Object.freeze({

@@ -14,8 +14,8 @@
     "./cli": "./src/cli.ts",
     "./internal/managed-schema": "./src/managedSchema.ts",
     "./internal/retained-history-maintenance": "./src/retainedHistoryMaintenance.ts",
-    "./internal/declarative-materializer-v1": "./src/declarativeMaterializerV1.ts",
-    "./internal/declarative-program-v1": "./src/declarativeProgramV1.ts",
+    "./internal/application-definition": "./src/applicationDefinition.ts",
+    "./internal/application-source": "./src/applicationSource.ts",
     "./internal/local-node-task-executor": "./src/nodeTaskLocalExecutor/LocalNodeTaskExecutor.ts",
     "./vite": "./src/vite.ts"
   },
@@ -27,8 +27,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
-    "@flarex/declarative-materializer": "workspace:*",
-    "@flarex/declarative-program": "workspace:*",
+    "@flarex/application-definition": "workspace:*",
     "@flarex/durable-task": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",

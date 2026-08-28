@@ -1,4 +1,11 @@
 import { Data, Effect, Fiber, Layer, ManagedRuntime, Result, Scope } from "effect";
+import {
+  prepareApplication,
+  type ApplicationPreparationPolicy,
+} from "@flarex/application-definition";
+import {
+  withLegacyPreparedApplication,
+} from "@flarex/application-definition/internal/preparation";
 import { copyBytes } from "@flarex/utils/bytes";
 import type {
   TransactionFunctionPathV1,
@@ -28,11 +35,9 @@ import type {
   StandardFunctionArgsValidatorV1,
   StandardFunctionContractV1,
   StandardFunctionReferenceV1,
-  StandardApplicationDefinitionInputV1,
+  PreparedStandardApplicationDefinitionV1,
   StandardValidatorV1,
 } from "@flarex/standard-application-definition/v1";
-import { prepareStandardApplicationDefinitionV1 } from
-  "@flarex/standard-application-definition/v1";
 
 import {
   type AuthoritativeCommittedApplicationPointMutationOutcomeV1,
@@ -118,7 +123,7 @@ import {
 import {
   makeStandardApplicationCurrentAnalysisV1,
   MiniflareApplicationAnalysisWorkerLoader,
-  produceStandardApplicationCurrentSourceBundleV1,
+  produceApplicationCurrentSourceBundle,
 } from "../../support/standardApplicationCurrentAnalysisHarness";
 import {
   makeStandardApplicationSystemTestInspectorV1,
@@ -146,6 +151,21 @@ type ApplicationTestRequirementsV1 =
   | ApplicationQuerySystem
   | StandardApplicationTaskSystem
   | Scope.Scope;
+
+const SIMULATION_APPLICATION_PREPARATION_POLICY = Object.freeze({
+  maximumModules: 128,
+  maximumFunctions: 1_024,
+  maximumIdentifierUtf8Bytes: 4_096,
+  maximumValidatorNodes: 16_384,
+  maximumValidatorDepth: 64,
+  maximumValidatorStringUtf8Bytes: 64_000,
+  maximumSourceBytes: 8_000_000,
+  maximumSourceMapBytes: 8_000_000,
+  maximumBytesMaterialized: 24_000_000,
+  maximumSemanticRecords: 16_384,
+  maximumSemanticRecordBytes: 64_000,
+  maximumSemanticStreamBytes: 8_000_000,
+}) satisfies ApplicationPreparationPolicy;
 
 export type StandardApplicationLegacySimulationQueryErrorV1 =
   InvokeStandardApplicationPointQueryV1Error;
@@ -398,7 +418,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
   Scope.Scope
 > {
   const { simulation } = input;
-  const standardDefinitionInput = simulation.application.define();
+  const applicationDefinition = simulation.application.define();
   const taskDefinitions = simulation.application.defineTasks?.() ?? [];
   const hostedTaskKit = yield* acquireApplicationTaskHostedTestKit({
     resources: taskDefinitions.length === 0 ? "none" : "r2",
@@ -409,32 +429,39 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
       cause,
     })
   ));
-  const registeredFunctionContracts = indexRegisteredFunctionContractsV1(
-    standardDefinitionInput,
-  );
-  const fixture = yield* Effect.uninterruptible(Effect.tryPromise({
+  const preparedFixture = yield* Effect.uninterruptible(Effect.tryPromise({
     try: async () => {
-      const definition = Result.getOrThrow(
-        prepareStandardApplicationDefinitionV1(standardDefinitionInput),
-      );
-      const source = await produceStandardApplicationCurrentSourceBundleV1(
-        definition,
-      );
-      return input.lane.createFixture({
-        runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
-        compatibilityDate: "2026-06-14",
-        taskPublication: Object.freeze({
-          definition,
-          manifests: Object.freeze(
-            taskDefinitions.map(task => task.manifest),
-          ),
-        }),
-        analysis: makeStandardApplicationCurrentAnalysisV1(
-          source,
-          analysisLoader,
-          simulation.application.applicationId,
+      const prepared = Result.getOrThrow(
+        prepareApplication(
+          applicationDefinition,
+          SIMULATION_APPLICATION_PREPARATION_POLICY,
         ),
-      });
+      );
+      const source = await produceApplicationCurrentSourceBundle(
+        prepared,
+      );
+      return withLegacyPreparedApplication(
+        prepared,
+        async definition => ({
+          fixture: await input.lane.createFixture({
+          runtimeHostIdentity: APPLICATION_RUNTIME_HOST_IDENTITY,
+          compatibilityDate: "2026-06-14",
+          taskPublication: Object.freeze({
+            definition,
+            manifests: Object.freeze(
+              taskDefinitions.map(task => task.manifest),
+            ),
+          }),
+          analysis: makeStandardApplicationCurrentAnalysisV1(
+            source,
+            analysisLoader,
+            simulation.application.applicationId,
+          ),
+          }),
+          registeredFunctionContracts:
+            indexRegisteredFunctionContracts(definition),
+        }),
+      );
     },
     catch: cause => new StandardApplicationSimulationIntegrationV1Error({
       phase: "prepareRevision",
@@ -442,6 +469,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
       cause,
     }),
   }));
+  const { fixture, registeredFunctionContracts } = preparedFixture;
 
   let mutationRuntimeExecutions = 0;
   let queryRuntimeExecutions = 0;
@@ -944,18 +972,18 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
   };
 });
 
-type RegisteredFunctionContractV1 = Readonly<{
+interface RegisteredFunctionContract {
   readonly kind: string;
   readonly visibility: string;
   readonly argsValidator: unknown;
   readonly returnsValidator: unknown;
-}>;
+}
 
-function indexRegisteredFunctionContractsV1(
-  definition: StandardApplicationDefinitionInputV1,
-): ReadonlyMap<string, RegisteredFunctionContractV1> {
-  const contracts = new Map<string, RegisteredFunctionContractV1>();
-  for (const module of definition.programInput.modules) {
+function indexRegisteredFunctionContracts(
+  definition: PreparedStandardApplicationDefinitionV1,
+): ReadonlyMap<string, RegisteredFunctionContract> {
+  const contracts = new Map<string, RegisteredFunctionContract>();
+  for (const module of definition.program.modules) {
     for (const fn of module.functions) {
       contracts.set(`${module.modulePath}:${fn.exportName}`, Object.freeze({
         kind: fn.kind,
@@ -970,7 +998,7 @@ function indexRegisteredFunctionContractsV1(
 
 function requireTypedReferenceBindingV1(
   phase: "mutationContract" | "queryContract" | "actionContract",
-  contracts: ReadonlyMap<string, RegisteredFunctionContractV1>,
+  contracts: ReadonlyMap<string, RegisteredFunctionContract>,
   reference: StandardFunctionReferenceV1<string, AnyStandardFunctionContractV1>,
 ): Effect.Effect<void, StandardApplicationTypedReferenceV1Error> {
   const registered = contracts.get(reference.path);

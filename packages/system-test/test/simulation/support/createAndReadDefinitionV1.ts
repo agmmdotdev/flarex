@@ -1,17 +1,45 @@
+import {
+  action,
+  defineApplication,
+  defineModule,
+  defineSchema,
+  defineTable,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  sourceModule,
+  v,
+  workflowMutation,
+  type ApplicationDefinition,
+  type FunctionDefinition,
+  type TableDefinition,
+  type Validator,
+  type ValidatorOptionality,
+  type ValidatorRecord,
+} from "@flarex/application-definition";
 import type {
+  AnyStandardFunctionContractV1,
   StandardFunctionCatalogV1,
-  StandardApplicationDefinitionInputV1,
   StandardModuleV1,
   StandardValidatorRecordV1,
 } from "@flarex/standard-application-definition/v1";
 import { standardV1 } from "@flarex/standard-application-definition/v1";
 import type { SchemaManifestAppIndexDeclarationInputV1 } from
   "flarex-protocol/schema-manifest";
+import type {
+  ObjectValidatorJsonV1,
+  ValidatorJsonV1,
+} from "flarex-protocol/validator-json";
 
 type AnyStandardModuleV1 = StandardModuleV1<
   string,
   StandardFunctionCatalogV1
 >;
+
+type RequiredCleanValidator = Validator<unknown, "required", string>;
+type CleanFunctionArgs = FunctionDefinition["args"];
 
 export interface CreateAndReadAdditionalFunctionModuleV1 {
   readonly module: AnyStandardModuleV1;
@@ -85,138 +113,208 @@ export function makeCreateAndReadModulesV1<
   });
 }
 
+/**
+ * Transitional CAPI-B fixture adapter. Existing simulations retain their
+ * typed Standard references until the invocation facade lands, while all
+ * definition preparation now goes through the clean application facade.
+ */
 export function makeCreateAndReadDefinitionV1<
   Fields extends StandardValidatorRecordV1,
 >(
   input: CreateAndReadDefinitionInputV1<Fields>,
-): StandardApplicationDefinitionInputV1 {
-  const documentValidator = standardV1.object(input.fields);
-  const additionalTables = input.additionalTables ?? [];
-  const lifecycle = input.pointMutationLifecycle;
+): ApplicationDefinition {
   const additionalFunctionModules = input.additionalFunctionModules ?? [];
-  const lifecycleProgramModules = lifecycle === undefined ? [] : [
-    lifecycle.patchModule.toCanonicalInput(),
-    lifecycle.replaceModule.toCanonicalInput(),
-    lifecycle.deleteModule.toCanonicalInput(),
-  ];
-  const lifecycleGraphModules = lifecycle === undefined ? [] : [{
-    path: lifecycle.patchArtifactPath,
-    roles: ["function" as const],
-    sourceBytes: new Uint8Array(lifecycle.patchSourceBytes),
-    sourceMapBytes: null,
-  }, {
-    path: lifecycle.replaceArtifactPath,
-    roles: ["function" as const],
-    sourceBytes: new Uint8Array(lifecycle.replaceSourceBytes),
-    sourceMapBytes: null,
-  }, {
-    path: lifecycle.deleteArtifactPath,
-    roles: ["function" as const],
-    sourceBytes: new Uint8Array(lifecycle.deleteSourceBytes),
-    sourceMapBytes: null,
+  const lifecycle = input.pointMutationLifecycle;
+  const moduleInputs: Array<Readonly<{
+    readonly module: AnyStandardModuleV1;
+    readonly artifactPath: string;
+    readonly sourceBytes: Uint8Array;
+  }>> = [{
+    module: input.mutationModule,
+    artifactPath: input.mutationArtifactPath,
+    sourceBytes: input.mutationSourceBytes,
   }];
-  const lifecycleFunctionEntries = lifecycle === undefined ? [] : [{
-    logicalModulePath: lifecycle.patchModule.modulePath,
-    artifactModulePath: lifecycle.patchArtifactPath,
-  }, {
-    logicalModulePath: lifecycle.replaceModule.modulePath,
-    artifactModulePath: lifecycle.replaceArtifactPath,
-  }, {
-    logicalModulePath: lifecycle.deleteModule.modulePath,
-    artifactModulePath: lifecycle.deleteArtifactPath,
-  }];
-  const additionalProgramModules = additionalFunctionModules.map(
-    entry => entry.module.toCanonicalInput(),
-  );
-  const additionalGraphModules = additionalFunctionModules.map(module => ({
-    path: module.artifactModulePath,
-    roles: ["function" as const],
-    sourceBytes: new Uint8Array(module.sourceBytes),
-    sourceMapBytes: null,
-  }));
-  const additionalFunctionEntries = additionalFunctionModules.map(module => ({
-    logicalModulePath: module.module.modulePath,
-    artifactModulePath: module.artifactModulePath,
-  }));
-  const programModules = [
-    input.mutationModule.toCanonicalInput(),
-    ...lifecycleProgramModules,
-    ...additionalProgramModules,
-    input.queryModule.toCanonicalInput(),
-  ];
-  const moduleCount = programModules.length;
-  const functionCount = programModules.reduce(
-    (count, module) => count + module.functions.length,
-    0,
-  );
-  return {
-    programBudgetInput: {
-      maximumModules: moduleCount,
-      maximumFunctions: functionCount,
-      maximumIdentifierUtf8Bytes: 4_096,
-      maximumValidatorNodes: 512,
-      maximumValidatorDepth: 32,
-      maximumValidatorStringUtf8Bytes: 4_096,
-    },
-    programInput: {
-      format: "flarex.declarative-program/v1",
-      version: 1,
-      schema: {
-        tables: [{
-          logicalName: input.tableName,
-          definition: {
-            kind: "appDocument",
-            definitionVersion: 1,
-            documentType: documentValidator.json,
-          },
-        }, ...additionalTables.map(table => ({
-          logicalName: table.logicalName,
-          definition: {
-            kind: "appDocument" as const,
-            definitionVersion: 1 as const,
-            documentType: standardV1.object(table.fields).json,
-          },
-        }))],
-        indexes: input.indexes ?? [],
-      },
-      modules: programModules,
-    },
-    materializationBudgetInput: {
-      maximumModules: moduleCount,
-      maximumEntryBindings: moduleCount,
-      maximumSourceBytes: additionalFunctionModules.length === 0
-        ? 8_192
-        : 16_384,
-      maximumSourceMapBytes: 1_024,
-      maximumBytesMaterialized: additionalFunctionModules.length === 0
-        ? 64_000
-        : 128_000,
-      maximumSemanticRecords: moduleCount * 32,
-      maximumSemanticRecordBytes: 8_000,
-      maximumSemanticStreamBytes: 32_000,
-    },
-    graphInput: {
-      modules: [{
-        path: input.mutationArtifactPath,
-        roles: ["function", "execution"],
-        sourceBytes: new Uint8Array(input.mutationSourceBytes),
-        sourceMapBytes: null,
-      }, ...lifecycleGraphModules, ...additionalGraphModules, {
-        path: input.queryArtifactPath,
-        roles: ["function"],
-        sourceBytes: new Uint8Array(input.querySourceBytes),
-        sourceMapBytes: null,
-      }],
-      functionEntries: [{
-        logicalModulePath: input.mutationModule.modulePath,
-        artifactModulePath: input.mutationArtifactPath,
-      }, ...lifecycleFunctionEntries, ...additionalFunctionEntries, {
-        logicalModulePath: input.queryModule.modulePath,
-        artifactModulePath: input.queryArtifactPath,
-      }],
-      executionPath: input.mutationArtifactPath,
-      schemaPath: null,
-      authPath: null,
-    },
-  };
+  if (lifecycle !== undefined) {
+    moduleInputs.push({
+      module: lifecycle.patchModule,
+      artifactPath: lifecycle.patchArtifactPath,
+      sourceBytes: lifecycle.patchSourceBytes,
+    }, {
+      module: lifecycle.replaceModule,
+      artifactPath: lifecycle.replaceArtifactPath,
+      sourceBytes: lifecycle.replaceSourceBytes,
+    }, {
+      module: lifecycle.deleteModule,
+      artifactPath: lifecycle.deleteArtifactPath,
+      sourceBytes: lifecycle.deleteSourceBytes,
+    });
+  }
+  moduleInputs.push(...additionalFunctionModules.map(entry => ({
+    module: entry.module,
+    artifactPath: entry.artifactModulePath,
+    sourceBytes: entry.sourceBytes,
+  })), {
+    module: input.queryModule,
+    artifactPath: input.queryArtifactPath,
+    sourceBytes: input.querySourceBytes,
+  });
+
+  const tables: Record<string, TableDefinition> = Object.create(null);
+  tables[input.tableName] = tableFromStandardFields(input.fields);
+  for (const table of input.additionalTables ?? []) {
+    tables[table.logicalName] = tableFromStandardFields(table.fields);
+  }
+  for (const index of input.indexes ?? []) {
+    const table = tables[index.tableLogicalName];
+    const [first, ...rest] = index.fields;
+    if (table === undefined || first === undefined) {
+      throw new TypeError(
+        `Create/read fixture index ${index.descriptor} has no owned table or field.`,
+      );
+    }
+    tables[index.tableLogicalName] = table.index(
+      index.descriptor,
+      [first, ...rest],
+    );
+  }
+
+  return defineApplication({
+    schema: defineSchema(tables),
+    modules: moduleInputs.map(entry => moduleFromStandard(
+      entry.module,
+      entry.artifactPath,
+      entry.sourceBytes,
+    )),
+  });
+}
+
+function tableFromStandardFields(
+  fields: StandardValidatorRecordV1,
+): TableDefinition {
+  return defineTable(validatorRecordFromStandard(fields));
+}
+
+function moduleFromStandard(
+  module: AnyStandardModuleV1,
+  artifactPath: string,
+  sourceBytes: Uint8Array,
+) {
+  const functions: Record<string, FunctionDefinition> = Object.create(null);
+  for (const [exportName, contract] of Object.entries(module.functions)) {
+    functions[exportName] = functionFromStandard(contract);
+  }
+  return defineModule({
+    path: module.modulePath,
+    source: sourceModule({ path: artifactPath, bytes: sourceBytes }),
+    functions,
+  });
+}
+
+function functionFromStandard(
+  contract: AnyStandardFunctionContractV1,
+): FunctionDefinition {
+  const args = functionArgsFromJson(contract.args.json);
+  const returns = requiredValidatorFromJson(contract.returns.json);
+  switch (`${contract.visibility}:${contract.kind}`) {
+    case "public:query":
+      return query({ args, returns });
+    case "internal:query":
+      return internalQuery({ args, returns });
+    case "public:mutation":
+      return mutation({ args, returns });
+    case "internal:mutation":
+      return internalMutation({ args, returns });
+    case "public:workflowMutation":
+      return workflowMutation({ args, returns });
+    case "public:action":
+      return action({ args, returns });
+    case "internal:action":
+      return internalAction({ args, returns });
+    default:
+      throw new TypeError(
+        `Unsupported simulation function contract: ${contract.visibility}:${contract.kind}.`,
+      );
+  }
+}
+
+function functionArgsFromJson(json: ValidatorJsonV1): CleanFunctionArgs {
+  if (json.type === "any") return v.any();
+  if (json.type !== "object") {
+    throw new TypeError("Simulation function arguments must be object or any.");
+  }
+  return v.object(validatorRecordFromObjectJson(json));
+}
+
+function validatorRecordFromStandard(
+  fields: StandardValidatorRecordV1,
+): ValidatorRecord {
+  const converted: Record<
+    string,
+    Validator<unknown, ValidatorOptionality, string>
+  > = Object.create(null);
+  for (const [name, validator] of Object.entries(fields)) {
+    const required = requiredValidatorFromJson(validator.json);
+    converted[name] = validator.optionality === "optional"
+      ? v.optional(required)
+      : required;
+  }
+  return converted;
+}
+
+function validatorRecordFromObjectJson(
+  json: ObjectValidatorJsonV1,
+): ValidatorRecord {
+  const converted: Record<
+    string,
+    Validator<unknown, ValidatorOptionality, string>
+  > = Object.create(null);
+  for (const [name, field] of Object.entries(json.value)) {
+    const required = requiredValidatorFromJson(field.fieldType);
+    converted[name] = field.optional ? v.optional(required) : required;
+  }
+  return converted;
+}
+
+function requiredValidatorFromJson(
+  json: ValidatorJsonV1,
+): RequiredCleanValidator {
+  switch (json.type) {
+    case "null":
+      return v.null();
+    case "number":
+      return v.number();
+    case "bigint":
+      return v.bigint();
+    case "boolean":
+      return v.boolean();
+    case "string":
+      return v.string();
+    case "bytes":
+      return v.bytes();
+    case "any":
+      return v.any();
+    case "id":
+      return v.id(json.tableName);
+    case "literal":
+      return v.literal(json.value);
+    case "array":
+      return v.array(requiredValidatorFromJson(json.value));
+    case "record":
+      return v.record(
+        requiredValidatorFromJson(json.keys),
+        requiredValidatorFromJson(json.values),
+      );
+    case "object":
+      return v.object(validatorRecordFromObjectJson(json));
+    case "union": {
+      const [first, ...rest] = json.value;
+      if (first === undefined) {
+        throw new TypeError("Simulation validator union must not be empty.");
+      }
+      return v.union(
+        requiredValidatorFromJson(first),
+        ...rest.map(requiredValidatorFromJson),
+      );
+    }
+  }
 }

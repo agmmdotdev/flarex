@@ -499,6 +499,7 @@ function validApplicationDefinitionManifest() {
     name: "@flarex/application-definition",
     exports: {
       ".": "./src/index.ts",
+      "./internal/preparation": "./src/internal/preparation.ts",
     },
     dependencies: {
       "@flarex/application-schema-definition": "workspace:*",

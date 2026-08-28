@@ -2,6 +2,7 @@ import {
   CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
   CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
   makeCanonicalDeclarativeProgramBudgetV1,
+  type CanonicalDeclarativeProgramBudgetV1,
   type CanonicalDeclarativeProgramInputV1,
   type CanonicalDeclarativeProgramV1Error,
 } from "@flarex/declarative-program/v1";
@@ -44,6 +45,31 @@ export type ApplicationPreparationError =
   | CanonicalDeclarativeProgramV1Error
   | DeclarativeV2MaterializationV1Error;
 
+declare const AdmittedApplicationPreparationPolicyType: unique symbol;
+
+export interface AdmittedApplicationPreparationPolicy {
+  readonly [AdmittedApplicationPreparationPolicyType]: true;
+}
+
+interface AdmittedApplicationPreparationPolicyState {
+  readonly policy: Readonly<ApplicationPreparationPolicy>;
+  readonly programBudget: CanonicalDeclarativeProgramBudgetV1;
+}
+
+const admittedApplicationPreparationPolicyStates = new WeakMap<
+  object,
+  AdmittedApplicationPreparationPolicyState
+>();
+
+class AdmittedApplicationPreparationPolicyHandle implements
+  AdmittedApplicationPreparationPolicy {
+  declare readonly [AdmittedApplicationPreparationPolicyType]: true;
+
+  constructor() {
+    Object.freeze(this);
+  }
+}
+
 declare const PreparedApplicationType: unique symbol;
 
 export interface PreparedApplication<
@@ -72,43 +98,38 @@ export function prepareApplication<
   Definition extends ApplicationDefinition,
 >(
   definition: Definition,
-  policy: ApplicationPreparationPolicy,
+  policy:
+    | ApplicationPreparationPolicy
+    | AdmittedApplicationPreparationPolicy,
 ): Result.Result<PreparedApplication<Definition>, ApplicationPreparationError> {
-  const application = inspectApplicationDefinition(definition);
-  const modules = application.modules.map((module) =>
-    inspectApplicationModule(module)
-  );
-  const programInput = {
-    format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
-    version: CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
-    schema: inspectSchemaDefinition(application.schema),
-    modules: modules.map((module) => module.authored.toCanonicalInput()),
-  } satisfies CanonicalDeclarativeProgramInputV1;
-
   return Result.gen(function* () {
-    const programBudget = yield* makeCanonicalDeclarativeProgramBudgetV1({
-      maximumModules: policy.maximumModules,
-      maximumFunctions: policy.maximumFunctions,
-      maximumIdentifierUtf8Bytes: policy.maximumIdentifierUtf8Bytes,
-      maximumValidatorNodes: policy.maximumValidatorNodes,
-      maximumValidatorDepth: policy.maximumValidatorDepth,
-      maximumValidatorStringUtf8Bytes:
-        policy.maximumValidatorStringUtf8Bytes,
-    });
+    const admitted = yield* resolveApplicationPreparationPolicy(policy);
+    const application = inspectApplicationDefinition(definition);
+    const modules = application.modules.map((module) =>
+      inspectApplicationModule(module)
+    );
+    const programInput = {
+      format: CANONICAL_DECLARATIVE_PROGRAM_FORMAT_V1,
+      version: CANONICAL_DECLARATIVE_PROGRAM_VERSION_V1,
+      schema: inspectSchemaDefinition(application.schema),
+      modules: modules.map((module) => module.authored),
+    } satisfies CanonicalDeclarativeProgramInputV1;
     const program = yield* prepareStandardApplicationProgramV1(
       programInput,
-      programBudget,
+      admitted.programBudget,
     );
     const materializationBudget =
       yield* makeDeclarativeV2MaterializationBudgetV1({
-        maximumModules: policy.maximumModules,
+        maximumModules: admitted.policy.maximumModules,
         maximumEntryBindings: modules.length,
-        maximumSourceBytes: policy.maximumSourceBytes,
-        maximumSourceMapBytes: policy.maximumSourceMapBytes,
-        maximumBytesMaterialized: policy.maximumBytesMaterialized,
-        maximumSemanticRecords: policy.maximumSemanticRecords,
-        maximumSemanticRecordBytes: policy.maximumSemanticRecordBytes,
-        maximumSemanticStreamBytes: policy.maximumSemanticStreamBytes,
+        maximumSourceBytes: admitted.policy.maximumSourceBytes,
+        maximumSourceMapBytes: admitted.policy.maximumSourceMapBytes,
+        maximumBytesMaterialized: admitted.policy.maximumBytesMaterialized,
+        maximumSemanticRecords: admitted.policy.maximumSemanticRecords,
+        maximumSemanticRecordBytes:
+          admitted.policy.maximumSemanticRecordBytes,
+        maximumSemanticStreamBytes:
+          admitted.policy.maximumSemanticStreamBytes,
       });
     const artifactIngressPlan =
       yield* materializeStandardApplicationArtifactsV1(
@@ -120,6 +141,177 @@ export function prepareApplication<
     preparedApplicationStates.set(prepared, { program, artifactIngressPlan });
     return prepared;
   });
+}
+
+export function admitApplicationPreparationPolicy(
+  input: ApplicationPreparationPolicy,
+): Result.Result<
+  AdmittedApplicationPreparationPolicy,
+  ApplicationPreparationError
+> {
+  return admitApplicationPreparationPolicyFromUnknown(input);
+}
+
+function admitApplicationPreparationPolicyFromUnknown(
+  input: unknown,
+): Result.Result<
+  AdmittedApplicationPreparationPolicy,
+  ApplicationPreparationError
+> {
+  const captured = captureApplicationPreparationPolicy(input);
+  if (captured === undefined) {
+    return Result.map(
+      makeCanonicalDeclarativeProgramBudgetV1(undefined),
+      () => new AdmittedApplicationPreparationPolicyHandle(),
+    );
+  }
+  return Result.gen(function* () {
+    const programBudget = yield* makeCanonicalDeclarativeProgramBudgetV1({
+      maximumModules: captured.maximumModules,
+      maximumFunctions: captured.maximumFunctions,
+      maximumIdentifierUtf8Bytes: captured.maximumIdentifierUtf8Bytes,
+      maximumValidatorNodes: captured.maximumValidatorNodes,
+      maximumValidatorDepth: captured.maximumValidatorDepth,
+      maximumValidatorStringUtf8Bytes:
+        captured.maximumValidatorStringUtf8Bytes,
+    });
+    const materializationBudget =
+      yield* makeDeclarativeV2MaterializationBudgetV1({
+      maximumModules: captured.maximumModules,
+      maximumEntryBindings: 0,
+      maximumSourceBytes: captured.maximumSourceBytes,
+      maximumSourceMapBytes: captured.maximumSourceMapBytes,
+      maximumBytesMaterialized: captured.maximumBytesMaterialized,
+      maximumSemanticRecords: captured.maximumSemanticRecords,
+      maximumSemanticRecordBytes: captured.maximumSemanticRecordBytes,
+      maximumSemanticStreamBytes: captured.maximumSemanticStreamBytes,
+    });
+    const policy = Object.freeze({
+      maximumModules: programBudget.maximumModules,
+      maximumFunctions: programBudget.maximumFunctions,
+      maximumIdentifierUtf8Bytes:
+        programBudget.maximumIdentifierUtf8Bytes,
+      maximumValidatorNodes: programBudget.maximumValidatorNodes,
+      maximumValidatorDepth: programBudget.maximumValidatorDepth,
+      maximumValidatorStringUtf8Bytes:
+        programBudget.maximumValidatorStringUtf8Bytes,
+      maximumSourceBytes: materializationBudget.maximumSourceBytes,
+      maximumSourceMapBytes: materializationBudget.maximumSourceMapBytes,
+      maximumBytesMaterialized:
+        materializationBudget.maximumBytesMaterialized,
+      maximumSemanticRecords: materializationBudget.maximumSemanticRecords,
+      maximumSemanticRecordBytes:
+        materializationBudget.maximumSemanticRecordBytes,
+      maximumSemanticStreamBytes:
+        materializationBudget.maximumSemanticStreamBytes,
+    });
+    const admitted = new AdmittedApplicationPreparationPolicyHandle();
+    admittedApplicationPreparationPolicyStates.set(admitted, {
+      policy,
+      programBudget,
+    });
+    return admitted;
+  });
+}
+
+function resolveApplicationPreparationPolicy(
+  policy: ApplicationPreparationPolicy | AdmittedApplicationPreparationPolicy,
+): Result.Result<
+  AdmittedApplicationPreparationPolicyState,
+  ApplicationPreparationError
+> {
+  const admitted = policy !== null && typeof policy === "object"
+    ? admittedApplicationPreparationPolicyStates.get(policy)
+    : undefined;
+  return admitted === undefined
+    ? Result.map(
+      admitApplicationPreparationPolicyFromUnknown(policy),
+      inspectAdmittedApplicationPreparationPolicyState,
+    )
+    : Result.succeed(admitted);
+}
+
+function captureApplicationPreparationPolicy(
+  input: unknown,
+): CapturedApplicationPreparationPolicy | undefined {
+  const keys = [
+    "maximumModules",
+    "maximumFunctions",
+    "maximumIdentifierUtf8Bytes",
+    "maximumValidatorNodes",
+    "maximumValidatorDepth",
+    "maximumValidatorStringUtf8Bytes",
+    "maximumSourceBytes",
+    "maximumSourceMapBytes",
+    "maximumBytesMaterialized",
+    "maximumSemanticRecords",
+    "maximumSemanticRecordBytes",
+    "maximumSemanticStreamBytes",
+  ] as const;
+  try {
+    if (input === null || typeof input !== "object" || Array.isArray(input)) {
+      return undefined;
+    }
+    const captured: unknown[] = [];
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (
+        descriptor === undefined ||
+        !descriptor.enumerable ||
+        !("value" in descriptor)
+      ) {
+        return undefined;
+      }
+      captured.push(descriptor.value);
+    }
+    return Object.freeze({
+      maximumModules: captured[0],
+      maximumFunctions: captured[1],
+      maximumIdentifierUtf8Bytes: captured[2],
+      maximumValidatorNodes: captured[3],
+      maximumValidatorDepth: captured[4],
+      maximumValidatorStringUtf8Bytes: captured[5],
+      maximumSourceBytes: captured[6],
+      maximumSourceMapBytes: captured[7],
+      maximumBytesMaterialized: captured[8],
+      maximumSemanticRecords: captured[9],
+      maximumSemanticRecordBytes: captured[10],
+      maximumSemanticStreamBytes: captured[11],
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+interface CapturedApplicationPreparationPolicy {
+  readonly maximumModules: unknown;
+  readonly maximumFunctions: unknown;
+  readonly maximumIdentifierUtf8Bytes: unknown;
+  readonly maximumValidatorNodes: unknown;
+  readonly maximumValidatorDepth: unknown;
+  readonly maximumValidatorStringUtf8Bytes: unknown;
+  readonly maximumSourceBytes: unknown;
+  readonly maximumSourceMapBytes: unknown;
+  readonly maximumBytesMaterialized: unknown;
+  readonly maximumSemanticRecords: unknown;
+  readonly maximumSemanticRecordBytes: unknown;
+  readonly maximumSemanticStreamBytes: unknown;
+}
+
+function inspectAdmittedApplicationPreparationPolicyState(
+  policy: AdmittedApplicationPreparationPolicy,
+): AdmittedApplicationPreparationPolicyState {
+  const state = admittedApplicationPreparationPolicyStates.get(policy);
+  if (state === undefined) {
+    throw new TypeError("Admitted application policy metadata is unavailable.");
+  }
+  return state;
+}
+
+export function inspectAdmittedApplicationPreparationPolicy(
+  policy: AdmittedApplicationPreparationPolicy,
+): Readonly<ApplicationPreparationPolicy> {
+  return inspectAdmittedApplicationPreparationPolicyState(policy).policy;
 }
 
 function makeModuleGraphInput(
@@ -188,4 +380,17 @@ export function inspectPreparedApplication(
     throw new TypeError("Prepared application metadata is unavailable.");
   }
   return state;
+}
+
+/**
+ * Temporary workspace-internal bridge for downstream owners that still
+ * consume the displaced prepared-definition contract. The callback receives
+ * the exact state created by `prepareApplication`; it does not prepare,
+ * compare, or fall back to a second definition path.
+ */
+export function withLegacyPreparedApplication<Output>(
+  prepared: PreparedApplication,
+  use: (definition: PreparedStandardApplicationDefinitionV1) => Output,
+): Output {
+  return use(inspectPreparedApplication(prepared));
 }

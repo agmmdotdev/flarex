@@ -1,4 +1,9 @@
-import { Effect } from "effect";
+import {
+  prepareApplication,
+  produceApplicationSource,
+  type ApplicationPreparationPolicy,
+} from "@flarex/application-definition";
+import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
 
 import { standardV1 } from
@@ -23,6 +28,21 @@ const RECORD_MODULES = makeCreateAndReadModulesV1({
   mutationModulePath: "recordCommands",
   queryModulePath: "records",
 });
+
+const PREPARATION_POLICY = Object.freeze({
+  maximumModules: 8,
+  maximumFunctions: 32,
+  maximumIdentifierUtf8Bytes: 4_096,
+  maximumValidatorNodes: 512,
+  maximumValidatorDepth: 32,
+  maximumValidatorStringUtf8Bytes: 4_096,
+  maximumSourceBytes: 16_384,
+  maximumSourceMapBytes: 1_024,
+  maximumBytesMaterialized: 128_000,
+  maximumSemanticRecords: 256,
+  maximumSemanticRecordBytes: 8_000,
+  maximumSemanticStreamBytes: 64_000,
+}) satisfies ApplicationPreparationPolicy;
 
 it("defines an owned immutable Standard Application simulation config", () => {
   const allowedOrigins = ["https://api.example.com"];
@@ -180,31 +200,40 @@ it("composes owned supplemental function modules without making them execution r
   });
   sourceBytes.fill(0);
 
-  expect(definition.programBudgetInput).toMatchObject({
-    maximumModules: 3,
-    maximumFunctions: 3,
+  expect(definition.modules.map(module => ({
+    path: module.path,
+    sourcePath: module.source.path,
+    functions: Object.keys(module.functions),
+  }))).toEqual([{
+    path: "recordCommands",
+    sourcePath: "recordMutation",
+    functions: ["create"],
+  }, {
+    path: "recordInspection",
+    sourcePath: "recordInspectionArtifact",
+    functions: ["inspect"],
+  }, {
+    path: "records",
+    sourcePath: "recordQuery",
+    functions: ["get"],
+  }]);
+  expect(definition.modules[1]?.functions.inspect).toMatchObject({
+    kind: "query",
+    visibility: "internal",
   });
-  expect(definition.programInput.modules[1]).toEqual({
-    modulePath: "recordInspection",
-    functions: [{
-      exportName: "inspect",
-      kind: "query",
-      visibility: "internal",
-      argsValidator: { type: "any" },
-      returnsValidator: { type: "null" },
-    }],
-  });
-  expect(definition.graphInput.modules[1]).toMatchObject({
-    path: "recordInspectionArtifact",
-    roles: ["function"],
-  });
-  expect(definition.graphInput.modules[1]?.sourceBytes).not.toEqual(sourceBytes);
-  expect(new TextDecoder().decode(
-    definition.graphInput.modules[1]?.sourceBytes,
-  )).toBe("export function inspect() { return null; }");
-  expect(definition.graphInput.functionEntries[1]).toEqual({
-    logicalModulePath: "recordInspection",
-    artifactModulePath: "recordInspectionArtifact",
-  });
-  expect(definition.graphInput.executionPath).toBe("recordMutation");
+  expect("programInput" in definition).toBe(false);
+  expect("graphInput" in definition).toBe(false);
+
+  const prepared = Result.getOrThrow(
+    prepareApplication(definition, PREPARATION_POLICY),
+  );
+  const produced = Result.getOrThrow(produceApplicationSource(prepared));
+  const inspectionSource = produced.modules.find(module =>
+    module.path === "recordInspectionArtifact"
+  );
+  expect(inspectionSource?.sourceBytes).not.toEqual(sourceBytes);
+  expect(new TextDecoder().decode(inspectionSource?.sourceBytes)).toBe(
+    "export function inspect() { return null; }",
+  );
+  expect(produced.executionPath).toBe("_flarex/application.js");
 });

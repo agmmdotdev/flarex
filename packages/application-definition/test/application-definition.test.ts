@@ -2,12 +2,14 @@ import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  admitApplicationPreparationPolicy,
   defineApplication,
   defineModule,
   defineSchema,
   defineTable,
   mutation,
   prepareApplication,
+  produceApplicationSource,
   query,
   sourceModule,
   v,
@@ -176,6 +178,20 @@ describe("Application definition", () => {
       "export const get = 1; export const create = 2;\n",
     ));
     expect(lowered.artifactIngressPlan.usage.entryBindings).toBe(1);
+
+    const produced = Result.getOrThrow(produceApplicationSource(prepared));
+    expect(produced.modules.map(module => module.path)).toEqual([
+      "_flarex/application.js",
+      "_flarex/schema.js",
+      "functions/recipes.js",
+    ]);
+    expect(produced.executionPath).toBe("_flarex/application.js");
+    expect(produced.schemaPath).toBe("_flarex/schema.js");
+    expect(new TextDecoder().decode(
+      produced.modules.find(module =>
+        module.path === "functions/recipes.js"
+      )?.sourceBytes,
+    )).toBe("export const get = 1; export const create = 2;\n");
   });
 
   it("owns source bytes and module membership before preparation", () => {
@@ -340,6 +356,83 @@ describe("Application definition", () => {
       operation: "createBudget",
       reason: "invalidBudget",
     });
+  });
+
+  it("admits one opaque policy snapshot without invoking accessors", () => {
+    const admitted = Result.getOrThrow(
+      admitApplicationPreparationPolicy(preparationPolicy),
+    );
+    expect(Object.keys(admitted)).toEqual([]);
+    expect(Result.isSuccess(prepareApplication(
+      makeRecipeApplication(
+        encoder.encode("export const get = 1; export const create = 2;\n"),
+      ),
+      admitted,
+    ))).toBe(true);
+
+    let getterInvoked = false;
+    const accessorPolicy = Object.defineProperty(
+      { ...preparationPolicy },
+      "maximumSourceBytes",
+      {
+        enumerable: true,
+        get() {
+          getterInvoked = true;
+          return preparationPolicy.maximumSourceBytes;
+        },
+      },
+    ) as ApplicationPreparationPolicy;
+    expect(Result.match(
+      admitApplicationPreparationPolicy(accessorPolicy),
+      {
+        onFailure: failure => failure,
+        onSuccess: () => {
+          throw new Error("Expected policy admission to fail.");
+        },
+      },
+    )).toMatchObject({
+      _tag: "CanonicalDeclarativeProgramV1Error",
+      operation: "createBudget",
+      reason: "invalidBudget",
+    });
+    expect(getterInvoked).toBe(false);
+  });
+
+  it("preserves an intentionally omitted return validator as unvalidated", () => {
+    const module = defineModule({
+      path: "events",
+      source: sourceModule({
+        path: "functions/events.js",
+        bytes: encoder.encode("export const emit = 1;\n"),
+      }),
+      functions: {
+        emit: mutation({ args: v.object({ value: v.string() }) }),
+      },
+    });
+    const reference = module.reference("emit");
+    expectTypeOf<InferFunctionReturn<typeof reference.contract>>()
+      .toEqualTypeOf<unknown>();
+
+    const prepared = Result.getOrThrow(prepareApplication(defineApplication({
+      schema: defineSchema({}),
+      modules: [module],
+    }), preparationPolicy));
+    expect(inspectPreparedApplication(prepared).program.modules[0]?.functions)
+      .toEqual([{
+        exportName: "emit",
+        kind: "mutation",
+        visibility: "public",
+        argsValidator: {
+          type: "object",
+          value: {
+            value: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: null,
+      }]);
   });
 });
 

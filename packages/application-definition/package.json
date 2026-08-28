@@ -6,7 +6,8 @@
     "src"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./internal/preparation": "./src/internal/preparation.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -7,13 +7,14 @@ import {
 } from "@flarex/application-schema-definition/application-schema";
 import {
   standardV1,
-  type AnyStandardFunctionContractV1,
   type StandardFunctionArgsValidatorV1,
-  type StandardFunctionCatalogV1,
-  type StandardModuleV1,
   type StandardValidatorOptionalityV1,
   type StandardValidatorV1,
 } from "@flarex/standard-application-definition/v1";
+import type {
+  CanonicalDeclarativeFunctionInputV1,
+  CanonicalDeclarativeModuleInputV1,
+} from "@flarex/declarative-program/v1";
 import { copyBytes } from "@flarex/utils/bytes";
 
 declare const IdTableHint: unique symbol;
@@ -429,8 +430,8 @@ export interface FunctionDefinition<
   Kind extends FunctionKind = FunctionKind,
   Visibility extends FunctionVisibility = FunctionVisibility,
   Args extends FunctionArgsValidator = FunctionArgsValidator,
-  Returns extends Validator<unknown, "required", string> =
-    Validator<unknown, "required", string>,
+  Returns extends Validator<unknown, "required", string> | null =
+    Validator<unknown, "required", string> | null,
 > {
   readonly [FunctionDefinitionType]: Readonly<{
     readonly kind: Kind;
@@ -452,7 +453,7 @@ export type InferFunctionArgs<Contract> =
     FunctionKind,
     FunctionVisibility,
     infer Args,
-    Validator<unknown, "required", string>
+    Validator<unknown, "required", string> | null
   > ? InferValidator<Args> : never;
 
 export type InferFunctionReturn<Contract> =
@@ -461,18 +462,21 @@ export type InferFunctionReturn<Contract> =
     FunctionVisibility,
     FunctionArgsValidator,
     infer Returns
-  > ? InferValidator<Returns> : never;
+  > ? Returns extends Validator<unknown, "required", string>
+      ? InferValidator<Returns>
+      : unknown
+    : never;
 
 const functionDefinitionStates = new WeakMap<
   FunctionContract,
-  AnyStandardFunctionContractV1
+  Omit<CanonicalDeclarativeFunctionInputV1, "exportName">
 >();
 
 class FunctionDefinitionHandle<
   Kind extends FunctionKind,
   Visibility extends FunctionVisibility,
   Args extends FunctionArgsValidator,
-  Returns extends Validator<unknown, "required", string>,
+  Returns extends Validator<unknown, "required", string> | null,
 > implements FunctionDefinition<Kind, Visibility, Args, Returns> {
   declare readonly [FunctionDefinitionType]: Readonly<{
     readonly kind: Kind;
@@ -486,14 +490,14 @@ class FunctionDefinitionHandle<
     readonly visibility: Visibility,
     readonly args: Args,
     readonly returns: Returns,
-    authored: AnyStandardFunctionContractV1,
+    authored: Omit<CanonicalDeclarativeFunctionInputV1, "exportName">,
   ) {
     functionDefinitionStates.set(this, authored);
     Object.freeze(this);
   }
 }
 
-interface FunctionInput<
+interface ValidatedFunctionInput<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
 > {
@@ -501,23 +505,38 @@ interface FunctionInput<
   readonly returns: Returns;
 }
 
+interface UnvalidatedFunctionInput<Args extends FunctionArgsValidator> {
+  readonly args: Args;
+  readonly returns?: undefined;
+}
+
 function makeFunction<
   Kind extends FunctionKind,
   Visibility extends FunctionVisibility,
   Args extends FunctionArgsValidator,
-  Returns extends Validator<unknown, "required", string>,
 >(
   kind: Kind,
   visibility: Visibility,
-  input: FunctionInput<Args, Returns>,
-): FunctionDefinition<Kind, Visibility, Args, Returns> {
+  input:
+    | ValidatedFunctionInput<
+        Args,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<
+  Kind,
+  Visibility,
+  Args,
+  Validator<unknown, "required", string> | null
+> {
   const args = input.args;
-  const returns = input.returns;
-  const authored = standardV1.function({
+  const returnsInput = input.returns;
+  const returns = returnsInput === undefined ? null : returnsInput;
+  const authored = Object.freeze({
     kind,
     visibility,
-    args: inspectFunctionArgs(args),
-    returns: inspectValidator(returns),
+    argsValidator: inspectFunctionArgs(args).json,
+    returnsValidator: returns === null ? null : inspectValidator(returns).json,
   });
   const handle = new FunctionDefinitionHandle(
     kind,
@@ -531,7 +550,7 @@ function makeFunction<
 
 function inspectFunctionDefinition(
   definition: FunctionContract,
-): AnyStandardFunctionContractV1 {
+): Omit<CanonicalDeclarativeFunctionInputV1, "exportName"> {
   const authored = functionDefinitionStates.get(definition);
   if (authored === undefined) {
     throw new TypeError("Function definition metadata is unavailable.");
@@ -542,84 +561,161 @@ function inspectFunctionDefinition(
 export function query<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "query",
   "public",
   Args,
   Returns
-> {
+>;
+export function query<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"query", "public", Args, null>;
+export function query(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("query", "public", input);
 }
 
 export function internalQuery<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "query",
   "internal",
   Args,
   Returns
-> {
+>;
+export function internalQuery<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"query", "internal", Args, null>;
+export function internalQuery(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("query", "internal", input);
 }
 
 export function mutation<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "mutation",
   "public",
   Args,
   Returns
-> {
+>;
+export function mutation<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"mutation", "public", Args, null>;
+export function mutation(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("mutation", "public", input);
 }
 
 export function internalMutation<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "mutation",
   "internal",
   Args,
   Returns
-> {
+>;
+export function internalMutation<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"mutation", "internal", Args, null>;
+export function internalMutation(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("mutation", "internal", input);
 }
 
 export function workflowMutation<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "workflowMutation",
   "public",
   Args,
   Returns
-> {
+>;
+export function workflowMutation<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"workflowMutation", "public", Args, null>;
+export function workflowMutation(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("workflowMutation", "public", input);
 }
 
 export function action<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "action",
   "public",
   Args,
   Returns
-> {
+>;
+export function action<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"action", "public", Args, null>;
+export function action(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("action", "public", input);
 }
 
 export function internalAction<
   Args extends FunctionArgsValidator,
   Returns extends Validator<unknown, "required", string>,
->(input: FunctionInput<Args, Returns>): FunctionDefinition<
+>(input: ValidatedFunctionInput<Args, Returns>): FunctionDefinition<
   "action",
   "internal",
   Args,
   Returns
-> {
+>;
+export function internalAction<Args extends FunctionArgsValidator>(
+  input: UnvalidatedFunctionInput<Args>,
+): FunctionDefinition<"action", "internal", Args, null>;
+export function internalAction(
+  input:
+    | ValidatedFunctionInput<
+        FunctionArgsValidator,
+        Validator<unknown, "required", string>
+      >
+    | UnvalidatedFunctionInput<FunctionArgsValidator>,
+): FunctionDefinition {
   return makeFunction("action", "internal", input);
 }
 
@@ -719,7 +815,7 @@ export interface ApplicationModuleInput<
 }
 
 export interface ApplicationModuleState {
-  readonly authored: StandardModuleV1<string, StandardFunctionCatalogV1>;
+  readonly authored: CanonicalDeclarativeModuleInputV1;
   readonly source: SourceModuleState;
 }
 
@@ -743,7 +839,7 @@ class ApplicationModuleHandle<
     readonly path: Path,
     readonly source: SourceModule,
     functions: Functions,
-    authored: StandardModuleV1<Path, StandardFunctionCatalogV1>,
+    authored: CanonicalDeclarativeModuleInputV1,
     sourceState: SourceModuleState,
   ) {
     this.functions = Object.freeze({ ...functions });
@@ -772,17 +868,15 @@ export function defineModule<
   const source = input.source;
   const functions = Object.freeze({ ...input.functions });
   const sourceState = inspectSourceModule(source);
-  const authoredFunctions: Record<
-    string,
-    AnyStandardFunctionContractV1
-  > = Object.create(null);
-  for (const [exportName, definition] of Object.entries(functions)) {
-    Object.defineProperty(authoredFunctions, exportName, {
-      enumerable: true,
-      value: inspectFunctionDefinition(definition),
-    });
-  }
-  const authored = standardV1.module(path, authoredFunctions);
+  const authored = Object.freeze({
+    modulePath: path,
+    functions: Object.freeze(Object.entries(functions).map(
+      ([exportName, definition]) => Object.freeze({
+        exportName,
+        ...inspectFunctionDefinition(definition),
+      }),
+    )),
+  });
   return new ApplicationModuleHandle(
     path,
     source,
