@@ -11,9 +11,10 @@ evaluation-attempt outcomes. C3 may orchestrate those capabilities; it may not
 replace their transition authority or add another work-state owner.
 
 The approval authorized only the bounded C3 implementation and reference proof
-described below. Completion does not authorize C4 publication
-delivery, a real state/source/evaluator adapter, Flarex or Cloudflare
-composition, or a production caller.
+described below. Completion does not authorize the proposed
+[C4 publication-orchestration slice](./06-qsync01-c4-publication-orchestration.md),
+a real state/source/evaluator adapter, Flarex or Cloudflare composition, or a
+production caller.
 
 ## Decision
 
@@ -1217,6 +1218,8 @@ Completion makes the portable engine capable of bounded evaluation
 orchestration over reference capabilities. It does not complete `QSYNC01-C`,
 prove a real runtime, or authorize an adapter.
 
-C4 remains the next separate gate for publication orchestration and the full
-reference publication-recovery matrix. Only after C4 completes may
-`QSYNC-FX01` preflight the first Flarex mappings and Cloudflare SQLite adapter.
+The exact proposed
+[C4 preflight](./06-qsync01-c4-publication-orchestration.md) remains the next
+separate gate for publication orchestration and the full reference
+publication-recovery matrix. Only after C4 completes may `QSYNC-FX01`
+preflight the first Flarex mappings and Cloudflare SQLite adapter.

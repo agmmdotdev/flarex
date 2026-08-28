@@ -82,10 +82,9 @@ current durable state:
 - an equal result digest still replaces dependencies and advances freshness
   evidence, but need not publish another client result.
 
-In the post-C target, the same atomic operation replaces the active slot and
-dependency directory, clears only the exact provisional slot, records any
-required publication outbox entry, and preserves a later dirty frontier. The
-current completed B operation stops before the outbox addition. No classified
+The completed C1 atomic operation replaces the active slot and dependency
+directory, clears only the exact provisional slot, records any required
+publication outbox entry, and preserves a later dirty frontier. No classified
 candidate may escape and install after an intervening invalidation. The
 operation performs no network I/O.
 

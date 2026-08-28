@@ -10,9 +10,11 @@ The separately approved C3 contract is complete and recorded in
 [`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
 
 The original approval authorized **C1 only**, and later explicit approvals
-authorized **C2** and **C3** as separate slices. C4 requires a later separate
-preflight and approval after C3 evidence is reviewed. The umbrella architecture
-is not standing implementation authority.
+authorized **C2** and **C3** as separate slices. The exact proposed
+[C4 preflight](./06-qsync01-c4-publication-orchestration.md) defines the
+decision offered for approval, but C4 still requires explicit approval. The
+umbrella architecture and proposed preflight are not standing implementation
+authority.
 
 `QSYNC01-A` through `QSYNC01-C3` are complete, private, and
 production-inert. Together they provide the pure transition oracle, admitted
@@ -660,8 +662,10 @@ state/schema contract and is not authorized by C3.
 
 ## C4 Publication Coordinator And Recovery
 
-C4 does not change the C3 evaluation factory. It adds a separate plain
-namespace-bound publication factory:
+C4 does not change the C3 evaluation factory. The exact proposed contract in
+[`06-qsync01-c4-publication-orchestration.md`](./06-qsync01-c4-publication-orchestration.md)
+refines this umbrella sketch to one separate plain namespace-bound publication
+factory:
 
 ```text
 makeNamespacePublicationSync({
@@ -672,25 +676,31 @@ makeNamespacePublicationSync({
 }) -> NamespacePublicationSync
 
 NamespacePublicationSync.runPublicationWork(turnBudget)
-NamespacePublicationSync.recoverPublication(turnBudget)
 ```
 
-The host may compose both coordinators for one namespace, but publication
-recovery cannot become an optional branch inside C3 evaluation recovery. This
-keeps evaluator and delivery failures, budgets, and lifecycle ownership
-separate without changing either semantic state owner.
+There is no distinct `recoverPublication` method: `claimPublication` already
+replays durable in-flight work before pending work, and the current state port
+cannot express recover-only behavior. Restart invokes the same operation with
+no process-local continuation. The host may compose both coordinators for one
+namespace, but publication recovery cannot become an optional branch inside C3
+evaluation recovery. This keeps evaluator and delivery failures, budgets, and
+lifecycle ownership separate without changing either semantic state owner.
 
 `ResultPublisher` is a namespace/authorized-destination-bound plain capability:
 
 ```text
 publish(exactPersistedPublication, deliveryBudget)
-  -> Effect<AcceptedPublicationEvidence, ResultPublisherError, never>
+  -> Effect<void, ResultPublisherError, never>
 ```
 
 It receives only publication identity/digest/content read from the state
-outbox. It cannot accept a newly evaluated transient artifact. Its successful
-evidence is nominal and bound to the exact identity and digest so
-`completePublication` cannot settle another record.
+outbox. It cannot accept a newly evaluated transient artifact or the C2 attempt
+ordinal. Success means the bound capability established exact acceptance of
+that persisted publication. The coordinator then uses its retained
+state-issued attempt through a non-barrel core bridge to create
+`AcceptedQueryPublicationEvidence` for `completePublication`. The publisher
+cannot mint nominal core evidence, and production code cannot import the
+testing mint.
 
 Publisher failure classes remain distinct:
 
@@ -702,9 +712,10 @@ Publisher failure classes remain distinct:
 
 Known-not-appended and unknown outcomes may retry only the identical persisted
 publication and adapter producer tuple. Unknown does not mint a new logical
-identity, producer epoch, or sequence. C4 initially permits only the one
-in-flight publication selected by state; another publication cannot overtake
-it while acceptance is unresolved.
+identity, producer epoch, or sequence. The durable C2 attempt ordinal is
+engine-owned accounting and is excluded from external idempotency. C4 initially
+permits only the one in-flight publication selected by state; another
+publication cannot overtake it while acceptance is unresolved.
 
 Every non-successful publisher call is followed, when the caller still owns
 control, by `recordPublicationAttemptOutcome` for the exact ordinal. A lost
@@ -713,7 +724,8 @@ durable attempt-count/age policy, rather than an invocation-local retry count,
 eventually enters the explicit blocked/reset-required disposition.
 
 This contract does not accept Durable Streams. A later adapter preflight must
-prove how its receipt/read-back evidence satisfies `AcceptedPublicationEvidence`.
+prove which receipt/read-back evidence lets its bound publisher return success
+for the exact persisted publication.
 
 ## Effect Success, Error, And Requirement Channels
 
@@ -772,10 +784,11 @@ at most one controlled call before it records an outcome and may continue only
 with the next state-issued ordinal. If the process or state response is lost
 before that outcome is known durable, a later recovery turn may replay the
 unresolved ordinal and therefore make another physical call. The exact
-publication identity and ordinal remain the adapter's stable idempotency key;
-this is recovery, not an invocation-local retry. The combined publish/record/
-next-claim sequence is the retry unit, preventing a generic Effect retry from
-making unrecorded external attempts.
+persisted publication identity remains the adapter's stable idempotency key;
+the ordinal remains core attempt accounting and never becomes an external
+producer sequence or key component. This is recovery, not an invocation-local
+retry. The combined publish/record/next-claim sequence is the retry unit,
+preventing a generic Effect retry from making unrecorded external attempts.
 
 The coordinator treats the turn deadline as a **new-work admission deadline**
 and reserves settlement headroom before starting another unit. It does not
@@ -918,7 +931,7 @@ production coordinator remains caller-driven and fiber-free.
 
 ## Explicitly Not Authorized
 
-Approval of this umbrella, C1, or C2 does not authorize:
+Approval of this umbrella or the proposed C4 preflight does not authorize:
 
 - a production caller, route, alarm, queue, scheduler, Durable Object, Worker
   runner, or background Fiber;
@@ -945,8 +958,8 @@ Approval of this umbrella, C1, or C2 does not authorize:
   portability is proven;
 - a real Cloudflare state adapter before all of C is complete and its adapter
   preflight is separately approved; or
-- C3 or C4 implementation merely because the umbrella architecture, C1, or C2
-  is approved; each remaining slice needs separate explicit user approval.
+- C4 implementation merely because the umbrella architecture or proposed
+  exact preflight exists; it needs separate explicit user approval.
 
 ## First Medium Implementation Slice: QSYNC01-C1
 
@@ -1015,9 +1028,11 @@ adapter complete.
 attempt/completion state. `QSYNC01-C3` is complete with a private bounded
 catch-up/evaluation coordinator and reference evaluator, as recorded in
 [`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
-C4 separately requires its publication-coordinator preflight and approval. This
-umbrella is not advance implementation authority; every significant diff also
-requires the validation and reviewer gate.
+C4's exact proposed contract is recorded in
+[`06-qsync01-c4-publication-orchestration.md`](./06-qsync01-c4-publication-orchestration.md)
+and still requires explicit approval. This umbrella is not advance
+implementation authority; every significant diff also requires the validation
+and reviewer gate.
 
 Only after C1-C4 are complete may `QSYNC-FX01` preflight the first Flarex and
 Cloudflare SQLite adapters. `QSYNC-CF01` remains an independent delivery

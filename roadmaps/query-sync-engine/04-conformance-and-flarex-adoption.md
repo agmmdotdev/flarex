@@ -111,9 +111,10 @@ not a complete uncertainty contract.
 2. **Complete (`QSYNC01-B`).** Derive the trusted change-model and semantic
    durable-state contracts from executable transitions; do not design them
    from SQLite CRUD.
-3. **Current proposed gate (`QSYNC01-C`).** First close recovery-stable
-   evaluation/publication state, then add Effect-native orchestration over
-   deterministic reference capabilities.
+3. **Current exact gate (`QSYNC01-C4`).** C1-C3 completed recovery-stable
+   evaluation/publication state and bounded evaluation orchestration. Review
+   and explicitly approve the separate C4 publication-orchestration preflight,
+   then prove it over deterministic reference capabilities.
 4. Map Flarex versioned query/dependency/result contracts through a Flarex
    model adapter. Keep Postgres fact projection outside the generic package.
 5. Adapt the existing per-scope Durable Object/SQLite state to the complete

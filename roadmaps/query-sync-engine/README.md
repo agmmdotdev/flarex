@@ -6,10 +6,12 @@
 `QSYNC01-B`, `QSYNC01-C1`, `QSYNC01-C2`, and `QSYNC01-C3` are complete,
 private, and production-inert. The accepted
 [`QSYNC01-C` umbrella](./preflight/03-qsync01-effect-orchestration.md) keeps C4
-separately gated. The exact
+separately gated. The proposed
+[`QSYNC01-C4` preflight](./preflight/06-qsync01-c4-publication-orchestration.md)
+proposes the next bounded publication-orchestration decision but is not
+implementation authority. The exact
 [`QSYNC01-C3` record](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
-owns the completed bounded evaluation-orchestration slice; C4 is not
-authorized.
+owns the completed bounded evaluation-orchestration slice.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
@@ -157,7 +159,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
-| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete, private, and production-inert; C4 preflight and implementation not authorized |
+| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`, private, and production-inert; exact C4 preflight proposed, implementation not authorized |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Blocked on `QSYNC01-C`; independent of delivery-adapter selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
@@ -202,11 +204,15 @@ paths.
 - [`preflight/05-qsync01-c3-bounded-evaluation-orchestration.md`](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
   records the completed private C3 coordinator, evaluator, shared budget,
   retry/uncertainty, refresh, restart, and reference proof contract.
+- [`preflight/06-qsync01-c4-publication-orchestration.md`](./preflight/06-qsync01-c4-publication-orchestration.md)
+  proposes the exact separate publication coordinator, publisher trust seam,
+  recovery/idempotency rules, bounds, and reference proof matrix.
 
 ## Next Correctness Gate
 
-The next correctness decision is a separately bounded `QSYNC01-C4` preflight
-for publication orchestration and the full reference publication-recovery
-matrix. C3 added no publisher or real adapter. No Cloudflare SQLite adapter,
-public client API, production caller, or delivery-adapter adoption is admitted
-by C3 completion.
+The next correctness decision is review, amendment if needed, and explicit
+approval of the separately bounded
+[`QSYNC01-C4` preflight](./preflight/06-qsync01-c4-publication-orchestration.md).
+C3 added no publisher or real adapter, and the proposed C4 document adds no
+code. No Cloudflare SQLite adapter, public client API, production caller, or
+delivery-adapter adoption is admitted.
