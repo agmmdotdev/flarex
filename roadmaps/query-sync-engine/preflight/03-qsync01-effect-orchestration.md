@@ -2,11 +2,11 @@
 
 ## Status
 
-**Preflight status:** proposed for user review on 2026-08-28. No
-`QSYNC01-C` implementation is authorized until this preflight and its first
-medium slice are explicitly approved.
+**Preflight status:** accepted umbrella architecture. `QSYNC01-C1` is complete
+in commit `b6621cf3`. The exact C2 contract is proposed separately in
+[`04-qsync01-c2-durable-work-and-publication-state.md`](./04-qsync01-c2-durable-work-and-publication-state.md).
 
-Approval of this proposal authorizes **C1 only**. C2, C3, and C4 each require a
+The original approval authorized **C1 only**. C2, C3, and C4 each require a
 separate explicit user implementation approval after the preceding slice and
 its evidence are reviewed; the umbrella architecture is not standing authority
 to implement all four slices at once.
@@ -509,11 +509,11 @@ requirement channel `never`:
 | `applyAdmittedBatchAndAdvance` | existing B tags | existing B apply/integration union |
 | `completeQueryEvaluation` | `refreshRequired`, `resnapshotRequired`, `rerunRequired`, `completed`, `replayed`, `superseded`, `recoveryEvidenceExpired` | `CompleteQueryEvaluationError \| QuerySyncStateIntegrationError<"completeQueryEvaluation">` |
 
-C2 freezes a separate channel table before its own implementation approval. It
-must include `claimEvaluationWork`, `recordEvaluationAttemptOutcome`,
-`claimPublication`, `recordPublicationAttemptOutcome`, and
-`completePublication` with the value outcomes and recovery rules specified in
-this preflight; C1 approval is not authority to add them.
+C2's separate preflight freezes the exact channel table for
+`claimEvaluationWork`, `recordEvaluationAttemptOutcome`, `claimPublication`,
+`recordPublicationAttemptOutcome`, and `completePublication`, together with
+their value outcomes, file ownership, limits, and recovery rules. C1 approval
+is not authority to add them.
 
 The C1 named domain unions include only operation-relevant authority,
 collision, generation, completion-replay mismatch, publication-content,
