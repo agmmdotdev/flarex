@@ -50,6 +50,12 @@ type AuthoredValidator = StandardValidatorV1<
   unknown,
   StandardValidatorOptionalityV1
 >;
+type AuthoredFunctionDefinition = Omit<
+  CanonicalDeclarativeFunctionInputV1,
+  "returnsValidator"
+> & Readonly<{
+  readonly returnsValidator: AuthoredValidator["json"] | null;
+}>;
 
 export type ValidatorRecord = Readonly<Record<string, AnyValidator>>;
 
@@ -456,6 +462,20 @@ export type InferFunctionArgs<Contract> =
     Validator<unknown, "required", string> | null
   > ? InferValidator<Args> : never;
 
+type RuntimeFunctionResultMember<Value> =
+  unknown extends Value ? Value
+    : Value extends ArrayBuffer ? ArrayBuffer
+    : string extends Value ? string
+    : Value extends ReadonlyArray<infer Member>
+      ? ReadonlyArray<RuntimeFunctionResultValue<Member>>
+    : Value extends object ? {
+        readonly [Key in keyof Value]: RuntimeFunctionResultValue<Value[Key]>;
+      }
+    : Value;
+
+type RuntimeFunctionResultValue<Value> =
+  Value extends unknown ? RuntimeFunctionResultMember<Value> : never;
+
 export type InferFunctionReturn<Contract> =
   Contract extends FunctionDefinition<
     FunctionKind,
@@ -463,13 +483,13 @@ export type InferFunctionReturn<Contract> =
     FunctionArgsValidator,
     infer Returns
   > ? Returns extends Validator<unknown, "required", string>
-      ? InferValidator<Returns>
+      ? RuntimeFunctionResultValue<InferValidator<Returns>>
       : unknown
     : never;
 
 const functionDefinitionStates = new WeakMap<
   FunctionContract,
-  Omit<CanonicalDeclarativeFunctionInputV1, "exportName">
+  Omit<AuthoredFunctionDefinition, "exportName">
 >();
 
 class FunctionDefinitionHandle<
@@ -490,7 +510,7 @@ class FunctionDefinitionHandle<
     readonly visibility: Visibility,
     readonly args: Args,
     readonly returns: Returns,
-    authored: Omit<CanonicalDeclarativeFunctionInputV1, "exportName">,
+    authored: Omit<AuthoredFunctionDefinition, "exportName">,
   ) {
     functionDefinitionStates.set(this, authored);
     Object.freeze(this);
@@ -550,7 +570,7 @@ function makeFunction<
 
 function inspectFunctionDefinition(
   definition: FunctionContract,
-): Omit<CanonicalDeclarativeFunctionInputV1, "exportName"> {
+): Omit<AuthoredFunctionDefinition, "exportName"> {
   const authored = functionDefinitionStates.get(definition);
   if (authored === undefined) {
     throw new TypeError("Function definition metadata is unavailable.");
@@ -719,12 +739,60 @@ export function internalAction(
   return makeFunction("action", "internal", input);
 }
 
+declare const FunctionReferenceType: unique symbol;
+
 export interface FunctionReference<
   Path extends string,
   Contract extends FunctionContract,
 > {
+  readonly [FunctionReferenceType]: Readonly<{
+    readonly path: Path;
+    readonly contract: Contract;
+  }>;
   readonly path: Path;
   readonly contract: Contract;
+}
+
+export interface InspectedFunctionReference {
+  readonly path: string;
+  readonly returnsValidator: AuthoredFunctionDefinition["returnsValidator"];
+}
+
+const functionReferenceStates = new WeakMap<
+  FunctionReference<string, FunctionContract>,
+  InspectedFunctionReference
+>();
+
+class FunctionReferenceHandle<
+  Path extends string,
+  Contract extends FunctionContract,
+> implements FunctionReference<Path, Contract> {
+  declare readonly [FunctionReferenceType]: Readonly<{
+    readonly path: Path;
+    readonly contract: Contract;
+  }>;
+
+  constructor(
+    readonly path: Path,
+    readonly contract: Contract,
+  ) {
+    const definition = inspectFunctionDefinition(contract);
+    functionReferenceStates.set(this, Object.freeze({
+      path,
+      returnsValidator: definition.returnsValidator,
+    }));
+    Object.freeze(this);
+  }
+}
+
+export function inspectFunctionReference(
+  reference: FunctionReference<string, FunctionContract>,
+): InspectedFunctionReference {
+  const state = functionReferenceStates.get(reference);
+  if (state === undefined) {
+    throw new TypeError("Function reference metadata is unavailable.");
+  }
+  return state;
 }
 
 declare const SourceModuleType: unique symbol;
@@ -850,11 +918,20 @@ class ApplicationModuleHandle<
   reference<ExportName extends keyof Functions & string>(
     exportName: ExportName,
   ): FunctionReference<`${Path}:${ExportName}`, Functions[ExportName]> {
+    // SAFETY: both interpolated members retain their generic literal types.
     const path = `${this.path}:${exportName}` as `${Path}:${ExportName}`;
-    return Object.freeze({
+    const contract: Functions[ExportName] | undefined =
+      this.functions[exportName];
+    if (contract === undefined) {
+      throw new TypeError(`Function export ${exportName} is unavailable.`);
+    }
+    return new FunctionReferenceHandle<
+      `${Path}:${ExportName}`,
+      Functions[ExportName]
+    >(
       path,
-      contract: this.functions[exportName],
-    });
+      contract,
+    );
   }
 }
 

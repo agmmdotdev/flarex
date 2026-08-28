@@ -44,6 +44,11 @@ const applicationDefinitionPackageRoot = path.join(
   "packages",
   "application-definition",
 );
+const applicationInvocationPackageRoot = path.join(
+  repoRoot,
+  "packages",
+  "application-invocation",
+);
 const productionSourceExtensions = new Set([
   ".ts",
   ".tsx",
@@ -73,6 +78,12 @@ const expectedApplicationDefinitionRuntimeDependencies = new Map([
   ["@flarex/utils", "workspace:*"],
   ["effect", "catalog:"],
 ]);
+const expectedApplicationInvocationRuntimeDependencies = new Map([
+  ["@flarex/application-definition", "workspace:*"],
+  ["@flarex/standard-application-invocation", "workspace:*"],
+  ["effect", "catalog:"],
+  ["flarex-protocol", "workspace:*"],
+]);
 const applicationDefinitionAllowedProductionImports = new Set([
   "@flarex/application-schema-definition/application-schema",
   "@flarex/declarative-materializer/v1",
@@ -82,6 +93,18 @@ const applicationDefinitionAllowedProductionImports = new Set([
   "@flarex/utils/bytes",
   "@flarex/utils/strings",
   "effect",
+]);
+const applicationInvocationAllowedProductionImports = new Set([
+  "@flarex/application-definition",
+  "@flarex/application-definition/internal/function-reference",
+  "@flarex/standard-application-invocation/internal/application-action-system",
+  "@flarex/standard-application-invocation/internal/application-mutation-system",
+  "@flarex/standard-application-invocation/internal/application-query-system",
+  "effect",
+  "flarex-protocol/auth",
+  "flarex-protocol/transaction-session",
+  "flarex-protocol/validator-engine",
+  "flarex-protocol/value",
 ]);
 const shippedDefinitionAllowedProductionImports = new Set([
   "@flarex/application-schema-definition/application-schema",
@@ -135,6 +158,8 @@ const standardApplicationDefinitionSourceRoot =
   "packages/standard-application-definition/src";
 const applicationDefinitionSourceRoot =
   "packages/application-definition/src";
+const applicationInvocationSourceRoot =
+  "packages/application-invocation/src";
 /** @type {SourceTreeReader} */
 const nodeSourceTreeReader = {
   readDirectory(root) {
@@ -185,6 +210,29 @@ if (isCliEntrypoint()) {
     ...applicationDefinitionReport.errors,
   );
 
+  /** @type {unknown} */
+  const applicationInvocationManifest = JSON.parse(
+    readFileSync(
+      path.join(applicationInvocationPackageRoot, "package.json"),
+      "utf8",
+    ),
+  );
+  const applicationInvocationSourceDiscovery = collectProductionSourceFiles(
+    path.join(applicationInvocationPackageRoot, "src"),
+  );
+  const applicationInvocationReport = analyzeApplicationInvocationBoundary(
+    applicationInvocationManifest,
+    applicationInvocationSourceDiscovery.files.map((file) => ({
+      relativePath: normalizePath(path.relative(repoRoot, file)),
+      text: readFileSync(file, "utf8"),
+      scriptKind: scriptKindForPath(file),
+    })),
+  );
+  report.errors.push(
+    ...applicationInvocationSourceDiscovery.errors,
+    ...applicationInvocationReport.errors,
+  );
+
   if (report.errors.length > 0) {
     console.error(report.errors.join("\n\n"));
     process.exitCode = 1;
@@ -197,7 +245,10 @@ if (isCliEntrypoint()) {
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
     );
     console.log(
-      "Clean Application definition boundary check passed with one root and one internal preparation bridge.",
+      "Clean Application definition boundary check passed with one root and two exact internal bridges.",
+    );
+    console.log(
+      "Clean Application invocation boundary check passed with three root operations.",
     );
   }
 }
@@ -254,13 +305,15 @@ export function analyzeApplicationDefinitionBoundary(manifest, sources) {
   }
   if (
     !isRecord(manifest.exports)
-    || Object.keys(manifest.exports).length !== 2
+    || Object.keys(manifest.exports).length !== 3
     || manifest.exports["."] !== "./src/index.ts"
+    || manifest.exports["./internal/function-reference"] !==
+      "./src/internal/function-reference.ts"
     || manifest.exports["./internal/preparation"] !==
       "./src/internal/preparation.ts"
   ) {
     errors.push(
-      "Application definition package must expose its clean root and internal preparation bridge.",
+      "Application definition package must expose its clean root and two exact internal bridges.",
     );
   }
   collectExactDependencyErrors(
@@ -271,6 +324,43 @@ export function analyzeApplicationDefinitionBoundary(manifest, sources) {
   );
   for (const source of sources) {
     collectSourceImportErrors(source, errors, "application");
+  }
+  return { errors };
+}
+
+/**
+ * @param {unknown} manifest
+ * @param {SourceInput[]} sources
+ * @returns {StandardApplicationDefinitionBoundaryReport}
+ */
+export function analyzeApplicationInvocationBoundary(manifest, sources) {
+  /** @type {string[]} */
+  const errors = [];
+  if (!isRecord(manifest)) {
+    return { errors: ["Application invocation manifest must be an object."] };
+  }
+  if (manifest.name !== "@flarex/application-invocation") {
+    errors.push(
+      "Application invocation manifest must use @flarex/application-invocation.",
+    );
+  }
+  if (
+    !isRecord(manifest.exports)
+    || Object.keys(manifest.exports).length !== 1
+    || manifest.exports["."] !== "./src/index.ts"
+  ) {
+    errors.push(
+      "Application invocation package must expose only its clean root.",
+    );
+  }
+  collectExactDependencyErrors(
+    manifest,
+    expectedApplicationInvocationRuntimeDependencies,
+    "Application invocation",
+    errors,
+  );
+  for (const source of sources) {
+    collectSourceImportErrors(source, errors, "invocation");
   }
   return { errors };
 }
@@ -452,7 +542,7 @@ function collectExactDependencyErrors(manifest, expected, label, errors) {
 /**
  * @param {SourceInput} source
  * @param {string[]} errors
- * @param {"standard" | "application"} boundary
+ * @param {"standard" | "application" | "invocation"} boundary
  */
 function collectSourceImportErrors(source, errors, boundary) {
   const sourceFile = ts.createSourceFile(
@@ -549,10 +639,15 @@ function collectSourceImportErrors(source, errors, boundary) {
     }
     const allowed = boundary === "standard"
       ? isAllowedStandardProductionImport(specifier, source.relativePath)
-      : isAllowedApplicationDefinitionProductionImport(
-        specifier,
-        source.relativePath,
-      );
+      : boundary === "application"
+      ? isAllowedApplicationDefinitionProductionImport(
+          specifier,
+          source.relativePath,
+        )
+      : isAllowedApplicationInvocationProductionImport(
+          specifier,
+          source.relativePath,
+        );
     if (!allowed) {
       const { line } = sourceFile.getLineAndCharacterOfPosition(position);
       errors.push(
@@ -819,6 +914,29 @@ function isAllowedApplicationDefinitionProductionImport(
   ));
   return resolvedImportPath === applicationDefinitionSourceRoot
     || resolvedImportPath.startsWith(`${applicationDefinitionSourceRoot}/`);
+}
+
+/**
+ * @param {string} specifier
+ * @param {string} relativePath
+ * @returns {boolean}
+ */
+function isAllowedApplicationInvocationProductionImport(
+  specifier,
+  relativePath,
+) {
+  if (specifier.includes("\\")) return false;
+  if (applicationInvocationAllowedProductionImports.has(specifier)) {
+    return true;
+  }
+  if (!specifier.startsWith(".")) return false;
+  const normalizedSourcePath = relativePath.replaceAll("\\", "/");
+  const resolvedImportPath = path.posix.normalize(path.posix.join(
+    path.posix.dirname(normalizedSourcePath),
+    specifier,
+  ));
+  return resolvedImportPath === applicationInvocationSourceRoot
+    || resolvedImportPath.startsWith(`${applicationInvocationSourceRoot}/`);
 }
 
 /** @param {ts.Node} node */

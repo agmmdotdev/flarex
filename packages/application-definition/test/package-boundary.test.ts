@@ -8,6 +8,7 @@ describe("Application definition package boundary", () => {
     expect(manifest.name).toBe("@flarex/application-definition");
     expect(manifest.exports).toEqual({
       ".": "./src/index.ts",
+      "./internal/function-reference": "./src/internal/function-reference.ts",
       "./internal/preparation": "./src/internal/preparation.ts",
     });
     expect(manifest.dependencies).toEqual({

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzeApplicationDefinitionBoundary,
+  analyzeApplicationInvocationBoundary,
   analyzeStandardApplicationDefinitionBoundary,
   collectProductionSourceFiles,
 } from "./check-standard-application-definition-boundaries.mjs";
@@ -417,6 +418,54 @@ describe("Application definition boundary checker", () => {
   });
 });
 
+describe("Application invocation boundary checker", () => {
+  const invocationSourcePath =
+    "packages/application-invocation/src/Query.ts";
+
+  it("accepts only clean facade and exact owner imports", () => {
+    const report = analyzeApplicationInvocationBoundary(
+      validApplicationInvocationManifest(),
+      [{
+        relativePath: invocationSourcePath,
+        text: `
+          import type { FunctionReference } from "@flarex/application-definition";
+          import { inspectFunctionReference } from "@flarex/application-definition/internal/function-reference";
+          import { invokeApplicationQuery } from "@flarex/standard-application-invocation/internal/application-query-system";
+          import { Effect } from "effect";
+          import type { ExecutionIdentity } from "flarex-protocol/auth";
+          import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
+          import { jsonToFlarexValueV1 } from "flarex-protocol/value";
+          import { local } from "./local.js";
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([]);
+  });
+
+  it("rejects legacy root, persistence, and test imports", () => {
+    const report = analyzeApplicationInvocationBoundary(
+      validApplicationInvocationManifest(),
+      [{
+        relativePath: invocationSourcePath,
+        text: `
+          import { invoke } from "@flarex/standard-application-invocation/v1";
+          import { persistence } from "@flarex/persistence-postgres";
+          import type { Simulation } from "@flarex/system-test";
+          import { escaped } from "../../executor/src/index";
+        `,
+      }],
+    );
+
+    expect(report.errors).toEqual([
+      `${invocationSourcePath}:2 imports forbidden module "@flarex/standard-application-invocation/v1".`,
+      `${invocationSourcePath}:3 imports forbidden module "@flarex/persistence-postgres".`,
+      `${invocationSourcePath}:4 imports forbidden module "@flarex/system-test".`,
+      `${invocationSourcePath}:5 imports forbidden module "../../executor/src/index".`,
+    ]);
+  });
+});
+
 describe("Standard Application definition source discovery", () => {
   it("rejects a symbolic-link source root", () => {
     const root = "packages/standard-application-definition/src";
@@ -502,6 +551,7 @@ function validApplicationDefinitionManifest() {
     name: "@flarex/application-definition",
     exports: {
       ".": "./src/index.ts",
+      "./internal/function-reference": "./src/internal/function-reference.ts",
       "./internal/preparation": "./src/internal/preparation.ts",
     },
     dependencies: {
@@ -511,6 +561,22 @@ function validApplicationDefinitionManifest() {
       "@flarex/standard-application-definition": "workspace:*",
       "@flarex/utils": "workspace:*",
       "effect": "catalog:",
+    },
+  };
+}
+
+/** @returns {Readonly<Record<string, unknown>>} */
+function validApplicationInvocationManifest() {
+  return {
+    name: "@flarex/application-invocation",
+    exports: {
+      ".": "./src/index.ts",
+    },
+    dependencies: {
+      "@flarex/application-definition": "workspace:*",
+      "@flarex/standard-application-invocation": "workspace:*",
+      "effect": "catalog:",
+      "flarex-protocol": "workspace:*",
     },
   };
 }

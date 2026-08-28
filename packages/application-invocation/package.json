@@ -1,0 +1,26 @@
+{
+  "name": "@flarex/application-invocation",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/application-definition": "workspace:*",
+    "@flarex/standard-application-invocation": "workspace:*",
+    "effect": "catalog:",
+    "flarex-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

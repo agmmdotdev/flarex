@@ -2,8 +2,8 @@
 
 ## Status And Decision Boundary
 
-**Status:** Accepted workspace-internal migration roadmap. `CAPI-A` and
-`CAPI-B` are complete privately; `CAPI-C` through `CAPI-E` remain pending and
+**Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
+`CAPI-C` are complete privately; `CAPI-D` and `CAPI-E` remain pending and
 separately gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
@@ -13,8 +13,11 @@ focused boundary tests. The user approved `CAPI-B` on the same date. That slice
 migrates the `flarex-dev` SDK/source-package producer and the reusable
 system-test definition producer onto `prepareApplication`, adds the clean
 source-production bridge, and removes the displaced raw developer adapters.
-It does not authorize invocation, system-test facade naming, public, or
-production gates.
+The user approved `CAPI-C` on the same date. That slice adds the clean
+`@flarex/application-invocation` root with separate typed query, mutation, and
+Action operations over the existing live owners and migrates the smallest
+PGlite query consumer. It does not authorize system-test facade naming, broad
+simulation migration, public, or production gates.
 
 This preflight defines a clean, unversioned workspace-internal entry surface
 for application definition and invocation. It responds to the current
@@ -29,7 +32,7 @@ contracts may retain their existing versions because exact decoding and
 migration compatibility require them. Those versions remain below the clean
 Application APIs.
 
-Beyond the completed `CAPI-A` and `CAPI-B` slices, this roadmap does not authorize package
+Beyond the completed `CAPI-A` through `CAPI-C` slices, this roadmap does not authorize package
 renames, public SDK changes, routes, bindings, deployment, production routing,
 schemas, migrations, runtime changes, compatibility aliases, fallbacks,
 comparison execution, or dual writes.
@@ -456,6 +459,39 @@ Exit criteria:
 
 ### `CAPI-C` — Invocation facade
 
+**Status:** Complete privately on 2026-08-28. The new
+`@flarex/application-invocation` package exposes only `runQuery`,
+`runMutation`, and `runAction` from one unversioned root. Each named
+`Effect.fn` delegates directly to its existing unversioned Application System,
+retains all owner failures and the exact Scope requirement, and adds only a
+typed `ApplicationResultContractError` when the caller's opaque local reference
+disagrees with the authoritative runtime result. Query and Action results are
+returned by identity after that local contract check. The
+mutation facade decodes the owner's authenticated canonical JSON result into
+the contract's runtime value while retaining the authoritative scope, epoch,
+commit sequence, and replay disposition. No generic dispatcher or new
+authority exists.
+
+The local result check proves runtime shape only. In particular, an authored
+`Id<Table>` remains a table hint for inputs, while inferred invocation results
+expose it as `string`; the facade has no active table-ID authority and does not
+pretend otherwise. Mutation mismatch errors retain the original committed
+outcome by identity, and completed Action mismatch errors retain the original
+completed result, so a stale local contract cannot hide already-published work
+or invite an evidence-free retry.
+
+The application-native query PGlite harness is the first real-system consumer
+of the clean query facade and proves a mismatched local result contract is
+rejected after real execution. The definition owner now issues runtime-
+inspectable, compile-time-opaque function references. This check validates
+result shape; it does not make local authoring metadata activation authority.
+A boundary checker pins the clean invocation package to the definition facade
+and its exact reference-inspection bridge, the three exact internal system
+owner subpaths, Effect, and the required protocol identity, transaction,
+validator, and value owners.
+Existing Standard invocation exports remain temporary migration dependencies
+until the later removal gate.
+
 Add `runQuery`, `runMutation`, and `runAction` as thin Effect-native consumers
 of the existing unversioned systems. Migrate the smallest typed invocation
 consumer first. Do not change query snapshots, mutation admission, journals,
@@ -540,7 +576,7 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after `CAPI-B`. The next work requires explicit approval for `CAPI-C`; do
-not start invocation APIs, system-test facade renaming, or broad simulation
-migration from this completed slice. The English-learning and cooking PGlite
+Stop after `CAPI-C`. The next work requires explicit approval for `CAPI-D`; do
+not start system-test facade renaming or broad simulation migration from this
+completed slice. The English-learning and cooking PGlite
 lanes run here only as unchanged producer-path regression evidence.

@@ -63,7 +63,7 @@ describe("Application definition", () => {
         readonly servings: number;
       }>>();
     expectTypeOf<InferFunctionReturn<typeof createReference.contract>>()
-      .toMatchTypeOf<string>();
+      .toEqualTypeOf<string>();
     expect(getReference.path).toBe("recipes:get");
     expect(createReference.path).toBe("recipes:create");
 

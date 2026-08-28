@@ -6,18 +6,21 @@ import {
 } from
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
+  defineModule,
+  query,
+  sourceModule,
+  v,
+} from "@flarex/application-definition";
+import { runQuery } from "@flarex/application-invocation";
+import {
   makeApplicationQuerySystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import { invokeStandardApplicationPointQueryV1 } from
-  "@flarex/standard-application-invocation/v1";
 import { Effect } from "effect";
 import { makeApplicationExecutionHost } from
   "flarex-backend/internal/application-execution-host";
 import { ApplicationAnalysisSourceReadError } from
   "flarex-backend/internal/application-analysis-source-reader";
-import { TransactionFunctionPathV1Schema } from
-  "flarex-protocol/transaction-session";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Miniflare } from "miniflare";
 import {
@@ -29,6 +32,38 @@ import { runSystemTestEffectV1 } from "./systemTestEffectBoundaryV1";
 
 const RUNTIME_HOST_IDENTITY = "flarex-application-runtime-host-v1";
 const COMPATIBILITY_DATE = "2026-06-14";
+
+const USERS_GET_REFERENCE = defineModule({
+  path: "users",
+  source: sourceModule({
+    path: "functions/users.js",
+    bytes: new TextEncoder().encode("export {};\n"),
+  }),
+  functions: {
+    get: query({
+      args: v.object({ id: v.string() }),
+      returns: v.object({
+        _id: v.string(),
+        _creationTime: v.number(),
+        name: v.string(),
+      }),
+    }),
+  },
+}).reference("get");
+
+const USERS_GET_MISMATCH_REFERENCE = defineModule({
+  path: "users",
+  source: sourceModule({
+    path: "functions/users-mismatch.js",
+    bytes: new TextEncoder().encode("export {};\n"),
+  }),
+  functions: {
+    get: query({
+      args: v.object({ id: v.string() }),
+      returns: v.boolean(),
+    }),
+  },
+}).reference("get");
 
 export const APPLICATION_NATIVE_QUERY_FIXTURE_OPTIONS = Object.freeze({
   runtimeHostIdentity: RUNTIME_HOST_IDENTITY,
@@ -138,10 +173,19 @@ export async function proveApplicationNativeQuery(
     },
   });
   const invoke = () => runSystemTestEffectV1(Effect.scoped(
-    invokeStandardApplicationPointQueryV1(
-      TransactionFunctionPathV1Schema.make("users:get"),
+    runQuery(
+      USERS_GET_REFERENCE,
       { id: seeded.documentId },
     ).pipe(Effect.provide(layer)),
+  ));
+  const invokeMismatch = () => runSystemTestEffectV1(Effect.scoped(
+    runQuery(
+      USERS_GET_MISMATCH_REFERENCE,
+      { id: seeded.documentId },
+    ).pipe(
+      Effect.provide(layer),
+      Effect.flip,
+    ),
   ));
   try {
     const result = requireQueryResult(await invoke());
@@ -149,9 +193,13 @@ export async function proveApplicationNativeQuery(
       throw new Error("Application query did not return the stored document.");
     }
     await fixture.moveHead();
-    const moved = requireQueryResult(await invoke());
-    if (moved.name !== seeded.name) {
-      throw new Error("Application query lost the stored document after head movement.");
+    const mismatch = await invokeMismatch();
+    if (
+      !isRecord(mismatch) ||
+      mismatch._tag !== "ApplicationResultContractError" ||
+      mismatch.operation !== "query"
+    ) {
+      throw new Error("Application query accepted a mismatched local result contract.");
     }
     if (
       loader.revisionIds.length !== 2 ||
