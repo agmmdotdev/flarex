@@ -34,6 +34,7 @@
     "./internal/system-test/semantic-artifact-v1-finalized-source-proof": "./src/semanticArtifactV1/FinalizedSourceProof.ts",
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/task-compute-delivery": "./src/taskComputeDelivery/index.ts",
+    "./internal/node-task-executor": "./src/taskComputeDelivery/NodeTaskExecutor.ts",
     "./internal/task-result-store": "./src/taskResult/TaskResultStore.ts",
     "./internal/task-input-store": "./src/taskInput/TaskInputStore.ts",
     "./internal/task-execution-principal-store": "./src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",

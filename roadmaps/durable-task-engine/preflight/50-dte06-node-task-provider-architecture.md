@@ -3,12 +3,12 @@
 Status: accepted architecture checkpoint on 2026-08-28. The separately
 approved N1 runtime-family and immutable artifact-contract gate, N2
 execution-session seam, and N3 Node executor protocol/client gate are complete.
-The separately approved N4 authenticated callback transport gate is also
-complete. N5 and later gates remain unapproved; no Node provider process,
-deployment, external resource, or production activation exists.
+The separately approved N4 authenticated callback transport and N5 local Node
+conformance gates are also complete. N6 remains unapproved; no hosted Node
+provider, deployment, external resource, or production activation exists.
 
-Evidence snapshot: 2026-08-28 current repository state after the completed N4
-authenticated callback transport gate.
+Evidence snapshot: 2026-08-28 current repository state after the completed N5
+local Node conformance gate.
 
 ## Decision
 
@@ -369,7 +369,7 @@ require separate approval and retain this safe order:
    local isolated process using trusted test fixtures and no configured
    egress/secrets/native modules/tools, then
    prove success, failure, timeout, cancellation, lost response, process loss,
-   callback replay, fresh-host recovery, and cleanup; and
+   callback replay, fresh-host recovery, and cleanup; **complete**; and
 6. **N6 — hosted provider:** select and preflight one concrete production host,
    external resources, rollout, and rollback separately.
 
@@ -379,12 +379,11 @@ both standing project reviewers against the exact final diff.
 
 ## Non-Goals
 
-This checkpoint does not authorize beyond the completed N1, N2, N3, and N4
+This checkpoint does not authorize beyond the completed N1 through N5
 slices:
 
-- a real Node process/provider adapter, public callback endpoint, or deployment
-  wire;
-- a local child process, AWS resource, container, route, binding, public token
+- a hosted Node provider, public callback endpoint, or deployment wire;
+- an AWS resource, container, route, binding, public token
   issuer, provider infrastructure credential, or user secret;
 - a public `task()`/`action()` API or `"use node"` syntax change;
 - a Node Action implementation;
@@ -398,16 +397,16 @@ slices:
 
 ## Stop Boundary And Next Gate
 
-Stop after N4. The Worker Loader remains the only real private provider and the
-current isolate artifact/session wire behavior remains unchanged. Node profiles
-are explicitly provider-disabled and Node artifact admission reports dispatch
-as blocked.
+Stop after N5. The local adapter is a development and system-test conformance
+host for trusted repository fixtures, not a production provider or hostile-code
+sandbox. The current isolate artifact/session wire behavior remains unchanged.
+Node profiles remain production-provider-disabled and Node artifact admission
+continues to report dispatch as blocked.
 
-The next separately approved code gate is N5 only: execute one immutable Node
-Task artifact in a local isolated process using trusted fixtures and no
-configured egress, secrets, native modules, tools, or persistent filesystem,
-then prove terminal, callback, recovery, cancellation, process-loss, and cleanup
-behavior. Do not begin hosted deployment in that slice.
+The next separately approved gate is N6 only: select and preflight one concrete
+hosted provider, including its security boundary, limits, lifecycle, rollout,
+rollback, cost, and external-resource ownership. Do not create hosted resources
+or production routing before that preflight is accepted.
 
 ## N1 Implementation Receipt
 
@@ -471,3 +470,60 @@ tests, workspace `lint:core`, unstaged diff lint, and Effect boundary check
 passed. The complete backend run passed 154 of 155 files and 1,412 of 1,413
 tests; its sole Sync test failure was accompanied by a Miniflare `ECONNRESET`
 and passed immediately when rerun alone.
+
+## N5 Implementation Receipt
+
+Completed on 2026-08-28:
+
+- added a scoped local Node provider in `flarex-dev` that accepts only the
+  authenticated private executor start contract, verifies the canonical Node
+  artifact plus immutable bundle and per-module digests, and runs a trusted
+  repository fixture in a separate permission-mode Node process;
+- added a strict local bundle envelope and VM module loader that admits only
+  bundle-relative modules, denies package, built-in, and dynamic imports, does
+  not inherit the host environment, and exposes no direct process, filesystem,
+  native-module, child-process, secret, tool, or network global to Task code;
+- used an ephemeral binary channel between the matched local Node processes so
+  the complete canonical Task runtime value domain, including `ArrayBuffer`,
+  bigint, special numbers, and large Unicode text, survives input, callback,
+  and settlement transport without defining a hosted or persisted wire;
+- made the child attest its actual Node runtime ABI before acceptance and
+  before the provider sends artifact modules, then evaluated the artifact's
+  exact committed execution module before resolving and invoking the separately
+  committed Task module/export;
+- retained the explicit security boundary: VM isolation and Node permission
+  mode provide local conformance separation, not a hostile-code sandbox or
+  production deployment claim;
+- installed the short-lived callback capability through the Node-private
+  session attachment channel, preserving the existing authenticated gateway's
+  validation, replay, query, mutation, fencing, budget, and revocation owners;
+- added provider-owned uncertain-start recovery across fresh stateless client
+  views, exact interruption, deadline termination, process-loss reporting,
+  output/log ceilings, memory configuration, terminal settlement, and scoped
+  process/runtime cleanup;
+- bounded that local recovery proof precisely: a fresh Task-host client may
+  recover through the surviving provider-owned execution lookup; loss of the
+  local provider host reports session loss so persisted Task/delivery authority
+  can retry, and does not restore the old JavaScript stack;
+- retired terminal live process/session state into minimal digest-correlated
+  tombstones, retaining every unexpired start within a 16-entry local capacity
+  for idempotent start and recovery while releasing callback credentials,
+  closures, streams, and large artifact bytes; new starts fail closed with
+  `capacity_unavailable` instead of evicting an unexpired idempotency record;
+- assigned session identities from a provider-owned monotonic ordinal rather
+  than the bounded live/tombstone collection size;
+- projected the attached versioned Node session into the same unversioned
+  `TaskExecutionSession` used by shared Task supervision, without changing the
+  current Worker Loader wire or Task lifecycle; and
+- kept production Node placement disabled and added no public Task/Action API,
+  hosted resource, route, secret, egress, native dependency, persistent
+  filesystem, AgentOS, or tool capability.
+
+Focused receipt: backend and `flarex-dev` typechecks, Effect boundary check,
+31 backend protocol/gateway tests, and all 12 local Node conformance tests passed.
+The complete backend run passed 157 files and 1,444 tests. A concurrent complete
+`flarex-dev` run passed 207 tests with 9 skipped and retained unrelated
+failures: generated-consumer checks target a library older than ES2023 while
+current protocol code uses `toSorted`, four existing analysis tests observe
+`window is not defined` before their expected import-time diagnostic, and one
+Vite case timed out while both complete suites competed for the host.

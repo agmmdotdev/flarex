@@ -1,4 +1,7 @@
-import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Context, Data, Deferred, Effect, Ref, Result, Scope } from "effect";
 
@@ -8,6 +11,7 @@ import {
   decodeNodeTaskCallbackAttachmentV1,
   type NodeTaskCallbackAttachmentAckV1,
   type NodeTaskCallbackAttachmentV1,
+  type NodeTaskCallbackResponseV1,
 } from "./NodeTaskCallbackProtocolV1.js";
 
 import {
@@ -73,6 +77,7 @@ export interface NodeTaskExecutorSession {
   readonly acceptance: NodeTaskExecutorAcceptanceV1;
   readonly attachCallbackCapability: (
     attachment: NodeTaskCallbackAttachmentV1,
+    invoke: NodeTaskExecutorCallbackChannel,
   ) => Effect.Effect<
     NodeTaskCallbackAttachmentAckV1,
     NodeTaskExecutorClientError
@@ -96,6 +101,11 @@ export interface NodeTaskExecutorSession {
     NodeTaskExecutorClientError
   >;
 }
+
+/** Private provider channel installed with the launch-bound capability. */
+export type NodeTaskExecutorCallbackChannel = (
+  request: unknown,
+) => Effect.Effect<NodeTaskCallbackResponseV1, unknown>;
 
 export type NodeTaskExecutorStartResult =
   | Readonly<{
@@ -548,7 +558,7 @@ function claimStart(
       operation: "start",
       startKey: request.startKey,
     });
-    if (!requestsEquivalent(previous.request, request)) {
+    if (!nodeTaskExecutorStartRequestsEquivalentV1(previous.request, request)) {
       return [
         Object.freeze({ kind: "conflict" }),
         Object.freeze({ ...state, events }),
@@ -671,7 +681,7 @@ function makeFakeSession(
   const attachCallbackCapability:
     NodeTaskExecutorSession["attachCallbackCapability"] = Effect.fn(
       "NodeTaskExecutorSession.attachCallbackCapability",
-    )(attachmentInput => Effect.gen(function* () {
+    )((attachmentInput, _invoke) => Effect.gen(function* () {
       if (yield* Ref.get(handleClosedRef)) {
         return yield* clientFailure(
           "attachCallbackCapability", "clientClosed", false,
@@ -968,7 +978,7 @@ function cleanupOutcome(
   });
 }
 
-function requestsEquivalent(
+export function nodeTaskExecutorStartRequestsEquivalentV1(
   left: NodeTaskExecutorStartRequestV1,
   right: NodeTaskExecutorStartRequestV1,
 ): boolean {
@@ -993,6 +1003,49 @@ function requestsEquivalent(
       right.launchCapability.expiresAtEpochMilliseconds &&
     left.trace.traceId === right.trace.traceId &&
     left.trace.parentSpanId === right.trace.parentSpanId;
+}
+
+/**
+ * Stable preimage for compact provider-local idempotency records. This mirrors
+ * the authenticated start equivalence contract while ignoring record key order.
+ */
+export function nodeTaskExecutorStartRequestEquivalencePreimageV1(
+  request: NodeTaskExecutorStartRequestV1,
+): string {
+  return JSON.stringify(stableEquivalenceNode(request));
+}
+
+function stableEquivalenceNode(input: unknown): unknown {
+  if (input === undefined) return ["undefined"];
+  if (input === null) return ["null"];
+  if (typeof input === "boolean") return ["boolean", input];
+  if (typeof input === "string") return ["string", input];
+  if (typeof input === "bigint") return ["bigint", input.toString(10)];
+  if (typeof input === "number") {
+    const spelling = Number.isNaN(input)
+      ? "nan"
+      : input === Number.POSITIVE_INFINITY
+      ? "positive_infinity"
+      : input === Number.NEGATIVE_INFINITY
+      ? "negative_infinity"
+      : Object.is(input, -0)
+      ? "negative_zero"
+      : input;
+    return ["number", spelling];
+  }
+  if (input instanceof Uint8Array) {
+    return ["bytes", encodeBytesToLowercaseHex(input)];
+  }
+  if (Array.isArray(input)) {
+    return ["array", input.map(stableEquivalenceNode)];
+  }
+  if (isNonArrayRecord(input)) {
+    return ["record", Object.keys(input).toSorted().map(key => [
+      key,
+      stableEquivalenceNode(input[key]),
+    ])];
+  }
+  throw new Error("Authenticated Node Task start contains unsupported data.");
 }
 
 function dispatchesEquivalent(

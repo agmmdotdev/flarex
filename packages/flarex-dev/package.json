@@ -16,6 +16,7 @@
     "./internal/retained-history-maintenance": "./src/retainedHistoryMaintenance.ts",
     "./internal/declarative-materializer-v1": "./src/declarativeMaterializerV1.ts",
     "./internal/declarative-program-v1": "./src/declarativeProgramV1.ts",
+    "./internal/local-node-task-executor": "./src/nodeTaskLocalExecutor/LocalNodeTaskExecutor.ts",
     "./vite": "./src/vite.ts"
   },
   "scripts": {
@@ -28,6 +29,7 @@
     "@flarex/analysis": "workspace:*",
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
+    "@flarex/durable-task": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/freshness": "workspace:*",

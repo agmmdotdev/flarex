@@ -34,6 +34,7 @@ import {
   makeDeterministicNodeTaskExecutor,
   makeNodeTaskExecutorInterruptionRequestV1,
   makeNodeTaskExecutorSettlementV1,
+  nodeTaskExecutorStartRequestEquivalencePreimageV1,
   type NodeTaskExecutorClientApi,
   type NodeTaskExecutorSession,
 } from "../src/taskComputeDelivery/NodeTaskExecutorClient.js";
@@ -55,6 +56,37 @@ const scopeId = "scope_00000000-0000-4000-8000-000000000001";
 const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("node-1x");
 
 describe("Node Task executor protocol and client", () => {
+  it("makes the compact start-equivalence preimage independent of claim order", () => {
+    const request = startRequest();
+    if (request.principal.executionIdentity.kind !== "user") {
+      throw new Error("Expected user principal fixture.");
+    }
+    const withClaims = (reverse: boolean): NodeTaskExecutorStartRequestV1 => ({
+      ...request,
+      principal: {
+        ...request.principal,
+        executionIdentity: {
+          ...request.principal.executionIdentity,
+          user: {
+            ...request.principal.executionIdentity.user,
+            claims: reverse
+              ? { second: "two", first: "one" }
+              : { first: "one", second: "two" },
+          },
+        },
+      },
+    });
+    expect(nodeTaskExecutorStartRequestEquivalencePreimageV1(withClaims(false)))
+      .toBe(nodeTaskExecutorStartRequestEquivalencePreimageV1(withClaims(true)));
+    expect(nodeTaskExecutorStartRequestEquivalencePreimageV1({
+      ...withClaims(false),
+      absoluteDeadlineEpochMilliseconds:
+        request.absoluteDeadlineEpochMilliseconds + 1,
+    })).not.toBe(nodeTaskExecutorStartRequestEquivalencePreimageV1(
+      withClaims(false),
+    ));
+  });
+
   it("strictly decodes owned launch evidence and rejects key or policy drift", () => {
     const request = startRequest();
     const decoded = success(decodeNodeTaskExecutorStartRequestV1(request));
@@ -134,13 +166,19 @@ describe("Node Task executor protocol and client", () => {
         expiresAtEpochMilliseconds:
           request.launchCapability.expiresAtEpochMilliseconds,
       }));
-      const first = yield* started.session.attachCallbackCapability(attachment);
+      const first = yield* started.session.attachCallbackCapability(
+        attachment,
+        () => Effect.die("unused deterministic callback channel"),
+      );
       expect(first).toMatchObject({
         kind: "attached",
         capabilityId: attachment.capabilityId,
         sessionId: attachment.sessionId,
       });
-      expect(yield* started.session.attachCallbackCapability(attachment))
+      expect(yield* started.session.attachCallbackCapability(
+        attachment,
+        () => Effect.die("unused deterministic callback channel"),
+      ))
         .toEqual(first);
       const conflict = success(decodeNodeTaskCallbackAttachmentV1({
         ...attachment,
@@ -148,7 +186,10 @@ describe("Node Task executor protocol and client", () => {
       }));
       expectFailure(
         yield* Effect.exit(
-          started.session.attachCallbackCapability(conflict),
+          started.session.attachCallbackCapability(
+            conflict,
+            () => Effect.die("unused deterministic callback channel"),
+          ),
         ),
         "idempotencyConflict",
       );

@@ -216,19 +216,6 @@ export const makeNodeTaskCallbackGateway = Effect.fn(
     executionId: captured.acceptance.executionId,
     expiresAtEpochMilliseconds: captured.expiresAtEpochMilliseconds,
   });
-  const attachmentAck = yield* stableOptions.executorSession
-    .attachCallbackCapability(capability).pipe(
-      Effect.mapError(cause => gatewayFailure(
-        "bind", "attachmentFailed", cause.retryable, cause,
-      )),
-    );
-  yield* Effect.fromResult(decodeNodeTaskCallbackAttachmentAckForRequestV1(
-    attachmentAck,
-    capability,
-  )).pipe(Effect.mapError(cause => gatewayFailure(
-    "bind", "attachmentFailed", false, cause,
-  )));
-
   const invoke: NodeTaskCallbackGatewayLease["invoke"] = Effect.fn(
     "NodeTaskCallbackGateway.invoke",
   )(input => Effect.gen(function* () {
@@ -275,6 +262,19 @@ export const makeNodeTaskCallbackGateway = Effect.fn(
       return yield* restore(Deferred.await(decision.entry.completion));
     }));
   }));
+
+  const attachmentAck = yield* stableOptions.executorSession
+    .attachCallbackCapability(capability, invoke).pipe(
+      Effect.mapError(cause => gatewayFailure(
+        "bind", "attachmentFailed", cause.retryable, cause,
+      )),
+    );
+  yield* Effect.fromResult(decodeNodeTaskCallbackAttachmentAckForRequestV1(
+    attachmentAck,
+    capability,
+  )).pipe(Effect.mapError(cause => gatewayFailure(
+    "bind", "attachmentFailed", false, cause,
+  )));
 
   const close = Effect.uninterruptibleMask(restore => Effect.gen(function* () {
     const first = yield* Ref.modify(stateRef, state => state.closed
