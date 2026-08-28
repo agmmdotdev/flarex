@@ -10,23 +10,27 @@ import {
 } from "../../kernel/Model.js";
 import type {
   AdmittedInvalidationBatch,
+  BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
   GenerationRefreshEvidence,
   NamespaceCursor,
+  QueryEvaluationAttempt,
   QueryEvaluationEvidence,
-  QueryOperationTarget,
   QuerySyncState,
 } from "../../kernel/Model.js";
 import {
   applyAdmittedInvalidations,
-  beginQueryGeneration,
-  completeQueryGeneration,
+  beginQueryEvaluation,
+  completeQueryEvaluation,
 } from "../../kernel/Policy.js";
 import type {
   ApplyInvalidationsError,
-  BeginQueryGenerationError,
-  CompleteQueryGenerationError,
+  BeginQueryEvaluationError,
+  CompleteQueryEvaluationError,
 } from "../../kernel/Policy.js";
+import type {
+  QueryPublicationArtifact,
+} from "../../kernel/Publication.js";
 import {
   QuerySyncStateCommitOutcomeUnknownError,
   QuerySyncStateUnavailableError,
@@ -47,8 +51,8 @@ import {
 } from "../../state/Receipts.js";
 import type {
   ApplyAdmittedBatchReceipt,
-  BeginQueryGenerationReceipt,
-  CompleteQueryGenerationReceipt,
+  BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "../../state/Receipts.js";
 import type {
@@ -368,27 +372,27 @@ function makeReferencePort(
   });
 
   const begin = Effect.fn(
-    "QuerySync.ReferenceState.beginQueryGeneration",
-  )(function*(target: QueryOperationTarget): Effect.fn.Return<
-    BeginQueryGenerationReceipt,
-    | BeginQueryGenerationError
-    | QuerySyncStateIntegrationError<"beginQueryGeneration">,
+    "QuerySync.ReferenceState.beginQueryEvaluation",
+  )(function*(request: BeginQueryEvaluationRequest): Effect.fn.Return<
+    BeginQueryEvaluationReceipt,
+    | BeginQueryEvaluationError
+    | QuerySyncStateIntegrationError<"beginQueryEvaluation">,
     never
   > {
     return yield* executeAtomic(
       cellRef,
       binding,
-      "beginQueryGeneration",
+      "beginQueryEvaluation",
       (current) => Result.gen(function* () {
         if (current === null) {
-          return yield* Result.fail(missingState("beginQueryGeneration"));
+          return yield* Result.fail(missingState("beginQueryEvaluation"));
         }
         const state = yield* validateStoredBinding(
-          "beginQueryGeneration",
+          "beginQueryEvaluation",
           binding,
           current,
         );
-        const decision = yield* beginQueryGeneration(state, target);
+        const decision = yield* beginQueryEvaluation(state, request);
         return Object.freeze({
           receipt: projectBeginReceipt(decision),
           nextState: decision.state,
@@ -432,35 +436,39 @@ function makeReferencePort(
   });
 
   const complete = Effect.fn(
-    "QuerySync.ReferenceState.completeQueryGeneration",
+    "QuerySync.ReferenceState.completeQueryEvaluation",
   )(function*(
+    attempt: QueryEvaluationAttempt,
     evaluation: QueryEvaluationEvidence,
     refresh: GenerationRefreshEvidence,
+    publication: QueryPublicationArtifact,
   ): Effect.fn.Return<
-    CompleteQueryGenerationReceipt,
-    | CompleteQueryGenerationError
-    | QuerySyncStateIntegrationError<"completeQueryGeneration">,
+    CompleteQueryEvaluationReceipt,
+    | CompleteQueryEvaluationError
+    | QuerySyncStateIntegrationError<"completeQueryEvaluation">,
     never
   > {
     return yield* executeAtomic(
       cellRef,
       binding,
-      "completeQueryGeneration",
+      "completeQueryEvaluation",
       (current) => Result.gen(function* () {
         if (current === null) {
           return yield* Result.fail(missingState(
-            "completeQueryGeneration",
+            "completeQueryEvaluation",
           ));
         }
         const state = yield* validateStoredBinding(
-          "completeQueryGeneration",
+          "completeQueryEvaluation",
           binding,
           current,
         );
-        const decision = yield* completeQueryGeneration(
+        const decision = yield* completeQueryEvaluation(
           state,
+          attempt,
           evaluation,
           refresh,
+          publication,
         );
         return Object.freeze({
           receipt: projectCompleteReceipt(decision),
@@ -532,9 +540,9 @@ function makeReferencePort(
       sourceEpoch: binding.sourceEpoch,
     }),
     initializeOrInspectNamespace,
-    beginQueryGeneration: begin,
+    beginQueryEvaluation: begin,
     applyAdmittedBatchAndAdvance: apply,
-    completeQueryGeneration: complete,
+    completeQueryEvaluation: complete,
     snapshotForConformance,
     injectNextFault,
     simulateAggregateLossForConformance,

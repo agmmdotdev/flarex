@@ -38,7 +38,9 @@ export type {
 } from "./CanonicalValue.js";
 
 export {
+  InvalidQueryCompletionReplayError,
   InvalidQueryEvidenceError,
+  InvalidQueryEvaluationRequestError,
   InvalidRefreshEvidenceError,
   QueryDependencyLimitError,
   QueryGenerationExhaustedError,
@@ -74,6 +76,7 @@ export {
   captureQueryEvaluationEvidence,
   captureQueryOperationTarget,
   createEmptyQuerySyncState,
+  makeQueryEvaluationAttempt,
   MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS,
   MAX_COUNTED_CANONICAL_BYTES,
   MAX_INVALIDATION_AFFECTED_QUERIES,
@@ -94,22 +97,25 @@ export type {
   AdmittedInvalidationBatch,
   AdmittedInvalidationBatchInput,
   ApplyInvalidationsDecision,
-  BeginQueryGenerationDecision,
+  BeginQueryEvaluationDecision,
+  BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
   CaptureEvaluationEvidenceError,
   CaptureInvalidationBatchError,
   CaptureNamespaceCursorError,
   CaptureQueryDescriptorError,
-  CompleteQueryGenerationDecision,
+  CompleteQueryEvaluationDecision,
   DependencyDirectoryEntry,
   GenerationRefreshEvidence,
   NamespaceCursor,
   NamespaceCursorInput,
   ProvisionalQueryState,
+  QueryCompletionFingerprint,
   QueryDescriptor,
   QueryDescriptorInput,
   QueryEvaluationEvidence,
   QueryEvaluationEvidenceInput,
+  QueryEvaluationAttempt,
   QueryOperationTarget,
   QueryOperationTargetInput,
   QueryState,
@@ -120,15 +126,38 @@ export type {
 
 export {
   applyAdmittedInvalidations,
-  beginQueryGeneration,
+  beginQueryEvaluation,
   classifySequence,
-  completeQueryGeneration,
+  completeQueryEvaluation,
   nextSyncSequence,
 } from "./Policy.js";
 
 export type {
   ApplyInvalidationsError,
-  BeginQueryGenerationError,
+  BeginQueryEvaluationError,
   ClassifySequenceError,
-  CompleteQueryGenerationError,
+  CompleteQueryEvaluationError,
 } from "./Policy.js";
+
+export {
+  canonicalPublicationContentDecodedLength,
+  captureQueryPublicationArtifact,
+  compareQueryPublicationIdentity,
+  makePendingQueryPublication,
+  makeQueryPublicationIdentity,
+  MAX_INLINE_PUBLICATION_CONTENT_BYTES,
+  MAX_PENDING_PUBLICATION_CONTENT_BYTES,
+  MAX_PENDING_PUBLICATIONS,
+  pendingPublicationDisposition,
+  queryPublicationIdentityEquals,
+  unchangedPublicationDisposition,
+} from "./Publication.js";
+
+export type {
+  CanonicalPublicationContent,
+  PendingQueryPublication,
+  QueryCompletionPublicationDisposition,
+  QueryPublicationArtifact,
+  QueryPublicationArtifactInput,
+  QueryPublicationIdentity,
+} from "./Publication.js";

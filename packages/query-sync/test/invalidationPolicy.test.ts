@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
-  beginQueryGeneration,
-  completeQueryGeneration,
+  beginQueryEvaluation,
+  completeQueryEvaluation,
   createEmptyQuerySyncState,
   QuerySyncModelMismatchError,
   QuerySyncNamespaceMismatchError,
@@ -23,7 +23,11 @@ import {
   cursor,
   descriptor,
   evaluation,
+  firstEvaluationRequest,
+  getEvaluationAttempt,
   getSuccess,
+  publicationArtifact,
+  rerunEvaluationRequest,
   target,
 } from "./fixtures.js";
 
@@ -32,13 +36,14 @@ function installActiveQuery(
   queryDescriptor: QueryDescriptor,
   dependencies: readonly string[],
 ): QuerySyncState {
-  const begun = getSuccess(beginQueryGeneration(
+  const begun = getSuccess(beginQueryEvaluation(
     state,
-    target({ descriptor: queryDescriptor }),
+    firstEvaluationRequest(target({ descriptor: queryDescriptor })),
   ));
+  const attempt = getEvaluationAttempt(begun);
   const evidence = evaluation({
     descriptor: queryDescriptor,
-    generation: begun.generation,
+    generation: attempt.generation,
     snapshot: state.cursor.appliedThroughSequence,
     dependencies,
   });
@@ -48,10 +53,12 @@ function installActiveQuery(
     [],
     evidence.authorityWitness,
   ));
-  const completed = getSuccess(completeQueryGeneration(
+  const completed = getSuccess(completeQueryEvaluation(
     begun.state,
+    attempt,
     evidence,
     refresh,
+    publicationArtifact(),
   ));
   if (completed._tag !== "completed") {
     throw new Error("Expected clean fixture completion");
@@ -82,7 +89,11 @@ describe("admitted invalidation policy", () => {
 
   it("advances the cursor atomically even when no active query matches", () => {
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const applied = getSuccess(applyAdmittedInvalidations(
       begun.state,
       batch({
@@ -97,29 +108,58 @@ describe("admitted invalidation policy", () => {
     });
     expect(applied.state.cursor.appliedThroughSequence).toBe(1n);
     expect(applied.state.queries[0]?.active).toBeNull();
-    expect(applied.state.queries[0]?.provisional?.generation).toBe(1n);
+    expect(applied.state.queries[0]?.provisional?.generation).toBe(
+      attempt.generation,
+    );
   });
 
-  it("preserves active and provisional slots and advances dirty monotonically", () => {
+  it("preserves a durable rerun attempt and coalesces later dirty progress", () => {
     const dependency = canonicalText("record:1");
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
     const active = installActiveQuery(initial, descriptor(), [dependency]);
-    const withCandidate = getSuccess(beginQueryGeneration(active, target()));
-
     const first = getSuccess(applyAdmittedInvalidations(
-      withCandidate.state,
+      active,
       batch({ sequence: 1n, dependencies: [dependency] }),
     ));
-    const second = getSuccess(applyAdmittedInvalidations(
+    const activeGeneration = first.state.queries[0]?.active?.generation;
+    const firstDirty = first.state.queries[0]?.active?.dirtyThroughSequence;
+    if (
+      activeGeneration === undefined
+      || firstDirty === null
+      || firstDirty === undefined
+    ) {
+      throw new Error("Expected a durably dirty active query");
+    }
+    const withCandidate = getSuccess(beginQueryEvaluation(
       first.state,
+      rerunEvaluationRequest({
+        activeGeneration,
+        dirtyThroughSequence: firstDirty,
+      }),
+    ));
+    const initialAttempt = getEvaluationAttempt(withCandidate);
+    const second = getSuccess(applyAdmittedInvalidations(
+      withCandidate.state,
       batch({ sequence: 2n, dependencies: [dependency] }),
     ));
+    const replayed = getSuccess(beginQueryEvaluation(
+      second.state,
+      rerunEvaluationRequest({
+        activeGeneration,
+        dirtyThroughSequence: firstDirty,
+      }),
+    ));
+    const coalescedAttempt = getEvaluationAttempt(replayed);
 
     expect(second.state.queries[0]?.active?.dirtyThroughSequence).toBe(2n);
     expect(second.state.queries[0]?.provisional?.generation).toBe(2n);
     expect(second.state.queries[0]?.active?.dependencyKeys).toEqual([
       dependency,
     ]);
+    expect(initialAttempt.requestedDirtyThroughSequence).toBe(1n);
+    expect(replayed._tag).toBe("replayed");
+    expect(coalescedAttempt.requestedDirtyThroughSequence).toBe(2n);
+    expect(coalescedAttempt.generation).toBe(initialAttempt.generation);
   });
 
   it("returns unchanged state for duplicate, gap, and epoch reset decisions", () => {

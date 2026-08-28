@@ -143,12 +143,13 @@ function captureBoundedText<A extends string>(
   return Result.succeed(brand(input));
 }
 
-function captureCanonicalBase64Url<A extends string>(
+export function captureCanonicalBase64UrlValue<A extends string>(
   input: unknown,
   field:
     | "queryKey"
     | "queryIdentity"
     | "dependencyKey"
+    | "publicationContent"
     | "resultDigest"
     | "authorityWitness",
   maximumBytes: number,
@@ -280,7 +281,7 @@ export function captureQuerySnapshot(
 export function captureCanonicalQueryKey(
   input: unknown,
 ): Result.Result<CanonicalQueryKey, QuerySyncCanonicalValueError> {
-  return captureCanonicalBase64Url(
+  return captureCanonicalBase64UrlValue(
     input,
     "queryKey",
     QUERY_KEY_BYTES,
@@ -292,7 +293,7 @@ export function captureCanonicalQueryKey(
 export function captureCanonicalQueryIdentity(
   input: unknown,
 ): Result.Result<CanonicalQueryIdentity, QuerySyncCanonicalValueError> {
-  return captureCanonicalBase64Url(
+  return captureCanonicalBase64UrlValue(
     input,
     "queryIdentity",
     MAX_CANONICAL_QUERY_IDENTITY_BYTES,
@@ -304,7 +305,7 @@ export function captureCanonicalQueryIdentity(
 export function captureCanonicalDependencyKey(
   input: unknown,
 ): Result.Result<CanonicalDependencyKey, QuerySyncCanonicalValueError> {
-  return captureCanonicalBase64Url(
+  return captureCanonicalBase64UrlValue(
     input,
     "dependencyKey",
     MAX_CANONICAL_DEPENDENCY_KEY_BYTES,
@@ -316,7 +317,7 @@ export function captureCanonicalDependencyKey(
 export function captureQueryResultDigest(
   input: unknown,
 ): Result.Result<QueryResultDigest, QuerySyncCanonicalValueError> {
-  return captureCanonicalBase64Url(
+  return captureCanonicalBase64UrlValue(
     input,
     "resultDigest",
     QUERY_RESULT_DIGEST_BYTES,
@@ -328,7 +329,7 @@ export function captureQueryResultDigest(
 export function captureQueryAuthorityWitness(
   input: unknown,
 ): Result.Result<QueryAuthorityWitness, QuerySyncCanonicalValueError> {
-  return captureCanonicalBase64Url(
+  return captureCanonicalBase64UrlValue(
     input,
     "authorityWitness",
     QUERY_AUTHORITY_WITNESS_BYTES,

@@ -15,7 +15,9 @@ import type {
   SyncSequence,
 } from "./CanonicalValue.js";
 import {
+  InvalidQueryCompletionReplayError,
   InvalidQueryEvidenceError,
+  InvalidQueryEvaluationRequestError,
   QueryGenerationExhaustedError,
   QueryGenerationMismatchError,
   QueryKeyCollisionError,
@@ -30,39 +32,60 @@ import {
 import type {
   QuerySyncAuthorityError,
   QuerySyncAuthorityOperation,
+  QuerySyncCanonicalValueError,
 } from "./Errors.js";
 import {
   findDependencyDirectoryEntry,
+  findPendingQueryPublication,
   findQueryState,
+  makeQueryEvaluationAttempt,
   MAX_INVALIDATION_AFFECTED_QUERIES,
   MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
   replaceQueryState,
+  replaceQueryStateAndPendingPublications,
   replaceQueryStatesAndCursor,
 } from "./Model.js";
 import type {
   ActiveQueryState,
   AdmittedInvalidationBatch,
   ApplyInvalidationsDecision,
-  BeginQueryGenerationDecision,
+  BeginQueryEvaluationDecision,
+  BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
-  CompleteQueryGenerationDecision,
+  CompleteQueryEvaluationDecision,
   GenerationRefreshEvidence,
   NamespaceCursor,
+  QueryCompletionFingerprint,
+  QueryEvaluationAttempt,
   QueryEvaluationEvidence,
-  QueryOperationTarget,
   QueryState,
   QuerySyncState,
   SequenceDecision,
 } from "./Model.js";
+import {
+  captureQueryPublicationArtifact,
+  makePendingQueryPublication,
+  makeQueryPublicationIdentity,
+  pendingPublicationDisposition,
+  queryPublicationIdentityEquals,
+  unchangedPublicationDisposition,
+} from "./Publication.js";
+import type {
+  PendingQueryPublication,
+  QueryCompletionPublicationDisposition,
+  QueryPublicationArtifact,
+} from "./Publication.js";
 
 export type ClassifySequenceError =
   | QuerySyncNamespaceMismatchError<"classifySequence">
   | QuerySyncModelMismatchError<"classifySequence">;
 
-export type BeginQueryGenerationError =
-  | QuerySyncAuthorityError<"beginQueryGeneration">
+export type BeginQueryEvaluationError =
+  | QuerySyncAuthorityError<"beginQueryEvaluation">
   | QueryGenerationExhaustedError
-  | QueryKeyCollisionError<"beginQueryGeneration">
+  | QueryGenerationMismatchError
+  | QueryKeyCollisionError<"beginQueryEvaluation">
+  | InvalidQueryEvaluationRequestError
   | BuildQuerySyncStateError;
 
 export type ApplyInvalidationsError =
@@ -71,12 +94,14 @@ export type ApplyInvalidationsError =
   | QuerySyncWorkLimitError<"applyAdmittedInvalidations">
   | BuildQuerySyncStateError;
 
-export type CompleteQueryGenerationError =
-  | QuerySyncAuthorityError<"completeQueryGeneration">
-  | QueryKeyCollisionError<"completeQueryGeneration">
+export type CompleteQueryEvaluationError =
+  | QuerySyncAuthorityError<"completeQueryEvaluation">
+  | QueryKeyCollisionError<"completeQueryEvaluation">
   | QueryStateNotFoundError
   | QueryGenerationMismatchError
   | InvalidQueryEvidenceError
+  | InvalidQueryCompletionReplayError
+  | QuerySyncCanonicalValueError
   | BuildQuerySyncStateError;
 
 function namespaceMismatch<Operation extends QuerySyncAuthorityOperation>(
@@ -153,7 +178,7 @@ function invalidQueryEvidence(
   reason: InvalidQueryEvidenceError["reason"],
 ): InvalidQueryEvidenceError {
   return new InvalidQueryEvidenceError({
-    operation: "completeQueryGeneration",
+    operation: "completeQueryEvaluation",
     reason,
   });
 }
@@ -176,8 +201,8 @@ function freezeSequenceDecision(
 }
 
 function freezeBeginDecision(
-  decision: BeginQueryGenerationDecision,
-): BeginQueryGenerationDecision {
+  decision: BeginQueryEvaluationDecision,
+): BeginQueryEvaluationDecision {
   return Object.freeze(decision);
 }
 
@@ -188,8 +213,8 @@ function freezeApplyDecision(
 }
 
 function freezeCompleteDecision(
-  decision: CompleteQueryGenerationDecision,
-): CompleteQueryGenerationDecision {
+  decision: CompleteQueryEvaluationDecision,
+): CompleteQueryEvaluationDecision {
   return Object.freeze(decision);
 }
 
@@ -284,49 +309,244 @@ export function classifySequence(
   return classifySequenceForOperation("classifySequence", cursor, position);
 }
 
-export function beginQueryGeneration(
+function invalidEvaluationRequest(
+  request: BeginQueryEvaluationRequest,
+  reason: InvalidQueryEvaluationRequestError["reason"],
+  observedDirtyThroughSequence: SyncSequence | null,
+): InvalidQueryEvaluationRequestError {
+  return new InvalidQueryEvaluationRequestError({
+    operation: "beginQueryEvaluation",
+    reason,
+    queryKey: request.target.descriptor.queryKey,
+    requestedDirtyThroughSequence: request.requestedDirtyThroughSequence,
+    observedDirtyThroughSequence,
+  });
+}
+
+function evaluationAttempt(
   state: QuerySyncState,
-  target: QueryOperationTarget,
-): Result.Result<BeginQueryGenerationDecision, BeginQueryGenerationError> {
+  query: QueryState,
+): QueryEvaluationAttempt {
+  const provisional = query.provisional;
+  if (provisional === null) {
+    throw new QuerySyncInvariantDefect({
+      operation: "beginQueryEvaluation",
+      invariant: "rebuiltEvaluationMissing",
+    });
+  }
+  return makeQueryEvaluationAttempt({
+    namespaceId: state.cursor.namespaceId,
+    syncModelId: state.cursor.syncModelId,
+    sourceEpoch: state.cursor.sourceEpoch,
+    descriptor: query.descriptor,
+    generation: provisional.generation,
+    expectedActiveGeneration: provisional.expectedActiveGeneration,
+    registrationCursor: provisional.registrationCursor,
+    requestedDirtyThroughSequence:
+      provisional.requestedDirtyThroughSequence,
+  });
+}
+
+export function beginQueryEvaluation(
+  state: QuerySyncState,
+  request: BeginQueryEvaluationRequest,
+): Result.Result<BeginQueryEvaluationDecision, BeginQueryEvaluationError> {
   return Result.gen(function* () {
     yield* validateAuthority(
-      "beginQueryGeneration",
+      "beginQueryEvaluation",
       state.cursor,
-      target,
+      request.target,
     );
 
+    if (
+      request.expectedActiveGeneration === null
+      && request.requestedDirtyThroughSequence !== null
+    ) {
+      return yield* Result.fail(invalidEvaluationRequest(
+        request,
+        "firstRegistrationHasDirtyFrontier",
+        null,
+      ));
+    }
+    if (
+      request.expectedActiveGeneration !== null
+      && request.requestedDirtyThroughSequence === null
+    ) {
+      return yield* Result.fail(invalidEvaluationRequest(
+        request,
+        "rerunMissingDirtyFrontier",
+        null,
+      ));
+    }
+    if (
+      request.requestedDirtyThroughSequence !== null
+      && request.requestedDirtyThroughSequence
+        > state.cursor.appliedThroughSequence
+    ) {
+      return yield* Result.fail(invalidEvaluationRequest(
+        request,
+        "dirtyFrontierAheadOfCursor",
+        null,
+      ));
+    }
+
+    const target = request.target;
     const existing = findQueryState(state, target.descriptor.queryKey);
     if (
       existing !== undefined
       && existing.descriptor.queryIdentity !== target.descriptor.queryIdentity
     ) {
       return yield* Result.fail(new QueryKeyCollisionError<
-        "beginQueryGeneration"
+        "beginQueryEvaluation"
       >({
-        operation: "beginQueryGeneration",
+        operation: "beginQueryEvaluation",
         queryKey: target.descriptor.queryKey,
       }));
     }
+
+    const active = existing?.active ?? null;
+    if (active !== null) {
+      const expectedActiveGeneration = request.expectedActiveGeneration;
+      if (
+        expectedActiveGeneration === null
+        || expectedActiveGeneration < active.generation
+      ) {
+        return freezeBeginDecision({
+          _tag: "alreadyAdvanced",
+          state,
+          descriptor: existing?.descriptor ?? target.descriptor,
+          requestedExpectedActiveGeneration: expectedActiveGeneration,
+          activeGeneration: active.generation,
+          freshThroughSequence: active.freshThroughSequence,
+        });
+      }
+      if (expectedActiveGeneration > active.generation) {
+        return yield* Result.fail(new QueryGenerationMismatchError({
+          operation: "beginQueryEvaluation",
+          queryKey: target.descriptor.queryKey,
+          expectedGeneration: active.generation,
+          observedGeneration: expectedActiveGeneration,
+        }));
+      }
+
+      const requestedDirty = request.requestedDirtyThroughSequence;
+      if (requestedDirty === null) {
+        return yield* Result.fail(invalidEvaluationRequest(
+          request,
+          "rerunMissingDirtyFrontier",
+          active.dirtyThroughSequence,
+        ));
+      }
+    } else if (request.expectedActiveGeneration !== null) {
+      return yield* Result.fail(new QueryGenerationMismatchError({
+        operation: "beginQueryEvaluation",
+        queryKey: target.descriptor.queryKey,
+        expectedGeneration: null,
+        observedGeneration: request.expectedActiveGeneration,
+      }));
+    }
+
     if (existing?.provisional !== null && existing?.provisional !== undefined) {
+      if (
+        existing.provisional.expectedActiveGeneration
+        !== request.expectedActiveGeneration
+      ) {
+        throw new QuerySyncInvariantDefect({
+          operation: "beginQueryEvaluation",
+          invariant: "provisionalFenceMismatch",
+        });
+      }
+      if (
+        active !== null
+        && (
+          request.requestedDirtyThroughSequence === null
+          || active.dirtyThroughSequence === null
+          || request.requestedDirtyThroughSequence
+            > active.dirtyThroughSequence
+        )
+      ) {
+        return yield* Result.fail(invalidEvaluationRequest(
+          request,
+          "dirtyFrontierNotObserved",
+          active.dirtyThroughSequence,
+        ));
+      }
+      const observedDirty = active?.dirtyThroughSequence ?? null;
+      const currentDirty = existing.provisional.requestedDirtyThroughSequence;
+      const coalescedDirty = observedDirty === null
+        ? currentDirty
+        : currentDirty === null || observedDirty > currentDirty
+          ? observedDirty
+          : currentDirty;
+      const nextState = coalescedDirty
+        === existing.provisional.requestedDirtyThroughSequence
+        ? state
+        : yield* replaceQueryState(state, {
+          descriptor: existing.descriptor,
+          active: existing.active,
+          provisional: {
+            ...existing.provisional,
+            requestedDirtyThroughSequence: coalescedDirty,
+          },
+          currentCompletion: existing.currentCompletion,
+          precedingCompletionIdentity: existing.precedingCompletionIdentity,
+        });
+      const nextQuery = findQueryState(nextState, target.descriptor.queryKey);
+      if (nextQuery === undefined) {
+        throw new QuerySyncInvariantDefect({
+          operation: "beginQueryEvaluation",
+          invariant: "rebuiltEvaluationMissing",
+        });
+      }
       return freezeBeginDecision({
         _tag: "replayed",
-        state,
-        descriptor: existing.descriptor,
-        generation: existing.provisional.generation,
-        registrationCursor: existing.provisional.registrationCursor,
+        state: nextState,
+        attempt: evaluationAttempt(nextState, nextQuery),
       });
     }
 
+    if (
+      active !== null
+      && request.requestedDirtyThroughSequence !== null
+      && request.requestedDirtyThroughSequence
+        <= active.freshThroughSequence
+    ) {
+      return freezeBeginDecision({
+        _tag: "notDirty",
+        state,
+        descriptor: existing?.descriptor ?? target.descriptor,
+        activeGeneration: active.generation,
+        requestedDirtyThroughSequence:
+          request.requestedDirtyThroughSequence,
+        freshThroughSequence: active.freshThroughSequence,
+      });
+    }
+    if (
+      active !== null
+      && (
+        active.dirtyThroughSequence === null
+        || request.requestedDirtyThroughSequence === null
+        || request.requestedDirtyThroughSequence
+          > active.dirtyThroughSequence
+      )
+    ) {
+      return yield* Result.fail(invalidEvaluationRequest(
+        request,
+        "dirtyFrontierNotObserved",
+        active.dirtyThroughSequence,
+      ));
+    }
+
     let generation: QueryGeneration;
-    if (existing?.active === null || existing?.active === undefined) {
+    if (active === null) {
       generation = initialQueryGeneration();
     } else {
-      const successor = successorQueryGeneration(existing.active.generation);
+      const successor = successorQueryGeneration(active.generation);
       if (successor === null) {
         return yield* Result.fail(new QueryGenerationExhaustedError({
-          operation: "beginQueryGeneration",
-          queryKey: existing.descriptor.queryKey,
-          currentGeneration: existing.active.generation,
+          operation: "beginQueryEvaluation",
+          queryKey: existing?.descriptor.queryKey ?? target.descriptor.queryKey,
+          currentGeneration: active.generation,
         }));
       }
       generation = successor;
@@ -335,26 +555,29 @@ export function beginQueryGeneration(
     const descriptor = existing?.descriptor ?? target.descriptor;
     const replacement: QueryState = {
       descriptor,
-      active: existing?.active ?? null,
+      active,
       provisional: {
         generation,
+        expectedActiveGeneration: request.expectedActiveGeneration,
         registrationCursor: state.cursor,
+        requestedDirtyThroughSequence: active?.dirtyThroughSequence ?? null,
       },
+      currentCompletion: existing?.currentCompletion ?? null,
+      precedingCompletionIdentity:
+        existing?.precedingCompletionIdentity ?? null,
     };
     const nextState = yield* replaceQueryState(state, replacement);
     const nextQuery = findQueryState(nextState, descriptor.queryKey);
     if (nextQuery?.provisional === null || nextQuery?.provisional === undefined) {
       throw new QuerySyncInvariantDefect({
-        operation: "beginQueryGeneration",
-        invariant: "rebuiltGenerationMissing",
+        operation: "beginQueryEvaluation",
+        invariant: "rebuiltEvaluationMissing",
       });
     }
     return freezeBeginDecision({
       _tag: "created",
       state: nextState,
-      descriptor: nextQuery.descriptor,
-      generation: nextQuery.provisional.generation,
-      registrationCursor: nextQuery.provisional.registrationCursor,
+      attempt: evaluationAttempt(nextState, nextQuery),
     });
   });
 }
@@ -448,6 +671,8 @@ export function applyAdmittedInvalidations(
         descriptor: query.descriptor,
         active,
         provisional: query.provisional,
+        currentCompletion: query.currentCompletion,
+        precedingCompletionIdentity: query.precedingCompletionIdentity,
       });
     }
 
@@ -488,25 +713,103 @@ function laterRelevantSequence(
   return relevant;
 }
 
-export function completeQueryGeneration(
-  state: QuerySyncState,
+function namespaceCursorsEqual(
+  left: NamespaceCursor,
+  right: NamespaceCursor,
+): boolean {
+  return left.namespaceId === right.namespaceId
+    && left.syncModelId === right.syncModelId
+    && left.sourceEpoch === right.sourceEpoch
+    && left.appliedThroughSequence === right.appliedThroughSequence;
+}
+
+function completionFingerprintMatches(
+  fingerprint: QueryCompletionFingerprint,
+  attempt: QueryEvaluationAttempt,
   evaluation: QueryEvaluationEvidence,
   refresh: GenerationRefreshEvidence,
+): boolean {
+  return fingerprint.identity.namespaceId === attempt.namespaceId
+    && fingerprint.identity.syncModelId === attempt.syncModelId
+    && fingerprint.identity.sourceEpoch === attempt.sourceEpoch
+    && fingerprint.identity.queryKey === attempt.descriptor.queryKey
+    && fingerprint.identity.generation === attempt.generation
+    && fingerprint.queryIdentity === attempt.descriptor.queryIdentity
+    && fingerprint.expectedActiveGeneration
+      === attempt.expectedActiveGeneration
+    && namespaceCursorsEqual(
+      fingerprint.registrationCursor,
+      attempt.registrationCursor,
+    )
+    && fingerprint.requestedDirtyThroughSequence
+      === attempt.requestedDirtyThroughSequence
+    && fingerprint.evaluationSnapshotSequence === evaluation.snapshotSequence
+    && dependencyKeysEqual(
+      fingerprint.evaluationDependencyKeys,
+      evaluation.dependencyKeys,
+    )
+    && fingerprint.evaluationAuthorityWitness
+      === evaluation.authorityWitness
+    && fingerprint.refreshedThroughSequence
+      === refresh.refreshedThroughSequence
+    && fingerprint.relevantThroughSequence
+      === refresh.relevantThroughSequence
+    && fingerprint.refreshAuthorityWitness === refresh.authorityWitness
+    && fingerprint.resultDigest === evaluation.resultDigest;
+}
+
+function invalidCompletionReplay(
+  attempt: QueryEvaluationAttempt,
+  reason: InvalidQueryCompletionReplayError["reason"],
+): InvalidQueryCompletionReplayError {
+  return new InvalidQueryCompletionReplayError({
+    operation: "completeQueryEvaluation",
+    reason,
+    queryKey: attempt.descriptor.queryKey,
+    generation: attempt.generation,
+  });
+}
+
+export function completeQueryEvaluation(
+  state: QuerySyncState,
+  attempt: QueryEvaluationAttempt,
+  evaluation: QueryEvaluationEvidence,
+  refresh: GenerationRefreshEvidence,
+  publication: QueryPublicationArtifact,
 ): Result.Result<
-  CompleteQueryGenerationDecision,
-  CompleteQueryGenerationError
+  CompleteQueryEvaluationDecision,
+  CompleteQueryEvaluationError
 > {
   return Result.gen(function* () {
     yield* validateAuthority(
-      "completeQueryGeneration",
+      "completeQueryEvaluation",
+      state.cursor,
+      attempt,
+    );
+    yield* validateAuthority(
+      "completeQueryEvaluation",
       state.cursor,
       evaluation,
     );
     yield* validateAuthority(
-      "completeQueryGeneration",
+      "completeQueryEvaluation",
       state.cursor,
       refresh,
     );
+    if (
+      attempt.descriptor.queryKey !== evaluation.descriptor.queryKey
+      || attempt.descriptor.queryIdentity
+        !== evaluation.descriptor.queryIdentity
+    ) {
+      return yield* Result.fail(invalidQueryEvidence(
+        "attemptEvaluationDescriptorMismatch",
+      ));
+    }
+    if (attempt.generation !== evaluation.generation) {
+      return yield* Result.fail(invalidQueryEvidence(
+        "attemptEvaluationGenerationMismatch",
+      ));
+    }
     if (
       evaluation.descriptor.queryKey !== refresh.descriptor.queryKey
       || evaluation.descriptor.queryIdentity
@@ -536,32 +839,126 @@ export function completeQueryGeneration(
         "evaluationRefreshDependenciesMismatch",
       ));
     }
+    const capturedPublication = yield* captureQueryPublicationArtifact(
+      publication,
+    );
 
-    const query = findQueryState(state, evaluation.descriptor.queryKey);
+    const query = findQueryState(state, attempt.descriptor.queryKey);
     if (query === undefined) {
       return yield* Result.fail(new QueryStateNotFoundError({
-        operation: "completeQueryGeneration",
-        queryKey: evaluation.descriptor.queryKey,
+        operation: "completeQueryEvaluation",
+        queryKey: attempt.descriptor.queryKey,
       }));
     }
     if (
       query.descriptor.queryIdentity
-      !== evaluation.descriptor.queryIdentity
+      !== attempt.descriptor.queryIdentity
     ) {
       return yield* Result.fail(new QueryKeyCollisionError<
-        "completeQueryGeneration"
+        "completeQueryEvaluation"
       >({
-        operation: "completeQueryGeneration",
-        queryKey: evaluation.descriptor.queryKey,
+        operation: "completeQueryEvaluation",
+        queryKey: attempt.descriptor.queryKey,
       }));
     }
+
+    const currentCompletion = query.currentCompletion;
+    if (
+      currentCompletion !== null
+      && currentCompletion.identity.generation === attempt.generation
+    ) {
+      if (!completionFingerprintMatches(
+        currentCompletion,
+        attempt,
+        evaluation,
+        refresh,
+      )) {
+        return yield* Result.fail(invalidCompletionReplay(
+          attempt,
+          "fingerprintMismatch",
+        ));
+      }
+      if (currentCompletion.publicationDisposition._tag === "pending") {
+        const pending = findPendingQueryPublication(
+          state,
+          attempt.descriptor.queryKey,
+        );
+        if (
+          pending === undefined
+          || !queryPublicationIdentityEquals(
+            pending.identity,
+            currentCompletion.publicationDisposition.identity,
+          )
+          || pending.content !== capturedPublication.content
+        ) {
+          return yield* Result.fail(invalidCompletionReplay(
+            attempt,
+            "publicationContentMismatch",
+          ));
+        }
+      }
+      return freezeCompleteDecision({
+        _tag: "replayed",
+        state,
+        generation: attempt.generation,
+        publicationDisposition:
+          currentCompletion.publicationDisposition,
+      });
+    }
+
+    if (
+      query.active !== null
+      && attempt.generation < query.active.generation
+    ) {
+      if (
+        query.precedingCompletionIdentity?.generation === attempt.generation
+      ) {
+        return freezeCompleteDecision({
+          _tag: "superseded",
+          state,
+          generation: attempt.generation,
+          activeGeneration: query.active.generation,
+        });
+      }
+      return freezeCompleteDecision({
+        _tag: "recoveryEvidenceExpired",
+        state,
+        generation: attempt.generation,
+        activeGeneration: query.active.generation,
+      });
+    }
+
     if (query.provisional?.generation !== evaluation.generation) {
       return yield* Result.fail(new QueryGenerationMismatchError({
-        operation: "completeQueryGeneration",
+        operation: "completeQueryEvaluation",
         queryKey: evaluation.descriptor.queryKey,
         expectedGeneration: query.provisional?.generation ?? null,
         observedGeneration: evaluation.generation,
       }));
+    }
+    if (
+      query.provisional.expectedActiveGeneration
+      !== attempt.expectedActiveGeneration
+    ) {
+      return yield* Result.fail(invalidQueryEvidence(
+        "attemptExpectedActiveMismatch",
+      ));
+    }
+    if (!namespaceCursorsEqual(
+      query.provisional.registrationCursor,
+      attempt.registrationCursor,
+    )) {
+      return yield* Result.fail(invalidQueryEvidence(
+        "attemptRegistrationCursorMismatch",
+      ));
+    }
+    if (
+      query.provisional.requestedDirtyThroughSequence
+      !== attempt.requestedDirtyThroughSequence
+    ) {
+      return yield* Result.fail(invalidQueryEvidence(
+        "attemptDirtyFrontierMismatch",
+      ));
     }
     if (
       evaluation.snapshotSequence
@@ -569,6 +966,15 @@ export function completeQueryGeneration(
     ) {
       return yield* Result.fail(invalidQueryEvidence(
         "snapshotBeforeRegistration",
+      ));
+    }
+    if (
+      query.provisional.requestedDirtyThroughSequence !== null
+      && evaluation.snapshotSequence
+        < query.provisional.requestedDirtyThroughSequence
+    ) {
+      return yield* Result.fail(invalidQueryEvidence(
+        "snapshotBeforeRequestedDirtyFrontier",
       ));
     }
     if (
@@ -628,7 +1034,7 @@ export function completeQueryGeneration(
       });
     }
 
-    const active: ActiveQueryState = {
+    const nextActive: ActiveQueryState = {
       generation: evaluation.generation,
       evaluationSnapshotSequence: evaluation.snapshotSequence,
       freshThroughSequence: refresh.refreshedThroughSequence,
@@ -637,18 +1043,69 @@ export function completeQueryGeneration(
       authorityWitness: refresh.authorityWitness,
       dependencyKeys: evaluation.dependencyKeys,
     };
-    const publicationRequired = query.active === null
+    const shouldPublish = query.active === null
       || query.active.resultDigest !== evaluation.resultDigest;
-    const nextState = yield* replaceQueryState(state, {
-      descriptor: query.descriptor,
-      active,
-      provisional: null,
+    const identity = makeQueryPublicationIdentity({
+      namespaceId: state.cursor.namespaceId,
+      syncModelId: state.cursor.syncModelId,
+      sourceEpoch: state.cursor.sourceEpoch,
+      queryKey: query.descriptor.queryKey,
+      generation: evaluation.generation,
     });
+    const publicationDisposition: QueryCompletionPublicationDisposition =
+      shouldPublish
+        ? pendingPublicationDisposition(identity)
+        : unchangedPublicationDisposition();
+    const completion: QueryCompletionFingerprint = {
+      identity,
+      queryIdentity: query.descriptor.queryIdentity,
+      expectedActiveGeneration: attempt.expectedActiveGeneration,
+      registrationCursor: attempt.registrationCursor,
+      requestedDirtyThroughSequence:
+        attempt.requestedDirtyThroughSequence,
+      evaluationSnapshotSequence: evaluation.snapshotSequence,
+      evaluationDependencyKeys: evaluation.dependencyKeys,
+      evaluationAuthorityWitness: evaluation.authorityWitness,
+      refreshedThroughSequence: refresh.refreshedThroughSequence,
+      relevantThroughSequence: refresh.relevantThroughSequence,
+      refreshAuthorityWitness: refresh.authorityWitness,
+      resultDigest: evaluation.resultDigest,
+      publicationDisposition,
+    };
+
+    const nextPendingPublications: PendingQueryPublication[] =
+      shouldPublish
+        ? state.pendingPublications.filter((candidate) => (
+          candidate.identity.queryKey !== query.descriptor.queryKey
+        ))
+        : [...state.pendingPublications];
+    if (shouldPublish) {
+      nextPendingPublications.push(makePendingQueryPublication({
+        identity,
+        queryIdentity: query.descriptor.queryIdentity,
+        completedThroughSequence: refresh.refreshedThroughSequence,
+        resultDigest: evaluation.resultDigest,
+        content: capturedPublication.content,
+      }));
+    }
+
+    const nextState = yield* replaceQueryStateAndPendingPublications(
+      state,
+      {
+        descriptor: query.descriptor,
+        active: nextActive,
+        provisional: null,
+        currentCompletion: completion,
+        precedingCompletionIdentity:
+          query.currentCompletion?.identity ?? null,
+      },
+      nextPendingPublications,
+    );
     return freezeCompleteDecision({
       _tag: "completed",
       state: nextState,
       generation: evaluation.generation,
-      publicationRequired,
+      publicationDisposition,
     });
   });
 }

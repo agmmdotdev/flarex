@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
+  canonicalPublicationContentDecodedLength,
   captureQueryGeneration,
   captureQueryDescriptor,
   MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS,
@@ -16,12 +17,16 @@ import {
   MAX_REFRESH_CANONICAL_BYTES,
   MAX_REFRESH_KEY_EXAMINATIONS,
   MAX_RETAINED_QUERY_IDENTITY_BYTES,
+  makeQueryPublicationIdentity,
   QuerySyncStateLimitError,
   QuerySyncWorkLimitError,
+  unchangedPublicationDisposition,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   ActiveQueryState,
   AdmittedInvalidationBatch,
+  QueryCompletionFingerprint,
+  QueryEvaluationAttempt,
   QueryEvaluationEvidence,
   QuerySyncKernelError,
   QueryState,
@@ -46,7 +51,10 @@ import {
   cursor,
   descriptor,
   evaluation,
+  firstEvaluationRequest,
   getSuccess,
+  publicationArtifact,
+  rerunEvaluationRequest,
   target,
 } from "./fixtures.js";
 
@@ -94,8 +102,12 @@ function queryWithProvisional(
     active: null,
     provisional: {
       generation: getSuccess(captureQueryGeneration(1n)),
+      expectedActiveGeneration: null,
       registrationCursor: cursor(),
+      requestedDirtyThroughSequence: null,
     },
+    currentCompletion: null,
+    precedingCompletionIdentity: null,
   };
 }
 
@@ -122,10 +134,35 @@ function queryWithActive(
   index: number,
   active: ActiveQueryState,
 ): QueryState {
+  const queryDescriptor = descriptor({ keySeed: index, identity: "" });
+  const registrationCursor = cursor();
+  const currentCompletion: QueryCompletionFingerprint = {
+    identity: makeQueryPublicationIdentity({
+      namespaceId: registrationCursor.namespaceId,
+      syncModelId: registrationCursor.syncModelId,
+      sourceEpoch: registrationCursor.sourceEpoch,
+      queryKey: queryDescriptor.queryKey,
+      generation: active.generation,
+    }),
+    queryIdentity: queryDescriptor.queryIdentity,
+    expectedActiveGeneration: null,
+    registrationCursor,
+    requestedDirtyThroughSequence: null,
+    evaluationSnapshotSequence: active.evaluationSnapshotSequence,
+    evaluationDependencyKeys: active.dependencyKeys,
+    evaluationAuthorityWitness: active.authorityWitness,
+    refreshedThroughSequence: active.freshThroughSequence,
+    relevantThroughSequence: null,
+    refreshAuthorityWitness: active.authorityWitness,
+    resultDigest: active.resultDigest,
+    publicationDisposition: unchangedPublicationDisposition(),
+  };
   return {
-    descriptor: descriptor({ keySeed: index, identity: "" }),
+    descriptor: queryDescriptor,
     active,
     provisional: null,
+    currentCompletion,
+    precedingCompletionIdentity: null,
   };
 }
 
@@ -143,6 +180,16 @@ function expectStateLimit(
 function expectReferenceInvariants(model: QuerySyncReferenceModel): void {
   const { state } = model;
   expect(state.metrics.queryCount).toBe(state.queries.length);
+  expect(state.metrics.pendingPublicationCount).toBe(
+    state.pendingPublications.length,
+  );
+  expect(state.metrics.pendingPublicationContentBytes).toBe(
+    state.pendingPublications.reduce(
+      (total, publication) => total
+        + canonicalPublicationContentDecodedLength(publication.content),
+      0,
+    ),
+  );
   const orderedKeys = state.queries.map((query) => query.descriptor.queryKey);
   const independentlySortedKeys = [...orderedKeys];
   independentlySortedKeys.sort();
@@ -166,7 +213,18 @@ function expectReferenceInvariants(model: QuerySyncReferenceModel): void {
         );
       }
     }
-    if (query.active === null) continue;
+    if (query.active === null) {
+      expect(query.currentCompletion).toBeNull();
+      continue;
+    }
+    expect(query.currentCompletion).toMatchObject({
+      identity: {
+        queryKey: query.descriptor.queryKey,
+        generation: query.active.generation,
+      },
+      queryIdentity: query.descriptor.queryIdentity,
+      resultDigest: query.active.resultDigest,
+    });
     expect(query.active.freshThroughSequence).toBeLessThanOrEqual(
       state.cursor.appliedThroughSequence,
     );
@@ -199,6 +257,12 @@ function expectReferenceInvariants(model: QuerySyncReferenceModel): void {
       queryKeys,
     })),
   );
+  const pendingQueryKeys = state.pendingPublications.map(
+    (publication) => publication.identity.queryKey,
+  );
+  const sortedPendingQueryKeys = [...pendingQueryKeys].sort();
+  expect(pendingQueryKeys).toEqual(sortedPendingQueryKeys);
+  expect(new Set(pendingQueryKeys).size).toBe(pendingQueryKeys.length);
 }
 
 function installReferenceActive(
@@ -207,12 +271,12 @@ function installReferenceActive(
 ): QuerySyncReferenceModel {
   const authority = model.state.cursor;
   const begun = getSuccess(reduceReferenceModel(model, {
-    _tag: "beginQueryGeneration",
-    target: target({
+    _tag: "beginQueryEvaluation",
+    request: firstEvaluationRequest(target({
       namespaceId: authority.namespaceId,
       syncModelId: authority.syncModelId,
       sourceEpoch: authority.sourceEpoch,
-    }),
+    })),
   }));
   if (begun.decision._tag !== "created") {
     throw new Error("Expected a new reference query generation");
@@ -221,8 +285,8 @@ function installReferenceActive(
     namespaceId: authority.namespaceId,
     syncModelId: authority.syncModelId,
     sourceEpoch: authority.sourceEpoch,
-    descriptor: begun.decision.descriptor,
-    generation: begun.decision.generation,
+    descriptor: begun.decision.attempt.descriptor,
+    generation: begun.decision.attempt.generation,
     snapshot: authority.appliedThroughSequence,
     dependencies: [dependency],
   });
@@ -233,9 +297,11 @@ function installReferenceActive(
     capturedEvaluation.authorityWitness,
   ));
   const completed = getSuccess(reduceReferenceModel(begun.model, {
-    _tag: "completeQueryGeneration",
+    _tag: "completeQueryEvaluation",
+    attempt: begun.decision.attempt,
     evaluation: capturedEvaluation,
     refresh,
+    publication: publicationArtifact("initial-active"),
   }));
   if (completed.decision._tag !== "completed") {
     throw new Error("Expected a clean reference query installation");
@@ -286,8 +352,8 @@ describe("isolation, limits, and determinism", () => {
       syncModelId: "key-value",
     })));
     const result = reduceReferenceModel(model, {
-      _tag: "beginQueryGeneration",
-      target: target({ syncModelId: "graph" }),
+      _tag: "beginQueryEvaluation",
+      request: firstEvaluationRequest(target({ syncModelId: "graph" })),
     });
 
     expect(Result.isFailure(result)).toBe(true);
@@ -365,9 +431,9 @@ describe("isolation, limits, and determinism", () => {
   }, 30_000);
 
   it("accounts the exact portable canonical-byte boundary", () => {
-    const fullKeyCount = 255;
-    const finalKeyBytes = 16_259;
-    const exactDependencies = [
+    const fullKeyCount = 127;
+    const lowerFinalKeyBytes = 16_238;
+    const sharedDependencies = [
       ...Array.from(
         { length: fullKeyCount },
         (_, index) => canonicalBytes(
@@ -375,21 +441,33 @@ describe("isolation, limits, and determinism", () => {
           index,
         ),
       ),
-      canonicalBytes(finalKeyBytes, fullKeyCount),
     ];
-    const exactActive = activeFromDependencies(exactDependencies);
-    const exactQueries = Array.from(
-      { length: 16 },
-      (_, index) => queryWithActive(index, exactActive),
-    );
+    const lowerActive = activeFromDependencies([
+      ...sharedDependencies,
+      canonicalBytes(lowerFinalKeyBytes, fullKeyCount),
+    ]);
+    const higherActive = activeFromDependencies([
+      ...sharedDependencies,
+      canonicalBytes(lowerFinalKeyBytes + 1, fullKeyCount),
+    ]);
+    const exactQueries = [
+      ...Array.from(
+        { length: 8 },
+        (_, index) => queryWithActive(index, lowerActive),
+      ),
+      ...Array.from(
+        { length: 8 },
+        (_, offset) => queryWithActive(offset + 8, higherActive),
+      ),
+    ];
     const accepted = buildTestReferenceModel(cursor(), exactQueries);
     expect(accepted.state.metrics.countedCanonicalBytes).toBe(
       MAX_COUNTED_CANONICAL_BYTES,
     );
 
     const oneByteLargerActive = activeFromDependencies([
-      ...exactDependencies,
-      canonicalBytes(1, 77),
+      ...sharedDependencies,
+      canonicalBytes(lowerFinalKeyBytes + 1, fullKeyCount),
     ]);
     const refused = buildTestQuerySyncState(cursor(), [
       queryWithActive(0, oneByteLargerActive),
@@ -432,6 +510,7 @@ describe("isolation, limits, and determinism", () => {
       let model = getSuccess(createReferenceModel(cursor()));
       const decisions: ReferenceModelDecision[] = [];
       const admittedBatches: AdmittedInvalidationBatch[] = [];
+      let pendingAttempt: QueryEvaluationAttempt | null = null;
       let pendingEvaluation: QueryEvaluationEvidence | null = null;
       let crossedInvalidationCount = 0;
       let seed = 0x5f37_59df;
@@ -444,12 +523,44 @@ describe("isolation, limits, and determinism", () => {
         const provisional = model.state.queries[0]?.provisional ?? null;
 
         if (choice === 0 || model.state.queries.length === 0) {
+          const query = model.state.queries[0];
+          const queryTarget = query === undefined
+            ? target()
+            : target({ descriptor: query.descriptor });
+          const request = query === undefined || query.active === null
+            ? firstEvaluationRequest(queryTarget)
+            : provisional !== null
+              ? Object.freeze({
+                target: queryTarget,
+                expectedActiveGeneration:
+                  provisional.expectedActiveGeneration,
+                requestedDirtyThroughSequence:
+                  provisional.requestedDirtyThroughSequence,
+              })
+              : rerunEvaluationRequest({
+                target: queryTarget,
+                activeGeneration: query.active.generation,
+                dirtyThroughSequence:
+                  query.active.dirtyThroughSequence
+                    ?? query.active.freshThroughSequence,
+              });
           const transition = getSuccess(reduceReferenceModel(model, {
-            _tag: "beginQueryGeneration",
-            target: target(),
+            _tag: "beginQueryEvaluation",
+            request,
           }));
           model = transition.model;
           decisions.push(transition.decision);
+          const beginDecision = transition.decision;
+          if (
+            (
+              beginDecision._tag === "created"
+              || beginDecision._tag === "replayed"
+            )
+            && "attempt" in beginDecision
+          ) {
+            pendingAttempt = beginDecision.attempt;
+            pendingEvaluation = null;
+          }
           expectReferenceInvariants(model);
           continue;
         }
@@ -459,9 +570,12 @@ describe("isolation, limits, and determinism", () => {
             if (query === undefined) {
               throw new Error("Expected the provisional query to exist");
             }
+            if (pendingAttempt === null) {
+              throw new Error("Expected state-issued evaluation attempt");
+            }
             pendingEvaluation = evaluation({
               descriptor: query.descriptor,
-              generation: provisional.generation,
+              generation: pendingAttempt.generation,
               snapshot: model.state.cursor.appliedThroughSequence,
               dependencies: [dependency],
             });
@@ -480,10 +594,15 @@ describe("isolation, limits, and determinism", () => {
             interval,
             evidence.authorityWitness,
           ));
+          if (pendingAttempt === null) {
+            throw new Error("Expected state-issued evaluation attempt");
+          }
           const transition = getSuccess(reduceReferenceModel(model, {
-            _tag: "completeQueryGeneration",
+            _tag: "completeQueryEvaluation",
+            attempt: pendingAttempt,
             evaluation: evidence,
             refresh,
+            publication: publicationArtifact("scheduled"),
           }));
           model = transition.model;
           decisions.push(transition.decision);
@@ -492,6 +611,7 @@ describe("isolation, limits, and determinism", () => {
           ) {
             crossedInvalidationCount += 1;
           }
+          pendingAttempt = null;
           pendingEvaluation = null;
           expectReferenceInvariants(model);
           continue;

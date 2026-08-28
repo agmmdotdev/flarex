@@ -17,19 +17,20 @@ import {
 import type {
   AdmittedInvalidationBatch,
   ApplyInvalidationsDecision,
-  BeginQueryGenerationDecision,
+  BeginQueryEvaluationDecision,
+  BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
-  CompleteQueryGenerationDecision,
+  CompleteQueryEvaluationDecision,
   GenerationRefreshEvidence,
   NamespaceCursor,
+  QueryEvaluationAttempt,
   QueryEvaluationEvidence,
-  QueryOperationTarget,
   QuerySyncState,
 } from "../kernel/Model.js";
 import {
   applyAdmittedInvalidations,
-  beginQueryGeneration,
-  completeQueryGeneration,
+  beginQueryEvaluation,
+  completeQueryEvaluation,
 } from "../kernel/Policy.js";
 import {
   admitGenerationRefreshEvidenceForOperation,
@@ -37,9 +38,10 @@ import {
 import { makeCaughtUpChangeAuthority } from "../change/Model.js";
 import type {
   ApplyInvalidationsError,
-  BeginQueryGenerationError,
-  CompleteQueryGenerationError,
+  BeginQueryEvaluationError,
+  CompleteQueryEvaluationError,
 } from "../kernel/Policy.js";
+import type { QueryPublicationArtifact } from "../kernel/Publication.js";
 
 export interface QuerySyncReferenceModel {
   readonly state: QuerySyncState;
@@ -47,23 +49,25 @@ export interface QuerySyncReferenceModel {
 
 export type ReferenceModelCommand =
   | Readonly<{
-    readonly _tag: "beginQueryGeneration";
-    readonly target: QueryOperationTarget;
+    readonly _tag: "beginQueryEvaluation";
+    readonly request: BeginQueryEvaluationRequest;
   }>
   | Readonly<{
     readonly _tag: "applyAdmittedInvalidations";
     readonly batch: AdmittedInvalidationBatch;
   }>
   | Readonly<{
-    readonly _tag: "completeQueryGeneration";
+    readonly _tag: "completeQueryEvaluation";
+    readonly attempt: QueryEvaluationAttempt;
     readonly evaluation: QueryEvaluationEvidence;
     readonly refresh: GenerationRefreshEvidence;
+    readonly publication: QueryPublicationArtifact;
   }>;
 
 export type ReferenceModelDecision =
-  | BeginQueryGenerationDecision
+  | BeginQueryEvaluationDecision
   | ApplyInvalidationsDecision
-  | CompleteQueryGenerationDecision;
+  | CompleteQueryEvaluationDecision;
 
 export interface ReferenceModelTransition {
   readonly model: QuerySyncReferenceModel;
@@ -71,9 +75,9 @@ export interface ReferenceModelTransition {
 }
 
 export type ReferenceModelError =
-  | BeginQueryGenerationError
+  | BeginQueryEvaluationError
   | ApplyInvalidationsError
-  | CompleteQueryGenerationError;
+  | CompleteQueryEvaluationError;
 
 export type RefreshEvidenceError =
   | QuerySyncAuthorityError<"deriveGenerationRefreshEvidence">
@@ -106,19 +110,21 @@ export function reduceReferenceModel(
   command: ReferenceModelCommand,
 ): Result.Result<ReferenceModelTransition, ReferenceModelError> {
   switch (command._tag) {
-    case "beginQueryGeneration":
-      return beginQueryGeneration(model.state, command.target).pipe(
+    case "beginQueryEvaluation":
+      return beginQueryEvaluation(model.state, command.request).pipe(
         Result.map(freezeTransition),
       );
     case "applyAdmittedInvalidations":
       return applyAdmittedInvalidations(model.state, command.batch).pipe(
         Result.map(freezeTransition),
       );
-    case "completeQueryGeneration":
-      return completeQueryGeneration(
+    case "completeQueryEvaluation":
+      return completeQueryEvaluation(
         model.state,
+        command.attempt,
         command.evaluation,
         command.refresh,
+        command.publication,
       ).pipe(Result.map(freezeTransition));
   }
 }

@@ -10,23 +10,27 @@ import {
 } from "../../kernel/Model.js";
 import type {
   AdmittedInvalidationBatch,
+  BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
   GenerationRefreshEvidence,
   NamespaceCursor,
+  QueryEvaluationAttempt,
   QueryEvaluationEvidence,
-  QueryOperationTarget,
   QuerySyncState,
 } from "../../kernel/Model.js";
 import {
   applyAdmittedInvalidations,
-  beginQueryGeneration,
-  completeQueryGeneration,
+  beginQueryEvaluation,
+  completeQueryEvaluation,
 } from "../../kernel/Policy.js";
 import type {
   ApplyInvalidationsError,
-  BeginQueryGenerationError,
-  CompleteQueryGenerationError,
+  BeginQueryEvaluationError,
+  CompleteQueryEvaluationError,
 } from "../../kernel/Policy.js";
+import type {
+  QueryPublicationArtifact,
+} from "../../kernel/Publication.js";
 import {
   QuerySyncStoredStateCorruptError,
   QuerySyncStoredStateIncompatibleError,
@@ -46,8 +50,8 @@ import {
 } from "../../state/Receipts.js";
 import type {
   ApplyAdmittedBatchReceipt,
-  BeginQueryGenerationReceipt,
-  CompleteQueryGenerationReceipt,
+  BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "../../state/Receipts.js";
 
@@ -57,24 +61,26 @@ export type StateConformanceCommand =
     readonly bootstrapCursor: NamespaceCursor;
   }>
   | Readonly<{
-    readonly _tag: "beginQueryGeneration";
-    readonly target: QueryOperationTarget;
+    readonly _tag: "beginQueryEvaluation";
+    readonly request: BeginQueryEvaluationRequest;
   }>
   | Readonly<{
     readonly _tag: "applyAdmittedBatchAndAdvance";
     readonly batch: AdmittedInvalidationBatch;
   }>
   | Readonly<{
-    readonly _tag: "completeQueryGeneration";
+    readonly _tag: "completeQueryEvaluation";
+    readonly attempt: QueryEvaluationAttempt;
     readonly evaluation: QueryEvaluationEvidence;
     readonly refresh: GenerationRefreshEvidence;
+    readonly publication: QueryPublicationArtifact;
   }>;
 
 export type StateConformanceReceipt =
   | InitializeNamespaceReceipt
-  | BeginQueryGenerationReceipt
+  | BeginQueryEvaluationReceipt
   | ApplyAdmittedBatchReceipt
-  | CompleteQueryGenerationReceipt;
+  | CompleteQueryEvaluationReceipt;
 
 export interface StateConformanceBinding {
   readonly namespaceId: SyncNamespaceId;
@@ -118,9 +124,9 @@ export interface StateConformanceStep {
 
 export type StateConformanceError =
   | BuildQuerySyncStateError
-  | BeginQueryGenerationError
+  | BeginQueryEvaluationError
   | ApplyInvalidationsError
-  | CompleteQueryGenerationError
+  | CompleteQueryEvaluationError
   | QuerySyncStateIntegrationError;
 
 interface OracleTransition {
@@ -239,14 +245,14 @@ function reduceOracleCommand(
   switch (command._tag) {
     case "initializeOrInspectNamespace":
       return initializeOracle(current, binding, command.bootstrapCursor);
-    case "beginQueryGeneration":
+    case "beginQueryEvaluation":
       return Result.gen(function* () {
         const state = yield* transitionState(
           current,
           binding,
-          "beginQueryGeneration",
+          "beginQueryEvaluation",
         );
-        const decision = yield* beginQueryGeneration(state, command.target);
+        const decision = yield* beginQueryEvaluation(state, command.request);
         return Object.freeze({
           receipt: projectBeginReceipt(decision),
           nextState: decision.state,
@@ -268,17 +274,19 @@ function reduceOracleCommand(
           nextState: decision.state,
         });
       });
-    case "completeQueryGeneration":
+    case "completeQueryEvaluation":
       return Result.gen(function* () {
         const state = yield* transitionState(
           current,
           binding,
-          "completeQueryGeneration",
+          "completeQueryEvaluation",
         );
-        const decision = yield* completeQueryGeneration(
+        const decision = yield* completeQueryEvaluation(
           state,
+          command.attempt,
           command.evaluation,
           command.refresh,
+          command.publication,
         );
         return Object.freeze({
           receipt: projectCompleteReceipt(decision),
@@ -299,14 +307,16 @@ function executeTargetCommand(
   switch (command._tag) {
     case "initializeOrInspectNamespace":
       return target.initializeOrInspectNamespace(command.bootstrapCursor);
-    case "beginQueryGeneration":
-      return target.beginQueryGeneration(command.target);
+    case "beginQueryEvaluation":
+      return target.beginQueryEvaluation(command.request);
     case "applyAdmittedBatchAndAdvance":
       return target.applyAdmittedBatchAndAdvance(command.batch);
-    case "completeQueryGeneration":
-      return target.completeQueryGeneration(
+    case "completeQueryEvaluation":
+      return target.completeQueryEvaluation(
+        command.attempt,
         command.evaluation,
         command.refresh,
+        command.publication,
       );
   }
 }

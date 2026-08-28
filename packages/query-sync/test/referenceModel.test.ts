@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
-  beginQueryGeneration,
-  completeQueryGeneration,
+  beginQueryEvaluation,
+  completeQueryEvaluation,
   createEmptyQuerySyncState,
   InvalidRefreshEvidenceError,
   QuerySyncEpochMismatchError,
@@ -29,7 +29,11 @@ import {
   cursor,
   descriptor,
   evaluation,
+  firstEvaluationRequest,
+  getEvaluationAttempt,
   getSuccess,
+  publicationArtifact,
+  rerunEvaluationRequest,
   target,
   witness,
 } from "./fixtures.js";
@@ -61,10 +65,14 @@ function installInitialActive(
   resultSeed = 40,
 ): QuerySyncState {
   const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-  const begun = getSuccess(beginQueryGeneration(initial, target()));
+  const begun = getSuccess(beginQueryEvaluation(
+    initial,
+    firstEvaluationRequest(),
+  ));
+  const attempt = getEvaluationAttempt(begun);
   const evidence = evaluation({
-    descriptor: begun.descriptor,
-    generation: begun.generation,
+    descriptor: attempt.descriptor,
+    generation: attempt.generation,
     snapshot: 0n,
     resultSeed,
     dependencies: [dependency],
@@ -75,10 +83,12 @@ function installInitialActive(
     [],
     evidence.authorityWitness,
   ));
-  const completed = getSuccess(completeQueryGeneration(
+  const completed = getSuccess(completeQueryEvaluation(
     begun.state,
+    attempt,
     evidence,
     refresh,
+    publicationArtifact(`initial-active-${resultSeed}`),
   ));
   if (completed._tag !== "completed") {
     throw new Error("Expected initial active fixture");
@@ -91,15 +101,15 @@ describe("query-sync reference model", () => {
     const dependency = canonicalText("record:1");
     const model = getSuccess(createReferenceModel(cursor()));
     const begun = getSuccess(reduceReferenceModel(model, {
-      _tag: "beginQueryGeneration",
-      target: target(),
+      _tag: "beginQueryEvaluation",
+      request: firstEvaluationRequest(),
     }));
     expect(begun.decision._tag).toBe("created");
     if (begun.decision._tag !== "created") return;
 
     const evidence = evaluation({
-      descriptor: begun.decision.descriptor,
-      generation: begun.decision.generation,
+      descriptor: begun.decision.attempt.descriptor,
+      generation: begun.decision.attempt.generation,
       snapshot: 0n,
       dependencies: [dependency],
     });
@@ -120,9 +130,11 @@ describe("query-sync reference model", () => {
     expect(refresh.evaluationDependencyKeys).toEqual([dependency]);
 
     const completed = getSuccess(reduceReferenceModel(advanced.model, {
-      _tag: "completeQueryGeneration",
+      _tag: "completeQueryEvaluation",
+      attempt: begun.decision.attempt,
       evaluation: evidence,
       refresh,
+      publication: publicationArtifact("registration-race"),
     }));
     expect(completed.decision).toMatchObject({
       _tag: "rerunRequired",
@@ -165,10 +177,14 @@ describe("query-sync reference model", () => {
     const dependency = canonicalText("record:1");
     const unrelated = canonicalText("record:2");
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
       dependencies: [dependency],
     });
@@ -183,17 +199,22 @@ describe("query-sync reference model", () => {
       [admitted],
       evidence.authorityWitness,
     ));
-    const completed = getSuccess(completeQueryGeneration(
+    const completed = getSuccess(completeQueryEvaluation(
       advanced.state,
+      attempt,
       evidence,
       refresh,
+      publicationArtifact("clean-refresh"),
     ));
 
     expect(refresh.relevantThroughSequence).toBeNull();
     expect(completed).toMatchObject({
       _tag: "completed",
       generation: 1n,
-      publicationRequired: true,
+      publicationDisposition: {
+        _tag: "pending",
+        identity: { generation: 1n },
+      },
     });
     expect(completed.state.queries[0]?.active).toMatchObject({
       generation: 1n,
@@ -202,14 +223,23 @@ describe("query-sync reference model", () => {
       dependencyKeys: [dependency],
     });
     expect(completed.state.queries[0]?.provisional).toBeNull();
+    expect(completed.state.pendingPublications).toHaveLength(1);
+    expect(completed.state.pendingPublications[0]).toMatchObject({
+      identity: { generation: 1n },
+      content: publicationArtifact("clean-refresh").content,
+    });
   });
 
   it("requires another refresh when the cursor advances after proof", () => {
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
     });
     const staleRefresh = getSuccess(deriveGenerationRefreshEvidence(
@@ -222,10 +252,12 @@ describe("query-sync reference model", () => {
       begun.state,
       batch({ sequence: 1n }),
     ));
-    const decision = getSuccess(completeQueryGeneration(
+    const decision = getSuccess(completeQueryEvaluation(
       advanced.state,
+      attempt,
       evidence,
       staleRefresh,
+      publicationArtifact("refresh-required"),
     ));
 
     expect(decision).toMatchObject({
@@ -239,10 +271,14 @@ describe("query-sync reference model", () => {
 
   it("requires resnapshot when authority changes at an exact cursor", () => {
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
       witnessSeed: 4,
     });
@@ -252,10 +288,12 @@ describe("query-sync reference model", () => {
       [],
       witness(5),
     ));
-    const decision = getSuccess(completeQueryGeneration(
+    const decision = getSuccess(completeQueryEvaluation(
       begun.state,
+      attempt,
       evidence,
       refresh,
+      publicationArtifact("resnapshot-required"),
     ));
 
     expect(decision._tag).toBe("resnapshotRequired");
@@ -265,10 +303,14 @@ describe("query-sync reference model", () => {
   it("applies completion precedence before installing or rerunning", () => {
     const dependency = canonicalText("relevant");
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
       witnessSeed: 20,
       dependencies: [dependency],
@@ -284,10 +326,12 @@ describe("query-sync reference model", () => {
       begun.state,
       admitted,
     ));
-    const refreshFirst = getSuccess(completeQueryGeneration(
+    const refreshFirst = getSuccess(completeQueryEvaluation(
       advanced.state,
+      attempt,
       evidence,
       staleDriftedRefresh,
+      publicationArtifact("precedence"),
     ));
     expect(refreshFirst._tag).toBe("refreshRequired");
 
@@ -299,10 +343,12 @@ describe("query-sync reference model", () => {
         witness(21),
       ),
     );
-    const resnapshotBeforeRerun = getSuccess(completeQueryGeneration(
+    const resnapshotBeforeRerun = getSuccess(completeQueryEvaluation(
       advanced.state,
+      attempt,
       evidence,
       relevantDriftedRefresh,
+      publicationArtifact("precedence"),
     ));
     expect(resnapshotBeforeRerun._tag).toBe("resnapshotRequired");
     expect(resnapshotBeforeRerun.state).toBe(advanced.state);
@@ -310,10 +356,14 @@ describe("query-sync reference model", () => {
 
   it("refuses refresh evidence ahead of the current aggregate", () => {
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
     });
     const admitted = batch({ sequence: 1n });
@@ -323,10 +373,12 @@ describe("query-sync reference model", () => {
       [admitted],
       evidence.authorityWitness,
     ));
-    const result = completeQueryGeneration(
+    const result = completeQueryEvaluation(
       begun.state,
+      attempt,
       evidence,
       futureRefresh,
+      publicationArtifact("future-refresh"),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -343,7 +395,11 @@ describe("query-sync reference model", () => {
     const dependencyA = canonicalText("dependency-a");
     const dependencyB = canonicalText("dependency-b");
     const initial = getSuccess(createEmptyQuerySyncState(cursor()));
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const admitted = batch({
       sequence: 1n,
       dependencies: [dependencyA],
@@ -353,14 +409,14 @@ describe("query-sync reference model", () => {
       admitted,
     ));
     const intendedEvaluation = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
       dependencies: [dependencyA],
     });
     const differentDependencies = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
       dependencies: [dependencyB],
     });
@@ -370,10 +426,12 @@ describe("query-sync reference model", () => {
       [admitted],
       differentDependencies.authorityWitness,
     ));
-    const dependencyMismatch = completeQueryGeneration(
+    const dependencyMismatch = completeQueryEvaluation(
       advanced.state,
+      attempt,
       intendedEvaluation,
       dependencyRefresh,
+      publicationArtifact("dependency-mismatch"),
     );
     expect(Result.isFailure(dependencyMismatch)).toBe(true);
     if (Result.isFailure(dependencyMismatch)) {
@@ -384,8 +442,8 @@ describe("query-sync reference model", () => {
     }
 
     const differentSnapshot = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 1n,
       dependencies: [dependencyA],
     });
@@ -395,10 +453,12 @@ describe("query-sync reference model", () => {
       [],
       differentSnapshot.authorityWitness,
     ));
-    const snapshotMismatch = completeQueryGeneration(
+    const snapshotMismatch = completeQueryEvaluation(
       advanced.state,
+      attempt,
       intendedEvaluation,
       snapshotRefresh,
+      publicationArtifact("snapshot-mismatch"),
     );
     expect(Result.isFailure(snapshotMismatch)).toBe(true);
     if (Result.isFailure(snapshotMismatch)) {
@@ -415,14 +475,33 @@ describe("query-sync reference model", () => {
     const oldDependency = canonicalText("old");
     const newDependency = canonicalText("new");
     const active = installInitialActive(oldDependency);
-    const begun = getSuccess(beginQueryGeneration(active, target()));
+    const activeGeneration = active.queries[0]?.active?.generation;
+    if (activeGeneration === undefined) {
+      throw new Error("Expected an installed active generation");
+    }
+    const firstInvalidation = batch({
+      sequence: 1n,
+      dependencies: [oldDependency],
+    });
+    const dirty = getSuccess(applyAdmittedInvalidations(
+      active,
+      firstInvalidation,
+    ));
+    const begun = getSuccess(beginQueryEvaluation(
+      dirty.state,
+      rerunEvaluationRequest({
+        activeGeneration,
+        dirtyThroughSequence: firstInvalidation.sourceSequence,
+      }),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
-      snapshot: 0n,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
+      snapshot: attempt.registrationCursor.appliedThroughSequence,
       dependencies: [newDependency],
     });
-    const admitted = batch({ sequence: 1n, dependencies: [oldDependency] });
+    const admitted = batch({ sequence: 2n, dependencies: [oldDependency] });
     const advanced = getSuccess(applyAdmittedInvalidations(
       begun.state,
       admitted,
@@ -435,14 +514,16 @@ describe("query-sync reference model", () => {
     ));
     expect(refresh.relevantThroughSequence).toBeNull();
 
-    const decision = getSuccess(completeQueryGeneration(
+    const decision = getSuccess(completeQueryEvaluation(
       advanced.state,
+      attempt,
       evidence,
       refresh,
+      publicationArtifact("rerun-fence"),
     ));
     expect(decision).toMatchObject({
       _tag: "rerunRequired",
-      relevantThroughSequence: 1n,
+      relevantThroughSequence: 2n,
     });
     expect(decision.state.queries[0]?.active?.dependencyKeys).toEqual([
       oldDependency,
@@ -454,11 +535,30 @@ describe("query-sync reference model", () => {
     const oldDependency = canonicalText("old");
     const newDependency = canonicalText("new");
     const active = installInitialActive(oldDependency, 42);
-    const begun = getSuccess(beginQueryGeneration(active, target()));
+    const activeGeneration = active.queries[0]?.active?.generation;
+    if (activeGeneration === undefined) {
+      throw new Error("Expected an installed active generation");
+    }
+    const invalidation = batch({
+      sequence: 1n,
+      dependencies: [oldDependency],
+    });
+    const dirty = getSuccess(applyAdmittedInvalidations(
+      active,
+      invalidation,
+    ));
+    const begun = getSuccess(beginQueryEvaluation(
+      dirty.state,
+      rerunEvaluationRequest({
+        activeGeneration,
+        dirtyThroughSequence: invalidation.sourceSequence,
+      }),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
-      snapshot: 0n,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
+      snapshot: attempt.registrationCursor.appliedThroughSequence,
       resultSeed: 42,
       dependencies: [newDependency],
     });
@@ -468,15 +568,17 @@ describe("query-sync reference model", () => {
       [],
       evidence.authorityWitness,
     ));
-    const completed = getSuccess(completeQueryGeneration(
+    const completed = getSuccess(completeQueryEvaluation(
       begun.state,
+      attempt,
       evidence,
       refresh,
+      publicationArtifact("equal-digest-unused"),
     ));
 
     expect(completed).toMatchObject({
       _tag: "completed",
-      publicationRequired: false,
+      publicationDisposition: { _tag: "unchanged" },
     });
     expect(completed.state.queries[0]?.active).toMatchObject({
       generation: 2n,
@@ -484,6 +586,11 @@ describe("query-sync reference model", () => {
       dirtyThroughSequence: null,
     });
     expect(completed.state.queries[0]?.provisional).toBeNull();
+    expect(completed.state.pendingPublications).toHaveLength(1);
+    expect(completed.state.pendingPublications[0]).toMatchObject({
+      identity: { generation: 1n },
+      content: publicationArtifact("initial-active-42").content,
+    });
   });
 
   it("refuses malformed and wrong-epoch refresh intervals", () => {
@@ -588,16 +695,17 @@ describe("query-sync reference model", () => {
       const model = getSuccess(createReferenceModel(cursor({
         syncModelId: fixture.syncModelId,
       })));
+      const fixtureTarget = target({ syncModelId: fixture.syncModelId });
       const begun = getSuccess(reduceReferenceModel(model, {
-        _tag: "beginQueryGeneration",
-        target: target({ syncModelId: fixture.syncModelId }),
+        _tag: "beginQueryEvaluation",
+        request: firstEvaluationRequest(fixtureTarget),
       }));
       expect(begun.decision._tag).toBe("created");
       if (begun.decision._tag !== "created") continue;
       const fixtureEvaluation = evaluation({
         syncModelId: fixture.syncModelId,
-        descriptor: begun.decision.descriptor,
-        generation: begun.decision.generation,
+        descriptor: begun.decision.attempt.descriptor,
+        generation: begun.decision.attempt.generation,
         snapshot: 0n,
         dependencies: [dependencyKey],
       });
@@ -617,9 +725,13 @@ describe("query-sync reference model", () => {
         fixtureEvaluation.authorityWitness,
       ));
       const completed = getSuccess(reduceReferenceModel(advanced.model, {
-        _tag: "completeQueryGeneration",
+        _tag: "completeQueryEvaluation",
+        attempt: begun.decision.attempt,
         evaluation: fixtureEvaluation,
         refresh,
+        publication: publicationArtifact(
+          `${fixture.syncModelId}-publication`,
+        ),
       }));
       expect(completed.decision._tag).toBe("rerunRequired");
     }

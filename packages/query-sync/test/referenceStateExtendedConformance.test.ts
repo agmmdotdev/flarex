@@ -3,14 +3,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
-  completeQueryGeneration,
+  captureQueryPublicationArtifact,
+  completeQueryEvaluation,
+  makeQueryEvaluationAttempt,
   MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
   QueryKeyCollisionError,
   QuerySyncWorkLimitError,
 } from "@flarex/query-sync/internal/kernel";
 import type {
+  BeginQueryEvaluationRequest,
   NamespaceCursor,
+  QueryEvaluationAttempt,
+  QueryOperationTarget,
+  QueryPublicationArtifact,
   QuerySyncState,
+  SyncSequence,
 } from "@flarex/query-sync/internal/kernel";
 import {
   makeReferenceQuerySyncStateHarness,
@@ -54,6 +61,22 @@ function requireState(state: QuerySyncState | null): QuerySyncState {
   return state;
 }
 
+function firstRegistrationRequest(
+  queryTarget: QueryOperationTarget,
+): BeginQueryEvaluationRequest {
+  return Object.freeze({
+    target: queryTarget,
+    expectedActiveGeneration: null,
+    requestedDirtyThroughSequence: null,
+  });
+}
+
+function publicationArtifact(label: string): QueryPublicationArtifact {
+  return getSuccess(captureQueryPublicationArtifact({
+    content: canonicalText(label),
+  }));
+}
+
 function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
   let randomState = seed >>> 0;
   const nextRandom = (): number => {
@@ -70,6 +93,9 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
   });
   const queryTarget = target({ descriptor: queryDescriptor });
   const dependency = canonicalText(`seeded-dependency-${seed}`);
+  const firstPublication = publicationArtifact(
+    `seeded-publication-${seed}-first`,
+  );
   const commands: StateConformanceCommand[] = [{
     _tag: "initializeOrInspectNamespace",
     bootstrapCursor,
@@ -94,17 +120,18 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
   }
 
   commands.push({
-    _tag: "beginQueryGeneration",
-    target: queryTarget,
+    _tag: "beginQueryEvaluation",
+    request: firstRegistrationRequest(queryTarget),
   });
   if (nextRandom() % 2 === 0) {
     commands.push({
-      _tag: "beginQueryGeneration",
-      target: queryTarget,
+      _tag: "beginQueryEvaluation",
+      request: firstRegistrationRequest(queryTarget),
     });
   }
 
   const firstSnapshot = BigInt(prefixCount);
+  const firstRegistrationCursor = cursor({ sequence: firstSnapshot });
   const firstEvaluation = evaluation({
     descriptor: queryDescriptor,
     generation: 1n,
@@ -113,24 +140,41 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
     resultSeed: nextRandom(),
     witnessSeed: nextRandom(),
   });
+  const firstAttempt = makeQueryEvaluationAttempt({
+    namespaceId: firstRegistrationCursor.namespaceId,
+    syncModelId: firstRegistrationCursor.syncModelId,
+    sourceEpoch: firstRegistrationCursor.sourceEpoch,
+    descriptor: queryDescriptor,
+    generation: firstEvaluation.generation,
+    expectedActiveGeneration: null,
+    registrationCursor: firstRegistrationCursor,
+    requestedDirtyThroughSequence: null,
+  });
   commands.push({
-    _tag: "completeQueryGeneration",
+    _tag: "completeQueryEvaluation",
+    attempt: firstAttempt,
     evaluation: firstEvaluation,
     refresh: getSuccess(deriveGenerationRefreshEvidence(
       firstEvaluation,
-      cursor({ sequence: firstSnapshot }),
+      firstRegistrationCursor,
       [],
       firstEvaluation.authorityWitness,
     )),
+    publication: firstPublication,
   });
 
   const tailCount = 1 + (nextRandom() % 3);
+  let requestedDirtyThroughSequence: SyncSequence | null = null;
   for (let offset = 1; offset <= tailCount; offset += 1) {
     const sequence = BigInt(prefixCount + offset);
+    const includesDependency = nextRandom() % 2 === 0;
     const admitted = batch({
       sequence,
-      dependencies: nextRandom() % 2 === 0 ? [dependency] : [],
+      dependencies: includesDependency ? [dependency] : [],
     });
+    if (includesDependency) {
+      requestedDirtyThroughSequence = admitted.sourceSequence;
+    }
     commands.push({
       _tag: "applyAdmittedBatchAndAdvance",
       batch: admitted,
@@ -144,28 +188,50 @@ function makeSeededCommands(seed: number): readonly StateConformanceCommand[] {
   }
 
   const secondSnapshot = BigInt(prefixCount + tailCount);
-  commands.push({
-    _tag: "beginQueryGeneration",
-    target: queryTarget,
-  });
-  const secondEvaluation = evaluation({
-    descriptor: queryDescriptor,
-    generation: 2n,
-    snapshot: secondSnapshot,
-    dependencies: nextRandom() % 2 === 0 ? [dependency] : [],
-    resultSeed: nextRandom(),
-    witnessSeed: nextRandom(),
-  });
-  commands.push({
-    _tag: "completeQueryGeneration",
-    evaluation: secondEvaluation,
-    refresh: getSuccess(deriveGenerationRefreshEvidence(
-      secondEvaluation,
-      cursor({ sequence: secondSnapshot }),
-      [],
-      secondEvaluation.authorityWitness,
-    )),
-  });
+  if (requestedDirtyThroughSequence !== null) {
+    const secondRegistrationCursor = cursor({ sequence: secondSnapshot });
+    const secondRequest = Object.freeze({
+      target: queryTarget,
+      expectedActiveGeneration: firstAttempt.generation,
+      requestedDirtyThroughSequence,
+    });
+    const secondEvaluation = evaluation({
+      descriptor: queryDescriptor,
+      generation: 2n,
+      snapshot: secondSnapshot,
+      dependencies: nextRandom() % 2 === 0 ? [dependency] : [],
+      resultSeed: nextRandom(),
+      witnessSeed: nextRandom(),
+    });
+    const secondAttempt: QueryEvaluationAttempt = makeQueryEvaluationAttempt({
+      namespaceId: secondRegistrationCursor.namespaceId,
+      syncModelId: secondRegistrationCursor.syncModelId,
+      sourceEpoch: secondRegistrationCursor.sourceEpoch,
+      descriptor: queryDescriptor,
+      generation: secondEvaluation.generation,
+      expectedActiveGeneration: firstAttempt.generation,
+      registrationCursor: secondRegistrationCursor,
+      requestedDirtyThroughSequence,
+    });
+    commands.push({
+      _tag: "beginQueryEvaluation",
+      request: secondRequest,
+    });
+    commands.push({
+      _tag: "completeQueryEvaluation",
+      attempt: secondAttempt,
+      evaluation: secondEvaluation,
+      refresh: getSuccess(deriveGenerationRefreshEvidence(
+        secondEvaluation,
+        secondRegistrationCursor,
+        [],
+        secondEvaluation.authorityWitness,
+      )),
+      publication: publicationArtifact(
+        `seeded-publication-${seed}-second`,
+      ),
+    });
+  }
 
   return Object.freeze(commands);
 }
@@ -186,25 +252,27 @@ describe("reference transition-state extended conformance", () => {
       keySeed: 701,
       identity: "stored-query-identity",
     });
-    await runEffect(transitionState.beginQueryGeneration(target({
-      descriptor: storedDescriptor,
-    })));
+    await runEffect(transitionState.beginQueryEvaluation(
+      firstRegistrationRequest(target({
+        descriptor: storedDescriptor,
+      })),
+    ));
     const beforeCollision = requireState(await runEffect(
       transitionState.snapshotForConformance(),
     ));
 
     const failure = await runEffectFailure(
-      transitionState.beginQueryGeneration(target({
+      transitionState.beginQueryEvaluation(firstRegistrationRequest(target({
         descriptor: descriptor({
           keySeed: 701,
           identity: "conflicting-query-identity",
         }),
-      })),
+      }))),
     );
 
     expect(failure).toBeInstanceOf(QueryKeyCollisionError);
     expect(failure).toMatchObject({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       queryKey: storedDescriptor.queryKey,
     });
     expect(await runEffect(
@@ -255,12 +323,14 @@ describe("reference transition-state extended conformance", () => {
             bootstrapCursor,
           },
           {
-            _tag: "beginQueryGeneration",
-            target: target({ descriptor: storedDescriptor }),
+            _tag: "beginQueryEvaluation",
+            request: firstRegistrationRequest(target({
+              descriptor: storedDescriptor,
+            })),
           },
           {
-            _tag: "beginQueryGeneration",
-            target: conflictingTarget,
+            _tag: "beginQueryEvaluation",
+            request: firstRegistrationRequest(conflictingTarget),
           },
           {
             _tag: "applyAdmittedBatchAndAdvance",
@@ -304,32 +374,38 @@ describe("reference transition-state extended conformance", () => {
 
     const dependency = canonicalText("completion-race-dependency");
     const begun = await runEffect(
-      transitionState.beginQueryGeneration(target()),
+      transitionState.beginQueryEvaluation(firstRegistrationRequest(target())),
     );
+    if (begun._tag !== "created") {
+      throw new Error("Expected the first begin receipt to be created");
+    }
     const beforeRace = requireState(await runEffect(
       transitionState.snapshotForConformance(),
     ));
     const queryEvaluation = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
-      snapshot: begun.registrationCursor.appliedThroughSequence,
+      descriptor: begun.attempt.descriptor,
+      generation: begun.attempt.generation,
+      snapshot: begun.attempt.registrationCursor.appliedThroughSequence,
       dependencies: [dependency],
     });
     const refresh = getSuccess(deriveGenerationRefreshEvidence(
       queryEvaluation,
-      begun.registrationCursor,
+      begun.attempt.registrationCursor,
       [],
       queryEvaluation.authorityWitness,
     ));
+    const publication = publicationArtifact("completion-race-publication");
     const admittedBatch = batch({
       sequence: 1n,
       dependencies: [dependency],
     });
 
-    const completeFirst = getSuccess(completeQueryGeneration(
+    const completeFirst = getSuccess(completeQueryEvaluation(
       beforeRace,
+      begun.attempt,
       queryEvaluation,
       refresh,
+      publication,
     ));
     const applyAfterCompletion = getSuccess(applyAdmittedInvalidations(
       completeFirst.state,
@@ -339,10 +415,12 @@ describe("reference transition-state extended conformance", () => {
       beforeRace,
       admittedBatch,
     ));
-    const completeAfterApply = getSuccess(completeQueryGeneration(
+    const completeAfterApply = getSuccess(completeQueryEvaluation(
       applyFirst.state,
+      begun.attempt,
       queryEvaluation,
       refresh,
+      publication,
     ));
     const pureHistories = [
       Object.freeze({
@@ -360,7 +438,12 @@ describe("reference transition-state extended conformance", () => {
 
     const [completionReceipt, invalidationReceipt] = await runEffect(
       Effect.all([
-        transitionState.completeQueryGeneration(queryEvaluation, refresh),
+        transitionState.completeQueryEvaluation(
+          begun.attempt,
+          queryEvaluation,
+          refresh,
+          publication,
+        ),
         transitionState.applyAdmittedBatchAndAdvance(admittedBatch),
       ] as const, { concurrency: "unbounded" }),
     );
@@ -386,7 +469,7 @@ describe("reference transition-state extended conformance", () => {
       transitionState.initializeOrInspectNamespace(bootstrapCursor),
     );
     const begun = await runEffect(
-      transitionState.beginQueryGeneration(target()),
+      transitionState.beginQueryEvaluation(firstRegistrationRequest(target())),
     );
     if (begun._tag !== "created") {
       throw new Error("Expected the first begin receipt to be created");
@@ -396,12 +479,12 @@ describe("reference transition-state extended conformance", () => {
     ));
 
     expect(Reflect.set(
-      begun.descriptor,
+      begun.attempt.descriptor,
       "queryIdentity",
       canonicalText("mutated-query-identity"),
     )).toBe(false);
     expect(Reflect.set(
-      begun.registrationCursor,
+      begun.attempt.registrationCursor,
       "appliedThroughSequence",
       99n,
     )).toBe(false);

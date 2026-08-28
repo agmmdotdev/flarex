@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
+  captureQueryPublicationArtifact,
+  makeQueryEvaluationAttempt,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   NamespaceCursor,
@@ -63,6 +65,24 @@ describe("reference transition-state conformance", () => {
       snapshot: 0n,
       dependencies: [evaluatedDependency],
     });
+    const beginRequest = Object.freeze({
+      target: queryTarget,
+      expectedActiveGeneration: null,
+      requestedDirtyThroughSequence: null,
+    });
+    const attempt = makeQueryEvaluationAttempt({
+      namespaceId: bootstrapCursor.namespaceId,
+      syncModelId: bootstrapCursor.syncModelId,
+      sourceEpoch: bootstrapCursor.sourceEpoch,
+      descriptor: queryTarget.descriptor,
+      generation: queryEvaluation.generation,
+      expectedActiveGeneration: null,
+      registrationCursor: bootstrapCursor,
+      requestedDirtyThroughSequence: null,
+    });
+    const publication = getSuccess(captureQueryPublicationArtifact({
+      content: canonicalText("conformance-publication"),
+    }));
     const refresh = getSuccess(deriveGenerationRefreshEvidence(
       queryEvaluation,
       cursor({ sequence: 1n }),
@@ -87,17 +107,19 @@ describe("reference transition-state conformance", () => {
             bootstrapCursor,
           },
           {
-            _tag: "beginQueryGeneration",
-            target: queryTarget,
+            _tag: "beginQueryEvaluation",
+            request: beginRequest,
           },
           {
             _tag: "applyAdmittedBatchAndAdvance",
             batch: admittedBatch,
           },
           {
-            _tag: "completeQueryGeneration",
+            _tag: "completeQueryEvaluation",
+            attempt,
             evaluation: queryEvaluation,
             refresh,
+            publication,
           },
         ],
       },
@@ -198,6 +220,11 @@ describe("reference transition-state conformance", () => {
   it("serializes identical concurrent initialize, begin, and exact-next apply operations", async () => {
     const bootstrapCursor = cursor();
     const queryTarget = target();
+    const beginRequest = Object.freeze({
+      target: queryTarget,
+      expectedActiveGeneration: null,
+      requestedDirtyThroughSequence: null,
+    });
     const admittedBatch = batch({ sequence: 1n });
     const harness = await runEffect(
       makeReferenceQuerySyncStateHarness(),
@@ -219,8 +246,8 @@ describe("reference transition-state conformance", () => {
     )).toHaveLength(1);
 
     const beginReceipts = await runEffect(Effect.all([
-      transitionState.beginQueryGeneration(queryTarget),
-      transitionState.beginQueryGeneration(queryTarget),
+      transitionState.beginQueryEvaluation(beginRequest),
+      transitionState.beginQueryEvaluation(beginRequest),
     ], { concurrency: "unbounded" }));
     expect(beginReceipts.filter(
       (receipt) => receipt._tag === "created",
@@ -228,10 +255,20 @@ describe("reference transition-state conformance", () => {
     expect(beginReceipts.filter(
       (receipt) => receipt._tag === "replayed",
     )).toHaveLength(1);
-    expect(beginReceipts[0]?.generation).toBe(1n);
-    expect(beginReceipts[1]?.generation).toBe(1n);
-    expect(beginReceipts[0]?.registrationCursor).toEqual(
-      beginReceipts[1]?.registrationCursor,
+    const firstBegin = beginReceipts[0];
+    const secondBegin = beginReceipts[1];
+    if (
+      firstBegin === undefined
+      || secondBegin === undefined
+      || !("attempt" in firstBegin)
+      || !("attempt" in secondBegin)
+    ) {
+      throw new Error("Expected created and replayed evaluation attempts");
+    }
+    expect(firstBegin.attempt.generation).toBe(1n);
+    expect(secondBegin.attempt.generation).toBe(1n);
+    expect(firstBegin.attempt.registrationCursor).toEqual(
+      secondBegin.attempt.registrationCursor,
     );
 
     const stateAfterBegin = requireState(await runEffect(

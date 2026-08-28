@@ -17,7 +17,7 @@ export type { QuerySyncTransitionState } from "./Port.js";
 
 export type {
   ApplyAdmittedBatchReceipt,
-  BeginQueryGenerationReceipt,
-  CompleteQueryGenerationReceipt,
+  BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "./Receipts.js";

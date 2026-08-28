@@ -6,17 +6,24 @@ import {
   captureQueryDescriptor,
   captureQueryEvaluationEvidence,
   captureQueryOperationTarget,
+  captureQueryPublicationArtifact,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   AdmittedInvalidationBatch,
+  BeginQueryEvaluationDecision,
+  BeginQueryEvaluationRequest,
   NamespaceCursor,
+  PendingQueryPublication,
   QueryDescriptor,
   QueryEvaluationEvidence,
+  QueryEvaluationAttempt,
   QueryGeneration,
   QueryOperationTarget,
+  QueryPublicationArtifact,
   QueryResultDigest,
   QueryAuthorityWitness,
   QueryState,
+  SyncSequence,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   QuerySyncReferenceModel,
@@ -32,17 +39,23 @@ export function getSuccess<A, E>(result: Result.Result<A, E>): A {
 export function buildTestReferenceModel(
   initialCursor: NamespaceCursor,
   queries: readonly QueryState[],
+  pendingPublications: readonly PendingQueryPublication[] = [],
 ): QuerySyncReferenceModel {
   return Object.freeze({
-    state: getSuccess(buildQuerySyncState(initialCursor, queries)),
+    state: getSuccess(buildQuerySyncState(
+      initialCursor,
+      queries,
+      pendingPublications,
+    )),
   });
 }
 
 export function buildTestQuerySyncState(
   initialCursor: NamespaceCursor,
   queries: readonly QueryState[],
+  pendingPublications: readonly PendingQueryPublication[] = [],
 ): ReturnType<typeof buildQuerySyncState> {
-  return buildQuerySyncState(initialCursor, queries);
+  return buildQuerySyncState(initialCursor, queries, pendingPublications);
 }
 
 export function canonicalBytes(
@@ -110,6 +123,37 @@ export function target(input: {
   }));
 }
 
+export function firstEvaluationRequest(
+  operationTarget: QueryOperationTarget = target(),
+): BeginQueryEvaluationRequest {
+  return Object.freeze({
+    target: operationTarget,
+    expectedActiveGeneration: null,
+    requestedDirtyThroughSequence: null,
+  });
+}
+
+export function rerunEvaluationRequest(input: {
+  readonly target?: QueryOperationTarget;
+  readonly activeGeneration: QueryGeneration;
+  readonly dirtyThroughSequence: SyncSequence;
+}): BeginQueryEvaluationRequest {
+  return Object.freeze({
+    target: input.target ?? target(),
+    expectedActiveGeneration: input.activeGeneration,
+    requestedDirtyThroughSequence: input.dirtyThroughSequence,
+  });
+}
+
+export function getEvaluationAttempt(
+  decision: BeginQueryEvaluationDecision,
+): QueryEvaluationAttempt {
+  if (decision._tag === "created" || decision._tag === "replayed") {
+    return decision.attempt;
+  }
+  throw new Error(`Expected an evaluation attempt, received ${decision._tag}`);
+}
+
 export function batch(input: {
   readonly namespaceId?: string;
   readonly syncModelId?: string;
@@ -147,6 +191,14 @@ export function evaluation(input: {
     resultDigest: canonicalKey(input.resultSeed ?? 80),
     authorityWitness: canonicalKey(input.witnessSeed ?? 90),
     dependencyKeys: input.dependencies ?? [],
+  }));
+}
+
+export function publicationArtifact(
+  content = "publication-a",
+): QueryPublicationArtifact {
+  return getSuccess(captureQueryPublicationArtifact({
+    content: canonicalText(content),
   }));
 }
 

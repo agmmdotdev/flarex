@@ -2,19 +2,28 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
-  beginQueryGeneration,
+  applyAdmittedInvalidations,
+  beginQueryEvaluation,
   captureCanonicalDependencyKey,
-  completeQueryGeneration,
+  captureQueryGeneration,
+  completeQueryEvaluation,
   createEmptyQuerySyncState,
+  InvalidQueryEvaluationRequestError,
+  makeQueryPublicationIdentity,
   MAX_QUERY_GENERATION,
   QueryGenerationExhaustedError,
-  QueryGenerationMismatchError,
   QueryKeyCollisionError,
   QuerySyncEpochMismatchError,
   QuerySyncNamespaceMismatchError,
+  unchangedPublicationDisposition,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   ActiveQueryState,
+  GenerationRefreshEvidence,
+  QueryCompletionFingerprint,
+  QueryEvaluationAttempt,
+  QueryEvaluationEvidence,
+  QueryPublicationArtifact,
   QueryState,
   QuerySyncState,
 } from "@flarex/query-sync/internal/kernel";
@@ -29,25 +38,42 @@ import {
   cursor,
   descriptor,
   evaluation,
+  firstEvaluationRequest,
+  getEvaluationAttempt,
   getSuccess,
+  publicationArtifact,
+  rerunEvaluationRequest,
   target,
   witness,
 } from "./fixtures.js";
+
+interface CompletedInitialQueryFixture {
+  readonly state: QuerySyncState;
+  readonly attempt: QueryEvaluationAttempt;
+  readonly evaluation: QueryEvaluationEvidence;
+  readonly refresh: GenerationRefreshEvidence;
+  readonly publication: QueryPublicationArtifact;
+}
 
 function emptyState(sequence = 0n): QuerySyncState {
   return getSuccess(createEmptyQuerySyncState(cursor({ sequence })));
 }
 
-function completeInitialQuery(input: {
+function completeInitialQueryFixture(input: {
   readonly sequence?: bigint;
   readonly dependencies?: readonly string[];
   readonly resultSeed?: number;
-} = {}): QuerySyncState {
+  readonly publicationContent?: string;
+} = {}): CompletedInitialQueryFixture {
   const initial = emptyState(input.sequence ?? 0n);
-  const begun = getSuccess(beginQueryGeneration(initial, target()));
+  const begun = getSuccess(beginQueryEvaluation(
+    initial,
+    firstEvaluationRequest(),
+  ));
+  const attempt = getEvaluationAttempt(begun);
   const evidence = evaluation({
-    descriptor: begun.descriptor,
-    generation: begun.generation,
+    descriptor: attempt.descriptor,
+    generation: attempt.generation,
     snapshot: input.sequence ?? 0n,
     ...(input.resultSeed === undefined
       ? {}
@@ -62,57 +88,283 @@ function completeInitialQuery(input: {
     [],
     evidence.authorityWitness,
   ));
-  const completed = getSuccess(completeQueryGeneration(
+  const publication = publicationArtifact(
+    input.publicationContent ?? "initial-publication",
+  );
+  const completed = getSuccess(completeQueryEvaluation(
     begun.state,
+    attempt,
     evidence,
     refresh,
+    publication,
   ));
-  expect(completed._tag).toBe("completed");
-  return completed.state;
+  if (completed._tag !== "completed") {
+    throw new Error("Expected initial evaluation to complete");
+  }
+  return Object.freeze({
+    state: completed.state,
+    attempt,
+    evaluation: evidence,
+    refresh,
+    publication,
+  });
+}
+
+function completeInitialQuery(input: {
+  readonly sequence?: bigint;
+  readonly dependencies?: readonly string[];
+  readonly resultSeed?: number;
+} = {}): QuerySyncState {
+  return completeInitialQueryFixture(input).state;
+}
+
+function dirtyActiveQuery(
+  state: QuerySyncState,
+  dependency: string,
+  sequence: bigint,
+): QuerySyncState {
+  const applied = getSuccess(applyAdmittedInvalidations(
+    state,
+    batch({ sequence, dependencies: [dependency] }),
+  ));
+  if (applied._tag !== "applied") {
+    throw new Error("Expected exact-next invalidation");
+  }
+  return applied.state;
+}
+
+function rerunRequestFor(state: QuerySyncState) {
+  const active = state.queries[0]?.active;
+  if (active === null || active === undefined) {
+    throw new Error("Expected active query state");
+  }
+  if (active.dirtyThroughSequence === null) {
+    throw new Error("Expected a durable dirty frontier");
+  }
+  return rerunEvaluationRequest({
+    activeGeneration: active.generation,
+    dirtyThroughSequence: active.dirtyThroughSequence,
+  });
+}
+
+function buildCompletedStateAtGeneration(
+  generationValue: bigint,
+): QuerySyncState {
+  const stateCursor = cursor({ sequence: 2n });
+  const registrationCursor = cursor({ sequence: 1n });
+  const queryDescriptor = descriptor();
+  const captured = evaluation({
+    descriptor: queryDescriptor,
+    generation: generationValue,
+    snapshot: 1n,
+  });
+  const precedingGeneration = getSuccess(captureQueryGeneration(
+    generationValue - 1n,
+  ));
+  const identity = makeQueryPublicationIdentity({
+    namespaceId: stateCursor.namespaceId,
+    syncModelId: stateCursor.syncModelId,
+    sourceEpoch: stateCursor.sourceEpoch,
+    queryKey: queryDescriptor.queryKey,
+    generation: captured.generation,
+  });
+  const precedingIdentity = makeQueryPublicationIdentity({
+    namespaceId: stateCursor.namespaceId,
+    syncModelId: stateCursor.syncModelId,
+    sourceEpoch: stateCursor.sourceEpoch,
+    queryKey: queryDescriptor.queryKey,
+    generation: precedingGeneration,
+  });
+  const active: ActiveQueryState = {
+    generation: captured.generation,
+    evaluationSnapshotSequence: captured.snapshotSequence,
+    freshThroughSequence: registrationCursor.appliedThroughSequence,
+    dirtyThroughSequence: stateCursor.appliedThroughSequence,
+    resultDigest: captured.resultDigest,
+    authorityWitness: captured.authorityWitness,
+    dependencyKeys: captured.dependencyKeys,
+  };
+  const completion: QueryCompletionFingerprint = {
+    identity,
+    queryIdentity: queryDescriptor.queryIdentity,
+    expectedActiveGeneration: precedingGeneration,
+    registrationCursor,
+    requestedDirtyThroughSequence:
+      registrationCursor.appliedThroughSequence,
+    evaluationSnapshotSequence: captured.snapshotSequence,
+    evaluationDependencyKeys: captured.dependencyKeys,
+    evaluationAuthorityWitness: captured.authorityWitness,
+    refreshedThroughSequence: registrationCursor.appliedThroughSequence,
+    relevantThroughSequence: null,
+    refreshAuthorityWitness: captured.authorityWitness,
+    resultDigest: captured.resultDigest,
+    publicationDisposition: unchangedPublicationDisposition(),
+  };
+  const query: QueryState = {
+    descriptor: queryDescriptor,
+    active,
+    provisional: null,
+    currentCompletion: completion,
+    precedingCompletionIdentity: precedingIdentity,
+  };
+  return buildTestReferenceModel(stateCursor, [query]).state;
 }
 
 describe("query generation policy", () => {
   it("allocates generation one and exactly replays a provisional begin", () => {
     const initial = emptyState();
-    const first = getSuccess(beginQueryGeneration(initial, target()));
-    expect(first).toMatchObject({ _tag: "created", generation: 1n });
+    const request = firstEvaluationRequest();
+    const first = getSuccess(beginQueryEvaluation(initial, request));
+    const firstAttempt = getEvaluationAttempt(first);
+    expect(first).toMatchObject({
+      _tag: "created",
+      attempt: {
+        generation: 1n,
+        expectedActiveGeneration: null,
+        requestedDirtyThroughSequence: null,
+      },
+    });
     expect(first.state).not.toBe(initial);
     expect(initial.queries).toEqual([]);
 
-    const replay = getSuccess(beginQueryGeneration(first.state, target()));
-    expect(replay).toMatchObject({ _tag: "replayed", generation: 1n });
+    const replay = getSuccess(beginQueryEvaluation(first.state, request));
+    const replayedAttempt = getEvaluationAttempt(replay);
+    expect(replay).toMatchObject({
+      _tag: "replayed",
+      attempt: { generation: 1n },
+    });
     expect(replay.state).toBe(first.state);
-    expect(replay.registrationCursor).toEqual(first.registrationCursor);
+    expect(replayedAttempt).toEqual(firstAttempt);
     expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(firstAttempt)).toBe(true);
     expect(Object.isFrozen(first.state)).toBe(true);
   });
 
-  it("retains active state while allocating the next provisional generation", () => {
+  it("retains active state while allocating a durably requested rerun", () => {
     const dependency = canonicalText("kv:key-a");
     const activeState = completeInitialQuery({ dependencies: [dependency] });
-    const activeBefore = activeState.queries[0]?.active;
-    const begun = getSuccess(beginQueryGeneration(activeState, target()));
+    const dirtyState = dirtyActiveQuery(activeState, dependency, 1n);
+    const activeBefore = dirtyState.queries[0]?.active;
+    const begun = getSuccess(beginQueryEvaluation(
+      dirtyState,
+      rerunRequestFor(dirtyState),
+    ));
+    const attempt = getEvaluationAttempt(begun);
 
-    expect(begun).toMatchObject({ _tag: "created", generation: 2n });
+    expect(begun).toMatchObject({ _tag: "created" });
+    expect(attempt).toMatchObject({
+      generation: 2n,
+      expectedActiveGeneration: 1n,
+      requestedDirtyThroughSequence: 1n,
+    });
     expect(begun.state.queries[0]?.active).toEqual(activeBefore);
     expect(begun.state.queries[0]?.provisional).toMatchObject({
       generation: 2n,
-      registrationCursor: activeState.cursor,
+      expectedActiveGeneration: 1n,
+      requestedDirtyThroughSequence: 1n,
+      registrationCursor: dirtyState.cursor,
     });
     expect(activeState.queries[0]?.provisional).toBeNull();
+  });
+
+  it("requires a dependency invalidation before admitting a rerun", () => {
+    const dependency = canonicalText("kv:key-a");
+    const activeState = completeInitialQuery({ dependencies: [dependency] });
+    const activeGeneration = activeState.queries[0]?.active?.generation;
+    if (activeGeneration === undefined) {
+      throw new Error("Expected active query state");
+    }
+    const missingFrontier = beginQueryEvaluation(activeState, {
+      target: target(),
+      expectedActiveGeneration: activeGeneration,
+      requestedDirtyThroughSequence: null,
+    });
+    expect(Result.isFailure(missingFrontier)).toBe(true);
+    if (Result.isFailure(missingFrontier)) {
+      expect(missingFrontier.failure).toBeInstanceOf(
+        InvalidQueryEvaluationRequestError,
+      );
+      expect(missingFrontier.failure).toMatchObject({
+        reason: "rerunMissingDirtyFrontier",
+      });
+    }
+
+    const cursorOnly = getSuccess(applyAdmittedInvalidations(
+      activeState,
+      batch({
+        sequence: 1n,
+        dependencies: [canonicalText("unrelated")],
+      }),
+    ));
+    const unobservedFrontier = beginQueryEvaluation(
+      cursorOnly.state,
+      rerunEvaluationRequest({
+        activeGeneration,
+        dirtyThroughSequence: cursorOnly.state.cursor.appliedThroughSequence,
+      }),
+    );
+    expect(Result.isFailure(unobservedFrontier)).toBe(true);
+    if (Result.isFailure(unobservedFrontier)) {
+      expect(unobservedFrontier.failure).toMatchObject({
+        _tag: "InvalidQueryEvaluationRequestError",
+        reason: "dirtyFrontierNotObserved",
+      });
+    }
+    expect(activeState.queries[0]?.provisional).toBeNull();
+    expect(cursorOnly.state.queries[0]?.provisional).toBeNull();
+  });
+
+  it("replays a provisional rerun from its latest durable dirty frontier", () => {
+    const dependency = canonicalText("kv:key-a");
+    const activeState = completeInitialQuery({
+      sequence: 1n,
+      dependencies: [dependency],
+    });
+    const firstDirty = dirtyActiveQuery(activeState, dependency, 2n);
+    const firstBegin = getSuccess(beginQueryEvaluation(
+      firstDirty,
+      rerunRequestFor(firstDirty),
+    ));
+    const firstAttempt = getEvaluationAttempt(firstBegin);
+    const laterDirty = dirtyActiveQuery(firstBegin.state, dependency, 3n);
+    const active = laterDirty.queries[0]?.active;
+    if (active === null || active === undefined) {
+      throw new Error("Expected active query state");
+    }
+    const replay = getSuccess(beginQueryEvaluation(
+      laterDirty,
+      rerunEvaluationRequest({
+        activeGeneration: active.generation,
+        dirtyThroughSequence: active.freshThroughSequence,
+      }),
+    ));
+    const replayedAttempt = getEvaluationAttempt(replay);
+
+    expect(firstAttempt.requestedDirtyThroughSequence).toBe(2n);
+    expect(active.freshThroughSequence).toBe(1n);
+    expect(active.dirtyThroughSequence).toBe(3n);
+    expect(replay._tag).toBe("replayed");
+    expect(replayedAttempt.generation).toBe(firstAttempt.generation);
+    expect(replayedAttempt.requestedDirtyThroughSequence).toBe(3n);
   });
 
   it("refuses the same lookup key with a different full identity", () => {
     const initial = emptyState();
     const firstTarget = target();
-    const begun = getSuccess(beginQueryGeneration(initial, firstTarget));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(firstTarget),
+    ));
     const collisionTarget = target({
       descriptor: descriptor({
         keySeed: 1,
         identity: "different-query",
       }),
     });
-    const collision = beginQueryGeneration(begun.state, collisionTarget);
+    const collision = beginQueryEvaluation(
+      begun.state,
+      firstEvaluationRequest(collisionTarget),
+    );
 
     expect(Result.isFailure(collision)).toBe(true);
     if (Result.isFailure(collision)) {
@@ -123,9 +375,9 @@ describe("query generation policy", () => {
 
   it("refuses wrong namespace and epoch before changing state", () => {
     const initial = emptyState();
-    const wrongNamespace = beginQueryGeneration(
+    const wrongNamespace = beginQueryEvaluation(
       initial,
-      target({ namespaceId: "tenant-b" }),
+      firstEvaluationRequest(target({ namespaceId: "tenant-b" })),
     );
     expect(Result.isFailure(wrongNamespace)).toBe(true);
     if (Result.isFailure(wrongNamespace)) {
@@ -134,9 +386,9 @@ describe("query generation policy", () => {
       );
     }
 
-    const wrongEpoch = beginQueryGeneration(
+    const wrongEpoch = beginQueryEvaluation(
       initial,
-      target({ sourceEpoch: "epoch-b" }),
+      firstEvaluationRequest(target({ sourceEpoch: "epoch-b" })),
     );
     expect(Result.isFailure(wrongEpoch)).toBe(true);
     if (Result.isFailure(wrongEpoch)) {
@@ -147,10 +399,14 @@ describe("query generation policy", () => {
 
   it("refuses an evaluation snapshot older than registration", () => {
     const initial = emptyState(5n);
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const staleEvaluation = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 4n,
     });
     const refresh = getSuccess(deriveGenerationRefreshEvidence(
@@ -159,10 +415,12 @@ describe("query generation policy", () => {
       [batch({ sequence: 5n })],
       staleEvaluation.authorityWitness,
     ));
-    const result = completeQueryGeneration(
+    const result = completeQueryEvaluation(
       begun.state,
+      attempt,
       staleEvaluation,
       refresh,
+      publicationArtifact(),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -175,84 +433,72 @@ describe("query generation policy", () => {
     expect(begun.state.queries[0]?.provisional?.generation).toBe(1n);
   });
 
-  it("refuses stale completion after a later generation exists", () => {
-    const firstActive = completeInitialQuery();
-    const secondBegin = getSuccess(beginQueryGeneration(firstActive, target()));
-    const staleEvaluation = evaluation({ generation: 1n, snapshot: 0n });
-    const staleRefresh = getSuccess(deriveGenerationRefreshEvidence(
-      staleEvaluation,
+  it("classifies exact stale completion evidence as superseded", () => {
+    const dependency = canonicalText("kv:key-a");
+    const first = completeInitialQueryFixture({ dependencies: [dependency] });
+    const dirty = dirtyActiveQuery(first.state, dependency, 1n);
+    const secondBegin = getSuccess(beginQueryEvaluation(
+      dirty,
+      rerunRequestFor(dirty),
+    ));
+    const secondAttempt = getEvaluationAttempt(secondBegin);
+    const secondEvaluation = evaluation({
+      descriptor: secondAttempt.descriptor,
+      generation: secondAttempt.generation,
+      snapshot: 1n,
+      resultSeed: 81,
+      dependencies: [dependency],
+    });
+    const secondRefresh = getSuccess(deriveGenerationRefreshEvidence(
+      secondEvaluation,
       secondBegin.state.cursor,
       [],
-      staleEvaluation.authorityWitness,
+      secondEvaluation.authorityWitness,
     ));
-    const stale = completeQueryGeneration(
+    const secondCompleted = getSuccess(completeQueryEvaluation(
       secondBegin.state,
-      staleEvaluation,
-      staleRefresh,
-    );
+      secondAttempt,
+      secondEvaluation,
+      secondRefresh,
+      publicationArtifact("second-publication"),
+    ));
+    expect(secondCompleted._tag).toBe("completed");
 
-    expect(Result.isFailure(stale)).toBe(true);
-    if (Result.isFailure(stale)) {
-      expect(stale.failure).toBeInstanceOf(QueryGenerationMismatchError);
-      expect(stale.failure).toMatchObject({
-        expectedGeneration: 2n,
-        observedGeneration: 1n,
-      });
-    }
-    expect(secondBegin.state.queries[0]?.provisional?.generation).toBe(2n);
+    const stale = getSuccess(completeQueryEvaluation(
+      secondCompleted.state,
+      first.attempt,
+      first.evaluation,
+      first.refresh,
+      first.publication,
+    ));
+
+    expect(stale).toMatchObject({
+      _tag: "superseded",
+      generation: 1n,
+      activeGeneration: 2n,
+    });
+    expect(stale.state).toBe(secondCompleted.state);
   });
 
   it("refuses generation overflow while retaining the installed active value", () => {
-    const queryDescriptor = descriptor();
-    const nearMaxEvidence = evaluation({
-      descriptor: queryDescriptor,
-      generation: MAX_QUERY_GENERATION - 1n,
-      snapshot: 0n,
-    });
-    const nearMaxActive: ActiveQueryState = {
-      generation: nearMaxEvidence.generation,
-      evaluationSnapshotSequence: nearMaxEvidence.snapshotSequence,
-      freshThroughSequence: cursor().appliedThroughSequence,
-      dirtyThroughSequence: null,
-      resultDigest: nearMaxEvidence.resultDigest,
-      authorityWitness: nearMaxEvidence.authorityWitness,
-      dependencyKeys: nearMaxEvidence.dependencyKeys,
-    };
-    const nearMaxModel = buildTestReferenceModel(cursor(), [{
-      descriptor: queryDescriptor,
-      active: nearMaxActive,
-      provisional: null,
-    }]);
-    const maximumBegin = getSuccess(beginQueryGeneration(
-      nearMaxModel.state,
-      target(),
+    const nearMaxState = buildCompletedStateAtGeneration(
+      MAX_QUERY_GENERATION - 1n,
+    );
+    const maximumBegin = getSuccess(beginQueryEvaluation(
+      nearMaxState,
+      rerunRequestFor(nearMaxState),
     ));
-    expect(maximumBegin).toMatchObject({
-      _tag: "created",
-      generation: MAX_QUERY_GENERATION,
-    });
+    const maximumAttempt = getEvaluationAttempt(maximumBegin);
+    expect(maximumBegin._tag).toBe("created");
+    expect(maximumAttempt.generation).toBe(MAX_QUERY_GENERATION);
 
-    const maxEvidence = evaluation({
-      descriptor: queryDescriptor,
-      generation: MAX_QUERY_GENERATION,
-      snapshot: 0n,
-    });
-    const active: ActiveQueryState = {
-      generation: maxEvidence.generation,
-      evaluationSnapshotSequence: maxEvidence.snapshotSequence,
-      freshThroughSequence: cursor().appliedThroughSequence,
-      dirtyThroughSequence: null,
-      resultDigest: maxEvidence.resultDigest,
-      authorityWitness: maxEvidence.authorityWitness,
-      dependencyKeys: maxEvidence.dependencyKeys,
-    };
-    const query: QueryState = {
-      descriptor: queryDescriptor,
-      active,
-      provisional: null,
-    };
-    const model = buildTestReferenceModel(cursor(), [query]);
-    const result = beginQueryGeneration(model.state, target());
+    const maximumState = buildCompletedStateAtGeneration(
+      MAX_QUERY_GENERATION,
+    );
+    const result = beginQueryEvaluation(
+      maximumState,
+      rerunRequestFor(maximumState),
+    );
 
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
@@ -261,17 +507,21 @@ describe("query generation policy", () => {
         currentGeneration: MAX_QUERY_GENERATION,
       });
     }
-    expect(model.state.queries[0]?.active?.generation).toBe(
+    expect(maximumState.queries[0]?.active?.generation).toBe(
       MAX_QUERY_GENERATION,
     );
   });
 
   it("keeps a provisional generation after resnapshot is required", () => {
     const initial = emptyState();
-    const begun = getSuccess(beginQueryGeneration(initial, target()));
+    const begun = getSuccess(beginQueryEvaluation(
+      initial,
+      firstEvaluationRequest(),
+    ));
+    const attempt = getEvaluationAttempt(begun);
     const evidence = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
       snapshot: 0n,
       witnessSeed: 10,
     });
@@ -281,10 +531,12 @@ describe("query generation policy", () => {
       [],
       witness(11),
     ));
-    const decision = getSuccess(completeQueryGeneration(
+    const decision = getSuccess(completeQueryEvaluation(
       begun.state,
+      attempt,
       evidence,
       refresh,
+      publicationArtifact(),
     ));
 
     expect(decision._tag).toBe("resnapshotRequired");
@@ -293,45 +545,64 @@ describe("query generation policy", () => {
   });
 
   it("does not alias caller-owned active dependency arrays in test models", () => {
-    const queryDescriptor = descriptor({ keySeed: 7 });
     const dependencyKeys = [canonicalText("a")];
-    const captured = evaluation({
-      descriptor: queryDescriptor,
-      generation: 1n,
-      snapshot: 0n,
+    const completed = completeInitialQueryFixture({
       dependencies: dependencyKeys,
     });
-    const callerOwnedCapturedDependencies = [...captured.dependencyKeys];
-    const active: ActiveQueryState = {
-      generation: captured.generation,
-      evaluationSnapshotSequence: captured.snapshotSequence,
-      freshThroughSequence: cursor().appliedThroughSequence,
-      dirtyThroughSequence: null,
-      resultDigest: captured.resultDigest,
-      authorityWitness: captured.authorityWitness,
-      dependencyKeys: callerOwnedCapturedDependencies,
-    };
+    const installed = completed.state.queries[0];
+    if (installed?.active === null || installed?.active === undefined) {
+      throw new Error("Expected active query state");
+    }
+    if (installed.currentCompletion === null) {
+      throw new Error("Expected completion recovery evidence");
+    }
+    const callerOwnedActiveDependencies = [
+      ...installed.active.dependencyKeys,
+    ];
+    const callerOwnedCompletionDependencies = [
+      ...installed.currentCompletion.evaluationDependencyKeys,
+    ];
     const callerQueries: QueryState[] = [{
-      descriptor: queryDescriptor,
-      active,
-      provisional: null,
+      descriptor: installed.descriptor,
+      active: {
+        ...installed.active,
+        dependencyKeys: callerOwnedActiveDependencies,
+      },
+      provisional: installed.provisional,
+      currentCompletion: {
+        ...installed.currentCompletion,
+        evaluationDependencyKeys: callerOwnedCompletionDependencies,
+      },
+      precedingCompletionIdentity: installed.precedingCompletionIdentity,
     }];
-    const model = buildTestReferenceModel(cursor(), callerQueries);
+    const model = buildTestReferenceModel(
+      completed.state.cursor,
+      callerQueries,
+      completed.state.pendingPublications,
+    );
 
     callerQueries.push({
       descriptor: descriptor({ keySeed: 8 }),
       active: null,
       provisional: null,
+      currentCompletion: null,
+      precedingCompletionIdentity: null,
     });
-    callerOwnedCapturedDependencies[0] = getSuccess(
-      captureCanonicalDependencyKey(canonicalText("rebuilt-mutation")),
+    callerOwnedActiveDependencies[0] = getSuccess(
+      captureCanonicalDependencyKey(canonicalText("active-mutation")),
     );
-    dependencyKeys[0] = canonicalText("mutated");
+    callerOwnedCompletionDependencies[0] = getSuccess(
+      captureCanonicalDependencyKey(canonicalText("completion-mutation")),
+    );
+    dependencyKeys[0] = canonicalText("input-mutation");
 
     expect(model.state.queries).toHaveLength(1);
     expect(model.state.queries[0]?.active?.dependencyKeys).toEqual([
       canonicalText("a"),
     ]);
+    expect(
+      model.state.queries[0]?.currentCompletion?.evaluationDependencyKeys,
+    ).toEqual([canonicalText("a")]);
     expect(Object.isFrozen(model.state.queries)).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ import {
   QUERY_AUTHORITY_WITNESS_BYTES,
   QUERY_KEY_BYTES,
   QUERY_RESULT_DIGEST_BYTES,
+  successorQueryGeneration,
   wellFormedUtf8ByteLength,
 } from "./CanonicalValue.js";
 import type {
@@ -42,6 +43,21 @@ import {
 import type {
   QueryDependencyLimitOperation,
 } from "./Errors.js";
+import {
+  canonicalPublicationContentDecodedLength,
+  compareQueryPublicationIdentity,
+  freezePublicationDisposition,
+  freezeQueryPublicationIdentity,
+  makePendingQueryPublication,
+  MAX_PENDING_PUBLICATION_CONTENT_BYTES,
+  MAX_PENDING_PUBLICATIONS,
+  queryPublicationIdentityEquals,
+} from "./Publication.js";
+import type {
+  PendingQueryPublication,
+  QueryCompletionPublicationDisposition,
+  QueryPublicationIdentity,
+} from "./Publication.js";
 
 export const MAX_QUERY_DEPENDENCY_KEYS = 8_192;
 export const MAX_INVALIDATION_KEYS = 65_536;
@@ -188,7 +204,25 @@ export type GenerationRefreshEvidence = AdmittedGenerationRefreshEvidence;
 
 export interface ProvisionalQueryState {
   readonly generation: QueryGeneration;
+  readonly expectedActiveGeneration: QueryGeneration | null;
   readonly registrationCursor: NamespaceCursor;
+  readonly requestedDirtyThroughSequence: SyncSequence | null;
+}
+
+export interface QueryCompletionFingerprint {
+  readonly identity: QueryPublicationIdentity;
+  readonly queryIdentity: CanonicalQueryIdentity;
+  readonly expectedActiveGeneration: QueryGeneration | null;
+  readonly registrationCursor: NamespaceCursor;
+  readonly requestedDirtyThroughSequence: SyncSequence | null;
+  readonly evaluationSnapshotSequence: QuerySnapshot;
+  readonly evaluationDependencyKeys: readonly CanonicalDependencyKey[];
+  readonly evaluationAuthorityWitness: QueryAuthorityWitness;
+  readonly refreshedThroughSequence: SyncSequence;
+  readonly relevantThroughSequence: SyncSequence | null;
+  readonly refreshAuthorityWitness: QueryAuthorityWitness;
+  readonly resultDigest: QueryResultDigest;
+  readonly publicationDisposition: QueryCompletionPublicationDisposition;
 }
 
 export interface ActiveQueryState {
@@ -205,6 +239,8 @@ export interface QueryState {
   readonly descriptor: QueryDescriptor;
   readonly active: ActiveQueryState | null;
   readonly provisional: ProvisionalQueryState | null;
+  readonly currentCompletion: QueryCompletionFingerprint | null;
+  readonly precedingCompletionIdentity: QueryPublicationIdentity | null;
 }
 
 export interface DependencyDirectoryEntry {
@@ -216,6 +252,8 @@ export interface QuerySyncStateMetrics {
   readonly queryCount: number;
   readonly retainedIdentityBytes: number;
   readonly dependencyMemberships: number;
+  readonly pendingPublicationCount: number;
+  readonly pendingPublicationContentBytes: number;
   readonly countedCanonicalBytes: number;
 }
 
@@ -223,7 +261,25 @@ export interface QuerySyncState {
   readonly cursor: NamespaceCursor;
   readonly queries: readonly QueryState[];
   readonly dependencyDirectory: readonly DependencyDirectoryEntry[];
+  readonly pendingPublications: readonly PendingQueryPublication[];
   readonly metrics: QuerySyncStateMetrics;
+}
+
+export interface BeginQueryEvaluationRequest {
+  readonly target: QueryOperationTarget;
+  readonly expectedActiveGeneration: QueryGeneration | null;
+  readonly requestedDirtyThroughSequence: SyncSequence | null;
+}
+
+export interface QueryEvaluationAttempt {
+  readonly namespaceId: SyncNamespaceId;
+  readonly syncModelId: SyncModelId;
+  readonly sourceEpoch: SyncEpoch;
+  readonly descriptor: QueryDescriptor;
+  readonly generation: QueryGeneration;
+  readonly expectedActiveGeneration: QueryGeneration | null;
+  readonly registrationCursor: NamespaceCursor;
+  readonly requestedDirtyThroughSequence: SyncSequence | null;
 }
 
 export type SequenceDecision =
@@ -246,20 +302,32 @@ export type SequenceDecision =
     readonly observedSourceEpoch: SyncEpoch;
   }>;
 
-export type BeginQueryGenerationDecision =
+export type BeginQueryEvaluationDecision =
   | Readonly<{
     readonly _tag: "created";
     readonly state: QuerySyncState;
-    readonly descriptor: QueryDescriptor;
-    readonly generation: QueryGeneration;
-    readonly registrationCursor: NamespaceCursor;
+    readonly attempt: QueryEvaluationAttempt;
   }>
   | Readonly<{
     readonly _tag: "replayed";
     readonly state: QuerySyncState;
+    readonly attempt: QueryEvaluationAttempt;
+  }>
+  | Readonly<{
+    readonly _tag: "alreadyAdvanced";
+    readonly state: QuerySyncState;
     readonly descriptor: QueryDescriptor;
-    readonly generation: QueryGeneration;
-    readonly registrationCursor: NamespaceCursor;
+    readonly requestedExpectedActiveGeneration: QueryGeneration | null;
+    readonly activeGeneration: QueryGeneration;
+    readonly freshThroughSequence: SyncSequence;
+  }>
+  | Readonly<{
+    readonly _tag: "notDirty";
+    readonly state: QuerySyncState;
+    readonly descriptor: QueryDescriptor;
+    readonly activeGeneration: QueryGeneration;
+    readonly requestedDirtyThroughSequence: SyncSequence;
+    readonly freshThroughSequence: SyncSequence;
   }>;
 
 export type ApplyInvalidationsDecision =
@@ -287,7 +355,7 @@ export type ApplyInvalidationsDecision =
     readonly affectedQueryKeys: readonly CanonicalQueryKey[];
   }>;
 
-export type CompleteQueryGenerationDecision =
+export type CompleteQueryEvaluationDecision =
   | Readonly<{
     readonly _tag: "refreshRequired";
     readonly state: QuerySyncState;
@@ -309,7 +377,25 @@ export type CompleteQueryGenerationDecision =
     readonly _tag: "completed";
     readonly state: QuerySyncState;
     readonly generation: QueryGeneration;
-    readonly publicationRequired: boolean;
+    readonly publicationDisposition: QueryCompletionPublicationDisposition;
+  }>
+  | Readonly<{
+    readonly _tag: "replayed";
+    readonly state: QuerySyncState;
+    readonly generation: QueryGeneration;
+    readonly publicationDisposition: QueryCompletionPublicationDisposition;
+  }>
+  | Readonly<{
+    readonly _tag: "superseded";
+    readonly state: QuerySyncState;
+    readonly generation: QueryGeneration;
+    readonly activeGeneration: QueryGeneration;
+  }>
+  | Readonly<{
+    readonly _tag: "recoveryEvidenceExpired";
+    readonly state: QuerySyncState;
+    readonly generation: QueryGeneration;
+    readonly activeGeneration: QueryGeneration;
   }>;
 
 export type CaptureNamespaceCursorError = QuerySyncCanonicalValueError;
@@ -340,6 +426,21 @@ function freezeQueryDescriptor(descriptor: QueryDescriptor): QueryDescriptor {
   });
 }
 
+export function makeQueryEvaluationAttempt(
+  attempt: QueryEvaluationAttempt,
+): QueryEvaluationAttempt {
+  return Object.freeze({
+    namespaceId: attempt.namespaceId,
+    syncModelId: attempt.syncModelId,
+    sourceEpoch: attempt.sourceEpoch,
+    descriptor: freezeQueryDescriptor(attempt.descriptor),
+    generation: attempt.generation,
+    expectedActiveGeneration: attempt.expectedActiveGeneration,
+    registrationCursor: freezeNamespaceCursor(attempt.registrationCursor),
+    requestedDirtyThroughSequence: attempt.requestedDirtyThroughSequence,
+  });
+}
+
 function freezeDependencyKeys(
   dependencyKeys: readonly CanonicalDependencyKey[],
 ): readonly CanonicalDependencyKey[] {
@@ -351,7 +452,35 @@ function freezeProvisionalQueryState(
 ): ProvisionalQueryState {
   return Object.freeze({
     generation: provisional.generation,
+    expectedActiveGeneration: provisional.expectedActiveGeneration,
     registrationCursor: freezeNamespaceCursor(provisional.registrationCursor),
+    requestedDirtyThroughSequence:
+      provisional.requestedDirtyThroughSequence,
+  });
+}
+
+function freezeQueryCompletionFingerprint(
+  completion: QueryCompletionFingerprint,
+): QueryCompletionFingerprint {
+  return Object.freeze({
+    identity: freezeQueryPublicationIdentity(completion.identity),
+    queryIdentity: completion.queryIdentity,
+    expectedActiveGeneration: completion.expectedActiveGeneration,
+    registrationCursor: freezeNamespaceCursor(completion.registrationCursor),
+    requestedDirtyThroughSequence:
+      completion.requestedDirtyThroughSequence,
+    evaluationSnapshotSequence: completion.evaluationSnapshotSequence,
+    evaluationDependencyKeys: freezeDependencyKeys(
+      completion.evaluationDependencyKeys,
+    ),
+    evaluationAuthorityWitness: completion.evaluationAuthorityWitness,
+    refreshedThroughSequence: completion.refreshedThroughSequence,
+    relevantThroughSequence: completion.relevantThroughSequence,
+    refreshAuthorityWitness: completion.refreshAuthorityWitness,
+    resultDigest: completion.resultDigest,
+    publicationDisposition: freezePublicationDisposition(
+      completion.publicationDisposition,
+    ),
   });
 }
 
@@ -374,6 +503,12 @@ function freezeQueryState(query: QueryState): QueryState {
     provisional: query.provisional === null
       ? null
       : freezeProvisionalQueryState(query.provisional),
+    currentCompletion: query.currentCompletion === null
+      ? null
+      : freezeQueryCompletionFingerprint(query.currentCompletion),
+    precedingCompletionIdentity: query.precedingCompletionIdentity === null
+      ? null
+      : freezeQueryPublicationIdentity(query.precedingCompletionIdentity),
   });
 }
 
@@ -600,12 +735,58 @@ function stateInvariantDefect(
   });
 }
 
+function publicationIdentityMatchesQuery(
+  cursor: NamespaceCursor,
+  query: QueryState,
+  identity: QueryPublicationIdentity,
+): boolean {
+  return identity.namespaceId === cursor.namespaceId
+    && identity.syncModelId === cursor.syncModelId
+    && identity.sourceEpoch === cursor.sourceEpoch
+    && identity.queryKey === query.descriptor.queryKey;
+}
+
+function completionMatchesActive(
+  active: ActiveQueryState,
+  completion: QueryCompletionFingerprint,
+): boolean {
+  if (
+    completion.identity.generation !== active.generation
+    || completion.evaluationSnapshotSequence
+      !== active.evaluationSnapshotSequence
+    || completion.refreshedThroughSequence !== active.freshThroughSequence
+    || completion.relevantThroughSequence !== null
+    || completion.evaluationAuthorityWitness !== active.authorityWitness
+    || completion.refreshAuthorityWitness !== active.authorityWitness
+    || completion.resultDigest !== active.resultDigest
+    || completion.evaluationDependencyKeys.length
+      !== active.dependencyKeys.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < active.dependencyKeys.length; index += 1) {
+    if (
+      completion.evaluationDependencyKeys[index]
+      !== active.dependencyKeys[index]
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function assertQueryStateInvariants(
   cursor: NamespaceCursor,
   query: QueryState,
 ): void {
   if (query.active === null && query.provisional === null) {
     throw stateInvariantDefect("emptyQuerySlots");
+  }
+  if (query.active === null && query.currentCompletion !== null) {
+    throw stateInvariantDefect("completionWithoutActive");
+  }
+  if (query.active !== null && query.currentCompletion === null) {
+    throw stateInvariantDefect("activeCompletionMissing");
   }
   if (query.provisional !== null) {
     const registration = query.provisional.registrationCursor;
@@ -623,13 +804,62 @@ function assertQueryStateInvariants(
       throw stateInvariantDefect("initialProvisionalGenerationNotOne");
     }
     if (
+      query.active === null
+      && query.provisional.expectedActiveGeneration !== null
+    ) {
+      throw stateInvariantDefect("initialProvisionalFenceNotNull");
+    }
+    if (
+      query.active === null
+      && query.provisional.requestedDirtyThroughSequence !== null
+    ) {
+      throw stateInvariantDefect("initialProvisionalDirtyFrontierNotNull");
+    }
+    if (
       query.active !== null
       && query.provisional.generation <= query.active.generation
     ) {
       throw stateInvariantDefect("provisionalGenerationNotAfterActive");
     }
+    if (query.active !== null) {
+      if (
+        successorQueryGeneration(query.active.generation)
+        !== query.provisional.generation
+      ) {
+        throw stateInvariantDefect("provisionalGenerationNotSuccessor");
+      }
+      if (
+        query.provisional.expectedActiveGeneration
+        !== query.active.generation
+      ) {
+        throw stateInvariantDefect("provisionalFenceMismatch");
+      }
+      const requestedDirty =
+        query.provisional.requestedDirtyThroughSequence;
+      if (requestedDirty === null) {
+        throw stateInvariantDefect("provisionalDirtyFrontierMissing");
+      }
+      if (requestedDirty <= query.active.freshThroughSequence) {
+        throw stateInvariantDefect(
+          "provisionalDirtyFrontierNotAfterFreshness",
+        );
+      }
+      if (
+        query.active.dirtyThroughSequence === null
+        || requestedDirty > query.active.dirtyThroughSequence
+      ) {
+        throw stateInvariantDefect(
+          "provisionalDirtyFrontierAheadOfObservedDirty",
+        );
+      }
+    }
   }
-  if (query.active === null) return;
+  if (query.active === null) {
+    if (query.precedingCompletionIdentity !== null) {
+      throw stateInvariantDefect("completionPrecedingIdentityInvalid");
+    }
+    return;
+  }
   if (
     query.active.evaluationSnapshotSequence
     > query.active.freshThroughSequence
@@ -670,11 +900,80 @@ function assertQueryStateInvariants(
       throw stateInvariantDefect("activeDependencyBytesExceeded");
     }
   }
+
+  const completion = query.currentCompletion;
+  if (completion === null) {
+    throw stateInvariantDefect("activeCompletionMissing");
+  }
+  if (
+    !publicationIdentityMatchesQuery(cursor, query, completion.identity)
+    || completion.queryIdentity !== query.descriptor.queryIdentity
+  ) {
+    throw stateInvariantDefect("completionIdentityMismatch");
+  }
+  if (!completionMatchesActive(query.active, completion)) {
+    throw stateInvariantDefect("completionActiveStateMismatch");
+  }
+  const completionRegistration = completion.registrationCursor;
+  if (
+    completionRegistration.namespaceId !== cursor.namespaceId
+    || completionRegistration.syncModelId !== cursor.syncModelId
+    || completionRegistration.sourceEpoch !== cursor.sourceEpoch
+  ) {
+    throw stateInvariantDefect("completionRegistrationAuthorityMismatch");
+  }
+  if (
+    completionRegistration.appliedThroughSequence
+    > cursor.appliedThroughSequence
+  ) {
+    throw stateInvariantDefect("completionRegistrationAheadOfCursor");
+  }
+  if (
+    completionRegistration.appliedThroughSequence
+    > completion.evaluationSnapshotSequence
+  ) {
+    throw stateInvariantDefect("completionSnapshotBeforeRegistration");
+  }
+  if (completion.expectedActiveGeneration === null) {
+    if (
+      completion.identity.generation !== 1n
+      || completion.requestedDirtyThroughSequence !== null
+      || query.precedingCompletionIdentity !== null
+    ) {
+      throw stateInvariantDefect("completionPrecedingIdentityInvalid");
+    }
+  } else if (
+    query.precedingCompletionIdentity === null
+    || !publicationIdentityMatchesQuery(
+      cursor,
+      query,
+      query.precedingCompletionIdentity,
+    )
+    || query.precedingCompletionIdentity.generation
+      !== completion.expectedActiveGeneration
+    || successorQueryGeneration(completion.expectedActiveGeneration)
+      !== completion.identity.generation
+    || completion.requestedDirtyThroughSequence === null
+    || completion.requestedDirtyThroughSequence
+      > completion.evaluationSnapshotSequence
+  ) {
+    throw stateInvariantDefect("completionPrecedingIdentityInvalid");
+  }
+  if (
+    completion.publicationDisposition._tag === "pending"
+    && !queryPublicationIdentityEquals(
+      completion.publicationDisposition.identity,
+      completion.identity,
+    )
+  ) {
+    throw stateInvariantDefect("completionIdentityMismatch");
+  }
 }
 
 export function buildQuerySyncState(
   cursor: NamespaceCursor,
   queryStates: readonly QueryState[],
+  pendingPublicationStates: readonly PendingQueryPublication[] = [],
 ): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
   if (queryStates.length > MAX_REFERENCE_QUERIES) {
     return Result.fail(stateLimitError(
@@ -686,11 +985,13 @@ export function buildQuerySyncState(
 
   let retainedIdentityBytes = 0;
   let dependencyMemberships = 0;
+  let pendingPublicationContentBytes = 0;
   let countedCanonicalBytes = wellFormedUtf8ByteLength(cursor.namespaceId)
     + wellFormedUtf8ByteLength(cursor.syncModelId)
     + wellFormedUtf8ByteLength(cursor.sourceEpoch)
     + FIXED_WIDTH_INTEGER_BYTES;
   const observedQueryKeys = new Set<CanonicalQueryKey>();
+  const queryByKey = new Map<CanonicalQueryKey, QueryState>();
 
   for (const query of queryStates) {
     assertQueryStateInvariants(cursor, query);
@@ -701,6 +1002,7 @@ export function buildQuerySyncState(
       }));
     }
     observedQueryKeys.add(query.descriptor.queryKey);
+    queryByKey.set(query.descriptor.queryKey, query);
 
     const identityBytes = canonicalBase64UrlDecodedLength(
       query.descriptor.queryIdentity,
@@ -708,10 +1010,17 @@ export function buildQuerySyncState(
     retainedIdentityBytes += identityBytes;
     countedCanonicalBytes += QUERY_KEY_BYTES
       + identityBytes
-      + (2 * SLOT_PRESENCE_BYTES);
+      + (4 * SLOT_PRESENCE_BYTES);
 
     if (query.provisional !== null) {
-      countedCanonicalBytes += 2 * FIXED_WIDTH_INTEGER_BYTES;
+      countedCanonicalBytes += (2 * FIXED_WIDTH_INTEGER_BYTES)
+        + (2 * SLOT_PRESENCE_BYTES);
+      if (query.provisional.expectedActiveGeneration !== null) {
+        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
+      }
+      if (query.provisional.requestedDirtyThroughSequence !== null) {
+        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
+      }
     }
     if (query.active !== null) {
       countedCanonicalBytes += (3 * FIXED_WIDTH_INTEGER_BYTES)
@@ -727,6 +1036,36 @@ export function buildQuerySyncState(
           dependencyKey,
         );
       }
+    }
+    if (query.currentCompletion !== null) {
+      countedCanonicalBytes += QUERY_KEY_BYTES
+        + identityBytes
+        + (4 * FIXED_WIDTH_INTEGER_BYTES)
+        + (2 * QUERY_AUTHORITY_WITNESS_BYTES)
+        + QUERY_RESULT_DIGEST_BYTES
+        + (4 * SLOT_PRESENCE_BYTES);
+      if (query.currentCompletion.expectedActiveGeneration !== null) {
+        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
+      }
+      if (query.currentCompletion.relevantThroughSequence !== null) {
+        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
+      }
+      if (
+        query.currentCompletion.requestedDirtyThroughSequence !== null
+      ) {
+        countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
+      }
+      for (
+        const dependencyKey of
+        query.currentCompletion.evaluationDependencyKeys
+      ) {
+        countedCanonicalBytes += canonicalBase64UrlDecodedLength(
+          dependencyKey,
+        );
+      }
+    }
+    if (query.precedingCompletionIdentity !== null) {
+      countedCanonicalBytes += QUERY_KEY_BYTES + FIXED_WIDTH_INTEGER_BYTES;
     }
 
     if (retainedIdentityBytes > MAX_RETAINED_QUERY_IDENTITY_BYTES) {
@@ -751,6 +1090,105 @@ export function buildQuerySyncState(
         MAX_COUNTED_CANONICAL_BYTES,
         countedCanonicalBytes,
       ));
+    }
+  }
+
+  if (pendingPublicationStates.length > MAX_PENDING_PUBLICATIONS) {
+    return Result.fail(stateLimitError(
+      "pendingPublicationCount",
+      MAX_PENDING_PUBLICATIONS,
+      pendingPublicationStates.length,
+    ));
+  }
+
+  const pendingByQuery = new Map<
+    CanonicalQueryKey,
+    PendingQueryPublication
+  >();
+  for (const publication of pendingPublicationStates) {
+    const identity = publication.identity;
+    if (
+      identity.namespaceId !== cursor.namespaceId
+      || identity.syncModelId !== cursor.syncModelId
+      || identity.sourceEpoch !== cursor.sourceEpoch
+    ) {
+      throw stateInvariantDefect("pendingPublicationAuthorityMismatch");
+    }
+    const query = queryByKey.get(identity.queryKey);
+    if (query === undefined || query.active === null) {
+      throw stateInvariantDefect("pendingPublicationQueryMissing");
+    }
+    if (
+      publication.queryIdentity !== query.descriptor.queryIdentity
+      || publication.completedThroughSequence
+        > cursor.appliedThroughSequence
+      || publication.completedThroughSequence
+        > query.active.freshThroughSequence
+      || publication.resultDigest !== query.active.resultDigest
+    ) {
+      throw stateInvariantDefect("pendingPublicationIdentityMismatch");
+    }
+    if (pendingByQuery.has(identity.queryKey)) {
+      throw stateInvariantDefect("pendingPublicationDuplicateQuery");
+    }
+    if (identity.generation > query.active.generation) {
+      throw stateInvariantDefect("pendingPublicationGenerationAhead");
+    }
+    if (identity.generation === query.active.generation) {
+      const completion = query.currentCompletion;
+      if (
+        completion === null
+        || completion.publicationDisposition._tag !== "pending"
+        || !queryPublicationIdentityEquals(completion.identity, identity)
+        || publication.completedThroughSequence
+          !== completion.refreshedThroughSequence
+        || publication.resultDigest !== completion.resultDigest
+      ) {
+        throw stateInvariantDefect("pendingPublicationIdentityMismatch");
+      }
+    }
+
+    pendingByQuery.set(identity.queryKey, publication);
+    const contentBytes = canonicalPublicationContentDecodedLength(
+      publication.content,
+    );
+    pendingPublicationContentBytes += contentBytes;
+    if (
+      pendingPublicationContentBytes
+      > MAX_PENDING_PUBLICATION_CONTENT_BYTES
+    ) {
+      return Result.fail(stateLimitError(
+        "pendingPublicationContentBytes",
+        MAX_PENDING_PUBLICATION_CONTENT_BYTES,
+        pendingPublicationContentBytes,
+      ));
+    }
+    countedCanonicalBytes += QUERY_KEY_BYTES
+      + canonicalBase64UrlDecodedLength(publication.queryIdentity)
+      + (2 * FIXED_WIDTH_INTEGER_BYTES)
+      + QUERY_RESULT_DIGEST_BYTES
+      + contentBytes;
+    if (countedCanonicalBytes > MAX_COUNTED_CANONICAL_BYTES) {
+      return Result.fail(stateLimitError(
+        "countedCanonicalBytes",
+        MAX_COUNTED_CANONICAL_BYTES,
+        countedCanonicalBytes,
+      ));
+    }
+  }
+
+  for (const query of queryStates) {
+    const completion = query.currentCompletion;
+    if (completion?.publicationDisposition._tag !== "pending") continue;
+    const pending = pendingByQuery.get(query.descriptor.queryKey);
+    if (
+      pending === undefined
+      || !queryPublicationIdentityEquals(
+        pending.identity,
+        completion.publicationDisposition.identity,
+      )
+    ) {
+      throw stateInvariantDefect("currentPendingPublicationMissing");
     }
   }
 
@@ -786,10 +1224,19 @@ export function buildQuerySyncState(
         queryKeys: Object.freeze([...queryKeys]),
       })
     ));
+  const pendingPublications = pendingPublicationStates.map(
+    makePendingQueryPublication,
+  );
+  pendingPublications.sort((left, right) => compareQueryPublicationIdentity(
+    left.identity,
+    right.identity,
+  ));
   const metrics = Object.freeze({
     queryCount: queries.length,
     retainedIdentityBytes,
     dependencyMemberships,
+    pendingPublicationCount: pendingPublications.length,
+    pendingPublicationContentBytes,
     countedCanonicalBytes,
   });
 
@@ -797,6 +1244,7 @@ export function buildQuerySyncState(
     cursor: freezeNamespaceCursor(cursor),
     queries: Object.freeze(queries),
     dependencyDirectory: Object.freeze(directory),
+    pendingPublications: Object.freeze(pendingPublications),
     metrics,
   }));
 }
@@ -837,6 +1285,27 @@ export function findDependencyDirectoryEntry(
       dependencyKey,
     );
     if (comparison === 0) return entry;
+    if (comparison < 0) lower = middle + 1;
+    else upper = middle - 1;
+  }
+  return undefined;
+}
+
+export function findPendingQueryPublication(
+  state: QuerySyncState,
+  queryKey: CanonicalQueryKey,
+): PendingQueryPublication | undefined {
+  let lower = 0;
+  let upper = state.pendingPublications.length - 1;
+  while (lower <= upper) {
+    const middle = lower + Math.floor((upper - lower) / 2);
+    const publication = state.pendingPublications[middle];
+    if (publication === undefined) return undefined;
+    const comparison = compareCanonicalBase64Url(
+      publication.identity.queryKey,
+      queryKey,
+    );
+    if (comparison === 0) return publication;
     if (comparison < 0) lower = middle + 1;
     else upper = middle - 1;
   }
@@ -884,7 +1353,34 @@ export function replaceQueryState(
     }
   }
   if (!replaced) nextQueries.push(replacement);
-  return buildQuerySyncState(state.cursor, nextQueries);
+  return buildQuerySyncState(
+    state.cursor,
+    nextQueries,
+    state.pendingPublications,
+  );
+}
+
+export function replaceQueryStateAndPendingPublications(
+  state: QuerySyncState,
+  replacement: QueryState,
+  pendingPublications: readonly PendingQueryPublication[],
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  const nextQueries: QueryState[] = [];
+  let replaced = false;
+  for (const query of state.queries) {
+    if (query.descriptor.queryKey === replacement.descriptor.queryKey) {
+      nextQueries.push(replacement);
+      replaced = true;
+    } else {
+      nextQueries.push(query);
+    }
+  }
+  if (!replaced) nextQueries.push(replacement);
+  return buildQuerySyncState(
+    state.cursor,
+    nextQueries,
+    pendingPublications,
+  );
 }
 
 export function replaceQueryStatesAndCursor(
@@ -895,5 +1391,5 @@ export function replaceQueryStatesAndCursor(
   const queries = state.queries.map((query) => (
     replacements.get(query.descriptor.queryKey) ?? query
   ));
-  return buildQuerySyncState(cursor, queries);
+  return buildQuerySyncState(cursor, queries, state.pendingPublications);
 }

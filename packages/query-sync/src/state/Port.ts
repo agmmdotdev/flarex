@@ -2,22 +2,24 @@ import type { Effect } from "effect";
 
 import type {
   AdmittedInvalidationBatch,
+  BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
   GenerationRefreshEvidence,
   NamespaceCursor,
+  QueryEvaluationAttempt,
   QueryEvaluationEvidence,
-  QueryOperationTarget,
 } from "../kernel/Model.js";
 import type {
   ApplyInvalidationsError,
-  BeginQueryGenerationError,
-  CompleteQueryGenerationError,
+  BeginQueryEvaluationError,
+  CompleteQueryEvaluationError,
 } from "../kernel/Policy.js";
+import type { QueryPublicationArtifact } from "../kernel/Publication.js";
 import type { QuerySyncStateIntegrationError } from "./Errors.js";
 import type {
   ApplyAdmittedBatchReceipt,
-  BeginQueryGenerationReceipt,
-  CompleteQueryGenerationReceipt,
+  BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "./Receipts.js";
 
@@ -31,12 +33,12 @@ export interface QuerySyncTransitionState {
     never
   >;
 
-  readonly beginQueryGeneration: (
-    target: QueryOperationTarget,
+  readonly beginQueryEvaluation: (
+    request: BeginQueryEvaluationRequest,
   ) => Effect.Effect<
-    BeginQueryGenerationReceipt,
-    | BeginQueryGenerationError
-    | QuerySyncStateIntegrationError<"beginQueryGeneration">,
+    BeginQueryEvaluationReceipt,
+    | BeginQueryEvaluationError
+    | QuerySyncStateIntegrationError<"beginQueryEvaluation">,
     never
   >;
 
@@ -49,13 +51,15 @@ export interface QuerySyncTransitionState {
     never
   >;
 
-  readonly completeQueryGeneration: (
+  readonly completeQueryEvaluation: (
+    attempt: QueryEvaluationAttempt,
     evaluation: QueryEvaluationEvidence,
     refresh: GenerationRefreshEvidence,
+    publication: QueryPublicationArtifact,
   ) => Effect.Effect<
-    CompleteQueryGenerationReceipt,
-    | CompleteQueryGenerationError
-    | QuerySyncStateIntegrationError<"completeQueryGeneration">,
+    CompleteQueryEvaluationReceipt,
+    | CompleteQueryEvaluationError
+    | QuerySyncStateIntegrationError<"completeQueryEvaluation">,
     never
   >;
 }

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  QueryGenerationMismatchError,
-} from "@flarex/query-sync/internal/kernel";
 import type {
   NamespaceCursor,
   QuerySyncState,
@@ -26,7 +23,9 @@ import {
 import {
   cursor,
   evaluation,
+  firstEvaluationRequest,
   getSuccess,
+  publicationArtifact,
   target,
 } from "./fixtures.js";
 import { runEffect, runEffectFailure } from "./effectBoundary.js";
@@ -76,17 +75,17 @@ describe("reference transition-state atomicity", () => {
       transitionState.initializeOrInspectNamespace(bootstrapCursor),
     );
     await runEffect(transitionState.injectNextFault(poison({
-      operation: "beginQueryGeneration" as const,
+      operation: "beginQueryEvaluation" as const,
       timing: "beforeSwap" as const,
     })));
 
     expect(extraGetterReads).toBe(0);
     const failure = await runEffectFailure(
-      transitionState.beginQueryGeneration(target()),
+      transitionState.beginQueryEvaluation(firstEvaluationRequest()),
     );
     expect(failure).toBeInstanceOf(QuerySyncStateUnavailableError);
     expect(failure).toMatchObject({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       commitCertainty: "notCommitted",
     });
     expect(extraGetterReads).toBe(0);
@@ -107,17 +106,18 @@ describe("reference transition-state atomicity", () => {
     const before = requireState(await runEffect(
       transitionState.snapshotForConformance(),
     ));
+    const beginRequest = firstEvaluationRequest();
 
     await runEffect(transitionState.injectNextFault({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       timing: "beforeSwap",
     }));
     const failure = await runEffectFailure(
-      transitionState.beginQueryGeneration(target()),
+      transitionState.beginQueryEvaluation(beginRequest),
     );
     expect(failure).toBeInstanceOf(QuerySyncStateUnavailableError);
     expect(failure).toMatchObject({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       commitCertainty: "notCommitted",
       reason: "temporarilyUnavailable",
     });
@@ -126,16 +126,17 @@ describe("reference transition-state atomicity", () => {
     )).toBe(before);
 
     expect(await runEffect(
-      transitionState.beginQueryGeneration(target()),
+      transitionState.beginQueryEvaluation(beginRequest),
     )).toMatchObject({
       _tag: "created",
-      generation: 1n,
+      attempt: { generation: 1n },
     });
   });
 
-  it("preserves an after-swap begin and demonstrates why an unknown begin cannot be blindly retried", async () => {
+  it("recovers a lost begin response without allocating another generation", async () => {
     const bootstrapCursor = cursor();
     const queryTarget = target();
+    const beginRequest = firstEvaluationRequest(queryTarget);
     const harness = await runEffect(
       makeReferenceQuerySyncStateHarness(),
     );
@@ -147,18 +148,18 @@ describe("reference transition-state atomicity", () => {
       transitionState.initializeOrInspectNamespace(bootstrapCursor),
     );
     await runEffect(transitionState.injectNextFault({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       timing: "afterSwap",
     }));
 
     const failure = await runEffectFailure(
-      transitionState.beginQueryGeneration(queryTarget),
+      transitionState.beginQueryEvaluation(beginRequest),
     );
     expect(failure).toBeInstanceOf(
       QuerySyncStateCommitOutcomeUnknownError,
     );
     expect(failure).toMatchObject({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       commitCertainty: "unknown",
       reason: "responseLostAfterCommit",
     });
@@ -171,33 +172,165 @@ describe("reference transition-state atomicity", () => {
       registrationCursor: bootstrapCursor,
     });
 
+    const recoveredBegin = await runEffect(
+      transitionState.beginQueryEvaluation(beginRequest),
+    );
+    expect(recoveredBegin).toMatchObject({
+      _tag: "replayed",
+      attempt: {
+        descriptor: queryTarget.descriptor,
+        generation: 1n,
+        expectedActiveGeneration: null,
+        registrationCursor: bootstrapCursor,
+        requestedDirtyThroughSequence: null,
+      },
+    });
+    if (recoveredBegin._tag !== "replayed") {
+      throw new Error("Expected the committed begin attempt to replay.");
+    }
+    const attempt = recoveredBegin.attempt;
     const queryEvaluation = evaluation({
-      generation: 1n,
-      snapshot: 0n,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
+      snapshot: attempt.registrationCursor.appliedThroughSequence,
     });
     const refresh = getSuccess(deriveGenerationRefreshEvidence(
       queryEvaluation,
-      committedBegin.cursor,
+      attempt.registrationCursor,
       [],
       queryEvaluation.authorityWitness,
     ));
-    expect(await runEffect(transitionState.completeQueryGeneration(
+    expect(await runEffect(transitionState.completeQueryEvaluation(
+      attempt,
       queryEvaluation,
       refresh,
+      publicationArtifact("recovered-begin"),
     ))).toMatchObject({
       _tag: "completed",
       generation: 1n,
     });
 
     expect(await runEffect(
-      transitionState.beginQueryGeneration(queryTarget),
+      transitionState.beginQueryEvaluation(beginRequest),
     )).toMatchObject({
-      _tag: "created",
-      generation: 2n,
+      _tag: "alreadyAdvanced",
+      descriptor: queryTarget.descriptor,
+      requestedExpectedActiveGeneration: null,
+      activeGeneration: 1n,
+      freshThroughSequence: bootstrapCursor.appliedThroughSequence,
+    });
+    const afterOldRetry = requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    ));
+    expect(afterOldRetry.queries[0]).toMatchObject({
+      active: { generation: 1n },
+      provisional: null,
     });
   });
 
-  it("preserves an after-swap completion and makes replay ambiguity observable", async () => {
+  it("keeps completion atomic when a before-swap failure is known not committed", async () => {
+    const bootstrapCursor = cursor();
+    const harness = await runEffect(
+      makeReferenceQuerySyncStateHarness(),
+    );
+    const transitionState = harness.bind(bindingFor(
+      "physical-namespace-complete-before-swap",
+      bootstrapCursor,
+    ));
+    await runEffect(
+      transitionState.initializeOrInspectNamespace(bootstrapCursor),
+    );
+    const begun = await runEffect(
+      transitionState.beginQueryEvaluation(firstEvaluationRequest()),
+    );
+    if (begun._tag !== "created") {
+      throw new Error("Expected an evaluation attempt to be created.");
+    }
+    const attempt = begun.attempt;
+    const queryEvaluation = evaluation({
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
+      snapshot: attempt.registrationCursor.appliedThroughSequence,
+    });
+    const refresh = getSuccess(deriveGenerationRefreshEvidence(
+      queryEvaluation,
+      attempt.registrationCursor,
+      [],
+      queryEvaluation.authorityWitness,
+    ));
+    const publication = publicationArtifact("complete-before-swap");
+    const beforeCompletion = requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    ));
+    const provisionalBefore = beforeCompletion.queries[0]?.provisional;
+    expect(beforeCompletion.queries[0]).toMatchObject({
+      active: null,
+      provisional: { generation: attempt.generation },
+    });
+    expect(beforeCompletion.pendingPublications).toEqual([]);
+
+    await runEffect(transitionState.injectNextFault({
+      operation: "completeQueryEvaluation",
+      timing: "beforeSwap",
+    }));
+    const failure = await runEffectFailure(
+      transitionState.completeQueryEvaluation(
+        attempt,
+        queryEvaluation,
+        refresh,
+        publication,
+      ),
+    );
+    expect(failure).toBeInstanceOf(QuerySyncStateUnavailableError);
+    expect(failure).toMatchObject({
+      operation: "completeQueryEvaluation",
+      commitCertainty: "notCommitted",
+      reason: "temporarilyUnavailable",
+    });
+
+    const afterFailure = requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    ));
+    expect(afterFailure).toBe(beforeCompletion);
+    expect(afterFailure.queries[0]?.provisional).toBe(provisionalBefore);
+    expect(afterFailure.queries[0]?.active).toBeNull();
+    expect(afterFailure.pendingPublications).toBe(
+      beforeCompletion.pendingPublications,
+    );
+    expect(afterFailure.pendingPublications).toHaveLength(0);
+
+    const completed = await runEffect(
+      transitionState.completeQueryEvaluation(
+        attempt,
+        queryEvaluation,
+        refresh,
+        publication,
+      ),
+    );
+    expect(completed).toMatchObject({
+      _tag: "completed",
+      generation: attempt.generation,
+      publicationDisposition: {
+        _tag: "pending",
+        identity: { generation: attempt.generation },
+      },
+    });
+    const afterRetry = requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    ));
+    expect(afterRetry.queries[0]).toMatchObject({
+      active: { generation: attempt.generation },
+      provisional: null,
+    });
+    expect(afterRetry.pendingPublications).toHaveLength(1);
+    expect(afterRetry.pendingPublications[0]).toMatchObject({
+      identity: { generation: attempt.generation },
+      resultDigest: queryEvaluation.resultDigest,
+      content: publication.content,
+    });
+  });
+
+  it("replays a lost completion response with one identical pending publication", async () => {
     const bootstrapCursor = cursor();
     const harness = await runEffect(
       makeReferenceQuerySyncStateHarness(),
@@ -210,32 +343,43 @@ describe("reference transition-state atomicity", () => {
       transitionState.initializeOrInspectNamespace(bootstrapCursor),
     );
     const begun = await runEffect(
-      transitionState.beginQueryGeneration(target()),
+      transitionState.beginQueryEvaluation(firstEvaluationRequest()),
     );
+    expect(begun._tag).toBe("created");
+    if (begun._tag !== "created") {
+      throw new Error("Expected an evaluation attempt to be created.");
+    }
+    const attempt = begun.attempt;
     const queryEvaluation = evaluation({
-      descriptor: begun.descriptor,
-      generation: begun.generation,
-      snapshot: begun.registrationCursor.appliedThroughSequence,
+      descriptor: attempt.descriptor,
+      generation: attempt.generation,
+      snapshot: attempt.registrationCursor.appliedThroughSequence,
     });
     const refresh = getSuccess(deriveGenerationRefreshEvidence(
       queryEvaluation,
-      begun.registrationCursor,
+      attempt.registrationCursor,
       [],
       queryEvaluation.authorityWitness,
     ));
+    const publication = publicationArtifact("unknown-completion");
     await runEffect(transitionState.injectNextFault({
-      operation: "completeQueryGeneration",
+      operation: "completeQueryEvaluation",
       timing: "afterSwap",
     }));
 
     const failure = await runEffectFailure(
-      transitionState.completeQueryGeneration(queryEvaluation, refresh),
+      transitionState.completeQueryEvaluation(
+        attempt,
+        queryEvaluation,
+        refresh,
+        publication,
+      ),
     );
     expect(failure).toBeInstanceOf(
       QuerySyncStateCommitOutcomeUnknownError,
     );
     expect(failure).toMatchObject({
-      operation: "completeQueryGeneration",
+      operation: "completeQueryEvaluation",
       commitCertainty: "unknown",
       reason: "responseLostAfterCommit",
     });
@@ -248,15 +392,47 @@ describe("reference transition-state atomicity", () => {
       dirtyThroughSequence: null,
     });
     expect(committedCompletion.queries[0]?.provisional).toBeNull();
-
-    const retryFailure = await runEffectFailure(
-      transitionState.completeQueryGeneration(queryEvaluation, refresh),
-    );
-    expect(retryFailure).toBeInstanceOf(QueryGenerationMismatchError);
-    expect(retryFailure).toMatchObject({
-      expectedGeneration: null,
-      observedGeneration: 1n,
+    expect(committedCompletion.pendingPublications).toHaveLength(1);
+    const pendingPublication = committedCompletion.pendingPublications[0];
+    if (pendingPublication === undefined) {
+      throw new Error("Expected one pending publication after completion.");
+    }
+    expect(pendingPublication).toMatchObject({
+      identity: {
+        namespaceId: attempt.namespaceId,
+        syncModelId: attempt.syncModelId,
+        sourceEpoch: attempt.sourceEpoch,
+        queryKey: attempt.descriptor.queryKey,
+        generation: attempt.generation,
+      },
+      queryIdentity: attempt.descriptor.queryIdentity,
+      completedThroughSequence: refresh.refreshedThroughSequence,
+      resultDigest: queryEvaluation.resultDigest,
+      content: publication.content,
     });
+
+    const replayed = await runEffect(
+      transitionState.completeQueryEvaluation(
+        attempt,
+        queryEvaluation,
+        refresh,
+        publication,
+      ),
+    );
+    expect(replayed).toMatchObject({
+      _tag: "replayed",
+      generation: 1n,
+      publicationDisposition: {
+        _tag: "pending",
+        identity: pendingPublication.identity,
+      },
+    });
+    const afterReplay = requireState(await runEffect(
+      transitionState.snapshotForConformance(),
+    ));
+    expect(afterReplay).toBe(committedCompletion);
+    expect(afterReplay.pendingPublications).toEqual([pendingPublication]);
+    expect(afterReplay.pendingPublications[0]).toBe(pendingPublication);
   });
 
   it("refuses a different logical namespace bound to the same physical store entry", async () => {
@@ -274,9 +450,9 @@ describe("reference transition-state atomicity", () => {
       attackerCursor,
     ));
     await runEffect(victim.initializeOrInspectNamespace(victimCursor));
-    await runEffect(victim.beginQueryGeneration(target({
-      namespaceId: "tenant-a",
-    })));
+    await runEffect(victim.beginQueryEvaluation(firstEvaluationRequest(
+      target({ namespaceId: "tenant-a" }),
+    )));
     const victimBeforeAttack = requireState(await runEffect(
       victim.snapshotForConformance(),
     ));
@@ -305,13 +481,15 @@ describe("reference transition-state atomicity", () => {
     });
 
     const beginFailure = await runEffectFailure(
-      attacker.beginQueryGeneration(target({ namespaceId: "tenant-b" })),
+      attacker.beginQueryEvaluation(firstEvaluationRequest(
+        target({ namespaceId: "tenant-b" }),
+      )),
     );
     expect(beginFailure).toBeInstanceOf(
       QuerySyncStoredStateCorruptError,
     );
     expect(beginFailure).toMatchObject({
-      operation: "beginQueryGeneration",
+      operation: "beginQueryEvaluation",
       commitCertainty: "notCommitted",
       reason: "namespaceBindingMismatch",
     });

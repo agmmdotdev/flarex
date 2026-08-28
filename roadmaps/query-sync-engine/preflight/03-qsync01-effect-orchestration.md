@@ -167,7 +167,8 @@ C1 may modify exactly:
 - `src/testing/conformance/ReferenceStateStore.ts`, `StateConformance.ts`, and
   `index.ts`;
 - `test/fixtures.ts`, `queryGenerationPolicy.test.ts`,
-  `referenceModel.test.ts`, `referenceStateConformance.test.ts`,
+  `invalidationPolicy.test.ts`, `referenceModel.test.ts`,
+  `referenceStateConformance.test.ts`,
   `referenceStateExtendedConformance.test.ts`,
   `referenceStateAtomicity.test.ts`, `receiptOwnership.test.ts`, and
   `isolationAndDeterminism.test.ts` only where their private state/receipt
@@ -330,10 +331,11 @@ same canonical result. Before completion, `resnapshotRequired` or
 a newer snapshot and produce different evidence, digest, and content. Once one
 completion commits, state retains a complete semantic completion fingerprint.
 It includes descriptor/identity, generation, expected-active fence,
-registration cursor, evaluation snapshot, dependency set, evaluation and
-refresh witnesses, refreshed/relevant sequences, result digest, and publication
-disposition. The trusted result digest is the content binding; replay input can
-never replace the exact content already persisted with a pending intent.
+registration cursor, requested dirty frontier, evaluation snapshot, dependency
+set, evaluation and refresh witnesses, refreshed/relevant sequences, result
+digest, and publication disposition. The trusted result digest is the content
+binding; replay input can never replace the exact content already persisted
+with a pending intent.
 
 A replay for the current committed generation must match every fingerprint
 field or fail with an invalid-completion-replay error. The portable boundary
@@ -354,8 +356,11 @@ tuple without changing engine identity or minting another logical publication.
 ## C1 Atomic Completion And Publication Intent
 
 The B completion operation is replaced by one semantic state operation that
-receives evaluation evidence, admitted refresh evidence, and the captured
-publication artifact.
+receives the state-issued evaluation attempt returned by begin, evaluation
+evidence, admitted refresh evidence, and the captured publication artifact.
+The attempt carries the complete target, generation, expected-active fence,
+registration cursor, and current coalesced dirty frontier; completion never
+reconstructs those state-issued facts from evaluator input.
 
 Inside one state transaction it revalidates:
 

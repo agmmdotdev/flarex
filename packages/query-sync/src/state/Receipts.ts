@@ -7,12 +7,18 @@ import type {
 } from "../kernel/CanonicalValue.js";
 import type {
   ApplyInvalidationsDecision,
-  BeginQueryGenerationDecision,
-  CompleteQueryGenerationDecision,
+  BeginQueryEvaluationDecision,
+  CompleteQueryEvaluationDecision,
   NamespaceCursor,
   QueryDescriptor,
+  QueryEvaluationAttempt,
   QuerySyncStateMetrics,
 } from "../kernel/Model.js";
+import { makeQueryEvaluationAttempt } from "../kernel/Model.js";
+import { freezePublicationDisposition } from "../kernel/Publication.js";
+import type {
+  QueryCompletionPublicationDisposition,
+} from "../kernel/Publication.js";
 
 export type InitializeNamespaceReceipt =
   | Readonly<{
@@ -36,18 +42,28 @@ export type InitializeNamespaceReceipt =
     readonly requestedSourceEpoch: SyncEpoch;
   }>;
 
-export type BeginQueryGenerationReceipt =
+export type BeginQueryEvaluationReceipt =
   | Readonly<{
     readonly _tag: "created";
-    readonly descriptor: QueryDescriptor;
-    readonly generation: QueryGeneration;
-    readonly registrationCursor: NamespaceCursor;
+    readonly attempt: QueryEvaluationAttempt;
   }>
   | Readonly<{
     readonly _tag: "replayed";
+    readonly attempt: QueryEvaluationAttempt;
+  }>
+  | Readonly<{
+    readonly _tag: "alreadyAdvanced";
     readonly descriptor: QueryDescriptor;
-    readonly generation: QueryGeneration;
-    readonly registrationCursor: NamespaceCursor;
+    readonly requestedExpectedActiveGeneration: QueryGeneration | null;
+    readonly activeGeneration: QueryGeneration;
+    readonly freshThroughSequence: SyncSequence;
+  }>
+  | Readonly<{
+    readonly _tag: "notDirty";
+    readonly descriptor: QueryDescriptor;
+    readonly activeGeneration: QueryGeneration;
+    readonly requestedDirtyThroughSequence: SyncSequence;
+    readonly freshThroughSequence: SyncSequence;
   }>;
 
 export type ApplyAdmittedBatchReceipt =
@@ -71,7 +87,7 @@ export type ApplyAdmittedBatchReceipt =
     readonly affectedQueryKeys: readonly CanonicalQueryKey[];
   }>;
 
-export type CompleteQueryGenerationReceipt =
+export type CompleteQueryEvaluationReceipt =
   | Readonly<{
     readonly _tag: "refreshRequired";
     readonly refreshedThroughSequence: SyncSequence;
@@ -89,7 +105,22 @@ export type CompleteQueryGenerationReceipt =
   | Readonly<{
     readonly _tag: "completed";
     readonly generation: QueryGeneration;
-    readonly publicationRequired: boolean;
+    readonly publicationDisposition: QueryCompletionPublicationDisposition;
+  }>
+  | Readonly<{
+    readonly _tag: "replayed";
+    readonly generation: QueryGeneration;
+    readonly publicationDisposition: QueryCompletionPublicationDisposition;
+  }>
+  | Readonly<{
+    readonly _tag: "superseded";
+    readonly generation: QueryGeneration;
+    readonly activeGeneration: QueryGeneration;
+  }>
+  | Readonly<{
+    readonly _tag: "recoveryEvidenceExpired";
+    readonly generation: QueryGeneration;
+    readonly activeGeneration: QueryGeneration;
   }>;
 
 function freezeCursor(cursor: NamespaceCursor): NamespaceCursor {
@@ -106,6 +137,9 @@ function freezeMetrics(metrics: QuerySyncStateMetrics): QuerySyncStateMetrics {
     queryCount: metrics.queryCount,
     retainedIdentityBytes: metrics.retainedIdentityBytes,
     dependencyMemberships: metrics.dependencyMemberships,
+    pendingPublicationCount: metrics.pendingPublicationCount,
+    pendingPublicationContentBytes:
+      metrics.pendingPublicationContentBytes,
     countedCanonicalBytes: metrics.countedCanonicalBytes,
   });
 }
@@ -152,14 +186,34 @@ export function epochReplacedReceipt(
 }
 
 export function projectBeginReceipt(
-  decision: BeginQueryGenerationDecision,
-): BeginQueryGenerationReceipt {
-  return Object.freeze({
-    _tag: decision._tag,
-    descriptor: freezeDescriptor(decision.descriptor),
-    generation: decision.generation,
-    registrationCursor: freezeCursor(decision.registrationCursor),
-  });
+  decision: BeginQueryEvaluationDecision,
+): BeginQueryEvaluationReceipt {
+  switch (decision._tag) {
+    case "created":
+    case "replayed":
+      return Object.freeze({
+        _tag: decision._tag,
+        attempt: makeQueryEvaluationAttempt(decision.attempt),
+      });
+    case "alreadyAdvanced":
+      return Object.freeze({
+        _tag: "alreadyAdvanced",
+        descriptor: freezeDescriptor(decision.descriptor),
+        requestedExpectedActiveGeneration:
+          decision.requestedExpectedActiveGeneration,
+        activeGeneration: decision.activeGeneration,
+        freshThroughSequence: decision.freshThroughSequence,
+      });
+    case "notDirty":
+      return Object.freeze({
+        _tag: "notDirty",
+        descriptor: freezeDescriptor(decision.descriptor),
+        activeGeneration: decision.activeGeneration,
+        requestedDirtyThroughSequence:
+          decision.requestedDirtyThroughSequence,
+        freshThroughSequence: decision.freshThroughSequence,
+      });
+  }
 }
 
 export function projectApplyReceipt(
@@ -193,8 +247,8 @@ export function projectApplyReceipt(
 }
 
 export function projectCompleteReceipt(
-  decision: CompleteQueryGenerationDecision,
-): CompleteQueryGenerationReceipt {
+  decision: CompleteQueryEvaluationDecision,
+): CompleteQueryEvaluationReceipt {
   switch (decision._tag) {
     case "refreshRequired":
       return Object.freeze({
@@ -214,10 +268,20 @@ export function projectCompleteReceipt(
         relevantThroughSequence: decision.relevantThroughSequence,
       });
     case "completed":
+    case "replayed":
       return Object.freeze({
-        _tag: "completed",
+        _tag: decision._tag,
         generation: decision.generation,
-        publicationRequired: decision.publicationRequired,
+        publicationDisposition: freezePublicationDisposition(
+          decision.publicationDisposition,
+        ),
+      });
+    case "superseded":
+    case "recoveryEvidenceExpired":
+      return Object.freeze({
+        _tag: decision._tag,
+        generation: decision.generation,
+        activeGeneration: decision.activeGeneration,
       });
   }
 }

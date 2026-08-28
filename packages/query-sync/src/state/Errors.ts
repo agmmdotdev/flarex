@@ -2,9 +2,9 @@ import { Data } from "effect";
 
 export type QuerySyncStateOperation =
   | "initializeOrInspectNamespace"
-  | "beginQueryGeneration"
+  | "beginQueryEvaluation"
   | "applyAdmittedBatchAndAdvance"
-  | "completeQueryGeneration";
+  | "completeQueryEvaluation";
 
 export type QuerySyncStateCommitCertainty = "notCommitted" | "unknown";
 
