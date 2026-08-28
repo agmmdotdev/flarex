@@ -6,8 +6,8 @@ import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import type { Effect } from "effect";
 
 import type {
-  StandardApplicationSystemTestClientV1,
-  StandardApplicationSystemTestSetupClientV1,
+  SimulationClient,
+  SimulationSetupClient,
 } from "../environment/applicationEnvironment.js";
 
 export interface SimulationActionHost {
@@ -36,14 +36,13 @@ export interface SimulationRuntimeExpectations {
  * simulation. Database and host lanes remain runner-owned inputs.
  */
 export interface Simulation<Setup, Proof, Error> {
-  readonly version: 1;
   readonly simulationId: string;
   readonly application: SimulationApplication;
   readonly setup: (
-    client: StandardApplicationSystemTestSetupClientV1,
+    client: SimulationSetupClient,
   ) => Effect.Effect<Setup, Error>;
   readonly workload: (
-    client: StandardApplicationSystemTestClientV1,
+    client: SimulationClient,
     setup: Setup,
   ) => Effect.Effect<Proof, Error>;
   readonly expectedRuntimeExecutions?: SimulationRuntimeExpectations;
@@ -91,7 +90,6 @@ export function defineSimulation<Setup, Proof, Error>(
   }
 
   return Object.freeze({
-    version: 1,
     simulationId: input.simulationId,
     application,
     setup: input.setup,

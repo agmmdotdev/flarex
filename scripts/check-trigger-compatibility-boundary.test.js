@@ -1510,9 +1510,9 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/standard-application-invocation/src/ApplicationTaskDeliveryEventHost.ts";
     const freshHost =
       "packages/system-test/support/applicationTaskSystemFreshHostTakeoverHarness.ts";
-    const databaseLane = "packages/system-test/src/lanes/databaseLaneV1.ts";
+    const databaseLane = "packages/system-test/src/lanes/databaseLane.ts";
     const environment =
-      "packages/system-test/src/environment/standardApplicationEnvironmentV1.ts";
+      "packages/system-test/src/environment/applicationEnvironment.ts";
     const runRead =
       "packages/persistence-postgres/src/taskSystemRunReadV1.ts";
     const wakeScheduler =

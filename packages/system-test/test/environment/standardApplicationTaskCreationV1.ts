@@ -666,7 +666,6 @@ const runTaskQueryCallbackV1 = Effect.fn(
 
 export const standardApplicationTaskCreationSimulationV1 =
   defineSimulation({
-    version: 1,
     simulationId: "typed-task-creation-replay",
     application: {
       applicationId: "typed-task-creation-replay",

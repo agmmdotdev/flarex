@@ -9,13 +9,9 @@
   ],
   "exports": {
     "./environment": "./src/environment/index.ts",
-    "./environment/v1": "./src/environment/standardApplicationEnvironmentV1.ts",
     "./inspection": "./src/inspection/index.ts",
-    "./inspection/v1": "./src/inspection/authoritativeStateV1.ts",
     "./lanes": "./src/lanes/index.ts",
-    "./lanes/v1": "./src/lanes/databaseLaneV1.ts",
-    "./simulation": "./src/simulation/index.ts",
-    "./simulation/v1": "./src/simulation/standardApplicationSimulationV1.ts"
+    "./simulation": "./src/simulation/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

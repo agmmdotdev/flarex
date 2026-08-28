@@ -46,13 +46,16 @@ describe("@flarex/system-test package boundary", () => {
     expect(manifest).toMatchObject({
       name: SYSTEM_TEST_PACKAGE_NAME,
       private: true,
-      exports: {
-        "./environment/v1": "./src/environment/standardApplicationEnvironmentV1.ts",
-        "./inspection/v1": "./src/inspection/authoritativeStateV1.ts",
-        "./lanes/v1": "./src/lanes/databaseLaneV1.ts",
-        "./simulation/v1": "./src/simulation/standardApplicationSimulationV1.ts",
-      },
     });
+    expect(manifest.exports).toEqual({
+      "./environment": "./src/environment/index.ts",
+      "./inspection": "./src/inspection/index.ts",
+      "./lanes": "./src/lanes/index.ts",
+      "./simulation": "./src/simulation/index.ts",
+    });
+    expect(Object.keys(manifest.exports ?? {}).some(exportName =>
+      /\/v\d+$/u.test(exportName)
+    )).toBe(false);
   });
 
   it("resolves the persistence-owned migration tree through its owner", async () => {

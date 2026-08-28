@@ -183,7 +183,6 @@ function requireLessonDocument(value: unknown, documentId: string): void {
 
 export const englishLearningSimulationV1 =
   defineSimulation({
-    version: 1,
     simulationId: "english-learning-lesson-create-and-read-v1",
     application: {
       applicationId: "english-learning",

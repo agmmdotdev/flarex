@@ -22,7 +22,6 @@ it("runs the English-learning simulation through the real Standard path", async 
   }));
 
   expect(proof).toMatchObject({
-    version: 1,
     simulationId: "english-learning-lesson-create-and-read-v1",
     applicationId: "english-learning",
     lane: "pglite",

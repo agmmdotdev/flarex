@@ -46,8 +46,8 @@ import {
 import { Result } from "effect";
 
 import type {
-  StandardApplicationSystemTestLaneV1,
-} from "../environment/standardApplicationEnvironmentV1";
+  DatabaseLane,
+} from "../environment/applicationEnvironment";
 
 const PGLITE_DELIVERY_DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 100,
@@ -75,12 +75,12 @@ const POSTGRES_TASK_MUTATION_DEADLINE_POLICY = Object.freeze({
   connectionTimeoutMilliseconds: 500,
 });
 
-export function makePGliteStandardApplicationSystemTestLaneV1(
+export function makePGliteDatabaseLane(
   persistence: Readonly<{
     readonly control: PGliteFlarexPersistence;
     readonly target: PGliteFlarexPersistence;
   }>,
-): StandardApplicationSystemTestLaneV1 {
+): DatabaseLane {
   return Object.freeze({
     name: "pglite",
     ...persistence,
@@ -134,12 +134,12 @@ export function makePGliteStandardApplicationSystemTestLaneV1(
   });
 }
 
-export function makePostgresStandardApplicationSystemTestLaneV1(
+export function makePostgresDatabaseLane(
   persistence: Readonly<{
     readonly control: PostgresFlarexPersistence;
     readonly target: PostgresFlarexPersistence;
   }>,
-): StandardApplicationSystemTestLaneV1 {
+): DatabaseLane {
   return Object.freeze({
     name: "postgres",
     ...persistence,

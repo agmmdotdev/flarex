@@ -25,17 +25,17 @@ const decodeAppRowIdHexResult = Schema.decodeUnknownResult(
 const NON_NEGATIVE_DECIMAL_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 const POSITIVE_DECIMAL_PATTERN = /^[1-9][0-9]*$/;
 
-export interface StandardApplicationCurrentRowInspectionV1 {
+export interface CurrentRowInspection {
   readonly tableName: string;
   readonly documentId: AppDocumentIdV1;
   readonly commitSeq: string;
   readonly valueState: "live" | "tombstone";
 }
 
-export interface StandardApplicationAuthoritativeInspectionV1 {
+export interface AuthoritativeInspection {
   readonly version: 1;
   readonly currentRows:
-    readonly StandardApplicationCurrentRowInspectionV1[];
+    readonly CurrentRowInspection[];
   readonly currentRowCount: number;
   readonly liveRowCount: number;
   readonly revisionRowCount: number;
@@ -47,9 +47,9 @@ export interface StandardApplicationAuthoritativeInspectionV1 {
   readonly queryRuntimeExecutions: number;
 }
 
-export class StandardApplicationSystemTestInspectionV1Error
+export class InspectionError
   extends Data.TaggedError(
-    "StandardApplicationSystemTestInspectionV1Error",
+    "InspectionError",
   )<{
     readonly reason:
       | "scopeResolutionFailed"
@@ -61,14 +61,14 @@ export class StandardApplicationSystemTestInspectionV1Error
     readonly cause: unknown;
   }> {}
 
-export interface StandardApplicationSystemTestInspectorV1 {
+export interface ApplicationInspector {
   readonly inspectAuthoritativeState: () => Effect.Effect<
-    StandardApplicationAuthoritativeInspectionV1,
-    StandardApplicationSystemTestInspectionV1Error
+    AuthoritativeInspection,
+    InspectionError
   >;
 }
 
-export interface MakeStandardApplicationSystemTestInspectorV1Input {
+export interface MakeApplicationInspectorInput {
   readonly applicationId: string;
   readonly deploymentId: string;
   readonly controlPersistence: FlarexPersistence;
@@ -81,13 +81,13 @@ export interface MakeStandardApplicationSystemTestInspectorV1Input {
  * Builds one test-run-local logical inspector. It intentionally exposes no SQL,
  * transaction, persistence, scope, or physical-locator capability.
  */
-export const makeStandardApplicationSystemTestInspectorV1 = Effect.fn(
-  "StandardApplicationSystemTest.makeInspectorV1",
+export const makeApplicationInspector = Effect.fn(
+  "ApplicationSystemTest.makeInspector",
 )(function* (
-  input: MakeStandardApplicationSystemTestInspectorV1Input,
+  input: MakeApplicationInspectorInput,
 ): Effect.fn.Return<
-  StandardApplicationSystemTestInspectorV1,
-  StandardApplicationSystemTestInspectionV1Error
+  ApplicationInspector,
+  InspectionError
 > {
   const scopeMetadata = yield* Effect.uninterruptible(Effect.tryPromise({
     try: () => input.controlPersistence.getScopeMetadataByDeploymentId(
@@ -117,9 +117,9 @@ export const makeStandardApplicationSystemTestInspectorV1 = Effect.fn(
   );
 
   const inspectAuthoritativeState:
-    StandardApplicationSystemTestInspectorV1["inspectAuthoritativeState"] =
+    ApplicationInspector["inspectAuthoritativeState"] =
       Effect.fn(
-        "StandardApplicationSystemTest.inspectAuthoritativeStateV1",
+        "ApplicationSystemTest.inspectAuthoritativeState",
       )(function* () {
         const result = yield* Effect.uninterruptible(Effect.tryPromise({
           try: () => input.targetPersistence.query<Record<string, unknown>>(
@@ -132,7 +132,7 @@ export const makeStandardApplicationSystemTestInspectorV1 = Effect.fn(
             cause,
           ),
         }));
-        return yield* Effect.fromResult(decodeInspectionResultV1(
+        return yield* Effect.fromResult(decodeInspectionResult(
           input.applicationId,
           result.rows,
           input.getMutationRuntimeExecutions(),
@@ -196,14 +196,14 @@ const INSPECTION_SQL = `select
      where scope_uuid = $1
   ), '[]'::jsonb) as outbox_commit_seqs`;
 
-function decodeInspectionResultV1(
+function decodeInspectionResult(
   applicationId: string,
   rows: readonly Record<string, unknown>[],
   mutationRuntimeExecutions: number,
   queryRuntimeExecutions: number,
 ): Result.Result<
-  StandardApplicationAuthoritativeInspectionV1,
-  StandardApplicationSystemTestInspectionV1Error
+  AuthoritativeInspection,
+  InspectionError
 > {
   if (rows.length !== 1) {
     return Result.fail(invalidInspectionResult(
@@ -219,12 +219,12 @@ function decodeInspectionResultV1(
     ));
   }
   return Result.gen(function* () {
-    const currentPointerCount = yield* decodeCountV1(
+    const currentPointerCount = yield* decodeCount(
       applicationId,
       "current_pointer_count",
       row.current_pointer_count,
     );
-    const currentRows = yield* decodeCurrentRowsV1(
+    const currentRows = yield* decodeCurrentRows(
       applicationId,
       row.current_rows,
     );
@@ -234,27 +234,27 @@ function decodeInspectionResultV1(
         "The logical current-row projection omitted an authoritative pointer.",
       ));
     }
-    const revisionRowCount = yield* decodeCountV1(
+    const revisionRowCount = yield* decodeCount(
       applicationId,
       "revision_count",
       row.revision_count,
     );
-    const commitSeqs = yield* decodeCommitSeqArrayV1(
+    const commitSeqs = yield* decodeCommitSeqArray(
       applicationId,
       "commit_seqs",
       row.commit_seqs,
     );
-    const idempotencyOutcomeCommitSeqs = yield* decodeCommitSeqArrayV1(
+    const idempotencyOutcomeCommitSeqs = yield* decodeCommitSeqArray(
       applicationId,
       "outcome_commit_seqs",
       row.outcome_commit_seqs,
     );
-    const commitFeedCommitSeqs = yield* decodeCommitSeqArrayV1(
+    const commitFeedCommitSeqs = yield* decodeCommitSeqArray(
       applicationId,
       "feed_commit_seqs",
       row.feed_commit_seqs,
     );
-    const outboxCommitSeqs = yield* decodeCommitSeqArrayV1(
+    const outboxCommitSeqs = yield* decodeCommitSeqArray(
       applicationId,
       "outbox_commit_seqs",
       row.outbox_commit_seqs,
@@ -280,16 +280,16 @@ function decodeInspectionResultV1(
       outboxCommitSeqs,
       mutationRuntimeExecutions,
       queryRuntimeExecutions,
-    } satisfies StandardApplicationAuthoritativeInspectionV1);
+    } satisfies AuthoritativeInspection);
   });
 }
 
-function decodeCurrentRowsV1(
+function decodeCurrentRows(
   applicationId: string,
   value: unknown,
 ): Result.Result<
-  readonly StandardApplicationCurrentRowInspectionV1[],
-  StandardApplicationSystemTestInspectionV1Error
+  readonly CurrentRowInspection[],
+  InspectionError
 > {
   if (!Array.isArray(value)) {
     return Result.fail(invalidInspectionResult(
@@ -298,7 +298,7 @@ function decodeCurrentRowsV1(
     ));
   }
   return Result.gen(function* () {
-    const decoded: StandardApplicationCurrentRowInspectionV1[] = [];
+    const decoded: CurrentRowInspection[] = [];
     for (const item of value) {
       if (!isNonArrayRecord(item)) {
         return yield* Result.fail(invalidInspectionResult(
@@ -343,17 +343,17 @@ function decodeCurrentRowsV1(
         documentId: appDocumentIdV1FromRowIdentity({ tableId, rowId }),
         commitSeq: item.commitSeq,
         valueState: item.valueState,
-      } satisfies StandardApplicationCurrentRowInspectionV1));
+      } satisfies CurrentRowInspection));
     }
     return Object.freeze(decoded);
   });
 }
 
-function decodeCountV1(
+function decodeCount(
   applicationId: string,
   field: string,
   value: unknown,
-): Result.Result<number, StandardApplicationSystemTestInspectionV1Error> {
+): Result.Result<number, InspectionError> {
   if (typeof value !== "string" || !NON_NEGATIVE_DECIMAL_PATTERN.test(value)) {
     return Result.fail(invalidInspectionResult(
       applicationId,
@@ -369,13 +369,13 @@ function decodeCountV1(
     ));
 }
 
-function decodeCommitSeqArrayV1(
+function decodeCommitSeqArray(
   applicationId: string,
   field: string,
   value: unknown,
 ): Result.Result<
   readonly string[],
-  StandardApplicationSystemTestInspectionV1Error
+  InspectionError
 > {
   if (!Array.isArray(value)) {
     return Result.fail(invalidInspectionResult(
@@ -403,16 +403,16 @@ function isPositiveDecimalText(value: unknown): value is string {
 function invalidInspectionResult(
   applicationId: string,
   message: string,
-): StandardApplicationSystemTestInspectionV1Error {
+): InspectionError {
   return inspectionError(applicationId, "invalidResult", new Error(message));
 }
 
 function inspectionError(
   applicationId: string,
-  reason: StandardApplicationSystemTestInspectionV1Error["reason"],
+  reason: InspectionError["reason"],
   cause: unknown,
-): StandardApplicationSystemTestInspectionV1Error {
-  return new StandardApplicationSystemTestInspectionV1Error({
+): InspectionError {
+  return new InspectionError({
     reason,
     applicationId,
     cause,

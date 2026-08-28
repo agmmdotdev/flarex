@@ -28,12 +28,12 @@ const systemTestApplicationTaskSystemFreshHostTakeoverHarnessPath =
   "packages/system-test/support/applicationTaskSystemFreshHostTakeoverHarness.ts";
 const systemTestApplicationTaskHostedTestKitPath =
   "packages/system-test/support/applicationTaskHostedTestKit.ts";
-const systemTestStandardApplicationEnvironmentPath =
-  "packages/system-test/src/environment/standardApplicationEnvironmentV1.ts";
+const systemTestApplicationEnvironmentPath =
+  "packages/system-test/src/environment/applicationEnvironment.ts";
 const systemTestStandardApplicationTaskDeliveryPath =
   "packages/system-test/src/environment/standardApplicationTaskDeliveryV1.ts";
 const systemTestDatabaseLanePath =
-  "packages/system-test/src/lanes/databaseLaneV1.ts";
+  "packages/system-test/src/lanes/databaseLane.ts";
 const standardApplicationTaskDeliveryEventHostPath =
   "packages/standard-application-invocation/src/ApplicationTaskDeliveryEventHost.ts";
 const flarexBackendTaskComputeDeliveryCandidateRunnerPath =
@@ -536,7 +536,7 @@ const admittedLaterDurableTaskImports = [
     { types: ["TaskRunIdV1"] },
   ),
   makeExactImportAdmission(
-    systemTestStandardApplicationEnvironmentPath,
+    systemTestApplicationEnvironmentPath,
     "@flarex/durable-task/internal/run-attempt-v1",
     { values: ["decodeTaskDurationMsV1"] },
   ),
@@ -668,12 +668,12 @@ const admittedLaterTaskExecutionPrincipalStoreImports = [
     },
   ),
   makeExactImportAdmission(
-    systemTestStandardApplicationEnvironmentPath,
+    systemTestApplicationEnvironmentPath,
     "flarex-backend/internal/task-execution-principal-store",
     { types: ["TaskExecutionPrincipalStoreBucket"] },
   ),
   makeExactImportAdmission(
-    systemTestStandardApplicationEnvironmentPath,
+    systemTestApplicationEnvironmentPath,
     "flarex-backend/internal/task-execution-principal-store",
     { values: ["makeTaskExecutionPrincipalStore"] },
   ),

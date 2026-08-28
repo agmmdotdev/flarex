@@ -26,7 +26,6 @@ it("runs the cooking simulation through the real Standard path", async () => {
   }));
 
   expect(proof).toMatchObject({
-    version: 1,
     simulationId: "cooking-rich-recipe-point-lifecycle-v1",
     applicationId: "cooking",
     lane: "pglite",

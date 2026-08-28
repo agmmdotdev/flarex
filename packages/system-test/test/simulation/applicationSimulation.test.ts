@@ -88,7 +88,6 @@ it("defines an owned immutable Standard Application simulation config", () => {
   const allowedOrigins = ["https://api.example.com"];
   const actionFetch = async () => new Response(null, { status: 204 });
   const input: Simulation<void, true, never> = {
-    version: 1,
     simulationId: "definition-contract",
     application: {
       applicationId: "definition-contract",
@@ -124,8 +123,8 @@ it("defines an owned immutable Standard Application simulation config", () => {
     "https://api.example.com",
   ]);
   expect(Object.isFrozen(simulation.expectedRuntimeExecutions)).toBe(true);
+  expect(simulation).not.toHaveProperty("version");
   expect(simulation).toMatchObject({
-    version: 1,
     simulationId: "definition-contract",
     application: {
       applicationId: "definition-contract",
@@ -140,7 +139,6 @@ it("defines an owned immutable Standard Application simulation config", () => {
 
 it("rejects invalid runtime-execution expectations at definition time", () => {
   const input: Simulation<void, void, never> = {
-    version: 1,
     simulationId: "invalid-expectations",
     application: {
       applicationId: "invalid-expectations",
@@ -164,7 +162,6 @@ it("captures each runtime-execution expectation exactly once", () => {
   let mutationReads = 0;
   let queryReads = 0;
   const input: Simulation<void, void, never> = {
-    version: 1,
     simulationId: "single-read-expectations",
     application: {
       applicationId: "single-read-expectations",

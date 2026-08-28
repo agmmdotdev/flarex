@@ -119,10 +119,10 @@ import {
   produceApplicationCurrentSourceBundle,
 } from "../../support/standardApplicationCurrentAnalysisHarness";
 import {
-  makeStandardApplicationSystemTestInspectorV1,
-  type StandardApplicationAuthoritativeInspectionV1,
-  type StandardApplicationSystemTestInspectionV1Error,
-} from "../inspection/authoritativeStateV1";
+  makeApplicationInspector,
+  type AuthoritativeInspection,
+  type InspectionError,
+} from "../inspection/authoritativeState";
 import type {
   Simulation,
 } from "../simulation/applicationSimulation.js";
@@ -138,7 +138,7 @@ import {
   type StandardApplicationTaskDeliveryV1Error,
 } from "./standardApplicationTaskDeliveryV1";
 
-type ApplicationTestRequirementsV1 =
+type ApplicationTestRequirements =
   | ApplicationActionSystem
   | ApplicationMutationSystem
   | ApplicationQuerySystem
@@ -160,7 +160,7 @@ const SIMULATION_APPLICATION_PREPARATION_POLICY = Object.freeze({
   maximumSemanticStreamBytes: 8_000_000,
 }) satisfies ApplicationPreparationPolicy;
 
-export interface StandardApplicationSystemTestSetupClientV1 {
+export interface SimulationSetupClient {
   readonly mutation: <Reference extends FunctionReference<
     string,
     FunctionDefinition<"mutation", "public">
@@ -183,8 +183,8 @@ export interface StandardApplicationSystemTestSetupClientV1 {
   >;
 }
 
-export interface StandardApplicationSystemTestClientV1
-  extends StandardApplicationSystemTestSetupClientV1 {
+export interface SimulationClient
+  extends SimulationSetupClient {
   readonly action: <Reference extends FunctionReference<
     string,
     FunctionDefinition<"action", "public">
@@ -241,8 +241,8 @@ export interface StandardApplicationSystemTestClientV1
     InvokeApplicationQueryError
   >;
   readonly inspectAuthoritativeState: () => Effect.Effect<
-    StandardApplicationAuthoritativeInspectionV1,
-    StandardApplicationSystemTestInspectionV1Error
+    AuthoritativeInspection,
+    InspectionError
   >;
   /**
    * Test-only deterministic OCC interleaving. The scheduled operation runs
@@ -254,17 +254,16 @@ export interface StandardApplicationSystemTestClientV1
   ) => Effect.Effect<void, never>;
 }
 
-export interface StandardApplicationSimulationRunReceiptV1<Setup, A> {
-  readonly version: 1;
+export interface SimulationRunReceipt<Setup, A> {
   readonly applicationId: string;
   readonly simulationId: string;
   readonly lane: "pglite" | "postgres";
   readonly definitionAnalyzedRegisteredReadyActivated: true;
   readonly setupProof: Setup;
   readonly afterSetupInspection:
-    StandardApplicationAuthoritativeInspectionV1;
+    AuthoritativeInspection;
   readonly workloadProof: A;
-  readonly finalInspection: StandardApplicationAuthoritativeInspectionV1;
+  readonly finalInspection: AuthoritativeInspection;
   readonly mutationRuntimeExecutions: number;
   readonly queryRuntimeExecutions: number;
   readonly actionRuntimeExecutions: number;
@@ -272,14 +271,14 @@ export interface StandardApplicationSimulationRunReceiptV1<Setup, A> {
   readonly postgresVersion: string | null;
 }
 
-export interface RunStandardApplicationSimulationV1Input<Setup, A, E> {
-  readonly lane: StandardApplicationSystemTestLaneV1;
+export interface RunSimulationInput<Setup, A, E> {
+  readonly lane: DatabaseLane;
   readonly simulation: Simulation<Setup, A, E>;
 }
 
-export class StandardApplicationSimulationIntegrationV1Error
+export class SimulationIntegrationError
   extends Data.TaggedError(
-    "StandardApplicationSimulationIntegrationV1Error",
+    "SimulationIntegrationError",
   )<{
     readonly phase:
       | "prepareRevision"
@@ -289,12 +288,12 @@ export class StandardApplicationSimulationIntegrationV1Error
     readonly cause: unknown;
   }> {}
 
-export type RunStandardApplicationSimulationV1Error<E> =
+export type RunSimulationError<E> =
   | E
-  | StandardApplicationSimulationIntegrationV1Error
-  | StandardApplicationSystemTestInspectionV1Error;
+  | SimulationIntegrationError
+  | InspectionError;
 
-export interface StandardApplicationSystemTestLaneV1 {
+export interface DatabaseLane {
   readonly name: "pglite" | "postgres";
   readonly control: ApplicationNativeMutationPersistence;
   readonly target: ApplicationNativeMutationPersistence;
@@ -322,18 +321,18 @@ export interface StandardApplicationSystemTestLaneV1 {
  * application revision. Definitions and workload policy remain caller-owned;
  * the operation only composes the existing lifecycle and invocation owners.
  */
-export const runStandardApplicationSimulationV1 = Effect.fn(
-  "StandardApplicationSimulation.runV1",
+export const runSimulation = Effect.fn(
+  "Simulation.run",
 )(function* <Setup, A, E>(
-  input: RunStandardApplicationSimulationV1Input<Setup, A, E>,
+  input: RunSimulationInput<Setup, A, E>,
 ): Effect.fn.Return<
-  StandardApplicationSimulationRunReceiptV1<Setup, A>,
-  RunStandardApplicationSimulationV1Error<E>
+  SimulationRunReceipt<Setup, A>,
+  RunSimulationError<E>
 > {
   const analysisLoader = new MiniflareApplicationAnalysisWorkerLoader();
   const runtimeLoader = new MiniflareApplicationWorkerLoader();
   return yield* Effect.scoped(
-    runStandardApplicationSimulationWithCurrentAuthorityV1(
+    runSimulationWithCurrentAuthority(
       input,
       analysisLoader,
       runtimeLoader,
@@ -343,15 +342,15 @@ export const runStandardApplicationSimulationV1 = Effect.fn(
   );
 });
 
-const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
-  "StandardApplicationSimulation.runWithCurrentAuthorityV1",
+const runSimulationWithCurrentAuthority = Effect.fn(
+  "Simulation.runWithCurrentAuthority",
 )(function* <Setup, A, E>(
-  input: RunStandardApplicationSimulationV1Input<Setup, A, E>,
+  input: RunSimulationInput<Setup, A, E>,
   analysisLoader: MiniflareApplicationAnalysisWorkerLoader,
   runtimeLoader: MiniflareApplicationWorkerLoader,
 ): Effect.fn.Return<
-  StandardApplicationSimulationRunReceiptV1<Setup, A>,
-  RunStandardApplicationSimulationV1Error<E>,
+  SimulationRunReceipt<Setup, A>,
+  RunSimulationError<E>,
   Scope.Scope
 > {
   const { simulation } = input;
@@ -360,7 +359,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
   const hostedTaskKit = yield* acquireApplicationTaskHostedTestKit({
     resources: taskDefinitions.length === 0 ? "none" : "r2",
   }).pipe(Effect.mapError(cause =>
-    new StandardApplicationSimulationIntegrationV1Error({
+    new SimulationIntegrationError({
       phase: "prepareTaskSystem",
       applicationId: simulation.application.applicationId,
       cause,
@@ -370,7 +369,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     applicationDefinition,
     SIMULATION_APPLICATION_PREPARATION_POLICY,
   )).pipe(Effect.mapError(cause =>
-    new StandardApplicationSimulationIntegrationV1Error({
+    new SimulationIntegrationError({
       phase: "prepareRevision",
       applicationId: simulation.application.applicationId,
       cause,
@@ -400,7 +399,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
         }),
       );
     },
-    catch: cause => new StandardApplicationSimulationIntegrationV1Error({
+    catch: cause => new SimulationIntegrationError({
       phase: "prepareRevision",
       applicationId: simulation.application.applicationId,
       cause,
@@ -425,7 +424,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
         }),
       },
     ),
-    catch: cause => new StandardApplicationSimulationIntegrationV1Error({
+    catch: cause => new SimulationIntegrationError({
       phase: "prepareRevision",
       applicationId: simulation.application.applicationId,
       cause,
@@ -527,10 +526,10 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
         fixture.active.basis.authority.scopeId,
       ),
       hostedTaskKit.resources?.principals ??
-        new MemoryImmutableTaskObjectBucketV1(),
+        new MemoryImmutableTaskObjectBucket(),
     ),
   ).pipe(Effect.mapError(cause =>
-    new StandardApplicationSimulationIntegrationV1Error({
+    new SimulationIntegrationError({
       phase: "prepareTaskSystem",
       applicationId: simulation.application.applicationId,
       cause,
@@ -548,7 +547,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     principalIssuer: principalStore,
   });
   const inputStore = makeTaskInputStore(
-    hostedTaskKit.resources?.inputs ?? new MemoryImmutableTaskObjectBucketV1(),
+    hostedTaskKit.resources?.inputs ?? new MemoryImmutableTaskObjectBucket(),
   );
   const standardTaskLayer = makeStandardApplicationTaskSystemLayer(
     inputStore,
@@ -573,7 +572,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     queryLayer,
     standardTaskLayer,
   );
-  const inspector = yield* makeStandardApplicationSystemTestInspectorV1({
+  const inspector = yield* makeApplicationInspector({
     applicationId: simulation.application.applicationId,
     deploymentId: fixture.deploymentId,
     controlPersistence: input.lane.control,
@@ -596,7 +595,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     effect: Effect.Effect<
       Success,
       Failure,
-      ApplicationTestRequirementsV1
+      ApplicationTestRequirements
     >,
   ): Effect.Effect<Success, Failure> => runOwned(
     invocationScope,
@@ -630,7 +629,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           runMutation(reference, args, { requestKey }),
         ))),
         unsafeInvokeMutation: Effect.fn(
-          "StandardApplicationSystemTest.unsafeSetupMutationV1",
+          "ApplicationSystemTest.unsafeSetupMutation",
         )((functionPath, args, requestKey) => invokeWhileSetupActive(() =>
           invokeApplication(
             invocationScope,
@@ -641,7 +640,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
             ),
           )
         )),
-      } satisfies StandardApplicationSystemTestSetupClientV1);
+      } satisfies SimulationSetupClient);
       return Effect.suspend(() => simulation.setup(setupClient)).pipe(
         Effect.ensuring(Effect.sync(() => { setupActive = false; })),
       );
@@ -688,7 +687,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
               taskDelivery.registerCreation(reference, creation);
             })))
           ).pipe(Effect.withSpan(
-            "StandardApplicationSystemTest.tasks.createV1",
+            "ApplicationSystemTest.tasks.create",
           )),
           deliver: <Payload, Output>(
             reference: StandardApplicationTaskReferenceV1<Payload, Output>,
@@ -698,7 +697,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
             invocationScope,
             taskDelivery.deliver(reference, creation, mode),
           )).pipe(Effect.withSpan(
-            "StandardApplicationSystemTest.tasks.deliverV1",
+            "ApplicationSystemTest.tasks.deliver",
           )),
         }),
         mutation: Effect.fn("ApplicationSystemTest.invokeMutation")(<
@@ -725,7 +724,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           runQuery(reference, args),
         ))),
         unsafeInvokeMutation: Effect.fn(
-          "StandardApplicationSystemTest.unsafeMutationV1",
+          "ApplicationSystemTest.unsafeMutation",
         )((functionPath, args, requestKey) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
@@ -737,7 +736,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           )
         )),
         unsafeInvokeAction: Effect.fn(
-          "StandardApplicationSystemTest.unsafeActionV1",
+          "ApplicationSystemTest.unsafeAction",
         )((functionPath, args, requestKey) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
@@ -749,7 +748,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           )
         )),
         unsafeInvokeQuery: Effect.fn(
-          "StandardApplicationSystemTest.unsafeQueryV1",
+          "ApplicationSystemTest.unsafeQuery",
         )((functionPath, args) => invokeWhileActive(() =>
           invokeApplication(
             invocationScope,
@@ -757,13 +756,13 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           )
         )),
         inspectAuthoritativeState: Effect.fn(
-          "StandardApplicationSystemTest.inspectWorkloadStateV1",
+          "ApplicationSystemTest.inspectWorkloadState",
         )(() => invokeWhileActive(() => runOwned(
           invocationScope,
           inspector.inspectAuthoritativeState(),
         ))),
         scheduleAfterNextMutationRuntime: Effect.fn(
-          "StandardApplicationSystemTest.scheduleAfterNextMutationRuntimeV1",
+          "ApplicationSystemTest.scheduleAfterNextMutationRuntime",
         )(operation => invokeWhileActive(() => Effect.sync(() => {
           if (afterNextMutationRuntime !== undefined) {
             throw new Error(
@@ -772,7 +771,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
           }
           afterNextMutationRuntime = operation;
         }))),
-      } satisfies StandardApplicationSystemTestClientV1);
+      } satisfies SimulationClient);
       return Effect.suspend(() => simulation.workload(client, setupProof)).pipe(
         Effect.tap(() => Effect.sync(
           () => {
@@ -811,7 +810,7 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     ));
   }
   const postgresVersion = input.lane.name === "postgres"
-    ? (yield* runUninterruptibleIntegrationPromiseV1(
+    ? (yield* runUninterruptibleIntegrationPromise(
         "inspectPostgresVersion",
         simulation.application.applicationId,
         () => input.lane.target.query<{ version: string }>(
@@ -821,7 +820,6 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
     : null;
 
   return {
-    version: 1,
     applicationId: simulation.application.applicationId,
     simulationId: simulation.simulationId,
     lane: input.lane.name,
@@ -838,14 +836,14 @@ const runStandardApplicationSimulationWithCurrentAuthorityV1 = Effect.fn(
   };
 });
 
-function runUninterruptibleIntegrationPromiseV1<A>(
-  phase: StandardApplicationSimulationIntegrationV1Error["phase"],
+function runUninterruptibleIntegrationPromise<A>(
+  phase: SimulationIntegrationError["phase"],
   applicationId: string,
   evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, StandardApplicationSimulationIntegrationV1Error> {
+): Effect.Effect<A, SimulationIntegrationError> {
   return Effect.uninterruptible(Effect.tryPromise({
     try: evaluate,
-    catch: cause => new StandardApplicationSimulationIntegrationV1Error({
+    catch: cause => new SimulationIntegrationError({
       phase,
       applicationId,
       cause,
@@ -853,7 +851,7 @@ function runUninterruptibleIntegrationPromiseV1<A>(
   }));
 }
 
-class MemoryImmutableTaskObjectBucketV1
+class MemoryImmutableTaskObjectBucket
   implements TaskInputStoreBucket, TaskExecutionPrincipalStoreBucket
 {
   private readonly values = new Map<string, Uint8Array>();

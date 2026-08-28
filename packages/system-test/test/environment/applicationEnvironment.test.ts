@@ -133,7 +133,6 @@ function defineTestSimulationV1<
     Proof,
     SetupError | WorkloadError
   >({
-    version: 1,
     simulationId,
     application: testApplication(simulationId),
     setup,
@@ -151,7 +150,6 @@ describe("Standard Application system-test environment - PGlite", () => {
       runSimulation({
         lane: makePGliteDatabaseLane(persistence),
         simulation: defineSimulation({
-          version: 1,
           simulationId: "diagnostic-registration-refusal",
           application: {
             applicationId: "diagnostic-registration-refusal",
@@ -380,6 +378,7 @@ describe("Standard Application system-test environment - PGlite", () => {
         ),
       }),
     );
+    expect(receipt).not.toHaveProperty("version");
     expect(receipt).toMatchObject({
       workloadProof: true,
       mutationRuntimeExecutions: 0,
@@ -537,7 +536,7 @@ describe("Standard Application system-test environment - PGlite", () => {
       SimulationIntegrationError,
     );
     expect(failure).toMatchObject({
-      _tag: "StandardApplicationSimulationIntegrationV1Error",
+      _tag: "SimulationIntegrationError",
       phase: "prepareRevision",
     });
     if (!(failure instanceof SimulationIntegrationError)) {
@@ -568,7 +567,7 @@ describe("Standard Application system-test environment - PGlite", () => {
       InspectionError,
     );
     expect(failure).toMatchObject({
-      _tag: "StandardApplicationSystemTestInspectionV1Error",
+      _tag: "InspectionError",
       reason: "queryFailed",
       applicationId: "cooking",
       cause: expectedCause,
@@ -595,7 +594,7 @@ describe("Standard Application system-test environment - PGlite", () => {
       InspectionError,
     );
     expect(failure).toMatchObject({
-      _tag: "StandardApplicationSystemTestInspectionV1Error",
+      _tag: "InspectionError",
       reason: "invalidResult",
       applicationId: "cooking",
     });

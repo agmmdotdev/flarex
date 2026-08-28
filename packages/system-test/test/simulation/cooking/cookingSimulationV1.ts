@@ -3015,7 +3015,6 @@ function sameJsonValue(actual: unknown, expected: unknown): boolean {
 }
 
 export const cookingSimulationV1 = defineSimulation({
-  version: 1,
   simulationId: "cooking-rich-recipe-point-lifecycle-v1",
   application: {
     applicationId: "cooking",
