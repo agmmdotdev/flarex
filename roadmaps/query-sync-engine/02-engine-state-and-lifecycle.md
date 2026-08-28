@@ -82,11 +82,12 @@ current durable state:
 - an equal result digest still replaces dependencies and advances freshness
   evidence, but need not publish another client result.
 
-The same atomic operation replaces the active slot and dependency directory,
-clears only the exact provisional slot, records any required publication outbox
-entry, and preserves a later dirty frontier. No classified candidate may escape
-and install after an intervening invalidation. The operation performs no
-network I/O.
+In the post-C target, the same atomic operation replaces the active slot and
+dependency directory, clears only the exact provisional slot, records any
+required publication outbox entry, and preserves a later dirty frontier. The
+current completed B operation stops before the outbox addition. No classified
+candidate may escape and install after an intervening invalidation. The
+operation performs no network I/O.
 
 ## Semantic State Operations
 
@@ -100,21 +101,26 @@ and is expected to contain operations in these families:
 
 ```text
 initializeOrInspectNamespace
-beginQueryGeneration
+beginQueryEvaluation
 applyAdmittedBatchAndAdvance
-completeQueryGeneration
-claimRerunWork
-recordOrClaimPublication
+completeQueryEvaluation
+claimEvaluationWork
+recordEvaluationAttemptOutcome
+claimPublication
+recordPublicationAttemptOutcome
 completePublication
 releaseOrExpireQuery
 resetNamespace
 ```
 
-The completed
+The names above are post-C responsibility names rather than a compatibility
+promise for the private B seam. The completed
 [`QSYNC01-B` slice](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
 freezes exact channels and the four operation families already proved by the
-kernel. Its implementation is private and production-inert. The remaining
-families stay with `QSYNC01-C` or a later pure transition.
+kernel under its B-stage begin/completion names. Its implementation is private
+and production-inert. The proposed C preflight replaces those two private names
+with recovery-safe operations and derives the remaining families; release/reset
+stay with a later pure transition.
 
 Each operation must state:
 

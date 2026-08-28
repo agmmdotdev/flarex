@@ -500,10 +500,12 @@ reviewers before committing.
 
 ## Implementation Receipt
 
-Completed on 2026-08-28 as one private, production-inert workspace package.
-The package exposes only `./internal/kernel` and
-`./testing/reference-model`; it has no package-root export or production
-caller. Its only runtime dependency is `effect`.
+Completed on 2026-08-28 as one private, production-inert workspace package. At
+the A checkpoint, the package exposed only `./internal/kernel` and
+`./testing/reference-model`; it had no package-root export or production
+caller, and its only runtime dependency was `effect`. The later completed B
+checkpoint extended this same package; the current boundary is recorded in the
+query-sync roadmap README and B implementation receipt.
 
 The completed slice includes:
 
@@ -540,7 +542,7 @@ Final evidence:
 semantic oracle and all evidence above passes. It still has no production
 caller and changes no current sync behavior.
 
-The next preflight must derive, rather than guess:
+The then-next B preflight was required to derive, rather than guess:
 
 1. the trusted change-source/model projection boundary;
 2. semantic atomic durable-state operations from the reference transitions;
@@ -551,3 +553,6 @@ The next preflight must derive, rather than guess:
 
 Cloudflare SQLite and Durable Streams remain later adapter gates. Do not begin
 them merely because the pure package exists.
+
+That B gate is now complete. The proposed C preflight owns the next
+recovery-stable state and orchestration decisions.

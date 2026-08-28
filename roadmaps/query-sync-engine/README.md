@@ -3,8 +3,9 @@
 ## Status And Scope
 
 **Status:** accepted architecture and roadmap authority; `QSYNC01-A` and
-`QSYNC01-B` are complete, private, and production-inert. The next engine gate
-is a separate `QSYNC01-C` orchestration preflight.
+`QSYNC01-B` are complete, private, and production-inert. The proposed
+[`QSYNC01-C` preflight](./preflight/03-qsync01-effect-orchestration.md) is ready
+for review; implementation is not yet authorized.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
@@ -148,10 +149,10 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
-| `QSYNC01-C` | Effect-native orchestration over reference capabilities: catch-up, provisional evaluation fencing, rerun coalescing, and publication-outbox decisions | Preflight required |
+| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | Preflight proposed; implementation not authorized |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex query/change adapters plus the first Cloudflare SQLite semantic-store implementation | Blocked on `QSYNC01-C`; independent of delivery-adapter selection |
-| `QSYNC-FX02` | Postgres catch-up, transactional publication outbox, authenticated query registration, evaluation, and rerun composition | Blocked on `QSYNC-FX01` |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Blocked on `QSYNC01-C`; independent of delivery-adapter selection |
+| `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
 
@@ -183,12 +184,15 @@ paths.
   freezes the trusted source/model, nominal refresh-admission, four-operation
   semantic state, Effect, uncertainty, and conformance boundary for the second
   medium slice.
+- [`preflight/03-qsync01-effect-orchestration.md`](./preflight/03-qsync01-effect-orchestration.md)
+  proposes the C-stage recovery-stable state, bounded namespace coordinator,
+  publication recovery, Effect, and conformance boundary. Its first recommended
+  medium slice is the pure/reference C1 state extension, not orchestration.
 
 ## Next Correctness Gate
 
-The next correctness gate is a separate `QSYNC01-C` preflight. It must compose
-the completed reference capabilities into Effect-native catch-up, evaluation
-fencing, refresh retry, rerun coalescing, bounded continuation, and atomic
-publication-intent decisions. It must close begin and completion uncertainty
-before any real Cloudflare SQLite adapter is admitted, and it must not widen
-into public client APIs or delivery-adapter adoption.
+The next correctness decision is explicit approval or revision of the proposed
+`QSYNC01-C` preflight. Its first medium slice, `QSYNC01-C1`, closes begin and
+completion uncertainty through the pure/reference semantic state contract
+before adding asynchronous orchestration. No real Cloudflare SQLite adapter,
+public client API, or delivery-adapter adoption is admitted by that approval.

@@ -105,23 +105,29 @@ not a complete uncertainty contract.
 
 ## Adoption Sequence
 
-1. Complete the pure transition kernel/reference model without touching the
-   current actor, store, Postgres feed, protocol, or clients.
-2. Derive the trusted change-model and semantic durable-state contracts from
-   executable transitions; do not design them from SQLite CRUD.
-3. Add Effect-native orchestration over deterministic reference capabilities.
+1. **Complete (`QSYNC01-A`).** Build the pure transition kernel/reference model
+   without touching the current actor, store, Postgres feed, protocol, or
+   clients.
+2. **Complete (`QSYNC01-B`).** Derive the trusted change-model and semantic
+   durable-state contracts from executable transitions; do not design them
+   from SQLite CRUD.
+3. **Current proposed gate (`QSYNC01-C`).** First close recovery-stable
+   evaluation/publication state, then add Effect-native orchestration over
+   deterministic reference capabilities.
 4. Map Flarex versioned query/dependency/result contracts through a Flarex
    model adapter. Keep Postgres fact projection outside the generic package.
-5. Adapt the existing per-scope Durable Object/SQLite state to the semantic
-   contract without duplicate tables, cursors, or writes.
+5. Adapt the existing per-scope Durable Object/SQLite state to the complete
+   post-C semantic contract, including query-result publication outbox state,
+   without duplicate tables, cursors, or writes.
 6. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
    it blocks only that delivery composition.
 7. Adapt the authoritative Postgres commit feed as the replayable change source
    and prove contiguous duplicate/reverse/gap/reset behavior.
-8. Add query execution, provisional completion, rerun coalescing, unchanged
-   suppression, and the durable publication outbox.
+8. Compose query execution, provisional completion, rerun coalescing,
+   unchanged suppression, and processing of the already-semantic durable
+   publication outbox.
 9. Compose whichever delivery adapter passed its own gate with the authenticated
    gateway, then the
    Flarex client wrapper.

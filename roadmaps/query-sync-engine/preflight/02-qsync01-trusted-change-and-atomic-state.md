@@ -3,8 +3,9 @@
 ## Status
 
 **Implementation status:** complete, private, and production-inert on
-2026-08-28. `QSYNC01-C` remains a separate required preflight before
-orchestration or a real durable adapter.
+2026-08-28. A separate `QSYNC01-C` preflight is now proposed for review;
+approved C implementation remains required before orchestration or a real
+durable adapter.
 
 `QSYNC01-A` is complete and remains the sole portable transition oracle.
 `QSYNC01-B` freezes the smallest trusted change-model and semantic atomic-state
@@ -55,7 +56,7 @@ publication completion, and leases remain later work.
 
 ## Package And Export Plan
 
-The approved implementation would add only these package-owned areas:
+The completed implementation added only these package-owned areas:
 
 ```text
 packages/query-sync/
@@ -932,14 +933,13 @@ Final evidence:
 
 ## Exit And Next Gate
 
-`QSYNC01-B` completes only when the accepted implementation and all evidence
-above pass. It still has no production caller or real durable adapter.
+`QSYNC01-B` is complete because the accepted implementation and all evidence
+above passed. It still has no production caller or real durable adapter.
 
-The next engine gate is a separate `QSYNC01-C` preflight. It must compose the
-reference capabilities into Effect-native catch-up, evaluation fencing, refresh
-retry, rerun coalescing, bounded continuation, and atomic publication-intent
-decisions. It must close begin and completion uncertainty before `QSYNC-FX01`
-may adapt Cloudflare SQLite.
+The proposed `QSYNC01-C` preflight splits the next engine gate into
+recovery-stable state, bounded Effect orchestration, and publication recovery.
+It must close begin and completion uncertainty before `QSYNC-FX01` may adapt
+Cloudflare SQLite.
 
 `QSYNC-CF01` may proceed independently as a production-inert delivery
 feasibility spike, but neither B nor C pre-accepts Durable Streams.

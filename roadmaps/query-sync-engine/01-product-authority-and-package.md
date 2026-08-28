@@ -126,7 +126,7 @@ package preflight backed by the second real owner.
 
 ## Package Boundary
 
-Create one private package when `QSYNC01-A` is explicitly approved:
+`QSYNC01-A/B` created and extended one private package. Its current boundary is:
 
 ```text
 packages/query-sync/
@@ -138,16 +138,29 @@ packages/query-sync/
       Model.ts
       Policy.ts
       index.ts
+    change/
+      Admission.ts
+      Errors.ts
+      Model.ts
+      index.ts
+    state/
+      Errors.ts
+      Port.ts
+      Receipts.ts
+      index.ts
     testing/
       ReferenceModel.ts
+      conformance/
       index.ts
   test/
 ```
 
 The package name is `@flarex/query-sync`. The permanent product name does not
-need `core` or a version suffix. The package has no root public SDK export;
-`./internal/kernel` maps exactly to `./src/kernel/index.ts`, and
-`./testing/reference-model` maps exactly to `./src/testing/index.ts`.
+need `core` or a version suffix. The package has no root public SDK export. Its
+current explicit subpaths are `./internal/kernel`, `./internal/change`,
+`./internal/state`, `./testing/conformance`, and
+`./testing/reference-model`. The proposed C3 slice may add only the separately
+reviewed `./internal/orchestration` subpath.
 
 The package owns:
 
