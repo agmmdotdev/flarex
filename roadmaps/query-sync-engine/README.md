@@ -3,7 +3,11 @@
 ## Status And Scope
 
 **Status:** accepted architecture and roadmap authority; the first portable
-kernel slice is complete and production-inert.
+kernel slice is complete and production-inert. The separate
+[`QSYNC01-B`](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
+implementation preflight is approved; its bounded implementation has not
+started.
+
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
 approved [`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md),
@@ -139,7 +143,7 @@ public compatibility contract makes that boundary concrete.
 | --- | --- | --- |
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
-| `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Preflight required |
+| `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Preflight approved; implementation not started |
 | `QSYNC01-C` | Effect-native orchestration over reference capabilities: catch-up, provisional evaluation fencing, rerun coalescing, and publication-outbox decisions | Preflight required |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex query/change adapters plus the first Cloudflare SQLite semantic-store implementation | Blocked on `QSYNC01-B/C`; independent of delivery-adapter selection |
@@ -171,11 +175,15 @@ paths.
 - [`preflight/01-qsync01-portable-transition-kernel.md`](./preflight/01-qsync01-portable-transition-kernel.md)
   is the completed preflight and implementation record for the first medium
   slice.
+- [`preflight/02-qsync01-trusted-change-and-atomic-state.md`](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
+  freezes the trusted source/model, nominal refresh-admission, four-operation
+  semantic state, Effect, uncertainty, and conformance boundary for the second
+  medium slice.
 
 ## Next Correctness Gate
 
-The next candidate is a separate `QSYNC01-B` preflight. It must derive the
-trusted model/change-source boundary and semantic atomic state-store contract
-from the completed reference transitions. It must not begin services, Layers,
-storage, Postgres, Cloudflare, Electric, query execution, delivery, or client
-APIs without that fresh approval.
+The next correctness gate is the approved `QSYNC01-B` first medium
+implementation slice. It adds the trusted model/change-source boundary and a
+production-inert semantic atomic transition-state contract derived from the
+completed reference transitions. It must not widen into Layers, real storage,
+Postgres, Cloudflare, Electric, query execution, delivery, or client APIs.

@@ -110,7 +110,12 @@ releaseOrExpireQuery
 resetNamespace
 ```
 
-Exact names, `A`, `E`, and `R` channels are not frozen until `QSYNC01-B/C`.
+The docs-only
+[`QSYNC01-B` preflight](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
+now freezes exact channels and the four operation families already proved by
+the kernel. Its implementation is approved but has not started. The remaining
+families stay with `QSYNC01-C` or a later pure transition.
+
 Each operation must state:
 
 - values revalidated inside the transaction;

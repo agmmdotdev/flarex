@@ -151,6 +151,10 @@ The Query Sync Engine preflight admits one private `@flarex/query-sync` package
 as a coherent host-neutral domain owner. Its explicitly approved first slice,
 [`QSYNC01-A`](./query-sync-engine/preflight/01-qsync01-portable-transition-kernel.md),
 is complete as a production-inert pure kernel and reference model.
+The separate
+[`QSYNC01-B`](./query-sync-engine/preflight/02-qsync01-trusted-change-and-atomic-state.md)
+change/state-contract preflight is approved. Its bounded implementation has not
+started and it authorizes no real adapter.
 
 The package owns only runtime-neutral query-result synchronization semantics:
 namespace/model isolation, exact source ordering, canonical query/dependency

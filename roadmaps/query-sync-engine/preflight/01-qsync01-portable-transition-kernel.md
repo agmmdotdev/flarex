@@ -545,7 +545,9 @@ The next preflight must derive, rather than guess:
 1. the trusted change-source/model projection boundary;
 2. semantic atomic durable-state operations from the reference transitions;
 3. exact Effect `A`, `E`, and `R` channels and lifecycle owners; and
-4. the first Flarex mapping without importing Flarex identities into the core.
+4. the first Flarex mapping constraints and evidence inventory without
+   importing Flarex identities into the core; actual adapters remain
+   `QSYNC-FX01` work after `QSYNC01-B/C`.
 
 Cloudflare SQLite and Durable Streams remain later adapter gates. Do not begin
 them merely because the pure package exists.
