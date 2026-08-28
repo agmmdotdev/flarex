@@ -1,8 +1,10 @@
 # DTE06 Node Task Provider Architecture Preflight
 
-Status: accepted docs-only architecture checkpoint on 2026-08-28. No code,
-wire, schema, route, binding, deployment, credential, external-resource, or
-production-activation change is authorized.
+Status: accepted architecture checkpoint on 2026-08-28. The separately
+approved N1 runtime-family and immutable artifact-contract gate is complete.
+N2 and later gates remain unapproved; no Node provider, session refactor,
+callback transport, process, deployment, credential, external resource, or
+production activation exists.
 
 Evidence snapshot: 2026-08-28 current repository state after the completed
 provider router and private Worker Loader routed composition in Preflights 48
@@ -329,8 +331,8 @@ an accepted Flarex dependency or public contract.
 
 ## Ordered Delivery Gates
 
-No implementation is authorized by this document. If separately approved, the
-safe order is:
+N1 was separately approved and completed. The remaining gates still require
+separate approval and retain this safe order:
 
 1. **N1 — runtime-family and artifact contract:** define the private trusted
    compute-profile catalog semantics and Node-compatible immutable Task
@@ -360,10 +362,9 @@ both standing project reviewers against the exact final diff.
 
 ## Non-Goals
 
-This checkpoint does not authorize:
+This checkpoint does not authorize beyond the completed N1 contract slice:
 
-- a TypeScript/JavaScript implementation or refactor;
-- a new artifact, runtime-target, callback, provider, or deployment wire;
+- a runtime-target, callback, provider, session, or deployment wire;
 - a local child process, AWS resource, container, route, binding, token issuer,
   secret, or credential;
 - a public `task()`/`action()` API or `"use node"` syntax change;
@@ -378,11 +379,44 @@ This checkpoint does not authorize:
 
 ## Stop Boundary And Next Gate
 
-Stop at this documentation checkpoint. The Worker Loader remains the only real
-private provider and the current isolate artifact/session behavior remains
-unchanged.
+Stop after N1. The Worker Loader remains the only real private provider and the
+current isolate artifact/session behavior remains unchanged. Node profiles are
+explicitly provider-disabled and Node artifact admission reports dispatch as
+blocked.
 
-The next separately approved code gate is N1 only: the runtime-family and
-immutable Node artifact/publication/readiness contract. Do not begin the Node
-provider, callback endpoints, local process, or hosted deployment in that
-slice.
+The next separately approved code gate is N2 only: extract the minimal
+provider-neutral `TaskExecutionSession` seam and adapt Worker Loader without
+changing behavior or versioned wires. Do not begin the Node executor protocol,
+callback endpoints, local process, or hosted deployment in that slice.
+
+## N1 Implementation Receipt
+
+Completed on 2026-08-28:
+
+- added a strict, canonical, owned compute-profile catalog that commits runtime
+  family, Task runtime/bridge/profile identities, resource-class identity,
+  duration ceiling, fail-closed capabilities, and provider placement;
+- retained the current isolate ABI and enabled Worker Loader placement while
+  defining Node placement as unconfigured and provider-disabled;
+- added canonical immutable Node artifact evidence for exact revision,
+  candidate, Task manifest, handler, modules, Node ABI, content-addressed bundle
+  and dependency objects, supported profiles, and the exact canonical compute-
+  profile catalog digest;
+- made Node artifact admission hash the canonical manifest, catalog, and
+  artifact; authenticate revision, candidate, Task, handler, and manifest
+  commitments; reject cross-family supported profiles; and return the exact
+  immutable artifact/catalog hex commitments plus defensive artifact readers
+  while dispatch remains blocked;
+- kept the current Worker publication/materialization contract unchanged: its
+  isolate ABI remains explicit, and Standard Application manifests continue to
+  reject OOM escalation until the complete active launch path can consume a
+  bound same-family reachable-profile set; and
+- kept Node artifacts unwired from routing, launch authority, sessions,
+  callbacks, processes, and deployment.
+
+Focused receipt: Standard Application definition typecheck and 81 tests,
+workspace `lint:core`, unstaged and exact-staged diff lint, Effect boundary
+check, and Standard Application boundary check passed. The whole-workspace
+typecheck passed through the owned package and was blocked later in the
+executor app by concurrent Persistence relation-binding work outside this
+slice; the exact staged N1 snapshot remains the commit gate.
