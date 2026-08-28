@@ -1,3 +1,4 @@
+import { isCanonicalCalendarDate } from "@flarex/time/calendar-date";
 import {
   bytesEqualFullScan,
   copyBytes,
@@ -693,12 +694,7 @@ function decodeCanonicalDigest(input: unknown): Uint8Array | undefined {
 }
 
 function isCompatibilityDate(input: unknown): input is string {
-  if (typeof input !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input)) {
-    return false;
-  }
-  const milliseconds = Date.parse(`${input}T00:00:00.000Z`);
-  return Number.isFinite(milliseconds) &&
-    new Date(milliseconds).toISOString().slice(0, 10) === input;
+  return isCanonicalCalendarDate(input);
 }
 
 function isRuntimeHostIdentity(input: unknown): input is string {

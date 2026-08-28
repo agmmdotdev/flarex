@@ -60,6 +60,7 @@ const expectedRuntimeDependencies = new Map([
   ["@flarex/declarative-materializer", "workspace:*"],
   ["@flarex/declarative-program", "workspace:*"],
   ["@flarex/durable-task", "workspace:*"],
+  ["@flarex/time", "workspace:*"],
   ["@flarex/utils", "workspace:*"],
   ["effect", "catalog:"],
   ["flarex-protocol", "workspace:*"],
@@ -116,6 +117,7 @@ const relationDefinitionAllowedProductionImports = new Set([
 ]);
 const applicationTaskBindingAllowedProductionImports = new Set([
   ...shippedDefinitionAllowedProductionImports,
+  "@flarex/time/calendar-date",
   "@flarex/utils/bytes",
   "@flarex/utils/records",
   "flarex-protocol/internal/application-runtime-cold-receipt-v1",

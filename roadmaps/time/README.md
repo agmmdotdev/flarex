@@ -80,7 +80,10 @@ migration. It requires its own compatibility evidence and approval.
 1. Foundation: publish branded epoch, canonical instant, and calendar-date
    contracts with adversarial tests and the protocol compatibility facade.
 2. Exact duplicates: migrate only importable consumers with byte-for-byte,
-   message, validation-order, and throw/failure equivalence.
+   message, validation-order, and throw/failure equivalence. The Standard
+   Application task-binding compatibility-date guard now delegates its exact
+   four-digit UTC-midnight contract to `@flarex/time/calendar-date` while
+   retaining its domain error and public string boundary.
 3. Effect clock hygiene: classify live reads, then replace domain/service live
    time with Effect Clock while retaining platform adapters and external
    watchdogs. The `SchedulerDO` decision and continuation-storage slices are

@@ -64,6 +64,7 @@ describe("Standard Application definition boundary checker", () => {
         relativePath:
           "packages/standard-application-definition/src/applicationTaskBinding/Canonical.ts",
         text: `
+          import { isCanonicalCalendarDate } from "@flarex/time/calendar-date";
           import { copyBytes } from "@flarex/utils/bytes";
           import { isNonArrayRecord } from "@flarex/utils/records";
           import { receipt } from "flarex-protocol/internal/application-runtime-cold-receipt-v1";
@@ -207,10 +208,11 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition runtime dependencies must be exactly: @flarex/analysis, @flarex/application-schema-definition, @flarex/declarative-materializer, @flarex/declarative-program, @flarex/durable-task, @flarex/utils, effect, flarex-protocol.",
+      "Standard Application definition runtime dependencies must be exactly: @flarex/analysis, @flarex/application-schema-definition, @flarex/declarative-materializer, @flarex/declarative-program, @flarex/durable-task, @flarex/time, @flarex/utils, effect, flarex-protocol.",
       "Standard Application definition dependency @flarex/application-schema-definition must use workspace:*.",
       "Standard Application definition dependency @flarex/declarative-materializer must use workspace:*.",
       "Standard Application definition dependency @flarex/durable-task must use workspace:*.",
+      "Standard Application definition dependency @flarex/time must use workspace:*.",
       "Standard Application definition dependency @flarex/utils must use workspace:*.",
       "Standard Application definition dependency effect must use catalog:.",
       "Standard Application definition dependency flarex-protocol must use workspace:*.",
@@ -486,6 +488,7 @@ function validManifest() {
       "@flarex/declarative-materializer": "workspace:*",
       "@flarex/declarative-program": "workspace:*",
       "@flarex/durable-task": "workspace:*",
+      "@flarex/time": "workspace:*",
       "@flarex/utils": "workspace:*",
       "effect": "catalog:",
       "flarex-protocol": "workspace:*",

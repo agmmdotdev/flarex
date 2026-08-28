@@ -24,6 +24,7 @@
     "@flarex/declarative-materializer": "workspace:*",
     "@flarex/declarative-program": "workspace:*",
     "@flarex/durable-task": "workspace:*",
+    "@flarex/time": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex-protocol": "workspace:*"

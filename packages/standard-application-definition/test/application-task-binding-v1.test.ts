@@ -395,6 +395,49 @@ describe("Application task binding V1", () => {
     });
   });
 
+  it("retains the exact four-digit compatibility-date contract", async () => {
+    const catalog = await makeCatalog();
+    const input = {
+      version: 1,
+      ...authority,
+      ...runtimePolicy,
+      taskCatalogSha256: catalog.taskCatalogSha256,
+      taskCount: 1,
+    };
+
+    for (const compatibilityDate of [
+      "0000-01-01",
+      "2000-02-29",
+      "2026-08-28",
+      "9999-12-31",
+    ]) {
+      expect(Result.isSuccess(decodeApplicationTaskCatalogBindingV1({
+        ...input,
+        compatibilityDate,
+      }))).toBe(true);
+    }
+
+    for (const compatibilityDate of [
+      0,
+      "2026-8-28",
+      "+010000-01-01",
+      "2026-02-29",
+      "2026-02-30",
+      "2026-13-01",
+    ]) {
+      expect(decodeApplicationTaskCatalogBindingV1({
+        ...input,
+        compatibilityDate,
+      })).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          reason: "invalidRuntimePolicy",
+          path: "compatibilityDate",
+        },
+      });
+    }
+  });
+
   it("treats impossible binding digest input failures as defects", async () => {
     const catalog = await makeCatalog();
     const binding = Result.getOrThrow(decodeApplicationTaskCatalogBindingV1({
