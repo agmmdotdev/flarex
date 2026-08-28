@@ -1,3 +1,5 @@
+import { isCanonicalIsoInstant } from "@flarex/time/iso-instant";
+
 /**
  * Returns whether a string is exactly the canonical spelling emitted by
  * `Date.prototype.toISOString()` for the parsed instant.
@@ -7,7 +9,5 @@
  * authority, or a domain-specific year range.
  */
 export function isCanonicalIsoTimestamp(value: string): boolean {
-  const milliseconds = Date.parse(value);
-  return Number.isFinite(milliseconds) &&
-    new Date(milliseconds).toISOString() === value;
+  return isCanonicalIsoInstant(value);
 }

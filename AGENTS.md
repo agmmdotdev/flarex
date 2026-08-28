@@ -402,13 +402,19 @@ parseable date text and normalize it to ISO, share that policy package-locally
 while retaining each caller's validation order and typed failure mapping. Do
 not promote platform Date parsing into `@flarex/utils/dates` or describe the
 input as canonical merely because the output is normalized.
-When independent Flarex protocol or evidence owners require the exact full
-ECMAScript spelling produced by `Date.prototype.toISOString()`, use
-`flarex-protocol/iso-timestamp`. It admits extended years and proves only a
-parse-and-round-trip spelling. Keep four-digit-year restrictions, brands,
-diagnostics, freshness, ordering, expiry, and clock authority with their
-domain owner; a stronger timestamp grammar must not be weakened merely to
-reuse the shared predicate.
+When independent Flarex protocol, evidence, or core owners require the exact
+full ECMAScript spelling produced by `Date.prototype.toISOString()`, use
+`@flarex/time/iso-instant`. Existing consumers of
+`flarex-protocol/iso-timestamp` may retain that compatibility facade. The time
+contract admits extended years and proves only a parse-and-round-trip spelling.
+Keep four-digit-year restrictions, domain errors, freshness, ordering, expiry,
+and clock authority with their domain owner; a stronger timestamp grammar must
+not be weakened merely to reuse the shared decoder or predicate.
+When importable compatibility-date owners require the exact four-digit
+`YYYY-MM-DD` UTC-midnight round trip, use `@flarex/time/calendar-date` while
+retaining their domain name, message, and failure or throwing boundary.
+Self-contained generated Worker source keeps the smallest local equivalent
+because it cannot import a workspace package at runtime.
 When a pure recoverable decoder serves both a typed Effect API and an existing
 throwing compatibility API, keep one domain-local Effect v4 `Result`
 normalizer. Enter the Effect error channel once with `Effect.fromResult`, and

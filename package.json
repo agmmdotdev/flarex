@@ -5,9 +5,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "lint": "pnpm lint:core",
-    "lint:core": "oxlint --quiet packages/utils/src packages/query-sync/src packages/flarex-protocol/src packages/executor/src packages/executor-http/src packages/executor-nitro/src packages/persistence-postgres/src",
+    "lint:core": "oxlint --quiet packages/utils/src packages/time/src packages/query-sync/src packages/flarex-protocol/src packages/executor/src packages/executor-http/src packages/executor-nitro/src packages/persistence-postgres/src",
     "lint:diff": "node scripts/check-oxlint-diff.mjs",
-    "lint:audit": "oxlint packages/utils/src packages/query-sync/src packages/flarex-protocol/src packages/executor/src packages/executor-http/src packages/executor-nitro/src packages/persistence-postgres/src",
+    "lint:audit": "oxlint packages/utils/src packages/time/src packages/query-sync/src packages/flarex-protocol/src packages/executor/src packages/executor-http/src packages/executor-nitro/src packages/persistence-postgres/src",
     "check:effect-boundaries": "node scripts/check-effect-boundaries.mjs",
     "check:durable-task-lifecycle-vectors": "node scripts/check-durable-task-lifecycle-vectors.mjs",
     "check:connected-runtime-source-map": "node scripts/check-connected-runtime-source-map.mjs",

@@ -1,0 +1,26 @@
+{
+  "name": "@flarex/time",
+  "version": "0.0.1",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    "./calendar-date": "./src/calendar-date.ts",
+    "./epoch-milliseconds": "./src/epoch-milliseconds.ts",
+    "./iso-instant": "./src/iso-instant.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@flarex/utils": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -96,6 +96,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/time": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:"
   },

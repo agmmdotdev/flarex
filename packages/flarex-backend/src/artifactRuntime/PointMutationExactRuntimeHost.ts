@@ -1,3 +1,7 @@
+import {
+  calendarDateToEpochMilliseconds,
+  isCanonicalCalendarDate,
+} from "@flarex/time/calendar-date";
 import { Data, Effect } from "effect";
 import {
   assertExecutionArtifactRefMatchesMaterializedSourcePackage,
@@ -124,7 +128,7 @@ export function pointMutationExactRuntimeWorkerCodeIdentityV1(
 ): string {
   const runtimeSupportModules = pointMutationExactRuntimeSupportModulesV1({
     executionModule: input.artifact.executionModule,
-    moduleTime: Date.parse(`${input.compatibilityDate}T00:00:00.000Z`),
+    moduleTime: compatibilityDateMilliseconds(input.compatibilityDate),
     moduleRandomSeedHex: input.artifact.sourcePackageHash,
   });
   return JSON.stringify([
@@ -270,17 +274,10 @@ function pointMutationExactRuntimeSupportModulesV1(
 }
 
 function compatibilityDateMilliseconds(compatibilityDate: string): number {
-  const hasDateShape = /^\d{4}-\d{2}-\d{2}$/.test(compatibilityDate);
-  const moduleTime = hasDateShape
-    ? Date.parse(`${compatibilityDate}T00:00:00.000Z`)
-    : Number.NaN;
-  if (
-    !Number.isFinite(moduleTime) ||
-    new Date(moduleTime).toISOString().slice(0, 10) !== compatibilityDate
-  ) {
+  if (!isCanonicalCalendarDate(compatibilityDate)) {
     throw new Error("Exact point-mutation runtime compatibility date is invalid.");
   }
-  return moduleTime;
+  return calendarDateToEpochMilliseconds(compatibilityDate);
 }
 
 export const loadPointMutationExactRuntimeWorkerDefinitionV1Effect = Effect.fn(

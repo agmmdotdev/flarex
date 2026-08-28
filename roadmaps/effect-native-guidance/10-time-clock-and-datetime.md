@@ -111,6 +111,13 @@ semantics, while some Flarex contracts require a canonical UTC ISO string or
 an exact encoded representation. Preserve that public rule and change only
 the internal representation when equivalence is proven.
 
+Use `@flarex/time` for the shared Flarex epoch-millisecond, canonical
+ISO-instant, and four-digit calendar-date value contracts. Its unknown-input
+decoders return pure `Result` values; an Effect-native owner may enter its
+typed failure channel once with `Effect.fromResult`. Keep stricter wire,
+freshness, expiry, authorization, and database-time rules with their owners.
+See `roadmaps/time/README.md` for the package and migration boundary.
+
 Do not wrap ordinary date construction in `Effect.try` by default. Prefer a
 safe constructor returning `Option` or a typed Schema decoder. Use an unsafe
 constructor only after validation or for a trusted constant where invalid

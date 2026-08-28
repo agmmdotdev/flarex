@@ -1,3 +1,4 @@
+import { isCanonicalCalendarDate } from "@flarex/time/calendar-date";
 import { Data, Result, Schema } from "effect";
 
 import { encodeCanonicalJson, type JsonObject } from "./json";
@@ -180,8 +181,5 @@ function invalidShape(): Result.Result<
 }
 
 function isCompatibilityDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const milliseconds = Date.parse(`${value}T00:00:00.000Z`);
-  return Number.isFinite(milliseconds) &&
-    new Date(milliseconds).toISOString().slice(0, 10) === value;
+  return isCanonicalCalendarDate(value);
 }

@@ -110,6 +110,7 @@
     "@flarex/function-runtime": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/standard-application-definition": "workspace:*",
+    "@flarex/time": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",

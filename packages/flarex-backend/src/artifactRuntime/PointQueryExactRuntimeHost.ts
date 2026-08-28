@@ -1,3 +1,7 @@
+import {
+  calendarDateToEpochMilliseconds,
+  isCanonicalCalendarDate,
+} from "@flarex/time/calendar-date";
 import { Data } from "effect";
 import {
   POINT_QUERY_EXACT_RUNTIME_ENTRYPOINT_V1,
@@ -171,12 +175,8 @@ export function buildPointQueryExactRuntimeWorkerDefinitionV1(
 }
 
 function compatibilityDateMilliseconds(value: string): number {
-  const milliseconds = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? Date.parse(`${value}T00:00:00.000Z`)
-    : Number.NaN;
-  if (!Number.isFinite(milliseconds) ||
-    new Date(milliseconds).toISOString().slice(0, 10) !== value) {
+  if (!isCanonicalCalendarDate(value)) {
     throw new Error("Exact point-query runtime compatibility date is invalid.");
   }
-  return milliseconds;
+  return calendarDateToEpochMilliseconds(value);
 }

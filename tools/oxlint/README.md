@@ -5,6 +5,11 @@ by `lint:core` and `lint:audit`. It does not scan `third_party/trigger.dev`,
 generated sources, vendored source snapshots, or application packages that
 have not entered the rollout.
 
+`packages/time/src` entered the core rollout with the temporal-value package.
+Its pure decoders and conversions are subject to the same zero-debt and
+changed-lines gates as the other configured kernel sources; package tests
+remain outside the production-source lint scope.
+
 ## Commands
 
 - `pnpm lint` and `pnpm lint:core` run the blocking zero-debt rules and hide

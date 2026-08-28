@@ -1293,6 +1293,10 @@ describe("point mutation exact-runtime Dynamic Worker host", () => {
       artifact,
       compatibilityDate: "2026-07-25",
     })).not.toBe(identity);
+    expect(() => pointMutationExactRuntimeWorkerCodeIdentityV1({
+      artifact,
+      compatibilityDate: "2026-02-30",
+    })).toThrow("Exact point-mutation runtime compatibility date is invalid.");
     const identityParts: unknown = JSON.parse(identity);
     expect(identityParts).toContainEqual([
       POINT_MUTATION_EXACT_RUNTIME_MAIN_MODULE_V1,

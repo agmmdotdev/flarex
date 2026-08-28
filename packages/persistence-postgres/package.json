@@ -226,6 +226,7 @@
     "@flarex/durable-task": "workspace:*",
     "@flarex/managed-schema": "workspace:*",
     "@flarex/standard-application-definition": "workspace:*",
+    "@flarex/time": "workspace:*",
     "@flarex/utils": "workspace:*",
     "@types/pg": "^8.20.0",
     "drizzle-orm": "^0.45.2",
