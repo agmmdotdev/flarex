@@ -4,19 +4,23 @@
 
 **Preflight status:** accepted umbrella architecture. `QSYNC01-C1` is complete
 in commit `b6621cf3`, and the separately approved C2 contract is complete in
+commit `1df70907` and
 [`04-qsync01-c2-durable-work-and-publication-state.md`](./04-qsync01-c2-durable-work-and-publication-state.md).
+The exact
+[`QSYNC01-C3` preflight](./05-qsync01-c3-bounded-evaluation-orchestration.md)
+is proposed for explicit review and is not implementation authority.
 
 The original approval authorized **C1 only**, and the later explicit approval
-authorized **C2 only**. C3 and C4 each require a separate explicit user
-implementation approval after the preceding slice and its evidence are
-reviewed; the umbrella architecture is not standing authority to implement the
-remaining slices.
+authorized **C2 only**. C3 requires approval of its exact preflight, and C4
+requires a later separate preflight and approval after C3 evidence is reviewed.
+The umbrella architecture is not standing implementation authority.
 
-`QSYNC01-A` and `QSYNC01-B` are complete, private, and production-inert. They
-provide the pure transition oracle, admitted change source, nominal refresh
-evidence, receipt-only semantic state port, and deterministic reference
-capabilities. They do not yet provide a retry-safe evaluation lifecycle,
-publication outbox, query evaluator, publisher, or orchestration turn.
+`QSYNC01-A` through `QSYNC01-C2` are complete, private, and
+production-inert. Together they provide the pure transition oracle, admitted
+change source, nominal refresh evidence, retry-safe evaluation lifecycle,
+atomic pending publication intent, durable evaluation/publication work state,
+receipt-only semantic state port, and deterministic reference capabilities.
+They do not provide a query evaluator, publisher, or orchestration turn.
 
 ## Decision
 
@@ -181,10 +185,12 @@ preflight change, not an implementation convenience.
 
 ## Namespace, Model, And Trust Binding
 
-Every state/source/evaluator/publisher/coordinator instance is already bound to
-one authenticated namespace capability and one admitted static model. Every
-operation still carries enough namespace, model, epoch, query, generation, and
-cursor evidence for the state transaction to reject a crossed or stale value.
+Every constructed state/source/evaluator/publisher/coordinator instance must be
+bound to one authenticated namespace capability and one admitted static model.
+The current source/state capabilities already follow that rule; C3/C4 must
+preserve it when their capabilities are added. Every operation still carries
+enough namespace, model, epoch, query, generation, and cursor evidence for the
+state transaction to reject a crossed or stale value.
 
 The generic engine never:
 
@@ -526,11 +532,15 @@ may replace these channels.
 
 ## C3 Evaluation Coordinator Shape
 
+The exact C3 surface, charging rules, algorithms, and proof gate are owned by
+[`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
+That later record supersedes any ambiguity in this umbrella sketch.
+
 C3 adds a plain factory, not a namespace Context tag:
 
 ```text
 makeNamespaceQuerySync({
-  binding,
+  bootstrapCursor,
   source,
   state,
   evaluator,
@@ -538,17 +548,18 @@ makeNamespaceQuerySync({
 }) -> NamespaceQuerySync
 
 NamespaceQuerySync.catchUp(turnBudget)
-NamespaceQuerySync.beginQuery(target, turnBudget)
-NamespaceQuerySync.runDirtyWork(continuation, turnBudget)
-NamespaceQuerySync.recoverEvaluationWork(continuation, turnBudget)
+NamespaceQuerySync.beginQuery(descriptor, turnBudget)
+NamespaceQuerySync.runEvaluationWork({ continuation }, turnBudget)
 ```
 
-Names describe the internal responsibility and are frozen only when C3 is
-approved. The factory captures one namespace-bound source, state adapter,
-evaluator, and immutable policy. Returned operations are named `Effect.fn`
-values whose custom requirement channel is `never`; dependencies are supplied
-at construction. A later application-scoped registry/factory may be a Context
-service, but the many namespace instances are not singleton services.
+The factory captures one namespace-bound source, state adapter, evaluator,
+bootstrap binding, and immutable policy. It constructs operation authority and
+does not accept a caller-supplied target. Null-continuation
+`runEvaluationWork` is the recovery path; C3 adds no overlapping recovery
+method. Returned operations are named `Effect.fn` values whose custom
+requirement channel is `never`; dependencies are supplied at construction. A
+later application-scoped registry/factory may be a Context service, but the
+many namespace instances are not singleton services.
 
 C3 creates no Layer, Scope, Fiber, runtime, or runner. It performs one caller-
 driven bounded turn and returns a continuation. A real Worker fetch/alarm/queue
@@ -721,7 +732,9 @@ and transition policies continue to use plain TypeScript and Effect v4
 Outcome decisions such as gap, reset, budget exhaustion, continuation,
 refresh, resnapshot, rerun, idle, replay, and supersession remain values when
 the caller is expected to branch. Corruption, incompatible persisted state,
-invalid trusted evidence, and terminal adapter failures remain typed failures.
+and invalid trusted evidence remain typed failures. A raw terminal adapter
+refusal remains typed at its capability boundary and may become a blocked value
+only after the exact C2/C4 state operation durably records that disposition.
 Unexpected throws, invariant defects, interruption, and cancellation preserve
 their full Effect `Cause`.
 
@@ -823,6 +836,13 @@ another unit starts; whichever expires first returns a frozen continuation or
 outcome. An already-started state call may settle after the admission deadline
 only within the adapter's separately proved finite settlement bound.
 
+The exact C3 contract uses one shared source-read, batch, and byte/work ledger
+across catch-up and refresh for the whole turn. Its method-local evaluator
+ledger enforces both the per-query call ceiling and the derived whole-turn
+total. The 32-read ceiling is not additive per phase or per query, and every
+physical evaluator retry/resnapshot/rerun counts toward the two-call per-query
+ceiling.
+
 The 1 MiB inline target is intentionally below the evaluated delivery
 candidate's approximately 1.9 MB value ceiling. It does not prove Durable
 Streams compatibility; envelope overhead, real platform behavior, large-result
@@ -898,7 +918,7 @@ production coordinator remains caller-driven and fiber-free.
 
 ## Explicitly Not Authorized
 
-Approval of this preflight or C1 does not authorize:
+Approval of this umbrella, C1, or C2 does not authorize:
 
 - a production caller, route, alarm, queue, scheduler, Durable Object, Worker
   runner, or background Fiber;
@@ -922,11 +942,11 @@ Approval of this preflight or C1 does not authorize:
 - Legacy dual state, dual writes, fallback, migration, or current sync-engine
   cutover;
 - `R03-B`, Payload integration, public relation APIs, or a claim that runtime
-  portability is proven; or
+  portability is proven;
 - a real Cloudflare state adapter before all of C is complete and its adapter
   preflight is separately approved; or
-- C2, C3, or C4 implementation merely because the umbrella architecture or C1
-  is approved; every later slice needs separate explicit user approval.
+- C3 or C4 implementation merely because the umbrella architecture, C1, or C2
+  is approved; each remaining slice needs separate explicit user approval.
 
 ## First Medium Implementation Slice: QSYNC01-C1
 
@@ -992,12 +1012,12 @@ intent after unknown completion. Its completion does not make C or a real
 adapter complete.
 
 `QSYNC01-C2` is complete with durable evaluation-work selection and publication
-attempt/completion state. C3 separately requires approval for the bounded
-evaluation coordinator. C4
-separately requires approval for the publication coordinator and full
-reference fault matrix. This umbrella preflight is not advance implementation
-authority; every significant diff also requires the validation and reviewer
-gate.
+attempt/completion state. C3's exact proposed contract is
+[`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md)
+and requires explicit approval before implementation. C4 separately requires
+its publication-coordinator preflight and approval. This umbrella is not
+advance implementation authority; every significant diff also requires the
+validation and reviewer gate.
 
 Only after C1-C4 are complete may `QSYNC-FX01` preflight the first Flarex and
 Cloudflare SQLite adapters. `QSYNC-CF01` remains an independent delivery
