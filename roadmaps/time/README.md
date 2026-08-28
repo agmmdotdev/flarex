@@ -89,9 +89,10 @@ migration. It requires its own compatibility evidence and approval.
    watchdogs. The `SchedulerDO` decision and continuation-storage slices are
    complete; see `roadmaps/time/01-live-clock-audit.md` for retained boundaries.
    The package-only executor audit is complete in
-   `roadmaps/time/02-executor-clock-preflight.md`; ECLK01-A freezes health
-   reporting as the first compatibility proof while retaining the public
-   executor `Clock`. `PartitionDO` commit metadata remains a separate host
+   `roadmaps/time/02-executor-clock-preflight.md`; ECLK01-A migrated health
+   reporting to an Effect-native operation while retaining the public executor
+   `Clock` compatibility boundary. Later executor clock families remain
+   separately gated. `PartitionDO` commit metadata remains a separate host
    authority decision outside this package-only gate.
 4. Persistence codecs: centralize representation conversion only where row
    decoding, corruption ownership, transaction order, and database authority

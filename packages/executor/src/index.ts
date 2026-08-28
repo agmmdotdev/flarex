@@ -243,7 +243,8 @@ export type {
 export { fingerprintJson } from "./liveQueries";
 
 export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecutor {
-  const clock = config.clock ?? defaultClock;
+  const configuredClock = config.clock;
+  const clock = configuredClock ?? defaultClock;
   const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
   const appDataEngines = createLegacyOnlyAppDataEngineRegistry(
@@ -362,6 +363,6 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
       registerDeploymentPackage(persistence, input),
-    health: () => getExecutorHealth(persistence, clock),
+    health: () => getExecutorHealth(persistence, configuredClock),
   };
 }

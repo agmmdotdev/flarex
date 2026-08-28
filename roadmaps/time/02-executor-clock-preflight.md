@@ -1,6 +1,6 @@
 # Executor Clock Ownership Preflight
 
-Status: implementation gate frozen; runtime migration not started.
+Status: ECLK01-A complete; later executor clock families remain deferred.
 
 Evidence snapshot: 2026-08-28 with Effect `4.0.0-beta.90`.
 
@@ -84,8 +84,8 @@ or retain parallel active implementations.
 
 ## ECLK01-A: Health Clock Compatibility Proof
 
-The first implementation gate is limited to executor health reporting. It
-must characterize the existing legacy contract before activating one internal
+This completed implementation gate is limited to executor health reporting. It
+characterizes the existing legacy contract and activates one internal
 Effect-native health operation.
 
 Required compatibility evidence:
@@ -116,3 +116,22 @@ schemas or codecs, PostgreSQL time, application code, or host composition.
 Completion requires focused executor health tests, package typecheck, and the
 configured core and changed-lines lint gates. Later executor families require
 their own gate with branch-level observation and persistence evidence.
+
+## Implementation Receipt
+
+`packages/executor/src/health.ts` now owns one named Effect health operation.
+It checks persistence through one narrow typed Promise adapter, folds the
+expected persistence failure into the existing degraded response, then reads
+`Clock.currentTimeMillis` and preserves the existing ISO response shape.
+
+The public executor remains Promise-based. Without an injected legacy clock,
+health uses the native Effect Clock. When `FlarexExecutorConfig.clock` is
+present, the executor composition boundary supplies a health-local Effect that
+preserves the exact `clock.now().toISOString()` method dispatch and rejection
+behavior. All other executor consumers retain the captured legacy clock
+unchanged.
+
+Tests pin persistence-before-clock ordering, one legacy observation, degraded
+persistence data, invalid-Date rejection, configured `Date` method dispatch,
+throwing-clock and formatting-failure cause identity, and native Effect
+`TestClock` control.
