@@ -72,6 +72,10 @@ import {
   type SchedulerInternalRouteError,
 } from "./scheduler/InternalRouteBoundary";
 import {
+  schedulerContinuationIsDue,
+  schedulerCurrentIsoInstant,
+} from "./scheduler/Time";
+import {
   SchedulerResponseError,
   SchedulerResponsePayloadError,
   type ExecutorCleanupLiveQueryConnectionsResult,
@@ -262,7 +266,7 @@ export class SchedulerDO extends DurableObject<Env> {
           "delivery-reconcile",
         );
         if (pending !== undefined) {
-          if (!continuationIsDue(pending, Date.now())) {
+          if (!(yield* schedulerContinuationIsDue(pending))) {
             return pendingDeliveryReconcileResult(pending);
           }
           return yield* self.runAndPersistDeliveryReconcileEffect(
@@ -299,12 +303,15 @@ export class SchedulerDO extends DurableObject<Env> {
         "continue-deliveries",
       );
       if (pending === undefined) return { skipped: true };
-      if (
-        options?.respectNextRunAt === true &&
-        !continuationIsDue(pending, options.now ?? Date.now())
-      ) {
-        yield* self.refreshContinuationAlarmEffect("continue-deliveries");
-        return { skipped: true };
+      if (options?.respectNextRunAt === true) {
+        const continuationIsDue = yield* schedulerContinuationIsDue(
+          pending,
+          options.now,
+        );
+        if (!continuationIsDue) {
+          yield* self.refreshContinuationAlarmEffect("continue-deliveries");
+          return { skipped: true };
+        }
       }
       return yield* self.runAndPersistDeliveryReconcileEffect(
         pending,
@@ -512,7 +519,7 @@ export class SchedulerDO extends DurableObject<Env> {
           "connection-reconcile",
         );
         if (pending !== undefined) {
-          if (!continuationIsDue(pending, Date.now())) {
+          if (!(yield* schedulerContinuationIsDue(pending))) {
             return pendingConnectionCleanupResult(pending);
           }
           return yield* self.runAndPersistConnectionCleanupEffect(
@@ -525,7 +532,7 @@ export class SchedulerDO extends DurableObject<Env> {
           return yield* self.freshConnectionCleanupInFlight;
         }
       }
-      const expiredAt = request.expiredAt ?? new Date().toISOString();
+      const expiredAt = request.expiredAt ?? (yield* schedulerCurrentIsoInstant());
       const limit = request.limit ?? DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_SCAN_LIMIT;
       const cleanup = self.runAndPersistConnectionCleanupEffect(
         {
@@ -566,12 +573,15 @@ export class SchedulerDO extends DurableObject<Env> {
         "continue-connection-cleanup",
       );
       if (pending === undefined) return { skipped: true };
-      if (
-        options?.respectNextRunAt === true &&
-        !continuationIsDue(pending, options.now ?? Date.now())
-      ) {
-        yield* self.refreshContinuationAlarmEffect("continue-connection-cleanup");
-        return { skipped: true };
+      if (options?.respectNextRunAt === true) {
+        const continuationIsDue = yield* schedulerContinuationIsDue(
+          pending,
+          options.now,
+        );
+        if (!continuationIsDue) {
+          yield* self.refreshContinuationAlarmEffect("continue-connection-cleanup");
+          return { skipped: true };
+        }
       }
       return yield* self.runAndPersistConnectionCleanupEffect(
         pending,
@@ -791,12 +801,15 @@ export class SchedulerDO extends DurableObject<Env> {
         "continue-reruns",
       );
       if (pending === undefined) return { skipped: true };
-      if (
-        options?.respectNextRunAt === true &&
-        !continuationIsDue(pending, options.now ?? Date.now())
-      ) {
-        yield* self.refreshContinuationAlarmEffect("continue-reruns");
-        return { skipped: true };
+      if (options?.respectNextRunAt === true) {
+        const continuationIsDue = yield* schedulerContinuationIsDue(
+          pending,
+          options.now,
+        );
+        if (!continuationIsDue) {
+          yield* self.refreshContinuationAlarmEffect("continue-reruns");
+          return { skipped: true };
+        }
       }
       return yield* self.runAndPersistLiveQueryRerunEffect(
         pending,
@@ -1439,14 +1452,6 @@ function pendingConnectionCleanupResult(
     nextCursor: pending.cursor,
     hasMore: true,
   };
-}
-
-function continuationIsDue(
-  pending: { nextRunAt?: string },
-  now: number,
-): boolean {
-  if (pending.nextRunAt === undefined) return true;
-  return new Date(pending.nextRunAt).getTime() <= now;
 }
 
 function continuationNextRunAt(value: unknown): number | null {
