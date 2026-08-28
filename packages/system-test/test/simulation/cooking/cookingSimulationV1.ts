@@ -3,6 +3,21 @@ import { readFileSync } from "node:fs";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { bytesEqual } from "@flarex/utils/bytes";
 import {
+  action,
+  defineApplication,
+  defineModule,
+  defineSchema,
+  defineTable,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  sourceModule,
+  v,
+  type FunctionDefinition,
+  type Id,
+} from "@flarex/application-definition";
+import {
   decodeTaskRunCreationRequestKeyV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import { Effect, Result } from "effect";
@@ -18,38 +33,32 @@ import {
 import { ApplicationExecutionHostError } from
   "flarex-backend/internal/application-execution-host";
 
-import {
-  defineStandardApplicationTaskV1,
-} from "@flarex/standard-application-definition/internal/task-authoring-v1";
-import {
-  standardV1,
-  type StandardIdV1,
-} from
-  "@flarex/standard-application-definition/v1";
-
 import type {
-  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-} from "@flarex/standard-application-invocation/v1";
+  AuthoritativeCommittedApplicationMutationOutcome,
+  InvokeApplicationMutationError,
+} from
+  "@flarex/standard-application-invocation/internal/application-mutation-system";
 import {
   ValidatorValueErrorV1,
   type ValidatorValueIssueV1,
 } from "flarex-protocol/validator-engine";
 import type {
-  StandardApplicationSystemTestClientV1,
-  StandardApplicationSystemTestSetupClientV1,
-  StandardApplicationLegacySimulationMutationErrorV1 as InvokeStandardApplicationPointMutationV1Error,
-  StandardApplicationLegacySimulationQueryErrorV1,
-  StandardApplicationTypedReferenceV1Error,
-} from "@flarex/system-test/environment/v1";
+  RunMutationError,
+  RunQueryError,
+  SimulationClient,
+  SimulationSetupClient,
+} from "@flarex/system-test/environment";
 import type {
-  StandardApplicationAuthoritativeInspectionV1,
-  StandardApplicationSystemTestInspectionV1Error,
-} from "@flarex/system-test/inspection/v1";
+  AuthoritativeInspection,
+  InspectionError,
+} from "@flarex/system-test/inspection";
 import {
-  defineStandardApplicationSimulationV1,
-} from "@flarex/system-test/simulation/v1";
-import { makeCreateAndReadDefinitionV1 } from
-  "../support/createAndReadDefinitionV1";
+  defineSimulation,
+} from "@flarex/system-test/simulation";
+import {
+  COOKING_PUBLISH_SERVING_GUIDE_TASK,
+  COOKING_SERVING_GUIDE_TASK,
+} from "../../support/cookingTaskDefinitionsV1";
 
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
@@ -149,36 +158,33 @@ export interface CookingWorkloadProofV1 {
   readonly stockNeverNegative: true;
   readonly losingReservationWritesRolledBack: true;
   readonly competitorReservationReplay: true;
-  readonly workloadInspection: StandardApplicationAuthoritativeInspectionV1;
+  readonly workloadInspection: AuthoritativeInspection;
 }
 
 export interface CookingSetupProofV1 {
-  readonly documentId: StandardIdV1<"recipes">;
+  readonly documentId: Id<"recipes">;
   readonly commitSeq: bigint;
 }
 
 type CookingWorkloadErrorV1 =
-  | InvokeStandardApplicationPointMutationV1Error
-  | StandardApplicationLegacySimulationQueryErrorV1
-  | StandardApplicationSystemTestInspectionV1Error
-  | StandardApplicationTypedReferenceV1Error
+  | RunMutationError
+  | RunQueryError
+  | InspectionError
   | Effect.Error<
-    ReturnType<StandardApplicationSystemTestClientV1["tasks"]["create"]>
+    ReturnType<SimulationClient["tasks"]["create"]>
   >
   | Effect.Error<
-    ReturnType<StandardApplicationSystemTestClientV1["tasks"]["deliver"]>
+    ReturnType<SimulationClient["tasks"]["deliver"]>
   >
   | Effect.Error<
-    ReturnType<StandardApplicationSystemTestClientV1["action"]>
+    ReturnType<SimulationClient["action"]>
   >;
 
 type CookingTaskRunCreationReceiptV1 = Effect.Success<
-  ReturnType<StandardApplicationSystemTestClientV1["tasks"]["create"]>
+  ReturnType<SimulationClient["tasks"]["create"]>
 >;
 
-type CookingMutationInvocationErrorV1 =
-  | InvokeStandardApplicationPointMutationV1Error
-  | StandardApplicationTypedReferenceV1Error;
+type CookingMutationInvocationErrorV1 = RunMutationError;
 
 type CookingUserCodeFailureV1 = Extract<
   CookingMutationInvocationErrorV1,
@@ -191,12 +197,12 @@ type CookingApplicationFailureV1 = Extract<
 >;
 
 type CookingMutationAttemptResultV1 = Result.Result<
-  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
-  InvokeStandardApplicationPointMutationV1Error
+  AuthoritativeCommittedApplicationMutationOutcome,
+  InvokeApplicationMutationError
 >;
 
 type CookingTypedMutationResultV1 = Result.Result<
-  AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  AuthoritativeCommittedApplicationMutationOutcome,
   CookingMutationInvocationErrorV1
 >;
 
@@ -421,6 +427,47 @@ const COOKING_FUNCTION_SOURCES = {
     import.meta.url,
   )),
 } as const;
+
+const COOKING_MODULE_SOURCES = {
+  recipeCommands: { path: "recipeMutation", bytes: COOKING_FUNCTION_SOURCES.create },
+  recipePatch: { path: "recipePatch", bytes: COOKING_FUNCTION_SOURCES.patch },
+  recipeReplace: { path: "recipeReplace", bytes: COOKING_FUNCTION_SOURCES.replace },
+  recipeDelete: { path: "recipeDelete", bytes: COOKING_FUNCTION_SOURCES.remove },
+  recipes: { path: "recipeQuery", bytes: COOKING_FUNCTION_SOURCES.get },
+  recipeAssessment: { path: "recipeAssessmentInternal", bytes: COOKING_FUNCTION_SOURCES.assess },
+  recipeViews: { path: "recipeAssessmentView", bytes: COOKING_FUNCTION_SOURCES.assessmentView },
+  recipePublicationView: { path: "recipePublicationView", bytes: COOKING_FUNCTION_SOURCES.publicationView },
+  recipeMaintenance: { path: "recipePublishInternal", bytes: COOKING_FUNCTION_SOURCES.publishInternal },
+  recipeWorkflows: { path: "recipePublishWorkflow", bytes: COOKING_FUNCTION_SOURCES.publishWorkflow },
+  recipeServingSelection: { path: "recipeServingSelection", bytes: COOKING_FUNCTION_SOURCES.servingSelection },
+  pantryCommands: { path: "pantryCreate", bytes: COOKING_FUNCTION_SOURCES.pantryCreate },
+  pantry: { path: "pantryQuery", bytes: COOKING_FUNCTION_SOURCES.pantryQuery },
+  pantryReservation: { path: "pantryReservation", bytes: COOKING_FUNCTION_SOURCES.pantryReservation },
+  recipeActions: { path: "recipePublishAction", bytes: COOKING_FUNCTION_SOURCES.publishAction },
+  recipeActionCallbacks: { path: "recipeActionCallbacks", bytes: COOKING_FUNCTION_SOURCES.actionCallbacks },
+} as const;
+
+function defineCookingModule<
+  const Path extends keyof typeof COOKING_MODULE_SOURCES,
+  const Functions extends Readonly<Record<string, FunctionDefinition>>,
+>(path: Path, functions: Functions) {
+  return defineModule({
+    path,
+    source: sourceModule(COOKING_MODULE_SOURCES[path]),
+    functions,
+  });
+}
+
+const applicationApi = Object.freeze({
+  ...v,
+  module: defineCookingModule,
+  publicMutation: mutation,
+  publicQuery: query,
+  internalMutation,
+  internalQuery,
+  publicAction: action,
+});
+
 const COOKING_RECIPE = {
   title: "Tomato soup",
   description: "A slow-simmered weeknight soup.",
@@ -700,354 +747,291 @@ const COOKING_PUBLISH_RECEIPT = {
   timedMinutes: 30,
 } as const;
 const COOKING_FIELDS = {
-  title: standardV1.string(),
-  description: standardV1.optional(standardV1.string()),
-  servings: standardV1.number(),
-  difficulty: standardV1.union(
-    standardV1.literal("easy"),
-    standardV1.literal("medium"),
-    standardV1.literal("hard"),
+  title: applicationApi.string(),
+  description: applicationApi.optional(applicationApi.string()),
+  servings: applicationApi.number(),
+  difficulty: applicationApi.union(
+    applicationApi.literal("easy"),
+    applicationApi.literal("medium"),
+    applicationApi.literal("hard"),
   ),
-  published: standardV1.boolean(),
-  tags: standardV1.array(standardV1.string()),
-  ingredients: standardV1.array(standardV1.object({
-    name: standardV1.string(),
-    amount: standardV1.number(),
-    unit: standardV1.string(),
-    note: standardV1.optional(standardV1.string()),
+  published: applicationApi.boolean(),
+  tags: applicationApi.array(applicationApi.string()),
+  ingredients: applicationApi.array(applicationApi.object({
+    name: applicationApi.string(),
+    amount: applicationApi.number(),
+    unit: applicationApi.string(),
+    note: applicationApi.optional(applicationApi.string()),
   })),
-  steps: standardV1.array(standardV1.object({
-    position: standardV1.number(),
-    instruction: standardV1.string(),
-    durationMinutes: standardV1.optional(standardV1.number()),
+  steps: applicationApi.array(applicationApi.object({
+    position: applicationApi.number(),
+    instruction: applicationApi.string(),
+    durationMinutes: applicationApi.optional(applicationApi.number()),
   })),
-  nutrition: standardV1.object({
-    caloriesPerServing: standardV1.number(),
-    vegetarian: standardV1.boolean(),
+  nutrition: applicationApi.object({
+    caloriesPerServing: applicationApi.number(),
+    vegetarian: applicationApi.boolean(),
   }),
-  localizedTitles: standardV1.record(
-    standardV1.string(),
-    standardV1.string(),
+  localizedTitles: applicationApi.record(
+    applicationApi.string(),
+    applicationApi.string(),
   ),
-  source: standardV1.nullable(standardV1.string()),
+  source: applicationApi.nullable(applicationApi.string()),
 } as const;
-const COOKING_DOCUMENT = standardV1.object({
-  _id: standardV1.id("recipes"),
-  _creationTime: standardV1.number(),
+const COOKING_DOCUMENT = applicationApi.object({
+  _id: applicationApi.id("recipes"),
+  _creationTime: applicationApi.number(),
   ...COOKING_FIELDS,
 });
 const COOKING_PANTRY_FIELDS = {
-  ingredient: standardV1.string(),
-  available: standardV1.number(),
+  ingredient: applicationApi.string(),
+  available: applicationApi.number(),
 } as const;
-const COOKING_PANTRY_DOCUMENT = standardV1.object({
-  _id: standardV1.id("pantryStock"),
-  _creationTime: standardV1.number(),
+const COOKING_PANTRY_DOCUMENT = applicationApi.object({
+  _id: applicationApi.id("pantryStock"),
+  _creationTime: applicationApi.number(),
   ...COOKING_PANTRY_FIELDS,
 });
-const COOKING_ID_ARGS = standardV1.object({ id: standardV1.string() });
+const COOKING_ID_ARGS = applicationApi.object({ id: applicationApi.string() });
 const COOKING_ASSESSMENT_FIELDS = {
-  title: standardV1.string(),
-  servings: standardV1.number(),
-  published: standardV1.boolean(),
-  ingredientCount: standardV1.number(),
-  stepCount: standardV1.number(),
-  timedMinutes: standardV1.number(),
-  publishable: standardV1.boolean(),
+  title: applicationApi.string(),
+  servings: applicationApi.number(),
+  published: applicationApi.boolean(),
+  ingredientCount: applicationApi.number(),
+  stepCount: applicationApi.number(),
+  timedMinutes: applicationApi.number(),
+  publishable: applicationApi.boolean(),
 } as const;
-const COOKING_ASSESSMENT = standardV1.nullable(
-  standardV1.object(COOKING_ASSESSMENT_FIELDS),
+const COOKING_ASSESSMENT = applicationApi.nullable(
+  applicationApi.object(COOKING_ASSESSMENT_FIELDS),
 );
 const COOKING_ASSESSMENT_VIEW_FIELDS = {
   ...COOKING_ASSESSMENT_FIELDS,
-  headline: standardV1.string(),
-  effort: standardV1.union(
-    standardV1.literal("short"),
-    standardV1.literal("long"),
+  headline: applicationApi.string(),
+  effort: applicationApi.union(
+    applicationApi.literal("short"),
+    applicationApi.literal("long"),
   ),
 } as const;
-const COOKING_ASSESSMENT_VIEW = standardV1.nullable(
-  standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
+const COOKING_ASSESSMENT_VIEW = applicationApi.nullable(
+  applicationApi.object(COOKING_ASSESSMENT_VIEW_FIELDS),
 );
 const COOKING_PUBLISH_RECEIPT_FIELDS = {
-  changed: standardV1.boolean(),
-  beforePublished: standardV1.boolean(),
-  afterPublished: standardV1.boolean(),
-  ingredientCount: standardV1.number(),
-  timedMinutes: standardV1.number(),
+  changed: applicationApi.boolean(),
+  beforePublished: applicationApi.boolean(),
+  afterPublished: applicationApi.boolean(),
+  ingredientCount: applicationApi.number(),
+  timedMinutes: applicationApi.number(),
 } as const;
-const COOKING_PUBLISH_RECEIPT_VALIDATOR = standardV1.nullable(
-  standardV1.object(COOKING_PUBLISH_RECEIPT_FIELDS),
+const COOKING_PUBLISH_RECEIPT_VALIDATOR = applicationApi.nullable(
+  applicationApi.object(COOKING_PUBLISH_RECEIPT_FIELDS),
 );
-const COOKING_RESERVATION_RECEIPT_VALIDATOR = standardV1.nullable(
-  standardV1.object({
-    pantryId: standardV1.id("pantryStock"),
-    recipeId: standardV1.id("recipes"),
-    remainingStock: standardV1.number(),
+const COOKING_RESERVATION_RECEIPT_VALIDATOR = applicationApi.nullable(
+  applicationApi.object({
+    pantryId: applicationApi.id("pantryStock"),
+    recipeId: applicationApi.id("recipes"),
+    remainingStock: applicationApi.number(),
   }),
 );
-const COOKING_INDEXED_DECISION_RECEIPT_VALIDATOR = standardV1.nullable(
-  standardV1.object({
-    recipeId: standardV1.id("recipes"),
-    servings: standardV1.number(),
-    pageExhausted: standardV1.boolean(),
+const COOKING_INDEXED_DECISION_RECEIPT_VALIDATOR = applicationApi.nullable(
+  applicationApi.object({
+    recipeId: applicationApi.id("recipes"),
+    servings: applicationApi.number(),
+    pageExhausted: applicationApi.boolean(),
   }),
 );
-const COOKING_MUTATION_MODULE = standardV1.module("recipeCommands", {
-  create: standardV1.publicMutation({
-    args: standardV1.object(COOKING_FIELDS),
-    returns: standardV1.id("recipes"),
+const COOKING_MUTATION_MODULE = applicationApi.module("recipeCommands", {
+  create: applicationApi.publicMutation({
+    args: applicationApi.object(COOKING_FIELDS),
+    returns: applicationApi.id("recipes"),
   }),
 });
-const COOKING_PATCH_MODULE = standardV1.module("recipePatch", {
-  patch: standardV1.publicMutation({
-    args: standardV1.object({
-      id: standardV1.id("recipes"),
-      patch: standardV1.object({
-        title: standardV1.optional(standardV1.string()),
-        description: standardV1.optional(standardV1.string()),
-        servings: standardV1.optional(standardV1.number()),
-        difficulty: standardV1.optional(standardV1.union(
-          standardV1.literal("easy"),
-          standardV1.literal("medium"),
-          standardV1.literal("hard"),
+const COOKING_PATCH_MODULE = applicationApi.module("recipePatch", {
+  patch: applicationApi.publicMutation({
+    args: applicationApi.object({
+      id: applicationApi.id("recipes"),
+      patch: applicationApi.object({
+        title: applicationApi.optional(applicationApi.string()),
+        description: applicationApi.optional(applicationApi.string()),
+        servings: applicationApi.optional(applicationApi.number()),
+        difficulty: applicationApi.optional(applicationApi.union(
+          applicationApi.literal("easy"),
+          applicationApi.literal("medium"),
+          applicationApi.literal("hard"),
         )),
-        published: standardV1.optional(standardV1.boolean()),
-        tags: standardV1.optional(standardV1.array(standardV1.string())),
-        ingredients: standardV1.optional(COOKING_FIELDS.ingredients),
-        steps: standardV1.optional(COOKING_FIELDS.steps),
-        nutrition: standardV1.optional(COOKING_FIELDS.nutrition),
-        localizedTitles: standardV1.optional(COOKING_FIELDS.localizedTitles),
-        source: standardV1.optional(COOKING_FIELDS.source),
+        published: applicationApi.optional(applicationApi.boolean()),
+        tags: applicationApi.optional(applicationApi.array(applicationApi.string())),
+        ingredients: applicationApi.optional(COOKING_FIELDS.ingredients),
+        steps: applicationApi.optional(COOKING_FIELDS.steps),
+        nutrition: applicationApi.optional(COOKING_FIELDS.nutrition),
+        localizedTitles: applicationApi.optional(COOKING_FIELDS.localizedTitles),
+        source: applicationApi.optional(COOKING_FIELDS.source),
       }),
     }),
-    returns: standardV1.null(),
+    returns: applicationApi.null(),
   }),
-  removeDescription: standardV1.publicMutation({
-    args: standardV1.object({ id: standardV1.id("recipes") }),
-    returns: standardV1.null(),
+  removeDescription: applicationApi.publicMutation({
+    args: applicationApi.object({ id: applicationApi.id("recipes") }),
+    returns: applicationApi.null(),
   }),
-  patchThenReturnInvalid: standardV1.publicMutation({
-    args: standardV1.object({ id: standardV1.id("recipes") }),
-    returns: standardV1.null(),
+  patchThenReturnInvalid: applicationApi.publicMutation({
+    args: applicationApi.object({ id: applicationApi.id("recipes") }),
+    returns: applicationApi.null(),
   }),
-  patchThenThrow: standardV1.publicMutation({
-    args: standardV1.object({ id: standardV1.id("recipes") }),
-    returns: standardV1.null(),
+  patchThenThrow: applicationApi.publicMutation({
+    args: applicationApi.object({ id: applicationApi.id("recipes") }),
+    returns: applicationApi.null(),
   }),
 });
-const COOKING_REPLACE_MODULE = standardV1.module("recipeReplace", {
-  replace: standardV1.publicMutation({
-    args: standardV1.object({
-      id: standardV1.id("recipes"),
-      fields: standardV1.object(COOKING_FIELDS),
+const COOKING_REPLACE_MODULE = applicationApi.module("recipeReplace", {
+  replace: applicationApi.publicMutation({
+    args: applicationApi.object({
+      id: applicationApi.id("recipes"),
+      fields: applicationApi.object(COOKING_FIELDS),
     }),
-    returns: standardV1.null(),
+    returns: applicationApi.null(),
   }),
 });
-const COOKING_DELETE_MODULE = standardV1.module("recipeDelete", {
-  remove: standardV1.publicMutation({
-    args: standardV1.object({ id: standardV1.id("recipes") }),
-    returns: standardV1.null(),
+const COOKING_DELETE_MODULE = applicationApi.module("recipeDelete", {
+  remove: applicationApi.publicMutation({
+    args: applicationApi.object({ id: applicationApi.id("recipes") }),
+    returns: applicationApi.null(),
   }),
 });
-const COOKING_QUERY_MODULE = standardV1.module("recipes", {
-  get: standardV1.publicQuery({
+const COOKING_QUERY_MODULE = applicationApi.module("recipes", {
+  get: applicationApi.publicQuery({
     args: COOKING_ID_ARGS,
-    returns: standardV1.nullable(COOKING_DOCUMENT),
+    returns: applicationApi.nullable(COOKING_DOCUMENT),
   }),
 });
-const COOKING_ASSESSMENT_MODULE = standardV1.module("recipeAssessment", {
-  assess: standardV1.internalQuery({
+const COOKING_ASSESSMENT_MODULE = applicationApi.module("recipeAssessment", {
+  assess: applicationApi.internalQuery({
     args: COOKING_ID_ARGS,
     returns: COOKING_ASSESSMENT,
   }),
 });
-const COOKING_ASSESSMENT_VIEW_MODULE = standardV1.module("recipeViews", {
-  assessment: standardV1.publicQuery({
+const COOKING_ASSESSMENT_VIEW_MODULE = applicationApi.module("recipeViews", {
+  assessment: applicationApi.publicQuery({
     args: COOKING_ID_ARGS,
     returns: COOKING_ASSESSMENT_VIEW,
   }),
 });
-const COOKING_PUBLICATION_VIEW_MODULE = standardV1.module(
+const COOKING_PUBLICATION_VIEW_MODULE = applicationApi.module(
   "recipePublicationView",
   {
-    requirePublished: standardV1.publicQuery({
+    requirePublished: applicationApi.publicQuery({
       args: COOKING_ID_ARGS,
-      returns: standardV1.nullable(COOKING_DOCUMENT),
+      returns: applicationApi.nullable(COOKING_DOCUMENT),
     }),
   },
 );
-const COOKING_MAINTENANCE_MODULE = standardV1.module("recipeMaintenance", {
-  markPublished: standardV1.internalMutation({
+const COOKING_MAINTENANCE_MODULE = applicationApi.module("recipeMaintenance", {
+  markPublished: applicationApi.internalMutation({
     args: COOKING_ID_ARGS,
     returns: COOKING_PUBLISH_RECEIPT_VALIDATOR,
   }),
 });
-const COOKING_WORKFLOW_MODULE = standardV1.module("recipeWorkflows", {
-  publish: standardV1.publicMutation({
+const COOKING_WORKFLOW_MODULE = applicationApi.module("recipeWorkflows", {
+  publish: applicationApi.publicMutation({
     args: COOKING_ID_ARGS,
     returns: COOKING_PUBLISH_RECEIPT_VALIDATOR,
   }),
 });
-const COOKING_INDEXED_DECISION_MODULE = standardV1.module(
+const COOKING_INDEXED_DECISION_MODULE = applicationApi.module(
   "recipeServingSelection",
   {
-    publishSmallestBatch: standardV1.publicMutation({
-      args: standardV1.object({}),
+    publishSmallestBatch: applicationApi.publicMutation({
+      args: applicationApi.object({}),
       returns: COOKING_INDEXED_DECISION_RECEIPT_VALIDATOR,
     }),
   },
 );
-const COOKING_PANTRY_COMMAND_MODULE = standardV1.module("pantryCommands", {
-  create: standardV1.publicMutation({
-    args: standardV1.object(COOKING_PANTRY_FIELDS),
-    returns: standardV1.id("pantryStock"),
+const COOKING_PANTRY_COMMAND_MODULE = applicationApi.module("pantryCommands", {
+  create: applicationApi.publicMutation({
+    args: applicationApi.object(COOKING_PANTRY_FIELDS),
+    returns: applicationApi.id("pantryStock"),
   }),
 });
-const COOKING_PANTRY_QUERY_MODULE = standardV1.module("pantry", {
-  get: standardV1.publicQuery({
-    args: standardV1.object({ id: standardV1.id("pantryStock") }),
-    returns: standardV1.nullable(COOKING_PANTRY_DOCUMENT),
+const COOKING_PANTRY_QUERY_MODULE = applicationApi.module("pantry", {
+  get: applicationApi.publicQuery({
+    args: applicationApi.object({ id: applicationApi.id("pantryStock") }),
+    returns: applicationApi.nullable(COOKING_PANTRY_DOCUMENT),
   }),
 });
-const COOKING_RESERVATION_MODULE = standardV1.module("pantryReservation", {
-  reserveAndPublish: standardV1.publicMutation({
-    args: standardV1.object({
-      pantryId: standardV1.id("pantryStock"),
-      recipeId: standardV1.id("recipes"),
+const COOKING_RESERVATION_MODULE = applicationApi.module("pantryReservation", {
+  reserveAndPublish: applicationApi.publicMutation({
+    args: applicationApi.object({
+      pantryId: applicationApi.id("pantryStock"),
+      recipeId: applicationApi.id("recipes"),
     }),
     returns: COOKING_RESERVATION_RECEIPT_VALIDATOR,
   }),
 });
-const COOKING_ACTION_MODULE = standardV1.module("recipeActions", {
-  publishAndNotify: standardV1.publicAction({
+const COOKING_ACTION_MODULE = applicationApi.module("recipeActions", {
+  publishAndNotify: applicationApi.publicAction({
     args: COOKING_ID_ARGS,
-    returns: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      beforePublished: standardV1.boolean(),
-      publication: standardV1.boolean(),
-      afterPublished: standardV1.boolean(),
-      notificationStatus: standardV1.number(),
-      notificationAccepted: standardV1.boolean(),
-      anonymous: standardV1.boolean(),
+    returns: applicationApi.object({
+      recipeId: applicationApi.id("recipes"),
+      beforePublished: applicationApi.boolean(),
+      publication: applicationApi.boolean(),
+      afterPublished: applicationApi.boolean(),
+      notificationStatus: applicationApi.number(),
+      notificationAccepted: applicationApi.boolean(),
+      anonymous: applicationApi.boolean(),
     }),
   }),
-  rejectDeniedNotification: standardV1.publicAction({
+  rejectDeniedNotification: applicationApi.publicAction({
     args: COOKING_ID_ARGS,
-    returns: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      notificationStatus: standardV1.number(),
+    returns: applicationApi.object({
+      recipeId: applicationApi.id("recipes"),
+      notificationStatus: applicationApi.number(),
     }),
   }),
-  preserveUncertainNotification: standardV1.publicAction({
+  preserveUncertainNotification: applicationApi.publicAction({
     args: COOKING_ID_ARGS,
-    returns: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      notificationStatus: standardV1.number(),
+    returns: applicationApi.object({
+      recipeId: applicationApi.id("recipes"),
+      notificationStatus: applicationApi.number(),
     }),
   }),
-  returnInvalidNotificationReceipt: standardV1.publicAction({
+  returnInvalidNotificationReceipt: applicationApi.publicAction({
     args: COOKING_ID_ARGS,
-    returns: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      notificationStatus: standardV1.number(),
+    returns: applicationApi.object({
+      recipeId: applicationApi.id("recipes"),
+      notificationStatus: applicationApi.number(),
     }),
   }),
-  commitFail: standardV1.publicAction({
+  commitFail: applicationApi.publicAction({
     args: COOKING_ID_ARGS,
-    returns: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      notificationStatus: standardV1.number(),
+    returns: applicationApi.object({
+      recipeId: applicationApi.id("recipes"),
+      notificationStatus: applicationApi.number(),
     }),
   }),
-  rejectChild: standardV1.publicAction({
+  rejectChild: applicationApi.publicAction({
     args: COOKING_ID_ARGS,
-    returns: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      notificationStatus: standardV1.number(),
+    returns: applicationApi.object({
+      recipeId: applicationApi.id("recipes"),
+      notificationStatus: applicationApi.number(),
     }),
   }),
 });
-const COOKING_ACTION_CALLBACK_MODULE = standardV1.module(
+const COOKING_ACTION_CALLBACK_MODULE = applicationApi.module(
   "recipeActionCallbacks",
   {
-    isPublished: standardV1.publicQuery({
+    isPublished: applicationApi.publicQuery({
       args: COOKING_ID_ARGS,
-      returns: standardV1.boolean(),
+      returns: applicationApi.boolean(),
     }),
-    markPublished: standardV1.internalMutation({
+    markPublished: applicationApi.internalMutation({
       args: COOKING_ID_ARGS,
-      returns: standardV1.boolean(),
+      returns: applicationApi.boolean(),
     }),
-    markFailure: standardV1.internalMutation({
+    markFailure: applicationApi.internalMutation({
       args: COOKING_ID_ARGS,
-      returns: standardV1.boolean(),
+      returns: applicationApi.boolean(),
     }),
   },
-);
-const COOKING_SERVING_GUIDE_TASK = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "cooking.buildServingGuide",
-    handler: {
-      logicalModulePath: "recipeViews",
-      artifactModulePath: "recipeAssessmentView",
-      exportName: "buildServingGuide",
-    },
-    payload: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-    }),
-    output: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      assessment: standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
-    }),
-    runAttemptPolicy: {
-      version: 1,
-      retry: {
-        maxAttempts: 1,
-        factor: 2,
-        minTimeoutInMs: 1_000,
-        maxTimeoutInMs: 60_000,
-        randomize: true,
-      },
-      outOfMemory: { kind: "disabled" },
-    },
-    maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
-    queue: { kind: "default" },
-  }),
-);
-const COOKING_PUBLISH_SERVING_GUIDE_TASK = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "cooking.publishServingGuide",
-    handler: {
-      logicalModulePath: "recipeViews",
-      artifactModulePath: "recipeAssessmentView",
-      exportName: "publishServingGuide",
-    },
-    payload: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-    }),
-    output: standardV1.object({
-      recipeId: standardV1.id("recipes"),
-      publication: standardV1.object(COOKING_PUBLISH_RECEIPT_FIELDS),
-      assessment: standardV1.object(COOKING_ASSESSMENT_VIEW_FIELDS),
-    }),
-    runAttemptPolicy: {
-      version: 1,
-      retry: {
-        maxAttempts: 2,
-        factor: 2,
-        minTimeoutInMs: 1_000,
-        maxTimeoutInMs: 60_000,
-        randomize: true,
-      },
-      outOfMemory: { kind: "disabled" },
-    },
-    maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
-    queue: { kind: "default" },
-  }),
 );
 const COOKING_CREATE = COOKING_MUTATION_MODULE.reference("create");
 const COOKING_PATCH_FUNCTION = COOKING_PATCH_MODULE.reference("patch");
@@ -1088,7 +1072,7 @@ const COOKING_INVOKE_REJECTED_CHILD_MUTATION =
 const prepareCookingStateV1 = Effect.fn(
   "SystemTestCookingSimulation.setupV1",
 )(function* (
-  client: StandardApplicationSystemTestSetupClientV1,
+  client: SimulationSetupClient,
 ): Effect.fn.Return<CookingSetupProofV1, CookingWorkloadErrorV1> {
   const inserted = yield* client.mutation(
     COOKING_CREATE,
@@ -1110,7 +1094,7 @@ const prepareCookingStateV1 = Effect.fn(
 const runCookingWorkloadV1 = Effect.fn(
   "SystemTestCookingSimulation.workloadV1",
 )(function* (
-  client: StandardApplicationSystemTestClientV1,
+  client: SimulationClient,
   setup: CookingSetupProofV1,
 ): Effect.fn.Return<CookingWorkloadProofV1, CookingWorkloadErrorV1> {
   const replayedMutation = yield* client.mutation(
@@ -2515,7 +2499,7 @@ function cookingIndexedPhantomWithoutDescription(): Readonly<
 }
 
 function requireValueMutation(
-  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  outcome: AuthoritativeCommittedApplicationMutationOutcome,
   scenario: string,
   disposition: "published" | "replayed",
   commitSeq: bigint,
@@ -2534,7 +2518,7 @@ function requireValueMutation(
 }
 
 function requireCreatedDocumentId(
-  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  outcome: AuthoritativeCommittedApplicationMutationOutcome,
   scenario: string,
   commitSeq: bigint,
   excludedIds: readonly string[],
@@ -2556,7 +2540,7 @@ function requireCreatedDocumentId(
 function requireSuccessfulMutationResult(
   result: CookingTypedMutationResultV1,
   scenario: string,
-): AuthoritativeCommittedApplicationPointMutationOutcomeV1 {
+): AuthoritativeCommittedApplicationMutationOutcome {
   return Result.match(result, {
     onFailure: failure => {
       throw new Error(
@@ -2568,7 +2552,7 @@ function requireSuccessfulMutationResult(
 }
 
 function requireLifecycleMutation(
-  outcome: AuthoritativeCommittedApplicationPointMutationOutcomeV1,
+  outcome: AuthoritativeCommittedApplicationMutationOutcome,
   scenario: string,
   disposition: "published" | "replayed",
   commitSeq: bigint,
@@ -2736,8 +2720,8 @@ function failureName(value: unknown): string {
 }
 
 function requireNoRejectedMutationSideEffects(
-  before: StandardApplicationAuthoritativeInspectionV1,
-  after: StandardApplicationAuthoritativeInspectionV1,
+  before: AuthoritativeInspection,
+  after: AuthoritativeInspection,
 ): void {
   if (
     after.mutationRuntimeExecutions !== before.mutationRuntimeExecutions ||
@@ -2794,8 +2778,8 @@ function requireQueryApplicationFailure<Success, Failure>(
 }
 
 function requireFailedQueryIsReadOnly(
-  before: StandardApplicationAuthoritativeInspectionV1,
-  after: StandardApplicationAuthoritativeInspectionV1,
+  before: AuthoritativeInspection,
+  after: AuthoritativeInspection,
 ): void {
   if (
     after.queryRuntimeExecutions !== before.queryRuntimeExecutions + 1 ||
@@ -2819,8 +2803,8 @@ function requireFailedQueryIsReadOnly(
 }
 
 function requireFailedMutationRollback(
-  before: StandardApplicationAuthoritativeInspectionV1,
-  after: StandardApplicationAuthoritativeInspectionV1,
+  before: AuthoritativeInspection,
+  after: AuthoritativeInspection,
   expectedRuntimeExecutions: number,
 ): void {
   if (
@@ -2849,8 +2833,8 @@ function requireFailedMutationRollback(
 }
 
 function sameCurrentRows(
-  left: StandardApplicationAuthoritativeInspectionV1["currentRows"],
-  right: StandardApplicationAuthoritativeInspectionV1["currentRows"],
+  left: AuthoritativeInspection["currentRows"],
+  right: AuthoritativeInspection["currentRows"],
 ): boolean {
   return left.length === right.length && left.every((row, index) => {
     const candidate = right[index];
@@ -2888,8 +2872,8 @@ function sameTaskRunCreationReceiptV1(
 }
 
 function requireIndexedDecisionRaceInspection(
-  before: StandardApplicationAuthoritativeInspectionV1,
-  after: StandardApplicationAuthoritativeInspectionV1,
+  before: AuthoritativeInspection,
+  after: AuthoritativeInspection,
   phantomCommitSeq: string,
   decisionCommitSeq: string,
 ): void {
@@ -2927,8 +2911,8 @@ function requireIndexedDecisionRaceInspection(
 }
 
 function requirePantryRaceInspection(
-  before: StandardApplicationAuthoritativeInspectionV1,
-  after: StandardApplicationAuthoritativeInspectionV1,
+  before: AuthoritativeInspection,
+  after: AuthoritativeInspection,
   competitorCommitSeq: string,
 ): void {
   if (
@@ -3030,7 +3014,7 @@ function sameJsonValue(actual: unknown, expected: unknown): boolean {
     );
 }
 
-export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
+export const cookingSimulationV1 = defineSimulation({
   version: 1,
   simulationId: "cooking-rich-recipe-point-lifecycle-v1",
   application: {
@@ -3077,84 +3061,31 @@ export const cookingSimulationV1 = defineStandardApplicationSimulationV1({
       COOKING_SERVING_GUIDE_TASK,
       COOKING_PUBLISH_SERVING_GUIDE_TASK,
     ],
-    define: () => makeCreateAndReadDefinitionV1({
-      tableName: "recipes",
-      mutationModule: COOKING_MUTATION_MODULE,
-      queryModule: COOKING_QUERY_MODULE,
-      mutationArtifactPath: "recipeMutation",
-      queryArtifactPath: "recipeQuery",
-      mutationSourceBytes: COOKING_FUNCTION_SOURCES.create,
-      querySourceBytes: COOKING_FUNCTION_SOURCES.get,
-      pointMutationLifecycle: {
-        patchModule: COOKING_PATCH_MODULE,
-        patchArtifactPath: "recipePatch",
-        patchSourceBytes: COOKING_FUNCTION_SOURCES.patch,
-        replaceModule: COOKING_REPLACE_MODULE,
-        replaceArtifactPath: "recipeReplace",
-        replaceSourceBytes: COOKING_FUNCTION_SOURCES.replace,
-        deleteModule: COOKING_DELETE_MODULE,
-        deleteArtifactPath: "recipeDelete",
-        deleteSourceBytes: COOKING_FUNCTION_SOURCES.remove,
-      },
-      additionalFunctionModules: [{
-        module: COOKING_ASSESSMENT_MODULE,
-        artifactModulePath: "recipeAssessmentInternal",
-        sourceBytes: COOKING_FUNCTION_SOURCES.assess,
-      }, {
-        module: COOKING_ASSESSMENT_VIEW_MODULE,
-        artifactModulePath: "recipeAssessmentView",
-        sourceBytes: COOKING_FUNCTION_SOURCES.assessmentView,
-      }, {
-        module: COOKING_PUBLICATION_VIEW_MODULE,
-        artifactModulePath: "recipePublicationView",
-        sourceBytes: COOKING_FUNCTION_SOURCES.publicationView,
-      }, {
-        module: COOKING_MAINTENANCE_MODULE,
-        artifactModulePath: "recipePublishInternal",
-        sourceBytes: COOKING_FUNCTION_SOURCES.publishInternal,
-      }, {
-        module: COOKING_WORKFLOW_MODULE,
-        artifactModulePath: "recipePublishWorkflow",
-        sourceBytes: COOKING_FUNCTION_SOURCES.publishWorkflow,
-      }, {
-        module: COOKING_INDEXED_DECISION_MODULE,
-        artifactModulePath: "recipeServingSelection",
-        sourceBytes: COOKING_FUNCTION_SOURCES.servingSelection,
-      }, {
-        module: COOKING_PANTRY_COMMAND_MODULE,
-        artifactModulePath: "pantryCreate",
-        sourceBytes: COOKING_FUNCTION_SOURCES.pantryCreate,
-      }, {
-        module: COOKING_PANTRY_QUERY_MODULE,
-        artifactModulePath: "pantryQuery",
-        sourceBytes: COOKING_FUNCTION_SOURCES.pantryQuery,
-      }, {
-        module: COOKING_RESERVATION_MODULE,
-        artifactModulePath: "pantryReservation",
-        sourceBytes: COOKING_FUNCTION_SOURCES.pantryReservation,
-      }, {
-        module: COOKING_ACTION_MODULE,
-        artifactModulePath: "recipePublishAction",
-        sourceBytes: COOKING_FUNCTION_SOURCES.publishAction,
-      }, {
-        module: COOKING_ACTION_CALLBACK_MODULE,
-        artifactModulePath: "recipeActionCallbacks",
-        sourceBytes: COOKING_FUNCTION_SOURCES.actionCallbacks,
-      }],
-      additionalTables: [{
-        logicalName: "pantryStock",
-        fields: COOKING_PANTRY_FIELDS,
-      }],
-      indexes: [{
-        tableLogicalName: "recipes",
-        descriptor: "by_difficulty",
-        fields: ["difficulty"],
-      }, {
-        tableLogicalName: "recipes",
-        descriptor: "by_servings",
-        fields: ["servings"],
-      }],
-      fields: COOKING_FIELDS,
+    define: () => defineApplication({
+      schema: defineSchema({
+        recipes: defineTable(COOKING_FIELDS)
+          .index("by_difficulty", ["difficulty"])
+          .index("by_servings", ["servings"]),
+        pantryStock: defineTable(COOKING_PANTRY_FIELDS),
+      }),
+      modules: [
+        COOKING_MUTATION_MODULE,
+        COOKING_PATCH_MODULE,
+        COOKING_REPLACE_MODULE,
+        COOKING_DELETE_MODULE,
+        COOKING_ASSESSMENT_MODULE,
+        COOKING_ASSESSMENT_VIEW_MODULE,
+        COOKING_PUBLICATION_VIEW_MODULE,
+        COOKING_MAINTENANCE_MODULE,
+        COOKING_WORKFLOW_MODULE,
+        COOKING_INDEXED_DECISION_MODULE,
+        COOKING_PANTRY_COMMAND_MODULE,
+        COOKING_PANTRY_QUERY_MODULE,
+        COOKING_RESERVATION_MODULE,
+        COOKING_ACTION_MODULE,
+        COOKING_ACTION_CALLBACK_MODULE,
+        COOKING_QUERY_MODULE,
+      ],
     }),
   },
   setup: prepareCookingStateV1,

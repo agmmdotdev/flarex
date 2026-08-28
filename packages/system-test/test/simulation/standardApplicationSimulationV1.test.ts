@@ -1,33 +1,73 @@
 import {
+  defineApplication,
+  defineModule,
+  defineSchema,
+  defineTable,
+  internalQuery,
+  mutation,
   prepareApplication,
   produceApplicationSource,
+  query,
+  sourceModule,
+  v,
+  type ApplicationModule,
   type ApplicationPreparationPolicy,
 } from "@flarex/application-definition";
 import { Effect, Result } from "effect";
 import { expect, it } from "vitest";
 
-import { standardV1 } from
-  "@flarex/standard-application-definition/v1";
-
 import {
-  defineStandardApplicationSimulationV1,
-  type StandardApplicationSimulationV1,
-} from "@flarex/system-test/simulation/v1";
-import {
-  makeCreateAndReadDefinitionV1,
-  makeCreateAndReadModulesV1,
-} from
-  "./support/createAndReadDefinitionV1";
+  defineSimulation,
+  type Simulation,
+} from "@flarex/system-test/simulation";
 import { makeCreateAndReadFunctionSourcesV1 } from
   "./support/createAndReadFunctionSourcesV1";
 
-const RECORD_FIELDS = { value: standardV1.string() } as const;
-const RECORD_MODULES = makeCreateAndReadModulesV1({
-  tableName: "records",
-  fields: RECORD_FIELDS,
-  mutationModulePath: "recordCommands",
-  queryModulePath: "records",
+const RECORD_FIELDS = { value: v.string() } as const;
+const RECORD_SOURCES = makeCreateAndReadFunctionSourcesV1("records");
+const RECORD_MUTATION_MODULE = defineModule({
+  path: "recordCommands",
+  source: sourceModule({
+    path: "recordMutation",
+    bytes: RECORD_SOURCES.mutationSourceBytes,
+  }),
+  functions: {
+    create: mutation({
+      args: v.object(RECORD_FIELDS),
+      returns: v.id("records"),
+    }),
+  },
 });
+const RECORD_QUERY_MODULE = defineModule({
+  path: "records",
+  source: sourceModule({
+    path: "recordQuery",
+    bytes: RECORD_SOURCES.querySourceBytes,
+  }),
+  functions: {
+    get: query({
+      args: v.object({ id: v.string() }),
+      returns: v.nullable(v.object({
+        _id: v.id("records"),
+        _creationTime: v.number(),
+        ...RECORD_FIELDS,
+      })),
+    }),
+  },
+});
+
+function defineRecordApplication(
+  supplementalModules: ReadonlyArray<ApplicationModule> = [],
+) {
+  return defineApplication({
+    schema: defineSchema({ records: defineTable(RECORD_FIELDS) }),
+    modules: [
+      RECORD_MUTATION_MODULE,
+      ...supplementalModules,
+      RECORD_QUERY_MODULE,
+    ],
+  });
+}
 
 const PREPARATION_POLICY = Object.freeze({
   maximumModules: 8,
@@ -47,21 +87,14 @@ const PREPARATION_POLICY = Object.freeze({
 it("defines an owned immutable Standard Application simulation config", () => {
   const allowedOrigins = ["https://api.example.com"];
   const actionFetch = async () => new Response(null, { status: 204 });
-  const input: StandardApplicationSimulationV1<void, true, never> = {
+  const input: Simulation<void, true, never> = {
     version: 1,
     simulationId: "definition-contract",
     application: {
       applicationId: "definition-contract",
       revisionName: "definition-contract-v1",
       actionHost: { allowedOrigins, fetch: actionFetch },
-      define: () => makeCreateAndReadDefinitionV1({
-        tableName: "records",
-        ...RECORD_MODULES,
-        mutationArtifactPath: "recordMutation",
-        queryArtifactPath: "recordQuery",
-        ...makeCreateAndReadFunctionSourcesV1("records"),
-        fields: RECORD_FIELDS,
-      }),
+      define: defineRecordApplication,
     },
     setup: () => Effect.void,
     workload: () => Effect.succeed(true),
@@ -71,7 +104,7 @@ it("defines an owned immutable Standard Application simulation config", () => {
     },
   };
 
-  const simulation = defineStandardApplicationSimulationV1(input);
+  const simulation = defineSimulation(input);
 
   expect(simulation).not.toBe(input);
   expect(simulation.application).not.toBe(input.application);
@@ -106,20 +139,13 @@ it("defines an owned immutable Standard Application simulation config", () => {
 });
 
 it("rejects invalid runtime-execution expectations at definition time", () => {
-  const input: StandardApplicationSimulationV1<void, void, never> = {
+  const input: Simulation<void, void, never> = {
     version: 1,
     simulationId: "invalid-expectations",
     application: {
       applicationId: "invalid-expectations",
       revisionName: "invalid-expectations-v1",
-      define: () => makeCreateAndReadDefinitionV1({
-        tableName: "records",
-        ...RECORD_MODULES,
-        mutationArtifactPath: "recordMutation",
-        queryArtifactPath: "recordQuery",
-        ...makeCreateAndReadFunctionSourcesV1("records"),
-        fields: RECORD_FIELDS,
-      }),
+      define: defineRecordApplication,
     },
     setup: () => Effect.void,
     workload: () => Effect.void,
@@ -129,7 +155,7 @@ it("rejects invalid runtime-execution expectations at definition time", () => {
     },
   };
 
-  expect(() => defineStandardApplicationSimulationV1(input)).toThrow(
+  expect(() => defineSimulation(input)).toThrow(
     "Standard Application simulation runtime expectations must be non-negative safe integers.",
   );
 });
@@ -137,20 +163,13 @@ it("rejects invalid runtime-execution expectations at definition time", () => {
 it("captures each runtime-execution expectation exactly once", () => {
   let mutationReads = 0;
   let queryReads = 0;
-  const input: StandardApplicationSimulationV1<void, void, never> = {
+  const input: Simulation<void, void, never> = {
     version: 1,
     simulationId: "single-read-expectations",
     application: {
       applicationId: "single-read-expectations",
       revisionName: "single-read-expectations-v1",
-      define: () => makeCreateAndReadDefinitionV1({
-        tableName: "records",
-        ...RECORD_MODULES,
-        mutationArtifactPath: "recordMutation",
-        queryArtifactPath: "recordQuery",
-        ...makeCreateAndReadFunctionSourcesV1("records"),
-        fields: RECORD_FIELDS,
-      }),
+      define: defineRecordApplication,
     },
     setup: () => Effect.void,
     workload: () => Effect.void,
@@ -166,7 +185,7 @@ it("captures each runtime-execution expectation exactly once", () => {
     },
   };
 
-  const simulation = defineStandardApplicationSimulationV1(input);
+  const simulation = defineSimulation(input);
 
   expect(mutationReads).toBe(1);
   expect(queryReads).toBe(1);
@@ -180,24 +199,16 @@ it("composes owned supplemental function modules without making them execution r
   const sourceBytes = new TextEncoder().encode(
     "export function inspect() { return null; }",
   );
-  const definition = makeCreateAndReadDefinitionV1({
-    tableName: "records",
-    ...RECORD_MODULES,
-    mutationArtifactPath: "recordMutation",
-    queryArtifactPath: "recordQuery",
-    ...makeCreateAndReadFunctionSourcesV1("records"),
-    fields: RECORD_FIELDS,
-    additionalFunctionModules: [{
-      module: standardV1.module("recordInspection", {
-        inspect: standardV1.internalQuery({
-          args: standardV1.any(),
-          returns: standardV1.null(),
-        }),
-      }),
-      artifactModulePath: "recordInspectionArtifact",
-      sourceBytes,
-    }],
-  });
+  const definition = defineRecordApplication([defineModule({
+    path: "recordInspection",
+    source: sourceModule({
+      path: "recordInspectionArtifact",
+      bytes: sourceBytes,
+    }),
+    functions: {
+      inspect: internalQuery({ args: v.any(), returns: v.null() }),
+    },
+  })]);
   sourceBytes.fill(0);
 
   expect(definition.modules.map(module => ({
@@ -217,9 +228,10 @@ it("composes owned supplemental function modules without making them execution r
     sourcePath: "recordQuery",
     functions: ["get"],
   }]);
-  expect(definition.modules[1]?.functions.inspect).toMatchObject({
-    kind: "query",
-    visibility: "internal",
+  expect(definition.modules[1]).toMatchObject({
+    functions: {
+      inspect: { kind: "query", visibility: "internal" },
+    },
   });
   expect("programInput" in definition).toBe(false);
   expect("graphInput" in definition).toBe(false);

@@ -5,11 +5,11 @@ import {
   withTemporarySplitPostgresPersistence,
 } from "../../support/databaseFixturesV1";
 import {
-  makePostgresStandardApplicationSystemTestLaneV1,
-} from "@flarex/system-test/lanes/v1";
+  makePostgresDatabaseLane,
+} from "@flarex/system-test/lanes";
 import {
-  runStandardApplicationSimulationV1,
-} from "@flarex/system-test/environment/v1";
+  runSimulation,
+} from "@flarex/system-test/environment";
 
 import { englishLearningSimulationV1 } from
   "./englishLearningSimulationV1";
@@ -28,8 +28,8 @@ describe("English-learning simulation genuine PostgreSQL environment", () => {
 describePostgres("English-learning simulation - PostgreSQL", () => {
   it("creates and reads one lesson", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
-      const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
-        lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
+      const proof = await Effect.runPromise(runSimulation({
+        lane: makePostgresDatabaseLane(persistence),
         simulation: englishLearningSimulationV1,
       }));
       expect(proof).toMatchObject({

@@ -1,26 +1,30 @@
 import { readFileSync } from "node:fs";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
+import {
+  defineApplication,
+  defineModule,
+  defineSchema,
+  defineTable,
+  mutation,
+  query,
+  sourceModule,
+  v,
+} from "@flarex/application-definition";
 import { Effect } from "effect";
 import {
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
 
-import { standardV1 } from
-  "@flarex/standard-application-definition/v1";
-
 import type {
-  StandardApplicationSystemTestClientV1,
-  StandardApplicationSystemTestSetupClientV1,
-  StandardApplicationLegacySimulationMutationErrorV1 as InvokeStandardApplicationPointMutationV1Error,
-  StandardApplicationLegacySimulationQueryErrorV1,
-  StandardApplicationTypedReferenceV1Error,
-} from "@flarex/system-test/environment/v1";
+  RunMutationError,
+  RunQueryError,
+  SimulationClient,
+  SimulationSetupClient,
+} from "@flarex/system-test/environment";
 import {
-  defineStandardApplicationSimulationV1,
-} from "@flarex/system-test/simulation/v1";
-import { makeCreateAndReadDefinitionV1 } from
-  "../support/createAndReadDefinitionV1";
+  defineSimulation,
+} from "@flarex/system-test/simulation";
 
 export interface EnglishLearningWorkloadProofV1 {
   readonly documentId: string;
@@ -33,39 +37,18 @@ export interface EnglishLearningSetupProofV1 {
   readonly commitSeq: bigint;
 }
 
-type EnglishLearningWorkloadErrorV1 =
-  | InvokeStandardApplicationPointMutationV1Error
-  | StandardApplicationLegacySimulationQueryErrorV1
-  | StandardApplicationTypedReferenceV1Error;
+type EnglishLearningWorkloadErrorV1 = RunMutationError | RunQueryError;
 
 const ENGLISH_LEARNING_FIELDS = {
-  term: standardV1.string(),
-  translation: standardV1.string(),
-  mastery: standardV1.number(),
+  term: v.string(),
+  translation: v.string(),
+  mastery: v.number(),
 } as const;
-const ENGLISH_LEARNING_DOCUMENT = standardV1.object({
-  _id: standardV1.id("lessons"),
-  _creationTime: standardV1.number(),
+const ENGLISH_LEARNING_DOCUMENT = v.object({
+  _id: v.id("lessons"),
+  _creationTime: v.number(),
   ...ENGLISH_LEARNING_FIELDS,
 });
-const ENGLISH_LEARNING_MUTATION_MODULE = standardV1.module(
-  "lessonCommands",
-  {
-    create: standardV1.publicMutation({
-      args: standardV1.object(ENGLISH_LEARNING_FIELDS),
-      returns: standardV1.id("lessons"),
-    }),
-  },
-);
-const ENGLISH_LEARNING_QUERY_MODULE = standardV1.module("lessons", {
-  get: standardV1.publicQuery({
-    args: standardV1.object({ id: standardV1.string() }),
-    returns: standardV1.nullable(ENGLISH_LEARNING_DOCUMENT),
-  }),
-});
-const ENGLISH_LEARNING_CREATE =
-  ENGLISH_LEARNING_MUTATION_MODULE.reference("create");
-const ENGLISH_LEARNING_GET = ENGLISH_LEARNING_QUERY_MODULE.reference("get");
 const ENGLISH_LEARNING_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "sac01:english-learning:create",
 );
@@ -79,6 +62,35 @@ const ENGLISH_LEARNING_FUNCTION_SOURCES = {
     import.meta.url,
   )),
 } as const;
+const ENGLISH_LEARNING_MUTATION_MODULE = defineModule({
+  path: "lessonCommands",
+  source: sourceModule({
+    path: "lessonMutation",
+    bytes: ENGLISH_LEARNING_FUNCTION_SOURCES.create,
+  }),
+  functions: {
+    create: mutation({
+      args: v.object(ENGLISH_LEARNING_FIELDS),
+      returns: v.id("lessons"),
+    }),
+  },
+});
+const ENGLISH_LEARNING_QUERY_MODULE = defineModule({
+  path: "lessons",
+  source: sourceModule({
+    path: "lessonQuery",
+    bytes: ENGLISH_LEARNING_FUNCTION_SOURCES.get,
+  }),
+  functions: {
+    get: query({
+      args: v.object({ id: v.string() }),
+      returns: v.nullable(ENGLISH_LEARNING_DOCUMENT),
+    }),
+  },
+});
+const ENGLISH_LEARNING_CREATE =
+  ENGLISH_LEARNING_MUTATION_MODULE.reference("create");
+const ENGLISH_LEARNING_GET = ENGLISH_LEARNING_QUERY_MODULE.reference("get");
 const ENGLISH_LEARNING_LESSON = {
   term: "apple",
   translation: "a fruit",
@@ -88,7 +100,7 @@ const ENGLISH_LEARNING_LESSON = {
 const prepareEnglishLearningStateV1 = Effect.fn(
   "SystemTestEnglishLearningSimulation.setupV1",
 )(function* (
-  client: StandardApplicationSystemTestSetupClientV1,
+  client: SimulationSetupClient,
 ): Effect.fn.Return<EnglishLearningSetupProofV1, EnglishLearningWorkloadErrorV1> {
   const inserted = yield* client.mutation(
     ENGLISH_LEARNING_CREATE,
@@ -110,7 +122,7 @@ const prepareEnglishLearningStateV1 = Effect.fn(
 const runEnglishLearningWorkloadV1 = Effect.fn(
   "SystemTestEnglishLearningSimulation.workloadV1",
 )(function* (
-  client: StandardApplicationSystemTestClientV1,
+  client: SimulationClient,
   setup: EnglishLearningSetupProofV1,
 ): Effect.fn.Return<
   EnglishLearningWorkloadProofV1,
@@ -170,21 +182,20 @@ function requireLessonDocument(value: unknown, documentId: string): void {
 }
 
 export const englishLearningSimulationV1 =
-  defineStandardApplicationSimulationV1({
+  defineSimulation({
     version: 1,
     simulationId: "english-learning-lesson-create-and-read-v1",
     application: {
       applicationId: "english-learning",
       revisionName: "sac01-english-learning-app",
-      define: () => makeCreateAndReadDefinitionV1({
-        tableName: "lessons",
-        mutationModule: ENGLISH_LEARNING_MUTATION_MODULE,
-        queryModule: ENGLISH_LEARNING_QUERY_MODULE,
-        mutationArtifactPath: "lessonMutation",
-        queryArtifactPath: "lessonQuery",
-        mutationSourceBytes: ENGLISH_LEARNING_FUNCTION_SOURCES.create,
-        querySourceBytes: ENGLISH_LEARNING_FUNCTION_SOURCES.get,
-        fields: ENGLISH_LEARNING_FIELDS,
+      define: () => defineApplication({
+        schema: defineSchema({
+          lessons: defineTable(ENGLISH_LEARNING_FIELDS),
+        }),
+        modules: [
+          ENGLISH_LEARNING_MUTATION_MODULE,
+          ENGLISH_LEARNING_QUERY_MODULE,
+        ],
       }),
     },
     setup: prepareEnglishLearningStateV1,

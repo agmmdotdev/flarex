@@ -1,10 +1,10 @@
 import type {
-  StandardApplicationAuthoritativeInspectionV1,
-} from "@flarex/system-test/inspection/v1";
+  AuthoritativeInspection,
+} from "@flarex/system-test/inspection";
 import { expect } from "vitest";
 
 export function expectSinglePublicationInspectionV1(
-  inspection: StandardApplicationAuthoritativeInspectionV1,
+  inspection: AuthoritativeInspection,
   tableName: string,
   documentId: string,
   mutationRuntimeExecutions: number,

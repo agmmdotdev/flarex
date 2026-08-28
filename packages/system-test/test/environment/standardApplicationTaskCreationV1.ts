@@ -8,8 +8,16 @@ import {
   standardV1,
 } from "@flarex/standard-application-definition/v1";
 import {
-  defineStandardApplicationSimulationV1,
-} from "@flarex/system-test/simulation/v1";
+  defineApplication,
+  defineModule,
+  defineSchema,
+  defineTable,
+  mutation,
+  query,
+  sourceModule,
+  v,
+} from "@flarex/application-definition";
+import { defineSimulation } from "@flarex/system-test/simulation";
 import type {
   CreateStandardApplicationTaskRunError,
   StandardApplicationTaskRunCreationReceipt,
@@ -19,16 +27,11 @@ import { Effect, Result } from "effect";
 import { TransactionRequestKeyV1Schema } from
   "flarex-protocol/transaction-session";
 
-import {
-  makeCreateAndReadDefinitionV1,
-  makeCreateAndReadModulesV1,
-} from "../simulation/support/createAndReadDefinitionV1";
 import type {
-  StandardApplicationLegacySimulationMutationErrorV1,
-  StandardApplicationSystemTestClientV1,
-  StandardApplicationSystemTestSetupClientV1,
-  StandardApplicationTypedReferenceV1Error,
-} from "../../src/environment/standardApplicationEnvironmentV1";
+  RunMutationError,
+  SimulationClient,
+  SimulationSetupClient,
+} from "@flarex/system-test/environment";
 import type {
   StandardApplicationTaskDeliveryV1Error,
   StandardApplicationTaskCancelledDeliveryReceiptV1,
@@ -39,32 +42,96 @@ import type {
 } from "../../src/environment/standardApplicationTaskDeliveryV1";
 
 const RECIPE_FIELDS = {
-  title: standardV1.string(),
-  servings: standardV1.number(),
+  title: v.string(),
+  servings: v.number(),
 } as const;
-const RECIPE_DOCUMENT = standardV1.object({
-  _id: standardV1.id("recipes"),
-  _creationTime: standardV1.number(),
+const RECIPE_DOCUMENT = v.object({
+  _id: v.id("recipes"),
+  _creationTime: v.number(),
   ...RECIPE_FIELDS,
 });
-const RECIPE_MODULES = makeCreateAndReadModulesV1({
-  tableName: "recipes",
-  fields: RECIPE_FIELDS,
-  mutationModulePath: "recipeCommands",
-  queryModulePath: "recipes",
-});
-const RECIPE_CREATE = RECIPE_MODULES.mutationModule.reference("create");
 const PREPARATION_FIELDS = {
-  recipeId: standardV1.string(),
-  title: standardV1.string(),
-  subject: standardV1.string(),
+  recipeId: v.string(),
+  title: v.string(),
+  subject: v.string(),
 } as const;
-const PREPARATION_MODULE = standardV1.module("preparationCommands", {
-  create: standardV1.publicMutation({
-    args: standardV1.object(PREPARATION_FIELDS),
-    returns: standardV1.id("preparations"),
-  }),
+const RECIPE_MUTATION_SOURCE = new TextEncoder().encode([
+  'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
+  "export function failRecipePreparation() {",
+  "  throw new Error('simulated recipe preparation failure');",
+  "}",
+  "export async function waitForCancellation() {",
+  "  await new Promise(() => {});",
+  "  return { completed: true };",
+  "}",
+  "export function completeCancellationRace() {",
+  "  return { completed: true };",
+  "}",
+  "export function taskFaultProbe(_ctx, payload) {",
+  "  return { probe: payload.probe };",
+  "}",
+  "export async function prepareRecipe(ctx, payload) {",
+  "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",
+  "  if (result.recipe === null) throw new Error('recipe missing');",
+  "  const preparationId = await ctx.runMutation('preparationCommands:create', {",
+  "    recipeId: payload.recipeId,",
+  "    title: result.recipe.title,",
+  "    subject: result.subject,",
+  "  });",
+  "  return {",
+  "    prepared: result.recipe.servings === payload.servings,",
+  "    preparationId,",
+  "    title: result.recipe.title,",
+  "    subject: result.subject,",
+  "  };",
+  "}",
+].join("\n"));
+const RECIPE_QUERY_SOURCE = new TextEncoder().encode([
+  "export async function get(ctx, { id }) {",
+  "  const identity = await ctx.auth.getUserIdentity();",
+  "  return {",
+  "    recipe: await ctx.db.get(id),",
+  "    subject: identity?.subject ?? 'anonymous',",
+  "  };",
+  "}",
+].join("\n"));
+const PREPARATION_SOURCE = new TextEncoder().encode(
+  'export function create(ctx,a){return ctx.db.insert("preparations",a)}',
+);
+const RECIPE_MUTATION_MODULE = defineModule({
+  path: "recipeCommands",
+  source: sourceModule({ path: "recipeMutation", bytes: RECIPE_MUTATION_SOURCE }),
+  functions: {
+    create: mutation({
+      args: v.object(RECIPE_FIELDS),
+      returns: v.id("recipes"),
+    }),
+  },
 });
+const RECIPE_QUERY_MODULE = defineModule({
+  path: "recipes",
+  source: sourceModule({ path: "recipeQuery", bytes: RECIPE_QUERY_SOURCE }),
+  functions: {
+    get: query({
+      args: v.object({ id: v.string() }),
+      returns: v.object({
+        recipe: v.nullable(RECIPE_DOCUMENT),
+        subject: v.string(),
+      }),
+    }),
+  },
+});
+const PREPARATION_MODULE = defineModule({
+  path: "preparationCommands",
+  source: sourceModule({ path: "preparationMutation", bytes: PREPARATION_SOURCE }),
+  functions: {
+    create: mutation({
+      args: v.object(PREPARATION_FIELDS),
+      returns: v.id("preparations"),
+    }),
+  },
+});
+const RECIPE_CREATE = RECIPE_MUTATION_MODULE.reference("create");
 const RECIPE_SETUP_REQUEST_KEY = TransactionRequestKeyV1Schema.make(
   "system-test:task-query-callback:setup",
 );
@@ -128,8 +195,7 @@ interface StandardApplicationTaskWorkloadProofV1 {
 }
 
 type StandardApplicationTaskSimulationErrorV1 =
-  | StandardApplicationLegacySimulationMutationErrorV1
-  | StandardApplicationTypedReferenceV1Error
+  | RunMutationError
   | CreateStandardApplicationTaskRunError
   | StandardApplicationTaskDeliveryV1Error;
 
@@ -306,7 +372,7 @@ export const standardApplicationTaskRecoveryProbeV1 = Result.getOrThrow(
 const setupTaskQueryCallbackV1 = Effect.fn(
   "StandardApplicationTaskQueryCallback.setupV1",
 )(function* (
-  client: StandardApplicationSystemTestSetupClientV1,
+  client: SimulationSetupClient,
 ): Effect.fn.Return<
   StandardApplicationTaskSetupV1,
   StandardApplicationTaskSimulationErrorV1
@@ -331,7 +397,7 @@ const setupTaskQueryCallbackV1 = Effect.fn(
 const runTaskQueryCallbackV1 = Effect.fn(
   "StandardApplicationTaskQueryCallback.workloadV1",
 )(function* (
-  client: StandardApplicationSystemTestClientV1,
+  client: SimulationClient,
   setup: StandardApplicationTaskSetupV1,
 ): Effect.fn.Return<
   StandardApplicationTaskWorkloadProofV1,
@@ -599,7 +665,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
 });
 
 export const standardApplicationTaskCreationSimulationV1 =
-  defineStandardApplicationSimulationV1({
+  defineSimulation({
     version: 1,
     simulationId: "typed-task-creation-replay",
     application: {
@@ -677,71 +743,15 @@ export async function readStandardApplicationTaskCreationStateV1(
 }
 
 function taskApplicationDefinition() {
-  return makeCreateAndReadDefinitionV1({
-    tableName: "recipes",
-    mutationModule: RECIPE_MODULES.mutationModule,
-    queryModule: standardV1.module("recipes", {
-      get: standardV1.publicQuery({
-        args: standardV1.object({ id: standardV1.string() }),
-        returns: standardV1.object({
-          recipe: standardV1.nullable(RECIPE_DOCUMENT),
-          subject: standardV1.string(),
-        }),
-      }),
+  return defineApplication({
+    schema: defineSchema({
+      recipes: defineTable(RECIPE_FIELDS),
+      preparations: defineTable(PREPARATION_FIELDS),
     }),
-    mutationArtifactPath: "recipeMutation",
-    queryArtifactPath: "recipeQuery",
-    mutationSourceBytes: new TextEncoder().encode([
-      'export function create(ctx,a){return ctx.db.insert("recipes",a)}',
-      "export function failRecipePreparation() {",
-      "  throw new Error('simulated recipe preparation failure');",
-      "}",
-      "export async function waitForCancellation() {",
-      "  await new Promise(() => {});",
-      "  return { completed: true };",
-      "}",
-      "export function completeCancellationRace() {",
-      "  return { completed: true };",
-      "}",
-      "export function taskFaultProbe(_ctx, payload) {",
-      "  return { probe: payload.probe };",
-      "}",
-      "export async function prepareRecipe(ctx, payload) {",
-      "  const result = await ctx.runQuery('recipes:get', { id: payload.recipeId });",
-      "  if (result.recipe === null) throw new Error('recipe missing');",
-      "  const preparationId = await ctx.runMutation('preparationCommands:create', {",
-      "    recipeId: payload.recipeId,",
-      "    title: result.recipe.title,",
-      "    subject: result.subject,",
-      "  });",
-      "  return {",
-      "    prepared: result.recipe.servings === payload.servings,",
-      "    preparationId,",
-      "    title: result.recipe.title,",
-      "    subject: result.subject,",
-      "  };",
-      "}",
-    ].join("\n")),
-    querySourceBytes: new TextEncoder().encode([
-      "export async function get(ctx, { id }) {",
-      "  const identity = await ctx.auth.getUserIdentity();",
-      "  return {",
-      "    recipe: await ctx.db.get(id),",
-      "    subject: identity?.subject ?? 'anonymous',",
-      "  };",
-      "}",
-    ].join("\n")),
-    fields: RECIPE_FIELDS,
-    additionalTables: [{
-      logicalName: "preparations",
-      fields: PREPARATION_FIELDS,
-    }],
-    additionalFunctionModules: [{
-      module: PREPARATION_MODULE,
-      artifactModulePath: "preparationMutation",
-      sourceBytes: new TextEncoder().encode(
-        'export function create(ctx,a){return ctx.db.insert("preparations",a)}',
-      ),
-    }],
+    modules: [
+      RECIPE_MUTATION_MODULE,
+      PREPARATION_MODULE,
+      RECIPE_QUERY_MODULE,
+    ],
   });
 }

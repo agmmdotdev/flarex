@@ -1,14 +1,21 @@
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import {
+  defineApplication,
+  defineModule,
+  defineSchema,
+  defineTable,
+  mutation,
+  query,
+  sourceModule,
+  v,
+} from "@flarex/application-definition";
+import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from
   "flarex-protocol/transaction-session";
 import { describe, expect, it } from "vitest";
-
-import { standardV1 } from
-  "@flarex/standard-application-definition/v1";
 
 import {
   type PGliteFlarexPersistence,
@@ -17,30 +24,23 @@ import {
   createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence,
 } from "../support/databaseFixturesV1";
 import {
-  type StandardApplicationSystemTestClientV1,
-  type StandardApplicationSystemTestSetupClientV1,
-  type StandardApplicationLegacySimulationMutationErrorV1 as InvokeStandardApplicationPointMutationV1Error,
-  runStandardApplicationSimulationV1,
-  StandardApplicationSimulationIntegrationV1Error,
-  StandardApplicationTypedReferenceV1Error,
-} from "@flarex/system-test/environment/v1";
+  type SimulationClient,
+  type SimulationSetupClient,
+  runSimulation,
+  SimulationIntegrationError,
+} from "@flarex/system-test/environment";
 import {
-  StandardApplicationSystemTestInspectionV1Error,
-} from "@flarex/system-test/inspection/v1";
+  InspectionError,
+} from "@flarex/system-test/inspection";
 import {
-  makePGliteStandardApplicationSystemTestLaneV1,
-} from "@flarex/system-test/lanes/v1";
+  makePGliteDatabaseLane,
+} from "@flarex/system-test/lanes";
 import {
-  defineStandardApplicationSimulationV1,
-  type StandardApplicationSimulationApplicationV1,
-  type StandardApplicationSimulationRuntimeExpectationsV1,
-  type StandardApplicationSimulationV1,
-} from "@flarex/system-test/simulation/v1";
-import {
-  makeCreateAndReadDefinitionV1,
-  makeCreateAndReadModulesV1,
-} from
-  "../simulation/support/createAndReadDefinitionV1";
+  defineSimulation,
+  type Simulation,
+  type SimulationApplication,
+  type SimulationRuntimeExpectations,
+} from "@flarex/system-test/simulation";
 import { makeCreateAndReadFunctionSourcesV1 } from
   "../simulation/support/createAndReadFunctionSourcesV1";
 import { cookingSimulationV1 } from
@@ -50,23 +50,42 @@ function makeCookingDefinitionV1(
   mutationSourceBytes?: Uint8Array,
 ) {
   const fields = {
-    title: standardV1.string(),
-    servings: standardV1.number(),
+    title: v.string(),
+    servings: v.number(),
   } as const;
   const sources = makeCreateAndReadFunctionSourcesV1("recipes");
-  return makeCreateAndReadDefinitionV1({
-    tableName: "recipes",
-    ...makeCreateAndReadModulesV1({
-      tableName: "recipes",
-      fields,
-      mutationModulePath: "recipeCommands",
-      queryModulePath: "recipes",
-    }),
-    mutationArtifactPath: "recipeMutation",
-    queryArtifactPath: "recipeQuery",
-    mutationSourceBytes: mutationSourceBytes ?? sources.mutationSourceBytes,
-    querySourceBytes: sources.querySourceBytes,
-    fields,
+  const document = v.object({
+    _id: v.id("recipes"),
+    _creationTime: v.number(),
+    ...fields,
+  });
+  return defineApplication({
+    schema: defineSchema({ recipes: defineTable(fields) }),
+    modules: [defineModule({
+      path: "recipeCommands",
+      source: sourceModule({
+        path: "recipeMutation",
+        bytes: mutationSourceBytes ?? sources.mutationSourceBytes,
+      }),
+      functions: {
+        create: mutation({
+          args: v.object(fields),
+          returns: v.id("recipes"),
+        }),
+      },
+    }), defineModule({
+      path: "recipes",
+      source: sourceModule({
+        path: "recipeQuery",
+        bytes: sources.querySourceBytes,
+      }),
+      functions: {
+        get: query({
+          args: v.object({ id: v.string() }),
+          returns: v.nullable(document),
+        }),
+      },
+    })],
   });
 }
 
@@ -80,7 +99,7 @@ function makeDiagnosticCookingDefinitionV1() {
 
 function testApplication(
   name: string,
-): StandardApplicationSimulationApplicationV1 {
+): SimulationApplication {
   return {
     applicationId: name,
     revisionName: `system-test-${name}`,
@@ -96,20 +115,20 @@ function defineTestSimulationV1<
 >(
   simulationId: string,
   setup: (
-    client: StandardApplicationSystemTestSetupClientV1,
+    client: SimulationSetupClient,
   ) => Effect.Effect<Setup, SetupError>,
   workload: (
-    client: StandardApplicationSystemTestClientV1,
+    client: SimulationClient,
     setup: Setup,
   ) => Effect.Effect<Proof, WorkloadError>,
   expectedRuntimeExecutions?:
-    StandardApplicationSimulationRuntimeExpectationsV1,
-): StandardApplicationSimulationV1<
+    SimulationRuntimeExpectations,
+): Simulation<
   Setup,
   Proof,
   SetupError | WorkloadError
 > {
-  return defineStandardApplicationSimulationV1<
+  return defineSimulation<
     Setup,
     Proof,
     SetupError | WorkloadError
@@ -129,9 +148,9 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("keeps rejected analysis outside publication, readiness, and activation", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const failure = await Effect.runPromise(Effect.flip(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
-        simulation: defineStandardApplicationSimulationV1({
+      runSimulation({
+        lane: makePGliteDatabaseLane(persistence),
+        simulation: defineSimulation({
           version: 1,
           simulationId: "diagnostic-registration-refusal",
           application: {
@@ -146,7 +165,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     ));
 
     expect(failure).toBeInstanceOf(
-      StandardApplicationSimulationIntegrationV1Error,
+      SimulationIntegrationError,
     );
     expect(failure).toMatchObject({ phase: "prepareRevision" });
     expect(containsErrorFacet(
@@ -175,8 +194,8 @@ describe("Standard Application system-test environment - PGlite", () => {
     const persistence = await createMigratedPGlitePersistence();
     let scopeAuditCount = 0;
     const firstReceipt = await Effect.runPromise(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1({
+      runSimulation({
+        lane: makePGliteDatabaseLane({
           control: persistence.control,
           target: makeInspectionScopeAuditPersistence(
             persistence.target,
@@ -233,8 +252,8 @@ describe("Standard Application system-test environment - PGlite", () => {
 
   it("rejects a valid runtime-execution expectation that the workload violates", async () => {
     const persistence = await createMigratedPGlitePersistence();
-    const program = runStandardApplicationSimulationV1({
-      lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+    const program = runSimulation({
+      lane: makePGliteDatabaseLane(persistence),
       simulation: defineTestSimulationV1(
         "runtime-expectation-mismatch",
         client => publishRecipeForInspectionV1(
@@ -252,73 +271,54 @@ describe("Standard Application system-test environment - PGlite", () => {
     );
   }, 480_000);
 
-  it("rejects a mismatched typed query contract before runtime invocation", async () => {
+  it("routes malformed query calls through the unsafe test operation", async () => {
     const persistence = await createMigratedPGlitePersistence();
-    const mismatchedGet = standardV1.module("recipes", {
-      get: standardV1.publicQuery({
-        args: standardV1.object({ id: standardV1.string() }),
-        returns: standardV1.number(),
-      }),
-    }).reference("get");
     const failure = await Effect.runPromise(Effect.flip(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+      runSimulation({
+        lane: makePGliteDatabaseLane(persistence),
         simulation: defineTestSimulationV1(
-          "typed-reference-return-mismatch",
+          "unsafe-query-arguments",
           client => publishRecipeForInspectionV1(
             client,
             "Typed soup",
-            "system-test:typed-reference-return-mismatch:setup",
+            "system-test:unsafe-query-arguments:setup",
           ),
-          (client, documentId) => client.query(mismatchedGet, { id: documentId }),
+          (client, documentId) => client.unsafeInvokeQuery(
+            TransactionFunctionPathV1Schema.make("recipes:get"),
+            { id: documentId, unexpected: true },
+          ),
         ),
       }),
     ));
 
-    expect(failure).toBeInstanceOf(StandardApplicationTypedReferenceV1Error);
     expect(failure).toMatchObject({
-      _tag: "StandardApplicationTypedReferenceV1Error",
-      phase: "queryContract",
-      functionPath: "recipes:get",
-      detail: { reason: "contractMismatch", facet: "returns" },
+      _tag: "ApplicationExecutionHostError",
+      operation: "transaction",
+      reason: "invalidRequest",
     });
   }, 480_000);
 
-  it("rejects a mismatched typed mutation contract before any durable effect", async () => {
+  it("routes malformed mutations through unsafe test operation without a durable effect", async () => {
     const persistence = await createMigratedPGlitePersistence();
-    const mismatchedCreate = standardV1.module("recipeCommands", {
-      create: standardV1.publicMutation({
-        args: standardV1.object({
-          title: standardV1.string(),
-          servings: standardV1.number(),
-        }),
-        returns: standardV1.null(),
-      }),
-    }).reference("create");
     const failure = await Effect.runPromise(Effect.flip(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+      runSimulation({
+        lane: makePGliteDatabaseLane(persistence),
         simulation: defineTestSimulationV1(
-          "typed-mutation-contract-mismatch",
+          "unsafe-mutation-arguments",
           () => Effect.void,
-          client => client.mutation(
-            mismatchedCreate,
-            { title: "Never committed soup", servings: 2 },
+          client => client.unsafeInvokeMutation(
+            TransactionFunctionPathV1Schema.make("recipeCommands:create"),
+            { title: "Never committed soup" },
             TransactionRequestKeyV1Schema.make(
-              "system-test:typed-mutation-contract-mismatch:create",
+              "system-test:unsafe-mutation-arguments:create",
             ),
           ),
         ),
       }),
     ));
 
-    expect(failure).toBeInstanceOf(StandardApplicationTypedReferenceV1Error);
-    expect(failure).toMatchObject({
-      _tag: "StandardApplicationTypedReferenceV1Error",
-      phase: "mutationContract",
-      functionPath: "recipeCommands:create",
-      detail: { reason: "contractMismatch", facet: "returns" },
-    });
+    expect(containsErrorFacet(failure, "reason", "missingRequiredField"))
+      .toBe(true);
     const durableCounts = await persistence.target.query<Record<string, unknown>>(`
       select
         (select count(*)::text from fx_app_row_current) as current_count,
@@ -341,11 +341,11 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("revokes the workload client when its owning run completes", async () => {
     const persistence = await createMigratedPGlitePersistence();
     let escapedSetupClient:
-      StandardApplicationSystemTestSetupClientV1 | undefined;
-    let escapedClient: StandardApplicationSystemTestClientV1 | undefined;
+      SimulationSetupClient | undefined;
+    let escapedClient: SimulationClient | undefined;
     const receipt = await Effect.runPromise(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+      runSimulation({
+        lane: makePGliteDatabaseLane(persistence),
         simulation: defineTestSimulationV1(
           "client-lifecycle",
           client => Effect.sync(() => {
@@ -399,9 +399,9 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("revokes the setup client after synchronous setup construction failure", async () => {
     const persistence = await createMigratedPGlitePersistence();
     let escapedSetupClient:
-      StandardApplicationSystemTestSetupClientV1 | undefined;
-    const program = runStandardApplicationSimulationV1({
-      lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+      SimulationSetupClient | undefined;
+    const program = runSimulation({
+      lane: makePGliteDatabaseLane(persistence),
       simulation: defineTestSimulationV1(
         "setup-construction-failure",
         (client): Effect.Effect<never> => {
@@ -429,9 +429,9 @@ describe("Standard Application system-test environment - PGlite", () => {
 
   it("revokes the workload client after synchronous workload construction failure", async () => {
     const persistence = await createMigratedPGlitePersistence();
-    let escapedClient: StandardApplicationSystemTestClientV1 | undefined;
-    const program = runStandardApplicationSimulationV1({
-      lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+    let escapedClient: SimulationClient | undefined;
+    const program = runSimulation({
+      lane: makePGliteDatabaseLane(persistence),
       simulation: defineTestSimulationV1(
         "client-construction-failure",
         () => Effect.void,
@@ -460,8 +460,8 @@ describe("Standard Application system-test environment - PGlite", () => {
     const persistence = await createMigratedPGlitePersistence();
     let detachedInvocationFailed: (() => Promise<boolean>) | undefined;
     const receipt = await Effect.runPromise(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+      runSimulation({
+        lane: makePGliteDatabaseLane(persistence),
         simulation: defineTestSimulationV1(
           "managed-invocation-lifecycle",
           () => Effect.void,
@@ -490,8 +490,8 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("cancels an interrupted mutation while its workload remains active", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const receipt = await Effect.runPromise(
-      runStandardApplicationSimulationV1({
-        lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+      runSimulation({
+        lane: makePGliteDatabaseLane(persistence),
         simulation: defineTestSimulationV1(
           "per-call-cancellation",
           () => Effect.void,
@@ -522,9 +522,9 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("keeps preparation failures in the typed Test API error channel", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const expectedCause = new Error("injected registration clock failure");
-    const lane = makePGliteStandardApplicationSystemTestLaneV1(persistence);
+    const lane = makePGliteDatabaseLane(persistence);
     const failure = await Effect.runPromise(Effect.flip(
-      runStandardApplicationSimulationV1({
+      runSimulation({
         lane: Object.freeze({
           ...lane,
           createFixture: () => Promise.reject(expectedCause),
@@ -534,13 +534,13 @@ describe("Standard Application system-test environment - PGlite", () => {
     ));
 
     expect(failure).toBeInstanceOf(
-      StandardApplicationSimulationIntegrationV1Error,
+      SimulationIntegrationError,
     );
     expect(failure).toMatchObject({
       _tag: "StandardApplicationSimulationIntegrationV1Error",
       phase: "prepareRevision",
     });
-    if (!(failure instanceof StandardApplicationSimulationIntegrationV1Error)) {
+    if (!(failure instanceof SimulationIntegrationError)) {
       throw new Error("The Test API returned an unexpected failure type.");
     }
     expect(failure.cause).toBeInstanceOf(Error);
@@ -550,9 +550,9 @@ describe("Standard Application system-test environment - PGlite", () => {
   it("keeps inspection query failures in a distinct typed error channel", async () => {
     const persistence = await createMigratedPGlitePersistence();
     const expectedCause = new Error("injected inspection query failure");
-    const lane = makePGliteStandardApplicationSystemTestLaneV1(persistence);
+    const lane = makePGliteDatabaseLane(persistence);
     const failure = await Effect.runPromise(Effect.flip(
-      runStandardApplicationSimulationV1({
+      runSimulation({
         lane: Object.freeze({
           ...lane,
           target: makeInspectionFaultPersistence(
@@ -565,7 +565,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     ));
 
     expect(failure).toBeInstanceOf(
-      StandardApplicationSystemTestInspectionV1Error,
+      InspectionError,
     );
     expect(failure).toMatchObject({
       _tag: "StandardApplicationSystemTestInspectionV1Error",
@@ -577,9 +577,9 @@ describe("Standard Application system-test environment - PGlite", () => {
 
   it("rejects malformed authoritative inspection results", async () => {
     const persistence = await createMigratedPGlitePersistence();
-    const lane = makePGliteStandardApplicationSystemTestLaneV1(persistence);
+    const lane = makePGliteDatabaseLane(persistence);
     const failure = await Effect.runPromise(Effect.flip(
-      runStandardApplicationSimulationV1({
+      runSimulation({
         lane: Object.freeze({
           ...lane,
           target: makeInspectionFaultPersistence(
@@ -592,7 +592,7 @@ describe("Standard Application system-test environment - PGlite", () => {
     ));
 
     expect(failure).toBeInstanceOf(
-      StandardApplicationSystemTestInspectionV1Error,
+      InspectionError,
     );
     expect(failure).toMatchObject({
       _tag: "StandardApplicationSystemTestInspectionV1Error",
@@ -615,16 +615,20 @@ function containsErrorFacet(
   if (value[key] === expected) return true;
   return containsErrorFacet(value.cause, key, expected, seen) ||
     containsErrorFacet(value.failure, key, expected, seen) ||
-    containsErrorFacet(value.error, key, expected, seen);
+    containsErrorFacet(value.error, key, expected, seen) ||
+    containsErrorFacet(value.issue, key, expected, seen);
 }
 
 const publishRecipeForInspectionV1 = Effect.fn(
   "StandardApplicationSystemTest.publishRecipeForInspectionV1",
 )(function* (
-  client: StandardApplicationSystemTestSetupClientV1,
+  client: SimulationSetupClient,
   title: string,
   requestKey: string,
-): Effect.fn.Return<string, InvokeStandardApplicationPointMutationV1Error> {
+): Effect.fn.Return<
+  string,
+  Effect.Error<ReturnType<SimulationSetupClient["unsafeInvokeMutation"]>>
+> {
   const outcome = yield* client.unsafeInvokeMutation(
     TransactionFunctionPathV1Schema.make("recipeCommands:create"),
     { title, servings: 1 },

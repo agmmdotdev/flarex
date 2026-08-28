@@ -5,11 +5,11 @@ import {
   withTemporarySplitPostgresPersistence,
 } from "../../support/databaseFixturesV1";
 import {
-  makePostgresStandardApplicationSystemTestLaneV1,
-} from "@flarex/system-test/lanes/v1";
+  makePostgresDatabaseLane,
+} from "@flarex/system-test/lanes";
 import {
-  runStandardApplicationSimulationV1,
-} from "@flarex/system-test/environment/v1";
+  runSimulation,
+} from "@flarex/system-test/environment";
 
 import { cookingSimulationV1 } from "./cookingSimulationV1";
 import { readCookingActionStateV1 } from "./cookingActionStateV1";
@@ -32,8 +32,8 @@ describe("cooking simulation genuine PostgreSQL environment", () => {
 describePostgres("cooking simulation - PostgreSQL", () => {
   it("preserves lifecycle and deterministic pantry OCC invariants", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
-      const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
-        lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
+      const proof = await Effect.runPromise(runSimulation({
+        lane: makePostgresDatabaseLane(persistence),
         simulation: cookingSimulationV1,
       }));
       expect(proof).toMatchObject({

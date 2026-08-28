@@ -1,9 +1,9 @@
 import {
-  runStandardApplicationSimulationV1,
-} from "@flarex/system-test/environment/v1";
+  runSimulation,
+} from "@flarex/system-test/environment";
 import {
-  makePostgresStandardApplicationSystemTestLaneV1,
-} from "@flarex/system-test/lanes/v1";
+  makePostgresDatabaseLane,
+} from "@flarex/system-test/lanes";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -31,8 +31,8 @@ describePostgres("typed Task delivery - PostgreSQL", () => {
   it("proves typed Task delivery, recovery, retry, cancellation, and faults", async () => {
     await withTemporarySplitPostgresPersistence(async persistence => {
       const receipt = await Effect.runPromise(
-        runStandardApplicationSimulationV1({
-          lane: makePostgresStandardApplicationSystemTestLaneV1(persistence),
+        runSimulation({
+          lane: makePostgresDatabaseLane(persistence),
           simulation: standardApplicationTaskCreationSimulationV1,
         }),
       );

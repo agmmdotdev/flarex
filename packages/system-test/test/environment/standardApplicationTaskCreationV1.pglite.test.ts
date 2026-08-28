@@ -1,9 +1,9 @@
 import {
-  runStandardApplicationSimulationV1,
-} from "@flarex/system-test/environment/v1";
+  runSimulation,
+} from "@flarex/system-test/environment";
 import {
-  makePGliteStandardApplicationSystemTestLaneV1,
-} from "@flarex/system-test/lanes/v1";
+  makePGliteDatabaseLane,
+} from "@flarex/system-test/lanes";
 import type { TaskResultStoreError } from
   "flarex-backend/internal/task-result-store";
 import { Effect } from "effect";
@@ -25,8 +25,8 @@ it("proves typed PGlite Task delivery, recovery, retry, cancellation, and faults
     StandardApplicationTaskDeliveryV1Error
   >();
   const persistence = await createMigratedPGlitePersistence();
-  const receipt = await Effect.runPromise(runStandardApplicationSimulationV1({
-    lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+  const receipt = await Effect.runPromise(runSimulation({
+    lane: makePGliteDatabaseLane(persistence),
     simulation: standardApplicationTaskCreationSimulationV1,
   }));
 

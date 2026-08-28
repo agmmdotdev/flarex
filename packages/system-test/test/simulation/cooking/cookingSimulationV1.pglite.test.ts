@@ -3,11 +3,11 @@ import { expect, it } from "vitest";
 import { createMigratedSplitPGlitePersistence as createMigratedPGlitePersistence } from
   "../../support/databaseFixturesV1";
 import {
-  makePGliteStandardApplicationSystemTestLaneV1,
-} from "@flarex/system-test/lanes/v1";
+  makePGliteDatabaseLane,
+} from "@flarex/system-test/lanes";
 import {
-  runStandardApplicationSimulationV1,
-} from "@flarex/system-test/environment/v1";
+  runSimulation,
+} from "@flarex/system-test/environment";
 
 import { expectSinglePublicationInspectionV1 } from
   "../support/inspectionAssertionsV1";
@@ -20,8 +20,8 @@ import {
 
 it("runs the cooking simulation through the real Standard path", async () => {
   const persistence = await createMigratedPGlitePersistence();
-  const proof = await Effect.runPromise(runStandardApplicationSimulationV1({
-    lane: makePGliteStandardApplicationSystemTestLaneV1(persistence),
+  const proof = await Effect.runPromise(runSimulation({
+    lane: makePGliteDatabaseLane(persistence),
     simulation: cookingSimulationV1,
   }));
 

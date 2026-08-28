@@ -3,8 +3,8 @@
 ## Status And Decision Boundary
 
 **Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
-`CAPI-C` are complete privately; `CAPI-D` and `CAPI-E` remain pending and
-separately gated.
+`CAPI-D` are complete privately; `CAPI-E` remains pending and separately
+gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
@@ -18,6 +18,11 @@ The user approved `CAPI-C` on the same date. That slice adds the clean
 Action operations over the existing live owners and migrates the smallest
 PGlite query consumer. It does not authorize system-test facade naming, broad
 simulation migration, public, or production gates.
+The user approved `CAPI-D` on the same date. That slice adds plain system-test
+subpaths and names, delegates typed scenario calls through the clean invocation
+operations, migrates the English-learning and cooking simulations, and removes
+the displaced create/read definition assembler. It does not remove the retained
+versioned product exports or authorize public or production gates.
 
 This preflight defines a clean, unversioned workspace-internal entry surface
 for application definition and invocation. It responds to the current
@@ -32,7 +37,7 @@ contracts may retain their existing versions because exact decoding and
 migration compatibility require them. Those versions remain below the clean
 Application APIs.
 
-Beyond the completed `CAPI-A` through `CAPI-C` slices, this roadmap does not authorize package
+Beyond the completed `CAPI-A` through `CAPI-D` slices, this roadmap does not authorize package
 renames, public SDK changes, routes, bindings, deployment, production routing,
 schemas, migrations, runtime changes, compatibility aliases, fallbacks,
 comparison execution, or dual writes.
@@ -507,6 +512,20 @@ Exit criteria:
 
 ### `CAPI-D` — System-test facade and simulations
 
+**Status:** Complete privately on 2026-08-28. Plain system-test subpaths now
+expose `defineSimulation`, `runSimulation`, `SimulationClient`,
+`DatabaseLane`, and `AuthoritativeInspection`. English-learning and cooking
+author their applications directly through the clean definition API and invoke
+ordinary operations through the clean invocation facade; malformed calls remain
+on explicit unsafe test operations. The old product exports remain only for the
+separately gated `CAPI-E` removal inventory.
+
+The retained `/environment/v1` runner remains an exact compatibility quarantine
+rather than sharing the new client adapter. This temporary duplication avoids
+changing its lifecycle or failure behavior before the `CAPI-E` consumer
+inventory; `CAPI-E` removes that displaced runner instead of creating a lasting
+second composition owner.
+
 Move `@flarex/system-test` to plain subpaths and names. Migrate the independent
 English-learning simulation before the large cooking simulation, then migrate
 cooking without changing scenario assertions, fault behavior, execution counts,
@@ -576,7 +595,7 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after `CAPI-C`. The next work requires explicit approval for `CAPI-D`; do
-not start system-test facade renaming or broad simulation migration from this
-completed slice. The English-learning and cooking PGlite
-lanes run here only as unchanged producer-path regression evidence.
+Stop after `CAPI-D`. The next work requires explicit approval for `CAPI-E`; do
+not remove the displaced versioned product exports or names from this completed
+slice. Public SDK, deployment, routing, and production entry surfaces remain
+separately gated.
