@@ -2,18 +2,16 @@
 
 ## Status
 
-**Preflight status:** proposed on 2026-08-28 for explicit review and approval.
-This document is not implementation authority until the user approves this
-exact C3 contract. The package remains private, runtime-neutral,
-reference-backed, and production-inert.
+**Status:** approved and implemented on 2026-08-28. The completed slice remains
+private, runtime-neutral, reference-backed, and production-inert.
 
 `QSYNC01-A`, `QSYNC01-B`, `QSYNC01-C1`, and `QSYNC01-C2` are complete. C2
 established durable, revision-fenced evaluation selection and replay-safe
 evaluation-attempt outcomes. C3 may orchestrate those capabilities; it may not
 replace their transition authority or add another work-state owner.
 
-Approval of this document authorizes only the bounded C3 implementation and
-reference proof described below. It does not authorize C4 publication
+The approval authorized only the bounded C3 implementation and reference proof
+described below. Completion does not authorize C4 publication
 delivery, a real state/source/evaluator adapter, Flarex or Cloudflare
 composition, or a production caller.
 
@@ -1167,6 +1165,19 @@ C3 approval does not authorize:
 
 A system or orchestration test that exposes a shared-owner defect records the
 reproduction and stops at that boundary until separately approved.
+
+## Implemented Boundary
+
+The completed private slice owns `packages/query-sync/src/orchestration/`, the
+deliberate `./internal/orchestration` package subpath, and the scripted
+reference evaluator behind `./testing/conformance`. It adds no package-root
+export or dependency.
+
+The coordinator captures only the six C3-authorized semantic state operations
+and retains one shared turn ledger. It introduces no host, Cloudflare,
+persistence, network, runtime runner, transaction, aggregate, lease, or
+publication-delivery boundary. Validation receipts remain task-local rather
+than becoming durable roadmap status.
 
 ## Validation And Review Gate
 

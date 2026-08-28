@@ -26,6 +26,15 @@ export type {
   ReferenceReplayableChangeSource,
 } from "./ReferenceChangeSource.js";
 
+export { makeReferenceQueryEvaluator } from "./ReferenceQueryEvaluator.js";
+
+export type {
+  MakeReferenceQueryEvaluator,
+  ReferenceQueryEvaluator,
+  ReferenceQueryEvaluatorCall,
+  ReferenceQueryEvaluatorStep,
+} from "./ReferenceQueryEvaluator.js";
+
 export {
   makeReferenceQuerySyncStateHarness,
   ReferenceStateSnapshotBindingError,

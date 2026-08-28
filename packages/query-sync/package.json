@@ -9,6 +9,7 @@
   "exports": {
     "./internal/change": "./src/change/index.ts",
     "./internal/kernel": "./src/kernel/index.ts",
+    "./internal/orchestration": "./src/orchestration/index.ts",
     "./internal/state": "./src/state/index.ts",
     "./testing/conformance": "./src/testing/conformance/index.ts",
     "./testing/reference-model": "./src/testing/index.ts"

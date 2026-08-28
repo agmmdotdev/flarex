@@ -6,21 +6,21 @@
 in commit `b6621cf3`, and the separately approved C2 contract is complete in
 commit `1df70907` and
 [`04-qsync01-c2-durable-work-and-publication-state.md`](./04-qsync01-c2-durable-work-and-publication-state.md).
-The exact
-[`QSYNC01-C3` preflight](./05-qsync01-c3-bounded-evaluation-orchestration.md)
-is proposed for explicit review and is not implementation authority.
+The separately approved C3 contract is complete and recorded in
+[`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
 
-The original approval authorized **C1 only**, and the later explicit approval
-authorized **C2 only**. C3 requires approval of its exact preflight, and C4
-requires a later separate preflight and approval after C3 evidence is reviewed.
-The umbrella architecture is not standing implementation authority.
+The original approval authorized **C1 only**, and later explicit approvals
+authorized **C2** and **C3** as separate slices. C4 requires a later separate
+preflight and approval after C3 evidence is reviewed. The umbrella architecture
+is not standing implementation authority.
 
-`QSYNC01-A` through `QSYNC01-C2` are complete, private, and
+`QSYNC01-A` through `QSYNC01-C3` are complete, private, and
 production-inert. Together they provide the pure transition oracle, admitted
 change source, nominal refresh evidence, retry-safe evaluation lifecycle,
 atomic pending publication intent, durable evaluation/publication work state,
-receipt-only semantic state port, and deterministic reference capabilities.
-They do not provide a query evaluator, publisher, or orchestration turn.
+receipt-only semantic state port, bounded catch-up/evaluation orchestration,
+and deterministic reference capabilities including a reference evaluator.
+They do not provide a publisher, real adapter, or production caller.
 
 ## Decision
 
@@ -1012,12 +1012,12 @@ intent after unknown completion. Its completion does not make C or a real
 adapter complete.
 
 `QSYNC01-C2` is complete with durable evaluation-work selection and publication
-attempt/completion state. C3's exact proposed contract is
-[`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md)
-and requires explicit approval before implementation. C4 separately requires
-its publication-coordinator preflight and approval. This umbrella is not
-advance implementation authority; every significant diff also requires the
-validation and reviewer gate.
+attempt/completion state. `QSYNC01-C3` is complete with a private bounded
+catch-up/evaluation coordinator and reference evaluator, as recorded in
+[`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
+C4 separately requires its publication-coordinator preflight and approval. This
+umbrella is not advance implementation authority; every significant diff also
+requires the validation and reviewer gate.
 
 Only after C1-C4 are complete may `QSYNC-FX01` preflight the first Flarex and
 Cloudflare SQLite adapters. `QSYNC-CF01` remains an independent delivery

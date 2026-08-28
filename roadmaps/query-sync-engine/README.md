@@ -3,12 +3,13 @@
 ## Status And Scope
 
 **Status:** accepted architecture and roadmap authority. `QSYNC01-A`,
-`QSYNC01-B`, `QSYNC01-C1`, and `QSYNC01-C2` are complete, private, and
-production-inert. The accepted
-[`QSYNC01-C` umbrella](./preflight/03-qsync01-effect-orchestration.md) keeps C3
-and C4 separately gated. The exact
-[`QSYNC01-C3` preflight](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
-is proposed for explicit review; its implementation and C4 are not authorized.
+`QSYNC01-B`, `QSYNC01-C1`, `QSYNC01-C2`, and `QSYNC01-C3` are complete,
+private, and production-inert. The accepted
+[`QSYNC01-C` umbrella](./preflight/03-qsync01-effect-orchestration.md) keeps C4
+separately gated. The exact
+[`QSYNC01-C3` record](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
+owns the completed bounded evaluation-orchestration slice; C4 is not
+authorized.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
@@ -74,8 +75,10 @@ runtime-neutral transition kernel, the trusted replayable-source and
 invalidation-projection boundary, nominal refresh admission, retry-safe
 evaluation begin/completion plus atomic publication intent, durable evaluation
 selection and publication-attempt state, a receipt-only semantic transition
-port, and deterministic reference/conformance adapters accepted through
-`QSYNC01-C2`. It has no orchestration export, query evaluator, publisher,
+port, a private bounded catch-up/evaluation coordinator, and deterministic
+reference/conformance adapters including a reference query evaluator accepted
+through `QSYNC01-C3`. The coordinator is exposed only through the deliberate
+private `./internal/orchestration` subpath. The package has no publisher,
 package-root export, production caller, or real host, persistence, network, or
 delivery adapter.
 
@@ -92,7 +95,7 @@ Useful canonical-frame, collision, active/provisional coexistence, corruption,
 and synchronous-SQLite requirements remain inputs to the later Flarex adapter
 preflight.
 
-No production sync caller changes because of `QSYNC01-A` through `QSYNC01-C2`.
+No production sync caller changes because of `QSYNC01-A` through `QSYNC01-C3`.
 
 ## Target Architecture
 
@@ -154,7 +157,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
-| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; exact C3 preflight proposed, C3/C4 implementation not authorized |
+| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete, private, and production-inert; C4 preflight and implementation not authorized |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Blocked on `QSYNC01-C`; independent of delivery-adapter selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
@@ -190,22 +193,20 @@ paths.
   semantic state, Effect, uncertainty, and conformance boundary for the second
   medium slice.
 - [`preflight/03-qsync01-effect-orchestration.md`](./preflight/03-qsync01-effect-orchestration.md)
-  owns the accepted C-stage umbrella. Its first pure/reference slice, C1, is
-  complete; C3 and C4 remain separately gated.
+  owns the accepted C-stage umbrella. C1, C2, and C3 are complete; C4 remains
+  separately gated.
 - [`preflight/04-qsync01-c2-durable-work-and-publication-state.md`](./preflight/04-qsync01-c2-durable-work-and-publication-state.md)
   is the completed C2 implementation record for revision-fenced evaluation
   selection, terminal blocking, publication attempt state, exact Effect
   channels, and the reference proof boundary.
 - [`preflight/05-qsync01-c3-bounded-evaluation-orchestration.md`](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
-  proposes the exact separately gated C3 coordinator, evaluator, shared budget,
+  records the completed private C3 coordinator, evaluator, shared budget,
   retry/uncertainty, refresh, restart, and reference proof contract.
 
 ## Next Correctness Gate
 
-The next correctness decision is explicit approval or amendment of the
-[exact C3 preflight](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
-for bounded catch-up, initial evaluation, and dirty-work evaluation over the
-completed C1/C2 capabilities. C2 added no evaluator, orchestration loop,
-publisher, or real adapter. No Cloudflare SQLite adapter, public client API, or
-delivery-adapter adoption is admitted by its completion or by docs-only C3
-preflight.
+The next correctness decision is a separately bounded `QSYNC01-C4` preflight
+for publication orchestration and the full reference publication-recovery
+matrix. C3 added no publisher or real adapter. No Cloudflare SQLite adapter,
+public client API, production caller, or delivery-adapter adoption is admitted
+by C3 completion.
