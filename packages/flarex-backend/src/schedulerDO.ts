@@ -74,6 +74,7 @@ import {
 import {
   schedulerContinuationIsDue,
   schedulerCurrentIsoInstant,
+  schedulerIsoInstantAfterDelay,
 } from "./scheduler/Time";
 import {
   SchedulerResponseError,
@@ -440,72 +441,76 @@ export class SchedulerDO extends DurableObject<Env> {
       };
     });
   }
-  private async persistDeliveryReconcileContinuation(
-    pending: PendingDeliveryReconcileRun,
-    result: ReconcileResult,
-  ): Promise<void> {
-    if (!result.hasMore) {
-      await this.ctx.storage.delete(PENDING_DELIVERY_RECONCILE_KEY);
-      await this.refreshContinuationAlarm();
-      return;
-    }
-    if (result.nextCursor === null) {
-      throw missingSchedulerContinuationCursor("delivery-reconcile");
-    }
-    const nextRunAt = new Date(
-      Date.now() + CONTINUE_DELIVERY_RECONCILE_ALARM_DELAY_MS,
-    ).toISOString();
-    await this.ctx.storage.put(PENDING_DELIVERY_RECONCILE_KEY, {
-      limit: pending.limit,
-      deliveryLimit: pending.deliveryLimit,
-      maxBatches: pending.maxBatches,
-      cursor: result.nextCursor,
-      retryAttempt: 0,
-      nextRunAt,
-    } satisfies PendingLiveQueryDeliveryReconcile);
-    await this.refreshContinuationAlarm();
-  }
-
   private persistDeliveryReconcileContinuationEffect(
     pending: PendingDeliveryReconcileRun,
     result: ReconcileResult,
     operation: SchedulerRouteOperation,
   ): Effect.Effect<void, SchedulerRuntimeError | SchedulerRouteOperationError> {
-    return Effect.tryPromise({
-      try: () => this.persistDeliveryReconcileContinuation(pending, result),
-      catch: error =>
-        isSchedulerRuntimeError(error)
-          ? error
-          : schedulerRouteOperationError(operation, error),
+    const storage = this.ctx.storage;
+    const refreshContinuationAlarm = () => this.refreshContinuationAlarm();
+    return Effect.gen(function* () {
+      if (!result.hasMore) {
+        return yield* Effect.tryPromise({
+          try: async () => {
+            await storage.delete(PENDING_DELIVERY_RECONCILE_KEY);
+            await refreshContinuationAlarm();
+          },
+          catch: error => schedulerRouteOperationError(operation, error),
+        });
+      }
+      const nextCursor = result.nextCursor;
+      if (nextCursor === null) {
+        return yield* Effect.fail(missingSchedulerContinuationCursor("delivery-reconcile"));
+      }
+      const nextRunAt = yield* schedulerIsoInstantAfterDelay(
+        CONTINUE_DELIVERY_RECONCILE_ALARM_DELAY_MS,
+        error => schedulerRouteOperationError(operation, error),
+      );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await storage.put(PENDING_DELIVERY_RECONCILE_KEY, {
+            limit: pending.limit,
+            deliveryLimit: pending.deliveryLimit,
+            maxBatches: pending.maxBatches,
+            cursor: nextCursor,
+            retryAttempt: 0,
+            nextRunAt,
+          } satisfies PendingLiveQueryDeliveryReconcile);
+          await refreshContinuationAlarm();
+        },
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
     });
-  }
-
-  private async scheduleDeliveryReconcileRetry(
-    pending: PendingDeliveryReconcileRun,
-  ): Promise<void> {
-    if (pending.cursor === undefined) return;
-    const retryAttempt = pending.retryAttempt + 1;
-    const nextRunAt = new Date(
-      Date.now() + deliveryReconcileRetryDelayMs(retryAttempt),
-    ).toISOString();
-    await this.ctx.storage.put(PENDING_DELIVERY_RECONCILE_KEY, {
-      limit: pending.limit,
-      deliveryLimit: pending.deliveryLimit,
-      maxBatches: pending.maxBatches,
-      cursor: pending.cursor,
-      retryAttempt,
-      nextRunAt,
-    } satisfies PendingLiveQueryDeliveryReconcile);
-    await this.refreshContinuationAlarm();
   }
 
   private scheduleDeliveryReconcileRetryEffect(
     pending: PendingDeliveryReconcileRun,
     operation: SchedulerRouteOperation,
   ): Effect.Effect<void, SchedulerRouteOperationError> {
-    return Effect.tryPromise({
-      try: () => this.scheduleDeliveryReconcileRetry(pending),
-      catch: error => schedulerRouteOperationError(operation, error),
+    const cursor = pending.cursor;
+    if (cursor === undefined) return Effect.void;
+    const storage = this.ctx.storage;
+    const refreshContinuationAlarm = () => this.refreshContinuationAlarm();
+    const retryAttempt = pending.retryAttempt + 1;
+    return Effect.gen(function* () {
+      const nextRunAt = yield* schedulerIsoInstantAfterDelay(
+        deliveryReconcileRetryDelayMs(retryAttempt),
+        error => schedulerRouteOperationError(operation, error),
+      );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await storage.put(PENDING_DELIVERY_RECONCILE_KEY, {
+            limit: pending.limit,
+            deliveryLimit: pending.deliveryLimit,
+            maxBatches: pending.maxBatches,
+            cursor,
+            retryAttempt,
+            nextRunAt,
+          } satisfies PendingLiveQueryDeliveryReconcile);
+          await refreshContinuationAlarm();
+        },
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
     });
   }
 
@@ -706,70 +711,74 @@ export class SchedulerDO extends DurableObject<Env> {
     });
   }
 
-  private async persistConnectionCleanupContinuation(
-    pending: PendingConnectionCleanupRun,
-    result: ReconcileConnectionCleanupResult,
-  ): Promise<void> {
-    if (!result.hasMore) {
-      await this.ctx.storage.delete(PENDING_CONNECTION_CLEANUP_KEY);
-      await this.refreshContinuationAlarm();
-      return;
-    }
-    if (result.nextCursor === null) {
-      throw missingSchedulerContinuationCursor("connection-cleanup");
-    }
-    const nextRunAt = new Date(
-      Date.now() + CONTINUE_CONNECTION_CLEANUP_ALARM_DELAY_MS,
-    ).toISOString();
-    await this.ctx.storage.put(PENDING_CONNECTION_CLEANUP_KEY, {
-      expiredAt: pending.expiredAt,
-      limit: pending.limit,
-      cursor: result.nextCursor,
-      retryAttempt: 0,
-      nextRunAt,
-    } satisfies PendingLiveQueryConnectionCleanup);
-    await this.refreshContinuationAlarm();
-  }
-
   private persistConnectionCleanupContinuationEffect(
     pending: PendingConnectionCleanupRun,
     result: ReconcileConnectionCleanupResult,
     operation: SchedulerRouteOperation,
   ): Effect.Effect<void, SchedulerRuntimeError | SchedulerRouteOperationError> {
-    return Effect.tryPromise({
-      try: () => this.persistConnectionCleanupContinuation(pending, result),
-      catch: error =>
-        isSchedulerRuntimeError(error)
-          ? error
-          : schedulerRouteOperationError(operation, error),
+    const storage = this.ctx.storage;
+    const refreshContinuationAlarm = () => this.refreshContinuationAlarm();
+    return Effect.gen(function* () {
+      if (!result.hasMore) {
+        return yield* Effect.tryPromise({
+          try: async () => {
+            await storage.delete(PENDING_CONNECTION_CLEANUP_KEY);
+            await refreshContinuationAlarm();
+          },
+          catch: error => schedulerRouteOperationError(operation, error),
+        });
+      }
+      const nextCursor = result.nextCursor;
+      if (nextCursor === null) {
+        return yield* Effect.fail(missingSchedulerContinuationCursor("connection-cleanup"));
+      }
+      const nextRunAt = yield* schedulerIsoInstantAfterDelay(
+        CONTINUE_CONNECTION_CLEANUP_ALARM_DELAY_MS,
+        error => schedulerRouteOperationError(operation, error),
+      );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await storage.put(PENDING_CONNECTION_CLEANUP_KEY, {
+            expiredAt: pending.expiredAt,
+            limit: pending.limit,
+            cursor: nextCursor,
+            retryAttempt: 0,
+            nextRunAt,
+          } satisfies PendingLiveQueryConnectionCleanup);
+          await refreshContinuationAlarm();
+        },
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
     });
-  }
-
-  private async scheduleConnectionCleanupRetry(
-    pending: PendingConnectionCleanupRun,
-  ): Promise<void> {
-    if (pending.cursor === undefined) return;
-    const retryAttempt = pending.retryAttempt + 1;
-    const nextRunAt = new Date(
-      Date.now() + connectionCleanupRetryDelayMs(retryAttempt),
-    ).toISOString();
-    await this.ctx.storage.put(PENDING_CONNECTION_CLEANUP_KEY, {
-      expiredAt: pending.expiredAt,
-      limit: pending.limit,
-      cursor: pending.cursor,
-      retryAttempt,
-      nextRunAt,
-    } satisfies PendingLiveQueryConnectionCleanup);
-    await this.refreshContinuationAlarm();
   }
 
   private scheduleConnectionCleanupRetryEffect(
     pending: PendingConnectionCleanupRun,
     operation: SchedulerRouteOperation,
   ): Effect.Effect<void, SchedulerRouteOperationError> {
-    return Effect.tryPromise({
-      try: () => this.scheduleConnectionCleanupRetry(pending),
-      catch: error => schedulerRouteOperationError(operation, error),
+    const cursor = pending.cursor;
+    if (cursor === undefined) return Effect.void;
+    const storage = this.ctx.storage;
+    const refreshContinuationAlarm = () => this.refreshContinuationAlarm();
+    const retryAttempt = pending.retryAttempt + 1;
+    return Effect.gen(function* () {
+      const nextRunAt = yield* schedulerIsoInstantAfterDelay(
+        connectionCleanupRetryDelayMs(retryAttempt),
+        error => schedulerRouteOperationError(operation, error),
+      );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await storage.put(PENDING_CONNECTION_CLEANUP_KEY, {
+            expiredAt: pending.expiredAt,
+            limit: pending.limit,
+            cursor,
+            retryAttempt,
+            nextRunAt,
+          } satisfies PendingLiveQueryConnectionCleanup);
+          await refreshContinuationAlarm();
+        },
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
     });
   }
 
@@ -910,55 +919,64 @@ export class SchedulerDO extends DurableObject<Env> {
     });
   }
 
-  private async persistRerunContinuation(
-    pending: PendingLiveQueryRerun,
-    result: RerunResult,
-  ): Promise<void> {
-    if (!result.hasMoreStale) {
-      await this.ctx.storage.delete(PENDING_RERUN_KEY);
-      await this.refreshContinuationAlarm();
-      return;
-    }
-    const nextRunAt = new Date(Date.now() + CONTINUE_RERUN_ALARM_DELAY_MS).toISOString();
-    await this.ctx.storage.put(PENDING_RERUN_KEY, {
-      ...pending,
-      retryAttempt: 0,
-      nextRunAt,
-    });
-    await this.refreshContinuationAlarm();
-  }
-
   private persistRerunContinuationEffect(
     pending: PendingLiveQueryRerun,
     result: RerunResult,
     operation: SchedulerRouteOperation,
   ): Effect.Effect<void, SchedulerRouteOperationError> {
-    return Effect.tryPromise({
-      try: () => this.persistRerunContinuation(pending, result),
-      catch: error => schedulerRouteOperationError(operation, error),
+    const storage = this.ctx.storage;
+    const refreshContinuationAlarm = () => this.refreshContinuationAlarm();
+    return Effect.gen(function* () {
+      if (!result.hasMoreStale) {
+        return yield* Effect.tryPromise({
+          try: async () => {
+            await storage.delete(PENDING_RERUN_KEY);
+            await refreshContinuationAlarm();
+          },
+          catch: error => schedulerRouteOperationError(operation, error),
+        });
+      }
+      const nextRunAt = yield* schedulerIsoInstantAfterDelay(
+        CONTINUE_RERUN_ALARM_DELAY_MS,
+        error => schedulerRouteOperationError(operation, error),
+      );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await storage.put(PENDING_RERUN_KEY, {
+            ...pending,
+            retryAttempt: 0,
+            nextRunAt,
+          });
+          await refreshContinuationAlarm();
+        },
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
     });
-  }
-
-  private async scheduleRerunRetry(pending: PendingLiveQueryRerun): Promise<void> {
-    const retryAttempt = pending.retryAttempt + 1;
-    const nextRunAt = new Date(
-      Date.now() + rerunRetryDelayMs(retryAttempt),
-    ).toISOString();
-    await this.ctx.storage.put(PENDING_RERUN_KEY, {
-      ...pending,
-      retryAttempt,
-      nextRunAt,
-    });
-    await this.refreshContinuationAlarm();
   }
 
   private scheduleRerunRetryEffect(
     pending: PendingLiveQueryRerun,
     operation: SchedulerRouteOperation,
   ): Effect.Effect<void, SchedulerRouteOperationError> {
-    return Effect.tryPromise({
-      try: () => this.scheduleRerunRetry(pending),
-      catch: error => schedulerRouteOperationError(operation, error),
+    const storage = this.ctx.storage;
+    const refreshContinuationAlarm = () => this.refreshContinuationAlarm();
+    const retryAttempt = pending.retryAttempt + 1;
+    return Effect.gen(function* () {
+      const nextRunAt = yield* schedulerIsoInstantAfterDelay(
+        rerunRetryDelayMs(retryAttempt),
+        error => schedulerRouteOperationError(operation, error),
+      );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await storage.put(PENDING_RERUN_KEY, {
+            ...pending,
+            retryAttempt,
+            nextRunAt,
+          });
+          await refreshContinuationAlarm();
+        },
+        catch: error => schedulerRouteOperationError(operation, error),
+      });
     });
   }
 

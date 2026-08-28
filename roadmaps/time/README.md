@@ -83,9 +83,9 @@ migration. It requires its own compatibility evidence and approval.
    message, validation-order, and throw/failure equivalence.
 3. Effect clock hygiene: classify live reads, then replace domain/service live
    time with Effect Clock while retaining platform adapters and external
-   watchdogs. The first `SchedulerDO` Effect-operation slice is complete; see
-   `roadmaps/time/01-live-clock-audit.md` for retained boundaries and the next
-   scheduler-storage gate.
+   watchdogs. The `SchedulerDO` decision and continuation-storage slices are
+   complete; see `roadmaps/time/01-live-clock-audit.md` for retained boundaries
+   and the next commit-metadata preflight.
 4. Persistence codecs: centralize representation conversion only where row
    decoding, corruption ownership, transaction order, and database authority
    remain unchanged.
