@@ -24,6 +24,12 @@ import { Brand, Cause, Effect, Exit, Fiber, Option, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  NODE_TASK_CALLBACK_ATTACHMENT_FORMAT_V1,
+  NODE_TASK_CALLBACK_PROTOCOL_VERSION_V1,
+  decodeNodeTaskCallbackAttachmentV1,
+} from "../src/taskComputeDelivery/NodeTaskCallbackProtocolV1.js";
+
+import {
   NodeTaskExecutorClientError,
   makeDeterministicNodeTaskExecutor,
   makeNodeTaskExecutorInterruptionRequestV1,
@@ -48,7 +54,7 @@ import {
 const scopeId = "scope_00000000-0000-4000-8000-000000000001";
 const computeProfile = Brand.nominal<TaskComputeProfileRefV1>()("node-1x");
 
-describe("Node Task executor N3 protocol and client", () => {
+describe("Node Task executor protocol and client", () => {
   it("strictly decodes owned launch evidence and rejects key or policy drift", () => {
     const request = startRequest();
     const decoded = success(decodeNodeTaskExecutorStartRequestV1(request));
@@ -106,6 +112,50 @@ describe("Node Task executor N3 protocol and client", () => {
       }));
       const exit = yield* Effect.exit(fake.client.start(conflicting));
       expectFailure(exit, "idempotencyConflict");
+    })));
+  });
+
+  it("attaches one strict callback credential after executor acceptance", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const fake = yield* makeDeterministicNodeTaskExecutor(testSha256);
+      const request = success(decodeNodeTaskExecutorStartRequestV1(
+        startRequest(),
+      ));
+      const started = yield* fake.client.start(request);
+      if (started.kind !== "accepted") throw new Error("Expected acceptance");
+      const attachment = success(decodeNodeTaskCallbackAttachmentV1({
+        format: NODE_TASK_CALLBACK_ATTACHMENT_FORMAT_V1,
+        version: NODE_TASK_CALLBACK_PROTOCOL_VERSION_V1,
+        capabilityId: request.launchCapability.capabilityId,
+        credential: digest(0x91),
+        startKey: request.startKey,
+        sessionId: started.response.sessionId,
+        executionId: request.executionId,
+        expiresAtEpochMilliseconds:
+          request.launchCapability.expiresAtEpochMilliseconds,
+      }));
+      const first = yield* started.session.attachCallbackCapability(attachment);
+      expect(first).toMatchObject({
+        kind: "attached",
+        capabilityId: attachment.capabilityId,
+        sessionId: attachment.sessionId,
+      });
+      expect(yield* started.session.attachCallbackCapability(attachment))
+        .toEqual(first);
+      const conflict = success(decodeNodeTaskCallbackAttachmentV1({
+        ...attachment,
+        credential: digest(0x92),
+      }));
+      expectFailure(
+        yield* Effect.exit(
+          started.session.attachCallbackCapability(conflict),
+        ),
+        "idempotencyConflict",
+      );
+      const snapshot = yield* fake.control.snapshot;
+      expect(snapshot.events.filter(
+        event => event.operation === "attachCallbackCapability",
+      )).toHaveLength(1);
     })));
   });
 

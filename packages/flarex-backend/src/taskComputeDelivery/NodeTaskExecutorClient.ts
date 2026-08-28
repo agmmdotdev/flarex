@@ -3,6 +3,14 @@ import { isNonArrayRecord } from "@flarex/utils/records";
 import { Context, Data, Deferred, Effect, Ref, Result, Scope } from "effect";
 
 import {
+  NODE_TASK_CALLBACK_ATTACHMENT_ACK_FORMAT_V1,
+  NODE_TASK_CALLBACK_PROTOCOL_VERSION_V1,
+  decodeNodeTaskCallbackAttachmentV1,
+  type NodeTaskCallbackAttachmentAckV1,
+  type NodeTaskCallbackAttachmentV1,
+} from "./NodeTaskCallbackProtocolV1.js";
+
+import {
   NODE_TASK_EXECUTOR_CLEANUP_FORMAT_V1,
   NODE_TASK_EXECUTOR_GENERATION_V1,
   NODE_TASK_EXECUTOR_HEALTH_FORMAT_V1,
@@ -34,6 +42,7 @@ import {
 
 export type NodeTaskExecutorClientOperation =
   | "start"
+  | "attachCallbackCapability"
   | "recover"
   | "health"
   | "requestInterruption"
@@ -62,6 +71,12 @@ export class NodeTaskExecutorClientError extends Data.TaggedError(
 /** One accepted dynamic execution. Its owning Scope closes it. */
 export interface NodeTaskExecutorSession {
   readonly acceptance: NodeTaskExecutorAcceptanceV1;
+  readonly attachCallbackCapability: (
+    attachment: NodeTaskCallbackAttachmentV1,
+  ) => Effect.Effect<
+    NodeTaskCallbackAttachmentAckV1,
+    NodeTaskExecutorClientError
+  >;
   readonly health: Effect.Effect<
     NodeTaskExecutorHealthEvidenceV1,
     NodeTaskExecutorClientError
@@ -195,6 +210,7 @@ interface FakeSessionState {
   readonly heartbeatSequence: bigint;
   readonly activeLeaseCount: number;
   readonly acceptedCancellationGeneration: bigint;
+  readonly callbackAttachment?: NodeTaskCallbackAttachmentV1;
   readonly interruptionReason?: NodeTaskExecutorInterruptionRequestV1["reason"];
 }
 
@@ -238,6 +254,10 @@ type InterruptionDecision =
       readonly kind: "response";
       readonly response: NodeTaskExecutorInterruptionResponseV1;
     }>;
+
+type AttachmentDecision = Readonly<{
+  readonly kind: "attached" | "conflict" | "lost";
+}>;
 
 type CloseDecision = Readonly<{
   readonly kind: NodeTaskExecutorCleanupOutcomeV1["kind"];
@@ -648,6 +668,70 @@ function makeFakeSession(
   acceptance: NodeTaskExecutorAcceptanceV1,
 ): NodeTaskExecutorSession {
   const handleClosedRef = Ref.makeUnsafe(false);
+  const attachCallbackCapability:
+    NodeTaskExecutorSession["attachCallbackCapability"] = Effect.fn(
+      "NodeTaskExecutorSession.attachCallbackCapability",
+    )(attachmentInput => Effect.gen(function* () {
+      if (yield* Ref.get(handleClosedRef)) {
+        return yield* clientFailure(
+          "attachCallbackCapability", "clientClosed", false,
+        );
+      }
+      const attachment = yield* Effect.fromResult(
+        decodeNodeTaskCallbackAttachmentV1(attachmentInput),
+      ).pipe(Effect.mapError(cause => clientFailure(
+        "attachCallbackCapability", "invalidRequest", false, cause,
+      )));
+      const accepted = yield* Ref.modify(stateRef, (
+        state,
+      ): readonly [AttachmentDecision, FakeState] => {
+        const session = state.sessions.get(acceptance.startKey);
+        if (state.closed || session === undefined || session.status !== "active") {
+          return [{ kind: "lost" as const }, state] as const;
+        }
+        if (!attachmentCorrelates(session, attachment)) {
+          return [{ kind: "conflict" as const }, state] as const;
+        }
+        if (session.callbackAttachment !== undefined) {
+          return [attachmentsEqual(session.callbackAttachment, attachment)
+            ? { kind: "attached" as const }
+            : { kind: "conflict" as const }, state] as const;
+        }
+        const sessions = new Map(state.sessions);
+        sessions.set(acceptance.startKey, Object.freeze({
+          ...session,
+          callbackAttachment: attachment,
+        }));
+        return [{ kind: "attached" as const }, Object.freeze({
+          ...state,
+          sessions,
+          events: appendEvent(state.events, {
+            operation: "attachCallbackCapability",
+            startKey: acceptance.startKey,
+          }),
+        })] as const;
+      });
+      if (accepted.kind === "lost") {
+        return yield* clientFailure(
+          "attachCallbackCapability", "sessionLost", true,
+        );
+      }
+      if (accepted.kind === "conflict") {
+        return yield* clientFailure(
+          "attachCallbackCapability", "idempotencyConflict", false,
+        );
+      }
+      return Object.freeze({
+        format: NODE_TASK_CALLBACK_ATTACHMENT_ACK_FORMAT_V1,
+        version: NODE_TASK_CALLBACK_PROTOCOL_VERSION_V1,
+        kind: "attached" as const,
+        capabilityId: attachment.capabilityId,
+        startKey: attachment.startKey,
+        sessionId: attachment.sessionId,
+        executionId: attachment.executionId,
+        expiresAtEpochMilliseconds: attachment.expiresAtEpochMilliseconds,
+      });
+    }));
   const sharedHealth = Ref.modify(stateRef, state => {
     const session = state.sessions.get(acceptance.startKey);
     if (state.closed || session === undefined || session.status !== "active") {
@@ -831,7 +915,44 @@ function makeFakeSession(
     return cleanupOutcome(acceptance, decision.kind);
   }));
 
-  return Object.freeze({ acceptance, health, requestInterruption, settlement, close });
+  return Object.freeze({
+    acceptance,
+    attachCallbackCapability,
+    health,
+    requestInterruption,
+    settlement,
+    close,
+  });
+}
+
+function attachmentCorrelates(
+  session: FakeSessionState,
+  attachment: NodeTaskCallbackAttachmentV1,
+): boolean {
+  return attachment.capabilityId === session.request.launchCapability.capabilityId &&
+    attachment.startKey === session.acceptance.startKey &&
+    attachment.sessionId === session.acceptance.sessionId &&
+    attachment.executionId === session.acceptance.executionId &&
+    attachment.expiresAtEpochMilliseconds ===
+      session.request.launchCapability.expiresAtEpochMilliseconds;
+}
+
+function attachmentsEqual(
+  left: NodeTaskCallbackAttachmentV1,
+  right: NodeTaskCallbackAttachmentV1,
+): boolean {
+  return attachmentCorrelatesFields(left, right) &&
+    bytesEqualFullScan(left.credential, right.credential);
+}
+
+function attachmentCorrelatesFields(
+  left: Omit<NodeTaskCallbackAttachmentV1, "credential">,
+  right: Omit<NodeTaskCallbackAttachmentV1, "credential">,
+): boolean {
+  return left.format === right.format && left.version === right.version &&
+    left.capabilityId === right.capabilityId && left.startKey === right.startKey &&
+    left.sessionId === right.sessionId && left.executionId === right.executionId &&
+    left.expiresAtEpochMilliseconds === right.expiresAtEpochMilliseconds;
 }
 
 function cleanupOutcome(

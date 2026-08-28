@@ -3,12 +3,12 @@
 Status: accepted architecture checkpoint on 2026-08-28. The separately
 approved N1 runtime-family and immutable artifact-contract gate, N2
 execution-session seam, and N3 Node executor protocol/client gate are complete.
-N4 and later gates remain unapproved; no Node provider, callback transport,
-process, deployment, credential, external resource, or production activation
-exists.
+The separately approved N4 authenticated callback transport gate is also
+complete. N5 and later gates remain unapproved; no Node provider process,
+deployment, external resource, or production activation exists.
 
-Evidence snapshot: 2026-08-28 current repository state after the completed N2
-provider-neutral execution-session seam and Worker Loader adapter.
+Evidence snapshot: 2026-08-28 current repository state after the completed N4
+authenticated callback transport gate.
 
 ## Decision
 
@@ -243,6 +243,22 @@ request/response codecs plus authenticated private endpoints or an equivalent
 provider channel. It must not expose the ordinary public Query/Mutation API as
 a callback-token substitute.
 
+After executor acceptance, the private scoped `NodeTaskExecutorSession`
+receives one strict, versioned callback-capability attachment before it is
+projected into the provider-neutral `TaskExecutionSession`. The attachment is
+correlated to the accepted start, session, execution, capability identifier,
+and expiry. Attachment is idempotent only for identical pre-issued credential
+material, which must be retained and reused after an uncertain acknowledgement;
+contradictory attachment fails closed. No undocumented process environment or
+provider side channel is part of this contract.
+
+The callback gateway may time out an uncommitted query directly. Mutation
+deadline or revocation instead closes the bound mutation authority and awaits
+its disposition proof: a known success remains success, a typed mutation
+failure remains that failure, and an unprovable disposition becomes
+`outcome_uncertain`. The transport must never relabel a known committed
+mutation as `timed_out`.
+
 `ctx.runAction`, scheduler, storage, arbitrary Task creation, checkpoints,
 signals, and tools remain absent.
 
@@ -348,7 +364,7 @@ require separate approval and retain this safe order:
 4. **N4 — authenticated callback transport:** expose the existing Task query
    and mutation authorities through short-lived launch-bound private transport
    and prove replay, stale fence, revocation, budget, and independent
-   transaction behavior;
+   transaction behavior; **complete**;
 5. **N5 — local Node conformance:** run one immutable Node Task artifact in a
    local isolated process using trusted test fixtures and no configured
    egress/secrets/native modules/tools, then
@@ -363,11 +379,13 @@ both standing project reviewers against the exact final diff.
 
 ## Non-Goals
 
-This checkpoint does not authorize beyond the completed N1, N2, and N3 slices:
+This checkpoint does not authorize beyond the completed N1, N2, N3, and N4
+slices:
 
-- a real Node process/provider adapter, callback transport, or deployment wire;
-- a local child process, AWS resource, container, route, binding, token issuer,
-  secret, or credential;
+- a real Node process/provider adapter, public callback endpoint, or deployment
+  wire;
+- a local child process, AWS resource, container, route, binding, public token
+  issuer, provider infrastructure credential, or user secret;
 - a public `task()`/`action()` API or `"use node"` syntax change;
 - a Node Action implementation;
 - AgentOS, tools, model calls, durable agent memory, checkpoints, signals,
@@ -380,16 +398,16 @@ This checkpoint does not authorize beyond the completed N1, N2, and N3 slices:
 
 ## Stop Boundary And Next Gate
 
-Stop after N3. The Worker Loader remains the only real private provider and the
+Stop after N4. The Worker Loader remains the only real private provider and the
 current isolate artifact/session wire behavior remains unchanged. Node profiles
 are explicitly provider-disabled and Node artifact admission reports dispatch
 as blocked.
 
-The next separately approved code gate is N4 only: expose the existing Task
-query and mutation authorities through a short-lived, launch-bound private
-transport and prove replay, stale fence, revocation, budgets, and independent
-transaction ownership. Do not begin local Node execution or hosted deployment
-in that slice.
+The next separately approved code gate is N5 only: execute one immutable Node
+Task artifact in a local isolated process using trusted fixtures and no
+configured egress, secrets, native modules, tools, or persistent filesystem,
+then prove terminal, callback, recovery, cancellation, process-loss, and cleanup
+behavior. Do not begin hosted deployment in that slice.
 
 ## N1 Implementation Receipt
 

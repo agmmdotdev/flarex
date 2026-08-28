@@ -8,6 +8,8 @@ export * from "./TaskAttemptSupervisor.js";
 export * from "./TaskExecutionSession.js";
 export * from "./NodeTaskExecutorProtocolV1.js";
 export * from "./NodeTaskExecutorClient.js";
+export * from "./NodeTaskCallbackProtocolV1.js";
+export * from "./NodeTaskCallbackGateway.js";
 export * from "./WorkerLoaderTaskComputeProvider.js";
 export * from "./ApplicationTaskQueryCallback.js";
 export * from "./ApplicationTaskMutationCallback.js";
