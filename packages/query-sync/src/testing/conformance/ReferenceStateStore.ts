@@ -1,10 +1,23 @@
-import { Data, Effect, Result, SynchronizedRef } from "effect";
+import { Clock, Data, Effect, Result, SynchronizedRef } from "effect";
 
+import { capturePublicationAttemptInstant } from "../../kernel/CanonicalValue.js";
 import type {
+  PublicationAttemptInstant,
   SyncEpoch,
   SyncModelId,
   SyncNamespaceId,
 } from "../../kernel/CanonicalValue.js";
+import {
+  claimEvaluationWork,
+  recordEvaluationAttemptOutcome,
+} from "../../kernel/EvaluationWork.js";
+import type {
+  ClaimEvaluationWorkError,
+  EvaluationAttemptOutcome,
+  EvaluationWorkScanRequest,
+  RecordEvaluationAttemptOutcomeError,
+} from "../../kernel/EvaluationWork.js";
+import { QuerySyncInvariantDefect } from "../../kernel/Errors.js";
 import {
   createEmptyQuerySyncState,
 } from "../../kernel/Model.js";
@@ -32,6 +45,19 @@ import type {
   QueryPublicationArtifact,
 } from "../../kernel/Publication.js";
 import {
+  claimPublication,
+  completePublication,
+  recordPublicationAttemptOutcome,
+} from "../../kernel/PublicationWork.js";
+import type {
+  AcceptedQueryPublicationEvidence,
+  ClaimPublicationError,
+  CompletePublicationError,
+  PublicationAttempt,
+  PublicationAttemptOutcome,
+  RecordPublicationAttemptOutcomeError,
+} from "../../kernel/PublicationWork.js";
+import {
   QuerySyncStateCommitOutcomeUnknownError,
   QuerySyncStateUnavailableError,
   QuerySyncStoredStateCorruptError,
@@ -47,13 +73,23 @@ import {
   modelReplacedReceipt,
   projectApplyReceipt,
   projectBeginReceipt,
+  projectClaimEvaluationWorkReceipt,
+  projectClaimPublicationReceipt,
   projectCompleteReceipt,
+  projectCompletePublicationReceipt,
+  projectRecordEvaluationAttemptOutcomeReceipt,
+  projectRecordPublicationAttemptOutcomeReceipt,
 } from "../../state/Receipts.js";
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  ClaimEvaluationWorkReceipt,
+  ClaimPublicationReceipt,
   CompleteQueryEvaluationReceipt,
+  CompletePublicationReceipt,
   InitializeNamespaceReceipt,
+  RecordEvaluationAttemptOutcomeReceipt,
+  RecordPublicationAttemptOutcomeReceipt,
 } from "../../state/Receipts.js";
 import type {
   QuerySyncStateConformanceTarget,
@@ -119,6 +155,11 @@ type AtomicReducer<A, E> = (
   wasPreviouslyInitialized: boolean,
 ) => Result.Result<AtomicTransition<A>, E>;
 
+type AtomicEffectReducer<A, E> = (
+  state: QuerySyncState | null,
+  wasPreviouslyInitialized: boolean,
+) => Effect.Effect<Result.Result<AtomicTransition<A>, E>, never, never>;
+
 function freezeCell(
   aggregates: ReadonlyMap<string, QuerySyncState>,
   knownPhysicalNamespaces: ReadonlySet<string>,
@@ -151,6 +192,70 @@ function faultMatches(
     && fault.timing === timing;
 }
 
+function applyAtomicTransition<
+  A,
+  E,
+  Operation extends QuerySyncStateOperation,
+>(
+  cell: ReferenceStateCell,
+  binding: ReferenceStateBinding,
+  operation: Operation,
+  result: Result.Result<AtomicTransition<A>, E>,
+): readonly [
+  Result.Result<A, E | QuerySyncStateIntegrationError<Operation>>,
+  ReferenceStateCell,
+] {
+  return Result.match(result, {
+    onFailure: (failure) => [Result.fail(failure), cell],
+    onSuccess: (transition) => {
+      if (
+        transition.changed
+        && faultMatches(cell.fault, binding, operation, "beforeSwap")
+      ) {
+        return [
+          Result.fail(new QuerySyncStateUnavailableError<Operation>({
+            operation,
+            commitCertainty: "notCommitted",
+            reason: "temporarilyUnavailable",
+            cause: null,
+          })),
+          freezeCell(cell.aggregates, cell.knownPhysicalNamespaces, null),
+        ];
+      }
+
+      const nextCell = transition.changed
+        ? replaceAggregate(
+          cell,
+          binding.physicalNamespaceId,
+          transition.nextState,
+          cell.fault,
+        )
+        : cell;
+      if (
+        transition.changed
+        && faultMatches(cell.fault, binding, operation, "afterSwap")
+      ) {
+        return [
+          Result.fail(
+            new QuerySyncStateCommitOutcomeUnknownError<Operation>({
+              operation,
+              commitCertainty: "unknown",
+              reason: "responseLostAfterCommit",
+              cause: null,
+            }),
+          ),
+          freezeCell(
+            nextCell.aggregates,
+            nextCell.knownPhysicalNamespaces,
+            null,
+          ),
+        ];
+      }
+      return [Result.succeed(transition.receipt), nextCell];
+    },
+  });
+}
+
 function executeAtomic<
   A,
   E,
@@ -166,64 +271,56 @@ function executeAtomic<
     ReferenceStateCell,
   ] => {
     const current = cell.aggregates.get(binding.physicalNamespaceId) ?? null;
-    return Result.match(reduce(
-      current,
-      cell.knownPhysicalNamespaces.has(binding.physicalNamespaceId),
-    ), {
-      onFailure: (failure) => [Result.fail(failure), cell],
-      onSuccess: (transition) => {
-        if (
-          transition.changed
-          && faultMatches(cell.fault, binding, operation, "beforeSwap")
-        ) {
-          return [
-            Result.fail(new QuerySyncStateUnavailableError<Operation>({
-              operation,
-              commitCertainty: "notCommitted",
-              reason: "temporarilyUnavailable",
-              cause: null,
-            })),
-            freezeCell(
-              cell.aggregates,
-              cell.knownPhysicalNamespaces,
-              null,
-            ),
-          ];
-        }
-
-        const nextCell = transition.changed
-          ? replaceAggregate(
-            cell,
-            binding.physicalNamespaceId,
-            transition.nextState,
-            cell.fault,
-          )
-          : cell;
-        if (
-          transition.changed
-          && faultMatches(cell.fault, binding, operation, "afterSwap")
-        ) {
-          return [
-            Result.fail(
-              new QuerySyncStateCommitOutcomeUnknownError<Operation>({
-                operation,
-                commitCertainty: "unknown",
-                reason: "responseLostAfterCommit",
-                cause: null,
-              }),
-            ),
-            freezeCell(
-              nextCell.aggregates,
-              nextCell.knownPhysicalNamespaces,
-              null,
-            ),
-          ];
-        }
-        return [Result.succeed(transition.receipt), nextCell];
-      },
-    });
+    return applyAtomicTransition(
+      cell,
+      binding,
+      operation,
+      reduce(
+        current,
+        cell.knownPhysicalNamespaces.has(binding.physicalNamespaceId),
+      ),
+    );
   }).pipe(Effect.flatMap(Effect.fromResult));
 }
+
+function executeAtomicEffect<
+  A,
+  E,
+  Operation extends QuerySyncStateOperation,
+>(
+  cellRef: SynchronizedRef.SynchronizedRef<ReferenceStateCell>,
+  binding: ReferenceStateBinding,
+  operation: Operation,
+  reduce: AtomicEffectReducer<A, E>,
+): Effect.Effect<A, E | QuerySyncStateIntegrationError<Operation>, never> {
+  return SynchronizedRef.modifyEffect(cellRef, (cell) => {
+    const current = cell.aggregates.get(binding.physicalNamespaceId) ?? null;
+    return reduce(
+      current,
+      cell.knownPhysicalNamespaces.has(binding.physicalNamespaceId),
+    ).pipe(Effect.map((result) => applyAtomicTransition(
+      cell,
+      binding,
+      operation,
+      result,
+    )));
+  }).pipe(Effect.flatMap(Effect.fromResult));
+}
+
+const captureStateClockInstant = Effect.fn(
+  "QuerySync.ReferenceState.captureClockInstant",
+)(function*(
+  operation: "claimPublication" | "recordPublicationAttemptOutcome",
+): Effect.fn.Return<PublicationAttemptInstant> {
+  const observedNow = yield* Clock.currentTimeMillis;
+  return yield* Result.match(capturePublicationAttemptInstant(observedNow), {
+    onFailure: () => Effect.die(new QuerySyncInvariantDefect({
+      operation,
+      invariant: "stateClockInstantInvalid",
+    })),
+    onSuccess: Effect.succeed,
+  });
+});
 
 function missingState<Operation extends Exclude<
   QuerySyncStateOperation,
@@ -479,6 +576,192 @@ function makeReferencePort(
     );
   });
 
+  const claimEvaluation = Effect.fn(
+    "QuerySync.ReferenceState.claimEvaluationWork",
+  )(function*(request: EvaluationWorkScanRequest): Effect.fn.Return<
+    ClaimEvaluationWorkReceipt,
+    | ClaimEvaluationWorkError
+    | QuerySyncStateIntegrationError<"claimEvaluationWork">,
+    never
+  > {
+    return yield* executeAtomic(
+      cellRef,
+      binding,
+      "claimEvaluationWork",
+      (current) => Result.gen(function* () {
+        if (current === null) {
+          return yield* Result.fail(missingState("claimEvaluationWork"));
+        }
+        const state = yield* validateStoredBinding(
+          "claimEvaluationWork",
+          binding,
+          current,
+        );
+        const decision = yield* claimEvaluationWork(state, request);
+        return Object.freeze({
+          receipt: projectClaimEvaluationWorkReceipt(decision),
+          nextState: decision.state,
+          changed: decision.state !== state,
+        });
+      }),
+    );
+  });
+
+  const recordEvaluationOutcome = Effect.fn(
+    "QuerySync.ReferenceState.recordEvaluationAttemptOutcome",
+  )(function*(
+    attempt: QueryEvaluationAttempt,
+    outcome: EvaluationAttemptOutcome,
+  ): Effect.fn.Return<
+    RecordEvaluationAttemptOutcomeReceipt,
+    | RecordEvaluationAttemptOutcomeError
+    | QuerySyncStateIntegrationError<"recordEvaluationAttemptOutcome">,
+    never
+  > {
+    return yield* executeAtomic(
+      cellRef,
+      binding,
+      "recordEvaluationAttemptOutcome",
+      (current) => Result.gen(function* () {
+        if (current === null) {
+          return yield* Result.fail(missingState(
+            "recordEvaluationAttemptOutcome",
+          ));
+        }
+        const state = yield* validateStoredBinding(
+          "recordEvaluationAttemptOutcome",
+          binding,
+          current,
+        );
+        const decision = yield* recordEvaluationAttemptOutcome(
+          state,
+          attempt,
+          outcome,
+        );
+        return Object.freeze({
+          receipt: projectRecordEvaluationAttemptOutcomeReceipt(decision),
+          nextState: decision.state,
+          changed: decision.state !== state,
+        });
+      }),
+    );
+  });
+
+  const claimNextPublication = Effect.fn(
+    "QuerySync.ReferenceState.claimPublication",
+  )(function*(): Effect.fn.Return<
+    ClaimPublicationReceipt,
+    | ClaimPublicationError
+    | QuerySyncStateIntegrationError<"claimPublication">,
+    never
+  > {
+    return yield* executeAtomicEffect(
+      cellRef,
+      binding,
+      "claimPublication",
+      (current) => Effect.gen(function* () {
+        const capturedNow = yield* captureStateClockInstant(
+          "claimPublication",
+        );
+        return Result.gen(function* () {
+          if (current === null) {
+            return yield* Result.fail(missingState("claimPublication"));
+          }
+          const state = yield* validateStoredBinding(
+            "claimPublication",
+            binding,
+            current,
+          );
+          const decision = yield* claimPublication(state, capturedNow);
+          return Object.freeze({
+            receipt: projectClaimPublicationReceipt(decision),
+            nextState: decision.state,
+            changed: decision.state !== state,
+          });
+        });
+      }),
+    );
+  });
+
+  const recordPublicationOutcome = Effect.fn(
+    "QuerySync.ReferenceState.recordPublicationAttemptOutcome",
+  )(function*(
+    attempt: PublicationAttempt,
+    outcome: PublicationAttemptOutcome,
+  ): Effect.fn.Return<
+    RecordPublicationAttemptOutcomeReceipt,
+    | RecordPublicationAttemptOutcomeError
+    | QuerySyncStateIntegrationError<"recordPublicationAttemptOutcome">,
+    never
+  > {
+    return yield* executeAtomicEffect(
+      cellRef,
+      binding,
+      "recordPublicationAttemptOutcome",
+      (current) => Effect.gen(function* () {
+        const capturedNow = yield* captureStateClockInstant(
+          "recordPublicationAttemptOutcome",
+        );
+        return Result.gen(function* () {
+          if (current === null) {
+            return yield* Result.fail(missingState(
+              "recordPublicationAttemptOutcome",
+            ));
+          }
+          const state = yield* validateStoredBinding(
+            "recordPublicationAttemptOutcome",
+            binding,
+            current,
+          );
+          const decision = yield* recordPublicationAttemptOutcome(
+            state,
+            attempt,
+            outcome,
+            capturedNow,
+          );
+          return Object.freeze({
+            receipt: projectRecordPublicationAttemptOutcomeReceipt(decision),
+            nextState: decision.state,
+            changed: decision.state !== state,
+          });
+        });
+      }),
+    );
+  });
+
+  const completeNextPublication = Effect.fn(
+    "QuerySync.ReferenceState.completePublication",
+  )(function*(
+    evidence: AcceptedQueryPublicationEvidence,
+  ): Effect.fn.Return<
+    CompletePublicationReceipt,
+    | CompletePublicationError
+    | QuerySyncStateIntegrationError<"completePublication">,
+    never
+  > {
+    return yield* executeAtomic(
+      cellRef,
+      binding,
+      "completePublication",
+      (current) => Result.gen(function* () {
+        if (current === null) {
+          return yield* Result.fail(missingState("completePublication"));
+        }
+        const state = yield* validateStoredBinding(
+          "completePublication",
+          binding,
+          current,
+        );
+        const decision = yield* completePublication(state, evidence);
+        return Object.freeze({
+          receipt: projectCompletePublicationReceipt(decision),
+          nextState: decision.state,
+          changed: decision.state !== state,
+        });
+      }),
+    );
+  });
+
   const snapshotForConformance = Effect.fn(
     "QuerySync.ReferenceState.snapshotForConformance",
   )(function*(): Effect.fn.Return<
@@ -543,6 +826,11 @@ function makeReferencePort(
     beginQueryEvaluation: begin,
     applyAdmittedBatchAndAdvance: apply,
     completeQueryEvaluation: complete,
+    claimEvaluationWork: claimEvaluation,
+    recordEvaluationAttemptOutcome: recordEvaluationOutcome,
+    claimPublication: claimNextPublication,
+    recordPublicationAttemptOutcome: recordPublicationOutcome,
+    completePublication: completeNextPublication,
     snapshotForConformance,
     injectNextFault,
     simulateAggregateLossForConformance,

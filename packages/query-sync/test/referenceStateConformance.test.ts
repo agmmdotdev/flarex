@@ -1,10 +1,17 @@
-import { Effect } from "effect";
+import { Cause, Clock, Effect, Result } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
 import {
   applyAdmittedInvalidations,
+  beginQueryEvaluation,
+  capturePublicationAttemptInstant,
   captureQueryPublicationArtifact,
-  makeQueryEvaluationAttempt,
+  claimEvaluationWork,
+  claimPublication,
+  completeQueryEvaluation,
+  createEmptyQuerySyncState,
+  QuerySyncInvariantDefect,
 } from "@flarex/query-sync/internal/kernel";
 import type {
   NamespaceCursor,
@@ -12,6 +19,8 @@ import type {
 } from "@flarex/query-sync/internal/kernel";
 import {
   makeReferenceQuerySyncStateHarness,
+  makeAcceptedQueryPublicationEvidenceForTesting,
+  makeQueryEvaluationAttemptForTesting,
   runStateConformanceCommands,
 } from "@flarex/query-sync/testing/conformance";
 import type {
@@ -51,6 +60,222 @@ function requireState(state: QuerySyncState | null): QuerySyncState {
 }
 
 describe("reference transition-state conformance", () => {
+  it("defects when the state clock cannot be captured as a publication instant", async () => {
+    const bootstrapCursor = cursor();
+    const invalidClock: Clock.Clock = {
+      currentTimeMillisUnsafe: () => Number.NaN,
+      currentTimeMillis: Effect.succeed(Number.NaN),
+      currentTimeNanosUnsafe: () => 0n,
+      currentTimeNanos: Effect.succeed(0n),
+      sleep: () => Effect.void,
+    };
+    const exit = await runEffect(Effect.gen(function* () {
+      const harness = yield* makeReferenceQuerySyncStateHarness();
+      const transitionState = harness.bind(bindingFor(
+        "physical-namespace-invalid-clock",
+        bootstrapCursor,
+      ));
+      yield* transitionState.initializeOrInspectNamespace(bootstrapCursor);
+      return yield* Effect.exit(transitionState.claimPublication());
+    }).pipe(Effect.provideService(Clock.Clock, invalidClock)));
+
+    if (exit._tag !== "Failure") {
+      throw new Error("Expected invalid state clock to defect");
+    }
+    const defect = Cause.findDefect(exit.cause);
+    Result.match(defect, {
+      onFailure: () => expect.unreachable("Expected a retained defect"),
+      onSuccess: (observedDefect) => expect(observedDefect).toMatchObject({
+        _tag: "QuerySyncInvariantDefect",
+        operation: "claimPublication",
+        invariant: "stateClockInstantInvalid",
+      } satisfies Partial<QuerySyncInvariantDefect>),
+    });
+  });
+
+  it("matches one mixed evaluation and publication work history under the state-owned clock", async () => {
+    const bootstrapCursor = cursor();
+    const queryTarget = target();
+    const beginRequest = Object.freeze({
+      target: queryTarget,
+      expectedActiveGeneration: null,
+      requestedDirtyThroughSequence: null,
+    });
+    const initial = getSuccess(createEmptyQuerySyncState(bootstrapCursor));
+    const begun = getSuccess(beginQueryEvaluation(initial, beginRequest));
+    const evaluationClaim = getSuccess(claimEvaluationWork(begun.state, {
+      maximumQueryInspections: 1,
+      continuation: null,
+    }));
+    if (evaluationClaim._tag !== "claimed") {
+      throw new Error("Expected preparatory evaluation work claim");
+    }
+    const queryEvaluation = evaluation({
+      descriptor: queryTarget.descriptor,
+      generation: evaluationClaim.attempt.generation,
+      snapshot: 0n,
+    });
+    const refresh = getSuccess(deriveGenerationRefreshEvidence(
+      queryEvaluation,
+      bootstrapCursor,
+      [],
+      queryEvaluation.authorityWitness,
+    ));
+    const publication = getSuccess(captureQueryPublicationArtifact({
+      content: canonicalText("mixed-c1-c2-publication"),
+    }));
+    const completed = getSuccess(completeQueryEvaluation(
+      evaluationClaim.state,
+      evaluationClaim.attempt,
+      queryEvaluation,
+      refresh,
+      publication,
+    ));
+    if (completed._tag !== "completed") {
+      throw new Error("Expected preparatory evaluation completion");
+    }
+    const capturedNow = getSuccess(capturePublicationAttemptInstant(1_000));
+    const publicationClaim = getSuccess(claimPublication(
+      completed.state,
+      capturedNow,
+    ));
+    if (publicationClaim._tag !== "claimed") {
+      throw new Error("Expected preparatory publication claim");
+    }
+    const acceptance = makeAcceptedQueryPublicationEvidenceForTesting({
+      identity: publicationClaim.attempt.publication.identity,
+      resultDigest: publicationClaim.attempt.publication.resultDigest,
+    });
+
+    const steps = await runEffect(Effect.gen(function* () {
+      yield* TestClock.setTime(1_000);
+      const harness = yield* makeReferenceQuerySyncStateHarness();
+      const transitionState = harness.bind(bindingFor(
+        "physical-namespace-mixed-c1-c2",
+        bootstrapCursor,
+      ));
+      return yield* runStateConformanceCommands(transitionState, {
+        initialExpectedState: null,
+        commands: [
+          { _tag: "initializeOrInspectNamespace", bootstrapCursor },
+          { _tag: "beginQueryEvaluation", request: beginRequest },
+          {
+            _tag: "claimEvaluationWork",
+            request: {
+              maximumQueryInspections: 1,
+              continuation: null,
+            },
+          },
+          {
+            _tag: "recordEvaluationAttemptOutcome",
+            attempt: evaluationClaim.attempt,
+            outcome: "transientExhausted",
+          },
+          {
+            _tag: "completeQueryEvaluation",
+            attempt: evaluationClaim.attempt,
+            evaluation: queryEvaluation,
+            refresh,
+            publication,
+          },
+          { _tag: "claimPublication" },
+          {
+            _tag: "recordPublicationAttemptOutcome",
+            attempt: publicationClaim.attempt,
+            outcome: "knownNotAppended",
+          },
+          { _tag: "completePublication", evidence: acceptance },
+        ],
+      });
+    }).pipe(Effect.provide(TestClock.layer())));
+
+    expect(steps.map((step) => getSuccess(step.outcome)._tag)).toEqual([
+      "initialized",
+      "created",
+      "claimed",
+      "eligible",
+      "completed",
+      "claimed",
+      "recorded",
+      "completed",
+    ]);
+    for (const step of steps) {
+      expect(step.outcome).toEqual(step.expectedOutcome);
+      expect(step.snapshot).toEqual(step.expectedSnapshot);
+    }
+  });
+
+  it("preserves state-issued opaque work values through receipt projection", async () => {
+    const bootstrapCursor = cursor();
+    await runEffect(Effect.gen(function* () {
+      yield* TestClock.setTime(2_000);
+      const harness = yield* makeReferenceQuerySyncStateHarness();
+      const transitionState = harness.bind(bindingFor(
+        "physical-namespace-issued-work",
+        bootstrapCursor,
+      ));
+      yield* transitionState.initializeOrInspectNamespace(bootstrapCursor);
+      yield* transitionState.beginQueryEvaluation({
+        target: target(),
+        expectedActiveGeneration: null,
+        requestedDirtyThroughSequence: null,
+      });
+      const evaluationClaim = yield* transitionState.claimEvaluationWork({
+        maximumQueryInspections: 1,
+        continuation: null,
+      });
+      if (evaluationClaim._tag !== "claimed") {
+        return yield* Effect.die(new Error(
+          "Expected state-issued evaluation work",
+        ));
+      }
+      expect(Object.isFrozen(evaluationClaim.attempt)).toBe(true);
+      expect(Object.isFrozen(evaluationClaim.continuation)).toBe(true);
+      expect((yield* transitionState.recordEvaluationAttemptOutcome(
+        evaluationClaim.attempt,
+        "transientExhausted",
+      ))._tag).toBe("eligible");
+
+      const queryEvaluation = evaluation({
+        descriptor: evaluationClaim.attempt.descriptor,
+        generation: evaluationClaim.attempt.generation,
+        snapshot: 0n,
+      });
+      const refresh = getSuccess(deriveGenerationRefreshEvidence(
+        queryEvaluation,
+        bootstrapCursor,
+        [],
+        queryEvaluation.authorityWitness,
+      ));
+      expect((yield* transitionState.completeQueryEvaluation(
+        evaluationClaim.attempt,
+        queryEvaluation,
+        refresh,
+        getSuccess(captureQueryPublicationArtifact({
+          content: canonicalText("issued-work-publication"),
+        })),
+      ))._tag).toBe("completed");
+
+      const publicationClaim = yield* transitionState.claimPublication();
+      if (publicationClaim._tag !== "claimed") {
+        return yield* Effect.die(new Error(
+          "Expected state-issued publication work",
+        ));
+      }
+      expect(Object.isFrozen(publicationClaim.attempt)).toBe(true);
+      expect((yield* transitionState.recordPublicationAttemptOutcome(
+        publicationClaim.attempt,
+        "knownNotAppended",
+      ))._tag).toBe("recorded");
+      const acceptance = makeAcceptedQueryPublicationEvidenceForTesting({
+        identity: publicationClaim.attempt.publication.identity,
+        resultDigest: publicationClaim.attempt.publication.resultDigest,
+      });
+      expect((yield* transitionState.completePublication(acceptance))._tag)
+        .toBe("completed");
+    }).pipe(Effect.provide(TestClock.layer())));
+  });
+
   it("matches the pure reducer after every command without exposing aggregate state in receipts", async () => {
     const bootstrapCursor = cursor();
     const queryTarget = target();
@@ -70,7 +295,7 @@ describe("reference transition-state conformance", () => {
       expectedActiveGeneration: null,
       requestedDirtyThroughSequence: null,
     });
-    const attempt = makeQueryEvaluationAttempt({
+    const attempt = makeQueryEvaluationAttemptForTesting({
       namespaceId: bootstrapCursor.namespaceId,
       syncModelId: bootstrapCursor.syncModelId,
       sourceEpoch: bootstrapCursor.sourceEpoch,

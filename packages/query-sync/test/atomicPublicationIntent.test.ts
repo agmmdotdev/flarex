@@ -10,9 +10,9 @@ import {
   MAX_CANONICAL_DEPENDENCY_KEY_BYTES,
   MAX_COUNTED_CANONICAL_BYTES,
   MAX_INLINE_PUBLICATION_CONTENT_BYTES,
-  MAX_PENDING_PUBLICATION_CONTENT_BYTES,
   MAX_PENDING_PUBLICATIONS,
   MAX_QUERY_DEPENDENCY_BYTES,
+  MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
   QuerySyncStateLimitError,
 } from "@flarex/query-sync/internal/kernel";
 import type {
@@ -167,7 +167,7 @@ function mergeCompletedQueries(
   const pendingPublications = [];
   for (const completion of completions) {
     const query = completion.decision.state.queries[0];
-    const pending = completion.decision.state.pendingPublications[0];
+    const pending = completion.decision.state.publicationWork.pending[0];
     if (query === undefined || pending === undefined) {
       throw new Error("Expected one completed query and pending publication");
     }
@@ -236,18 +236,18 @@ describe("atomic query publication intent", () => {
     });
     const state = completed.decision.state;
     const active = state.queries[0]?.active;
-    const pending = state.pendingPublications[0];
+    const pending = state.publicationWork.pending[0];
     if (active === null || active === undefined || pending === undefined) {
       throw new Error("Expected an active query and pending publication");
     }
 
     expect(completed.stateBeforeCompletion.queries[0]?.active).toBeNull();
-    expect(completed.stateBeforeCompletion.pendingPublications).toEqual([]);
+    expect(completed.stateBeforeCompletion.publicationWork.pending).toEqual([]);
     expect(completed.decision.publicationDisposition).toEqual({
       _tag: "pending",
       identity: pending.identity,
     });
-    expect(state.pendingPublications).toHaveLength(1);
+    expect(state.publicationWork.pending).toHaveLength(1);
     expect(pending).toMatchObject({
       identity: {
         namespaceId: state.cursor.namespaceId,
@@ -278,7 +278,7 @@ describe("atomic query publication intent", () => {
       dependencies: [dependency],
       publication: publicationArtifact("older-pending"),
     });
-    const olderPending = initial.decision.state.pendingPublications[0];
+    const olderPending = initial.decision.state.publicationWork.pending[0];
     if (olderPending === undefined) {
       throw new Error("Expected the older pending publication");
     }
@@ -310,7 +310,7 @@ describe("atomic query publication intent", () => {
       generation: 2n,
       publicationDisposition: { _tag: "unchanged" },
     });
-    expect(completed.state.pendingPublications).toEqual([olderPending]);
+    expect(completed.state.publicationWork.pending).toEqual([olderPending]);
     expect(completed.state.queries[0]?.active).toMatchObject({
       generation: 2n,
       resultDigest: queryEvaluation.resultDigest,
@@ -348,7 +348,7 @@ describe("atomic query publication intent", () => {
       refresh,
       publicationArtifact("unused-retained-content"),
     ));
-    const retained = completed.state.pendingPublications[0];
+    const retained = completed.state.publicationWork.pending[0];
     if (retained === undefined) {
       throw new Error("Expected an older retained pending publication");
     }
@@ -382,7 +382,7 @@ describe("atomic query publication intent", () => {
     expect(digestFailure).toBeInstanceOf(QuerySyncInvariantDefect);
     expect(digestFailure).toMatchObject({
       operation: "buildQuerySyncState",
-      invariant: "pendingPublicationIdentityMismatch",
+      invariant: "publicationWorkIdentityMismatch",
     });
 
     const advanced = getSuccess(applyAdmittedInvalidations(
@@ -406,7 +406,7 @@ describe("atomic query publication intent", () => {
     expect(sequenceFailure).toBeInstanceOf(QuerySyncInvariantDefect);
     expect(sequenceFailure).toMatchObject({
       operation: "buildQuerySyncState",
-      invariant: "pendingPublicationIdentityMismatch",
+      invariant: "publicationWorkIdentityMismatch",
     });
   });
 
@@ -418,7 +418,7 @@ describe("atomic query publication intent", () => {
       dependencies: [dependency],
       publication: publicationArtifact("older-content"),
     });
-    const olderPending = initial.decision.state.pendingPublications[0];
+    const olderPending = initial.decision.state.publicationWork.pending[0];
     if (olderPending === undefined) {
       throw new Error("Expected the older pending publication");
     }
@@ -446,8 +446,8 @@ describe("atomic query publication intent", () => {
     ));
 
     expect(completed._tag).toBe("completed");
-    expect(completed.state.pendingPublications).toHaveLength(1);
-    expect(completed.state.pendingPublications[0]).toMatchObject({
+    expect(completed.state.publicationWork.pending).toHaveLength(1);
+    expect(completed.state.publicationWork.pending[0]).toMatchObject({
       identity: {
         queryKey: olderPending.identity.queryKey,
         generation: 2n,
@@ -455,7 +455,7 @@ describe("atomic query publication intent", () => {
       resultDigest: queryEvaluation.resultDigest,
       content: newerArtifact.content,
     });
-    expect(completed.state.pendingPublications[0]?.identity).not.toEqual(
+    expect(completed.state.publicationWork.pending[0]?.identity).not.toEqual(
       olderPending.identity,
     );
   });
@@ -476,15 +476,15 @@ describe("atomic query publication intent", () => {
 
     const first = buildHistory([3, 1, 2]);
     const second = buildHistory([2, 3, 1]);
-    const firstIdentities = first.pendingPublications.map(
+    const firstIdentities = first.publicationWork.pending.map(
       (pending) => pending.identity,
     );
-    const secondIdentities = second.pendingPublications.map(
+    const secondIdentities = second.publicationWork.pending.map(
       (pending) => pending.identity,
     );
 
     expect(firstIdentities).toEqual(secondIdentities);
-    expect(first.pendingPublications.map(
+    expect(first.publicationWork.pending.map(
       (pending) => pending.identity.queryKey,
     )).toEqual([
       descriptor({ keySeed: 1, identity: "query-1" }).queryKey,
@@ -495,7 +495,7 @@ describe("atomic query publication intent", () => {
 
   it("refuses pending-count overflow without producing replacement state", () => {
     const completed = installNewChangedQuery({ keySeed: 30 });
-    const pending = completed.decision.state.pendingPublications[0];
+    const pending = completed.decision.state.publicationWork.pending[0];
     if (pending === undefined) {
       throw new Error("Expected one pending publication");
     }
@@ -516,7 +516,7 @@ describe("atomic query publication intent", () => {
         observed: MAX_PENDING_PUBLICATIONS + 1,
       });
     }
-    expect(completed.decision.state.pendingPublications).toEqual([pending]);
+    expect(completed.decision.state.publicationWork.pending).toEqual([pending]);
   });
 
   it("rolls back generation installation when pending content is full", () => {
@@ -524,7 +524,7 @@ describe("atomic query publication intent", () => {
       content: canonicalBytes(MAX_INLINE_PUBLICATION_CONTENT_BYTES),
     }));
     const completions = Array.from(
-      { length: MAX_PENDING_PUBLICATION_CONTENT_BYTES
+      { length: MAX_RETAINED_PUBLICATION_CONTENT_BYTES
         / MAX_INLINE_PUBLICATION_CONTENT_BYTES },
       (_, index) => installNewChangedQuery({
         keySeed: 100 + index,
@@ -532,8 +532,8 @@ describe("atomic query publication intent", () => {
       }),
     );
     const fullState = mergeCompletedQueries(completions);
-    expect(fullState.metrics.pendingPublicationContentBytes).toBe(
-      MAX_PENDING_PUBLICATION_CONTENT_BYTES,
+    expect(fullState.metrics.retainedPublicationContentBytes).toBe(
+      MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
     );
 
     const queryDescriptor = descriptor({
@@ -564,14 +564,14 @@ describe("atomic query publication intent", () => {
       publicationArtifact("x"),
     );
 
-    expectStateLimit(result, "pendingPublicationContentBytes");
+    expectStateLimit(result, "retainedPublicationContentBytes");
     if (Result.isFailure(result)) {
       expect(result.failure).toMatchObject({
-        maximum: MAX_PENDING_PUBLICATION_CONTENT_BYTES,
-        observed: MAX_PENDING_PUBLICATION_CONTENT_BYTES + 1,
+        maximum: MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
+        observed: MAX_RETAINED_PUBLICATION_CONTENT_BYTES + 1,
       });
     }
-    expect(begun.state.pendingPublications).toHaveLength(
+    expect(begun.state.publicationWork.pending).toHaveLength(
       completions.length,
     );
     expect(begun.state.queries.find(
@@ -642,7 +642,7 @@ describe("atomic query publication intent", () => {
     expect(begun.state.metrics.countedCanonicalBytes).toBeLessThan(
       MAX_COUNTED_CANONICAL_BYTES,
     );
-    expect(begun.state.pendingPublications).toHaveLength(
+    expect(begun.state.publicationWork.pending).toHaveLength(
       completions.length,
     );
     expect(begun.state.queries.find(

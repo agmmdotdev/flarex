@@ -31,6 +31,14 @@ export {
   ReferenceStateSnapshotBindingError,
 } from "./ReferenceStateStore.js";
 
+export {
+  makeAcceptedQueryPublicationEvidenceForTesting,
+} from "../../kernel/PublicationWork.js";
+
+export {
+  makeQueryEvaluationAttempt as makeQueryEvaluationAttemptForTesting,
+} from "../../kernel/Model.js";
+
 export type {
   ReferenceQuerySyncStateHarness,
   ReferenceQuerySyncTransitionState,

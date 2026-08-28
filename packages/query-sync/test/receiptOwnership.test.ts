@@ -4,6 +4,9 @@ import {
   beginQueryEvaluation,
   createEmptyQuerySyncState,
 } from "@flarex/query-sync/internal/kernel";
+import type {
+  BeginQueryEvaluationDecision,
+} from "@flarex/query-sync/internal/kernel";
 
 import {
   initializedNamespaceReceipt,
@@ -50,8 +53,10 @@ describe("query-sync receipt ownership", () => {
       retainedIdentityBytes: state.metrics.retainedIdentityBytes,
       dependencyMemberships: state.metrics.dependencyMemberships,
       pendingPublicationCount: state.metrics.pendingPublicationCount,
-      pendingPublicationContentBytes:
-        state.metrics.pendingPublicationContentBytes,
+      inFlightPublicationCount: state.metrics.inFlightPublicationCount,
+      retainedPublicationContentBytes:
+        state.metrics.retainedPublicationContentBytes,
+      settlementEnvelopeBytes: state.metrics.settlementEnvelopeBytes,
       countedCanonicalBytes: state.metrics.countedCanonicalBytes,
     });
     const initialized = initializedNamespaceReceipt(
@@ -75,7 +80,9 @@ describe("query-sync receipt ownership", () => {
       "retainedIdentityBytes",
       "dependencyMemberships",
       "pendingPublicationCount",
-      "pendingPublicationContentBytes",
+      "inFlightPublicationCount",
+      "retainedPublicationContentBytes",
+      "settlementEnvelopeBytes",
       "countedCanonicalBytes",
     ]);
 
@@ -98,7 +105,7 @@ describe("query-sync receipt ownership", () => {
       _tag: begin._tag,
       state: begin.state,
       attempt: enrichedAttempt,
-    }));
+    }) as unknown as BeginQueryEvaluationDecision);
     expect(projected._tag).toBe("created");
     if (projected._tag !== "created") {
       throw new Error("Expected a projected evaluation attempt.");

@@ -267,8 +267,8 @@ describe("evaluation transaction recovery", () => {
     expect(replayed.publicationDisposition).toEqual(
       first.state.queries[0]?.currentCompletion?.publicationDisposition,
     );
-    expect(replayed.state.pendingPublications).toBe(
-      first.state.pendingPublications,
+    expect(replayed.state.publicationWork.pending).toBe(
+      first.state.publicationWork.pending,
     );
   });
 
@@ -327,7 +327,7 @@ describe("evaluation transaction recovery", () => {
     expect(first.state.queries[0]?.active?.generation).toBe(
       first.attempt.generation,
     );
-    expect(first.state.pendingPublications).toHaveLength(1);
+    expect(first.state.publicationWork.pending).toHaveLength(1);
   });
 
   it("classifies the immediately preceding generation as superseded", () => {

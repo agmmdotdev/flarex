@@ -29,6 +29,7 @@ import type {
   QuerySyncReferenceModel,
 } from "@flarex/query-sync/testing/reference-model";
 
+import { initialQuerySyncWorkRevision } from "../src/kernel/CanonicalValue.js";
 import { buildQuerySyncState } from "../src/kernel/Model.js";
 
 export function getSuccess<A, E>(result: Result.Result<A, E>): A {
@@ -42,11 +43,20 @@ export function buildTestReferenceModel(
   pendingPublications: readonly PendingQueryPublication[] = [],
 ): QuerySyncReferenceModel {
   return Object.freeze({
-    state: getSuccess(buildQuerySyncState(
-      initialCursor,
+    state: getSuccess(buildQuerySyncState({
+      cursor: initialCursor,
       queries,
-      pendingPublications,
-    )),
+      evaluationWork: {
+        revision: initialQuerySyncWorkRevision(),
+        fairnessAnchor: null,
+      },
+      publicationWork: {
+        pending: pendingPublications,
+        inFlight: null,
+        latestDelivered: null,
+        precedingAttemptOutcome: null,
+      },
+    })),
   });
 }
 
@@ -55,7 +65,20 @@ export function buildTestQuerySyncState(
   queries: readonly QueryState[],
   pendingPublications: readonly PendingQueryPublication[] = [],
 ): ReturnType<typeof buildQuerySyncState> {
-  return buildQuerySyncState(initialCursor, queries, pendingPublications);
+  return buildQuerySyncState({
+    cursor: initialCursor,
+    queries,
+    evaluationWork: {
+      revision: initialQuerySyncWorkRevision(),
+      fairnessAnchor: null,
+    },
+    publicationWork: {
+      pending: pendingPublications,
+      inFlight: null,
+      latestDelivered: null,
+      precedingAttemptOutcome: null,
+    },
+  });
 }
 
 export function canonicalBytes(

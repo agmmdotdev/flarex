@@ -8,18 +8,29 @@ import {
   captureCanonicalQueryKey,
   captureNamespaceCursor,
   captureQueryEvaluationEvidence,
+  captureQuerySyncWorkRevision,
+  capturePublicationAttemptInstant,
+  capturePublicationAttemptOrdinal,
   captureSyncNamespaceId,
   captureSyncSequence,
+  initialPublicationAttemptOrdinal,
+  initialQuerySyncWorkRevision,
   MAX_CANONICAL_DEPENDENCY_KEY_BYTES,
   MAX_CANONICAL_QUERY_IDENTITY_BYTES,
   MAX_INVALIDATION_BATCH_BYTES,
   MAX_INVALIDATION_KEYS,
   MAX_QUERY_DEPENDENCY_BYTES,
   MAX_QUERY_DEPENDENCY_KEYS,
+  MAX_PUBLICATION_ATTEMPT_INSTANT,
+  MAX_PUBLICATION_ATTEMPT_ORDINAL,
+  MAX_QUERY_SYNC_WORK_REVISION,
   MAX_SYNC_ID_UTF8_BYTES,
   MAX_SYNC_SEQUENCE,
   QueryDependencyLimitError,
   QuerySyncCanonicalValueError,
+  QuerySyncWorkRevisionExhaustedError,
+  successorPublicationAttemptOrdinal,
+  successorQuerySyncWorkRevision,
 } from "@flarex/query-sync/internal/kernel";
 
 import {
@@ -105,6 +116,113 @@ describe("canonical query-sync values", () => {
       captureSyncSequence(MAX_SYNC_SEQUENCE + 1n),
     )).toBe(true);
     expect(Result.isFailure(captureSyncSequence(1))).toBe(true);
+  });
+
+  it("captures and advances the bounded work revision without wrapping", () => {
+    const initial = initialQuerySyncWorkRevision();
+    expect(initial).toBe(0n);
+    expect(getSuccess(captureQuerySyncWorkRevision(0n))).toBe(0n);
+    expect(getSuccess(
+      captureQuerySyncWorkRevision(MAX_QUERY_SYNC_WORK_REVISION),
+    )).toBe(MAX_QUERY_SYNC_WORK_REVISION);
+
+    for (const input of [
+      -1n,
+      MAX_QUERY_SYNC_WORK_REVISION + 1n,
+      0,
+      "0",
+      null,
+    ]) {
+      const refused = captureQuerySyncWorkRevision(input);
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) {
+        expect(refused.failure).toMatchObject({
+          _tag: "QuerySyncCanonicalValueError",
+          field: "workRevision",
+        });
+      }
+    }
+
+    expect(getSuccess(successorQuerySyncWorkRevision(
+      "claimEvaluationWork",
+      initial,
+    ))).toBe(1n);
+
+    const exhausted = successorQuerySyncWorkRevision(
+      "recordEvaluationAttemptOutcome",
+      getSuccess(captureQuerySyncWorkRevision(
+        MAX_QUERY_SYNC_WORK_REVISION,
+      )),
+    );
+    expect(Result.isFailure(exhausted)).toBe(true);
+    if (Result.isFailure(exhausted)) {
+      expect(exhausted.failure).toBeInstanceOf(
+        QuerySyncWorkRevisionExhaustedError,
+      );
+      expect(exhausted.failure).toMatchObject({
+        operation: "recordEvaluationAttemptOutcome",
+        currentRevision: MAX_QUERY_SYNC_WORK_REVISION,
+      });
+    }
+  });
+
+  it("captures the inclusive publication attempt ordinal domain", () => {
+    const first = initialPublicationAttemptOrdinal();
+    const last = getSuccess(capturePublicationAttemptOrdinal(
+      MAX_PUBLICATION_ATTEMPT_ORDINAL,
+    ));
+    expect(first).toBe(1);
+    expect(getSuccess(capturePublicationAttemptOrdinal(1))).toBe(1);
+    expect(last).toBe(MAX_PUBLICATION_ATTEMPT_ORDINAL);
+    expect(successorPublicationAttemptOrdinal(first)).toBe(2);
+    expect(successorPublicationAttemptOrdinal(last)).toBeNull();
+
+    for (const input of [
+      0,
+      MAX_PUBLICATION_ATTEMPT_ORDINAL + 1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+      1n,
+      "1",
+    ]) {
+      const refused = capturePublicationAttemptOrdinal(input);
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) {
+        expect(refused.failure).toMatchObject({
+          _tag: "QuerySyncCanonicalValueError",
+          field: "publicationAttemptOrdinal",
+        });
+      }
+    }
+  });
+
+  it("captures non-negative safe publication attempt instants", () => {
+    expect(getSuccess(capturePublicationAttemptInstant(0))).toBe(0);
+    expect(getSuccess(capturePublicationAttemptInstant(-0))).toBe(-0);
+    expect(getSuccess(capturePublicationAttemptInstant(
+      MAX_PUBLICATION_ATTEMPT_INSTANT,
+    ))).toBe(MAX_PUBLICATION_ATTEMPT_INSTANT);
+
+    for (const input of [
+      -1,
+      MAX_PUBLICATION_ATTEMPT_INSTANT + 1,
+      0.5,
+      Number.NaN,
+      Number.NEGATIVE_INFINITY,
+      0n,
+      "0",
+    ]) {
+      const refused = capturePublicationAttemptInstant(input);
+      expect(Result.isFailure(refused)).toBe(true);
+      if (Result.isFailure(refused)) {
+        expect(refused.failure).toMatchObject({
+          _tag: "QuerySyncCanonicalValueError",
+          field: "publicationAttemptInstant",
+        });
+      }
+    }
   });
 
   it("sorts, deduplicates, owns, and freezes dependency inputs", () => {

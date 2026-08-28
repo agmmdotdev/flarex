@@ -1,24 +1,42 @@
 import type {
   CanonicalQueryKey,
+  PublicationAttemptOrdinal,
   QueryGeneration,
   SyncEpoch,
   SyncModelId,
   SyncSequence,
 } from "../kernel/CanonicalValue.js";
 import type {
+  BlockedEvaluationWorkEvidence,
+  ClaimEvaluationWorkDecision,
+  EvaluationWorkScanContinuation,
+  RecordEvaluationAttemptOutcomeDecision,
+} from "../kernel/EvaluationWork.js";
+import type {
   ApplyInvalidationsDecision,
   BeginQueryEvaluationDecision,
   CompleteQueryEvaluationDecision,
   NamespaceCursor,
+  PublicationBlockReason,
   QueryDescriptor,
   QueryEvaluationAttempt,
   QuerySyncStateMetrics,
 } from "../kernel/Model.js";
 import { makeQueryEvaluationAttempt } from "../kernel/Model.js";
-import { freezePublicationDisposition } from "../kernel/Publication.js";
+import {
+  freezePublicationDisposition,
+  freezeQueryPublicationIdentity,
+} from "../kernel/Publication.js";
 import type {
   QueryCompletionPublicationDisposition,
+  QueryPublicationIdentity,
 } from "../kernel/Publication.js";
+import type {
+  ClaimPublicationDecision,
+  CompletePublicationDecision,
+  PublicationAttempt,
+  RecordPublicationAttemptOutcomeDecision,
+} from "../kernel/PublicationWork.js";
 
 export type InitializeNamespaceReceipt =
   | Readonly<{
@@ -123,6 +141,111 @@ export type CompleteQueryEvaluationReceipt =
     readonly activeGeneration: QueryGeneration;
   }>;
 
+export type ClaimEvaluationWorkReceipt =
+  | Readonly<{
+    readonly _tag: "claimed";
+    readonly attempt: QueryEvaluationAttempt;
+    readonly continuation: EvaluationWorkScanContinuation;
+  }>
+  | Readonly<{
+    readonly _tag: "continued";
+    readonly continuation: EvaluationWorkScanContinuation;
+  }>
+  | Readonly<{
+    readonly _tag: "scanRestarted";
+    readonly continuation: EvaluationWorkScanContinuation;
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly blockedWork: BlockedEvaluationWorkEvidence;
+  }>
+  | Readonly<{
+    readonly _tag: "none";
+  }>;
+
+export type RecordEvaluationAttemptOutcomeReceipt =
+  | Readonly<{
+    readonly _tag: "eligible";
+    readonly queryKey: CanonicalQueryKey;
+    readonly generation: QueryGeneration;
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly blockedWork: BlockedEvaluationWorkEvidence;
+  }>
+  | Readonly<{
+    readonly _tag: "superseded";
+    readonly queryKey: CanonicalQueryKey;
+    readonly generation: QueryGeneration;
+    readonly activeGeneration: QueryGeneration;
+  }>
+  | Readonly<{
+    readonly _tag: "recoveryEvidenceExpired";
+    readonly queryKey: CanonicalQueryKey;
+    readonly generation: QueryGeneration;
+    readonly activeGeneration: QueryGeneration;
+  }>;
+
+export type ClaimPublicationReceipt =
+  | Readonly<{
+    readonly _tag: "claimed";
+    readonly attempt: PublicationAttempt;
+  }>
+  | Readonly<{
+    readonly _tag: "replayed";
+    readonly attempt: PublicationAttempt;
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly identity: QueryPublicationIdentity;
+    readonly attemptOrdinal: PublicationAttemptOrdinal;
+    readonly reason: PublicationBlockReason;
+    readonly resetRequired: true;
+  }>
+  | Readonly<{
+    readonly _tag: "none";
+  }>;
+
+export type RecordPublicationAttemptOutcomeReceipt =
+  | Readonly<{
+    readonly _tag: "recorded";
+    readonly identity: QueryPublicationIdentity;
+    readonly attemptOrdinal: PublicationAttemptOrdinal;
+    readonly nextAttemptOrdinal: PublicationAttemptOrdinal;
+    readonly nextDisposition: "ready" | "uncertain";
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly identity: QueryPublicationIdentity;
+    readonly attemptOrdinal: PublicationAttemptOrdinal;
+    readonly reason: PublicationBlockReason;
+    readonly resetRequired: true;
+  }>
+  | Readonly<{
+    readonly _tag: "superseded";
+    readonly identity: QueryPublicationIdentity;
+    readonly attemptOrdinal: PublicationAttemptOrdinal;
+  }>
+  | Readonly<{
+    readonly _tag: "recoveryEvidenceExpired";
+    readonly identity: QueryPublicationIdentity;
+    readonly attemptOrdinal: PublicationAttemptOrdinal;
+  }>;
+
+export type CompletePublicationReceipt =
+  | Readonly<{
+    readonly _tag: "completed";
+    readonly identity: QueryPublicationIdentity;
+  }>
+  | Readonly<{
+    readonly _tag: "replayed";
+    readonly identity: QueryPublicationIdentity;
+  }>
+  | Readonly<{
+    readonly _tag: "superseded";
+    readonly identity: QueryPublicationIdentity;
+  }>;
+
 function freezeCursor(cursor: NamespaceCursor): NamespaceCursor {
   return Object.freeze({
     namespaceId: cursor.namespaceId,
@@ -138,8 +261,10 @@ function freezeMetrics(metrics: QuerySyncStateMetrics): QuerySyncStateMetrics {
     retainedIdentityBytes: metrics.retainedIdentityBytes,
     dependencyMemberships: metrics.dependencyMemberships,
     pendingPublicationCount: metrics.pendingPublicationCount,
-    pendingPublicationContentBytes:
-      metrics.pendingPublicationContentBytes,
+    inFlightPublicationCount: metrics.inFlightPublicationCount,
+    retainedPublicationContentBytes:
+      metrics.retainedPublicationContentBytes,
+    settlementEnvelopeBytes: metrics.settlementEnvelopeBytes,
     countedCanonicalBytes: metrics.countedCanonicalBytes,
   });
 }
@@ -148,6 +273,17 @@ function freezeDescriptor(descriptor: QueryDescriptor): QueryDescriptor {
   return Object.freeze({
     queryKey: descriptor.queryKey,
     queryIdentity: descriptor.queryIdentity,
+  });
+}
+
+function freezeBlockedEvaluationWork(
+  blockedWork: BlockedEvaluationWorkEvidence,
+): BlockedEvaluationWorkEvidence {
+  return Object.freeze({
+    queryKey: blockedWork.queryKey,
+    generation: blockedWork.generation,
+    reason: "terminalEvaluatorRefusal",
+    resetRequired: true,
   });
 }
 
@@ -284,4 +420,122 @@ export function projectCompleteReceipt(
         activeGeneration: decision.activeGeneration,
       });
   }
+}
+
+export function projectClaimEvaluationWorkReceipt(
+  decision: ClaimEvaluationWorkDecision,
+): ClaimEvaluationWorkReceipt {
+  switch (decision._tag) {
+    case "claimed":
+      return Object.freeze({
+        _tag: "claimed",
+        // These are process-local state-issued capabilities. Preserve their
+        // exact identities so their private runtime authenticity remains valid.
+        attempt: decision.attempt,
+        continuation: decision.continuation,
+      });
+    case "continued":
+    case "scanRestarted":
+      return Object.freeze({
+        _tag: decision._tag,
+        continuation: decision.continuation,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        blockedWork: freezeBlockedEvaluationWork(decision.blockedWork),
+      });
+    case "none":
+      return Object.freeze({ _tag: "none" });
+  }
+}
+
+export function projectRecordEvaluationAttemptOutcomeReceipt(
+  decision: RecordEvaluationAttemptOutcomeDecision,
+): RecordEvaluationAttemptOutcomeReceipt {
+  switch (decision._tag) {
+    case "eligible":
+      return Object.freeze({
+        _tag: "eligible",
+        queryKey: decision.queryKey,
+        generation: decision.generation,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        blockedWork: freezeBlockedEvaluationWork(decision.blockedWork),
+      });
+    case "superseded":
+    case "recoveryEvidenceExpired":
+      return Object.freeze({
+        _tag: decision._tag,
+        queryKey: decision.queryKey,
+        generation: decision.generation,
+        activeGeneration: decision.activeGeneration,
+      });
+  }
+}
+
+export function projectClaimPublicationReceipt(
+  decision: ClaimPublicationDecision,
+): ClaimPublicationReceipt {
+  switch (decision._tag) {
+    case "claimed":
+    case "replayed":
+      return Object.freeze({
+        _tag: decision._tag,
+        // Publication attempts are nominal state-issued capabilities. Keep the
+        // exact frozen value instead of manufacturing a structural copy.
+        attempt: decision.attempt,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        identity: freezeQueryPublicationIdentity(decision.identity),
+        attemptOrdinal: decision.attemptOrdinal,
+        reason: decision.reason,
+        resetRequired: true,
+      });
+    case "none":
+      return Object.freeze({ _tag: "none" });
+  }
+}
+
+export function projectRecordPublicationAttemptOutcomeReceipt(
+  decision: RecordPublicationAttemptOutcomeDecision,
+): RecordPublicationAttemptOutcomeReceipt {
+  switch (decision._tag) {
+    case "recorded":
+      return Object.freeze({
+        _tag: "recorded",
+        identity: freezeQueryPublicationIdentity(decision.identity),
+        attemptOrdinal: decision.attemptOrdinal,
+        nextAttemptOrdinal: decision.nextAttemptOrdinal,
+        nextDisposition: decision.nextDisposition,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        identity: freezeQueryPublicationIdentity(decision.identity),
+        attemptOrdinal: decision.attemptOrdinal,
+        reason: decision.reason,
+        resetRequired: true,
+      });
+    case "superseded":
+    case "recoveryEvidenceExpired":
+      return Object.freeze({
+        _tag: decision._tag,
+        identity: freezeQueryPublicationIdentity(decision.identity),
+        attemptOrdinal: decision.attemptOrdinal,
+      });
+  }
+}
+
+export function projectCompletePublicationReceipt(
+  decision: CompletePublicationDecision,
+): CompletePublicationReceipt {
+  return Object.freeze({
+    _tag: decision._tag,
+    identity: freezeQueryPublicationIdentity(decision.identity),
+  });
 }

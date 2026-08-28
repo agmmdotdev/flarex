@@ -1,10 +1,23 @@
-import { Effect, Result } from "effect";
+import { Clock, Effect, Result } from "effect";
 
+import { capturePublicationAttemptInstant } from "../../kernel/CanonicalValue.js";
 import type {
+  PublicationAttemptInstant,
   SyncEpoch,
   SyncModelId,
   SyncNamespaceId,
 } from "../../kernel/CanonicalValue.js";
+import {
+  claimEvaluationWork,
+  recordEvaluationAttemptOutcome,
+} from "../../kernel/EvaluationWork.js";
+import type {
+  ClaimEvaluationWorkError,
+  EvaluationAttemptOutcome,
+  EvaluationWorkScanRequest,
+  RecordEvaluationAttemptOutcomeError,
+} from "../../kernel/EvaluationWork.js";
+import { QuerySyncInvariantDefect } from "../../kernel/Errors.js";
 import {
   createEmptyQuerySyncState,
 } from "../../kernel/Model.js";
@@ -32,6 +45,19 @@ import type {
   QueryPublicationArtifact,
 } from "../../kernel/Publication.js";
 import {
+  claimPublication,
+  completePublication,
+  recordPublicationAttemptOutcome,
+} from "../../kernel/PublicationWork.js";
+import type {
+  AcceptedQueryPublicationEvidence,
+  ClaimPublicationError,
+  CompletePublicationError,
+  PublicationAttempt,
+  PublicationAttemptOutcome,
+  RecordPublicationAttemptOutcomeError,
+} from "../../kernel/PublicationWork.js";
+import {
   QuerySyncStoredStateCorruptError,
   QuerySyncStoredStateIncompatibleError,
 } from "../../state/Errors.js";
@@ -46,13 +72,23 @@ import {
   modelReplacedReceipt,
   projectApplyReceipt,
   projectBeginReceipt,
+  projectClaimEvaluationWorkReceipt,
+  projectClaimPublicationReceipt,
   projectCompleteReceipt,
+  projectCompletePublicationReceipt,
+  projectRecordEvaluationAttemptOutcomeReceipt,
+  projectRecordPublicationAttemptOutcomeReceipt,
 } from "../../state/Receipts.js";
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  ClaimEvaluationWorkReceipt,
+  ClaimPublicationReceipt,
   CompleteQueryEvaluationReceipt,
+  CompletePublicationReceipt,
   InitializeNamespaceReceipt,
+  RecordEvaluationAttemptOutcomeReceipt,
+  RecordPublicationAttemptOutcomeReceipt,
 } from "../../state/Receipts.js";
 
 export type StateConformanceCommand =
@@ -74,13 +110,39 @@ export type StateConformanceCommand =
     readonly evaluation: QueryEvaluationEvidence;
     readonly refresh: GenerationRefreshEvidence;
     readonly publication: QueryPublicationArtifact;
+  }>
+  | Readonly<{
+    readonly _tag: "claimEvaluationWork";
+    readonly request: EvaluationWorkScanRequest;
+  }>
+  | Readonly<{
+    readonly _tag: "recordEvaluationAttemptOutcome";
+    readonly attempt: QueryEvaluationAttempt;
+    readonly outcome: EvaluationAttemptOutcome;
+  }>
+  | Readonly<{
+    readonly _tag: "claimPublication";
+  }>
+  | Readonly<{
+    readonly _tag: "recordPublicationAttemptOutcome";
+    readonly attempt: PublicationAttempt;
+    readonly outcome: PublicationAttemptOutcome;
+  }>
+  | Readonly<{
+    readonly _tag: "completePublication";
+    readonly evidence: AcceptedQueryPublicationEvidence;
   }>;
 
 export type StateConformanceReceipt =
   | InitializeNamespaceReceipt
   | BeginQueryEvaluationReceipt
   | ApplyAdmittedBatchReceipt
-  | CompleteQueryEvaluationReceipt;
+  | CompleteQueryEvaluationReceipt
+  | ClaimEvaluationWorkReceipt
+  | RecordEvaluationAttemptOutcomeReceipt
+  | ClaimPublicationReceipt
+  | RecordPublicationAttemptOutcomeReceipt
+  | CompletePublicationReceipt;
 
 export interface StateConformanceBinding {
   readonly namespaceId: SyncNamespaceId;
@@ -127,6 +189,11 @@ export type StateConformanceError =
   | BeginQueryEvaluationError
   | ApplyInvalidationsError
   | CompleteQueryEvaluationError
+  | ClaimEvaluationWorkError
+  | RecordEvaluationAttemptOutcomeError
+  | ClaimPublicationError
+  | RecordPublicationAttemptOutcomeError
+  | CompletePublicationError
   | QuerySyncStateIntegrationError;
 
 interface OracleTransition {
@@ -241,6 +308,7 @@ function reduceOracleCommand(
   current: QuerySyncState | null,
   binding: StateConformanceBinding,
   command: StateConformanceCommand,
+  capturedNow: PublicationAttemptInstant | null,
 ): Result.Result<OracleTransition, StateConformanceError> {
   switch (command._tag) {
     case "initializeOrInspectNamespace":
@@ -293,6 +361,92 @@ function reduceOracleCommand(
           nextState: decision.state,
         });
       });
+    case "claimEvaluationWork":
+      return Result.gen(function* () {
+        const state = yield* transitionState(
+          current,
+          binding,
+          "claimEvaluationWork",
+        );
+        const decision = yield* claimEvaluationWork(state, command.request);
+        return Object.freeze({
+          receipt: projectClaimEvaluationWorkReceipt(decision),
+          nextState: decision.state,
+        });
+      });
+    case "recordEvaluationAttemptOutcome":
+      return Result.gen(function* () {
+        const state = yield* transitionState(
+          current,
+          binding,
+          "recordEvaluationAttemptOutcome",
+        );
+        const decision = yield* recordEvaluationAttemptOutcome(
+          state,
+          command.attempt,
+          command.outcome,
+        );
+        return Object.freeze({
+          receipt: projectRecordEvaluationAttemptOutcomeReceipt(decision),
+          nextState: decision.state,
+        });
+      });
+    case "claimPublication":
+      return Result.gen(function* () {
+        const state = yield* transitionState(
+          current,
+          binding,
+          "claimPublication",
+        );
+        if (capturedNow === null) {
+          throw new QuerySyncInvariantDefect({
+            operation: "claimPublication",
+            invariant: "stateClockInstantInvalid",
+          });
+        }
+        const decision = yield* claimPublication(state, capturedNow);
+        return Object.freeze({
+          receipt: projectClaimPublicationReceipt(decision),
+          nextState: decision.state,
+        });
+      });
+    case "recordPublicationAttemptOutcome":
+      return Result.gen(function* () {
+        const state = yield* transitionState(
+          current,
+          binding,
+          "recordPublicationAttemptOutcome",
+        );
+        if (capturedNow === null) {
+          throw new QuerySyncInvariantDefect({
+            operation: "recordPublicationAttemptOutcome",
+            invariant: "stateClockInstantInvalid",
+          });
+        }
+        const decision = yield* recordPublicationAttemptOutcome(
+          state,
+          command.attempt,
+          command.outcome,
+          capturedNow,
+        );
+        return Object.freeze({
+          receipt: projectRecordPublicationAttemptOutcomeReceipt(decision),
+          nextState: decision.state,
+        });
+      });
+    case "completePublication":
+      return Result.gen(function* () {
+        const state = yield* transitionState(
+          current,
+          binding,
+          "completePublication",
+        );
+        const decision = yield* completePublication(state, command.evidence);
+        return Object.freeze({
+          receipt: projectCompletePublicationReceipt(decision),
+          nextState: decision.state,
+        });
+      });
   }
 }
 
@@ -318,8 +472,49 @@ function executeTargetCommand(
         command.refresh,
         command.publication,
       );
+    case "claimEvaluationWork":
+      return target.claimEvaluationWork(command.request);
+    case "recordEvaluationAttemptOutcome":
+      return target.recordEvaluationAttemptOutcome(
+        command.attempt,
+        command.outcome,
+      );
+    case "claimPublication":
+      return target.claimPublication();
+    case "recordPublicationAttemptOutcome":
+      return target.recordPublicationAttemptOutcome(
+        command.attempt,
+        command.outcome,
+      );
+    case "completePublication":
+      return target.completePublication(command.evidence);
   }
 }
+
+function isClockedPublicationCommand(
+  command: StateConformanceCommand,
+): command is Extract<
+  StateConformanceCommand,
+  { readonly _tag: "claimPublication" | "recordPublicationAttemptOutcome" }
+> {
+  return command._tag === "claimPublication"
+    || command._tag === "recordPublicationAttemptOutcome";
+}
+
+const captureConformanceClockInstant = Effect.fn(
+  "QuerySync.StateConformance.captureClockInstant",
+)(function*(
+  operation: "claimPublication" | "recordPublicationAttemptOutcome",
+): Effect.fn.Return<PublicationAttemptInstant> {
+  const observedNow = yield* Clock.currentTimeMillis;
+  return yield* Result.match(capturePublicationAttemptInstant(observedNow), {
+    onFailure: () => Effect.die(new QuerySyncInvariantDefect({
+      operation,
+      invariant: "stateClockInstantInvalid",
+    })),
+    onSuccess: Effect.succeed,
+  });
+});
 
 export const runStateConformanceCommands = Effect.fn(
   "QuerySync.StateConformance.runCommands",
@@ -334,10 +529,14 @@ export const runStateConformanceCommands = Effect.fn(
   const steps: StateConformanceStep[] = [];
   let expectedState = run.initialExpectedState;
   for (const command of run.commands) {
+    const capturedNow = isClockedPublicationCommand(command)
+      ? yield* captureConformanceClockInstant(command._tag)
+      : null;
     const expectedTransition = reduceOracleCommand(
       expectedState,
       target.bindingForConformance,
       command,
+      capturedNow,
     );
     const expectedOutcome = Result.map(
       expectedTransition,

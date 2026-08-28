@@ -18,7 +18,7 @@ import type { QuerySyncCanonicalValueError } from "./Errors.js";
 
 export const MAX_INLINE_PUBLICATION_CONTENT_BYTES = 1_024 * 1_024;
 export const MAX_PENDING_PUBLICATIONS = 4_096;
-export const MAX_PENDING_PUBLICATION_CONTENT_BYTES = 32 * 1_024 * 1_024;
+export const MAX_RETAINED_PUBLICATION_CONTENT_BYTES = 32 * 1_024 * 1_024;
 
 export type CanonicalPublicationContent = Brand.Branded<
   string,

@@ -14,6 +14,10 @@ import {
   captureSyncNamespaceId,
   captureSyncSequence,
   compareCanonicalBase64Url,
+  initialQuerySyncWorkRevision,
+  MAX_PUBLICATION_ATTEMPT_INSTANT,
+  MAX_PUBLICATION_ATTEMPT_ORDINAL,
+  MAX_QUERY_SYNC_WORK_REVISION,
   QUERY_AUTHORITY_WITNESS_BYTES,
   QUERY_KEY_BYTES,
   QUERY_RESULT_DIGEST_BYTES,
@@ -28,6 +32,9 @@ import type {
   QueryGeneration,
   QueryResultDigest,
   QuerySnapshot,
+  QuerySyncWorkRevision,
+  PublicationAttemptInstant,
+  PublicationAttemptOrdinal,
   SyncEpoch,
   SyncModelId,
   SyncNamespaceId,
@@ -49,8 +56,8 @@ import {
   freezePublicationDisposition,
   freezeQueryPublicationIdentity,
   makePendingQueryPublication,
-  MAX_PENDING_PUBLICATION_CONTENT_BYTES,
   MAX_PENDING_PUBLICATIONS,
+  MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
   queryPublicationIdentityEquals,
 } from "./Publication.js";
 import type {
@@ -75,6 +82,24 @@ export const MAX_REFRESH_CANONICAL_BYTES = 16 * 1_024 * 1_024;
 
 const FIXED_WIDTH_INTEGER_BYTES = 8;
 const SLOT_PRESENCE_BYTES = 1;
+const PUBLICATION_ATTEMPT_DISPOSITION_BYTES = 3;
+const PUBLICATION_ATTEMPT_OUTCOME_BYTES = 1;
+const PUBLICATION_ATTEMPT_RECEIPT_BYTES = 10;
+const PUBLICATION_DELIVERED_TOMBSTONE_BYTES = QUERY_KEY_BYTES
+  + FIXED_WIDTH_INTEGER_BYTES
+  + QUERY_RESULT_DIGEST_BYTES;
+const PUBLICATION_IN_FLIGHT_METADATA_BYTES =
+  (3 * FIXED_WIDTH_INTEGER_BYTES)
+  + PUBLICATION_ATTEMPT_DISPOSITION_BYTES;
+const PUBLICATION_PRECEDING_OUTCOME_BYTES = QUERY_KEY_BYTES
+  + (2 * FIXED_WIDTH_INTEGER_BYTES)
+  + QUERY_RESULT_DIGEST_BYTES
+  + PUBLICATION_ATTEMPT_OUTCOME_BYTES
+  + PUBLICATION_ATTEMPT_RECEIPT_BYTES;
+export const PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES =
+  PUBLICATION_IN_FLIGHT_METADATA_BYTES
+  + PUBLICATION_PRECEDING_OUTCOME_BYTES
+  + PUBLICATION_DELIVERED_TOMBSTONE_BYTES;
 
 export interface NamespaceCursor {
   readonly namespaceId: SyncNamespaceId;
@@ -207,7 +232,18 @@ export interface ProvisionalQueryState {
   readonly expectedActiveGeneration: QueryGeneration | null;
   readonly registrationCursor: NamespaceCursor;
   readonly requestedDirtyThroughSequence: SyncSequence | null;
+  readonly evaluationDisposition: QueryEvaluationDisposition;
 }
+
+export type QueryEvaluationDisposition =
+  | Readonly<{
+    readonly _tag: "ready";
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly reason: "terminalEvaluatorRefusal";
+    readonly resetRequired: true;
+  }>;
 
 export interface QueryCompletionFingerprint {
   readonly identity: QueryPublicationIdentity;
@@ -248,12 +284,82 @@ export interface DependencyDirectoryEntry {
   readonly queryKeys: readonly CanonicalQueryKey[];
 }
 
+export interface QuerySyncEvaluationWorkState {
+  readonly revision: QuerySyncWorkRevision;
+  readonly fairnessAnchor: CanonicalQueryKey | null;
+}
+
+export type PublicationBlockReason =
+  | "terminalPublisherRefusal"
+  | "attemptLimitReached"
+  | "ageLimitReached";
+
+export type PublicationAttemptDisposition =
+  | Readonly<{
+    readonly _tag: "ready";
+  }>
+  | Readonly<{
+    readonly _tag: "uncertain";
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly reason: PublicationBlockReason;
+    readonly resetRequired: true;
+  }>;
+
+export interface InFlightQueryPublication {
+  readonly publication: PendingQueryPublication;
+  readonly attemptOrdinal: PublicationAttemptOrdinal;
+  readonly firstAttemptAt: PublicationAttemptInstant;
+  readonly lastAttemptAt: PublicationAttemptInstant;
+  readonly disposition: PublicationAttemptDisposition;
+}
+
+export interface DeliveredQueryPublication {
+  readonly identity: QueryPublicationIdentity;
+  readonly resultDigest: QueryResultDigest;
+}
+
+export type PublicationAttemptOutcome =
+  | "knownNotAppended"
+  | "outcomeUnknown"
+  | "terminalRefusal";
+
+export type PublicationAttemptOutcomeReceiptCore =
+  | Readonly<{
+    readonly _tag: "recorded";
+    readonly nextAttemptOrdinal: PublicationAttemptOrdinal;
+    readonly nextDisposition: "ready" | "uncertain";
+  }>
+  | Readonly<{
+    readonly _tag: "blocked";
+    readonly reason: PublicationBlockReason;
+    readonly resetRequired: true;
+  }>;
+
+export interface PrecedingPublicationAttemptOutcome {
+  readonly identity: QueryPublicationIdentity;
+  readonly resultDigest: QueryResultDigest;
+  readonly attemptOrdinal: PublicationAttemptOrdinal;
+  readonly outcome: PublicationAttemptOutcome;
+  readonly receipt: PublicationAttemptOutcomeReceiptCore;
+}
+
+export interface QuerySyncPublicationWorkState {
+  readonly pending: readonly PendingQueryPublication[];
+  readonly inFlight: InFlightQueryPublication | null;
+  readonly latestDelivered: DeliveredQueryPublication | null;
+  readonly precedingAttemptOutcome: PrecedingPublicationAttemptOutcome | null;
+}
+
 export interface QuerySyncStateMetrics {
   readonly queryCount: number;
   readonly retainedIdentityBytes: number;
   readonly dependencyMemberships: number;
   readonly pendingPublicationCount: number;
-  readonly pendingPublicationContentBytes: number;
+  readonly inFlightPublicationCount: number;
+  readonly retainedPublicationContentBytes: number;
+  readonly settlementEnvelopeBytes: number;
   readonly countedCanonicalBytes: number;
 }
 
@@ -261,8 +367,23 @@ export interface QuerySyncState {
   readonly cursor: NamespaceCursor;
   readonly queries: readonly QueryState[];
   readonly dependencyDirectory: readonly DependencyDirectoryEntry[];
-  readonly pendingPublications: readonly PendingQueryPublication[];
+  readonly evaluationWork: QuerySyncEvaluationWorkState;
+  readonly publicationWork: QuerySyncPublicationWorkState;
   readonly metrics: QuerySyncStateMetrics;
+}
+
+export interface QuerySyncStateBuildInput {
+  readonly cursor: NamespaceCursor;
+  readonly queries: readonly QueryState[];
+  readonly evaluationWork: QuerySyncEvaluationWorkState;
+  readonly publicationWork: QuerySyncPublicationWorkState;
+}
+
+export interface QuerySyncStatePatch {
+  readonly cursor?: NamespaceCursor;
+  readonly queries?: readonly QueryState[];
+  readonly evaluationWork?: QuerySyncEvaluationWorkState;
+  readonly publicationWork?: QuerySyncPublicationWorkState;
 }
 
 export interface BeginQueryEvaluationRequest {
@@ -271,7 +392,7 @@ export interface BeginQueryEvaluationRequest {
   readonly requestedDirtyThroughSequence: SyncSequence | null;
 }
 
-export interface QueryEvaluationAttempt {
+interface QueryEvaluationAttemptFields {
   readonly namespaceId: SyncNamespaceId;
   readonly syncModelId: SyncModelId;
   readonly sourceEpoch: SyncEpoch;
@@ -281,6 +402,39 @@ export interface QueryEvaluationAttempt {
   readonly registrationCursor: NamespaceCursor;
   readonly requestedDirtyThroughSequence: SyncSequence | null;
 }
+
+const issuedQueryEvaluationAttempts = new WeakSet<object>();
+
+class IssuedQueryEvaluationAttempt implements QueryEvaluationAttemptFields {
+  declare private readonly issuedQueryEvaluationAttempt: void;
+
+  readonly namespaceId: SyncNamespaceId;
+  readonly syncModelId: SyncModelId;
+  readonly sourceEpoch: SyncEpoch;
+  readonly descriptor: QueryDescriptor;
+  readonly generation: QueryGeneration;
+  readonly expectedActiveGeneration: QueryGeneration | null;
+  readonly registrationCursor: NamespaceCursor;
+  readonly requestedDirtyThroughSequence: SyncSequence | null;
+
+  constructor(attempt: QueryEvaluationAttemptFields) {
+    this.namespaceId = attempt.namespaceId;
+    this.syncModelId = attempt.syncModelId;
+    this.sourceEpoch = attempt.sourceEpoch;
+    this.descriptor = freezeQueryDescriptor(attempt.descriptor);
+    this.generation = attempt.generation;
+    this.expectedActiveGeneration = attempt.expectedActiveGeneration;
+    this.registrationCursor = freezeNamespaceCursor(
+      attempt.registrationCursor,
+    );
+    this.requestedDirtyThroughSequence =
+      attempt.requestedDirtyThroughSequence;
+    issuedQueryEvaluationAttempts.add(this);
+    Object.freeze(this);
+  }
+}
+
+export type QueryEvaluationAttempt = IssuedQueryEvaluationAttempt;
 
 export type SequenceDecision =
   | Readonly<{
@@ -410,6 +564,48 @@ export type BuildQuerySyncStateError =
   | QueryKeyCollisionError<"buildQuerySyncState">
   | QuerySyncStateLimitError;
 
+const READY_QUERY_EVALUATION_DISPOSITION = Object.freeze({
+  _tag: "ready" as const,
+});
+
+const READY_PUBLICATION_ATTEMPT_DISPOSITION = Object.freeze({
+  _tag: "ready" as const,
+});
+
+const UNCERTAIN_PUBLICATION_ATTEMPT_DISPOSITION = Object.freeze({
+  _tag: "uncertain" as const,
+});
+
+export function readyQueryEvaluationDisposition(): QueryEvaluationDisposition {
+  return READY_QUERY_EVALUATION_DISPOSITION;
+}
+
+export function blockedQueryEvaluationDisposition(): QueryEvaluationDisposition {
+  return Object.freeze({
+    _tag: "blocked",
+    reason: "terminalEvaluatorRefusal",
+    resetRequired: true,
+  });
+}
+
+export function readyPublicationAttemptDisposition(): PublicationAttemptDisposition {
+  return READY_PUBLICATION_ATTEMPT_DISPOSITION;
+}
+
+export function uncertainPublicationAttemptDisposition(): PublicationAttemptDisposition {
+  return UNCERTAIN_PUBLICATION_ATTEMPT_DISPOSITION;
+}
+
+export function blockedPublicationAttemptDisposition(
+  reason: PublicationBlockReason,
+): PublicationAttemptDisposition {
+  return Object.freeze({
+    _tag: "blocked",
+    reason,
+    resetRequired: true,
+  });
+}
+
 function freezeNamespaceCursor(cursor: NamespaceCursor): NamespaceCursor {
   return Object.freeze({
     namespaceId: cursor.namespaceId,
@@ -427,18 +623,17 @@ function freezeQueryDescriptor(descriptor: QueryDescriptor): QueryDescriptor {
 }
 
 export function makeQueryEvaluationAttempt(
-  attempt: QueryEvaluationAttempt,
+  attempt: QueryEvaluationAttemptFields,
 ): QueryEvaluationAttempt {
-  return Object.freeze({
-    namespaceId: attempt.namespaceId,
-    syncModelId: attempt.syncModelId,
-    sourceEpoch: attempt.sourceEpoch,
-    descriptor: freezeQueryDescriptor(attempt.descriptor),
-    generation: attempt.generation,
-    expectedActiveGeneration: attempt.expectedActiveGeneration,
-    registrationCursor: freezeNamespaceCursor(attempt.registrationCursor),
-    requestedDirtyThroughSequence: attempt.requestedDirtyThroughSequence,
-  });
+  return new IssuedQueryEvaluationAttempt(attempt);
+}
+
+export function isIssuedQueryEvaluationAttempt(
+  value: unknown,
+): value is QueryEvaluationAttempt {
+  return typeof value === "object"
+    && value !== null
+    && issuedQueryEvaluationAttempts.has(value);
 }
 
 function freezeDependencyKeys(
@@ -456,6 +651,9 @@ function freezeProvisionalQueryState(
     registrationCursor: freezeNamespaceCursor(provisional.registrationCursor),
     requestedDirtyThroughSequence:
       provisional.requestedDirtyThroughSequence,
+    evaluationDisposition: provisional.evaluationDisposition._tag === "ready"
+      ? readyQueryEvaluationDisposition()
+      : blockedQueryEvaluationDisposition(),
   });
 }
 
@@ -509,6 +707,102 @@ function freezeQueryState(query: QueryState): QueryState {
     precedingCompletionIdentity: query.precedingCompletionIdentity === null
       ? null
       : freezeQueryPublicationIdentity(query.precedingCompletionIdentity),
+  });
+}
+
+function freezeEvaluationWorkState(
+  evaluationWork: QuerySyncEvaluationWorkState,
+): QuerySyncEvaluationWorkState {
+  return Object.freeze({
+    revision: evaluationWork.revision,
+    fairnessAnchor: evaluationWork.fairnessAnchor,
+  });
+}
+
+function freezePublicationAttemptDisposition(
+  disposition: PublicationAttemptDisposition,
+): PublicationAttemptDisposition {
+  switch (disposition._tag) {
+    case "ready":
+      return readyPublicationAttemptDisposition();
+    case "uncertain":
+      return uncertainPublicationAttemptDisposition();
+    case "blocked":
+      return blockedPublicationAttemptDisposition(disposition.reason);
+  }
+}
+
+function freezeInFlightQueryPublication(
+  inFlight: InFlightQueryPublication,
+): InFlightQueryPublication {
+  return Object.freeze({
+    publication: makePendingQueryPublication(inFlight.publication),
+    attemptOrdinal: inFlight.attemptOrdinal,
+    firstAttemptAt: inFlight.firstAttemptAt,
+    lastAttemptAt: inFlight.lastAttemptAt,
+    disposition: freezePublicationAttemptDisposition(inFlight.disposition),
+  });
+}
+
+function freezeDeliveredQueryPublication(
+  delivered: DeliveredQueryPublication,
+): DeliveredQueryPublication {
+  return Object.freeze({
+    identity: freezeQueryPublicationIdentity(delivered.identity),
+    resultDigest: delivered.resultDigest,
+  });
+}
+
+function freezePublicationAttemptOutcomeReceiptCore(
+  receipt: PublicationAttemptOutcomeReceiptCore,
+): PublicationAttemptOutcomeReceiptCore {
+  return receipt._tag === "recorded"
+    ? Object.freeze({
+      _tag: "recorded",
+      nextAttemptOrdinal: receipt.nextAttemptOrdinal,
+      nextDisposition: receipt.nextDisposition,
+    })
+    : Object.freeze({
+      _tag: "blocked",
+      reason: receipt.reason,
+      resetRequired: true,
+    });
+}
+
+function freezePrecedingPublicationAttemptOutcome(
+  preceding: PrecedingPublicationAttemptOutcome,
+): PrecedingPublicationAttemptOutcome {
+  return Object.freeze({
+    identity: freezeQueryPublicationIdentity(preceding.identity),
+    resultDigest: preceding.resultDigest,
+    attemptOrdinal: preceding.attemptOrdinal,
+    outcome: preceding.outcome,
+    receipt: freezePublicationAttemptOutcomeReceiptCore(preceding.receipt),
+  });
+}
+
+function freezePublicationWorkState(
+  publicationWork: QuerySyncPublicationWorkState,
+): QuerySyncPublicationWorkState {
+  const pending = publicationWork.pending.map(makePendingQueryPublication);
+  pending.sort((left, right) => compareQueryPublicationIdentity(
+    left.identity,
+    right.identity,
+  ));
+  return Object.freeze({
+    pending: Object.freeze(pending),
+    inFlight: publicationWork.inFlight === null
+      ? null
+      : freezeInFlightQueryPublication(publicationWork.inFlight),
+    latestDelivered: publicationWork.latestDelivered === null
+      ? null
+      : freezeDeliveredQueryPublication(publicationWork.latestDelivered),
+    precedingAttemptOutcome:
+      publicationWork.precedingAttemptOutcome === null
+        ? null
+        : freezePrecedingPublicationAttemptOutcome(
+          publicationWork.precedingAttemptOutcome,
+        ),
   });
 }
 
@@ -723,7 +1017,20 @@ export function captureQueryEvaluationEvidence(
 export function createEmptyQuerySyncState(
   cursor: NamespaceCursor,
 ): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
-  return buildQuerySyncState(cursor, []);
+  return buildQuerySyncState({
+    cursor,
+    queries: [],
+    evaluationWork: {
+      revision: initialQuerySyncWorkRevision(),
+      fairnessAnchor: null,
+    },
+    publicationWork: {
+      pending: [],
+      inFlight: null,
+      latestDelivered: null,
+      precedingAttemptOutcome: null,
+    },
+  });
 }
 
 function stateInvariantDefect(
@@ -971,10 +1278,12 @@ function assertQueryStateInvariants(
 }
 
 export function buildQuerySyncState(
-  cursor: NamespaceCursor,
-  queryStates: readonly QueryState[],
-  pendingPublicationStates: readonly PendingQueryPublication[] = [],
+  input: QuerySyncStateBuildInput,
 ): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  const cursor = input.cursor;
+  const queryStates = input.queries;
+  const evaluationWork = input.evaluationWork;
+  const publicationWork = input.publicationWork;
   if (queryStates.length > MAX_REFERENCE_QUERIES) {
     return Result.fail(stateLimitError(
       "queryCount",
@@ -985,13 +1294,25 @@ export function buildQuerySyncState(
 
   let retainedIdentityBytes = 0;
   let dependencyMemberships = 0;
-  let pendingPublicationContentBytes = 0;
+  let retainedPublicationContentBytes = 0;
   let countedCanonicalBytes = wellFormedUtf8ByteLength(cursor.namespaceId)
     + wellFormedUtf8ByteLength(cursor.syncModelId)
     + wellFormedUtf8ByteLength(cursor.sourceEpoch)
     + FIXED_WIDTH_INTEGER_BYTES;
+  countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES
+    + SLOT_PRESENCE_BYTES
+    + (evaluationWork.fairnessAnchor === null ? 0 : QUERY_KEY_BYTES)
+    + (3 * SLOT_PRESENCE_BYTES);
   const observedQueryKeys = new Set<CanonicalQueryKey>();
   const queryByKey = new Map<CanonicalQueryKey, QueryState>();
+
+  if (
+    typeof evaluationWork.revision !== "bigint"
+    || evaluationWork.revision < 0n
+    || evaluationWork.revision > MAX_QUERY_SYNC_WORK_REVISION
+  ) {
+    throw stateInvariantDefect("workRevisionInvalid");
+  }
 
   for (const query of queryStates) {
     assertQueryStateInvariants(cursor, query);
@@ -1014,7 +1335,24 @@ export function buildQuerySyncState(
 
     if (query.provisional !== null) {
       countedCanonicalBytes += (2 * FIXED_WIDTH_INTEGER_BYTES)
-        + (2 * SLOT_PRESENCE_BYTES);
+        + (2 * SLOT_PRESENCE_BYTES)
+        + 1;
+      if (
+        query.provisional.evaluationDisposition._tag !== "ready"
+        && query.provisional.evaluationDisposition._tag !== "blocked"
+      ) {
+        throw stateInvariantDefect("evaluationDispositionInvalid");
+      }
+      if (query.provisional.evaluationDisposition._tag === "blocked") {
+        if (
+          query.provisional.evaluationDisposition.reason
+            !== "terminalEvaluatorRefusal"
+          || query.provisional.evaluationDisposition.resetRequired !== true
+        ) {
+          throw stateInvariantDefect("evaluationDispositionInvalid");
+        }
+        countedCanonicalBytes += 2;
+      }
       if (query.provisional.expectedActiveGeneration !== null) {
         countedCanonicalBytes += FIXED_WIDTH_INTEGER_BYTES;
       }
@@ -1093,48 +1431,72 @@ export function buildQuerySyncState(
     }
   }
 
-  if (pendingPublicationStates.length > MAX_PENDING_PUBLICATIONS) {
+  if (
+    evaluationWork.fairnessAnchor !== null
+    && !observedQueryKeys.has(evaluationWork.fairnessAnchor)
+  ) {
+    throw stateInvariantDefect("fairnessAnchorQueryMissing");
+  }
+
+  if (publicationWork.pending.length > MAX_PENDING_PUBLICATIONS) {
     return Result.fail(stateLimitError(
       "pendingPublicationCount",
       MAX_PENDING_PUBLICATIONS,
-      pendingPublicationStates.length,
+      publicationWork.pending.length,
     ));
   }
 
-  const pendingByQuery = new Map<
-    CanonicalQueryKey,
-    PendingQueryPublication
-  >();
-  for (const publication of pendingPublicationStates) {
-    const identity = publication.identity;
+  const pendingByQuery = new Map<CanonicalQueryKey, PendingQueryPublication>();
+  const publicationCountedBytes = (
+    publication: PendingQueryPublication,
+  ): number => QUERY_KEY_BYTES
+    + canonicalBase64UrlDecodedLength(publication.queryIdentity)
+    + (2 * FIXED_WIDTH_INTEGER_BYTES)
+    + QUERY_RESULT_DIGEST_BYTES
+    + canonicalPublicationContentDecodedLength(publication.content);
+  const validatePublicationIdentity = (
+    identity: QueryPublicationIdentity,
+  ): QueryState => {
     if (
       identity.namespaceId !== cursor.namespaceId
       || identity.syncModelId !== cursor.syncModelId
       || identity.sourceEpoch !== cursor.sourceEpoch
     ) {
-      throw stateInvariantDefect("pendingPublicationAuthorityMismatch");
+      throw stateInvariantDefect("publicationWorkAuthorityMismatch");
     }
     const query = queryByKey.get(identity.queryKey);
     if (query === undefined || query.active === null) {
-      throw stateInvariantDefect("pendingPublicationQueryMissing");
+      throw stateInvariantDefect("publicationWorkQueryMissing");
+    }
+    if (identity.generation > query.active.generation) {
+      throw stateInvariantDefect("publicationWorkGenerationAhead");
+    }
+    return query;
+  };
+  const validatePublication = (
+    publication: PendingQueryPublication,
+    kind: "pending" | "inFlight",
+  ): QueryState => {
+    const identity = publication.identity;
+    const query = validatePublicationIdentity(identity);
+    const active = query.active;
+    if (active === null) {
+      throw stateInvariantDefect("publicationWorkQueryMissing");
     }
     if (
       publication.queryIdentity !== query.descriptor.queryIdentity
-      || publication.completedThroughSequence
-        > cursor.appliedThroughSequence
-      || publication.completedThroughSequence
-        > query.active.freshThroughSequence
-      || publication.resultDigest !== query.active.resultDigest
+      || publication.completedThroughSequence > cursor.appliedThroughSequence
+      || publication.completedThroughSequence > active.freshThroughSequence
     ) {
-      throw stateInvariantDefect("pendingPublicationIdentityMismatch");
+      throw stateInvariantDefect("publicationWorkIdentityMismatch");
     }
-    if (pendingByQuery.has(identity.queryKey)) {
-      throw stateInvariantDefect("pendingPublicationDuplicateQuery");
+    if (
+      kind === "pending"
+      && publication.resultDigest !== active.resultDigest
+    ) {
+      throw stateInvariantDefect("publicationWorkIdentityMismatch");
     }
-    if (identity.generation > query.active.generation) {
-      throw stateInvariantDefect("pendingPublicationGenerationAhead");
-    }
-    if (identity.generation === query.active.generation) {
+    if (identity.generation === active.generation) {
       const completion = query.currentCompletion;
       if (
         completion === null
@@ -1144,30 +1506,24 @@ export function buildQuerySyncState(
           !== completion.refreshedThroughSequence
         || publication.resultDigest !== completion.resultDigest
       ) {
-        throw stateInvariantDefect("pendingPublicationIdentityMismatch");
+        throw stateInvariantDefect("publicationWorkIdentityMismatch");
       }
+    }
+    return query;
+  };
+  for (const publication of publicationWork.pending) {
+    const identity = publication.identity;
+    validatePublication(publication, "pending");
+    if (pendingByQuery.has(identity.queryKey)) {
+      throw stateInvariantDefect("publicationWorkDuplicateQuery");
     }
 
     pendingByQuery.set(identity.queryKey, publication);
     const contentBytes = canonicalPublicationContentDecodedLength(
       publication.content,
     );
-    pendingPublicationContentBytes += contentBytes;
-    if (
-      pendingPublicationContentBytes
-      > MAX_PENDING_PUBLICATION_CONTENT_BYTES
-    ) {
-      return Result.fail(stateLimitError(
-        "pendingPublicationContentBytes",
-        MAX_PENDING_PUBLICATION_CONTENT_BYTES,
-        pendingPublicationContentBytes,
-      ));
-    }
-    countedCanonicalBytes += QUERY_KEY_BYTES
-      + canonicalBase64UrlDecodedLength(publication.queryIdentity)
-      + (2 * FIXED_WIDTH_INTEGER_BYTES)
-      + QUERY_RESULT_DIGEST_BYTES
-      + contentBytes;
+    retainedPublicationContentBytes += contentBytes;
+    countedCanonicalBytes += publicationCountedBytes(publication);
     if (countedCanonicalBytes > MAX_COUNTED_CANONICAL_BYTES) {
       return Result.fail(stateLimitError(
         "countedCanonicalBytes",
@@ -1177,19 +1533,318 @@ export function buildQuerySyncState(
     }
   }
 
-  for (const query of queryStates) {
-    const completion = query.currentCompletion;
-    if (completion?.publicationDisposition._tag !== "pending") continue;
-    const pending = pendingByQuery.get(query.descriptor.queryKey);
-    if (
-      pending === undefined
-      || !queryPublicationIdentityEquals(
+  const inFlight = publicationWork.inFlight;
+  if (inFlight !== null) {
+    const publication = inFlight.publication;
+    validatePublication(publication, "inFlight");
+    for (const pending of publicationWork.pending) {
+      if (queryPublicationIdentityEquals(
         pending.identity,
-        completion.publicationDisposition.identity,
+        publication.identity,
+      )) {
+        throw stateInvariantDefect("publicationWorkIdentityDuplicated");
+      }
+      if (
+        pending.identity.queryKey === publication.identity.queryKey
+        && pending.identity.generation <= publication.identity.generation
+      ) {
+        throw stateInvariantDefect("publicationWorkQueuedGenerationInvalid");
+      }
+    }
+    if (
+      typeof inFlight.attemptOrdinal !== "number"
+      || !Number.isSafeInteger(inFlight.attemptOrdinal)
+      || inFlight.attemptOrdinal < 1
+      || inFlight.attemptOrdinal > MAX_PUBLICATION_ATTEMPT_ORDINAL
+    ) {
+      throw stateInvariantDefect("publicationAttemptStateInvalid");
+    }
+    if (
+      typeof inFlight.firstAttemptAt !== "number"
+      || !Number.isSafeInteger(inFlight.firstAttemptAt)
+      || inFlight.firstAttemptAt < 0
+      || inFlight.firstAttemptAt > MAX_PUBLICATION_ATTEMPT_INSTANT
+      || typeof inFlight.lastAttemptAt !== "number"
+      || !Number.isSafeInteger(inFlight.lastAttemptAt)
+      || inFlight.lastAttemptAt < inFlight.firstAttemptAt
+      || inFlight.lastAttemptAt > MAX_PUBLICATION_ATTEMPT_INSTANT
+    ) {
+      throw stateInvariantDefect("publicationAttemptTimeInvalid");
+    }
+    if (
+      inFlight.disposition._tag !== "ready"
+      && inFlight.disposition._tag !== "uncertain"
+      && inFlight.disposition._tag !== "blocked"
+    ) {
+      throw stateInvariantDefect("publicationAttemptStateInvalid");
+    }
+    if (
+      inFlight.disposition._tag === "blocked"
+      && (
+        ![
+          "terminalPublisherRefusal",
+          "attemptLimitReached",
+          "ageLimitReached",
+        ].includes(inFlight.disposition.reason)
+        || inFlight.disposition.resetRequired !== true
       )
     ) {
-      throw stateInvariantDefect("currentPendingPublicationMissing");
+      throw stateInvariantDefect("publicationAttemptStateInvalid");
     }
+    retainedPublicationContentBytes +=
+      canonicalPublicationContentDecodedLength(publication.content);
+    countedCanonicalBytes += publicationCountedBytes(publication);
+  }
+
+  if (
+    retainedPublicationContentBytes > MAX_RETAINED_PUBLICATION_CONTENT_BYTES
+  ) {
+    return Result.fail(stateLimitError(
+      "retainedPublicationContentBytes",
+      MAX_RETAINED_PUBLICATION_CONTENT_BYTES,
+      retainedPublicationContentBytes,
+    ));
+  }
+
+  const latestDelivered = publicationWork.latestDelivered;
+  if (latestDelivered !== null) {
+    const query = validatePublicationIdentity(latestDelivered.identity);
+    const active = query.active;
+    if (active === null) {
+      throw stateInvariantDefect("publicationDeliveredStateInvalid");
+    }
+    if (latestDelivered.identity.generation === active.generation) {
+      const completion = query.currentCompletion;
+      if (
+        completion === null
+        || !queryPublicationIdentityEquals(
+          latestDelivered.identity,
+          completion.identity,
+        )
+        || latestDelivered.resultDigest !== completion.resultDigest
+        || latestDelivered.resultDigest !== active.resultDigest
+      ) {
+        throw stateInvariantDefect("publicationDeliveredStateInvalid");
+      }
+    }
+    if (
+      inFlight !== null
+      && queryPublicationIdentityEquals(
+        latestDelivered.identity,
+        inFlight.publication.identity,
+      )
+    ) {
+      throw stateInvariantDefect("publicationWorkIdentityDuplicated");
+    }
+    for (const pending of publicationWork.pending) {
+      if (
+        queryPublicationIdentityEquals(
+          latestDelivered.identity,
+          pending.identity,
+        )
+        || (
+          latestDelivered.identity.queryKey === pending.identity.queryKey
+          && pending.identity.generation <= latestDelivered.identity.generation
+        )
+      ) {
+        throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+      }
+    }
+    if (
+      inFlight !== null
+      && latestDelivered.identity.queryKey
+        === inFlight.publication.identity.queryKey
+      && inFlight.publication.identity.generation
+        <= latestDelivered.identity.generation
+    ) {
+      throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+    }
+  }
+
+  const precedingAttemptOutcome = publicationWork.precedingAttemptOutcome;
+  if (precedingAttemptOutcome !== null) {
+    validatePublicationIdentity(precedingAttemptOutcome.identity);
+    if (
+      typeof precedingAttemptOutcome.attemptOrdinal !== "number"
+      || !Number.isSafeInteger(precedingAttemptOutcome.attemptOrdinal)
+      || precedingAttemptOutcome.attemptOrdinal < 1
+      || precedingAttemptOutcome.attemptOrdinal
+        > MAX_PUBLICATION_ATTEMPT_ORDINAL
+    ) {
+      throw stateInvariantDefect("publicationOutcomeStateInvalid");
+    }
+    if (
+      precedingAttemptOutcome.outcome !== "knownNotAppended"
+      && precedingAttemptOutcome.outcome !== "outcomeUnknown"
+      && precedingAttemptOutcome.outcome !== "terminalRefusal"
+    ) {
+      throw stateInvariantDefect("publicationOutcomeStateInvalid");
+    }
+
+    const receipt = precedingAttemptOutcome.receipt;
+    if (receipt._tag === "recorded") {
+      const expectedNextOrdinal = precedingAttemptOutcome.attemptOrdinal + 1;
+      const expectedDisposition = precedingAttemptOutcome.outcome
+          === "knownNotAppended"
+        ? "ready"
+        : "uncertain";
+      if (
+        precedingAttemptOutcome.outcome === "terminalRefusal"
+        || precedingAttemptOutcome.attemptOrdinal
+          === MAX_PUBLICATION_ATTEMPT_ORDINAL
+        || receipt.nextAttemptOrdinal !== expectedNextOrdinal
+        || receipt.nextDisposition !== expectedDisposition
+      ) {
+        throw stateInvariantDefect("publicationOutcomeReceiptInvalid");
+      }
+    } else if (receipt._tag === "blocked") {
+      const expectedReason: PublicationBlockReason =
+        precedingAttemptOutcome.outcome === "terminalRefusal"
+          ? "terminalPublisherRefusal"
+          : precedingAttemptOutcome.attemptOrdinal
+              === MAX_PUBLICATION_ATTEMPT_ORDINAL
+          ? "attemptLimitReached"
+          : "ageLimitReached";
+      if (
+        receipt.reason !== expectedReason
+        || receipt.resetRequired !== true
+      ) {
+        throw stateInvariantDefect("publicationOutcomeReceiptInvalid");
+      }
+    } else {
+      throw stateInvariantDefect("publicationOutcomeReceiptInvalid");
+    }
+
+    for (const pending of publicationWork.pending) {
+      if (queryPublicationIdentityEquals(
+        precedingAttemptOutcome.identity,
+        pending.identity,
+      )) {
+        throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+      }
+    }
+
+    if (
+      latestDelivered !== null
+      && queryPublicationIdentityEquals(
+        precedingAttemptOutcome.identity,
+        latestDelivered.identity,
+      )
+      && precedingAttemptOutcome.resultDigest !== latestDelivered.resultDigest
+    ) {
+      throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+    }
+
+    if (
+      inFlight !== null
+      && queryPublicationIdentityEquals(
+        precedingAttemptOutcome.identity,
+        inFlight.publication.identity,
+      )
+    ) {
+      if (
+        precedingAttemptOutcome.resultDigest
+          !== inFlight.publication.resultDigest
+      ) {
+        throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+      }
+      if (receipt._tag === "recorded") {
+        const dispositionMatches = inFlight.disposition._tag === "blocked"
+          ? inFlight.disposition.reason === "ageLimitReached"
+          : inFlight.disposition._tag === receipt.nextDisposition;
+        if (
+          inFlight.attemptOrdinal !== receipt.nextAttemptOrdinal
+          || !dispositionMatches
+        ) {
+          throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+        }
+      } else if (
+        inFlight.attemptOrdinal !== precedingAttemptOutcome.attemptOrdinal
+        || inFlight.disposition._tag !== "blocked"
+        || inFlight.disposition.reason !== receipt.reason
+      ) {
+        throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+      }
+    }
+  }
+
+  const precedingMatchesInFlight = precedingAttemptOutcome !== null
+    && inFlight !== null
+    && queryPublicationIdentityEquals(
+      precedingAttemptOutcome.identity,
+      inFlight.publication.identity,
+    );
+  if (inFlight !== null) {
+    if (
+      inFlight.attemptOrdinal > 1
+      && !precedingMatchesInFlight
+    ) {
+      throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+    }
+    if (
+      inFlight.disposition._tag === "uncertain"
+      && inFlight.attemptOrdinal === 1
+    ) {
+      throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+    }
+    if (
+      inFlight.disposition._tag === "blocked"
+      && (
+        (
+          inFlight.disposition.reason === "attemptLimitReached"
+          && inFlight.attemptOrdinal !== MAX_PUBLICATION_ATTEMPT_ORDINAL
+        )
+        || (
+          inFlight.disposition.reason !== "ageLimitReached"
+          && !precedingMatchesInFlight
+        )
+        || (
+          inFlight.disposition.reason === "ageLimitReached"
+          && inFlight.attemptOrdinal > 1
+          && !precedingMatchesInFlight
+        )
+      )
+    ) {
+      throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+    }
+  }
+  if (
+    precedingAttemptOutcome !== null
+    && latestDelivered === null
+    && !precedingMatchesInFlight
+  ) {
+    throw stateInvariantDefect("publicationLifecycleLinkInvalid");
+  }
+
+  let publicationLifecycleBytes = 0;
+  if (inFlight !== null) {
+    publicationLifecycleBytes += (3 * FIXED_WIDTH_INTEGER_BYTES)
+      + (inFlight.disposition._tag === "blocked" ? 3 : 1);
+  }
+  if (latestDelivered !== null) {
+    publicationLifecycleBytes += PUBLICATION_DELIVERED_TOMBSTONE_BYTES;
+  }
+  if (precedingAttemptOutcome !== null) {
+    publicationLifecycleBytes += QUERY_KEY_BYTES
+      + (2 * FIXED_WIDTH_INTEGER_BYTES)
+      + QUERY_RESULT_DIGEST_BYTES
+      + PUBLICATION_ATTEMPT_OUTCOME_BYTES
+      + (precedingAttemptOutcome.receipt._tag === "recorded" ? 10 : 3);
+  }
+  const settlementEnvelopeBytes = inFlight === null
+    ? 0
+    : Math.max(
+      0,
+      PUBLICATION_SETTLEMENT_LIFECYCLE_BYTES - publicationLifecycleBytes,
+    );
+  countedCanonicalBytes += publicationLifecycleBytes
+    + settlementEnvelopeBytes;
+  if (countedCanonicalBytes > MAX_COUNTED_CANONICAL_BYTES) {
+    return Result.fail(stateLimitError(
+      "countedCanonicalBytes",
+      MAX_COUNTED_CANONICAL_BYTES,
+      countedCanonicalBytes,
+    ));
   }
 
   const queries = queryStates.map(freezeQueryState);
@@ -1224,19 +1879,17 @@ export function buildQuerySyncState(
         queryKeys: Object.freeze([...queryKeys]),
       })
     ));
-  const pendingPublications = pendingPublicationStates.map(
-    makePendingQueryPublication,
-  );
-  pendingPublications.sort((left, right) => compareQueryPublicationIdentity(
-    left.identity,
-    right.identity,
-  ));
+  const frozenEvaluationWork = freezeEvaluationWorkState(evaluationWork);
+  const frozenPublicationWork = freezePublicationWorkState(publicationWork);
   const metrics = Object.freeze({
     queryCount: queries.length,
     retainedIdentityBytes,
     dependencyMemberships,
-    pendingPublicationCount: pendingPublications.length,
-    pendingPublicationContentBytes,
+    pendingPublicationCount: frozenPublicationWork.pending.length,
+    inFlightPublicationCount:
+      frozenPublicationWork.inFlight === null ? 0 : 1,
+    retainedPublicationContentBytes,
+    settlementEnvelopeBytes,
     countedCanonicalBytes,
   });
 
@@ -1244,7 +1897,8 @@ export function buildQuerySyncState(
     cursor: freezeNamespaceCursor(cursor),
     queries: Object.freeze(queries),
     dependencyDirectory: Object.freeze(directory),
-    pendingPublications: Object.freeze(pendingPublications),
+    evaluationWork: frozenEvaluationWork,
+    publicationWork: frozenPublicationWork,
     metrics,
   }));
 }
@@ -1296,10 +1950,10 @@ export function findPendingQueryPublication(
   queryKey: CanonicalQueryKey,
 ): PendingQueryPublication | undefined {
   let lower = 0;
-  let upper = state.pendingPublications.length - 1;
+  let upper = state.publicationWork.pending.length - 1;
   while (lower <= upper) {
     const middle = lower + Math.floor((upper - lower) / 2);
-    const publication = state.pendingPublications[middle];
+    const publication = state.publicationWork.pending[middle];
     if (publication === undefined) return undefined;
     const comparison = compareCanonicalBase64Url(
       publication.identity.queryKey,
@@ -1310,6 +1964,24 @@ export function findPendingQueryPublication(
     else upper = middle - 1;
   }
   return undefined;
+}
+
+export function findRetainedQueryPublication(
+  state: QuerySyncState,
+  identity: QueryPublicationIdentity,
+): PendingQueryPublication | undefined {
+  const pending = findPendingQueryPublication(state, identity.queryKey);
+  if (
+    pending !== undefined
+    && queryPublicationIdentityEquals(pending.identity, identity)
+  ) {
+    return pending;
+  }
+  const inFlight = state.publicationWork.inFlight;
+  return inFlight !== null
+      && queryPublicationIdentityEquals(inFlight.publication.identity, identity)
+    ? inFlight.publication
+    : undefined;
 }
 
 export function makeGenerationRefreshEvidence(input: {
@@ -1338,58 +2010,14 @@ export function makeGenerationRefreshEvidence(input: {
   });
 }
 
-export function replaceQueryState(
+export function rebuildQuerySyncState(
   state: QuerySyncState,
-  replacement: QueryState,
+  patch: QuerySyncStatePatch,
 ): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
-  const nextQueries: QueryState[] = [];
-  let replaced = false;
-  for (const query of state.queries) {
-    if (query.descriptor.queryKey === replacement.descriptor.queryKey) {
-      nextQueries.push(replacement);
-      replaced = true;
-    } else {
-      nextQueries.push(query);
-    }
-  }
-  if (!replaced) nextQueries.push(replacement);
-  return buildQuerySyncState(
-    state.cursor,
-    nextQueries,
-    state.pendingPublications,
-  );
-}
-
-export function replaceQueryStateAndPendingPublications(
-  state: QuerySyncState,
-  replacement: QueryState,
-  pendingPublications: readonly PendingQueryPublication[],
-): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
-  const nextQueries: QueryState[] = [];
-  let replaced = false;
-  for (const query of state.queries) {
-    if (query.descriptor.queryKey === replacement.descriptor.queryKey) {
-      nextQueries.push(replacement);
-      replaced = true;
-    } else {
-      nextQueries.push(query);
-    }
-  }
-  if (!replaced) nextQueries.push(replacement);
-  return buildQuerySyncState(
-    state.cursor,
-    nextQueries,
-    pendingPublications,
-  );
-}
-
-export function replaceQueryStatesAndCursor(
-  state: QuerySyncState,
-  cursor: NamespaceCursor,
-  replacements: ReadonlyMap<CanonicalQueryKey, QueryState>,
-): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
-  const queries = state.queries.map((query) => (
-    replacements.get(query.descriptor.queryKey) ?? query
-  ));
-  return buildQuerySyncState(cursor, queries, state.pendingPublications);
+  return buildQuerySyncState({
+    cursor: patch.cursor ?? state.cursor,
+    queries: patch.queries ?? state.queries,
+    evaluationWork: patch.evaluationWork ?? state.evaluationWork,
+    publicationWork: patch.publicationWork ?? state.publicationWork,
+  });
 }

@@ -3,6 +3,7 @@ import { Result } from "effect";
 import {
   initialQueryGeneration,
   successorQueryGeneration,
+  successorQuerySyncWorkRevision,
   successorSyncSequence,
 } from "./CanonicalValue.js";
 import type {
@@ -18,6 +19,7 @@ import {
   InvalidQueryCompletionReplayError,
   InvalidQueryEvidenceError,
   InvalidQueryEvaluationRequestError,
+  QueryEvaluationWorkBlockedError,
   QueryGenerationExhaustedError,
   QueryGenerationMismatchError,
   QueryKeyCollisionError,
@@ -27,6 +29,7 @@ import {
   QuerySyncModelMismatchError,
   QuerySyncNamespaceMismatchError,
   QuerySyncSequenceExhaustedError,
+  QuerySyncWorkRevisionExhaustedError,
   QuerySyncWorkLimitError,
 } from "./Errors.js";
 import type {
@@ -36,14 +39,13 @@ import type {
 } from "./Errors.js";
 import {
   findDependencyDirectoryEntry,
-  findPendingQueryPublication,
   findQueryState,
+  findRetainedQueryPublication,
   makeQueryEvaluationAttempt,
   MAX_INVALIDATION_AFFECTED_QUERIES,
   MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
-  replaceQueryState,
-  replaceQueryStateAndPendingPublications,
-  replaceQueryStatesAndCursor,
+  readyQueryEvaluationDisposition,
+  rebuildQuerySyncState,
 } from "./Model.js";
 import type {
   ActiveQueryState,
@@ -67,7 +69,6 @@ import {
   makePendingQueryPublication,
   makeQueryPublicationIdentity,
   pendingPublicationDisposition,
-  queryPublicationIdentityEquals,
   unchangedPublicationDisposition,
 } from "./Publication.js";
 import type {
@@ -82,26 +83,31 @@ export type ClassifySequenceError =
 
 export type BeginQueryEvaluationError =
   | QuerySyncAuthorityError<"beginQueryEvaluation">
-  | QueryGenerationExhaustedError
-  | QueryGenerationMismatchError
+  | QueryGenerationExhaustedError<"beginQueryEvaluation">
+  | QueryGenerationMismatchError<"beginQueryEvaluation">
   | QueryKeyCollisionError<"beginQueryEvaluation">
   | InvalidQueryEvaluationRequestError
+  | QuerySyncWorkRevisionExhaustedError<"beginQueryEvaluation">
+  | QueryEvaluationWorkBlockedError<"beginQueryEvaluation">
   | BuildQuerySyncStateError;
 
 export type ApplyInvalidationsError =
   | QuerySyncNamespaceMismatchError<"applyAdmittedInvalidations">
   | QuerySyncModelMismatchError<"applyAdmittedInvalidations">
   | QuerySyncWorkLimitError<"applyAdmittedInvalidations">
+  | QuerySyncWorkRevisionExhaustedError<"applyAdmittedInvalidations">
   | BuildQuerySyncStateError;
 
 export type CompleteQueryEvaluationError =
   | QuerySyncAuthorityError<"completeQueryEvaluation">
   | QueryKeyCollisionError<"completeQueryEvaluation">
-  | QueryStateNotFoundError
-  | QueryGenerationMismatchError
+  | QueryStateNotFoundError<"completeQueryEvaluation">
+  | QueryGenerationMismatchError<"completeQueryEvaluation">
   | InvalidQueryEvidenceError
   | InvalidQueryCompletionReplayError
   | QuerySyncCanonicalValueError
+  | QuerySyncWorkRevisionExhaustedError<"completeQueryEvaluation">
+  | QueryEvaluationWorkBlockedError<"completeQueryEvaluation">
   | BuildQuerySyncStateError;
 
 function namespaceMismatch<Operation extends QuerySyncAuthorityOperation>(
@@ -141,7 +147,9 @@ function epochMismatch<Operation extends QuerySyncAuthorityOperation>(
   });
 }
 
-function validateAuthority<Operation extends QuerySyncAuthorityOperation>(
+export function validateQuerySyncAuthority<
+  Operation extends QuerySyncAuthorityOperation,
+>(
   operation: Operation,
   expected: NamespaceCursor,
   observed: {
@@ -216,6 +224,22 @@ function freezeCompleteDecision(
   decision: CompleteQueryEvaluationDecision,
 ): CompleteQueryEvaluationDecision {
   return Object.freeze(decision);
+}
+
+function replaceQueryInArray(
+  queries: readonly QueryState[],
+  replacement: QueryState,
+): readonly QueryState[] {
+  const nextQueries = queries.map((query) => (
+    query.descriptor.queryKey === replacement.descriptor.queryKey
+      ? replacement
+      : query
+  ));
+  return nextQueries.some((query) => (
+      query.descriptor.queryKey === replacement.descriptor.queryKey
+    ))
+    ? nextQueries
+    : [...nextQueries, replacement];
 }
 
 export function nextSyncSequence(
@@ -352,7 +376,7 @@ export function beginQueryEvaluation(
   request: BeginQueryEvaluationRequest,
 ): Result.Result<BeginQueryEvaluationDecision, BeginQueryEvaluationError> {
   return Result.gen(function* () {
-    yield* validateAuthority(
+    yield* validateQuerySyncAuthority(
       "beginQueryEvaluation",
       state.cursor,
       request.target,
@@ -456,6 +480,17 @@ export function beginQueryEvaluation(
           invariant: "provisionalFenceMismatch",
         });
       }
+      if (existing.provisional.evaluationDisposition._tag === "blocked") {
+        return yield* Result.fail(new QueryEvaluationWorkBlockedError<
+          "beginQueryEvaluation"
+        >({
+          operation: "beginQueryEvaluation",
+          queryKey: existing.descriptor.queryKey,
+          generation: existing.provisional.generation,
+          reason: existing.provisional.evaluationDisposition.reason,
+          resetRequired: true,
+        }));
+      }
       if (
         active !== null
         && (
@@ -478,19 +513,32 @@ export function beginQueryEvaluation(
         : currentDirty === null || observedDirty > currentDirty
           ? observedDirty
           : currentDirty;
-      const nextState = coalescedDirty
-        === existing.provisional.requestedDirtyThroughSequence
-        ? state
-        : yield* replaceQueryState(state, {
-          descriptor: existing.descriptor,
-          active: existing.active,
-          provisional: {
-            ...existing.provisional,
-            requestedDirtyThroughSequence: coalescedDirty,
+      let nextState = state;
+      if (
+        coalescedDirty
+        !== existing.provisional.requestedDirtyThroughSequence
+      ) {
+        const revision = yield* successorQuerySyncWorkRevision(
+          "beginQueryEvaluation",
+          state.evaluationWork.revision,
+        );
+        nextState = yield* rebuildQuerySyncState(state, {
+          queries: replaceQueryInArray(state.queries, {
+            descriptor: existing.descriptor,
+            active: existing.active,
+            provisional: {
+              ...existing.provisional,
+              requestedDirtyThroughSequence: coalescedDirty,
+            },
+            currentCompletion: existing.currentCompletion,
+            precedingCompletionIdentity: existing.precedingCompletionIdentity,
+          }),
+          evaluationWork: {
+            revision,
+            fairnessAnchor: state.evaluationWork.fairnessAnchor,
           },
-          currentCompletion: existing.currentCompletion,
-          precedingCompletionIdentity: existing.precedingCompletionIdentity,
         });
+      }
       const nextQuery = findQueryState(nextState, target.descriptor.queryKey);
       if (nextQuery === undefined) {
         throw new QuerySyncInvariantDefect({
@@ -561,12 +609,23 @@ export function beginQueryEvaluation(
         expectedActiveGeneration: request.expectedActiveGeneration,
         registrationCursor: state.cursor,
         requestedDirtyThroughSequence: active?.dirtyThroughSequence ?? null,
+        evaluationDisposition: readyQueryEvaluationDisposition(),
       },
       currentCompletion: existing?.currentCompletion ?? null,
       precedingCompletionIdentity:
         existing?.precedingCompletionIdentity ?? null,
     };
-    const nextState = yield* replaceQueryState(state, replacement);
+    const revision = yield* successorQuerySyncWorkRevision(
+      "beginQueryEvaluation",
+      state.evaluationWork.revision,
+    );
+    const nextState = yield* rebuildQuerySyncState(state, {
+      queries: replaceQueryInArray(state.queries, replacement),
+      evaluationWork: {
+        revision,
+        fairnessAnchor: state.evaluationWork.fairnessAnchor,
+      },
+    });
     const nextQuery = findQueryState(nextState, descriptor.queryKey);
     if (nextQuery?.provisional === null || nextQuery?.provisional === undefined) {
       throw new QuerySyncInvariantDefect({
@@ -682,11 +741,23 @@ export function applyAdmittedInvalidations(
       sourceEpoch: state.cursor.sourceEpoch,
       appliedThroughSequence: sequenceDecision.nextSequence,
     };
-    const nextState = yield* replaceQueryStatesAndCursor(
-      state,
+    const queries = state.queries.map((query) => (
+      replacements.get(query.descriptor.queryKey) ?? query
+    ));
+    const revision = replacements.size === 0
+      ? state.evaluationWork.revision
+      : yield* successorQuerySyncWorkRevision(
+        "applyAdmittedInvalidations",
+        state.evaluationWork.revision,
+      );
+    const nextState = yield* rebuildQuerySyncState(state, {
       cursor,
-      replacements,
-    );
+      queries,
+      evaluationWork: {
+        revision,
+        fairnessAnchor: state.evaluationWork.fairnessAnchor,
+      },
+    });
     return freezeApplyDecision({
       _tag: "applied",
       state: nextState,
@@ -781,17 +852,17 @@ export function completeQueryEvaluation(
   CompleteQueryEvaluationError
 > {
   return Result.gen(function* () {
-    yield* validateAuthority(
+    yield* validateQuerySyncAuthority(
       "completeQueryEvaluation",
       state.cursor,
       attempt,
     );
-    yield* validateAuthority(
+    yield* validateQuerySyncAuthority(
       "completeQueryEvaluation",
       state.cursor,
       evaluation,
     );
-    yield* validateAuthority(
+    yield* validateQuerySyncAuthority(
       "completeQueryEvaluation",
       state.cursor,
       refresh,
@@ -879,17 +950,13 @@ export function completeQueryEvaluation(
         ));
       }
       if (currentCompletion.publicationDisposition._tag === "pending") {
-        const pending = findPendingQueryPublication(
+        const retainedPublication = findRetainedQueryPublication(
           state,
-          attempt.descriptor.queryKey,
+          currentCompletion.publicationDisposition.identity,
         );
         if (
-          pending === undefined
-          || !queryPublicationIdentityEquals(
-            pending.identity,
-            currentCompletion.publicationDisposition.identity,
-          )
-          || pending.content !== capturedPublication.content
+          retainedPublication !== undefined
+          && retainedPublication.content !== capturedPublication.content
         ) {
           return yield* Result.fail(invalidCompletionReplay(
             attempt,
@@ -929,11 +996,24 @@ export function completeQueryEvaluation(
     }
 
     if (query.provisional?.generation !== evaluation.generation) {
-      return yield* Result.fail(new QueryGenerationMismatchError({
+      return yield* Result.fail(new QueryGenerationMismatchError<
+        "completeQueryEvaluation"
+      >({
         operation: "completeQueryEvaluation",
         queryKey: evaluation.descriptor.queryKey,
         expectedGeneration: query.provisional?.generation ?? null,
         observedGeneration: evaluation.generation,
+      }));
+    }
+    if (query.provisional.evaluationDisposition._tag === "blocked") {
+      return yield* Result.fail(new QueryEvaluationWorkBlockedError<
+        "completeQueryEvaluation"
+      >({
+        operation: "completeQueryEvaluation",
+        queryKey: query.descriptor.queryKey,
+        generation: query.provisional.generation,
+        reason: query.provisional.evaluationDisposition.reason,
+        resetRequired: true,
       }));
     }
     if (
@@ -1075,10 +1155,10 @@ export function completeQueryEvaluation(
 
     const nextPendingPublications: PendingQueryPublication[] =
       shouldPublish
-        ? state.pendingPublications.filter((candidate) => (
+        ? state.publicationWork.pending.filter((candidate) => (
           candidate.identity.queryKey !== query.descriptor.queryKey
         ))
-        : [...state.pendingPublications];
+        : [...state.publicationWork.pending];
     if (shouldPublish) {
       nextPendingPublications.push(makePendingQueryPublication({
         identity,
@@ -1089,18 +1169,28 @@ export function completeQueryEvaluation(
       }));
     }
 
-    const nextState = yield* replaceQueryStateAndPendingPublications(
-      state,
-      {
+    const revision = yield* successorQuerySyncWorkRevision(
+      "completeQueryEvaluation",
+      state.evaluationWork.revision,
+    );
+    const nextState = yield* rebuildQuerySyncState(state, {
+      queries: replaceQueryInArray(state.queries, {
         descriptor: query.descriptor,
         active: nextActive,
         provisional: null,
         currentCompletion: completion,
         precedingCompletionIdentity:
           query.currentCompletion?.identity ?? null,
+      }),
+      evaluationWork: {
+        revision,
+        fairnessAnchor: state.evaluationWork.fairnessAnchor,
       },
-      nextPendingPublications,
-    );
+      publicationWork: {
+        ...state.publicationWork,
+        pending: nextPendingPublications,
+      },
+    });
     return freezeCompleteDecision({
       _tag: "completed",
       state: nextState,

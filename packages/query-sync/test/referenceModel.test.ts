@@ -223,8 +223,8 @@ describe("query-sync reference model", () => {
       dependencyKeys: [dependency],
     });
     expect(completed.state.queries[0]?.provisional).toBeNull();
-    expect(completed.state.pendingPublications).toHaveLength(1);
-    expect(completed.state.pendingPublications[0]).toMatchObject({
+    expect(completed.state.publicationWork.pending).toHaveLength(1);
+    expect(completed.state.publicationWork.pending[0]).toMatchObject({
       identity: { generation: 1n },
       content: publicationArtifact("clean-refresh").content,
     });
@@ -586,8 +586,8 @@ describe("query-sync reference model", () => {
       dirtyThroughSequence: null,
     });
     expect(completed.state.queries[0]?.provisional).toBeNull();
-    expect(completed.state.pendingPublications).toHaveLength(1);
-    expect(completed.state.pendingPublications[0]).toMatchObject({
+    expect(completed.state.publicationWork.pending).toHaveLength(1);
+    expect(completed.state.publicationWork.pending[0]).toMatchObject({
       identity: { generation: 1n },
       content: publicationArtifact("initial-active-42").content,
     });

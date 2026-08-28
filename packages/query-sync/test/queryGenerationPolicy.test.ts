@@ -578,7 +578,7 @@ describe("query generation policy", () => {
     const model = buildTestReferenceModel(
       completed.state.cursor,
       callerQueries,
-      completed.state.pendingPublications,
+      completed.state.publicationWork.pending,
     );
 
     callerQueries.push({

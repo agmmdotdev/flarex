@@ -3,6 +3,7 @@ import { Encoding, Result } from "effect";
 import { captureCanonicalDependencyKey } from "../kernel/CanonicalValue.js";
 import type {
   CanonicalDependencyKey,
+  PublicationAttemptInstant,
   QueryAuthorityWitness,
 } from "../kernel/CanonicalValue.js";
 import type {
@@ -42,6 +43,34 @@ import type {
   CompleteQueryEvaluationError,
 } from "../kernel/Policy.js";
 import type { QueryPublicationArtifact } from "../kernel/Publication.js";
+import {
+  claimEvaluationWork,
+  recordEvaluationAttemptOutcome,
+} from "../kernel/EvaluationWork.js";
+import type {
+  ClaimEvaluationWorkDecision,
+  ClaimEvaluationWorkError,
+  EvaluationAttemptOutcome,
+  EvaluationWorkScanRequest,
+  RecordEvaluationAttemptOutcomeDecision,
+  RecordEvaluationAttemptOutcomeError,
+} from "../kernel/EvaluationWork.js";
+import {
+  claimPublication,
+  completePublication,
+  recordPublicationAttemptOutcome,
+} from "../kernel/PublicationWork.js";
+import type {
+  AcceptedQueryPublicationEvidence,
+  ClaimPublicationDecision,
+  ClaimPublicationError,
+  CompletePublicationDecision,
+  CompletePublicationError,
+  PublicationAttempt,
+  PublicationAttemptOutcome,
+  RecordPublicationAttemptOutcomeDecision,
+  RecordPublicationAttemptOutcomeError,
+} from "../kernel/PublicationWork.js";
 
 export interface QuerySyncReferenceModel {
   readonly state: QuerySyncState;
@@ -62,12 +91,40 @@ export type ReferenceModelCommand =
     readonly evaluation: QueryEvaluationEvidence;
     readonly refresh: GenerationRefreshEvidence;
     readonly publication: QueryPublicationArtifact;
+  }>
+  | Readonly<{
+    readonly _tag: "claimEvaluationWork";
+    readonly request: EvaluationWorkScanRequest;
+  }>
+  | Readonly<{
+    readonly _tag: "recordEvaluationAttemptOutcome";
+    readonly attempt: QueryEvaluationAttempt;
+    readonly outcome: EvaluationAttemptOutcome;
+  }>
+  | Readonly<{
+    readonly _tag: "claimPublication";
+    readonly capturedNow: PublicationAttemptInstant;
+  }>
+  | Readonly<{
+    readonly _tag: "recordPublicationAttemptOutcome";
+    readonly attempt: PublicationAttempt;
+    readonly outcome: PublicationAttemptOutcome;
+    readonly capturedNow: PublicationAttemptInstant;
+  }>
+  | Readonly<{
+    readonly _tag: "completePublication";
+    readonly evidence: AcceptedQueryPublicationEvidence;
   }>;
 
 export type ReferenceModelDecision =
   | BeginQueryEvaluationDecision
   | ApplyInvalidationsDecision
-  | CompleteQueryEvaluationDecision;
+  | CompleteQueryEvaluationDecision
+  | ClaimEvaluationWorkDecision
+  | RecordEvaluationAttemptOutcomeDecision
+  | ClaimPublicationDecision
+  | RecordPublicationAttemptOutcomeDecision
+  | CompletePublicationDecision;
 
 export interface ReferenceModelTransition {
   readonly model: QuerySyncReferenceModel;
@@ -77,7 +134,12 @@ export interface ReferenceModelTransition {
 export type ReferenceModelError =
   | BeginQueryEvaluationError
   | ApplyInvalidationsError
-  | CompleteQueryEvaluationError;
+  | CompleteQueryEvaluationError
+  | ClaimEvaluationWorkError
+  | RecordEvaluationAttemptOutcomeError
+  | ClaimPublicationError
+  | RecordPublicationAttemptOutcomeError
+  | CompletePublicationError;
 
 export type RefreshEvidenceError =
   | QuerySyncAuthorityError<"deriveGenerationRefreshEvidence">
@@ -126,6 +188,31 @@ export function reduceReferenceModel(
         command.refresh,
         command.publication,
       ).pipe(Result.map(freezeTransition));
+    case "claimEvaluationWork":
+      return claimEvaluationWork(model.state, command.request).pipe(
+        Result.map(freezeTransition),
+      );
+    case "recordEvaluationAttemptOutcome":
+      return recordEvaluationAttemptOutcome(
+        model.state,
+        command.attempt,
+        command.outcome,
+      ).pipe(Result.map(freezeTransition));
+    case "claimPublication":
+      return claimPublication(model.state, command.capturedNow).pipe(
+        Result.map(freezeTransition),
+      );
+    case "recordPublicationAttemptOutcome":
+      return recordPublicationAttemptOutcome(
+        model.state,
+        command.attempt,
+        command.outcome,
+        command.capturedNow,
+      ).pipe(Result.map(freezeTransition));
+    case "completePublication":
+      return completePublication(model.state, command.evidence).pipe(
+        Result.map(freezeTransition),
+      );
   }
 }
 

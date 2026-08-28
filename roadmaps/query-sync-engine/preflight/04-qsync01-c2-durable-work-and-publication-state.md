@@ -2,8 +2,8 @@
 
 ## Status
 
-**Preflight status:** proposed for explicit user review on 2026-08-28.
-Implementation is not authorized until this exact C2 contract is approved.
+**Preflight status:** approved and implemented on 2026-08-28. The package
+remains private, runtime-neutral, reference-backed, and production-inert.
 
 `QSYNC01-C1` is complete in commit `b6621cf3`. It established stale-safe
 evaluation begin recovery, complete-request fingerprints, atomic generation
@@ -328,6 +328,14 @@ finishes the cycle, return `none` or `blocked` in that call rather than
 `EvaluationAttemptOutcome` is exactly `transientExhausted` or
 `terminalRefusal`.
 
+`QueryEvaluationAttempt` is a frozen nominal, process-local capability with
+one issuance owner shared by `beginQueryEvaluation`, `claimEvaluationWork`,
+and their state receipt projections. Structural copies and decoded values are
+rejected as `notStateIssued`. The exact oracle-fixture mint is named
+`makeQueryEvaluationAttemptForTesting` and is exported only from
+`./testing/conformance`; production kernel and state exports expose only the
+opaque attempt type and the semantic operations that issue it.
+
 `recordEvaluationAttemptOutcome(state, attempt, outcome)` returns exactly:
 
 - `eligible`: transient exhaustion left the exact provisional runnable;
@@ -564,7 +572,8 @@ The two new focused files prove:
 - revision and anchor restart without skipped work or lowest-key starvation;
 - invalidation before/behind a continuation and during evaluation;
 - transient eligibility, terminal block, exact replay, stale outcome, and
-  revision exhaustion;
+  revision exhaustion, including begin- and claim-issued attempts plus
+  rejection of structural attempt forgeries;
 - state-identity proofs that a blocked begin, including a higher requested
   frontier, fails without coalescing and a blocked completion cannot install or
   publish;
@@ -697,10 +706,19 @@ C2 does not authorize:
 
 ## Exit And Next Gate
 
-C2 exits only when the pure oracle and reference semantic state prove bounded
+C2 exited after the pure oracle and reference semantic state proved bounded
 fair evaluation selection, revision/anchor recovery, terminal block replay,
 one immutable in-flight publication, exact attempt count/age decisions,
 queued-newer preservation, and exact acceptance completion under uncertainty.
+
+The implementation receipt is:
+
+- `pnpm --filter @flarex/query-sync typecheck`;
+- `pnpm --filter @flarex/query-sync test` -- 17 files and 168 tests;
+- `pnpm lint:core` and `pnpm lint:diff`;
+- `pnpm check:effect-boundaries`;
+- `git diff --check -- packages/query-sync`;
+- both standing final-diff reviews -- no findings.
 
 C2 completion does not complete QSYNC01-C. C3 remains separately gated for one
 bounded evaluation orchestration turn. C4 remains separately gated for the

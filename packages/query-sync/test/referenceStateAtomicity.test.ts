@@ -267,7 +267,7 @@ describe("reference transition-state atomicity", () => {
       active: null,
       provisional: { generation: attempt.generation },
     });
-    expect(beforeCompletion.pendingPublications).toEqual([]);
+    expect(beforeCompletion.publicationWork.pending).toEqual([]);
 
     await runEffect(transitionState.injectNextFault({
       operation: "completeQueryEvaluation",
@@ -294,10 +294,10 @@ describe("reference transition-state atomicity", () => {
     expect(afterFailure).toBe(beforeCompletion);
     expect(afterFailure.queries[0]?.provisional).toBe(provisionalBefore);
     expect(afterFailure.queries[0]?.active).toBeNull();
-    expect(afterFailure.pendingPublications).toBe(
-      beforeCompletion.pendingPublications,
+    expect(afterFailure.publicationWork.pending).toBe(
+      beforeCompletion.publicationWork.pending,
     );
-    expect(afterFailure.pendingPublications).toHaveLength(0);
+    expect(afterFailure.publicationWork.pending).toHaveLength(0);
 
     const completed = await runEffect(
       transitionState.completeQueryEvaluation(
@@ -322,8 +322,8 @@ describe("reference transition-state atomicity", () => {
       active: { generation: attempt.generation },
       provisional: null,
     });
-    expect(afterRetry.pendingPublications).toHaveLength(1);
-    expect(afterRetry.pendingPublications[0]).toMatchObject({
+    expect(afterRetry.publicationWork.pending).toHaveLength(1);
+    expect(afterRetry.publicationWork.pending[0]).toMatchObject({
       identity: { generation: attempt.generation },
       resultDigest: queryEvaluation.resultDigest,
       content: publication.content,
@@ -392,8 +392,8 @@ describe("reference transition-state atomicity", () => {
       dirtyThroughSequence: null,
     });
     expect(committedCompletion.queries[0]?.provisional).toBeNull();
-    expect(committedCompletion.pendingPublications).toHaveLength(1);
-    const pendingPublication = committedCompletion.pendingPublications[0];
+    expect(committedCompletion.publicationWork.pending).toHaveLength(1);
+    const pendingPublication = committedCompletion.publicationWork.pending[0];
     if (pendingPublication === undefined) {
       throw new Error("Expected one pending publication after completion.");
     }
@@ -431,8 +431,8 @@ describe("reference transition-state atomicity", () => {
       transitionState.snapshotForConformance(),
     ));
     expect(afterReplay).toBe(committedCompletion);
-    expect(afterReplay.pendingPublications).toEqual([pendingPublication]);
-    expect(afterReplay.pendingPublications[0]).toBe(pendingPublication);
+    expect(afterReplay.publicationWork.pending).toEqual([pendingPublication]);
+    expect(afterReplay.publicationWork.pending[0]).toBe(pendingPublication);
   });
 
   it("refuses a different logical namespace bound to the same physical store entry", async () => {

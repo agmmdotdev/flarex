@@ -105,6 +105,7 @@ function queryWithProvisional(
       expectedActiveGeneration: null,
       registrationCursor: cursor(),
       requestedDirtyThroughSequence: null,
+      evaluationDisposition: { _tag: "ready" },
     },
     currentCompletion: null,
     precedingCompletionIdentity: null,
@@ -181,10 +182,10 @@ function expectReferenceInvariants(model: QuerySyncReferenceModel): void {
   const { state } = model;
   expect(state.metrics.queryCount).toBe(state.queries.length);
   expect(state.metrics.pendingPublicationCount).toBe(
-    state.pendingPublications.length,
+    state.publicationWork.pending.length,
   );
-  expect(state.metrics.pendingPublicationContentBytes).toBe(
-    state.pendingPublications.reduce(
+  expect(state.metrics.retainedPublicationContentBytes).toBe(
+    state.publicationWork.pending.reduce(
       (total, publication) => total
         + canonicalPublicationContentDecodedLength(publication.content),
       0,
@@ -257,7 +258,7 @@ function expectReferenceInvariants(model: QuerySyncReferenceModel): void {
       queryKeys,
     })),
   );
-  const pendingQueryKeys = state.pendingPublications.map(
+  const pendingQueryKeys = state.publicationWork.pending.map(
     (publication) => publication.identity.queryKey,
   );
   const sortedPendingQueryKeys = [...pendingQueryKeys].sort();
@@ -452,12 +453,12 @@ describe("isolation, limits, and determinism", () => {
     ]);
     const exactQueries = [
       ...Array.from(
-        { length: 8 },
+        { length: 14 },
         (_, index) => queryWithActive(index, lowerActive),
       ),
       ...Array.from(
-        { length: 8 },
-        (_, offset) => queryWithActive(offset + 8, higherActive),
+        { length: 2 },
+        (_, offset) => queryWithActive(offset + 14, higherActive),
       ),
     ];
     const accepted = buildTestReferenceModel(cursor(), exactQueries);
@@ -465,12 +466,8 @@ describe("isolation, limits, and determinism", () => {
       MAX_COUNTED_CANONICAL_BYTES,
     );
 
-    const oneByteLargerActive = activeFromDependencies([
-      ...sharedDependencies,
-      canonicalBytes(lowerFinalKeyBytes + 1, fullKeyCount),
-    ]);
     const refused = buildTestQuerySyncState(cursor(), [
-      queryWithActive(0, oneByteLargerActive),
+      queryWithActive(0, higherActive),
       ...exactQueries.slice(1),
     ]);
     expectStateLimit(refused, "countedCanonicalBytes");
@@ -557,6 +554,7 @@ describe("isolation, limits, and determinism", () => {
               || beginDecision._tag === "replayed"
             )
             && "attempt" in beginDecision
+            && "descriptor" in beginDecision.attempt
           ) {
             pendingAttempt = beginDecision.attempt;
             pendingEvaluation = null;

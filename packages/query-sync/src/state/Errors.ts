@@ -4,7 +4,12 @@ export type QuerySyncStateOperation =
   | "initializeOrInspectNamespace"
   | "beginQueryEvaluation"
   | "applyAdmittedBatchAndAdvance"
-  | "completeQueryEvaluation";
+  | "completeQueryEvaluation"
+  | "claimEvaluationWork"
+  | "recordEvaluationAttemptOutcome"
+  | "claimPublication"
+  | "recordPublicationAttemptOutcome"
+  | "completePublication";
 
 export type QuerySyncStateCommitCertainty = "notCommitted" | "unknown";
 

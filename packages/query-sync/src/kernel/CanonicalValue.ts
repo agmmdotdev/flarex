@@ -1,10 +1,15 @@
+import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { Brand, Encoding, Result } from "effect";
 
 import {
   QuerySyncCanonicalValueError,
   QuerySyncInvariantDefect,
+  QuerySyncWorkRevisionExhaustedError,
 } from "./Errors.js";
-import type { QuerySyncCanonicalField } from "./Errors.js";
+import type {
+  QuerySyncCanonicalField,
+  QuerySyncWorkRevisionOperation,
+} from "./Errors.js";
 
 export const MAX_SYNC_ID_UTF8_BYTES = 512;
 export const MAX_CANONICAL_QUERY_IDENTITY_BYTES = 131_072;
@@ -14,6 +19,9 @@ export const QUERY_RESULT_DIGEST_BYTES = 32;
 export const QUERY_AUTHORITY_WITNESS_BYTES = 32;
 export const MAX_SYNC_SEQUENCE = 9_223_372_036_854_775_807n;
 export const MAX_QUERY_GENERATION = MAX_SYNC_SEQUENCE;
+export const MAX_QUERY_SYNC_WORK_REVISION = MAX_SYNC_SEQUENCE;
+export const MAX_PUBLICATION_ATTEMPT_ORDINAL = 128;
+export const MAX_PUBLICATION_ATTEMPT_INSTANT = Number.MAX_SAFE_INTEGER;
 
 const UNPADDED_BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
 
@@ -37,6 +45,18 @@ export type QueryGeneration = Brand.Branded<
 export type QuerySnapshot = Brand.Branded<
   bigint,
   "FlarexQuerySync/QuerySnapshot"
+>;
+export type QuerySyncWorkRevision = Brand.Branded<
+  bigint,
+  "FlarexQuerySync/QuerySyncWorkRevision"
+>;
+export type PublicationAttemptOrdinal = Brand.Branded<
+  number,
+  "FlarexQuerySync/PublicationAttemptOrdinal"
+>;
+export type PublicationAttemptInstant = Brand.Branded<
+  number,
+  "FlarexQuerySync/PublicationAttemptInstant"
 >;
 export type CanonicalQueryKey = Brand.Branded<
   string,
@@ -65,6 +85,13 @@ const brandSyncEpoch = Brand.nominal<SyncEpoch>();
 const brandSyncSequence = Brand.nominal<SyncSequence>();
 const brandQueryGeneration = Brand.nominal<QueryGeneration>();
 const brandQuerySnapshot = Brand.nominal<QuerySnapshot>();
+const brandQuerySyncWorkRevision = Brand.nominal<QuerySyncWorkRevision>();
+const brandPublicationAttemptOrdinal = Brand.nominal<
+  PublicationAttemptOrdinal
+>();
+const brandPublicationAttemptInstant = Brand.nominal<
+  PublicationAttemptInstant
+>();
 const brandCanonicalQueryKey = Brand.nominal<CanonicalQueryKey>();
 const brandCanonicalQueryIdentity = Brand.nominal<CanonicalQueryIdentity>();
 const brandCanonicalDependencyKey = Brand.nominal<CanonicalDependencyKey>();
@@ -205,7 +232,7 @@ export function captureCanonicalBase64UrlValue<A extends string>(
 
 function captureBoundedBigInt<A extends bigint>(
   input: unknown,
-  field: "sourceSequence" | "queryGeneration",
+  field: "sourceSequence" | "queryGeneration" | "workRevision",
   minimum: bigint,
   maximum: bigint,
   brand: (value: bigint) => A,
@@ -214,6 +241,31 @@ function captureBoundedBigInt<A extends bigint>(
     return Result.fail(canonicalValueError(field, "invalidType"));
   }
   if (input < minimum || input > maximum) {
+    return Result.fail(canonicalValueError(
+      field,
+      "outOfRange",
+      maximum,
+      input,
+    ));
+  }
+  return Result.succeed(brand(input));
+}
+
+function captureBoundedSafeInteger<A extends number>(
+  input: unknown,
+  field: "publicationAttemptOrdinal" | "publicationAttemptInstant",
+  minimum: number,
+  maximum: number,
+  brand: (value: number) => A,
+): Result.Result<A, QuerySyncCanonicalValueError> {
+  if (typeof input !== "number") {
+    return Result.fail(canonicalValueError(field, "invalidType"));
+  }
+  if (
+    !isNonNegativeSafeInteger(input)
+    || input < minimum
+    || input > maximum
+  ) {
     return Result.fail(canonicalValueError(
       field,
       "outOfRange",
@@ -275,6 +327,42 @@ export function captureQuerySnapshot(
     0n,
     MAX_SYNC_SEQUENCE,
     brandQuerySnapshot,
+  );
+}
+
+export function captureQuerySyncWorkRevision(
+  input: unknown,
+): Result.Result<QuerySyncWorkRevision, QuerySyncCanonicalValueError> {
+  return captureBoundedBigInt(
+    input,
+    "workRevision",
+    0n,
+    MAX_QUERY_SYNC_WORK_REVISION,
+    brandQuerySyncWorkRevision,
+  );
+}
+
+export function capturePublicationAttemptOrdinal(
+  input: unknown,
+): Result.Result<PublicationAttemptOrdinal, QuerySyncCanonicalValueError> {
+  return captureBoundedSafeInteger(
+    input,
+    "publicationAttemptOrdinal",
+    1,
+    MAX_PUBLICATION_ATTEMPT_ORDINAL,
+    brandPublicationAttemptOrdinal,
+  );
+}
+
+export function capturePublicationAttemptInstant(
+  input: unknown,
+): Result.Result<PublicationAttemptInstant, QuerySyncCanonicalValueError> {
+  return captureBoundedSafeInteger(
+    input,
+    "publicationAttemptInstant",
+    0,
+    MAX_PUBLICATION_ATTEMPT_INSTANT,
+    brandPublicationAttemptInstant,
   );
 }
 
@@ -376,8 +464,41 @@ export function successorQueryGeneration(
     : brandQueryGeneration(generation + 1n);
 }
 
+export function successorQuerySyncWorkRevision<
+  Operation extends QuerySyncWorkRevisionOperation,
+>(
+  operation: Operation,
+  revision: QuerySyncWorkRevision,
+): Result.Result<
+  QuerySyncWorkRevision,
+  QuerySyncWorkRevisionExhaustedError<Operation>
+> {
+  return revision === MAX_QUERY_SYNC_WORK_REVISION
+    ? Result.fail(new QuerySyncWorkRevisionExhaustedError({
+      operation,
+      currentRevision: revision,
+    }))
+    : Result.succeed(brandQuerySyncWorkRevision(revision + 1n));
+}
+
+export function successorPublicationAttemptOrdinal(
+  ordinal: PublicationAttemptOrdinal,
+): PublicationAttemptOrdinal | null {
+  return ordinal === MAX_PUBLICATION_ATTEMPT_ORDINAL
+    ? null
+    : brandPublicationAttemptOrdinal(ordinal + 1);
+}
+
 export function initialQueryGeneration(): QueryGeneration {
   return brandQueryGeneration(1n);
+}
+
+export function initialQuerySyncWorkRevision(): QuerySyncWorkRevision {
+  return brandQuerySyncWorkRevision(0n);
+}
+
+export function initialPublicationAttemptOrdinal(): PublicationAttemptOrdinal {
+  return brandPublicationAttemptOrdinal(1);
 }
 
 export function querySnapshotAsSyncSequence(

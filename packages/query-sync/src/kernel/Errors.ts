@@ -6,6 +6,9 @@ export type QuerySyncCanonicalField =
   | "sourceEpoch"
   | "sourceSequence"
   | "queryGeneration"
+  | "workRevision"
+  | "publicationAttemptOrdinal"
+  | "publicationAttemptInstant"
   | "queryKey"
   | "queryIdentity"
   | "dependencyKey"
@@ -25,6 +28,11 @@ export type QuerySyncOperation =
   | "beginQueryEvaluation"
   | "applyAdmittedInvalidations"
   | "completeQueryEvaluation"
+  | "claimEvaluationWork"
+  | "recordEvaluationAttemptOutcome"
+  | "claimPublication"
+  | "recordPublicationAttemptOutcome"
+  | "completePublication"
   | "buildQuerySyncState"
   | "admitGenerationRefreshEvidence"
   | "deriveGenerationRefreshEvidence"
@@ -35,13 +43,42 @@ export type QuerySyncAuthorityOperation =
   | "beginQueryEvaluation"
   | "applyAdmittedInvalidations"
   | "completeQueryEvaluation"
+  | "claimEvaluationWork"
+  | "recordEvaluationAttemptOutcome"
+  | "recordPublicationAttemptOutcome"
+  | "completePublication"
   | "admitGenerationRefreshEvidence"
   | "deriveGenerationRefreshEvidence";
 
 export type QueryKeyCollisionOperation =
   | "beginQueryEvaluation"
   | "completeQueryEvaluation"
+  | "recordEvaluationAttemptOutcome"
   | "buildQuerySyncState";
+
+export type QueryGenerationExhaustionOperation =
+  | "beginQueryEvaluation"
+  | "claimEvaluationWork";
+
+export type QueryStateNotFoundOperation =
+  | "completeQueryEvaluation"
+  | "recordEvaluationAttemptOutcome";
+
+export type QueryGenerationMismatchOperation =
+  | "beginQueryEvaluation"
+  | "completeQueryEvaluation"
+  | "recordEvaluationAttemptOutcome";
+
+export type QuerySyncWorkRevisionOperation =
+  | "beginQueryEvaluation"
+  | "applyAdmittedInvalidations"
+  | "completeQueryEvaluation"
+  | "claimEvaluationWork"
+  | "recordEvaluationAttemptOutcome";
+
+export type QueryEvaluationWorkBlockedOperation =
+  | "beginQueryEvaluation"
+  | "completeQueryEvaluation";
 
 export type QueryDependencyLimitOperation =
   | "captureInvalidationBatch"
@@ -127,10 +164,13 @@ export class QuerySyncSequenceExhaustedError extends Data.TaggedError(
   readonly appliedThroughSequence: bigint;
 }> {}
 
-export class QueryGenerationExhaustedError extends Data.TaggedError(
+export class QueryGenerationExhaustedError<
+  Operation extends QueryGenerationExhaustionOperation =
+    QueryGenerationExhaustionOperation,
+> extends Data.TaggedError(
   "QueryGenerationExhaustedError",
 )<{
-  readonly operation: "beginQueryEvaluation";
+  readonly operation: Operation;
   readonly queryKey: string;
   readonly currentGeneration: bigint;
 }> {}
@@ -144,20 +184,117 @@ export class QueryKeyCollisionError<
   readonly queryKey: string;
 }> {}
 
-export class QueryStateNotFoundError extends Data.TaggedError(
+export class QueryStateNotFoundError<
+  Operation extends QueryStateNotFoundOperation = QueryStateNotFoundOperation,
+> extends Data.TaggedError(
   "QueryStateNotFoundError",
 )<{
-  readonly operation: "completeQueryEvaluation";
+  readonly operation: Operation;
   readonly queryKey: string;
 }> {}
 
-export class QueryGenerationMismatchError extends Data.TaggedError(
+export class QueryGenerationMismatchError<
+  Operation extends QueryGenerationMismatchOperation =
+    QueryGenerationMismatchOperation,
+> extends Data.TaggedError(
   "QueryGenerationMismatchError",
 )<{
-  readonly operation: "beginQueryEvaluation" | "completeQueryEvaluation";
+  readonly operation: Operation;
   readonly queryKey: string;
   readonly expectedGeneration: bigint | null;
   readonly observedGeneration: bigint;
+}> {}
+
+export class QuerySyncWorkRevisionExhaustedError<
+  Operation extends QuerySyncWorkRevisionOperation =
+    QuerySyncWorkRevisionOperation,
+> extends Data.TaggedError(
+  "QuerySyncWorkRevisionExhaustedError",
+)<{
+  readonly operation: Operation;
+  readonly currentRevision: bigint;
+}> {}
+
+export class QueryEvaluationWorkBlockedError<
+  Operation extends QueryEvaluationWorkBlockedOperation =
+    QueryEvaluationWorkBlockedOperation,
+> extends Data.TaggedError(
+  "QueryEvaluationWorkBlockedError",
+)<{
+  readonly operation: Operation;
+  readonly queryKey: string;
+  readonly generation: bigint;
+  readonly reason: "terminalEvaluatorRefusal";
+  readonly resetRequired: true;
+}> {}
+
+export class InvalidEvaluationWorkScanRequestError extends Data.TaggedError(
+  "InvalidEvaluationWorkScanRequestError",
+)<{
+  readonly operation: "claimEvaluationWork";
+  readonly reason: "maximumQueryInspectionsOutOfRange";
+  readonly maximum: number;
+  readonly observed: unknown;
+}> {}
+
+export class InvalidEvaluationWorkContinuationError extends Data.TaggedError(
+  "InvalidEvaluationWorkContinuationError",
+)<{
+  readonly operation: "claimEvaluationWork";
+  readonly reason: "notStateIssued";
+}> {}
+
+export class InvalidEvaluationAttemptError extends Data.TaggedError(
+  "InvalidEvaluationAttemptError",
+)<{
+  readonly operation: "recordEvaluationAttemptOutcome";
+  readonly reason:
+    | "notStateIssued"
+    | "descriptorMismatch"
+    | "generationMismatch"
+    | "expectedActiveMismatch"
+    | "registrationCursorMismatch"
+    | "requestedDirtyFrontierMismatch";
+  readonly queryKey: string;
+  readonly generation: bigint;
+}> {}
+
+export class InvalidPublicationAttemptError extends Data.TaggedError(
+  "InvalidPublicationAttemptError",
+)<{
+  readonly operation: "recordPublicationAttemptOutcome";
+  readonly reason:
+    | "notStateIssued"
+    | "publicationIdentityMismatch"
+    | "queryIdentityMismatch"
+    | "publicationContentMismatch"
+    | "resultDigestMismatch"
+    | "ordinalMismatch"
+    | "firstAttemptInstantMismatch"
+    | "attemptInstantMismatch";
+  readonly queryKey: string;
+  readonly generation: bigint;
+  readonly ordinal: number;
+}> {}
+
+export class InvalidPublicationAttemptOutcomeReplayError
+  extends Data.TaggedError(
+    "InvalidPublicationAttemptOutcomeReplayError",
+  )<{
+    readonly operation: "recordPublicationAttemptOutcome";
+    readonly reason: "outcomeMismatch";
+    readonly queryKey: string;
+    readonly generation: bigint;
+    readonly ordinal: number;
+  }> {}
+
+export class InvalidAcceptedPublicationEvidenceError extends Data.TaggedError(
+  "InvalidAcceptedPublicationEvidenceError",
+)<{
+  readonly operation: "completePublication";
+  readonly reason: "notStateIssued" | "resultDigestMismatch";
+  readonly queryKey: string;
+  readonly generation: bigint;
 }> {}
 
 export class InvalidQueryEvidenceError extends Data.TaggedError(
@@ -244,7 +381,7 @@ export class QuerySyncStateLimitError extends Data.TaggedError(
     | "retainedIdentityBytes"
     | "dependencyMemberships"
     | "pendingPublicationCount"
-    | "pendingPublicationContentBytes"
+    | "retainedPublicationContentBytes"
     | "countedCanonicalBytes";
   readonly maximum: number;
   readonly observed: number;
@@ -272,6 +409,12 @@ export class QuerySyncInvariantDefect extends Data.TaggedError(
   readonly operation:
     | "beginQueryEvaluation"
     | "applyAdmittedInvalidations"
+    | "completeQueryEvaluation"
+    | "claimEvaluationWork"
+    | "recordEvaluationAttemptOutcome"
+    | "claimPublication"
+    | "recordPublicationAttemptOutcome"
+    | "completePublication"
     | "buildQuerySyncState";
   readonly invariant:
     | "capturedTextBecameIllFormed"
@@ -309,7 +452,25 @@ export class QuerySyncInvariantDefect extends Data.TaggedError(
     | "pendingPublicationIdentityMismatch"
     | "pendingPublicationDuplicateQuery"
     | "pendingPublicationGenerationAhead"
-    | "currentPendingPublicationMissing";
+    | "currentPendingPublicationMissing"
+    | "stateClockInstantInvalid"
+    | "workRevisionInvalid"
+    | "fairnessAnchorQueryMissing"
+    | "evaluationDispositionInvalid"
+    | "publicationWorkAuthorityMismatch"
+    | "publicationWorkQueryMissing"
+    | "publicationWorkIdentityMismatch"
+    | "publicationWorkDuplicateQuery"
+    | "publicationWorkGenerationAhead"
+    | "publicationWorkIdentityDuplicated"
+    | "publicationWorkQueuedGenerationInvalid"
+    | "publicationAttemptStateInvalid"
+    | "publicationAttemptTimeInvalid"
+    | "publicationDeliveredStateInvalid"
+    | "publicationOutcomeStateInvalid"
+    | "publicationOutcomeReceiptInvalid"
+    | "publicationLifecycleLinkInvalid"
+    | "dirtyEvaluationClaimUnexpectedDecision";
 }> {}
 
 export type QuerySyncAuthorityError<
@@ -327,6 +488,14 @@ export type QuerySyncKernelError =
   | QueryKeyCollisionError
   | QueryStateNotFoundError
   | QueryGenerationMismatchError
+  | QuerySyncWorkRevisionExhaustedError
+  | QueryEvaluationWorkBlockedError
+  | InvalidEvaluationWorkScanRequestError
+  | InvalidEvaluationWorkContinuationError
+  | InvalidEvaluationAttemptError
+  | InvalidPublicationAttemptError
+  | InvalidPublicationAttemptOutcomeReplayError
+  | InvalidAcceptedPublicationEvidenceError
   | InvalidQueryEvaluationRequestError
   | InvalidQueryCompletionReplayError
   | InvalidQueryEvidenceError

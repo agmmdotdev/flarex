@@ -3,13 +3,14 @@
 ## Status
 
 **Preflight status:** accepted umbrella architecture. `QSYNC01-C1` is complete
-in commit `b6621cf3`. The exact C2 contract is proposed separately in
+in commit `b6621cf3`, and the separately approved C2 contract is complete in
 [`04-qsync01-c2-durable-work-and-publication-state.md`](./04-qsync01-c2-durable-work-and-publication-state.md).
 
-The original approval authorized **C1 only**. C2, C3, and C4 each require a
-separate explicit user implementation approval after the preceding slice and
-its evidence are reviewed; the umbrella architecture is not standing authority
-to implement all four slices at once.
+The original approval authorized **C1 only**, and the later explicit approval
+authorized **C2 only**. C3 and C4 each require a separate explicit user
+implementation approval after the preceding slice and its evidence are
+reviewed; the umbrella architecture is not standing authority to implement the
+remaining slices.
 
 `QSYNC01-A` and `QSYNC01-B` are complete, private, and production-inert. They
 provide the pure transition oracle, admitted change source, nominal refresh
@@ -990,9 +991,9 @@ plus pending publication intent, unchanged-result suppression, and no duplicate
 intent after unknown completion. Its completion does not make C or a real
 adapter complete.
 
-`QSYNC01-C2` separately requires explicit user approval for durable
-evaluation-work selection and publication attempt/completion state. C3 then
-separately requires approval for the bounded evaluation coordinator. C4
+`QSYNC01-C2` is complete with durable evaluation-work selection and publication
+attempt/completion state. C3 separately requires approval for the bounded
+evaluation coordinator. C4
 separately requires approval for the publication coordinator and full
 reference fault matrix. This umbrella preflight is not advance implementation
 authority; every significant diff also requires the validation and reviewer
