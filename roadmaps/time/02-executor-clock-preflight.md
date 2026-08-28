@@ -135,3 +135,6 @@ Tests pin persistence-before-clock ordering, one legacy observation, degraded
 persistence data, invalid-Date rejection, configured `Date` method dispatch,
 throwing-clock and formatting-failure cause identity, and native Effect
 `TestClock` control.
+
+The connected session and retry family is preflighted separately in
+`roadmaps/time/03-executor-session-clock-preflight.md`.

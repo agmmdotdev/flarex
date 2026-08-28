@@ -13,6 +13,7 @@ import {
 
 import {
   createFlarexExecutor,
+  DeploymentNotFoundError,
   DeploymentProjectMismatchError,
   FlarexInsertIdTableMismatchError,
   InvokeDeleteDocumentNotFoundError,
@@ -36,8 +37,22 @@ import {
 describe("executor invoke sessions", () => {
   it("begins an invoke session from prepared invoke metadata", async () => {
     const persistence = memoryPersistence();
+    let clockReads = 0;
+    let getTimeReads = 0;
+    class ConfiguredBeginDate extends Date {
+      override getTime(): number {
+        getTimeReads += 1;
+        return super.getTime();
+      }
+    }
+    const beginDate = new ConfiguredBeginDate("2026-06-20T00:00:00.123Z");
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date("2026-06-20T00:00:00.123Z") },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return beginDate;
+        },
+      },
       ids: { nextId: () => "session_fixed" },
       persistence,
     });
@@ -138,6 +153,122 @@ describe("executor invoke sessions", () => {
       schemaVersion: 5,
       executionModule: "_flarex/execution.js",
     });
+    expect(clockReads).toBe(1);
+    expect(getTimeReads).toBe(1);
+  });
+
+  it("does not read session time before preparation and id allocation succeed", async () => {
+    let preparationClockReads = 0;
+    let preparationIdReads = 0;
+    const missingDeploymentExecutor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          preparationClockReads += 1;
+          return new Date("2026-06-20T00:00:00.123Z");
+        },
+      },
+      ids: {
+        nextId: () => {
+          preparationIdReads += 1;
+          return "must_not_allocate";
+        },
+      },
+      persistence: memoryPersistence(),
+    });
+
+    await expect(missingDeploymentExecutor.beginInvokeSession({
+      deploymentId: "deployment_missing",
+      projectId: "project_session",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+    })).rejects.toThrow(DeploymentNotFoundError);
+    expect(preparationIdReads).toBe(0);
+    expect(preparationClockReads).toBe(0);
+
+    const idFailure = new Error("session id unavailable");
+    let allocationClockReads = 0;
+    const persistence = memoryPersistence();
+    const idFailureExecutor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          allocationClockReads += 1;
+          return new Date("2026-06-20T00:00:00.123Z");
+        },
+      },
+      ids: {
+        nextId: () => {
+          throw idFailure;
+        },
+      },
+      persistence,
+    });
+    const registered = await idFailureExecutor.registerDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sourcePackage: sourcePackage(),
+      analysisJson: analysisJson(),
+    });
+    await idFailureExecutor.activateDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      packageId: registered.package.packageId,
+      schemaVersion: 5,
+    });
+
+    await expect(idFailureExecutor.beginInvokeSession({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+    })).rejects.toBe(idFailure);
+    expect(allocationClockReads).toBe(0);
+  });
+
+  it("preserves configured begin clock and Date failures by identity", async () => {
+    const clockFailure = new Error("session clock unavailable");
+    const clockFailureExecutor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          throw clockFailure;
+        },
+      },
+      ids: { nextId: () => "session_clock_failure" },
+      persistence: memoryPersistence([activeDeployment()], [activePackage()]),
+    });
+
+    await expect(clockFailureExecutor.beginInvokeSession({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+    })).rejects.toBe(clockFailure);
+
+    const getTimeFailure = new Error("session Date cannot be observed");
+    class ThrowingBeginDate extends Date {
+      override getTime(): number {
+        throw getTimeFailure;
+      }
+    }
+    const getTimeFailureExecutor = createFlarexExecutor({
+      clock: { now: () => new ThrowingBeginDate(15) },
+      ids: { nextId: () => "session_get_time_failure" },
+      persistence: memoryPersistence([activeDeployment()], [activePackage()]),
+    });
+
+    await expect(getTimeFailureExecutor.beginInvokeSession({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+    })).rejects.toBe(getTimeFailure);
   });
 
   it("surfaces duplicate generated session ids", async () => {
@@ -181,7 +312,7 @@ describe("executor invoke sessions", () => {
   });
 
   it("retries mutation attempts after commit-time OCC conflicts", async () => {
-    const persistence = memoryPersistence(
+    const basePersistence = memoryPersistence(
       [],
       [],
       [],
@@ -196,9 +327,14 @@ describe("executor invoke sessions", () => {
     );
     let nowMs = 15;
     let nextSession = 0;
+    const clockObserver = createSessionClockObserver(() => nowMs);
     const triggerCalls: unknown[] = [];
+    const persistence = observeSessionClockPersistence(
+      basePersistence,
+      clockObserver,
+    );
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date(nowMs) },
+      clock: clockObserver.clock,
       ids: { nextId: () => `session_retry_${++nextSession}` },
       persistence,
       liveQueryInvalidation: {
@@ -235,7 +371,7 @@ describe("executor invoke sessions", () => {
 
         if (attempt.attempt === 1) {
           await commitConcurrentTeamPatch({
-            persistence,
+            persistence: basePersistence,
             packageId: registered.package.packageId,
             sessionId: "session_concurrent",
             minimumTs: nowMs,
@@ -304,10 +440,17 @@ describe("executor invoke sessions", () => {
         ],
       }),
     ]);
+    expect(clockObserver.events()).toEqual([
+      { operation: "begin", milliseconds: 15 },
+      { operation: "finish", milliseconds: 20 },
+      { operation: "abort", milliseconds: 20 },
+      { operation: "begin", milliseconds: 20 },
+      { operation: "finish", milliseconds: 20 },
+    ]);
   });
 
   it("returns a retry-exhausted error after repeated OCC conflicts", async () => {
-    const persistence = memoryPersistence(
+    const basePersistence = memoryPersistence(
       [],
       [],
       [],
@@ -322,8 +465,27 @@ describe("executor invoke sessions", () => {
     );
     let nowMs = 15;
     let nextSession = 0;
+    const clockObserver = createSessionClockObserver(() => nowMs);
+    const commitFailures: unknown[] = [];
+    const observedPersistence = observeSessionClockPersistence(
+      basePersistence,
+      clockObserver,
+    );
+    const persistence = {
+      ...observedPersistence,
+      async commitInvokeSessionWrites(
+        input: Parameters<typeof basePersistence.commitInvokeSessionWrites>[0],
+      ) {
+        try {
+          return await observedPersistence.commitInvokeSessionWrites(input);
+        } catch (error) {
+          commitFailures.push(error);
+          throw error;
+        }
+      },
+    };
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date(nowMs) },
+      clock: clockObserver.clock,
       ids: { nextId: () => `session_retry_${++nextSession}` },
       persistence,
     });
@@ -341,8 +503,9 @@ describe("executor invoke sessions", () => {
     });
 
     const attempts: number[] = [];
-    await expect(
-      executor.runInvokeWithRetries({
+    let exhaustedError: unknown;
+    try {
+      await executor.runInvokeWithRetries({
         deploymentId: "deployment_session",
         projectId: "project_session",
         path: "messages:send",
@@ -354,7 +517,7 @@ describe("executor invoke sessions", () => {
           attempts.push(attempt.attempt);
           await attempt.syscall({ op: "get", id: "1:team" });
           const concurrent = await commitConcurrentTeamPatch({
-            persistence,
+            persistence: basePersistence,
             packageId: registered.package.packageId,
             sessionId: `session_concurrent_${attempt.attempt}`,
             minimumTs: nowMs,
@@ -368,8 +531,16 @@ describe("executor invoke sessions", () => {
           });
           return { ok: true };
         },
-      }),
-    ).rejects.toThrow(InvokeRetryExhaustedError);
+      });
+    } catch (error) {
+      exhaustedError = error;
+    }
+
+    expect(exhaustedError).toBeInstanceOf(InvokeRetryExhaustedError);
+    if (!(exhaustedError instanceof InvokeRetryExhaustedError)) {
+      throw exhaustedError;
+    }
+    expect(exhaustedError.lastError).toBe(commitFailures.at(-1));
 
     expect(attempts).toEqual([1, 2]);
     await expect(
@@ -384,6 +555,150 @@ describe("executor invoke sessions", () => {
         "session_retry_2",
       ),
     ).resolves.toMatchObject({ state: "aborted" });
+    expect(clockObserver.events()).toEqual([
+      { operation: "begin", milliseconds: 15 },
+      { operation: "finish", milliseconds: 20 },
+      { operation: "abort", milliseconds: 20 },
+      { operation: "begin", milliseconds: 20 },
+      { operation: "finish", milliseconds: 25 },
+      { operation: "abort", milliseconds: 25 },
+    ]);
+  });
+
+  it("does not read finish time before query read collection succeeds", async () => {
+    const finishFailure = new Error("query read collection failed");
+    const basePersistence = memoryPersistence(
+      [activeDeployment()],
+      [activePackage()],
+    );
+    const clockObserver = createSessionClockObserver(() => 15);
+    const observedPersistence = observeSessionClockPersistence(
+      basePersistence,
+      clockObserver,
+    );
+    const persistence = {
+      ...observedPersistence,
+      async listInvokeSessionDocumentReads() {
+        throw finishFailure;
+      },
+    };
+    const executor = createFlarexExecutor({
+      clock: clockObserver.clock,
+      ids: { nextId: () => "session_pre_finish_failure" },
+      persistence,
+    });
+
+    await expect(executor.runInvokeWithRetries({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+      runAttempt: async () => "ok",
+    })).rejects.toBe(finishFailure);
+    expect(clockObserver.events()).toEqual([
+      { operation: "begin", milliseconds: 15 },
+      { operation: "abort", milliseconds: 15 },
+    ]);
+  });
+
+  it("preserves an OCC finish failure when the abort clock also fails", async () => {
+    const occFailure = new InvokeSessionOccConflictError(
+      "deployment_session",
+      "1:team",
+      10,
+      20,
+    );
+    const abortClockFailure = new Error("abort clock failed");
+    const basePersistence = memoryPersistence(
+      [activeDeployment()],
+      [activePackage()],
+    );
+    const persistence = {
+      ...basePersistence,
+      async commitInvokeSessionWrites(): Promise<never> {
+        throw occFailure;
+      },
+    };
+    let clockReads = 0;
+    const executor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          clockReads += 1;
+          if (clockReads === 3) throw abortClockFailure;
+          return new Date(15);
+        },
+      },
+      ids: { nextId: () => "session_occ_abort_clock_failure" },
+      persistence,
+    });
+
+    let exhaustedError: unknown;
+    try {
+      await executor.runInvokeWithRetries({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        path: "messages:send",
+        kind: "mutation",
+        args: { teamId: "1:team", text: "hello" },
+        partitionKey: "1:team",
+        maxAttempts: 1,
+        runAttempt: async () => "ok",
+      });
+    } catch (error) {
+      exhaustedError = error;
+    }
+
+    expect(exhaustedError).toBeInstanceOf(InvokeRetryExhaustedError);
+    if (!(exhaustedError instanceof InvokeRetryExhaustedError)) {
+      throw exhaustedError;
+    }
+    expect(exhaustedError.lastError).toBe(occFailure);
+    expect(clockReads).toBe(3);
+  });
+
+  it("preserves the attempt failure when the abort clock also fails", async () => {
+    const attemptFailure = new Error("attempt failed");
+    const abortClockFailure = new Error("abort clock failed");
+    let clockReads = 0;
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          clockReads += 1;
+          if (clockReads === 2) throw abortClockFailure;
+          return new Date(15);
+        },
+      },
+      ids: { nextId: () => "session_abort_clock_failure" },
+      persistence,
+    });
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      sourcePackage: sourcePackage(),
+      analysisJson: analysisJson(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      packageId: registered.package.packageId,
+      schemaVersion: 5,
+    });
+
+    await expect(executor.runInvokeWithRetries({
+      deploymentId: "deployment_session",
+      projectId: "project_session",
+      path: "messages:list",
+      kind: "query",
+      args: { teamId: "team:1" },
+      partitionKey: "team:1",
+      runAttempt: async () => {
+        throw attemptFailure;
+      },
+    })).rejects.toBe(attemptFailure);
+    expect(clockReads).toBe(2);
   });
 
   it("rejects syscalls for missing sessions", async () => {
@@ -605,12 +920,48 @@ describe("executor invoke sessions", () => {
   });
 
   it("finishes query sessions with accumulated document reads", async () => {
-    const persistence = memoryPersistence([], [], [activeSession()], [], [
+    const basePersistence = memoryPersistence([], [], [activeSession()], [], [
       documentRead({ documentId: "1:message", observedTs: 10 }),
       documentRead({ tableId: 2, documentId: "2:lesson", observedTs: null }),
     ]);
+    const finishedAt = new Date("2026-06-20T00:00:00.000Z");
+    const events: string[] = [];
+    let observedFinishedAt: Date | undefined;
+    const persistence = {
+      ...basePersistence,
+      async listInvokeSessionDocumentReads(
+        ...input: Parameters<typeof basePersistence.listInvokeSessionDocumentReads>
+      ) {
+        events.push("list-document-reads");
+        return await basePersistence.listInvokeSessionDocumentReads(...input);
+      },
+      async listInvokeSessionTableReads(
+        ...input: Parameters<typeof basePersistence.listInvokeSessionTableReads>
+      ) {
+        events.push("list-table-reads");
+        return await basePersistence.listInvokeSessionTableReads(...input);
+      },
+      async listInvokeSessionIndexReads(
+        ...input: Parameters<typeof basePersistence.listInvokeSessionIndexReads>
+      ) {
+        events.push("list-index-reads");
+        return await basePersistence.listInvokeSessionIndexReads(...input);
+      },
+      async finishInvokeSessionMetadata(
+        input: Parameters<typeof basePersistence.finishInvokeSessionMetadata>[0],
+      ) {
+        events.push("finish-metadata");
+        observedFinishedAt = input.finishedAt;
+        return await basePersistence.finishInvokeSessionMetadata(input);
+      },
+    };
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      clock: {
+        now: () => {
+          events.push("clock");
+          return finishedAt;
+        },
+      },
       persistence,
     });
 
@@ -640,16 +991,41 @@ describe("executor invoke sessions", () => {
       state: "finished",
       finishedAt: new Date("2026-06-20T00:00:00.000Z"),
     });
+    expect(observedFinishedAt).toBe(finishedAt);
+    expect(events).toEqual([
+      "list-document-reads",
+      "list-table-reads",
+      "list-index-reads",
+      "clock",
+      "finish-metadata",
+    ]);
   });
 
   it("finishes mutation sessions by committing staged inserts", async () => {
-    const persistence = memoryPersistence(
+    const basePersistence = memoryPersistence(
       [],
       [activePackage()],
       [activeSession({ functionKind: "mutation", beginTs: 100 })],
     );
+    const finishedAt = new Date("2026-06-20T00:00:00.000Z");
+    let clockReads = 0;
+    let observedFinishedAt: Date | undefined;
+    const persistence = {
+      ...basePersistence,
+      async commitInvokeSessionWrites(
+        input: Parameters<typeof basePersistence.commitInvokeSessionWrites>[0],
+      ) {
+        observedFinishedAt = input.finishedAt;
+        return await basePersistence.commitInvokeSessionWrites(input);
+      },
+    };
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return finishedAt;
+        },
+      },
       persistence,
     });
 
@@ -728,6 +1104,8 @@ describe("executor invoke sessions", () => {
         },
       ],
     });
+    expect(observedFinishedAt).toBe(finishedAt);
+    expect(clockReads).toBe(1);
   });
 
   it("marks live query subscriptions stale and notifies after successful mutation commit", async () => {
@@ -1073,7 +1451,14 @@ describe("executor invoke sessions", () => {
   });
 
   it("rejects finishing inactive sessions", async () => {
+    let clockReads = 0;
     const executor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date("2026-06-20T00:00:00.000Z");
+        },
+      },
       persistence: memoryPersistence([], [], [
         activeSession({ state: "finished" }),
       ]),
@@ -1087,16 +1472,34 @@ describe("executor invoke sessions", () => {
         value: null,
       }),
     ).rejects.toThrow(InvokeSessionNotActiveError);
+    expect(clockReads).toBe(0);
   });
 
   it("aborts active sessions without committing staged work", async () => {
-    const persistence = memoryPersistence(
+    const basePersistence = memoryPersistence(
       [],
       [activePackage()],
       [activeSession({ functionKind: "mutation" })],
     );
+    const finishedAt = new Date("2026-06-20T00:00:00.000Z");
+    let clockReads = 0;
+    let observedFinishedAt: Date | undefined;
+    const persistence = {
+      ...basePersistence,
+      async abortInvokeSessionMetadata(
+        input: Parameters<typeof basePersistence.abortInvokeSessionMetadata>[0],
+      ) {
+        observedFinishedAt = input.finishedAt;
+        return await basePersistence.abortInvokeSessionMetadata(input);
+      },
+    };
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return finishedAt;
+        },
+      },
       persistence,
     });
 
@@ -1131,10 +1534,12 @@ describe("executor invoke sessions", () => {
     await expect(
       persistence.getDocumentRevisionAtTs("deployment_session", "1:team_abort", 1),
     ).resolves.toBeNull();
+    expect(observedFinishedAt).toBe(finishedAt);
+    expect(clockReads).toBe(1);
   });
 
   it("aborts stale active sessions for a deployment", async () => {
-    const persistence = memoryPersistence(
+    const basePersistence = memoryPersistence(
       [
         deploymentMetadata({
           deploymentId: "deployment_session",
@@ -1160,8 +1565,27 @@ describe("executor invoke sessions", () => {
         },
       ],
     );
+    const finishedAt = new Date("2026-06-20T01:00:00.000Z");
+    let clockReads = 0;
+    let observedFinishedAt: Date | undefined;
+    const persistence = {
+      ...basePersistence,
+      async abortStaleInvokeSessionsMetadata(
+        input: Parameters<
+          typeof basePersistence.abortStaleInvokeSessionsMetadata
+        >[0],
+      ) {
+        observedFinishedAt = input.finishedAt;
+        return await basePersistence.abortStaleInvokeSessionsMetadata(input);
+      },
+    };
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return finishedAt;
+        },
+      },
       persistence,
     });
 
@@ -1194,10 +1618,19 @@ describe("executor invoke sessions", () => {
         "session_finished",
       ),
     ).resolves.toMatchObject({ state: "finished" });
+    expect(observedFinishedAt).toBe(finishedAt);
+    expect(clockReads).toBe(1);
   });
 
   it("rejects stale session aborts for the wrong project", async () => {
+    let clockReads = 0;
     const executor = createFlarexExecutor({
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date("2026-06-20T00:00:00.000Z");
+        },
+      },
       persistence: memoryPersistence([
         deploymentMetadata({
           deploymentId: "deployment_session",
@@ -1213,6 +1646,7 @@ describe("executor invoke sessions", () => {
         olderThan: new Date("2026-06-19T12:00:00.000Z"),
       }),
     ).rejects.toThrow(DeploymentProjectMismatchError);
+    expect(clockReads).toBe(0);
   });
 
   it("rejects syscalls after abort", async () => {
@@ -2825,6 +3259,14 @@ function activePackage() {
   });
 }
 
+function activeDeployment() {
+  return deploymentMetadata({
+    deploymentId: "deployment_session",
+    projectId: "project_session",
+    activePackageId: "package_active",
+  });
+}
+
 function documentRevision(
   overrides: Partial<DocumentRevisionRecord> = {},
 ): DocumentRevisionRecord {
@@ -2853,6 +3295,100 @@ function documentRead(overrides: {
     documentId: overrides.documentId,
     observedTs: overrides.observedTs ?? null,
     readAt: new Date("2026-06-19T00:00:00.000Z"),
+  };
+}
+
+type SessionClockOperation = "begin" | "finish" | "abort";
+
+interface SessionClockObserver {
+  readonly clock: { readonly now: () => Date };
+  readonly observe: (date: Date, operation: Exclude<SessionClockOperation, "begin">) => void;
+  readonly events: () => ReadonlyArray<{
+    readonly operation: SessionClockOperation | undefined;
+    readonly milliseconds: number;
+  }>;
+}
+
+function createSessionClockObserver(
+  readMilliseconds: () => number,
+): SessionClockObserver {
+  const observations: Array<{
+    date?: Date;
+    operation?: SessionClockOperation;
+    readonly milliseconds: number;
+  }> = [];
+
+  const observe = (date: Date, operation: SessionClockOperation): void => {
+    const observation = observations.find(candidate => candidate.date === date);
+    if (observation === undefined) {
+      throw new Error(`Unrecognized session ${operation} clock value.`);
+    }
+    if (
+      observation.operation !== undefined &&
+      observation.operation !== operation
+    ) {
+      throw new Error(
+        `Session clock value was observed by ${observation.operation} and ${operation}.`,
+      );
+    }
+    observation.operation = operation;
+  };
+
+  return {
+    clock: {
+      now: () => {
+        const milliseconds = readMilliseconds();
+        const observation: {
+          date?: Date;
+          operation?: SessionClockOperation;
+          readonly milliseconds: number;
+        } = { milliseconds };
+        class ObservedSessionDate extends Date {
+          override getTime(): number {
+            if (observation.operation === undefined) {
+              observation.operation = "begin";
+            }
+            return super.getTime();
+          }
+        }
+        const date = new ObservedSessionDate(milliseconds);
+        observation.date = date;
+        observations.push(observation);
+        return date;
+      },
+    },
+    observe,
+    events: () => observations.map(observation => ({
+      operation: observation.operation,
+      milliseconds: observation.milliseconds,
+    })),
+  };
+}
+
+function observeSessionClockPersistence(
+  basePersistence: ReturnType<typeof memoryPersistence>,
+  observer: SessionClockObserver,
+): ReturnType<typeof memoryPersistence> {
+  return {
+    ...basePersistence,
+    async finishInvokeSessionMetadata(
+      input: Parameters<typeof basePersistence.finishInvokeSessionMetadata>[0],
+    ) {
+      observer.observe(input.finishedAt, "finish");
+      return await basePersistence.finishInvokeSessionMetadata(input);
+    },
+    async commitInvokeSessionWrites(
+      input: Parameters<typeof basePersistence.commitInvokeSessionWrites>[0],
+    ) {
+      observer.observe(input.finishedAt, "finish");
+      return await basePersistence.commitInvokeSessionWrites(input);
+    },
+    async abortInvokeSessionMetadata(
+      input: Parameters<typeof basePersistence.abortInvokeSessionMetadata>[0],
+    ) {
+      observer.observe(input.finishedAt, "abort");
+      return await basePersistence.abortInvokeSessionMetadata(input);
+    },
   };
 }
 
