@@ -10,7 +10,7 @@ import {
   produceApplicationTaskBindingsV1,
 } from "@flarex/standard-application-definition/internal/application-task-binding-v1";
 import { prepareStandardApplicationDefinitionV1 } from
-  "@flarex/standard-application-definition/v1";
+  "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Result } from "effect";
 import {
   SOURCE_ARTIFACT_V2_ROLE_EXECUTION,

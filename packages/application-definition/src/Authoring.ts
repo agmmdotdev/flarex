@@ -10,7 +10,7 @@ import {
   type StandardFunctionArgsValidatorV1,
   type StandardValidatorOptionalityV1,
   type StandardValidatorV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/legacy-authoring";
 import type {
   CanonicalDeclarativeFunctionInputV1,
   CanonicalDeclarativeModuleInputV1,

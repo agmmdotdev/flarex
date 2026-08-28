@@ -13,7 +13,7 @@ import {
 } from "@flarex/executor-http/internal/system-test/declarative-v2-authenticated-command-v1";
 import type {
   PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Layer, Result } from "effect";
 import type { Scope } from "effect";
 import {

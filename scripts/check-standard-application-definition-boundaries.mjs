@@ -88,8 +88,9 @@ const applicationDefinitionAllowedProductionImports = new Set([
   "@flarex/application-schema-definition/application-schema",
   "@flarex/declarative-materializer/v1",
   "@flarex/declarative-program/v1",
-  "@flarex/standard-application-definition/v1",
   "@flarex/standard-application-definition/application-source",
+  "@flarex/standard-application-definition/internal/legacy-authoring",
+  "@flarex/standard-application-definition/internal/prepared-definition-v1",
   "@flarex/utils/bytes",
   "@flarex/utils/strings",
   "effect",
@@ -239,7 +240,7 @@ if (isCliEntrypoint()) {
   } else {
     console.log("Standard Application definition boundary check passed.");
     console.log(
-      "Allowed package exports: ./v1 plus five explicit owner subpaths.",
+      "Allowed package exports: ./application-source plus six explicit internal owner subpaths.",
     );
     console.log(
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
@@ -434,27 +435,31 @@ function collectExportErrors(exportsValue, errors) {
 
   const exportNames = Object.keys(exportsValue).sort();
   if (
-    exportNames.length !== 6
+    exportNames.length !== 7
     || exportNames[0] !== "./application-source"
     || exportNames[1] !== "./internal/application-task-binding-v1"
-    || exportNames[2] !== "./internal/relation-definition"
-    || exportNames[3] !== "./internal/task-authoring-v1"
-    || exportNames[4] !== "./internal/task-definition-v1"
-    || exportNames[5] !== "./v1"
+    || exportNames[2] !== "./internal/legacy-authoring"
+    || exportNames[3] !== "./internal/prepared-definition-v1"
+    || exportNames[4] !== "./internal/relation-definition"
+    || exportNames[5] !== "./internal/task-authoring-v1"
+    || exportNames[6] !== "./internal/task-definition-v1"
     || exportsValue["./application-source"] !==
       "./src/applicationSourcePublic.ts"
     || exportsValue["./internal/application-task-binding-v1"] !==
       "./src/applicationTaskBinding/v1.ts"
+    || exportsValue["./internal/legacy-authoring"] !==
+      "./src/authoringV1.ts"
+    || exportsValue["./internal/prepared-definition-v1"] !==
+      "./src/preparedDefinitionV1.ts"
     || exportsValue["./internal/relation-definition"] !==
       "./src/relationDefinition/index.ts"
     || exportsValue["./internal/task-authoring-v1"] !==
       "./src/taskAuthoringV1.ts"
     || exportsValue["./internal/task-definition-v1"] !==
       "./src/taskDefinition/v1.ts"
-    || exportsValue["./v1"] !== "./src/v1.ts"
   ) {
     errors.push(
-      "Standard Application definition package must expose exactly ./v1, ./application-source, and its four declared private owner subpaths with no package root.",
+      "Standard Application definition package must expose exactly ./application-source and its six declared internal owner subpaths with no package root or /v1 product export.",
     );
   }
 }

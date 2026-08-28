@@ -40,7 +40,7 @@ import {
 } from "effect";
 import type {
   PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,
   encodeDeclarativeV2VerifierProgressFrameV2,

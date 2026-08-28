@@ -19,7 +19,7 @@ import {
   prepareStandardApplicationDefinitionV1,
   prepareStandardApplicationProgramV1,
   type StandardApplicationDefinitionInputV1,
-} from "../src/v1";
+} from "../src/preparedDefinitionV1";
 
 const UTF8_ENCODER = new TextEncoder();
 

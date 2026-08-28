@@ -15,7 +15,7 @@ import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
 import { prepareStandardApplicationDefinitionV1 } from
-  "@flarex/standard-application-definition/v1";
+  "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,

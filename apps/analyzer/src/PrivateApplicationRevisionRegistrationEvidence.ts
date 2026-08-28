@@ -8,7 +8,7 @@ import {
   "@flarex/persistence-postgres/internal/system-test/applicationRevisionRegistrationV1";
 import type {
   PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Result } from "effect";
 
 export interface PrivateApplicationRevisionRegistrationEvidenceFailureV1 {

@@ -23,7 +23,7 @@ import {
   encodeDeclarativeV2PhysicalFrameV1,
   type DeclarativeV2CandidateFrameV1,
 } from "flarex-protocol/internal/declarative-v2-physical-v1";
-import { prepareStandardApplicationDefinitionV1 } from "../src/v1";
+import { prepareStandardApplicationDefinitionV1 } from "../src/preparedDefinitionV1";
 import { produceStandardApplicationSource } from "../src/applicationSource";
 
 const UTF8 = new TextEncoder();

@@ -11,7 +11,7 @@ import {
   STANDARD_APPLICATION_EXECUTION_MODULE_PATH,
   STANDARD_APPLICATION_SCHEMA_MODULE_PATH,
 } from "../src/applicationSource";
-import { prepareStandardApplicationDefinitionV1 } from "../src/v1";
+import { prepareStandardApplicationDefinitionV1 } from "../src/preparedDefinitionV1";
 
 const UTF8 = new TextDecoder();
 

@@ -18,38 +18,6 @@ import {
 } from "@flarex/declarative-materializer/v1";
 import { Result } from "effect";
 
-export {
-  standardValidatorV1FromExactJsonV1,
-  standardV1,
-  type AnyStandardFunctionContractV1,
-  type InferStandardFunctionArgsV1,
-  type InferStandardFunctionReturnV1,
-  type InferStandardObjectV1,
-  type InferStandardValidatorV1,
-  type StandardFunctionArgsValidatorV1,
-  type StandardFunctionCatalogV1,
-  type StandardFunctionContractV1,
-  type StandardFunctionContractInputV1,
-  type StandardFunctionReferenceV1,
-  type StandardIdV1,
-  type StandardModuleV1,
-  type StandardObjectValidatorV1,
-  type StandardValidatorV1,
-  type StandardValidatorOptionalityV1,
-  type StandardValidatorFieldPathsV1,
-  type StandardValidatorWithFieldPathsV1,
-  type StandardValidatorRecordV1,
-} from "./authoringV1";
-
-export {
-  type StandardSchemaDefinitionV1,
-  type StandardTableCatalogV1,
-  type StandardTableDefinitionV1,
-  type StandardTableFieldPathsV1,
-  type StandardTableIndexCatalogV1,
-  type StandardTableIndexFieldsV1,
-} from "./schemaAuthoringV1.js";
-
 export interface StandardApplicationDefinitionInputV1 {
   readonly programBudgetInput: CanonicalDeclarativeProgramBudgetInputV1;
   readonly programInput: CanonicalDeclarativeProgramInputV1;

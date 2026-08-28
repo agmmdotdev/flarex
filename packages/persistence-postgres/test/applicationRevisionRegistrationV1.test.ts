@@ -3,7 +3,7 @@ import {
   prepareStandardApplicationDefinitionV1,
   type PreparedStandardApplicationDefinitionV1,
   type StandardApplicationDefinitionInputV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   withAuthenticatedApplicationRevisionEvidenceTestDriverV1,
   type AuthenticatedApplicationRevisionEvidenceTestDriverV1,

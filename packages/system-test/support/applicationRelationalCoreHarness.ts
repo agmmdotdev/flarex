@@ -21,7 +21,7 @@ import {
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import {
   prepareStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect, Result, Scope } from "effect";
 import {
   APPLICATION_RUNTIME_COMPATIBILITY_DATE,

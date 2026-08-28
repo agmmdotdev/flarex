@@ -11,7 +11,7 @@ import {
   defineStandardApplicationTaskV1,
   type StandardApplicationTaskReferenceV1,
 } from "@flarex/standard-application-definition/internal/task-authoring-v1";
-import { standardV1 } from "@flarex/standard-application-definition/v1";
+import { standardV1 } from "@flarex/standard-application-definition/internal/legacy-authoring";
 import {
   ApplicationTaskSystem,
   ApplicationTaskSystemCompositionError,

@@ -1,6 +1,7 @@
 import { Effect, Result } from "effect";
 
-import type { PreparedStandardApplicationDefinitionV1 } from "../v1.js";
+import type { PreparedStandardApplicationDefinitionV1 } from
+  "../preparedDefinitionV1.js";
 import {
   encodeCanonicalTaskManifestPreimageV1,
 } from "../taskDefinition/Canonical.js";

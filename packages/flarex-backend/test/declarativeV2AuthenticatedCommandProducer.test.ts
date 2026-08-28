@@ -12,7 +12,7 @@ import {
 import {
   prepareStandardApplicationDefinitionV1,
   type PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Cause, Effect, Exit, Fiber, Layer, Result } from "effect";
 import {
   DECLARATIVE_V2_VERIFIER_BUDGET_DIMENSIONS_V2,

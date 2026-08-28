@@ -7,7 +7,7 @@ import {
   type InferStandardFunctionArgsV1,
   type InferStandardFunctionReturnV1,
   type StandardValidatorV1,
-} from "../src/v1";
+} from "../src/authoringV1";
 
 describe("Standard Application typed authoring V1", () => {
   if (false) {

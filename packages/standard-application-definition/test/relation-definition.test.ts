@@ -13,7 +13,7 @@ import {
 import {
   prepareStandardApplicationRelations,
 } from "../src/relationDefinition/Preparation";
-import { prepareStandardApplicationDefinitionV1 } from "../src/v1";
+import { prepareStandardApplicationDefinitionV1 } from "../src/preparedDefinitionV1";
 import * as publicApplicationSource from "../src/applicationSourcePublic";
 
 const UTF8 = new TextDecoder();

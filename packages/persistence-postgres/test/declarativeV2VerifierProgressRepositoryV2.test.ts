@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 import {
   prepareStandardApplicationDefinitionV1,
   type StandardApplicationDefinitionInputV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   withAuthenticatedApplicationRevisionEvidenceTestDriverV1,
 } from

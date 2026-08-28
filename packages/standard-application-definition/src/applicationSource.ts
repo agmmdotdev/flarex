@@ -20,7 +20,8 @@ import {
 } from "flarex-protocol/internal/declarative-v2-source-artifact-v2";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
-import type { PreparedStandardApplicationDefinitionV1 } from "./v1";
+import type { PreparedStandardApplicationDefinitionV1 } from
+  "./preparedDefinitionV1";
 import type {
   PrepareStandardApplicationRelationsError,
 } from "./relationDefinition/Errors.js";

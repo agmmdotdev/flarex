@@ -3,7 +3,7 @@ import type {
 } from "@flarex/declarative-materializer/v1";
 import {
   prepareStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 

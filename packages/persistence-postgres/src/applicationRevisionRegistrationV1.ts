@@ -7,7 +7,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { Cause, Data, Effect, Exit, Result, Scope } from "effect";
 import type {
   PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   canonicalizeSchemaManifestV1,
   type CatalogSchemaVersion,

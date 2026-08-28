@@ -22,7 +22,7 @@ import {
   type HashedCanonicalTaskCatalogV1,
   type StandardApplicationTaskSha256V1,
 } from "../src/taskDefinition/v1";
-import { prepareStandardApplicationDefinitionV1 } from "../src/v1";
+import { prepareStandardApplicationDefinitionV1 } from "../src/preparedDefinitionV1";
 
 const UTF8 = new TextDecoder();
 const sha256 = makeStandardApplicationTaskSha256V1((input) =>

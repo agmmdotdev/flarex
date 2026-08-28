@@ -19,7 +19,7 @@ import { produceInternalStandardApplicationSourceWithRelations } from
   "@flarex/standard-application-definition/internal/relation-definition";
 import type {
   PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import type {
   ApplicationNativeMutationAnalysis,
   ApplicationNativeMutationSourceBundle,

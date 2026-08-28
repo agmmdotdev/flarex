@@ -1,7 +1,7 @@
 import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import * as DefinitionRoot from "../src/v1.js";
+import * as PreparedDefinition from "../src/preparedDefinitionV1.js";
 import {
   defineStandardApplicationTaskV1,
   type InferStandardApplicationTaskOutputV1,
@@ -10,8 +10,8 @@ import {
 import { standardV1 } from "../src/authoringV1.js";
 
 describe("Standard Application Task authoring V1", () => {
-  it("keeps typed Task authoring private from the shipped definition root", () => {
-    expect("defineStandardApplicationTaskV1" in DefinitionRoot).toBe(false);
+  it("keeps typed Task authoring outside the prepared-definition contract", () => {
+    expect("defineStandardApplicationTaskV1" in PreparedDefinition).toBe(false);
   });
 
   it("lowers Standard validators through the canonical Task manifest owner", () => {

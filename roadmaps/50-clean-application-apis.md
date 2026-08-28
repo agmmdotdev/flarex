@@ -3,10 +3,8 @@
 ## Status And Decision Boundary
 
 **Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
-`CAPI-D` are complete privately. `CAPI-E` is in progress through bounded
-removal checkpoints. Its system-test product-surface removal is complete
-privately. Its invocation product-surface removal is complete privately,
-validated, and reviewed on 2026-08-29.
+`CAPI-E` are complete privately. The three `CAPI-E` product-surface removal
+checkpoints are implemented, validated, and reviewed on 2026-08-29.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
@@ -558,6 +556,16 @@ and Action Systems, and deletes the compatibility wrappers. It does not change
 selection, snapshots, OCC, commit, replay, Action settlement, errors, Scope, or
 system ownership. Definition product-surface removal remains separate.
 
+The completed third bounded checkpoint removes
+`@flarex/standard-application-definition/v1` and its mixed root module. The
+still-required canonical prepared-definition V1 contract now has one exact
+internal owner subpath, while the displaced Standard validator authoring used
+by the clean facade and concrete Task V1 tests is quarantined behind an
+explicit internal legacy-authoring subpath. Every live workspace consumer uses
+one of those owners directly. This does not change canonical preparation,
+materialization, analysis, registration, persistence, Task, or runtime
+semantics.
+
 Inventory every workspace and supported external consumer, then remove the
 displaced versioned product exports and names. Keep only concrete versioned
 protocol and persistence contracts required by exact decoding or migration.
@@ -611,8 +619,6 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after the second `CAPI-E` invocation removal checkpoint and its focused
-validation, review, and commit. Definition removal follows only after its exact
-internal canonical contracts are separated from obsolete authoring. Public
-SDK, deployment, routing, and production entry surfaces remain separately
-gated.
+Stop after the third `CAPI-E` definition removal checkpoint and its focused
+validation, review, and commit. `CAPI-E` is then complete. Public SDK,
+deployment, routing, and production entry surfaces remain separately gated.

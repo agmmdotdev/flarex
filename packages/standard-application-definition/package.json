@@ -8,10 +8,11 @@
   "exports": {
     "./application-source": "./src/applicationSourcePublic.ts",
     "./internal/application-task-binding-v1": "./src/applicationTaskBinding/v1.ts",
+    "./internal/legacy-authoring": "./src/authoringV1.ts",
+    "./internal/prepared-definition-v1": "./src/preparedDefinitionV1.ts",
     "./internal/relation-definition": "./src/relationDefinition/index.ts",
     "./internal/task-authoring-v1": "./src/taskAuthoringV1.ts",
-    "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
-    "./v1": "./src/v1.ts"
+    "./internal/task-definition-v1": "./src/taskDefinition/v1.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

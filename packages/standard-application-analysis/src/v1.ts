@@ -3,7 +3,7 @@ import type {
 } from "@flarex/analysis/internal/system-test/declarative-v2-verifier-v1";
 import type {
   PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { Effect } from "effect";
 
 /**

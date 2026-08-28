@@ -1,4 +1,4 @@
-import { standardV1 } from "@flarex/standard-application-definition/v1";
+import { standardV1 } from "@flarex/standard-application-definition/internal/legacy-authoring";
 import { v } from "flarex/values";
 import { describe, expect, it } from "vitest";
 

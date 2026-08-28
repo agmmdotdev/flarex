@@ -15,7 +15,7 @@ import {
   materializeStandardApplicationArtifactsV1,
   prepareStandardApplicationProgramV1,
   type PreparedStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Result } from "effect";
 

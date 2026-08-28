@@ -19,7 +19,7 @@ import {
 } from "flarex-dev/internal/managed-schema";
 import {
   prepareStandardApplicationDefinitionV1,
-} from "@flarex/standard-application-definition/v1";
+} from "@flarex/standard-application-definition/internal/prepared-definition-v1";
 import {
   createApplicationNativeMutationPGliteFixture,
   type ApplicationNativeMutationAnalysis,

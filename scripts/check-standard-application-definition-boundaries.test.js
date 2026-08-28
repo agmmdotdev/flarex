@@ -185,7 +185,7 @@ describe("Standard Application definition boundary checker", () => {
     );
 
     expect(report.errors).toEqual([
-      "Standard Application definition package must expose exactly ./v1, ./application-source, and its four declared private owner subpaths with no package root.",
+      "Standard Application definition package must expose exactly ./application-source and its six declared internal owner subpaths with no package root or /v1 product export.",
     ]);
   });
 
@@ -381,7 +381,8 @@ describe("Application definition boundary checker", () => {
           import { compareUtf16Strings } from "@flarex/utils/strings";
           import type { Program } from "@flarex/declarative-program/v1";
           import { materialize } from "@flarex/declarative-materializer/v1";
-          import { standardV1 } from "@flarex/standard-application-definition/v1";
+          import { standardV1 } from "@flarex/standard-application-definition/internal/legacy-authoring";
+          import { prepareStandardApplicationDefinitionV1 } from "@flarex/standard-application-definition/internal/prepared-definition-v1";
           import { local } from "./Authoring.js";
           void import("effect");
         `,
@@ -525,11 +526,12 @@ function validManifest() {
       "./application-source": "./src/applicationSourcePublic.ts",
       "./internal/application-task-binding-v1":
         "./src/applicationTaskBinding/v1.ts",
+      "./internal/legacy-authoring": "./src/authoringV1.ts",
+      "./internal/prepared-definition-v1": "./src/preparedDefinitionV1.ts",
       "./internal/relation-definition":
         "./src/relationDefinition/index.ts",
       "./internal/task-authoring-v1": "./src/taskAuthoringV1.ts",
       "./internal/task-definition-v1": "./src/taskDefinition/v1.ts",
-      "./v1": "./src/v1.ts",
     },
     dependencies: {
       "@flarex/analysis": "workspace:*",

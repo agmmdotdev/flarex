@@ -1,7 +1,7 @@
 import { Result, Effect } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import * as DefinitionRoot from "../src/v1";
+import * as PreparedDefinition from "../src/preparedDefinitionV1";
 import {
   APPLICATION_REVISION_TASK_BINDING_CODEC_V1,
   CANONICAL_TASK_CATALOG_CODEC_V1,
@@ -55,8 +55,8 @@ const sha256 = makeStandardApplicationTaskSha256V1((input) =>
 );
 
 describe("Standard Application task definition V1", () => {
-  it("keeps the task-definition surface private from the shipped V1 root", () => {
-    expect("decodeTaskIdV1" in DefinitionRoot).toBe(false);
+  it("keeps task-definition codecs outside the prepared-definition contract", () => {
+    expect("decodeTaskIdV1" in PreparedDefinition).toBe(false);
     const effect: Effect.Effect<
       TaskDefinitionSha256V1,
       import("../src/taskDefinition/v1").StandardApplicationTaskDigestV1Error
