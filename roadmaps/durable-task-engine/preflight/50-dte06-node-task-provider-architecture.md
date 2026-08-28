@@ -1,10 +1,11 @@
 # DTE06 Node Task Provider Architecture Preflight
 
 Status: accepted architecture checkpoint on 2026-08-28. The separately
-approved N1 runtime-family and immutable artifact-contract gate and N2
-execution-session seam are complete. N3 and later gates remain unapproved; no
-Node provider, executor protocol, callback transport, process, deployment,
-credential, external resource, or production activation exists.
+approved N1 runtime-family and immutable artifact-contract gate, N2
+execution-session seam, and N3 Node executor protocol/client gate are complete.
+N4 and later gates remain unapproved; no Node provider, callback transport,
+process, deployment, credential, external resource, or production activation
+exists.
 
 Evidence snapshot: 2026-08-28 current repository state after the completed N2
 provider-neutral execution-session seam and Worker Loader adapter.
@@ -343,6 +344,7 @@ require separate approval and retain this safe order:
 3. **N3 — Node executor protocol:** add the backend-private Node client port,
    strict versioned protocol, deterministic fake, typed failures, idempotent
    start/cancel/recovery keys, and scoped lifecycle; no real Node process;
+   **complete**;
 4. **N4 — authenticated callback transport:** expose the existing Task query
    and mutation authorities through short-lived launch-bound private transport
    and prove replay, stale fence, revocation, budget, and independent
@@ -361,9 +363,9 @@ both standing project reviewers against the exact final diff.
 
 ## Non-Goals
 
-This checkpoint does not authorize beyond the completed N1 and N2 slices:
+This checkpoint does not authorize beyond the completed N1, N2, and N3 slices:
 
-- a runtime-target, callback, provider, session, or deployment wire;
+- a real Node process/provider adapter, callback transport, or deployment wire;
 - a local child process, AWS resource, container, route, binding, token issuer,
   secret, or credential;
 - a public `task()`/`action()` API or `"use node"` syntax change;
@@ -378,16 +380,16 @@ This checkpoint does not authorize beyond the completed N1 and N2 slices:
 
 ## Stop Boundary And Next Gate
 
-Stop after N2. The Worker Loader remains the only real private provider and the
+Stop after N3. The Worker Loader remains the only real private provider and the
 current isolate artifact/session wire behavior remains unchanged. Node profiles
 are explicitly provider-disabled and Node artifact admission reports dispatch
 as blocked.
 
-The next separately approved code gate is N3 only: add the backend-private Node
-client port, strict versioned protocol, deterministic fake, typed failures,
-idempotent start/cancel/recovery keys, and scoped lifecycle without starting a
-real Node process. Do not begin callback endpoints, local execution, or hosted
-deployment in that slice.
+The next separately approved code gate is N4 only: expose the existing Task
+query and mutation authorities through a short-lived, launch-bound private
+transport and prove replay, stale fence, revocation, budgets, and independent
+transaction ownership. Do not begin local Node execution or hosted deployment
+in that slice.
 
 ## N1 Implementation Receipt
 
@@ -444,7 +446,7 @@ Completed on 2026-08-28:
   cancellation receipts, terminal disposition, supervision, close deadlines,
   and every versioned Task Worker wire contract; and
 - kept Node client, protocol, callback transport, process, and deployment work
-  absent for N3 and later gates.
+  absent during N2.
 
 Focused receipt: the backend typecheck, 75 session/supervision/Worker lifecycle
 tests, workspace `lint:core`, unstaged diff lint, and Effect boundary check
