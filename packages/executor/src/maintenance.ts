@@ -1,5 +1,8 @@
 import { MaintenancePolicyError } from "./errors";
-import { abortStaleInvokeSessions } from "./sessions";
+import {
+  type InvokeSessionOperations,
+  runInvokeSessionPromise,
+} from "./sessions";
 import type {
   Clock,
   FlarexExecutorControlPersistence,
@@ -32,6 +35,7 @@ export async function listMaintenanceDeployments(
 export async function runInvokeSessionMaintenance(
   persistence: FlarexExecutorControlPersistence,
   clock: Clock,
+  sessionOperations: InvokeSessionOperations,
   input: RunInvokeSessionMaintenanceInput,
 ): Promise<RunInvokeSessionMaintenanceResult> {
   if (
@@ -52,12 +56,12 @@ export async function runInvokeSessionMaintenance(
 
   const now = clock.now();
   const olderThan = new Date(now.getTime() - input.staleAfterMs);
-  const result = await abortStaleInvokeSessions(persistence, clock, {
+  const result = await runInvokeSessionPromise(sessionOperations.abortStale({
     deploymentId: input.deploymentId,
     projectId: input.projectId,
     olderThan,
     limit: maxSessions,
-  });
+  }));
 
   return {
     staleAborted: result.aborted,
@@ -69,6 +73,7 @@ export async function runInvokeSessionMaintenance(
 export async function runMaintenanceSweep(
   persistence: FlarexExecutorControlPersistence,
   clock: Clock,
+  sessionOperations: InvokeSessionOperations,
   input: RunMaintenanceSweepInput,
 ): Promise<RunMaintenanceSweepResult> {
   const deploymentPage = await listMaintenanceDeployments(persistence, {
@@ -80,14 +85,19 @@ export async function runMaintenanceSweep(
 
   const results: RunMaintenanceSweepResult["deployments"] = [];
   for (const deployment of deploymentPage.deployments) {
-    const maintenance = await runInvokeSessionMaintenance(persistence, clock, {
-      deploymentId: deployment.deploymentId,
-      projectId: deployment.projectId,
-      staleAfterMs: input.staleAfterMs,
-      ...(input.maxSessionsPerDeployment === undefined
-        ? {}
-        : { maxSessions: input.maxSessionsPerDeployment }),
-    });
+    const maintenance = await runInvokeSessionMaintenance(
+      persistence,
+      clock,
+      sessionOperations,
+      {
+        deploymentId: deployment.deploymentId,
+        projectId: deployment.projectId,
+        staleAfterMs: input.staleAfterMs,
+        ...(input.maxSessionsPerDeployment === undefined
+          ? {}
+          : { maxSessions: input.maxSessionsPerDeployment }),
+      },
+    );
     results.push({
       deploymentId: deployment.deploymentId,
       projectId: deployment.projectId,

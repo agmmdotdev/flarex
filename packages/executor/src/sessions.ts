@@ -19,6 +19,19 @@ import type {
   SchemaIndexMetadata,
 } from "./types";
 import {
+  DeploymentValidatorMetadataError,
+  InvokeSessionDeleteTargetError,
+  InvokeSessionDocumentValidationError,
+  InvokeSessionDocumentWriteCorruptionError,
+  InvokeSessionIndexOccConflictError,
+  InvokeSessionIndexMetadataError,
+  InvokeSessionInsertConflictError,
+  InvokeSessionMetadataAlreadyExistsError,
+  InvokeSessionOccConflictError,
+  InvokeSessionPatchTargetError,
+  InvokeSessionReplaceTargetError,
+  InvokeSessionTableOccConflictError,
+  InvokeSessionUnsupportedStagedWriteError,
   parseFlarexDocumentId,
   encodeIndexValues,
   indexBoundsForExpressions,
@@ -33,18 +46,27 @@ import type {
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 import { encodeFlarexId } from "flarex/ids";
 import { isWritableJsonObject } from "flarex-protocol/json";
+import { Clock as EffectClock, Data, Effect } from "effect";
 
 import {
+  AppDataStorageGenerationUnavailableError,
   legacyV1StorageAuthorityForPersistedSession,
   type AppDataEngineRegistry,
 } from "./appDataEngines";
 import { prepareInvoke } from "./invoke";
 import { deploymentSchemaFromAnalysis, tableForName } from "./invoke";
 import {
+  DeploymentFunctionMetadataUnavailableError,
   DeploymentNotFoundError,
+  DeploymentPackageNotActivatedError,
   DeploymentPackageNotFoundError,
   DeploymentProjectMismatchError,
+  DeploymentSchemaMetadataUnavailableError,
   FlarexInsertIdTableMismatchError,
+  FunctionKindMismatchError,
+  FunctionNotFoundError,
+  FunctionNotInvokableError,
+  FunctionVisibilityMismatchError,
   InvokeDeleteDocumentNotFoundError,
   InvokeFinishNotImplementedError,
   InvokePatchDocumentNotFoundError,
@@ -58,50 +80,355 @@ import {
   InvokeSyscallNotAllowedError,
   InvokeSyscallNotImplementedError,
   MaintenancePolicyError,
+  PartitionValidationError,
 } from "./errors";
 
 const ANONYMOUS_EXECUTION_IDENTITY = { kind: "anonymous" } as const;
 
-export async function beginInvokeSession(
-  persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
-  ids: IdGenerator,
-  input: BeginInvokeSessionInput,
-): Promise<BeginInvokeSessionResult> {
-  const prepared = await prepareInvoke(persistence, input);
-  const sessionId = ids.nextId();
-  const beginTs = clock.now().getTime();
-  const identity = input.identity ?? ANONYMOUS_EXECUTION_IDENTITY;
+export class ConfiguredSessionClockError extends Data.TaggedError(
+  "ConfiguredSessionClockError",
+)<{
+  readonly cause: unknown;
+}> {}
 
-  await persistence.insertInvokeSessionMetadata({
-    deploymentId: prepared.deployment.deploymentId,
-    sessionId,
-    projectId: prepared.deployment.projectId,
-    packageId: prepared.package.packageId,
-    functionPath: prepared.function.path,
-    functionKind: prepared.function.kind,
-    partitionKey: prepared.scope.partitionKey,
-    scopeJson: prepared.scope,
-    argsJson: input.args,
-    identityJson: identity,
-    idempotencyKey: input.idempotencyKey ?? null,
-    beginTs,
-    schemaVersion: prepared.schema.version,
-    executionModule: prepared.executionModule,
+export class InvokeSessionDateObservationError extends Data.TaggedError(
+  "InvokeSessionDateObservationError",
+)<{
+  readonly cause: unknown;
+}> {}
+
+export class InvokeSessionForeignOperationError extends Data.TaggedError(
+  "InvokeSessionForeignOperationError",
+)<{
+  readonly operation: InvokeSessionForeignOperation;
+  readonly cause: unknown;
+}> {}
+
+export type InvokeSessionForeignOperation =
+  | "abort invoke session metadata"
+  | "abort stale invoke session metadata"
+  | "allocate invoke session id"
+  | "commit invoke session writes"
+  | "finish invoke session metadata"
+  | "get deployment metadata for stale invoke sessions"
+  | "get invoke session metadata"
+  | "insert invoke session metadata"
+  | "list invoke session document reads"
+  | "list invoke session index reads"
+  | "list invoke session table reads"
+  | "prepare invoke session"
+  | "resolve invoke session app data engine"
+  | "run live query invalidation hook";
+
+export type BeginInvokeSessionEffectError =
+  | ConfiguredSessionClockError
+  | DeploymentFunctionMetadataUnavailableError
+  | DeploymentNotFoundError
+  | DeploymentPackageNotActivatedError
+  | DeploymentPackageNotFoundError
+  | DeploymentProjectMismatchError
+  | DeploymentSchemaMetadataUnavailableError
+  | FunctionKindMismatchError
+  | FunctionNotFoundError
+  | FunctionNotInvokableError
+  | FunctionVisibilityMismatchError
+  | InvokeSessionDateObservationError
+  | InvokeSessionForeignOperationError
+  | InvokeSessionMetadataAlreadyExistsError
+  | PartitionValidationError;
+
+export type CommitInvokeSessionEffectError =
+  | DeploymentValidatorMetadataError
+  | InvokeSessionDeleteTargetError
+  | InvokeSessionDocumentValidationError
+  | InvokeSessionDocumentWriteCorruptionError
+  | InvokeSessionIndexMetadataError
+  | InvokeSessionIndexOccConflictError
+  | InvokeSessionInsertConflictError
+  | InvokeSessionOccConflictError
+  | InvokeSessionPatchTargetError
+  | InvokeSessionReplaceTargetError
+  | InvokeSessionTableOccConflictError
+  | InvokeSessionUnsupportedStagedWriteError;
+
+export type FinishInvokeSessionEffectError =
+  | AppDataStorageGenerationUnavailableError
+  | CommitInvokeSessionEffectError
+  | ConfiguredSessionClockError
+  | InvokeFinishNotImplementedError
+  | InvokeSessionForeignOperationError
+  | InvokeSessionNotActiveError
+  | InvokeSessionNotFoundError
+  | InvokeSessionProjectMismatchError;
+
+export type AbortInvokeSessionEffectError =
+  | ConfiguredSessionClockError
+  | InvokeSessionForeignOperationError
+  | InvokeSessionNotActiveError
+  | InvokeSessionNotFoundError
+  | InvokeSessionProjectMismatchError;
+
+export type AbortStaleInvokeSessionsEffectError =
+  | ConfiguredSessionClockError
+  | DeploymentNotFoundError
+  | DeploymentProjectMismatchError
+  | InvokeSessionForeignOperationError
+  | MaintenancePolicyError;
+
+export interface InvokeSessionOperations {
+  readonly begin: (
+    input: BeginInvokeSessionInput,
+  ) => Effect.Effect<BeginInvokeSessionResult, BeginInvokeSessionEffectError>;
+  readonly finish: (
+    input: FinishInvokeSessionInput,
+  ) => Effect.Effect<FinishInvokeSessionResult, FinishInvokeSessionEffectError>;
+  readonly abort: (
+    input: AbortInvokeSessionInput,
+  ) => Effect.Effect<AbortInvokeSessionResult, AbortInvokeSessionEffectError>;
+  readonly abortStale: (
+    input: AbortStaleInvokeSessionsInput,
+  ) => Effect.Effect<
+    AbortStaleInvokeSessionsResult,
+    AbortStaleInvokeSessionsEffectError
+  >;
+}
+
+export interface InvokeSessionOperationsConfig {
+  readonly persistence: FlarexExecutorControlPersistence;
+  readonly appDataEngines: AppDataEngineRegistry;
+  readonly clock: Clock | undefined;
+  readonly ids: IdGenerator;
+  readonly liveQueryInvalidation: LiveQueryInvalidationConfig | undefined;
+}
+
+export function makeInvokeSessionOperations(
+  config: InvokeSessionOperationsConfig,
+): InvokeSessionOperations {
+  const readTime = makeSessionTimeEffect(config.clock);
+
+  const begin: InvokeSessionOperations["begin"] = Effect.fn(
+    "Executor.invokeSession.begin",
+  )(function* (input): Effect.fn.Return<
+    BeginInvokeSessionResult,
+    BeginInvokeSessionEffectError
+  > {
+    const prepared = yield* tryPrepareInvoke(config.persistence, input);
+    const sessionId = yield* trySessionSync(
+      "allocate invoke session id",
+      () => config.ids.nextId(),
+    );
+    const observedAt = yield* readTime;
+    const beginTs = yield* Effect.try({
+      try: () => observedAt.getTime(),
+      catch: (cause) => new InvokeSessionDateObservationError({ cause }),
+    });
+    const identity = input.identity ?? ANONYMOUS_EXECUTION_IDENTITY;
+
+    yield* trySessionPromiseWithKnownFailure(
+      "insert invoke session metadata",
+      () => config.persistence.insertInvokeSessionMetadata({
+        deploymentId: prepared.deployment.deploymentId,
+        sessionId,
+        projectId: prepared.deployment.projectId,
+        packageId: prepared.package.packageId,
+        functionPath: prepared.function.path,
+        functionKind: prepared.function.kind,
+        partitionKey: prepared.scope.partitionKey,
+        scopeJson: prepared.scope,
+        argsJson: input.args,
+        identityJson: identity,
+        idempotencyKey: input.idempotencyKey ?? null,
+        beginTs,
+        schemaVersion: prepared.schema.version,
+        executionModule: prepared.executionModule,
+      }),
+      isInvokeSessionMetadataAlreadyExistsError,
+    );
+
+    return {
+      sessionId,
+      beginTs,
+      identity,
+      schemaVersion: prepared.schema.version,
+      function: {
+        path: prepared.function.path,
+        kind: prepared.function.kind,
+      },
+      scope: prepared.scope,
+      executionModule: prepared.executionModule,
+    };
   });
 
-  return {
-    sessionId,
-    beginTs,
-    identity,
-    schemaVersion: prepared.schema.version,
-    function: {
-      path: prepared.function.path,
-      kind: prepared.function.kind,
-    },
-    scope: prepared.scope,
-    executionModule: prepared.executionModule,
-  };
+  const finish: InvokeSessionOperations["finish"] = Effect.fn(
+    "Executor.invokeSession.finish",
+  )(function* (input): Effect.fn.Return<
+    FinishInvokeSessionResult,
+    FinishInvokeSessionEffectError
+  > {
+    const session = yield* requireActiveSessionEffect(
+      config.persistence,
+      input,
+    );
+    const appDataEngine = yield* resolveAppDataEngine(
+      config.appDataEngines,
+      session,
+    );
+
+    if (session.functionKind === "query") {
+      const documentReads = yield* trySessionPromise(
+        "list invoke session document reads",
+        () => appDataEngine.listInvokeSessionDocumentReads(
+          input.deploymentId,
+          input.sessionId,
+        ),
+      );
+      const tableReads = yield* trySessionPromise(
+        "list invoke session table reads",
+        () => appDataEngine.listInvokeSessionTableReads(
+          input.deploymentId,
+          input.sessionId,
+        ),
+      );
+      const indexReads = yield* trySessionPromise(
+        "list invoke session index reads",
+        () => appDataEngine.listInvokeSessionIndexReads(
+          input.deploymentId,
+          input.sessionId,
+        ),
+      );
+      const finishedAt = yield* readTime;
+      const finished = yield* trySessionPromise(
+        "finish invoke session metadata",
+        () => config.persistence.finishInvokeSessionMetadata({
+          deploymentId: input.deploymentId,
+          sessionId: input.sessionId,
+          finishedAt,
+        }),
+      );
+      if (finished === null) {
+        return yield* Effect.fail(
+          new InvokeSessionNotFoundError(input.deploymentId, input.sessionId),
+        );
+      }
+
+      return {
+        value: input.value,
+        readSet: readSetFromReads(documentReads, tableReads, indexReads),
+        readTs: session.beginTs,
+      };
+    }
+
+    if (session.functionKind === "mutation") {
+      const finishedAt = yield* readTime;
+      const commit = yield* trySessionPromiseWithKnownFailure(
+        "commit invoke session writes",
+        () => appDataEngine.commitInvokeSessionWrites({
+          deploymentId: input.deploymentId,
+          sessionId: input.sessionId,
+          source: `invoke:${session.functionPath}`,
+          finishedAt,
+          minimumTs: session.beginTs,
+        }),
+        isCommitInvokeSessionEffectError,
+      );
+      yield* trySessionPromise(
+        "run live query invalidation hook",
+        () => runLiveQueryInvalidationHook(config.liveQueryInvalidation, {
+          deploymentId: input.deploymentId,
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          functionPath: session.functionPath,
+          committedTs: commit.committedTs,
+          writes: commit.writes,
+        }),
+      );
+      return {
+        value: input.value,
+        committedTs: commit.committedTs,
+        writes: commit.writes,
+      };
+    }
+
+    return yield* Effect.fail(
+      new InvokeFinishNotImplementedError(session.functionKind),
+    );
+  });
+
+  const abort: InvokeSessionOperations["abort"] = Effect.fn(
+    "Executor.invokeSession.abort",
+  )(function* (input): Effect.fn.Return<
+    AbortInvokeSessionResult,
+    AbortInvokeSessionEffectError
+  > {
+    yield* requireActiveSessionEffect(config.persistence, input);
+    const finishedAt = yield* readTime;
+    const aborted = yield* trySessionPromise(
+      "abort invoke session metadata",
+      () => config.persistence.abortInvokeSessionMetadata({
+        deploymentId: input.deploymentId,
+        sessionId: input.sessionId,
+        finishedAt,
+      }),
+    );
+    if (aborted === null) {
+      return yield* Effect.fail(
+        new InvokeSessionNotFoundError(input.deploymentId, input.sessionId),
+      );
+    }
+    return { aborted: true };
+  });
+
+  const abortStale: InvokeSessionOperations["abortStale"] = Effect.fn(
+    "Executor.invokeSession.abortStale",
+  )(function* (input): Effect.fn.Return<
+    AbortStaleInvokeSessionsResult,
+    AbortStaleInvokeSessionsEffectError
+  > {
+    if (
+      input.limit !== undefined &&
+      (!Number.isFinite(input.limit) ||
+        !Number.isInteger(input.limit) ||
+        input.limit <= 0)
+    ) {
+      return yield* Effect.fail(
+        new MaintenancePolicyError("limit must be a positive integer."),
+      );
+    }
+
+    const deployment = yield* trySessionPromise(
+      "get deployment metadata for stale invoke sessions",
+      () => config.persistence.getDeploymentMetadata(input.deploymentId),
+    );
+    if (deployment === null) {
+      return yield* Effect.fail(new DeploymentNotFoundError(input.deploymentId));
+    }
+    if (deployment.projectId !== input.projectId) {
+      return yield* Effect.fail(new DeploymentProjectMismatchError(
+        input.deploymentId,
+        input.projectId,
+        deployment.projectId,
+      ));
+    }
+
+    const finishedAt = yield* readTime;
+    const aborted = yield* trySessionPromise(
+      "abort stale invoke session metadata",
+      () => config.persistence.abortStaleInvokeSessionsMetadata({
+        deploymentId: input.deploymentId,
+        olderThan: input.olderThan,
+        finishedAt,
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+      }),
+    );
+
+    return {
+      aborted: aborted.sessions.length,
+      sessions: aborted.sessions.map((session) => session.sessionId).toSorted(),
+      hasMore: aborted.hasMore,
+    };
+  });
+
+  return { begin, finish, abort, abortStale };
 }
 
 export async function invokeSyscall(
@@ -419,72 +746,6 @@ export async function invokeSyscall(
   throw new InvokeSyscallNotImplementedError("unknown");
 }
 
-export async function finishInvokeSession(
-  persistence: FlarexExecutorControlPersistence,
-  appDataEngines: AppDataEngineRegistry,
-  clock: Clock,
-  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
-  input: FinishInvokeSessionInput,
-): Promise<FinishInvokeSessionResult> {
-  const session = await requireActiveSession(persistence, input);
-  const appDataEngine = appDataEngines.resolve(
-    legacyV1StorageAuthorityForPersistedSession(session),
-  );
-  if (session.functionKind === "query") {
-    const documentReads = await appDataEngine.listInvokeSessionDocumentReads(
-      input.deploymentId,
-      input.sessionId,
-    );
-    const tableReads = await appDataEngine.listInvokeSessionTableReads(
-      input.deploymentId,
-      input.sessionId,
-    );
-    const indexReads = await appDataEngine.listInvokeSessionIndexReads(
-      input.deploymentId,
-      input.sessionId,
-    );
-    const finished = await persistence.finishInvokeSessionMetadata({
-      deploymentId: input.deploymentId,
-      sessionId: input.sessionId,
-      finishedAt: clock.now(),
-    });
-    if (finished === null) {
-      throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
-    }
-
-    return {
-      value: input.value,
-      readSet: readSetFromReads(documentReads, tableReads, indexReads),
-      readTs: session.beginTs,
-    };
-  }
-
-  if (session.functionKind === "mutation") {
-    const commit = await appDataEngine.commitInvokeSessionWrites({
-      deploymentId: input.deploymentId,
-      sessionId: input.sessionId,
-      source: `invoke:${session.functionPath}`,
-      finishedAt: clock.now(),
-      minimumTs: session.beginTs,
-    });
-    await runLiveQueryInvalidationHook(liveQueryInvalidation, {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      functionPath: session.functionPath,
-      committedTs: commit.committedTs,
-      writes: commit.writes,
-    });
-    return {
-      value: input.value,
-      committedTs: commit.committedTs,
-      writes: commit.writes,
-    };
-  }
-
-  throw new InvokeFinishNotImplementedError(session.functionKind);
-}
-
 async function runLiveQueryInvalidationHook(
   config: LiveQueryInvalidationConfig | undefined,
   input: LiveQueryInvalidationTriggerInput,
@@ -515,62 +776,207 @@ async function runLiveQueryInvalidationHook(
   }
 }
 
-export async function abortInvokeSession(
-  persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
-  input: AbortInvokeSessionInput,
-): Promise<AbortInvokeSessionResult> {
-  await requireActiveSession(persistence, input);
-  const aborted = await persistence.abortInvokeSessionMetadata({
-    deploymentId: input.deploymentId,
-    sessionId: input.sessionId,
-    finishedAt: clock.now(),
-  });
-  if (aborted === null) {
-    throw new InvokeSessionNotFoundError(input.deploymentId, input.sessionId);
-  }
-  return { aborted: true };
+export function runInvokeSessionPromise<A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<A> {
+  return Effect.runPromise(
+    effect.pipe(Effect.mapError(invokeSessionFailureCause)),
+  );
 }
 
-export async function abortStaleInvokeSessions(
-  persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
-  input: AbortStaleInvokeSessionsInput,
-): Promise<AbortStaleInvokeSessionsResult> {
-  if (
-    input.limit !== undefined &&
-    (!Number.isFinite(input.limit) ||
-      !Number.isInteger(input.limit) ||
-      input.limit <= 0)
-  ) {
-    throw new MaintenancePolicyError("limit must be a positive integer.");
+export function invokeSessionFailureCause(error: unknown): unknown {
+  return error instanceof ConfiguredSessionClockError ||
+    error instanceof InvokeSessionDateObservationError ||
+    error instanceof InvokeSessionForeignOperationError
+    ? error.cause
+    : error;
+}
+
+function makeSessionTimeEffect(
+  clock: Clock | undefined,
+): Effect.Effect<Date, ConfiguredSessionClockError> {
+  if (clock !== undefined) {
+    return Effect.try({
+      try: () => clock.now(),
+      catch: (cause) => new ConfiguredSessionClockError({ cause }),
+    });
   }
 
-  const deployment = await persistence.getDeploymentMetadata(input.deploymentId);
-  if (deployment === null) {
-    throw new DeploymentNotFoundError(input.deploymentId);
-  }
-  if (deployment.projectId !== input.projectId) {
-    throw new DeploymentProjectMismatchError(
+  return EffectClock.currentTimeMillis.pipe(
+    Effect.map((currentTimeMillis) => new Date(currentTimeMillis)),
+  );
+}
+
+function trySessionPromise<A>(
+  operation: InvokeSessionForeignOperation,
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, InvokeSessionForeignOperationError> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new InvokeSessionForeignOperationError({
+      operation,
+      cause,
+    }),
+  });
+}
+
+function trySessionPromiseWithKnownFailure<A, E>(
+  operation: InvokeSessionForeignOperation,
+  evaluate: () => PromiseLike<A>,
+  isKnownFailure: (cause: unknown) => cause is E,
+): Effect.Effect<A, E | InvokeSessionForeignOperationError> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => isKnownFailure(cause)
+      ? cause
+      : new InvokeSessionForeignOperationError({ operation, cause }),
+  });
+}
+
+function isInvokeSessionMetadataAlreadyExistsError(
+  cause: unknown,
+): cause is InvokeSessionMetadataAlreadyExistsError {
+  return cause instanceof InvokeSessionMetadataAlreadyExistsError;
+}
+
+function isCommitInvokeSessionEffectError(
+  cause: unknown,
+): cause is CommitInvokeSessionEffectError {
+  return cause instanceof DeploymentValidatorMetadataError ||
+    cause instanceof InvokeSessionDeleteTargetError ||
+    cause instanceof InvokeSessionDocumentValidationError ||
+    cause instanceof InvokeSessionDocumentWriteCorruptionError ||
+    cause instanceof InvokeSessionIndexOccConflictError ||
+    cause instanceof InvokeSessionIndexMetadataError ||
+    cause instanceof InvokeSessionInsertConflictError ||
+    cause instanceof InvokeSessionOccConflictError ||
+    cause instanceof InvokeSessionPatchTargetError ||
+    cause instanceof InvokeSessionReplaceTargetError ||
+    cause instanceof InvokeSessionTableOccConflictError ||
+    cause instanceof InvokeSessionUnsupportedStagedWriteError;
+}
+
+function trySessionSync<A>(
+  operation: InvokeSessionForeignOperation,
+  evaluate: () => A,
+): Effect.Effect<A, InvokeSessionForeignOperationError> {
+  return Effect.try({
+    try: evaluate,
+    catch: (cause) => new InvokeSessionForeignOperationError({
+      operation,
+      cause,
+    }),
+  });
+}
+
+type PrepareInvokeDomainError =
+  | DeploymentFunctionMetadataUnavailableError
+  | DeploymentNotFoundError
+  | DeploymentPackageNotActivatedError
+  | DeploymentPackageNotFoundError
+  | DeploymentProjectMismatchError
+  | DeploymentSchemaMetadataUnavailableError
+  | FunctionKindMismatchError
+  | FunctionNotFoundError
+  | FunctionNotInvokableError
+  | FunctionVisibilityMismatchError
+  | PartitionValidationError;
+
+function tryPrepareInvoke(
+  persistence: FlarexExecutorControlPersistence,
+  input: BeginInvokeSessionInput,
+): Effect.Effect<
+  Awaited<ReturnType<typeof prepareInvoke>>,
+  InvokeSessionForeignOperationError | PrepareInvokeDomainError
+> {
+  return Effect.tryPromise({
+    try: () => prepareInvoke(persistence, input),
+    catch: (cause) => isPrepareInvokeDomainError(cause)
+      ? cause
+      : new InvokeSessionForeignOperationError({
+        operation: "prepare invoke session",
+        cause,
+      }),
+  });
+}
+
+function isPrepareInvokeDomainError(
+  error: unknown,
+): error is PrepareInvokeDomainError {
+  return error instanceof DeploymentFunctionMetadataUnavailableError ||
+    error instanceof DeploymentNotFoundError ||
+    error instanceof DeploymentPackageNotActivatedError ||
+    error instanceof DeploymentPackageNotFoundError ||
+    error instanceof DeploymentProjectMismatchError ||
+    error instanceof DeploymentSchemaMetadataUnavailableError ||
+    error instanceof FunctionKindMismatchError ||
+    error instanceof FunctionNotFoundError ||
+    error instanceof FunctionNotInvokableError ||
+    error instanceof FunctionVisibilityMismatchError ||
+    error instanceof PartitionValidationError;
+}
+
+function resolveAppDataEngine(
+  appDataEngines: AppDataEngineRegistry,
+  session: InvokeSessionMetadataRecord,
+): Effect.Effect<
+  LegacyV1AppDataEngine,
+  AppDataStorageGenerationUnavailableError | InvokeSessionForeignOperationError
+> {
+  return Effect.try({
+    try: () => appDataEngines.resolve(
+      legacyV1StorageAuthorityForPersistedSession(session),
+    ),
+    catch: (cause) => cause instanceof AppDataStorageGenerationUnavailableError
+      ? cause
+      : new InvokeSessionForeignOperationError({
+        operation: "resolve invoke session app data engine",
+        cause,
+      }),
+  });
+}
+
+const requireActiveSessionEffect = Effect.fn(
+  "Executor.invokeSession.requireActive",
+)(function* (
+  persistence: FlarexExecutorControlPersistence,
+  input: { deploymentId: string; projectId: string; sessionId: string },
+): Effect.fn.Return<
+  InvokeSessionMetadataRecord,
+  | InvokeSessionForeignOperationError
+  | InvokeSessionNotActiveError
+  | InvokeSessionNotFoundError
+  | InvokeSessionProjectMismatchError
+> {
+  const session = yield* trySessionPromise(
+    "get invoke session metadata",
+    () => persistence.getInvokeSessionMetadata(
       input.deploymentId,
-      input.projectId,
-      deployment.projectId,
+      input.sessionId,
+    ),
+  );
+  if (session === null) {
+    return yield* Effect.fail(
+      new InvokeSessionNotFoundError(input.deploymentId, input.sessionId),
     );
   }
-
-  const aborted = await persistence.abortStaleInvokeSessionsMetadata({
-    deploymentId: input.deploymentId,
-    olderThan: input.olderThan,
-    finishedAt: clock.now(),
-    ...(input.limit === undefined ? {} : { limit: input.limit }),
-  });
-
-  return {
-    aborted: aborted.sessions.length,
-    sessions: aborted.sessions.map((session) => session.sessionId).toSorted(),
-    hasMore: aborted.hasMore,
-  };
-}
+  if (session.projectId !== input.projectId) {
+    return yield* Effect.fail(new InvokeSessionProjectMismatchError(
+      input.deploymentId,
+      input.sessionId,
+      input.projectId,
+      session.projectId,
+    ));
+  }
+  if (session.state !== "active") {
+    return yield* Effect.fail(new InvokeSessionNotActiveError(
+      input.deploymentId,
+      input.sessionId,
+      session.state,
+    ));
+  }
+  return session;
+});
 
 async function requireActiveSession(
   persistence: FlarexExecutorControlPersistence,

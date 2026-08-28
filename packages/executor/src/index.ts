@@ -52,14 +52,15 @@ import {
   runInvokeSessionMaintenance,
   runMaintenanceSweep,
 } from "./maintenance";
-import { runInvokeWithRetries as runInvokeWithRetriesInternal } from "./retry";
 import {
-  abortInvokeSession,
-  abortStaleInvokeSessions,
-  beginInvokeSession,
+  runInvokeWithRetriesEffect,
+  runInvokeWithRetriesPromise,
+} from "./retry";
+import {
   defaultIds,
-  finishInvokeSession,
   invokeSyscall,
+  makeInvokeSessionOperations,
+  runInvokeSessionPromise,
 } from "./sessions";
 import type {
   FlarexExecutor,
@@ -251,6 +252,13 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     createLegacyV1AppDataEngine(persistence),
   );
   const liveQueryInvalidation = config.liveQueryInvalidation;
+  const sessionOperations = makeInvokeSessionOperations({
+    persistence,
+    appDataEngines,
+    clock: configuredClock,
+    ids,
+    liveQueryInvalidation,
+  });
 
   function runInvokeWithRetriesForExecutor(
     input: RunQueryInvokeWithRetriesInput,
@@ -264,13 +272,13 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   function runInvokeWithRetriesForExecutor(
     input: RunInvokeWithRetriesInput,
   ): Promise<RunInvokeWithRetriesResult> {
-    return runInvokeWithRetriesInternal(
-      persistence,
-      appDataEngines,
-      clock,
-      ids,
-      liveQueryInvalidation,
-      input,
+    return runInvokeWithRetriesPromise(
+      runInvokeWithRetriesEffect(
+        persistence,
+        appDataEngines,
+        sessionOperations,
+        input,
+      ),
     );
   }
 
@@ -284,21 +292,15 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     getActiveDeploymentAuthConfig: (input) =>
       getActiveDeploymentAuthConfig(persistence, input),
     beginInvokeSession: (input) =>
-      beginInvokeSession(persistence, clock, ids, input),
+      runInvokeSessionPromise(sessionOperations.begin(input)),
     finishInvokeSession: (input) =>
-      finishInvokeSession(
-        persistence,
-        appDataEngines,
-        clock,
-        liveQueryInvalidation,
-        input,
-      ),
+      runInvokeSessionPromise(sessionOperations.finish(input)),
     abortInvokeSession: (input) =>
-      abortInvokeSession(persistence, clock, input),
+      runInvokeSessionPromise(sessionOperations.abort(input)),
     abortStaleInvokeSessions: (input) =>
-      abortStaleInvokeSessions(persistence, clock, input),
+      runInvokeSessionPromise(sessionOperations.abortStale(input)),
     runInvokeSessionMaintenance: (input) =>
-      runInvokeSessionMaintenance(persistence, clock, input),
+      runInvokeSessionMaintenance(persistence, clock, sessionOperations, input),
     listMaintenanceDeployments: (input) =>
       listMaintenanceDeployments(persistence, input),
     listUndeliveredOutboxEvents: (input) =>
@@ -351,13 +353,11 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     runLiveQuerySubscriptionWithInvoke: (input) =>
       runLiveQuerySubscriptionWithInvoke(
         persistence,
-        appDataEngines,
-        clock,
-        ids,
+        runInvokeWithRetriesForExecutor,
         input,
       ),
     runMaintenanceSweep: (input) =>
-      runMaintenanceSweep(persistence, clock, input),
+      runMaintenanceSweep(persistence, clock, sessionOperations, input),
     runInvokeWithRetries: runInvokeWithRetriesForExecutor,
     invokeSyscall: (input) => invokeSyscall(persistence, appDataEngines, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),

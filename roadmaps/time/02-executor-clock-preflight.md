@@ -128,8 +128,9 @@ The public executor remains Promise-based. Without an injected legacy clock,
 health uses the native Effect Clock. When `FlarexExecutorConfig.clock` is
 present, the executor composition boundary supplies a health-local Effect that
 preserves the exact `clock.now().toISOString()` method dispatch and rejection
-behavior. All other executor consumers retain the captured legacy clock
-unchanged.
+behavior. Session lifecycle and retry operations have since completed their
+separate ECLK01-B1 gate. Remaining executor consumers retain the captured
+legacy clock unchanged.
 
 Tests pin persistence-before-clock ordering, one legacy observation, degraded
 persistence data, invalid-Date rejection, configured `Date` method dispatch,

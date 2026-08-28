@@ -91,11 +91,13 @@ migration. It requires its own compatibility evidence and approval.
    The package-only executor audit is complete in
    `roadmaps/time/02-executor-clock-preflight.md`; ECLK01-A migrated health
    reporting to an Effect-native operation while retaining the public executor
-   `Clock` compatibility boundary. ECLK01-B0 now pins session and retry clock
-   order, read counts, `Date` identity, and error precedence in
-   `roadmaps/time/03-executor-session-clock-preflight.md`; its Effect runtime
-   migration remains the next package-only gate. `PartitionDO` commit metadata
-   remains a separate host authority decision outside this package-only gate.
+   `Clock` compatibility boundary. ECLK01-B1 now runs session lifecycle and
+   retry orchestration through Effect-native operations while preserving the
+   Promise facade, configured-clock compatibility, read order, `Date` identity,
+   and error precedence; see
+   `roadmaps/time/03-executor-session-clock-preflight.md`. Remaining executor
+   clock families stay separately gated. `PartitionDO` commit metadata remains
+   a separate host authority decision outside this package-only gate.
 4. Persistence codecs: centralize representation conversion only where row
    decoding, corruption ownership, transaction order, and database authority
    remain unchanged.

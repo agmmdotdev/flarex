@@ -3,6 +3,7 @@ import {
   InvokeSessionOccConflictError,
   InvokeSessionTableOccConflictError,
 } from "@flarex/persistence-postgres";
+import { Data, Effect, Exit } from "effect";
 
 import type { AppDataEngineRegistry } from "./appDataEngines";
 import {
@@ -10,16 +11,15 @@ import {
   InvokeRetryPolicyError,
 } from "./errors";
 import {
-  abortInvokeSession,
-  beginInvokeSession,
-  finishInvokeSession,
+  invokeSessionFailureCause,
   invokeSyscall,
+  type BeginInvokeSessionEffectError,
+  type FinishInvokeSessionEffectError,
+  type InvokeSessionOperations,
+  runInvokeSessionPromise,
 } from "./sessions";
 import type {
-  Clock,
   FlarexExecutorControlPersistence,
-  IdGenerator,
-  LiveQueryInvalidationConfig,
   RunMutationInvokeWithRetriesInput,
   RunMutationInvokeWithRetriesResult,
   RunQueryInvokeWithRetriesInput,
@@ -30,95 +30,162 @@ import type {
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 
-export async function runInvokeWithRetries(
+export class InvokeAttemptForeignError extends Data.TaggedError(
+  "InvokeAttemptForeignError",
+)<{
+  readonly cause: unknown;
+}> {}
+
+export type RunInvokeWithRetriesEffectError =
+  | BeginInvokeSessionEffectError
+  | FinishInvokeSessionEffectError
+  | InvokeAttemptForeignError
+  | InvokeRetryExhaustedError
+  | InvokeRetryPolicyError;
+
+export function runInvokeWithRetriesEffect(
   persistence: FlarexExecutorControlPersistence,
   appDataEngines: AppDataEngineRegistry,
-  clock: Clock,
-  ids: IdGenerator,
-  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  sessionOperations: InvokeSessionOperations,
   input: RunQueryInvokeWithRetriesInput,
-): Promise<RunQueryInvokeWithRetriesResult>;
-export async function runInvokeWithRetries(
+): Effect.Effect<
+  RunQueryInvokeWithRetriesResult,
+  RunInvokeWithRetriesEffectError
+>;
+export function runInvokeWithRetriesEffect(
   persistence: FlarexExecutorControlPersistence,
   appDataEngines: AppDataEngineRegistry,
-  clock: Clock,
-  ids: IdGenerator,
-  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  sessionOperations: InvokeSessionOperations,
   input: RunMutationInvokeWithRetriesInput,
-): Promise<RunMutationInvokeWithRetriesResult>;
-export async function runInvokeWithRetries(
+): Effect.Effect<
+  RunMutationInvokeWithRetriesResult,
+  RunInvokeWithRetriesEffectError
+>;
+export function runInvokeWithRetriesEffect(
   persistence: FlarexExecutorControlPersistence,
   appDataEngines: AppDataEngineRegistry,
-  clock: Clock,
-  ids: IdGenerator,
-  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  sessionOperations: InvokeSessionOperations,
   input: RunInvokeWithRetriesInput,
-): Promise<RunInvokeWithRetriesResult>;
-export async function runInvokeWithRetries(
+): Effect.Effect<RunInvokeWithRetriesResult, RunInvokeWithRetriesEffectError>;
+export function runInvokeWithRetriesEffect(
   persistence: FlarexExecutorControlPersistence,
   appDataEngines: AppDataEngineRegistry,
-  clock: Clock,
-  ids: IdGenerator,
-  liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
+  sessionOperations: InvokeSessionOperations,
   input: RunInvokeWithRetriesInput,
-): Promise<RunInvokeWithRetriesResult> {
+): Effect.Effect<RunInvokeWithRetriesResult, RunInvokeWithRetriesEffectError> {
+  return runInvokeWithRetriesOperation(
+    persistence,
+    appDataEngines,
+    sessionOperations,
+    input,
+  );
+}
+
+export function runInvokeWithRetriesPromise<A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<A> {
+  return runInvokeSessionPromise(
+    effect.pipe(Effect.mapError((error) =>
+      error instanceof InvokeAttemptForeignError ? error.cause : error
+    )),
+  );
+}
+
+const runInvokeWithRetriesOperation = Effect.fn(
+  "Executor.invokeSession.runWithRetries",
+)(function* (
+  persistence: FlarexExecutorControlPersistence,
+  appDataEngines: AppDataEngineRegistry,
+  sessionOperations: InvokeSessionOperations,
+  input: RunInvokeWithRetriesInput,
+): Effect.fn.Return<
+  RunInvokeWithRetriesResult,
+  RunInvokeWithRetriesEffectError
+> {
   const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   if (
     !Number.isFinite(maxAttempts) ||
     !Number.isInteger(maxAttempts) ||
     maxAttempts <= 0
   ) {
-    throw new InvokeRetryPolicyError("maxAttempts must be a positive integer.");
+    return yield* Effect.fail(
+      new InvokeRetryPolicyError("maxAttempts must be a positive integer."),
+    );
   }
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const session = await beginInvokeSession(persistence, clock, ids, input);
-
-    try {
-      const value = await input.runAttempt({
-        attempt,
-        maxAttempts,
-        session,
-        syscall: (syscall) =>
-          invokeSyscall(persistence, appDataEngines, {
+  const runAttempt = (
+    attempt: number,
+  ): Effect.Effect<
+    RunInvokeWithRetriesResult,
+    RunInvokeWithRetriesEffectError
+  > => Effect.gen(function* () {
+    const session = yield* sessionOperations.begin(input);
+    const postBegin = Effect.gen(function* () {
+      const value = yield* Effect.tryPromise({
+        try: () => input.runAttempt({
+          attempt,
+          maxAttempts,
+          session,
+          syscall: (syscall) => invokeSyscall(persistence, appDataEngines, {
             deploymentId: input.deploymentId,
             projectId: input.projectId,
             sessionId: session.sessionId,
             syscall,
           }),
+        }),
+        catch: (cause) => new InvokeAttemptForeignError({ cause }),
       });
-      const finished = await finishInvokeSession(
-        persistence,
-        appDataEngines,
-        clock,
-        liveQueryInvalidation,
-        {
-          deploymentId: input.deploymentId,
-          projectId: input.projectId,
-          sessionId: session.sessionId,
-          value,
-        },
-      );
+      const finished = yield* sessionOperations.finish({
+        deploymentId: input.deploymentId,
+        projectId: input.projectId,
+        sessionId: session.sessionId,
+        value,
+      });
       return {
         ...finished,
         attempts: attempt,
         beginTs: session.beginTs,
       };
-    } catch (error) {
-      await abortAttempt(persistence, clock, input, session.sessionId);
+    }).pipe(
+      Effect.onExit((exit) => Exit.isFailure(exit)
+        ? settleBestEffortAbort(sessionOperations.abort({
+          deploymentId: input.deploymentId,
+          projectId: input.projectId,
+          sessionId: session.sessionId,
+        }))
+        : Effect.void),
+    );
 
-      if (session.function.kind === "mutation" && isRetryableInvokeError(error)) {
-        if (attempt < maxAttempts) {
-          continue;
+    return yield* Effect.matchEffect(postBegin, {
+      onFailure: (error) => {
+        const authoritativeError = error instanceof InvokeAttemptForeignError
+          ? error.cause
+          : invokeSessionFailureCause(error);
+        if (
+          session.function.kind === "mutation" &&
+          isRetryableInvokeError(authoritativeError)
+        ) {
+          return attempt < maxAttempts
+            ? Effect.suspend(() => runAttempt(attempt + 1))
+            : Effect.fail(
+              new InvokeRetryExhaustedError(maxAttempts, authoritativeError),
+            );
         }
-        throw new InvokeRetryExhaustedError(maxAttempts, error);
-      }
+        return Effect.fail(error);
+      },
+      onSuccess: Effect.succeed,
+    });
+  });
 
-      throw error;
-    }
-  }
+  return yield* runAttempt(1);
+});
 
-  throw new InvokeRetryPolicyError("maxAttempts must be a positive integer.");
+function settleBestEffortAbort<A, E>(
+  abort: Effect.Effect<A, E>,
+): Effect.Effect<void> {
+  // The retry contract suppresses only the abort operation's typed failure.
+  // Effect.result leaves interruption and defects in the Cause channel.
+  return Effect.result(abort).pipe(Effect.asVoid);
 }
 
 export function isRetryableInvokeError(error: unknown): boolean {
@@ -140,24 +207,6 @@ export function isRetryableInvokeError(error: unknown): boolean {
     record.name === "InvokeSessionIndexOccConflictError" ||
     record.code === "40001"
   );
-}
-
-async function abortAttempt(
-  persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
-  input: Pick<RunInvokeWithRetriesInput, "deploymentId" | "projectId">,
-  sessionId: string,
-): Promise<void> {
-  try {
-    await abortInvokeSession(persistence, clock, {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      sessionId,
-    });
-  } catch {
-    // The attempt may already be non-active if the failure happened after a
-    // successful finish path. Preserve the original user or commit error.
-  }
 }
 
 function asErrorRecord(

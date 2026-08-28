@@ -10,7 +10,6 @@ import {
   type CanonicalJsonEncodingInvariantIssue,
 } from "flarex-protocol/json";
 
-import type { AppDataEngineRegistry } from "./appDataEngines";
 import {
   DeploymentNotFoundError,
   DeploymentProjectMismatchError,
@@ -18,12 +17,12 @@ import {
   LiveQuerySubscriptionRerunError,
 } from "./errors";
 import { ensureDeployment } from "./deployments";
-import { runInvokeWithRetries } from "./retry";
 import type {
   Clock,
   DeleteExpiredLiveQuerySubscriptionsResult,
   FindStaleLiveQuerySubscriptionsInput,
   FindStaleLiveQuerySubscriptionsResult,
+  FlarexExecutor,
   FlarexExecutorControlPersistence,
   IdGenerator,
   Json,
@@ -391,9 +390,7 @@ export async function rerunStaleLiveQuerySubscriptions(
 
 export async function runLiveQuerySubscriptionWithInvoke(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngines: AppDataEngineRegistry,
-  clock: Clock,
-  ids: IdGenerator,
+  runInvokeWithRetries: FlarexExecutor["runInvokeWithRetries"],
   input: RunLiveQuerySubscriptionWithInvokeInput,
 ): Promise<RerunLiveQuerySubscriptionOutput> {
   const subscription = input.subscription;
@@ -423,28 +420,21 @@ export async function runLiveQuerySubscriptionWithInvoke(
     );
   }
 
-  const result = await runInvokeWithRetries(
-    persistence,
-    appDataEngines,
-    clock,
-    ids,
-    undefined,
-    {
-      deploymentId: subscription.deploymentId,
-      projectId: deployment.projectId,
-      path: subscription.functionPath,
-      kind: "query",
-      // SAFETY: subscription.argsJson is stored validated JSON per the
-      // live-query subscription contract.
-      args: subscription.argsJson as Json,
-      identity: subscription.identityJson,
-      partitionKey: subscription.partitionKey,
-      ...(input.maxAttempts === undefined
-        ? {}
-        : { maxAttempts: input.maxAttempts }),
-      runAttempt: (attempt) => input.executeQuery(attempt, subscription),
-    },
-  );
+  const result = await runInvokeWithRetries({
+    deploymentId: subscription.deploymentId,
+    projectId: deployment.projectId,
+    path: subscription.functionPath,
+    kind: "query",
+    // SAFETY: subscription.argsJson is stored validated JSON per the
+    // live-query subscription contract.
+    args: subscription.argsJson as Json,
+    identity: subscription.identityJson,
+    partitionKey: subscription.partitionKey,
+    ...(input.maxAttempts === undefined
+      ? {}
+      : { maxAttempts: input.maxAttempts }),
+    runAttempt: (attempt) => input.executeQuery(attempt, subscription),
+  });
 
   return {
     value: result.value,
