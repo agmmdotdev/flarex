@@ -143,7 +143,10 @@ Before commit:
 
 Stop after the scoped bundle factory, the one-route Application composition,
 focused and connected proof, exact-final review, and one intentional commit.
-The next provider remains a separate design and implementation preflight.
+The next provider remains separately gated. Its accepted docs-only architecture
+and ordered runtime-family, artifact, session, protocol, callback, local-host,
+and hosted-provider gates are recorded in
+[`Preflight 50`](./50-dte06-node-task-provider-architecture.md).
 
 ## Implementation Receipt
 

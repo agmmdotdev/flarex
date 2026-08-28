@@ -68,6 +68,12 @@ as
 recorded in
 [`preflight/49-dte06-worker-loader-routed-composition.md`](./preflight/49-dte06-worker-loader-routed-composition.md).
 It adds no second provider or production activation.
+The docs-only Node Task provider architecture is accepted in
+[`preflight/50-dte06-node-task-provider-architecture.md`](./preflight/50-dte06-node-task-provider-architecture.md).
+It keeps the current provider ABI and Task lifecycle, but requires a distinct
+immutable Node runtime family/artifact, transport-neutral execution session,
+authenticated callback transport, and separately selected deployment adapter.
+No Node implementation is authorized.
 The detailed C0-C3 evidence, repository, discovery, deadline, restart,
 lost-receipt, two-host, multi-scope, PGlite, and genuine-PostgreSQL proofs remain
 the admitted foundation for the current private Worker Loader composition.
@@ -757,7 +763,9 @@ Roadmap 06 does not authorize:
 - a generic requested-effect delivery framework;
 - replacing Task System lifecycle, Postgres authority, OCC, commit, journal,
   outbox, feed, or application-row owners;
-- a second artifact materializer, executor, or user-code runtime;
+- a parallel artifact/runtime authority or an alternate provider that bypasses
+  the separately preflighted runtime-family, artifact, session, and placement
+  contracts;
 - Trigger.dev Prisma, Redis, organization, deployment, compute, or runtime
   services in the production import graph;
 - raw user payloads, results, logs, traces, headers, tokens, or database values
@@ -792,6 +800,8 @@ scheduling-parity correction is complete privately. The separately gated F3/F4
 hosted work and DTE05-E3 scheduled host remain closed. Preflight 47 is the
 accepted architecture checkpoint, Preflight 48's provider-router
 implementation is complete, and Preflight 49 now routes the same scoped Worker
-Loader provider in the private Application composition. Public APIs,
+Loader provider in the private Application composition. Preflight 50 accepts
+the docs-only Node provider architecture while leaving its first runtime-family
+and artifact code gate closed. Public APIs,
 observability/live streams, routes, bindings, deployment, fallback, dual
 execution, and production activation remain unauthorized.

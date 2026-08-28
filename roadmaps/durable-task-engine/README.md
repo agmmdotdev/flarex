@@ -166,6 +166,12 @@ The next private slice is complete: the same scoped Worker Loader provider now
 reaches that seam in the Application delivery composition, as recorded in
 [`preflight/49-dte06-worker-loader-routed-composition.md`](./preflight/49-dte06-worker-loader-routed-composition.md).
 It authorizes neither an alternate provider nor production activation.
+The accepted docs-only Node provider architecture is recorded in
+[`preflight/50-dte06-node-task-provider-architecture.md`](./preflight/50-dte06-node-task-provider-architecture.md).
+It preserves Task as the durable API and Node as a runtime family behind the
+provider seam. Current Task artifacts and callback/session transports remain
+Worker-specific, so the first later code gate is immutable Node artifact and
+runtime-family publication/readiness rather than provider deployment.
 E1 through E5 are complete privately. The current
 session preserves exact terminal
 values, typed failures, and interruption provenance, and the pure mapper cannot
@@ -205,7 +211,9 @@ exclusion, persisted expiry/retry grant, old-host fencing, and one winning
 fresh Worker in PGlite and ordinary-role genuine PostgreSQL without a new
 runtime owner. Preflight 47's runtime-kernel/provider-placement decision,
 Preflight 48's provider router, and Preflight 49's private Worker Loader routed
-composition are complete. F3/F4 remain separately gated.
+composition are complete. Preflight 50 accepts the docs-only Node provider
+architecture; every Node implementation gate remains closed. F3/F4 remain
+separately gated.
 The full discovery, continuation, budget, and original stop boundary are
 recorded in
 [`preflight/36-dte06-connected-mock-delivery.md`](./preflight/36-dte06-connected-mock-delivery.md).
@@ -421,11 +429,12 @@ and fenced claims.
 
 ### 7. Execution Reuses Existing Flarex Runtime Owners
 
-The task engine schedules and supervises task attempts; it does not create a
-second user-code runtime. Attempts bind to immutable Flarex application
-revisions and runtime artifacts and execute through a Flarex-owned
-`ComputeProvider`, using the existing Worker Loader/runtime boundary or another
-approved provider such as AgentOS.
+The task engine schedules and supervises task attempts; it does not itself own
+a user-code runtime or create parallel artifact authority. Attempts bind to
+immutable Flarex application revisions, runtime families, and artifacts and
+execute through a Flarex-owned `ComputeProvider`, using the existing Worker
+Loader/runtime boundary or a separately approved Node, AgentOS, or other
+provider.
 
 User code receives the same restricted execution and database capabilities as
 other Flarex runtime paths. It never receives task tables, Postgres, Drizzle,
@@ -495,7 +504,8 @@ private then public Flarex task APIs
              -> Cloudflare wake and coordination adapters
              -> Flarex ComputeProvider
                   -> Worker Loader runtime
-                  -> AgentOS or another approved provider
+                  -> Node runtime or another approved provider
+                  -> AgentOS only after its separate capability preflight
 ```
 
 Likely package owners include a workspace-private host-neutral durable-task

@@ -334,3 +334,10 @@ The completed private Worker Loader composition gate is recorded in
 the existing scoped provider as a plain bundle and route that same provider in
 the private Application delivery composition; it may not add an alternate
 provider or production activation.
+
+The accepted docs-only Node Task provider architecture is recorded in
+[`Preflight 50`](./50-dte06-node-task-provider-architecture.md). It finds that
+the control-plane provider seam is ready, while the current immutable Task
+artifact, callback transport, and supervision session remain Worker-specific.
+Its first separately approved code gate is the Node runtime-family and artifact
+contract, not a provider or deployment implementation.
