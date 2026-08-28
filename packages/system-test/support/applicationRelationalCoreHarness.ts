@@ -15,12 +15,10 @@ import {
   "@flarex/standard-application-invocation/internal/application-relation-query-system";
 import {
   ApplicationMutationSystem,
+  invokeApplicationMutation,
   makeApplicationMutationSystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
-import {
-  invokeStandardApplicationPointMutationV1,
-} from "@flarex/standard-application-invocation/v1";
 import {
   prepareStandardApplicationDefinitionV1,
 } from "@flarex/standard-application-definition/v1";
@@ -408,7 +406,7 @@ async function invokeMutation(
   input: Readonly<Record<string, unknown>>,
   ordinal: number,
 ): Promise<string> {
-  const outcome = await invoke(invokeStandardApplicationPointMutationV1(
+  const outcome = await invoke(invokeApplicationMutation(
     MUTATION_PATH,
     { action, ...input },
     TransactionRequestKeyV1Schema.make(

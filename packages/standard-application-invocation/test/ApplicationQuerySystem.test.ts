@@ -52,7 +52,6 @@ import {
   type ApplicationQuerySystemLive,
   type ApplicationSelectionQueryLive,
 } from "../src/ApplicationQuerySystem";
-import { invokeStandardApplicationPointQueryV1 } from "../src/v1";
 
 describe("Application query system", () => {
   it("reuses the query core against one supplied opaque selection", async () => {
@@ -242,7 +241,7 @@ describe("Application query system", () => {
     } satisfies ApplicationQuerySystemLive;
 
     const result = await Effect.runPromise(Effect.scoped(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("users:get"),
         { value: 1 },
       ).pipe(

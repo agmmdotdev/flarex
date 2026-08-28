@@ -24,13 +24,11 @@ import {
   ApplicationMutationSystem,
   type ApplicationSelectionMutationPort,
   type ApplicationMutationSystemLive,
+  invokeApplicationMutation,
+  type InvokeApplicationMutationError,
   makeApplicationMutationSystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
-import {
-  invokeStandardApplicationPointMutationV1,
-  type InvokeStandardApplicationPointMutationV1Error,
-} from "@flarex/standard-application-invocation/v1";
 import { Effect, Result, Scope } from "effect";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
@@ -120,7 +118,7 @@ export interface ApplicationNativeMutationReplayObservation {
 }
 
 type ApplicationNativeMutationRequestKeyReuseError = Extract<
-  InvokeStandardApplicationPointMutationV1Error,
+  InvokeApplicationMutationError,
   { readonly _tag: "CommittedPointOutcomeRequestKeyReuseErrorV1" }
 >;
 
@@ -151,7 +149,7 @@ export interface ApplicationNativeMutationValidationCatchObservation {
 }
 
 type ApplicationNativeMutationOutcomeUnavailableError = Extract<
-  InvokeStandardApplicationPointMutationV1Error,
+  InvokeApplicationMutationError,
   { readonly _tag: "ApplicationMutationOutcomeUnavailableError" }
 >;
 
@@ -242,7 +240,7 @@ export interface ApplicationNativeMutationDurableCountsObservation {
 }
 
 type ApplicationNativeMutationJournalTerminalError = Extract<
-  InvokeStandardApplicationPointMutationV1Error,
+  InvokeApplicationMutationError,
   { readonly _tag: "PinnedPointTableNotFoundV1Error" }
 >;
 
@@ -263,7 +261,7 @@ export type ApplicationNativeMutationJournalTerminalOutcomeObservation =
   };
 
 type ApplicationNativeMutationUserCodeTerminalError = Extract<
-  InvokeStandardApplicationPointMutationV1Error,
+  InvokeApplicationMutationError,
   { readonly _tag: "PointMutationOccUserCodeV1Error" }
 >;
 
@@ -448,7 +446,7 @@ export async function proveApplicationNativeMutation(
   }
   const workerLoadsBeforeExternalInternalMutation = loader.loads;
   const externalInternalMutationRejected = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeApplicationMutation(
       internalCreate,
       { name: "External internal mutation" },
       TransactionRequestKeyV1Schema.make(
@@ -576,7 +574,7 @@ export async function proveApplicationNativeMutation(
   const firstKey = TransactionRequestKeyV1Schema.make(
     "application-native:create:1",
   );
-  const published = await invoke(invokeStandardApplicationPointMutationV1(
+  const published = await invoke(invokeApplicationMutation(
     create,
     { name: "Ada" },
     firstKey,
@@ -591,7 +589,7 @@ export async function proveApplicationNativeMutation(
     commitSeq: published.commitSeq,
     workerLoads: loadsAfterPublish,
   });
-  const replayed = await invoke(invokeStandardApplicationPointMutationV1(
+  const replayed = await invoke(invokeApplicationMutation(
     create,
     { name: "Ada" },
     firstKey,
@@ -608,7 +606,7 @@ export async function proveApplicationNativeMutation(
   });
   const conflictingRequestKey:
     ApplicationNativeMutationConflictingRequestKeyObservation = await invoke(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         create,
         { name: "Different" },
         firstKey,
@@ -633,7 +631,7 @@ export async function proveApplicationNativeMutation(
   const initialCommit: ApplicationNativeMutationInitialCommitObservation =
     Object.freeze({ publication, replay, conflictingRequestKey });
   loader.mode = "catchValidation";
-  const caught = await invoke(invokeStandardApplicationPointMutationV1(
+  const caught = await invoke(invokeApplicationMutation(
     create,
     { name: "Grace" },
     TransactionRequestKeyV1Schema.make("application-native:create:2"),
@@ -653,7 +651,7 @@ export async function proveApplicationNativeMutation(
   const duplicateKey = TransactionRequestKeyV1Schema.make(
     "application-native:create:duplicate",
   );
-  const duplicateFirst = invoke(invokeStandardApplicationPointMutationV1(
+  const duplicateFirst = invoke(invokeApplicationMutation(
     create,
     { name: "Concurrent" },
     duplicateKey,
@@ -663,7 +661,7 @@ export async function proveApplicationNativeMutation(
     ApplicationNativeMutationDuplicateContenderObservation;
   try {
     duplicateContender = await invoke(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         create,
         { name: "Concurrent" },
         duplicateKey,
@@ -703,7 +701,7 @@ export async function proveApplicationNativeMutation(
     );
   }
   const duplicateReplay = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeApplicationMutation(
       create,
       { name: "Concurrent" },
       duplicateKey,
@@ -742,7 +740,7 @@ export async function proveApplicationNativeMutation(
   const conflictKey = TransactionRequestKeyV1Schema.make(
     "application-native:create:conflict",
   );
-  const conflictAttempt = invoke(invokeStandardApplicationPointMutationV1(
+  const conflictAttempt = invoke(invokeApplicationMutation(
     create,
     { name: "Conflict winner" },
     conflictKey,
@@ -752,7 +750,7 @@ export async function proveApplicationNativeMutation(
   loader.mode = "patchDocument";
   let competitor: Awaited<typeof conflictAttempt>;
   try {
-    competitor = await invoke(invokeStandardApplicationPointMutationV1(
+    competitor = await invoke(invokeApplicationMutation(
       create,
       { name: "Competing commit" },
       TransactionRequestKeyV1Schema.make(
@@ -815,7 +813,7 @@ export async function proveApplicationNativeMutation(
   const headBlock = loader.blockNextInvocation();
   const headLoadStart = loader.loads;
   const pinnedRevisionId = fixture.active.basis.revisionId;
-  const headAttempt = invoke(invokeStandardApplicationPointMutationV1(
+  const headAttempt = invoke(invokeApplicationMutation(
     create,
     { name: "Pinned before head movement" },
     TransactionRequestKeyV1Schema.make(
@@ -957,7 +955,7 @@ export async function proveApplicationNativeMutation(
   const beforeJournalFailure = await durableCounts(fixture.target);
   loader.mode = "catchTerminalJournalFailure";
   const terminalJournalOutcome = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeApplicationMutation(
       create,
       { name: "Caught terminal journal failure" },
       TransactionRequestKeyV1Schema.make(
@@ -1011,7 +1009,7 @@ export async function proveApplicationNativeMutation(
   const beforeFailure = afterJournalFailure;
   loader.mode = "terminalFailure";
   const terminalUserCodeOutcome = await invoke(
-    invokeStandardApplicationPointMutationV1(
+    invokeApplicationMutation(
       create,
       { name: "Must not commit" },
       TransactionRequestKeyV1Schema.make("application-native:create:3"),

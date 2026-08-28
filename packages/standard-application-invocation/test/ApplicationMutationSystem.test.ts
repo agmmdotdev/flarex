@@ -15,11 +15,11 @@ import {
   ApplicationMutationSystemConfigurationError,
   ApplicationMutationSystem,
   inspectApplicationMutationAuthenticatedIdentity,
+  invokeApplicationMutation,
   invokeAuthenticatedApplicationMutation,
   prepareApplicationMutationAuthenticatedIdentity,
   preflightApplicationMutationSystemConfiguration,
 } from "../src/ApplicationMutationSystem";
-import { invokeStandardApplicationPointMutationV1 } from "../src/v1";
 
 describe("Application mutation System", () => {
   it("rejects an unregistered legacy verifier during construction preflight", () => {
@@ -34,7 +34,7 @@ describe("Application mutation System", () => {
     expect(verify).not.toHaveBeenCalled();
   });
 
-  it("routes the Standard entrypoint only through the unversioned Application service", async () => {
+  it("routes root invocation only through the Application service", async () => {
     const invoke = vi.fn(() => Effect.succeed(Object.freeze({
       status: "committed" as const,
       disposition: "replayed" as const,
@@ -54,7 +54,7 @@ describe("Application mutation System", () => {
     );
 
     const result = await Effect.runPromise(Effect.scoped(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:update"),
         { servings: 2 },
         TransactionRequestKeyV1Schema.make("request-application-system-1"),

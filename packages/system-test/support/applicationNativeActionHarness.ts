@@ -16,13 +16,11 @@ import {
   "@flarex/persistence-postgres/internal/system-test/application-native-mutation-fixture";
 import {
   ApplicationActionSystem,
+  invokeApplicationAction,
   makeApplicationActionSystemLayer,
   type ApplicationActionSystemLive,
 } from
   "@flarex/standard-application-invocation/internal/application-action-system";
-import {
-  invokeStandardApplicationActionV1,
-} from "@flarex/standard-application-invocation/v1";
 import {
   makeExecutionEvidenceBodyStoreV1,
   type ExecutionEvidenceBodyR2BucketV1,
@@ -367,7 +365,7 @@ export async function proveApplicationNativeAction(
   const beforeAdmissionLoads = worker.loads;
   const headRaceGate = deferredGate();
   authorityHashGate = headRaceGate;
-  const headRace = invoke(invokeStandardApplicationActionV1(
+  const headRace = invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "head-before-admission" },
     TransactionRequestKeyV1Schema.make(
@@ -407,7 +405,7 @@ export async function proveApplicationNativeAction(
   const firstKey = TransactionRequestKeyV1Schema.make(
     "application-native-action:first",
   );
-  const first = await invoke(invokeStandardApplicationActionV1(
+  const first = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "hello" },
     firstKey,
@@ -416,7 +414,7 @@ export async function proveApplicationNativeAction(
     throw new Error("Application-native action did not complete.");
   }
   const loadsAfterFirst = worker.loads;
-  const replay = await invoke(invokeStandardApplicationActionV1(
+  const replay = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "hello" },
     firstKey,
@@ -429,7 +427,7 @@ export async function proveApplicationNativeAction(
   }
   let conflictingReuseRejected = false;
   try {
-    await invoke(invokeStandardApplicationActionV1(
+    await invoke(invokeApplicationAction(
       ACTION_PATH,
       { message: "different" },
       firstKey,
@@ -460,7 +458,7 @@ export async function proveApplicationNativeAction(
     actionAuthority,
   ));
   const loadsBeforeCancelledReplay = worker.loads;
-  const cancelled = await invoke(invokeStandardApplicationActionV1(
+  const cancelled = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "cancelled" },
     cancelledKey,
@@ -498,7 +496,7 @@ export async function proveApplicationNativeAction(
   );
   worker.mode = "success";
   const loadsBeforeExpiredRecovery = worker.loads;
-  const expired = await invoke(invokeStandardApplicationActionV1(
+  const expired = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "expired" },
     expiredKey,
@@ -510,7 +508,7 @@ export async function proveApplicationNativeAction(
   }
 
   worker.mode = "outbound";
-  const outbound = await invoke(invokeStandardApplicationActionV1(
+  const outbound = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "outbound" },
     TransactionRequestKeyV1Schema.make("application-native-action:outbound"),
@@ -519,7 +517,7 @@ export async function proveApplicationNativeAction(
     throw new Error("Application-native confirmed outbound action failed.");
   }
   worker.outboundFailure = true;
-  const uncertain = await invoke(invokeStandardApplicationActionV1(
+  const uncertain = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "uncertain" },
     TransactionRequestKeyV1Schema.make("application-native-action:uncertain"),
@@ -536,7 +534,7 @@ export async function proveApplicationNativeAction(
     "application-native-action:head-move",
   );
   worker.blockNext = true;
-  const blocked = invoke(invokeStandardApplicationActionV1(
+  const blocked = invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "head" },
     headKey,
@@ -562,7 +560,7 @@ export async function proveApplicationNativeAction(
     throw new Error("Exact Application action replay depended on current head.");
   }
   const loadsBeforeStaleResume = worker.loads;
-  const staleResume = await invoke(invokeStandardApplicationActionV1(
+  const staleResume = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "stale" },
     staleResumeKey,
@@ -577,7 +575,7 @@ export async function proveApplicationNativeAction(
   const distinctKey = TransactionRequestKeyV1Schema.make(
     "application-native-action:distinct",
   );
-  const distinct = await invoke(invokeStandardApplicationActionV1(
+  const distinct = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "fresh" },
     distinctKey,
@@ -595,7 +593,7 @@ export async function proveApplicationNativeAction(
   const interruptionWaitedForCleanup = await Effect.runPromise(Effect.scoped(
     Effect.gen(function* () {
       const invocationFiber = yield* Effect.forkScoped(
-        invokeStandardApplicationActionV1(
+        invokeApplicationAction(
           ACTION_PATH,
           { message: "interrupt" },
           TransactionRequestKeyV1Schema.make(
@@ -645,7 +643,7 @@ export async function proveApplicationNativeAction(
   }
   worker.mode = "applicationError";
   const applicationError = await Effect.runPromise(Effect.scoped(Effect.flip(
-    invokeStandardApplicationActionV1(
+    invokeApplicationAction(
       ACTION_PATH,
       { message: "application-error" },
       TransactionRequestKeyV1Schema.make(
@@ -661,7 +659,7 @@ export async function proveApplicationNativeAction(
     throw new Error("Structured Application action error was not preserved.");
   }
   worker.mode = "terminalFailure";
-  const terminal = await invoke(invokeStandardApplicationActionV1(
+  const terminal = await invoke(invokeApplicationAction(
     ACTION_PATH,
     { message: "terminal" },
     TransactionRequestKeyV1Schema.make("application-native-action:terminal"),

@@ -4,8 +4,9 @@
 
 **Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
 `CAPI-D` are complete privately. `CAPI-E` is in progress through bounded
-removal checkpoints; its system-test product-surface removal is implemented
-privately, validated, and reviewed on 2026-08-29.
+removal checkpoints. Its system-test product-surface removal is complete
+privately. Its invocation product-surface removal is complete privately,
+validated, and reviewed on 2026-08-29.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
@@ -548,8 +549,14 @@ duplicate compatibility runner and simulation definition, and makes the plain
 environment, inspection, lane, and simulation names the direct implementation.
 The private simulation authoring value and in-memory run receipt no longer
 carry an unneeded chronology field. Concrete Task, protocol, persistence, and
-receipt contracts retain their exact versions. Invocation and definition
-product-surface removals remain separate checkpoints.
+receipt contracts retain their exact versions.
+
+The completed second bounded checkpoint removes
+`@flarex/standard-application-invocation/v1`, migrates its remaining workspace
+consumers directly to the existing unversioned Application query, mutation,
+and Action Systems, and deletes the compatibility wrappers. It does not change
+selection, snapshots, OCC, commit, replay, Action settlement, errors, Scope, or
+system ownership. Definition product-surface removal remains separate.
 
 Inventory every workspace and supported external consumer, then remove the
 displaced versioned product exports and names. Keep only concrete versioned
@@ -604,9 +611,8 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after the first `CAPI-E` system-test removal checkpoint and its focused
-validation, review, and commit. The next bounded checkpoint removes the
-versioned invocation product surface; definition removal follows only after
-its exact internal canonical contracts are separated from obsolete authoring.
-Public SDK, deployment, routing, and production entry surfaces remain
-separately gated.
+Stop after the second `CAPI-E` invocation removal checkpoint and its focused
+validation, review, and commit. Definition removal follows only after its exact
+internal canonical contracts are separated from obsolete authoring. Public
+SDK, deployment, routing, and production entry surfaces remain separately
+gated.

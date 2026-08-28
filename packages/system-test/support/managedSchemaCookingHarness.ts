@@ -64,19 +64,17 @@ import {
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   ApplicationMutationSystem,
+  invokeApplicationMutation,
 } from
   "@flarex/standard-application-invocation/internal/application-mutation-system";
 import { PointMutationOccUserCodeV1Error } from
   "@flarex/executor/internal/stored-attempt-authentication-v1";
 import {
   ApplicationQuerySystem,
+  invokeApplicationQuery,
   makeApplicationQuerySystemLayer,
 } from
   "@flarex/standard-application-invocation/internal/application-query-system";
-import {
-  invokeStandardApplicationPointMutationV1,
-  invokeStandardApplicationPointQueryV1,
-} from "@flarex/standard-application-invocation/v1";
 import {
   APPLICATION_RUNTIME_HOST_IDENTITY,
 } from "flarex-backend/artifact-runtime";
@@ -391,7 +389,7 @@ export async function proveManagedSchemaBlockedPlanDoesNotApply(
 async function establishCookingSchemaB(scenario: CookingScenario) {
     const baseline = await establishCookingSchemaABaseline(scenario);
     const withoutDescription = await scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:create"),
         { name: "Mohinga" },
         TransactionRequestKeyV1Schema.make(
@@ -582,7 +580,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       throw new Error("Rejected cooking schema B replaced schema A.");
     }
     const stillReadable = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: baseline.recipeId },
       ),
@@ -593,7 +591,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     }
 
     const remediated = await scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:removeDescription"),
         { id: baseline.recipeId },
         TransactionRequestKeyV1Schema.make(
@@ -686,7 +684,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       throw new Error("Cooking schema B active authority is inconsistent.");
     }
     const removedArgumentResult = await scenario.mutation(Effect.result(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:create"),
         { name: "Invalid salad", description: "must not return" },
         TransactionRequestKeyV1Schema.make(
@@ -708,7 +706,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
     }
     const countsBeforeRejectedWrite = await durableCounts(scenario.fixture);
     const removedWriteResult = await scenario.mutation(Effect.result(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:writeRemovedDescription"),
         { id: baseline.recipeId },
         TransactionRequestKeyV1Schema.make(
@@ -739,7 +737,7 @@ async function establishCookingSchemaB(scenario: CookingScenario) {
       );
     }
     const finalRecipe = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: baseline.recipeId },
       ),
@@ -912,7 +910,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
       throw new Error("Rejected cooking schema C replaced schema B.");
     }
     const stillReadable = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaBState.baseline.recipeId },
       ),
@@ -936,7 +934,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
       ],
     ] as const) {
       const backfilled = await scenario.mutation(
-        invokeStandardApplicationPointMutationV1(
+        invokeApplicationMutation(
           TransactionFunctionPathV1Schema.make("recipes:addSlug"),
           { id: recipeId, slug, details: { difficulty, servings: 2 } },
           TransactionRequestKeyV1Schema.make(requestKey),
@@ -994,7 +992,7 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
       throw new Error("Cooking schema C active authority is inconsistent.");
     }
     const missingSlugResult = await scenario.mutation(Effect.result(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:create"),
         { name: "Invalid schema C recipe" },
         TransactionRequestKeyV1Schema.make(
@@ -1013,13 +1011,13 @@ async function establishCookingSchemaC(scenario: CookingScenario) {
       throw new Error("Cooking schema C did not reject its missing slug argument.");
     }
     const teaLeafSalad = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaBState.baseline.recipeId },
       ),
     );
     const mohinga = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaBState.secondRecipeId },
       ),
@@ -1197,7 +1195,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
       throw new Error("Rejected cooking schema D replaced schema C.");
     }
     const stillReadable = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaCState.schemaBState.secondRecipeId },
       ),
@@ -1208,7 +1206,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
     }
 
     const remediated = await scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:addSlug"),
         {
           id: schemaCState.schemaBState.secondRecipeId,
@@ -1271,7 +1269,7 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
       throw new Error("Cooking schema D active authority is inconsistent.");
     }
     const invalidNestedArgument = await scenario.mutation(Effect.result(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:addSlug"),
         {
           id: schemaCState.schemaBState.secondRecipeId,
@@ -1295,13 +1293,13 @@ async function establishCookingSchemaD(scenario: CookingScenario) {
       );
     }
     const teaLeafSalad = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaCState.schemaBState.baseline.recipeId },
       ),
     );
     const mohinga = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaCState.schemaBState.secondRecipeId },
       ),
@@ -1411,7 +1409,7 @@ export async function proveManagedSchemaCookingSchemaE(
     const pausedFrameSha256Hex = paused.head.frameSha256Hex;
 
     const candidateValid = await scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:addSlug"),
         {
           id: schemaDState.schemaCState.schemaBState.baseline.recipeId,
@@ -1441,7 +1439,7 @@ export async function proveManagedSchemaCookingSchemaE(
     }
 
     const candidateInvalid = await scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:addSlug"),
         {
           id: schemaDState.schemaCState.schemaBState.secondRecipeId,
@@ -1528,13 +1526,13 @@ export async function proveManagedSchemaCookingSchemaE(
       throw new Error("Failed schema E replaced active schema D.");
     }
     const teaLeafSalad = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaDState.schemaCState.schemaBState.baseline.recipeId },
       ),
     );
     const mohinga = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaDState.schemaCState.schemaBState.secondRecipeId },
       ),
@@ -1813,13 +1811,13 @@ export async function proveManagedSchemaCookingSchemaF(
     }
 
     const teaLeafSalad = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaDState.schemaCState.schemaBState.baseline.recipeId },
       ),
     );
     const mohinga = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaDState.schemaCState.schemaBState.secondRecipeId },
       ),
@@ -1998,7 +1996,7 @@ export async function proveManagedSchemaCookingSchemaG(
     const runtimeRevisionStart = scenario.runtimeLoader.revisionIds.length;
     const block = scenario.runtimeLoader.blockNextInvocation();
     const staleAttempt = scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:addSlug"),
         {
           id: schemaDState.schemaCState.schemaBState.baseline.recipeId,
@@ -2075,7 +2073,7 @@ export async function proveManagedSchemaCookingSchemaG(
     }
 
     const retried = await scenario.mutation(
-      invokeStandardApplicationPointMutationV1(
+      invokeApplicationMutation(
         TransactionFunctionPathV1Schema.make("recipes:addSlug"),
         {
           id: schemaDState.schemaCState.schemaBState.baseline.recipeId,
@@ -2091,7 +2089,7 @@ export async function proveManagedSchemaCookingSchemaG(
       throw new Error("Ordinary schema G retry did not publish.");
     }
     const finalDocument = await scenario.query(
-      invokeStandardApplicationPointQueryV1(
+      invokeApplicationQuery(
         TransactionFunctionPathV1Schema.make("recipes:get"),
         { id: schemaDState.schemaCState.schemaBState.baseline.recipeId },
       ),
@@ -2241,7 +2239,7 @@ async function establishCookingSchemaABaseline(
   );
   const create = TransactionFunctionPathV1Schema.make("recipes:create");
   const published = await scenario.mutation(
-    invokeStandardApplicationPointMutationV1(
+    invokeApplicationMutation(
       create,
       { name: "Tea leaf salad", description: "A bright, crunchy salad." },
       requestKey,
@@ -2253,7 +2251,7 @@ async function establishCookingSchemaABaseline(
   }
   const loadsAfterPublish = scenario.runtimeLoader.loads;
   const replayed = await scenario.mutation(
-    invokeStandardApplicationPointMutationV1(
+    invokeApplicationMutation(
       create,
       { name: "Tea leaf salad", description: "A bright, crunchy salad." },
       requestKey,
@@ -2270,7 +2268,7 @@ async function establishCookingSchemaABaseline(
   }
 
   const queried = await scenario.query(
-    invokeStandardApplicationPointQueryV1(
+    invokeApplicationQuery(
       TransactionFunctionPathV1Schema.make("recipes:get"),
       { id: published.value },
     ),
