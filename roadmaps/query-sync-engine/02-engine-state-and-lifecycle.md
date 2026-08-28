@@ -110,10 +110,10 @@ releaseOrExpireQuery
 resetNamespace
 ```
 
-The docs-only
-[`QSYNC01-B` preflight](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
-now freezes exact channels and the four operation families already proved by
-the kernel. Its implementation is approved but has not started. The remaining
+The completed
+[`QSYNC01-B` slice](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
+freezes exact channels and the four operation families already proved by the
+kernel. Its implementation is private and production-inert. The remaining
 families stay with `QSYNC01-C` or a later pure transition.
 
 Each operation must state:

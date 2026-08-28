@@ -766,6 +766,9 @@ importers:
 
   packages/query-sync:
     dependencies:
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90

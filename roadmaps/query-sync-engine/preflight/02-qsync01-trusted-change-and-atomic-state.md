@@ -2,8 +2,9 @@
 
 ## Status
 
-**Status:** approved implementation preflight on 2026-08-28; implementation not
-started. User approval authorizes only the bounded first medium slice below.
+**Implementation status:** complete, private, and production-inert on
+2026-08-28. `QSYNC01-C` remains a separate required preflight before
+orchestration or a real durable adapter.
 
 `QSYNC01-A` is complete and remains the sole portable transition oracle.
 `QSYNC01-B` freezes the smallest trusted change-model and semantic atomic-state
@@ -895,6 +896,39 @@ An approved implementation must pass:
 
 If reviewer-driven code changes alter the significant diff, rerun both
 reviewers before committing.
+
+## Implementation Receipt
+
+Completed on 2026-08-28 as one private, production-inert extension of
+`@flarex/query-sync`. The package exposes only `./internal/change`,
+`./internal/kernel`, `./internal/state`, `./testing/conformance`, and
+`./testing/reference-model`; it has no package-root export or production
+caller. Its runtime dependencies are `effect` and the exact dependency-leaf
+primitives reused from `@flarex/utils`.
+
+The completed slice includes:
+
+- replayable raw-source envelopes and trusted admitted-change projection;
+- exact page, reset, retention, budget, authority, and projection validation;
+- nominal caught-up authority and complete-interval refresh admission;
+- receipt-only semantic atomic state operations for initialize, begin,
+  apply-and-advance, and core completion;
+- serialized reference source and state implementations with rollback,
+  concurrency, uncertainty, lost-state, and ownership evidence;
+- deterministic key/value and graph projectors with bounded semantic work and
+  exact limit-plus-one proofs; and
+- reusable outcome-valued conformance histories against the reference oracle.
+
+Final evidence:
+
+- `pnpm --filter @flarex/query-sync typecheck` passed;
+- `pnpm --filter @flarex/query-sync test` passed 13 files and 111 tests;
+- `pnpm lint:core`, `pnpm lint:diff`, and the exact staged-index
+  `pnpm lint:diff -- --staged` passed;
+- frozen-lockfile, private-export, dependency-leaf, forbidden-import, Effect
+  runtime-boundary, and `git diff --check` audits passed; and
+- the final `typescript-diff-reviewer` and `code-quality-diff-reviewer`
+  checkpoints reported no findings.
 
 ## Exit And Next Gate
 

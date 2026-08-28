@@ -2,17 +2,18 @@
 
 ## Status And Scope
 
-**Status:** accepted architecture and roadmap authority; the first portable
-kernel slice is complete and production-inert. The separate
-[`QSYNC01-B`](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
-implementation preflight is approved; its bounded implementation has not
-started.
+**Status:** accepted architecture and roadmap authority; `QSYNC01-A` and
+`QSYNC01-B` are complete, private, and production-inert. The next engine gate
+is a separate `QSYNC01-C` orchestration preflight.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
-approved [`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md),
-which now implements the private pure kernel and reference model. It adds no
-adapter, Durable Object, route, client API, or production caller.
+approved [`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md)
+and [`QSYNC01-B`](./preflight/02-qsync01-trusted-change-and-atomic-state.md).
+Together they implement the private pure kernel, admitted change boundary,
+semantic transition-state port, and deterministic reference/conformance
+adapters. They add no real durable adapter, Durable Object, route, client API,
+or production caller.
 
 This roadmap family owns the runtime-neutral semantics for synchronizing
 authoritative server-query results:
@@ -65,9 +66,12 @@ and tests remain the authority for behavior already implemented.
 ## Current Implementation Boundary
 
 The independent private `@flarex/query-sync` package now contains the pure
-runtime-neutral transition kernel and deterministic reference-model testing
-subpath accepted by `QSYNC01-A`. It has no package-root export, no production
-caller, and no host, persistence, network, or delivery adapter.
+runtime-neutral transition kernel, the trusted replayable-source and
+invalidation-projection boundary, nominal refresh admission, a receipt-only
+semantic transition-state port, and deterministic reference/conformance
+adapters accepted by `QSYNC01-A/B`. It has no package-root export, no
+production caller, and no real host, persistence, network, or delivery
+adapter.
 
 Current production-inert work under `flarex-backend/deploymentSync`,
 `DeploymentSyncDO`, and `flarex-protocol/internal/scope-sync-v1` proves useful
@@ -82,7 +86,7 @@ Useful canonical-frame, collision, active/provisional coexistence, corruption,
 and synchronous-SQLite requirements remain inputs to the later Flarex adapter
 preflight.
 
-No production sync caller changes because of `QSYNC01-A`.
+No production sync caller changes because of `QSYNC01-A/B`.
 
 ## Target Architecture
 
@@ -143,10 +147,10 @@ public compatibility contract makes that boundary concrete.
 | --- | --- | --- |
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
-| `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Preflight approved; implementation not started |
+| `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
 | `QSYNC01-C` | Effect-native orchestration over reference capabilities: catch-up, provisional evaluation fencing, rerun coalescing, and publication-outbox decisions | Preflight required |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex query/change adapters plus the first Cloudflare SQLite semantic-store implementation | Blocked on `QSYNC01-B/C`; independent of delivery-adapter selection |
+| `QSYNC-FX01` | Flarex query/change adapters plus the first Cloudflare SQLite semantic-store implementation | Blocked on `QSYNC01-C`; independent of delivery-adapter selection |
 | `QSYNC-FX02` | Postgres catch-up, transactional publication outbox, authenticated query registration, evaluation, and rerun composition | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -182,8 +186,9 @@ paths.
 
 ## Next Correctness Gate
 
-The next correctness gate is the approved `QSYNC01-B` first medium
-implementation slice. It adds the trusted model/change-source boundary and a
-production-inert semantic atomic transition-state contract derived from the
-completed reference transitions. It must not widen into Layers, real storage,
-Postgres, Cloudflare, Electric, query execution, delivery, or client APIs.
+The next correctness gate is a separate `QSYNC01-C` preflight. It must compose
+the completed reference capabilities into Effect-native catch-up, evaluation
+fencing, refresh retry, rerun coalescing, bounded continuation, and atomic
+publication-intent decisions. It must close begin and completion uncertainty
+before any real Cloudflare SQLite adapter is admitted, and it must not widen
+into public client APIs or delivery-adapter adoption.

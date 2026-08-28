@@ -7,7 +7,10 @@
     "src"
   ],
   "exports": {
+    "./internal/change": "./src/change/index.ts",
     "./internal/kernel": "./src/kernel/index.ts",
+    "./internal/state": "./src/state/index.ts",
+    "./testing/conformance": "./src/testing/conformance/index.ts",
     "./testing/reference-model": "./src/testing/index.ts"
   },
   "scripts": {
@@ -16,6 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/utils": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

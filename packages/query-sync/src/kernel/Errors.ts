@@ -24,6 +24,7 @@ export type QuerySyncOperation =
   | "applyAdmittedInvalidations"
   | "completeQueryGeneration"
   | "buildQuerySyncState"
+  | "admitGenerationRefreshEvidence"
   | "deriveGenerationRefreshEvidence"
   | "reduceReferenceModel";
 
@@ -32,6 +33,7 @@ export type QuerySyncAuthorityOperation =
   | "beginQueryGeneration"
   | "applyAdmittedInvalidations"
   | "completeQueryGeneration"
+  | "admitGenerationRefreshEvidence"
   | "deriveGenerationRefreshEvidence";
 
 export type QueryKeyCollisionOperation =
@@ -45,15 +47,26 @@ export type QueryDependencyLimitOperation =
 
 export type QuerySyncWorkLimitOperation =
   | "applyAdmittedInvalidations"
+  | "admitGenerationRefreshEvidence"
   | "deriveGenerationRefreshEvidence";
+
+interface QuerySyncWorkLimitDimensionByOperation {
+  readonly applyAdmittedInvalidations:
+    | "dependencyLookups"
+    | "affectedQueries";
+  readonly admitGenerationRefreshEvidence:
+    | "refreshBatches"
+    | "refreshKeyExaminations"
+    | "refreshCanonicalBytes";
+  readonly deriveGenerationRefreshEvidence:
+    | "refreshBatches"
+    | "refreshKeyExaminations"
+    | "refreshCanonicalBytes";
+}
 
 export type QuerySyncWorkLimitDimension<
   Operation extends QuerySyncWorkLimitOperation,
-> = Operation extends "applyAdmittedInvalidations"
-  ? "dependencyLookups" | "affectedQueries"
-  : Operation extends "deriveGenerationRefreshEvidence"
-    ? "refreshBatches" | "refreshKeyExaminations" | "refreshCanonicalBytes"
-    : never;
+> = QuerySyncWorkLimitDimensionByOperation[Operation];
 
 export class QuerySyncCanonicalValueError extends Data.TaggedError(
   "QuerySyncCanonicalValueError",
@@ -161,10 +174,16 @@ export class InvalidQueryEvidenceError extends Data.TaggedError(
     | "relevantAfterRefresh";
 }> {}
 
-export class InvalidRefreshEvidenceError extends Data.TaggedError(
+export class InvalidRefreshEvidenceError<
+  Operation extends
+    | "admitGenerationRefreshEvidence"
+    | "deriveGenerationRefreshEvidence" =
+      | "admitGenerationRefreshEvidence"
+      | "deriveGenerationRefreshEvidence",
+> extends Data.TaggedError(
   "InvalidRefreshEvidenceError",
 )<{
-  readonly operation: "deriveGenerationRefreshEvidence";
+  readonly operation: Operation;
   readonly reason:
     | "targetBeforeSnapshot"
     | "missingBatch"
