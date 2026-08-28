@@ -68,10 +68,6 @@ import {
   LEGACY_TASK_WORKER_REQUEST_VERSION_V1,
 } from "flarex-protocol/internal/legacy-task-worker-v1";
 import {
-  TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
-  TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
-} from "flarex-protocol/internal/task-worker-session-v1";
-import {
   decodeCanonicalFlarexValueEvidenceV1,
 } from "flarex-protocol/value";
 
@@ -109,6 +105,10 @@ import type {
   TaskAttemptSupervisorOutcome,
 } from "./TaskAttemptSupervisor.js";
 import {
+  type TaskExecutionSession,
+  TaskExecutionSessionError,
+} from "./TaskExecutionSession.js";
+import {
   makeApplicationTaskQueryCallbackCapability,
   type ApplicationTaskQueryCallbackAuthority,
 } from "./ApplicationTaskQueryCallback.js";
@@ -121,6 +121,9 @@ import {
   makeTaskComputeProviderRouter,
   type TaskComputeProviderRouterConfigurationError,
 } from "./TaskComputeProviderRouter.js";
+import {
+  adaptWorkerLoaderTaskExecutionSession,
+} from "./WorkerLoaderTaskExecutionSession.js";
 
 export const WORKER_LOADER_TASK_COMPUTE_PROVIDER_NAME =
   "flarex-worker-loader" as const;
@@ -174,7 +177,7 @@ export interface TaskAttemptSupervisionObserver {
   readonly observe: (
     observation: Readonly<{
       readonly dispatch: TaskAttemptSupervisorInput["dispatch"];
-      readonly acceptance: TaskWorkerSession["acceptance"];
+      readonly acceptance: TaskExecutionSession["acceptance"];
     }>,
     exit: Exit.Exit<
       TaskAttemptSupervisorOutcome,
@@ -207,7 +210,7 @@ interface ActiveDispatch {
   readonly phase: "active";
   readonly request: CurrentTaskComputeDispatchRequestV1;
   readonly acceptance: TaskComputeDispatchAcceptanceV1;
-  readonly session: TaskWorkerSession;
+  readonly session: TaskExecutionSession;
   readonly cancellationSemaphore: Semaphore.Semaphore;
   readonly cancellationState: Ref.Ref<CancellationState>;
 }
@@ -671,7 +674,7 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
       Effect.mapError(cause => mapLaunchFailure(request, cause)),
     );
     const capability = new TaskWorkerInputCapabilityTarget(subject.input);
-    const session = subject.generation === "application_v1"
+    const workerSession = subject.generation === "application_v1"
       ? yield* Effect.gen(function* () {
           const definition = yield* makeApplicationTaskWorkerDefinition({
             source: subject.source,
@@ -788,6 +791,7 @@ const startDispatch = Effect.fn("WorkerLoaderTaskComputeProvider.startDispatch")
             { interruptible: true },
           );
         });
+    const session = adaptWorkerLoaderTaskExecutionSession(workerSession);
     const execution: TaskComputeExecutionRefV1 = Object.freeze({
       ...options.descriptor,
       executionId,
@@ -983,8 +987,6 @@ function deliverCancellation(
       return cancellation.receipt ?? cancellationReceipt(request);
     }
     const receipt = yield* active.session.requestInterruption(Object.freeze({
-      format: TASK_WORKER_SESSION_INTERRUPTION_FORMAT_V1,
-      version: TASK_WORKER_SESSION_INTERRUPTION_VERSION_V1,
       generation: "applicationTaskRuntimeTargetSha256" in active.request
         ? "application_v1"
         : "legacy_dynamic_worker_v1",
@@ -1212,7 +1214,7 @@ function mapStartFailure(
 
 function mapCancellationFailure(
   request: TaskComputeCancellationRequestV1,
-  cause: TaskWorkerSessionHostError,
+  cause: TaskExecutionSessionError,
 ):
   | TaskComputeCancellationStaleError
   | TaskComputeCancellationRejectedError
@@ -1242,8 +1244,7 @@ function mapCancellationFailure(
   }
   return new TaskComputeCancellationTransportError({
     operation: "request_cancellation",
-    retryable: cause.reason === "workerStartFailed" ||
-      cause.reason === "workerLoadFailed",
+    retryable: cause.reason === "providerUnavailable",
     cause,
   });
 }

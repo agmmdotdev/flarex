@@ -1,14 +1,13 @@
 # DTE06 Node Task Provider Architecture Preflight
 
 Status: accepted architecture checkpoint on 2026-08-28. The separately
-approved N1 runtime-family and immutable artifact-contract gate is complete.
-N2 and later gates remain unapproved; no Node provider, session refactor,
-callback transport, process, deployment, credential, external resource, or
-production activation exists.
+approved N1 runtime-family and immutable artifact-contract gate and N2
+execution-session seam are complete. N3 and later gates remain unapproved; no
+Node provider, executor protocol, callback transport, process, deployment,
+credential, external resource, or production activation exists.
 
-Evidence snapshot: 2026-08-28 current repository state after the completed
-provider router and private Worker Loader routed composition in Preflights 48
-and 49.
+Evidence snapshot: 2026-08-28 current repository state after the completed N2
+provider-neutral execution-session seam and Worker Loader adapter.
 
 ## Decision
 
@@ -331,8 +330,8 @@ an accepted Flarex dependency or public contract.
 
 ## Ordered Delivery Gates
 
-N1 was separately approved and completed. The remaining gates still require
-separate approval and retain this safe order:
+N1 and N2 were separately approved and completed. The remaining gates still
+require separate approval and retain this safe order:
 
 1. **N1 — runtime-family and artifact contract:** define the private trusted
    compute-profile catalog semantics and Node-compatible immutable Task
@@ -340,7 +339,7 @@ separate approval and retain this safe order:
    routed to Node and escalation cannot switch runtime family;
 2. **N2 — execution-session seam:** extract the minimum provider-neutral
    `TaskExecutionSession` consumed by supervision and adapt the current Worker
-   Loader provider without changing its behavior or wires;
+   Loader provider without changing its behavior or wires; **complete**;
 3. **N3 — Node executor protocol:** add the backend-private Node client port,
    strict versioned protocol, deterministic fake, typed failures, idempotent
    start/cancel/recovery keys, and scoped lifecycle; no real Node process;
@@ -362,7 +361,7 @@ both standing project reviewers against the exact final diff.
 
 ## Non-Goals
 
-This checkpoint does not authorize beyond the completed N1 contract slice:
+This checkpoint does not authorize beyond the completed N1 and N2 slices:
 
 - a runtime-target, callback, provider, session, or deployment wire;
 - a local child process, AWS resource, container, route, binding, token issuer,
@@ -379,15 +378,16 @@ This checkpoint does not authorize beyond the completed N1 contract slice:
 
 ## Stop Boundary And Next Gate
 
-Stop after N1. The Worker Loader remains the only real private provider and the
-current isolate artifact/session behavior remains unchanged. Node profiles are
-explicitly provider-disabled and Node artifact admission reports dispatch as
-blocked.
+Stop after N2. The Worker Loader remains the only real private provider and the
+current isolate artifact/session wire behavior remains unchanged. Node profiles
+are explicitly provider-disabled and Node artifact admission reports dispatch
+as blocked.
 
-The next separately approved code gate is N2 only: extract the minimal
-provider-neutral `TaskExecutionSession` seam and adapt Worker Loader without
-changing behavior or versioned wires. Do not begin the Node executor protocol,
-callback endpoints, local process, or hosted deployment in that slice.
+The next separately approved code gate is N3 only: add the backend-private Node
+client port, strict versioned protocol, deterministic fake, typed failures,
+idempotent start/cancel/recovery keys, and scoped lifecycle without starting a
+real Node process. Do not begin callback endpoints, local execution, or hosted
+deployment in that slice.
 
 ## N1 Implementation Receipt
 
@@ -420,3 +420,34 @@ check, and Standard Application boundary check passed. The whole-workspace
 typecheck passed through the owned package and was blocked later in the
 executor app by concurrent Persistence relation-binding work outside this
 slice; the exact staged N1 snapshot remains the commit gate.
+
+## N2 Implementation Receipt
+
+Completed on 2026-08-28:
+
+- added an unversioned, provider-neutral `TaskExecutionSession` with semantic
+  acceptance, generation-correlated interruption, settlement, close budget,
+  and typed post-acceptance failures;
+- moved `TaskAttemptSupervisor` to that seam and removed its dependency on the
+  Worker session host, Worker wire envelopes, and Worker identity helper;
+- added a Worker Loader adapter that projects the existing decoded acceptance
+  and settlement values into neutral semantics, reconstructs the unchanged V1
+  interruption request only at the Worker boundary, and preserves the original
+  Worker failure as the typed neutral error cause;
+- strips completed Worker result envelopes to the canonical value and semantic-
+  size evidence needed by shared supervision, while retaining the existing
+  Worker terminal mapper as a source-compatible wire adapter;
+- makes shared supervision independently correlate settlement generation,
+  execution ID, and full durable identity with the accepted session before it
+  may publish a result or acknowledge an interruption;
+- retained current start classification, callback lease ownership,
+  cancellation receipts, terminal disposition, supervision, close deadlines,
+  and every versioned Task Worker wire contract; and
+- kept Node client, protocol, callback transport, process, and deployment work
+  absent for N3 and later gates.
+
+Focused receipt: the backend typecheck, 75 session/supervision/Worker lifecycle
+tests, workspace `lint:core`, unstaged diff lint, and Effect boundary check
+passed. The complete backend run passed 154 of 155 files and 1,412 of 1,413
+tests; its sole Sync test failure was accompanied by a Miniflare `ECONNRESET`
+and passed immediately when rerun alone.

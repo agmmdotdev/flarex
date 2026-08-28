@@ -22,6 +22,8 @@ import {
 } from "../src/artifactRuntime/ApplicationTaskWorkerDefinition";
 import { TaskWorkerSessionHostError } from
   "../src/artifactRuntime/TaskWorkerSessionHost";
+import type { TaskExecutionSessionError } from
+  "../src/taskComputeDelivery/TaskExecutionSession";
 import {
   TaskRuntimeLaunchAuthority,
 } from "../src/taskRuntimeLaunch/Authority";
@@ -591,7 +593,7 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
     const authority = new FakeLaunchAuthority(input, request);
     const loader = new FakeWorkerLoader();
     const closeObserved = Deferred.makeUnsafe<
-      TaskWorkerSessionHostError | undefined
+      TaskExecutionSessionError | undefined
     >();
     const supervise: TaskAttemptSupervisor["supervise"] = sessionInput =>
       Effect.gen(function* () {
@@ -628,7 +630,11 @@ describe("DTE06-D3b.iii Worker Loader TaskComputeProvider", () => {
         expect(yield* Deferred.await(closeObserved)).toMatchObject({
           operation: "close",
           reason: "cleanupFailed",
-          cause: { reason: "outcomeUncertain" },
+          cause: {
+            operation: "close",
+            reason: "cleanupFailed",
+            cause: { reason: "outcomeUncertain" },
+          },
         });
       }),
       undefined,

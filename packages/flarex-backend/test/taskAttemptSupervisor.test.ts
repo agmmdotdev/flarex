@@ -40,8 +40,12 @@ import {
 } from "flarex-protocol/internal/task-worker-session-v1";
 import { describe, expect, it } from "vitest";
 
-import type { TaskWorkerSession } from
-  "../src/artifactRuntime/TaskWorkerSessionHost.js";
+import type {
+  TaskExecutionSession,
+  TaskExecutionSessionSettlement,
+} from "../src/taskComputeDelivery/TaskExecutionSession.js";
+import { adaptWorkerLoaderTaskExecutionSession } from
+  "../src/taskComputeDelivery/WorkerLoaderTaskExecutionSession.js";
 import type { TaskResultStore } from
   "../src/taskResult/TaskResultStore.js";
 import {
@@ -325,7 +329,7 @@ describe("DTE06-E4 TaskAttemptSupervisor", () => {
       policy(),
     ));
     const baseSession = taskSession(dispatch, Effect.never, () => {});
-    const session: TaskWorkerSession = Object.freeze({
+    const session: TaskExecutionSession = Object.freeze({
       ...baseSession,
       close: Deferred.succeed(closeEntered, undefined).pipe(
         Effect.andThen(Effect.never),
@@ -541,7 +545,7 @@ describe("DTE06-E4 TaskAttemptSupervisor", () => {
       resultStore(),
       policy(),
     ));
-    const session: TaskWorkerSession = Object.freeze({
+    const session: TaskExecutionSession = Object.freeze({
       ...taskSession(dispatch, Effect.never, () => { closeCount += 1; }),
       maximumCloseMilliseconds: 501,
     });
@@ -554,6 +558,76 @@ describe("DTE06-E4 TaskAttemptSupervisor", () => {
     expect(failure).toMatchObject({ reason: "session_close_budget_mismatch" });
     expect(resolveCalls).toBe(0);
     expect(closeCount).toBe(1);
+  });
+
+  it("rejects settlement evidence that does not match the accepted execution", async () => {
+    const dispatch = legacyDispatch();
+    const lifecycle = legacyLifecycle(dispatch, {
+      heartbeat: sequence => Effect.succeed(heartbeatReceipt(
+        Result.getOrThrow(decodeTaskHeartbeatSequenceV1(sequence)),
+        1_000,
+      )),
+      complete: () => Effect.die("mismatched settlement must not complete"),
+    });
+    const supervisor = Result.getOrThrow(makeTaskAttemptSupervisor(
+      { resolve: () => Effect.succeed(lifecycle) },
+      resultStore(),
+      policy(),
+    ));
+    const baseSession = taskSession(
+      dispatch,
+      Effect.succeed(successfulSettlement(dispatch)),
+      () => {},
+    );
+    const settlement = await Effect.runPromise(baseSession.settlement);
+    const otherExecutionId = taskSession(
+      dispatch,
+      Effect.never,
+      () => {},
+      "execution-task-supervisor-2",
+    ).acceptance.executionId;
+    const mismatches: ReadonlyArray<Readonly<{
+      readonly label: string;
+      readonly settlement: TaskExecutionSessionSettlement;
+    }>> = [
+      Object.freeze({
+        label: "generation",
+        settlement: Object.freeze({
+          ...settlement,
+          generation: "application_v1" as const,
+        }),
+      }),
+      Object.freeze({
+        label: "execution ID",
+        settlement: Object.freeze({
+          ...settlement,
+          executionId: otherExecutionId,
+        }),
+      }),
+      Object.freeze({
+        label: "identity fence",
+        settlement: Object.freeze({
+          ...settlement,
+          identity: legacyDispatch(undefined, 2n).identity,
+        }),
+      }),
+    ];
+
+    for (const mismatch of mismatches) {
+      const session: TaskExecutionSession = Object.freeze({
+        ...baseSession,
+        settlement: Effect.succeed(mismatch.settlement),
+      });
+      const failure = await Effect.runPromise(
+        supervisor.supervise({ dispatch, session }).pipe(Effect.flip),
+      );
+      expect(failure, mismatch.label).toBeInstanceOf(
+        TaskAttemptSupervisorContractError,
+      );
+      expect(failure, mismatch.label).toMatchObject({
+        reason: "session_settlement_mismatch",
+      });
+    }
   });
 
   it("rejects invalid cadence composition before supervision", () => {
@@ -616,6 +690,7 @@ function policy() {
 
 function legacyDispatch(
   cancellation: unknown = { kind: "not_requested", generation: 0n },
+  executionFence: unknown = 1n,
 ) {
   return Result.getOrThrow(validateTaskComputeDispatchRequestV1({
     version: TASK_COMPUTE_DISPATCH_REQUEST_VERSION_V1,
@@ -625,7 +700,7 @@ function legacyDispatch(
       runId: "run_00000000-0000-4000-8000-000000000001",
       requestedEffectSequence: 1n,
       attemptId: "attempt_00000000-0000-4000-8000-000000000001",
-      executionFence: 1n,
+      executionFence,
     },
     taskDefinitionRevisionId:
       "taskdef_00000000-0000-4000-8000-000000000001",
@@ -660,8 +735,9 @@ function taskSession(
   dispatch: CurrentTaskComputeDispatchRequestV1,
   settlement: Effect.Effect<TaskWorkerSessionSettlementV1, never>,
   onClose: () => void,
-): TaskWorkerSession {
-  return Object.freeze({
+  executionId = "execution-task-supervisor-1",
+): TaskExecutionSession {
+  return adaptWorkerLoaderTaskExecutionSession(Object.freeze({
     acceptance: Result.getOrThrow(decodeTaskWorkerSessionAcceptanceV1({
       format: TASK_WORKER_SESSION_ACCEPTANCE_FORMAT_V1,
       version: TASK_WORKER_SESSION_ACCEPTANCE_VERSION_V1,
@@ -670,14 +746,14 @@ function taskSession(
         ? "legacy_dynamic_worker_v1"
         : "application_v1",
       identity: dispatch.identity,
-      executionId: "execution-task-supervisor-1",
+      executionId,
       cancellationGeneration: dispatch.cancellation.generation,
     })),
     maximumCloseMilliseconds: 100,
     requestInterruption: () => Effect.die("direct interruption is not used"),
     settlement,
     close: Effect.sync(onClose),
-  });
+  }));
 }
 
 function successfulSettlement(

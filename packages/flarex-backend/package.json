@@ -99,7 +99,7 @@
     "test:dte06-f0b:worker-bridge": "vitest run test/applicationTaskMutationCallback.test.ts test/applicationTaskQueryCallback.test.ts test/applicationTaskWorkerDefinition.miniflare.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts --no-file-parallelism",
     "test:dte06-f1:event-host": "vitest run test/taskComputeDeliveryEventHost.test.ts test/workerLoaderTaskComputeProvider.test.ts --no-file-parallelism",
     "test:dte06-f1:resources": "vitest run test/taskInputStore.test.ts test/taskInputStore.miniflare.test.ts test/taskRuntimeLaunchResourceDirectory.test.ts test/sourceArtifactV2FinalizedContentReader.test.ts --no-file-parallelism",
-    "test:dte06-e4": "vitest run test/taskAttemptSupervisor.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts test/taskWorkerTerminalCompletion.test.ts test/taskResultStore.test.ts --no-file-parallelism"
+    "test:dte06-e4": "vitest run test/taskAttemptSupervisor.test.ts test/taskWorkerSessionHost.test.ts test/workerLoaderTaskComputeProvider.test.ts test/workerLoaderTaskExecutionSession.test.ts test/taskWorkerTerminalCompletion.test.ts test/taskResultStore.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",

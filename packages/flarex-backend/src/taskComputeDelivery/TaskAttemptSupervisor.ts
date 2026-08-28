@@ -25,20 +25,19 @@ import { isNonNegativeSafeInteger, isPositiveSafeInteger } from
   "@flarex/utils/numbers";
 import { Cause, Data, Effect, Exit, Result } from "effect";
 import {
-  taskWorkerSessionIdentitiesEqualV1,
-} from "flarex-protocol/internal/task-worker-session-v1";
-
-import type {
-  TaskWorkerSession,
-  TaskWorkerSessionHostError,
-} from "../artifactRuntime/TaskWorkerSessionHost.js";
-import {
   type TaskResultStore,
   type TaskResultStoreError,
 } from "../taskResult/TaskResultStore.js";
 import {
-  mapTaskWorkerTerminalDisposition,
+  mapTaskExecutionTerminalDisposition,
 } from "./TaskWorkerTerminalCompletion.js";
+import {
+  type TaskExecutionSession,
+  type TaskExecutionSessionAcceptance,
+  TaskExecutionSessionError,
+  type TaskExecutionSessionIdentity,
+  type TaskExecutionSessionSettlement,
+} from "./TaskExecutionSession.js";
 
 const MAXIMUM_COMPLETION_REPLAYS = 10;
 
@@ -67,6 +66,7 @@ export class TaskAttemptSupervisorContractError
   extends Data.TaggedError("TaskAttemptSupervisorContractError")<{
     readonly reason:
       | "session_identity_mismatch"
+      | "session_settlement_mismatch"
       | "session_close_budget_mismatch"
       | "lifecycle_identity_mismatch"
       | "lifecycle_receipt_invalid"
@@ -96,7 +96,7 @@ export interface TaskAttemptSupervisorLifecycleResolver {
 
 export interface TaskAttemptSupervisorInput {
   readonly dispatch: CurrentTaskComputeDispatchRequestV1;
-  readonly session: TaskWorkerSession;
+  readonly session: TaskExecutionSession;
 }
 
 export type TaskAttemptSupervisorOutcome =
@@ -129,7 +129,7 @@ export type TaskAttemptSupervisorError =
   | TaskAttemptLifecycleGatewayHeartbeatError
   | TaskAttemptLifecycleGatewayCompleteError
   | TaskResultStoreError
-  | TaskWorkerSessionHostError;
+  | TaskExecutionSessionError;
 
 export interface TaskAttemptSupervisor {
   readonly supervise: (
@@ -139,8 +139,8 @@ export interface TaskAttemptSupervisor {
 
 /**
  * Builds a lifecycle-free shared host capability. Each call owns one accepted
- * Worker session; the injected resolver remains responsible for locating the
- * current scope without widening the provider-neutral dispatch contract.
+ * execution session; the injected resolver remains responsible for locating
+ * the current scope without widening the provider-neutral dispatch contract.
  */
 export function makeTaskAttemptSupervisor(
   suppliedResolver: TaskAttemptSupervisorLifecycleResolver,
@@ -214,16 +214,18 @@ const superviseAcceptedSession = Effect.fn(
     : observed;
 });
 
-type TaskWorkerTerminalDisposition = ReturnType<
-  typeof mapTaskWorkerTerminalDisposition
+type TaskExecutionTerminalDisposition = ReturnType<
+  typeof mapTaskExecutionTerminalDisposition
 >;
 
 const observeTerminal = Effect.fn("TaskAttemptSupervisor.observeTerminal")(
-  function* (session: TaskWorkerSession) {
+  function* (session: TaskExecutionSession) {
+    const settlement = yield* session.settlement;
+    yield* validateSessionSettlement(session.acceptance, settlement);
     return Object.freeze({
       kind: "terminal_observed" as const,
-      disposition: mapTaskWorkerTerminalDisposition(
-        yield* session.settlement,
+      disposition: mapTaskExecutionTerminalDisposition(
+        settlement,
       ),
     });
   },
@@ -231,7 +233,7 @@ const observeTerminal = Effect.fn("TaskAttemptSupervisor.observeTerminal")(
 
 const settleTerminal = Effect.fn("TaskAttemptSupervisor.settleTerminal")(
   function* (
-    disposition: TaskWorkerTerminalDisposition,
+    disposition: TaskExecutionTerminalDisposition,
     lifecycle: TaskAttemptLifecycleCapability,
     publishResult: PublishResult,
     policy: CapturedTaskAttemptSupervisorPolicy,
@@ -426,7 +428,7 @@ function validateSessionIdentity(
   }
   return acceptance.generation === expectedGeneration &&
       acceptance.cancellationGeneration === dispatch.cancellation.generation &&
-      taskWorkerSessionIdentitiesEqualV1(
+      taskExecutionSessionIdentitiesEqual(
         acceptance.identity,
         dispatch.identity,
       )
@@ -434,6 +436,34 @@ function validateSessionIdentity(
     : Effect.fail(new TaskAttemptSupervisorContractError({
         reason: "session_identity_mismatch",
       }));
+}
+
+function validateSessionSettlement(
+  acceptance: TaskExecutionSessionAcceptance,
+  settlement: TaskExecutionSessionSettlement,
+): Effect.Effect<void, TaskAttemptSupervisorContractError> {
+  return settlement.generation === acceptance.generation &&
+      settlement.executionId === acceptance.executionId &&
+      taskExecutionSessionIdentitiesEqual(
+        settlement.identity,
+        acceptance.identity,
+      )
+    ? Effect.void
+    : Effect.fail(new TaskAttemptSupervisorContractError({
+        reason: "session_settlement_mismatch",
+      }));
+}
+
+function taskExecutionSessionIdentitiesEqual(
+  left: TaskExecutionSessionIdentity,
+  right: CurrentTaskComputeDispatchRequestV1["identity"],
+): boolean {
+  return left.version === right.version &&
+    left.scopeId === right.scopeId &&
+    left.runId === right.runId &&
+    left.requestedEffectSequence === right.requestedEffectSequence &&
+    left.attemptId === right.attemptId &&
+    left.executionFence === right.executionFence;
 }
 
 function validateLifecycleIdentity(
@@ -461,12 +491,12 @@ function mergeProgramAndCloseExits<Success, Failure>(
   program: Exit.Exit<Success, Failure>,
   close: Exit.Exit<
     void,
-    TaskWorkerSessionHostError | TaskAttemptSupervisorOperationTimeoutError
+    TaskExecutionSessionError | TaskAttemptSupervisorOperationTimeoutError
   >,
 ): Effect.Effect<
   Success,
   | Failure
-  | TaskWorkerSessionHostError
+  | TaskExecutionSessionError
   | TaskAttemptSupervisorOperationTimeoutError
 > {
   return Exit.match(program, {
