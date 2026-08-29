@@ -7,7 +7,18 @@ import {
   type StandardApplicationTaskRunListQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query";
+import {
+  StandardApplicationTaskRunQuery,
+  type StandardApplicationTaskRunQueryApi,
+} from
+  "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
 import { Data, Effect, Result } from "effect";
+
+import type { TaskRunStatus } from "./Task.js";
+import {
+  issueTaskRunRef,
+  type TaskRunRef,
+} from "./TaskRunRef.js";
 
 const DEFAULT_TASK_RUN_LIST_PAGE_SIZE = 50;
 
@@ -23,9 +34,14 @@ export interface ListTaskRunsOptions {
   readonly cursor?: TaskRunCursor | null;
 }
 
+export interface ListedTaskRun {
+  readonly ref: TaskRunRef;
+  readonly status: TaskRunStatus;
+}
+
 export interface TaskRunPage {
   readonly observedAtMs: StandardApplicationTaskRunListPage["observedAtMs"];
-  readonly runs: StandardApplicationTaskRunListPage["items"];
+  readonly runs: readonly ListedTaskRun[];
   readonly nextCursor: TaskRunCursor | null;
 }
 
@@ -67,9 +83,10 @@ export const listTaskRuns = Effect.fn("Application.listTaskRuns")(function* (
 ): Effect.fn.Return<
   TaskRunPage,
   ListTaskRunsError,
-  StandardApplicationTaskRunListQuery
+  StandardApplicationTaskRunListQuery | StandardApplicationTaskRunQuery
 > {
   const normalized = yield* Effect.fromResult(normalizeOptions(options));
+  const taskRunQuery = yield* StandardApplicationTaskRunQuery;
   const page = yield* listStandardApplicationTaskRuns(normalized).pipe(
     Effect.catchTag("TaskRunListOptionsError", error =>
       Effect.fail(new ListTaskRunsOptionsFailure({
@@ -78,7 +95,7 @@ export const listTaskRuns = Effect.fn("Application.listTaskRuns")(function* (
       }))
     ),
   );
-  return projectPage(page);
+  return projectPage(page, taskRunQuery);
 });
 
 function normalizeOptions(
@@ -115,10 +132,17 @@ function normalizeOptions(
     : Result.succeed(Object.freeze({ pageSize, cursor }));
 }
 
-function projectPage(page: StandardApplicationTaskRunListPage): TaskRunPage {
+function projectPage(
+  page: StandardApplicationTaskRunListPage,
+  query: StandardApplicationTaskRunQueryApi,
+): TaskRunPage {
+  const runs = Object.freeze(page.items.map(status => Object.freeze({
+    ref: issueTaskRunRef(status.runId, query),
+    status,
+  })));
   return Object.freeze({
     observedAtMs: page.observedAtMs,
-    runs: page.items,
+    runs,
     nextCursor: page.nextCursor === null
       ? null
       : new TaskRunCursorHandle(page.nextCursor),

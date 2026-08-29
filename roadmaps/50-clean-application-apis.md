@@ -693,5 +693,9 @@ privately, including disposable PostgreSQL 18 acceptance, under
 [`durable-task-engine/preflight/59-dte07-located-task-run-list-store.md`](./durable-task-engine/preflight/59-dte07-located-task-run-list-store.md).
 The DTE07-C9 clean production-inert `listTaskRuns()` facade is complete under
 [`durable-task-engine/preflight/60-dte07-clean-task-run-list-contract.md`](./durable-task-engine/preflight/60-dte07-clean-task-run-list-contract.md).
+The DTE07-C10 read-only process-local listed `TaskRunRef` is complete under
+[`durable-task-engine/preflight/61-dte07-listed-task-run-reference.md`](./durable-task-engine/preflight/61-dte07-listed-task-run-reference.md).
+It connects listed runs only to `inspectTask()`; result reads, waiting, and
+cancellation remain restricted to admitted typed Task handles.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

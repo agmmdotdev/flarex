@@ -6,15 +6,26 @@ import {
   type StandardApplicationTaskRunListQueryError,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-list-query";
-import { Brand, Data, Effect } from "effect";
+import {
+  StandardApplicationTaskRunQuery,
+  type StandardApplicationTaskRunQueryApi,
+} from
+  "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
+import { Brand, Cause, Data, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
+  awaitTask,
+  cancelTask,
+  inspectTask,
   listTaskRuns,
+  readTaskResult,
   type ListTaskRunsOptions,
   type ListTaskRunsOptionsError,
+  type ListedTaskRun,
   type TaskRunCursor,
   type TaskRunPage,
+  type TaskRunRef,
 } from "../src/index.js";
 
 type InternalCursor = NonNullable<
@@ -67,13 +78,18 @@ describe("clean Task-run list primitive", () => {
 
     expect(list).toHaveBeenCalledWith({ pageSize: 50, cursor: null });
     expect(page.observedAtMs).toBe(databaseTime(2_000));
-    expect(page.runs).toBe(items);
+    expect(page.runs).not.toBe(items);
+    expect(page.runs[0]?.status).toBe(items[0]);
+    expect(Object.isFrozen(page.runs[0])).toBe(true);
+    expect(Object.isFrozen(page.runs[0]?.ref)).toBe(true);
+    expect(Object.keys(page.runs[0]?.ref ?? {})).toEqual([]);
     expect(page.nextCursor).not.toBeNull();
     expect(Object.isFrozen(page)).toBe(true);
     expect(Object.isFrozen(page.runs)).toBe(true);
     expect(Object.isFrozen(page.nextCursor)).toBe(true);
     expect(Object.keys(page.nextCursor ?? {})).toEqual([]);
     expectTypeOf(page).toEqualTypeOf<TaskRunPage>();
+    expectTypeOf(page.runs).toEqualTypeOf<readonly ListedTaskRun[]>();
   });
 
   it("round-trips only an issued cursor into the private keyset query", async () => {
@@ -112,16 +128,182 @@ describe("clean Task-run list primitive", () => {
       Effect.provide(makeStandardApplicationTaskRunListQueryLayer({
         listRuns,
       })),
+      Effect.provideService(
+        StandardApplicationTaskRunQuery,
+        forbiddenTaskRunQuery(),
+      ),
     ));
 
     expect(listRuns).toHaveBeenCalledWith({ pageSize: 3, cursor: null });
     expect(page.runs).toHaveLength(1);
-    expect(page.runs[0]).toMatchObject({
+    expect(page.runs[0]?.status).toMatchObject({
       runId: internalCursor.runId,
       observedAtMs: databaseTime(2_000),
       state: { kind: "ready" },
     });
-    expect(Object.isFrozen(page.runs[0])).toBe(true);
+    expect(Object.isFrozen(page.runs[0]?.status)).toBe(true);
+  });
+
+  it("issues read-only run identity accepted by inspectTask", async () => {
+    const listedStatus = readyRun();
+    const refreshedStatus = Object.freeze({
+      ...listedStatus,
+      observedAtMs: databaseTime(3_000),
+    });
+    const list = vi.fn<StandardApplicationTaskRunListQueryApi["list"]>(
+      () => Effect.succeed(Object.freeze({
+        observedAtMs: databaseTime(2_000),
+        items: Object.freeze([listedStatus]),
+        nextCursor: null,
+      })),
+    );
+    const inspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
+      () => Effect.succeed(refreshedStatus),
+    );
+    const taskRunQuery = StandardApplicationTaskRunQuery.of({ inspect });
+
+    const status = await Effect.runPromise(Effect.gen(function* () {
+      const page = yield* listTaskRuns();
+      const listed = page.runs[0];
+      if (listed === undefined) {
+        return yield* Effect.die("expected one listed Task run");
+      }
+      expectTypeOf(listed.ref).toEqualTypeOf<TaskRunRef>();
+      return yield* inspectTask(listed.ref);
+    }).pipe(
+      Effect.provideService(
+        StandardApplicationTaskRunListQuery,
+        StandardApplicationTaskRunListQuery.of({ list }),
+      ),
+      Effect.provideService(
+        StandardApplicationTaskRunQuery,
+        taskRunQuery,
+      ),
+    ));
+
+    expect(status).toBe(refreshedStatus);
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(inspect).toHaveBeenCalledWith(internalCursor.runId);
+  });
+
+  it("rejects a forged read-only run reference before query I/O", async () => {
+    const forged = Object.freeze({}) as TaskRunRef;
+    const inspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
+      () => Effect.succeed(readyRun()),
+    );
+
+    const exit = await Effect.runPromise(Effect.exit(inspectTask(forged).pipe(
+      Effect.provideService(
+        StandardApplicationTaskRunQuery,
+        StandardApplicationTaskRunQuery.of({ inspect }),
+      ),
+    )));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const defect = Cause.findDefect(exit.cause);
+      expect(Result.isSuccess(defect)).toBe(true);
+      if (Result.isSuccess(defect)) {
+        expect(defect.success).toEqual(
+          new TypeError("Task run metadata is unavailable."),
+        );
+      }
+    }
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it("rejects a genuine reference under a different query scope", async () => {
+    const scopeAInspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
+      () => Effect.succeed(readyRun()),
+    );
+    const scopeAQuery = StandardApplicationTaskRunQuery.of({
+      inspect: scopeAInspect,
+    });
+    const page = await runWith(
+      () => Effect.succeed(Object.freeze({
+        observedAtMs: databaseTime(2_000),
+        items: Object.freeze([readyRun()]),
+        nextCursor: null,
+      })),
+      undefined,
+      scopeAQuery,
+    );
+    const listed = page.runs[0];
+    if (listed === undefined) {
+      throw new Error("expected one listed Task run");
+    }
+    const scopeBInspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
+      () => Effect.succeed(Object.freeze({
+        ...readyRun(),
+        observedAtMs: databaseTime(4_000),
+      })),
+    );
+    const scopeBQuery = StandardApplicationTaskRunQuery.of({
+      inspect: scopeBInspect,
+    });
+
+    const exit = await Effect.runPromise(Effect.exit(
+      inspectTask(listed.ref).pipe(Effect.provideService(
+        StandardApplicationTaskRunQuery,
+        scopeBQuery,
+      )),
+    ));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const defect = Cause.findDefect(exit.cause);
+      expect(Result.isSuccess(defect)).toBe(true);
+      if (Result.isSuccess(defect)) {
+        expect(defect.success).toEqual(
+          new TypeError("Task run metadata is unavailable."),
+        );
+      }
+    }
+    expect(scopeAInspect).not.toHaveBeenCalled();
+    expect(scopeBInspect).not.toHaveBeenCalled();
+  });
+
+  it("does not expose an alternate constructor issuance path", async () => {
+    const taskRunQuery = forbiddenTaskRunQuery();
+    const page = await runWith(
+      () => Effect.succeed(Object.freeze({
+        observedAtMs: databaseTime(2_000),
+        items: Object.freeze([readyRun()]),
+        nextCursor: null,
+      })),
+      undefined,
+      taskRunQuery,
+    );
+    const listed = page.runs[0];
+    if (listed === undefined) {
+      throw new Error("expected one listed Task run");
+    }
+    const EscapedConstructor = Object.getPrototypeOf(listed.ref).constructor as
+      new (...arguments_: unknown[]) => TaskRunRef;
+    const forgedRunId = runId(
+      "run_00000000-0000-4000-8000-000000000099",
+    );
+
+    expect(() => new EscapedConstructor(
+      Symbol("forged TaskRunRef issuer"),
+      forgedRunId,
+      taskRunQuery,
+    )).toThrow("Task run reference issuance is unavailable.");
+  });
+
+  it("does not promote listed identity into result or command authority", () => {
+    const reference = Object.freeze({}) as TaskRunRef;
+
+    if (false) {
+      // @ts-expect-error A listed reference has no output contract.
+      readTaskResult(reference);
+      // @ts-expect-error Awaiting requires a typed TaskRun output contract.
+      awaitTask(reference, { timeout: "1 second" });
+      // @ts-expect-error Cancellation requires a TaskRun admission handle.
+      cancelTask(reference);
+    }
+
+    expect(Object.keys(reference)).toEqual([]);
   });
 
   it.each([0, 101, 1.5, Number.NaN])(
@@ -129,10 +311,7 @@ describe("clean Task-run list primitive", () => {
     async pageSize => {
       const list = forbiddenList();
       const failure = await Effect.runPromise(Effect.flip(
-        listTaskRuns({ pageSize }).pipe(Effect.provideService(
-          StandardApplicationTaskRunListQuery,
-          StandardApplicationTaskRunListQuery.of({ list }),
-        )),
+        provideListQueryServices(listTaskRuns({ pageSize }), list),
       ));
 
       expect(failure).toMatchObject({
@@ -148,10 +327,7 @@ describe("clean Task-run list primitive", () => {
     const list = forbiddenList();
     const forged = Object.freeze({}) as TaskRunCursor;
     const failure = await Effect.runPromise(Effect.flip(
-      listTaskRuns({ cursor: forged }).pipe(Effect.provideService(
-        StandardApplicationTaskRunListQuery,
-        StandardApplicationTaskRunListQuery.of({ list }),
-      )),
+      provideListQueryServices(listTaskRuns({ cursor: forged }), list),
     ));
 
     expect(failure).toMatchObject({
@@ -203,10 +379,7 @@ describe("clean Task-run list primitive", () => {
     );
 
     const received = await Effect.runPromise(Effect.flip(
-      listTaskRuns().pipe(Effect.provideService(
-        StandardApplicationTaskRunListQuery,
-        StandardApplicationTaskRunListQuery.of({ list }),
-      )),
+      provideListQueryServices(listTaskRuns(), list),
     ));
 
     expect(received).toBe(failure);
@@ -224,10 +397,7 @@ describe("clean Task-run list primitive", () => {
     );
 
     const failure = await Effect.runPromise(Effect.flip(
-      listTaskRuns().pipe(Effect.provideService(
-        StandardApplicationTaskRunListQuery,
-        StandardApplicationTaskRunListQuery.of({ list }),
-      )),
+      provideListQueryServices(listTaskRuns(), list),
     ));
 
     expect(failure).not.toBe(upstream);
@@ -243,11 +413,31 @@ describe("clean Task-run list primitive", () => {
 async function runWith(
   list: StandardApplicationTaskRunListQueryApi["list"],
   options?: ListTaskRunsOptions,
+  taskRunQuery: StandardApplicationTaskRunQueryApi = forbiddenTaskRunQuery(),
 ): Promise<TaskRunPage> {
-  return Effect.runPromise(listTaskRuns(options).pipe(Effect.provideService(
+  return Effect.runPromise(provideListQueryServices(
+    listTaskRuns(options),
+    list,
+    taskRunQuery,
+  ));
+}
+
+function provideListQueryServices<Success, Failure>(
+  operation: Effect.Effect<
+    Success,
+    Failure,
+    StandardApplicationTaskRunListQuery | StandardApplicationTaskRunQuery
+  >,
+  list: StandardApplicationTaskRunListQueryApi["list"],
+  taskRunQuery: StandardApplicationTaskRunQueryApi = forbiddenTaskRunQuery(),
+): Effect.Effect<Success, Failure> {
+  return operation.pipe(Effect.provideService(
     StandardApplicationTaskRunListQuery,
     StandardApplicationTaskRunListQuery.of({ list }),
-  )));
+  ), Effect.provideService(
+    StandardApplicationTaskRunQuery,
+    taskRunQuery,
+  ));
 }
 
 function forbiddenList(): ReturnType<typeof vi.fn<
@@ -256,6 +446,13 @@ function forbiddenList(): ReturnType<typeof vi.fn<
   return vi.fn<StandardApplicationTaskRunListQueryApi["list"]>(
     () => Effect.die("must not list Task runs"),
   );
+}
+
+function forbiddenTaskRunQuery(): StandardApplicationTaskRunQueryApi {
+  const inspect = vi.fn<StandardApplicationTaskRunQueryApi["inspect"]>(
+    () => Effect.die("must not inspect a Task run"),
+  );
+  return StandardApplicationTaskRunQuery.of({ inspect });
 }
 
 function emptyPage(): StandardApplicationTaskRunListPage {

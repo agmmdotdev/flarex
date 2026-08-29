@@ -31,6 +31,10 @@ import {
   taskResultContractError,
   validateResultContract,
 } from "./ResultContract.js";
+import {
+  inspectTaskRunRef,
+  type TaskRunRef,
+} from "./TaskRunRef.js";
 
 declare const TaskRunType: unique symbol;
 
@@ -112,18 +116,29 @@ export const startTask = Effect.fn("Application.startTask")(function* <
   );
 });
 
-/** Reads the current authoritative status for one opaque durable run handle. */
-export const inspectTask = Effect.fn("Application.inspectTask")(function* <
-  Output,
->(
-  run: TaskRun<Output>,
+/** Reads current authoritative status for one issued Task-run identity. */
+export const inspectTask = Effect.fn("Application.inspectTask")(function* (
+  run: TaskRun<unknown> | TaskRunRef,
 ): Effect.fn.Return<
   TaskRunStatus,
   InspectTaskError,
   StandardApplicationTaskRunQuery
 > {
-  inspectTaskRun(run);
-  return yield* inspectStandardApplicationTaskRun(run.runId);
+  const taskRunState = taskRunStates.get(run);
+  if (taskRunState !== undefined) {
+    return yield* inspectStandardApplicationTaskRun(
+      taskRunState.receipt.runId,
+    );
+  }
+  const referenceState = inspectTaskRunRef(run);
+  if (referenceState === undefined) {
+    throw new TypeError("Task run metadata is unavailable.");
+  }
+  const query = yield* StandardApplicationTaskRunQuery;
+  if (query !== referenceState.query) {
+    throw new TypeError("Task run metadata is unavailable.");
+  }
+  return yield* inspectStandardApplicationTaskRun(referenceState.runId);
 });
 
 /** Reads one available canonical result and binds it to the run's output type. */

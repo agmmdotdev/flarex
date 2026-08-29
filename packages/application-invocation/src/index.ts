@@ -38,6 +38,8 @@ export {
   type TaskRunStatus,
 } from "./Task.js";
 
+export type { TaskRunRef } from "./TaskRunRef.js";
+
 export {
   awaitTask,
   type AwaitTaskError,
@@ -62,6 +64,7 @@ export {
   type ListTaskRunsError,
   type ListTaskRunsOptions,
   type ListTaskRunsOptionsError,
+  type ListedTaskRun,
   type TaskRunCursor,
   type TaskRunPage,
 } from "./TaskList.js";

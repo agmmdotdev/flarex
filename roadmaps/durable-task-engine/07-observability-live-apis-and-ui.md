@@ -3,7 +3,7 @@
 ## Status And Decision Boundary
 
 **Status:** Architecture roadmap with DTE07-B1/B2 and
-DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9 complete privately through 2026-08-30.
+DTE07-C1/C2/C3/C4/C5/C6/C7/C8/C9/C10 complete privately through 2026-08-30.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
 [`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
@@ -272,7 +272,7 @@ contract, domain-owned item decoding, safe page validation, and reuse of the
 existing point projection owner fixed by preflight 58. It adds no persistence
 adapter, filter, clean facade, or public cursor encoding.
 
-### DTE07-C: Private Query And Command Adapters — C9 Complete
+### DTE07-C: Private Query And Command Adapters — C10 Complete
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -318,6 +318,11 @@ DTE07-C9 implements only the clean unversioned `listTaskRuns()` operation fixed
 by preflight 60. It owns a default page size, a process-local opaque cursor,
 clean option failures, and clean page naming over the existing private query.
 It adds no serializable cursor or public route.
+
+DTE07-C10 implements only the read-only process-local `TaskRunRef` fixed by
+preflight 61. The clean list issues it and `inspectTask()` accepts it, while
+result reads, waiting, and cancellation remain restricted to an admitted typed
+`TaskRun<Output>`.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -402,5 +407,6 @@ production-inert Task run-list contract and private Standard bridge under
 preflight 58. DTE07-C8 is complete for the located compact PostgreSQL/PGlite
 list store under preflight 59, including disposable PostgreSQL 18 acceptance.
 DTE07-C9 is complete for the clean production-inert `listTaskRuns()` facade
-under preflight 60. Before attempt-history, event, other command, live, public,
-or hosted work, approve that owner separately.
+under preflight 60. DTE07-C10 is complete for the listed read-only Task-run
+reference under preflight 61. Before attempt-history, event, other command,
+live, public, or hosted work, approve that owner separately.
