@@ -139,31 +139,36 @@ not a complete uncertainty contract.
    policy plus exact replay or material reads, planner-owned publication intent
    and counters, aggregate/reference integration, and independent normalized
    proof. It adds no package export or adapter code.
-10. Next, decide whether to approve `QSYNC01-D3`, moving evaluation selection
-   and attempt-outcome recording. Complete D4 separately so all nine operations
-   share the sole planner family.
-11. Only after D1-D4 complete and a fresh adapter checkpoint is approved may
+10. **Complete (`QSYNC01-D3`).** Evaluation selection now uses bounded cyclic
+   scan and selected-point stages, while attempt-outcome recording uses one
+   nominally authenticated scalar planner. Aggregate/reference integration,
+   independent normalized interpretation, exact counters, capability,
+   uncertainty, and history proofs are complete without an adapter or package
+   export.
+11. Next, decide whether to approve `QSYNC01-D4`, moving the three publication
+   lifecycle operations and completing the all-nine planner proof.
+12. Only after D1-D4 complete and a fresh adapter checkpoint is approved may
    C1-C3 implement semantic verticals over the one existing per-scope SQLite
    cursor owner, without duplicate tables, cursors, reducers, or writes.
-12. Independently run the Cloudflare Durable Streams feasibility spike and
+13. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
    it blocks only that delivery composition.
-13. Adapt the authoritative Postgres commit feed as the replayable change source
+14. Adapt the authoritative Postgres commit feed as the replayable change source
    and prove contiguous duplicate/reverse/gap/reset behavior.
-14. Compose query execution, provisional completion, rerun coalescing,
+15. Compose query execution, provisional completion, rerun coalescing,
    unchanged suppression, and processing of the already-semantic durable
    publication outbox.
-15. Compose whichever delivery adapter passed its own gate with the authenticated
-    gateway, then the
-    Flarex client wrapper.
-16. Prove target-only reset/reconnect/recovery and switch internal callers.
-17. Remove the displaced unshipped engine code/state/export when no supported
-    consumer remains.
-18. Run `R03-B` through the accepted framework and Flarex adapters; relation
-    code may consume dependency keys but cannot own sync state.
-19. Prove a second real durable host before making a broad production
-    portability claim.
+16. Compose whichever delivery adapter passed its own gate with the authenticated
+   gateway, then the
+   Flarex client wrapper.
+17. Prove target-only reset/reconnect/recovery and switch internal callers.
+18. Remove the displaced unshipped engine code/state/export when no supported
+   consumer remains.
+19. Run `R03-B` through the accepted framework and Flarex adapters; relation
+   code may consume dependency keys but cannot own sync state.
+20. Prove a second real durable host before making a broad production
+   portability claim.
 
 ## Relation Gate
 

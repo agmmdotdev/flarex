@@ -4,14 +4,15 @@
 
 **Preflight status:** `QSYNC01-D0` accepted on 2026-08-29; `QSYNC01-D1`
 implemented and verified on 2026-08-29; `QSYNC01-D2` implemented and verified
-on 2026-08-30.
+on 2026-08-30; `QSYNC01-D3` implemented and verified on 2026-08-30.
 
 This record completes the `QSYNC01-D0` architecture freeze and now records the
-separately approved `QSYNC01-D1` and `QSYNC01-D2` implementations. D1 adds the
-private source planner foundation plus initialization, begin, and staged
-admitted-batch application. D2 moves evaluation completion alone, including
-its replay and material fact stages. `QSYNC01-D3` and D4 remain separately
-gated.
+separately approved `QSYNC01-D1`, `QSYNC01-D2`, and `QSYNC01-D3`
+implementations. D1 adds the private source planner foundation plus
+initialization, begin, and staged admitted-batch application. D2 moves
+evaluation completion alone, including its replay and material fact stages.
+D3 moves evaluation selection and attempt-outcome recording. `QSYNC01-D4`
+remains separately gated.
 
 `QSYNC-FX01-C1`, `QSYNC-FX01-C2`, and `QSYNC-FX01-C3` remain blocked. No
 Cloudflare SQLite schema, local storage generation, migration, Durable Object
@@ -620,11 +621,32 @@ require its own compatibility amendment.
 
 ### `QSYNC01-D3` - evaluation selection and outcome
 
-Move `claimEvaluationWork` and `recordEvaluationAttemptOutcome`. Replace the
-aggregate scan with the accepted slim revalidation-prefix/page protocol and
-selected-query point read. Prove revision fencing, fairness, wrap, lowest
-blocked evidence, continuation authenticity, stale restart, and both claim
-mutation forms.
+**Status:** complete on 2026-08-30.
+
+`claimEvaluationWork` and `recordEvaluationAttemptOutcome` now use the private
+planner seam. The claim planner preserves request and authority ordering,
+revision/fairness stale restart, canonical cyclic scanning, exact prefix
+revalidation, lowest-blocked accumulation, runnable-over-blocked precedence,
+and a complete selected-query fingerprint check. Ready claims are explicit
+fairness writes without a revision change; dirty claims install the exact
+successor provisional and increment revision once. A lost claim response still
+starts a later turn from current durable state rather than replaying a lease.
+
+Attempt-outcome recording now authenticates the nominal attempt before reading
+its fields, resolves transient, blocked replay, superseded, and expired outcomes
+without writes, and plans the first terminal block as one exact disposition,
+revision, and metric replacement. Aggregate APIs are planner-backed
+compatibility/oracle wrappers, reference atomicity follows explicit
+disposition, and state receipts reuse the one transition-plan owner.
+
+The D3 proof includes the complete 356-test package suite, direct staged claim
+and outcome proofs, independent normalized interpretation of both claim write
+forms and outcome branches, 4,096/4,097 scan bounds, nominal continuation,
+resume, and attempt rejection, exact receipt keys and capability identity,
+eight-metric reconstruction, revision and generation exhaustion ordering,
+noninterference, generated mixed histories, and before/after-swap claim and
+terminal-outcome faults. The package typecheck and boundary audits remain
+green. No package-manifest export or adapter code was added.
 
 ### `QSYNC01-D4` - publication lifecycle and all-operation exit
 
@@ -662,7 +684,7 @@ They remain mandatory at their later adapter gates.
 
 This accepted preflight does not authorize:
 
-- D3 or D4 implementation without a separate approval;
+- D4 implementation without a separate approval;
 - a public API, package-root export, new workspace package, or new dependency;
 - SQLite DDL, indexes, migration, storage generation, dual tables, aggregate
   blob, compatibility write, shadow reducer, or backend adapter;
@@ -678,9 +700,10 @@ This accepted preflight does not authorize:
 ## Next Checkpoint
 
 The next proposed action is an explicit approval or rejection of
-`QSYNC01-D3`, moving evaluation selection and attempt-outcome recording onto
-the private planner seam. Until D1-D4 all complete, there is no FX01 SQLite
-slice and the package export remains withheld.
+`QSYNC01-D4`, moving the three publication-lifecycle operations onto the
+private planner seam and completing the all-nine proof. Until D1-D4 all
+complete, there is no FX01 SQLite slice and the package export remains
+withheld.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

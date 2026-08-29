@@ -44,7 +44,7 @@ function factError(
   return new QuerySyncTransitionFactError({ operation, reason });
 }
 
-function activeFactsValid(
+export function activeScalarFactsValid(
   scope: QuerySyncScopeFacts,
   active: ActiveQueryScalarFacts,
 ): boolean {
@@ -60,7 +60,7 @@ function activeFactsValid(
     );
 }
 
-function provisionalFactsValid(
+export function provisionalQueryFactsValid(
   scope: QuerySyncScopeFacts,
   active: ActiveQueryScalarFacts | null,
   provisional: ProvisionalQueryState,
@@ -104,7 +104,7 @@ export function validateBeginQueryFacts(
   facts: BeginQueryFacts | null,
 ): Result.Result<void, QuerySyncTransitionFactError> {
   if (facts === null) return Result.succeed(undefined);
-  if (facts.active !== null && !activeFactsValid(scope, facts.active)) {
+  if (facts.active !== null && !activeScalarFactsValid(scope, facts.active)) {
     return Result.fail(factError(
       "beginQueryEvaluation",
       "queryFactsInvalid",
@@ -121,7 +121,7 @@ export function validateBeginQueryFacts(
   }
   if (
     facts.provisional !== null
-    && !provisionalFactsValid(scope, facts.active, facts.provisional)
+    && !provisionalQueryFactsValid(scope, facts.active, facts.provisional)
   ) {
     return Result.fail(factError(
       "beginQueryEvaluation",
@@ -135,7 +135,7 @@ export function validateAffectedActiveFacts(
   scope: QuerySyncScopeFacts,
   active: ActiveQueryScalarFacts,
 ): Result.Result<void, QuerySyncTransitionFactError> {
-  return activeFactsValid(scope, active)
+  return activeScalarFactsValid(scope, active)
     ? Result.succeed(undefined)
     : Result.fail(factError(
       "applyAdmittedInvalidations",
@@ -192,10 +192,10 @@ function completeQueryScalarFactsValid(
   if (active === null && provisional === null) return false;
   if (active === null && completion !== null) return false;
   if (active !== null && completion === null) return false;
-  if (active !== null && !activeFactsValid(scope, active)) return false;
+  if (active !== null && !activeScalarFactsValid(scope, active)) return false;
   if (
     provisional !== null
-    && !provisionalFactsValid(scope, active, provisional)
+    && !provisionalQueryFactsValid(scope, active, provisional)
   ) {
     return false;
   }

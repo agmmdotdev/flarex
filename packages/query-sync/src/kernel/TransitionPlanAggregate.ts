@@ -37,9 +37,34 @@ import type {
   QuerySyncState,
 } from "./Model.js";
 import type {
+  ClaimEvaluationWorkDecision,
+  RecordEvaluationAttemptOutcomeDecision,
+} from "./EvaluationWork.js";
+import type {
   PendingQueryPublication,
   QueryPublicationArtifact,
 } from "./Publication.js";
+import type {
+  ClaimEvaluationWorkReceipt,
+  EvaluationAttemptOutcome,
+  EvaluationWorkScanRequest,
+  RecordEvaluationAttemptOutcomeReceipt,
+} from "../transition-plan/EvaluationWork.js";
+import {
+  resumeClaimEvaluationWorkScan,
+  resumeClaimEvaluationWorkSelectedQuery,
+  startClaimEvaluationWork,
+} from "../transition-plan/ClaimEvaluationWork.js";
+import type {
+  ClaimEvaluationWorkPlan,
+  EvaluationSelectedQueryFacts,
+  EvaluationWorkScanFacts,
+  EvaluationWorkScanFactsRead,
+  ReadEvaluationWorkScanFactsIntent,
+  ResumeClaimEvaluationWorkScanError,
+  ResumeClaimEvaluationWorkSelectedQueryError,
+  StartClaimEvaluationWorkError,
+} from "../transition-plan/ClaimEvaluationWork.js";
 import {
   planBeginQueryEvaluation,
 } from "../transition-plan/BeginQueryEvaluation.js";
@@ -63,6 +88,15 @@ import type {
   ResumeCompleteQueryReplayError,
   StartCompleteQueryEvaluationError,
 } from "../transition-plan/CompleteQueryEvaluation.js";
+import {
+  authenticateRecordEvaluationAttemptOutcomeAttempt,
+  planRecordEvaluationAttemptOutcome,
+} from "../transition-plan/RecordEvaluationAttemptOutcome.js";
+import type {
+  EvaluationAttemptOutcomeQueryFacts,
+  PlanRecordEvaluationAttemptOutcomeError,
+  RecordEvaluationAttemptOutcomePlan,
+} from "../transition-plan/RecordEvaluationAttemptOutcome.js";
 import type {
   AffectedActiveTargetsRead,
   ApplyAdmittedBatchPlan,
@@ -72,6 +106,9 @@ import type {
 } from "../transition-plan/ApplyAdmittedBatch.js";
 import {
   QuerySyncTransitionFactError,
+} from "../transition-plan/Errors.js";
+import type {
+  QuerySyncTransitionOperation,
 } from "../transition-plan/Errors.js";
 import {
   freezeCompleteQueryMaterialFactsRead,
@@ -131,11 +168,23 @@ export type CompleteQueryEvaluationAggregateError = Exclude<
   QuerySyncTransitionFactError
 > | BuildQuerySyncStateError;
 
+type ClaimEvaluationWorkPlannerError =
+  | StartClaimEvaluationWorkError
+  | ResumeClaimEvaluationWorkScanError
+  | ResumeClaimEvaluationWorkSelectedQueryError;
+
+export type ClaimEvaluationWorkAggregateError = Exclude<
+  ClaimEvaluationWorkPlannerError,
+  QuerySyncTransitionFactError
+> | BuildQuerySyncStateError;
+
+export type RecordEvaluationAttemptOutcomeAggregateError = Exclude<
+  PlanRecordEvaluationAttemptOutcomeError,
+  QuerySyncTransitionFactError
+> | BuildQuerySyncStateError;
+
 function transitionInvariant(
-  operation:
-    | "beginQueryEvaluation"
-    | "applyAdmittedInvalidations"
-    | "completeQueryEvaluation",
+  operation: QuerySyncTransitionOperation,
   invariant: QuerySyncInvariantDefect["invariant"],
 ): QuerySyncInvariantDefect {
   return new QuerySyncInvariantDefect({ operation, invariant });
@@ -160,6 +209,22 @@ type CompletePlannerError =
 function mapCompletePlannerError(
   error: CompletePlannerError,
 ): CompleteQueryEvaluationAggregateError {
+  return error._tag === "QuerySyncTransitionFactError"
+    ? throwTransitionFactDefect(error)
+    : error;
+}
+
+function mapEvaluationAttemptOutcomePlannerError(
+  error: PlanRecordEvaluationAttemptOutcomeError,
+): RecordEvaluationAttemptOutcomeAggregateError {
+  return error._tag === "QuerySyncTransitionFactError"
+    ? throwTransitionFactDefect(error)
+    : error;
+}
+
+function mapClaimEvaluationWorkPlannerError(
+  error: ClaimEvaluationWorkPlannerError,
+): ClaimEvaluationWorkAggregateError {
   return error._tag === "QuerySyncTransitionFactError"
     ? throwTransitionFactDefect(error)
     : error;
@@ -340,10 +405,7 @@ function completeDecision(
 }
 
 function verifyPlanMetrics(
-  operation:
-    | "beginQueryEvaluation"
-    | "applyAdmittedInvalidations"
-    | "completeQueryEvaluation",
+  operation: QuerySyncTransitionOperation,
   state: QuerySyncState,
   expected: QuerySyncScopeFacts,
 ): void {
@@ -804,5 +866,335 @@ export function applyCompleteQueryEvaluationTransition(
         Result.flatMap((plan) => applyCompletePlan(state, plan)),
       );
     }),
+  );
+}
+
+function evaluationWorkScanOrder(
+  state: QuerySyncState,
+  anchor: QuerySyncState["evaluationWork"]["fairnessAnchor"],
+): readonly QueryState[] {
+  if (anchor === null || state.queries.length === 0) return state.queries;
+  const anchorIndex = state.queries.findIndex((query) => (
+    query.descriptor.queryKey === anchor
+  ));
+  if (anchorIndex < 0) return state.queries;
+  return Object.freeze([
+    ...state.queries.slice(anchorIndex + 1),
+    ...state.queries.slice(0, anchorIndex + 1),
+  ]);
+}
+
+function projectEvaluationWorkScanFacts(
+  query: QueryState,
+): EvaluationWorkScanFacts {
+  const provisional = query.provisional;
+  return Object.freeze({
+    queryKey: query.descriptor.queryKey,
+    active: query.active === null
+      ? null
+      : Object.freeze({
+        generation: query.active.generation,
+        dirtyThroughSequence: query.active.dirtyThroughSequence,
+      }),
+    provisional: provisional === null
+      ? null
+      : Object.freeze({
+        generation: provisional.generation,
+        evaluationDisposition: provisional.evaluationDisposition,
+      }),
+  });
+}
+
+function readEvaluationWorkScanFacts(
+  state: QuerySyncState,
+  intent: ReadEvaluationWorkScanFactsIntent,
+): EvaluationWorkScanFactsRead {
+  const order = evaluationWorkScanOrder(
+    state,
+    intent.scanStartFairnessAnchor,
+  );
+  if (order.length >= intent.maximumCombinedQueryFacts) {
+    return Object.freeze({
+      _tag: "limitExceeded",
+      observed: intent.maximumCombinedQueryFacts,
+    });
+  }
+  const lastIndex = intent.lastInspectedQueryKey === null
+    ? -1
+    : order.findIndex((query) => (
+      query.descriptor.queryKey === intent.lastInspectedQueryKey
+    ));
+  const prefix = lastIndex < 0
+    ? []
+    : order.slice(0, lastIndex + 1).map(projectEvaluationWorkScanFacts);
+  const pageStart = lastIndex + 1;
+  const pageEnd = Math.min(
+    order.length,
+    pageStart + intent.maximumPageQueryInspections,
+  );
+  const page = order.slice(pageStart, pageEnd)
+    .map(projectEvaluationWorkScanFacts);
+  return Object.freeze({
+    _tag: "complete",
+    fairnessAnchorPresent:
+      intent.scanStartFairnessAnchor !== null
+      && state.queries.some((query) => (
+        query.descriptor.queryKey === intent.scanStartFairnessAnchor
+      )),
+    revalidationPrefix: Object.freeze(prefix),
+    page: Object.freeze(page),
+    hasMore: pageEnd < order.length,
+  });
+}
+
+function projectEvaluationSelectedQueryFacts(
+  query: QueryState,
+): EvaluationSelectedQueryFacts {
+  return Object.freeze({
+    descriptor: query.descriptor,
+    active: query.active === null
+      ? null
+      : projectActiveScalarFacts(query.active),
+    provisional: query.provisional,
+  });
+}
+
+function claimEvaluationWorkDecision(
+  receipt: ClaimEvaluationWorkReceipt,
+  state: QuerySyncState,
+): ClaimEvaluationWorkDecision {
+  switch (receipt._tag) {
+    case "claimed":
+      return Object.freeze({
+        _tag: "claimed",
+        state,
+        attempt: receipt.attempt,
+        continuation: receipt.continuation,
+      });
+    case "continued":
+    case "scanRestarted":
+      return Object.freeze({
+        _tag: receipt._tag,
+        state,
+        continuation: receipt.continuation,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        state,
+        blockedWork: receipt.blockedWork,
+      });
+    case "none":
+      return Object.freeze({ _tag: "none", state });
+  }
+}
+
+function applyClaimEvaluationWorkPlan(
+  state: QuerySyncState,
+  plan: ClaimEvaluationWorkPlan,
+): Result.Result<
+  AggregateTransition<ClaimEvaluationWorkDecision, ClaimEvaluationWorkPlan>,
+  BuildQuerySyncStateError
+> {
+  if (plan._tag === "noWrite") {
+    return Result.succeed(Object.freeze({
+      decision: claimEvaluationWorkDecision(plan.receipt, state),
+      disposition: "noWrite",
+      plan,
+    }));
+  }
+  const current = findQueryState(state, plan.change.queryKey);
+  if (current === undefined) {
+    throw transitionInvariant(
+      "claimEvaluationWork",
+      "transitionPlanUnexpectedStep",
+    );
+  }
+  const queries = plan.change._tag === "claimReadyEvaluationWork"
+    ? state.queries
+    : replaceQuery(state.queries, {
+      ...current,
+      provisional: plan.change.provisional,
+    });
+  return rebuildQuerySyncState(state, {
+    queries,
+    evaluationWork: plan.nextScope.evaluationWork,
+  }).pipe(Result.map((nextState) => {
+    verifyPlanMetrics("claimEvaluationWork", nextState, plan.nextScope);
+    return Object.freeze({
+      decision: claimEvaluationWorkDecision(plan.receipt, nextState),
+      disposition: "write",
+      plan,
+    });
+  }));
+}
+
+export function applyClaimEvaluationWorkTransition(
+  state: QuerySyncState,
+  request: EvaluationWorkScanRequest,
+): Result.Result<
+  AggregateTransition<ClaimEvaluationWorkDecision, ClaimEvaluationWorkPlan>,
+  ClaimEvaluationWorkAggregateError
+> {
+  return startClaimEvaluationWork({
+    scope: projectQuerySyncScopeFacts(state),
+    request,
+  }).pipe(
+    Result.mapError(mapClaimEvaluationWorkPlannerError),
+    Result.flatMap((start) => {
+      if (start._tag === "planned") {
+        return applyClaimEvaluationWorkPlan(state, start.plan);
+      }
+      return resumeClaimEvaluationWorkScan(
+        start.resume,
+        readEvaluationWorkScanFacts(state, start.intent),
+      ).pipe(
+        Result.mapError(mapClaimEvaluationWorkPlannerError),
+        Result.flatMap((scan) => {
+          if (scan._tag === "planned") {
+            return applyClaimEvaluationWorkPlan(state, scan.plan);
+          }
+          const selected = findQueryState(state, scan.intent.queryKey);
+          return resumeClaimEvaluationWorkSelectedQuery(
+            scan.resume,
+            selected === undefined
+              ? null
+              : projectEvaluationSelectedQueryFacts(selected),
+          ).pipe(
+            Result.mapError(mapClaimEvaluationWorkPlannerError),
+            Result.flatMap((plan) => applyClaimEvaluationWorkPlan(state, plan)),
+          );
+        }),
+      );
+    }),
+  );
+}
+
+function projectEvaluationAttemptOutcomeQueryFacts(
+  query: QueryState | undefined,
+): EvaluationAttemptOutcomeQueryFacts | null {
+  if (query === undefined) return null;
+  const completion = query.currentCompletion;
+  return Object.freeze({
+    descriptor: query.descriptor,
+    active: query.active === null
+      ? null
+      : projectActiveScalarFacts(query.active),
+    provisional: query.provisional,
+    currentCompletion: completion === null
+      ? null
+      : Object.freeze({
+        identity: completion.identity,
+        queryIdentity: completion.queryIdentity,
+        expectedActiveGeneration: completion.expectedActiveGeneration,
+        registrationCursor: completion.registrationCursor,
+        requestedDirtyThroughSequence:
+          completion.requestedDirtyThroughSequence,
+      }),
+    precedingCompletionIdentity: query.precedingCompletionIdentity,
+  });
+}
+
+function evaluationAttemptOutcomeDecision(
+  receipt: RecordEvaluationAttemptOutcomeReceipt,
+  state: QuerySyncState,
+): RecordEvaluationAttemptOutcomeDecision {
+  switch (receipt._tag) {
+    case "eligible":
+      return Object.freeze({
+        _tag: "eligible",
+        state,
+        queryKey: receipt.queryKey,
+        generation: receipt.generation,
+      });
+    case "blocked":
+      return Object.freeze({
+        _tag: "blocked",
+        state,
+        blockedWork: receipt.blockedWork,
+      });
+    case "superseded":
+    case "recoveryEvidenceExpired":
+      return Object.freeze({
+        _tag: receipt._tag,
+        state,
+        queryKey: receipt.queryKey,
+        generation: receipt.generation,
+        activeGeneration: receipt.activeGeneration,
+      });
+  }
+}
+
+function applyRecordEvaluationAttemptOutcomePlan(
+  state: QuerySyncState,
+  plan: RecordEvaluationAttemptOutcomePlan,
+): Result.Result<
+  AggregateTransition<
+    RecordEvaluationAttemptOutcomeDecision,
+    RecordEvaluationAttemptOutcomePlan
+  >,
+  BuildQuerySyncStateError
+> {
+  if (plan._tag === "noWrite") {
+    return Result.succeed(Object.freeze({
+      decision: evaluationAttemptOutcomeDecision(plan.receipt, state),
+      disposition: "noWrite",
+      plan,
+    }));
+  }
+  const current = findQueryState(state, plan.change.queryKey);
+  if (current === undefined) {
+    throw transitionInvariant(
+      "recordEvaluationAttemptOutcome",
+      "transitionPlanUnexpectedStep",
+    );
+  }
+  const replacement: QueryState = {
+    ...current,
+    provisional: plan.change.provisional,
+  };
+  return rebuildQuerySyncState(state, {
+    queries: replaceQuery(state.queries, replacement),
+    evaluationWork: plan.nextScope.evaluationWork,
+  }).pipe(Result.map((nextState) => {
+    verifyPlanMetrics(
+      "recordEvaluationAttemptOutcome",
+      nextState,
+      plan.nextScope,
+    );
+    return Object.freeze({
+      decision: evaluationAttemptOutcomeDecision(plan.receipt, nextState),
+      disposition: "write",
+      plan,
+    });
+  }));
+}
+
+export function applyRecordEvaluationAttemptOutcomeTransition(
+  state: QuerySyncState,
+  attempt: QueryEvaluationAttempt,
+  outcome: EvaluationAttemptOutcome,
+): Result.Result<
+  AggregateTransition<
+    RecordEvaluationAttemptOutcomeDecision,
+    RecordEvaluationAttemptOutcomePlan
+  >,
+  RecordEvaluationAttemptOutcomeAggregateError
+> {
+  return authenticateRecordEvaluationAttemptOutcomeAttempt(attempt).pipe(
+    Result.flatMap((authenticated) => planRecordEvaluationAttemptOutcome({
+      scope: projectQuerySyncScopeFacts(state),
+      query: projectEvaluationAttemptOutcomeQueryFacts(findQueryState(
+        state,
+        authenticated.queryKey,
+      )),
+      attempt: authenticated.attempt,
+      outcome,
+    })),
+    Result.mapError(mapEvaluationAttemptOutcomePlannerError),
+    Result.flatMap((plan) => applyRecordEvaluationAttemptOutcomePlan(
+      state,
+      plan,
+    )),
   );
 }

@@ -7,10 +7,6 @@ import type {
   SyncModelId,
   SyncNamespaceId,
 } from "../../kernel/CanonicalValue.js";
-import {
-  claimEvaluationWork,
-  recordEvaluationAttemptOutcome,
-} from "../../kernel/EvaluationWork.js";
 import type {
   ClaimEvaluationWorkError,
   EvaluationAttemptOutcome,
@@ -36,7 +32,9 @@ import type {
 import {
   applyAdmittedInvalidationsTransition,
   applyBeginQueryEvaluationTransition,
+  applyClaimEvaluationWorkTransition,
   applyCompleteQueryEvaluationTransition,
+  applyRecordEvaluationAttemptOutcomeTransition,
 } from "../../kernel/TransitionPlanAggregate.js";
 import type {
   QueryPublicationArtifact,
@@ -64,10 +62,8 @@ import type {
   QuerySyncStateOperation,
 } from "../../state/Errors.js";
 import {
-  projectClaimEvaluationWorkReceipt,
   projectClaimPublicationReceipt,
   projectCompletePublicationReceipt,
-  projectRecordEvaluationAttemptOutcomeReceipt,
   projectRecordPublicationAttemptOutcomeReceipt,
 } from "../../state/Receipts.js";
 import {
@@ -533,11 +529,14 @@ function makeReferencePort(
           binding,
           current,
         );
-        const decision = yield* claimEvaluationWork(state, request);
+        const transition = yield* applyClaimEvaluationWorkTransition(
+          state,
+          request,
+        );
         return Object.freeze({
-          receipt: projectClaimEvaluationWorkReceipt(decision),
-          nextState: decision.state,
-          disposition: legacyAggregateDisposition(state, decision.state),
+          receipt: transition.plan.receipt,
+          nextState: transition.decision.state,
+          disposition: transition.disposition,
         });
       }),
     );
@@ -569,15 +568,15 @@ function makeReferencePort(
           binding,
           current,
         );
-        const decision = yield* recordEvaluationAttemptOutcome(
+        const transition = yield* applyRecordEvaluationAttemptOutcomeTransition(
           state,
           attempt,
           outcome,
         );
         return Object.freeze({
-          receipt: projectRecordEvaluationAttemptOutcomeReceipt(decision),
-          nextState: decision.state,
-          disposition: legacyAggregateDisposition(state, decision.state),
+          receipt: transition.plan.receipt,
+          nextState: transition.decision.state,
+          disposition: transition.disposition,
         });
       }),
     );

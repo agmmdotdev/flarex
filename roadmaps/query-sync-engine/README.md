@@ -26,14 +26,16 @@ now freezes that seam, its staged-read protocol, exact accounting authority,
 proof matrix, and D1-D4 implementation order. D0 itself added no code, and no
 SQLite schema is implemented or authorized.
 
-The separately approved `QSYNC01-D1` and `QSYNC01-D2` implementations are now
-complete. D1 adds the private source-only transition-plan foundation, one
-shared accounting owner, initialization and begin planners, and the first
-staged admitted-batch planner. D2 adds scalar-first evaluation completion with
-separate replay and material reads, exact target publication facts, and
-planner-owned counters. Aggregate/reference integration and independent
-normalized proof cover both slices. They add no package export, SQLite,
-backend, or production caller. D3-D4 remain separately gated.
+The separately approved `QSYNC01-D1`, `QSYNC01-D2`, and `QSYNC01-D3`
+implementations are now complete. D1 adds the private source-only
+transition-plan foundation, one shared accounting owner, initialization and
+begin planners, and the first staged admitted-batch planner. D2 adds
+scalar-first evaluation completion with separate replay and material reads,
+exact target publication facts, and planner-owned counters. D3 adds bounded
+cyclic evaluation-work selection, selected-query revalidation, and nominal
+attempt-outcome planning. Aggregate/reference integration and independent
+normalized proof cover all three slices. They add no package export, SQLite,
+backend, or production caller. D4 remains separately gated.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
@@ -183,7 +185,7 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
 | `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 complete in `87a7566f`; private and production-inert |
-| `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | D0 accepted; D1-D2 complete and private; D3-D4 not implemented or authorized |
+| `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | D0 accepted; D1-D3 complete and private; D4 not implemented or authorized |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
 | `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete, private, and production-inert; B complete with a stop-before-schema verdict; C1-C3 blocked until D1-D4 complete and a fresh adapter checkpoint is approved; independent of delivery selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
@@ -238,16 +240,17 @@ paths.
   is the completed docs-only B access-plan and seam verdict. It stops before
   schema and records the missing core seam that D now owns.
 - [`preflight/09-qsync01-d-operation-scoped-transition-plans.md`](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
-  is the accepted D0 architecture freeze and completed D1-D2 implementation
-  record for the private planner boundary, facts, staged apply and completion,
-  shared accounting, aggregate/reference integration, and proof matrix.
+  is the accepted D0 architecture freeze and completed D1-D3 implementation
+  record for the private planner boundary, facts, staged apply, completion,
+  evaluation-work selection and outcome recording, shared accounting,
+  aggregate/reference integration, and proof matrix.
 
 ## Next Correctness Gate
 
-The next correctness decision is whether to approve `QSYNC01-D3`, moving
-evaluation selection and attempt-outcome recording onto the private planner
-seam. D1-D2 are complete; D3-D4 must complete all nine planners before a fresh
-FX01 checkpoint may discuss SQLite.
+The next correctness decision is whether to approve `QSYNC01-D4`, moving the
+three publication-lifecycle operations onto the private planner seam and
+completing the all-nine proof. D1-D3 are complete; D4 must complete all nine
+planners before a fresh FX01 checkpoint may discuss SQLite.
 C1-C3 remain blocked; no DDL or storage generation is authorized. Neither A,
 B, C4, nor D0 authorizes a real
 `ResultPublisher`, delivery-adapter selection, Postgres source composition,

@@ -3,7 +3,9 @@ import { Data } from "effect";
 export type QuerySyncTransitionOperation =
   | "beginQueryEvaluation"
   | "applyAdmittedInvalidations"
-  | "completeQueryEvaluation";
+  | "completeQueryEvaluation"
+  | "claimEvaluationWork"
+  | "recordEvaluationAttemptOutcome";
 
 export class QuerySyncTransitionFactError extends Data.TaggedError(
   "QuerySyncTransitionFactError",
@@ -21,7 +23,10 @@ export class QuerySyncTransitionFactError extends Data.TaggedError(
     | "completionDependenciesInvalid"
     | "retainedPublicationFactsInvalid"
     | "pendingPublicationFactsInvalid"
-    | "completionPublicationLifecycleFactsInvalid";
+    | "completionPublicationLifecycleFactsInvalid"
+    | "evaluationScanFactsInvalid"
+    | "evaluationSelectedQueryFactsInvalid"
+    | "evaluationAttemptOutcomeQueryFactsInvalid";
 }> {}
 
 export class QuerySyncTransitionResumeDefect extends Data.TaggedError(
@@ -29,12 +34,15 @@ export class QuerySyncTransitionResumeDefect extends Data.TaggedError(
 )<{
   readonly operation:
     | "applyAdmittedInvalidations"
-    | "completeQueryEvaluation";
+    | "completeQueryEvaluation"
+    | "claimEvaluationWork";
   readonly stage:
     | "affectedTargets"
     | "affectedActiveFacts"
     | "completionReplayFacts"
-    | "completionMaterialFacts";
+    | "completionMaterialFacts"
+    | "evaluationScanFacts"
+    | "evaluationSelectedQueryFacts";
 }> {}
 
 export type QuerySyncInitializationPolicyReason =

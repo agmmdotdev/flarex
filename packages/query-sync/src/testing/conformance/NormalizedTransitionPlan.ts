@@ -51,6 +51,37 @@ import type {
   ResumeCompleteQueryReplayError,
   StartCompleteQueryEvaluationError,
 } from "../../transition-plan/CompleteQueryEvaluation.js";
+import type {
+  ClaimEvaluationWorkReceipt,
+  EvaluationAttemptOutcome,
+  EvaluationWorkScanRequest,
+  RecordEvaluationAttemptOutcomeReceipt,
+} from "../../transition-plan/EvaluationWork.js";
+import {
+  resumeClaimEvaluationWorkScan,
+  resumeClaimEvaluationWorkSelectedQuery,
+  startClaimEvaluationWork,
+} from "../../transition-plan/ClaimEvaluationWork.js";
+import type {
+  ClaimEvaluationWorkPlan,
+  EvaluationSelectedQueryFacts,
+  EvaluationWorkScanFacts,
+  EvaluationWorkScanFactsRead,
+  ReadEvaluationWorkScanFactsIntent,
+  ResumeClaimEvaluationWorkScanError,
+  ResumeClaimEvaluationWorkSelectedQueryError,
+  StartClaimEvaluationWorkError,
+} from "../../transition-plan/ClaimEvaluationWork.js";
+import {
+  authenticateRecordEvaluationAttemptOutcomeAttempt,
+  planRecordEvaluationAttemptOutcome,
+} from "../../transition-plan/RecordEvaluationAttemptOutcome.js";
+import type {
+  EvaluationAttemptCompletionFacts,
+  EvaluationAttemptOutcomeQueryFacts,
+  PlanRecordEvaluationAttemptOutcomeError,
+  RecordEvaluationAttemptOutcomePlan,
+} from "../../transition-plan/RecordEvaluationAttemptOutcome.js";
 import {
   resumeApplyAdmittedBatchActiveFacts,
   resumeApplyAdmittedBatchAffectedTargets,
@@ -158,10 +189,22 @@ export type NormalizedCompleteError =
   | ResumeCompleteQueryMaterialError
   | BuildQuerySyncStateError;
 
+export type NormalizedRecordEvaluationAttemptOutcomeError =
+  | PlanRecordEvaluationAttemptOutcomeError
+  | BuildQuerySyncStateError;
+
+export type NormalizedClaimEvaluationWorkError =
+  | StartClaimEvaluationWorkError
+  | ResumeClaimEvaluationWorkScanError
+  | ResumeClaimEvaluationWorkSelectedQueryError
+  | BuildQuerySyncStateError;
+
 type NormalizedOperation =
   | "beginQueryEvaluation"
   | "applyAdmittedInvalidations"
-  | "completeQueryEvaluation";
+  | "claimEvaluationWork"
+  | "completeQueryEvaluation"
+  | "recordEvaluationAttemptOutcome";
 
 function transitionDefect(
   operation: NormalizedOperation,
@@ -437,6 +480,86 @@ function completeQueryFactsEqual(
     return false;
   }
   return completionFactsEqual(
+    left.currentCompletion,
+    right.currentCompletion,
+  ) && identityEqual(
+    left.precedingCompletionIdentity,
+    right.precedingCompletionIdentity,
+  );
+}
+
+function evaluationAttemptCompletionFacts(
+  completion: NormalizedCompletionScalarFacts,
+): EvaluationAttemptCompletionFacts {
+  return Object.freeze({
+    identity: completion.identity,
+    queryIdentity: completion.queryIdentity,
+    expectedActiveGeneration: completion.expectedActiveGeneration,
+    registrationCursor: completion.registrationCursor,
+    requestedDirtyThroughSequence:
+      completion.requestedDirtyThroughSequence,
+  });
+}
+
+function evaluationAttemptOutcomeFacts(
+  normalized: NormalizedQuerySyncState,
+  queryKey: CanonicalQueryKey,
+): EvaluationAttemptOutcomeQueryFacts | null {
+  const query = findNormalizedQuery(normalized, queryKey);
+  if (query === undefined) return null;
+  return Object.freeze({
+    descriptor: query.descriptor,
+    active: query.active,
+    provisional: query.provisional,
+    currentCompletion: query.currentCompletion === null
+      ? null
+      : evaluationAttemptCompletionFacts(query.currentCompletion),
+    precedingCompletionIdentity: query.precedingCompletionIdentity,
+  });
+}
+
+function evaluationAttemptCompletionFactsEqual(
+  left: EvaluationAttemptCompletionFacts | null,
+  right: EvaluationAttemptCompletionFacts | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return queryPublicationIdentityEquals(left.identity, right.identity)
+    && left.queryIdentity === right.queryIdentity
+    && left.expectedActiveGeneration === right.expectedActiveGeneration
+    && left.registrationCursor.namespaceId
+      === right.registrationCursor.namespaceId
+    && left.registrationCursor.syncModelId
+      === right.registrationCursor.syncModelId
+    && left.registrationCursor.sourceEpoch
+      === right.registrationCursor.sourceEpoch
+    && left.registrationCursor.appliedThroughSequence
+      === right.registrationCursor.appliedThroughSequence
+    && left.requestedDirtyThroughSequence
+      === right.requestedDirtyThroughSequence;
+}
+
+function evaluationAttemptOutcomeFactsEqual(
+  left: EvaluationAttemptOutcomeQueryFacts | null,
+  right: EvaluationAttemptOutcomeQueryFacts | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    left.descriptor.queryKey !== right.descriptor.queryKey
+    || left.descriptor.queryIdentity !== right.descriptor.queryIdentity
+  ) {
+    return false;
+  }
+  if (left.active === null || right.active === null) {
+    if (left.active !== right.active) return false;
+  } else if (!activeFactsEqual(left.active, right.active)) {
+    return false;
+  }
+  if (left.provisional === null || right.provisional === null) {
+    if (left.provisional !== right.provisional) return false;
+  } else if (!provisionalFactsEqual(left.provisional, right.provisional)) {
+    return false;
+  }
+  return evaluationAttemptCompletionFactsEqual(
     left.currentCompletion,
     right.currentCompletion,
   ) && identityEqual(
@@ -1247,6 +1370,258 @@ export function executeNormalizedCompleteQueryEvaluation(
       );
     }
     const state = yield* interpretCompletePlan(normalized, plan);
+    return Object.freeze({
+      receipt: plan.receipt,
+      state,
+      disposition: plan._tag,
+      plan,
+    });
+  });
+}
+
+function normalizedEvaluationWorkScanOrder(
+  normalized: NormalizedQuerySyncState,
+  anchor: CanonicalQueryKey | null,
+): readonly NormalizedQueryRow[] {
+  if (anchor === null || normalized.queries.length === 0) {
+    return normalized.queries;
+  }
+  const anchorIndex = normalized.queries.findIndex((query) => (
+    query.descriptor.queryKey === anchor
+  ));
+  if (anchorIndex < 0) return normalized.queries;
+  return Object.freeze([
+    ...normalized.queries.slice(anchorIndex + 1),
+    ...normalized.queries.slice(0, anchorIndex + 1),
+  ]);
+}
+
+function normalizedEvaluationWorkScanFacts(
+  query: NormalizedQueryRow,
+): EvaluationWorkScanFacts {
+  return Object.freeze({
+    queryKey: query.descriptor.queryKey,
+    active: query.active === null
+      ? null
+      : Object.freeze({
+        generation: query.active.generation,
+        dirtyThroughSequence: query.active.dirtyThroughSequence,
+      }),
+    provisional: query.provisional === null
+      ? null
+      : Object.freeze({
+        generation: query.provisional.generation,
+        evaluationDisposition: query.provisional.evaluationDisposition,
+      }),
+  });
+}
+
+function normalizedEvaluationWorkScanRead(
+  normalized: NormalizedQuerySyncState,
+  intent: ReadEvaluationWorkScanFactsIntent,
+): EvaluationWorkScanFactsRead {
+  const order = normalizedEvaluationWorkScanOrder(
+    normalized,
+    intent.scanStartFairnessAnchor,
+  );
+  if (order.length >= intent.maximumCombinedQueryFacts) {
+    return Object.freeze({
+      _tag: "limitExceeded",
+      observed: intent.maximumCombinedQueryFacts,
+    });
+  }
+  const lastIndex = intent.lastInspectedQueryKey === null
+    ? -1
+    : order.findIndex((query) => (
+      query.descriptor.queryKey === intent.lastInspectedQueryKey
+    ));
+  const prefix = lastIndex < 0
+    ? []
+    : order.slice(0, lastIndex + 1)
+      .map(normalizedEvaluationWorkScanFacts);
+  const pageStart = lastIndex + 1;
+  const pageEnd = Math.min(
+    order.length,
+    pageStart + intent.maximumPageQueryInspections,
+  );
+  const page = order.slice(pageStart, pageEnd)
+    .map(normalizedEvaluationWorkScanFacts);
+  return Object.freeze({
+    _tag: "complete",
+    fairnessAnchorPresent:
+      intent.scanStartFairnessAnchor !== null
+      && normalized.queries.some((query) => (
+        query.descriptor.queryKey === intent.scanStartFairnessAnchor
+      )),
+    revalidationPrefix: Object.freeze(prefix),
+    page: Object.freeze(page),
+    hasMore: pageEnd < order.length,
+  });
+}
+
+function normalizedEvaluationSelectedQueryFacts(
+  normalized: NormalizedQuerySyncState,
+  queryKey: CanonicalQueryKey,
+): EvaluationSelectedQueryFacts | null {
+  const query = findNormalizedQuery(normalized, queryKey);
+  return query === undefined
+    ? null
+    : Object.freeze({
+      descriptor: query.descriptor,
+      active: query.active,
+      provisional: query.provisional,
+    });
+}
+
+function interpretClaimEvaluationWorkPlan(
+  normalized: NormalizedQuerySyncState,
+  plan: ClaimEvaluationWorkPlan,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  if (plan._tag === "noWrite") {
+    return rebuildNormalized(
+      normalized,
+      normalized.scope,
+      normalized.queries,
+      "claimEvaluationWork",
+    );
+  }
+  const queryKey = plan.change.queryKey;
+  const current = findNormalizedQuery(normalized, queryKey);
+  if (
+    current === undefined
+    || !scopeFactsEqual(normalized.scope, plan.expected.scope)
+    || !beginQueryFactsEqual(
+      normalizedEvaluationSelectedQueryFacts(normalized, queryKey),
+      plan.expected.query,
+    )
+  ) {
+    throw transitionDefect("claimEvaluationWork");
+  }
+  const change = plan.change;
+  const queries = change._tag === "claimReadyEvaluationWork"
+    ? normalized.queries
+    : normalized.queries.map((query): NormalizedQueryRow => (
+      query.descriptor.queryKey === queryKey
+        ? Object.freeze({
+          ...query,
+          provisional: freezeProvisionalFacts(change.provisional),
+        })
+        : query
+    ));
+  return rebuildNormalized(
+    normalized,
+    plan.nextScope,
+    queries,
+    "claimEvaluationWork",
+  );
+}
+
+export function executeNormalizedClaimEvaluationWork(
+  normalized: NormalizedQuerySyncState,
+  request: EvaluationWorkScanRequest,
+): Result.Result<
+  NormalizedTransition<ClaimEvaluationWorkReceipt, ClaimEvaluationWorkPlan>,
+  NormalizedClaimEvaluationWorkError
+> {
+  return Result.gen(function* () {
+    const start = yield* startClaimEvaluationWork({
+      scope: normalized.scope,
+      request,
+    });
+    let plan: ClaimEvaluationWorkPlan;
+    if (start._tag === "planned") {
+      plan = start.plan;
+    } else {
+      const scan = yield* resumeClaimEvaluationWorkScan(
+        start.resume,
+        normalizedEvaluationWorkScanRead(normalized, start.intent),
+      );
+      plan = scan._tag === "planned"
+        ? scan.plan
+        : yield* resumeClaimEvaluationWorkSelectedQuery(
+          scan.resume,
+          normalizedEvaluationSelectedQueryFacts(
+            normalized,
+            scan.intent.queryKey,
+          ),
+        );
+    }
+    const state = yield* interpretClaimEvaluationWorkPlan(normalized, plan);
+    return Object.freeze({
+      receipt: plan.receipt,
+      state,
+      disposition: plan._tag,
+      plan,
+    });
+  });
+}
+
+function interpretRecordEvaluationAttemptOutcomePlan(
+  normalized: NormalizedQuerySyncState,
+  plan: RecordEvaluationAttemptOutcomePlan,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  if (plan._tag === "noWrite") {
+    return rebuildNormalized(
+      normalized,
+      normalized.scope,
+      normalized.queries,
+      "recordEvaluationAttemptOutcome",
+    );
+  }
+  const queryKey = plan.change.queryKey;
+  const current = findNormalizedQuery(normalized, queryKey);
+  if (
+    current === undefined
+    || !scopeFactsEqual(normalized.scope, plan.expected.scope)
+    || !evaluationAttemptOutcomeFactsEqual(
+      evaluationAttemptOutcomeFacts(normalized, queryKey),
+      plan.expected.query,
+    )
+  ) {
+    throw transitionDefect("recordEvaluationAttemptOutcome");
+  }
+  const replacement: NormalizedQueryRow = Object.freeze({
+    ...current,
+    provisional: freezeProvisionalFacts(plan.change.provisional),
+  });
+  const queries = normalized.queries.map((query) => (
+    query.descriptor.queryKey === queryKey ? replacement : query
+  ));
+  return rebuildNormalized(
+    normalized,
+    plan.nextScope,
+    queries,
+    "recordEvaluationAttemptOutcome",
+  );
+}
+
+export function executeNormalizedRecordEvaluationAttemptOutcome(
+  normalized: NormalizedQuerySyncState,
+  attempt: QueryEvaluationAttempt,
+  outcome: EvaluationAttemptOutcome,
+): Result.Result<
+  NormalizedTransition<
+    RecordEvaluationAttemptOutcomeReceipt,
+    RecordEvaluationAttemptOutcomePlan
+  >,
+  NormalizedRecordEvaluationAttemptOutcomeError
+> {
+  return Result.gen(function* () {
+    const authenticated = yield*
+      authenticateRecordEvaluationAttemptOutcomeAttempt(attempt);
+    const plan = yield* planRecordEvaluationAttemptOutcome({
+      scope: normalized.scope,
+      query: evaluationAttemptOutcomeFacts(
+        normalized,
+        authenticated.queryKey,
+      ),
+      attempt: authenticated.attempt,
+      outcome,
+    });
+    const state = yield* interpretRecordEvaluationAttemptOutcomePlan(
+      normalized,
+      plan,
+    );
     return Object.freeze({
       receipt: plan.receipt,
       state,

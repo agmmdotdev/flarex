@@ -1,12 +1,8 @@
 import type {
-  CanonicalQueryKey,
   PublicationAttemptOrdinal,
-  QueryGeneration,
 } from "../kernel/CanonicalValue.js";
 import type {
-  BlockedEvaluationWorkEvidence,
   ClaimEvaluationWorkDecision,
-  EvaluationWorkScanContinuation,
   RecordEvaluationAttemptOutcomeDecision,
 } from "../kernel/EvaluationWork.js";
 import type {
@@ -14,7 +10,6 @@ import type {
   BeginQueryEvaluationDecision,
   CompleteQueryEvaluationDecision,
   PublicationBlockReason,
-  QueryEvaluationAttempt,
 } from "../kernel/Model.js";
 import {
   alreadyAdvancedBeginReceipt,
@@ -36,6 +31,22 @@ import type {
   BeginQueryEvaluationReceipt,
   CompleteQueryEvaluationReceipt,
 } from "../transition-plan/Receipts.js";
+import {
+  blockedEvaluationWorkReceipt,
+  claimedEvaluationWorkReceipt,
+  continuedEvaluationWorkReceipt,
+  eligibleEvaluationAttemptOutcomeReceipt,
+  historicalEvaluationAttemptOutcomeReceipt,
+  noneEvaluationWorkReceipt,
+} from "../transition-plan/EvaluationWork.js";
+export type {
+  ClaimEvaluationWorkReceipt,
+  RecordEvaluationAttemptOutcomeReceipt,
+} from "../transition-plan/EvaluationWork.js";
+import type {
+  ClaimEvaluationWorkReceipt,
+  RecordEvaluationAttemptOutcomeReceipt,
+} from "../transition-plan/EvaluationWork.js";
 
 export {
   epochReplacedReceipt,
@@ -60,51 +71,6 @@ import type {
   PublicationAttempt,
   RecordPublicationAttemptOutcomeDecision,
 } from "../kernel/PublicationWork.js";
-
-export type ClaimEvaluationWorkReceipt =
-  | Readonly<{
-    readonly _tag: "claimed";
-    readonly attempt: QueryEvaluationAttempt;
-    readonly continuation: EvaluationWorkScanContinuation;
-  }>
-  | Readonly<{
-    readonly _tag: "continued";
-    readonly continuation: EvaluationWorkScanContinuation;
-  }>
-  | Readonly<{
-    readonly _tag: "scanRestarted";
-    readonly continuation: EvaluationWorkScanContinuation;
-  }>
-  | Readonly<{
-    readonly _tag: "blocked";
-    readonly blockedWork: BlockedEvaluationWorkEvidence;
-  }>
-  | Readonly<{
-    readonly _tag: "none";
-  }>;
-
-export type RecordEvaluationAttemptOutcomeReceipt =
-  | Readonly<{
-    readonly _tag: "eligible";
-    readonly queryKey: CanonicalQueryKey;
-    readonly generation: QueryGeneration;
-  }>
-  | Readonly<{
-    readonly _tag: "blocked";
-    readonly blockedWork: BlockedEvaluationWorkEvidence;
-  }>
-  | Readonly<{
-    readonly _tag: "superseded";
-    readonly queryKey: CanonicalQueryKey;
-    readonly generation: QueryGeneration;
-    readonly activeGeneration: QueryGeneration;
-  }>
-  | Readonly<{
-    readonly _tag: "recoveryEvidenceExpired";
-    readonly queryKey: CanonicalQueryKey;
-    readonly generation: QueryGeneration;
-    readonly activeGeneration: QueryGeneration;
-  }>;
 
 export type ClaimPublicationReceipt =
   | Readonly<{
@@ -165,17 +131,6 @@ export type CompletePublicationReceipt =
     readonly _tag: "superseded";
     readonly identity: QueryPublicationIdentity;
   }>;
-
-function freezeBlockedEvaluationWork(
-  blockedWork: BlockedEvaluationWorkEvidence,
-): BlockedEvaluationWorkEvidence {
-  return Object.freeze({
-    queryKey: blockedWork.queryKey,
-    generation: blockedWork.generation,
-    reason: "terminalEvaluatorRefusal",
-    resetRequired: true,
-  });
-}
 
 export function projectBeginReceipt(
   decision: BeginQueryEvaluationDecision,
@@ -268,26 +223,22 @@ export function projectClaimEvaluationWorkReceipt(
 ): ClaimEvaluationWorkReceipt {
   switch (decision._tag) {
     case "claimed":
-      return Object.freeze({
-        _tag: "claimed",
-        // These are process-local state-issued capabilities. Preserve their
-        // exact identities so their private runtime authenticity remains valid.
-        attempt: decision.attempt,
-        continuation: decision.continuation,
-      });
+      // These are process-local state-issued capabilities. Preserve their
+      // exact identities so their private runtime authenticity remains valid.
+      return claimedEvaluationWorkReceipt(
+        decision.attempt,
+        decision.continuation,
+      );
     case "continued":
     case "scanRestarted":
-      return Object.freeze({
-        _tag: decision._tag,
-        continuation: decision.continuation,
-      });
+      return continuedEvaluationWorkReceipt(
+        decision._tag,
+        decision.continuation,
+      );
     case "blocked":
-      return Object.freeze({
-        _tag: "blocked",
-        blockedWork: freezeBlockedEvaluationWork(decision.blockedWork),
-      });
+      return blockedEvaluationWorkReceipt(decision.blockedWork);
     case "none":
-      return Object.freeze({ _tag: "none" });
+      return noneEvaluationWorkReceipt();
   }
 }
 
@@ -296,24 +247,20 @@ export function projectRecordEvaluationAttemptOutcomeReceipt(
 ): RecordEvaluationAttemptOutcomeReceipt {
   switch (decision._tag) {
     case "eligible":
-      return Object.freeze({
-        _tag: "eligible",
-        queryKey: decision.queryKey,
-        generation: decision.generation,
-      });
+      return eligibleEvaluationAttemptOutcomeReceipt(
+        decision.queryKey,
+        decision.generation,
+      );
     case "blocked":
-      return Object.freeze({
-        _tag: "blocked",
-        blockedWork: freezeBlockedEvaluationWork(decision.blockedWork),
-      });
+      return blockedEvaluationWorkReceipt(decision.blockedWork);
     case "superseded":
     case "recoveryEvidenceExpired":
-      return Object.freeze({
-        _tag: decision._tag,
-        queryKey: decision.queryKey,
-        generation: decision.generation,
-        activeGeneration: decision.activeGeneration,
-      });
+      return historicalEvaluationAttemptOutcomeReceipt(
+        decision._tag,
+        decision.queryKey,
+        decision.generation,
+        decision.activeGeneration,
+      );
   }
 }
 

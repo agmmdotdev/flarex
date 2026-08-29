@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
   NamespaceCursor,
+  QueryEvaluationAttempt,
   QuerySyncState,
 } from "@flarex/query-sync/internal/kernel";
 import {
@@ -14,6 +15,7 @@ import {
   ReferenceStateSnapshotBindingError,
 } from "@flarex/query-sync/testing/conformance";
 import type {
+  ReferenceQuerySyncTransitionState,
   ReferenceStateBinding,
 } from "@flarex/query-sync/testing/conformance";
 import {
@@ -166,6 +168,19 @@ async function prepareMaterialRerun(
     beforeCompletion,
     previousPending,
   };
+}
+
+async function claimReferenceEvaluationAttempt(
+  transitionState: ReferenceQuerySyncTransitionState,
+): Promise<QueryEvaluationAttempt> {
+  const receipt = await runEffect(transitionState.claimEvaluationWork({
+    maximumQueryInspections: 1,
+    continuation: null,
+  }));
+  if (receipt._tag !== "claimed") {
+    throw new Error("Expected reference evaluation work to be claimed.");
+  }
+  return receipt.attempt;
 }
 
 describe("reference transition-state atomicity", () => {
@@ -370,6 +385,270 @@ describe("reference transition-state atomicity", () => {
           === queryTarget.descriptor.queryKey,
       )?.provisional?.requestedDirtyThroughSequence).toBe(2n);
       if (timing === "afterSwap") expect(afterReplay).toBe(afterFailure);
+    }
+  });
+
+  it("keeps ready and dirty evaluation claims atomic across both swap fault timings", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const bootstrapCursor = cursor();
+      const readyHarness = await runEffect(
+        makeReferenceQuerySyncStateHarness(),
+      );
+      const readyState = readyHarness.bind(bindingFor(
+        `physical-ready-claim-${timing}`,
+        bootstrapCursor,
+      ));
+      await runEffect(
+        readyState.initializeOrInspectNamespace(bootstrapCursor),
+      );
+      const begun = await runEffect(
+        readyState.beginQueryEvaluation(firstEvaluationRequest()),
+      );
+      if (begun._tag !== "created") {
+        throw new Error("Expected ready evaluation work.");
+      }
+      const beforeReadyClaim = requireState(await runEffect(
+        readyState.snapshotForConformance(),
+      ));
+      await runEffect(readyState.injectNextFault({
+        operation: "claimEvaluationWork",
+        timing,
+      }));
+      const readyFailure = await runEffectFailure(
+        readyState.claimEvaluationWork({
+          maximumQueryInspections: 1,
+          continuation: null,
+        }),
+      );
+      expect(readyFailure).toMatchObject({
+        operation: "claimEvaluationWork",
+        commitCertainty: timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterReadyFailure = requireState(await runEffect(
+        readyState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterReadyFailure).toBe(beforeReadyClaim);
+      } else {
+        expect(readyFailure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterReadyFailure).not.toBe(beforeReadyClaim);
+        expect(afterReadyFailure.evaluationWork).toEqual({
+          revision: beforeReadyClaim.evaluationWork.revision,
+          fairnessAnchor: begun.attempt.descriptor.queryKey,
+        });
+      }
+      const recoveredReady = await runEffect(
+        readyState.claimEvaluationWork({
+          maximumQueryInspections: 1,
+          continuation: null,
+        }),
+      );
+      expect(recoveredReady).toMatchObject({
+        _tag: "claimed",
+        attempt: { generation: begun.attempt.generation },
+      });
+
+      const dependency = canonicalText(`fault:dirty-claim-${timing}`);
+      const prepared = await prepareActiveReferenceQuery(
+        `physical-dirty-claim-${timing}`,
+        dependency,
+      );
+      await runEffect(
+        prepared.transitionState.applyAdmittedBatchAndAdvance(batch({
+          sequence: 1n,
+          dependencies: [dependency],
+        })),
+      );
+      const beforeDirtyClaim = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      expect(beforeDirtyClaim.queries[0]?.provisional).toBeNull();
+      await runEffect(prepared.transitionState.injectNextFault({
+        operation: "claimEvaluationWork",
+        timing,
+      }));
+      const dirtyFailure = await runEffectFailure(
+        prepared.transitionState.claimEvaluationWork({
+          maximumQueryInspections: 1,
+          continuation: null,
+        }),
+      );
+      expect(dirtyFailure).toMatchObject({
+        operation: "claimEvaluationWork",
+        commitCertainty: timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterDirtyFailure = requireState(await runEffect(
+        prepared.transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterDirtyFailure).toBe(beforeDirtyClaim);
+      } else {
+        expect(afterDirtyFailure.queries[0]?.provisional).toMatchObject({
+          generation: 2n,
+          expectedActiveGeneration: 1n,
+          requestedDirtyThroughSequence: 1n,
+          evaluationDisposition: { _tag: "ready" },
+        });
+        expect(afterDirtyFailure.evaluationWork.revision).toBe(
+          beforeDirtyClaim.evaluationWork.revision + 1n,
+        );
+      }
+      const recoveredDirty = await runEffect(
+        prepared.transitionState.claimEvaluationWork({
+          maximumQueryInspections: 1,
+          continuation: null,
+        }),
+      );
+      expect(recoveredDirty).toMatchObject({
+        _tag: "claimed",
+        attempt: {
+          generation: 2n,
+          expectedActiveGeneration: 1n,
+          requestedDirtyThroughSequence: 1n,
+        },
+      });
+    }
+  });
+
+  it("keeps terminal outcome blocking atomic across both swap fault timings", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const bootstrapCursor = cursor();
+      const harness = await runEffect(makeReferenceQuerySyncStateHarness());
+      const transitionState = harness.bind(bindingFor(
+        `physical-terminal-outcome-${timing}`,
+        bootstrapCursor,
+      ));
+      await runEffect(
+        transitionState.initializeOrInspectNamespace(bootstrapCursor),
+      );
+      await runEffect(
+        transitionState.beginQueryEvaluation(firstEvaluationRequest()),
+      );
+      const attempt = await claimReferenceEvaluationAttempt(transitionState);
+      const beforeOutcome = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      await runEffect(transitionState.injectNextFault({
+        operation: "recordEvaluationAttemptOutcome",
+        timing,
+      }));
+      const failure = await runEffectFailure(
+        transitionState.recordEvaluationAttemptOutcome(
+          attempt,
+          "terminalRefusal",
+        ),
+      );
+      expect(failure).toMatchObject({
+        operation: "recordEvaluationAttemptOutcome",
+        commitCertainty: timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterFailure = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterFailure).toBe(beforeOutcome);
+      } else {
+        expect(failure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterFailure.queries[0]?.provisional
+          ?.evaluationDisposition).toMatchObject({
+          _tag: "blocked",
+          reason: "terminalEvaluatorRefusal",
+          resetRequired: true,
+        });
+        expect(afterFailure.evaluationWork.revision).toBe(
+          beforeOutcome.evaluationWork.revision + 1n,
+        );
+        expect(afterFailure.metrics.countedCanonicalBytes).toBe(
+          beforeOutcome.metrics.countedCanonicalBytes + 2,
+        );
+      }
+      const recovered = await runEffect(
+        transitionState.recordEvaluationAttemptOutcome(
+          attempt,
+          "terminalRefusal",
+        ),
+      );
+      expect(recovered).toMatchObject({
+        _tag: "blocked",
+        blockedWork: {
+          queryKey: attempt.descriptor.queryKey,
+          generation: attempt.generation,
+          reason: "terminalEvaluatorRefusal",
+          resetRequired: true,
+        },
+      });
+      const afterRecovery = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      expect(afterRecovery.evaluationWork.revision).toBe(
+        beforeOutcome.evaluationWork.revision + 1n,
+      );
+      expect(afterRecovery.metrics.countedCanonicalBytes).toBe(
+        beforeOutcome.metrics.countedCanonicalBytes + 2,
+      );
+      if (timing === "afterSwap") expect(afterRecovery).toBe(afterFailure);
+    }
+  });
+
+  it("retains an outcome fault across a no-write and an authenticated failure", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const bootstrapCursor = cursor();
+      const harness = await runEffect(makeReferenceQuerySyncStateHarness());
+      const transitionState = harness.bind(bindingFor(
+        `physical-outcome-retained-fault-${timing}`,
+        bootstrapCursor,
+      ));
+      await runEffect(
+        transitionState.initializeOrInspectNamespace(bootstrapCursor),
+      );
+      await runEffect(
+        transitionState.beginQueryEvaluation(firstEvaluationRequest()),
+      );
+      const attempt = await claimReferenceEvaluationAttempt(transitionState);
+      const before = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      await runEffect(transitionState.injectNextFault({
+        operation: "recordEvaluationAttemptOutcome",
+        timing,
+      }));
+      expect(await runEffect(
+        transitionState.recordEvaluationAttemptOutcome(
+          attempt,
+          "transientExhausted",
+        ),
+      )).toMatchObject({ _tag: "eligible" });
+      const forgery = {
+        ...attempt,
+        descriptor: { ...attempt.descriptor },
+      } as unknown as QueryEvaluationAttempt;
+      expect(await runEffectFailure(
+        transitionState.recordEvaluationAttemptOutcome(
+          forgery,
+          "terminalRefusal",
+        ),
+      )).toMatchObject({
+        _tag: "InvalidEvaluationAttemptError",
+        reason: "notStateIssued",
+      });
+      expect(await runEffect(
+        transitionState.snapshotForConformance(),
+      )).toBe(before);
+
+      const failure = await runEffectFailure(
+        transitionState.recordEvaluationAttemptOutcome(
+          attempt,
+          "terminalRefusal",
+        ),
+      );
+      expect(failure).toMatchObject({
+        operation: "recordEvaluationAttemptOutcome",
+        commitCertainty: timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
     }
   });
 
