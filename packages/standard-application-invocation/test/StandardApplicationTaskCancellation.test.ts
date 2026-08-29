@@ -20,6 +20,7 @@ import { Brand, Effect, Result } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  decodeStandardApplicationTaskCancellationReason,
   makeStandardApplicationTaskCancellationLayer,
   requestStandardApplicationTaskCancellation,
 } from "../src/StandardApplicationTaskCancellation.js";
@@ -37,6 +38,37 @@ const reason: TaskCancellationReasonV1 = Object.freeze({
 });
 
 describe("StandardApplicationTaskCancellation", () => {
+  it("decodes only the lifecycle-owned requested reason shape", () => {
+    const accepted = decodeStandardApplicationTaskCancellationReason(
+      "Stop after this step",
+    );
+    const omitted = decodeStandardApplicationTaskCancellationReason(null);
+
+    expect(Result.getOrThrow(accepted)).toEqual({
+      code: "requested",
+      message: "Stop after this step",
+    });
+    expect(Result.getOrThrow(omitted)).toEqual({
+      code: "requested",
+      message: null,
+    });
+    expect(Result.isFailure(
+      decodeStandardApplicationTaskCancellationReason(""),
+    )).toBe(true);
+    expect(Result.isFailure(
+      decodeStandardApplicationTaskCancellationReason("stop\u0000now"),
+    )).toBe(true);
+    expect(Result.isFailure(
+      decodeStandardApplicationTaskCancellationReason("x".repeat(1_025)),
+    )).toBe(true);
+    expect(Result.isSuccess(
+      decodeStandardApplicationTaskCancellationReason("x".repeat(1_024)),
+    )).toBe(true);
+    expect(Result.isFailure(
+      decodeStandardApplicationTaskCancellationReason("é".repeat(513)),
+    )).toBe(true);
+  });
+
   it("submits one exact lifecycle command and preserves its receipt", async () => {
     const recording = makeRecordingApplicationStore();
 

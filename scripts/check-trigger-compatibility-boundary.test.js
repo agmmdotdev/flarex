@@ -429,6 +429,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: cancellationPath,
       text: `
         import {
+          decodeTaskCancellationReasonV1,
           makeApplicationRunAttemptLifecycleV1,
           type ApplicationRequestCancellationOutcomeV1,
           type ApplicationTaskSystemRunAttemptStoreShape,
@@ -444,6 +445,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: cancellationPath,
       text: `
         import {
+          decodeTaskCancellationReasonV1,
           makeApplicationRunAttemptLifecycleV1,
           decideApplicationRequestCancellationV1,
           type ApplicationRequestCancellationOutcomeV1,

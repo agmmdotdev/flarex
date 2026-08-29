@@ -2,7 +2,7 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1 and DTE07-C1/C2/C3/C4/C5 complete
+**Status:** Architecture roadmap with DTE07-B1 and DTE07-C1/C2/C3/C4/C5/C6 complete
 privately on 2026-08-29.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
@@ -22,9 +22,11 @@ operation fixed by
 DTE07-C5 implements the private scope-captured Task cancellation command
 adapter fixed by
 [`preflight/56-dte07-private-task-cancellation-command.md`](./preflight/56-dte07-private-task-cancellation-command.md).
-It does not authorize other commands, a clean or public cancellation contract,
-public routes, deployment, subscriptions, telemetry ingestion, retention/GC,
-or UI publication.
+DTE07-C6 implements the clean `cancelTask(run, options)` contract fixed by
+[`preflight/57-dte07-clean-task-cancellation-contract.md`](./preflight/57-dte07-clean-task-cancellation-contract.md).
+It does not authorize other commands, provider delivery, cancellation waiting,
+a public cancellation contract, public routes, deployment, subscriptions,
+telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
 execution and fresh-host takeover in PGlite and ordinary-role PostgreSQL.
@@ -257,7 +259,7 @@ DTE07-B1 implements only the single-run projection fixed by preflight 51.
 Attempt history, events, lists, pagination, result-body reads, and every live
 contract remain later bounded checkpoints.
 
-### DTE07-C: Private Query And Command Adapters — C5 Complete
+### DTE07-C: Private Query And Command Adapters — C6 Complete
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -285,6 +287,11 @@ DTE07-C5 implements only the private scope-captured cancellation command
 service fixed by preflight 56. It delegates one exact lifecycle transaction,
 preserves its receipt and typed failure, and adds no clean `cancelTask()`
 operation, provider call, route, or production activation.
+
+DTE07-C6 implements only the clean authenticated `cancelTask(run, options)`
+operation fixed by preflight 57. It validates one optional safe reason, submits
+one private command, and projects the receipt without exposing lifecycle or
+provider internals. It does not wait for execution to stop.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -361,8 +368,8 @@ DTE07-C1 is complete for the private scope-bound point-query adapter and clean
 authorized result-body query under preflight 53. DTE07-C3 is complete for the
 clean immediate `readTaskResult(run)` output-contract gate under preflight 54.
 DTE07-C4 is complete for the clean deadline-controlled
-`awaitTask(run, options)` contract under preflight 55. Before any list,
+`awaitTask(run, options)` contract under preflight 55.
 DTE07-C5 is complete for the private Task cancellation command adapter under
-preflight 56. The clean `cancelTask()` handle contract remains a separately
-approved gate. Before any list, attempt-history, event, other command, live,
-public, or hosted surface, approve that owner separately.
+preflight 56. DTE07-C6 is complete for the clean `cancelTask(run, options)`
+handle contract under preflight 57. Before any list, attempt-history, event,
+other command, live, public, or hosted surface, approve that owner separately.

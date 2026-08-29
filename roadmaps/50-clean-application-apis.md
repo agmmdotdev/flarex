@@ -683,6 +683,7 @@ interruption, and terminal-failure gate is complete under
 [`durable-task-engine/preflight/55-dte07-clean-task-await-contract.md`](./durable-task-engine/preflight/55-dte07-clean-task-await-contract.md).
 The private DTE07-C5 cancellation command adapter is complete under
 [`durable-task-engine/preflight/56-dte07-private-task-cancellation-command.md`](./durable-task-engine/preflight/56-dte07-private-task-cancellation-command.md).
-The clean `cancelTask()` handle contract remains separately gated.
+The clean DTE07-C6 `cancelTask(run, options)` handle contract is complete under
+[`durable-task-engine/preflight/57-dte07-clean-task-cancellation-contract.md`](./durable-task-engine/preflight/57-dte07-clean-task-cancellation-contract.md).
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

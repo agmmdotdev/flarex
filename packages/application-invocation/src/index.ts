@@ -47,3 +47,12 @@ export {
   type TaskRunCancelledError,
   type TaskRunFailedError,
 } from "./TaskAwait.js";
+
+export {
+  cancelTask,
+  type CancelTaskError,
+  type CancelTaskOptions,
+  type CancelTaskOptionsError,
+  type CancelTaskResult,
+  type TaskCancellationStatus,
+} from "./TaskCancellation.js";

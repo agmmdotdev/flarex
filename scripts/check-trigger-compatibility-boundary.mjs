@@ -533,6 +533,7 @@ const admittedStandardApplicationTaskResultQueryImports = new Map([
   ["makeTaskRunResultQueryLayer", "value"],
 ]);
 const admittedStandardApplicationTaskCancellationImports = new Map([
+  ["decodeTaskCancellationReasonV1", "value"],
   ["makeApplicationRunAttemptLifecycleV1", "value"],
   ["ApplicationRequestCancellationOutcomeV1", "type"],
   ["ApplicationTaskSystemRunAttemptStoreShape", "type"],

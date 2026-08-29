@@ -1,4 +1,5 @@
 import {
+  decodeTaskCancellationReasonV1,
   makeApplicationRunAttemptLifecycleV1,
   type ApplicationRequestCancellationOutcomeV1,
   type ApplicationTaskSystemRunAttemptStoreShape,
@@ -15,6 +16,15 @@ export type StandardApplicationTaskCancellationReceipt =
   >;
 export type StandardApplicationTaskCancellationError =
   RunAttemptLifecycleErrorV1;
+
+export function decodeStandardApplicationTaskCancellationReason(
+  message: string | null,
+): ReturnType<typeof decodeTaskCancellationReasonV1> {
+  return decodeTaskCancellationReasonV1({
+    code: "requested",
+    message,
+  });
+}
 
 export interface StandardApplicationTaskCancellationApi {
   readonly request: (

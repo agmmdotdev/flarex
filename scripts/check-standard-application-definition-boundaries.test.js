@@ -434,6 +434,7 @@ describe("Application invocation boundary checker", () => {
           import { invokeApplicationQuery } from "@flarex/standard-application-invocation/internal/application-query-system";
           import { inspectStandardApplicationTaskRun } from "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
           import { readStandardApplicationTaskResult } from "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
+          import { requestStandardApplicationTaskCancellation } from "@flarex/standard-application-invocation/internal/standard-application-task-cancellation";
           import { Effect } from "effect";
           import type { ExecutionIdentity } from "flarex-protocol/auth";
           import { validateValidatorValueV1 } from "flarex-protocol/validator-engine";
