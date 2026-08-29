@@ -12,6 +12,12 @@ without an aggregate load or second reducer. No SQLite schema, migration,
 Durable Object behavior, source/evaluator composition, caller, or production
 route is authorized.
 
+The subsequent docs-only
+[`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
+accepts the missing portable seam and its D1-D4 implementation order. It adds
+no code. C1-C3 remain blocked until all nine planners complete and a fresh
+adapter checkpoint is approved.
+
 `QSYNC01-A` through `QSYNC01-C4` are complete, private, reference-backed, and
 production-inert; C4 completed in `87a7566f`. They prove the portable
 transition, source-admission, semantic-state, evaluation, and publication
@@ -23,8 +29,8 @@ This preflight is the first Flarex adoption gate. It is deliberately split so
 that deterministic Flarex model encodings and semantic-persistence feasibility
 are decided before any durable schema is created. The completed first
 implementation slice is `QSYNC-FX01-A`. B accepted no implementation slice;
-later SQLite work remains blocked on a separately approved portable core-seam
-gate.
+later SQLite work remains blocked on completion of D1-D4 and a separately
+approved fresh adapter gate.
 
 The user accepted the package direction, `QSYNC-FX01-A` boundary, and docs-only
 B investigation recorded here. B freezes the feasibility/access verdict but
@@ -50,9 +56,10 @@ versioned Flarex frames            portable transition authority
 
 There is no dependency between the two lower-level packages.
 
-`@flarex/query-sync` remains unchanged and Flarex-free unless implementation
-discovers a concrete contract gap. Such a gap requires its own bounded core
-preflight; an adapter may not patch around it or duplicate portable logic.
+FX01 does not modify `@flarex/query-sync`. The package remains Flarex-free;
+QSYNC01-D separately owns the accepted portable seam correction. Any further
+contract gap requires another bounded core preflight, and an adapter may not
+patch around it or duplicate portable logic.
 
 Do not create `query-sync-cloudflare`, `query-sync-flarex`,
 `query-sync-postgres`, or another workspace package. There is one current
@@ -73,9 +80,9 @@ That outcome is divided into reviewable subgates:
 | --- | --- | --- |
 | `QSYNC-FX01-A` | Versioned canonical Flarex frames, one model adapter with a pure projector, result/publication mapping, and exhaustive deterministic vectors | Complete; private and production-inert |
 | `QSYNC-FX01-B` | Docs-only semantic-persistence feasibility: authenticated binding, every operation's exact read/transition/write plan, current core-seam verdict, and only then proposed DDL/migration | Complete; stop before schema; no code authorized |
-| `QSYNC-FX01-C1` | First private semantic vertical: authenticated binding plus initialize, begin, and admitted-batch application with only the rows those operations require | Blocked on a separately approved and completed portable operation-plan seam |
-| `QSYNC-FX01-C2` | Evaluation completion and recovery vertical: complete, claim, and attempt-outcome operations with their dependency/fingerprint/publication-intent rows | Blocked on C1 and the core seam |
-| `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Blocked on C2 and the core seam |
+| `QSYNC-FX01-C1` | First private semantic vertical: authenticated binding plus initialize, begin, and admitted-batch application with only the rows those operations require | Blocked until QSYNC01-D1-D4 complete and a fresh C1 checkpoint is approved |
+| `QSYNC-FX01-C2` | Evaluation completion and recovery vertical: complete, claim, and attempt-outcome operations with their dependency/fingerprint/publication-intent rows | Blocked on C1 and the completed core seam |
+| `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Blocked on C2 and the completed core seam |
 
 No subgate is a usable production path. FX01 exits only when A, B, and C1-C3
 are complete and the adapter remains unrouted. C1/C2 stay package-private and
@@ -419,9 +426,9 @@ The current portable transition functions accept the complete aggregate. B
 proved that every operation is logically bounded but cannot reuse current
 reducers without loading the maximum aggregate or reproducing material
 portable logic in SQL. It therefore stopped before schema and proposed the
-smallest separate `QSYNC01-D` core preflight. Only an approved and completed
-operation-plan seam may unblock C1-C3; no schema-only implementation slice is
-allowed.
+smallest separate `QSYNC01-D` core preflight. D0 now accepts that design, but
+only completed D1-D4 plus a fresh FX01 checkpoint may unblock C1-C3; no
+schema-only implementation slice is allowed.
 
 ### Construction and lifecycle
 
@@ -523,11 +530,11 @@ that operation. The testing-only conformance target may reconstruct a complete
 normalized aggregate after an operation for oracle comparison.
 
 The completed B verdict found that the required portable transition-plan seam
-does not yet exist. Before C1, a separate core gate must let every operation
-reuse accepted portable semantics without loading the entire maximum aggregate
-or reimplementing a material decision in host SQL. Do not hide the gap with an
-8 MB blob, a reduced unrecorded limit, a second reducer, or test-only logic
-copied into production.
+does not yet exist in code. The accepted D0 record freezes its contract and
+requires D1-D4 to let every operation reuse accepted portable semantics
+without loading the entire maximum aggregate or reimplementing a material
+decision in host SQL. Do not hide the gap with an 8 MB blob, a reduced
+unrecorded limit, a second reducer, or test-only logic copied into production.
 
 ### Nine atomic operations
 
@@ -713,7 +720,8 @@ establishes the stable Flarex compatibility vocabulary. B establishes that
 Cloudflare SQLite is feasible and all nine logical access plans are bounded,
 then stops because the current core exposes only complete-aggregate reducers.
 
-The next proposed action is an explicitly approved `QSYNC01-D` portable
-operation-plan preflight. Do not write SQLite DDL, mint a storage generation,
-or begin C1. Only a completed core seam with reducer-equivalence, replay,
-limit, and atomicity proof may return FX01 to a SQLite implementation gate.
+The next proposed action is explicit approval of `QSYNC01-D1`, the shared
+transition-plan foundation plus initialization, begin, and staged admitted-
+batch application. Do not write SQLite DDL, mint a storage generation, or
+begin C1. Only completed D1-D4 with reducer-equivalence, replay, limit, and
+atomicity proof may return FX01 to a fresh SQLite implementation checkpoint.

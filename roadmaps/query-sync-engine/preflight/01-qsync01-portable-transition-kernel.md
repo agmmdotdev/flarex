@@ -554,8 +554,9 @@ The then-next B preflight was required to derive, rather than guess:
 Cloudflare SQLite and Durable Streams remain later adapter gates. Do not begin
 them merely because the pure package exists.
 
-The B and C gates are now complete over reference capabilities. The proposed
-[`QSYNC-FX01` preflight](./07-qsync-fx01-flarex-mappings-and-sqlite-state.md)
-is the current proposal for the next Flarex mapping and Cloudflare SQLite
-adapter discussion;
-implementation remains separately gated.
+The B and C gates are now complete over reference capabilities. `QSYNC-FX01-A`
+and the docs-only B access verdict are complete. The accepted docs-only
+[`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
+now owns the missing operation-scoped planner design. The next proposed code
+checkpoint is D1; all Cloudflare SQLite implementation remains blocked until
+D1-D4 complete and a fresh adapter checkpoint is approved.

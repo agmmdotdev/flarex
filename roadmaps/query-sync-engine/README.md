@@ -20,8 +20,11 @@ vectors plus the completed docs-only
 [`QSYNC-FX01-B` semantic-persistence verdict](./preflight/08-qsync-fx01-b-semantic-persistence-verdict.md).
 A is private and production-inert. B stopped before schema: all nine logical
 access plans are bounded, but the current core lacks a reusable
-operation-scoped transition-plan seam. No SQLite schema or later FX01
-implementation is authorized.
+operation-scoped transition-plan seam. The accepted docs-only
+[`QSYNC01-D0` preflight](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
+now freezes that seam, its staged-read protocol, exact accounting authority,
+proof matrix, and D1-D4 implementation order. No D code or SQLite schema is
+implemented or authorized.
 
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
@@ -171,9 +174,9 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
 | `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 complete in `87a7566f`; private and production-inert |
-| `QSYNC01-D` | Proposed operation-scoped transition-plan seam with bounded fact inputs, explicit logical mutations, exact counters, and equivalence to the aggregate reducers | Preflight proposed by FX01-B; not approved or implemented |
+| `QSYNC01-D` | Operation-scoped transition-plan seam with bounded fact inputs, explicit logical changes, exact counters, and equivalence to the aggregate reducers | D0 accepted docs only; D1-D4 not implemented or authorized |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete, private, and production-inert; B complete with a stop-before-schema verdict; C1-C3 blocked on an approved/completed core seam; independent of delivery selection |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | A complete, private, and production-inert; B complete with a stop-before-schema verdict; C1-C3 blocked until D1-D4 complete and a fresh adapter checkpoint is approved; independent of delivery selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -224,17 +227,20 @@ paths.
   separately gated.
 - [`preflight/08-qsync-fx01-b-semantic-persistence-verdict.md`](./preflight/08-qsync-fx01-b-semantic-persistence-verdict.md)
   is the completed docs-only B access-plan and seam verdict. It stops before
-  schema and proposes, but does not approve, the separate `QSYNC01-D` core
-  preflight.
+  schema and records the missing core seam that D now owns.
+- [`preflight/09-qsync01-d-operation-scoped-transition-plans.md`](./preflight/09-qsync01-d-operation-scoped-transition-plans.md)
+  is the accepted docs-only D0 architecture freeze for the private planner
+  boundary, facts, staged reads, accounting, errors, compatibility refactor,
+  proof matrix, and D1-D4 implementation sequence.
 
 ## Next Correctness Gate
 
-The next correctness decision is whether to approve the proposed `QSYNC01-D`
-portable operation-plan preflight. The completed B checkpoint proved bounded
-logical read/transition/write plans for all nine operations, but found that the
-current complete-aggregate reducers cannot back them without an aggregate load
-or a second semantic reducer. C1-C3 remain blocked; no DDL or storage generation
-is authorized. Neither A, B, nor C4 authorizes a real
+The next correctness decision is whether to approve `QSYNC01-D1`, the shared
+transition-plan foundation plus initialization, begin, and staged admitted-
+batch application. D0 is accepted docs-only; it implements nothing. D1-D4 must
+complete all nine planners before a fresh FX01 checkpoint may discuss SQLite.
+C1-C3 remain blocked; no DDL or storage generation is authorized. Neither A,
+B, C4, nor D0 authorizes a real
 `ResultPublisher`, delivery-adapter selection, Postgres source composition,
 public/client APIs, production routing, migration, cutover, or `R03-B`.
 `QSYNC-CF01` remains the independent delivery feasibility and selection gate.

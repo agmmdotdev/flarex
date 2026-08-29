@@ -16,10 +16,12 @@ This checkpoint authorizes no DDL, local storage-contract generation,
 migration, Durable Object behavior, state-adapter code, or C1-C3 semantic
 vertical. `QSYNC-FX01-C1`, `QSYNC-FX01-C2`, and `QSYNC-FX01-C3` remain blocked.
 
-The next proposed correctness gate is a separate portable-core preflight,
-`QSYNC01-D`, for operation-scoped transition plans. That preflight and any
-implementation it proposes require explicit approval. This record specifies
-the missing seam; it does not approve or implement it.
+The separate portable-core
+[`QSYNC01-D0` preflight](./09-qsync01-d-operation-scoped-transition-plans.md)
+was subsequently accepted docs-only. It freezes the operation-scoped
+transition-plan seam and D1-D4 sequence but implements nothing. This B record
+remains the access-plan evidence; D owns the portable correction. Every D code
+slice still requires explicit approval.
 
 ## Decision Summary
 
@@ -495,10 +497,10 @@ These facts show that Cloudflare is viable, not that a schema is accepted.
 Platform limits are host evidence and may not silently redefine portable engine
 limits.
 
-## Proposed `QSYNC01-D` Core Seam
+## Accepted Subsequent `QSYNC01-D` Core Boundary
 
-The smallest clean correction is a package-private portable family of
-operation-scoped fact reducers:
+The accepted D0 record retains B's smallest clean correction: a private
+portable family of operation-scoped fact reducers:
 
 - inputs contain a decoded scope summary and only operation-specific facts;
 - outputs contain a frozen semantic decision/receipt projection, exact compare
@@ -514,16 +516,17 @@ operation-scoped fact reducers:
 - current aggregate reducers and the reference store are refactored to consume
   the same planners, while complete aggregate rebuild remains a test oracle.
 
-Acceptance requires reducer-equivalence, replay, limit, ordering, fault, and
-atomicity proof before any SQLite implementation. The preflight must decide
-whether evaluation pagination needs one planner with staged reads or a small
-family of scan-step planners without exposing a host-shaped cursor.
+Acceptance of the implemented seam requires reducer-equivalence, replay,
+limit, ordering, fault, and atomicity proof before any SQLite implementation.
+D0 resolves pagination as a small closed staged-read family with slim bounded
+facts and nominal process-local resume capabilities, without a host-shaped
+cursor. See the linked D record for the authoritative contract and gates.
 
 ## Explicitly Not Authorized
 
 This completed docs checkpoint does not authorize:
 
-- `QSYNC01-D` implementation;
+- `QSYNC01-D1` through `QSYNC01-D4` implementation;
 - SQLite DDL, index names, a new local storage-contract generation, migration,
   or changes to `DeploymentSyncDO` or `deploymentSync/Store.ts`;
 - a Postgres source adapter, catch-up loop, query evaluator, publisher, wake,
@@ -539,6 +542,8 @@ This completed docs checkpoint does not authorize:
 
 ## Next Checkpoint
 
-Discuss and explicitly approve or reject the proposed `QSYNC01-D` portable
-operation-plan preflight. Until that happens, FX01 has no implementation slice:
-`QSYNC-FX01-C1` remains blocked and no schema work should begin.
+Discuss and explicitly approve or reject `QSYNC01-D1`, the shared planner
+foundation plus initialization, begin, and staged admitted-batch application.
+Until D1-D4 complete all nine planners and a fresh FX01 checkpoint is approved,
+FX01 has no implementation slice: `QSYNC-FX01-C1` remains blocked and no
+schema work should begin.

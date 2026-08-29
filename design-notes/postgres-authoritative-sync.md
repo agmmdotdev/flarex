@@ -166,9 +166,12 @@ SchedulerDO singleton for unrelated scopes.
 Evaluation scan continuations are revision-fenced, process-local nominal
 capabilities, not persisted coordination rows. Connection targets and
 recoverable session registration belong to the later gateway/delivery owner,
-not to the nine-operation query-sync semantic state adapter. The exact SQLite
-schema remains blocked on the operation-scoped portable transition-plan seam
-recorded by `QSYNC-FX01-B`.
+not to the nine-operation query-sync semantic state adapter. `QSYNC-FX01-B`
+identified the missing operation-scoped portable transition-plan seam; the
+accepted docs-only
+[`QSYNC01-D0` record](../roadmaps/query-sync-engine/preflight/09-qsync01-d-operation-scoped-transition-plans.md)
+now freezes its design. The exact SQLite schema remains blocked until D1-D4
+implement all nine planners and a fresh adapter checkpoint is approved.
 
 The first per-scope DO is a correctness boundary and may be a throughput hot
 spot. Add coordination buckets only after measurement and an explicit rule for
