@@ -17,6 +17,10 @@ import type {
   QueryDescriptor,
   QuerySyncStateMetrics,
 } from "../kernel/Model.js";
+import { freezePublicationDisposition } from "../kernel/Publication.js";
+import type {
+  QueryCompletionPublicationDisposition,
+} from "../kernel/Publication.js";
 import { freezeMetrics } from "./Model.js";
 
 export type InitializeNamespaceReceipt =
@@ -85,6 +89,42 @@ export type ApplyAdmittedBatchReceipt =
     readonly appliedSequence: SyncSequence;
     readonly affectedQueryKeys: readonly CanonicalQueryKey[];
   }>;
+
+export type CompleteQueryEvaluationReceipt =
+  | Readonly<{
+      readonly _tag: "refreshRequired";
+      readonly refreshedThroughSequence: SyncSequence;
+      readonly requiredThroughSequence: SyncSequence;
+    }>
+  | Readonly<{
+      readonly _tag: "resnapshotRequired";
+      readonly generation: QueryGeneration;
+    }>
+  | Readonly<{
+      readonly _tag: "rerunRequired";
+      readonly generation: QueryGeneration;
+      readonly relevantThroughSequence: SyncSequence;
+    }>
+  | Readonly<{
+      readonly _tag: "completed";
+      readonly generation: QueryGeneration;
+      readonly publicationDisposition: QueryCompletionPublicationDisposition;
+    }>
+  | Readonly<{
+      readonly _tag: "replayed";
+      readonly generation: QueryGeneration;
+      readonly publicationDisposition: QueryCompletionPublicationDisposition;
+    }>
+  | Readonly<{
+      readonly _tag: "superseded";
+      readonly generation: QueryGeneration;
+      readonly activeGeneration: QueryGeneration;
+    }>
+  | Readonly<{
+      readonly _tag: "recoveryEvidenceExpired";
+      readonly generation: QueryGeneration;
+      readonly activeGeneration: QueryGeneration;
+    }>;
 
 function freezeCursor(cursor: NamespaceCursor): NamespaceCursor {
   return Object.freeze({
@@ -215,5 +255,69 @@ export function appliedBatchReceipt(
     _tag: "applied",
     appliedSequence,
     affectedQueryKeys: Object.freeze([...affectedQueryKeys]),
+  });
+}
+
+export function refreshRequiredCompleteReceipt(
+  refreshedThroughSequence: SyncSequence,
+  requiredThroughSequence: SyncSequence,
+): CompleteQueryEvaluationReceipt {
+  return Object.freeze({
+    _tag: "refreshRequired",
+    refreshedThroughSequence,
+    requiredThroughSequence,
+  });
+}
+
+export function resnapshotRequiredCompleteReceipt(
+  generation: QueryGeneration,
+): CompleteQueryEvaluationReceipt {
+  return Object.freeze({ _tag: "resnapshotRequired", generation });
+}
+
+export function rerunRequiredCompleteReceipt(
+  generation: QueryGeneration,
+  relevantThroughSequence: SyncSequence,
+): CompleteQueryEvaluationReceipt {
+  return Object.freeze({
+    _tag: "rerunRequired",
+    generation,
+    relevantThroughSequence,
+  });
+}
+
+export function completedCompleteReceipt(
+  tag: "completed" | "replayed",
+  generation: QueryGeneration,
+  publicationDisposition: QueryCompletionPublicationDisposition,
+): CompleteQueryEvaluationReceipt {
+  return Object.freeze({
+    _tag: tag,
+    generation,
+    publicationDisposition: freezePublicationDisposition(
+      publicationDisposition,
+    ),
+  });
+}
+
+export function supersededCompleteReceipt(
+  generation: QueryGeneration,
+  activeGeneration: QueryGeneration,
+): CompleteQueryEvaluationReceipt {
+  return Object.freeze({
+    _tag: "superseded",
+    generation,
+    activeGeneration,
+  });
+}
+
+export function recoveryEvidenceExpiredCompleteReceipt(
+  generation: QueryGeneration,
+  activeGeneration: QueryGeneration,
+): CompleteQueryEvaluationReceipt {
+  return Object.freeze({
+    _tag: "recoveryEvidenceExpired",
+    generation,
+    activeGeneration,
   });
 }

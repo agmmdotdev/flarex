@@ -3,12 +3,15 @@
 ## Status
 
 **Preflight status:** `QSYNC01-D0` accepted on 2026-08-29; `QSYNC01-D1`
-implemented and verified on 2026-08-29.
+implemented and verified on 2026-08-29; `QSYNC01-D2` implemented and verified
+on 2026-08-30.
 
 This record completes the `QSYNC01-D0` architecture freeze and now records the
-separately approved `QSYNC01-D1` implementation. D1 adds the private source
-planner foundation plus initialization, begin, and staged admitted-batch
-application. `QSYNC01-D2` through D4 remain separately gated.
+separately approved `QSYNC01-D1` and `QSYNC01-D2` implementations. D1 adds the
+private source planner foundation plus initialization, begin, and staged
+admitted-batch application. D2 moves evaluation completion alone, including
+its replay and material fact stages. `QSYNC01-D3` and D4 remain separately
+gated.
 
 `QSYNC-FX01-C1`, `QSYNC-FX01-C2`, and `QSYNC-FX01-C3` remain blocked. No
 Cloudflare SQLite schema, local storage generation, migration, Durable Object
@@ -586,9 +589,34 @@ Effect runtime capability.
 
 ### `QSYNC01-D2` - evaluation completion
 
+**Status:** complete on 2026-08-30.
+
 Move `completeQueryEvaluation` alone. This isolates the largest cross-family
 atomic plan: active/completion replacement, two dependency roles, retained
 replay evidence, pending publication intent, revision, and counters.
+
+The completed slice preserves the existing valid-input failure and decision
+order while replacing the aggregate-era reducer with one scalar-first planner,
+one exact replay read, and one exact material read. Its write plan replaces the
+active and completion roles, clears provisional work, advances preceding
+completion evidence, optionally replaces only the target pending publication,
+bumps revision, and supplies all eight exact next metrics. In-flight,
+latest-delivered, and preceding-attempt lifecycle state is compare-projected
+only for the target and is never mutated by completion.
+
+The aggregate API is now a planner-backed compatibility/oracle wrapper, and the
+reference state adapter follows the plan's explicit disposition. State-free
+completion receipts have one owner under `transition-plan`; the state package
+retains compatible reexports and projections. Independent normalized
+interpretation, exact replay/material staging, dependency limit-plus-one,
+accounting, ownership, fault, concurrency, history, and boundary checks provide
+the D2 proof. The source remains private and no package-manifest export was
+added.
+
+`QueryEvaluationAttempt` remains the existing nominal TypeScript capability.
+D2 preserves the completion error union and does not silently invent a new
+runtime `notStateIssued` failure for unsafe casts; such runtime hardening would
+require its own compatibility amendment.
 
 ### `QSYNC01-D3` - evaluation selection and outcome
 
@@ -634,7 +662,7 @@ They remain mandatory at their later adapter gates.
 
 This accepted preflight does not authorize:
 
-- D2, D3, or D4 implementation without a separate approval;
+- D3 or D4 implementation without a separate approval;
 - a public API, package-root export, new workspace package, or new dependency;
 - SQLite DDL, indexes, migration, storage generation, dual tables, aggregate
   blob, compatibility write, shadow reducer, or backend adapter;
@@ -650,9 +678,9 @@ This accepted preflight does not authorize:
 ## Next Checkpoint
 
 The next proposed action is an explicit approval or rejection of
-`QSYNC01-D2`, moving `completeQueryEvaluation` alone onto the private planner
-seam. Until D1-D4 all complete, there is no FX01 SQLite slice and the package
-export remains withheld.
+`QSYNC01-D3`, moving evaluation selection and attempt-outcome recording onto
+the private planner seam. Until D1-D4 all complete, there is no FX01 SQLite
+slice and the package export remains withheld.
 
 `QSYNC-CF01` remains a separate delivery feasibility/selection gate and does
 not change this ordering.

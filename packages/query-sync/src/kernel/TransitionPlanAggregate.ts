@@ -17,7 +17,9 @@ import type {
 } from "./Errors.js";
 import {
   findDependencyDirectoryEntry,
+  findPendingQueryPublication,
   findQueryState,
+  findRetainedQueryPublication,
   rebuildQuerySyncState,
 } from "./Model.js";
 import type {
@@ -27,9 +29,17 @@ import type {
   BeginQueryEvaluationDecision,
   BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
+  CompleteQueryEvaluationDecision,
+  GenerationRefreshEvidence,
   QueryState,
+  QueryEvaluationAttempt,
+  QueryEvaluationEvidence,
   QuerySyncState,
 } from "./Model.js";
+import type {
+  PendingQueryPublication,
+  QueryPublicationArtifact,
+} from "./Publication.js";
 import {
   planBeginQueryEvaluation,
 } from "../transition-plan/BeginQueryEvaluation.js";
@@ -42,6 +52,17 @@ import {
   resumeApplyAdmittedBatchAffectedTargets,
   startApplyAdmittedBatchAndAdvance,
 } from "../transition-plan/ApplyAdmittedBatch.js";
+import {
+  resumeCompleteQueryEvaluationMaterial,
+  resumeCompleteQueryEvaluationReplay,
+  startCompleteQueryEvaluation,
+} from "../transition-plan/CompleteQueryEvaluation.js";
+import type {
+  CompleteQueryEvaluationPlan,
+  ResumeCompleteQueryMaterialError,
+  ResumeCompleteQueryReplayError,
+  StartCompleteQueryEvaluationError,
+} from "../transition-plan/CompleteQueryEvaluation.js";
 import type {
   AffectedActiveTargetsRead,
   ApplyAdmittedBatchPlan,
@@ -53,6 +74,9 @@ import {
   QuerySyncTransitionFactError,
 } from "../transition-plan/Errors.js";
 import {
+  freezeCompleteQueryMaterialFactsRead,
+  freezeCompleteQueryReplayFactsRead,
+  freezeCompleteQueryScalarFacts,
   freezeBeginQueryFacts,
   projectActiveScalarFacts,
 } from "../transition-plan/Facts.js";
@@ -60,6 +84,9 @@ import type {
   AffectedActiveQueryFacts,
   AffectedActiveQueryTarget,
   BeginQueryFacts,
+  CompleteQueryMaterialFactsRead,
+  CompleteQueryReplayFactsRead,
+  CompleteQueryScalarFacts,
 } from "../transition-plan/Facts.js";
 import {
   MAX_INVALIDATION_AFFECTED_QUERIES,
@@ -75,6 +102,7 @@ import type {
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
 } from "../transition-plan/Receipts.js";
 
 export interface AggregateTransition<Decision, Plan> {
@@ -96,8 +124,18 @@ export type ApplyAdmittedInvalidationsAggregateError =
   | QuerySyncStateLimitError
   | BuildQuerySyncStateError;
 
+export type CompleteQueryEvaluationAggregateError = Exclude<
+  | StartCompleteQueryEvaluationError
+  | ResumeCompleteQueryReplayError
+  | ResumeCompleteQueryMaterialError,
+  QuerySyncTransitionFactError
+> | BuildQuerySyncStateError;
+
 function transitionInvariant(
-  operation: "beginQueryEvaluation" | "applyAdmittedInvalidations",
+  operation:
+    | "beginQueryEvaluation"
+    | "applyAdmittedInvalidations"
+    | "completeQueryEvaluation",
   invariant: QuerySyncInvariantDefect["invariant"],
 ): QuerySyncInvariantDefect {
   return new QuerySyncInvariantDefect({ operation, invariant });
@@ -112,6 +150,19 @@ function throwTransitionFactDefect(
     ? "dependencyDirectoryEntryMissingActiveQuery"
     : "transitionPlanUnexpectedStep";
   throw transitionInvariant(error.operation, invariant);
+}
+
+type CompletePlannerError =
+  | StartCompleteQueryEvaluationError
+  | ResumeCompleteQueryReplayError
+  | ResumeCompleteQueryMaterialError;
+
+function mapCompletePlannerError(
+  error: CompletePlannerError,
+): CompleteQueryEvaluationAggregateError {
+  return error._tag === "QuerySyncTransitionFactError"
+    ? throwTransitionFactDefect(error)
+    : error;
 }
 
 function mapBeginPlannerError(
@@ -244,8 +295,55 @@ function applyDecision(
   }
 }
 
+function completeDecision(
+  receipt: CompleteQueryEvaluationReceipt,
+  state: QuerySyncState,
+): CompleteQueryEvaluationDecision {
+  switch (receipt._tag) {
+    case "refreshRequired":
+      return Object.freeze({
+        _tag: "refreshRequired",
+        state,
+        refreshedThroughSequence: receipt.refreshedThroughSequence,
+        requiredThroughSequence: receipt.requiredThroughSequence,
+      });
+    case "resnapshotRequired":
+      return Object.freeze({
+        _tag: "resnapshotRequired",
+        state,
+        generation: receipt.generation,
+      });
+    case "rerunRequired":
+      return Object.freeze({
+        _tag: "rerunRequired",
+        state,
+        generation: receipt.generation,
+        relevantThroughSequence: receipt.relevantThroughSequence,
+      });
+    case "completed":
+    case "replayed":
+      return Object.freeze({
+        _tag: receipt._tag,
+        state,
+        generation: receipt.generation,
+        publicationDisposition: receipt.publicationDisposition,
+      });
+    case "superseded":
+    case "recoveryEvidenceExpired":
+      return Object.freeze({
+        _tag: receipt._tag,
+        state,
+        generation: receipt.generation,
+        activeGeneration: receipt.activeGeneration,
+      });
+  }
+}
+
 function verifyPlanMetrics(
-  operation: "beginQueryEvaluation" | "applyAdmittedInvalidations",
+  operation:
+    | "beginQueryEvaluation"
+    | "applyAdmittedInvalidations"
+    | "completeQueryEvaluation",
   state: QuerySyncState,
   expected: QuerySyncScopeFacts,
 ): void {
@@ -473,6 +571,237 @@ export function applyAdmittedInvalidationsTransition(
             Result.flatMap((plan) => applyAdmittedBatchPlan(state, plan)),
           );
         }),
+      );
+    }),
+  );
+}
+
+function projectCompleteQueryFacts(
+  query: QueryState | undefined,
+): CompleteQueryScalarFacts | null {
+  if (query === undefined) return null;
+  const completion = query.currentCompletion;
+  return freezeCompleteQueryScalarFacts({
+    descriptor: query.descriptor,
+    active: query.active === null
+      ? null
+      : projectActiveScalarFacts(query.active),
+    provisional: query.provisional,
+    currentCompletion: completion === null
+      ? null
+      : {
+        identity: completion.identity,
+        queryIdentity: completion.queryIdentity,
+        expectedActiveGeneration: completion.expectedActiveGeneration,
+        registrationCursor: completion.registrationCursor,
+        requestedDirtyThroughSequence:
+          completion.requestedDirtyThroughSequence,
+        evaluationSnapshotSequence: completion.evaluationSnapshotSequence,
+        evaluationAuthorityWitness: completion.evaluationAuthorityWitness,
+        refreshedThroughSequence: completion.refreshedThroughSequence,
+        relevantThroughSequence: completion.relevantThroughSequence,
+        refreshAuthorityWitness: completion.refreshAuthorityWitness,
+        resultDigest: completion.resultDigest,
+        publicationDisposition: completion.publicationDisposition,
+      },
+    precedingCompletionIdentity: query.precedingCompletionIdentity,
+  });
+}
+
+function projectReplayFacts(
+  state: QuerySyncState,
+  query: QueryState,
+): CompleteQueryReplayFactsRead {
+  const completion = query.currentCompletion;
+  if (completion === null) {
+    throw transitionInvariant(
+      "completeQueryEvaluation",
+      "transitionPlanUnexpectedStep",
+    );
+  }
+  const retained = completion.publicationDisposition._tag === "pending"
+    ? findRetainedQueryPublication(
+      state,
+      completion.publicationDisposition.identity,
+    ) ?? null
+    : null;
+  return freezeCompleteQueryReplayFactsRead({
+    queryKey: query.descriptor.queryKey,
+    completionDependencies: {
+      queryKey: query.descriptor.queryKey,
+      generation: completion.identity.generation,
+      dependencyKeys: completion.evaluationDependencyKeys,
+    },
+    retainedPublication: retained,
+  });
+}
+
+function targetPublicationLifecycle(
+  state: QuerySyncState,
+  query: QueryState,
+): CompleteQueryMaterialFactsRead["lifecycle"] {
+  const queryKey = query.descriptor.queryKey;
+  const inFlight = state.publicationWork.inFlight;
+  const delivered = state.publicationWork.latestDelivered;
+  const preceding = state.publicationWork.precedingAttemptOutcome;
+  return Object.freeze({
+    queryKey,
+    inFlight: inFlight !== null
+        && inFlight.publication.identity.queryKey === queryKey
+      ? inFlight.publication
+      : null,
+    latestDelivered: delivered !== null
+        && delivered.identity.queryKey === queryKey
+      ? delivered
+      : null,
+    precedingAttemptOutcome: preceding !== null
+        && preceding.identity.queryKey === queryKey
+      ? Object.freeze({
+        identity: preceding.identity,
+        resultDigest: preceding.resultDigest,
+      })
+      : null,
+  });
+}
+
+function projectMaterialFacts(
+  state: QuerySyncState,
+  query: QueryState,
+): CompleteQueryMaterialFactsRead {
+  return freezeCompleteQueryMaterialFactsRead({
+    queryKey: query.descriptor.queryKey,
+    activeDependencies: query.active === null
+      ? null
+      : {
+        queryKey: query.descriptor.queryKey,
+        generation: query.active.generation,
+        dependencyKeys: query.active.dependencyKeys,
+      },
+    completionDependencies: query.currentCompletion === null
+      ? null
+      : {
+        queryKey: query.descriptor.queryKey,
+        generation: query.currentCompletion.identity.generation,
+        dependencyKeys:
+          query.currentCompletion.evaluationDependencyKeys,
+      },
+    pendingPublication:
+      findPendingQueryPublication(state, query.descriptor.queryKey) ?? null,
+    lifecycle: targetPublicationLifecycle(state, query),
+  });
+}
+
+function applyCompletePlan(
+  state: QuerySyncState,
+  plan: CompleteQueryEvaluationPlan,
+): Result.Result<
+  AggregateTransition<
+    CompleteQueryEvaluationDecision,
+    CompleteQueryEvaluationPlan
+  >,
+  BuildQuerySyncStateError
+> {
+  if (plan._tag === "noWrite") {
+    return Result.succeed(Object.freeze({
+      decision: completeDecision(plan.receipt, state),
+      disposition: "noWrite",
+      plan,
+    }));
+  }
+  const current = findQueryState(state, plan.change.queryKey);
+  if (current === undefined) {
+    throw transitionInvariant(
+      "completeQueryEvaluation",
+      "transitionPlanUnexpectedStep",
+    );
+  }
+  const replacement: QueryState = {
+    descriptor: current.descriptor,
+    active: plan.change.active,
+    provisional: null,
+    currentCompletion: plan.change.currentCompletion,
+    precedingCompletionIdentity:
+      plan.change.precedingCompletionIdentity,
+  };
+  let pending: readonly PendingQueryPublication[] =
+    state.publicationWork.pending;
+  if (plan.change.pendingPublication._tag === "replaceTargetPending") {
+    pending = [
+      ...state.publicationWork.pending.filter((publication) => (
+        publication.identity.queryKey !== plan.change.queryKey
+      )),
+      plan.change.pendingPublication.publication,
+    ];
+  }
+  return rebuildQuerySyncState(state, {
+    queries: replaceQuery(state.queries, replacement),
+    evaluationWork: plan.nextScope.evaluationWork,
+    publicationWork: {
+      ...state.publicationWork,
+      pending,
+    },
+  }).pipe(Result.map((nextState) => {
+    verifyPlanMetrics(
+      "completeQueryEvaluation",
+      nextState,
+      plan.nextScope,
+    );
+    return Object.freeze({
+      decision: completeDecision(plan.receipt, nextState),
+      disposition: "write",
+      plan,
+    });
+  }));
+}
+
+export function applyCompleteQueryEvaluationTransition(
+  state: QuerySyncState,
+  attempt: QueryEvaluationAttempt,
+  evaluation: QueryEvaluationEvidence,
+  refresh: GenerationRefreshEvidence,
+  publication: QueryPublicationArtifact,
+): Result.Result<
+  AggregateTransition<
+    CompleteQueryEvaluationDecision,
+    CompleteQueryEvaluationPlan
+  >,
+  CompleteQueryEvaluationAggregateError
+> {
+  const query = findQueryState(state, attempt.descriptor.queryKey);
+  return startCompleteQueryEvaluation({
+    scope: projectQuerySyncScopeFacts(state),
+    query: projectCompleteQueryFacts(query),
+    attempt,
+    evaluation,
+    refresh,
+    publication,
+  }).pipe(
+    Result.mapError(mapCompletePlannerError),
+    Result.flatMap((start) => {
+      if (start._tag === "planned") {
+        return applyCompletePlan(state, start.plan);
+      }
+      if (query === undefined) {
+        throw transitionInvariant(
+          "completeQueryEvaluation",
+          "transitionPlanUnexpectedStep",
+        );
+      }
+      if (start.stage === "replay") {
+        return resumeCompleteQueryEvaluationReplay(
+          start.resume,
+          projectReplayFacts(state, query),
+        ).pipe(
+          Result.mapError(mapCompletePlannerError),
+          Result.flatMap((plan) => applyCompletePlan(state, plan)),
+        );
+      }
+      return resumeCompleteQueryEvaluationMaterial(
+        start.resume,
+        projectMaterialFacts(state, query),
+      ).pipe(
+        Result.mapError(mapCompletePlannerError),
+        Result.flatMap((plan) => applyCompletePlan(state, plan)),
       );
     }),
   );

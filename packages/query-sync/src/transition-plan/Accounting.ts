@@ -225,7 +225,7 @@ export function activeScalarMetricContribution(active: {
   };
 }
 
-function completionMetricContribution(
+export function completionMetricContribution(
   descriptor: QueryDescriptor,
   completion: QueryCompletionFingerprint | null,
 ): QuerySyncMetricContribution {
@@ -251,7 +251,7 @@ function completionMetricContribution(
   return { ...emptyMetricContribution(), countedCanonicalBytes };
 }
 
-function precedingCompletionMetricContribution(
+export function precedingCompletionMetricContribution(
   preceding: QueryPublicationIdentity | null,
 ): QuerySyncMetricContribution {
   return {

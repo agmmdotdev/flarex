@@ -14,6 +14,26 @@ export {
   resumeApplyAdmittedBatchAffectedTargets,
   startApplyAdmittedBatchAndAdvance,
 } from "./ApplyAdmittedBatch.js";
+
+export {
+  resumeCompleteQueryEvaluationMaterial,
+  resumeCompleteQueryEvaluationReplay,
+  startCompleteQueryEvaluation,
+} from "./CompleteQueryEvaluation.js";
+export type {
+  CompleteQueryEvaluationChange,
+  CompleteQueryEvaluationExpectation,
+  CompleteQueryEvaluationPlan,
+  CompleteQueryEvaluationStart,
+  CompleteQueryMaterialResume,
+  CompleteQueryPendingPublicationChange,
+  CompleteQueryReplayResume,
+  ReadCompleteQueryMaterialFactsIntent,
+  ReadCompleteQueryReplayFactsIntent,
+  ResumeCompleteQueryMaterialError,
+  ResumeCompleteQueryReplayError,
+  StartCompleteQueryEvaluationError,
+} from "./CompleteQueryEvaluation.js";
 export type {
   AffectedActiveTargetsRead,
   ApplyAdmittedBatchChange,
@@ -54,6 +74,13 @@ export type {
   AffectedActiveQueryFacts,
   AffectedActiveQueryTarget,
   BeginQueryFacts,
+  CompleteQueryMaterialFactsRead,
+  CompleteQueryReplayFactsRead,
+  CompleteQueryScalarFacts,
+  CompletionPublicationLifecycleFacts,
+  PublicationIdentityDigestFacts,
+  QueryCompletionScalarFacts,
+  QueryDependencyFacts,
 } from "./Facts.js";
 
 export type {
@@ -66,5 +93,6 @@ export type {
 export type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "./Receipts.js";

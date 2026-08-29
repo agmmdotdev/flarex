@@ -28,9 +28,6 @@ import type {
   QueryEvaluationEvidence,
   QuerySyncState,
 } from "../../kernel/Model.js";
-import {
-  completeQueryEvaluation,
-} from "../../kernel/Policy.js";
 import type {
   ApplyInvalidationsError,
   BeginQueryEvaluationError,
@@ -39,6 +36,7 @@ import type {
 import {
   applyAdmittedInvalidationsTransition,
   applyBeginQueryEvaluationTransition,
+  applyCompleteQueryEvaluationTransition,
 } from "../../kernel/TransitionPlanAggregate.js";
 import type {
   QueryPublicationArtifact,
@@ -68,7 +66,6 @@ import type {
 import {
   projectClaimEvaluationWorkReceipt,
   projectClaimPublicationReceipt,
-  projectCompleteReceipt,
   projectCompletePublicationReceipt,
   projectRecordEvaluationAttemptOutcomeReceipt,
   projectRecordPublicationAttemptOutcomeReceipt,
@@ -499,7 +496,7 @@ function makeReferencePort(
           binding,
           current,
         );
-        const decision = yield* completeQueryEvaluation(
+        const transition = yield* applyCompleteQueryEvaluationTransition(
           state,
           attempt,
           evaluation,
@@ -507,9 +504,9 @@ function makeReferencePort(
           publication,
         );
         return Object.freeze({
-          receipt: projectCompleteReceipt(decision),
-          nextState: decision.state,
-          disposition: legacyAggregateDisposition(state, decision.state),
+          receipt: transition.plan.receipt,
+          nextState: transition.decision.state,
+          disposition: transition.disposition,
         });
       }),
     );

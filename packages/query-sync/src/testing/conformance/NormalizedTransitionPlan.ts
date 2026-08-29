@@ -12,16 +12,24 @@ import type {
   AdmittedInvalidationBatch,
   BeginQueryEvaluationRequest,
   BuildQuerySyncStateError,
+  GenerationRefreshEvidence,
   ProvisionalQueryState,
   QueryCompletionFingerprint,
   QueryDescriptor,
+  QueryEvaluationAttempt,
+  QueryEvaluationEvidence,
   QuerySyncPublicationWorkState,
   QuerySyncState,
 } from "../../kernel/Model.js";
-import type { QueryPublicationIdentity } from "../../kernel/Publication.js";
 import {
-  freezePublicationDisposition,
   freezeQueryPublicationIdentity,
+  makePendingQueryPublication,
+  queryPublicationIdentityEquals,
+} from "../../kernel/Publication.js";
+import type {
+  PendingQueryPublication,
+  QueryPublicationArtifact,
+  QueryPublicationIdentity,
 } from "../../kernel/Publication.js";
 import {
   planBeginQueryEvaluation,
@@ -30,6 +38,19 @@ import type {
   BeginQueryEvaluationPlan,
   PlanBeginQueryEvaluationError,
 } from "../../transition-plan/BeginQueryEvaluation.js";
+import {
+  resumeCompleteQueryEvaluationMaterial,
+  resumeCompleteQueryEvaluationReplay,
+  startCompleteQueryEvaluation,
+} from "../../transition-plan/CompleteQueryEvaluation.js";
+import type {
+  CompleteQueryEvaluationPlan,
+  ReadCompleteQueryMaterialFactsIntent,
+  ReadCompleteQueryReplayFactsIntent,
+  ResumeCompleteQueryMaterialError,
+  ResumeCompleteQueryReplayError,
+  StartCompleteQueryEvaluationError,
+} from "../../transition-plan/CompleteQueryEvaluation.js";
 import {
   resumeApplyAdmittedBatchActiveFacts,
   resumeApplyAdmittedBatchAffectedTargets,
@@ -45,7 +66,11 @@ import type {
 import {
   freezeActiveScalarFacts,
   freezeBeginQueryFacts,
+  freezeCompleteQueryMaterialFactsRead,
+  freezeCompleteQueryReplayFactsRead,
+  freezeCompleteQueryScalarFacts,
   freezeProvisionalFacts,
+  freezeQueryCompletionScalarFacts,
   projectActiveScalarFacts,
 } from "../../transition-plan/Facts.js";
 import type {
@@ -53,10 +78,17 @@ import type {
   AffectedActiveQueryFacts,
   AffectedActiveQueryTarget,
   BeginQueryFacts,
+  CompleteQueryMaterialFactsRead,
+  CompleteQueryReplayFactsRead,
+  CompleteQueryScalarFacts,
+  CompletionPublicationLifecycleFacts,
+  QueryCompletionScalarFacts,
+  QueryDependencyFacts,
 } from "../../transition-plan/Facts.js";
 import {
   MAX_INVALIDATION_AFFECTED_QUERIES,
   MAX_INVALIDATION_AFFECTED_QUERY_SENTINEL,
+  MAX_QUERY_DEPENDENCY_SENTINEL,
 } from "../../transition-plan/Limits.js";
 import {
   freezeScopeFacts,
@@ -69,12 +101,10 @@ import type {
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
 } from "../../transition-plan/Receipts.js";
 
-type NormalizedCompletionScalarFacts = Omit<
-  QueryCompletionFingerprint,
-  "evaluationDependencyKeys"
->;
+type NormalizedCompletionScalarFacts = QueryCompletionScalarFacts;
 
 interface NormalizedQueryRow {
   readonly descriptor: QueryDescriptor;
@@ -122,8 +152,19 @@ export type NormalizedApplyError =
   | ResumeApplyAffectedActiveFactsError
   | BuildQuerySyncStateError;
 
+export type NormalizedCompleteError =
+  | StartCompleteQueryEvaluationError
+  | ResumeCompleteQueryReplayError
+  | ResumeCompleteQueryMaterialError
+  | BuildQuerySyncStateError;
+
+type NormalizedOperation =
+  | "beginQueryEvaluation"
+  | "applyAdmittedInvalidations"
+  | "completeQueryEvaluation";
+
 function transitionDefect(
-  operation: "beginQueryEvaluation" | "applyAdmittedInvalidations",
+  operation: NormalizedOperation,
 ): QuerySyncInvariantDefect {
   return new QuerySyncInvariantDefect({
     operation,
@@ -143,29 +184,7 @@ function freezeDescriptor(
 function freezeCompletionScalarFacts(
   completion: QueryCompletionFingerprint,
 ): NormalizedCompletionScalarFacts {
-  return Object.freeze({
-    identity: freezeQueryPublicationIdentity(completion.identity),
-    queryIdentity: completion.queryIdentity,
-    expectedActiveGeneration: completion.expectedActiveGeneration,
-    registrationCursor: Object.freeze({
-      namespaceId: completion.registrationCursor.namespaceId,
-      syncModelId: completion.registrationCursor.syncModelId,
-      sourceEpoch: completion.registrationCursor.sourceEpoch,
-      appliedThroughSequence:
-        completion.registrationCursor.appliedThroughSequence,
-    }),
-    requestedDirtyThroughSequence:
-      completion.requestedDirtyThroughSequence,
-    evaluationSnapshotSequence: completion.evaluationSnapshotSequence,
-    evaluationAuthorityWitness: completion.evaluationAuthorityWitness,
-    refreshedThroughSequence: completion.refreshedThroughSequence,
-    relevantThroughSequence: completion.relevantThroughSequence,
-    refreshAuthorityWitness: completion.refreshAuthorityWitness,
-    resultDigest: completion.resultDigest,
-    publicationDisposition: freezePublicationDisposition(
-      completion.publicationDisposition,
-    ),
-  });
+  return freezeQueryCompletionScalarFacts(completion);
 }
 
 export function normalizeQuerySyncState(
@@ -347,6 +366,142 @@ function beginQueryFactsEqual(
   return provisionalFactsEqual(left.provisional, right.provisional);
 }
 
+function identityEqual(
+  left: QueryPublicationIdentity | null,
+  right: QueryPublicationIdentity | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return queryPublicationIdentityEquals(left, right);
+}
+
+function completionFactsEqual(
+  left: QueryCompletionScalarFacts | null,
+  right: QueryCompletionScalarFacts | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    !queryPublicationIdentityEquals(left.identity, right.identity)
+    || left.queryIdentity !== right.queryIdentity
+    || left.expectedActiveGeneration !== right.expectedActiveGeneration
+    || left.registrationCursor.namespaceId
+      !== right.registrationCursor.namespaceId
+    || left.registrationCursor.syncModelId
+      !== right.registrationCursor.syncModelId
+    || left.registrationCursor.sourceEpoch
+      !== right.registrationCursor.sourceEpoch
+    || left.registrationCursor.appliedThroughSequence
+      !== right.registrationCursor.appliedThroughSequence
+    || left.requestedDirtyThroughSequence
+      !== right.requestedDirtyThroughSequence
+    || left.evaluationSnapshotSequence !== right.evaluationSnapshotSequence
+    || left.evaluationAuthorityWitness
+      !== right.evaluationAuthorityWitness
+    || left.refreshedThroughSequence !== right.refreshedThroughSequence
+    || left.relevantThroughSequence !== right.relevantThroughSequence
+    || left.refreshAuthorityWitness !== right.refreshAuthorityWitness
+    || left.resultDigest !== right.resultDigest
+    || left.publicationDisposition._tag
+      !== right.publicationDisposition._tag
+  ) {
+    return false;
+  }
+  return left.publicationDisposition._tag === "unchanged"
+    || (
+      right.publicationDisposition._tag === "pending"
+      && queryPublicationIdentityEquals(
+        left.publicationDisposition.identity,
+        right.publicationDisposition.identity,
+      )
+    );
+}
+
+function completeQueryFactsEqual(
+  left: CompleteQueryScalarFacts | null,
+  right: CompleteQueryScalarFacts | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    left.descriptor.queryKey !== right.descriptor.queryKey
+    || left.descriptor.queryIdentity !== right.descriptor.queryIdentity
+  ) {
+    return false;
+  }
+  if (left.active === null || right.active === null) {
+    if (left.active !== right.active) return false;
+  } else if (!activeFactsEqual(left.active, right.active)) {
+    return false;
+  }
+  if (left.provisional === null || right.provisional === null) {
+    if (left.provisional !== right.provisional) return false;
+  } else if (!provisionalFactsEqual(left.provisional, right.provisional)) {
+    return false;
+  }
+  return completionFactsEqual(
+    left.currentCompletion,
+    right.currentCompletion,
+  ) && identityEqual(
+    left.precedingCompletionIdentity,
+    right.precedingCompletionIdentity,
+  );
+}
+
+function dependencyFactsEqual(
+  left: QueryDependencyFacts | null,
+  right: QueryDependencyFacts | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  if (
+    left.queryKey !== right.queryKey
+    || left.generation !== right.generation
+    || left.dependencyKeys.length !== right.dependencyKeys.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < left.dependencyKeys.length; index += 1) {
+    if (left.dependencyKeys[index] !== right.dependencyKeys[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function pendingPublicationEqual(
+  left: PendingQueryPublication | null,
+  right: PendingQueryPublication | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return queryPublicationIdentityEquals(left.identity, right.identity)
+    && left.queryIdentity === right.queryIdentity
+    && left.completedThroughSequence === right.completedThroughSequence
+    && left.resultDigest === right.resultDigest
+    && left.content === right.content;
+}
+
+function deliveredPublicationEqual(
+  left: CompletionPublicationLifecycleFacts["latestDelivered"],
+  right: CompletionPublicationLifecycleFacts["latestDelivered"],
+): boolean {
+  if (left === null || right === null) return left === right;
+  return queryPublicationIdentityEquals(left.identity, right.identity)
+    && left.resultDigest === right.resultDigest;
+}
+
+function lifecycleFactsEqual(
+  left: CompletionPublicationLifecycleFacts,
+  right: CompletionPublicationLifecycleFacts,
+): boolean {
+  return left.queryKey === right.queryKey
+    && pendingPublicationEqual(left.inFlight, right.inFlight)
+    && deliveredPublicationEqual(
+      left.latestDelivered,
+      right.latestDelivered,
+    )
+    && deliveredPublicationEqual(
+      left.precedingAttemptOutcome,
+      right.precedingAttemptOutcome,
+    );
+}
+
 function beginFacts(
   normalized: NormalizedQuerySyncState,
   queryKey: CanonicalQueryKey,
@@ -361,36 +516,214 @@ function beginFacts(
     });
 }
 
+function completeFacts(
+  normalized: NormalizedQuerySyncState,
+  queryKey: CanonicalQueryKey,
+): CompleteQueryScalarFacts | null {
+  const query = findNormalizedQuery(normalized, queryKey);
+  return query === undefined
+    ? null
+    : freezeCompleteQueryScalarFacts({
+      descriptor: query.descriptor,
+      active: query.active,
+      provisional: query.provisional,
+      currentCompletion: query.currentCompletion,
+      precedingCompletionIdentity: query.precedingCompletionIdentity,
+    });
+}
+
 function dependenciesFor(
   normalized: NormalizedQuerySyncState,
   queryKey: CanonicalQueryKey,
   generation: QueryGeneration,
+  maximumMembers?: number,
 ): readonly CanonicalDependencyKey[] {
-  return Object.freeze(normalized.activeDependencies
-    .filter((row) => (
-      row.queryKey === queryKey && row.generation === generation
-    ))
-    .map((row) => row.dependencyKey));
+  const dependencyKeys: CanonicalDependencyKey[] = [];
+  for (const row of normalized.activeDependencies) {
+    if (row.queryKey !== queryKey || row.generation !== generation) continue;
+    dependencyKeys.push(row.dependencyKey);
+    if (
+      maximumMembers !== undefined
+      && dependencyKeys.length === maximumMembers
+    ) {
+      break;
+    }
+  }
+  return Object.freeze(dependencyKeys);
 }
 
 function completionDependenciesFor(
   normalized: NormalizedQuerySyncState,
   queryKey: CanonicalQueryKey,
   generation: QueryGeneration,
+  maximumMembers?: number,
 ): readonly CanonicalDependencyKey[] {
-  return Object.freeze(normalized.completionDependencies
-    .filter((row) => (
-      row.queryKey === queryKey && row.generation === generation
-    ))
-    .map((row) => row.dependencyKey));
+  const dependencyKeys: CanonicalDependencyKey[] = [];
+  for (const row of normalized.completionDependencies) {
+    if (row.queryKey !== queryKey || row.generation !== generation) continue;
+    dependencyKeys.push(row.dependencyKey);
+    if (
+      maximumMembers !== undefined
+      && dependencyKeys.length === maximumMembers
+    ) {
+      break;
+    }
+  }
+  return Object.freeze(dependencyKeys);
+}
+
+function dependencyFacts(
+  queryKey: CanonicalQueryKey,
+  generation: QueryGeneration,
+  dependencyKeys: readonly CanonicalDependencyKey[],
+): QueryDependencyFacts {
+  return Object.freeze({
+    queryKey,
+    generation,
+    dependencyKeys: Object.freeze([...dependencyKeys]),
+  });
+}
+
+function replayFactsRead(
+  normalized: NormalizedQuerySyncState,
+  intent: ReadCompleteQueryReplayFactsIntent,
+): CompleteQueryReplayFactsRead {
+  const query = findNormalizedQuery(normalized, intent.queryKey);
+  const completion = query?.currentCompletion;
+  if (
+    completion === null
+    || completion === undefined
+    || completion.identity.generation !== intent.completionGeneration
+  ) {
+    throw transitionDefect("completeQueryEvaluation");
+  }
+  let retainedPublication: PendingQueryPublication | null = null;
+  const retainedIdentity = intent.retainedPublicationIdentity;
+  if (retainedIdentity !== null) {
+    const pending = normalized.publicationWork.pending.find((publication) => (
+      queryPublicationIdentityEquals(
+        publication.identity,
+        retainedIdentity,
+      )
+    ));
+    const inFlight = normalized.publicationWork.inFlight?.publication;
+    retainedPublication = pending
+      ?? (inFlight !== undefined && queryPublicationIdentityEquals(
+        inFlight.identity,
+        retainedIdentity,
+      )
+        ? inFlight
+        : null);
+  }
+  return freezeCompleteQueryReplayFactsRead({
+    queryKey: intent.queryKey,
+    completionDependencies: dependencyFacts(
+      intent.queryKey,
+      intent.completionGeneration,
+      completionDependenciesFor(
+        normalized,
+        intent.queryKey,
+        intent.completionGeneration,
+        intent.maximumCompletionDependencyMembers,
+      ),
+    ),
+    retainedPublication,
+  });
+}
+
+function targetPublicationLifecycle(
+  normalized: NormalizedQuerySyncState,
+  queryKey: CanonicalQueryKey,
+): CompletionPublicationLifecycleFacts {
+  const inFlight = normalized.publicationWork.inFlight;
+  const latestDelivered = normalized.publicationWork.latestDelivered;
+  const preceding = normalized.publicationWork.precedingAttemptOutcome;
+  return Object.freeze({
+    queryKey,
+    inFlight: inFlight?.publication.identity.queryKey === queryKey
+      ? makePendingQueryPublication(inFlight.publication)
+      : null,
+    latestDelivered: latestDelivered?.identity.queryKey === queryKey
+      ? Object.freeze({
+        identity: freezeQueryPublicationIdentity(latestDelivered.identity),
+        resultDigest: latestDelivered.resultDigest,
+      })
+      : null,
+    precedingAttemptOutcome: preceding?.identity.queryKey === queryKey
+      ? Object.freeze({
+        identity: freezeQueryPublicationIdentity(preceding.identity),
+        resultDigest: preceding.resultDigest,
+      })
+      : null,
+  });
+}
+
+function materialFactsRead(
+  normalized: NormalizedQuerySyncState,
+  intent: ReadCompleteQueryMaterialFactsIntent,
+): CompleteQueryMaterialFactsRead {
+  const query = findNormalizedQuery(normalized, intent.queryKey);
+  if (
+    query === undefined
+    || intent.pendingPublicationQueryKey !== intent.queryKey
+    || intent.publicationLifecycleQueryKey !== intent.queryKey
+    || (query.active?.generation ?? null) !== intent.activeGeneration
+    || (query.currentCompletion?.identity.generation ?? null)
+      !== intent.completionGeneration
+  ) {
+    throw transitionDefect("completeQueryEvaluation");
+  }
+  const pendingPublication = normalized.publicationWork.pending.find(
+    (publication) => publication.identity.queryKey === intent.queryKey,
+  ) ?? null;
+  return freezeCompleteQueryMaterialFactsRead({
+    queryKey: intent.queryKey,
+    activeDependencies: intent.activeGeneration === null
+      ? null
+      : dependencyFacts(
+        intent.queryKey,
+        intent.activeGeneration,
+        dependenciesFor(
+          normalized,
+          intent.queryKey,
+          intent.activeGeneration,
+          intent.maximumActiveDependencyMembers,
+        ),
+      ),
+    completionDependencies: intent.completionGeneration === null
+      ? null
+      : dependencyFacts(
+        intent.queryKey,
+        intent.completionGeneration,
+        completionDependenciesFor(
+          normalized,
+          intent.queryKey,
+          intent.completionGeneration,
+          intent.maximumCompletionDependencyMembers,
+        ),
+      ),
+    pendingPublication,
+    lifecycle: targetPublicationLifecycle(normalized, intent.queryKey),
+  });
 }
 
 function rebuildNormalized(
   normalized: NormalizedQuerySyncState,
   scope: QuerySyncScopeFacts,
   queries: readonly NormalizedQueryRow[],
-  operation: "beginQueryEvaluation" | "applyAdmittedInvalidations",
+  operation: NormalizedOperation,
+  activeDependencies: readonly NormalizedActiveDependencyRow[] =
+    normalized.activeDependencies,
+  completionDependencies: readonly NormalizedCompletionDependencyRow[] =
+    normalized.completionDependencies,
+  publicationWork: QuerySyncPublicationWorkState =
+    normalized.publicationWork,
 ): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  const dependencySource: NormalizedQuerySyncState = Object.freeze({
+    ...normalized,
+    activeDependencies,
+    completionDependencies,
+  });
   return buildQuerySyncState({
     cursor: scope.cursor,
     queries: queries.map((query) => ({
@@ -400,7 +733,7 @@ function rebuildNormalized(
         : {
           ...query.active,
           dependencyKeys: dependenciesFor(
-            normalized,
+            dependencySource,
             query.descriptor.queryKey,
             query.active.generation,
           ),
@@ -411,7 +744,7 @@ function rebuildNormalized(
         : {
           ...query.currentCompletion,
           evaluationDependencyKeys: completionDependenciesFor(
-            normalized,
+            dependencySource,
             query.descriptor.queryKey,
             query.currentCompletion.identity.generation,
           ),
@@ -419,7 +752,7 @@ function rebuildNormalized(
       precedingCompletionIdentity: query.precedingCompletionIdentity,
     })),
     evaluationWork: scope.evaluationWork,
-    publicationWork: normalized.publicationWork,
+    publicationWork,
   }).pipe(Result.map((state) => {
     if (!querySyncStateMetricsEqual(state.metrics, scope.metrics)) {
       throw transitionDefect(operation);
@@ -671,6 +1004,249 @@ export function executeNormalizedApplyAdmittedBatch(
       }
     }
     const state = yield* interpretApplyPlan(normalized, plan);
+    return Object.freeze({
+      receipt: plan.receipt,
+      state,
+      disposition: plan._tag,
+      plan,
+    });
+  });
+}
+
+function orderedActiveDependencyRows(
+  rows: readonly NormalizedActiveDependencyRow[],
+): readonly NormalizedActiveDependencyRow[] {
+  const ordered = [...rows];
+  ordered.sort((left, right) => {
+    const queryOrder = compareCanonicalBase64Url(
+      left.queryKey,
+      right.queryKey,
+    );
+    return queryOrder !== 0
+      ? queryOrder
+      : compareCanonicalBase64Url(
+        left.dependencyKey,
+        right.dependencyKey,
+      );
+  });
+  return Object.freeze(ordered);
+}
+
+function orderedCompletionDependencyRows(
+  rows: readonly NormalizedCompletionDependencyRow[],
+): readonly NormalizedCompletionDependencyRow[] {
+  const ordered = [...rows];
+  ordered.sort((left, right) => {
+    const queryOrder = compareCanonicalBase64Url(
+      left.queryKey,
+      right.queryKey,
+    );
+    return queryOrder !== 0
+      ? queryOrder
+      : compareCanonicalBase64Url(
+        left.dependencyKey,
+        right.dependencyKey,
+      );
+  });
+  return Object.freeze(ordered);
+}
+
+function replaceCompleteDependencies(
+  normalized: NormalizedQuerySyncState,
+  plan: Extract<CompleteQueryEvaluationPlan, { readonly _tag: "write" }>,
+): Readonly<{
+  readonly active: readonly NormalizedActiveDependencyRow[];
+  readonly completion: readonly NormalizedCompletionDependencyRow[];
+}> {
+  const queryKey = plan.change.queryKey;
+  const active = normalized.activeDependencies.filter(
+    (row) => row.queryKey !== queryKey,
+  );
+  for (const dependencyKey of plan.change.active.dependencyKeys) {
+    active.push(Object.freeze({
+      queryKey,
+      generation: plan.change.active.generation,
+      dependencyKey,
+    }));
+  }
+  const completion = normalized.completionDependencies.filter(
+    (row) => row.queryKey !== queryKey,
+  );
+  for (
+    const dependencyKey of
+    plan.change.currentCompletion.evaluationDependencyKeys
+  ) {
+    completion.push(Object.freeze({
+      queryKey,
+      generation: plan.change.currentCompletion.identity.generation,
+      dependencyKey,
+    }));
+  }
+  return Object.freeze({
+    active: orderedActiveDependencyRows(active),
+    completion: orderedCompletionDependencyRows(completion),
+  });
+}
+
+function replaceTargetPendingPublication(
+  publicationWork: QuerySyncPublicationWorkState,
+  plan: Extract<CompleteQueryEvaluationPlan, { readonly _tag: "write" }>,
+): QuerySyncPublicationWorkState {
+  const change = plan.change.pendingPublication;
+  if (change._tag === "preserveTargetPending") return publicationWork;
+  const pending = publicationWork.pending
+    .filter((publication) => (
+      publication.identity.queryKey !== plan.change.queryKey
+    ))
+    .map(makePendingQueryPublication);
+  pending.push(makePendingQueryPublication(change.publication));
+  return Object.freeze({
+    pending: Object.freeze(pending),
+    inFlight: publicationWork.inFlight,
+    latestDelivered: publicationWork.latestDelivered,
+    precedingAttemptOutcome: publicationWork.precedingAttemptOutcome,
+  });
+}
+
+function currentMaterialFacts(
+  normalized: NormalizedQuerySyncState,
+  queryKey: CanonicalQueryKey,
+): CompleteQueryMaterialFactsRead {
+  const query = findNormalizedQuery(normalized, queryKey);
+  if (query === undefined) {
+    throw transitionDefect("completeQueryEvaluation");
+  }
+  return materialFactsRead(normalized, Object.freeze({
+    _tag: "readCompleteQueryMaterialFacts",
+    queryKey,
+    activeGeneration: query.active?.generation ?? null,
+    completionGeneration:
+      query.currentCompletion?.identity.generation ?? null,
+    maximumActiveDependencyMembers: MAX_QUERY_DEPENDENCY_SENTINEL,
+    maximumCompletionDependencyMembers: MAX_QUERY_DEPENDENCY_SENTINEL,
+    pendingPublicationQueryKey: queryKey,
+    publicationLifecycleQueryKey: queryKey,
+  }));
+}
+
+function interpretCompletePlan(
+  normalized: NormalizedQuerySyncState,
+  plan: CompleteQueryEvaluationPlan,
+): Result.Result<QuerySyncState, BuildQuerySyncStateError> {
+  if (plan._tag === "noWrite") {
+    return rebuildNormalized(
+      normalized,
+      normalized.scope,
+      normalized.queries,
+      "completeQueryEvaluation",
+    );
+  }
+  const queryKey = plan.change.queryKey;
+  const actualQuery = completeFacts(normalized, queryKey);
+  const actualMaterial = currentMaterialFacts(normalized, queryKey);
+  if (
+    !scopeFactsEqual(normalized.scope, plan.expected.scope)
+    || plan.expected.query.descriptor.queryKey !== queryKey
+    || !completeQueryFactsEqual(actualQuery, plan.expected.query)
+    || !dependencyFactsEqual(
+      actualMaterial.activeDependencies,
+      plan.expected.activeDependencies,
+    )
+    || !dependencyFactsEqual(
+      actualMaterial.completionDependencies,
+      plan.expected.completionDependencies,
+    )
+    || !pendingPublicationEqual(
+      actualMaterial.pendingPublication,
+      plan.expected.pendingPublication,
+    )
+    || !lifecycleFactsEqual(
+      actualMaterial.lifecycle,
+      plan.expected.publicationLifecycle,
+    )
+  ) {
+    throw transitionDefect("completeQueryEvaluation");
+  }
+  const current = findNormalizedQuery(normalized, queryKey);
+  if (current === undefined) {
+    throw transitionDefect("completeQueryEvaluation");
+  }
+  const replacement: NormalizedQueryRow = Object.freeze({
+    descriptor: freezeDescriptor(current.descriptor),
+    active: freezeActiveScalarFacts(plan.change.active),
+    provisional: null,
+    currentCompletion: freezeCompletionScalarFacts(
+      plan.change.currentCompletion,
+    ),
+    precedingCompletionIdentity:
+      plan.change.precedingCompletionIdentity === null
+        ? null
+        : freezeQueryPublicationIdentity(
+          plan.change.precedingCompletionIdentity,
+        ),
+  });
+  let replaced = false;
+  const queries = normalized.queries.map((query) => {
+    if (query.descriptor.queryKey !== queryKey) return query;
+    replaced = true;
+    return replacement;
+  });
+  if (!replaced) {
+    throw transitionDefect("completeQueryEvaluation");
+  }
+  const dependencies = replaceCompleteDependencies(normalized, plan);
+  const publicationWork = replaceTargetPendingPublication(
+    normalized.publicationWork,
+    plan,
+  );
+  return rebuildNormalized(
+    normalized,
+    plan.nextScope,
+    queries,
+    "completeQueryEvaluation",
+    dependencies.active,
+    dependencies.completion,
+    publicationWork,
+  );
+}
+
+export function executeNormalizedCompleteQueryEvaluation(
+  normalized: NormalizedQuerySyncState,
+  attempt: QueryEvaluationAttempt,
+  evaluation: QueryEvaluationEvidence,
+  refresh: GenerationRefreshEvidence,
+  publication: QueryPublicationArtifact,
+): Result.Result<
+  NormalizedTransition<
+    CompleteQueryEvaluationReceipt,
+    CompleteQueryEvaluationPlan
+  >,
+  NormalizedCompleteError
+> {
+  return Result.gen(function* () {
+    const start = yield* startCompleteQueryEvaluation({
+      scope: normalized.scope,
+      query: completeFacts(normalized, attempt.descriptor.queryKey),
+      attempt,
+      evaluation,
+      refresh,
+      publication,
+    });
+    let plan: CompleteQueryEvaluationPlan;
+    if (start._tag === "planned") {
+      plan = start.plan;
+    } else if (start.stage === "replay") {
+      plan = yield* resumeCompleteQueryEvaluationReplay(
+        start.resume,
+        replayFactsRead(normalized, start.intent),
+      );
+    } else {
+      plan = yield* resumeCompleteQueryEvaluationMaterial(
+        start.resume,
+        materialFactsRead(normalized, start.intent),
+      );
+    }
+    const state = yield* interpretCompletePlan(normalized, plan);
     return Object.freeze({
       receipt: plan.receipt,
       state,

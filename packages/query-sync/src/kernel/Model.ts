@@ -61,6 +61,7 @@ import type {
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
 } from "../transition-plan/Receipts.js";
 export {
   isIssuedQueryEvaluationAttempt,
@@ -77,6 +78,10 @@ import {
   retainedPublicationMetricContribution,
   scopeMetricContribution,
 } from "../transition-plan/Accounting.js";
+import {
+  MAX_QUERY_DEPENDENCY_BYTES,
+  MAX_QUERY_DEPENDENCY_KEYS,
+} from "../transition-plan/Limits.js";
 
 export {
   MAX_AGGREGATE_DEPENDENCY_MEMBERSHIPS,
@@ -88,11 +93,11 @@ export {
 export {
   MAX_INVALIDATION_AFFECTED_QUERIES,
   MAX_INVALIDATION_DEPENDENCY_LOOKUPS,
+  MAX_QUERY_DEPENDENCY_BYTES,
+  MAX_QUERY_DEPENDENCY_KEYS,
 } from "../transition-plan/Limits.js";
 
-export const MAX_QUERY_DEPENDENCY_KEYS = 8_192;
 export const MAX_INVALIDATION_KEYS = 65_536;
-export const MAX_QUERY_DEPENDENCY_BYTES = 4 * 1_024 * 1_024;
 export const MAX_INVALIDATION_BATCH_BYTES = 16 * 1_024 * 1_024;
 export const MAX_REFRESH_BATCHES = 65_536;
 export const MAX_REFRESH_KEY_EXAMINATIONS = 65_536;
@@ -422,47 +427,7 @@ export type ApplyInvalidationsDecision =
 
 
 export type CompleteQueryEvaluationDecision =
-  | Readonly<{
-    readonly _tag: "refreshRequired";
-    readonly state: QuerySyncState;
-    readonly refreshedThroughSequence: SyncSequence;
-    readonly requiredThroughSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "resnapshotRequired";
-    readonly state: QuerySyncState;
-    readonly generation: QueryGeneration;
-  }>
-  | Readonly<{
-    readonly _tag: "rerunRequired";
-    readonly state: QuerySyncState;
-    readonly generation: QueryGeneration;
-    readonly relevantThroughSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "completed";
-    readonly state: QuerySyncState;
-    readonly generation: QueryGeneration;
-    readonly publicationDisposition: QueryCompletionPublicationDisposition;
-  }>
-  | Readonly<{
-    readonly _tag: "replayed";
-    readonly state: QuerySyncState;
-    readonly generation: QueryGeneration;
-    readonly publicationDisposition: QueryCompletionPublicationDisposition;
-  }>
-  | Readonly<{
-    readonly _tag: "superseded";
-    readonly state: QuerySyncState;
-    readonly generation: QueryGeneration;
-    readonly activeGeneration: QueryGeneration;
-  }>
-  | Readonly<{
-    readonly _tag: "recoveryEvidenceExpired";
-    readonly state: QuerySyncState;
-    readonly generation: QueryGeneration;
-    readonly activeGeneration: QueryGeneration;
-  }>;
+  StateBearingDecision<CompleteQueryEvaluationReceipt>;
 
 export type CaptureNamespaceCursorError = QuerySyncCanonicalValueError;
 export type CaptureQueryDescriptorError = QuerySyncCanonicalValueError;

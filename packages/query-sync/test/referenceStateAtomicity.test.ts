@@ -96,6 +96,78 @@ async function prepareActiveReferenceQuery(
   return { transitionState, queryTarget };
 }
 
+async function prepareMaterialRerun(
+  physicalNamespaceId: string,
+  dependency: string,
+  resultSeed: number,
+) {
+  const { transitionState, queryTarget } =
+    await prepareActiveReferenceQuery(physicalNamespaceId, dependency);
+  await runEffect(transitionState.applyAdmittedBatchAndAdvance(batch({
+    sequence: 1n,
+    dependencies: [dependency],
+  })));
+  const dirtyState = requireState(await runEffect(
+    transitionState.snapshotForConformance(),
+  ));
+  const dirtyActive = dirtyState.queries.find((query) => (
+    query.descriptor.queryKey === queryTarget.descriptor.queryKey
+  ))?.active;
+  if (
+    dirtyActive === null
+    || dirtyActive === undefined
+    || dirtyActive.dirtyThroughSequence === null
+  ) {
+    throw new Error("Expected an active dirty query for completion.");
+  }
+  const begun = await runEffect(transitionState.beginQueryEvaluation(
+    rerunEvaluationRequest({
+      target: queryTarget,
+      activeGeneration: dirtyActive.generation,
+      dirtyThroughSequence: dirtyActive.dirtyThroughSequence,
+    }),
+  ));
+  if (begun._tag !== "created") {
+    throw new Error("Expected a rerun evaluation attempt to be created.");
+  }
+  const attempt = begun.attempt;
+  const queryEvaluation = evaluation({
+    descriptor: attempt.descriptor,
+    generation: attempt.generation,
+    snapshot: attempt.registrationCursor.appliedThroughSequence,
+    resultSeed,
+    dependencies: [dependency],
+  });
+  const refresh = getSuccess(deriveGenerationRefreshEvidence(
+    queryEvaluation,
+    attempt.registrationCursor,
+    [],
+    queryEvaluation.authorityWitness,
+  ));
+  const beforeCompletion = requireState(await runEffect(
+    transitionState.snapshotForConformance(),
+  ));
+  const previousPending = beforeCompletion.publicationWork.pending.find(
+    (candidate) => candidate.identity.queryKey
+      === queryTarget.descriptor.queryKey,
+  );
+  if (previousPending === undefined) {
+    throw new Error("Expected the prior generation publication to be pending.");
+  }
+  return {
+    transitionState,
+    queryTarget,
+    attempt,
+    queryEvaluation,
+    refresh,
+    publication: publicationArtifact(
+      `completion-${resultSeed}-${physicalNamespaceId}`,
+    ),
+    beforeCompletion,
+    previousPending,
+  };
+}
+
 describe("reference transition-state atomicity", () => {
   it("treats cursor-only apply as a write and leaves armed faults untouched on duplicate no-write", async () => {
     const bootstrapCursor = cursor();
@@ -684,6 +756,236 @@ describe("reference transition-state atomicity", () => {
     expect(afterReplay).toBe(committedCompletion);
     expect(afterReplay.publicationWork.pending).toEqual([pendingPublication]);
     expect(afterReplay.publicationWork.pending[0]).toBe(pendingPublication);
+  });
+
+  it("keeps pending replacement and unchanged completion writes atomic across both swap fault timings", async () => {
+    const variants = [
+      { name: "pending-replacement", resultSeed: 81, disposition: "pending" },
+      { name: "unchanged-digest", resultSeed: 80, disposition: "unchanged" },
+    ] as const;
+    for (const variant of variants) {
+      for (const timing of ["beforeSwap", "afterSwap"] as const) {
+        const dependency = canonicalText(
+          `fault:complete-${variant.name}-${timing}`,
+        );
+        const prepared = await prepareMaterialRerun(
+          `physical-complete-${variant.name}-${timing}`,
+          dependency,
+          variant.resultSeed,
+        );
+        await runEffect(prepared.transitionState.injectNextFault({
+          operation: "completeQueryEvaluation",
+          timing,
+        }));
+
+        const failure = await runEffectFailure(
+          prepared.transitionState.completeQueryEvaluation(
+            prepared.attempt,
+            prepared.queryEvaluation,
+            prepared.refresh,
+            prepared.publication,
+          ),
+        );
+        expect(failure).toMatchObject({
+          operation: "completeQueryEvaluation",
+          commitCertainty:
+            timing === "beforeSwap" ? "notCommitted" : "unknown",
+        });
+        const afterFailure = requireState(await runEffect(
+          prepared.transitionState.snapshotForConformance(),
+        ));
+        if (timing === "beforeSwap") {
+          expect(afterFailure).toBe(prepared.beforeCompletion);
+        } else {
+          expect(failure).toBeInstanceOf(
+            QuerySyncStateCommitOutcomeUnknownError,
+          );
+          expect(afterFailure).not.toBe(prepared.beforeCompletion);
+          expect(afterFailure.queries.find((query) => (
+            query.descriptor.queryKey
+              === prepared.queryTarget.descriptor.queryKey
+          ))?.currentCompletion?.publicationDisposition._tag).toBe(
+            variant.disposition,
+          );
+        }
+
+        const recovered = await runEffect(
+          prepared.transitionState.completeQueryEvaluation(
+            prepared.attempt,
+            prepared.queryEvaluation,
+            prepared.refresh,
+            prepared.publication,
+          ),
+        );
+        expect(recovered).toMatchObject({
+          _tag: timing === "beforeSwap" ? "completed" : "replayed",
+          generation: prepared.attempt.generation,
+          publicationDisposition: { _tag: variant.disposition },
+        });
+        const committed = requireState(await runEffect(
+          prepared.transitionState.snapshotForConformance(),
+        ));
+        if (timing === "afterSwap") expect(committed).toBe(afterFailure);
+        expect(committed.queries.find((query) => (
+          query.descriptor.queryKey
+            === prepared.queryTarget.descriptor.queryKey
+        ))).toMatchObject({
+          active: {
+            generation: prepared.attempt.generation,
+            resultDigest: prepared.queryEvaluation.resultDigest,
+          },
+          provisional: null,
+          currentCompletion: {
+            identity: { generation: prepared.attempt.generation },
+            publicationDisposition: { _tag: variant.disposition },
+          },
+        });
+        const pending = committed.publicationWork.pending.filter(
+          (candidate) => candidate.identity.queryKey
+            === prepared.queryTarget.descriptor.queryKey,
+        );
+        expect(pending).toHaveLength(1);
+        if (variant.disposition === "pending") {
+          expect(pending[0]).toMatchObject({
+            identity: { generation: prepared.attempt.generation },
+            resultDigest: prepared.queryEvaluation.resultDigest,
+            content: prepared.publication.content,
+          });
+          expect(pending[0]?.identity).not.toEqual(
+            prepared.previousPending.identity,
+          );
+        } else {
+          expect(pending[0]).toEqual(prepared.previousPending);
+          expect(pending[0]?.identity.generation).toBe(1n);
+        }
+      }
+    }
+  });
+
+  it("does not consume completion faults on no-write or failure before a material write", async () => {
+    for (const timing of ["beforeSwap", "afterSwap"] as const) {
+      const bootstrapCursor = cursor();
+      const harness = await runEffect(makeReferenceQuerySyncStateHarness());
+      const transitionState = harness.bind(bindingFor(
+        `physical-complete-fault-retention-${timing}`,
+        bootstrapCursor,
+      ));
+      await runEffect(
+        transitionState.initializeOrInspectNamespace(bootstrapCursor),
+      );
+      const begun = await runEffect(
+        transitionState.beginQueryEvaluation(firstEvaluationRequest()),
+      );
+      if (begun._tag !== "created") {
+        throw new Error("Expected an evaluation attempt to be created.");
+      }
+      const attempt = begun.attempt;
+      const queryEvaluation = evaluation({
+        descriptor: attempt.descriptor,
+        generation: attempt.generation,
+        snapshot: attempt.registrationCursor.appliedThroughSequence,
+      });
+      const staleRefresh = getSuccess(deriveGenerationRefreshEvidence(
+        queryEvaluation,
+        attempt.registrationCursor,
+        [],
+        queryEvaluation.authorityWitness,
+      ));
+      const admitted = batch({ sequence: 1n });
+      await runEffect(
+        transitionState.applyAdmittedBatchAndAdvance(admitted),
+      );
+      const beforeCompletion = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      await runEffect(transitionState.injectNextFault({
+        operation: "completeQueryEvaluation",
+        timing,
+      }));
+
+      expect(await runEffect(transitionState.completeQueryEvaluation(
+        attempt,
+        queryEvaluation,
+        staleRefresh,
+        publicationArtifact("fault-retention-stale"),
+      ))).toMatchObject({
+        _tag: "refreshRequired",
+        refreshedThroughSequence: 0n,
+        requiredThroughSequence: 1n,
+      });
+      expect(await runEffect(
+        transitionState.snapshotForConformance(),
+      )).toBe(beforeCompletion);
+
+      const mismatchedEvaluation = evaluation({
+        descriptor: attempt.descriptor,
+        generation: attempt.generation + 1n,
+        snapshot: attempt.registrationCursor.appliedThroughSequence,
+      });
+      const mismatchedRefresh = getSuccess(deriveGenerationRefreshEvidence(
+        mismatchedEvaluation,
+        beforeCompletion.cursor,
+        [admitted],
+        mismatchedEvaluation.authorityWitness,
+      ));
+      expect(await runEffectFailure(
+        transitionState.completeQueryEvaluation(
+          attempt,
+          mismatchedEvaluation,
+          mismatchedRefresh,
+          publicationArtifact("fault-retention-invalid"),
+        ),
+      )).toMatchObject({
+        _tag: "InvalidQueryEvidenceError",
+        reason: "attemptEvaluationGenerationMismatch",
+      });
+      expect(await runEffect(
+        transitionState.snapshotForConformance(),
+      )).toBe(beforeCompletion);
+
+      const currentRefresh = getSuccess(deriveGenerationRefreshEvidence(
+        queryEvaluation,
+        beforeCompletion.cursor,
+        [admitted],
+        queryEvaluation.authorityWitness,
+      ));
+      const materialFailure = await runEffectFailure(
+        transitionState.completeQueryEvaluation(
+          attempt,
+          queryEvaluation,
+          currentRefresh,
+          publicationArtifact("fault-retention-material"),
+        ),
+      );
+      expect(materialFailure).toMatchObject({
+        operation: "completeQueryEvaluation",
+        commitCertainty:
+          timing === "beforeSwap" ? "notCommitted" : "unknown",
+      });
+      const afterMaterialFailure = requireState(await runEffect(
+        transitionState.snapshotForConformance(),
+      ));
+      if (timing === "beforeSwap") {
+        expect(afterMaterialFailure).toBe(beforeCompletion);
+      } else {
+        expect(materialFailure).toBeInstanceOf(
+          QuerySyncStateCommitOutcomeUnknownError,
+        );
+        expect(afterMaterialFailure.queries[0]).toMatchObject({
+          active: { generation: attempt.generation },
+          provisional: null,
+        });
+      }
+      expect(await runEffect(transitionState.completeQueryEvaluation(
+        attempt,
+        queryEvaluation,
+        currentRefresh,
+        publicationArtifact("fault-retention-material"),
+      ))).toMatchObject({
+        _tag: timing === "beforeSwap" ? "completed" : "replayed",
+        publicationDisposition: { _tag: "pending" },
+      });
+    }
   });
 
   it("refuses a different logical namespace bound to the same physical store entry", async () => {

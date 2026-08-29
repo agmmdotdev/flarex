@@ -2,7 +2,6 @@ import type {
   CanonicalQueryKey,
   PublicationAttemptOrdinal,
   QueryGeneration,
-  SyncSequence,
 } from "../kernel/CanonicalValue.js";
 import type {
   BlockedEvaluationWorkEvidence,
@@ -21,14 +20,21 @@ import {
   alreadyAdvancedBeginReceipt,
   appliedBatchReceipt,
   attemptedBeginReceipt,
+  completedCompleteReceipt,
   duplicateApplyReceipt,
   gapApplyReceipt,
   notDirtyBeginReceipt,
+  recoveryEvidenceExpiredCompleteReceipt,
+  refreshRequiredCompleteReceipt,
   resetRequiredApplyReceipt,
+  rerunRequiredCompleteReceipt,
+  resnapshotRequiredCompleteReceipt,
+  supersededCompleteReceipt,
 } from "../transition-plan/Receipts.js";
 import type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
 } from "../transition-plan/Receipts.js";
 
 export {
@@ -39,14 +45,13 @@ export {
 export type {
   ApplyAdmittedBatchReceipt,
   BeginQueryEvaluationReceipt,
+  CompleteQueryEvaluationReceipt,
   InitializeNamespaceReceipt,
 } from "../transition-plan/Receipts.js";
 import {
-  freezePublicationDisposition,
   freezeQueryPublicationIdentity,
 } from "../kernel/Publication.js";
 import type {
-  QueryCompletionPublicationDisposition,
   QueryPublicationIdentity,
 } from "../kernel/Publication.js";
 import type {
@@ -55,42 +60,6 @@ import type {
   PublicationAttempt,
   RecordPublicationAttemptOutcomeDecision,
 } from "../kernel/PublicationWork.js";
-
-export type CompleteQueryEvaluationReceipt =
-  | Readonly<{
-    readonly _tag: "refreshRequired";
-    readonly refreshedThroughSequence: SyncSequence;
-    readonly requiredThroughSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "resnapshotRequired";
-    readonly generation: QueryGeneration;
-  }>
-  | Readonly<{
-    readonly _tag: "rerunRequired";
-    readonly generation: QueryGeneration;
-    readonly relevantThroughSequence: SyncSequence;
-  }>
-  | Readonly<{
-    readonly _tag: "completed";
-    readonly generation: QueryGeneration;
-    readonly publicationDisposition: QueryCompletionPublicationDisposition;
-  }>
-  | Readonly<{
-    readonly _tag: "replayed";
-    readonly generation: QueryGeneration;
-    readonly publicationDisposition: QueryCompletionPublicationDisposition;
-  }>
-  | Readonly<{
-    readonly _tag: "superseded";
-    readonly generation: QueryGeneration;
-    readonly activeGeneration: QueryGeneration;
-  }>
-  | Readonly<{
-    readonly _tag: "recoveryEvidenceExpired";
-    readonly generation: QueryGeneration;
-    readonly activeGeneration: QueryGeneration;
-  }>;
 
 export type ClaimEvaluationWorkReceipt =
   | Readonly<{
@@ -263,38 +232,34 @@ export function projectCompleteReceipt(
 ): CompleteQueryEvaluationReceipt {
   switch (decision._tag) {
     case "refreshRequired":
-      return Object.freeze({
-        _tag: "refreshRequired",
-        refreshedThroughSequence: decision.refreshedThroughSequence,
-        requiredThroughSequence: decision.requiredThroughSequence,
-      });
+      return refreshRequiredCompleteReceipt(
+        decision.refreshedThroughSequence,
+        decision.requiredThroughSequence,
+      );
     case "resnapshotRequired":
-      return Object.freeze({
-        _tag: "resnapshotRequired",
-        generation: decision.generation,
-      });
+      return resnapshotRequiredCompleteReceipt(decision.generation);
     case "rerunRequired":
-      return Object.freeze({
-        _tag: "rerunRequired",
-        generation: decision.generation,
-        relevantThroughSequence: decision.relevantThroughSequence,
-      });
+      return rerunRequiredCompleteReceipt(
+        decision.generation,
+        decision.relevantThroughSequence,
+      );
     case "completed":
     case "replayed":
-      return Object.freeze({
-        _tag: decision._tag,
-        generation: decision.generation,
-        publicationDisposition: freezePublicationDisposition(
-          decision.publicationDisposition,
-        ),
-      });
+      return completedCompleteReceipt(
+        decision._tag,
+        decision.generation,
+        decision.publicationDisposition,
+      );
     case "superseded":
+      return supersededCompleteReceipt(
+        decision.generation,
+        decision.activeGeneration,
+      );
     case "recoveryEvidenceExpired":
-      return Object.freeze({
-        _tag: decision._tag,
-        generation: decision.generation,
-        activeGeneration: decision.activeGeneration,
-      });
+      return recoveryEvidenceExpiredCompleteReceipt(
+        decision.generation,
+        decision.activeGeneration,
+      );
   }
 }
 
