@@ -14,6 +14,7 @@ import {
   type TaskRunAttemptAggregateV1,
 } from "../src/runAttempt/Model.js";
 import {
+  decodeTaskRunListStoreItem,
   projectTaskRun,
   type TaskRunProjection,
 } from "../src/runProjection/index.js";
@@ -391,10 +392,19 @@ function terminalAttempt() {
 }
 
 function project(aggregate: TaskRunAttemptAggregateV1): TaskRunProjection {
-  return projectTaskRun({
+  const projection = projectTaskRun({
     observedAtMs: OBSERVED_AT,
     current: toApplicationAggregate(aggregate),
   });
+  const listItem = {
+    runId: projection.runId,
+    createdAtMs: projection.createdAtMs,
+    runVersion: projection.runVersion,
+    state: projection.state,
+  };
+  expect(Result.getOrThrow(decodeTaskRunListStoreItem(listItem)))
+    .toEqual(listItem);
+  return projection;
 }
 
 function toApplicationAggregate(

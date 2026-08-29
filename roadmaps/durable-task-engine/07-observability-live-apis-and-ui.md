@@ -2,7 +2,7 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1 and DTE07-C1/C2/C3/C4/C5/C6 complete
+**Status:** Architecture roadmap with DTE07-B1/B2 and DTE07-C1/C2/C3/C4/C5/C6/C7 complete
 privately on 2026-08-29.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
@@ -24,9 +24,13 @@ adapter fixed by
 [`preflight/56-dte07-private-task-cancellation-command.md`](./preflight/56-dte07-private-task-cancellation-command.md).
 DTE07-C6 implements the clean `cancelTask(run, options)` contract fixed by
 [`preflight/57-dte07-clean-task-cancellation-contract.md`](./preflight/57-dte07-clean-task-cancellation-contract.md).
+DTE07-B2/C7 define the production-inert bounded Task run-list contract and
+private Standard query bridge fixed by
+[`preflight/58-dte07-private-task-run-list-query.md`](./preflight/58-dte07-private-task-run-list-query.md).
 It does not authorize other commands, provider delivery, cancellation waiting,
-a public cancellation contract, public routes, deployment, subscriptions,
-telemetry ingestion, retention/GC, or UI publication.
+a persistence adapter, clean or public list/cancellation contracts, public
+routes, deployment, subscriptions, telemetry ingestion, retention/GC, or UI
+publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
 execution and fresh-host takeover in PGlite and ordinary-role PostgreSQL.
@@ -247,7 +251,7 @@ similarity alone is not evidence.
 This document completes only an architecture-level inventory. It is not an
 implementation receipt and does not admit source copying.
 
-### DTE07-B: Private Projection Contracts — B1 Complete
+### DTE07-B: Private Projection Contracts — B2 Complete
 
 - define scope-authorized run, attempt, event, result-metadata, and cursor view
   models;
@@ -256,10 +260,16 @@ implementation receipt and does not admit source copying.
 - remain private and production-inert.
 
 DTE07-B1 implements only the single-run projection fixed by preflight 51.
-Attempt history, events, lists, pagination, result-body reads, and every live
-contract remain later bounded checkpoints.
+Attempt history, events, broader result reads, and every live contract remain
+later bounded checkpoints.
 
-### DTE07-C: Private Query And Command Adapters — C6 Complete
+DTE07-B2 defines the bounded newest-first list page, concrete internal keyset
+cursor with canonical-ASCII run-ID ordering, captured compact list-store
+contract, domain-owned item decoding, safe page validation, and reuse of the
+existing point projection owner fixed by preflight 58. It adds no persistence
+adapter, filter, clean facade, or public cursor encoding.
+
+### DTE07-C: Private Query And Command Adapters — C7 Complete
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -292,6 +302,10 @@ DTE07-C6 implements only the clean authenticated `cancelTask(run, options)`
 operation fixed by preflight 57. It validates one optional safe reason, submits
 one private command, and projects the receipt without exposing lifecycle or
 provider internals. It does not wait for execution to stop.
+
+DTE07-C7 implements only the private Standard Application Task run-list query
+bridge fixed by preflight 58. A real located-scope persistence adapter and the
+clean `listTaskRuns()` operation remain separate approvals.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -371,5 +385,8 @@ DTE07-C4 is complete for the clean deadline-controlled
 `awaitTask(run, options)` contract under preflight 55.
 DTE07-C5 is complete for the private Task cancellation command adapter under
 preflight 56. DTE07-C6 is complete for the clean `cancelTask(run, options)`
-handle contract under preflight 57. Before any list, attempt-history, event,
-other command, live, public, or hosted surface, approve that owner separately.
+handle contract under preflight 57. DTE07-B2/C7 are complete for the bounded
+production-inert Task run-list contract and private Standard bridge under
+preflight 58. The located persistence adapter and clean `listTaskRuns()` facade
+remain separate gates. Before attempt-history, event, other command, live,
+public, or hosted work, approve that owner separately.

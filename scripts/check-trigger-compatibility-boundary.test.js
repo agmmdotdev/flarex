@@ -365,6 +365,49 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the private Standard Task run-list bridge", () => {
+    const listPath =
+      "packages/standard-application-invocation/src/StandardApplicationTaskRunListQuery.ts";
+    const manifest = [{
+      relativePath: "packages/standard-application-invocation/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }];
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: listPath,
+      text: `
+        import {
+          makeTaskRunListQueryLayer,
+          TaskRunListQuery,
+          type ApplicationTaskRunListStoreShape,
+          type TaskRunListPage,
+          type TaskRunListQueryApi,
+          type TaskRunListQueryError,
+          type TaskRunListQueryOptions,
+        } from "@flarex/durable-task/internal/run-projection";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: listPath,
+      text: `
+        import {
+          makeTaskRunListQueryLayer,
+          projectTaskRun,
+          TaskRunListQuery,
+          type ApplicationTaskRunListStoreShape,
+          type TaskRunListPage,
+          type TaskRunListQueryApi,
+          type TaskRunListQueryError,
+          type TaskRunListQueryOptions,
+        } from "@flarex/durable-task/internal/run-projection";
+      `,
+    }]).errors).toEqual([
+      `${listPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
+  });
+
   it("admits only the private Task result-body query chain", () => {
     const standardPath =
       "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";

@@ -25,6 +25,8 @@ const standardApplicationTaskSystemPath =
   "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
 const standardApplicationTaskRunQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskRunQuery.ts";
+const standardApplicationTaskRunListQueryPath =
+  "packages/standard-application-invocation/src/StandardApplicationTaskRunListQuery.ts";
 const standardApplicationTaskResultQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";
 const standardApplicationTaskCancellationPath =
@@ -528,6 +530,15 @@ const admittedStandardApplicationTaskRunQueryImports = new Map([
   ["TaskRunProjection", "type"],
   ["TaskRunQueryApi", "type"],
   ["TaskRunQueryError", "type"],
+]);
+const admittedStandardApplicationTaskRunListQueryImports = new Map([
+  ["makeTaskRunListQueryLayer", "value"],
+  ["TaskRunListQuery", "value"],
+  ["ApplicationTaskRunListStoreShape", "type"],
+  ["TaskRunListPage", "type"],
+  ["TaskRunListQueryApi", "type"],
+  ["TaskRunListQueryError", "type"],
+  ["TaskRunListQueryOptions", "type"],
 ]);
 const admittedStandardApplicationTaskResultQueryImports = new Map([
   ["makeTaskRunResultQueryLayer", "value"],
@@ -2609,6 +2620,15 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
     return hasExactNamedImportModes(
       node,
       admittedStandardApplicationTaskRunQueryImports,
+    );
+  }
+  if (
+    relativePath === standardApplicationTaskRunListQueryPath
+    && specifier === "@flarex/durable-task/internal/run-projection"
+  ) {
+    return hasExactNamedImportModes(
+      node,
+      admittedStandardApplicationTaskRunListQueryImports,
     );
   }
   if (

@@ -685,5 +685,10 @@ The private DTE07-C5 cancellation command adapter is complete under
 [`durable-task-engine/preflight/56-dte07-private-task-cancellation-command.md`](./durable-task-engine/preflight/56-dte07-private-task-cancellation-command.md).
 The clean DTE07-C6 `cancelTask(run, options)` handle contract is complete under
 [`durable-task-engine/preflight/57-dte07-clean-task-cancellation-contract.md`](./durable-task-engine/preflight/57-dte07-clean-task-cancellation-contract.md).
+The production-inert DTE07-B2/C7 bounded Task run-list contract and private
+Standard bridge are complete under
+[`durable-task-engine/preflight/58-dte07-private-task-run-list-query.md`](./durable-task-engine/preflight/58-dte07-private-task-run-list-query.md).
+Its located persistence adapter and clean `listTaskRuns()` facade remain
+separately gated.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

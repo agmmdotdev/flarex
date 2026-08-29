@@ -1,5 +1,6 @@
 import { Encoding } from "effect";
 
+import type { TaskRunListStoreItem } from "./ListSchema.js";
 import type {
   ApplicationTaskRunAttemptAggregateV1,
   ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
@@ -230,11 +231,134 @@ function projectState(
 export function projectTaskRun(
   snapshot: ApplicationTaskSystemRunAttemptInspectionSnapshotV1,
 ): TaskRunProjection {
-  return frozen({
+  return projectTaskRunListItem(snapshot.observedAtMs, {
     runId: snapshot.current.runId,
     createdAtMs: snapshot.current.createdAtMs,
-    observedAtMs: snapshot.observedAtMs,
     runVersion: snapshot.current.runVersion,
     state: projectState(snapshot.current),
   });
+}
+
+/** Projects one decoded, bounded list row through the point-view owner. */
+export function projectTaskRunListItem(
+  observedAtMs: TaskRunProjection["observedAtMs"],
+  current: TaskRunListStoreItem,
+): TaskRunProjection {
+  return frozen({
+    runId: current.runId,
+    createdAtMs: current.createdAtMs,
+    observedAtMs,
+    runVersion: current.runVersion,
+    state: ownProjectionState(current.state),
+  });
+}
+
+function ownProjectionState(
+  state: TaskRunStateProjection,
+): TaskRunStateProjection {
+  switch (state.kind) {
+    case "ready":
+      return frozen({
+        kind: "ready",
+        eligibleAtMs: state.eligibleAtMs,
+        retry: state.retry === null ? null : ownRetry(state.retry),
+        cancellation: frozen({ kind: "not_requested" }),
+      });
+    case "attempt_granted":
+    case "executing":
+      return frozen({
+        kind: state.kind,
+        attempt: ownAttempt(state.attempt),
+        cancellation: ownActiveCancellation(state.cancellation),
+      });
+    case "retry_waiting":
+      return frozen({
+        kind: "retry_waiting",
+        retry: ownRetry(state.retry),
+        cancellation: frozen({ kind: "not_requested" }),
+      });
+    case "succeeded":
+      return frozen({
+        kind: "succeeded",
+        completedAtMs: state.completedAtMs,
+        attemptNumber: state.attemptNumber,
+        executionDurationMs: state.executionDurationMs,
+        result: state.result === null ? null : frozen({ ...state.result }),
+        cancellation: ownCompletionCancellation(state.cancellation),
+      });
+    case "failed":
+      return frozen({
+        kind: "failed",
+        completedAtMs: state.completedAtMs,
+        attemptNumber: state.attemptNumber,
+        executionDurationMs: state.executionDurationMs,
+        failure: frozen({ ...state.failure }),
+        cancellation: ownCompletionCancellation(state.cancellation),
+      });
+    case "cancelled":
+      return ownCancelledState(state);
+  }
+}
+
+function ownCancelledState(
+  state: Extract<TaskRunStateProjection, { readonly kind: "cancelled" }>,
+): Extract<TaskRunStateProjection, { readonly kind: "cancelled" }> {
+  if (state.attemptNumber === null) {
+    if (state.cancellation.resolution !== "without_active_attempt") {
+      throw new Error("Invalid projected cancellation without attempt");
+    }
+    return frozen({
+      kind: "cancelled",
+      completedAtMs: state.completedAtMs,
+      attemptNumber: null,
+      executionDurationMs: null,
+      cancellation: frozen({ ...state.cancellation }),
+    });
+  }
+  switch (state.cancellation.resolution) {
+    case "acknowledged":
+      return frozen({
+        kind: "cancelled",
+        completedAtMs: state.completedAtMs,
+        attemptNumber: state.attemptNumber,
+        executionDurationMs: state.executionDurationMs,
+        cancellation: frozen({ ...state.cancellation }),
+      });
+    case "lease_expired":
+      return frozen({
+        kind: "cancelled",
+        completedAtMs: state.completedAtMs,
+        attemptNumber: state.attemptNumber,
+        executionDurationMs: null,
+        cancellation: frozen({ ...state.cancellation }),
+      });
+  }
+}
+
+function ownAttempt(
+  attempt: TaskRunAttemptProjection,
+): TaskRunAttemptProjection {
+  return frozen({ ...attempt });
+}
+
+function ownRetry(retry: TaskRunRetryProjection): TaskRunRetryProjection {
+  return frozen({
+    ...retry,
+    cause: frozen({
+      ...retry.cause,
+      failure: frozen({ ...retry.cause.failure }),
+    }),
+  });
+}
+
+function ownActiveCancellation(
+  cancellation: TaskRunActiveCancellationProjection,
+): TaskRunActiveCancellationProjection {
+  return frozen({ ...cancellation });
+}
+
+function ownCompletionCancellation(
+  cancellation: TaskRunCompletionCancellationProjection,
+): TaskRunCompletionCancellationProjection {
+  return frozen({ ...cancellation });
 }
