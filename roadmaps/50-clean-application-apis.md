@@ -5,10 +5,11 @@
 **Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
 `CAPI-E` are complete privately. The three `CAPI-E` product-surface removal
 checkpoints are implemented, validated, and reviewed on 2026-08-29. The user
-approved the first two `CAPI-F` durable Task primitive checkpoints on 2026-08-29.
-They add clean `task()` and `startTask()` entry operations and migrate every
-system-test Task producer while leaving the private Task delivery compatibility
-inventory and every lifecycle expansion separately gated.
+approved the first three `CAPI-F` durable Task primitive checkpoints on
+2026-08-29. They add clean `task()` and `startTask()` entry operations and
+migrate every system-test Task producer while leaving the private Task
+delivery compatibility inventory and every lifecycle expansion separately
+gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
@@ -585,7 +586,7 @@ Exit criteria:
 
 ### `CAPI-F` — Durable Task primitives
 
-**Status:** First two bounded checkpoints implemented privately on 2026-08-29.
+**Status:** First three bounded checkpoints implemented privately on 2026-08-29.
 
 Add `task()` to `@flarex/application-definition` and `startTask()` to
 `@flarex/application-invocation`. `task()` derives the logical and artifact
@@ -606,6 +607,13 @@ only through explicit internal bridges so its existing manual delivery proofs
 continue unchanged. The versioned delivery adapter remains test-only and is
 not a second author-facing Task API.
 
+The third checkpoint removes the remaining nested test-client delivery shape.
+`deliverTask(run, mode)` accepts the opaque run alone; its private invocation
+metadata retains the exact Standard reference paired at admission, so test
+authors cannot repeat or mismatch a Task reference during delivery. This is a
+system-test driver operation over the existing delivery owner, not an
+application lifecycle primitive or production delivery API.
+
 Exit criteria for this checkpoint:
 
 - application authors do not spell canonical logical/artifact path pairs or a
@@ -616,8 +624,8 @@ Exit criteria for this checkpoint:
   owned by the existing Task System;
 - the migrated PGlite simulation retains its hosted result, retry,
   cancellation, recovery, and fault evidence; and
-- no await, cancellation, delivery, provider, scheduler, public, or production
-  API is added.
+- no await, cancellation, application delivery, provider, scheduler, public,
+  or production API is added.
 
 Stop after each gate for focused validation and review. Later public SDK and
 public test API work remains owned by roadmaps 09 and 15 and requires separate
@@ -659,7 +667,8 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after the second `CAPI-F` Task producer-migration checkpoint and its
-focused validation, review, and commit. Waiting, cancellation, clean delivery,
-scheduling, public SDK, deployment, routing, and production entry surfaces
-remain separately gated.
+Stop after the third `CAPI-F` test-delivery cleanup checkpoint and its focused
+validation, review, and commit. Authoritative run projections must precede
+waiting, and the private command adapter must precede cancellation. Scheduling,
+public SDK, deployment, routing, and production entry surfaces remain
+separately gated.

@@ -7,6 +7,8 @@ import {
 } from "@flarex/application-definition";
 import { inspectTaskRun } from
   "@flarex/application-invocation/internal/task-run";
+import { inspectTaskReference } from
+  "@flarex/application-definition/internal/task-definition";
 import {
   type StandardApplicationTaskRunCreationReceipt,
   type StandardApplicationTaskSystemApi,
@@ -74,6 +76,10 @@ describe("clean Task invocation primitive", () => {
     expect(run).toEqual({ runId: receipt.runId });
     expect(Object.isFrozen(run)).toBe(true);
     expect(inspectTaskRun(run).receipt).toBe(receipt);
+    expect(inspectTaskRun(run).standardReference).toBe(
+      inspectTaskReference(prepare.reference).standard,
+    );
+    expect(Object.isFrozen(inspectTaskRun(run))).toBe(true);
     expect(createRun).toHaveBeenCalledWith(
       expect.any(Object),
       {
@@ -86,6 +92,16 @@ describe("clean Task invocation primitive", () => {
     expectTypeOf(run).toEqualTypeOf<TaskRun<
       Readonly<{ readonly prepared: boolean }>
     >>();
+  });
+
+  it("rejects a forged run at the private metadata bridge", () => {
+    const forged = Object.freeze({
+      runId: makeReceipt().runId,
+    }) as TaskRun<unknown>;
+
+    expect(() => inspectTaskRun(forged)).toThrow(
+      "Task run metadata is unavailable.",
+    );
   });
 });
 

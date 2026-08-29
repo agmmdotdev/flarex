@@ -1,6 +1,8 @@
 import type { TaskReference } from "@flarex/application-definition";
-import { inspectTaskReference } from
-  "@flarex/application-definition/internal/task-definition";
+import {
+  inspectTaskReference,
+  type InspectedTaskReference,
+} from "@flarex/application-definition/internal/task-definition";
 import {
   createStandardApplicationTaskRun,
   type CreateStandardApplicationTaskRunError,
@@ -26,20 +28,23 @@ export interface StartTaskOptions {
 
 export type StartTaskError = CreateStandardApplicationTaskRunError;
 
-export interface InspectedTaskRun {
+export interface InspectedTaskRun<Output> {
+  readonly standardReference:
+    InspectedTaskReference<unknown, Output>["standard"];
   readonly receipt: StandardApplicationTaskRunCreationReceipt;
 }
 
-const taskRunStates = new WeakMap<TaskRun<unknown>, InspectedTaskRun>();
+const taskRunStates = new WeakMap<object, InspectedTaskRun<unknown>>();
 
 class TaskRunHandle<Output> implements TaskRun<Output> {
   declare readonly [TaskRunType]: Output;
 
   constructor(
     readonly runId: TaskRun<Output>["runId"],
+    standardReference: InspectedTaskReference<unknown, Output>["standard"],
     receipt: StandardApplicationTaskRunCreationReceipt,
   ) {
-    taskRunStates.set(this, Object.freeze({ receipt }));
+    taskRunStates.set(this, Object.freeze({ standardReference, receipt }));
     Object.freeze(this);
   }
 }
@@ -64,17 +69,19 @@ export const startTask = Effect.fn("Application.startTask")(function* <
     payload,
     executionIdentity: options.identity,
   });
-  return new TaskRunHandle<Output>(receipt.runId, receipt);
+  return new TaskRunHandle<Output>(receipt.runId, standard, receipt);
 });
 
-export function inspectTaskRun(run: TaskRun<unknown>): InspectedTaskRun {
+export function inspectTaskRun<Output>(
+  run: TaskRun<Output>,
+): InspectedTaskRun<Output> {
   const state = taskRunStates.get(run);
   if (state === undefined) {
     throw new TypeError("Task run metadata is unavailable.");
   }
-  return state;
+  return state as InspectedTaskRun<Output>;
 }
 
 export function isTaskRun(run: object): run is TaskRun<unknown> {
-  return taskRunStates.has(run as TaskRun<unknown>);
+  return taskRunStates.has(run);
 }

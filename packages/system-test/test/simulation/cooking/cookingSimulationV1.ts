@@ -172,7 +172,7 @@ type CookingWorkloadErrorV1 =
     ReturnType<SimulationClient["startTask"]>
   >
   | Effect.Error<
-    ReturnType<SimulationClient["tasks"]["deliver"]>
+    ReturnType<SimulationClient["deliverTask"]>
   >
   | Effect.Error<
     ReturnType<SimulationClient["action"]>
@@ -1130,8 +1130,7 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking serving-guide Task did not replay its durable run.",
     ));
   }
-  const taskDelivery = yield* client.tasks.deliver(
-    COOKING_SERVING_GUIDE_TASK.reference,
+  const taskDelivery = yield* client.deliverTask(
     taskFirst,
     { kind: "completion" },
   );
@@ -1817,8 +1816,7 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking publication Task did not replay its durable run.",
     ));
   }
-  const taskMutationDelivery = yield* client.tasks.deliver(
-    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+  const taskMutationDelivery = yield* client.deliverTask(
     taskMutationFirst,
     { kind: "fault", fault: "duplicate_delivery" },
   );
@@ -1887,8 +1885,7 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking completion-replay Task did not replay its durable run.",
     ));
   }
-  const taskMutationCompletionReplayDelivery = yield* client.tasks.deliver(
-    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+  const taskMutationCompletionReplayDelivery = yield* client.deliverTask(
     taskMutationCompletionReplayFirst,
     { kind: "fault", fault: "completion_response_lost" },
   );
@@ -1959,8 +1956,7 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking result-reconciliation Task did not replay its durable run.",
     ));
   }
-  const taskMutationResultReconciliationDelivery = yield* client.tasks.deliver(
-    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+  const taskMutationResultReconciliationDelivery = yield* client.deliverTask(
     taskMutationResultReconciliationFirst,
     { kind: "fault", fault: "result_publication_reconciled" },
   );
@@ -2025,8 +2021,7 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking fresh-host recovery Task did not replay its durable run.",
     ));
   }
-  const taskMutationRecoveryDelivery = yield* client.tasks.deliver(
-    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+  const taskMutationRecoveryDelivery = yield* client.deliverTask(
     taskMutationRecoveryFirst,
     {
       kind: "recovery",
@@ -2132,8 +2127,7 @@ const runCookingWorkloadV1 = Effect.fn(
       "The cooking result-uncertain Task did not replay its durable run.",
     ));
   }
-  const taskMutationResultUncertainDelivery = yield* client.tasks.deliver(
-    COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+  const taskMutationResultUncertainDelivery = yield* client.deliverTask(
     taskMutationResultUncertainFirst,
     { kind: "fault", fault: "result_publication_uncertain" },
   );

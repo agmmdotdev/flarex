@@ -405,6 +405,28 @@ const runTaskQueryCallbackV1 = Effect.fn(
       identity: request.identity,
     },
   );
+  // SAFETY: this deliberately forged public shape proves that delivery stays
+  // lazy and authenticates the private Task run capability during execution.
+  const forgedRun = Object.freeze({ runId: first.runId }) as TaskRun<
+    PrepareRecipeTaskOutput
+  >;
+  const forgedRunRejected = yield* client.deliverTask(
+    forgedRun,
+    { kind: "completion" },
+  ).pipe(
+    Effect.as(false),
+    Effect.catchDefect(defect =>
+      defect instanceof TypeError &&
+        defect.message === "Task run metadata is unavailable."
+        ? Effect.succeed(true)
+        : Effect.die(defect)
+    ),
+  );
+  if (!forgedRunRejected) {
+    return yield* Effect.die(new Error(
+      "The Task delivery boundary accepted a forged run handle.",
+    ));
+  }
   const replay = yield* client.startTask(
     standardApplicationTaskCreationV1.reference,
     request.payload,
@@ -413,8 +435,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
       identity: request.identity,
     },
   );
-  const delivery = yield* client.tasks.deliver(
-    standardApplicationTaskCreationV1.reference,
+  const delivery = yield* client.deliverTask(
     first,
     { kind: "completion" },
   );
@@ -440,8 +461,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     recoveryRequest.payload,
     recoveryRequest,
   );
-  const recoveryDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskRecoveryProbeV1.reference,
+  const recoveryDelivery = yield* client.deliverTask(
     recoveryFirst,
     { kind: "recovery", recovery: "expired_attempt_takeover" },
   );
@@ -467,8 +487,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     failedRequest.payload,
     failedRequest,
   );
-  const failedDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskFailureV1.reference,
+  const failedDelivery = yield* client.deliverTask(
     failedFirst,
     { kind: "completion" },
   );
@@ -494,8 +513,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     cancelledRequest.payload,
     cancelledRequest,
   );
-  const cancelledDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskCancellationWaitV1.reference,
+  const cancelledDelivery = yield* client.deliverTask(
     cancelledFirst,
     {
       kind: "cancellation",
@@ -524,8 +542,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     raceRequest.payload,
     raceRequest,
   );
-  const raceDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskCancellationRaceV1.reference,
+  const raceDelivery = yield* client.deliverTask(
     raceFirst,
     {
       kind: "cancellation",
@@ -559,8 +576,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     duplicateRequest.payload,
     duplicateRequest,
   );
-  const duplicateDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskFaultProbeV1.reference,
+  const duplicateDelivery = yield* client.deliverTask(
     duplicateFirst,
     { kind: "fault", fault: "duplicate_delivery" },
   );
@@ -580,8 +596,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     completionLostRequest.payload,
     completionLostRequest,
   );
-  const completionLostDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskFaultProbeV1.reference,
+  const completionLostDelivery = yield* client.deliverTask(
     completionLostFirst,
     { kind: "fault", fault: "completion_response_lost" },
   );
@@ -603,8 +618,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     publicationReconciledRequest.payload,
     publicationReconciledRequest,
   );
-  const publicationReconciledDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskFaultProbeV1.reference,
+  const publicationReconciledDelivery = yield* client.deliverTask(
     publicationReconciledFirst,
     { kind: "fault", fault: "result_publication_reconciled" },
   );
@@ -626,8 +640,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     publicationUncertainRequest.payload,
     publicationUncertainRequest,
   );
-  const publicationUncertainDelivery = yield* client.tasks.deliver(
-    standardApplicationTaskFaultProbeV1.reference,
+  const publicationUncertainDelivery = yield* client.deliverTask(
     publicationUncertainFirst,
     { kind: "fault", fault: "result_publication_uncertain" },
   );

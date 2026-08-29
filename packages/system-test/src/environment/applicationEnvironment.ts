@@ -24,7 +24,6 @@ import {
 } from "@flarex/application-invocation";
 import {
   inspectTaskDefinition,
-  inspectTaskReference,
 } from "@flarex/application-definition/internal/task-definition";
 import { inspectTaskRun } from "@flarex/application-invocation/internal/task-run";
 import {
@@ -188,9 +187,8 @@ export interface SimulationSetupClient {
 }
 
 interface SimulationTaskDelivery {
-  <Payload, Output>(
-    reference: TaskReference<Payload, Output>,
-    creation: TaskRun<Output>,
+  <Output>(
+    run: TaskRun<Output>,
     mode: StandardApplicationTaskDeliveryModeV1,
   ): Effect.Effect<
     StandardApplicationTaskDeliveryReceiptV1<Output>,
@@ -225,9 +223,7 @@ export interface SimulationClient
     payload: NoInfer<Payload>,
     options: StartTaskOptions,
   ) => Effect.Effect<TaskRun<Output>, StartTaskError>;
-  readonly tasks: Readonly<{
-    readonly deliver: SimulationTaskDelivery;
-  }>;
+  readonly deliverTask: SimulationTaskDelivery;
   readonly query: <Reference extends FunctionReference<
     string,
     FunctionDefinition<"query", "public">
@@ -670,20 +666,22 @@ const runSimulationWithCurrentAuthority = Effect.fn(
               "The Standard Application system-test workload client is no longer active.",
             ))
       );
-      const deliverTask: SimulationTaskDelivery = <Payload, Output>(
-        reference: TaskReference<Payload, Output>,
-        creation: TaskRun<Output>,
+      const deliverTask: SimulationTaskDelivery = Effect.fn(
+        "ApplicationSystemTest.deliverTask",
+      )(<Output>(
+        run: TaskRun<Output>,
         mode: StandardApplicationTaskDeliveryModeV1,
-      ) => invokeWhileActive(() => invokeApplication(
+      ) => invokeWhileActive(() => {
+        const task = inspectTaskRun(run);
+        return invokeApplication(
           invocationScope,
           taskDelivery.deliver(
-            inspectTaskReference(reference).standard,
-            inspectTaskRun(creation).receipt,
+            task.standardReference,
+            task.receipt,
             mode,
           ),
-        )).pipe(Effect.withSpan(
-          "ApplicationSystemTest.tasks.deliver",
-        ));
+        );
+      }));
       const client = Object.freeze({
         action: Effect.fn("ApplicationSystemTest.invokeAction")(<
           Reference extends FunctionReference<
@@ -708,14 +706,13 @@ const runSimulationWithCurrentAuthority = Effect.fn(
           invocationScope,
           startTask(reference, payload, options),
         )).pipe(Effect.tap(run => Effect.sync(() => {
+          const task = inspectTaskRun(run);
           taskDelivery.registerCreation(
-            inspectTaskReference(reference).standard,
-            inspectTaskRun(run).receipt,
+            task.standardReference,
+            task.receipt,
           );
         })))),
-        tasks: Object.freeze({
-          deliver: deliverTask,
-        }),
+        deliverTask,
         mutation: Effect.fn("ApplicationSystemTest.invokeMutation")(<
           Reference extends FunctionReference<
           string,
