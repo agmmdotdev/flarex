@@ -2,10 +2,6 @@ import type { CommitFeedCommitV1 } from
   "@flarex/persistence-postgres/internal/commit-feed";
 import { Result } from "effect";
 
-import {
-  appDocumentIdV1FromRowIdentity,
-  appRowIdHexV1FromBytesResult,
-} from "flarex-protocol/app-document-id";
 import type { LogicalReadDependencyV1 } from
   "flarex-protocol/commit-protocol";
 import {
@@ -15,7 +11,6 @@ import {
   captureScopeSyncQueryGenerationV1,
   captureScopeSyncDependencyKeyV1,
   captureScopeSyncCursorV1,
-  compareScopeSyncDependencyKeysV1,
   normalizeScopeSyncDependencyKeySetV1Result,
   type ScopeSyncCursorV1,
   type ScopeSyncDependencyKeyV1,
@@ -46,6 +41,8 @@ import {
   type ScopeSyncQueryActivationEvidenceV1,
   type ScopeSyncWakeDecision,
 } from "./Model";
+import { collectScopeSyncCommitInvalidationProjectionV1Result } from
+  "./QuerySyncModel";
 
 export function scopeSyncDependencyKeyFromLogicalReadV1(
   dependency: LogicalReadDependencyV1,
@@ -82,52 +79,11 @@ export function collectScopeSyncCommitInvalidationKeysV1Result(
   ReadonlyArray<ScopeSyncDependencyKeyV1>,
   ScopeSyncInvalidCommitChangeError
 > {
-  return Result.gen(function* () {
-    const keys: ScopeSyncDependencyKeyV1[] = [];
-    for (const change of commit.appRowChanges) {
-      const rowId = yield* appRowIdHexV1FromBytesResult(change.rowId).pipe(
-        Result.mapError(cause => new ScopeSyncInvalidCommitChangeError({
-          operation: "collectInvalidationKeys",
-          changeKind: "appRow",
-          changeOrdinal: change.ordinal,
-          cause,
-        })),
-      );
-      keys.push(
-        captureScopeSyncDependencyKeyV1({
-          format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
-          version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
-          kind: "appRowPoint",
-          documentId: appDocumentIdV1FromRowIdentity({
-            tableId: change.tableId,
-            rowId,
-          }),
-        }),
-        captureScopeSyncDependencyKeyV1({
-          format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
-          version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
-          kind: "appTable",
-          tableId: change.tableId,
-        }),
-      );
-    }
-    for (const change of commit.relationAdjacencyChanges) {
-      if (change.direction === "incoming") {
-        keys.push(captureScopeSyncDependencyKeyV1({
-          format: SCOPE_SYNC_DEPENDENCY_KEY_FORMAT_V1,
-          version: SCOPE_SYNC_PROTOCOL_VERSION_V1,
-          kind: "appRelationIncoming",
-          edgeDefinitionId: change.edgeDefinitionId,
-          targetRowId: change.endpointRowId,
-        }));
-      }
-    }
-    const ordered = keys.toSorted(compareScopeSyncDependencyKeysV1);
-    return Object.freeze(ordered.filter((key, index) =>
-      index === 0 ||
-      compareScopeSyncDependencyKeysV1(ordered[index - 1]!, key) !== 0
-    ));
-  });
+  return collectScopeSyncCommitInvalidationProjectionV1Result(commit).pipe(
+    Result.map(projected => Object.freeze(
+      projected.dependencies.map(evidence => evidence.dependencyKey),
+    )),
+  );
 }
 
 export function classifyScopeSyncWakeV1(

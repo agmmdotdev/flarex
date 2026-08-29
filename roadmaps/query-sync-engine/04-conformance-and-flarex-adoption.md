@@ -114,16 +114,15 @@ not a complete uncertainty contract.
 3. **Complete (`QSYNC01-C4`).** C1-C4 provide recovery-stable
    evaluation/publication state plus bounded evaluation and publication
    orchestration over deterministic reference capabilities.
-4. **Proposed docs-first gate (`QSYNC-FX01`).** The dedicated preflight now
-   splits the broad adoption outcome into A canonical Flarex mappings, B a
-   docs-only access/transition-seam proof before DDL, and C1-C3 semantic SQLite
-   verticals ending in the complete nine-operation state adapter. Keep
-   Postgres source reads outside the generic package; no implementation is
-   authorized by C4 or by the proposed document.
-5. After separate approval, implement only `QSYNC-FX01-A`: versioned query,
-   dependency, and authority frames plus one Flarex model projector and
-   result/publication mapping. Add no SQLite schema or host behavior in A.
-6. After A evidence, run a docs-only B checkpoint that proves every operation's
+4. **Accepted split gate (`QSYNC-FX01`).** The dedicated preflight splits the
+   broad adoption outcome into A canonical Flarex mappings, B a docs-only
+   access/transition-seam proof before DDL, and C1-C3 semantic SQLite verticals
+   ending in the complete nine-operation state adapter. Keep Postgres source
+   reads outside the generic package.
+5. **Complete (`QSYNC-FX01-A`).** Versioned query, dependency, and authority
+   frames, one Flarex model projector, and coupled result/publication mapping
+   are private and production-inert. A adds no SQLite schema or host behavior.
+6. Next, run a docs-only B checkpoint that proves every operation's
    bounded read/transition/write plan before DDL. Only an accepted B plan and
    any separately required core seam may authorize C1-C3 semantic verticals
    over the one existing per-scope SQLite cursor owner, without duplicate

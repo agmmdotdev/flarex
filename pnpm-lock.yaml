@@ -571,6 +571,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
+      '@flarex/query-sync':
+        specifier: workspace:*
+        version: link:../query-sync
       '@flarex/standard-application-definition':
         specifier: workspace:*
         version: link:../standard-application-definition

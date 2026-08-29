@@ -2,10 +2,11 @@
 
 ## Status
 
-**Preflight status:** proposed for discussion on 2026-08-29. This is a
-docs-only architecture and implementation-sequencing record. No FX01 code,
-schema, migration, Durable Object behavior, caller, or production route is
-authorized yet.
+**Preflight status:** accepted on 2026-08-29. `QSYNC-FX01-A` is complete,
+private, and production-inert. It adds only the canonical Flarex model codecs,
+the backend mapping/projector boundary, and deterministic vectors. No SQLite
+schema, migration, Durable Object behavior, source/evaluator composition,
+caller, or production route is authorized.
 
 `QSYNC01-A` through `QSYNC01-C4` are complete, private, reference-backed, and
 production-inert; C4 completed in `87a7566f`. They prove the portable
@@ -16,13 +17,15 @@ implements those contracts.
 
 This preflight is the first Flarex adoption gate. It is deliberately split so
 that deterministic Flarex model encodings are accepted before any durable
-schema is created. The first proposed implementation slice is
-`QSYNC-FX01-A`; later SQLite work remains separately gated.
+schema is created. The completed first implementation slice is
+`QSYNC-FX01-A`; later SQLite work remains separately gated behind the next
+docs-only checkpoint.
 
-Every decision introduced by this record is proposed, not accepted. Existing
-accepted roadmaps remain authoritative until the user approves or corrects
-this preflight. Terms such as "would own" and "would require" below describe
-the result of that future approval, not current implementation authority.
+The user accepted the package direction and `QSYNC-FX01-A` boundary recorded
+here. SQLite feasibility, access plans, DDL, storage generations, and C1-C3
+implementation remain proposals until their own explicit checkpoints. Terms
+such as "would own" and "would require" below continue to describe those
+unapproved later gates, not current implementation authority.
 
 ## Proposed Decision Summary
 
@@ -63,8 +66,8 @@ That outcome is divided into reviewable subgates:
 
 | Subgate | Outcome | Current authorization |
 | --- | --- | --- |
-| `QSYNC-FX01-A` | Versioned canonical Flarex frames, one model adapter with a pure projector, result/publication mapping, and exhaustive deterministic vectors | Proposed as the first medium implementation slice; approval required |
-| `QSYNC-FX01-B` | Docs-only semantic-persistence feasibility: authenticated binding, every operation's exact read/transition/write plan, current core-seam verdict, and only then proposed DDL/migration | Requires a fresh checkpoint after A; authorizes no schema or code |
+| `QSYNC-FX01-A` | Versioned canonical Flarex frames, one model adapter with a pure projector, result/publication mapping, and exhaustive deterministic vectors | Complete; private and production-inert |
+| `QSYNC-FX01-B` | Docs-only semantic-persistence feasibility: authenticated binding, every operation's exact read/transition/write plan, current core-seam verdict, and only then proposed DDL/migration | Next correctness checkpoint; authorizes no schema or code |
 | `QSYNC-FX01-C1` | First private semantic vertical: authenticated binding plus initialize, begin, and admitted-batch application with only the rows those operations require | Blocked on an accepted B plan and any separately approved core seam |
 | `QSYNC-FX01-C2` | Evaluation completion and recovery vertical: complete, claim, and attempt-outcome operations with their dependency/fingerprint/publication-intent rows | Blocked on reviewed C1 evidence and a fresh checkpoint |
 | `QSYNC-FX01-C3` | Publication claim/outcome/completion, the complete nine-operation adapter, reference conformance, and genuine Workerd restart/rollback/corruption proof | Blocked on reviewed C2 evidence and a fresh checkpoint |
@@ -272,6 +275,17 @@ source envelope. It normalizes keys through the portable admission contract,
 counts every inspected semantic unit and canonical byte, stops at
 limit-plus-one, and returns the existing typed budget/projection errors. It
 does not estimate JavaScript heap size or report a constant placeholder.
+
+The accepted V1 semantic accounting is deterministic and part of the fixed
+model ID. A commit batch contributes one semantic work unit and zero semantic
+bytes. Each application-row fact contributes one work unit and 20 bytes: a
+four-byte table identity plus a sixteen-byte row identity. Each relation fact
+contributes one work unit and 21 bytes: a four-byte edge identity, one-byte
+direction, and sixteen-byte endpoint identity. Outgoing relation facts consume
+those 21 bytes even though this model projects no outgoing dependency key.
+Source transport bytes remain the later persistence source's separate receipt;
+these semantic widths are never a JavaScript heap estimate or substitute for
+that transport measurement.
 
 ### Authority projection
 
@@ -683,12 +697,11 @@ real Workerd evidence; reference and mock receipts must be labeled accurately.
 
 ## Discussion Checkpoint And Next Action
 
-The recommended next action is to approve only `QSYNC-FX01-A` as the first
-medium implementation slice. It establishes the stable Flarex compatibility
+`QSYNC-FX01-A` is complete. It establishes the stable Flarex compatibility
 vocabulary without committing to a SQLite layout or host lifecycle.
 
-After A is implemented, reviewed, and committed, return to this roadmap for a
-docs-only B checkpoint covering every operation's exact read/transition/write
-plan and any missing portable seam. Do not write SQLite DDL or mint a storage
-generation merely because mapping tests pass. Only an accepted B verdict may
-propose the first C1 semantic vertical.
+The next action is the separately approved, docs-only `QSYNC-FX01-B`
+checkpoint covering every operation's exact read/transition/write plan and any
+missing portable seam. Do not write SQLite DDL or mint a storage generation
+merely because mapping tests pass. Only an accepted B verdict may propose the
+first C1 semantic vertical.

@@ -83,6 +83,7 @@
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",
     "./internal/scope-sync-v1": "./src/scope-sync-v1.ts",
+    "./internal/scope-sync-query-model-v1": "./src/scope-sync-query-model-v1.ts",
     "./storage-authority": "./src/storage-authority.ts",
     "./transaction-grant": "./src/transaction-grant.ts",
     "./transaction-session": "./src/transaction-session.ts",
