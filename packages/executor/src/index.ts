@@ -19,9 +19,11 @@ import { getActiveFunction } from "./functions";
 import { defaultClock, getExecutorHealth } from "./health";
 import { prepareInvoke } from "./invoke";
 import {
-  listUndeliveredOutboxEvents,
-  markOutboxEventsDelivered,
-  runOutboxDeliveryBatch,
+  listUndeliveredOutboxEventsEffect,
+  makeOutboxTimeEffect,
+  markOutboxEventsDeliveredEffect,
+  runOutboxDeliveryBatchEffect,
+  runOutboxPromise,
 } from "./outbox";
 import {
   ackLiveQueryDeliveries,
@@ -262,6 +264,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     liveQueryInvalidation,
   });
   const maintenanceTimeEffect = makeSessionTimeEffect(configuredClock);
+  const outboxTimeEffect = makeOutboxTimeEffect(configuredClock);
 
   function runInvokeWithRetriesForExecutor(
     input: RunQueryInvokeWithRetriesInput,
@@ -314,11 +317,15 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
         input,
       )),
     listUndeliveredOutboxEvents: (input) =>
-      listUndeliveredOutboxEvents(persistence, input),
+      runOutboxPromise(listUndeliveredOutboxEventsEffect(persistence, input)),
     markOutboxEventsDelivered: (input) =>
-      markOutboxEventsDelivered(persistence, input),
+      runOutboxPromise(markOutboxEventsDeliveredEffect(persistence, input)),
     runOutboxDeliveryBatch: (input) =>
-      runOutboxDeliveryBatch(persistence, clock, input),
+      runOutboxPromise(runOutboxDeliveryBatchEffect(
+        persistence,
+        outboxTimeEffect,
+        input,
+      )),
     listUndeliveredLiveQueryDeliveries: (input) =>
       listUndeliveredLiveQueryDeliveries(persistence, input),
     markLiveQueryDeliveriesDelivered: (input) =>

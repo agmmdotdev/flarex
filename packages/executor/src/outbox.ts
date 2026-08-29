@@ -1,44 +1,93 @@
 import type {
+  ListUndeliveredOutboxEventsInput,
+  MarkOutboxEventsDeliveredInput,
+  MarkOutboxEventsDeliveredResult,
+} from "@flarex/persistence-postgres";
+import { Data, Effect } from "effect";
+
+import { OutboxDeliveryPolicyError } from "./errors";
+import { makeExecutorTimeEffect } from "./executorTime";
+import type {
   Clock,
   FlarexExecutorControlPersistence,
   ListOutboxEventsResult,
   RunOutboxDeliveryBatchInput,
   RunOutboxDeliveryBatchResult,
 } from "./types";
-import { OutboxDeliveryPolicyError } from "./errors";
-import type {
-  ListUndeliveredOutboxEventsInput,
-  MarkOutboxEventsDeliveredInput,
-  MarkOutboxEventsDeliveredResult,
-} from "@flarex/persistence-postgres";
 
 const DEFAULT_OUTBOX_DELIVERY_LIMIT = 100;
 
-export async function listUndeliveredOutboxEvents(
+export class ConfiguredOutboxClockError extends Data.TaggedError(
+  "ConfiguredOutboxClockError",
+)<{
+  readonly cause: unknown;
+}> {}
+
+export class OutboxForeignOperationError extends Data.TaggedError(
+  "OutboxForeignOperationError",
+)<{
+  readonly operation: OutboxForeignOperation;
+  readonly cause: unknown;
+}> {}
+
+export type OutboxForeignOperation =
+  | "deliver outbox events"
+  | "list undelivered outbox events"
+  | "mark outbox events delivered"
+  | "project outbox delivery event keys"
+  | "read outbox delivery deployment id"
+  | "read outbox delivery timestamp override";
+
+export type RunOutboxDeliveryBatchEffectError =
+  | ConfiguredOutboxClockError
+  | OutboxDeliveryPolicyError
+  | OutboxForeignOperationError;
+
+export const listUndeliveredOutboxEventsEffect = Effect.fn(
+  "Executor.outbox.listUndelivered",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
   input: ListUndeliveredOutboxEventsInput,
-): Promise<ListOutboxEventsResult> {
-  return await persistence.listUndeliveredOutboxEvents(input);
-}
+): Effect.fn.Return<ListOutboxEventsResult, OutboxForeignOperationError> {
+  return yield* tryOutboxPromise(
+    "list undelivered outbox events",
+    () => persistence.listUndeliveredOutboxEvents(input),
+  );
+});
 
-export async function markOutboxEventsDelivered(
+export const markOutboxEventsDeliveredEffect = Effect.fn(
+  "Executor.outbox.markDelivered",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
   input: MarkOutboxEventsDeliveredInput,
-): Promise<MarkOutboxEventsDeliveredResult> {
-  return await persistence.markOutboxEventsDelivered(input);
-}
+): Effect.fn.Return<
+  MarkOutboxEventsDeliveredResult,
+  OutboxForeignOperationError
+> {
+  return yield* tryOutboxPromise(
+    "mark outbox events delivered",
+    () => persistence.markOutboxEventsDelivered(input),
+  );
+});
 
-export async function runOutboxDeliveryBatch(
+export const runOutboxDeliveryBatchEffect = Effect.fn(
+  "Executor.outbox.runDeliveryBatch",
+)(function* (
   persistence: FlarexExecutorControlPersistence,
-  clock: Clock,
+  readTime: Effect.Effect<Date, ConfiguredOutboxClockError>,
   input: RunOutboxDeliveryBatchInput,
-): Promise<RunOutboxDeliveryBatchResult> {
+): Effect.fn.Return<
+  RunOutboxDeliveryBatchResult,
+  RunOutboxDeliveryBatchEffectError
+> {
   const limit = input.limit ?? DEFAULT_OUTBOX_DELIVERY_LIMIT;
   if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit <= 0) {
-    throw new OutboxDeliveryPolicyError("limit must be a positive integer.");
+    return yield* Effect.fail(
+      new OutboxDeliveryPolicyError("limit must be a positive integer."),
+    );
   }
 
-  const page = await persistence.listUndeliveredOutboxEvents({
+  const page = yield* listUndeliveredOutboxEventsEffect(persistence, {
     deploymentId: input.deploymentId,
     limit,
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
@@ -52,14 +101,39 @@ export async function runOutboxDeliveryBatch(
     };
   }
 
-  await input.deliver(page.events);
-  const delivered = await persistence.markOutboxEventsDelivered({
-    deploymentId: input.deploymentId,
-    events: page.events.map((event) => ({
+  yield* tryOutboxPromise(
+    "deliver outbox events",
+    () => input.deliver(page.events),
+  );
+  const markDeploymentId = yield* Effect.try({
+    try: () => input.deploymentId,
+    catch: (cause) => new OutboxForeignOperationError({
+      operation: "read outbox delivery deployment id",
+      cause,
+    }),
+  });
+  const eventKeys = yield* Effect.try({
+    try: () => page.events.map((event) => ({
       ts: event.ts,
       sequence: event.sequence,
     })),
-    deliveredAt: input.deliveredAt ?? clock.now(),
+    catch: (cause) => new OutboxForeignOperationError({
+      operation: "project outbox delivery event keys",
+      cause,
+    }),
+  });
+  const deliveredAtOverride = yield* Effect.try({
+    try: () => input.deliveredAt,
+    catch: (cause) => new OutboxForeignOperationError({
+      operation: "read outbox delivery timestamp override",
+      cause,
+    }),
+  });
+  const deliveredAt = deliveredAtOverride ?? (yield* readTime);
+  const delivered = yield* markOutboxEventsDeliveredEffect(persistence, {
+    deploymentId: markDeploymentId,
+    events: eventKeys,
+    deliveredAt,
   });
 
   return {
@@ -68,4 +142,38 @@ export async function runOutboxDeliveryBatch(
     nextCursor: page.nextCursor,
     hasMore: page.hasMore,
   };
+});
+
+export function makeOutboxTimeEffect(
+  clock: Clock | undefined,
+): Effect.Effect<Date, ConfiguredOutboxClockError> {
+  return makeExecutorTimeEffect(
+    clock,
+    (cause) => new ConfiguredOutboxClockError({ cause }),
+  );
+}
+
+export function runOutboxPromise<A, E>(
+  effect: Effect.Effect<A, E>,
+): Promise<A> {
+  return Effect.runPromise(
+    effect.pipe(Effect.mapError(outboxFailureCause)),
+  );
+}
+
+export function outboxFailureCause(error: unknown): unknown {
+  return error instanceof ConfiguredOutboxClockError ||
+      error instanceof OutboxForeignOperationError
+    ? error.cause
+    : error;
+}
+
+function tryOutboxPromise<A>(
+  operation: OutboxForeignOperation,
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, OutboxForeignOperationError> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new OutboxForeignOperationError({ operation, cause }),
+  });
 }

@@ -46,7 +46,7 @@ import type {
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 import { encodeFlarexId } from "flarex/ids";
 import { isWritableJsonObject } from "flarex-protocol/json";
-import { Clock as EffectClock, Data, Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import {
   AppDataStorageGenerationUnavailableError,
@@ -82,6 +82,7 @@ import {
   MaintenancePolicyError,
   PartitionValidationError,
 } from "./errors";
+import { makeExecutorTimeEffect } from "./executorTime";
 
 const ANONYMOUS_EXECUTION_IDENTITY = { kind: "anonymous" } as const;
 
@@ -795,15 +796,9 @@ export function invokeSessionFailureCause(error: unknown): unknown {
 export function makeSessionTimeEffect(
   clock: Clock | undefined,
 ): Effect.Effect<Date, ConfiguredSessionClockError> {
-  if (clock !== undefined) {
-    return Effect.try({
-      try: () => clock.now(),
-      catch: (cause) => new ConfiguredSessionClockError({ cause }),
-    });
-  }
-
-  return EffectClock.currentTimeMillis.pipe(
-    Effect.map((currentTimeMillis) => new Date(currentTimeMillis)),
+  return makeExecutorTimeEffect(
+    clock,
+    (cause) => new ConfiguredSessionClockError({ cause }),
   );
 }
 
