@@ -2,12 +2,6 @@ import {
   decodeTaskRunCreationRequestKeyV1,
 } from "@flarex/durable-task/internal/run-creation-v1";
 import {
-  defineStandardApplicationTaskV1,
-} from "@flarex/standard-application-definition/internal/task-authoring-v1";
-import {
-  standardV1,
-} from "@flarex/standard-application-definition/internal/legacy-authoring";
-import {
   defineApplication,
   defineModule,
   defineSchema,
@@ -19,11 +13,6 @@ import {
   v,
 } from "@flarex/application-definition";
 import { defineSimulation } from "@flarex/system-test/simulation";
-import type {
-  CreateStandardApplicationTaskRunError,
-  StandardApplicationTaskRunCreationReceipt,
-} from
-  "@flarex/standard-application-invocation/internal/standard-application-task-system";
 import { Effect, Result } from "effect";
 import { TransactionRequestKeyV1Schema } from
   "flarex-protocol/transaction-session";
@@ -156,45 +145,42 @@ interface StandardApplicationTaskWorkloadProofV1 {
   readonly replay: TaskRun<PrepareRecipeTaskOutput>;
   readonly delivery:
     StandardApplicationTaskSucceededDeliveryReceiptV1<PrepareRecipeTaskOutput>;
-  readonly failedFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly failedReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly failedFirst: TaskRun<unknown>;
+  readonly failedReplay: TaskRun<unknown>;
   readonly failedDelivery:
     StandardApplicationTaskRetryScheduledDeliveryReceiptV1;
-  readonly cancelledFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly cancelledReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly cancelledFirst: TaskRun<unknown>;
+  readonly cancelledReplay: TaskRun<unknown>;
   readonly cancelledDelivery:
     StandardApplicationTaskCancelledDeliveryReceiptV1;
-  readonly raceFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly raceReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly raceFirst: TaskRun<unknown>;
+  readonly raceReplay: TaskRun<unknown>;
   readonly raceDelivery: StandardApplicationTaskSucceededDeliveryReceiptV1<
     Readonly<{ readonly completed: boolean }>
   >;
-  readonly duplicateFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly duplicateReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly duplicateFirst: TaskRun<unknown>;
+  readonly duplicateReplay: TaskRun<unknown>;
   readonly duplicateDelivery: StandardApplicationTaskSucceededDeliveryReceiptV1<
     Readonly<{ readonly probe: string }>
   >;
-  readonly completionLostFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly completionLostReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly completionLostFirst: TaskRun<unknown>;
+  readonly completionLostReplay: TaskRun<unknown>;
   readonly completionLostDelivery:
     StandardApplicationTaskSucceededDeliveryReceiptV1<
       Readonly<{ readonly probe: string }>
     >;
-  readonly publicationReconciledFirst:
-    StandardApplicationTaskRunCreationReceipt;
-  readonly publicationReconciledReplay:
-    StandardApplicationTaskRunCreationReceipt;
+  readonly publicationReconciledFirst: TaskRun<unknown>;
+  readonly publicationReconciledReplay: TaskRun<unknown>;
   readonly publicationReconciledDelivery:
     StandardApplicationTaskSucceededDeliveryReceiptV1<
       Readonly<{ readonly probe: string }>
     >;
-  readonly publicationUncertainFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly publicationUncertainReplay:
-    StandardApplicationTaskRunCreationReceipt;
+  readonly publicationUncertainFirst: TaskRun<unknown>;
+  readonly publicationUncertainReplay: TaskRun<unknown>;
   readonly publicationUncertainDelivery:
     StandardApplicationTaskResultPublicationUncertainReceiptV1;
-  readonly recoveryFirst: StandardApplicationTaskRunCreationReceipt;
-  readonly recoveryReplay: StandardApplicationTaskRunCreationReceipt;
+  readonly recoveryFirst: TaskRun<unknown>;
+  readonly recoveryReplay: TaskRun<unknown>;
   readonly recoveryDelivery: StandardApplicationTaskRecoveredDeliveryReceiptV1<
     Readonly<{ readonly probe: string }>
   >;
@@ -203,7 +189,6 @@ interface StandardApplicationTaskWorkloadProofV1 {
 type StandardApplicationTaskSimulationErrorV1 =
   | RunMutationError
   | StartTaskError
-  | CreateStandardApplicationTaskRunError
   | StandardApplicationTaskDeliveryV1Error;
 
 export const standardApplicationTaskCreationV1 = Result.getOrThrow(
@@ -240,17 +225,15 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
 );
 
 export const standardApplicationTaskFailureV1 = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "systemTest.failRecipePreparation",
+  task({
+    id: "systemTest.failRecipePreparation",
     handler: {
-      logicalModulePath: "recipeCommands",
-      artifactModulePath: "recipeMutation",
+      module: RECIPE_MUTATION_MODULE,
       exportName: "failRecipePreparation",
     },
-    payload: standardV1.object({ recipeId: standardV1.string() }),
-    output: standardV1.object({ prepared: standardV1.boolean() }),
-    runAttemptPolicy: {
-      version: 1,
+    payload: v.object({ recipeId: v.string() }),
+    returns: v.object({ prepared: v.boolean() }),
+    attempts: {
       retry: {
         maxAttempts: 3,
         factor: 2,
@@ -261,23 +244,21 @@ export const standardApplicationTaskFailureV1 = Result.getOrThrow(
       outOfMemory: { kind: "disabled" },
     },
     maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
+    compute: "standard-1x",
     queue: { kind: "default" },
   }),
 );
 
 export const standardApplicationTaskCancellationWaitV1 = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "systemTest.waitForCancellation",
+  task({
+    id: "systemTest.waitForCancellation",
     handler: {
-      logicalModulePath: "recipeCommands",
-      artifactModulePath: "recipeMutation",
+      module: RECIPE_MUTATION_MODULE,
       exportName: "waitForCancellation",
     },
-    payload: standardV1.object({ probe: standardV1.string() }),
-    output: standardV1.object({ completed: standardV1.boolean() }),
-    runAttemptPolicy: {
-      version: 1,
+    payload: v.object({ probe: v.string() }),
+    returns: v.object({ completed: v.boolean() }),
+    attempts: {
       retry: {
         maxAttempts: 1,
         factor: 2,
@@ -288,23 +269,21 @@ export const standardApplicationTaskCancellationWaitV1 = Result.getOrThrow(
       outOfMemory: { kind: "disabled" },
     },
     maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
+    compute: "standard-1x",
     queue: { kind: "default" },
   }),
 );
 
 export const standardApplicationTaskCancellationRaceV1 = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "systemTest.completeCancellationRace",
+  task({
+    id: "systemTest.completeCancellationRace",
     handler: {
-      logicalModulePath: "recipeCommands",
-      artifactModulePath: "recipeMutation",
+      module: RECIPE_MUTATION_MODULE,
       exportName: "completeCancellationRace",
     },
-    payload: standardV1.object({ probe: standardV1.string() }),
-    output: standardV1.object({ completed: standardV1.boolean() }),
-    runAttemptPolicy: {
-      version: 1,
+    payload: v.object({ probe: v.string() }),
+    returns: v.object({ completed: v.boolean() }),
+    attempts: {
       retry: {
         maxAttempts: 1,
         factor: 2,
@@ -315,23 +294,21 @@ export const standardApplicationTaskCancellationRaceV1 = Result.getOrThrow(
       outOfMemory: { kind: "disabled" },
     },
     maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
+    compute: "standard-1x",
     queue: { kind: "default" },
   }),
 );
 
 export const standardApplicationTaskFaultProbeV1 = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "systemTest.taskFaultProbe",
+  task({
+    id: "systemTest.taskFaultProbe",
     handler: {
-      logicalModulePath: "recipeCommands",
-      artifactModulePath: "recipeMutation",
+      module: RECIPE_MUTATION_MODULE,
       exportName: "taskFaultProbe",
     },
-    payload: standardV1.object({ probe: standardV1.string() }),
-    output: standardV1.object({ probe: standardV1.string() }),
-    runAttemptPolicy: {
-      version: 1,
+    payload: v.object({ probe: v.string() }),
+    returns: v.object({ probe: v.string() }),
+    attempts: {
       retry: {
         maxAttempts: 1,
         factor: 2,
@@ -342,23 +319,21 @@ export const standardApplicationTaskFaultProbeV1 = Result.getOrThrow(
       outOfMemory: { kind: "disabled" },
     },
     maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
+    compute: "standard-1x",
     queue: { kind: "default" },
   }),
 );
 
 export const standardApplicationTaskRecoveryProbeV1 = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "systemTest.taskRecoveryProbe",
+  task({
+    id: "systemTest.taskRecoveryProbe",
     handler: {
-      logicalModulePath: "recipeCommands",
-      artifactModulePath: "recipeMutation",
+      module: RECIPE_MUTATION_MODULE,
       exportName: "taskFaultProbe",
     },
-    payload: standardV1.object({ probe: standardV1.string() }),
-    output: standardV1.object({ probe: standardV1.string() }),
-    runAttemptPolicy: {
-      version: 1,
+    payload: v.object({ probe: v.string() }),
+    returns: v.object({ probe: v.string() }),
+    attempts: {
       retry: {
         maxAttempts: 2,
         factor: 2,
@@ -369,7 +344,7 @@ export const standardApplicationTaskRecoveryProbeV1 = Result.getOrThrow(
       outOfMemory: { kind: "disabled" },
     },
     maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
+    compute: "standard-1x",
     queue: { kind: "default" },
   }),
 );
@@ -409,12 +384,11 @@ const runTaskQueryCallbackV1 = Effect.fn(
   StandardApplicationTaskSimulationErrorV1
 > {
   const request = Object.freeze({
-    version: 1 as const,
     requestKey: Result.getOrThrow(decodeTaskRunCreationRequestKeyV1(
       "system-test:task-creation-replay",
     )),
     payload: Object.freeze({ recipeId: setup.recipeId, servings: 4 }),
-    executionIdentity: Object.freeze({
+    identity: Object.freeze({
       kind: "user" as const,
       user: Object.freeze({
         tokenIdentifier: "standard-application-system-test",
@@ -428,7 +402,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     request.payload,
     {
       requestKey: request.requestKey,
-      identity: request.executionIdentity,
+      identity: request.identity,
     },
   );
   const replay = yield* client.startTask(
@@ -436,7 +410,7 @@ const runTaskQueryCallbackV1 = Effect.fn(
     request.payload,
     {
       requestKey: request.requestKey,
-      identity: request.executionIdentity,
+      identity: request.identity,
     },
   );
   const delivery = yield* client.tasks.deliver(
@@ -456,12 +430,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
     )),
     payload: Object.freeze({ probe: "fresh-host-recovery" }),
   });
-  const recoveryFirst = yield* client.tasks.create(
+  const recoveryFirst = yield* client.startTask(
     standardApplicationTaskRecoveryProbeV1.reference,
+    recoveryRequest.payload,
     recoveryRequest,
   );
-  const recoveryReplay = yield* client.tasks.create(
+  const recoveryReplay = yield* client.startTask(
     standardApplicationTaskRecoveryProbeV1.reference,
+    recoveryRequest.payload,
     recoveryRequest,
   );
   const recoveryDelivery = yield* client.tasks.deliver(
@@ -481,12 +457,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
     )),
     payload: Object.freeze({ recipeId: setup.recipeId }),
   });
-  const failedFirst = yield* client.tasks.create(
+  const failedFirst = yield* client.startTask(
     standardApplicationTaskFailureV1.reference,
+    failedRequest.payload,
     failedRequest,
   );
-  const failedReplay = yield* client.tasks.create(
+  const failedReplay = yield* client.startTask(
     standardApplicationTaskFailureV1.reference,
+    failedRequest.payload,
     failedRequest,
   );
   const failedDelivery = yield* client.tasks.deliver(
@@ -506,12 +484,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
     )),
     payload: Object.freeze({ probe: "cancel-before-completion" }),
   });
-  const cancelledFirst = yield* client.tasks.create(
+  const cancelledFirst = yield* client.startTask(
     standardApplicationTaskCancellationWaitV1.reference,
+    cancelledRequest.payload,
     cancelledRequest,
   );
-  const cancelledReplay = yield* client.tasks.create(
+  const cancelledReplay = yield* client.startTask(
     standardApplicationTaskCancellationWaitV1.reference,
+    cancelledRequest.payload,
     cancelledRequest,
   );
   const cancelledDelivery = yield* client.tasks.deliver(
@@ -534,12 +514,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
     )),
     payload: Object.freeze({ probe: "completion-before-cancellation" }),
   });
-  const raceFirst = yield* client.tasks.create(
+  const raceFirst = yield* client.startTask(
     standardApplicationTaskCancellationRaceV1.reference,
+    raceRequest.payload,
     raceRequest,
   );
-  const raceReplay = yield* client.tasks.create(
+  const raceReplay = yield* client.startTask(
     standardApplicationTaskCancellationRaceV1.reference,
+    raceRequest.payload,
     raceRequest,
   );
   const raceDelivery = yield* client.tasks.deliver(
@@ -567,12 +549,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
     payload: Object.freeze({ probe: fault }),
   });
   const duplicateRequest = makeFaultRequest("duplicate-delivery");
-  const duplicateFirst = yield* client.tasks.create(
+  const duplicateFirst = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    duplicateRequest.payload,
     duplicateRequest,
   );
-  const duplicateReplay = yield* client.tasks.create(
+  const duplicateReplay = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    duplicateRequest.payload,
     duplicateRequest,
   );
   const duplicateDelivery = yield* client.tasks.deliver(
@@ -586,12 +570,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
     ));
   }
   const completionLostRequest = makeFaultRequest("completion-response-lost");
-  const completionLostFirst = yield* client.tasks.create(
+  const completionLostFirst = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    completionLostRequest.payload,
     completionLostRequest,
   );
-  const completionLostReplay = yield* client.tasks.create(
+  const completionLostReplay = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    completionLostRequest.payload,
     completionLostRequest,
   );
   const completionLostDelivery = yield* client.tasks.deliver(
@@ -607,12 +593,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
   const publicationReconciledRequest = makeFaultRequest(
     "result-publication-reconciled",
   );
-  const publicationReconciledFirst = yield* client.tasks.create(
+  const publicationReconciledFirst = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    publicationReconciledRequest.payload,
     publicationReconciledRequest,
   );
-  const publicationReconciledReplay = yield* client.tasks.create(
+  const publicationReconciledReplay = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    publicationReconciledRequest.payload,
     publicationReconciledRequest,
   );
   const publicationReconciledDelivery = yield* client.tasks.deliver(
@@ -628,12 +616,14 @@ const runTaskQueryCallbackV1 = Effect.fn(
   const publicationUncertainRequest = makeFaultRequest(
     "result-publication-uncertain",
   );
-  const publicationUncertainFirst = yield* client.tasks.create(
+  const publicationUncertainFirst = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    publicationUncertainRequest.payload,
     publicationUncertainRequest,
   );
-  const publicationUncertainReplay = yield* client.tasks.create(
+  const publicationUncertainReplay = yield* client.startTask(
     standardApplicationTaskFaultProbeV1.reference,
+    publicationUncertainRequest.payload,
     publicationUncertainRequest,
   );
   const publicationUncertainDelivery = yield* client.tasks.deliver(
@@ -697,18 +687,6 @@ export const standardApplicationTaskCreationSimulationV1 =
     workload: runTaskQueryCallbackV1,
     expectedRuntimeExecutions: { mutations: 2, queries: 1 },
   });
-
-function compileTimeTaskDeliveryChecks(
-  client: SimulationClient,
-  legacyReceipt: StandardApplicationTaskRunCreationReceipt,
-): void {
-  const reference = standardApplicationTaskCreationV1.reference;
-  const mode = { kind: "completion" as const };
-  // @ts-expect-error A clean Task reference requires a clean Task run handle.
-  client.tasks.deliver(reference, legacyReceipt, mode);
-}
-
-void compileTimeTaskDeliveryChecks;
 
 export interface StandardApplicationTaskCreationStateV1
   extends Readonly<Record<string, unknown>>

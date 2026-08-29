@@ -5,9 +5,9 @@
 **Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
 `CAPI-E` are complete privately. The three `CAPI-E` product-surface removal
 checkpoints are implemented, validated, and reviewed on 2026-08-29. The user
-approved the first `CAPI-F` durable Task primitive checkpoint on 2026-08-29.
-It adds clean `task()` and `startTask()` entry operations and migrates one
-real-system Task path while leaving the remaining private Task compatibility
+approved the first two `CAPI-F` durable Task primitive checkpoints on 2026-08-29.
+They add clean `task()` and `startTask()` entry operations and migrate every
+system-test Task producer while leaving the private Task delivery compatibility
 inventory and every lifecycle expansion separately gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
@@ -585,7 +585,7 @@ Exit criteria:
 
 ### `CAPI-F` — Durable Task primitives
 
-**Status:** First bounded checkpoint implemented privately on 2026-08-29.
+**Status:** First two bounded checkpoints implemented privately on 2026-08-29.
 
 Add `task()` to `@flarex/application-definition` and `startTask()` to
 `@flarex/application-invocation`. `task()` derives the logical and artifact
@@ -597,12 +597,14 @@ and returns a typed run handle containing only the durable run identity. It
 does not select a provider, deliver work, wait for a result, cancel, schedule,
 or read lifecycle state.
 
-The first system-test consumer migrates one successful Task definition and
-its create/replay calls onto these clean primitives. The harness unwraps the
-opaque definition and run only through explicit internal bridges so its
-existing manual delivery proof can continue unchanged. Remaining legacy Task
-definitions and `client.tasks.create` calls are migration inventory, not a
-second accepted Task API.
+The first checkpoint migrates one successful system-test Task definition and
+its create/replay calls onto these clean primitives. The second checkpoint
+migrates every remaining simulation Task definition and creation call, removes
+the legacy `client.tasks.create` branch, and makes clean Task handles the sole
+system-test producer surface. The harness unwraps opaque definitions and runs
+only through explicit internal bridges so its existing manual delivery proofs
+continue unchanged. The versioned delivery adapter remains test-only and is
+not a second author-facing Task API.
 
 Exit criteria for this checkpoint:
 
@@ -657,7 +659,7 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after the first `CAPI-F` Task primitive checkpoint and its focused
-validation, review, and commit. Remaining Task compatibility migration,
-waiting, cancellation, delivery, scheduling, public SDK, deployment, routing,
-and production entry surfaces remain separately gated.
+Stop after the second `CAPI-F` Task producer-migration checkpoint and its
+focused validation, review, and commit. Waiting, cancellation, clean delivery,
+scheduling, public SDK, deployment, routing, and production entry surfaces
+remain separately gated.

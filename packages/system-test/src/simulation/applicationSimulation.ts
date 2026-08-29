@@ -2,9 +2,6 @@ import type {
   ApplicationDefinition,
   TaskDefinitionHandle,
 } from "@flarex/application-definition";
-import type {
-  StandardApplicationTaskDefinitionV1,
-} from "@flarex/standard-application-definition/internal/task-authoring-v1";
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import type { Effect } from "effect";
 
@@ -22,10 +19,7 @@ export interface SimulationApplication {
   readonly applicationId: string;
   readonly revisionName: string;
   readonly define: () => ApplicationDefinition;
-  readonly defineTasks?: () => ReadonlyArray<
-    | TaskDefinitionHandle
-    | StandardApplicationTaskDefinitionV1<unknown, unknown>
-  >;
+  readonly defineTasks?: () => ReadonlyArray<TaskDefinitionHandle>;
   readonly actionHost?: SimulationActionHost;
 }
 

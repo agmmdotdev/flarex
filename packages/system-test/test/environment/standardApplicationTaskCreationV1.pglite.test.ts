@@ -71,10 +71,8 @@ it("proves typed PGlite Task delivery, recovery, retry, cancellation, and faults
   expect(receipt.workloadProof.failedReplay).toEqual(
     receipt.workloadProof.failedFirst,
   );
-  expect(receipt.workloadProof.failedFirst).toMatchObject({
-    status: "created",
-    version: 1,
-  });
+  expect(Object.keys(receipt.workloadProof.failedFirst)).toEqual(["runId"]);
+  expect(receipt.workloadProof.failedFirst.runId.length).toBeGreaterThan(0);
   expect(receipt.workloadProof.failedDelivery).toEqual({
     version: 1,
     status: "retry_scheduled",

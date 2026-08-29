@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 
 import { isNonArrayRecord } from "@flarex/utils/records";
-import { bytesEqual } from "@flarex/utils/bytes";
 import {
   action,
   defineApplication,
@@ -56,9 +55,8 @@ import {
   defineSimulation,
 } from "@flarex/system-test/simulation";
 import {
-  COOKING_PUBLISH_SERVING_GUIDE_TASK,
-  COOKING_SERVING_GUIDE_TASK,
-} from "../../support/cookingTaskDefinitionsV1";
+  defineCookingTasks,
+} from "../../support/cookingTaskDefinitions";
 
 export interface CookingWorkloadProofV1 {
   readonly documentId: string;
@@ -171,7 +169,7 @@ type CookingWorkloadErrorV1 =
   | RunQueryError
   | InspectionError
   | Effect.Error<
-    ReturnType<SimulationClient["tasks"]["create"]>
+    ReturnType<SimulationClient["startTask"]>
   >
   | Effect.Error<
     ReturnType<SimulationClient["tasks"]["deliver"]>
@@ -179,10 +177,6 @@ type CookingWorkloadErrorV1 =
   | Effect.Error<
     ReturnType<SimulationClient["action"]>
   >;
-
-type CookingTaskRunCreationReceiptV1 = Effect.Success<
-  ReturnType<SimulationClient["tasks"]["create"]>
->;
 
 type CookingMutationInvocationErrorV1 = RunMutationError;
 
@@ -916,6 +910,10 @@ const COOKING_ASSESSMENT_VIEW_MODULE = applicationApi.module("recipeViews", {
     returns: COOKING_ASSESSMENT_VIEW,
   }),
 });
+const cookingTasks = defineCookingTasks(COOKING_ASSESSMENT_VIEW_MODULE);
+const COOKING_SERVING_GUIDE_TASK = cookingTasks.servingGuide;
+const COOKING_PUBLISH_SERVING_GUIDE_TASK =
+  cookingTasks.publishServingGuide;
 const COOKING_PUBLICATION_VIEW_MODULE = applicationApi.module(
   "recipePublicationView",
   {
@@ -1113,20 +1111,21 @@ const runCookingWorkloadV1 = Effect.fn(
   }
 
   const taskRequest = Object.freeze({
-    version: 1 as const,
     requestKey: COOKING_SERVING_GUIDE_TASK_REQUEST_KEY,
     payload: Object.freeze({ recipeId: setup.documentId }),
-    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+    identity: COOKING_TASK_EXECUTION_IDENTITY,
   });
-  const taskFirst = yield* client.tasks.create(
+  const taskFirst = yield* client.startTask(
     COOKING_SERVING_GUIDE_TASK.reference,
+    taskRequest.payload,
     taskRequest,
   );
-  const taskReplay = yield* client.tasks.create(
+  const taskReplay = yield* client.startTask(
     COOKING_SERVING_GUIDE_TASK.reference,
+    taskRequest.payload,
     taskRequest,
   );
-  if (!sameTaskRunCreationReceiptV1(taskReplay, taskFirst)) {
+  if (taskReplay.runId !== taskFirst.runId) {
     return yield* Effect.die(new Error(
       "The cooking serving-guide Task did not replay its durable run.",
     ));
@@ -1799,20 +1798,21 @@ const runCookingWorkloadV1 = Effect.fn(
   }
   const taskMutationDocumentId = taskDraftInserted.value;
   const taskMutationRequest = Object.freeze({
-    version: 1 as const,
     requestKey: COOKING_PUBLISH_SERVING_GUIDE_TASK_REQUEST_KEY,
     payload: Object.freeze({ recipeId: taskMutationDocumentId }),
-    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+    identity: COOKING_TASK_EXECUTION_IDENTITY,
   });
-  const taskMutationFirst = yield* client.tasks.create(
+  const taskMutationFirst = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRequest.payload,
     taskMutationRequest,
   );
-  const taskMutationReplay = yield* client.tasks.create(
+  const taskMutationReplay = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRequest.payload,
     taskMutationRequest,
   );
-  if (!sameTaskRunCreationReceiptV1(taskMutationReplay, taskMutationFirst)) {
+  if (taskMutationReplay.runId !== taskMutationFirst.runId) {
     return yield* Effect.die(new Error(
       "The cooking publication Task did not replay its durable run.",
     ));
@@ -1863,25 +1863,26 @@ const runCookingWorkloadV1 = Effect.fn(
   const taskMutationCompletionReplayDocumentId =
     completionReplayDraftInserted.value;
   const taskMutationCompletionReplayRequest = Object.freeze({
-    version: 1 as const,
     requestKey: COOKING_COMPLETION_REPLAY_TASK_REQUEST_KEY,
     payload: Object.freeze({
       recipeId: taskMutationCompletionReplayDocumentId,
     }),
-    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+    identity: COOKING_TASK_EXECUTION_IDENTITY,
   });
-  const taskMutationCompletionReplayFirst = yield* client.tasks.create(
+  const taskMutationCompletionReplayFirst = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationCompletionReplayRequest.payload,
     taskMutationCompletionReplayRequest,
   );
-  const taskMutationCompletionReplayReplay = yield* client.tasks.create(
+  const taskMutationCompletionReplayReplay = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationCompletionReplayRequest.payload,
     taskMutationCompletionReplayRequest,
   );
-  if (!sameTaskRunCreationReceiptV1(
-    taskMutationCompletionReplayReplay,
-    taskMutationCompletionReplayFirst,
-  )) {
+  if (
+    taskMutationCompletionReplayReplay.runId !==
+      taskMutationCompletionReplayFirst.runId
+  ) {
     return yield* Effect.die(new Error(
       "The cooking completion-replay Task did not replay its durable run.",
     ));
@@ -1934,25 +1935,26 @@ const runCookingWorkloadV1 = Effect.fn(
   const taskMutationResultReconciliationDocumentId =
     resultReconciliationDraftInserted.value;
   const taskMutationResultReconciliationRequest = Object.freeze({
-    version: 1 as const,
     requestKey: COOKING_RESULT_RECONCILIATION_TASK_REQUEST_KEY,
     payload: Object.freeze({
       recipeId: taskMutationResultReconciliationDocumentId,
     }),
-    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+    identity: COOKING_TASK_EXECUTION_IDENTITY,
   });
-  const taskMutationResultReconciliationFirst = yield* client.tasks.create(
+  const taskMutationResultReconciliationFirst = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultReconciliationRequest.payload,
     taskMutationResultReconciliationRequest,
   );
-  const taskMutationResultReconciliationReplay = yield* client.tasks.create(
+  const taskMutationResultReconciliationReplay = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultReconciliationRequest.payload,
     taskMutationResultReconciliationRequest,
   );
-  if (!sameTaskRunCreationReceiptV1(
-    taskMutationResultReconciliationReplay,
-    taskMutationResultReconciliationFirst,
-  )) {
+  if (
+    taskMutationResultReconciliationReplay.runId !==
+      taskMutationResultReconciliationFirst.runId
+  ) {
     return yield* Effect.die(new Error(
       "The cooking result-reconciliation Task did not replay its durable run.",
     ));
@@ -2004,23 +2006,21 @@ const runCookingWorkloadV1 = Effect.fn(
   }
   const taskMutationRecoveryDocumentId = recoveryDraftInserted.value;
   const taskMutationRecoveryRequest = Object.freeze({
-    version: 1 as const,
     requestKey: COOKING_RECOVERY_TASK_REQUEST_KEY,
     payload: Object.freeze({ recipeId: taskMutationRecoveryDocumentId }),
-    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+    identity: COOKING_TASK_EXECUTION_IDENTITY,
   });
-  const taskMutationRecoveryFirst = yield* client.tasks.create(
+  const taskMutationRecoveryFirst = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRecoveryRequest.payload,
     taskMutationRecoveryRequest,
   );
-  const taskMutationRecoveryReplay = yield* client.tasks.create(
+  const taskMutationRecoveryReplay = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationRecoveryRequest.payload,
     taskMutationRecoveryRequest,
   );
-  if (!sameTaskRunCreationReceiptV1(
-    taskMutationRecoveryReplay,
-    taskMutationRecoveryFirst,
-  )) {
+  if (taskMutationRecoveryReplay.runId !== taskMutationRecoveryFirst.runId) {
     return yield* Effect.die(new Error(
       "The cooking fresh-host recovery Task did not replay its durable run.",
     ));
@@ -2108,25 +2108,26 @@ const runCookingWorkloadV1 = Effect.fn(
   const taskMutationResultUncertainDocumentId =
     resultUncertainDraftInserted.value;
   const taskMutationResultUncertainRequest = Object.freeze({
-    version: 1 as const,
     requestKey: COOKING_RESULT_UNCERTAIN_TASK_REQUEST_KEY,
     payload: Object.freeze({
       recipeId: taskMutationResultUncertainDocumentId,
     }),
-    executionIdentity: COOKING_TASK_EXECUTION_IDENTITY,
+    identity: COOKING_TASK_EXECUTION_IDENTITY,
   });
-  const taskMutationResultUncertainFirst = yield* client.tasks.create(
+  const taskMutationResultUncertainFirst = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultUncertainRequest.payload,
     taskMutationResultUncertainRequest,
   );
-  const taskMutationResultUncertainReplay = yield* client.tasks.create(
+  const taskMutationResultUncertainReplay = yield* client.startTask(
     COOKING_PUBLISH_SERVING_GUIDE_TASK.reference,
+    taskMutationResultUncertainRequest.payload,
     taskMutationResultUncertainRequest,
   );
-  if (!sameTaskRunCreationReceiptV1(
-    taskMutationResultUncertainReplay,
-    taskMutationResultUncertainFirst,
-  )) {
+  if (
+    taskMutationResultUncertainReplay.runId !==
+      taskMutationResultUncertainFirst.runId
+  ) {
     return yield* Effect.die(new Error(
       "The cooking result-uncertain Task did not replay its durable run.",
     ));
@@ -2852,23 +2853,6 @@ function sameStrings(
 ): boolean {
   return left.length === right.length &&
     left.every((value, index) => right[index] === value);
-}
-
-function sameTaskRunCreationReceiptV1(
-  left: CookingTaskRunCreationReceiptV1,
-  right: CookingTaskRunCreationReceiptV1,
-): boolean {
-  return left.status === right.status &&
-    left.version === right.version &&
-    left.runId === right.runId &&
-    left.createdAtMs === right.createdAtMs &&
-    bytesEqual(
-      left.applicationTaskRuntimeTargetSha256,
-      right.applicationTaskRuntimeTargetSha256,
-    ) &&
-    bytesEqual(left.requestKeySha256, right.requestKeySha256) &&
-    bytesEqual(left.requestSha256, right.requestSha256) &&
-    bytesEqual(left.creationAuthoritySha256, right.creationAuthoritySha256);
 }
 
 function requireIndexedDecisionRaceInspection(

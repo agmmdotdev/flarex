@@ -25,13 +25,8 @@ import {
 import {
   inspectTaskDefinition,
   inspectTaskReference,
-  isTaskDefinition,
-  isTaskReference,
 } from "@flarex/application-definition/internal/task-definition";
-import {
-  inspectTaskRun,
-  isTaskRun,
-} from "@flarex/application-invocation/internal/task-run";
+import { inspectTaskRun } from "@flarex/application-invocation/internal/task-run";
 import {
   withLegacyPreparedApplication,
 } from "@flarex/application-definition/internal/preparation";
@@ -52,11 +47,8 @@ import {
 } from "@flarex/durable-task/internal/run-attempt-v1";
 
 import {
-  createStandardApplicationTaskRun,
   makeStandardApplicationTaskSystemLayer,
-  type CreateStandardApplicationTaskRunError,
   type StandardApplicationTaskRunCreationReceipt,
-  type StandardApplicationTaskRunRequestV1,
   StandardApplicationTaskSystem,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-system";
@@ -81,9 +73,6 @@ import {
   invokeApplicationQuery,
   type InvokeApplicationQueryError,
 } from "@flarex/standard-application-invocation/internal/application-query-system";
-import type {
-  StandardApplicationTaskReferenceV1,
-} from "@flarex/standard-application-definition/internal/task-authoring-v1";
 import {
   makeStandardApplicationTaskSha256V1,
 } from "@flarex/standard-application-definition/internal/task-definition-v1";
@@ -207,14 +196,6 @@ interface SimulationTaskDelivery {
     StandardApplicationTaskDeliveryReceiptV1<Output>,
     StandardApplicationTaskDeliveryV1Error
   >;
-  <Payload, Output>(
-    reference: StandardApplicationTaskReferenceV1<Payload, Output>,
-    creation: StandardApplicationTaskRunCreationReceipt,
-    mode: StandardApplicationTaskDeliveryModeV1,
-  ): Effect.Effect<
-    StandardApplicationTaskDeliveryReceiptV1<Output>,
-    StandardApplicationTaskDeliveryV1Error
-  >;
 }
 
 export interface SimulationClient
@@ -245,13 +226,6 @@ export interface SimulationClient
     options: StartTaskOptions,
   ) => Effect.Effect<TaskRun<Output>, StartTaskError>;
   readonly tasks: Readonly<{
-    readonly create: <Payload, Output>(
-      reference: StandardApplicationTaskReferenceV1<Payload, Output>,
-      request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
-    ) => Effect.Effect<
-      StandardApplicationTaskRunCreationReceipt,
-      CreateStandardApplicationTaskRunError
-    >;
     readonly deliver: SimulationTaskDelivery;
   }>;
   readonly query: <Reference extends FunctionReference<
@@ -387,11 +361,8 @@ const runSimulationWithCurrentAuthority = Effect.fn(
 > {
   const { simulation } = input;
   const applicationDefinition = simulation.application.define();
-  const authoredTaskDefinitions = simulation.application.defineTasks?.() ?? [];
-  const taskDefinitions = authoredTaskDefinitions.map(definition =>
-    isTaskDefinition(definition)
-      ? inspectTaskDefinition(definition).standard
-      : definition
+  const taskDefinitions = (simulation.application.defineTasks?.() ?? []).map(
+    definition => inspectTaskDefinition(definition).standard,
   );
   const hostedTaskKit = yield* acquireApplicationTaskHostedTestKit({
     resources: taskDefinitions.length === 0 ? "none" : "r2",
@@ -700,41 +671,19 @@ const runSimulationWithCurrentAuthority = Effect.fn(
             ))
       );
       const deliverTask: SimulationTaskDelivery = <Payload, Output>(
-        reference:
-          | TaskReference<Payload, Output>
-          | StandardApplicationTaskReferenceV1<Payload, Output>,
-        creation:
-          | TaskRun<Output>
-          | StandardApplicationTaskRunCreationReceipt,
+        reference: TaskReference<Payload, Output>,
+        creation: TaskRun<Output>,
         mode: StandardApplicationTaskDeliveryModeV1,
-      ) => {
-        const cleanReference = isTaskReference(reference);
-        const cleanRun = isTaskRun(creation);
-        if (cleanReference !== cleanRun) {
-          return Effect.die(new TypeError(
-            "Task delivery requires matching reference and run handles.",
-          ));
-        }
-        // SAFETY: the two private WeakMap authenticity checks above establish
-        // that both values belong to the same clean or legacy handle family.
-        const standardReference: StandardApplicationTaskReferenceV1<
-          Payload,
-          Output
-        > = cleanReference
-          ? inspectTaskReference(
-              reference as TaskReference<Payload, Output>,
-            ).standard
-          : reference as StandardApplicationTaskReferenceV1<Payload, Output>;
-        const receipt: StandardApplicationTaskRunCreationReceipt = cleanRun
-          ? inspectTaskRun(creation as TaskRun<Output>).receipt
-          : creation as StandardApplicationTaskRunCreationReceipt;
-        return invokeWhileActive(() => invokeApplication(
+      ) => invokeWhileActive(() => invokeApplication(
           invocationScope,
-          taskDelivery.deliver(standardReference, receipt, mode),
+          taskDelivery.deliver(
+            inspectTaskReference(reference).standard,
+            inspectTaskRun(creation).receipt,
+            mode,
+          ),
         )).pipe(Effect.withSpan(
           "ApplicationSystemTest.tasks.deliver",
         ));
-      };
       const client = Object.freeze({
         action: Effect.fn("ApplicationSystemTest.invokeAction")(<
           Reference extends FunctionReference<
@@ -765,19 +714,6 @@ const runSimulationWithCurrentAuthority = Effect.fn(
           );
         })))),
         tasks: Object.freeze({
-          create: <Payload, Output>(
-            reference: StandardApplicationTaskReferenceV1<Payload, Output>,
-            request: StandardApplicationTaskRunRequestV1<NoInfer<Payload>>,
-          ) => invokeWhileActive(() =>
-            invokeApplication(
-              invocationScope,
-              createStandardApplicationTaskRun(reference, request),
-            ).pipe(Effect.tap(creation => Effect.sync(() => {
-              taskDelivery.registerCreation(reference, creation);
-            })))
-          ).pipe(Effect.withSpan(
-            "ApplicationSystemTest.tasks.create",
-          )),
           deliver: deliverTask,
         }),
         mutation: Effect.fn("ApplicationSystemTest.invokeMutation")(<
