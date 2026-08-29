@@ -2,7 +2,7 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1 and DTE07-C1/C2/C3 complete
+**Status:** Architecture roadmap with DTE07-B1 and DTE07-C1/C2/C3/C4 complete
 privately on 2026-08-29.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
@@ -16,8 +16,11 @@ Standard composition bridge fixed by
 DTE07-C3 implements the clean immediate `readTaskResult(run)` output-contract
 gate fixed by
 [`preflight/54-dte07-clean-task-result-contract.md`](./preflight/54-dte07-clean-task-result-contract.md).
-It does not authorize waiting, polling, commands, public routes, deployment,
-subscriptions, telemetry ingestion, retention/GC, or UI publication.
+DTE07-C4 implements the clean deadline-controlled `awaitTask(run, options)`
+operation fixed by
+[`preflight/55-dte07-clean-task-await-contract.md`](./preflight/55-dte07-clean-task-await-contract.md).
+It does not authorize commands, public routes, deployment, subscriptions,
+telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
 execution and fresh-host takeover in PGlite and ordinary-role PostgreSQL.
@@ -250,7 +253,7 @@ DTE07-B1 implements only the single-run projection fixed by preflight 51.
 Attempt history, events, lists, pagination, result-body reads, and every live
 contract remain later bounded checkpoints.
 
-### DTE07-C: Private Query And Command Adapters — C3 Complete
+### DTE07-C: Private Query And Command Adapters — C4 Complete
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -266,8 +269,13 @@ preflight 53. It adds no clean root operation, waiting, output decoding, or
 result polling.
 
 DTE07-C3 implements only the clean immediate `readTaskResult(run)` operation
-and local output-contract binding fixed by preflight 54. Waiting, polling,
-terminal-failure projection, retry policy, and commands remain separate.
+and local output-contract binding fixed by preflight 54.
+
+DTE07-C4 implements only the clean deadline-controlled
+`awaitTask(run, options)` operation, fixed incomplete-status polling,
+cooperative timeout handling, and terminal-failure projection fixed by
+preflight 55. Query/result failures are not retried, and commands remain
+separate.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -343,6 +351,7 @@ DTE07-C1 is complete for the private scope-bound point-query adapter and clean
 `inspectTask(run)` operation. DTE07-C2 is complete for the separately
 authorized result-body query under preflight 53. DTE07-C3 is complete for the
 clean immediate `readTaskResult(run)` output-contract gate under preflight 54.
-`awaitTask()` still requires a separate deadline, retry, interruption, and
-terminal-failure decision. Before any list, attempt-history, event, command,
-live, public, or hosted surface, approve that owner separately.
+DTE07-C4 is complete for the clean deadline-controlled
+`awaitTask(run, options)` contract under preflight 55. Before any list,
+attempt-history, event, command, live, public, or hosted surface, approve that
+owner separately.

@@ -678,7 +678,9 @@ The private DTE07-C2 result-body owner is complete under
 [`durable-task-engine/preflight/53-dte07-private-task-result-body-query.md`](./durable-task-engine/preflight/53-dte07-private-task-result-body-query.md).
 The clean DTE07-C3 `readTaskResult(run)` output-contract gate is complete under
 [`durable-task-engine/preflight/54-dte07-clean-task-result-contract.md`](./durable-task-engine/preflight/54-dte07-clean-task-result-contract.md).
-Waiting still requires its own deadline, retry, interruption, and terminal
-failure contract, and the private command adapter must precede cancellation.
+The clean DTE07-C4 `awaitTask(run, options)` cooperative timeout, polling,
+interruption, and terminal-failure gate is complete under
+[`durable-task-engine/preflight/55-dte07-clean-task-await-contract.md`](./durable-task-engine/preflight/55-dte07-clean-task-await-contract.md).
+The private command adapter must still precede cancellation.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

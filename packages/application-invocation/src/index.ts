@@ -37,3 +37,13 @@ export {
   type TaskRun,
   type TaskRunStatus,
 } from "./Task.js";
+
+export {
+  awaitTask,
+  type AwaitTaskError,
+  type AwaitTaskOptions,
+  type TaskAwaitOptionsError,
+  type TaskAwaitTimeoutError,
+  type TaskRunCancelledError,
+  type TaskRunFailedError,
+} from "./TaskAwait.js";

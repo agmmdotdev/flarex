@@ -255,7 +255,7 @@ if (isCliEntrypoint()) {
       "Clean Application definition boundary check passed with one root and three exact internal bridges.",
     );
     console.log(
-      "Clean Application invocation boundary check passed with six root operations and one internal Task run bridge.",
+      "Clean Application invocation boundary check passed with seven root operations and one internal Task run bridge.",
     );
   }
 }

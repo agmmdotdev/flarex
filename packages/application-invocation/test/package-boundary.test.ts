@@ -20,6 +20,7 @@ describe("Application invocation package boundary", () => {
 
   it("exposes only the plain runtime operations", () => {
     expect(Object.keys(applicationInvocation).toSorted()).toEqual([
+      "awaitTask",
       "inspectTask",
       "readTaskResult",
       "runAction",
