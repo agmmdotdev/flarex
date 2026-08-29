@@ -12,6 +12,7 @@
   "exports": {
     "./internal/run-creation-v1": "./src/runCreation/v1.ts",
     "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
+    "./internal/run-projection": "./src/runProjection/index.ts",
     "./internal/run-read-v1": "./src/runRead/v1.ts",
     "./internal/scheduling-v1": "./src/scheduling/v1.ts",
     "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",

@@ -667,8 +667,11 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after the third `CAPI-F` test-delivery cleanup checkpoint and its focused
-validation, review, and commit. Authoritative run projections must precede
+The three `CAPI-F` entry/delivery checkpoints and the production-inert DTE07-B1
+authoritative single-run projection are complete. DTE07-B1 is recorded in
+[`durable-task-engine/preflight/51-dte07-private-run-projection.md`](./durable-task-engine/preflight/51-dte07-private-run-projection.md).
+The next gate is a focused preflight for the scope-bound query adapter and its
+error contract. That adapter and the result-body owner must still precede
 waiting, and the private command adapter must precede cancellation. Scheduling,
 public SDK, deployment, routing, and production entry surfaces remain
 separately gated.

@@ -2,11 +2,12 @@
 
 ## Status And Decision Boundary
 
-**Status:** Discussion-stage source audit and architecture roadmap. This file
-records the current Trigger.dev frontend/API reuse evidence and intended Flarex
-observability boundaries. It does not authorize implementation, public routes,
-deployment, subscriptions, telemetry ingestion, retention/GC, or UI
-publication.
+**Status:** Architecture roadmap with the first bounded private projection
+checkpoint complete on 2026-08-29. DTE07-B1 implements one production-inert
+run projection and pure projector under
+[`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
+It does not authorize query adapters, public routes, deployment, subscriptions,
+telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
 execution and fresh-host takeover in PGlite and ordinary-role PostgreSQL.
@@ -227,13 +228,17 @@ similarity alone is not evidence.
 This document completes only an architecture-level inventory. It is not an
 implementation receipt and does not admit source copying.
 
-### DTE07-B: Private Projection Contracts
+### DTE07-B: Private Projection Contracts — B1 Complete
 
 - define scope-authorized run, attempt, event, result-metadata, and cursor view
   models;
 - prove stable ordering, bounds, pagination, ownership, and redaction;
 - keep SQL and driver rows behind persistence adapters; and
 - remain private and production-inert.
+
+DTE07-B1 implements only the single-run projection fixed by preflight 51.
+Attempt history, events, lists, pagination, result-body reads, and every live
+contract remain later bounded checkpoints.
 
 ### DTE07-C: Private Query And Command Adapters
 
@@ -306,14 +311,13 @@ Roadmap 07 does not authorize:
 
 The connected/private-host foundation and fresh-host takeover are complete
 through DTE06-F2. The real-Cloudflare F3/F4 proof remains separately gated.
-Roadmap 07 now has an explicit architecture and initial pinned source inventory,
-but no DTE07 implementation slice is approved.
+DTE07-B1 is complete. Its first single-run projection delegates scope
+authorization to the existing captured located-scope inspection store, has no
+cursor/page bound, and owns exact immutable/redacted output. It proceeds
+privately before DTE06-F3/F4 because it adds no route or hosted resource. Live
+invalidation remains unselected and unapproved.
 
-Before DTE07-B starts, approve a focused preflight that fixes:
-
-1. the first private run/attempt projection shape;
-2. the trusted scope authorization capability;
-3. cursor, bound, ownership, and redaction rules;
-4. the source of live invalidation evidence; and
-5. whether implementation waits for DTE06-F or proceeds privately in parallel
-   without public routing.
+The next gate is a focused DTE07-C preflight for the private scope-bound query
+adapter and its error contract. Before any list, attempt-history, event,
+result-body, command, live, public, or hosted surface, approve that owner
+separately.
