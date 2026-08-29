@@ -35,6 +35,7 @@
     "./internal/execution-evidence-body-r2-v1": "./src/executionEvidence/ExecutionEvidenceBodyStoreV1.ts",
     "./internal/task-compute-delivery": "./src/taskComputeDelivery/index.ts",
     "./internal/node-task-executor": "./src/taskComputeDelivery/NodeTaskExecutor.ts",
+    "./internal/task-result-body-query": "./src/taskResult/TaskResultBodyQuery.ts",
     "./internal/task-result-store": "./src/taskResult/TaskResultStore.ts",
     "./internal/task-input-store": "./src/taskInput/TaskInputStore.ts",
     "./internal/task-execution-principal-store": "./src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts",

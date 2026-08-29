@@ -25,6 +25,8 @@ const standardApplicationTaskSystemPath =
   "packages/standard-application-invocation/src/ApplicationTaskSystem.ts";
 const standardApplicationTaskRunQueryPath =
   "packages/standard-application-invocation/src/StandardApplicationTaskRunQuery.ts";
+const standardApplicationTaskResultQueryPath =
+  "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";
 const systemTestManifestPath = "packages/system-test/package.json";
 const systemTestApplicationTaskSystemConnectedHarnessPath =
   "packages/system-test/support/applicationTaskSystemConnectedHarness.ts";
@@ -68,6 +70,8 @@ const flarexBackendTaskRuntimeObjectStorePath =
   "packages/flarex-backend/src/taskRuntimePublication/TaskRuntimeObjectStore.ts";
 const flarexBackendTaskResultStorePath =
   "packages/flarex-backend/src/taskResult/TaskResultStore.ts";
+const flarexBackendTaskResultBodyQueryPath =
+  "packages/flarex-backend/src/taskResult/TaskResultBodyQuery.ts";
 const flarexBackendTaskExecutionPrincipalStorePath =
   "packages/flarex-backend/src/taskExecutionPrincipal/TaskExecutionPrincipalStore.ts";
 const flarexBackendTaskInputStorePath =
@@ -523,6 +527,14 @@ const admittedStandardApplicationTaskRunQueryImports = new Map([
   ["TaskRunQueryApi", "type"],
   ["TaskRunQueryError", "type"],
 ]);
+const admittedStandardApplicationTaskResultQueryImports = new Map([
+  ["makeTaskRunResultQueryLayer", "value"],
+]);
+const admittedBackendTaskResultBodyQueryImports = new Map([
+  ["TaskRunResultQuery", "value"],
+  ["TaskRunResultQueryApi", "type"],
+  ["TaskRunResultQueryError", "type"],
+]);
 const admittedLaterDurableTaskImports = [
   makeExactImportAdmission(
     flarexBackendTaskInputStorePath,
@@ -698,6 +710,11 @@ const admittedLaterTaskExecutionPrincipalStoreImports = [
   ),
 ];
 const admittedLaterTaskResultStoreImports = [
+  makeExactImportAdmission(
+    flarexBackendTaskResultBodyQueryPath,
+    "./TaskResultStore.js",
+    { types: ["TaskResultStore", "TaskResultStoreError"] },
+  ),
   makeExactImportAdmission(
     systemTestStandardApplicationTaskDeliveryPath,
     "flarex-backend/internal/task-result-store",
@@ -1132,6 +1149,7 @@ const durableTaskAllowedExports = Object.freeze({
   "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
   "./internal/run-creation-v1": "./src/runCreation/v1.ts",
   "./internal/run-projection": "./src/runProjection/index.ts",
+  "./internal/run-result-query": "./src/runResult/index.ts",
   "./internal/run-read-v1": "./src/runRead/v1.ts",
   "./internal/scheduling-v1": "./src/scheduling/v1.ts",
   "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",
@@ -1801,7 +1819,7 @@ export function analyzeDurableTaskManifest(manifest) {
     || !hasExactStringRecord(exportsField, durableTaskAllowedExports)
   ) {
     errors.push(
-      `${durableTaskManifestPath}: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-projection, run-read, scheduling, and scheduling-testing internal subpaths.`,
+      `${durableTaskManifestPath}: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-projection, run-result-query, run-read, scheduling, and scheduling-testing internal subpaths.`,
     );
   }
 
@@ -2579,6 +2597,24 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
     return hasExactNamedImportModes(
       node,
       admittedStandardApplicationTaskRunQueryImports,
+    );
+  }
+  if (
+    relativePath === standardApplicationTaskResultQueryPath
+    && specifier === "@flarex/durable-task/internal/run-result-query"
+  ) {
+    return hasExactNamedImportModes(
+      node,
+      admittedStandardApplicationTaskResultQueryImports,
+    );
+  }
+  if (
+    relativePath === flarexBackendTaskResultBodyQueryPath
+    && specifier === "@flarex/durable-task/internal/run-result-query"
+  ) {
+    return hasExactNamedImportModes(
+      node,
+      admittedBackendTaskResultBodyQueryImports,
     );
   }
   return isAdmittedStandardApplicationTaskDefinitionImport(

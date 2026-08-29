@@ -2,14 +2,18 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1 and the first bounded private
-query checkpoint complete on 2026-08-29. DTE07-B1 implements one
+**Status:** Architecture roadmap with DTE07-B1, DTE07-C1, and the bounded
+DTE07-C2 result-body query checkpoint complete on 2026-08-29.
+DTE07-B1 implements one
 production-inert run projection and pure projector under
 [`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
 DTE07-C1 implements the point-query service and clean `inspectTask(run)`
 operation fixed by
 [`preflight/52-dte07-private-task-run-query.md`](./preflight/52-dte07-private-task-run-query.md).
-It does not authorize waiting, commands, public routes, deployment,
+DTE07-C2 implements the private result-read authorization, body query, and
+Standard composition bridge fixed by
+[`preflight/53-dte07-private-task-result-body-query.md`](./preflight/53-dte07-private-task-result-body-query.md).
+It does not authorize waiting, output decoding, commands, public routes, deployment,
 subscriptions, telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
@@ -254,6 +258,10 @@ DTE07-C1 implements only the scope-bound single-run query service and clean
 `inspectTask(run)` operation fixed by preflight 52. Commands and every broader
 read remain separate checkpoints.
 
+DTE07-C2 implements only the separately authorized result-body query fixed by
+preflight 53. It adds no clean root operation, waiting, output decoding, or
+result polling.
+
 ### DTE07-D: Live Invalidation And Reconnect
 
 - choose an admitted feed/outbox/change source;
@@ -325,6 +333,7 @@ privately before DTE06-F3/F4 because it adds no route or hosted resource. Live
 invalidation remains unselected and unapproved.
 
 DTE07-C1 is complete for the private scope-bound point-query adapter and clean
-`inspectTask(run)` operation. Before any list, attempt-history, event,
-result-body, waiting, command, live, public, or hosted surface, approve that
-owner separately.
+`inspectTask(run)` operation. DTE07-C2 is complete for the separately
+authorized result-body query under preflight 53. Output decoding must still
+precede waiting. Before any list, attempt-history, event, command, live,
+public, or hosted surface, approve that owner separately.

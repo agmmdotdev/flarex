@@ -118,6 +118,7 @@ describe("Trigger compatibility boundary checker", () => {
         "./internal/run-attempt-v1": "./src/runAttempt/v1.ts",
         "./internal/run-creation-v1": "./src/runCreation/v1.ts",
         "./internal/run-projection": "./src/runProjection/index.ts",
+        "./internal/run-result-query": "./src/runResult/index.ts",
         "./internal/run-read-v1": "./src/runRead/v1.ts",
         "./internal/scheduling-v1": "./src/scheduling/v1.ts",
         "./internal/scheduling-testing-v1": "./src/scheduling/testing-v1.ts",
@@ -151,7 +152,7 @@ describe("Trigger compatibility boundary checker", () => {
       "packages/durable-task/package.json: version must be 0.0.1 during the private vertical.",
       "packages/durable-task/package.json: private must remain true during the private vertical.",
       "packages/durable-task/package.json: type must be module.",
-      "packages/durable-task/package.json: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-projection, run-read, scheduling, and scheduling-testing internal subpaths.",
+      "packages/durable-task/package.json: exports must contain only the admitted compute-provider, compute-provider-testing, run-attempt, run-creation, run-projection, run-result-query, run-read, scheduling, and scheduling-testing internal subpaths.",
       "packages/durable-task/package.json: runtime dependencies must contain only workspace @flarex/utils, root-catalog effect, and workspace flarex-protocol.",
       "packages/durable-task/package.json: scripts must exactly match the admitted build, typecheck, and test commands.",
       "packages/durable-task/package.json: devDependencies must contain only root-catalog typescript and vitest.",
@@ -361,6 +362,57 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }]).errors).toEqual([
       `${queryPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
+  });
+
+  it("admits only the private Task result-body query chain", () => {
+    const standardPath =
+      "packages/standard-application-invocation/src/StandardApplicationTaskResultQuery.ts";
+    const backendPath =
+      "packages/flarex-backend/src/taskResult/TaskResultBodyQuery.ts";
+    const manifests = [{
+      relativePath: "packages/standard-application-invocation/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }, {
+      relativePath: "packages/flarex-backend/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }];
+    expect(analyzeTriggerCompatibilityBoundary(manifests, [{
+      relativePath: standardPath,
+      text: `
+        import { makeTaskRunResultQueryLayer } from "@flarex/durable-task/internal/run-result-query";
+      `,
+    }, {
+      relativePath: backendPath,
+      text: `
+        import {
+          TaskRunResultQuery,
+          type TaskRunResultQueryApi,
+          type TaskRunResultQueryError,
+        } from "@flarex/durable-task/internal/run-result-query";
+        import type {
+          TaskResultStore,
+          TaskResultStoreError,
+        } from "./TaskResultStore.js";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary(manifests, [{
+      relativePath: backendPath,
+      text: `
+        import {
+          TaskRunResultQuery,
+          TaskRunResultUnavailableError,
+          type TaskRunResultQueryApi,
+          type TaskRunResultQueryError,
+        } from "@flarex/durable-task/internal/run-result-query";
+      `,
+    }]).errors).toEqual([
+      `${backendPath}:2 production source must not activate @flarex/durable-task before host admission.`,
     ]);
   });
 

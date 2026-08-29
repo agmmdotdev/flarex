@@ -20,6 +20,7 @@
     "./internal/application-task-system": "./src/ApplicationTaskSystem.ts",
     "./internal/standard-application-task-system": "./src/StandardApplicationTaskSystem.ts",
     "./internal/standard-application-task-run-query": "./src/StandardApplicationTaskRunQuery.ts",
+    "./internal/standard-application-task-result-query": "./src/StandardApplicationTaskResultQuery.ts",
     "./internal/application-task-query-authority": "./src/ApplicationTaskQueryAuthority.ts",
     "./internal/application-task-mutation-authority": "./src/ApplicationTaskMutationAuthority.ts",
     "./internal/application-task-compute-delivery": "./src/ApplicationTaskComputeDelivery.ts",

@@ -11,6 +11,10 @@ import {
   TaskRunQuery,
 } from "@flarex/durable-task/internal/run-projection";
 import {
+  makeTaskRunResultQueryLayer,
+  TaskRunResultQuery,
+} from "@flarex/durable-task/internal/run-result-query";
+import {
   decideApplicationStartAttemptV1,
   decideApplicationRequestCancellationV1,
   decodeApplicationPersistedTaskRequestedEffectJsonV1,
@@ -1261,6 +1265,20 @@ describe("Application activation", { timeout: 30_000 }, () => {
     });
     expect(Object.isFrozen(projectedRun)).toBe(true);
     expect(Object.isFrozen(projectedRun.state)).toBe(true);
+    const unavailableResult = await runEffect(Effect.result(
+      Effect.gen(function* () {
+        const resultQuery = yield* TaskRunResultQuery;
+        return yield* resultQuery.authorizeRead(created.runId);
+      }).pipe(Effect.provide(makeTaskRunResultQueryLayer(lifecycleStore))),
+    ));
+    expect(Result.isFailure(unavailableResult)).toBe(true);
+    if (Result.isFailure(unavailableResult)) {
+      expect(unavailableResult.failure).toMatchObject({
+        _tag: "TaskRunResultUnavailableError",
+        runId: created.runId,
+        reason: "run_incomplete",
+      });
+    }
     const startCommand = Object.freeze({
       type: "start_attempt" as const,
       runId: created.runId,
