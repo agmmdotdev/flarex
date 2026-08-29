@@ -739,8 +739,11 @@ or production-ready.
 
 With C4 implemented and reviewed:
 
-- `QSYNC-FX01` may receive its own preflight for Flarex mappings and the first
-  Cloudflare SQLite state adapter;
+- the proposed
+  [`QSYNC-FX01` preflight](./07-qsync-fx01-flarex-mappings-and-sqlite-state.md)
+  is the current discussion proposal for Flarex mappings and the first
+  Cloudflare SQLite state adapter; it does not displace accepted authority and
+  its implementation remains unauthorized;
 - `QSYNC-CF01` remains the independent delivery feasibility/selection gate;
 - a real `ResultPublisher` remains blocked on its delivery-adapter preflight;
   and

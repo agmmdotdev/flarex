@@ -159,8 +159,9 @@ The package name is `@flarex/query-sync`. The permanent product name does not
 need `core` or a version suffix. The package has no root public SDK export. Its
 current explicit subpaths are `./internal/kernel`, `./internal/change`,
 `./internal/state`, `./testing/conformance`, and
-`./testing/reference-model`. The proposed C3 slice may add only the separately
-reviewed `./internal/orchestration` subpath.
+`./testing/reference-model`. The completed C3/C4 slices add the separately
+reviewed private `./internal/orchestration` subpath; there is still no package
+root or public SDK export.
 
 The package owns:
 

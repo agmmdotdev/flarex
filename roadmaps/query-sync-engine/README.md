@@ -13,6 +13,13 @@ exact
 [`QSYNC01-C3` record](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
 owns the completed bounded evaluation-orchestration slice.
 
+The proposed docs-only
+[`QSYNC-FX01` preflight](./preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md)
+is the current proposal for the next Flarex mapping and Cloudflare SQLite
+adapter discussion. It recommends `QSYNC-FX01-A`, canonical Flarex model
+mappings and vectors only, as the first medium implementation slice. No FX01
+implementation is authorized.
+
 [`QSYNC01-P`](./preflight/00-qsync01-framework-authority.md), the
 independent-engine preflight, remains docs-only authority. The user separately
 approved [`QSYNC01-A`](./preflight/01-qsync01-portable-transition-kernel.md)
@@ -160,9 +167,9 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
-| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 completed on 2026-08-29; private and production-inert |
+| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 complete in `87a7566f`; private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Separate preflight now eligible; implementation not authorized; independent of delivery-adapter selection |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Proposed docs-only preflight splits A canonical mappings, B docs-only access/seam proof before DDL, and C1-C3 semantic SQLite verticals; implementation not authorized; independent of delivery selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -207,13 +214,19 @@ paths.
 - [`preflight/06-qsync01-c4-publication-orchestration.md`](./preflight/06-qsync01-c4-publication-orchestration.md)
   records the completed separate publication coordinator, publisher trust seam,
   recovery/idempotency rules, bounds, and reference proof matrix.
+- [`preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md)
+  is the proposed docs-only Flarex mapping and Cloudflare SQLite adapter
+  preflight. It proposes the owner/dependency direction and recommends only
+  the mapping/codecs/vector subgate as the first implementation slice.
 
 ## Next Correctness Gate
 
-The next correctness decision is a separately bounded `QSYNC-FX01` preflight
-for Flarex model/change/result mappings and the first Cloudflare SQLite
-implementation of the completed post-C semantic state contract. C4 completion
-makes that preflight eligible; it does not authorize its implementation, a real
-`ResultPublisher`, delivery-adapter selection, Cloudflare composition,
-public/client APIs, production routing, migration, cutover, or `R03-B`.
-`QSYNC-CF01` remains the independent delivery feasibility and selection gate.
+The next correctness decision is approval or correction of the proposed
+`QSYNC-FX01` preflight. Its recommended first medium slice is only
+`QSYNC-FX01-A`: versioned Flarex canonical query/dependency/authority frames,
+one backend-owned model projector, and result/publication vectors. SQLite B and
+C1-C3 work remain separately gated even after A approval. Neither the
+preflight nor C4 authorizes a real `ResultPublisher`, delivery-adapter
+selection, Postgres source composition, public/client APIs, production
+routing, migration, cutover, or `R03-B`. `QSYNC-CF01` remains the independent
+delivery feasibility and selection gate.

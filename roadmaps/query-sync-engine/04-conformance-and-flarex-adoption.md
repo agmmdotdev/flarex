@@ -114,32 +114,38 @@ not a complete uncertainty contract.
 3. **Complete (`QSYNC01-C4`).** C1-C4 provide recovery-stable
    evaluation/publication state plus bounded evaluation and publication
    orchestration over deterministic reference capabilities.
-4. **Next docs-first gate (`QSYNC-FX01`).** Preflight the exact Flarex
-   versioned query/dependency/result mappings together with the first
-   per-scope Cloudflare SQLite implementation of the completed post-C semantic
-   state contract. Keep Postgres fact projection outside the generic package;
-   implementation is not authorized by C4 completion.
-5. After separate approval, implement those mappings and the SQLite adapter,
-   including query-result publication outbox state, without duplicate tables,
-   cursors, or writes.
-6. Independently run the Cloudflare Durable Streams feasibility spike and
+4. **Proposed docs-first gate (`QSYNC-FX01`).** The dedicated preflight now
+   splits the broad adoption outcome into A canonical Flarex mappings, B a
+   docs-only access/transition-seam proof before DDL, and C1-C3 semantic SQLite
+   verticals ending in the complete nine-operation state adapter. Keep
+   Postgres source reads outside the generic package; no implementation is
+   authorized by C4 or by the proposed document.
+5. After separate approval, implement only `QSYNC-FX01-A`: versioned query,
+   dependency, and authority frames plus one Flarex model projector and
+   result/publication mapping. Add no SQLite schema or host behavior in A.
+6. After A evidence, run a docs-only B checkpoint that proves every operation's
+   bounded read/transition/write plan before DDL. Only an accepted B plan and
+   any separately required core seam may authorize C1-C3 semantic verticals
+   over the one existing per-scope SQLite cursor owner, without duplicate
+   tables, cursors, reducers, or writes.
+7. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;
    it blocks only that delivery composition.
-7. Adapt the authoritative Postgres commit feed as the replayable change source
+8. Adapt the authoritative Postgres commit feed as the replayable change source
    and prove contiguous duplicate/reverse/gap/reset behavior.
-8. Compose query execution, provisional completion, rerun coalescing,
+9. Compose query execution, provisional completion, rerun coalescing,
    unchanged suppression, and processing of the already-semantic durable
    publication outbox.
-9. Compose whichever delivery adapter passed its own gate with the authenticated
+10. Compose whichever delivery adapter passed its own gate with the authenticated
    gateway, then the
    Flarex client wrapper.
-10. Prove target-only reset/reconnect/recovery and switch internal callers.
-11. Remove the displaced unshipped engine code/state/export when no supported
+11. Prove target-only reset/reconnect/recovery and switch internal callers.
+12. Remove the displaced unshipped engine code/state/export when no supported
     consumer remains.
-12. Run `R03-B` through the accepted framework and Flarex adapters; relation
+13. Run `R03-B` through the accepted framework and Flarex adapters; relation
     code may consume dependency keys but cannot own sync state.
-13. Prove a second real durable host before making a broad production
+14. Prove a second real durable host before making a broad production
     portability claim.
 
 ## Relation Gate

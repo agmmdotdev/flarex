@@ -9,9 +9,14 @@ Portable query-sync semantics are now owned by
 Completed `SYNC01-A` through `SYNC01-F` remain current implementation evidence.
 `SYNC01-GP` is retained adapter-design evidence but its authorization to
 implement `SYNC01-G` directly as backend-owned semantics is superseded and
-held. Persisted semantic query state, ordered Postgres catch-up, registration,
-reset/reconnect, rerun, Durable Streams delivery, and production caller
-integration remain incomplete. Cache Durable Objects remain deferred
+held. Portable semantic state and reference orchestration are complete through
+`QSYNC01-C4`; their first real Flarex mappings and SQLite implementation are
+described for discussion by the proposed
+[`QSYNC-FX01` preflight](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
+Roadmap 21 remains the accepted Flarex/Cloudflare adapter authority unless that
+proposal is approved. The implementation, ordered Postgres catch-up,
+registration, reset/reconnect, rerun, Durable Streams delivery, and production
+caller integration remain incomplete. Cache Durable Objects remain deferred
 optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
@@ -108,10 +113,11 @@ construct/adapt the portable engine; it does not become a second engine.
 `SYNC01-G` has not started. Its direct package-local backend form is withdrawn
 and held. Work may resume only after:
 
-1. the portable transition kernel/reference model is accepted;
-2. semantic state and orchestration contracts are derived from that model;
-3. a fresh roadmap-21 adapter preflight maps Flarex contracts into one
-   Cloudflare SQLite authority without duplicate tables, cursors, or writes.
+1. the portable transition kernel/reference model is accepted -- complete;
+2. semantic state and reference orchestration contracts are derived from that
+   model -- complete through `QSYNC01-C4`; and
+3. the proposed fresh roadmap-21/Query Sync adapter preflight is accepted and
+   its bounded implementation subgate is separately approved.
 
 The Flarex model/source/SQLite adapter may proceed independently of delivery
 selection. Durable Streams must pass its own feasibility gate before any
@@ -582,13 +588,14 @@ ordered gates are now:
 
 1. Query Sync Engine `QSYNC01-A` completed the pure transition kernel/reference
    model without changing the current actor/store/protocol.
-2. Separately preflight and implement the trusted change-model boundary,
-   semantic atomic state contract, and Effect-native orchestration against
-   reference adapters.
-3. Accept a fresh roadmap-21 adapter preflight that maps Flarex canonical
-   identities/dependencies/results and the existing one-per-scope
-   `DeploymentSyncDO` SQLite authority into the portable semantic contract.
-   Do not add duplicate state or compatibility writes.
+2. Query Sync Engine `QSYNC01-B` through `QSYNC01-C4` completed the trusted
+   change-model boundary, semantic atomic state contract, and Effect-native
+   reference orchestration.
+3. Approve or correct the proposed `QSYNC-FX01` adapter preflight, then
+   separately authorize its first mapping-only slice. SQLite may follow only
+   after a docs-only operation/access-plan checkpoint proves the required core
+   seams; do not add duplicate state, compatibility writes, or schema-first
+   storage.
 4. Independently run `QSYNC-CF01` against pinned upstream Durable Streams
    packages on real Cloudflare; accept or reject on conformance,
    auth/isolation, retention/rotation, payload, uncertainty recovery,
@@ -1151,10 +1158,10 @@ replacement, collision/corruption rules, and cursor-plus-invalidation
 constraints below remain candidate requirements for a later Flarex/Cloudflare
 state-adapter preflight.
 
-`SYNC01-G` has not started and is on hold. The portable `QSYNC01-A` kernel is
-complete, but the semantic state, orchestration, conformance, and Flarex
-adapter gates remain open. `SYNC01-G` may resume only after those gates close
-and a replacement roadmap-21 adapter preflight is accepted. Completed
+`SYNC01-G` has not started and is on hold. Portable semantic state,
+orchestration, and reference conformance are complete through `QSYNC01-C4`.
+The proposed `QSYNC-FX01` adapter preflight is a candidate successor that does
+not displace this accepted roadmap authority until it is approved. Completed
 `SYNC01-A` through `SYNC01-F` remain valid evidence. This correction authorizes
 no package, schema, migration, route, caller, dual registry, fallback,
 compatibility write, or production behavior.
@@ -1169,11 +1176,13 @@ candidate per canonical query; the retained active slot is not a second rerun.
 
 #### Canonical Persisted Query Key
 
-`flarex-protocol/internal/scope-sync-v1` owns a concrete versioned canonical
-query-key frame rather than permitting the Durable Object to hash an ordinary
-JavaScript object or implementation-dependent JSON. The frame contains the
-complete already accepted `ScopeSyncCanonicalQueryIdentityV1` and no omitted,
-derived, host, subscription, or connection fields. Its representation is:
+This superseded proposal required a protocol-owned concrete versioned
+canonical query-key frame rather than permitting the Durable Object to hash an
+ordinary JavaScript object or implementation-dependent JSON. The proposed
+FX01 record retains that requirement but assigns the new frame to a focused
+scope-sync query-model V1 module. The frame contains the complete already
+accepted `ScopeSyncCanonicalQueryIdentityV1` and no omitted, derived, host,
+subscription, or connection fields. Its representation is:
 
 1. one strict envelope whose format is
    `flarex.scope-sync-canonical-query-key`, version is `1`, and identity is the
@@ -1184,15 +1193,16 @@ derived, host, subscription, or connection fields. Its representation is:
    contract and then UTF-8 encoded; and
 4. a maximum canonical frame size of 131,072 bytes before hashing or storage.
 
-The protocol owns the branded canonical bytes and the branded lowercase
-SHA-256 query key, canonicalize/decode operations, and exact byte
-recanonicalization check. SHA-256 is supplied through a narrow Effect service,
-matching existing protocol codecs; the Durable Object does not import a
-particular crypto host. Decode verifies the strict envelope, re-encodes it,
-requires byte-for-byte canonical equality, recomputes the digest, and requires
-the expected key to match. Unexpected crypto defects remain defects, while
-malformed, oversized, noncanonical, or digest-mismatched evidence is a typed
-codec failure.
+The protocol owns branded canonical bytes plus exact 32-byte SHA-256 evidence,
+canonicalize/decode operations, and the byte recanonicalization check. The
+backend adapter maps those raw digest bytes to the portable unpadded base64url
+query key; it never hashes hexadecimal text. SHA-256 is supplied through a
+narrow Effect service, matching existing protocol codecs; the Durable Object
+does not import a particular crypto host. Decode verifies the strict envelope,
+re-encodes it, requires byte-for-byte canonical equality, recomputes the
+digest, and requires the expected key to match. Unexpected crypto defects
+remain defects, while malformed, oversized, noncanonical, or digest-mismatched
+evidence is a typed codec failure.
 
 The SHA-256 key is a lookup and sharing key, not identity or authorization
 authority. SQLite stores the complete canonical frame bytes beside it. Every
@@ -1213,7 +1223,7 @@ kept one query row per canonical query key with these logical fields:
 
 | Field group | Contract |
 | --- | --- |
-| identity | lowercase SHA-256 query key plus owned canonical frame bytes |
+| identity | portable base64url SHA-256 query key plus owned canonical frame bytes |
 | generation allocator | latest positive generation as canonical decimal text |
 | active slot | nullable generation, snapshot sequence, refreshed-through sequence, result SHA-256, dependency count, and nullable dirty-through sequence |
 | provisional slot | nullable generation and registration cursor sequence |
@@ -1320,3 +1330,26 @@ Those sources support private strongly consistent SQLite storage, synchronous
 SQL operations, indexes, and a two-megabyte BLOB/row ceiling. They do not make
 foreign-key enforcement a Flarex portability contract, so explicit bounded
 parent/child validation remains required above.
+
+### [ ] QSYNC-FX01 -- Flarex Mapping And Complete SQLite State Adapter
+
+Status: proposed docs-only preflight; implementation not authorized.
+
+The exact current proposal is
+[`query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md`](./query-sync-engine/preflight/07-qsync-fx01-flarex-mappings-and-sqlite-state.md).
+It retains this roadmap as owner of concrete Flarex/Cloudflare schema and
+lifecycle decisions while leaving portable semantics in `@flarex/query-sync`.
+
+The recommended first medium slice is only `QSYNC-FX01-A`: versioned canonical
+query/dependency/authority frames, one backend-owned Flarex model projector,
+and canonical result/publication vectors. It adds no SQLite schema, Durable
+Object behavior, Postgres source read, evaluator, publisher, route, or caller.
+
+After A, a docs-only B checkpoint must prove all nine operation access and
+transition plans before any DDL. Only then may C1-C3 semantic verticals evolve
+the existing cursor database in place into the complete adapter and
+publication outbox. They must use one table set and cursor authority, pass
+reference conformance plus genuine Workerd restart/rollback/corruption proof,
+and remove or fence the old direct cursor/query-generation path. Nothing here
+reauthorizes the withdrawn direct-backend `SYNC01-G` design or unblocks
+`R03-B`.

@@ -338,8 +338,8 @@ of:
 
 - the complete canonical query identity;
 - the source epoch or admitted model ID; or
-- an advance of the replayable source sequence reflected in the authority
-  witness.
+- an advance of the replayable source sequence bound by the nominal
+  `CaughtUpChangeAuthority`'s exact read-through sequence.
 
 An out-of-band mutable authority that can change a result without one of those
 fences makes the model inadmissible. A best-effort wake does not repair that

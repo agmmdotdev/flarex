@@ -95,8 +95,8 @@ Cloudflare SQLite transactions are synchronous while Postgres and other hosts
 may be asynchronous. The portable contract must express the atomic semantic
 decision and let each adapter implement its native transaction correctly.
 
-The eventual state port is derived from the executable reference transitions
-and is expected to contain operations in these families:
+The completed private state port is derived from the executable reference
+transitions and contains exactly these nine operations:
 
 ```text
 initializeOrInspectNamespace
@@ -108,18 +108,15 @@ recordEvaluationAttemptOutcome
 claimPublication
 recordPublicationAttemptOutcome
 completePublication
-releaseOrExpireQuery
-resetNamespace
 ```
 
-The names above are post-C responsibility names rather than a compatibility
-promise for the private B seam. The completed
+The completed
 [`QSYNC01-B` slice](./preflight/02-qsync01-trusted-change-and-atomic-state.md)
-freezes exact channels and the four operation families already proved by the
-kernel under its B-stage begin/completion names. Its implementation is private
-and production-inert. The proposed C preflight replaces those two private names
-with recovery-safe operations and derives the remaining families; release/reset
-stay with a later pure transition.
+introduced the first four operation families. Completed C1-C4 added
+recovery-stable evaluation and publication work without making the private
+port a compatibility promise. Release/expiry and destructive namespace reset
+remain separately gated later transitions and are not part of FX01's adapter
+contract.
 
 Each operation must state:
 
