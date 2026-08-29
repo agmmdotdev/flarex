@@ -121,8 +121,14 @@ describe("executor invoke session maintenance", () => {
         }),
       ],
     );
+    let clockReads = 0;
     const executor = createFlarexExecutor({
-      clock: { now: () => new Date("2026-06-20T01:00:00.000Z") },
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date("2026-06-20T01:00:00.000Z");
+        },
+      },
       persistence,
     });
 
@@ -158,6 +164,7 @@ describe("executor invoke session maintenance", () => {
     await expect(
       persistence.getInvokeSessionMetadata("deployment_b", "session_b_old_2"),
     ).resolves.toMatchObject({ state: "active" });
+    expect(clockReads).toBe(4);
   });
 
   it("runs maintenance sweep after a deployment cursor", async () => {
@@ -346,6 +353,110 @@ describe("executor invoke session maintenance", () => {
         maxSessions: 0,
       }),
     ).rejects.toThrow(MaintenancePolicyError);
+  });
+
+  it("preserves configured clock and Date observation failures by identity", async () => {
+    const clockFailure = new Error("maintenance clock failed");
+    const clockFailureExecutor = createFlarexExecutor({
+      persistence: memoryPersistence(),
+      clock: { now: () => { throw clockFailure; } },
+    });
+
+    await expect(clockFailureExecutor.runInvokeSessionMaintenance({
+      deploymentId: "deployment_maintenance",
+      projectId: "project_maintenance",
+      staleAfterMs: 1,
+    })).rejects.toBe(clockFailure);
+
+    const observationFailure = new Error("maintenance Date failed");
+    let getTimeReads = 0;
+    class ThrowingMaintenanceDate extends Date {
+      override getTime(): number {
+        getTimeReads += 1;
+        throw observationFailure;
+      }
+    }
+    const observationFailureExecutor = createFlarexExecutor({
+      persistence: memoryPersistence(),
+      clock: { now: () => new ThrowingMaintenanceDate(100) },
+    });
+
+    await expect(observationFailureExecutor.runInvokeSessionMaintenance({
+      deploymentId: "deployment_maintenance",
+      projectId: "project_maintenance",
+      staleAfterMs: 1,
+    })).rejects.toBe(observationFailure);
+    expect(getTimeReads).toBe(1);
+  });
+
+  it("lists deployments before reading the sweep clock and preserves failures", async () => {
+    const listFailure = new Error("deployment listing failed");
+    const basePersistence = memoryPersistence();
+    const persistence = {
+      ...basePersistence,
+      async listDeploymentMetadata(): Promise<never> {
+        throw listFailure;
+      },
+    };
+    let clockReads = 0;
+    const executor = createFlarexExecutor({
+      persistence,
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
+
+    await expect(executor.runMaintenanceSweep({
+      deploymentLimit: 1,
+      staleAfterMs: 1,
+    })).rejects.toBe(listFailure);
+    expect(clockReads).toBe(0);
+  });
+
+  it("stops a sweep at the first stale-abort failure", async () => {
+    const abortFailure = new Error("stale abort failed");
+    const basePersistence = memoryPersistence([
+      deploymentMetadata({
+        deploymentId: "deployment_a",
+        projectId: "project_a",
+      }),
+      deploymentMetadata({
+        deploymentId: "deployment_b",
+        projectId: "project_b",
+      }),
+    ]);
+    const abortDeployments: string[] = [];
+    const persistence = {
+      ...basePersistence,
+      async abortStaleInvokeSessionsMetadata(
+        input: Parameters<
+          typeof basePersistence.abortStaleInvokeSessionsMetadata
+        >[0],
+      ): Promise<never> {
+        abortDeployments.push(input.deploymentId);
+        throw abortFailure;
+      },
+    };
+    let clockReads = 0;
+    const executor = createFlarexExecutor({
+      persistence,
+      clock: {
+        now: () => {
+          clockReads += 1;
+          return new Date(100);
+        },
+      },
+    });
+
+    await expect(executor.runMaintenanceSweep({
+      deploymentLimit: 2,
+      staleAfterMs: 1,
+    })).rejects.toBe(abortFailure);
+    expect(clockReads).toBe(2);
+    expect(abortDeployments).toEqual(["deployment_a"]);
   });
 });
 

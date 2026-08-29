@@ -48,9 +48,10 @@ import {
   touchLiveQueryConnection,
 } from "./liveQueries";
 import {
-  listMaintenanceDeployments,
-  runInvokeSessionMaintenance,
-  runMaintenanceSweep,
+  listMaintenanceDeploymentsEffect,
+  runInvokeSessionMaintenanceEffect,
+  runMaintenancePromise,
+  runMaintenanceSweepEffect,
 } from "./maintenance";
 import {
   runInvokeWithRetriesEffect,
@@ -60,6 +61,7 @@ import {
   defaultIds,
   invokeSyscall,
   makeInvokeSessionOperations,
+  makeSessionTimeEffect,
   runInvokeSessionPromise,
 } from "./sessions";
 import type {
@@ -259,6 +261,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     ids,
     liveQueryInvalidation,
   });
+  const maintenanceTimeEffect = makeSessionTimeEffect(configuredClock);
 
   function runInvokeWithRetriesForExecutor(
     input: RunQueryInvokeWithRetriesInput,
@@ -300,9 +303,16 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     abortStaleInvokeSessions: (input) =>
       runInvokeSessionPromise(sessionOperations.abortStale(input)),
     runInvokeSessionMaintenance: (input) =>
-      runInvokeSessionMaintenance(persistence, clock, sessionOperations, input),
+      runMaintenancePromise(runInvokeSessionMaintenanceEffect(
+        maintenanceTimeEffect,
+        sessionOperations,
+        input,
+      )),
     listMaintenanceDeployments: (input) =>
-      listMaintenanceDeployments(persistence, input),
+      runMaintenancePromise(listMaintenanceDeploymentsEffect(
+        persistence,
+        input,
+      )),
     listUndeliveredOutboxEvents: (input) =>
       listUndeliveredOutboxEvents(persistence, input),
     markOutboxEventsDelivered: (input) =>
@@ -357,7 +367,12 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
         input,
       ),
     runMaintenanceSweep: (input) =>
-      runMaintenanceSweep(persistence, clock, sessionOperations, input),
+      runMaintenancePromise(runMaintenanceSweepEffect(
+        persistence,
+        maintenanceTimeEffect,
+        sessionOperations,
+        input,
+      )),
     runInvokeWithRetries: runInvokeWithRetriesForExecutor,
     invokeSyscall: (input) => invokeSyscall(persistence, appDataEngines, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),

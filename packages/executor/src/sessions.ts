@@ -792,7 +792,7 @@ export function invokeSessionFailureCause(error: unknown): unknown {
     : error;
 }
 
-function makeSessionTimeEffect(
+export function makeSessionTimeEffect(
   clock: Clock | undefined,
 ): Effect.Effect<Date, ConfiguredSessionClockError> {
   if (clock !== undefined) {
