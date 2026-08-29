@@ -449,7 +449,7 @@ exports only the opaque type through the private kernel/state boundary. The
 exact testing mint is named
 `makeAcceptedQueryPublicationEvidenceForTesting` and is exported only from
 `./testing/conformance`. Production code may never import that mint. The
-proposed C4 contract adds only a non-barrel bridge from an exact state-issued
+completed C4 contract adds only a non-barrel bridge from an exact state-issued
 publication attempt to nominal evidence after its bound `ResultPublisher`
 returns success. A real publisher adapter remains separately gated and may
 return success only after its accepted delivery contract translates exact
@@ -723,9 +723,7 @@ The implementation receipt is:
 - `git diff --check -- packages/query-sync`;
 - both standing final-diff reviews -- no findings.
 
-C2 completion did not complete QSYNC01-C. C3 is now complete with its private
-bounded evaluation coordinator. The exact proposed
-[C4 preflight](./06-qsync01-c4-publication-orchestration.md) remains separately
-gated for the publication coordinator and full reference recovery matrix. Real
-adapters remain blocked until all of C completes and their own preflights are
-approved.
+C2 completion did not by itself complete QSYNC01-C. C3 and C4 are now complete
+with their separate private evaluation and publication coordinators and
+reference proof suites. Real adapters remain blocked on their own separately
+approved preflights.

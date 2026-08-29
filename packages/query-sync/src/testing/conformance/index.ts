@@ -36,6 +36,23 @@ export type {
 } from "./ReferenceQueryEvaluator.js";
 
 export {
+  makeReferenceResultPublisherHarness,
+  ReferenceResultDestinationInvariantDefect,
+} from "./ReferenceResultPublisher.js";
+
+export type {
+  ReferenceResultDestination,
+  ReferenceResultDestinationAcceptance,
+  ReferenceResultDestinationAccess,
+  ReferenceResultDestinationInvariantReason,
+  ReferenceResultDestinationSnapshot,
+  ReferenceResultPublisher,
+  ReferenceResultPublisherCall,
+  ReferenceResultPublisherHarness,
+  ReferenceResultPublisherStep,
+} from "./ReferenceResultPublisher.js";
+
+export {
   makeReferenceQuerySyncStateHarness,
   ReferenceStateSnapshotBindingError,
 } from "./ReferenceStateStore.js";

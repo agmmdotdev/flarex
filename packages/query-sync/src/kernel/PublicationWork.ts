@@ -685,6 +685,24 @@ export function makeAcceptedQueryPublicationEvidenceForTesting(
   return new AdmittedQueryPublicationEvidence(fields);
 }
 
+export function admitAcceptedQueryPublicationAttempt(
+  attempt: PublicationAttempt,
+): AcceptedQueryPublicationEvidence {
+  if (
+    !(attempt instanceof IssuedPublicationAttempt)
+    || !issuedPublicationAttempts.has(attempt)
+  ) {
+    throw new QuerySyncInvariantDefect({
+      operation: "completePublication",
+      invariant: "publicationAttemptStateInvalid",
+    });
+  }
+  return new AdmittedQueryPublicationEvidence({
+    identity: attempt.publication.identity,
+    resultDigest: attempt.publication.resultDigest,
+  });
+}
+
 function invalidUnissuedAcceptanceEvidence():
   InvalidAcceptedPublicationEvidenceError {
   return new InvalidAcceptedPublicationEvidenceError({

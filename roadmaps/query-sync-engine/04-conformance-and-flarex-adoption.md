@@ -111,15 +111,17 @@ not a complete uncertainty contract.
 2. **Complete (`QSYNC01-B`).** Derive the trusted change-model and semantic
    durable-state contracts from executable transitions; do not design them
    from SQLite CRUD.
-3. **Current exact gate (`QSYNC01-C4`).** C1-C3 completed recovery-stable
-   evaluation/publication state and bounded evaluation orchestration. Review
-   and explicitly approve the separate C4 publication-orchestration preflight,
-   then prove it over deterministic reference capabilities.
-4. Map Flarex versioned query/dependency/result contracts through a Flarex
-   model adapter. Keep Postgres fact projection outside the generic package.
-5. Adapt the existing per-scope Durable Object/SQLite state to the complete
-   post-C semantic contract, including query-result publication outbox state,
-   without duplicate tables, cursors, or writes.
+3. **Complete (`QSYNC01-C4`).** C1-C4 provide recovery-stable
+   evaluation/publication state plus bounded evaluation and publication
+   orchestration over deterministic reference capabilities.
+4. **Next docs-first gate (`QSYNC-FX01`).** Preflight the exact Flarex
+   versioned query/dependency/result mappings together with the first
+   per-scope Cloudflare SQLite implementation of the completed post-C semantic
+   state contract. Keep Postgres fact projection outside the generic package;
+   implementation is not authorized by C4 completion.
+5. After separate approval, implement those mappings and the SQLite adapter,
+   including query-result publication outbox state, without duplicate tables,
+   cursors, or writes.
 6. Independently run the Cloudflare Durable Streams feasibility spike and
    accept or reject it at explicit maturity, security, retention, payload, and
    cost gates. Rejection does not block the Flarex model/source/SQLite adapter;

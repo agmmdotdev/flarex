@@ -42,15 +42,11 @@ import type {
 } from "../state/Receipts.js";
 import {
   applyAdmittedBatch,
-  awaitRetryDelay,
-  canStartBefore,
   catchUpNamespace,
   chargeAdmittedPage,
   inspectNamespace,
   nextSourceStopReason,
   readAdmittedPage,
-  remainingAdmissionMilliseconds,
-  runStateOperationWithRetry,
 } from "./CatchUp.js";
 import type {
   OrchestrationTurnRuntime,
@@ -80,6 +76,12 @@ import type {
   QueryEvaluationArtifact,
   QueryEvaluator,
 } from "./Ports.js";
+import {
+  awaitRetryDelay,
+  canStartBefore,
+  remainingAdmissionMilliseconds,
+  runStateOperationWithRetry,
+} from "./Turn.js";
 
 type EvaluationRuntime = OrchestrationTurnRuntime<EvaluationTurnBudget>;
 

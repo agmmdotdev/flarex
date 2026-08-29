@@ -2,19 +2,20 @@
 
 ## Status
 
-**Preflight status:** proposed on 2026-08-29 for review and explicit approval.
-This document is not implementation authority.
+**Preflight status:** approved and implemented on 2026-08-29. The completed
+slice remains private, runtime-neutral, reference-backed, and
+production-inert.
 
 `QSYNC01-A`, `QSYNC01-B`, `QSYNC01-C1`, `QSYNC01-C2`, and
 `QSYNC01-C3` are complete, private, reference-backed, runtime-neutral, and
 production-inert. C2 owns durable publication selection, attempt ordinals,
-outcome settlement, blocking, and completion. C4 may orchestrate only those
-capabilities. It may not replace their transition authority or add another
+outcome settlement, blocking, and completion. C4 orchestrates only those
+capabilities. It does not replace their transition authority or add another
 work-state owner.
 
-Approval of this preflight would authorize only the bounded reference C4 slice
-below. It would not authorize a real delivery adapter, Cloudflare composition,
-Flarex mappings, a production caller, a public API, or deployment.
+Approval authorized only the bounded reference C4 slice below. Completion does
+not authorize a real delivery adapter, Cloudflare composition, Flarex
+mappings, a production caller, a public API, or deployment.
 
 ## Decision
 
@@ -523,7 +524,7 @@ won, without assuming the attempt remains available.
 
 ## Domain-First Files And Exports
 
-After separate approval, C4 may add exactly:
+C4 adds exactly:
 
 - `packages/query-sync/src/orchestration/Turn.ts` for the shared Clock cutoff,
   bounded delay, and semantic state-retry mechanics currently embedded in
@@ -672,9 +673,8 @@ the entire state-oracle matrix.
 
 ## Explicitly Not Authorized
 
-This preflight does not authorize:
+C4 approval and completion do not authorize:
 
-- C4 implementation before explicit user approval;
 - a real Durable Streams, Electric, HTTP, WebSocket, fetch, queue, filesystem,
   SQLite, PGlite, Postgres, or Cloudflare publisher/state adapter;
 - delivery-adapter selection or acceptance of Durable Streams;
@@ -702,10 +702,11 @@ preflight.
 
 ## Validation And Review Gate
 
-The eventual significant implementation must pass:
+The completed significant implementation passed:
 
 - `pnpm --filter @flarex/query-sync typecheck`;
-- the full `@flarex/query-sync` test suite plus the focused C4 suites;
+- the focused C4 suites with 83 tests and the full `@flarex/query-sync` suite
+  with 21 files and 312 tests;
 - `pnpm check:effect-boundaries`;
 - forbidden-import, package-export, dependency, runtime, aggregate-read,
   transaction, lease, testing-mint, and publisher-ordinal audits;
@@ -716,7 +717,8 @@ The eventual significant implementation must pass:
 - `pnpm lint:core`;
 - `pnpm lint:diff`;
 - `git diff --check`;
-- both standing final-diff reviewers; and
+- both standing final-diff reviewers with no remaining findings after the
+  age-limit proof correction; and
 - `pnpm lint:diff -- --staged` against the exact intended index before commit.
 
 If reviewer-driven code changes alter the significant diff, both reviews must
@@ -725,18 +727,17 @@ database, network, Cloudflare, or delivery proof may be claimed from C4.
 
 ## Exit And Next Gate
 
-C4 exits only when the private coordinator and deterministic reference harness
-prove every claim/outcome/completion receipt tag, exact acceptance,
+C4 exits with the private coordinator and deterministic reference harness
+proving every claim/outcome/completion receipt tag, exact acceptance,
 known-not-appended, possible-append uncertainty, terminal refusal, defect,
 interruption, state commit uncertainty, deadlines, physical-call bounds,
 restart, and competing coordinators without another work authority.
 
-Completion would make `QSYNC01-C` complete only as a private, runtime-neutral,
-reference-backed engine contract. It would not make the system public,
-deployed, or production-ready.
+Completion makes `QSYNC01-C` complete only as a private, runtime-neutral,
+reference-backed engine contract. It does not make the system public, deployed,
+or production-ready.
 
-After C4 implementation is separately approved, completed, reviewed, and
-committed:
+With C4 implemented and reviewed:
 
 - `QSYNC-FX01` may receive its own preflight for Flarex mappings and the first
   Cloudflare SQLite state adapter;

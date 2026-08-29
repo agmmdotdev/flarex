@@ -31,10 +31,8 @@ import type {
   BeginQueryEvaluationReceipt,
 } from "../state/Receipts.js";
 import {
-  canStartBefore,
   catchUpNamespace,
   makeTurnRuntime,
-  runStateOperationWithRetry,
 } from "./CatchUp.js";
 import type {
   OrchestrationTurnRuntime,
@@ -72,6 +70,10 @@ import type {
   QueryEvaluator,
   QuerySyncOrchestrationState,
 } from "./Ports.js";
+import {
+  canStartBefore,
+  runStateOperationWithRetry,
+} from "./Turn.js";
 
 export interface NamespaceQuerySyncInput {
   readonly bootstrapCursor: NamespaceCursor;

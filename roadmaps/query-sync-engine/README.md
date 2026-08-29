@@ -3,13 +3,13 @@
 ## Status And Scope
 
 **Status:** accepted architecture and roadmap authority. `QSYNC01-A`,
-`QSYNC01-B`, `QSYNC01-C1`, `QSYNC01-C2`, and `QSYNC01-C3` are complete,
-private, and production-inert. The accepted
-[`QSYNC01-C` umbrella](./preflight/03-qsync01-effect-orchestration.md) keeps C4
-separately gated. The proposed
+`QSYNC01-B`, `QSYNC01-C1`, `QSYNC01-C2`, `QSYNC01-C3`, and `QSYNC01-C4` are
+complete, private, and production-inert. The accepted
+[`QSYNC01-C` umbrella](./preflight/03-qsync01-effect-orchestration.md) is now
+complete over reference capabilities. The completed
 [`QSYNC01-C4` preflight](./preflight/06-qsync01-c4-publication-orchestration.md)
-proposes the next bounded publication-orchestration decision but is not
-implementation authority. The exact
+owns the bounded publication-orchestration implementation and proof record. The
+exact
 [`QSYNC01-C3` record](./preflight/05-qsync01-c3-bounded-evaluation-orchestration.md)
 owns the completed bounded evaluation-orchestration slice.
 
@@ -77,12 +77,13 @@ runtime-neutral transition kernel, the trusted replayable-source and
 invalidation-projection boundary, nominal refresh admission, retry-safe
 evaluation begin/completion plus atomic publication intent, durable evaluation
 selection and publication-attempt state, a receipt-only semantic transition
-port, a private bounded catch-up/evaluation coordinator, and deterministic
-reference/conformance adapters including a reference query evaluator accepted
-through `QSYNC01-C3`. The coordinator is exposed only through the deliberate
-private `./internal/orchestration` subpath. The package has no publisher,
-package-root export, production caller, or real host, persistence, network, or
-delivery adapter.
+port, private bounded catch-up/evaluation and publication coordinators, the
+generic `ResultPublisher` contract, a package-internal nominal acceptance
+bridge, and deterministic reference/conformance adapters including a reference
+query evaluator and shared idempotent result destination. The coordinators are
+exposed only through the deliberate private `./internal/orchestration` subpath.
+The package has no package-root export, production caller, real or production
+publisher, or real host, persistence, network, or delivery adapter.
 
 Current production-inert work under `flarex-backend/deploymentSync`,
 `DeploymentSyncDO`, and `flarex-protocol/internal/scope-sync-v1` proves useful
@@ -97,7 +98,7 @@ Useful canonical-frame, collision, active/provisional coexistence, corruption,
 and synchronous-SQLite requirements remain inputs to the later Flarex adapter
 preflight.
 
-No production sync caller changes because of `QSYNC01-A` through `QSYNC01-C3`.
+No production sync caller changes because of `QSYNC01-A` through `QSYNC01-C4`.
 
 ## Target Architecture
 
@@ -159,9 +160,9 @@ public compatibility contract makes that boundary concrete.
 | `QSYNC01-P` | Freeze product scope, authority, package direction, Electric/Durable Streams decision, migration constraints, and the first medium slice | Complete, docs only |
 | `QSYNC01-A` | Pure transition kernel plus immutable deterministic reference model | Complete; private and production-inert |
 | `QSYNC01-B` | Trusted change-model boundary and semantic atomic state-store contract derived from the reference transitions | Complete; private and production-inert |
-| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`, private, and production-inert; exact C4 preflight proposed, implementation not authorized |
+| `QSYNC01-C` | Recovery-stable work/publication state followed by Effect-native catch-up, evaluation fencing, rerun coalescing, and publication recovery over reference capabilities | C1 complete in `b6621cf3`; C2 complete in `1df70907`; C3 complete in `a9b309d0`; C4 completed on 2026-08-29; private and production-inert |
 | `QSYNC-CF01` | Production-inert Cloudflare Durable Streams feasibility spike covering lifecycle cost, auth, retention, payload, and failure recovery | Preflight required; may run after the portable kernel is stable |
-| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Blocked on `QSYNC01-C`; independent of delivery-adapter selection |
+| `QSYNC-FX01` | Flarex model/change/result mappings plus the first Cloudflare SQLite implementation of the complete post-C semantic state contract, including query-result publication outbox state | Separate preflight now eligible; implementation not authorized; independent of delivery-adapter selection |
 | `QSYNC-FX02` | Postgres catch-up, authenticated query registration/evaluation/rerun host composition, and processing of the already-semantic publication outbox | Blocked on `QSYNC-FX01` |
 | `QSYNC-FX03` | Accepted delivery adapter, client gateway/SDK adoption, reconnect/reset proof, Legacy path retirement, and `R03-B` integration | Blocked on `QSYNC-FX02` plus an accepted delivery-adapter gate such as `QSYNC-CF01` |
 | portability proof | The same conformance contract through a second real durable host/store | Required before claiming proven runtime portability |
@@ -195,8 +196,7 @@ paths.
   semantic state, Effect, uncertainty, and conformance boundary for the second
   medium slice.
 - [`preflight/03-qsync01-effect-orchestration.md`](./preflight/03-qsync01-effect-orchestration.md)
-  owns the accepted C-stage umbrella. C1, C2, and C3 are complete; C4 remains
-  separately gated.
+  owns the accepted and completed reference-only C-stage umbrella.
 - [`preflight/04-qsync01-c2-durable-work-and-publication-state.md`](./preflight/04-qsync01-c2-durable-work-and-publication-state.md)
   is the completed C2 implementation record for revision-fenced evaluation
   selection, terminal blocking, publication attempt state, exact Effect
@@ -205,14 +205,15 @@ paths.
   records the completed private C3 coordinator, evaluator, shared budget,
   retry/uncertainty, refresh, restart, and reference proof contract.
 - [`preflight/06-qsync01-c4-publication-orchestration.md`](./preflight/06-qsync01-c4-publication-orchestration.md)
-  proposes the exact separate publication coordinator, publisher trust seam,
+  records the completed separate publication coordinator, publisher trust seam,
   recovery/idempotency rules, bounds, and reference proof matrix.
 
 ## Next Correctness Gate
 
-The next correctness decision is review, amendment if needed, and explicit
-approval of the separately bounded
-[`QSYNC01-C4` preflight](./preflight/06-qsync01-c4-publication-orchestration.md).
-C3 added no publisher or real adapter, and the proposed C4 document adds no
-code. No Cloudflare SQLite adapter, public client API, production caller, or
-delivery-adapter adoption is admitted.
+The next correctness decision is a separately bounded `QSYNC-FX01` preflight
+for Flarex model/change/result mappings and the first Cloudflare SQLite
+implementation of the completed post-C semantic state contract. C4 completion
+makes that preflight eligible; it does not authorize its implementation, a real
+`ResultPublisher`, delivery-adapter selection, Cloudflare composition,
+public/client APIs, production routing, migration, cutover, or `R03-B`.
+`QSYNC-CF01` remains the independent delivery feasibility and selection gate.

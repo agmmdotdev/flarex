@@ -63,3 +63,44 @@ export type {
   QueryEvaluationArtifact,
   QueryEvaluator,
 } from "./Ports.js";
+
+export { makeNamespacePublicationSync } from "./publication/Coordinator.js";
+
+export type {
+  NamespacePublicationSync,
+  NamespacePublicationSyncInput,
+} from "./publication/Coordinator.js";
+
+export {
+  InvalidNamespacePublicationSyncPolicyError,
+  InvalidPublicationTurnBudgetError,
+  PublicationAuthorityMismatchError,
+  PublicationSettlementDeadlineError,
+  ResultPublisherKnownNotAppendedError,
+  ResultPublisherOutcomeUnknownError,
+  ResultPublisherTerminalRefusalError,
+} from "./publication/Errors.js";
+
+export type {
+  NamespacePublicationSyncConstructionError,
+  PendingPublicationSettlement,
+  PublicationWorkTurnError,
+  ResultPublisherError,
+} from "./publication/Errors.js";
+
+export { MAX_TURN_PUBLISHER_CALLS } from "./publication/Model.js";
+
+export type {
+  NamespacePublicationBinding,
+  NamespacePublicationSyncPolicy,
+  PublicationTurnBudget,
+  PublicationWorkContinuationReason,
+  PublicationWorkTurnOutcome,
+  PublicationWorkTurnProgress,
+} from "./publication/Model.js";
+
+export type {
+  PublicationDeliveryBudget,
+  QuerySyncPublicationState,
+  ResultPublisher,
+} from "./publication/Ports.js";

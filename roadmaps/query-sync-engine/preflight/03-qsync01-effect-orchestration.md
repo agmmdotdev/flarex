@@ -8,21 +8,22 @@ commit `1df70907` and
 [`04-qsync01-c2-durable-work-and-publication-state.md`](./04-qsync01-c2-durable-work-and-publication-state.md).
 The separately approved C3 contract is complete and recorded in
 [`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
+The separately approved C4 contract is complete and recorded in
+[`06-qsync01-c4-publication-orchestration.md`](./06-qsync01-c4-publication-orchestration.md).
 
 The original approval authorized **C1 only**, and later explicit approvals
-authorized **C2** and **C3** as separate slices. The exact proposed
-[C4 preflight](./06-qsync01-c4-publication-orchestration.md) defines the
-decision offered for approval, but C4 still requires explicit approval. The
-umbrella architecture and proposed preflight are not standing implementation
-authority.
+authorized **C2**, **C3**, and **C4** as separate slices. Each completed slice
+remains bounded by its exact preflight; this umbrella is not standing authority
+for a real adapter or the next gate.
 
-`QSYNC01-A` through `QSYNC01-C3` are complete, private, and
+`QSYNC01-A` through `QSYNC01-C4` are complete, private, and
 production-inert. Together they provide the pure transition oracle, admitted
 change source, nominal refresh evidence, retry-safe evaluation lifecycle,
 atomic pending publication intent, durable evaluation/publication work state,
 receipt-only semantic state port, bounded catch-up/evaluation orchestration,
-and deterministic reference capabilities including a reference evaluator.
-They do not provide a publisher, real adapter, or production caller.
+bounded publication orchestration, and deterministic reference capabilities
+including a reference evaluator and result destination. They do not provide a
+real or production publisher, real adapter, or production caller.
 
 ## Decision
 
@@ -662,7 +663,7 @@ state/schema contract and is not authorized by C3.
 
 ## C4 Publication Coordinator And Recovery
 
-C4 does not change the C3 evaluation factory. The exact proposed contract in
+C4 does not change the C3 evaluation factory. The completed contract in
 [`06-qsync01-c4-publication-orchestration.md`](./06-qsync01-c4-publication-orchestration.md)
 refines this umbrella sketch to one separate plain namespace-bound publication
 factory:
@@ -931,7 +932,7 @@ production coordinator remains caller-driven and fiber-free.
 
 ## Explicitly Not Authorized
 
-Approval of this umbrella or the proposed C4 preflight does not authorize:
+Completion of C4 does not authorize:
 
 - a production caller, route, alarm, queue, scheduler, Durable Object, Worker
   runner, or background Fiber;
@@ -956,10 +957,10 @@ Approval of this umbrella or the proposed C4 preflight does not authorize:
   cutover;
 - `R03-B`, Payload integration, public relation APIs, or a claim that runtime
   portability is proven;
-- a real Cloudflare state adapter before all of C is complete and its adapter
-  preflight is separately approved; or
-- C4 implementation merely because the umbrella architecture or proposed
-  exact preflight exists; it needs separate explicit user approval.
+- a real Cloudflare state adapter without its own separately approved
+  `QSYNC-FX01` preflight; or
+- any real adapter implementation merely because the reference-only C stage is
+  complete.
 
 ## First Medium Implementation Slice: QSYNC01-C1
 
@@ -1028,14 +1029,14 @@ adapter complete.
 attempt/completion state. `QSYNC01-C3` is complete with a private bounded
 catch-up/evaluation coordinator and reference evaluator, as recorded in
 [`05-qsync01-c3-bounded-evaluation-orchestration.md`](./05-qsync01-c3-bounded-evaluation-orchestration.md).
-C4's exact proposed contract is recorded in
+`QSYNC01-C4` is complete with a separate bounded publication coordinator and
+reference result destination, as recorded in
 [`06-qsync01-c4-publication-orchestration.md`](./06-qsync01-c4-publication-orchestration.md)
-and still requires explicit approval. This umbrella is not advance
-implementation authority; every significant diff also requires the validation
-and reviewer gate.
+The reference-only `QSYNC01-C` stage is therefore complete. This umbrella is
+not advance implementation authority for a real adapter or later gate.
 
-Only after C1-C4 are complete may `QSYNC-FX01` preflight the first Flarex and
-Cloudflare SQLite adapters. `QSYNC-CF01` remains an independent delivery
-feasibility spike. `R03-B` remains blocked through the later Flarex adapter,
-delivery/client, restart, and target-only recovery proofs; C alone does not
-unblock it.
+`QSYNC-FX01` may now receive its own preflight for the first Flarex mappings and
+Cloudflare SQLite adapter; implementation is not authorized. `QSYNC-CF01`
+remains an independent delivery feasibility spike. `R03-B` remains blocked
+through the later Flarex adapter, delivery/client, restart, and target-only
+recovery proofs; C alone does not unblock it.
