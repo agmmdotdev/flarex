@@ -1,4 +1,5 @@
 import {
+  MAX_TASK_RUN_LIST_PAGE_SIZE,
   makeTaskRunListQueryLayer,
   TaskRunListQuery,
   type ApplicationTaskRunListStoreShape,
@@ -12,6 +13,8 @@ import { Context, Effect, Layer } from "effect";
 export type StandardApplicationTaskRunListPage = TaskRunListPage;
 export type StandardApplicationTaskRunListOptions = TaskRunListQueryOptions;
 export type StandardApplicationTaskRunListQueryError = TaskRunListQueryError;
+export const STANDARD_APPLICATION_TASK_RUN_LIST_MAX_PAGE_SIZE =
+  MAX_TASK_RUN_LIST_PAGE_SIZE;
 
 export interface StandardApplicationTaskRunListQueryApi {
   readonly list: TaskRunListQueryApi["list"];

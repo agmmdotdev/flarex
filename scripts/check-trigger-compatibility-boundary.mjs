@@ -100,6 +100,8 @@ const persistencePostgresTaskRunCreationPath =
   "packages/persistence-postgres/src/taskSystemRunCreationV1.ts";
 const persistencePostgresApplicationTaskRunCreationPath =
   "packages/persistence-postgres/src/applicationTaskSystemRunCreation.ts";
+const persistencePostgresApplicationTaskRunListStorePath =
+  "packages/persistence-postgres/src/applicationTaskRunListStore.ts";
 const persistencePostgresTaskSystemRunRowPath =
   "packages/persistence-postgres/src/taskSystemRunRowV1.ts";
 const persistencePostgresTaskSystemRequestedEffectRowPath =
@@ -532,6 +534,7 @@ const admittedStandardApplicationTaskRunQueryImports = new Map([
   ["TaskRunQueryError", "type"],
 ]);
 const admittedStandardApplicationTaskRunListQueryImports = new Map([
+  ["MAX_TASK_RUN_LIST_PAGE_SIZE", "value"],
   ["makeTaskRunListQueryLayer", "value"],
   ["TaskRunListQuery", "value"],
   ["ApplicationTaskRunListStoreShape", "type"],
@@ -539,6 +542,19 @@ const admittedStandardApplicationTaskRunListQueryImports = new Map([
   ["TaskRunListQueryApi", "type"],
   ["TaskRunListQueryError", "type"],
   ["TaskRunListQueryOptions", "type"],
+]);
+const admittedPersistenceApplicationTaskRunListProjectionImports = new Map([
+  ["TaskRunListStoreFailure", "value"],
+  ["decodeTaskRunListStoreItem", "value"],
+  ["ApplicationTaskRunListStoreShape", "type"],
+  ["TaskRunListStoreItem", "type"],
+  ["TaskRunListStorePage", "type"],
+  ["TaskRunListStoreRequest", "type"],
+]);
+const admittedPersistenceApplicationTaskRunListAttemptImports = new Map([
+  ["decodeTaskDatabaseTimeMsV1", "value"],
+  ["TASK_RUN_ATTEMPT_PERSISTED_JSON_CODEC_V1", "value"],
+  ["TaskDatabaseTimeMsV1", "type"],
 ]);
 const admittedStandardApplicationTaskResultQueryImports = new Map([
   ["makeTaskRunResultQueryLayer", "value"],
@@ -2630,6 +2646,20 @@ function isAdmittedDurableTaskConsumerImport(relativePath, specifier, node) {
       node,
       admittedStandardApplicationTaskRunListQueryImports,
     );
+  }
+  if (relativePath === persistencePostgresApplicationTaskRunListStorePath) {
+    if (specifier === "@flarex/durable-task/internal/run-projection") {
+      return hasExactNamedImportModes(
+        node,
+        admittedPersistenceApplicationTaskRunListProjectionImports,
+      );
+    }
+    if (specifier === "@flarex/durable-task/internal/run-attempt-v1") {
+      return hasExactNamedImportModes(
+        node,
+        admittedPersistenceApplicationTaskRunListAttemptImports,
+      );
+    }
   }
   if (
     relativePath === standardApplicationTaskResultQueryPath

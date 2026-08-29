@@ -56,3 +56,12 @@ export {
   type CancelTaskResult,
   type TaskCancellationStatus,
 } from "./TaskCancellation.js";
+
+export {
+  listTaskRuns,
+  type ListTaskRunsError,
+  type ListTaskRunsOptions,
+  type ListTaskRunsOptionsError,
+  type TaskRunCursor,
+  type TaskRunPage,
+} from "./TaskList.js";

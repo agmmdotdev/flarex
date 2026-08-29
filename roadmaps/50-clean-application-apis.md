@@ -688,10 +688,10 @@ The clean DTE07-C6 `cancelTask(run, options)` handle contract is complete under
 The production-inert DTE07-B2/C7 bounded Task run-list contract and private
 Standard bridge are complete under
 [`durable-task-engine/preflight/58-dte07-private-task-run-list-query.md`](./durable-task-engine/preflight/58-dte07-private-task-run-list-query.md).
-The DTE07-C8 captured-authority PostgreSQL/PGlite list store is implemented
-privately under
-[`durable-task-engine/preflight/59-dte07-located-task-run-list-store.md`](./durable-task-engine/preflight/59-dte07-located-task-run-list-store.md),
-with real-PostgreSQL acceptance pending. The clean `listTaskRuns()` facade
-remains separately gated after that acceptance.
+The DTE07-C8 captured-authority PostgreSQL/PGlite list store is complete
+privately, including disposable PostgreSQL 18 acceptance, under
+[`durable-task-engine/preflight/59-dte07-located-task-run-list-store.md`](./durable-task-engine/preflight/59-dte07-located-task-run-list-store.md).
+The DTE07-C9 clean production-inert `listTaskRuns()` facade is complete under
+[`durable-task-engine/preflight/60-dte07-clean-task-run-list-contract.md`](./durable-task-engine/preflight/60-dte07-clean-task-run-list-contract.md).
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.

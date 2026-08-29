@@ -378,6 +378,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: listPath,
       text: `
         import {
+          MAX_TASK_RUN_LIST_PAGE_SIZE,
           makeTaskRunListQueryLayer,
           TaskRunListQuery,
           type ApplicationTaskRunListStoreShape,
@@ -393,6 +394,7 @@ describe("Trigger compatibility boundary checker", () => {
       relativePath: listPath,
       text: `
         import {
+          MAX_TASK_RUN_LIST_PAGE_SIZE,
           makeTaskRunListQueryLayer,
           projectTaskRun,
           TaskRunListQuery,
@@ -405,6 +407,52 @@ describe("Trigger compatibility boundary checker", () => {
       `,
     }]).errors).toEqual([
       `${listPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
+  });
+
+  it("admits only the located Application Task run-list store contracts", () => {
+    const storePath =
+      "packages/persistence-postgres/src/applicationTaskRunListStore.ts";
+    const manifest = [{
+      relativePath: "packages/persistence-postgres/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }];
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: storePath,
+      text: `
+        import {
+          TaskRunListStoreFailure,
+          decodeTaskRunListStoreItem,
+          type ApplicationTaskRunListStoreShape,
+          type TaskRunListStoreItem,
+          type TaskRunListStorePage,
+          type TaskRunListStoreRequest,
+        } from "@flarex/durable-task/internal/run-projection";
+        import {
+          decodeTaskDatabaseTimeMsV1,
+          TASK_RUN_ATTEMPT_PERSISTED_JSON_CODEC_V1,
+          type TaskDatabaseTimeMsV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: storePath,
+      text: `
+        import {
+          projectTaskRun,
+          TaskRunListStoreFailure,
+          decodeTaskRunListStoreItem,
+          type ApplicationTaskRunListStoreShape,
+          type TaskRunListStoreItem,
+          type TaskRunListStorePage,
+          type TaskRunListStoreRequest,
+        } from "@flarex/durable-task/internal/run-projection";
+      `,
+    }]).errors).toEqual([
+      `${storePath}:2 production source must not activate @flarex/durable-task before host admission.`,
     ]);
   });
 

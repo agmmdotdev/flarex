@@ -1,7 +1,7 @@
 # DTE07 located Application Task-run list store
 
-Status: implemented and accepted in PGlite on 2026-08-30; real PostgreSQL
-acceptance remains pending.
+Status: implementation checkpoint completed privately on 2026-08-30 in
+PGlite and disposable PostgreSQL 18.
 
 Depends on the private Task-run listing contract introduced by `4dfdf789`.
 This checkpoint implements only the located PostgreSQL/PGlite store. It does
@@ -60,11 +60,12 @@ failure together with the cleanup defect cause.
 PGlite proves captured-authority and stale-authority handling, deterministic
 tie ordering, cursor advancement, database observation time, compact-state
 decoding, persisted-envelope and correlation validation, and typed transient,
-cleanup, and corruption behavior. Real PostgreSQL remains required for
-planner, collation, and connected transaction parity; the lane is skipped
-rather than claimed when `FLAREX_POSTGRES_DATABASE_URL` is unavailable.
+cleanup, and corruption behavior. A disposable PostgreSQL 18 instance then
+proved C-collated ordering, migration application, and ownership of the
+partial-index access path. The focused PostgreSQL lane passed 1/1 and
+the instance was stopped and removed after the proof.
 
 ## Stop
 
-After the real-PostgreSQL acceptance proof passes, stop. Wiring the store to
-the clean unversioned `listTaskRuns()` facade is a separate gate.
+The real-PostgreSQL acceptance proof passed. Wiring the store to the clean
+unversioned `listTaskRuns()` facade remains owned by preflight 60.

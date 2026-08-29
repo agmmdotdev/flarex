@@ -23,6 +23,7 @@ describe("Application invocation package boundary", () => {
       "awaitTask",
       "cancelTask",
       "inspectTask",
+      "listTaskRuns",
       "readTaskResult",
       "runAction",
       "runMutation",
