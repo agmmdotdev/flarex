@@ -15,6 +15,7 @@ import {
   mutation,
   query,
   sourceModule,
+  task,
   v,
 } from "@flarex/application-definition";
 import { defineSimulation } from "@flarex/system-test/simulation";
@@ -29,6 +30,8 @@ import { TransactionRequestKeyV1Schema } from
 
 import type {
   RunMutationError,
+  StartTaskError,
+  TaskRun,
   SimulationClient,
   SimulationSetupClient,
 } from "@flarex/system-test/environment";
@@ -141,15 +144,18 @@ interface StandardApplicationTaskSetupV1 {
   readonly recipeId: string;
 }
 
+type PrepareRecipeTaskOutput = Readonly<{
+  readonly prepared: boolean;
+  readonly preparationId: string;
+  readonly title: string;
+  readonly subject: string;
+}>;
+
 interface StandardApplicationTaskWorkloadProofV1 {
-  readonly first: StandardApplicationTaskRunCreationReceipt;
-  readonly replay: StandardApplicationTaskRunCreationReceipt;
-  readonly delivery: StandardApplicationTaskSucceededDeliveryReceiptV1<Readonly<{
-    readonly prepared: boolean;
-    readonly preparationId: string;
-    readonly title: string;
-    readonly subject: string;
-  }>>;
+  readonly first: TaskRun<PrepareRecipeTaskOutput>;
+  readonly replay: TaskRun<PrepareRecipeTaskOutput>;
+  readonly delivery:
+    StandardApplicationTaskSucceededDeliveryReceiptV1<PrepareRecipeTaskOutput>;
   readonly failedFirst: StandardApplicationTaskRunCreationReceipt;
   readonly failedReplay: StandardApplicationTaskRunCreationReceipt;
   readonly failedDelivery:
@@ -196,29 +202,28 @@ interface StandardApplicationTaskWorkloadProofV1 {
 
 type StandardApplicationTaskSimulationErrorV1 =
   | RunMutationError
+  | StartTaskError
   | CreateStandardApplicationTaskRunError
   | StandardApplicationTaskDeliveryV1Error;
 
 export const standardApplicationTaskCreationV1 = Result.getOrThrow(
-  defineStandardApplicationTaskV1({
-    taskId: "systemTest.prepareRecipe",
+  task({
+    id: "systemTest.prepareRecipe",
     handler: {
-      logicalModulePath: "recipeCommands",
-      artifactModulePath: "recipeMutation",
+      module: RECIPE_MUTATION_MODULE,
       exportName: "prepareRecipe",
     },
-    payload: standardV1.object({
-      recipeId: standardV1.string(),
-      servings: standardV1.number(),
+    payload: v.object({
+      recipeId: v.string(),
+      servings: v.number(),
     }),
-    output: standardV1.object({
-      prepared: standardV1.boolean(),
-      preparationId: standardV1.id("preparations"),
-      title: standardV1.string(),
-      subject: standardV1.string(),
+    returns: v.object({
+      prepared: v.boolean(),
+      preparationId: v.id("preparations"),
+      title: v.string(),
+      subject: v.string(),
     }),
-    runAttemptPolicy: {
-      version: 1,
+    attempts: {
       retry: {
         maxAttempts: 3,
         factor: 2,
@@ -229,7 +234,7 @@ export const standardApplicationTaskCreationV1 = Result.getOrThrow(
       outOfMemory: { kind: "disabled" },
     },
     maximumDurationInSeconds: 30,
-    computeProfile: "standard-1x",
+    compute: "standard-1x",
     queue: { kind: "default" },
   }),
 );
@@ -418,13 +423,21 @@ const runTaskQueryCallbackV1 = Effect.fn(
       }),
     }),
   });
-  const first = yield* client.tasks.create(
+  const first = yield* client.startTask(
     standardApplicationTaskCreationV1.reference,
-    request,
+    request.payload,
+    {
+      requestKey: request.requestKey,
+      identity: request.executionIdentity,
+    },
   );
-  const replay = yield* client.tasks.create(
+  const replay = yield* client.startTask(
     standardApplicationTaskCreationV1.reference,
-    request,
+    request.payload,
+    {
+      requestKey: request.requestKey,
+      identity: request.executionIdentity,
+    },
   );
   const delivery = yield* client.tasks.deliver(
     standardApplicationTaskCreationV1.reference,
@@ -684,6 +697,18 @@ export const standardApplicationTaskCreationSimulationV1 =
     workload: runTaskQueryCallbackV1,
     expectedRuntimeExecutions: { mutations: 2, queries: 1 },
   });
+
+function compileTimeTaskDeliveryChecks(
+  client: SimulationClient,
+  legacyReceipt: StandardApplicationTaskRunCreationReceipt,
+): void {
+  const reference = standardApplicationTaskCreationV1.reference;
+  const mode = { kind: "completion" as const };
+  // @ts-expect-error A clean Task reference requires a clean Task run handle.
+  client.tasks.deliver(reference, legacyReceipt, mode);
+}
+
+void compileTimeTaskDeliveryChecks;
 
 export interface StandardApplicationTaskCreationStateV1
   extends Readonly<Record<string, unknown>>

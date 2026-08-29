@@ -30,11 +30,10 @@ it("proves typed PGlite Task delivery, recovery, retry, cancellation, and faults
     simulation: standardApplicationTaskCreationSimulationV1,
   }));
 
-  expect(receipt.workloadProof.replay).toEqual(receipt.workloadProof.first);
-  expect(receipt.workloadProof.first).toMatchObject({
-    status: "created",
-    version: 1,
-  });
+  expect(receipt.workloadProof.replay.runId).toBe(
+    receipt.workloadProof.first.runId,
+  );
+  expect(Object.keys(receipt.workloadProof.first)).toEqual(["runId"]);
   expect(receipt.workloadProof.delivery).toEqual({
     version: 1,
     status: "succeeded",

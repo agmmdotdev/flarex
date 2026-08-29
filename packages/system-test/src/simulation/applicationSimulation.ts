@@ -1,4 +1,7 @@
-import type { ApplicationDefinition } from "@flarex/application-definition";
+import type {
+  ApplicationDefinition,
+  TaskDefinitionHandle,
+} from "@flarex/application-definition";
 import type {
   StandardApplicationTaskDefinitionV1,
 } from "@flarex/standard-application-definition/internal/task-authoring-v1";
@@ -20,7 +23,8 @@ export interface SimulationApplication {
   readonly revisionName: string;
   readonly define: () => ApplicationDefinition;
   readonly defineTasks?: () => ReadonlyArray<
-    StandardApplicationTaskDefinitionV1<unknown, unknown>
+    | TaskDefinitionHandle
+    | StandardApplicationTaskDefinitionV1<unknown, unknown>
   >;
   readonly actionHost?: SimulationActionHost;
 }

@@ -13,4 +13,6 @@ export type {
   RunActionError,
   RunMutationError,
   RunQueryError,
+  StartTaskError,
+  TaskRun,
 } from "@flarex/application-invocation";

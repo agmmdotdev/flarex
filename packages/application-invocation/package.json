@@ -6,7 +6,8 @@
     "src"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./internal/task-run": "./src/internal/task-run.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

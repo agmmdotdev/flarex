@@ -164,20 +164,20 @@ function captureFunctionArgsValidator<
   return handle;
 }
 
-function inspectValidator<
+export function inspectValidator<
   Value,
   Optionality extends ValidatorOptionality,
   FieldPaths extends string,
 >(
   validator: Validator<Value, Optionality, FieldPaths>,
-): StandardValidatorV1<unknown, Optionality> {
+): StandardValidatorV1<Value, Optionality> {
   const authored = validatorStates.get(validator);
   if (authored === undefined) {
     throw new TypeError("Validator metadata is unavailable.");
   }
   // The private map is populated with the generic handle, so the stored
   // optionality is the handle's exact optionality.
-  return authored as StandardValidatorV1<unknown, Optionality>;
+  return authored as StandardValidatorV1<Value, Optionality>;
 }
 
 function inspectFunctionArgs(

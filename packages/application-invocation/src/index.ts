@@ -24,3 +24,10 @@ export type {
   ApplicationQueryResultContractError,
   ApplicationResultContractError,
 } from "./ResultContract.js";
+
+export {
+  startTask,
+  type StartTaskError,
+  type StartTaskOptions,
+  type TaskRun,
+} from "./Task.js";

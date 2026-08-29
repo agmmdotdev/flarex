@@ -91,6 +91,8 @@ const applicationDefinitionAllowedProductionImports = new Set([
   "@flarex/standard-application-definition/application-source",
   "@flarex/standard-application-definition/internal/legacy-authoring",
   "@flarex/standard-application-definition/internal/prepared-definition-v1",
+  "@flarex/standard-application-definition/internal/task-authoring-v1",
+  "@flarex/standard-application-definition/internal/task-definition-v1",
   "@flarex/utils/bytes",
   "@flarex/utils/strings",
   "effect",
@@ -98,9 +100,11 @@ const applicationDefinitionAllowedProductionImports = new Set([
 const applicationInvocationAllowedProductionImports = new Set([
   "@flarex/application-definition",
   "@flarex/application-definition/internal/function-reference",
+  "@flarex/application-definition/internal/task-definition",
   "@flarex/standard-application-invocation/internal/application-action-system",
   "@flarex/standard-application-invocation/internal/application-mutation-system",
   "@flarex/standard-application-invocation/internal/application-query-system",
+  "@flarex/standard-application-invocation/internal/standard-application-task-system",
   "effect",
   "flarex-protocol/auth",
   "flarex-protocol/transaction-session",
@@ -246,10 +250,10 @@ if (isCliEntrypoint()) {
       `Allowed runtime dependencies: ${expectedRuntimeDependencies.size}`,
     );
     console.log(
-      "Clean Application definition boundary check passed with one root and two exact internal bridges.",
+      "Clean Application definition boundary check passed with one root and three exact internal bridges.",
     );
     console.log(
-      "Clean Application invocation boundary check passed with three root operations.",
+      "Clean Application invocation boundary check passed with four root operations and one internal Task run bridge.",
     );
   }
 }
@@ -306,15 +310,17 @@ export function analyzeApplicationDefinitionBoundary(manifest, sources) {
   }
   if (
     !isRecord(manifest.exports)
-    || Object.keys(manifest.exports).length !== 3
+    || Object.keys(manifest.exports).length !== 4
     || manifest.exports["."] !== "./src/index.ts"
     || manifest.exports["./internal/function-reference"] !==
       "./src/internal/function-reference.ts"
     || manifest.exports["./internal/preparation"] !==
       "./src/internal/preparation.ts"
+    || manifest.exports["./internal/task-definition"] !==
+      "./src/internal/task-definition.ts"
   ) {
     errors.push(
-      "Application definition package must expose its clean root and two exact internal bridges.",
+      "Application definition package must expose its clean root and three exact internal bridges.",
     );
   }
   collectExactDependencyErrors(
@@ -347,11 +353,13 @@ export function analyzeApplicationInvocationBoundary(manifest, sources) {
   }
   if (
     !isRecord(manifest.exports)
-    || Object.keys(manifest.exports).length !== 1
+    || Object.keys(manifest.exports).length !== 2
     || manifest.exports["."] !== "./src/index.ts"
+    || manifest.exports["./internal/task-run"] !==
+      "./src/internal/task-run.ts"
   ) {
     errors.push(
-      "Application invocation package must expose only its clean root.",
+      "Application invocation package must expose its clean root and exact internal Task run bridge.",
     );
   }
   collectExactDependencyErrors(

@@ -555,6 +555,7 @@ function validApplicationDefinitionManifest() {
       ".": "./src/index.ts",
       "./internal/function-reference": "./src/internal/function-reference.ts",
       "./internal/preparation": "./src/internal/preparation.ts",
+      "./internal/task-definition": "./src/internal/task-definition.ts",
     },
     dependencies: {
       "@flarex/application-schema-definition": "workspace:*",
@@ -573,6 +574,7 @@ function validApplicationInvocationManifest() {
     name: "@flarex/application-invocation",
     exports: {
       ".": "./src/index.ts",
+      "./internal/task-run": "./src/internal/task-run.ts",
     },
     dependencies: {
       "@flarex/application-definition": "workspace:*",

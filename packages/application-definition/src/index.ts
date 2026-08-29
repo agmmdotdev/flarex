@@ -48,3 +48,16 @@ export {
   type ApplicationSource,
   type ApplicationSourceError,
 } from "./Production.js";
+
+export {
+  task,
+  type InvalidTaskDefinitionError,
+  type TaskAttemptPolicy,
+  type TaskComputeProfile,
+  type TaskDefinition,
+  type TaskDefinitionHandle,
+  type TaskHandler,
+  type TaskInput,
+  type TaskQueue,
+  type TaskReference,
+} from "./Task.js";

@@ -10,6 +10,7 @@ describe("Application definition package boundary", () => {
       ".": "./src/index.ts",
       "./internal/function-reference": "./src/internal/function-reference.ts",
       "./internal/preparation": "./src/internal/preparation.ts",
+      "./internal/task-definition": "./src/internal/task-definition.ts",
     });
     expect(manifest.dependencies).toEqual({
       "@flarex/application-schema-definition": "workspace:*",
@@ -37,6 +38,7 @@ describe("Application definition package boundary", () => {
       "produceApplicationSource",
       "query",
       "sourceModule",
+      "task",
       "v",
       "workflowMutation",
     ]);

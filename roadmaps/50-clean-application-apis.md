@@ -4,7 +4,11 @@
 
 **Status:** Accepted workspace-internal migration roadmap. `CAPI-A` through
 `CAPI-E` are complete privately. The three `CAPI-E` product-surface removal
-checkpoints are implemented, validated, and reviewed on 2026-08-29.
+checkpoints are implemented, validated, and reviewed on 2026-08-29. The user
+approved the first `CAPI-F` durable Task primitive checkpoint on 2026-08-29.
+It adds clean `task()` and `startTask()` entry operations and migrates one
+real-system Task path while leaving the remaining private Task compatibility
+inventory and every lifecycle expansion separately gated.
 
 The user approved the `CAPI-A` implementation slice on 2026-08-28. That slice
 adds `@flarex/application-definition`, its clean opaque authoring handles, pure
@@ -541,7 +545,7 @@ Exit criteria:
 
 ### `CAPI-E` — Versioned product-surface removal
 
-**Status:** In progress privately on 2026-08-29. The first bounded checkpoint
+**Status:** Complete privately on 2026-08-29. The first bounded checkpoint
 removes the four versioned `@flarex/system-test` product subpaths, deletes the
 duplicate compatibility runner and simulation definition, and makes the plain
 environment, inspection, lane, and simulation names the direct implementation.
@@ -578,6 +582,40 @@ Exit criteria:
 - no fallback, comparison path, dual producer, or dual invocation authority
   remains; and
 - package-boundary checks enforce the final dependency graph.
+
+### `CAPI-F` — Durable Task primitives
+
+**Status:** First bounded checkpoint implemented privately on 2026-08-29.
+
+Add `task()` to `@flarex/application-definition` and `startTask()` to
+`@flarex/application-invocation`. `task()` derives the logical and artifact
+handler paths from one owned Application module, lowers clean validators into
+the existing canonical Task-manifest decoder, and returns an opaque typed
+reference. `startTask(reference, payload, options)` adds the concrete request
+envelope version internally, delegates to the existing Standard Task System,
+and returns a typed run handle containing only the durable run identity. It
+does not select a provider, deliver work, wait for a result, cancel, schedule,
+or read lifecycle state.
+
+The first system-test consumer migrates one successful Task definition and
+its create/replay calls onto these clean primitives. The harness unwraps the
+opaque definition and run only through explicit internal bridges so its
+existing manual delivery proof can continue unchanged. Remaining legacy Task
+definitions and `client.tasks.create` calls are migration inventory, not a
+second accepted Task API.
+
+Exit criteria for this checkpoint:
+
+- application authors do not spell canonical logical/artifact path pairs or a
+  Task request-envelope version;
+- payload and output types flow from clean validators through the reference and
+  run handle;
+- input publication, active selection, exact replay, and typed failures remain
+  owned by the existing Task System;
+- the migrated PGlite simulation retains its hosted result, retry,
+  cancellation, recovery, and fault evidence; and
+- no await, cancellation, delivery, provider, scheduler, public, or production
+  API is added.
 
 Stop after each gate for focused validation and review. Later public SDK and
 public test API work remains owned by roadmaps 09 and 15 and requires separate
@@ -619,6 +657,7 @@ the test package is forbidden.
 
 ## Current Stop Condition
 
-Stop after the third `CAPI-E` definition removal checkpoint and its focused
-validation, review, and commit. `CAPI-E` is then complete. Public SDK,
-deployment, routing, and production entry surfaces remain separately gated.
+Stop after the first `CAPI-F` Task primitive checkpoint and its focused
+validation, review, and commit. Remaining Task compatibility migration,
+waiting, cancellation, delivery, scheduling, public SDK, deployment, routing,
+and production entry surfaces remain separately gated.
