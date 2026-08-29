@@ -21,12 +21,22 @@ import {
   type StandardApplicationTaskRunStatus,
 } from
   "@flarex/standard-application-invocation/internal/standard-application-task-run-query";
+import {
+  makeStandardApplicationTaskResultQueryLayer,
+  readStandardApplicationTaskResult,
+  StandardApplicationTaskResultQuery,
+  type StandardApplicationTaskResultQueryApi,
+  type StandardApplicationTaskResultQueryLive,
+} from
+  "@flarex/standard-application-invocation/internal/standard-application-task-result-query";
 import { Brand, Cause, Effect, Exit, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   inspectTask,
+  readTaskResult,
   startTask,
+  type ApplicationTaskResultContractError,
   type TaskRun,
   type TaskRunStatus,
 } from "../src/index.js";
@@ -44,6 +54,25 @@ const prepare = Result.getOrThrow(task({
   handler: { module: tasksModule, exportName: "prepare" },
   payload: v.object({ recipeId: v.string(), servings: v.number() }),
   returns: v.object({ prepared: v.boolean() }),
+  attempts: {
+    retry: {
+      maxAttempts: 3,
+      factor: 2,
+      minTimeoutInMs: 1_000,
+      maxTimeoutInMs: 60_000,
+      randomize: true,
+    },
+    outOfMemory: { kind: "disabled" },
+  },
+  maximumDurationInSeconds: 30,
+  compute: "standard-1x",
+  queue: { kind: "default" },
+}));
+const prepareWithoutOutputContract = Result.getOrThrow(task({
+  id: "cooking.prepare.untyped",
+  handler: { module: tasksModule, exportName: "prepare" },
+  payload: v.object({ recipeId: v.string(), servings: v.number() }),
+  returns: null,
   attempts: {
     retry: {
       maxAttempts: 3,
@@ -167,6 +196,148 @@ describe("clean Task invocation primitive", () => {
     }
     expect(forbiddenInspect).not.toHaveBeenCalled();
   });
+
+  it("reads and binds a canonical result through the genuine run handle", async () => {
+    const run = await startRun(StandardApplicationTaskSystem.of({
+      createRun: () => Effect.succeed(makeReceipt()),
+    }));
+    const expected = Object.freeze({ prepared: true });
+    const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
+      () => Effect.succeed(expected),
+    );
+
+    const result = await Effect.runPromise(readTaskResult(run).pipe(
+      Effect.provideService(
+        StandardApplicationTaskResultQuery,
+        StandardApplicationTaskResultQuery.of({ read }),
+      ),
+    ));
+
+    expect(result).toBe(expected);
+    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledWith(run.runId);
+    expectTypeOf(result).toEqualTypeOf<Readonly<{
+      readonly prepared: boolean;
+    }>>();
+  });
+
+  it("preserves an unavailable result failure without retrying", async () => {
+    const receipt = makeReceipt();
+    const run = await startRun(StandardApplicationTaskSystem.of({
+      createRun: () => Effect.succeed(receipt),
+    }));
+    const inspectRunAttempt = vi.fn<
+      StandardApplicationTaskResultQueryLive["runAttemptStore"][
+        "inspectRunAttempt"
+      ]
+    >(() => Effect.succeed(makeReadyRunAttemptSnapshot(receipt)));
+    const forbiddenResultRead = vi.fn<
+      StandardApplicationTaskResultQueryLive["resultStore"]["read"]
+    >(() => Effect.die("must not read an unavailable result"));
+    const upstreamFailure = await Effect.runPromise(Effect.flip(
+      readStandardApplicationTaskResult(run.runId).pipe(Effect.provide(
+        makeStandardApplicationTaskResultQueryLayer({
+          runAttemptStore: { inspectRunAttempt },
+          resultStore: { read: forbiddenResultRead },
+        }),
+      )),
+    ));
+    const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
+      () => Effect.fail(upstreamFailure),
+    );
+
+    const failure = await Effect.runPromise(Effect.flip(
+      readTaskResult(run).pipe(Effect.provideService(
+        StandardApplicationTaskResultQuery,
+        StandardApplicationTaskResultQuery.of({ read }),
+      )),
+    ));
+
+    expect(upstreamFailure._tag).toBe("TaskRunResultUnavailableError");
+    expect(failure).toBe(upstreamFailure);
+    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledWith(run.runId);
+    expect(inspectRunAttempt).toHaveBeenCalledOnce();
+    expect(forbiddenResultRead).not.toHaveBeenCalled();
+  });
+
+  it("retains the authoritative body in a typed Task contract mismatch", async () => {
+    const run = await startRun(StandardApplicationTaskSystem.of({
+      createRun: () => Effect.succeed(makeReceipt()),
+    }));
+    const mismatched = Object.freeze({ prepared: "yes" });
+    const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
+      () => Effect.succeed(mismatched),
+    );
+
+    const failure = await Effect.runPromise(Effect.flip(
+      readTaskResult(run).pipe(Effect.provideService(
+        StandardApplicationTaskResultQuery,
+        StandardApplicationTaskResultQuery.of({ read }),
+      )),
+    ));
+
+    expect(failure).toMatchObject({
+      _tag: "ApplicationResultContractError",
+      operation: "task",
+    });
+    if (
+      failure._tag === "ApplicationResultContractError" &&
+      failure.operation === "task"
+    ) {
+      expectTypeOf(failure).toEqualTypeOf<
+        ApplicationTaskResultContractError
+      >();
+      expect(failure.result).toBe(mismatched);
+      expect(failure.cause.issue.path).toBe("$result.prepared");
+    }
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  it("returns an unclaimed result as unknown when no output contract exists", async () => {
+    const run = await startUntypedRun(StandardApplicationTaskSystem.of({
+      createRun: () => Effect.succeed(makeReceipt()),
+    }));
+    const expected = Object.freeze({ anyCanonicalValue: 42 });
+    const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
+      () => Effect.succeed(expected),
+    );
+
+    const result = await Effect.runPromise(readTaskResult(run).pipe(
+      Effect.provideService(
+        StandardApplicationTaskResultQuery,
+        StandardApplicationTaskResultQuery.of({ read }),
+      ),
+    ));
+
+    expect(result).toBe(expected);
+    expectTypeOf(result).toEqualTypeOf<unknown>();
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  it("defects on a forged handle before result I/O", async () => {
+    const forged = Object.freeze({ runId: makeReceipt().runId }) as
+      TaskRun<unknown>;
+    const read = vi.fn<StandardApplicationTaskResultQueryApi["read"]>(
+      () => Effect.die("must not read"),
+    );
+
+    const exit = await Effect.runPromise(Effect.exit(readTaskResult(forged)
+      .pipe(Effect.provideService(
+        StandardApplicationTaskResultQuery,
+        StandardApplicationTaskResultQuery.of({ read }),
+      ))));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const defect = Cause.findDefect(exit.cause);
+      expect(Result.isSuccess(defect)).toBe(true);
+      if (Result.isSuccess(defect)) {
+        expect(defect.success).toBeInstanceOf(TypeError);
+      }
+    }
+    expect(read).not.toHaveBeenCalled();
+  });
 });
 
 async function startRun(
@@ -193,6 +364,30 @@ async function startRun(
     StandardApplicationTaskSystem.of(system))));
 }
 
+async function startUntypedRun(
+  system: StandardApplicationTaskSystemApi,
+): Promise<TaskRun<unknown>> {
+  const requestKey = Brand.nominal<
+    Parameters<StandardApplicationTaskSystemApi["createRun"]>[1]["requestKey"]
+  >()("task-untyped-result-request");
+  return Effect.runPromise(startTask(
+    prepareWithoutOutputContract.reference,
+    { recipeId: "recipe-untyped", servings: 1 },
+    {
+      requestKey,
+      identity: Object.freeze({
+        kind: "user" as const,
+        user: Object.freeze({
+          tokenIdentifier: "clean-task-untyped-result",
+          subject: "user-untyped",
+          issuer: "https://system-test.flarex.invalid",
+        }),
+      }),
+    },
+  ).pipe(Effect.provideService(StandardApplicationTaskSystem,
+    StandardApplicationTaskSystem.of(system))));
+}
+
 function makeStatus(
   receipt: StandardApplicationTaskRunCreationReceipt,
 ): StandardApplicationTaskRunStatus {
@@ -211,6 +406,72 @@ function makeStatus(
       cancellation: Object.freeze({ kind: "not_requested" as const }),
     }),
   });
+}
+
+type RunAttemptSnapshot = Effect.Success<ReturnType<
+  StandardApplicationTaskResultQueryLive["runAttemptStore"][
+    "inspectRunAttempt"
+  ]
+>>;
+type ApplicationRunAggregate = NonNullable<RunAttemptSnapshot["current"]>;
+
+function makeReadyRunAttemptSnapshot(
+  receipt: StandardApplicationTaskRunCreationReceipt,
+): RunAttemptSnapshot {
+  const duration = Brand.nominal<
+    ApplicationRunAggregate["boundPolicy"]["maximumDurationMs"]
+  >();
+  const current = {
+    version: "flarex.task-run-attempt-aggregate.v1" as const,
+    runId: receipt.runId,
+    applicationTaskRuntimeTargetSha256:
+      receipt.applicationTaskRuntimeTargetSha256,
+    createdAtMs: receipt.createdAtMs,
+    runVersion: Brand.nominal<ApplicationRunAggregate["runVersion"]>()(1n),
+    boundPolicy: {
+      runAttempt: {
+        version: 1 as const,
+        retry: {
+          maxAttempts: Brand.nominal<
+            ApplicationRunAggregate["boundPolicy"]["runAttempt"]["retry"][
+              "maxAttempts"
+            ]
+          >()(1),
+          factor: Brand.nominal<
+            ApplicationRunAggregate["boundPolicy"]["runAttempt"]["retry"][
+              "factor"
+            ]
+          >()(1),
+          minTimeoutInMs: duration(0),
+          maxTimeoutInMs: duration(0),
+          randomize: false,
+        },
+        outOfMemory: { kind: "disabled" as const },
+      },
+      maximumDurationMs: duration(1_000),
+      initialComputeProfile: Brand.nominal<
+        ApplicationRunAggregate["boundPolicy"]["initialComputeProfile"]
+      >()("standard-1x"),
+      leaseDurationMs: duration(1_000),
+      immediateRetryThresholdMs: duration(1),
+    },
+    attemptHistory: { kind: "none" as const },
+    leaseHistory: { kind: "none" as const },
+    lastLifecycleAcceptance: null,
+    completionReplays: Object.freeze([]),
+    requestedEffectCursor: { kind: "none" as const },
+    phase: "ready" as const,
+    ready: { kind: "initial" as const, eligibleAtMs: receipt.createdAtMs },
+    cancellation: {
+      kind: "not_requested" as const,
+      generation: Brand.nominal<
+        Extract<ApplicationRunAggregate, { readonly phase: "ready" }>[
+          "cancellation"
+        ]["generation"]
+      >()(0n),
+    },
+  } satisfies ApplicationRunAggregate;
+  return Object.freeze({ observedAtMs: receipt.createdAtMs, current });
 }
 
 function makeReceipt(): StandardApplicationTaskRunCreationReceipt {

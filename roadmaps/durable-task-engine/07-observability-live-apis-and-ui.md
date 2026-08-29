@@ -2,8 +2,8 @@
 
 ## Status And Decision Boundary
 
-**Status:** Architecture roadmap with DTE07-B1, DTE07-C1, and the bounded
-DTE07-C2 result-body query checkpoint complete on 2026-08-29.
+**Status:** Architecture roadmap with DTE07-B1 and DTE07-C1/C2/C3 complete
+privately on 2026-08-29.
 DTE07-B1 implements one
 production-inert run projection and pure projector under
 [`preflight/51-dte07-private-run-projection.md`](./preflight/51-dte07-private-run-projection.md).
@@ -13,7 +13,10 @@ operation fixed by
 DTE07-C2 implements the private result-read authorization, body query, and
 Standard composition bridge fixed by
 [`preflight/53-dte07-private-task-result-body-query.md`](./preflight/53-dte07-private-task-result-body-query.md).
-It does not authorize waiting, output decoding, commands, public routes, deployment,
+DTE07-C3 implements the clean immediate `readTaskResult(run)` output-contract
+gate fixed by
+[`preflight/54-dte07-clean-task-result-contract.md`](./preflight/54-dte07-clean-task-result-contract.md).
+It does not authorize waiting, polling, commands, public routes, deployment,
 subscriptions, telemetry ingestion, retention/GC, or UI publication.
 
 DTE06-E5 and DTE06-F0A/F0B/F1/F2 are complete privately, including connected
@@ -247,7 +250,7 @@ DTE07-B1 implements only the single-run projection fixed by preflight 51.
 Attempt history, events, lists, pagination, result-body reads, and every live
 contract remain later bounded checkpoints.
 
-### DTE07-C: Private Query And Command Adapters — C1 Complete
+### DTE07-C: Private Query And Command Adapters — C3 Complete
 
 - implement private HTTP-agnostic query capabilities;
 - compose exact cancellation through the admitted lifecycle;
@@ -261,6 +264,10 @@ read remain separate checkpoints.
 DTE07-C2 implements only the separately authorized result-body query fixed by
 preflight 53. It adds no clean root operation, waiting, output decoding, or
 result polling.
+
+DTE07-C3 implements only the clean immediate `readTaskResult(run)` operation
+and local output-contract binding fixed by preflight 54. Waiting, polling,
+terminal-failure projection, retry policy, and commands remain separate.
 
 ### DTE07-D: Live Invalidation And Reconnect
 
@@ -334,6 +341,8 @@ invalidation remains unselected and unapproved.
 
 DTE07-C1 is complete for the private scope-bound point-query adapter and clean
 `inspectTask(run)` operation. DTE07-C2 is complete for the separately
-authorized result-body query under preflight 53. Output decoding must still
-precede waiting. Before any list, attempt-history, event, command, live,
-public, or hosted surface, approve that owner separately.
+authorized result-body query under preflight 53. DTE07-C3 is complete for the
+clean immediate `readTaskResult(run)` output-contract gate under preflight 54.
+`awaitTask()` still requires a separate deadline, retry, interruption, and
+terminal-failure decision. Before any list, attempt-history, event, command,
+live, public, or hosted surface, approve that owner separately.

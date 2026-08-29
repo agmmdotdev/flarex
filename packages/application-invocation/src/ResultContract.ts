@@ -35,14 +35,24 @@ class ActionResultContractError extends Data.TaggedError(
   readonly result: CompletedApplicationAction;
 }> {}
 
+class TaskResultContractError extends Data.TaggedError(
+  "ApplicationResultContractError",
+)<{
+  readonly operation: "task";
+  readonly cause: ValidatorValueErrorV1;
+  readonly result: CanonicalFlarexRuntimeValueV1;
+}> {}
+
 export type ApplicationResultContractError =
   | QueryResultContractError
   | MutationResultContractError
-  | ActionResultContractError;
+  | ActionResultContractError
+  | TaskResultContractError;
 export type ApplicationQueryResultContractError = QueryResultContractError;
 export type ApplicationMutationResultContractError =
   MutationResultContractError;
 export type ApplicationActionResultContractError = ActionResultContractError;
+export type ApplicationTaskResultContractError = TaskResultContractError;
 
 export const queryResultContractError = (
   cause: ValidatorValueErrorV1,
@@ -61,13 +71,19 @@ export const actionResultContractError = (
 ): ApplicationActionResultContractError =>
   new ActionResultContractError({ operation: "action", cause, result });
 
+export const taskResultContractError = (
+  cause: ValidatorValueErrorV1,
+  result: CanonicalFlarexRuntimeValueV1,
+): ApplicationTaskResultContractError =>
+  new TaskResultContractError({ operation: "task", cause, result });
+
 export const validateResultContract = Effect.fn(
   "Application.validateResultContract",
 )(function* <Error>(
   // Authored Id<Table> metadata is a host-neutral string hint, not table
   // proof. Invocation result inference erases that hint to string, so this
   // shape-only check claims no active schema or document authority.
-  reference: InspectedFunctionReference,
+  reference: Pick<InspectedFunctionReference, "returnsValidator">,
   value: CanonicalFlarexRuntimeValueV1,
   onMismatch: (
     cause: ValidatorValueErrorV1,

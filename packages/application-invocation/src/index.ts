@@ -23,12 +23,15 @@ export type {
   ApplicationMutationResultContractError,
   ApplicationQueryResultContractError,
   ApplicationResultContractError,
+  ApplicationTaskResultContractError,
 } from "./ResultContract.js";
 
 export {
   inspectTask,
+  readTaskResult,
   startTask,
   type InspectTaskError,
+  type ReadTaskResultError,
   type StartTaskError,
   type StartTaskOptions,
   type TaskRun,

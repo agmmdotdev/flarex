@@ -473,7 +473,7 @@ type RuntimeFunctionResultMember<Value> =
       }
     : Value;
 
-type RuntimeFunctionResultValue<Value> =
+export type RuntimeFunctionResultValue<Value> =
   Value extends unknown ? RuntimeFunctionResultMember<Value> : never;
 
 export type InferFunctionReturn<Contract> =

@@ -676,6 +676,9 @@ The focused DTE07-C1 scope-bound point-query adapter and clean
 [`durable-task-engine/preflight/52-dte07-private-task-run-query.md`](./durable-task-engine/preflight/52-dte07-private-task-run-query.md).
 The private DTE07-C2 result-body owner is complete under
 [`durable-task-engine/preflight/53-dte07-private-task-result-body-query.md`](./durable-task-engine/preflight/53-dte07-private-task-result-body-query.md).
-Output decoding must still precede waiting, and the private command adapter
-must precede cancellation. Scheduling, public SDK, deployment, routing, and
-production entry surfaces remain separately gated.
+The clean DTE07-C3 `readTaskResult(run)` output-contract gate is complete under
+[`durable-task-engine/preflight/54-dte07-clean-task-result-contract.md`](./durable-task-engine/preflight/54-dte07-clean-task-result-contract.md).
+Waiting still requires its own deadline, retry, interruption, and terminal
+failure contract, and the private command adapter must precede cancellation.
+Scheduling, public SDK, deployment, routing, and production entry surfaces
+remain separately gated.

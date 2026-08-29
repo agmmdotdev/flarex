@@ -18,6 +18,7 @@ import {
   type InferValidator,
   inspectApplicationModule,
   inspectValidator,
+  type RuntimeFunctionResultValue,
   type Validator,
 } from "./Authoring.js";
 
@@ -59,7 +60,9 @@ export type InvalidTaskDefinitionError =
   InvalidStandardApplicationTaskDefinitionV1Error;
 
 type InferTaskOutput<Output extends RequiredTaskValidator | null> =
-  Output extends RequiredTaskValidator ? InferValidator<Output> : unknown;
+  Output extends RequiredTaskValidator
+    ? RuntimeFunctionResultValue<InferValidator<Output>>
+    : unknown;
 
 export interface TaskInput<
   Payload extends RequiredTaskValidator,
@@ -78,6 +81,7 @@ export interface TaskInput<
 
 export interface InspectedTaskReference<Payload, Output> {
   readonly standard: StandardApplicationTaskReferenceV1<Payload, Output>;
+  readonly returnsValidator: CanonicalTaskManifestV1["outputValidator"];
 }
 
 export interface InspectedTaskDefinition<Payload, Output> {
@@ -100,8 +104,14 @@ class TaskReferenceHandle<Payload, Output>
     readonly output: Output;
   }>;
 
-  constructor(standard: StandardApplicationTaskReferenceV1<Payload, Output>) {
-    taskReferenceStates.set(this, Object.freeze({ standard }));
+  constructor(
+    standard: StandardApplicationTaskReferenceV1<Payload, Output>,
+    returnsValidator: CanonicalTaskManifestV1["outputValidator"],
+  ) {
+    taskReferenceStates.set(this, Object.freeze({
+      standard,
+      returnsValidator,
+    }));
     Object.freeze(this);
   }
 }
@@ -114,7 +124,10 @@ class TaskDefinitionHandleImpl<Payload, Output>
   readonly reference: TaskReference<Payload, Output>;
 
   constructor(standard: StandardApplicationTaskDefinitionV1<Payload, Output>) {
-    this.reference = new TaskReferenceHandle(standard.reference);
+    this.reference = new TaskReferenceHandle(
+      standard.reference,
+      standard.manifest.outputValidator,
+    );
     taskDefinitionStates.set(this, Object.freeze({ standard }));
     Object.freeze(this);
   }
