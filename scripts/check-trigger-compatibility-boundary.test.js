@@ -416,6 +416,49 @@ describe("Trigger compatibility boundary checker", () => {
     ]);
   });
 
+  it("admits only the private Standard Task cancellation command adapter", () => {
+    const cancellationPath =
+      "packages/standard-application-invocation/src/StandardApplicationTaskCancellation.ts";
+    const manifest = [{
+      relativePath: "packages/standard-application-invocation/package.json",
+      manifest: {
+        dependencies: { "@flarex/durable-task": "workspace:*" },
+      },
+    }];
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: cancellationPath,
+      text: `
+        import {
+          makeApplicationRunAttemptLifecycleV1,
+          type ApplicationRequestCancellationOutcomeV1,
+          type ApplicationTaskSystemRunAttemptStoreShape,
+          type ApplicationTaskSystemRunAttemptTransactionReceiptV1,
+          type RunAttemptLifecycleErrorV1,
+          type TaskCancellationReasonV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([]);
+
+    expect(analyzeTriggerCompatibilityBoundary(manifest, [{
+      relativePath: cancellationPath,
+      text: `
+        import {
+          makeApplicationRunAttemptLifecycleV1,
+          decideApplicationRequestCancellationV1,
+          type ApplicationRequestCancellationOutcomeV1,
+          type ApplicationTaskSystemRunAttemptStoreShape,
+          type ApplicationTaskSystemRunAttemptTransactionReceiptV1,
+          type RunAttemptLifecycleErrorV1,
+          type TaskCancellationReasonV1,
+          type TaskRunIdV1,
+        } from "@flarex/durable-task/internal/run-attempt-v1";
+      `,
+    }]).errors).toEqual([
+      `${cancellationPath}:2 production source must not activate @flarex/durable-task before host admission.`,
+    ]);
+  });
+
   it("admits only the private backend compute-delivery candidate runner", () => {
     const runnerPath =
       "packages/flarex-backend/src/taskComputeDelivery/CandidateRunner.ts";

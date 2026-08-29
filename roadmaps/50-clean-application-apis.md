@@ -681,6 +681,8 @@ The clean DTE07-C3 `readTaskResult(run)` output-contract gate is complete under
 The clean DTE07-C4 `awaitTask(run, options)` cooperative timeout, polling,
 interruption, and terminal-failure gate is complete under
 [`durable-task-engine/preflight/55-dte07-clean-task-await-contract.md`](./durable-task-engine/preflight/55-dte07-clean-task-await-contract.md).
-The private command adapter must still precede cancellation.
+The private DTE07-C5 cancellation command adapter is complete under
+[`durable-task-engine/preflight/56-dte07-private-task-cancellation-command.md`](./durable-task-engine/preflight/56-dte07-private-task-cancellation-command.md).
+The clean `cancelTask()` handle contract remains separately gated.
 Scheduling, public SDK, deployment, routing, and production entry surfaces
 remain separately gated.
